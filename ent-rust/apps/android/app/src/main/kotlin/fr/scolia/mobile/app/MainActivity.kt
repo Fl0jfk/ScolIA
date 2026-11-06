@@ -24,13 +24,13 @@ class ScolIAApplication : Application()
  */
 class MainActivity : FragmentActivity() {
     private val modele: AppModele by viewModels()
-    private var miseEnArrierePlan = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
-        traiterLien(intent)
+        // Pas de retraitement du lien à chaque recréation (rotation, thème…).
+        if (savedInstanceState == null) traiterLien(intent)
         setContent {
             ThemeScolIA { RacineScolIA(modele, onDeverrouiller = ::deverrouiller) }
         }
@@ -44,29 +44,34 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         ActiviteCourante.definir(this)
-        val delai = SystemClock.elapsedRealtime() - miseEnArrierePlan
-        if (miseEnArrierePlan == 0L || delai > Verrou.DELAI_MS) modele.verrouille = true
+        // `verrouille` vaut déjà true au démarrage ; ici : retour après plus de 5 min.
+        val depuis = modele.arrierePlanDepuis
+        if (depuis != 0L && SystemClock.elapsedRealtime() - depuis > Verrou.DELAI_MS) modele.verrouille = true
     }
 
     override fun onPause() {
         super.onPause()
-        miseEnArrierePlan = SystemClock.elapsedRealtime()
+        modele.arrierePlanDepuis = SystemClock.elapsedRealtime()
         ActiviteCourante.definir(null)
     }
 
     private fun deverrouiller() {
         val v = Verrou(this)
-        if (!v.disponible()) {
-            // Appareil sans verrouillage : on n'empêche pas l'usage (le jeton reste chiffré).
-            modele.verrouille = false
-            return
+        when (v.etat()) {
+            Verrou.Etat.DISPONIBLE -> lifecycleScope.launch { if (v.deverrouiller()) modele.verrouille = false }
+            // Aucun verrouillage configuré sur l'appareil : on n'empêche pas l'usage (jeton chiffré).
+            Verrou.Etat.AUCUN_VERROU_CONFIGURE -> modele.verrouille = false
+            // Capteur indisponible, état inconnu : on reste verrouillé.
+            Verrou.Etat.INDISPONIBLE -> modele.erreur = "Déverrouillage impossible pour le moment. Réessayez."
         }
-        lifecycleScope.launch { if (v.deverrouiller()) modele.verrouille = false }
     }
 
     /** Lien d'invitation (App Link vérifié `https://<etab>.scolia.fr/rejoindre?invitation=…`). */
     private fun traiterLien(intent: Intent?) {
         val data = intent?.data ?: return
-        if (intent.action == Intent.ACTION_VIEW) modele.rattacher(data.toString())
+        if (intent.action == Intent.ACTION_VIEW) {
+            modele.rattacher(data.toString())
+            setIntent(Intent()) // consommé
+        }
     }
 }

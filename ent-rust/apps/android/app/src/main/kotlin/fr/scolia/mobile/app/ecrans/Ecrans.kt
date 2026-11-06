@@ -160,6 +160,11 @@ private fun EcranAppel(modele: AppModele) {
     val retards = a.lignes.count { it.etat == "retard" }
     Text("${a.lignes.size} élèves · $absents absent(s) · $retards retard(s)" + if (a.estClos) " · appel clos" else "")
     MessageErreur(erreur)
+    // Boutons au-dessus de la liste : une LazyColumn occupe toute la hauteur restante.
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
+        OutlinedButton(onClick = { appel = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retour") }
+        if (!a.estClos) Button(onClick = { confirmer = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Valider l'appel") }
+    }
     LazyColumn(Modifier.fillMaxWidth()) {
         items(a.lignes, key = { it.eleveId }) { l ->
             Column(Modifier.padding(vertical = 6.dp)) {
@@ -171,7 +176,8 @@ private fun EcranAppel(modele: AppModele) {
                             onClick = {
                                 lancer {
                                     client.marquer(a.id, l.eleveId, e)
-                                    appel = a.copy(lignes = a.lignes.map { if (it.eleveId == l.eleveId) it.copy(etat = e.code) else it })
+                                    // Repartir de la valeur courante (deux marquages rapprochés).
+                                    appel = appel?.let { cur -> cur.copy(lignes = cur.lignes.map { if (it.eleveId == l.eleveId) it.copy(etat = e.code) else it }) }
                                 }
                             },
                             enabled = !a.estClos,
@@ -186,10 +192,6 @@ private fun EcranAppel(modele: AppModele) {
             }
             HorizontalDivider()
         }
-    }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
-        OutlinedButton(onClick = { appel = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retour") }
-        if (!a.estClos) Button(onClick = { confirmer = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Valider l'appel") }
     }
     if (confirmer) {
         // Action sensible : confirmation explicite (CLAUDE.md, sécurité).
@@ -209,6 +211,7 @@ private fun EcranAppel(modele: AppModele) {
 private fun EcranVieScolaire(modele: AppModele) {
     Titre("Absences à traiter")
     Chargeur("vs", modele::sessionPerdue, { direct(modele.client!!.absencesATraiter()) }) { liste, _ ->
+        Text("Le traitement détaillé (décisions, courriers) se fait sur le web.", style = MaterialTheme.typography.bodySmall)
         if (liste.isEmpty()) Text("Rien à traiter.")
         LazyColumn {
             items(liste, key = { it.id }) { a ->
@@ -216,7 +219,6 @@ private fun EcranVieScolaire(modele: AppModele) {
                 HorizontalDivider()
             }
         }
-        Text("Le traitement détaillé (décisions, courriers) se fait sur le web.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -242,8 +244,9 @@ private fun EcranAbsences(modele: AppModele) {
     var aJustifier by remember { mutableStateOf<Absence?>(null) }
     var motif by remember { mutableStateOf("") }
     var erreur by remember { mutableStateOf<String?>(null) }
+    var envoi by remember { mutableStateOf(false) }
     val portee = rememberCoroutineScope()
-    AvecEnfants(modele) { enfant ->
+    Column(Modifier.verticalScroll(rememberScrollState())) { AvecEnfants(modele) { enfant ->
         Chargeur(enfant.id, modele::sessionPerdue, { direct(client.resumeEnfant(enfant.id)) }) { r, recharger ->
             Titre("Absences à justifier")
             if (r.absencesAJustifier.isEmpty()) Text("Aucune absence à justifier pour ${enfant.prenom}.")
@@ -272,7 +275,8 @@ private fun EcranAbsences(modele: AppModele) {
                         OutlinedTextField(motif, { motif = it.take(500) }, label = { Text("Motif") }, minLines = 2)
                     },
                     confirmButton = {
-                        TextButton(enabled = motif.isNotBlank(), onClick = {
+                        TextButton(enabled = motif.isNotBlank() && !envoi, onClick = {
+                            envoi = true
                             portee.launch {
                                 erreur = null
                                 try {
@@ -281,9 +285,13 @@ private fun EcranAbsences(modele: AppModele) {
                                     recharger()
                                 } catch (e: ErreurApi.NonAuthentifie) {
                                     modele.sessionPerdue()
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
                                 } catch (e: Exception) {
                                     erreur = e.message
                                     aJustifier = null
+                                } finally {
+                                    envoi = false
                                 }
                             }
                         }) { Text("Envoyer") }
@@ -292,7 +300,7 @@ private fun EcranAbsences(modele: AppModele) {
                 )
             }
         }
-    }
+    } }
 }
 
 // ---------- Notes (élève, famille) ----------
@@ -328,11 +336,15 @@ private fun EcranSaisieNotes(modele: AppModele) {
     val client = modele.client!!
     var classe by rememberSaveable { mutableStateOf<String?>(null) }
     var devoirId by rememberSaveable { mutableStateOf<String?>(null) }
-    val saisies = remember { mutableStateMapOf<String, String>() }
-    val enregistrees = remember { mutableStateListOf<String>() }
+    // Saisies propres au devoir choisi : changer de devoir repart de zéro.
+    val saisies = remember(devoirId) { mutableStateMapOf<String, String>() }
+    val enregistrees = remember(devoirId) { mutableStateListOf<String>() }
     var erreur by remember { mutableStateOf<String?>(null) }
+    var enCours by remember { mutableStateOf(false) }
+    var confirmer by remember { mutableStateOf(false) }
     val portee = rememberCoroutineScope()
 
+    Column(Modifier.verticalScroll(rememberScrollState())) {
     Chargeur("classes", modele::sessionPerdue, { modele.lecteur!!.lire(Chemins.mesCreneaux(aujourdHui()), Chemins.listeCreneaux) }) { cr, _ ->
         val classes = cr.map { it.classe }.distinct().sorted()
         Titre("Classe")
@@ -341,7 +353,7 @@ private fun EcranSaisieNotes(modele: AppModele) {
             classes.forEach { k -> OutlinedButton(onClick = { classe = k; devoirId = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text(k) } }
         }
     }
-    val k = classe ?: return
+    val k = classe ?: return@Column
     Chargeur(k, modele::sessionPerdue, {
         val periodes = client.periodesNotes()
         val p = periodes.firstOrNull { it.statut == "ouverte" } ?: periodes.firstOrNull()
@@ -357,8 +369,8 @@ private fun EcranSaisieNotes(modele: AppModele) {
         Chargeur(d.id, modele::sessionPerdue, { direct(client.effectif(k, aujourdHui())) }) { eff, _ ->
             Titre("Notes sur ${note(d.sur)}")
             MessageErreur(erreur)
-            LazyColumn(Modifier.fillMaxWidth()) {
-                items(eff.eleves, key = { it.id }) { el ->
+            Column(Modifier.fillMaxWidth()) {
+                eff.eleves.forEach { el ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
                         Text("${el.nom} ${el.prenom}", Modifier.weight(1f).padding(top = 16.dp))
                         OutlinedTextField(
@@ -371,25 +383,39 @@ private fun EcranSaisieNotes(modele: AppModele) {
                     }
                 }
             }
-            Button(onClick = {
+            val aEnvoyer = saisies.filter { (eleve, t) -> eleve !in enregistrees && t.isNotBlank() }
+            Button(onClick = { confirmer = true }, enabled = !enCours && aEnvoyer.isNotEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("Enregistrer les notes")
+            }
+            if (confirmer) AlertDialog(
+                onDismissRequest = { confirmer = false },
+                title = { Text("Enregistrer ${aEnvoyer.size} note(s) ?") },
+                text = { Text("« ${d.titre} », $k, notes sur ${note(d.sur)}.") },
+                dismissButton = { TextButton(onClick = { confirmer = false }) { Text("Annuler") } },
+                confirmButton = { TextButton(onClick = {
+                confirmer = false
+                enCours = true
                 portee.launch {
                     erreur = null
-                    for ((eleve, texte) in saisies.toMap()) {
-                        if (eleve in enregistrees) continue
+                    try { for ((eleve, texte) in aEnvoyer) {
                         val v = texte.toDoubleOrNull()
-                        if (v == null || v < 0 || v > d.sur) { erreur = "Note invalide : « $texte »."; continue }
+                        if (v == null || !v.isFinite() || v < 0 || v > d.sur) { erreur = "Note invalide : « $texte »."; continue }
                         try {
                             client.saisirNote(eleve, SaisirNoteBody(d.matiereId, v, d.sur, aujourdHui(), d.titre, d.id, d.periodeId))
                             enregistrees += eleve
                         } catch (e: ErreurApi.NonAuthentifie) {
                             modele.sessionPerdue(); return@launch
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             erreur = e.message
                         }
-                    }
+                    } } finally { enCours = false }
                 }
-            }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Enregistrer les notes") }
+            }) { Text("Enregistrer") } },
+            )
         }
+    }
     }
 }
 

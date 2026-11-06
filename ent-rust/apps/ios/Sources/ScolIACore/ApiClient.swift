@@ -3,7 +3,9 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public struct RequeteHttp: Sendable, Equatable {
+public struct RequeteHttp: Sendable, Equatable, CustomStringConvertible {
+    /// Jamais d'en-tête Authorization ni de corps dans un journal.
+    public var description: String { "RequeteHttp(\(methode) \(url.absoluteString))" }
     public let methode: String
     public let url: URL
     public let entetes: [String: String]
@@ -205,7 +207,10 @@ public final class ApiClient: @unchecked Sendable {
             reponse = try await transport.executer(RequeteHttp(methode: methode, url: url, entetes: entetes, corps: corps))
         } catch let e as ErreurApi {
             throw e
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
+            if Task.isCancelled { throw CancellationError() }
             throw ErreurApi.horsLigne
         }
         let texte = String(decoding: reponse.corps, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -214,7 +219,8 @@ public final class ApiClient: @unchecked Sendable {
         }
         switch reponse.statut {
         case 200..<300: return reponse.corps
-        case 401: throw ErreurApi.nonAuthentifie
+        // 401 sans jeton (connexion) = identifiants refusés, pas une session perdue.
+        case 401: throw authentifie ? ErreurApi.nonAuthentifie : ErreurApi.refus(401, message("Identifiants incorrects."))
         case 403: throw ErreurApi.interdit(message("Action non autorisée."))
         case 404: throw ErreurApi.introuvable(message("Élément introuvable."))
         case 400..<500: throw ErreurApi.refus(reponse.statut, message("Demande refusée."))

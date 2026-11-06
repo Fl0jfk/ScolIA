@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -64,7 +66,7 @@ fun RacineScolIA(modele: AppModele, onDeverrouiller: () -> Unit) {
     when {
         actif == null -> EcranRattachement(modele)
         modele.etat is EtatConnexion.Deconnecte || modele.etat is EtatConnexion.SecondFacteur -> EcranConnexion(modele)
-        modele.verrouille -> EcranVerrou(onDeverrouiller)
+        modele.verrouille -> EcranVerrou(onDeverrouiller, modele.erreur)
         else -> {
             val c = modele.etat as EtatConnexion.Connecte
             if (c.espace.enrolementRequis) EcranEnrolement(modele) else Coquille(modele, c)
@@ -75,7 +77,8 @@ fun RacineScolIA(modele: AppModele, onDeverrouiller: () -> Unit) {
 @Composable
 private fun Page(contenu: @Composable () -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        // Edge-to-edge : marges des barres système et du clavier.
+        Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) { contenu() }
 }
@@ -168,19 +171,30 @@ fun EcranConnexion(modele: AppModele) {
             }
         }
         MessageErreur(modele.erreur)
-        TextButton(onClick = { modele.oublierEtablissement(modele.actif!!) }, modifier = Modifier.heightIn(min = 48.dp)) {
-            Text("Changer d'établissement")
+        var confirmerOubli by remember { mutableStateOf(false) }
+        TextButton(onClick = { confirmerOubli = true }, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text("Retirer cet établissement de l'appli")
+        }
+        if (confirmerOubli) {
+            AlertDialog(
+                onDismissRequest = { confirmerOubli = false },
+                title = { Text("Retirer cet établissement ?") },
+                text = { Text("La session et les données gardées sur ce téléphone pour cet établissement seront effacées.") },
+                confirmButton = { TextButton(onClick = { confirmerOubli = false; modele.oublierEtablissement(modele.actif!!) }) { Text("Retirer") } },
+                dismissButton = { TextButton(onClick = { confirmerOubli = false }) { Text("Annuler") } },
+            )
         }
     }
 }
 
 @Composable
-fun EcranVerrou(onDeverrouiller: () -> Unit) {
+fun EcranVerrou(onDeverrouiller: () -> Unit, erreur: String? = null) {
     LaunchedEffect(Unit) { onDeverrouiller() }
     Page {
         Titre("ScolIA est verrouillée")
         Text("Déverrouillez avec votre empreinte, votre visage ou le code de l'appareil.")
         Button(onClick = onDeverrouiller, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Déverrouiller") }
+        MessageErreur(erreur)
     }
 }
 

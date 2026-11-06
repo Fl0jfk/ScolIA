@@ -139,8 +139,16 @@ class AppModele(app: Application) : AndroidViewModel(app) {
         reprendre()
     }
 
+    /** Retire l'établissement : session révoquée (si possible), jeton, cache et e-mail effacés. */
     fun oublierEtablissement(r: Rattachement) {
-        CoffreKeystore(getApplication(), r.baseUrl).effacer()
+        val s = if (actif?.baseUrl == r.baseUrl) service else null
+        val coffre = CoffreKeystore(getApplication(), r.baseUrl)
+        viewModelScope.launch {
+            s?.deconnexion() // révocation côté serveur au mieux (le jeton est lu avant effacement)
+            coffre.effacer()
+            cache.toutEffacer()
+        }
+        prefs.dernierEmail = null
         rattachements = rattachements.filter { it.baseUrl != r.baseUrl }
         prefs.sauver(rattachements)
         if (actif?.baseUrl == r.baseUrl) {
@@ -150,7 +158,27 @@ class AppModele(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun reprendre() = action { etat = service?.reprendre() ?: EtatConnexion.Deconnecte }
+    private var reprise: kotlinx.coroutines.Job? = null
+
+    /** Reprise de session ; annule une reprise en cours pour un autre établissement. */
+    fun reprendre() {
+        reprise?.cancel()
+        val s = service
+        val cible = actif?.baseUrl
+        reprise = viewModelScope.launch {
+            try {
+                val e = s?.reprendre() ?: EtatConnexion.Deconnecte
+                if (actif?.baseUrl == cible) etat = e
+            } catch (e: ErreurApi.HorsLigne) {
+                erreur = "Pas de connexion au serveur. Réessayez quand le réseau revient."
+            } catch (e: ErreurApi) {
+                erreur = e.message
+            }
+        }
+    }
+
+    /** Horodatage de mise en arrière-plan (survit aux recréations de l'activité). */
+    var arrierePlanDepuis: Long = 0L
 
     fun connexionPasskey(email: String) = action {
         prefs.dernierEmail = email.trim()
@@ -194,6 +222,8 @@ class AppModele(app: Application) : AndroidViewModel(app) {
                 bloc()
             } catch (e: ErreurApi.NonAuthentifie) {
                 sessionPerdue()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 erreur = e.message ?: "Erreur inattendue."
             } finally {

@@ -205,6 +205,21 @@ final class ConnexionTests: XCTestCase {
         XCTAssertEqual(corps["client"] as? String, "mobile")
     }
 
+    func testMauvaisMotDePasseNEstPasUneSessionPerdue() async throws {
+        let s = FauxServeur(["POST /auth/login": (401, "identifiants invalides")])
+        let coffre = CoffreMemoire("autre-session")
+        let svc = ServiceConnexion(client: client(s, coffre), coffre: coffre, cache: CacheMemoire(), passkey: FauxPasskey())
+        do { _ = try await svc.connexionMotDePasse(email: "p", motDePasse: "faux"); XCTFail() } catch {
+            XCTAssertEqual(error as? ErreurApi, .refus(401, "identifiants invalides"))
+        }
+        XCTAssertEqual(coffre.lire(), "autre-session")
+    }
+
+    func testRequeteSansJetonDansDescription() {
+        let r = RequeteHttp(methode: "GET", url: URL(string: "https://x")!, entetes: ["Authorization": "Bearer secret"], corps: nil)
+        XCTAssertFalse(String(describing: r).contains("secret"))
+    }
+
     func testRevocationEfface() async throws {
         let s = FauxServeur(["GET /auth/me": (401, "")])
         let coffre = CoffreMemoire("ancien")

@@ -32,6 +32,11 @@ public final class AppModele {
 
     public init(modeLabo: Bool = false) {
         lecteurLiens = LecteurRattachement(modeLabo: modeLabo)
+        // Le Keychain survit à la désinstallation : au premier lancement, on repart de zéro.
+        if !UserDefaults.standard.bool(forKey: "deja_lance") {
+            CoffreKeychain.toutEffacer()
+            UserDefaults.standard.set(true, forKey: "deja_lance")
+        }
         let liste = (defauts.data(forKey: "rattachements")).flatMap { try? JSONDecoder().decode([Rattachement].self, from: $0) } ?? []
         rattachements = liste
         actif = liste.first { $0.id == defauts.string(forKey: "actif") } ?? liste.first
@@ -83,8 +88,17 @@ public final class AppModele {
         reprendre()
     }
 
+    /// Retire l'établissement : session révoquée au mieux, puis jeton, cache et e-mail effacés.
     public func oublier(_ r: Rattachement) {
-        CoffreKeychain(etablissement: r.id).effacer()
+        let s = actif?.id == r.id ? service : nil
+        let coffre = CoffreKeychain(etablissement: r.id)
+        let c = cache
+        Task {
+            await s?.deconnexion() // lit le jeton avant de l'effacer
+            coffre.effacer()
+            c.toutEffacer()
+        }
+        defauts.removeObject(forKey: "email")
         rattachements.removeAll { $0.id == r.id }
         if actif?.id == r.id {
             actif = rattachements.first
@@ -94,7 +108,24 @@ public final class AppModele {
         sauver()
     }
 
-    public func reprendre() { action { self.etat = try await self.service?.reprendre() ?? .deconnecte } }
+    @ObservationIgnored private var reprise: Task<Void, Never>?
+
+    /// Reprise de session ; annule une reprise en cours pour un autre établissement.
+    public func reprendre() {
+        reprise?.cancel()
+        let s = service
+        let cible = actif?.id
+        reprise = Task { @MainActor [self] in
+            do {
+                let e = try await s?.reprendre() ?? .deconnecte
+                if !Task.isCancelled, actif?.id == cible { etat = e }
+            } catch ErreurApi.horsLigne {
+                erreur = "Pas de connexion au serveur. Réessayez quand le réseau revient."
+            } catch {
+                if !Task.isCancelled { erreur = error.localizedDescription }
+            }
+        }
+    }
 
     public func connexionPasskey(_ email: String) {
         defauts.set(email.trimmingCharacters(in: .whitespaces), forKey: "email")
@@ -130,7 +161,7 @@ public final class AppModele {
     }
 
     private func action(_ bloc: @escaping @MainActor () async throws -> Void) {
-        Task { @MainActor in
+        Task { @MainActor [self] in
             occupe = true
             erreur = nil
             defer { occupe = false }

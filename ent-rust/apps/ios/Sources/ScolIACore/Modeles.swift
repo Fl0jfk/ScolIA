@@ -96,7 +96,8 @@ public struct AuthSession: Codable, Sendable, CustomStringConvertible {
 }
 
 /// Réponse de `POST /auth/login` : session à plat, ou second facteur passkey.
-public struct LoginResponse: Codable, Sendable {
+public struct LoginResponse: Codable, Sendable, CustomStringConvertible {
+    public var description: String { "LoginResponse(mfaRequired: \(mfaRequired), role: \(role ?? "-"))" }
     public let mfaRequired: Bool
     public let token: String?
     public let userId: String?

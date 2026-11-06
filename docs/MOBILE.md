@@ -136,11 +136,13 @@ Aucune modification du backend n'a été faite dans ce chantier.
 
 | Élément | Résultat |
 |---|---|
-| Android `:core` | `./gradlew -Pscolia.coreSeulement=true :core:test` : **30 tests verts** (Kotlin 2.2.21, JDK 21, cible 17) |
+| Android `:core` | `./gradlew -Pscolia.coreSeulement=true :core:test` : **32 tests verts** (Kotlin 2.2.21, JDK 21, cible 17) |
 | Android `:app` | **non compilé** : `dl.google.com` / `maven.google.com` refusés par le réseau du conteneur (SDK, AGP, androidx, Compose introuvables, miroirs aussi bloqués). Analyse par `kotlinc` contre `android.jar` (API 35) : aucune erreur de syntaxe ; erreurs restantes toutes dues aux bibliothèques androidx absentes |
-| iOS `ScolIACore` | image Docker `swift:6.1-noble` : `swift build` OK, **26 tests verts** |
+| iOS `ScolIACore` | image Docker `swift:6.1-noble` : `swift build` OK, **28 tests verts** |
 | iOS `ScolIAUI` + `App` | **non compilé** (pas de SDK iOS sous Linux) ; `swiftc -parse` : syntaxe valide |
 | Sur appareil | rien (passkeys, biométrie, QR, App Links non essayés) |
+
+Une revue indépendante (sans compilation) du code Compose et SwiftUI a été faite ; ses constats sont traités au §12.
 
 Pour compiler ailleurs : Android Studio / SDK 35 → `cd ent-rust/apps/android && ./gradlew assembleDebug test` ; Mac → `brew install xcodegen && cd ent-rust/apps/ios && xcodegen generate && open ScolIA.xcodeproj`.
 
@@ -151,3 +153,27 @@ Pour compiler ailleurs : Android Studio / SDK 35 → `cd ent-rust/apps/android &
 3. M2 + M4, puis choix du fournisseur push.
 4. Tests d'interface (Compose UI tests, XCUITest) et essais TalkBack / VoiceOver.
 5. Liaison de la clé du jeton à l'authentification de l'appareil.
+
+## 12. Revue indépendante (2026-11-06) — corrigé / restant
+
+Corrigé après revue :
+- un mauvais mot de passe (401 sans jeton) n'est plus traité comme une session perdue : message « identifiants », jeton existant conservé (tests ajoutés des deux côtés) ;
+- verrou Android : `BIOMETRIC_WEAK | DEVICE_CREDENTIAL` sur Android 9–10 ; déverrouillage automatique **seulement** si aucun verrou n'est configuré (sinon on reste verrouillé) ; même règle sur iOS (`passcodeNotSet`) ;
+- recréation de l'activité Android : plus de reverrouillage ni de retraitement du lien d'invitation ;
+- boutons masqués par une liste (validation de l'appel, saisie de notes) ; marges système et clavier (edge-to-edge) ;
+- saisie de notes : saisies remises à zéro au changement de devoir, confirmation récapitulative, pas de double envoi, valeurs non finies refusées ;
+- pas de double envoi de message / de justification ; confirmation avant révocation d'un appareil (iOS : seul le bouton est actif) ; 401 pendant une révocation → session perdue ;
+- annulation (« Réessayer », changement d'enfant) : plus de faux message d'erreur ni de bascule « hors ligne » ; données de l'enfant précédent masquées pendant le rechargement ;
+- iOS : `ASAuthorizationController` retenu pendant la requête ; permission caméra demandée, aperçu redimensionné, message si caméra indisponible ; jetons Keychain purgés au premier lancement (ils survivent à la désinstallation) ; boîtes de dialogue posées sur la liste ; état d'appel inconnu affiché sans sélection ;
+- retrait d'un établissement : confirmation, révocation serveur au mieux, cache et e-mail mémorisé effacés ;
+- changement d'établissement : la reprise en cours est annulée (pas d'état d'un autre établissement) ; démarrage hors ligne : message explicite ;
+- `toString` / `description` de la requête et de la réponse de connexion sans jeton ; OkHttp exposé au module `app` ; `POST_NOTIFICATIONS` et `aps-environment` retirés tant que le push n'est pas choisi ; orientations iPad.
+
+Restant (non bloquant, à traiter à la première compilation) :
+- démarrage à froid hors ligne : le cache n'est pas accessible tant que `/auth/me` ne répond pas (prévoir un `Me` mis en cache) ;
+- Xcode 16 (SDK iOS 18) recommandé (isolation `@MainActor` des vues) ;
+- build Debug Android (`fr.scolia.mobile.debug`) : à déclarer aussi dans `assetlinks.json` pour tester passkeys et App Links ;
+- `FLAG_SECURE` non appliqué aux boîtes de dialogue Compose (`DialogProperties(securePolicy = SecureOn)`) ;
+- une seule instance de transport HTTP à partager (OkHttp / URLSession) ;
+- iOS au-delà de 5 onglets (famille : 7) : onglet « Plus » système, à remplacer éventuellement par un menu maison comme sur Android ;
+- clé du jeton non liée à la biométrie (§4).

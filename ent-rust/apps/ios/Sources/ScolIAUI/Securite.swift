@@ -35,10 +35,18 @@ public final class CoffreKeychain: CoffreJeton, @unchecked Sendable {
         var q = requete
         q[kSecValueData as String] = Data(jeton.utf8)
         q[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        SecItemAdd(q as CFDictionary, nil)
+        // Échec improbable (Keychain indisponible) : la requête suivante répondra « session absente ».
+        let statut = SecItemAdd(q as CFDictionary, nil)
+        assert(statut == errSecSuccess, "Keychain : écriture refusée (\(statut))")
     }
 
     public func effacer() { SecItemDelete(requete as CFDictionary) }
+
+    /// Efface les jetons de tous les établissements (premier lancement après installation).
+    public static func toutEffacer() {
+        SecItemDelete([kSecClass as String: kSecClassGenericPassword,
+                       kSecAttrService as String: "fr.scolia.mobile.jeton"] as CFDictionary)
+    }
 }
 
 /// Cache hors ligne : fichiers en protection `complete` (illisibles appareil verrouillé),
@@ -85,7 +93,10 @@ public enum Verrou {
     public static func deverrouiller() async -> Bool {
         let ctx = LAContext()
         var err: NSError?
-        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else { return true }
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &err) else {
+            // Seul cas laissé ouvert : aucun code configuré sur l'appareil (jeton toujours au Keychain).
+            return err?.code == LAError.passcodeNotSet.rawValue
+        }
         return (try? await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Déverrouiller ScolIA")) ?? false
     }
 }
@@ -105,16 +116,20 @@ public final class PasskeyApple: NSObject, AuthentificateurPasskey, ASAuthorizat
     }
 
     private var suite: CheckedContinuation<ASAuthorization, Error>?
+    /// Retenu pendant la requête : sans référence forte, les délégués ne sont pas appelés.
+    private var controleur: ASAuthorizationController?
 
     public override init() {}
 
     @MainActor
     private func executer(_ requete: ASAuthorizationRequest) async throws -> ASAuthorization {
-        try await withCheckedThrowingContinuation { cont in
+        guard suite == nil else { throw Erreur.echec("Une demande de passkey est déjà en cours.") }
+        return try await withCheckedThrowingContinuation { cont in
             suite = cont
             let c = ASAuthorizationController(authorizationRequests: [requete])
             c.delegate = self
             c.presentationContextProvider = self
+            controleur = c
             c.performRequests()
         }
     }
@@ -146,6 +161,7 @@ public final class PasskeyApple: NSObject, AuthentificateurPasskey, ASAuthorizat
     public func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         suite?.resume(returning: authorization)
         suite = nil
+        controleur = nil
     }
 
     public func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
@@ -155,6 +171,7 @@ public final class PasskeyApple: NSObject, AuthentificateurPasskey, ASAuthorizat
             suite?.resume(throwing: Erreur.echec("Passkey indisponible : \(error.localizedDescription)"))
         }
         suite = nil
+        controleur = nil
     }
 
     public func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {

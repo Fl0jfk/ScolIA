@@ -125,9 +125,21 @@ internal fun empreinte(s: String): String =
  * demandé à l'ouverture et après 5 minutes en arrière-plan.
  */
 class Verrou(private val activite: FragmentActivity) {
-    fun disponible(): Boolean =
-        BiometricManager.from(activite).canAuthenticate(BIOMETRIC_STRONG or DEVICE_CREDENTIAL) ==
-            BiometricManager.BIOMETRIC_SUCCESS
+    enum class Etat { DISPONIBLE, AUCUN_VERROU_CONFIGURE, INDISPONIBLE }
+
+    /** Android 9 et 10 n'acceptent pas BIOMETRIC_STRONG combiné au code de l'appareil. */
+    private val authentificateurs: Int =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            BIOMETRIC_STRONG or DEVICE_CREDENTIAL
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or DEVICE_CREDENTIAL
+        }
+
+    fun etat(): Etat = when (BiometricManager.from(activite).canAuthenticate(authentificateurs)) {
+        BiometricManager.BIOMETRIC_SUCCESS -> Etat.DISPONIBLE
+        BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> Etat.AUCUN_VERROU_CONFIGURE
+        else -> Etat.INDISPONIBLE
+    }
 
     suspend fun deverrouiller(): Boolean = suspendCancellableCoroutine { cont ->
         val prompt = BiometricPrompt(
@@ -146,7 +158,7 @@ class Verrou(private val activite: FragmentActivity) {
             BiometricPrompt.PromptInfo.Builder()
                 .setTitle("Déverrouiller ScolIA")
                 .setSubtitle("Empreinte, visage ou code de l'appareil")
-                .setAllowedAuthenticators(BIOMETRIC_STRONG or DEVICE_CREDENTIAL)
+                .setAllowedAuthenticators(authentificateurs)
                 .build(),
         )
     }

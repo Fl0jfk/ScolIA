@@ -307,6 +307,23 @@ class ApiEtConnexionTest {
     }
 
     @Test
+    fun mauvais_mot_de_passe_n_est_pas_une_session_perdue() = runTest {
+        val s = FauxServeur(mapOf("POST /auth/login" to ReponseHttp(401, "identifiants invalides")))
+        val coffre = CoffreMemoire().apply { ecrire("autre-session") }
+        val svc = ServiceConnexion(client(s, coffre), coffre, CacheMemoire(), FauxPasskey())
+        val e = assertFailsWith<ErreurApi.Refus> { svc.connexionMotDePasse("p@x.fr", "faux") }
+        assertEquals(401, e.statut)
+        assertEquals("autre-session", coffre.lire())
+    }
+
+    @Test
+    fun requete_toString_sans_jeton() {
+        val r = RequeteHttp("GET", "https://x", mapOf("Authorization" to "Bearer secret"), "{\"password\":\"p\"}")
+        assertFalse(r.toString().contains("secret"))
+        assertFalse(r.toString().contains("password"))
+    }
+
+    @Test
     fun session_revoquee_efface_tout() = runTest {
         val s = FauxServeur(mapOf("GET /auth/me" to ReponseHttp(401, "session invalide")))
         val coffre = CoffreMemoire().apply { ecrire("ancien") }

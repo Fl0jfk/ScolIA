@@ -9,8 +9,6 @@
 		<string>webcredentials:scolia.fr</string>
 		<string>applinks:*.scolia.fr</string>
 	</array>
-	<!-- Notifications : interface prête, fournisseur non choisi. -->
-	<key>aps-environment</key>
-	<string>development</string>
+	<!-- Notifications (aps-environment) : à ajouter quand le fournisseur sera choisi. -->
 </dict>
 </plist>

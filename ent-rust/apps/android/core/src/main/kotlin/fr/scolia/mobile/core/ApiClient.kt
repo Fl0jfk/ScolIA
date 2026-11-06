@@ -11,7 +11,10 @@ data class RequeteHttp(
     val url: String,
     val entetes: Map<String, String>,
     val corps: String? = null,
-)
+) {
+    // Jamais d'en-tête Authorization ni de corps (mot de passe) dans un journal.
+    override fun toString() = "RequeteHttp($methode $url)"
+}
 
 data class ReponseHttp(val statut: Int, val corps: String)
 
@@ -244,12 +247,19 @@ class ApiClient(
             transport.executer(RequeteHttp(methode, baseUrl.trimEnd('/') + chemin, entetes, corps))
         } catch (e: ErreurApi) {
             throw e
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             throw ErreurApi.HorsLigne(e)
         }
         return when (reponse.statut) {
             in 200..299 -> reponse.corps
-            401 -> throw ErreurApi.NonAuthentifie("Session expirée : reconnectez-vous.")
+            // 401 sans jeton (connexion) = identifiants refusés, pas une session perdue.
+            401 -> if (authentifie) {
+                throw ErreurApi.NonAuthentifie("Session expirée : reconnectez-vous.")
+            } else {
+                throw ErreurApi.Refus(401, messageServeur(reponse.corps, "Identifiants incorrects."))
+            }
             403 -> throw ErreurApi.Interdit(messageServeur(reponse.corps, "Action non autorisée."))
             404 -> throw ErreurApi.Introuvable(messageServeur(reponse.corps, "Élément introuvable."))
             in 400..499 -> throw ErreurApi.Refus(reponse.statut, messageServeur(reponse.corps, "Demande refusée."))

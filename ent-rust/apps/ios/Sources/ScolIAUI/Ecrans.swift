@@ -32,6 +32,8 @@ struct Chargeur<T, Contenu: View>: View {
     @State private var lecture: Lecture<T>?
     @State private var erreur: String?
     @State private var essai = 0
+    /// `.task` posé sur un `Group` s'exécute pour chaque ligne : on ne charge qu'une fois par clé.
+    @State private var derniere: String?
 
     var body: some View {
         Group {
@@ -50,16 +52,22 @@ struct Chargeur<T, Contenu: View>: View {
                 ProgressView().accessibilityLabel("Chargement")
             }
         }
-        .task(id: "\(cle)#\(essai)") {
+        .task(id: "\(cle)#\(essai)") { @MainActor in
+            let k = "\(cle)#\(essai)"
+            guard derniere != k else { return }
+            derniere = k
             erreur = nil
             do {
                 lecture = try await charger()
             } catch ErreurApi.nonAuthentifie {
                 modele.sessionPerdue()
             } catch {
+                if Task.isCancelled || error is CancellationError { derniere = nil; return }
                 erreur = error.localizedDescription
             }
         }
+        // Changement d'enfant / de clé : ne pas afficher les données précédentes.
+        .onChange(of: cle) { _, _ in lecture = nil }
     }
 }
 
@@ -187,17 +195,18 @@ struct EcranAppel: View {
             ForEach(a.lignes) { l in
                 VStack(alignment: .leading) {
                     Text(l.eleveLabel ?? "Élève")
-                    Picker(l.eleveLabel ?? "Élève", selection: Binding(
-                        get: { EtatAppel(rawValue: l.etat) ?? .present },
-                        set: { e in
+                    Picker(l.eleveLabel ?? "Élève", selection: Binding<EtatAppel?>(
+                        get: { EtatAppel(rawValue: l.etat) },
+                        set: { nouvel in
+                            guard let e = nouvel else { return }
                             lancer {
                                 try await modele.client!.marquer(appelId: a.id, eleveId: l.eleveId, etat: e)
-                                var copie = a
+                                guard var copie = appel else { return }
                                 if let i = copie.lignes.firstIndex(where: { $0.eleveId == l.eleveId }) { copie.lignes[i].etat = e.rawValue }
                                 appel = copie
                             }
                         })) {
-                        ForEach(EtatAppel.allCases, id: \.self) { Text($0.libelle).tag($0) }
+                        ForEach(EtatAppel.allCases, id: \.self) { Text($0.libelle).tag(Optional($0)) }
                     }
                     .pickerStyle(.segmented)
                     .disabled(a.estClos)
@@ -253,7 +262,7 @@ struct AvecEnfants<Contenu: View>: View {
                         .pickerStyle(.segmented)
                         .padding(.horizontal)
                     }
-                    contenu(e)
+                    contenu(e).id(e.id)
                 }
             } else {
                 Text("Aucun enfant rattaché à votre compte dans cet établissement.")
@@ -268,10 +277,12 @@ struct EcranAbsences: View {
     @State private var aJustifier: Absence?
     @State private var motif = ""
     @State private var erreur: String?
+    @State private var envoi = false
+    @State private var rechargement = 0
 
     var body: some View {
         List {
-            Chargeur(modele: modele, cle: enfant.id, charger: { direct(try await modele.client!.resumeEnfant(enfant.id)) }) { r, recharger in
+            Chargeur(modele: modele, cle: "\(enfant.id)#\(rechargement)", charger: { direct(try await modele.client!.resumeEnfant(enfant.id)) }) { r, _ in
                 Section("Absences à justifier") {
                     if r.absencesAJustifier.isEmpty { Text("Aucune absence à justifier pour \(enfant.prenom).") }
                     ForEach(r.absencesAJustifier) { a in
@@ -288,7 +299,9 @@ struct EcranAbsences: View {
                     }
                 }
                 if let e = erreur { MessageErreur(texte: e) }
-                Color.clear.frame(height: 0).sheet(item: $aJustifier) { a in
+            }
+        }
+        .sheet(item: $aJustifier) { a in
                     NavigationStack {
                         Form {
                             TextField("Motif", text: $motif, axis: .vertical).lineLimit(2...6)
@@ -298,11 +311,13 @@ struct EcranAbsences: View {
                             ToolbarItem(placement: .cancellationAction) { Button("Annuler") { aJustifier = nil } }
                             ToolbarItem(placement: .confirmationAction) {
                                 Button("Envoyer") {
-                                    Task {
+                                    envoi = true
+                                    Task { @MainActor in
+                                        defer { envoi = false }
                                         do {
                                             _ = try await modele.client!.justifierAbsence(a.id, motif: String(motif.prefix(500)))
                                             aJustifier = nil
-                                            recharger()
+                                            rechargement += 1
                                         } catch ErreurApi.nonAuthentifie {
                                             modele.sessionPerdue()
                                         } catch {
@@ -311,12 +326,10 @@ struct EcranAbsences: View {
                                         }
                                     }
                                 }
-                                .disabled(motif.trimmingCharacters(in: .whitespaces).isEmpty)
+                                .disabled(motif.trimmingCharacters(in: .whitespaces).isEmpty || envoi)
                             }
                         }
                     }
-                }
-            }
         }
     }
 }
@@ -366,6 +379,8 @@ struct EcranSaisieNotes: View {
     @State private var saisies: [String: String] = [:]
     @State private var enregistrees: Set<String> = []
     @State private var erreur: String?
+    @State private var enCours = false
+    @State private var confirmer = false
 
     var body: some View {
         List {
@@ -412,17 +427,33 @@ struct EcranSaisieNotes: View {
                         }
                     }
                     if let e = erreur { MessageErreur(texte: e) }
-                    Button("Enregistrer les notes") { enregistrer(d) }
+                    Button("Enregistrer les notes") { confirmer = true }
+                        .disabled(enCours || aEnvoyer.isEmpty)
+                        .confirmationDialog("Enregistrer \(aEnvoyer.count) note(s) ?", isPresented: $confirmer, titleVisibility: .visible) {
+                            Button("Enregistrer") { enregistrer(d) }
+                        } message: {
+                            Text("« \(d.titre) », \(k), notes sur \(formatNote(d.sur)).")
+                        }
                 }
             }
         }
+        // Saisies propres au devoir choisi : changer de devoir ou de classe repart de zéro.
+        .onChange(of: devoir?.id) { _, _ in saisies = [:]; enregistrees = []; erreur = nil }
+        .onChange(of: classe) { _, _ in saisies = [:]; enregistrees = []; erreur = nil }
+    }
+
+    private var aEnvoyer: [String: String] {
+        saisies.filter { !enregistrees.contains($0.key) && !$0.value.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
     private func enregistrer(_ d: Devoir) {
-        Task {
+        enCours = true
+        let lot = aEnvoyer
+        Task { @MainActor in
+            defer { enCours = false }
             erreur = nil
-            for (eleve, texte) in saisies where !enregistrees.contains(eleve) {
-                guard let v = Double(texte), v >= 0, v <= d.sur else { erreur = "Note invalide : « \(texte) »."; continue }
+            for (eleve, texte) in lot {
+                guard let v = Double(texte), v.isFinite, v >= 0, v <= d.sur else { erreur = "Note invalide : « \(texte) »."; continue }
                 do {
                     _ = try await modele.client!.saisirNote(eleveId: eleve, SaisirNoteBody(
                         matiereId: d.matiereId, valeur: v, sur: d.sur, dateNote: aujourdHui(), libelle: d.titre, devoirId: d.id, periodeId: d.periodeId))
@@ -530,11 +561,13 @@ struct EcranFil: View {
     let filId: String
     @State private var reponse = ""
     @State private var confirmer = false
+    @State private var envoi = false
+    @State private var rechargement = 0
     @State private var erreur: String?
 
     var body: some View {
         List {
-            Chargeur(modele: modele, cle: filId, charger: { direct(try await modele.client!.fil(filId)) }) { d, recharger in
+            Chargeur(modele: modele, cle: "\(filId)#\(rechargement)", charger: { direct(try await modele.client!.fil(filId)) }) { d, _ in
                 Section(d.fil.sujet) {
                     ForEach(d.messages) { m in
                         VStack(alignment: .leading, spacing: 4) {
@@ -548,25 +581,30 @@ struct EcranFil: View {
                 Section("Répondre") {
                     TextField("Votre réponse", text: $reponse, axis: .vertical).lineLimit(2...8)
                     if let e = erreur { MessageErreur(texte: e) }
-                    Button("Envoyer") { confirmer = true }.disabled(reponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Envoyer") { confirmer = true }
+                        .disabled(reponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || envoi)
                 }
-                // Envoi de message : confirmation humaine.
-                .confirmationDialog("Envoyer ce message ?", isPresented: $confirmer, titleVisibility: .visible) {
-                    Button("Envoyer") {
-                        Task {
-                            do {
-                                _ = try await modele.client!.repondre(filId: filId, corps: String(reponse.prefix(5000)).trimmingCharacters(in: .whitespacesAndNewlines))
-                                reponse = ""
-                                recharger()
-                            } catch ErreurApi.nonAuthentifie {
-                                modele.sessionPerdue()
-                            } catch {
-                                erreur = error.localizedDescription
-                            }
-                        }
+            }
+        }
+        // Envoi de message : confirmation humaine (posée sur la liste, pas sur une section).
+        .confirmationDialog("Envoyer ce message ?", isPresented: $confirmer, titleVisibility: .visible) {
+            Button("Envoyer") {
+                envoi = true
+                Task { @MainActor in
+                    defer { envoi = false }
+                    do {
+                        _ = try await modele.client!.repondre(filId: filId, corps: String(reponse.prefix(5000)).trimmingCharacters(in: .whitespacesAndNewlines))
+                        reponse = ""
+                        rechargement += 1
+                    } catch ErreurApi.nonAuthentifie {
+                        modele.sessionPerdue()
+                    } catch {
+                        erreur = error.localizedDescription
                     }
                 }
             }
+        } message: {
+            Text(String(reponse.prefix(300)))
         }
         .navigationTitle("Message")
     }
@@ -578,6 +616,8 @@ struct EcranProfil: View {
     let modele: AppModele
     let me: Me
     @State private var erreur: String?
+    @State private var aRevoquer: SessionAppareil?
+    @State private var rechargement = 0
 
     var body: some View {
         List {
@@ -587,18 +627,15 @@ struct EcranProfil: View {
                       detail: me.passkeyCount == 0 ? "Ajoutez une passkey : elle sera bientôt obligatoire." : "Connexion sans mot de passe active.")
             }
             Section("Appareils connectés") {
-                Chargeur(modele: modele, cle: "sessions", charger: { direct(try await modele.client!.sessions()) }) { sessions, recharger in
+                Chargeur(modele: modele, cle: "sessions#\(rechargement)", charger: { direct(try await modele.client!.sessions()) }) { sessions, _ in
                     ForEach(sessions) { s in
                         HStack {
                             // Libellé issu du User-Agent : texte brut uniquement (E8).
                             Ligne(titre: String((s.appareil ?? "Appareil inconnu").prefix(60)) + (s.courante ? " (cet appareil)" : ""),
                                   detail: "\(s.client == "mobile" ? "Appli" : "Web") · vu le \(dateFr(s.lastSeenAt))")
                             if !s.courante {
-                                Button("Déconnecter", role: .destructive) {
-                                    Task {
-                                        do { try await modele.client!.revoquerSession(s.id); recharger() } catch { erreur = error.localizedDescription }
-                                    }
-                                }
+                                Button("Déconnecter", role: .destructive) { aRevoquer = s }
+                                    .buttonStyle(.borderless) // seul le bouton est actif, pas toute la ligne
                             }
                         }
                     }
@@ -611,6 +648,21 @@ struct EcranProfil: View {
                 }
             }
             Section { Button("Se déconnecter", role: .destructive) { modele.deconnexion() } }
+        }
+        .confirmationDialog("Déconnecter cet appareil ?", isPresented: Binding(get: { aRevoquer != nil }, set: { if !$0 { aRevoquer = nil } }),
+                            titleVisibility: .visible, presenting: aRevoquer) { s in
+            Button("Déconnecter", role: .destructive) {
+                Task { @MainActor in
+                    do {
+                        try await modele.client!.revoquerSession(s.id)
+                        rechargement += 1
+                    } catch ErreurApi.nonAuthentifie {
+                        modele.sessionPerdue()
+                    } catch {
+                        erreur = error.localizedDescription
+                    }
+                }
+            }
         }
     }
 }

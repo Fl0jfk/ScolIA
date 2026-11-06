@@ -91,6 +91,7 @@ struct EcranConnexion: View {
     @State private var email = ""
     @State private var mdp = ""
     @State private var avecMotDePasse = false
+    @State private var confirmerOubli = false
 
     var body: some View {
         NavigationStack {
@@ -125,11 +126,16 @@ struct EcranConnexion: View {
                 }
                 if let e = modele.erreur { Section { MessageErreur(texte: e) } }
                 Section {
-                    Button("Changer d'établissement", role: .destructive) { if let a = modele.actif { modele.oublier(a) } }
+                    Button("Retirer cet établissement de l'appli", role: .destructive) { confirmerOubli = true }
                 }
             }
             .navigationTitle(modele.actif?.nom ?? modele.actif?.slug ?? "ScolIA")
             .onAppear { if email.isEmpty { email = modele.dernierEmail } }
+            .confirmationDialog("Retirer cet établissement ?", isPresented: $confirmerOubli, titleVisibility: .visible) {
+                Button("Retirer", role: .destructive) { if let a = modele.actif { modele.oublier(a) } }
+            } message: {
+                Text("La session et les données gardées sur ce téléphone pour cet établissement seront effacées.")
+            }
             .overlay { if modele.occupe { ProgressView().accessibilityLabel("Connexion en cours") } }
         }
     }

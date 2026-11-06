@@ -108,6 +108,8 @@ fun <T> Chargeur(
             lecture = charger()
         } catch (e: ErreurApi.NonAuthentifie) {
             surSessionPerdue()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // « Réessayer » ou changement de clé : pas un message d'erreur.
         } catch (e: Exception) {
             erreur = e.message ?: "Chargement impossible."
         }

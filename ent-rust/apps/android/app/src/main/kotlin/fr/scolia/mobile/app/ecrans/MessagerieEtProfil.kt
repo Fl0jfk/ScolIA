@@ -57,6 +57,7 @@ fun EcranMessagerie(modele: AppModele) {
         return
     }
     Chargeur("fils", modele::sessionPerdue, { modele.lecteur!!.lire(Chemins.FILS, Chemins.listeFils) }) { fils, _ ->
+        Text("Pour écrire un nouveau message, utilisez le web (choix des destinataires).", style = MaterialTheme.typography.bodySmall)
         if (fils.isEmpty()) Text("Aucun message.")
         LazyColumn {
             items(fils.sortedByDescending { it.lastMessageAt }, key = { it.id }) { fil ->
@@ -72,7 +73,6 @@ fun EcranMessagerie(modele: AppModele) {
                 HorizontalDivider()
             }
         }
-        Text("Pour écrire un nouveau message, utilisez le web (choix des destinataires).", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -81,6 +81,7 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
     val client = modele.client!!
     var reponse by remember { mutableStateOf("") }
     var confirmer by remember { mutableStateOf(false) }
+    var envoi by remember { mutableStateOf(false) }
     var erreur by remember { mutableStateOf<String?>(null) }
     val portee = rememberCoroutineScope()
     OutlinedButton(onClick = retour, modifier = Modifier.heightIn(min = 48.dp)) { Text("Retour aux messages") }
@@ -99,7 +100,7 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
         }
         OutlinedTextField(reponse, { reponse = it.take(5000) }, label = { Text("Répondre") }, minLines = 2, modifier = Modifier.fillMaxWidth())
         MessageErreur(erreur)
-        Button(onClick = { confirmer = true }, enabled = reponse.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text("Envoyer") }
+        Button(onClick = { confirmer = true }, enabled = reponse.isNotBlank() && !envoi, modifier = Modifier.heightIn(min = 48.dp)) { Text("Envoyer") }
         if (confirmer) {
             // Envoi de message : confirmation humaine (CLAUDE.md).
             AlertDialog(
@@ -109,6 +110,7 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
                 confirmButton = {
                     TextButton(onClick = {
                         confirmer = false
+                        envoi = true // pas de double envoi
                         portee.launch {
                             erreur = null
                             try {
@@ -117,8 +119,12 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
                                 recharger()
                             } catch (e: ErreurApi.NonAuthentifie) {
                                 modele.sessionPerdue()
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 erreur = e.message
+                            } finally {
+                                envoi = false
                             }
                         }
                     }) { Text("Envoyer") }
@@ -160,6 +166,8 @@ fun EcranProfil(modele: AppModele, c: EtatConnexion.Connecte) {
                                 try {
                                     client.revoquerSession(s.id)
                                     recharger()
+                                } catch (e: ErreurApi.NonAuthentifie) {
+                                    modele.sessionPerdue()
                                 } catch (e: ErreurApi) {
                                     erreur = e.message
                                 }
