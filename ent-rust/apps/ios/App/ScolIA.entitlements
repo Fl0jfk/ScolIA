@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Passkeys liées à scolia.fr (D-013) ; liens d'invitation des établissements (D-012).
+	     Exigent /.well-known/apple-app-site-association sur scolia.fr (voir docs/MOBILE.md). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:scolia.fr</string>
+		<string>applinks:*.scolia.fr</string>
+	</array>
+	<!-- Notifications : interface prête, fournisseur non choisi. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>
