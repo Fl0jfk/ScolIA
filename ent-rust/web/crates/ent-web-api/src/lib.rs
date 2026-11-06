@@ -20,6 +20,7 @@ mod appel;
 mod auth;
 mod cahier;
 mod communication;
+mod communication_s28;
 mod discipline_vs;
 mod dossier;
 mod droits_moteur;

@@ -92,6 +92,11 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    <Route path=path!("notifications") view=modules::notifications::PagePreferencesNotification/>
+                    <Route path=path!("campagnes") view=modules::campagnes::PageCampagnes/>
+                    <Route path=path!("rencontres") view=modules::rendez_vous::PageRencontres/>
+                    <Route path=path!("rendez-vous") view=modules::rendez_vous::PageRendezVous/>
+                    <Route path=path!("formulaires") view=modules::formulaires::PageFormulaires/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::discipline_vs::PageSignalements/>
                     <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>

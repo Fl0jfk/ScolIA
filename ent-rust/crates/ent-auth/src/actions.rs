@@ -137,6 +137,17 @@ pub enum Action {
     NotesCorriger,
     /// Exporter les livrets (LSU, LSL), EVA-12.
     LivretsExporter,
+    // ── S2-8 : communication complète ───────────────────────────────────────
+    /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
+    CampagnesLancer,
+    /// Organiser les rencontres parents-professeurs et leurs créneaux (AGD-02).
+    RencontresGerer,
+    /// Créer et publier des formulaires, autorisations et consentements (FRM-01/03).
+    FormulairesGerer,
+    /// Consulter qui consent, pour un objet précis (FRM-04).
+    ConsentementsLire,
+    /// Régler les plafonds d'envoi et consulter la traçabilité des envois (PLT-05).
+    NotificationsGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -153,7 +164,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 59] = [
+    pub const TOUTES: [Action; 64] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -216,6 +227,11 @@ impl Action {
         Action::BulletinsPublier,
         Action::NotesCorriger,
         Action::LivretsExporter,
+        Action::CampagnesLancer,
+        Action::RencontresGerer,
+        Action::FormulairesGerer,
+        Action::ConsentementsLire,
+        Action::NotificationsGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -280,6 +296,11 @@ impl Action {
             Self::BulletinsPublier => "bulletins.publier",
             Self::NotesCorriger => "notes.corriger",
             Self::LivretsExporter => "livrets.exporter",
+            Self::CampagnesLancer => "campagnes.lancer",
+            Self::RencontresGerer => "rencontres.gerer",
+            Self::FormulairesGerer => "formulaires.gerer",
+            Self::ConsentementsLire => "consentements.lire",
+            Self::NotificationsGerer => "notifications.gerer",
         }
     }
 
@@ -345,6 +366,11 @@ impl Action {
             Self::BulletinsPublier => "Générer et publier les bulletins",
             Self::NotesCorriger => "Corriger une note après fermeture de la période",
             Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
+            Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
+            Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
+            Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
+            Self::ConsentementsLire => "Consulter les consentements (objet par objet)",
+            Self::NotificationsGerer => "Régler les plafonds d'envoi et suivre les envois",
         }
     }
 
@@ -369,7 +395,11 @@ impl Action {
             | Self::AuditLire
             | Self::ReferentielLire
             | Self::ReferentielGerer
-            | Self::CahierViser => &[Portee::Etablissement],
+            | Self::CahierViser
+            | Self::RencontresGerer
+            | Self::FormulairesGerer
+            | Self::ConsentementsLire
+            | Self::NotificationsGerer => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
             Self::FacturationGerer
@@ -641,6 +671,17 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if direction_admin {
         d.push(etab(LivretsExporter));
+    }
+    // S2-8 : communication. Campagnes, rencontres, plafonds : direction (COM-05 DIR★,
+    // AGD-02 DIR). Formulaires et consentements : direction, administratif, CPE.
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(CampagnesLancer));
+        d.push(etab(RencontresGerer));
+        d.push(etab(NotificationsGerer));
+    }
+    if direction_admin || role == Role::Cpe {
+        d.push(etab(FormulairesGerer));
+        d.push(etab(ConsentementsLire));
     }
     d
 }

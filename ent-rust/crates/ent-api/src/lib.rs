@@ -20,6 +20,7 @@ mod roles;
 mod routes;
 mod vie_scolaire;
 mod evaluations;
+mod communication_s28;
 pub mod tenant;
 mod ui;
 

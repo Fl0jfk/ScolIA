@@ -212,3 +212,51 @@ fn dossier_fiche_et_chronologie() {
         r#"{"payeurs":[{"lien_id":"6f1c3c80-0000-4000-8000-000000000011","part":100}]}"#,
     );
 }
+
+#[test]
+fn communication_aller_retour() {
+    use crate::communication::*;
+    aller_retour::<PreferencesDto>(
+        r#"{"email":true,"sms":false,"push":true,"resume":"quotidien","calme_debut":1260,"calme_fin":420}"#,
+    );
+    // Heures calmes absentes : champs facultatifs.
+    let p: PreferencesDto =
+        serde_json::from_str(r#"{"email":true,"sms":false,"push":true,"resume":"immediat"}"#)
+            .unwrap();
+    assert_eq!((p.calme_debut, p.calme_fin), (None, None));
+    aller_retour::<PlafondsDto>(
+        r#"{"sms_par_jour":200,"sms_par_personne_jour":3,"sms_par_campagne":300,"campagnes_par_jour":5}"#,
+    );
+    aller_retour::<ApercuCampagneDto>(
+        r#"{"campagne_id":"00000000-0000-0000-0000-000000000001","nb_destinataires":2,"nb_eleves":3,
+            "par_canal":{"email":2,"sms":1},"sans_canal_externe":0,"exclus_hors_droits":4,
+            "sms":{"destinataires":1,"segments_par_message":1,"credits_estimes":1,
+                   "plafond_campagne":300,"plafond_jour_restant":199,"depasse":false,"tronque":false},
+            "empreinte":"abc","destinataires":[{"nom":"Lily","nb_eleves":1,"canaux":["email"]}],
+            "tronque":false}"#,
+    );
+    // Les champs ajoutés plus tard par le serveur sont ignorés (lecture tolérante).
+    let c: CampagneDto = serde_json::from_str(
+        r#"{"id":"00000000-0000-0000-0000-000000000001","titre":"t","corps":"c","canaux":["email"],
+            "audience":"etablissement","cible_ids":[],"statut":"brouillon","cree_par":"00000000-0000-0000-0000-000000000002",
+            "apercu_empreinte":null,"nb_destinataires":null,"created_at":"2026-11-06T10:00:00Z","champ_futur":1}"#,
+    )
+    .unwrap();
+    assert_eq!(c.statut, "brouillon");
+    aller_retour::<FormulaireDto>(
+        r#"{"id":"00000000-0000-0000-0000-000000000001","type":"consentement","objet":"droit_image",
+            "version":2,"titre":"Droit à l'image","texte":"…","statut":"publie","audience":"classe",
+            "cible_ids":["00000000-0000-0000-0000-000000000003"]}"#,
+    );
+    aller_retour::<FormulaireFamilleDto>(
+        r#"{"formulaire_id":"00000000-0000-0000-0000-000000000001","type":"sondage","objet":null,
+            "version":1,"titre":"t","texte":"x","eleve_id":"00000000-0000-0000-0000-000000000004",
+            "eleve_prenom":"Harry","ma_decision":null,"etat":null,"a_repondre":true}"#,
+    );
+    aller_retour::<LignePlanningDto>(
+        r#"{"creneau_id":"00000000-0000-0000-0000-000000000001","rencontre_id":"00000000-0000-0000-0000-000000000002",
+            "enseignant_user_id":"00000000-0000-0000-0000-000000000003","enseignant_nom":"Rogue",
+            "debut":"2026-11-10T17:00:00Z","fin":"2026-11-10T17:10:00Z","statut":"reserve",
+            "eleve_prenom":"Harry","eleve_nom":"Potter","responsable_nom":"Lily Potter"}"#,
+    );
+}

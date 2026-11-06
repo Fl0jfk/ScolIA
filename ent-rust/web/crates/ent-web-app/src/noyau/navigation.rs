@@ -39,6 +39,11 @@ pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
 pub const INSCRIPTIONS: &str = "/web/inscriptions";
 pub const REINSCRIPTION: &str = "/web/reinscription";
 pub const PREINSCRIPTION: &str = "/web/preinscription";
+pub const NOTIFICATIONS: &str = "/web/notifications";
+pub const CAMPAGNES: &str = "/web/campagnes";
+pub const RENCONTRES: &str = "/web/rencontres";
+pub const RENDEZ_VOUS: &str = "/web/rendez-vous";
+pub const FORMULAIRES: &str = "/web/formulaires";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -124,6 +129,21 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.personnel {
         v.push(entree("Délégations", DELEGATIONS, NomIcone::Passkey));
     }
+    // Communication (S2-8) : la famille réserve ses rendez-vous et signe ses formulaires (un
+    // élève majeur signe lui-même) ; l'enseignant voit ses rendez-vous ; le personnel gère
+    // campagnes, rencontres et formulaires selon les droits effectifs du moteur.
+    if droits.portail_famille || droits.mes_classes {
+        v.push(entree("Rendez-vous", RENDEZ_VOUS, NomIcone::Agenda));
+    }
+    if droits.portail_famille || droits.mes_absences || moteur.peut_gerer_formulaires() {
+        v.push(entree("Formulaires", FORMULAIRES, NomIcone::Annonce));
+    }
+    if moteur.peut_lancer_campagne() {
+        v.push(entree("Campagnes", CAMPAGNES, NomIcone::Annonce));
+    }
+    if moteur.peut_gerer_rencontres() {
+        v.push(entree("Rencontres", RENCONTRES, NomIcone::Agenda));
+    }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
     }
@@ -143,7 +163,10 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
 
 /// Liens du pied de navigation, communs à tous les profils : le compte de la personne.
 pub fn liens_compte() -> Vec<EntreeNav> {
-    vec![entree("Compte", SECURITE, NomIcone::Passkey)]
+    vec![
+        entree("Compte", SECURITE, NomIcone::Passkey),
+        entree("Notifications", NOTIFICATIONS, NomIcone::Annonce),
+    ]
 }
 
 /// Texte du compteur de messages non lus (rien à zéro, « 99+ » au-delà de 99).
@@ -189,6 +212,7 @@ mod tests {
                 CAHIER,
                 MES_CLASSES,
                 DELEGATIONS,
+                RENDEZ_VOUS,
                 MESSAGES
             ]
         );
@@ -232,6 +256,8 @@ mod tests {
                 AGENDA,
                 EVALUATIONS,
                 ABSENCES,
+                RENDEZ_VOUS,
+                FORMULAIRES,
                 MESSAGES,
                 REINSCRIPTION
             ],
@@ -270,6 +296,7 @@ mod tests {
                 AGENDA,
                 EVALUATIONS,
                 ABSENCES,
+                FORMULAIRES,
                 MESSAGES
             ]
         );
@@ -366,6 +393,8 @@ mod tests {
                 AGENDA,
                 EVALUATIONS,
                 ABSENCES,
+                RENDEZ_VOUS,
+                FORMULAIRES,
                 MESSAGES,
                 REINSCRIPTION
             ]
@@ -381,6 +410,33 @@ mod tests {
         assert!(adresses(droits_du_role("prof"), &prof).contains(&EVALUATIONS.to_string()));
         let eleve = adresses(droits_du_role("eleve"), &DroitsMoteur::default());
         assert!(eleve.contains(&EVALUATIONS.to_string()));
+    }
+
+    #[test]
+    fn communication_selon_les_droits_effectifs() {
+        let moteur = DroitsMoteur::new(vec![
+            droit("campagnes.lancer", "etablissement"),
+            droit("rencontres.gerer", "etablissement"),
+            droit("formulaires.gerer", "etablissement"),
+        ]);
+        let v = adresses(droits_du_role("direction"), &moteur);
+        for attendu in [CAMPAGNES, RENCONTRES, FORMULAIRES] {
+            assert!(
+                v.contains(&attendu.to_string()),
+                "{attendu} manquant : {v:?}"
+            );
+        }
+        // Sans réponse du moteur, aucune entrée de gestion ; la famille garde les siennes.
+        let seul = adresses(droits_du_role("direction"), &DroitsMoteur::default());
+        for absent in [CAMPAGNES, RENCONTRES, FORMULAIRES] {
+            assert!(!seul.contains(&absent.to_string()));
+        }
+        // Un professeur avec « campagnes.lancer » sur ses classes voit « Campagnes ».
+        let p = DroitsMoteur::new(vec![droit("campagnes.lancer", "designes")]);
+        assert!(adresses(droits_du_role("prof"), &p).contains(&CAMPAGNES.to_string()));
+        // La gestion des rencontres exige la portée établissement.
+        let r = DroitsMoteur::new(vec![droit("rencontres.gerer", "mes_classes")]);
+        assert!(!adresses(droits_du_role("prof"), &r).contains(&RENCONTRES.to_string()));
     }
 
     #[test]
@@ -426,8 +482,12 @@ mod tests {
     #[test]
     fn le_compte_est_accessible_a_tous_les_profils() {
         let liens = liens_compte();
-        assert_eq!(liens.len(), 1);
+        assert_eq!(liens.len(), 2);
         assert_eq!(liens[0].href, SECURITE);
+        assert_eq!(
+            liens[1].href, NOTIFICATIONS,
+            "préférences de notification pour tous"
+        );
         // Le lien « Compte » est actif sur ses sous-pages, pas sur la politique de l'établissement.
         assert!(ent_web_ui::lien_actif(SECURITE, "/web/securite"));
         assert!(!ent_web_ui::lien_actif(SECURITE, POLITIQUE_SECURITE));

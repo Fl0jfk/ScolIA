@@ -14000,8 +14000,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .eleves
             .list_en_classe_au(etablissement_id, classe, jour)
             .await?;
+        // S2-8 (D24) : un refus du droit à l'image masque la photo.
+        let ids: Vec<Uuid> = eleves.iter().map(|e| e.id).collect();
+        let masques = self
+            .eleves_ayant_refuse(
+                etablissement_id,
+                &ids,
+                crate::formulaires::OBJET_DROIT_IMAGE,
+            )
+            .await?;
         Ok(eleves
             .into_iter()
+            .map(|mut e| {
+                if masques.contains(&e.id) {
+                    e.photo_key = None;
+                }
+                e
+            })
             .map(|e| TrombiEntree {
                 eleve_id: e.id,
                 nom: e.nom,
@@ -14044,6 +14059,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let Some(key) = eleve.photo_key.as_ref() else {
             return Ok(None);
         };
+        // S2-8 (D24) : photo masquée si le droit à l'image est refusé.
+        if !self
+            .eleves_ayant_refuse(
+                etablissement_id,
+                &[eleve.id],
+                crate::formulaires::OBJET_DROIT_IMAGE,
+            )
+            .await?
+            .is_empty()
+        {
+            return Ok(None);
+        }
         // Clé non conforme (autre élève / établissement) : jamais lue, comme « absente ».
         if !photo_storage_key_is_owned(&eleve, key) {
             tracing::warn!(

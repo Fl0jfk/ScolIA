@@ -18,6 +18,7 @@
 //! Ce consommateur est rejouable (aucun envoi externe) ; le canal mail/SMS/push
 //! viendra comme consommateur séparé, non rejouable.
 
+use crate::notifications::{notifier_personne, EnvoiAPlanifier};
 use crate::outbox::{Consommateur, EvenementDistribue, FutureTraitement};
 use ent_events::types;
 use chrono::{DateTime, Utc};
@@ -51,6 +52,9 @@ struct Message {
     kind: &'static str,
     titre: String,
     corps: String,
+    /// Les décisions et retards se regroupent en résumé quotidien ; une absence
+    /// constatée part tout de suite.
+    regroupable: bool,
 }
 
 fn jour_fr(iso: Option<&str>) -> String {
@@ -78,6 +82,7 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
             let jour = jour_fr(p.get("debut").and_then(|v| v.as_str()));
             Some(Message {
                 kind: "absence_constatee",
+                regroupable: false,
                 titre: format!("Absence de {prenom}"),
                 corps: format!(
                     "{prenom} a été noté(e) absent(e) à l'appel le {jour}. \
@@ -87,11 +92,13 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
         }
         types::ELEVE_ABSENCE_JUSTIFIED => Some(Message {
             kind: "absence_justifiee",
+            regroupable: true,
             titre: format!("Absence de {prenom} justifiée"),
             corps: format!("Le justificatif d'absence de {prenom} a été accepté."),
         }),
         types::ELEVE_ABSENCE_REFUSED => Some(Message {
             kind: "absence_refusee",
+            regroupable: true,
             titre: format!("Justificatif de {prenom} refusé"),
             corps: format!(
                 "Le justificatif d'absence de {prenom} n'a pas été accepté. \
@@ -102,6 +109,7 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
             let jour = jour_fr(p.get("jour").and_then(|v| v.as_str()));
             Some(Message {
                 kind: "retard",
+                regroupable: true,
                 titre: format!("Retard de {prenom}"),
                 corps: format!("{prenom} a été noté(e) en retard le {jour}."),
             })
@@ -149,24 +157,29 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     .await
     .map_err(|e| e.to_string())?;
     for (user_id,) in destinataires {
-        sqlx::query(
-            r#"
-            INSERT INTO ent_notification (
-                id, etablissement_id, destinataire_user_id, eleve_id,
-                kind, titre, corps, source_event_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
-            "#,
+        // Dans l'ENT (idempotent) puis envois e-mail / SMS / push planifiés selon les
+        // préférences de la personne (S2-8). Les envois sont expédiés plus tard, hors
+        // de cette transaction : ce consommateur reste rejouable.
+        notifier_personne(
+            &mut *tx,
+            EnvoiAPlanifier {
+                etablissement_id: etab,
+                user_id,
+                kind: m.kind,
+                titre: &m.titre,
+                corps: &m.corps,
+                eleve_id: Some(eleve_id),
+                notification_id: None,
+                source_type: "evenement",
+                source_id: evt.event().id,
+                cle_dedup: format!("evt:{}:{}", evt.event().id, m.kind),
+                droit_requis: Some("peut_voir_vs"),
+                regroupable: m.regroupable,
+                canaux_voulus: &["email", "sms", "push"],
+            },
+            evt.event().id,
+            Utc::now(),
         )
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(user_id)
-        .bind(eleve_id)
-        .bind(m.kind)
-        .bind(&m.titre)
-        .bind(&m.corps)
-        .bind(evt.event().id)
-        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     }
