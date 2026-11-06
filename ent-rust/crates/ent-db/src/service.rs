@@ -9147,6 +9147,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get(etablissement_id, eleve_id)
                 .await?
                 .ok_or(DomainError::NotFound)?;
+            // RF-15 : les titres et tiroirs du dossier sont eux-mêmes sensibles ; il faut
+            // « dossier.lire » sur CET élève (un professeur ne liste que les dossiers de ses élèves).
+            if !self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DossierLire, eleve_id)
+                .await?
+            {
+                return Err(EntDbError::Forbidden);
+            }
         } else if matches!(parsed, Role::Parent) {
             if self
                 .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
@@ -9175,6 +9183,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let accessible = self
                 .actor_can_read_document(etablissement_id, actor_user_id, role, &doc)
                 .await?;
+            // RF-15 : pour le personnel, un document de santé auquel on n'a pas droit n'est
+            // pas listé du tout (son titre trahit déjà la pathologie).
+            if !accessible && parsed.is_staff() && doc.confidentialite == DocConfidentialite::Sante {
+                continue;
+            }
             if !accessible {
                 doc.storage_key = None;
                 doc.mime_type = None;

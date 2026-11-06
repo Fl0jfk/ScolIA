@@ -988,3 +988,49 @@ async fn faible_rf35_contrainte_edt_prof_non_membre_refusee() {
     let r = c.ent.creer_edt_contrainte_for_actor("direction", cmd(c.prof)).await;
     assert!(r.is_ok(), "professeur de l'établissement : {r:?}");
 }
+
+/// RF-15 : le professeur ne liste que les dossiers de ses élèves, et ne voit pas (même le
+/// titre de) un document de santé auquel il n'a pas droit.
+#[tokio::test]
+async fn faible_rf15_metadonnees_documents_bornees() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    use domain_eleve::{DeposerDocument, DocConfidentialite, DocTiroir};
+    let depot = |eleve: Uuid, titre: &str, tiroir, conf| DeposerDocument {
+        etablissement_id: c.etab,
+        eleve_id: eleve,
+        tiroir,
+        titre: titre.into(),
+        code: None,
+        mime_type: None,
+        storage_key: None,
+        confidentialite: conf,
+        actor_user_id: c.direction,
+    };
+    for eleve in [c.eleve_suivi, c.eleve_non_suivi] {
+        c.ent
+            .deposer_document(depot(eleve, "RF15-pathologie-secrete", DocTiroir::Sante, DocConfidentialite::Sante))
+            .await
+            .unwrap();
+        c.ent
+            .deposer_document(depot(eleve, "RF15-standard", DocTiroir::Scolaire, DocConfidentialite::Standard))
+            .await
+            .unwrap();
+    }
+    let r = c.ent.list_documents_meta_eleve_for_actor(c.etab, c.prof, "prof", c.eleve_non_suivi).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "élève d'une autre classe : {r:?}");
+    let liste = c
+        .ent
+        .list_documents_meta_eleve_for_actor(c.etab, c.prof, "prof", c.eleve_suivi)
+        .await
+        .expect("élève suivi");
+    assert!(liste.iter().all(|(d, _)| !d.titre.contains("pathologie")), "titre santé exposé");
+    let vu = c
+        .ent
+        .list_documents_meta_eleve_for_actor(c.etab, c.direction, "direction", c.eleve_non_suivi)
+        .await
+        .unwrap();
+    assert!(vu.iter().any(|(d, _)| d.titre.contains("RF15-standard")), "direction : dossier complet");
+}
