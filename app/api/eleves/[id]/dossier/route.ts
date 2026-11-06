@@ -710,6 +710,22 @@ export async function GET(req: Request, ctx: Ctx) {
     }
   }
 
+  // Régime en vigueur aujourd'hui (périodes), à défaut celui de la fiche.
+  let regimeEnVigueur: string | null = row.regime ?? null;
+  if (!inscriptionFocus) {
+    try {
+      const { getRegimeAtDate } = await import("@/app/lib/eleve-core/port");
+      regimeEnVigueur =
+        (await getRegimeAtDate({
+          etablissementId: etabId,
+          eleveId: id,
+          on: parisDateKey(new Date()),
+        })) ?? regimeEnVigueur;
+    } catch (regimeErr) {
+      console.warn("[eleves/dossier] régime en vigueur", regimeErr);
+    }
+  }
+
   let synthese: EleveSyntheseSnapshot;
   if (inscriptionFocus) {
     synthese = minimalDossierSynthese(row.id, row);
@@ -740,6 +756,7 @@ export async function GET(req: Request, ctx: Ctx) {
         absences: absencesSynthese,
         finances: financesSynthese,
         groupes: groupesEleve,
+        regime: regimeEnVigueur,
         includeHeavyExtras: false,
       });
     } catch (syntheseErr) {
@@ -1183,6 +1200,22 @@ export async function POST(req: Request, ctx: Ctx) {
         },
         { actorUserId: authUserId },
       );
+      if (result.noop) {
+        // Régime déjà enregistré : aucun événement, donc pas de synchro internat.
+        // On la relance pour remettre l'élève dans la liste de l'internat (appel).
+        try {
+          const { invalidateElevesRegistryCache } = await import("@/app/lib/eleves-registry");
+          await invalidateElevesRegistryCache(etabId);
+          const { listElevesFromDb } = await import("@/app/lib/ent-core-db");
+          const one = (await listElevesFromDb(etabId)).find((e) => e.id === id);
+          if (one) {
+            const { syncOneEleveInternatRegime } = await import("@/app/lib/internat-import");
+            await syncOneEleveInternatRegime(one, "dossier:update_regime");
+          }
+        } catch (syncErr) {
+          console.error("[eleves/dossier] resync internat régime", syncErr);
+        }
+      }
       await recordEleveAccessAudit({
         etablissementId: etabId,
         actorUserId: authUserId,

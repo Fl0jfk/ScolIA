@@ -1,6 +1,7 @@
 import "server-only";
 
 import { elevePhotoProxyPath } from "@/app/lib/eleve-photos";
+import { classifyRegime } from "@/app/lib/eleve-regime";
 import { getInternatRooms, getInternatStudents } from "@/app/lib/internat-storage";
 import type { InternatStudent } from "@/app/lib/internat-types";
 import {
@@ -239,6 +240,8 @@ export async function buildEleveSyntheseSnapshot(params: {
   absences?: EleveSyntheseSnapshot["absences"];
   finances?: EleveSyntheseSnapshot["finances"];
   groupes?: Array<{ code: string; libelle: string; type: string }>;
+  /** Régime en vigueur (périodes / fiche élève). Prioritaire sur la liste internat. */
+  regime?: string | null;
   /** false = skip internat S3 + groupes EDT (GET fiche rapide). Photo = proxy lazy, jamais bloquant. */
   includeHeavyExtras?: boolean;
 }): Promise<EleveSyntheseSnapshot> {
@@ -258,9 +261,16 @@ export async function buildEleveSyntheseSnapshot(params: {
     }
   }
 
-  const demiPension = Boolean(params.scolarite?.demiPension);
+  // Le régime enregistré fait foi ; la liste internat ne sert qu'à défaut
+  // (elle n'est pas chargée sur la fiche rapide → affichait toujours « Externe »).
+  const regimeKind = classifyRegime(params.regime);
+  const interne =
+    regimeKind === "inconnu" ? Boolean(internatStudent) : regimeKind === "interne";
+  const demiPension =
+    regimeKind === "externe"
+      ? false
+      : Boolean(params.scolarite?.demiPension) || regimeKind === "demi_pension";
   const repasParSemaine = params.scolarite?.repasParSemaine ?? null;
-  const interne = Boolean(internatStudent);
   const restauration = buildEleveMealWeek({
     demiPension: demiPension || interne,
     repasParSemaine,

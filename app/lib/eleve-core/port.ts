@@ -622,6 +622,29 @@ export async function openPrevueScolarite(
   return { scolariteId: created.id };
 }
 
+async function alignRegimePlat(
+  etablissementId: string,
+  eleveId: string,
+  scolariteId: string,
+  regime: string,
+): Promise<void> {
+  const db = getDb();
+  const [row] = await db
+    .select({ regime: eleve.regime })
+    .from(eleve)
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)))
+    .limit(1);
+  if (!row || storedRegimeLabel(row.regime) === regime) return;
+  await db
+    .update(eleve)
+    .set({ regime, updatedAt: new Date() })
+    .where(and(eq(eleve.etablissementId, etablissementId), eq(eleve.id, eleveId)));
+  await db
+    .update(eleveScolarite)
+    .set({ demiPension: regimeImpliesDemiPension(regime), updatedAt: new Date() })
+    .where(eq(eleveScolarite.id, scolariteId));
+}
+
 export async function applyRegimeChange(
   opts: {
     etablissementId: string;
@@ -684,7 +707,13 @@ export async function applyRegimeChange(
     nextRegime: label,
     effectiveOn,
   });
-  if (plan.noop) return { noop: true, scolariteId };
+  if (plan.noop) {
+    // Période déjà au bon régime : réaligne quand même la fiche plate.
+    // Sinon la synchro « plat → scolarité » lancée à l'ouverture de la fiche
+    // remettrait l'ancien régime (ex. revenir en Externe).
+    await alignRegimePlat(opts.etablissementId, opts.eleveId, scolariteId, plan.next.regime);
+    return { noop: true, scolariteId };
+  }
 
   if (plan.replaceOpen && open) {
     await db
