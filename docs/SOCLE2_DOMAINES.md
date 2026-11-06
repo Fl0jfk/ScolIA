@@ -939,6 +939,28 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Le calcul de semaine est fait en direct (pas de cache) : bornes 62 jours ; pas d'export iCal des nouvelles vues (l'export iCal existant ne tient pas compte des déplacements).
 - Écrans : voir « Écrans Leptos » ci-dessous.
 
+**État par scénario (S2-5)** — *fait* = implémenté et testé ; *partiel* ; *à faire*.
+
+| Scénario | État |
+|---|---|
+| Direction : voir les séances touchées par une absence validée, choisir un remplaçant disponible et compétent, valider, familles prévenues | fait |
+| Direction : annuler / déplacer un cours, changer une salle, rétablir | fait |
+| Direction : annulation en masse (grève, fermeture) avec aperçu, idempotente | fait |
+| Direction : déléguer des droits datés, révoquer, expiration automatique | fait |
+| Secrétariat / administratif : créer, modifier, supprimer des créneaux avec détection des conflits ; salles ; groupes | fait |
+| Professeur : voir son EDT de la semaine (A/B, vacances), être prévenu d'un remplacement | fait |
+| Remplaçant : droit temporaire sur la classe le jour du remplacement | fait (appel du remplaçant : partiel, fenêtre d'exception existante) |
+| Famille / élève : voir l'EDT et les changements (sans motif), notification interne | fait |
+| Élève majeur : mêmes droits que l'élève ; règle d'accès des parents (Q10) | à faire |
+| Demi-groupes / options : créneau par groupe, pas de faux conflit | fait |
+| Co-intervention (deux professeurs sur un même cours) | à faire |
+| Absence sur une demi-journée seulement (horaires dans l'absence RH) | à faire (absence au jour) |
+| Remplaçant externe / contractuel sans compte | à faire |
+| Impact sur le cahier de textes et sur l'appel (séance datée) | à faire (S2-6, branchement de l'appel) |
+| Notification par e-mail / SMS / push, regroupement | à faire (S2-0 reste à faire) |
+| Import STS-web ; export iCal des déplacements | à faire |
+| Fin de journée / de mois : récapitulatif des remplacements assurés | à faire |
+
 ## 7. Décisions à soumettre à Florian (questions fermées)
 
 | # | Question | Options | Recommandation |
