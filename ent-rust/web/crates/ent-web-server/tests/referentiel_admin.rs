@@ -436,6 +436,7 @@ async fn droits_du_moteur_navigation_et_refus() {
         [
             navigation::ACCUEIL,
             navigation::ABSENCES,
+            navigation::SANTE_ENFANT,
             navigation::MESSAGES
         ]
     );
