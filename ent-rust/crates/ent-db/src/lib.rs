@@ -7,6 +7,10 @@ mod absence_repo;
 mod assiduite;
 mod discipline_vs;
 mod vie_scolaire;
+pub mod campagnes;
+pub mod formulaires;
+pub mod notifications;
+pub mod rencontres;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
@@ -40,6 +44,8 @@ mod periode_repo;
 mod pg_err;
 #[cfg(test)]
 mod tests_l6;
+#[cfg(test)]
+mod tests_communication;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
