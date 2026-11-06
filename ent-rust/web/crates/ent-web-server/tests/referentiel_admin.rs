@@ -436,7 +436,9 @@ async fn droits_du_moteur_navigation_et_refus() {
         [
             navigation::ACCUEIL,
             navigation::ABSENCES,
-            navigation::MESSAGES
+            navigation::MESSAGES,
+            navigation::REINSCRIPTION,
+            navigation::MES_FACTURES
         ]
     );
 
