@@ -66,6 +66,7 @@ mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
+mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
@@ -212,6 +213,8 @@ mod tests_roles;
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
