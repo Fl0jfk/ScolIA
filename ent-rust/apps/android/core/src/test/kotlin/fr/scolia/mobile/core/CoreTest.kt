@@ -106,12 +106,20 @@ class CapacitesTest {
     private fun me(role: String, eleveId: String? = null, portee: String = "complete") =
         Me("u", "x@y.fr", "e", role, eleveId, 1, portee, "passkey", "mobile", false)
 
+    /** Droits par défaut du professeur, tels que les renvoie `/roles/mes-droits`. */
+    private val droitsProf = listOf(
+        "notes.lire", "notes.saisir", "absences.lire", "dossier.lire", "messagerie.eleve", "punitions.donner",
+    ).map { Droit(it, "mes_classes") }
+
     @Test
     fun professeur_appel_en_premier() {
-        val e = Capacites.espacePour(me("prof"), listOf(Droit("notes.saisir", "mes_classes")))
-        assertEquals(Profil.PROFESSEUR, e.profil)
+        val e = Capacites.espacePour(me("prof"), droitsProf)
+        assertEquals(Profil.PERSONNEL, e.profil)
+        assertTrue(e.enseigne)
         assertEquals(listOf(Module.ACCUEIL, Module.APPEL), e.modules.take(2))
         assertTrue(e.contient(Module.SAISIE_NOTES))
+        assertTrue(e.contient(Module.AGENDA))
+        assertFalse(e.contient(Module.VIE_SCOLAIRE)) // absences.lire limité à « mes classes »
         assertFalse(e.contient(Module.ABSENCES))
         assertEquals(Module.PROFIL, e.modules.last())
     }
@@ -138,21 +146,37 @@ class CapacitesTest {
     @Test
     fun role_libre_avec_droit_absences_etablissement_devient_vie_scolaire() {
         val e = Capacites.espacePour(me("administratif"), listOf(Droit("absences.lire", "etablissement")))
-        assertEquals(Profil.VIE_SCOLAIRE, e.profil)
+        assertEquals(Profil.PERSONNEL, e.profil)
         assertTrue(e.contient(Module.VIE_SCOLAIRE))
         assertFalse(e.contient(Module.APPEL))
+        assertFalse(e.contient(Module.SAISIE_NOTES))
     }
 
     @Test
-    fun direction() {
+    fun les_ecrans_du_personnel_ne_dependent_pas_du_nom_du_role() {
+        // Même droits, noms de rôle différents (ou inventés par l'établissement) : mêmes écrans.
+        val droits = listOf(Droit("appel.verifier", "etablissement"), Droit("absences.declarer", "etablissement"))
+        val a = Capacites.espacePour(me("cpe"), droits).modules
+        val b = Capacites.espacePour(me("role_invente"), droits).modules
+        assertEquals(a, b)
+        assertTrue(Module.VIE_SCOLAIRE in a && Module.APPEL in a)
+    }
+
+    @Test
+    fun sans_droit_le_personnel_n_a_que_le_socle() {
         val e = Capacites.espacePour(me("direction"), emptyList())
-        assertEquals(Profil.DIRECTION, e.profil)
-        assertTrue(e.contient(Module.VIE_SCOLAIRE))
+        assertEquals(listOf(Module.ACCUEIL, Module.MESSAGERIE, Module.EDT, Module.PROFIL), e.modules)
+    }
+
+    @Test
+    fun saisie_de_notes_selon_le_droit() {
+        assertTrue(Capacites.espacePour(me("x"), listOf(Droit("notes.saisir", "designes", listOf("c1")))).contient(Module.SAISIE_NOTES))
+        assertFalse(Capacites.espacePour(me("x"), listOf(Droit("notes.lire", "etablissement"))).contient(Module.SAISIE_NOTES))
     }
 
     @Test
     fun enrolement_obligatoire_bloque_tout_sauf_le_compte() {
-        val e = Capacites.espacePour(me("prof", portee = "enrolement"), emptyList())
+        val e = Capacites.espacePour(me("prof", portee = "enrolement"), droitsProf)
         assertTrue(e.enrolementRequis)
         assertEquals(listOf(Module.PROFIL), e.modules)
     }
@@ -280,7 +304,8 @@ class ApiEtConnexionTest {
         val pk = FauxPasskey()
         val svc = ServiceConnexion(client(s, coffre), coffre, CacheMemoire(), pk)
         val etat = assertIs<EtatConnexion.Connecte>(svc.connexionPasskey("prof@lpnb.fr"))
-        assertEquals(Profil.PROFESSEUR, etat.espace.profil)
+        assertEquals(Profil.PERSONNEL, etat.espace.profil)
+        assertTrue(etat.espace.enseigne)
         assertEquals("jeton-secret", coffre.lire())
 
         val start = s.recues.first()

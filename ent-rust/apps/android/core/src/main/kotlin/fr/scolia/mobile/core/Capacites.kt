@@ -17,14 +17,20 @@ enum class Module(val titre: String) {
     PROFIL("Mon compte"),
 }
 
-/** Famille de profil : pilote l'accueil et la façon de choisir l'élève concerné. */
-enum class Profil { ELEVE, FAMILLE, PROFESSEUR, VIE_SCOLAIRE, DIRECTION, PERSONNEL }
+/**
+ * Famille de profil : sert uniquement à choisir la **source des données** (l'élève lui-même,
+ * l'enfant d'une famille, ou les classes du personnel), jamais à décider des écrans du
+ * personnel : ceux-ci découlent des droits renvoyés par le serveur.
+ */
+enum class Profil { ELEVE, FAMILLE, PERSONNEL }
 
 data class Espace(
     val profil: Profil,
     val modules: List<Module>,
     /** Passkey à enrôler avant tout (D-009) : seul l'écran d'enrôlement est accessible. */
     val enrolementRequis: Boolean,
+    /** Le personnel a une portée « mes classes / mes groupes » (cours, appel, cahier de textes). */
+    val enseigne: Boolean = false,
 ) {
     /** Onglets de la barre du bas (4 au plus + « Plus »). */
     val onglets: List<Module> get() = modules.take(4)
@@ -35,51 +41,55 @@ data class Espace(
 /**
  * Déduit les écrans d'après `GET /auth/me` et `GET /roles/mes-droits`.
  *
+ * - **Personnel** (tout rôle sauf élève et parent) : écrans calculés **uniquement** à partir des
+ *   actions et portées renvoyées par le serveur (D-017) ; aucun nom de rôle n'est codé en dur,
+ *   un rôle libre créé par l'établissement obtient donc les bons écrans.
+ * - **Élève et famille** : `droits_effectifs` ne renvoie aucun droit pour eux (garde-fou « hors
+ *   rôles libres », lien légal) ; seul le type de compte (`/auth/me`) distingue ces deux cas.
+ *
  * Ce n'est **que de l'affichage** : chaque appel reste contrôlé par le serveur
  * (D-003, D-017). Un module affiché à tort renverra 403, géré proprement.
  */
 object Capacites {
-    private val ROLES_DIRECTION = setOf("admin", "direction")
-    private val ROLES_VIE_SCOLAIRE = setOf("cpe")
+    private const val PORTEE_ETABLISSEMENT = "etablissement"
+    private val PORTEES_ENSEIGNANT = setOf("mes_classes", "mes_groupes")
 
     fun espacePour(me: Me, droits: List<Droit>): Espace {
-        val enrolement = me.portee == "enrolement"
-        if (enrolement) return Espace(profilDe(me, droits), listOf(Module.PROFIL), true)
+        val profil = profilDe(me)
+        if (me.portee == "enrolement") return Espace(profil, listOf(Module.PROFIL), true)
 
-        val actions = droits.map { it.action }.toSet()
-        val profil = profilDe(me, droits)
         val m = linkedSetOf(Module.ACCUEIL)
+        var enseigne = false
         when (profil) {
             Profil.ELEVE -> m += listOf(Module.EDT, Module.AGENDA, Module.NOTES, Module.MESSAGERIE)
             Profil.FAMILLE -> m += listOf(Module.ABSENCES, Module.NOTES, Module.AGENDA, Module.MESSAGERIE, Module.EDT)
-            else -> {
-                if (profil == Profil.PROFESSEUR) m += Module.APPEL
-                if ("absences.lire" in actions || "appel.verifier" in actions ||
-                    profil == Profil.VIE_SCOLAIRE || profil == Profil.DIRECTION
+            Profil.PERSONNEL -> {
+                fun a(action: String, portee: (String) -> Boolean = { true }) =
+                    droits.any { it.action == action && portee(it.portee) }
+                enseigne = droits.any { it.portee in PORTEES_ENSEIGNANT }
+                // Appel : porté par les cours du professeur (mes classes / groupes) ou par la
+                // déclaration d'absences. La liste de ses créneaux reste filtrée côté serveur.
+                if ((a("absences.lire") && enseigne) || a("absences.declarer")) m += Module.APPEL
+                if (a("absences.lire") { it == PORTEE_ETABLISSEMENT } || a("appel.verifier") ||
+                    a("absences.justifier") || a("assiduite.signaler")
                 ) {
                     m += Module.VIE_SCOLAIRE
                 }
-                m += Module.MESSAGERIE
-                if ("notes.saisir" in actions || profil == Profil.PROFESSEUR) m += Module.SAISIE_NOTES
-                m += Module.EDT
-                if (profil == Profil.PROFESSEUR) m += Module.AGENDA
+                if (a("notes.saisir")) m += Module.SAISIE_NOTES
+                if (enseigne) m += Module.AGENDA
+                m += listOf(Module.MESSAGERIE, Module.EDT)
             }
         }
         m += Module.PROFIL
-        return Espace(profil, m.sortedBy { it.ordinal }.let(::ordreNavigation), false)
+        return Espace(profil, ordreNavigation(m.sortedBy { it.ordinal }), false, enseigne)
     }
 
-    fun profilDe(me: Me, droits: List<Droit>): Profil {
+    /** Élève (compte lié à un élève) ou parent ; tout autre compte est du personnel. */
+    fun profilDe(me: Me): Profil {
         val role = me.role.lowercase()
         return when {
             role == "eleve" || me.eleveId != null -> Profil.ELEVE
             role == "parent" -> Profil.FAMILLE
-            role == "prof" -> Profil.PROFESSEUR
-            role in ROLES_DIRECTION -> Profil.DIRECTION
-            role in ROLES_VIE_SCOLAIRE -> Profil.VIE_SCOLAIRE
-            // Rôles libres de l'établissement (D-017) : on regarde les droits.
-            droits.any { it.action == "appel.verifier" || it.action == "absences.lire" && it.portee == "etablissement" } ->
-                Profil.VIE_SCOLAIRE
             else -> Profil.PERSONNEL
         }
     }

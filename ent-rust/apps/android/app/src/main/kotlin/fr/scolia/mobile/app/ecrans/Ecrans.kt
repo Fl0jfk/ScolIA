@@ -99,7 +99,7 @@ private fun Accueil(modele: AppModele, c: EtatConnexion.Connecte, ouvrir: (Modul
                 }
             }
         }
-        if (c.espace.profil == Profil.PROFESSEUR) {
+        if (c.espace.enseigne) {
             Titre("Mes cours du jour")
             Chargeur(aujourdHui(), modele::sessionPerdue, { lecteur.lire(Chemins.mesCreneaux(aujourdHui()), Chemins.listeCreneaux) }) { cr, _ ->
                 if (cr.isEmpty()) Text("Aucun cours aujourd'hui.")
