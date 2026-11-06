@@ -164,7 +164,7 @@ fn jeton_invitation_recu(ent: &PgEnt, email: &str) -> String {
         .dry_run_corps()
         .into_iter()
         .rev()
-        .find(|(to, sujet, _)| to == email && sujet.contains("Invitation") || sujet.contains("Confirmez"))
+        .find(|(to, sujet, _)| to == email && (sujet.contains("Invitation") || sujet.contains("Confirmez")))
         .expect("invitation envoyée");
     let i = corps.find("jeton=").expect("lien") + "jeton=".len();
     corps[i..].split_whitespace().next().unwrap().to_string()

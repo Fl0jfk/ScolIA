@@ -513,12 +513,25 @@ async fn jeton_famille_isole_entre_etablissements_http() {
     let b = ent.seed_labo_cast().await.expect("cast B");
     let hote_a = format!("a-{}.ent.test", Uuid::new_v4().simple());
     let hote_b = format!("b-{}.ent.test", Uuid::new_v4().simple());
-    ent.ajouter_domaine_for_actor(a.etablissement_id, a.admin.user_id, a.admin.role.as_str(), &hote_a)
+    for (cast, slug, hote) in [(&a, "a", &hote_a), (&b, "b", &hote_b)] {
+        ent.declarer_etablissement_for_actor(
+            cast.etablissement_id,
+            cast.admin.user_id,
+            cast.admin.role.as_str(),
+            &format!("i0{slug}-{}", &Uuid::new_v4().simple().to_string()[..12]),
+            &format!("Établissement {slug}"),
+        )
         .await
-        .unwrap();
-    ent.ajouter_domaine_for_actor(b.etablissement_id, b.admin.user_id, b.admin.role.as_str(), &hote_b)
+        .expect("déclaration");
+        ent.ajouter_domaine_for_actor(
+            cast.etablissement_id,
+            cast.admin.user_id,
+            cast.admin.role.as_str(),
+            hote,
+        )
         .await
-        .unwrap();
+        .expect("domaine");
+    }
     let app = app(state);
     let email = format!("iso-{}@exemple.test", Uuid::new_v4().simple());
 
