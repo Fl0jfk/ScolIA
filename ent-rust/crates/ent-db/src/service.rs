@@ -4989,6 +4989,55 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(())
     }
 
+    /// RF-04 (d à g) : le périmètre « mes classes » appliqué à une CLASSE entière. Un
+    /// professeur (ou tout rôle dont `suivi_eleve` est borné) n'agit que sur les classes
+    /// où il suit au moins un élève ; direction et rôles « établissement » gardent leur
+    /// portée. `Ok(None)` = aucune restriction ; sinon l'ensemble des classes autorisées.
+    pub async fn classes_dans_perimetre(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Option<std::collections::HashSet<String>>, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(None);
+        }
+        let Some(eleves) = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let ids: Vec<Uuid> = eleves.into_iter().collect();
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT classe FROM ent_eleve
+              WHERE etablissement_id = $1 AND id = ANY($2) AND classe IS NOT NULL",
+        )
+        .bind(etablissement_id)
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(rows.into_iter().map(|(c,)| c).collect()))
+    }
+
+    /// Refuse si `classe` est hors du périmètre de l'acteur (voir `classes_dans_perimetre`).
+    pub async fn exiger_classe_dans_perimetre(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        classe: &str,
+    ) -> Result<(), EntDbError> {
+        match self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            None => Ok(()),
+            Some(cl) if cl.contains(classe.trim()) => Ok(()),
+            Some(_) => Err(EntDbError::Forbidden),
+        }
+    }
+
     /// Peut savoir si l'élève est absent un jour donné : personnel, parent lié
     /// (statut seul, sans motif), élève lui-même.
     pub async fn actor_can_know_absent(
@@ -6028,6 +6077,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !(Self::role_can_manage_eleves(role) || parsed.can_saisir_notes() || parsed == Role::Cpe) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (e) : un professeur ne publie que le bulletin d'un élève qu'il suit.
+        self.exiger_perimetre_prof(etablissement_id, actor_user_id, role, eleve_id)
+            .await?;
         let periode = self
             .notes
             .get_periode(etablissement_id, periode_id)
@@ -6445,6 +6497,22 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(doc)
     }
 
+    /// Création d'un devoir par un acteur : rôle de saisie de notes et classe dans son
+    /// périmètre (RF-04 g).
+    pub async fn creer_devoir_for_actor(
+        &self,
+        role: &str,
+        cmd: CreerDevoir,
+    ) -> Result<Devoir, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !parsed.can_saisir_notes() {
+            return Err(EntDbError::Forbidden);
+        }
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
+        self.creer_devoir(cmd).await
+    }
+
     pub async fn creer_devoir(&self, cmd: CreerDevoir) -> Result<Devoir, EntDbError> {
         let periode = self
             .notes
@@ -6536,12 +6604,21 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         &self,
         etablissement_id: Uuid,
         role: &str,
+        actor_user_id: Uuid,
         devoir_id: Uuid,
     ) -> Result<Devoir, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !parsed.can_saisir_notes() {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (g) : un professeur ne supprime que les devoirs de ses classes.
+        let devoir = self
+            .notes
+            .get_devoir(etablissement_id, devoir_id)
+            .await?
+            .ok_or(DomainError::DevoirIntrouvable)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &devoir.classe)
+            .await?;
         self.supprimer_devoir(etablissement_id, devoir_id).await
     }
 
@@ -6551,6 +6628,28 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         devoir_id: Uuid,
     ) -> Result<Option<Devoir>, EntDbError> {
         Ok(self.notes.get_devoir(etablissement_id, devoir_id).await?)
+    }
+
+    /// Liste des devoirs bornée au périmètre de l'acteur (RF-04 g) : un professeur ne
+    /// voit que les devoirs de ses classes. Les routes utilisent cette variante.
+    pub async fn list_devoirs_pour_acteur(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        periode_id: Uuid,
+        classe: Option<&str>,
+    ) -> Result<Vec<Devoir>, EntDbError> {
+        let mut devoirs = self
+            .list_devoirs_for_actor(etablissement_id, role, periode_id, classe)
+            .await?;
+        if let Some(cl) = self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            devoirs.retain(|d| cl.contains(d.classe.trim()));
+        }
+        Ok(devoirs)
     }
 
     pub async fn list_devoirs_for_actor(
@@ -13009,6 +13108,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (f) : un professeur n'agit que sur les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
         let planned = plan_creer_conseil_classe(cmd)?;
         self.conseils.insert_conseil(&planned).await?;
         self.events
@@ -13044,6 +13146,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_conseil(etablissement_id, conseil_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &current.classe)
+            .await?;
         let held = plan_tenir_conseil(current, etablissement_id)?;
         self.conseils.update_statut(&held).await?;
         let _ = actor_user_id;
@@ -13058,10 +13162,20 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
-        self.conseils
+        let conseil = self
+            .conseils
             .get_conseil(cmd.etablissement_id, cmd.conseil_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            &conseil.classe,
+        )
+        .await?;
+        self.exiger_perimetre_prof(cmd.etablissement_id, cmd.actor_user_id, role, cmd.eleve_id)
+            .await?;
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
@@ -13084,6 +13198,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_dossier(cmd.etablissement_id, cmd.dossier_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (f) : mention et envoi aux familles seulement pour un élève suivi.
+        self.exiger_perimetre_prof(cmd.etablissement_id, cmd.actor_user_id, role, current.eleve_id)
+            .await?;
         let decided = plan_decider_dossier_conseil(current, cmd)?;
         self.conseils.update_dossier(&decided).await?;
         self.events
@@ -13167,24 +13284,40 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn list_conseils_classe_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         classe: Option<&str>,
     ) -> Result<Vec<ConseilClasse>, EntDbError> {
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self.conseils.list_conseils(etablissement_id, classe).await?)
+        let mut conseils = self.conseils.list_conseils(etablissement_id, classe).await?;
+        if let Some(cl) = self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            conseils.retain(|c| cl.contains(c.classe.trim()));
+        }
+        Ok(conseils)
     }
 
     pub async fn list_dossiers_conseil_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         conseil_id: Uuid,
     ) -> Result<Vec<ConseilClasseDossier>, EntDbError> {
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
+        let conseil = self
+            .conseils
+            .get_conseil(etablissement_id, conseil_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &conseil.classe)
+            .await?;
         Ok(self
             .conseils
             .list_dossiers_conseil(etablissement_id, conseil_id)
@@ -14161,6 +14294,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn exporter_lsl_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterLsl,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role) && !Self::role_can_manage_eleves(role) {
@@ -14178,6 +14312,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
@@ -14909,6 +15046,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn exporter_lsun_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterLsun,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role)
@@ -14928,6 +15066,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
@@ -16288,6 +16429,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_ecrire_cahier_texte(role) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (g) : un professeur n'écrit que dans le cahier de ses classes.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
         let entree = plan_creer_cahier_texte(cmd)?;
         self.cahier_texte.insert(&entree).await?;
         self.events

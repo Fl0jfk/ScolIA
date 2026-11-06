@@ -437,3 +437,254 @@ async fn rf01_changement_personnel_confirme_sans_gel() {
     assert_eq!(email_de(&pool, u.id).await, nouveau);
     assert!(!gele(&pool, u.id).await, "pas de gel pour soi-même");
 }
+
+// ───────────────────────── RF-04 (d à g) : chemins annexes bornés aux classes enseignées ─────────────────────────
+
+/// Contexte commun : un professeur, une classe suivie (celle de Léa) et une classe non
+/// suivie (celle de Tom), si elles diffèrent dans le cast labo.
+struct Rf04 {
+    ent: PgEnt,
+    etab: Uuid,
+    prof: Uuid,
+    suivie: String,
+    non_suivie: String,
+    periode: Uuid,
+    eleve_suivi: Uuid,
+    eleve_non_suivi: Uuid,
+    direction: Uuid,
+}
+
+async fn rf04() -> Option<Rf04> {
+    let (ent, cast, pool) = labo().await?;
+    let etab = cast.etablissement_id;
+    let prof = cast.profs[0].user_id;
+    let classe = |id: Uuid| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, String>("SELECT classe FROM ent_eleve WHERE id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    let (eleve_suivi, eleve_non_suivi) = (cast.eleve_lea_id, cast.eleve_tom_id);
+    let suivie = classe(eleve_suivi).await;
+    let non_suivie = classe(eleve_non_suivi).await;
+    assert!(ent.prof_suit_eleve(etab, prof, eleve_suivi).await.unwrap());
+    assert!(!ent.prof_suit_eleve(etab, prof, eleve_non_suivi).await.unwrap());
+    assert_ne!(suivie, non_suivie, "le cast doit avoir deux classes distinctes");
+    let periode = ent.list_note_periodes(etab).await.unwrap()[0].id;
+    Some(Rf04 {
+        ent,
+        etab,
+        prof,
+        suivie,
+        non_suivie,
+        periode,
+        eleve_suivi,
+        eleve_non_suivi,
+        direction: cast.direction.user_id,
+    })
+}
+
+/// RF-04 (d) : exports LSL et LSUN refusés pour une classe non enseignée.
+#[tokio::test]
+async fn rf04d_exports_lsl_lsun_bornes_aux_classes_enseignees() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jour = domain_eleve::today_utc();
+    let lsl = |classe: &str| domain_eleve::ExporterLsl {
+        etablissement_id: c.etab,
+        periode_id: c.periode,
+        classe: Some(classe.to_string()),
+        jour_reference: jour,
+    };
+    let lsun = |classe: &str| domain_eleve::ExporterLsun {
+        etablissement_id: c.etab,
+        periode_id: c.periode,
+        classe: Some(classe.to_string()),
+        jour_reference: jour,
+    };
+    let r = c.ent.exporter_lsl_csv_for_actor("prof", c.prof, lsl(&c.non_suivie)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "LSL classe non enseignée : {r:?}");
+    let r = c.ent.exporter_lsun_csv_for_actor("prof", c.prof, lsun(&c.non_suivie)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "LSUN classe non enseignée : {r:?}");
+    let r = c.ent.exporter_lsl_csv_for_actor("prof", c.prof, lsl(&c.suivie)).await;
+    assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSL classe enseignée : {r:?}");
+    let r = c.ent.exporter_lsun_csv_for_actor("prof", c.prof, lsun(&c.suivie)).await;
+    assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSUN classe enseignée : {r:?}");
+    // La direction garde sa portée.
+    let r = c.ent.exporter_lsl_csv_for_actor("direction", c.direction, lsl(&c.non_suivie)).await;
+    assert!(!matches!(r, Err(EntDbError::Forbidden)), "direction : {r:?}");
+}
+
+/// RF-04 (e) : publication d'un bulletin refusée pour un élève non suivi.
+#[tokio::test]
+async fn rf04e_publication_bulletin_bornee_aux_eleves_suivis() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let r = c
+        .ent
+        .publier_bulletin_for_actor("prof", c.etab, c.eleve_non_suivi, c.periode, c.prof)
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "élève non suivi : {r:?}");
+    let r = c
+        .ent
+        .publier_bulletin_for_actor("prof", c.etab, c.eleve_suivi, c.periode, c.prof)
+        .await;
+    assert!(!matches!(r, Err(EntDbError::Forbidden)), "élève suivi : {r:?}");
+}
+
+/// RF-04 (f) : conseils de classe — un professeur n'agit que sur ses classes ; la
+/// direction garde la portée de l'établissement.
+#[tokio::test]
+async fn rf04f_conseils_de_classe_bornes_aux_classes_enseignees() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let creer = |classe: &str, actor: Uuid| domain_eleve::CreerConseilClasse {
+        etablissement_id: c.etab,
+        classe: classe.to_string(),
+        periode_libelle: "RF-04".into(),
+        jour: domain_eleve::today_utc(),
+        heure: chrono::NaiveTime::from_hms_opt(17, 0, 0).unwrap(),
+        lieu: "Salle".into(),
+        actor_user_id: actor,
+    };
+    let r = c.ent.creer_conseil_classe_for_actor("prof", creer(&c.non_suivie, c.prof)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "création hors classe : {r:?}");
+    // Conseil d'une classe non enseignée créé par la direction : le prof n'y touche pas.
+    let conseil = c
+        .ent
+        .creer_conseil_classe_for_actor("direction", creer(&c.non_suivie, c.direction))
+        .await
+        .expect("direction : toute classe");
+    let r = c
+        .ent
+        .tenir_conseil_classe_for_actor(c.etab, "prof", conseil.id, c.prof)
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "tenir hors classe : {r:?}");
+    let r = c
+        .ent
+        .ajouter_dossier_conseil_for_actor(
+            "prof",
+            domain_eleve::AjouterDossierConseil {
+                etablissement_id: c.etab,
+                conseil_id: conseil.id,
+                eleve_id: c.eleve_non_suivi,
+                actor_user_id: c.prof,
+            },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "dossier hors classe : {r:?}");
+    let r = c.ent.list_dossiers_conseil_for_actor(c.etab, c.prof, "prof", conseil.id).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "liste des dossiers hors classe : {r:?}");
+    let liste = c
+        .ent
+        .list_conseils_classe_for_actor(c.etab, c.prof, "prof", None)
+        .await
+        .expect("liste");
+    assert!(liste.iter().all(|x| x.classe != c.non_suivie), "liste bornée aux classes du prof");
+    // Décision sur le dossier d'un élève non suivi (créé par la direction) : refusée.
+    let dossier = c
+        .ent
+        .ajouter_dossier_conseil_for_actor(
+            "direction",
+            domain_eleve::AjouterDossierConseil {
+                etablissement_id: c.etab,
+                conseil_id: conseil.id,
+                eleve_id: c.eleve_non_suivi,
+                actor_user_id: c.direction,
+            },
+        )
+        .await
+        .expect("direction : ajout");
+    let r = c
+        .ent
+        .decider_dossier_conseil_for_actor(
+            "prof",
+            domain_eleve::DeciderDossierConseil {
+                etablissement_id: c.etab,
+                dossier_id: dossier.id,
+                appreciation: "x".into(),
+                mention: "aucune".into(),
+                decision_texte: "x".into(),
+                visible_famille: true,
+                actor_user_id: c.prof,
+            },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "décision hors périmètre : {r:?}");
+    // Sa propre classe reste possible.
+    let r = c.ent.creer_conseil_classe_for_actor("prof", creer(&c.suivie, c.prof)).await;
+    assert!(r.is_ok(), "classe enseignée : {r:?}");
+}
+
+/// RF-04 (g) : devoirs et cahier de textes bornés aux classes enseignées.
+#[tokio::test]
+async fn rf04g_devoirs_et_cahier_de_textes_bornes_aux_classes_enseignees() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let matiere = c.ent.list_matieres(c.etab).await.unwrap()[0].id;
+    let periode_ouverte = c
+        .ent
+        .list_note_periodes(c.etab)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.statut.autorise_saisie_notes())
+        .expect("le cast labo doit avoir une période de notes ouverte")
+        .id;
+    let devoir = |classe: &str, actor: Uuid| domain_eleve::CreerDevoir {
+        etablissement_id: c.etab,
+        periode_id: periode_ouverte,
+        matiere_id: matiere,
+        classe: classe.to_string(),
+        titre: "RF-04".into(),
+        date_devoir: domain_eleve::today_utc(),
+        coef: 1.0,
+        sur: 20.0,
+        actor_user_id: actor,
+    };
+    let r = c.ent.creer_devoir_for_actor("prof", devoir(&c.non_suivie, c.prof)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "devoir hors classe : {r:?}");
+    // Un devoir d'une classe non enseignée (créé par la direction) ne se supprime ni ne se liste.
+    let autre = c
+        .ent
+        .creer_devoir_for_actor("direction", devoir(&c.non_suivie, c.direction))
+        .await
+        .expect("direction : toute classe");
+    let r = c.ent.supprimer_devoir_for_actor(c.etab, "prof", c.prof, autre.id).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "suppression hors classe : {r:?}");
+    let liste = c
+        .ent
+        .list_devoirs_pour_acteur(c.etab, c.prof, "prof", periode_ouverte, None)
+        .await
+        .expect("liste");
+    assert!(liste.iter().all(|d| d.classe != c.non_suivie), "liste bornée");
+    let r = c.ent.creer_devoir_for_actor("prof", devoir(&c.suivie, c.prof)).await;
+    assert!(!matches!(r, Err(EntDbError::Forbidden)), "classe enseignée : {r:?}");
+
+    let cahier = |classe: &str| domain_eleve::CreerCahierTexte {
+        etablissement_id: c.etab,
+        classe: classe.to_string(),
+        matiere_libelle: "Test".into(),
+        titre: "RF-04".into(),
+        consigne: "x".into(),
+        pour_le: domain_eleve::today_utc(),
+        cree_le: domain_eleve::today_utc(),
+        actor_user_id: c.prof,
+    };
+    let r = c.ent.creer_cahier_texte_for_actor("prof", cahier(&c.non_suivie)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "cahier hors classe : {r:?}");
+    let r = c.ent.creer_cahier_texte_for_actor("prof", cahier(&c.suivie)).await;
+    assert!(r.is_ok(), "cahier classe enseignée : {r:?}");
+}

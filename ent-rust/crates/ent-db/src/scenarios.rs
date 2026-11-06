@@ -2251,6 +2251,7 @@ async fn competences_lues_par_la_famille_et_export_lsu_reel() {
     let csv = ent
         .exporter_lsun_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsun {
                 etablissement_id: etab,
                 periode_id: periode.id,

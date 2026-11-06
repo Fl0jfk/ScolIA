@@ -3233,7 +3233,7 @@ impl PgEnt {
             "Seed labo AF-A — trimestre solide, poursuite des efforts.";
         let role_cpe_conseil = Role::Cpe.as_str();
         let conseils_harry_classe = self
-            .list_conseils_classe_for_actor(etab, role_cpe_conseil, Some(&harry.classe))
+            .list_conseils_classe_for_actor(etab, admin.user_id, role_cpe_conseil, Some(&harry.classe))
             .await?;
         let conseil_harry_af = if let Some(c) = conseils_harry_classe
             .iter()
@@ -3256,7 +3256,7 @@ impl PgEnt {
             .await?
         };
         let dossiers_conseil_af = self
-            .list_dossiers_conseil_for_actor(etab, role_cpe_conseil, conseil_harry_af.id)
+            .list_dossiers_conseil_for_actor(etab, admin.user_id, role_cpe_conseil, conseil_harry_af.id)
             .await?;
         let dossier_harry_af = if let Some(d) = dossiers_conseil_af
             .iter()

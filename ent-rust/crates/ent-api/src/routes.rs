@@ -4720,6 +4720,7 @@ async fn list_conseils_classe(
         .ent
         .list_conseils_classe_for_actor(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             q.classe.as_deref(),
         )
@@ -4780,7 +4781,7 @@ async fn list_dossiers_conseil(
 ) -> Result<Json<Vec<ConseilClasseDossierDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_dossiers_conseil_for_actor(session.etablissement_id, &session.role, id)
+        .list_dossiers_conseil_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -6159,6 +6160,7 @@ async fn export_lsl(
         .ent
         .exporter_lsl_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterLsl {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -6189,6 +6191,7 @@ async fn export_lsun(
         .ent
         .exporter_lsun_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterLsun {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -7206,8 +7209,9 @@ async fn list_devoirs(
 ) -> Result<Json<Vec<DevoirDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_devoirs_for_actor(
+        .list_devoirs_pour_acteur(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             q.periode_id,
             q.classe.as_deref(),
@@ -7259,7 +7263,7 @@ async fn creer_devoir(
     session.require_saisir_notes()?;
     let devoir = state
         .ent
-        .creer_devoir(CreerDevoir {
+        .creer_devoir_for_actor(&session.role, CreerDevoir {
             etablissement_id: session.etablissement_id,
             periode_id: body.periode_id,
             matiere_id: body.matiere_id,
@@ -7293,7 +7297,7 @@ async fn supprimer_devoir(
     session.require_saisir_notes()?;
     state
         .ent
-        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, id)
+        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, session.user_id, id)
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)

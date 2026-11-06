@@ -1979,6 +1979,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_lsl = ent
         .exporter_lsl_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsl {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -2000,6 +2001,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_lsun = ent
         .exporter_lsun_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsun {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -10482,6 +10484,7 @@ async fn explorer_competences_lsu(
     let csv = ent
         .exporter_lsun_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsun {
                 etablissement_id: etab,
                 periode_id: periode.id,

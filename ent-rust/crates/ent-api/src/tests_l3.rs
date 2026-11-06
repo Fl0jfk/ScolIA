@@ -117,6 +117,20 @@ async fn journal(etab: Uuid, action: &str) -> Vec<(Option<Uuid>, String)> {
     rows
 }
 
+/// Dernier jeton d'un lien `…/<chemin>?token=…` reçu par `a`.
+fn lien_email(ent: &PgEnt, a: &str, chemin: &str) -> Option<String> {
+    ent.mailer().dry_run_corps().into_iter().rev().filter(|(to, _, _)| to == a).find_map(
+        |(_, _, corps)| {
+            let i = corps.find(&format!("{chemin}?token="))? + chemin.len() + "?token=".len();
+            Some(corps[i..].chars().take_while(|c| c.is_ascii_hexdigit()).collect::<String>())
+        },
+    )
+}
+
+async fn prof_parent_neuf(app: &axum::Router, etab: Uuid) -> Compte {
+    inscrire(app, etab, "parent").await
+}
+
 fn email_uri(id: Uuid) -> String {
     format!("/users/{id}/email")
 }
@@ -160,12 +174,24 @@ async fn l3_email_hierarchie_mot_de_passe_revocation_journal_notification() {
     assert_eq!(st, StatusCode::FORBIDDEN, "soi-même, mauvais mot de passe");
     assert!(vivante(&app, &prof.jeton).await, "refus : session intacte");
 
-    // Administratif → prof : autorisé ; sessions de la cible révoquées ;
-    // journal avec l'acteur réel, sans adresse en clair ; ancienne adresse prévenue.
+    // RF-01 : l'Administratif ne touche plus aux comptes du personnel.
+    let (st, _) = appel(&app, "PUT", &email_uri(prof.id), Some(&adm.jeton),
+        Some(json!({"email": nouveau("pirate")}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "administratif → prof");
+    // Direction → prof : accepté mais pas effectif avant confirmation par la nouvelle
+    // adresse ; ancienne adresse prévenue avec un lien d'annulation.
     let nouvelle = nouveau("prof");
     ent.mailer().clear_receipts();
-    let (st, _) = appel(&app, "PUT", &email_uri(prof.id), Some(&adm.jeton),
+    let (st, _) = appel(&app, "PUT", &email_uri(prof.id), Some(&dir.jeton),
         Some(json!({"email": nouvelle}))).await;
+    assert_eq!(st, StatusCode::ACCEPTED);
+    assert!(vivante(&app, &prof.jeton).await, "rien n'est effectif avant confirmation");
+    let recus = ent.mailer().receipts();
+    assert!(recus.iter().any(|r| r.to == prof.email), "l'ancienne adresse est prévenue");
+    assert!(recus.iter().any(|r| r.to == nouvelle), "la nouvelle adresse reçoit le lien");
+    let jeton = lien_email(&ent, &nouvelle, "/email/confirmer").expect("lien de confirmation");
+    let (st, _) = appel(&app, "POST", "/auth/email/confirmer", None,
+        Some(json!({"token": jeton}))).await;
     assert_eq!(st, StatusCode::NO_CONTENT);
     assert!(!vivante(&app, &prof.jeton).await, "sessions de la cible révoquées");
     let lignes = journal(etab, "email_modifie").await;
@@ -173,30 +199,39 @@ async fn l3_email_hierarchie_mot_de_passe_revocation_journal_notification() {
         .iter()
         .find(|(_, p)| p.contains(&prof.id.to_string()))
         .expect("ligne de journal email_modifie");
-    assert_eq!(l.0, Some(adm.id), "acteur réel = l'administratif");
+    assert_eq!(l.0, Some(dir.id), "acteur réel = la direction");
     assert!(!l.1.contains(&prof.email) && !l.1.contains(&nouvelle), "pas d'adresse en clair");
     assert!(l.1.contains("ancienne_empreinte") && l.1.contains("nouvelle_empreinte"));
-    let recus = ent.mailer().receipts();
-    assert!(
-        recus.iter().any(|r| r.to == prof.email),
-        "l'ancienne adresse est prévenue"
-    );
-    assert!(!recus.iter().any(|r| r.to == nouvelle), "la nouvelle n'est pas notifiée");
 
-    // Soi-même avec le bon mot de passe : accepté, toutes les sessions révoquées.
+    // Soi-même avec le bon mot de passe : demande acceptée, effective après confirmation.
     let propre = nouveau("parent");
     let (st, _) = appel(&app, "PUT", &email_uri(parent.id), Some(&parent.jeton),
         Some(json!({"email": propre, "current_password": MDP}))).await;
+    assert_eq!(st, StatusCode::ACCEPTED);
+    assert!(vivante(&app, &parent.jeton).await);
+    let jeton = lien_email(&ent, &propre, "/email/confirmer").expect("lien de confirmation");
+    let (st, _) = appel(&app, "POST", "/auth/email/confirmer", None,
+        Some(json!({"token": jeton}))).await;
     assert_eq!(st, StatusCode::NO_CONTENT);
     assert!(!vivante(&app, &parent.jeton).await);
+
+    // Administratif → parent : niveau strictement inférieur, accepté.
+    let (st, _) = appel(&app, "PUT", &email_uri(prof_parent_neuf(&app, etab).await.id),
+        Some(&adm.jeton), Some(json!({"email": nouveau("parent2")}))).await;
+    assert_eq!(st, StatusCode::ACCEPTED, "administratif → parent");
 
     // Direction → administratif / Admin → direction : autorisés.
     let (st, _) = appel(&app, "PUT", &email_uri(adm.id), Some(&dir.jeton),
         Some(json!({"email": nouveau("adm")}))).await;
-    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert_eq!(st, StatusCode::ACCEPTED);
     let (st, _) = appel(&app, "PUT", &email_uri(dir.id), Some(&admin.jeton),
         Some(json!({"email": nouveau("dir")}))).await;
-    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert_eq!(st, StatusCode::ACCEPTED);
+    // Jamais d'un pair : Direction → Direction.
+    let dir2 = inscrire(&app, etab, "direction").await;
+    let (st, _) = appel(&app, "PUT", &email_uri(dir2.id), Some(&dir.jeton),
+        Some(json!({"email": nouveau("pair")}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "direction → direction (pair)");
 }
 
 #[tokio::test]
@@ -467,7 +502,7 @@ async fn l3_cible_membre_d_un_autre_etablissement_refusee_pour_tout_tiers_403_un
     // Le propriétaire garde ses actions (avec son mot de passe actuel).
     let (st, _) = appel(&app, "PUT", &email_uri(parent.id), Some(&parent.jeton),
         Some(json!({"email": nouveau(), "current_password": MDP}))).await;
-    assert_eq!(st, StatusCode::NO_CONTENT, "le propriétaire change son e-mail");
+    assert_eq!(st, StatusCode::ACCEPTED, "le propriétaire demande son changement d'e-mail");
 }
 
 #[tokio::test]
@@ -489,7 +524,7 @@ async fn l3_jetons_en_attente_invalides_par_email_reset_mot_de_passe_et_reset_pa
     assert_eq!(jetons_actifs(parent.id).await, 1, "jeton en attente");
     let (st, _) = appel(&app, "PUT", &email_uri(parent.id), Some(&adm.jeton),
         Some(json!({"email": format!("l3-n-{}@ent.local", Uuid::new_v4().simple())}))).await;
-    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert_eq!(st, StatusCode::ACCEPTED);
     assert_eq!(jetons_actifs(parent.id).await, 0, "jeton invalidé après changement d'e-mail");
 
     // Réinitialisation du mot de passe d'un membre du personnel.
