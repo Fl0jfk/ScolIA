@@ -5696,7 +5696,13 @@ async fn list_trombi_classe(
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_trombi_classe_for_actor(session.etablissement_id, &session.role, &classe, jour)
+        .list_trombi_classe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &classe,
+            jour,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(TrombiEntreeDto::from).collect()))

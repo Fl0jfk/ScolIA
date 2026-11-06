@@ -6775,7 +6775,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if cmd.sur <= 0.0 || cmd.valeur < 0.0 || cmd.valeur > cmd.sur {
             return Err(EntDbError::NoteInvalide);
         }
-        self.eleves
+        let eleve_note = self
+            .eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
@@ -6795,6 +6796,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get_devoir(cmd.etablissement_id, devoir_id)
                 .await?
                 .ok_or(DomainError::DevoirIntrouvable)?;
+            // Revue socle 1 (faible) : le devoir doit être celui de la classe de l'élève
+            // (sinon un professeur noterait un de ses élèves sur le devoir d'une autre classe).
+            if eleve_note.classe.as_deref().map(str::trim) != Some(devoir.classe.trim()) {
+                return Err(EntDbError::Forbidden);
+            }
             periode_id = Some(devoir.periode_id);
             matiere_id = devoir.matiere_id;
             sur = devoir.sur;
@@ -13901,6 +13907,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn list_trombi_classe_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         classe: &str,
         jour: NaiveDate,
@@ -13912,10 +13919,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
-        let eleves = self
+        let mut eleves = self
             .eleves
             .list_en_classe_au(etablissement_id, classe, jour)
             .await?;
+        // D-022 : un professeur ne voit que les élèves de ses groupes (ni la classe entière,
+        // ni une autre classe) ; direction et rôles « établissement » gardent toute la classe.
+        if let Some(permis) = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        {
+            eleves.retain(|e| permis.contains(&e.id));
+        }
         Ok(eleves
             .into_iter()
             .map(|e| TrombiEntree {
@@ -16508,10 +16523,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         };
         let classe_cible = if Self::role_can_ecrire_cahier_texte(role) {
-            classe
+            let c = classe
                 .map(|c| c.trim().to_string())
                 .filter(|c| !c.is_empty())
-                .ok_or(EntDbError::Forbidden)?
+                .ok_or(EntDbError::Forbidden)?;
+            // Revue socle 1 (faible) : un professeur ne lit que le cahier de ses classes.
+            self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &c)
+                .await?;
+            c
         } else if parsed == Role::Parent || parsed == Role::Eleve {
             let eid = if let Some(eid) = eleve_id {
                 eid

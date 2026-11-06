@@ -753,3 +753,127 @@ async fn rf01_chaine_de_changements_retablie_et_plafonnee() {
         .await;
     assert!(r.is_err(), "plafond de demandes : {r:?}");
 }
+
+// ───────────────────────── Revue socle 1 : constats faibles (portée du professeur) ─────────────────────────
+
+/// Lecture du cahier de textes d'une autre classe refusée au professeur ; sa classe reste lisible.
+#[tokio::test]
+async fn faible_cahier_de_textes_lecture_bornee_a_la_classe_enseignee() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let lire = |classe: &str, actor: Uuid, role: &'static str| {
+        c.ent.list_cahier_texte_for_actor(
+            c.etab,
+            actor,
+            role,
+            Some(classe.to_string()),
+            None,
+            None,
+            None,
+        )
+    };
+    let r = lire(&c.non_suivie, c.prof, "prof").await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "autre classe : {r:?}");
+    let r = lire(&c.suivie, c.prof, "prof").await;
+    assert!(r.is_ok(), "classe enseignée : {r:?}");
+    let r = lire(&c.non_suivie, c.direction, "direction").await;
+    assert!(r.is_ok(), "direction : toute classe : {r:?}");
+}
+
+/// Une note ne s'enregistre pas sur le devoir d'une autre classe que celle de l'élève.
+#[tokio::test]
+async fn faible_note_sur_un_devoir_d_une_autre_classe_refusee() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let matiere = c.ent.list_matieres(c.etab).await.unwrap()[0].id;
+    let periode = c
+        .ent
+        .list_note_periodes(c.etab)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|p| p.statut.autorise_saisie_notes())
+        .expect("période de notes ouverte")
+        .id;
+    let devoir = |classe: &str| domain_eleve::CreerDevoir {
+        etablissement_id: c.etab,
+        periode_id: periode,
+        matiere_id: matiere,
+        classe: classe.to_string(),
+        titre: "Faible".into(),
+        date_devoir: domain_eleve::today_utc(),
+        coef: 1.0,
+        sur: 20.0,
+        actor_user_id: c.direction,
+    };
+    let autre = c.ent.creer_devoir_for_actor("direction", devoir(&c.non_suivie)).await.unwrap();
+    let sien = c.ent.creer_devoir_for_actor("direction", devoir(&c.suivie)).await.unwrap();
+    let note = |devoir_id: Uuid| crate::note_repo::SaisirNote {
+        etablissement_id: c.etab,
+        eleve_id: c.eleve_suivi,
+        matiere_id: matiere,
+        valeur: 12.0,
+        sur: 20.0,
+        date_note: domain_eleve::today_utc(),
+        auteur_user_id: c.prof,
+        libelle: None,
+        devoir_id: Some(devoir_id),
+        periode_id: None,
+    };
+    let r = c.ent.saisir_note_for_actor("prof", note(autre.id)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "devoir d'une autre classe : {r:?}");
+    let r = c.ent.saisir_note_for_actor("prof", note(sien.id)).await;
+    assert!(r.is_ok(), "devoir de la classe de l'élève : {r:?}");
+}
+
+/// Trombinoscope : le professeur ne voit que ses élèves ; direction voit la classe.
+#[tokio::test]
+async fn faible_trombinoscope_borne_aux_eleves_du_professeur() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let jour = domain_eleve::today_utc();
+    let autre = c
+        .ent
+        .list_trombi_classe_for_actor(c.etab, c.prof, "prof", &c.non_suivie, jour)
+        .await
+        .unwrap();
+    assert!(autre.is_empty(), "classe non enseignée : {} élèves vus", autre.len());
+    let sien = c
+        .ent
+        .list_trombi_classe_for_actor(c.etab, c.prof, "prof", &c.suivie, jour)
+        .await
+        .unwrap();
+    assert!(sien.iter().any(|t| t.eleve_id == c.eleve_suivi));
+    let tout = c
+        .ent
+        .list_trombi_classe_for_actor(c.etab, c.direction, "direction", &c.non_suivie, jour)
+        .await
+        .unwrap();
+    assert!(tout.iter().any(|t| t.eleve_id == c.eleve_non_suivi), "direction : toute la classe");
+}
+
+/// D-022 : l'export ONDE est réservé aux administratifs ; jamais le professeur.
+#[tokio::test]
+async fn faible_export_onde_reserve_aux_administratifs() {
+    let Some(c) = rf04().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let cmd = |classe: Option<String>| domain_eleve::ExporterOnde {
+        etablissement_id: c.etab,
+        classe,
+        jour_reference: domain_eleve::today_utc(),
+    };
+    for role in ["prof", "cpe", "compta"] {
+        let r = c.ent.exporter_onde_csv_for_actor(role, cmd(Some(c.non_suivie.clone()))).await;
+        assert!(matches!(r, Err(EntDbError::Forbidden)), "{role} : {r:?}");
+    }
+    let r = c.ent.exporter_onde_csv_for_actor("direction", cmd(Some(c.non_suivie.clone()))).await;
+    assert!(r.is_ok(), "direction : {r:?}");
+}

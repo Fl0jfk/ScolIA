@@ -7522,6 +7522,7 @@ async fn explorer_quotient_tva_trombi(
     let trombi = ent
         .list_trombi_classe_for_actor(
             cast.etablissement_id,
+            cast.prof.user_id,
             Role::Prof.as_str(),
             harry.classe.as_str(),
             jour,
