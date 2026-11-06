@@ -3,7 +3,8 @@
 **Date :** 2026-11-06 — **Statut :** proposition, **non décidée** (à relire par Florian). Aucun code écrit ni modifié ; aucun accès à la base ni aux secrets de production ; l'application Next.js n'a pas été lue pour ce document.
 **Branche :** `ent-personas-socles-2-4`.
 **Éprouve :** `docs/socles/02_ELEVE.md`, `03_INSCRIPTIONS.md`, `04_ADMINISTRATIF.md` (lus en entier), avec `05_STRUCTURE.md` et `06_PERSONNELS.md` en survol, `SOCLES.md`, `DECISIONS.md` (D-017, D-019 à D-022), `MIGRATIONS.md`.
-**Ajouts :** faits **directement** dans les trois conceptions, marqués **[personas]** (actions `ELV-29` à `ELV-47`, `INS-53` à `INS-83`, `ADM-71` à `ADM-99`, règles `R-E*`, `R-I*`, `R-A*`, cas `C28` à `C47`, questions `Q-E18+`, `Q-I21+`, `Q-A21+`). Ce document dit **d'où vient** chaque ajout.
+**Ajouts :** faits **directement** dans les trois conceptions, marqués **[personas]** (actions `ELV-29` à `ELV-48`, `INS-53` à `INS-84`, `ADM-71` à `ADM-102`, règles `R-E*`, `R-I*`, `R-A*`, cas `C28` à `C47`, questions `Q-E18+`, `Q-I21+`, `Q-A21+`).
+**Mise à jour du même jour (D-023, D-024)** : Florian vise d'abord une couverture **au moins égale à Charlemagne**, plus les actions réelles du terrain, et des **modèles de documents prêts** (3 ou 4 trames par type) plutôt qu'une mise en forme libre. La passe intègre ce regard : manques de couverture et de terrain (M-133 à M-138, dont une lecture ciblée de l'application Next.js), **réglages signalés** comme candidats à l'allègement sans rien supprimer (§5 bis.2), documents ramenés à des trames (§5 bis.3). Ce document dit **d'où vient** chaque ajout.
 
 ---
 
@@ -88,6 +89,7 @@ Chaque tableau donne : le manque, pourquoi il compte, sa gravité, le socle conc
 
 **Journée type (février).** 7 h 50 : 14 courriels de familles (« avez-vous reçu mon dossier ? »), 6 pièces déposées à contrôler, un père au téléphone qui a changé d'adresse e-mail et ne reçoit plus les codes. 10 h : deux parents séparés ont déposé chacun un dossier pour le même enfant. 14 h : la direction veut savoir combien de places restent en 6ᵉ bilangue. 16 h : une famille apporte un dossier papier de 23 pages.
 **Année.** Septembre : 650 fiches de rentrée, dont 80 sur papier ; corrections d'état civil venues de l'import. Octobre : remontée vers SIECLE et ses rejets. Décembre–mars : portes ouvertes, candidatures, commission, décisions. Février–avril : réinscriptions. Juin : départs de 3ᵉ, certificats de radiation, dossiers scolaires à transmettre. Juillet : désistements, liste d'attente, changements d'option. Août : secrétariat fermé trois semaines, mais les délais courent.
+**Ce qu'elle vit avec son logiciel actuel (D-023).** Des courriers de décision et des certificats bricolés dans un traitement de texte, refaits chaque année ; des dizaines d'écrans de paramétrage qu'elle n'ouvre jamais ; un tableur partagé pour ce que le logiciel ne prévoit pas (les appels de parents reçus à l'accueil). Ce qu'elle veut : que les documents sortent tout seuls, propres, des données ; qu'on ne lui demande de régler que ce qui est propre à son établissement.
 **Incidents.** Elle valide par erreur l'inscription d'Emma pour la mauvaise année ; la plateforme est lente le dernier jour des réinscriptions ; des jumeaux apparaissent chaque nuit comme « doublons probables » ; l'établissement passe à ScolIA en janvier, en pleine saison.
 
 | ID | Ce qui manque | Pourquoi ça compte | Gravité | Socle | Ajout |
@@ -115,6 +117,7 @@ Chaque tableau donne : le manque, pourquoi il compte, sa gravité, le socle conc
 
 **Semaine type.** Lundi : réunion de direction, tableau des effectifs. Mardi : conseil pédagogique. Jeudi : rendez-vous avec une famille qui conteste un refus de changement de régime. Vendredi : remontée d'enquête au rectorat.
 **Année.** Juin–juillet : résultats Affelnet, inscriptions des entrants en quelques jours, puis non-inscrits à signaler. Septembre : constat de rentrée. Novembre : conseil d'administration (indicateurs sociaux). Janvier–mars : inscriptions aux examens, vérification des noms qui figureront sur les diplômes. Toute l'année : régime de demi-pension au forfait.
+**Ce qu'il vit (D-023).** Il ne veut pas « concevoir » un courrier de refus ni une attestation : il veut choisir une trame soignée une fois, y mettre son logo et sa signature, et ne plus y penser. Il veut aussi retrouver tout ce que faisait l'ancien logiciel, sans ses réglages accumulés.
 **Incidents.** Une liste de classe avec adresses circule sur un réseau social ; un ancien élève demande une attestation de scolarité de 2019 ; dans son poste précédent à La Réunion, les liens et les majorités basculaient à la mauvaise heure dans l'ancien logiciel.
 
 | ID | Ce qui manque | Pourquoi ça compte | Gravité | Socle | Ajout |
@@ -385,6 +388,19 @@ Chaque tableau donne : le manque, pourquoi il compte, sa gravité, le socle conc
 | M-131 | Accessibilité des parcours famille (parent malvoyant, illettrisme) | Les familles les plus fragiles sont aussi celles qui appellent le plus | important | 29 | renvoi |
 | M-132 | Page d'état du service et mode dégradé annoncé aux établissements | Panne un jour de rentrée ou de date limite | important | 28 | renvoi |
 
+### Couverture Charlemagne et actions de terrain (D-023, D-024)
+
+Sources : le modèle Charlemagne repris dans le dépôt (`docs/ent-metier-checklist.md`, `db/schema-charlemagne-p*.ts`) et une lecture ciblée, en lecture seule, de l'application Next.js en production (accueil, dossier élève, guichet de demandes, modèles de documents). Les actions de terrain de Next.js qui relèvent d'autres socles (déclaration d'absence par l'accueil : socle 12, déjà conçue en S2-4 ; passages au portail : socle 14) ne sont pas recopiées ici ; seules leurs dépendances aux socles 2 à 4 le sont.
+
+| ID | Ce qui manque | Pourquoi ça compte | Gravité | Socle | Ajout |
+|---|---|---|---|---|---|
+| M-133 | Rechercher l'établissement d'origine ou de destination dans l'**annuaire national des établissements** (UAI), au lieu d'un texte libre | Charlemagne et Next.js ont ce référentiel ; sans lui, origine et destination sont inexploitables (exports, certificats, statistiques) | important | 2, 3 (+9) | ELV-48, R-E23 |
+| M-134 | **Identifier un appelant** à l'accueil (« je suis la mère de Léo ») : le numéro appelant ou le nom donné correspond-il à un responsable du dossier ? | C'est l'action de terrain qui précède la déclaration d'absence par téléphone (Next.js la fait, Charlemagne non [F Next, H]) ; sans vérification, n'importe qui peut excuser un élève | important | 4 (+12, 14) | ADM-100, R-A42 |
+| M-135 | Une personne **sans compte** demande un changement (adresse, téléphone) par un formulaire public vérifié par code | Le guichet de demandes de Next.js accepte les dépôts sans compte ; les familles sans compte (grand-mère, parent sans e-mail d'invitation) restent sinon hors circuit | confort | 4 | ADM-101 |
+| M-136 | **Sortie seul** et présence aux temps périscolaires **par jour** (midi, soir, étude, garderie), comme le dossier Next.js | Autorisation parentale quotidienne, distincte d'une personne autorisée ; lue par l'accueil et la vie scolaire | important | 4 (+14, 40, 43) | ADM-102, R-A43 |
+| M-137 | **Fiche d'inscription imprimable** (dossier complet d'un candidat ou d'un élève, une page par section), modèle prêt | Présente dans Next.js et dans tous les logiciels du marché ; utile au guichet et en commission | confort | 3 | INS-84 |
+| M-138 | Les conceptions prévoient des **courriers et certificats « paramétrables »** (gabarits, modèles de courriers) : contraire à D-023 | Sans trames prêtes, chaque établissement reconstruit ses courriers (le défaut vécu avec Charlemagne) | important | 2, 3, 4 (+7) | R-E24, R-I27, R-A41, §5 bis.3 |
+
 ---
 
 ## 4. Manques qui relèvent de socles ultérieurs
@@ -425,21 +441,21 @@ Notés pour que le porteur de chaque socle les retrouve ; non conçus ici.
 | Gravité | Nombre |
 |---|---|
 | bloquant | 11 |
-| important | 71 |
-| confort | 37 |
+| important | 75 |
+| confort | 39 |
 | différenciant | 13 |
-| **Total** | **132** |
+| **Total** | **138** |
 
-Dont **116** traités par un ajout dans les socles 2 à 4, et **16** renvoyés à un socle ultérieur (15) ou à une question ouverte (M-090 → Q-E22). Les onze bloquants : M-048, M-065, M-071, M-077, M-084, M-085, M-086, M-087, M-100, M-102, M-107.
+Dont **122** traités par un ajout dans les socles 2 à 4, et **16** renvoyés à un socle ultérieur (15) ou à une question ouverte (M-090 → Q-E22). Les onze bloquants : M-048, M-065, M-071, M-077, M-084, M-085, M-086, M-087, M-100, M-102, M-107.
 
 ### 5.2 Ajouts par socle
 
 | Socle | Actions métier ajoutées | Règles, paramétrages, cas limites ajoutés | Questions ajoutées |
 |---|---|---|---|
-| 2 L'élève (`02_ELEVE.md`) | **19** (ELV-29 à ELV-47) | 22 règles (R-E1 à R-E22), 10 cas limites | 6 (Q-E18 à Q-E23) |
-| 3 Inscriptions (`03_INSCRIPTIONS.md`) | **31** (INS-53 à INS-83) | 26 règles (R-I1 à R-I26), 16 cas limites | 6 (Q-I21 à Q-I26) |
-| 4 Dossier administratif (`04_ADMINISTRATIF.md`) | **29** (ADM-71 à ADM-99) | 40 règles (R-A1 à R-A40), 20 cas limites (C28 à C47) | 7 (Q-A21 à Q-A27) |
-| **Total** | **79** | 88 règles, 46 cas limites | 19 |
+| 2 L'élève (`02_ELEVE.md`) | **20** (ELV-29 à ELV-48) | 24 règles (R-E1 à R-E24), 10 cas limites | 6 (Q-E18 à Q-E23) |
+| 3 Inscriptions (`03_INSCRIPTIONS.md`) | **32** (INS-53 à INS-84) | 27 règles (R-I1 à R-I27), 16 cas limites | 6 (Q-I21 à Q-I26) |
+| 4 Dossier administratif (`04_ADMINISTRATIF.md`) | **32** (ADM-71 à ADM-102) | 43 règles (R-A1 à R-A43), 20 cas limites (C28 à C47) | 7 (Q-A21 à Q-A27) |
+| **Total** | **84** | 94 règles, 46 cas limites | 19 |
 
 ### 5.3 Les dix ajouts les plus importants
 
@@ -464,12 +480,65 @@ Suivent de près : annuler une validation erronée, prolonger une échéance en 
 
 ---
 
+## 5 bis. Retour de Florian (D-023, D-024) : réglages signalés et documents prêts
+
+### 5 bis.1 Ce que ce retour change dans la lecture
+
+- **Rien n'est retiré.** Aucune action, aucun réglage des conceptions n'est supprimé (D-023) ; les manques de couverture Charlemagne et de terrain sont ajoutés (M-133 à M-138).
+- **Les réglages lourds sont signalés** ci-dessous, avec une version automatique proposée, pour une décision commune lors des relectures. Les ajouts de cette passe sont passés au même crible : plusieurs de mes propres paramètres y figurent.
+- **La liberté reste totale pour les données de l'établissement** (D-022) : motifs locaux, régimes locaux, natures de lien proposées, informations complémentaires, offres, capacités, critères affichés ne sont **pas** signalés.
+
+### 5 bis.2 Réglages candidats à l'allègement (signalés, non supprimés)
+
+Règle de lecture : « version automatique » = ce que fait le logiciel quand l'établissement ne touche à rien ; le réglage reste disponible tant que la décision n'est pas prise.
+
+| # | Réglage | Où | Pourquoi il pèse | Version automatique proposée |
+|---|---|---|---|---|
+| S-01 | Cinq réglages **par champ** de l'élève (visible, obligatoire et à quel moment, saisie famille, source qui fait foi, modification locale) | `02` §7.8, `ent_param_eleve_champ` | Des dizaines de cases que personne n'ouvrira ; exactement l'accumulation reprochée à Charlemagne | Entièrement déduits du **profil d'établissement** (public, privé sous contrat, hors contrat) ; seules les **exceptions** sont modifiables, dans une liste courte « champs que vous voulez demander en plus » |
+| S-02 | Règles d'application automatique des propositions, par champ et par source | `02` §7.8, §9.2 | Redondant avec la source qui fait foi | Déduites de la source qui fait foi ; aucun réglage visible |
+| S-03 | Format du numéro d'élève (motif, préfixe de site, remise à zéro annuelle) | `02` §9.2 | Réglé une fois, jamais revu ; source d'erreurs à la reprise | Format unique du logiciel ; reprise des numéros de l'ancien logiciel conservés |
+| S-04 | Durée de conservation des anciennes photos « dans les bornes » | `02` §9.2 | Décision DPO, pas de l'établissement | Valeur fixe validée par le DPO |
+| S-05 | Âge ou niveau d'ouverture des comptes élèves | `02` §7.9, §9.2 | Peu d'établissements dévient du profil | Profil (compte à partir de la 6ᵉ dans le second degré) ; exception possible |
+| S-06 | Procédure du prénom d'usage « paramétrée » | `02` §7.2, §9.2 | Une procédure se décrit, elle ne se paramètre pas | Procédure du logiciel conforme au cadre vérifié [NV] ; seule l'activation reste |
+| S-07 | Étapes d'instruction paramétrées par campagne (liste, ordre, libellés, caractère obligatoire) | `03` §8.7, §9 | Chaque campagne à reconstruire | Trois parcours types (dossier simple, avec entretien, avec commission) ; copie de l'an dernier (INS-19) ; personnalisation rare |
+| S-08 | Règles de pièces : moment, caractère bloquant, **conditions en JSON** | `03` §8.6 | Illisible pour un secrétariat | Liste de pièces par profil, avec moment et caractère bloquant déjà choisis ; ajout d'une pièce en un clic ; conditions choisies dans une liste fermée |
+| S-09 | Motif communiqué : jamais / facultatif / toujours | `03` §8.1 | Choix de principe fait une fois pour toutes | « facultatif » fixé ; le motif communiqué est proposé par la trame |
+| S-10 | Règle de relance (intervalle, nombre, canal) par campagne | `03` §8.1, §9 | Réglage technique sans enjeu métier | Rythme du logiciel (J+3, J+7, puis veille d'échéance), plafonné |
+| S-11 | Délais bornés (réponse à une proposition de place, non-présentés J+N, fermeture des comptes) | `03` §9 | Trois nombres à fixer chaque année | Valeurs du profil (8 jours, 3 jours de classe, 30 jours) ; contractuels seulement dans le privé |
+| S-12 | Reconfirmation des rendez-vous (oui / non, J-N) | `03` §9 | — | Toujours J-7 (héritage Next.js), désactivable |
+| S-13 | Format du numéro de dossier | `03` §9 | Comme S-03 | Format unique |
+| S-14 | **Modèles de courriers paramétrables**, gabarit du certificat de radiation | `03` §9, §11 | Contraire à D-023 | Trames prêtes (§5 bis.3) |
+| S-15 | Saisie famille **par champ** (non / proposer / modifier) | `04` §8.10, §8.13 | Même défaut que S-01 | Profil ; trois catégories fixes (coordonnées personnelles : modifier après vérification ; adresse : proposer ; situation juridique : non) |
+| S-16 | Pièces par fait (exigée / attendue / non) | `04` §8.13 | Décision de prudence juridique, rarement locale | Valeurs du logiciel, alignées sur la vérification juridique (Q-A16) |
+| S-17 | **Matrice nature × droit** des droits par défaut d'un lien | `04` §8.6, §8.13 | Une grille de 16 × 16 cases | Droits par défaut du logiciel par nature et qualité ; ajustement **au cas par cas** (ADM-33), pas dans une matrice |
+| S-18 | Règles d'envoi « dans les bornes » | `04` §8.12 | La règle par défaut est la bonne dans presque tous les cas | Règles du logiciel ; un seul choix exposé : « absence en garde alternée : prévenir les deux / le foyer du jour » (Q-A8) |
+| S-19 | Paramètres de remise (pièce d'identité exigée, autorisations ponctuelles sans validation, nombre maximal) et d'urgence (nombre minimal et maximal de contacts) | `04` §8.13 | Petits réglages qui s'accumulent | Valeurs du profil ; seuls « photos des personnes autorisées » et « carte de retrait » restent des choix explicites |
+| S-20 | Sections et caractère obligatoire de la fiche de rentrée | `04` §8.10, §8.13 | Reconstruite chaque année | Fiche type du logiciel ; sections ajoutées seulement par les modules activés |
+| S-21 | Libellés des natures de lien | `04` §8.13 | Utile pour un établissement sur cent | Libellés du logiciel ; personnalisation rare |
+| S-22 | **Mes ajouts** : durée d'une exception de garde, délai de l'accord à distance, durée maximale d'une procuration, âge du co-remplissage, durée du bris de glace, délai d'annulation d'une validation, publication programmée, jours ouvrés pour les délais | `02` R-E11, `03` R-I6, R-I7, R-I11, R-I22, `04` R-A2, R-A12, R-A16 | Paramètres ajoutés par cette passe : même risque d'accumulation | **Valeurs fixes** du logiciel au départ ; un réglage n'apparaît que si un établissement pilote en exprime le besoin |
+| S-23 | Dates de changement de régime autorisées (R-E5) | `02` R-E5 | Nouveau réglage | Déduit du profil (fin de trimestre dans le public, libre dans le privé) |
+
+### 5 bis.3 Documents : 3 ou 4 trames prêtes par type (D-023)
+
+Règle pour les socles 2 à 4 : chaque document ci-dessous existe en **3 ou 4 trames** soignées ; l'établissement en choisit une et n'ajuste que son **identité** (logo, couleurs, coordonnées, signature, et un ou deux textes libres encadrés). Le contenu se remplit **seul** à partir des données. Pas d'éditeur de mise en page, pas de modèle à construire dans un traitement de texte. Le rendu passe par le moteur de documents du socle 7 et la conversion maison (D-005). Next.js a déjà quatre modèles codés (certificat de scolarité, fiche d'inscription, autorisation de sortie, courrier aux familles) et aucun éditeur [F Next] : c'est la bonne direction.
+
+| Socle | Documents |
+|---|---|
+| 2 | Certificat de scolarité ; attestation de scolarité passée (ELV-38) ; registre des élèves (ELV-37) ; liste nominative et trombinoscope imprimés (filigrane) ; extrait des données de l'élève (droit d'accès) ; versions bilingues (R-E17) |
+| 3 | Accusé de réception ; demande de pièces ; convocation (entretien, tests) ; courriers de décision (admis, admis sous réserve, liste d'attente, refus, offre alternative) ; proposition de place ; non-réinscription ; réponse à un recours ; attestation d'inscription N+1 ; certificat de radiation ; bordereau du dossier scolaire transmis ; fiche d'inscription imprimable (INS-84) ; listes mairie ; dossier de justification d'une décision |
+| 4 | Fiche de rentrée papier pré-remplie ; étiquettes et publipostage ; fiche de secours du jour ; carte de retrait ; extrait des données d'une personne ; information d'une décision sur l'autorité (texte rédigé par la direction dans un cadre fixe) |
+
+Règles [R] : une trame ne contient **aucune** donnée hors de ce que le destinataire a le droit de recevoir (adresse protégée, autres responsables : `04` §8.12) ; les textes libres encadrés sont courts et relus ; les trames sont versionnées par ScolIA (un document émis garde la version qui l'a produit) ; le changement de trame vaut pour les documents **futurs**.
+
+---
+
 ## 6. Méthode proposée pour refaire cette passe sur chaque socle suivant
 
 1. **Quand.** Après la conception sur Opus et **avant** le premier lot de code ; une seconde passe courte après le premier lot livré (ce qui manque au vrai écran). Budget indicatif : un tiers du temps de conception.
 2. **Choisir 15 à 25 personas** à partir du tableau « Acteurs » du socle, en ajoutant toujours : un acteur public, un privé sous contrat, un hors contrat ; un établissement d'outre-mer ; un nouveau venu (remplaçant, famille arrivée en cours d'année) ; une personne vulnérable (non francophone, sans compte, en danger) ; une personne qui a deux casquettes ; un contrôleur (inspection, DPO).
 3. **Pour chaque persona, dérouler** sa journée, sa semaine et son année mois par mois, puis trois incidents : une **erreur** (et comment l'annuler), une **contestation** (et qui tranche), une **panne** un jour critique.
 4. **Poser la grille transversale** à chaque socle (c'est elle qui a produit la moitié des manques ici) : décès ; majorité ; danger et protection ; panne et hors ligne ; fuseau ; langue et accessibilité ; conflit d'intérêts ; fermeture (vacances, grève) ; erreur et annulation ; contestation et recours ; fraude ; plusieurs établissements (D-013) ; reprise en pleine saison ; « qui le voit, et que voit l'autre parent ? ».
+4 bis. **Comparer à Charlemagne et au terrain** (D-023, D-024) : la matrice de couverture Charlemagne du socle, et les actions que l'équipe faisait « à côté » (tableur partagé, traitement de texte, papier) ; **signaler** dans une liste à part, sans rien supprimer, les réglages qui pèsent, avec leur version automatique ; ramener chaque document produit à 3 ou 4 trames prêtes.
 5. **Noter chaque manque** dans le même tableau (manque, pourquoi, gravité bloquant / important / confort / différenciant, socle, ajout), en renvoyant ce qui n'appartient pas au socle.
 6. **Écrire les ajouts dans la conception elle-même**, marqués **[personas]**, avec des identifiants qui prolongent la numérotation (jamais de renumérotation) ; chaque action ajoutée a son acteur, son droit, ses règles et son événement ; chaque manque **bloquant** reçoit un scénario de test nommé.
 7. **Signaler en tête** ce qui change pour les lots déjà en cours de code.
