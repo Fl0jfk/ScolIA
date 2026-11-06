@@ -469,8 +469,9 @@ pub fn DialogueRetablir(
 /// après vérification d'une pièce d'identité. Seul le type de pièce est transmis.
 #[component]
 pub fn LiensEnAttente(eleve_id: Uuid, recharger: Callback<()>) -> impl IntoView {
-    let demandes =
-        LocalResource::new(move || async move { session::client().liens_en_attente_eleve(eleve_id).await });
+    let demandes = LocalResource::new(move || async move {
+        session::client().liens_en_attente_eleve(eleve_id).await
+    });
     let cible = RwSignal::new(None::<(Uuid, String)>);
     let apres = Callback::new(move |_| {
         demandes.refetch();
@@ -508,7 +509,10 @@ pub fn LiensEnAttente(eleve_id: Uuid, recharger: Callback<()>) -> impl IntoView 
 }
 
 #[component]
-fn DialogueGuichet(cible: RwSignal<Option<(Uuid, String)>>, recharger: Callback<()>) -> impl IntoView {
+fn DialogueGuichet(
+    cible: RwSignal<Option<(Uuid, String)>>,
+    recharger: Callback<()>,
+) -> impl IntoView {
     let notifications = use_notifications();
     let ouvert = RwSignal::new(false);
     Effect::new(move |_| ouvert.set(cible.get().is_some()));
@@ -547,7 +551,11 @@ fn DialogueGuichet(cible: RwSignal<Option<(Uuid, String)>>, recharger: Callback<
         });
     });
     let mut options = vec![(String::new(), "Choisir…".to_string())];
-    options.extend(PIECES_IDENTITE.iter().map(|(c, l)| ((*c).to_string(), (*l).to_string())));
+    options.extend(
+        PIECES_IDENTITE
+            .iter()
+            .map(|(c, l)| ((*c).to_string(), (*l).to_string())),
+    );
     view! {
         <Dialogue ouvert=ouvert titre="Confirmer au guichet" id="fiche-guichet">
             <form class="pile" on:submit=move |ev| { ev.prevent_default(); envoyer.run(()); }>

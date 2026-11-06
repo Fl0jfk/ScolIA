@@ -387,7 +387,9 @@ pub fn piece_a_envoyer(piece: &str, verifiee: bool) -> Result<String, String> {
         return Err("Choisissez le type de pièce d'identité présentée.".into());
     }
     if !verifiee {
-        return Err("Confirmez que vous avez vérifié une pièce d'identité en cours de validité.".into());
+        return Err(
+            "Confirmez que vous avez vérifié une pièce d'identité en cours de validité.".into(),
+        );
     }
     Ok(piece.to_string())
 }

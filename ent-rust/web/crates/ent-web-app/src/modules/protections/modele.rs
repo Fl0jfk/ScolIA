@@ -94,7 +94,9 @@ mod tests {
         };
         let v = trier_declarations(vec![d(1, None), d(2, Some(50)), d(3, Some(5))]);
         assert_eq!(
-            v.iter().map(|x| x.personne_id.as_u128()).collect::<Vec<_>>(),
+            v.iter()
+                .map(|x| x.personne_id.as_u128())
+                .collect::<Vec<_>>(),
             [3, 2, 1]
         );
     }

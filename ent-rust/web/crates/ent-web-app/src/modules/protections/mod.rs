@@ -142,7 +142,10 @@ fn definir(ecriture: Ecriture, personne: Uuid, nom: String, actif: bool) {
 }
 
 #[component]
-fn ListeDeclarations(declarations: Vec<ProtectionADeclarerDto>, ecriture: Ecriture) -> impl IntoView {
+fn ListeDeclarations(
+    declarations: Vec<ProtectionADeclarerDto>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     view! {
         <ul class="ui-liste">
             {declarations.into_iter().map(|d| {
