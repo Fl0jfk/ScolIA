@@ -1,0 +1,563 @@
+//! Admissions, préinscriptions, inscriptions et réinscriptions (socle 2, lot S2-3 ;
+//! D-014). Routes `ent-api/src/inscriptions.rs` (préfixes `/inscriptions`,
+//! `/preinscription`, `/imports`). Aucune logique métier : l'autorité est `ent-db`.
+//!
+//! États (chaînes) :
+//! - campagne : `"brouillon"`, `"ouverte"`, `"fermee"` ; nature `"admission"` ou
+//!   `"reinscription"` ;
+//! - dossier : `"brouillon"`, `"deposee"`, `"en_instruction"`, `"incomplet"`,
+//!   `"liste_attente"`, `"admis"`, `"refuse"`, `"validee"`, `"desistement"` ;
+//! - pièce : `"attendue"`, `"deposee"`, `"acceptee"`, `"refusee"` ;
+//! - ligne d'import : `"a_creer"`, `"existant"`, `"rejet"`, `"creee"`, `"ignoree"`.
+
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Campagnes (INS-01, INS-06)
+// ---------------------------------------------------------------------------
+
+/// Pièce demandée par une campagne.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceCampagneDto {
+    pub code: String,
+    pub libelle: String,
+    pub obligatoire: bool,
+}
+
+/// Niveau ouvert par une campagne, avec sa capacité (places) facultative.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NiveauCampagneDto {
+    pub code: String,
+    pub capacite: Option<i32>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CampagneDto {
+    pub id: Uuid,
+    pub nature: String,
+    pub libelle: String,
+    pub annee_cible: String,
+    pub statut: String,
+    pub date_ouverture: Option<NaiveDate>,
+    pub date_cloture: Option<NaiveDate>,
+    pub message_famille: Option<String>,
+    pub niveaux: Vec<NiveauCampagneDto>,
+    pub pieces: Vec<PieceCampagneDto>,
+    /// Nombre de dossiers par statut (personnel seulement ; vide pour les familles).
+    #[serde(default)]
+    pub compteurs: Vec<CompteurStatutDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompteurStatutDto {
+    pub statut: String,
+    pub nombre: i64,
+}
+
+/// Corps de `POST /inscriptions/campagnes` et `PUT /inscriptions/campagnes/{id}`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CampagneBody {
+    pub nature: String,
+    pub libelle: String,
+    pub annee_cible: String,
+    #[serde(default)]
+    pub date_ouverture: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_cloture: Option<NaiveDate>,
+    #[serde(default)]
+    pub message_famille: Option<String>,
+    #[serde(default)]
+    pub niveaux: Vec<NiveauCampagneDto>,
+    #[serde(default)]
+    pub pieces: Vec<PieceCampagneDto>,
+}
+
+/// Résultat de l'ouverture d'une campagne (réinscription : dossiers préparés).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OuvertureCampagneDto {
+    pub campagne: CampagneDto,
+    pub dossiers_prepares: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Dossiers
+// ---------------------------------------------------------------------------
+
+/// Élève tel que saisi dans le formulaire (copie propre à l'établissement).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EleveFormulaireDto {
+    pub nom: String,
+    pub prenom: String,
+    #[serde(default)]
+    pub date_naissance: Option<NaiveDate>,
+    #[serde(default)]
+    pub sexe: Option<String>,
+    #[serde(default)]
+    pub ine: Option<String>,
+    #[serde(default)]
+    pub niveau_demande: Option<String>,
+    #[serde(default)]
+    pub regime_demande: Option<String>,
+    #[serde(default)]
+    pub etablissement_origine: Option<String>,
+}
+
+/// Responsable tel que saisi (rang 1 = déposant, rang 2 = second parent).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsableFormulaireDto {
+    pub nom: String,
+    #[serde(default)]
+    pub prenom: Option<String>,
+    #[serde(default)]
+    pub civilite: Option<String>,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub telephone: Option<String>,
+    #[serde(default)]
+    pub adresse: Option<String>,
+    /// `"mere"`, `"pere"`, `"tuteur"`, `"autre"`.
+    #[serde(default)]
+    pub lien: Option<String>,
+    /// Second parent : même foyer que le déposant ? `false` = parents séparés
+    /// (une fiche par parent, e-mail obligatoire, D-014).
+    #[serde(default = "vrai")]
+    pub meme_foyer: bool,
+    #[serde(default = "vrai")]
+    pub autorite_parentale: bool,
+}
+
+fn vrai() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsableDossierDto {
+    pub rang: i16,
+    pub formulaire: ResponsableFormulaireDto,
+    /// Invitation envoyée à la validation : `"envoyee"`, `"acceptee"`, … (`None` : aucune).
+    pub invitation: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceDossierDto {
+    pub code: String,
+    pub libelle: String,
+    pub obligatoire: bool,
+    pub statut: String,
+    pub nom_fichier: Option<String>,
+    pub motif_refus: Option<String>,
+}
+
+/// Entrée du suivi d'un dossier (changement d'étape, commentaire, pièce, relance).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SuiviDossierDto {
+    pub quand: DateTime<Utc>,
+    pub kind: String,
+    pub statut_apres: Option<String>,
+    pub texte: Option<String>,
+    pub visible_famille: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DossierResumeDto {
+    pub id: Uuid,
+    pub campagne_id: Uuid,
+    pub nature: String,
+    pub statut: String,
+    pub eleve_nom: String,
+    pub eleve_prenom: String,
+    pub niveau_demande: Option<String>,
+    pub eleve_id: Option<Uuid>,
+    pub depose_le: Option<DateTime<Utc>>,
+    pub pieces_manquantes: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DossierDto {
+    pub id: Uuid,
+    pub campagne_id: Uuid,
+    pub campagne_libelle: String,
+    pub nature: String,
+    pub statut: String,
+    pub eleve: EleveFormulaireDto,
+    pub eleve_id: Option<Uuid>,
+    pub classe_cible_id: Option<Uuid>,
+    pub responsables: Vec<ResponsableDossierDto>,
+    pub pieces: Vec<PieceDossierDto>,
+    pub suivi: Vec<SuiviDossierDto>,
+    /// Motif de décision (refus, liste d'attente), visible de la famille.
+    pub decision_motif: Option<String>,
+    pub depose_le: Option<DateTime<Utc>>,
+    pub valide_le: Option<DateTime<Utc>>,
+    pub reutilise_identite: bool,
+    /// Actions possibles pour le lecteur (codes stables).
+    pub actions: Vec<String>,
+}
+
+/// Corps de `POST /inscriptions/dossiers/{id}/statut` (instruction).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StatutBody {
+    pub statut: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST /inscriptions/dossiers/{id}/pieces/{code}` (personnel).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceDecisionBody {
+    /// `"acceptee"` ou `"refusee"` (motif obligatoire).
+    pub statut: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentaireBody {
+    pub texte: String,
+    #[serde(default)]
+    pub visible_famille: bool,
+}
+
+/// Corps de `POST /inscriptions/dossiers/{id}/decision` (INS-04).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionBody {
+    /// `"admis"`, `"liste_attente"`, `"refuse"`.
+    pub decision: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST /inscriptions/dossiers/{id}/valider` (INS-05).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationBody {
+    #[serde(default)]
+    pub classe_id: Option<Uuid>,
+    #[serde(default)]
+    pub regime: Option<String>,
+    /// Choix humains de rapprochement (I0, §2.2 pts 1-3). Obligatoire pour tout
+    /// responsable ayant des correspondances possibles (`GET …/correspondances`).
+    #[serde(default)]
+    pub responsables: Vec<ResolutionResponsable>,
+    /// Obligatoire si une fiche élève correspond déjà (homonyme exact ou INE).
+    #[serde(default)]
+    pub eleve: Option<ChoixEleve>,
+}
+
+/// Décision de la personne de l'établissement pour un responsable déclaré.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolutionResponsable {
+    pub responsable_id: Uuid,
+    pub personne: ChoixPersonne,
+    /// Obligatoire quand la personne choisie appartient déjà à un foyer.
+    #[serde(default)]
+    pub foyer: Option<ChoixFoyer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixPersonne {
+    /// Créer une nouvelle fiche (les correspondances sont écartées en connaissance de cause).
+    Nouvelle,
+    /// Rattacher à une fiche existante de l'établissement.
+    Existante { personne_id: Uuid },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixFoyer {
+    Nouveau,
+    Existant { foyer_id: Uuid },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixEleve {
+    /// Homonyme différent : créer une nouvelle fiche (refusé si l'INE est identique).
+    Nouveau,
+    /// Ancien élève qui revient : rattacher le dossier à la fiche existante.
+    /// `confirme_responsables_existants` : obligatoire si la fiche a déjà des responsables
+    /// liés (le dossier ne doit pas donner accès à un élève déjà suivi par d'autres).
+    Existant {
+        eleve_id: Uuid,
+        #[serde(default)]
+        confirme_responsables_existants: bool,
+    },
+}
+
+/// `GET /inscriptions/dossiers/{id}/correspondances` : de quoi décider à la validation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorrespondancesDto {
+    pub eleves: Vec<EleveCandidatDto>,
+    pub responsables: Vec<ResponsableCorrespondancesDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EleveCandidatDto {
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub date_naissance: Option<NaiveDate>,
+    pub statut: String,
+    pub ine_identique: bool,
+    /// Responsables déjà liés à cette fiche (à vérifier avant tout rattachement).
+    pub responsables_lies: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsableCorrespondancesDto {
+    pub responsable_id: Uuid,
+    pub rang: i16,
+    pub candidats: Vec<PersonneCandidateDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonneCandidateDto {
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub email_masque: Option<String>,
+    /// `"email"` (même adresse) ou `"nom"` (même nom et prénom).
+    pub raison: String,
+    pub a_un_compte: bool,
+    pub foyers: Vec<FoyerCandidatDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoyerCandidatDto {
+    pub foyer_id: Uuid,
+    pub libelle: String,
+}
+
+/// Droits attribués à un lien de responsabilité selon son type (paramétrage établissement).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParametreLienDto {
+    pub lien: String,
+    pub peut_voir_notes: bool,
+    pub peut_voir_vs: bool,
+    pub peut_justifier_absence: bool,
+    #[serde(default)]
+    pub peut_autoriser_sorties: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationDto {
+    pub dossier_id: Uuid,
+    pub eleve_id: Uuid,
+    pub evenement_id: Uuid,
+}
+
+// ---------------------------------------------------------------------------
+// Préinscription par la famille (INS-02, D-014)
+// ---------------------------------------------------------------------------
+
+/// `POST /preinscription/demarrer` : réponse **identique** que le compte existe ou non.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemarrerBody {
+    pub email: String,
+    /// Ignoré quand l'établissement est imposé par l'adresse (D-012).
+    #[serde(default)]
+    pub etablissement_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemarrerDto {
+    pub demande_id: Uuid,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifierBody {
+    pub demande_id: Uuid,
+    pub code: String,
+}
+
+/// Jeton de préinscription (en-tête `X-Preinscription`), court et révocable.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JetonPreinscriptionDto {
+    pub jeton: String,
+    pub expire_le: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for JetonPreinscriptionDto {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JetonPreinscriptionDto")
+            .field("jeton", &"[masqué]")
+            .field("expire_le", &self.expire_le)
+            .finish()
+    }
+}
+
+/// Informations proposées au pré-remplissage (profil choisi par la personne).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfilDto {
+    pub nom: Option<String>,
+    pub prenom: Option<String>,
+    pub civilite: Option<String>,
+    pub telephone: Option<String>,
+    pub adresse: Option<String>,
+}
+
+/// `GET /preinscription/moi` (après vérification seulement).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EspacePreinscriptionDto {
+    pub email: String,
+    /// Personne déjà connue de l'ENT : « Nous avons déjà vos informations. Les utiliser ? »
+    pub connu: bool,
+    pub profil: Option<ProfilDto>,
+    pub campagnes: Vec<CampagneDto>,
+    pub dossiers: Vec<DossierResumeDto>,
+    /// Message de transparence (D-014), toujours affiché.
+    pub message_confidentialite: String,
+}
+
+/// `POST /preinscription/dossiers`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreinscriptionBody {
+    pub campagne_id: Uuid,
+    /// « Utiliser mes informations ? » : oui → pré-remplissage accepté (tracé).
+    #[serde(default)]
+    pub utiliser_mes_infos: bool,
+    /// « Enregistrer ces informations dans votre profil ? » (non par défaut).
+    #[serde(default)]
+    pub enregistrer_profil: bool,
+    pub eleve: EleveFormulaireDto,
+    pub responsable: ResponsableFormulaireDto,
+    #[serde(default)]
+    pub second_parent: Option<ResponsableFormulaireDto>,
+}
+
+/// `POST /preinscription/dossiers/{id}/pieces/{code}` (déclaration par la famille).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceDeposeeBody {
+    pub nom_fichier: String,
+}
+
+/// IBAN proposé à la reprise, **masqué** (`FR76 •••• 1234`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IbanProposeDto {
+    pub proposition_id: Uuid,
+    pub iban_masque: String,
+    pub titulaire_initiales: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneesBancairesDto {
+    /// Propositions de reprise (vide si l'identité n'a pas été réutilisée).
+    pub propositions: Vec<IbanProposeDto>,
+    /// Mandat en attente de signature ou signé.
+    pub mandat: Option<MandatDemandeDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MandatDemandeDto {
+    pub id: Uuid,
+    pub iban_masque: String,
+    pub source: String,
+    pub statut: String,
+    pub rum: Option<String>,
+}
+
+/// `POST /preinscription/dossiers/{id}/mandat` : reprise d'une proposition ou saisie.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MandatBody {
+    #[serde(default)]
+    pub proposition_id: Option<Uuid>,
+    #[serde(default)]
+    pub iban: Option<String>,
+    #[serde(default)]
+    pub bic: Option<String>,
+    #[serde(default)]
+    pub titulaire: Option<String>,
+}
+
+impl std::fmt::Debug for MandatBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MandatBody")
+            .field("proposition_id", &self.proposition_id)
+            .field("iban", &self.iban.as_ref().map(|_| "[masqué]"))
+            .finish()
+    }
+}
+
+/// `POST /inscriptions/invitations/accepter` (lien reçu par e-mail).
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationBody {
+    pub jeton: String,
+}
+
+impl std::fmt::Debug for InvitationBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("InvitationBody { jeton: [masqué] }")
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationAccepteeDto {
+    /// `"compte_rattache"` (identité existante) ou `"compte_cree"`.
+    pub resultat: String,
+    pub message: String,
+}
+
+// ---------------------------------------------------------------------------
+// Réinscription par la famille (INS-07, INS-08)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmationReinscriptionBody {
+    #[serde(default)]
+    pub regime: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepartBody {
+    pub motif: String,
+    #[serde(default)]
+    pub date_depart: Option<NaiveDate>,
+}
+
+// ---------------------------------------------------------------------------
+// Import (IOP-01 format ScolIA documenté, IOP-04 rejets)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportBody {
+    pub nom_fichier: String,
+    /// Contenu CSV (UTF-8, séparateur `;`, en-tête obligatoire) — format `scolia_eleves_v1`.
+    pub contenu: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LigneImportDto {
+    pub id: Uuid,
+    pub numero: i32,
+    pub statut: String,
+    pub motifs: Vec<String>,
+    pub eleve_nom: String,
+    pub eleve_prenom: String,
+    pub eleve_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LotImportDto {
+    pub id: Uuid,
+    pub format: String,
+    pub nom_fichier: String,
+    pub statut: String,
+    pub nb_lignes: i32,
+    pub nb_a_creer: i32,
+    pub nb_existantes: i32,
+    pub nb_rejets: i32,
+    pub nb_creees: i32,
+    pub lignes: Vec<LigneImportDto>,
+}
+
+/// `POST /imports/lignes/{id}/traiter` : `"ignorer"` ou `"corriger"` (champs remplacés).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraiterLigneBody {
+    pub action: String,
+    #[serde(default)]
+    pub corrections: std::collections::BTreeMap<String, String>,
+}

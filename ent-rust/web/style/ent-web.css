@@ -104,6 +104,40 @@
 @media (pointer: coarse) { .edt-seance__appel { min-height: var(--cible); } }
 @media (max-width: 767px) { .edt-semaine { grid-template-columns: 1fr; } }
 
+/* --- Cahier de textes, travail à faire, copies (S2-6) ---------------------- */
+.cdt-resume { color: var(--c-attenue); font-size: var(--taille-s); margin: 0 0 var(--esp-3); }
+.cdt-vide { color: var(--c-attenue); font-size: var(--taille-s); }
+.cdt-semaine { display: grid; gap: var(--esp-4); }
+.cdt-jour { display: grid; gap: var(--esp-2); min-width: 0; }
+.cdt-jour__titre { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--esp-2); font-size: var(--taille-m); }
+.cdt-jour__total { font-size: var(--taille-s); font-weight: var(--graisse-normale, 400); color: var(--c-attenue); }
+.cdt-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-3); min-width: 0; }
+.cdt-liste > li { min-width: 0; }
+.cdt-seance, .cdt-travail, .cdt-copie {
+  display: grid; gap: var(--esp-2); min-width: 0; padding: var(--esp-4);
+  background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1);
+}
+.cdt-seance--annulee { opacity: 0.7; }
+.cdt-travail--controle { box-shadow: inset 4px 0 0 var(--c-avert), var(--ombre-1); }
+.cdt-seance__entete, .cdt-travail__entete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); }
+.cdt-seance__titre, .cdt-travail__titre { font-size: var(--taille-m); font-weight: var(--graisse-forte); overflow-wrap: anywhere; min-width: 0; }
+.cdt-travail__badges { display: inline-flex; flex-wrap: wrap; gap: var(--esp-1); }
+.cdt-seance__apercu, .cdt-travail__consigne, .cdt-copie__mot { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.cdt-seance__detail, .cdt-travail__detail { font-size: var(--taille-s); color: var(--c-attenue); margin: 0; overflow-wrap: anywhere; }
+.cdt-seance__saisie { border-top: 1px solid var(--c-ligne); padding-top: var(--esp-2); }
+.cdt-seance__saisie > summary { cursor: pointer; min-height: var(--cible-compacte); display: flex; align-items: center; font-weight: var(--graisse-forte); color: var(--c-acc-fort); }
+.cdt-form { display: grid; gap: var(--esp-3); padding-top: var(--esp-2); max-width: 40rem; }
+.cdt-travail__actions, .cdt-pieces { display: flex; flex-wrap: wrap; gap: var(--esp-2); list-style: none; margin: 0; padding: 0; }
+.cdt-classes { display: grid; gap: var(--esp-3); margin-top: var(--esp-6, 2rem); }
+.cdt-classe { display: grid; gap: var(--esp-3); min-width: 0; }
+.cdt-classe__titre { font-size: var(--taille-m); }
+.cdt-surcharge { margin: 0; padding-left: var(--esp-4); }
+.cdt-remise { display: grid; gap: var(--esp-2); }
+@media (max-width: 480px) {
+  .cdt-seance, .cdt-travail, .cdt-copie { padding: var(--esp-3); }
+  .cdt-travail__actions > *, .cdt-pieces > li { flex: 1 1 100%; }
+}
+
 /* --- Appel : choix de la séance ------------------------------------------- */
 .appel-jour input {
   min-height: var(--cible); padding: 0 var(--esp-3); border: 0; border-radius: var(--rayon-petit);

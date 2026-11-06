@@ -18,11 +18,13 @@ const METHODES: [(&str, &str); 5] = [
 ];
 
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
-/// `routes.rs` : référentiel, référentiel S2-2, rôles). Une nouvelle source de routes doit
-/// être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 6] = [
+/// `routes.rs` : cahier, dossier, inscriptions, référentiel, référentiel S2-2, rôles,
+/// vie scolaire). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
+pub const SOURCES: [&str; 8] = [
     include_str!("../../src/routes.rs"),
+    include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
+    include_str!("../../src/inscriptions.rs"),
     include_str!("../../src/referentiel.rs"),
     include_str!("../../src/referentiel_s2.rs"),
     include_str!("../../src/roles.rs"),
@@ -30,9 +32,11 @@ pub const SOURCES: [&str; 6] = [
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 6] = [
+pub const NOMS_SOURCES: [&str; 8] = [
     "routes.rs",
+    "cahier.rs",
     "dossier.rs",
+    "inscriptions.rs",
     "referentiel.rs",
     "referentiel_s2.rs",
     "roles.rs",

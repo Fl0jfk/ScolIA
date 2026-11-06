@@ -364,6 +364,17 @@ impl RpConfigCheck {
 /// Contexte (AAD) du chiffrement du secret client OIDC.
 const OIDC_SECRET_AAD: &[u8] = b"ent_oidc_provider.client_secret";
 
+/// Nature d'un refus métier explicite (voir [`EntDbError::Refus`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusMetier {
+    /// Donnée invalide (HTTP 422).
+    Invalide,
+    /// État incompatible avec l'action (HTTP 409).
+    Conflit,
+    /// Action refusée par une règle métier (HTTP 403).
+    Interdit,
+}
+
 #[derive(Debug, Error)]
 pub enum EntDbError {
     #[error(transparent)]
@@ -401,6 +412,9 @@ pub enum EntDbError {
     /// Opération du dossier élève incompatible avec l'état actuel.
     #[error("opération en conflit : {0}")]
     ConflitDossier(&'static str),
+    /// Refus métier explicite (S2-6) : le message est destiné à l'utilisateur.
+    #[error("{1}")]
+    Refus(RefusMetier, &'static str),
     /// Mot de passe actuel absent ou incorrect (re-vérification d'une action sensible).
     #[error("mot de passe actuel requis ou incorrect")]
     MotDePasseActuelInvalide,
@@ -816,6 +830,18 @@ impl PgEnt {
         self.mail_dry_run_accepte = accepter_dry_run;
     }
 
+    /// Expédie les messages d'inscription en file (après validation des transactions
+    /// métier). Appelée par la tâche de fond de l'API ; les tests l'appellent à la main.
+    pub async fn expedier_envois_inscriptions(&self, limite: i64) -> Result<usize, EntDbError> {
+        Ok(crate::inscriptions_reactions::expedier_envois(
+            &self.pool,
+            &self.mailer,
+            self.mail_dry_run_accepte,
+            limite,
+        )
+        .await?)
+    }
+
     pub fn mailer(&self) -> &MailService {
         &self.mailer
     }
@@ -1009,6 +1035,13 @@ impl PgEnt {
         let mut d = Distributeur::new(self.pool.clone(), config);
         for c in consommateurs_standard() {
             d.enregistrer(c).expect("consommateurs standard aux noms uniques");
+        }
+        // S2-3 : réactions à `inscription.validee` (envois par la messagerie de l'ENT).
+        for c in crate::inscriptions_reactions::consommateurs_inscriptions(
+            self.mailer.clone(),
+            self.mail_dry_run_accepte,
+        ) {
+            d.enregistrer(c).expect("consommateurs d'inscription aux noms uniques");
         }
         d
     }
@@ -3393,7 +3426,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// n'est accepté qu'en build `labo` ou après `install_mail_dry_run` (tests),
     /// jamais en production : sinon un échec / une config absente produirait un
     /// faux « lien envoyé ».
-    fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
+    pub(crate) fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
         match receipt.status {
             MailSendStatus::Sent => true,
             MailSendStatus::DryRun => self.mail_dry_run_accepte,
@@ -3405,7 +3438,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// Strict : URL publique absente (`public_base_url` vide), messagerie non
     /// prête ou envoi non confirmé → `EnvoiImpossible`. Dans le dernier cas le
     /// jeton créé est invalidé (aucun lien orphelin actif).
-    async fn envoyer_lien_reinitialisation(
+    pub(crate) async fn envoyer_lien_reinitialisation(
         &self,
         user_id: Uuid,
         public_base_url: &str,

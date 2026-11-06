@@ -4,11 +4,13 @@
 pub mod absences;
 pub mod accueil;
 pub mod appel;
+pub mod cahier;
 pub mod classes;
 pub mod connexion;
 pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;
+pub mod inscriptions;
 pub mod journee_vs;
 pub mod messagerie;
 pub mod recuperation;

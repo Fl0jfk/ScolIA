@@ -987,6 +987,22 @@ Règles : migrations **additives** d'abord ; reprise idempotente ; aucune migrat
 
 ---
 
+## 16 bis. État du lot I0 (2026-11-06, branche `ent-socle-inscriptions-i0`)
+
+**Implémenté et testé en local (PostgreSQL local, voir `PROJECT_STATUS.md`) ; non validé par Florian, non prêt pilote.** Base : `ent-integration-lot5` (contient S2-3) + `ent-mc0hoe`. Migration `250_inscriptions_i0.sql`.
+
+| §2.2 | Fait | Test |
+|---|---|---|
+| 1 | Plus aucun rapprochement par e-mail. `GET /inscriptions/dossiers/{id}/correspondances` présente les fiches possibles (même e-mail, même nom et prénom, adresse masquée) ; `valider` refuse (409) sans choix humain explicite par responsable. Lien vers une personne ayant un compte : ligne `ent_inscription_lien_attente`, **aucun** `ent_eleve_lien` tant que le titulaire n'a pas confirmé par le lien reçu à l'adresse **du compte** (ou refusé : `POST /inscriptions/invitations/refuser`). Droits du lien : table `ent_inscription_parametre_lien` (`GET/PUT /inscriptions/parametres/liens`), à défaut notes/vie scolaire/justification = autorité parentale, sorties = non | `attaque_email_parent_existant_aucun_acces`, `refus_du_parent_existant_aucun_lien` |
+| 2 | Foyer existant à confirmer (409 sinon) ; aucun nouveau foyer quand il est confirmé | `fratrie_foyer_existant_confirme` |
+| 3 | Homonyme/INE : choix humain `ChoixEleve::Existant` (rattachement) ou `Nouveau` ; INE identique ⇒ rattachement obligatoire | `ancien_eleve_rattache_a_la_fiche_existante` |
+| 4 | Un seul seau par IP pour toutes les routes à jeton famille ; jeton par session réservé aux parents et élèves majeurs | `jeton_famille_limite_de_debit_et_roles` |
+| 5 | `ent_db::url_base_de_test()` : échec explicite en CI (`CI` ou `ENT_EXIGER_BASE=1`) ; test HTTP multi-hôtes | `jeton_famille_isole_entre_etablissements_http` |
+| 6, 17 | File `ent_inscription_envoi` écrite dans la transaction, expédiée après commit (`expedier_envois`, tâche de fond de `ent-api`), reprise à délai croissant, 5 essais puis `echec` / invitation `non_envoyee` ; relance : échec tracé au suivi du dossier | `echec_d_envoi_trace_et_code_hmac`, `reactions_idempotentes`, `attaque_…` |
+| 7 (pt 20) | Acceptation d'invitation en une transaction, fiche déjà rattachée jamais réassignée ; code de vérification en HMAC-SHA-256 (`ENT_SECRETS_KEY`, usage dédié) ; jeton d'invitation dérivé par HMAC (non stocké en clair) | idem + test unitaire `hmac_depend_du_secret_et_de_l_usage` |
+
+**Limites connues (hors I0).** (a) Écritures directes dans `ent_eleve`/`ent_personne`/`ent_foyer`/`ent_eleve_lien` conservées dans le module (pt 2 du §2.2 : lot I1) — I0 n'en ajoute aucune nouvelle hors de ces tables déjà écrites. (b) La réintégration d'un ancien élève (statut, scolarisation) relève du socle 2 : I0 se contente de rattacher le dossier à la fiche. (c) **Écran de validation du frontend** : sans interface de rapprochement, la validation reçoit un 409 dès qu'une correspondance existe ; écran à faire. (d) L'import (`imports.rs`) crée toujours ses liens directement (pt 19, socle 9). (e) Invitation d'un responsable sans compte rapproché sur choix humain : lien direct (sans compte, inutilisable avant l'acceptation par l'adresse du dossier). (f) Interface d'administration du paramétrage des droits : API seulement. (g) Rattachement à un élève déjà suivi : refusé sans `confirme_responsables_existants` (anti-détournement par INE copié). (h) Points ouverts de la revue de sécurité : voir `PROJECT_STATUS.md`.
+
 ## 17. Découpage en lots de code (équipe Sonnet)
 
 Chaque lot livre : migrations additives, dépôt (`ent-db`), service en une transaction, routes (`ent-api`) et types (`ent-types`), tests Postgres (isolation entre établissements, matrice de droits, parcours), écrans quand le lot en a, documentation (ce document, `SOCLE2_DOMAINES.md` D3, `PROJECT_STATUS.md`). Revue `review-sonnet` sur chaque lot ; revue sécurité (skill `security-review`) sur I0, I2, I4, I6, I8 et sur tout ce qui touche aux routes publiques. Travaux parallèles en sessions séparées ou worktrees vérifiés (F-007), quatre compilations au plus en même temps (F-006). Effort : **S** ≤ 3 j, **M** 1–2 sem., **L** > 2 sem. [H].
@@ -1060,5 +1076,5 @@ Ordre recommandé : **I0** (débloque la fusion de S2-3) → **I1** → **I2** �
 - D-014 place l'invitation du second parent à la validation ; l'accord des deux parents pour une admission dans le privé doit exister avant l'engagement — Q-I5.
 - `SOCLE2_DOMAINES.md` D3 annonçait `ent_dossier_admission`, `ent_admission_*`, `ent_depart` ; le code a pris `ent_inscription_*` et n'a pas de départ — ce document garde `ent_inscription_*` et ajoute `ent_inscription_depart`.
 - `SOCLE2_DOMAINES.md` range INS-10 et INS-11 (régime, options en cours d'année) dans les inscriptions ; `02_ELEVE.md` les met au socle 2 (ELV-10) — ce document suit `02_ELEVE.md`.
-- Deux décisions F-008 différentes sous le même numéro (`DECISIONS_AND_FAILURES.md` de `ENT` et de la branche S2-3) — à renuméroter à la fusion.
+- Trois entrées F-008 distinctes existaient avant la fusion du lot 6 ; renumérotées : F-008 (contrôles d'accès annexes), F-009 (contrainte redéfinie par une migration), F-010 (sessions cloud sur Opus).
 - Next.js adosse les rendez-vous à Google Agenda, contre l'orientation de souveraineté de `CLAUDE.md` — Q-I12.

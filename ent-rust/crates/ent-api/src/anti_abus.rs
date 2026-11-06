@@ -113,6 +113,54 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             None,
             None,
         ),
+        // Préinscription (S2-3, D-014) : la demande envoie un code par e-mail
+        // (seau par IP et par e-mail, strict) ; la vérification est bornée par
+        // demande (5 essais en base) et par IP ; invitation : jeton de 256 bits.
+        "/preinscription/demarrer" => r(
+            "PREINSCRIPTION_DEMARRER",
+            Some(Quota::new(10, 900)),
+            Some(Quota::new(3, 3600)),
+            Some("email"),
+        ),
+        "/preinscription/verifier" => r(
+            "PREINSCRIPTION_VERIFIER",
+            Some(Quota::new(30, 900)),
+            Some(Quota::new(10, 900)),
+            Some("demande_id"),
+        ),
+        // Espace famille à jeton (I0, §2.2 pt 12) : mêmes plafonds par IP pour toutes
+        // les routes à jeton (un seul seau) ; la délivrance d'un jeton par session est
+        // plus stricte. Le jeton porte 256 bits : pas de seau par identifiant.
+        "/preinscription/session" => r(
+            "PREINSCRIPTION_SESSION",
+            Some(Quota::new(20, 900)),
+            None,
+            None,
+        ),
+        "/preinscription/moi"
+        | "/preinscription/dossiers"
+        | "/preinscription/dossiers/{id}"
+        | "/preinscription/dossiers/{id}/pieces/{code}"
+        | "/preinscription/dossiers/{id}/banque"
+        | "/preinscription/dossiers/{id}/mandat"
+        | "/preinscription/dossiers/{id}/mandat/signer" => r(
+            "PREINSCRIPTION_FAMILLE",
+            Some(Quota::new(120, 900)),
+            None,
+            None,
+        ),
+        "/inscriptions/invitations/refuser" => r(
+            "INVITATION_REFUSER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("jeton"),
+        ),
+        "/inscriptions/invitations/accepter" => r(
+            "INVITATION_ACCEPTER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("jeton"),
+        ),
         "/auth/oidc/{slug}/start" => r("OIDC_START", Some(Quota::new(30, 300)), None, None),
         _ => return None,
     })
