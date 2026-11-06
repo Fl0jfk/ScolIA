@@ -2280,7 +2280,7 @@ async fn passkey_login_start(
         .map_err(map_passkey)?
     {
         Some(reel) => reel,
-        None => state.ent.passkey_challenge_factice(),
+        None => state.ent.passkey_challenge_factice(&body.email),
     };
     Ok(Json(PasskeyChallengeDto {
         token,

@@ -2191,7 +2191,7 @@ impl PgEnt {
     /// HTTP est ainsi indiscernable (anti-énumération). Rien n'est persisté : le
     /// jeton renvoyé est refusé comme n'importe quel jeton inconnu à l'étape
     /// `finish`.
-    pub fn passkey_challenge_factice(&self) -> (String, serde_json::Value, DateTime<Utc>) {
+    pub fn passkey_challenge_factice(&self, email: &str) -> (String, serde_json::Value, DateTime<Utc>) {
         fn b64url(octets: &[u8]) -> String {
             const A: &[u8; 64] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -2212,15 +2212,32 @@ impl PgEnt {
         }
         let (jeton, _) = generate_challenge_token();
         let (rp_id, _, _) = ent_auth::rp_config_from_env();
+        // RF-07 : le nombre d'`allowCredentials` d'un vrai défi est le nombre de passkeys
+        // du compte (stable). Le factice en annonce 1 à 3, fixé par l'adresse via un secret
+        // de processus : stable d'un appel à l'autre, sans lien avec l'existence du compte.
+        static SEL: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+        let sel = SEL.get_or_init(aleatoire_32);
+        let empreinte = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(sel);
+            h.update(email.trim().to_ascii_lowercase().as_bytes());
+            h.finalize()
+        };
+        let nb = match empreinte[0] {
+            0..=203 => 1,
+            204..=243 => 2,
+            _ => 3,
+        };
+        let identifiants: Vec<serde_json::Value> = (0..nb)
+            .map(|_| json!({ "type": "public-key", "id": b64url(&aleatoire_32()) }))
+            .collect();
         let options = json!({
             "publicKey": {
                 "challenge": b64url(&aleatoire_32()),
                 "timeout": 300000,
                 "rpId": rp_id,
-                "allowCredentials": [{
-                    "type": "public-key",
-                    "id": b64url(&aleatoire_32()),
-                }],
+                "allowCredentials": identifiants,
                 // Revue finale socle 1 : même valeur que le vrai défi (webauthn-rs exige
                 // la vérification de l'utilisateur) ; « preferred » trahissait le factice.
                 "userVerification": "required",
