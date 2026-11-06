@@ -83,6 +83,19 @@ async fn run_api() {
             }
         })
     });
+    // S2-5 (ADM-04) : balayage des délégations échues (enregistre l'expiration et publie
+    // `delegation.expiree` une fois). Les droits, eux, s'éteignent par la date seule.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = ent.delegations_balayer(domain_eleve::today_utc()).await {
+                    tracing::warn!("balayage des délégations : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            }
+        });
+    }
 
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).

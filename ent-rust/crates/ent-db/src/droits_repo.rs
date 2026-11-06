@@ -98,6 +98,12 @@ impl PgEnt {
                 });
             }
         }
+        // S2-5 (ADM-04) : délégations datées en cours. Lues à chaque requête : la date de
+        // fin suffit à les éteindre, sans tâche de fond.
+        droits.extend(
+            self.droits_delegues(etablissement_id, user_id, today_utc())
+                .await?,
+        );
         Ok(droits)
     }
 
@@ -630,7 +636,7 @@ impl PgEnt {
 
     /// Anti-escalade (garde-fou 2) : chaque droit doit être couvert par ceux de
     /// l'acteur. Le profil Admin est exempté.
-    async fn exiger_couverture(
+    pub(crate) async fn exiger_couverture(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,

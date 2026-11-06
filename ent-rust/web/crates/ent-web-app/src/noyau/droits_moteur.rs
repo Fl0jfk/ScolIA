@@ -67,6 +67,21 @@ impl DroitsMoteur {
     pub fn peut_signaler_assiduite(&self) -> bool {
         self.a("assiduite.signaler")
     }
+
+    /// Créneaux, remplacements, annulations et déplacements de séances (`edt.gerer`).
+    pub fn peut_gerer_edt(&self) -> bool {
+        self.a("edt.gerer")
+    }
+
+    /// Annuler en masse les cours d'une période (grève, fermeture) : `edt.annuler_masse`.
+    pub fn peut_annuler_masse(&self) -> bool {
+        self.a("edt.annuler_masse")
+    }
+
+    /// Accorder et révoquer des délégations de droits (`delegations.gerer`).
+    pub fn peut_gerer_delegations(&self) -> bool {
+        self.a("delegations.gerer")
+    }
 }
 
 #[cfg(test)]
@@ -88,6 +103,24 @@ mod tests {
         assert!(!d.peut_verifier_appels() && !d.peut_declarer_absence());
         assert!(!d.peut_donner_punition() && !d.peut_gerer_discipline());
         assert!(!d.peut_signaler_assiduite());
+        assert!(!d.peut_gerer_edt() && !d.peut_annuler_masse() && !d.peut_gerer_delegations());
+    }
+
+    #[test]
+    fn droits_de_l_emploi_du_temps_et_des_delegations() {
+        // Un secrétariat gère l'emploi du temps sans pouvoir annuler en masse ni déléguer.
+        let d = DroitsMoteur::new(vec![droit("edt.gerer", "etablissement")]);
+        assert!(d.peut_gerer_edt() && !d.peut_annuler_masse() && !d.peut_gerer_delegations());
+        let direction = DroitsMoteur::new(vec![
+            droit("edt.gerer", "etablissement"),
+            droit("edt.annuler_masse", "etablissement"),
+            droit("delegations.gerer", "etablissement"),
+        ]);
+        assert!(
+            direction.peut_gerer_edt()
+                && direction.peut_annuler_masse()
+                && direction.peut_gerer_delegations()
+        );
     }
 
     #[test]

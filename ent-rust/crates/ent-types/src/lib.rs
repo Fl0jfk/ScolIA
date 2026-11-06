@@ -19,6 +19,7 @@ pub mod cahier;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;
+pub mod edt_s2;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;

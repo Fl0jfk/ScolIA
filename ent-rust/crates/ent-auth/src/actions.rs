@@ -124,6 +124,10 @@ pub enum Action {
     CahierEcrire,
     /// Viser le cahier de textes d'une classe ou d'un professeur (inspection, direction).
     CahierViser,
+    /// Annuler en masse des cours (grève, fermeture, sortie de niveau), EDT-08 (S2-5).
+    EdtAnnulerMasse,
+    /// Accorder, révoquer et consulter les délégations de droits datées, ADM-04 (S2-5).
+    DelegationsGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -140,7 +144,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 53] = [
+    pub const TOUTES: [Action; 55] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -196,6 +200,8 @@ impl Action {
         Action::CahierLire,
         Action::CahierEcrire,
         Action::CahierViser,
+        Action::EdtAnnulerMasse,
+        Action::DelegationsGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -254,6 +260,8 @@ impl Action {
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
             Self::CahierViser => "cahier.viser",
+            Self::EdtAnnulerMasse => "edt.annuler_masse",
+            Self::DelegationsGerer => "delegations.gerer",
         }
     }
 
@@ -313,6 +321,8 @@ impl Action {
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
+            Self::EdtAnnulerMasse => "Annuler en masse des cours (grève, fermeture, sortie de niveau)",
+            Self::DelegationsGerer => "Déléguer des droits pour une durée limitée",
         }
     }
 
@@ -359,7 +369,9 @@ impl Action {
             Self::PersonnesGerer
             | Self::PayeursDefinir
             | Self::LiensSuspendre
-            | Self::PersonnesFusionner => &[Portee::Etablissement],
+            | Self::PersonnesFusionner
+            | Self::EdtAnnulerMasse
+            | Self::DelegationsGerer => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
@@ -580,6 +592,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(LiensSuspendre));
         d.push(etab(PersonnesFusionner));
+        // S2-5 : annulation en masse et délégations (EDT-08 ★, ADM-04) : direction.
+        d.push(etab(EdtAnnulerMasse));
+        d.push(etab(DelegationsGerer));
     }
     // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
     // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).

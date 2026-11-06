@@ -15,6 +15,7 @@ pub mod obs;
 mod referentiel;
 mod cahier;
 mod referentiel_s2;
+mod edt_s2;
 mod roles;
 mod routes;
 mod vie_scolaire;
@@ -269,6 +270,8 @@ mod tests_recuperation;
 mod tests_dossier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;

@@ -7180,24 +7180,63 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
         let actor = cmd.actor_user_id;
         let ex = plan_poser_edt_exception(cmd)?;
-        self.edt.upsert_exception(&ex).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 : l'exception et son événement entrent dans l'outbox dans la même transaction
+        // (élèves et familles prévenus par `d4.notifications_edt`). Le motif libre n'est plus
+        // recopié dans l'événement.
+        let map = |e: sqlx::Error| EntDbError::Domain(crate::pg_err::map_sqlx("edt_repo", e));
+        let mut tx = self.pool().begin().await.map_err(map)?;
+        sqlx::query(
+            "INSERT INTO ent_edt_exception (
+                id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
+                motif, created_by_user_id, created_at, nature
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$5)
+             ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
+                kind = EXCLUDED.kind, remplacant_user_id = EXCLUDED.remplacant_user_id,
+                nouvelle_salle = EXCLUDED.nouvelle_salle, motif = EXCLUDED.motif,
+                created_by_user_id = EXCLUDED.created_by_user_id, created_at = EXCLUDED.created_at,
+                lot_id = NULL, absence_rh_id = NULL, nature = EXCLUDED.nature
+             RETURNING id",
+        )
+        .bind(ex.id)
+        .bind(ex.etablissement_id)
+        .bind(ex.creneau_id)
+        .bind(ex.jour)
+        .bind(ex.kind.as_str())
+        .bind(ex.remplacant_user_id)
+        .bind(ex.nouvelle_salle.as_deref())
+        .bind(&ex.motif)
+        .bind(ex.created_by_user_id)
+        .bind(ex.created_at)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map)?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            let type_name = if ex.kind == EdtExceptionKind::Remplacement {
+                "edt.remplacement_organise"
+            } else {
+                types::EDT_EXCEPTION
+            };
+            conn.publier(MetierEventDraft {
                 etablissement_id: ex.etablissement_id,
-                type_name: types::EDT_EXCEPTION.to_string(),
+                type_name: type_name.to_string(),
                 aggregate: AggregateKind::Edt,
                 aggregate_id: ex.creneau_id,
                 eleve_id: None,
                 payload: json!({
                     "exception_id": ex.id,
-                    "kind": ex.kind.as_str(),
+                    "creneau_id": ex.creneau_id,
                     "jour": ex.jour.to_string(),
+                    "nature": ex.kind.as_str(),
                     "remplacant_user_id": ex.remplacant_user_id,
-                    "motif": ex.motif,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit().await.map_err(map)?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(ex)
     }
 
@@ -14652,9 +14691,33 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_declarer_absence_rh(cmd)?;
-        self.absences_rh.insert(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 (RH-02) : l'absence et son événement entrent dans l'outbox dans la même
+        // transaction. Le motif (texte libre, parfois médical) n'est jamais dans l'événement.
+        let mut tx = self.pool().begin().await.map_err(|e| {
+            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
+        })?;
+        sqlx::query(
+            "INSERT INTO ent_absence_rh (
+                id, etablissement_id, user_id, debut, fin, motif, statut,
+                created_by_user_id, created_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(planned.id)
+        .bind(planned.etablissement_id)
+        .bind(planned.user_id)
+        .bind(planned.debut)
+        .bind(planned.fin)
+        .bind(&planned.motif)
+        .bind(&planned.statut)
+        .bind(planned.created_by_user_id)
+        .bind(planned.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            conn.publier(MetierEventDraft {
                 etablissement_id: planned.etablissement_id,
                 type_name: types::ABSENCE_RH.to_string(),
                 aggregate: AggregateKind::AbsenceRh,
@@ -14664,11 +14727,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     "user_id": planned.user_id,
                     "debut": planned.debut.to_string(),
                     "fin": planned.fin.to_string(),
-                    "motif": planned.motif,
                 }),
                 actor_user_id: Some(planned.created_by_user_id.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit()
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(planned)
     }
 
@@ -14688,19 +14755,48 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get(etablissement_id, absence_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        if current.statut == "validee" {
+            return Ok(current); // idempotent : pas de second événement
+        }
         let planned = plan_valider_absence_rh(current, actor_user_id)?;
-        self.absences_rh.update_statut(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 (RH-03) : validation et événement `rh.absence_validee` dans la même transaction.
+        let mut tx = self.pool().begin().await.map_err(|e| {
+            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
+        })?;
+        sqlx::query(
+            "UPDATE ent_absence_rh SET statut = $3, created_by_user_id = $4
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(planned.etablissement_id)
+        .bind(planned.id)
+        .bind(&planned.statut)
+        .bind(planned.created_by_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            conn.publier(MetierEventDraft {
                 etablissement_id,
                 type_name: types::ABSENCE_RH_VALIDEE.to_string(),
                 aggregate: AggregateKind::AbsenceRh,
                 aggregate_id: planned.id,
                 eleve_id: None,
-                payload: json!({ "statut": planned.statut }),
+                payload: json!({
+                    "statut": planned.statut,
+                    "user_id": planned.user_id,
+                    "debut": planned.debut.to_string(),
+                    "fin": planned.fin.to_string(),
+                }),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit()
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(planned)
     }
 

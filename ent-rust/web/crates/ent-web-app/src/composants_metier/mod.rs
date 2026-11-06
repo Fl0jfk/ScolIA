@@ -2,7 +2,9 @@
 //! jamais d'un autre module).
 
 pub mod absences;
+pub mod choix_enfant;
 pub mod classes;
+pub mod confirmation_detaillee;
 pub mod declaration;
 pub mod recherche_eleve;
 pub mod seances;

@@ -25,6 +25,7 @@ mod dossier;
 mod droits_moteur;
 mod edt;
 mod inscriptions;
+mod edt_s2;
 mod journee_vs;
 mod referentiel;
 mod referentiel_admin;
@@ -38,6 +39,9 @@ pub use communication::{
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
 pub use droits_moteur::DroitEffectif;
+pub use edt_s2::{
+    chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
+};
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,

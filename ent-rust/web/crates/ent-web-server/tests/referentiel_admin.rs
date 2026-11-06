@@ -435,6 +435,7 @@ async fn droits_du_moteur_navigation_et_refus() {
         v,
         [
             navigation::ACCUEIL,
+            navigation::CHANGEMENTS_EDT,
             navigation::AGENDA,
             navigation::ABSENCES,
             navigation::MESSAGES,

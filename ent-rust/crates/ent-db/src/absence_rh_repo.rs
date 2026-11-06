@@ -12,48 +12,6 @@ impl PgAbsenceRhRepo {
         Self { pool }
     }
 
-    pub async fn insert(&self, a: &AbsenceRh) -> Result<(), DomainError> {
-        sqlx::query(
-            r#"
-            INSERT INTO ent_absence_rh (
-                id, etablissement_id, user_id, debut, fin, motif, statut,
-                created_by_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-            "#,
-        )
-        .bind(a.id)
-        .bind(a.etablissement_id)
-        .bind(a.user_id)
-        .bind(a.debut)
-        .bind(a.fin)
-        .bind(&a.motif)
-        .bind(&a.statut)
-        .bind(a.created_by_user_id)
-        .bind(a.created_at)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        Ok(())
-    }
-
-    pub async fn update_statut(&self, a: &AbsenceRh) -> Result<(), DomainError> {
-        sqlx::query(
-            r#"
-            UPDATE ent_absence_rh
-            SET statut = $3, created_by_user_id = $4
-            WHERE etablissement_id = $1 AND id = $2
-            "#,
-        )
-        .bind(a.etablissement_id)
-        .bind(a.id)
-        .bind(&a.statut)
-        .bind(a.created_by_user_id)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        Ok(())
-    }
-
     pub async fn get(
         &self,
         etablissement_id: Uuid,
