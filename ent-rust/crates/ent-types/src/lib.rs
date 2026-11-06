@@ -18,6 +18,7 @@ pub mod auth;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;
+pub mod finances;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;

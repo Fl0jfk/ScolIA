@@ -105,6 +105,17 @@ pub mod types {
     pub const FAC_SEPA_EXECUTE: &str = "fac.sepa_execute";
     pub const FAC_SEPA_REJET: &str = "fac.sepa_rejet";
     pub const FAC_RAPPEL_ENVOYE: &str = "fac.rappel_envoye";
+    // Finances reliées (socle 2, lot S2-9).
+    pub const FAC_TARIF_DEFINI: &str = "fac.tarif_defini";
+    pub const FAC_REMISE_APPLIQUEE: &str = "fac.remise_appliquee";
+    pub const FAC_GENERATION_ANNUELLE: &str = "fac.generation_annuelle";
+    pub const FAC_LIGNE_AJOUTEE: &str = "fac.ligne_ajoutee";
+    pub const FAC_AVOIR_EMIS: &str = "fac.avoir_emis";
+    pub const FAC_SEPA_PRENOTIFICATION: &str = "fac.sepa_prenotification";
+    pub const FAC_REGLEMENT: &str = "fac.reglement";
+    pub const FAC_RELANCE_PROPOSEE: &str = "fac.relance_proposee";
+    pub const FAC_RELANCE_ANNULEE: &str = "fac.relance_annulee";
+    pub const FAC_EXPORT_COMPTABLE: &str = "fac.export_comptable";
     pub const INFIRMERIE_PASSAGE: &str = "infirmerie.passage";
     pub const INFIRMERIE_FICHE_SANTE: &str = "infirmerie.fiche_sante";
     pub const INFIRMERIE_FICHE_SANTE_PDF: &str = "infirmerie.fiche_sante_pdf";

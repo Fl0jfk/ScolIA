@@ -1012,6 +1012,10 @@ impl PgEnt {
         ) {
             d.enregistrer(c).expect("consommateurs d'inscription aux noms uniques");
         }
+        // S2-9 : facturation par événements (inscription, régime, sortie, absence).
+        for c in crate::finances_reactions::consommateurs_finances() {
+            d.enregistrer(c).expect("consommateur de facturation au nom unique");
+        }
         d
     }
 
