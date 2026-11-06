@@ -3,8 +3,9 @@
 //! de suspension…) restent décidés par le serveur ; ce client transporte.
 
 use ent_types::dossier::{
-    AjoutResponsableBody, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody, PayeurPartDto,
-    PayeursBody, PersonneBody, PersonneDto, ResponsableDto, SuspensionBody,
+    AjoutResponsableBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto,
+    LienBody, LienEnAttenteDto, MonLienEnAttenteDto, PayeurPartDto, PayeursBody, PersonneBody,
+    PersonneDto, ReponseLienBody, ResponsableDto, SuspensionBody,
 };
 use uuid::Uuid;
 
@@ -25,7 +26,9 @@ pub enum ResultatLien {
 fn lire_resultat_lien(v: serde_json::Value) -> Result<ResultatLien, ApiError> {
     let decodage = |e: serde_json::Error| ApiError::Decodage(e.to_string());
     if v.get("en_attente").is_some() {
-        serde_json::from_value(v).map(ResultatLien::EnAttente).map_err(decodage)
+        serde_json::from_value(v)
+            .map(ResultatLien::EnAttente)
+            .map_err(decodage)
     } else {
         serde_json::from_value(v)
             .map(|r| ResultatLien::Actif(Box::new(r)))

@@ -29,7 +29,11 @@ fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
 }
 
 async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
-    let (n,): (i64,) = sqlx::query_as(sql).bind(id).fetch_one(ent.pool()).await.unwrap();
+    let (n,): (i64,) = sqlx::query_as(sql)
+        .bind(id)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
     n
 }
 
@@ -165,20 +169,40 @@ async fn parent_sans_compte_est_destinataire_selon_ses_preferences() {
         .actif();
     assert!(!res.personne.user_id.is_some(), "aucun compte");
     // Sans compte, le lien est actif et le parent est destinataire (fiche de la personne).
-    let mails = foyers(&ent).emails_parents_eleve(etab, eleve).await.unwrap();
+    let mails = foyers(&ent)
+        .emails_parents_eleve(etab, eleve)
+        .await
+        .unwrap();
     assert_eq!(mails, vec![email.clone()], "e-mail lu sur la fiche");
-    let tels = foyers(&ent).telephones_parents_eleve(etab, eleve).await.unwrap();
+    let tels = foyers(&ent)
+        .telephones_parents_eleve(etab, eleve)
+        .await
+        .unwrap();
     assert_eq!(tels, vec![tel.to_string()], "téléphone lu sur la fiche");
     // Préférences : plus de SMS, e-mail conservé.
     ent.definir_preferences_for_actor(etab, d, r, res.personne.id, true, false, false)
         .await
         .unwrap();
-    assert_eq!(foyers(&ent).emails_parents_eleve(etab, eleve).await.unwrap(), vec![email.clone()]);
-    assert!(foyers(&ent).telephones_parents_eleve(etab, eleve).await.unwrap().is_empty());
+    assert_eq!(
+        foyers(&ent)
+            .emails_parents_eleve(etab, eleve)
+            .await
+            .unwrap(),
+        vec![email.clone()]
+    );
+    assert!(foyers(&ent)
+        .telephones_parents_eleve(etab, eleve)
+        .await
+        .unwrap()
+        .is_empty());
     ent.definir_preferences_for_actor(etab, d, r, res.personne.id, false, true, false)
         .await
         .unwrap();
-    assert!(foyers(&ent).emails_parents_eleve(etab, eleve).await.unwrap().is_empty());
+    assert!(foyers(&ent)
+        .emails_parents_eleve(etab, eleve)
+        .await
+        .unwrap()
+        .is_empty());
     // La fiche corrigée fait foi : la nouvelle adresse remplace l'ancienne.
     let nouvelle = format!("corrige-{u}@exemple.fr");
     ent.modifier_personne_for_actor(
@@ -193,7 +217,13 @@ async fn parent_sans_compte_est_destinataire_selon_ses_preferences() {
     ent.definir_preferences_for_actor(etab, d, r, res.personne.id, true, true, false)
         .await
         .unwrap();
-    assert_eq!(foyers(&ent).emails_parents_eleve(etab, eleve).await.unwrap(), vec![nouvelle]);
+    assert_eq!(
+        foyers(&ent)
+            .emails_parents_eleve(etab, eleve)
+            .await
+            .unwrap(),
+        vec![nouvelle]
+    );
     // Aucun message n'est parti : rien n'est expédié sans geste humain.
     assert_eq!(
         ent.list_mails_recents(etab, 200).await.unwrap().len(),
@@ -202,13 +232,21 @@ async fn parent_sans_compte_est_destinataire_selon_ses_preferences() {
     );
     // Parent AVEC compte : l'adresse de la fiche prime sur celle du compte (repli seulement).
     let u2 = Uuid::new_v4().simple().to_string();
-    let (pers, _) = personne_avec_compte(&ent, etab, "Aveccompte", &format!("compte-{u2}@exemple.fr")).await;
+    let (pers, _) =
+        personne_avec_compte(&ent, etab, "Aveccompte", &format!("compte-{u2}@exemple.fr")).await;
     let eleve2 = eleve_neuf(&ent, etab, "Envois2").await;
     // Liaison directe en base du lien actif (la confirmation est testée ailleurs).
     ent.lier_personne_for_actor(etab, d, r, eleve2, &lien_saisie(Some(pers), None))
         .await
         .unwrap();
-    assert!(foyers(&ent).emails_parents_eleve(etab, eleve2).await.unwrap().is_empty(), "lien en attente : aucun envoi");
+    assert!(
+        foyers(&ent)
+            .emails_parents_eleve(etab, eleve2)
+            .await
+            .unwrap()
+            .is_empty(),
+        "lien en attente : aucun envoi"
+    );
 }
 
 /// Un lien vers une personne qui a un compte = invitation : aucun accès avant sa confirmation ;
@@ -235,9 +273,17 @@ async fn lien_vers_personne_avec_compte_n_ouvre_rien_avant_confirmation() {
     // Aucun lien réel, aucun accès.
     let liens = "SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1";
     assert_eq!(compter(&ent, liens, eleve).await, 0);
-    assert!(ent.lien_parent_eleve(etab, user, eleve).await.unwrap().is_none());
+    assert!(ent
+        .lien_parent_eleve(etab, user, eleve)
+        .await
+        .unwrap()
+        .is_none());
     // Une autre personne (même établissement) ne voit ni ne décide cette invitation.
-    assert!(ent.mes_liens_en_attente(etab, cast.parent_lea.user_id).await.unwrap().is_empty());
+    assert!(ent
+        .mes_liens_en_attente(etab, cast.parent_lea.user_id)
+        .await
+        .unwrap()
+        .is_empty());
     assert!(ent
         .repondre_lien_en_attente(etab, cast.parent_lea.user_id, attente_id, true)
         .await
@@ -247,11 +293,20 @@ async fn lien_vers_personne_avec_compte_n_ouvre_rien_avant_confirmation() {
     let mes = ent.mes_liens_en_attente(etab, user).await.unwrap();
     assert_eq!(mes.len(), 1);
     assert_eq!(mes[0].eleve_initiale, "I");
-    ent.repondre_lien_en_attente(etab, user, attente_id, true).await.unwrap();
+    ent.repondre_lien_en_attente(etab, user, attente_id, true)
+        .await
+        .unwrap();
     assert_eq!(compter(&ent, liens, eleve).await, 1);
-    assert!(ent.lien_parent_eleve(etab, user, eleve).await.unwrap().is_some());
+    assert!(ent
+        .lien_parent_eleve(etab, user, eleve)
+        .await
+        .unwrap()
+        .is_some());
     // Une demande déjà décidée ne se rejoue pas.
-    assert!(ent.repondre_lien_en_attente(etab, user, attente_id, true).await.is_err());
+    assert!(ent
+        .repondre_lien_en_attente(etab, user, attente_id, true)
+        .await
+        .is_err());
 
     // Refus : aucun accès, jamais.
     let eleve_b = eleve_neuf(&ent, etab, "Invitation2").await;
@@ -262,9 +317,23 @@ async fn lien_vers_personne_avec_compte_n_ouvre_rien_avant_confirmation() {
     else {
         panic!("attendu : lien en attente");
     };
-    ent.repondre_lien_en_attente(etab, user, a2, false).await.unwrap();
-    assert!(ent.lien_parent_eleve(etab, user, eleve_b).await.unwrap().is_none());
-    assert_eq!(compter(&ent, "SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1", eleve_b).await, 0);
+    ent.repondre_lien_en_attente(etab, user, a2, false)
+        .await
+        .unwrap();
+    assert!(ent
+        .lien_parent_eleve(etab, user, eleve_b)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1",
+            eleve_b
+        )
+        .await,
+        0
+    );
 }
 
 /// Le test du socle 3 : un second parent déclaré avec l'e-mail d'une personne qui a un compte
@@ -279,10 +348,16 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     let (d, _) = dir(&cast);
     let u = Uuid::new_v4().simple().to_string();
     let email_compte = format!("second-{u}@exemple.fr");
-    let (pers_compte, user_compte) = personne_avec_compte(&ent, etab, "Second", &email_compte).await;
+    let (pers_compte, user_compte) =
+        personne_avec_compte(&ent, etab, "Second", &email_compte).await;
     let eleve = eleve_neuf(&ent, etab, "Fratrie").await;
     let nom_premier = format!("Premier{u}");
-    let premier = declaration(&nom_premier, "Pia", Some(&format!("premier-{u}@exemple.fr")), 1);
+    let premier = declaration(
+        &nom_premier,
+        "Pia",
+        Some(&format!("premier-{u}@exemple.fr")),
+        1,
+    );
     let second = declaration("Second", "Sam", Some(&email_compte), 2);
 
     let mut conn = ent.pool().acquire().await.unwrap();
@@ -290,7 +365,10 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     let cands = correspondances_tx(&mut conn, etab, &second).await.unwrap();
     assert_eq!(cands.len(), 1);
     assert!(cands[0].a_un_compte && cands[0].raison == "email");
-    assert!(cands[0].email_masque.as_deref().unwrap().contains("***"), "e-mail masqué");
+    assert!(
+        cands[0].email_masque.as_deref().unwrap().contains("***"),
+        "e-mail masqué"
+    );
     drop(conn);
 
     // Sans choix humain : refus net, rien n'est écrit (transaction annulée).
@@ -329,18 +407,43 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     .await
     .unwrap();
     tx.commit().await.unwrap();
-    let rs = res.responsables.iter().find(|x| x.cle == second.cle).unwrap();
+    let rs = res
+        .responsables
+        .iter()
+        .find(|x| x.cle == second.cle)
+        .unwrap();
     assert!(rs.lien_id.is_none() && rs.attente_id.is_some());
-    let rp = res.responsables.iter().find(|x| x.cle == premier.cle).unwrap();
-    assert!(rp.lien_id.is_some() && rp.personne_creee, "le premier parent (sans compte) est lié");
-    assert!(ent.lien_parent_eleve(etab, user_compte, eleve).await.unwrap().is_none());
+    let rp = res
+        .responsables
+        .iter()
+        .find(|x| x.cle == premier.cle)
+        .unwrap();
+    assert!(
+        rp.lien_id.is_some() && rp.personne_creee,
+        "le premier parent (sans compte) est lié"
+    );
+    assert!(ent
+        .lien_parent_eleve(etab, user_compte, eleve)
+        .await
+        .unwrap()
+        .is_none());
     assert_eq!(
-        compter(&ent, "SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1 AND personne_id IS NOT NULL", eleve).await,
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1 AND personne_id IS NOT NULL",
+            eleve
+        )
+        .await,
         1,
         "seul le premier parent a un lien réel"
     );
     // Aucun envoi ni notification vers le second parent non vérifié.
-    assert!(foyers(&ent).emails_parents_eleve(etab, eleve).await.unwrap().iter().all(|m| *m != email_compte));
+    assert!(foyers(&ent)
+        .emails_parents_eleve(etab, eleve)
+        .await
+        .unwrap()
+        .iter()
+        .all(|m| *m != email_compte));
     // Confirmation par la personne (via la commande du socle 4) : accès ouvert.
     let mut tx = ent.pool().begin().await.unwrap();
     let liens = dossier_personnes::confirmer_liens_attente_tx(
@@ -358,7 +461,11 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(liens.0.len(), 1);
-    assert!(ent.lien_parent_eleve(etab, user_compte, eleve).await.unwrap().is_some());
+    assert!(ent
+        .lien_parent_eleve(etab, user_compte, eleve)
+        .await
+        .unwrap()
+        .is_some());
 }
 
 /// Une fratrie validée en deux fois donne UN SEUL foyer (choix humain explicite) ; aucun foyer
@@ -378,9 +485,17 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     let cadet = eleve_neuf(&ent, etab, "Cadet").await;
 
     let mut tx = ent.pool().begin().await.unwrap();
-    let r1 = integrer_declaration_tx(&mut tx, etab, aine, &[mere.clone()], &[], SourceLien::Inscription, d)
-        .await
-        .unwrap();
+    let r1 = integrer_declaration_tx(
+        &mut tx,
+        etab,
+        aine,
+        &[mere.clone()],
+        &[],
+        SourceLien::Inscription,
+        d,
+    )
+    .await
+    .unwrap();
     tx.commit().await.unwrap();
     let premiere = &r1.responsables[0];
     let foyers_etab = "SELECT count(*) FROM ent_foyer WHERE etablissement_id = $1";
@@ -388,10 +503,25 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
 
     // Seconde validation : la mère existe déjà → choix explicite obligatoire (personne, puis foyer).
     let mut conn = ent.pool().acquire().await.unwrap();
-    assert_eq!(correspondances_tx(&mut conn, etab, &mere).await.unwrap().len(), 1);
+    assert_eq!(
+        correspondances_tx(&mut conn, etab, &mere)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     drop(conn);
     let mut tx = ent.pool().begin().await.unwrap();
-    let e = integrer_declaration_tx(&mut tx, etab, cadet, &[mere.clone()], &[], SourceLien::Inscription, d).await;
+    let e = integrer_declaration_tx(
+        &mut tx,
+        etab,
+        cadet,
+        &[mere.clone()],
+        &[],
+        SourceLien::Inscription,
+        d,
+    )
+    .await;
     assert!(matches!(e, Err(EntDbError::ConflitDossier(_))), "{e:?}");
     tx.rollback().await.unwrap();
     let mut tx = ent.pool().begin().await.unwrap();
@@ -409,7 +539,10 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         d,
     )
     .await;
-    assert!(matches!(e, Err(EntDbError::ConflitDossier(_))), "foyer à confirmer : {e:?}");
+    assert!(
+        matches!(e, Err(EntDbError::ConflitDossier(_))),
+        "foyer à confirmer : {e:?}"
+    );
     tx.rollback().await.unwrap();
     // Le foyer d'une autre famille est refusé.
     let autre = ent.create_foyer(etab, Some("Autre famille")).await.unwrap();
@@ -452,7 +585,11 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     assert_eq!(r2.responsables[0].personne_id, premiere.personne_id);
     assert_eq!(r2.responsables[0].foyer_id, premiere.foyer_id);
     assert!(!r2.responsables[0].personne_creee);
-    assert_eq!(compter(&ent, foyers_etab, etab).await, nb_foyers, "aucun foyer créé");
+    assert_eq!(
+        compter(&ent, foyers_etab, etab).await,
+        nb_foyers,
+        "aucun foyer créé"
+    );
     let (n_foyers_mere,): (i64,) = sqlx::query_as(
         "SELECT count(DISTINCT foyer_id) FROM ent_eleve_lien WHERE etablissement_id = $1 AND personne_id = $2",
     )
@@ -491,7 +628,11 @@ async fn ajouter_responsable_est_atomique() {
         )
         .await;
     assert!(e.is_err());
-    assert_eq!(compter(&ent, personnes, etab).await, avant, "aucune personne orpheline");
+    assert_eq!(
+        compter(&ent, personnes, etab).await,
+        avant,
+        "aucune personne orpheline"
+    );
     // Soit l'une, soit l'autre.
     let e = ent
         .ajouter_responsable_for_actor(
@@ -610,11 +751,12 @@ async fn jour_metier_europe_paris_bord_de_journee() {
             .await
             .unwrap()
             .actif();
-        let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_lien_actif WHERE id = $1")
-            .bind(l.lien_id)
-            .fetch_one(ent.pool())
-            .await
-            .unwrap();
+        let (n,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM ent_eleve_lien_actif WHERE id = $1")
+                .bind(l.lien_id)
+                .fetch_one(ent.pool())
+                .await
+                .unwrap();
         assert_eq!(n == 1, actif, "{nom}");
     }
 }

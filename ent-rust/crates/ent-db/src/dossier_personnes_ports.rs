@@ -159,7 +159,10 @@ pub struct LienSpec {
 pub enum LienResultat {
     Actif(Box<Responsable>),
     /// La personne a un compte : aucun accès avant sa confirmation.
-    EnAttente { attente_id: Uuid, personne_id: Uuid },
+    EnAttente {
+        attente_id: Uuid,
+        personne_id: Uuid,
+    },
 }
 
 impl LienResultat {
@@ -512,10 +515,29 @@ async fn lier_ou_inviter_tx(
     source_ref: Option<Uuid>,
 ) -> Result<(Option<Uuid>, Option<Uuid>), EntDbError> {
     if a_un_compte {
-        let a = creer_attente_tx(conn, etab, actor, eleve_id, personne_id, spec, source, source_ref).await?;
+        let a = creer_attente_tx(
+            conn,
+            etab,
+            actor,
+            eleve_id,
+            personne_id,
+            spec,
+            source,
+            source_ref,
+        )
+        .await?;
         Ok((None, Some(a)))
     } else {
-        let l = inserer_lien_tx(conn, etab, actor, eleve_id, personne_id, spec, source.code()).await?;
+        let l = inserer_lien_tx(
+            conn,
+            etab,
+            actor,
+            eleve_id,
+            personne_id,
+            spec,
+            source.code(),
+        )
+        .await?;
         Ok((Some(l), None))
     }
 }
@@ -1016,7 +1038,8 @@ impl PgEnt {
             .personne_id
             .ok_or(invalide("personne à lier obligatoire"))?;
         let mut tx = self.pool().begin().await.map_err(db)?;
-        let (lien, attente) = lier_dans_tx(&mut tx, etab, actor, eleve_id, personne_id, saisie).await?;
+        let (lien, attente) =
+            lier_dans_tx(&mut tx, etab, actor, eleve_id, personne_id, saisie).await?;
         commit(tx).await?;
         self.resultat_lien(etab, personne_id, lien, attente).await
     }
@@ -1036,11 +1059,9 @@ impl PgEnt {
         self.dossier_exiger_eleve(etab, eleve_id).await?;
         ajout.lien.valider()?;
         let nouvelle = match (&ajout.nouvelle_personne, ajout.lien.personne_id) {
-            (Some(_), Some(_)) | (None, None) => {
-                return Err(invalide(
-                    "indiquer soit une personne existante, soit les données d'une nouvelle personne",
-                ))
-            }
+            (Some(_), Some(_)) | (None, None) => return Err(invalide(
+                "indiquer soit une personne existante, soit les données d'une nouvelle personne",
+            )),
             (Some(p), None) => Some(p.normaliser()?),
             (None, Some(_)) => None,
         };
@@ -1049,7 +1070,8 @@ impl PgEnt {
             Some(s) => creer_personne_tx(&mut tx, etab, s, SourceLien::Saisie, actor).await?,
             None => ajout.lien.personne_id.unwrap_or_default(),
         };
-        let (lien, attente) = lier_dans_tx(&mut tx, etab, actor, eleve_id, personne_id, &ajout.lien).await?;
+        let (lien, attente) =
+            lier_dans_tx(&mut tx, etab, actor, eleve_id, personne_id, &ajout.lien).await?;
         commit(tx).await?;
         self.resultat_lien(etab, personne_id, lien, attente).await
     }
@@ -1096,13 +1118,15 @@ impl PgEnt {
         .map_err(db)?;
         Ok(rows
             .into_iter()
-            .map(|(id, eleve_prenom, eleve_initiale, lien, demande_le)| LienEnAttente {
-                id,
-                eleve_prenom,
-                eleve_initiale,
-                lien,
-                demande_le,
-            })
+            .map(
+                |(id, eleve_prenom, eleve_initiale, lien, demande_le)| LienEnAttente {
+                    id,
+                    eleve_prenom,
+                    eleve_initiale,
+                    lien,
+                    demande_le,
+                },
+            )
             .collect())
     }
 

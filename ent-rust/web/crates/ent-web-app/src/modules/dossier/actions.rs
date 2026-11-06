@@ -77,9 +77,11 @@ pub fn DialogueResponsable(
                         ResultatLien::Actif(r) => {
                             format!("{} est lié(e) à l'élève.", nom_personne(&r.personne))
                         }
-                        ResultatLien::EnAttente(_) => "Invitation enregistrée : le lien sera actif \
+                        ResultatLien::EnAttente(_) => {
+                            "Invitation enregistrée : le lien sera actif \
                             quand la personne l'aura confirmé."
-                            .to_string(),
+                                .to_string()
+                        }
                     });
                     for s in [nom, prenom, email, telephone, lien, garde] {
                         s.set(String::new());

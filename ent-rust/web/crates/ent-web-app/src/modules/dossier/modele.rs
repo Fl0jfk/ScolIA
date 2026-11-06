@@ -6,8 +6,8 @@
 
 use chrono::NaiveDate;
 use ent_web_api::{
-    ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto, LienBody, PersonneBody,
-    PersonneDto, ResponsableDto,
+    ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto,
+    LienBody, PersonneBody, PersonneDto, ResponsableDto,
 };
 use uuid::Uuid;
 

@@ -37,8 +37,8 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
-pub use droits_moteur::DroitEffectif;
 pub use dossier::ResultatLien;
+pub use droits_moteur::DroitEffectif;
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,
@@ -62,9 +62,9 @@ pub use ent_types::auth::{
 };
 pub use ent_types::cahier as cahier_types;
 pub use ent_types::dossier::{
-    ActionFicheDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody,
-    PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
-    AjoutResponsableBody, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody,
+    ActionFicheDto, AjoutResponsableBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
+    FicheEleveDto, LienBody, LienEnAttenteDto, MonLienEnAttenteDto, PersonneBody, PersonneDto,
+    ReponseLienBody, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.
