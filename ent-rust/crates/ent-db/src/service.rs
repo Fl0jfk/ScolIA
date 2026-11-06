@@ -364,6 +364,17 @@ impl RpConfigCheck {
 /// Contexte (AAD) du chiffrement du secret client OIDC.
 const OIDC_SECRET_AAD: &[u8] = b"ent_oidc_provider.client_secret";
 
+/// Nature d'un refus métier explicite (voir [`EntDbError::Refus`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefusMetier {
+    /// Donnée invalide (HTTP 422).
+    Invalide,
+    /// État incompatible avec l'action (HTTP 409).
+    Conflit,
+    /// Action refusée par une règle métier (HTTP 403).
+    Interdit,
+}
+
 #[derive(Debug, Error)]
 pub enum EntDbError {
     #[error(transparent)]
@@ -401,6 +412,9 @@ pub enum EntDbError {
     /// Opération du dossier élève incompatible avec l'état actuel.
     #[error("opération en conflit : {0}")]
     ConflitDossier(&'static str),
+    /// Refus métier explicite (S2-6) : le message est destiné à l'utilisateur.
+    #[error("{1}")]
+    Refus(RefusMetier, &'static str),
     /// Mot de passe actuel absent ou incorrect (re-vérification d'une action sensible).
     #[error("mot de passe actuel requis ou incorrect")]
     MotDePasseActuelInvalide,

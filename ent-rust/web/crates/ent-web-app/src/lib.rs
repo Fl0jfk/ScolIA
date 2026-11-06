@@ -81,6 +81,9 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
                     <Route path=path!("inscriptions") view=modules::inscriptions::PageInscriptions/>
                     <Route path=path!("reinscription") view=modules::inscriptions::PageReinscription/>
+                    <Route path=path!("cahier") view=modules::cahier::PageCahier/>
+                    <Route path=path!("cahier/travaux/:id") view=modules::cahier::PageCopies/>
+                    <Route path=path!("agenda") view=modules::cahier::PageAgenda/>
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>

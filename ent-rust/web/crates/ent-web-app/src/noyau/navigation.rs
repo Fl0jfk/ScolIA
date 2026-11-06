@@ -17,6 +17,8 @@ pub const REFERENTIEL: &str = "/web/referentiel";
 pub const DISCIPLINE: &str = "/web/discipline";
 pub const SIGNALEMENTS: &str = "/web/signalements";
 pub const ABSENCES: &str = "/web/absences";
+pub const CAHIER: &str = "/web/cahier";
+pub const AGENDA: &str = "/web/agenda";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
@@ -53,6 +55,12 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.faire_appel {
         v.push(entree("Appel", APPEL, NomIcone::Appel));
+    }
+    if droits.cahier_ecrire {
+        v.push(entree("Cahier de textes", CAHIER, NomIcone::Annonce));
+    }
+    if droits.agenda {
+        v.push(entree("Travail à faire", AGENDA, NomIcone::Agenda));
     }
     if droits.mes_classes {
         v.push(entree("Mes classes", MES_CLASSES, NomIcone::Ecole));
@@ -140,7 +148,14 @@ mod tests {
             .collect();
         assert_eq!(
             prof,
-            [ACCUEIL, EMPLOI_DU_TEMPS, APPEL, MES_CLASSES, MESSAGES]
+            [
+                ACCUEIL,
+                EMPLOI_DU_TEMPS,
+                APPEL,
+                CAHIER,
+                MES_CLASSES,
+                MESSAGES
+            ]
         );
         let secretariat: Vec<String> = entrees(droits_du_role("administratif"))
             .into_iter()
@@ -174,7 +189,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION],
+            [ACCUEIL, AGENDA, ABSENCES, MESSAGES, REINSCRIPTION],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -199,7 +214,10 @@ mod tests {
             .into_iter()
             .map(|e| e.href)
             .collect();
-        assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+        assert_eq!(
+            eleve,
+            [ACCUEIL, EMPLOI_DU_TEMPS, AGENDA, ABSENCES, MESSAGES]
+        );
     }
 
     fn droit(action: &str, portee: &str) -> ent_web_api::DroitEffectif {
@@ -259,7 +277,7 @@ mod tests {
     #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION]);
+        assert_eq!(v, [ACCUEIL, AGENDA, ABSENCES, MESSAGES, REINSCRIPTION]);
     }
 
     #[test]

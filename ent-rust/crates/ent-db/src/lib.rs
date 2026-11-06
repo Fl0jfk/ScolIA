@@ -33,6 +33,8 @@ mod push_repo;
 mod bank_repo;
 mod msg_repo;
 mod note_repo;
+pub mod cahier;
+pub mod cahier_reactions;
 pub mod outbox;
 pub mod reactions;
 mod option_repo;
@@ -190,7 +192,7 @@ pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
 pub use service::nom_fichier_document;
 pub use service::{
     BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
-    PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, SondeMetrique,
+    PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, RefusMetier, SondeMetrique,
 };
 pub use ent_oidc::{OidcError, OidcTransport};
 pub use domain_eleve::SignalAbsence;
@@ -221,6 +223,8 @@ mod tests_dossier_personnes;
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_cahier;
 
 #[cfg(test)]
 mod integration_tests {

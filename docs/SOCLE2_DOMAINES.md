@@ -309,16 +309,16 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
-| CDT-01 | Renseigner le contenu d'une séance | PRF · service | rattaché à une séance datée (EDT-06) | contenu | `cahier.seance_renseignee` | P (`cahier.texte` [F]) |
-| CDT-02 | Donner un travail à faire | PRF · service | date `pour_le` ≥ séance | travail visible | `cahier.travail_donne` | P |
-| CDT-03 | Modifier/supprimer | PRF · AUT ; DIR | historique ; notification si déjà vu | — | `cahier.travail_modifie` | A |
-| CDT-04 | Joindre des pièces / ressources | PRF | fichiers privés, URL pré-signées | pièces | `cahier.piece_jointe` | A |
-| CDT-05 | Demander un travail à rendre en ligne | PRF | date limite ; format | travail « à rendre » | `cahier.travail_a_rendre` | A |
-| CDT-06 | Rendre un travail | ELV · SOI | avant/après échéance (retard marqué) | remise | `cahier.travail_rendu` | A |
-| CDT-07 | Corriger / rendre la copie | PRF | lien possible vers une note (EVA-02) | retour | `cahier.copie_rendue` | A |
-| CDT-08 | Voir l'agenda « à faire » | ELV · SOI ; PAR · LIEN | inclut évaluations annoncées | lecture | — | P |
-| CDT-09 | Marquer un travail comme fait (élève) | ELV | indicateur personnel | état | — | A |
-| CDT-10 | Viser le cahier de textes (inspection, direction) | DIR | lecture par classe/prof | visa | `cahier.vise` | A |
+| CDT-01 | Renseigner le contenu d'une séance | PRF · service | rattaché à une séance datée (EDT-06) | contenu | `cahier.seance_renseignee` | I (S2-6) |
+| CDT-02 | Donner un travail à faire | PRF · service | date `pour_le` ≥ séance | travail visible | `cahier.travail_donne` | I (S2-6) |
+| CDT-03 | Modifier/supprimer | PRF · AUT ; DIR | historique ; notification si déjà vu | — | `cahier.travail_modifie` | I (S2-6) |
+| CDT-04 | Joindre des pièces / ressources | PRF | fichiers privés, URL pré-signées | pièces | `cahier.piece_jointe` | I (S2-6) |
+| CDT-05 | Demander un travail à rendre en ligne | PRF | date limite ; format | travail « à rendre » | `cahier.travail_a_rendre` | I (S2-6) |
+| CDT-06 | Rendre un travail | ELV · SOI | avant/après échéance (retard marqué) | remise | `cahier.travail_rendu` | I (S2-6) |
+| CDT-07 | Corriger / rendre la copie | PRF | lien possible vers une note (EVA-02) | retour | `cahier.copie_rendue` | I (S2-6) |
+| CDT-08 | Voir l'agenda « à faire » | ELV · SOI ; PAR · LIEN | inclut évaluations annoncées | lecture | — | I (S2-6) |
+| CDT-09 | Marquer un travail comme fait (élève) | ELV | indicateur personnel | état | — | I (S2-6) |
+| CDT-10 | Viser le cahier de textes (inspection, direction) | DIR | lecture par classe/prof | visa | `cahier.vise` | I (S2-6, visa en base ; écran non fait) |
 
 ### D8 — Communication (COM)
 
@@ -953,6 +953,48 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Profil personnel enregistré seulement si la personne a déjà un compte ; à défaut, rien n'est gardé au niveau ENT.
 
 **Reste à faire dans S2-3** : réactions facturation (échéancier selon formules et payeurs, D10), repas (D11), internat (D12), documents de rentrée (D9) et consentements (D24) ; INS-09 montée officielle après décision du conseil, INS-10/11/12 depuis les écrans ; dépôt réel des pièces ; choix de la classe par liste dans l'écran de validation ; lecteurs AAF (public) et BEE dès réception des spécifications, remontée BEE (IOP-L4, agrément) ; fusion des deux mécanismes de réinscription.
+
+### 6.3 S2-6 — réalisé (2026-11-05, branche `ent-socle2-cahier`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient les fusions de `ent-socle2-outbox` (S2-0) et `ent-socle2-referentiel` (S2-2). Écrans Leptos : **faits (3)**, vérifiés en rendu serveur et par le modèle d'écran ; **non vérifiés dans un navigateur** (voir limites).
+
+**Livré [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Migration additive | `ent-rust/migrations/150_cahier_textes.sql` (`MIGRATION_TAG = "150_cahier_textes"`) | `ent_seance_contenu` (CDT-01, une ligne versionnée par séance), `ent_travail` (classe **ou** groupe, type `a_faire` / `a_rendre` / `controle`, durée estimée 1–600 min, date limite, retard accepté ou non, formats acceptés, suppression logique), `ent_travail_remise` (une par travail et élève), `ent_cdt_piece` (genres `ressource`, `seance`, `copie`, `annotation` ; clé de stockage jamais exposée), `ent_travail_eleve` (fait / vu), `ent_cdt_historique` (CDT-03), `ent_cdt_visa` (CDT-10). Reprise **idempotente** de l'ancien `ent_cahier_texte` (`ancien_id` unique) + déclencheur pour les nouvelles entrées de l'ancienne route `/cahier-texte` (conservée telle quelle). |
+| Droits (D-017) | `ent-auth/src/actions.rs`, `ent-db/src/cahier.rs` | actions `cahier.lire`, `cahier.ecrire` (implique la lecture), `cahier.viser` (établissement entier seulement). Modèles par défaut : Admin et Direction = lire + écrire + viser ; Administratif et CPE = lire ; Enseignant = lire + écrire en portée **mes classes** ; autres = rien. Portée « mes classes » = service d'enseignement sur la classe ou le groupe, ou séance datée assurée (titulaire ou remplaçant) ; `mes_groupes` = responsable du groupe ; `désignés` = classes ou groupes cochés. Élève sur lui-même (compte lié), responsable selon `ent_eleve_lien` ; jamais de rôle libre pour eux. |
+| Fichiers | `ent-object/src/upload.rs` (`UsageFichier::PieceCahier`, `Copie`, 10 Mo, variables `ENT_UPLOAD_MAX_CAHIER` / `ENT_UPLOAD_MAX_COPIE`) | contrôle D2 à chaque dépôt (signature binaire, liste blanche, nom assaini, fichier actif refusé, antivirus branchable, type retenu = celui des octets) ; formats acceptés par travail ; **stockés dans le magasin d'objets** (clé `établissement/cahier/…`), ouverts par **lien signé court** après contrôle des droits (`POST /cahier/pieces/{id}/lien`, téléchargement forcé). Copie lisible par l'élève auteur, son responsable lié et le personnel `cahier.ecrire` sur la cible — **pas** par un camarade, un autre professeur, la vie scolaire ni le secrétariat. |
+| Routes | `ent-api/src/cahier.rs` (merge dans `routes.rs`) | `/cahier/seances` (+ `PUT …/{id}/contenu`), `/cahier/mon-cahier`, `/cahier/travaux` (GET par cible, POST), `/cahier/travaux/{id}` (GET détail = « vu », PUT, DELETE), `…/historique`, `…/fait`, `…/suivi`, `…/pieces`, `/cahier/contenus/{id}/pieces`, `…/remise`, `/cahier/remises/{id}/retour`, `/cahier/pieces/{id}/lien`, `/cahier/agenda`, `/cahier/charge`, `/cahier/visas`. Refus métier explicites (`EntDbError::Refus` : 422 / 409 / 403 avec message). |
+| DTO | `ent-types/src/cahier.rs` | contrat JSON partagé serveur / navigateur ; `ent-db` dépend maintenant d'`ent-types` (chemin local, aucune dépendance externe). |
+| Événements (outbox) | `ent-events` (`cahier.*`), publiés par `tx.publier` dans la transaction du fait | `cahier.seance_renseignee`, `travail_donne`, `travail_a_rendre`, `travail_modifie` (charge : `deja_vu`), `travail_supprime`, `piece_jointe`, `travail_rendu` (une fois par remise), `copie_rendue`, `vise`. |
+| Notifications | `ent-db/src/cahier_reactions.rs`, consommateur `d7.notifications` (rejouable) | travail donné ou à rendre → élèves de la cible + leurs comptes élève et responsables liés ; modifié → seulement si un élève l'avait déjà vu ; copie rendue par l'élève → **professeur auteur** (une seule notification même si l'élève ajoute des fichiers) ; copie corrigée → élève et responsables. Tout est relu à l'établissement de l'événement ; clé unique (`source_event_id`, destinataire, `kind`) + marque du distributeur : un rejeu ne duplique rien. |
+| Agenda et charge | `cahier_agenda`, `cahier_charge` | agenda élève / famille par échéance (travail, contrôle annoncé, état fait / rendu / retard / corrigé) ; **charge** par jour pour une classe ou un groupe (cumul classe + groupes rattachés), alerte de surcharge si > 120 min estimées ou ≥ 2 contrôles le même jour (réglable par appel, bornes 15–600 min et 1–10) ; l'alerte est aussi renvoyée dès la création d'un travail. Visible de l'équipe (`cahier.lire` sur la cible), pas des familles. |
+| Écrans Leptos | `ent-rust/web/crates/ent-web-app/src/modules/cahier/` | `/web/cahier` (enseignant : semaine, contenu des séances, travail à donner, travaux et jours chargés par classe), `/web/cahier/travaux/:id` (copies reçues, téléchargement, retour), `/web/agenda` (élève : à faire / fait / rendre un fichier ; famille : agenda de chaque enfant en lecture seule). Modèle d'écran pur testé en natif (`modele.rs`), client typé `ent-web-api/src/cahier.rs`, entrées de navigation et droits d'affichage (parité testée avec `ent-auth`), CSS dans la feuille de l'application (aucun style en ligne, CSP inchangée). |
+
+**Tests** (feature `labo`, PostgreSQL local jetable)
+- `ent-db/src/tests_cahier.rs` — 15 tests : contenu de séance versionné et historique ; séance de groupe visible du seul groupe ; travail visible par classe et par groupe (élève, famille, professeur, autres profils) ; échéances (passée, avant la séance, durée, type, formats) ; charge et alerte de surcharge ; modification / suppression / historique / « déjà vu » ; pièces privées (D2, magasin d'objets, liens signés, refus des camarades et des autres établissements) ; rendu tardif, retard refusé, dépôt complémentaire sans second événement, retour du professeur, note liée d'un autre élève refusée ; « fait » personnel ; droits par le moteur (rôle paramétré désigné et `mes_groupes`, retrait immédiat) ; visa réservé à la direction ; isolation entre établissements ; reprise de l'ancien cahier ; atomicité (panne de l'outbox → aucun travail) ; notifications idempotentes (redistribution + rejeu du consommateur).
+- `ent-web-server/tests/cahier.rs` — 3 tests contre le vrai backend : pages rendues (CSP, langue, aucun style en ligne), parcours enseignant → élève → famille → copie → correction avec lien signé réellement servi, 401 sans session.
+- `ent-web-app` (`modele.rs`) — 11 tests natifs ; `droits_parite.rs` — parité des droits d'affichage avec `ent-auth`.
+
+**Résultats (2026-11-05, Postgres 16 local jetable, Rust 1.97 — la CI vise 1.99)** :
+- suite backend complète `cargo test --locked --no-fail-fast --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1` : **564 réussis, 0 échec, 1 ignoré** (code de sortie 0) ; `tests_cahier` 15/15 ;
+- clippy du job backend (3 commandes) : code de sortie 0 ; `cargo build --locked --workspace` : réussi ;
+- frontend : clippy `-D warnings` (SSR, serveur, serveur + labo, wasm32 `hydrate`) propre ; tests natifs `ent-web-ui` / `ent-web-api` / `ent-web-app` : 153 réussis ; `ent-web-server` : `cahier` 3/3, `droits_parite` 20/20, `entetes_securite` 3/3 ; formatage CI (`cargo fmt … --check` web + `ent-types`) : OK ; `ent-rust/web/Cargo.lock` et `ent-rust/Cargo.lock` à jour (une ligne chacun : `ent-db` → `ent-types`) ;
+- **non exécutés** : `cargo leptos build --release --precompress` (outil absent de ce poste), `contre_backend` et `ent-web-session` du job frontend, audits `cargo deny` / `cargo audit`, CI GitHub.
+
+**Écarts par rapport au §3 et limites [signalés]**
+- **CDT-08** : l'agenda inclut les contrôles annoncés **saisis comme travail de type `controle`** ; il ne lit pas encore les devoirs notés (`ent_devoir`) : à relier avec le lot évaluations (EVA).
+- **CDT-10** : le visa est enregistré et lisible (route, droits, événement) mais **sans écran** ; la lecture « par classe / par professeur » passe par `GET /cahier/travaux` et `/cahier/seances?classe_id=`.
+- **CDT-07** : le lien vers une note existe (`note_id` validé : même établissement, même élève) côté API ; l'écran n'expose pas encore le choix de la note.
+- **Date limite** : calculée en **UTC** (fin de journée) ; le fuseau de l'établissement n'est pas encore modélisé. Un rendu après la limite est accepté et marqué en retard, sauf si le professeur a désactivé le retard.
+- **CDT-03** : modification par l'auteur ou la direction (`cahier.viser`) ; la notification « déjà vu » repose sur l'ouverture du détail par l'élève (pas par la famille).
+- Rappel « la veille » (catalogue §4.2) : **non fait** (planificateur à venir dans S2-0).
+- Un travail ciblé sur un groupe se donne depuis une séance du groupe (ou par l'API) ; l'écran enseignant propose la classe de la séance, pas encore un choix de groupe hors séance.
+- Les ressources s'ajoutent par l'API (`…/pieces`) ; l'écran enseignant ne propose pas encore l'ajout de fichier à une séance ou à un travail (seul le dépôt de l'élève et le retour annoté ont leur sélecteur de fichier).
+- Un objet écrit dans le magasin avant un échec de validation de la transaction peut rester orphelin (nettoyage différé à prévoir).
+- Écrans **non testés dans un navigateur** (clavier, 375 px, axe-core, lecteur d'écran) : seuls le rendu serveur, le modèle d'écran, clippy (SSR et wasm) et le parcours HTTP sont vérifiés. `cargo leptos build` non exécuté (outil absent de ce poste).
+- Aucune migration `151`–`159` utilisée.
 
 ## 7. Décisions à soumettre à Florian (questions fermées)
 

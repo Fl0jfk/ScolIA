@@ -15,6 +15,7 @@
 
 pub mod appel;
 pub mod auth;
+pub mod cahier;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;

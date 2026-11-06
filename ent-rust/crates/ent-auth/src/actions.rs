@@ -117,6 +117,13 @@ pub enum Action {
     InscriptionsDecider,
     /// Importer des élèves en lot et traiter les rejets (S2-3, IOP-01/04).
     ImportsAppliquer,
+    /// Lire le cahier de textes, le travail à faire et la charge de travail
+    /// d'une classe ou d'un groupe (S2-6, CDT).
+    CahierLire,
+    /// Renseigner le cahier (contenu de séance, travail, pièces) et corriger les copies.
+    CahierEcrire,
+    /// Viser le cahier de textes d'une classe ou d'un professeur (inspection, direction).
+    CahierViser,
 }
 
 /// Sur quoi une action s'applique.
@@ -133,7 +140,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 50] = [
+    pub const TOUTES: [Action; 53] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -186,6 +193,9 @@ impl Action {
         Action::InscriptionsGerer,
         Action::InscriptionsDecider,
         Action::ImportsAppliquer,
+        Action::CahierLire,
+        Action::CahierEcrire,
+        Action::CahierViser,
     ];
 
     pub fn code(self) -> &'static str {
@@ -241,6 +251,9 @@ impl Action {
             Self::InscriptionsGerer => "inscriptions.gerer",
             Self::InscriptionsDecider => "inscriptions.decider",
             Self::ImportsAppliquer => "imports.appliquer",
+            Self::CahierLire => "cahier.lire",
+            Self::CahierEcrire => "cahier.ecrire",
+            Self::CahierViser => "cahier.viser",
         }
     }
 
@@ -297,6 +310,9 @@ impl Action {
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
             Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
+            Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
+            Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
+            Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
         }
     }
 
@@ -320,7 +336,8 @@ impl Action {
             | Self::SecuritePolitique
             | Self::AuditLire
             | Self::ReferentielLire
-            | Self::ReferentielGerer => &[Portee::Etablissement],
+            | Self::ReferentielGerer
+            | Self::CahierViser => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
             Self::FacturationGerer
@@ -411,7 +428,23 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ReferentielGerer));
     }
+    // Cahier de textes (S2-6) : lecture pour la direction, l'administratif et la vie scolaire ;
+    // écriture (contenu, travail, correction des copies) pour la direction et les professeurs
+    // seulement : les copies d'élèves ne sont pas lisibles de la vie scolaire ni du secrétariat ;
+    // visa réservé à la direction. (L'ancienne route `/cahier-texte` garde ses règles.)
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
+    ) {
+        d.push(etab(CahierLire));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(CahierEcrire));
+        d.push(etab(CahierViser));
+    }
     if role == Role::Prof {
+        d.push((CahierLire, Portee::MesClasses));
+        d.push((CahierEcrire, Portee::MesClasses));
         for a in [
             NotesLire,
             NotesSaisir,
