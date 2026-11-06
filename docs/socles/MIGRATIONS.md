@@ -17,5 +17,6 @@ Chaque session qui écrit des migrations reçoit une plage réservée ici, pour 
 | 260–279 | socle 4 dossier administratif (conception : `04_ADMINISTRATIF.md` §16) | `ent-socle-administratif-conception` (conception seulement) | réservé |
 | 280–299 | socle 2 élève, lots E2 et suivants | à venir | réservé |
 | 300–329 | socle 3 inscriptions, lots I1 et suivants | à venir | réservé |
+| 330–349 | socle 5 structure de l'établissement et année scolaire (conception : `05_STRUCTURE.md` §18) | `ent-socle-structure-conception` (conception seulement) | réservé |
 
 Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTIONS.md` (200–219) sont remplacées par ce registre.

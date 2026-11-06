@@ -138,6 +138,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : largement fait (S2-2) : 092, 110–112, ~30 routes `/referentiel/*`, écrans `/web/referentiel/*`. Reste : coupure de la lecture du texte `classe` (Q14), périodes par niveau, aperçu serveur de l'ouverture d'année (`SOCLE2_DOMAINES.md` §6.3).
 - **Place** : juste après le cœur parce que l'essentiel existe et que le cœur s'en sert déjà ; doit être terminé avant l'emploi du temps, l'appel et les notes. [R] Meilleur candidat à mener **en parallèle** de 2 à 4.
 - **Faire mieux** : bascule d'année guidée avec aperçu des effets ; calendrier officiel importé ; rien ne se perd d'une année sur l'autre.
+- **Conception** (2026-11-06, non décidée) : `docs/socles/05_STRUCTURE.md`. Points à corriger ici après validation : les **affectations** des élèves (table et commandes) relèvent du socle 5, le socle 2 les lit (Q-S1) ; la génération des séances datées part au socle 10 (Q-S11) ; le professeur principal au socle 6 (Q-S4).
 
 #### 6. Personnels, services et équipes
 - **Contient** : fiche personnel (fonctions, disciplines, quotité, statut public / privé / contractuel, établissements) ; arrivées et départs ; annuaire interne ; **services d'enseignement** (professeur × matière × classe ou groupe × année) ; professeur principal ; équipes pédagogiques et éducatives ; référents (décrochage, harcèlement, numérique…) ; responsables de groupes et d'ateliers ; délégations datées (remplaçant, intérim) ; rattachement des comptes aux rôles (moteur du socle 1).
