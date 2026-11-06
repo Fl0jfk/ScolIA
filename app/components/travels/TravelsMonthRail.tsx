@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   buildTravelMonthRail,
   travelCardAnchorId,
@@ -23,8 +23,8 @@ function prefersReducedMotion(): boolean {
 
 /**
  * Frise des mois des séjours : remplace la barre de défilement sur la page Voyage.
- * - Bureau : colonne collante à droite de la liste.
- * - Mobile : rangée de mois collante au-dessus de la liste.
+ * - Bureau : colonne à droite de la liste, qui suit le défilement.
+ * - Mobile : rangée de mois au-dessus de la liste, qui suit le défilement.
  * Un clic amène au premier séjour du mois ; le mois affiché à l'écran est surligné.
  */
 export function useTravelMonthRail(trips: TravelsTrip[]) {
@@ -78,17 +78,82 @@ export function useTravelMonthRail(trips: TravelsTrip[]) {
 
 type RailProps = ReturnType<typeof useTravelMonthRail>;
 
+/**
+ * Fait suivre `el` le défilement de la fenêtre, sans sortir de `boundary`.
+ * Remplace `position: sticky`, inopérant ici : le conteneur global de l'appli
+ * (`ScolaAmbientBackground`, `overflow-x-hidden`) bloque l'effet collant de ses enfants.
+ */
+function useFollowScroll(
+  boundaryRef: RefObject<HTMLElement | null>,
+  elRef: RefObject<HTMLElement | null>,
+  offsetTop: number,
+  enabled: boolean,
+) {
+  useEffect(() => {
+    if (!enabled) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const boundary = boundaryRef.current;
+      const el = elRef.current;
+      if (!boundary || !el) return;
+      // Élément masqué (ex. version mobile sur grand écran) : rien à faire.
+      if (el.offsetParent === null) {
+        el.style.transform = "";
+        return;
+      }
+      const boundaryRect = boundary.getBoundingClientRect();
+      const maxShift = Math.max(0, boundary.offsetHeight - el.offsetHeight);
+      const shift = Math.min(Math.max(offsetTop - boundaryRect.top, 0), maxShift);
+      el.style.transform = shift > 0 ? `translateY(${Math.round(shift)}px)` : "";
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    // La liste change de hauteur (images chargées, filtres) : recalcul.
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(schedule) : null;
+    if (observer && boundaryRef.current) observer.observe(boundaryRef.current);
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      observer?.disconnect();
+      if (elRef.current) elRef.current.style.transform = "";
+    };
+  }, [boundaryRef, elRef, offsetTop, enabled]);
+}
+
 const todayLabel = () =>
   new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
 
 /** Colonne verticale (écrans larges). */
 export function TravelsMonthRailVertical({ entries, activeKey, goTo }: RailProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  useFollowScroll(trackRef, navRef, 24, entries.length >= 2);
+
+  // Frise plus haute que l'écran : garde le mois actif visible dans la colonne.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || !activeKey || nav.scrollHeight <= nav.clientHeight) return;
+    const item = nav.querySelector<HTMLElement>(`[data-rail-item="${CSS.escape(activeKey)}"]`);
+    if (!item) return;
+    const top = item.offsetTop - nav.clientHeight / 2 + item.offsetHeight / 2;
+    nav.scrollTo({ top, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }, [activeKey]);
+
   if (entries.length < 2) return null;
   let lastHeader = "";
   return (
+    <div ref={trackRef} className="h-full">
     <nav
+      ref={navRef}
       aria-label="Aller aux séjours d'un mois"
-      className="sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl bg-white/80 p-3 shadow-sm ring-1 ring-black/5 backdrop-blur-sm"
+      className="relative max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl bg-white/90 p-3 shadow-sm ring-1 ring-black/5 will-change-transform"
     >
       <ol className="relative space-y-0.5 before:absolute before:bottom-2 before:left-[9.5px] before:top-2 before:w-px before:bg-slate-200">
         {entries.map((entry, index) => {
@@ -102,7 +167,7 @@ export function TravelsMonthRailVertical({ entries, activeKey, goTo }: RailProps
           const active = entry.key === activeKey;
           const past = entry.section === "past";
           return (
-            <li key={entry.key}>
+            <li key={entry.key} data-rail-item={entry.key}>
               {showSection ? (
                 <p className={`relative mb-1 pl-7 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 ${index > 0 ? "mt-3" : ""}`}>
                   {sectionTitle}
@@ -155,12 +220,23 @@ export function TravelsMonthRailVertical({ entries, activeKey, goTo }: RailProps
         })}
       </ol>
     </nav>
+    </div>
   );
 }
 
-/** Rangée horizontale (mobile / tablette). */
-export function TravelsMonthRailHorizontal({ entries, activeKey, goTo }: RailProps) {
+/**
+ * Rangée horizontale (mobile / tablette).
+ * `boundaryRef` : bloc contenant la rangée et la liste ; la rangée le suit sans en sortir.
+ */
+export function TravelsMonthRailHorizontal({
+  entries,
+  activeKey,
+  goTo,
+  boundaryRef,
+}: RailProps & { boundaryRef: RefObject<HTMLElement | null> }) {
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  useFollowScroll(boundaryRef, navRef, 0, entries.length >= 2);
 
   // Garde le mois actif visible dans la rangée (sans faire défiler la page).
   useEffect(() => {
@@ -175,10 +251,11 @@ export function TravelsMonthRailHorizontal({ entries, activeKey, goTo }: RailPro
   if (entries.length < 2) return null;
   return (
     <nav
+      ref={navRef}
       aria-label="Aller aux séjours d'un mois"
-      className="sticky top-14 z-20 -mx-4 mb-4 border-b border-black/5 bg-[color:var(--dash-surface,#f4f5f3)]/95 px-4 py-2 backdrop-blur-sm sm:-mx-6 sm:px-6"
+      className="relative z-20 -mx-4 mb-4 border-b border-black/5 bg-[color:var(--dash-surface,#f4f5f3)] px-4 py-2 shadow-sm will-change-transform sm:-mx-6 sm:px-6"
     >
-      <div ref={scrollerRef} className="flex gap-2 overflow-x-auto">
+      <div ref={scrollerRef} className="relative flex gap-2 overflow-x-auto">
         {entries.map((entry, i) => {
           const active = entry.key === activeKey;
           const past = entry.section === "past";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSessionUser } from "@/app/hooks/useAppUser";
-import { Suspense, useState, useEffect, useCallback, useMemo } from "react";
+import { Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
@@ -181,6 +181,7 @@ function TripDashboardContent() {
   }, [trips, filterEtab, searchQuery, etabFilterOptions]);
 
   const monthRail = useTravelMonthRail(filteredTrips);
+  const listAreaRef = useRef<HTMLDivElement>(null);
 
   const unreadSummary = useMemo(() => {
     let tripCount = 0;
@@ -329,9 +330,9 @@ function TripDashboardContent() {
       {loading ? (
         <div className="text-center py-20">Chargement des dossiers...</div>
       ) : filteredTrips.length > 0 ? (
-        <>
+        <div ref={listAreaRef}>
         <div className="lg:hidden">
-          <TravelsMonthRailHorizontal {...monthRail} />
+          <TravelsMonthRailHorizontal {...monthRail} boundaryRef={listAreaRef} />
         </div>
         <div className="flex items-start gap-6">
         <div
@@ -348,7 +349,7 @@ function TripDashboardContent() {
                 key={trip.id}
                 id={travelCardAnchorId(trip.id)}
                 {...{ [TRAVEL_RAIL_KEY_ATTR]: travelMonthRailKey(trip) }}
-                className="flex min-w-0 scroll-mt-32 flex-col lg:scroll-mt-6 [&>article]:flex-1"
+                className="flex min-w-0 scroll-mt-20 flex-col lg:scroll-mt-6 [&>article]:flex-1"
               >
                 <TravelsTripBentoCard
                   trip={trip}
@@ -370,7 +371,7 @@ function TripDashboardContent() {
           </aside>
         ) : null}
         </div>
-        </>
+        </div>
       ) : (
         <ModuleEmptyState className="py-20 rounded-[2.5rem]">
           <p className="font-bold text-xl">
