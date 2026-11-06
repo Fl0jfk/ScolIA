@@ -124,6 +124,8 @@ pub enum Action {
     CahierEcrire,
     /// Viser le cahier de textes d'une classe ou d'un professeur (inspection, direction).
     CahierViser,
+    /// Produire les exports officiels (LSL, LSU/LSUN, Notanet, Parcoursup, ONDE…) — D-022.
+    ExportsOfficiels,
 }
 
 /// Sur quoi une action s'applique.
@@ -140,7 +142,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 53] = [
+    pub const TOUTES: [Action; 54] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -196,6 +198,7 @@ impl Action {
         Action::CahierLire,
         Action::CahierEcrire,
         Action::CahierViser,
+        Action::ExportsOfficiels,
     ];
 
     pub fn code(self) -> &'static str {
@@ -254,6 +257,7 @@ impl Action {
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
             Self::CahierViser => "cahier.viser",
+            Self::ExportsOfficiels => "exports.officiels",
         }
     }
 
@@ -313,6 +317,7 @@ impl Action {
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
+            Self::ExportsOfficiels => "Produire les exports officiels (LSL, LSU, Notanet, Parcoursup, ONDE)",
         }
     }
 
@@ -337,7 +342,8 @@ impl Action {
             | Self::AuditLire
             | Self::ReferentielLire
             | Self::ReferentielGerer
-            | Self::CahierViser => &[Portee::Etablissement],
+            | Self::CahierViser
+            | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
             Self::FacturationGerer
@@ -583,6 +589,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
     // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).
+    // D-022 : les exports officiels sont faits par les administratifs (direction,
+    // secrétariat) ; jamais par le modèle « professeur » (retourné plus haut).
+    if role.can_manage_eleves() {
+        d.push(etab(ExportsOfficiels));
+    }
     if role.can_manage_eleves() {
         d.push(etab(InscriptionsGerer));
         d.push(etab(ImportsAppliquer));
@@ -635,6 +646,11 @@ mod tests {
         assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
         assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
         assert_eq!(a(Role::Prof, PersonnesGerer), None);
+        // D-022 : exports officiels réservés aux administratifs.
+        assert_eq!(a(Role::Prof, ExportsOfficiels), None);
+        assert_eq!(a(Role::Cpe, ExportsOfficiels), None);
+        assert_eq!(a(Role::Direction, ExportsOfficiels), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, ExportsOfficiels), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
         assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
@@ -713,7 +729,9 @@ mod tests {
     #[test]
     fn r2_non_regression_profil_par_action() {
         use Action::*;
-        let oracle: [(Action, fn(Role) -> bool); 14] = [
+        let oracle: [(Action, fn(Role) -> bool); 15] = [
+            // D-022 (écart voulu avec l'historique : le professeur n'exporte plus).
+            (ExportsOfficiels, Role::can_manage_eleves),
             (FacturationGerer, Role::can_manage_facturation),
             (FacturationLire, Role::can_manage_facturation),
             (BoursesGerer, Role::can_manage_bourses),

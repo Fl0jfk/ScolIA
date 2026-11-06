@@ -986,7 +986,14 @@ async fn search_eleves(
     let niveau = ent_db::PgEnt::niveau_identite(&session.role);
     let rows = state
         .ent
-        .search_eleves(session.etablissement_id, &needle, 50, niveau)
+        .search_eleves_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &needle,
+            50,
+            niveau,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(rows.iter().map(|e| EleveDto::pour(e, niveau)).collect()))
@@ -5699,7 +5706,13 @@ async fn list_trombi_classe(
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_trombi_classe_for_actor(session.etablissement_id, &session.role, &classe, jour)
+        .list_trombi_classe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &classe,
+            jour,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(TrombiEntreeDto::from).collect()))
@@ -6394,6 +6407,7 @@ async fn export_onde(
         .ent
         .exporter_onde_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterOnde {
                 etablissement_id: session.etablissement_id,
                 classe: q.classe,

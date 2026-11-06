@@ -1978,8 +1978,8 @@ async fn explorer_nomenclature_et_notes(
 
     let csv_lsl = ent
         .exporter_lsl_csv_for_actor(
-            Role::Prof.as_str(),
-            cast.prof.user_id,
+            Role::Direction.as_str(),
+            cast.direction.user_id,
             ExporterLsl {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -2000,8 +2000,8 @@ async fn explorer_nomenclature_et_notes(
 
     let csv_lsun = ent
         .exporter_lsun_csv_for_actor(
-            Role::Prof.as_str(),
-            cast.prof.user_id,
+            Role::Direction.as_str(),
+            cast.direction.user_id,
             ExporterLsun {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -2023,6 +2023,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_onde = ent
         .exporter_onde_csv_for_actor(
             Role::Administratif.as_str(),
+            cast.administratif.user_id,
             ExporterOnde {
                 etablissement_id: cast.etablissement_id,
                 classe: Some(lea.classe.clone()),
@@ -2042,8 +2043,8 @@ async fn explorer_nomenclature_et_notes(
 
     let csv_notanet = ent
         .exporter_notanet_csv_for_actor(
-            Role::Prof.as_str(),
-            cast.prof.user_id,
+            Role::Direction.as_str(),
+            cast.direction.user_id,
             ExporterNotanet {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -7522,6 +7523,7 @@ async fn explorer_quotient_tva_trombi(
     let trombi = ent
         .list_trombi_classe_for_actor(
             cast.etablissement_id,
+            cast.prof.user_id,
             Role::Prof.as_str(),
             harry.classe.as_str(),
             jour,
@@ -7787,7 +7789,7 @@ async fn explorer_filieres_voeux_mails(
     let csv_ps = ent
         .exporter_parcoursup_csv_for_actor(
             Role::Administratif.as_str(),
-            cast.prof.user_id,
+            cast.administratif.user_id,
             ExporterParcoursup {
                 etablissement_id: cast.etablissement_id,
                 annee_scolaire: annee.clone(),
@@ -10485,8 +10487,8 @@ async fn explorer_competences_lsu(
     // 5) L'export LSU porte le niveau réel (code 4), pas une devinette.
     let csv = ent
         .exporter_lsun_csv_for_actor(
-            Role::Prof.as_str(),
-            cast.prof.user_id,
+            Role::Direction.as_str(),
+            cast.direction.user_id,
             ExporterLsun {
                 etablissement_id: etab,
                 periode_id: periode.id,

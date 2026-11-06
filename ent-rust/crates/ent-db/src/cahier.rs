@@ -344,7 +344,13 @@ impl PgEnt {
                  OR EXISTS (
                     SELECT 1 FROM ent_edt_seance x
                      WHERE x.etablissement_id = $1 AND $3::uuid IS NOT NULL AND x.classe_id = $3
-                       AND (x.prof_user_id = $2 OR x.remplacant_user_id = $2))",
+                       AND (x.prof_user_id = $2 OR x.remplacant_user_id = $2)
+                       -- D-022 : une séance de groupe (LV2, option…) n'ouvre pas la classe entière.
+                       AND NOT EXISTS (SELECT 1 FROM ent_edt_creneau cr
+                                        WHERE cr.id = x.creneau_id AND cr.groupe_id IS NOT NULL)
+                       AND (x.service_id IS NULL OR EXISTS (
+                              SELECT 1 FROM ent_service_enseignement sv
+                               WHERE sv.id = x.service_id AND sv.classe_id IS NOT NULL)))",
             )
             .bind(a.etablissement_id)
             .bind(a.user_id)
