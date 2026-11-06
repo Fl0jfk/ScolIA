@@ -70,6 +70,20 @@ async fn run_api() {
         (d.clone(), d.lancer())
     });
 
+    // Inscriptions (I0) : expédition des messages mis en file par les réactions, hors de
+    // toute transaction métier (reprise et échecs tracés en base).
+    let expediteur = distributeur_actif().then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = ent.expedier_envois_inscriptions(50).await {
+                    tracing::warn!("expédition des envois d'inscription : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -79,6 +93,9 @@ async fn run_api() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+    if let Some(t) = expediteur {
+        t.abort();
+    }
     if let Some((d, tache)) = distributeur {
         d.arreter();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(10), tache).await;

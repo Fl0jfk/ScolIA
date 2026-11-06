@@ -124,6 +124,16 @@ impl ApiClient {
         .await
     }
 
+    /// Correspondances possibles (élèves, personnes, foyers) à confirmer avant la validation.
+    pub async fn correspondances_dossier(&self, id: Uuid) -> Result<CorrespondancesDto, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/inscriptions/dossiers/{id}/correspondances"),
+            None,
+        )
+        .await
+    }
+
     pub async fn valider_dossier(
         &self,
         id: Uuid,

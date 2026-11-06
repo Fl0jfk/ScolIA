@@ -11,8 +11,8 @@
 use std::net::SocketAddr;
 
 use ent_web_api::types_inscriptions::{
-    CampagneBody, ConfirmationReinscriptionBody, DecisionBody, PieceCampagneDto, PieceDecisionBody,
-    ValidationBody,
+    CampagneBody, ChoixFoyer, ChoixPersonne, ConfirmationReinscriptionBody, DecisionBody,
+    PieceCampagneDto, PieceDecisionBody, ResolutionResponsable, ValidationBody,
 };
 use ent_web_api::{ApiClient, ApiError, ClientPreinscription};
 use ent_web_app::modules::inscriptions::modele::{corps_preinscription, peut, SaisieFormulaire};
@@ -225,8 +225,42 @@ async fn parcours_admission_et_reinscription_contre_le_backend() {
         .await
         .expect("admis");
     assert!(peut(&vu, "valider"));
-    let v = direction
+    // Rapprochement humain (I0) : les correspondances sont présentées, la direction confirme
+    // chacune ; sans ce choix, la validation est refusée.
+    assert!(direction
         .valider_dossier(d.id, &ValidationBody::default())
+        .await
+        .is_err());
+    let corr = direction
+        .correspondances_dossier(d.id)
+        .await
+        .expect("correspondances");
+    let responsables = corr
+        .responsables
+        .iter()
+        .filter_map(|r| {
+            r.candidats.first().map(|c| ResolutionResponsable {
+                responsable_id: r.responsable_id,
+                personne: ChoixPersonne::Existante {
+                    personne_id: c.personne_id,
+                },
+                foyer: Some(match c.foyers.first() {
+                    Some(f) => ChoixFoyer::Existant {
+                        foyer_id: f.foyer_id,
+                    },
+                    None => ChoixFoyer::Nouveau,
+                }),
+            })
+        })
+        .collect();
+    let v = direction
+        .valider_dossier(
+            d.id,
+            &ValidationBody {
+                responsables,
+                ..Default::default()
+            },
+        )
         .await
         .expect("validation");
     assert_ne!(v.eleve_id, Uuid::nil());

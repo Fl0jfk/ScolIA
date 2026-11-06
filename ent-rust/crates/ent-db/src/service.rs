@@ -428,6 +428,9 @@ pub enum EntDbError {
     /// Finalisation demandée avant la fin du délai de sécurité (D-018).
     #[error("délai de sécurité en cours")]
     RecuperationDelaiEnCours(DateTime<Utc>),
+    /// Lien de changement d'e-mail inconnu, déjà utilisé, annulé ou expiré (RF-01).
+    #[error("lien de changement d'adresse invalide ou expiré")]
+    EmailLienInvalide,
     /// Plafond de passkeys atteint pour ce compte.
     #[error("limite de passkeys atteinte ({0} maximum)")]
     PasskeyPlafond(i64),
@@ -676,6 +679,7 @@ pub struct PgEnt {
     /// est absente/invalide hors labo/test : `connect` refuse alors de démarrer.
     secrets: Option<SecretBox>,
     recup: crate::recuperation_repo::PgRecuperationRepo,
+    email_change: crate::email_change_repo::PgEmailChangeRepo,
     oidc: PgOidcRepo,
     oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
@@ -779,6 +783,7 @@ impl PgEnt {
             },
             secrets: SecretBox::from_env().ok(),
             recup: crate::recuperation_repo::PgRecuperationRepo::new(pool.clone()),
+            email_change: crate::email_change_repo::PgEmailChangeRepo::new(pool.clone()),
             oidc: PgOidcRepo::new(pool.clone()),
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
@@ -824,6 +829,18 @@ impl PgEnt {
             live,
         );
         self.mail_dry_run_accepte = accepter_dry_run;
+    }
+
+    /// Expédie les messages d'inscription en file (après validation des transactions
+    /// métier). Appelée par la tâche de fond de l'API ; les tests l'appellent à la main.
+    pub async fn expedier_envois_inscriptions(&self, limite: i64) -> Result<usize, EntDbError> {
+        Ok(crate::inscriptions_reactions::expedier_envois(
+            &self.pool,
+            &self.mailer,
+            self.mail_dry_run_accepte,
+            limite,
+        )
+        .await?)
     }
 
     pub fn mailer(&self) -> &MailService {
@@ -1227,10 +1244,10 @@ impl PgEnt {
         role: &str,
         limit: i64,
     ) -> Result<Vec<MailOutboxRow>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
-            return Err(EntDbError::Forbidden);
-        }
+        // Revue finale socle 1 : l'historique des envois (adresses des familles, sujets
+        // nominatifs) est réservé à `audit.lire` ; avant, tout personnel (professeur,
+        // comptable, infirmerie…) le lisait.
+        Self::exiger_etablissement(role, Action::AuditLire)?;
         let lim = limit.clamp(1, 200);
         Ok(self.mail_outbox.list_recent(etablissement_id, lim).await?)
     }
@@ -1241,8 +1258,10 @@ impl PgEnt {
         role: &str,
         limit: i64,
     ) -> Result<Vec<crate::sms_repo::SmsOutboxRow>, EntDbError> {
+        // Revue finale socle 1 : téléphones des familles et corps nominatifs des SMS
+        // (sanctions, absences) → `audit.lire`, ou la vie scolaire (CPE) qui les envoie.
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
+        if parsed != Role::Cpe && !Self::peut_etablissement(role, Action::AuditLire) {
             return Err(EntDbError::Forbidden);
         }
         let lim = limit.clamp(1, 200);
@@ -2206,7 +2225,7 @@ impl PgEnt {
     /// HTTP est ainsi indiscernable (anti-énumération). Rien n'est persisté : le
     /// jeton renvoyé est refusé comme n'importe quel jeton inconnu à l'étape
     /// `finish`.
-    pub fn passkey_challenge_factice(&self) -> (String, serde_json::Value, DateTime<Utc>) {
+    pub fn passkey_challenge_factice(&self, email: &str) -> (String, serde_json::Value, DateTime<Utc>) {
         fn b64url(octets: &[u8]) -> String {
             const A: &[u8; 64] =
                 b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -2227,16 +2246,35 @@ impl PgEnt {
         }
         let (jeton, _) = generate_challenge_token();
         let (rp_id, _, _) = ent_auth::rp_config_from_env();
+        // RF-07 : le nombre d'`allowCredentials` d'un vrai défi est le nombre de passkeys
+        // du compte (stable). Le factice en annonce 1 à 3, fixé par l'adresse via un secret
+        // de processus : stable d'un appel à l'autre, sans lien avec l'existence du compte.
+        static SEL: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+        let sel = SEL.get_or_init(aleatoire_32);
+        let empreinte = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(sel);
+            h.update(email.trim().to_ascii_lowercase().as_bytes());
+            h.finalize()
+        };
+        let nb = match empreinte[0] {
+            0..=203 => 1,
+            204..=243 => 2,
+            _ => 3,
+        };
+        let identifiants: Vec<serde_json::Value> = (0..nb)
+            .map(|_| json!({ "type": "public-key", "id": b64url(&aleatoire_32()) }))
+            .collect();
         let options = json!({
             "publicKey": {
                 "challenge": b64url(&aleatoire_32()),
                 "timeout": 300000,
                 "rpId": rp_id,
-                "allowCredentials": [{
-                    "type": "public-key",
-                    "id": b64url(&aleatoire_32()),
-                }],
-                "userVerification": "preferred",
+                "allowCredentials": identifiants,
+                // Revue finale socle 1 : même valeur que le vrai défi (webauthn-rs exige
+                // la vérification de l'utilisateur) ; « preferred » trahissait le factice.
+                "userVerification": "required",
             }
         });
         let expires_at = Utc::now() + chrono::Duration::minutes(passkey_challenge_minutes());
@@ -2482,6 +2520,7 @@ impl PgEnt {
         };
         if !self.auth.is_member(etablissement_id, user_id).await.unwrap_or(false)
             || self.passkeys.count_for_user(user_id).await? == 0
+            || self.email_change.est_gele(user_id).await?
         {
             return Ok(false);
         }
@@ -2679,18 +2718,17 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         }
         let ok = match (op, actor) {
+            // RF-01 : jamais d'un pair ; un niveau strictement inférieur seulement.
+            // L'Administratif ne touche qu'aux comptes famille / élève (aucun compte de
+            // personnel : c'est la voie de prise de compte décrite par la revue).
+            (OperationCompte::Email, Role::Admin) => target != Role::Admin,
+            (OperationCompte::Email, Role::Direction) => {
+                !matches!(target, Role::Admin | Role::Direction)
+            }
+            (OperationCompte::Email, Role::Administratif) => {
+                matches!(target, Role::Parent | Role::Eleve)
+            }
             (_, Role::Admin) => true,
-            (OperationCompte::Email, Role::Direction) => target != Role::Admin,
-            (OperationCompte::Email, Role::Administratif) => matches!(
-                target,
-                Role::Parent
-                    | Role::Eleve
-                    | Role::Prof
-                    | Role::Cpe
-                    | Role::Compta
-                    | Role::Infirmerie
-                    | Role::Psy
-            ),
             (OperationCompte::Identifiants, Role::Direction) => {
                 !matches!(target, Role::Admin | Role::Direction)
             }
@@ -3100,6 +3138,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     .find_user_id_by_email(&email)
                     .await?
                     .ok_or(EntDbError::OidcCompteInconnu)?;
+                // RF-01 : pas de rattachement par e-mail pendant le gel qui suit un
+                // changement d'adresse fait par un tiers.
+                if self.email_change.est_gele(candidate).await? {
+                    return Err(EntDbError::OidcCompteInconnu);
+                }
                 self.oidc
                     .link_identity(provider.id, &identity.subject, candidate)
                     .await?;
@@ -3328,6 +3371,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .await?;
 
         if !target.is_staff() {
+            // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un
+            // tiers : on le dit à l'acteur plutôt que d'envoyer un lien inopérant.
+            if self.email_change.est_gele(target_user_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
             self.envoyer_lien_reinitialisation(
                 target_user_id,
                 public_base_url,
@@ -3524,6 +3572,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Ok(Some(user_id)) = self.auth.find_user_id_by_email(email).await else {
             return Ok(false);
         };
+        // RF-01 : gel de 72 h après un changement d'e-mail par un tiers (réponse neutre).
+        if self.email_change.est_gele(user_id).await? {
+            return Ok(false);
+        }
         // Réponse HTTP neutre (202) quoi qu'il arrive : si l'URL publique est
         // absente, la messagerie non prête ou l'envoi non confirmé, aucun jeton
         // ne reste actif ; on journalise seulement (côté serveur).
@@ -5026,6 +5078,55 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(())
     }
 
+    /// RF-04 (d à g) : le périmètre « mes classes » appliqué à une CLASSE entière. Un
+    /// professeur (ou tout rôle dont `suivi_eleve` est borné) n'agit que sur les classes
+    /// où il suit au moins un élève ; direction et rôles « établissement » gardent leur
+    /// portée. `Ok(None)` = aucune restriction ; sinon l'ensemble des classes autorisées.
+    pub async fn classes_dans_perimetre(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Option<std::collections::HashSet<String>>, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(None);
+        }
+        let Some(eleves) = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let ids: Vec<Uuid> = eleves.into_iter().collect();
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT classe FROM ent_eleve
+              WHERE etablissement_id = $1 AND id = ANY($2) AND classe IS NOT NULL",
+        )
+        .bind(etablissement_id)
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(rows.into_iter().map(|(c,)| c).collect()))
+    }
+
+    /// Refuse si `classe` est hors du périmètre de l'acteur (voir `classes_dans_perimetre`).
+    pub async fn exiger_classe_dans_perimetre(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        classe: &str,
+    ) -> Result<(), EntDbError> {
+        match self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            None => Ok(()),
+            Some(cl) if cl.contains(classe.trim()) => Ok(()),
+            Some(_) => Err(EntDbError::Forbidden),
+        }
+    }
+
     /// Peut savoir si l'élève est absent un jour donné : personnel, parent lié
     /// (statut seul, sans motif), élève lui-même.
     pub async fn actor_can_know_absent(
@@ -5123,18 +5224,35 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !self.auth.is_member(etablissement_id, user_id).await? {
             return Err(DomainError::NotFound.into());
         }
+        // Revue finale socle 1 (D-013) : le téléphone est porté par l'identité globale ;
+        // un tiers d'un établissement ne le modifie pas pour une personne aussi membre
+        // d'un autre établissement (ses SMS y partiraient vers le numéro choisi). Même
+        // règle que `cible_compte_autorisee` pour l'e-mail.
+        if !self_edit
+            && self
+                .auth
+                .list_memberships_for_user(user_id)
+                .await?
+                .iter()
+                .any(|(etab, _)| *etab != etablissement_id)
+        {
+            return Err(EntDbError::Forbidden);
+        }
         self.set_user_telephone(user_id, telephone).await
     }
 
-    /// Changement d'adresse e-mail (identité globale, donc strictement encadré).
+    /// Changement d'adresse e-mail (identité globale, donc strictement encadré) — RF-01.
     ///
     /// * soi-même : uniquement avec le mot de passe actuel (`current_password`) ;
-    /// * Admin → tout membre ; Direction → tout membre sauf Admin ;
-    ///   Administratif → Parent, Élève, Prof, Cpe, Compta, Infirmerie, Psy.
+    /// * tiers, **niveau strictement inférieur** (jamais un pair) : Admin → tout sauf
+    ///   Admin ; Direction → tout sauf Admin et Direction ; Administratif → Parent, Élève.
     ///
-    /// Après changement : **toutes** les sessions de la cible sont révoquées,
-    /// le journal porte l'acteur réel et des empreintes (jamais d'adresse en
-    /// clair), et l'ANCIENNE adresse est prévenue si la messagerie est prête.
+    /// Le changement n'est **pas immédiat** : un lien de confirmation part vers la NOUVELLE
+    /// adresse, l'ANCIENNE reçoit une alerte avec un lien d'annulation (qui rétablit
+    /// l'ancienne adresse jusqu'à 72 h après la confirmation). Messagerie ou URL publique
+    /// absente → `EnvoiImpossible`, rien n'est modifié. Un changement demandé par un tiers
+    /// annule les récupérations de passkey en cours et gèle 72 h la réinitialisation de
+    /// mot de passe et la récupération de passkey.
     pub async fn set_user_email_for_actor(
         &self,
         role: &str,
@@ -5143,8 +5261,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         user_id: Uuid,
         email: &str,
         current_password: Option<&str>,
+        public_base_url: &str,
     ) -> Result<(), EntDbError> {
-        let target_role = if actor_user_id == user_id {
+        let tiers = actor_user_id != user_id;
+        let target_role = if !tiers {
             if !self.auth.is_member(etablissement_id, user_id).await? {
                 return Err(EntDbError::Forbidden);
             }
@@ -5167,42 +5287,159 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .as_str()
             .to_string()
         };
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        // Plafond : pas de rafale de demandes (gel prolongé, courriels vers une adresse
+        // arbitraire) sur une même cible.
+        if self.email_change.demandes_recentes(user_id).await? >= 3 {
+            return Err(AuthError::TooManyAttempts.into());
+        }
 
         let ancien = self.auth.resolve_user_email(user_id).await?;
         let nouveau = ent_auth::normalize_email(email)?;
-        self.auth.set_email(user_id, &nouveau).await?;
-        let sessions = self.auth.revoke_all_for_user(user_id).await?;
-        // Un lien envoyé à l'ANCIENNE adresse ne doit plus rien permettre.
-        self.auth.invalidate_pending_resets(user_id).await?;
-        self.audit_compte(
-            etablissement_id,
-            actor_user_id,
-            role,
-            "email_modifie",
-            "Adresse e-mail d'un compte modifiée",
-            json!({
-                "cible_user_id": user_id.to_string(),
-                "cible_role": target_role,
-                "ancienne_empreinte": empreinte_email(&ancien),
-                "nouvelle_empreinte": empreinte_email(&nouveau),
-                "sessions_revoquees": sessions,
-            }),
-        )
-        .await;
-
-        // Prévenir l'ancienne adresse (best-effort, silencieux si pas de messagerie).
-        if self.mailer.is_ready() && ancien != nouveau {
+        if self.auth.find_user_id_by_email(&nouveau).await?.is_some() {
+            return Err(AuthError::EmailTaken.into());
+        }
+        let (confirm_raw, confirm_hash) = generate_reset_token();
+        let (annul_raw, annul_hash) = generate_reset_token();
+        let id = self
+            .email_change
+            .creer(
+                user_id,
+                etablissement_id,
+                actor_user_id,
+                tiers,
+                &ancien,
+                &nouveau,
+                &confirm_hash,
+                &annul_hash,
+            )
+            .await?;
+        let base = public_base_url.trim_end_matches('/');
+        let envoi = self
+            .mailer
+            .send(OutgoingMail {
+                to: nouveau.clone(),
+                subject: "Confirmez votre nouvelle adresse e-mail ENT".into(),
+                body_text: format!(
+                    "Bonjour,\n\nCette adresse a été indiquée comme nouvelle adresse de connexion d'un compte ENT. \
+Pour confirmer (lien valable {} minutes), ouvrez :\n{base}/email/confirmer?token={confirm_raw}\n\n\
+Sans confirmation, rien ne sera modifié. Si vous n'êtes pas concerné(e), ignorez ce message.\n",
+                    crate::email_change_repo::CONFIRMATION_TTL_MINUTES,
+                ),
+                attachments: vec![],
+            })
+            .await;
+        if !matches!(&envoi, Ok(r) if self.envoi_reussi(r)) {
+            let _ = self.email_change.abandonner(id).await;
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        if tiers {
+            // Dès la demande : plus aucune récupération en cours ni lien de mot de passe actif.
+            self.email_change.geler_et_annuler_recuperations(user_id).await?;
+        }
+        // Alerte de l'ancienne adresse avec lien d'annulation (best-effort).
+        if ancien != nouveau {
             let _ = self
                 .mailer
                 .send(OutgoingMail {
                     to: ancien,
+                    subject: "Changement d'adresse e-mail demandé sur votre compte ENT".into(),
+                    body_text: format!(
+                        "Bonjour,\n\nUn changement de l'adresse e-mail de votre compte ENT a été demandé. \
+Ce n'est pas vous ? Annulez-le immédiatement (le lien reste actif {} h, y compris si le changement a déjà \
+été confirmé : l'ancienne adresse sera alors rétablie) :\n{base}/email/annuler?token={annul_raw}\n\n\
+Sans action de votre part, l'adresse changera dès que la nouvelle aura été confirmée.\n",
+                        crate::email_change_repo::GEL_HEURES,
+                    ),
+                    attachments: vec![],
+                })
+                .await;
+        }
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            role,
+            "email_changement_demande",
+            "Changement d'adresse e-mail d'un compte demandé (confirmation en attente)",
+            json!({
+                "cible_user_id": user_id.to_string(),
+                "cible_role": target_role,
+                "tiers": tiers,
+                "ancienne_empreinte": empreinte_email(&self.auth.resolve_user_email(user_id).await?),
+                "nouvelle_empreinte": empreinte_email(&nouveau),
+            }),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Confirmation par le lien reçu à la nouvelle adresse (public, le jeton fait foi) :
+    /// applique le changement, révoque les sessions, annule récupérations et liens de mot
+    /// de passe ; gel de 72 h si le changement vient d'un tiers.
+    pub async fn confirmer_changement_email(&self, token: &str) -> Result<(), EntDbError> {
+        let c = self
+            .email_change
+            .confirmer(&hash_token(token.trim()))
+            .await?
+            .ok_or(EntDbError::EmailLienInvalide)?;
+        self.audit_compte(
+            c.etablissement_id,
+            c.actor_user_id,
+            "",
+            "email_modifie",
+            "Adresse e-mail d'un compte modifiée (confirmée par la nouvelle adresse)",
+            json!({
+                "cible_user_id": c.user_id.to_string(),
+                "tiers": c.tiers,
+                "ancienne_empreinte": empreinte_email(&c.ancien_email),
+                "nouvelle_empreinte": empreinte_email(&c.nouveau_email),
+                "sessions_revoquees": c.sessions_revoquees,
+            }),
+        )
+        .await;
+        if self.mailer.is_ready() && c.ancien_email != c.nouveau_email {
+            let _ = self
+                .mailer
+                .send(OutgoingMail {
+                    to: c.ancien_email,
                     subject: "L'adresse e-mail de votre compte ENT a changé".into(),
-                    body_text: "Bonjour,\n\nL'adresse e-mail de votre compte ENT vient d'être modifiée et toutes vos sessions ont été fermées. Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement l'établissement.\n".into(),
+                    body_text: "Bonjour,\n\nL'adresse e-mail de votre compte ENT vient d'être modifiée et toutes vos sessions ont été fermées. Si vous n'êtes pas à l'origine de ce changement, utilisez le lien d'annulation du message précédent ou contactez immédiatement l'établissement.\n".into(),
                     attachments: vec![],
                 })
                 .await;
         }
         Ok(())
+    }
+
+    /// Annulation par le lien reçu à l'ancienne adresse (public, le jeton fait foi) :
+    /// annule la demande, ou rétablit l'ancienne adresse (gel de 72 h maintenu).
+    pub async fn annuler_changement_email(&self, token: &str) -> Result<(), EntDbError> {
+        let c = self
+            .email_change
+            .annuler(&hash_token(token.trim()))
+            .await?
+            .ok_or(EntDbError::EmailLienInvalide)?;
+        self.audit_compte(
+            c.etablissement_id,
+            c.actor_user_id,
+            "",
+            if c.retabli { "email_retabli" } else { "email_changement_annule" },
+            "Changement d'adresse e-mail annulé par l'ancienne adresse",
+            json!({
+                "cible_user_id": c.user_id.to_string(),
+                "retabli": c.retabli,
+                "sessions_revoquees": c.sessions_revoquees,
+            }),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Purge les demandes de changement d'e-mail anciennes (maintenance boot).
+    pub async fn purger_changements_email(&self) -> Result<u64, EntDbError> {
+        Ok(self.email_change.purger().await?)
     }
 
     /// Crée (ou retrouve) un compte parent et le rattache à un élève sur ce foyer.
@@ -5864,6 +6101,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_saisir_notes(role) {
             return Err(EntDbError::Forbidden);
         }
+        // Revue finale socle 1 : même portée que la saisie de note (`notes.saisir`,
+        // professeur : ses élèves) ; avant, tout professeur écrivait l'appréciation de
+        // n'importe quel élève de l'établissement.
+        if !self
+            .autoriser_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::NotesSaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
@@ -5932,6 +6184,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !(Self::role_can_manage_eleves(role) || parsed.can_saisir_notes() || parsed == Role::Cpe) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (e) : un professeur ne publie que le bulletin d'un élève qu'il suit.
+        self.exiger_perimetre_prof(etablissement_id, actor_user_id, role, eleve_id)
+            .await?;
         let periode = self
             .notes
             .get_periode(etablissement_id, periode_id)
@@ -6349,6 +6604,22 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(doc)
     }
 
+    /// Création d'un devoir par un acteur : rôle de saisie de notes et classe dans son
+    /// périmètre (RF-04 g).
+    pub async fn creer_devoir_for_actor(
+        &self,
+        role: &str,
+        cmd: CreerDevoir,
+    ) -> Result<Devoir, EntDbError> {
+        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        if !parsed.can_saisir_notes() {
+            return Err(EntDbError::Forbidden);
+        }
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
+        self.creer_devoir(cmd).await
+    }
+
     pub async fn creer_devoir(&self, cmd: CreerDevoir) -> Result<Devoir, EntDbError> {
         let periode = self
             .notes
@@ -6440,12 +6711,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         &self,
         etablissement_id: Uuid,
         role: &str,
+        actor_user_id: Uuid,
         devoir_id: Uuid,
     ) -> Result<Devoir, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !parsed.can_saisir_notes() {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (g) : un professeur ne supprime que les devoirs de ses classes.
+        let devoir = self
+            .notes
+            .get_devoir(etablissement_id, devoir_id)
+            .await?
+            .ok_or(DomainError::DevoirIntrouvable)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &devoir.classe)
+            .await?;
         self.supprimer_devoir(etablissement_id, devoir_id).await
     }
 
@@ -6455,6 +6735,28 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         devoir_id: Uuid,
     ) -> Result<Option<Devoir>, EntDbError> {
         Ok(self.notes.get_devoir(etablissement_id, devoir_id).await?)
+    }
+
+    /// Liste des devoirs bornée au périmètre de l'acteur (RF-04 g) : un professeur ne
+    /// voit que les devoirs de ses classes. Les routes utilisent cette variante.
+    pub async fn list_devoirs_pour_acteur(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        periode_id: Uuid,
+        classe: Option<&str>,
+    ) -> Result<Vec<Devoir>, EntDbError> {
+        let mut devoirs = self
+            .list_devoirs_for_actor(etablissement_id, role, periode_id, classe)
+            .await?;
+        if let Some(cl) = self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            devoirs.retain(|d| cl.contains(d.classe.trim()));
+        }
+        Ok(devoirs)
     }
 
     pub async fn list_devoirs_for_actor(
@@ -11445,10 +11747,12 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             if cmd.interdit_etablissement {
                 return Err(EntDbError::Forbidden);
             }
-            if self
+            // Revue finale socle 1 : le droit coché « autoriser les sorties » du lien
+            // est exigé (il n'était lu que par l'ancienne UI).
+            if !self
                 .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
                 .await?
-                .is_none()
+                .is_some_and(|l| l.peut_autoriser_sorties)
             {
                 return Err(EntDbError::Forbidden);
             }
@@ -11659,10 +11963,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         match parsed {
             Role::Parent => {
-                if self
+                // Revue finale socle 1 : droit coché « autoriser les sorties » exigé.
+                if !self
                     .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
                     .await?
-                    .is_none()
+                    .is_some_and(|l| l.peut_autoriser_sorties)
                 {
                     return Err(EntDbError::Forbidden);
                 }
@@ -12910,6 +13215,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (f) : un professeur n'agit que sur les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
         let planned = plan_creer_conseil_classe(cmd)?;
         self.conseils.insert_conseil(&planned).await?;
         self.events
@@ -12945,6 +13253,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .get_conseil(etablissement_id, conseil_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &current.classe)
+            .await?;
         let held = plan_tenir_conseil(current, etablissement_id)?;
         self.conseils.update_statut(&held).await?;
         let _ = actor_user_id;
@@ -12959,10 +13269,20 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
-        self.conseils
+        let conseil = self
+            .conseils
             .get_conseil(cmd.etablissement_id, cmd.conseil_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(
+            cmd.etablissement_id,
+            cmd.actor_user_id,
+            role,
+            &conseil.classe,
+        )
+        .await?;
+        self.exiger_perimetre_prof(cmd.etablissement_id, cmd.actor_user_id, role, cmd.eleve_id)
+            .await?;
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
@@ -12985,6 +13305,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .get_dossier(cmd.etablissement_id, cmd.dossier_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (f) : mention et envoi aux familles seulement pour un élève suivi.
+        self.exiger_perimetre_prof(cmd.etablissement_id, cmd.actor_user_id, role, current.eleve_id)
+            .await?;
         let decided = plan_decider_dossier_conseil(current, cmd)?;
         self.conseils.update_dossier(&decided).await?;
         self.events
@@ -13068,24 +13391,40 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn list_conseils_classe_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         classe: Option<&str>,
     ) -> Result<Vec<ConseilClasse>, EntDbError> {
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self.conseils.list_conseils(etablissement_id, classe).await?)
+        let mut conseils = self.conseils.list_conseils(etablissement_id, classe).await?;
+        if let Some(cl) = self
+            .classes_dans_perimetre(etablissement_id, actor_user_id, role)
+            .await?
+        {
+            conseils.retain(|c| cl.contains(c.classe.trim()));
+        }
+        Ok(conseils)
     }
 
     pub async fn list_dossiers_conseil_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         conseil_id: Uuid,
     ) -> Result<Vec<ConseilClasseDossier>, EntDbError> {
         if !Self::role_can_gerer_conseil_classe(role) {
             return Err(EntDbError::Forbidden);
         }
+        let conseil = self
+            .conseils
+            .get_conseil(etablissement_id, conseil_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &conseil.classe)
+            .await?;
         Ok(self
             .conseils
             .list_dossiers_conseil(etablissement_id, conseil_id)
@@ -14077,6 +14416,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn exporter_lsl_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterLsl,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role) && !Self::role_can_manage_eleves(role) {
@@ -14094,6 +14434,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
@@ -14232,6 +14575,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn exporter_notanet_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterNotanet,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
@@ -14241,6 +14585,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_notanet(cmd)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
+            .await?;
         self.notes
             .get_periode(cmd.etablissement_id, cmd.periode_id)
             .await?
@@ -14285,6 +14632,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn exporter_parcoursup_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterParcoursup,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
@@ -14292,6 +14640,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_parcoursup(cmd)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, &cmd.classe, jour)
@@ -14825,6 +15176,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn exporter_lsun_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterLsun,
     ) -> Result<String, EntDbError> {
         if !Self::role_can_saisir_notes(role)
@@ -14844,6 +15196,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .map(str::trim)
             .filter(|c| !c.is_empty())
             .ok_or(DomainError::NotFound)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
@@ -14936,20 +15291,35 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn list_dispenses_vs_jour_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<DispenseVs>, EntDbError> {
-        if !Self::role_can_gerer_dispenses_vs(role)
-            && !Role::parse(role)
-                .map(|r| r.can_faire_appel() || r.can_lire_vs_absences())
-                .unwrap_or(false)
+        if Self::role_can_gerer_dispenses_vs(role) {
+            return Ok(self
+                .dispenses_vs
+                .list_actives_au_jour(etablissement_id, jour)
+                .await?);
+        }
+        if !Role::parse(role)
+            .map(|r| r.can_faire_appel() || r.can_lire_vs_absences())
+            .unwrap_or(false)
         {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self
+        // Revue finale socle 1 : hors gestionnaires des dispenses, la liste (motif
+        // médical, commentaire) est bornée aux élèves suivis (comme la route par élève).
+        let toutes = self
             .dispenses_vs
             .list_actives_au_jour(etablissement_id, jour)
-            .await?)
+            .await?;
+        match self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        {
+            None => Ok(toutes),
+            Some(ids) => Ok(toutes.into_iter().filter(|d| ids.contains(&d.eleve_id)).collect()),
+        }
     }
 
     /// Helper appel / EDT : dispense active couvrant la matière ce jour.
@@ -16189,6 +16559,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_ecrire_cahier_texte(role) {
             return Err(EntDbError::Forbidden);
         }
+        // RF-04 (g) : un professeur n'écrit que dans le cahier de ses classes.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
+            .await?;
         let entree = plan_creer_cahier_texte(cmd)?;
         self.cahier_texte.insert(&entree).await?;
         self.events
@@ -18470,6 +18843,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                             jour,
                         )
                         .await?;
+                    // Revue finale socle 1 : même portée que `absences.lire` (professeur :
+                    // ses élèves) ; avant, le copilote listait tout l'établissement.
+                    let rows = match self
+                        .eleves_autorises(etablissement_id, actor_user_id, role, Action::AbsencesLire)
+                        .await?
+                    {
+                        None => rows,
+                        Some(ids) => rows.into_iter().filter(|r| ids.contains(&r.0)).collect(),
+                    };
                     let total: i64 = rows.iter().map(|(_, _, _, n)| *n).sum();
                     let contexte = match &classe {
                         Some(c) => format!("classe {c}, "),

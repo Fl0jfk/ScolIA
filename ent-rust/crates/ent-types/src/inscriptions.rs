@@ -237,6 +237,109 @@ pub struct ValidationBody {
     pub classe_id: Option<Uuid>,
     #[serde(default)]
     pub regime: Option<String>,
+    /// Choix humains de rapprochement (I0, §2.2 pts 1-3). Obligatoire pour tout
+    /// responsable ayant des correspondances possibles (`GET …/correspondances`).
+    #[serde(default)]
+    pub responsables: Vec<ResolutionResponsable>,
+    /// Obligatoire si une fiche élève correspond déjà (homonyme exact ou INE).
+    #[serde(default)]
+    pub eleve: Option<ChoixEleve>,
+}
+
+/// Décision de la personne de l'établissement pour un responsable déclaré.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolutionResponsable {
+    pub responsable_id: Uuid,
+    pub personne: ChoixPersonne,
+    /// Obligatoire quand la personne choisie appartient déjà à un foyer.
+    #[serde(default)]
+    pub foyer: Option<ChoixFoyer>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixPersonne {
+    /// Créer une nouvelle fiche (les correspondances sont écartées en connaissance de cause).
+    Nouvelle,
+    /// Rattacher à une fiche existante de l'établissement.
+    Existante { personne_id: Uuid },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixFoyer {
+    Nouveau,
+    Existant { foyer_id: Uuid },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "choix", rename_all = "snake_case")]
+pub enum ChoixEleve {
+    /// Homonyme différent : créer une nouvelle fiche (refusé si l'INE est identique).
+    Nouveau,
+    /// Ancien élève qui revient : rattacher le dossier à la fiche existante.
+    /// `confirme_responsables_existants` : obligatoire si la fiche a déjà des responsables
+    /// liés (le dossier ne doit pas donner accès à un élève déjà suivi par d'autres).
+    Existant {
+        eleve_id: Uuid,
+        #[serde(default)]
+        confirme_responsables_existants: bool,
+    },
+}
+
+/// `GET /inscriptions/dossiers/{id}/correspondances` : de quoi décider à la validation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorrespondancesDto {
+    pub eleves: Vec<EleveCandidatDto>,
+    pub responsables: Vec<ResponsableCorrespondancesDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EleveCandidatDto {
+    pub eleve_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+    pub date_naissance: Option<NaiveDate>,
+    pub statut: String,
+    pub ine_identique: bool,
+    /// Responsables déjà liés à cette fiche (à vérifier avant tout rattachement).
+    pub responsables_lies: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsableCorrespondancesDto {
+    pub responsable_id: Uuid,
+    pub rang: i16,
+    pub candidats: Vec<PersonneCandidateDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersonneCandidateDto {
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub email_masque: Option<String>,
+    /// `"email"` (même adresse) ou `"nom"` (même nom et prénom).
+    pub raison: String,
+    pub a_un_compte: bool,
+    pub foyers: Vec<FoyerCandidatDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FoyerCandidatDto {
+    pub foyer_id: Uuid,
+    pub libelle: String,
+}
+
+/// Droits attribués à un lien de responsabilité selon son type (paramétrage établissement).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParametreLienDto {
+    pub lien: String,
+    pub peut_voir_notes: bool,
+    pub peut_voir_vs: bool,
+    pub peut_justifier_absence: bool,
+    #[serde(default)]
+    pub peut_autoriser_sorties: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

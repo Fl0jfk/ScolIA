@@ -166,6 +166,8 @@ pub fn router() -> Router<AppState> {
         .route("/auth/password", post(change_password))
         .route("/auth/forgot-password", post(forgot_password))
         .route("/auth/reset-password", post(reset_password))
+        .route("/auth/email/confirmer", post(email_confirmer))
+        .route("/auth/email/annuler", post(email_annuler))
         .route("/auth/passkey/recuperation", post(recuperation_passkey_demander))
         .route(
             "/auth/passkey/recuperation/confirmer",
@@ -763,8 +765,13 @@ pub fn router() -> Router<AppState> {
     r
 }
 
-async fn ui_page() -> axum::response::Html<&'static str> {
-    ui::app_html()
+async fn ui_page() -> impl axum::response::IntoResponse {
+    // Revue finale socle 1 : CSP à empreinte du script unique de l'ancienne UI.
+    let (page, csp) = ui::page_et_csp();
+    (
+        [(header::CONTENT_SECURITY_POLICY, csp)],
+        axum::response::Html(page),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -2301,7 +2308,7 @@ async fn passkey_login_start(
         .map_err(map_passkey)?
     {
         Some(reel) => reel,
-        None => state.ent.passkey_challenge_factice(),
+        None => state.ent.passkey_challenge_factice(&body.email),
     };
     Ok(Json(PasskeyChallengeDto {
         token,
@@ -4339,7 +4346,7 @@ async fn list_dispenses_vs_jour(
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_dispenses_vs_jour_for_actor(session.etablissement_id, &session.role, jour)
+        .list_dispenses_vs_jour_for_actor(session.etablissement_id, session.user_id, &session.role, jour)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -4932,6 +4939,7 @@ async fn list_conseils_classe(
         .ent
         .list_conseils_classe_for_actor(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             q.classe.as_deref(),
         )
@@ -4992,7 +5000,7 @@ async fn list_dossiers_conseil(
 ) -> Result<Json<Vec<ConseilClasseDossierDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_dossiers_conseil_for_actor(session.etablissement_id, &session.role, id)
+        .list_dossiers_conseil_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -5560,10 +5568,47 @@ async fn set_user_email(
             id,
             body.email.trim(),
             body.current_password.as_deref(),
+            &base_url_publique(),
         )
         .await
         .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
+    // 202 : le changement n'est effectif qu'après confirmation par la nouvelle adresse.
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Changement d'e-mail, confirmation par le lien reçu à la nouvelle adresse (public).
+async fn email_confirmer(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .confirmer_changement_email(&body.token)
+        .await
+        .map_err(map_email_lien)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Changement d'e-mail, annulation / rétablissement par le lien de l'ancienne adresse (public).
+async fn email_annuler(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .annuler_changement_email(&body.token)
+        .await
+        .map_err(map_email_lien)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn map_email_lien(err: ent_db::EntDbError) -> (StatusCode, String) {
+    match &err {
+        ent_db::EntDbError::EmailLienInvalide => (StatusCode::BAD_REQUEST, err.to_string()),
+        _ => map_compte_sensible(&err).unwrap_or_else(|| map_db(err)),
+    }
 }
 
 async fn delete_lien_eleve(
@@ -6335,6 +6380,7 @@ async fn export_lsl(
         .ent
         .exporter_lsl_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterLsl {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -6365,6 +6411,7 @@ async fn export_lsun(
         .ent
         .exporter_lsun_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterLsun {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -6593,6 +6640,7 @@ async fn export_notanet(
         .ent
         .exporter_notanet_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterNotanet {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -6630,6 +6678,7 @@ async fn export_parcoursup(
         .ent
         .exporter_parcoursup_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterParcoursup {
                 etablissement_id: session.etablissement_id,
                 annee_scolaire: q.annee_scolaire,
@@ -7386,8 +7435,9 @@ async fn list_devoirs(
 ) -> Result<Json<Vec<DevoirDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_devoirs_for_actor(
+        .list_devoirs_pour_acteur(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             q.periode_id,
             q.classe.as_deref(),
@@ -7439,7 +7489,7 @@ async fn creer_devoir(
     session.require_saisir_notes()?;
     let devoir = state
         .ent
-        .creer_devoir(CreerDevoir {
+        .creer_devoir_for_actor(&session.role, CreerDevoir {
             etablissement_id: session.etablissement_id,
             periode_id: body.periode_id,
             matiere_id: body.matiere_id,
@@ -7473,7 +7523,7 @@ async fn supprimer_devoir(
     session.require_saisir_notes()?;
     state
         .ent
-        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, id)
+        .supprimer_devoir_for_actor(session.etablissement_id, &session.role, session.user_id, id)
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)

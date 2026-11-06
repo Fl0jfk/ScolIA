@@ -47,6 +47,14 @@ pub fn routes() -> Router<AppState> {
         .route("/inscriptions/dossiers/{id}/relancer", post(relancer))
         .route("/inscriptions/dossiers/{id}/decision", post(decider))
         .route("/inscriptions/dossiers/{id}/valider", post(valider))
+        .route(
+            "/inscriptions/dossiers/{id}/correspondances",
+            get(correspondances),
+        )
+        .route(
+            "/inscriptions/parametres/liens",
+            get(parametres_liens).put(definir_parametre_lien),
+        )
         // Responsables connectés : réinscription.
         .route("/inscriptions/famille/reinscriptions", get(reinscriptions))
         .route(
@@ -61,6 +69,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/inscriptions/invitations/accepter",
             post(accepter_invitation),
+        )
+        .route(
+            "/inscriptions/invitations/refuser",
+            post(refuser_invitation),
         )
         // Préinscription (public puis jeton).
         .route("/preinscription/demarrer", post(demarrer))
@@ -335,6 +347,46 @@ async fn valider(
     ))
 }
 
+async fn correspondances(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<CorrespondancesDto>> {
+    Ok(Json(
+        state
+            .ent
+            .correspondances_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn parametres_liens(
+    State(state): State<AppState>,
+    s: EntSession,
+) -> Res<Json<Vec<ParametreLienDto>>> {
+    Ok(Json(
+        state
+            .ent
+            .parametres_liens_for_actor(s.etablissement_id, s.user_id, &s.role)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn definir_parametre_lien(
+    State(state): State<AppState>,
+    s: EntSession,
+    Json(b): Json<ParametreLienDto>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .definir_parametre_lien_for_actor(s.etablissement_id, s.user_id, &s.role, &b)
+        .await
+        .map_err(map)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 // -- Responsables connectés : réinscription -------------------------------------
 
 async fn reinscriptions(
@@ -412,6 +464,35 @@ async fn accepter_invitation(
     ))
 }
 
+async fn refuser_invitation(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+    Json(b): Json<InvitationBody>,
+) -> Res<StatusCode> {
+    let refus = || {
+        (
+            StatusCode::BAD_REQUEST,
+            "invitation invalide ou expirée".to_string(),
+        )
+    };
+    let etab = match tenant.etablissement_id {
+        Some(e) => e,
+        None if mode_tenant() == ModeTenant::Strict => return Err(refus()),
+        None => state
+            .ent
+            .etablissement_de_invitation(&b.jeton)
+            .await
+            .map_err(map)?
+            .ok_or_else(refus)?,
+    };
+    state
+        .ent
+        .refuser_invitation(etab, &b.jeton)
+        .await
+        .map_err(map)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Étape 1 : réponse identique que le compte existe ou non (aucune lecture de
 /// compte ici ; l'envoi part dans tous les cas).
 async fn demarrer(
@@ -466,7 +547,7 @@ async fn jeton_session(
     Ok(Json(
         state
             .ent
-            .jeton_preinscription_depuis_session(s.etablissement_id, s.user_id)
+            .jeton_preinscription_depuis_session(s.etablissement_id, s.user_id, &s.role)
             .await
             .map_err(map)?,
     ))

@@ -1979,6 +1979,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_lsl = ent
         .exporter_lsl_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsl {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -2000,6 +2001,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_lsun = ent
         .exporter_lsun_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsun {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -2041,6 +2043,7 @@ async fn explorer_nomenclature_et_notes(
     let csv_notanet = ent
         .exporter_notanet_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterNotanet {
                 etablissement_id: cast.etablissement_id,
                 periode_id: periode.id,
@@ -6582,7 +6585,7 @@ async fn explorer_dispenses_vs(
     ));
 
     let jour_file = ent
-        .list_dispenses_vs_jour_for_actor(cast.etablissement_id, Role::Cpe.as_str(), jour)
+        .list_dispenses_vs_jour_for_actor(cast.etablissement_id, cast.cpe.user_id, Role::Cpe.as_str(), jour)
         .await
         .map_err(|e| e.to_string())?;
     if jour_file.len() < 2 {
@@ -7786,6 +7789,7 @@ async fn explorer_filieres_voeux_mails(
     let csv_ps = ent
         .exporter_parcoursup_csv_for_actor(
             Role::Administratif.as_str(),
+            cast.prof.user_id,
             ExporterParcoursup {
                 etablissement_id: cast.etablissement_id,
                 annee_scolaire: annee.clone(),
@@ -10484,6 +10488,7 @@ async fn explorer_competences_lsu(
     let csv = ent
         .exporter_lsun_csv_for_actor(
             Role::Prof.as_str(),
+            cast.prof.user_id,
             ExporterLsun {
                 etablissement_id: etab,
                 periode_id: periode.id,

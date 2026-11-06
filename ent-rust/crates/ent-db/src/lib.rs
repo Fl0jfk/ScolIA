@@ -68,6 +68,7 @@ mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
+mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
@@ -223,6 +224,8 @@ mod tests_roles;
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
@@ -530,4 +533,24 @@ mod integration_tests {
             .await
             .expect("tenant"));
     }
+}
+
+/// URL de la base des tests d'intégration (`ENT_DATABASE_URL`).
+///
+/// Sans base : `None` et le test s'ignore en local, mais **échoue explicitement** en CI
+/// (`CI` défini) ou si `ENT_EXIGER_BASE=1` : un test d'intégration vert sans avoir rien
+/// vérifié donne une fausse assurance (socle 3, I0 §2.2 pt 13).
+pub fn url_base_de_test() -> Option<String> {
+    let url = std::env::var("ENT_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    if url.is_none() {
+        let exige = std::env::var("ENT_EXIGER_BASE").is_ok_and(|v| matches!(v.trim(), "1" | "true"))
+            || std::env::var("CI").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "false");
+        assert!(
+            !exige,
+            "ENT_DATABASE_URL absente : les tests d'intégration exigent une base en CI (ENT_EXIGER_BASE)"
+        );
+    }
+    url
 }

@@ -40,6 +40,7 @@ pub const TABLES_VOLATILES: &[&str] = &[
     "ent_rate_limit",
     "ent_password_reset",
     "ent_recuperation_passkey",
+    "ent_email_change",
 ];
 
 /// Empreinte d'une table : nombre de lignes + digest du contenu.

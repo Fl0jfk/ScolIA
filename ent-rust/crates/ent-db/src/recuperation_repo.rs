@@ -145,6 +145,9 @@ impl PgRecuperationRepo {
                  annul_hash = $2,
                  final_hash = $3
              WHERE confirm_hash = $1 AND statut = 'demandee' AND confirm_expires_at > now()
+               AND NOT EXISTS (SELECT 1 FROM ent_user u
+                               WHERE u.id = ent_recuperation_passkey.user_id
+                                 AND u.recuperation_gel_jusqu > now())
              RETURNING id, user_id, effective_at",
         )
         .bind(confirm_hash)
@@ -206,6 +209,17 @@ impl PgRecuperationRepo {
         let Some((id, user_id, effective_at, final_expires_at)) = row else {
             return Ok(Finalisation::Invalide);
         };
+        // RF-01 : gel de 72 h après un changement d'e-mail par un tiers.
+        let (gele,): (bool,) = sqlx::query_as(
+            "SELECT COALESCE(recuperation_gel_jusqu > now(), false) FROM ent_user WHERE id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if gele {
+            tx.rollback().await?;
+            return Ok(Finalisation::Invalide);
+        }
         let now: (DateTime<Utc>,) = sqlx::query_as("SELECT now()").fetch_one(&mut *tx).await?;
         let now = now.0;
         if now >= final_expires_at {

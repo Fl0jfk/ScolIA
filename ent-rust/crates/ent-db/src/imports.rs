@@ -552,11 +552,14 @@ impl PgEnt {
             Some(f)
         };
         for (i, r) in l.responsables.iter().enumerate() {
-            // Personne retrouvée par e-mail (fratrie), sinon créée (source « reprise »).
+            // Personne retrouvée par e-mail (fratrie) SEULEMENT si elle n'a pas de compte :
+            // un lien actif vers un titulaire de compte exige sa confirmation (I0, §2.2 pt 1) ;
+            // sinon une nouvelle fiche est créée (source « reprise »).
             let existante: Option<(Uuid,)> = match &r.email {
                 Some(e) => sqlx::query_as(
                     "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND lower(email) = $2
-                       AND fusionnee_dans IS NULL AND eleve_id IS NULL ORDER BY created_at LIMIT 1",
+                       AND fusionnee_dans IS NULL AND eleve_id IS NULL AND user_id IS NULL
+                     ORDER BY created_at LIMIT 1",
                 )
                 .bind(etab)
                 .bind(e)

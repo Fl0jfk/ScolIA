@@ -17,7 +17,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_base_de_test()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -164,7 +164,7 @@ fn jeton_invitation_recu(ent: &PgEnt, email: &str) -> String {
         .dry_run_corps()
         .into_iter()
         .rev()
-        .find(|(to, sujet, _)| to == email && sujet.contains("Invitation"))
+        .find(|(to, sujet, _)| to == email && (sujet.contains("Invitation") || sujet.contains("Confirmez")))
         .expect("invitation envoyée");
     let i = corps.find("jeton=").expect("lien") + "jeton=".len();
     corps[i..].split_whitespace().next().unwrap().to_string()
@@ -453,6 +453,7 @@ async fn parcours_famille_de_bout_en_bout() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await
@@ -501,6 +502,7 @@ async fn parcours_famille_de_bout_en_bout() {
     // Réactions.
     let dist = distributeur(&ent, etab);
     dist.distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
     assert_eq!(
         compter(
             &ent,
@@ -1003,6 +1005,7 @@ async fn reinscription_campagne() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await
@@ -1090,6 +1093,7 @@ async fn reactions_idempotentes() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await
@@ -1097,6 +1101,7 @@ async fn reactions_idempotentes() {
     let dist = distributeur(&ent, etab);
     dist.distribuer_tout().await.unwrap();
     dist.distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
     let mails = |ent: &PgEnt| {
         ent.mailer()
             .dry_run_corps()
@@ -1150,11 +1155,12 @@ async fn reactions_idempotentes() {
         .await
         .unwrap();
     dist.distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
     assert_eq!(etat(ent.pool().clone()).await, (1, 1));
     assert_eq!(
         mails(&ent),
-        avant + 1,
-        "seul l'accueil est renvoyé (effet externe, au moins une fois)"
+        avant,
+        "clé d'envoi unique : la relivraison ne renvoie aucun message"
     );
     // Rejouer un consommateur à envoi externe est refusé ; l'affectation est rejouable.
     assert!(matches!(
@@ -1414,7 +1420,8 @@ async fn isolation_etablissements() {
             dossier.id,
             &ValidationBody {
                 classe_id: Some(classe_b),
-                regime: None
+                regime: None,
+                ..Default::default()
             }
         )
         .await
@@ -1447,6 +1454,7 @@ async fn isolation_etablissements() {
         .distribuer_tout()
         .await
         .unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
     let inv = jeton_invitation_recu(&ent, &email);
     assert!(ent
         .accepter_invitation(b.etablissement_id, &inv)
@@ -1482,4 +1490,544 @@ async fn isolation_etablissements() {
         .appliquer_import_for_actor(b.etablissement_id, ab, abr, lot.id)
         .await
         .is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Lot I0 (socle 3) : rapprochement humain, fratrie, ancien élève, envois, HMAC
+// ---------------------------------------------------------------------------
+
+/// Dossier d'admission déposé avec `email_deposant` vérifié, instruit et admis.
+/// Renvoie (id du dossier, jeton famille).
+async fn dossier_admis(
+    ent: &PgEnt,
+    c: &LaboCast,
+    camp: Uuid,
+    email_deposant: &str,
+    f: PreinscriptionBody,
+) -> (Uuid, String) {
+    let etab = c.etablissement_id;
+    let jeton = verifier(ent, etab, email_deposant).await;
+    let dossier = ent.deposer_preinscription(etab, &jeton, &f).await.unwrap();
+    let (a, ar) = adm(c);
+    ent.changer_statut_for_actor(
+        etab,
+        a,
+        ar,
+        dossier.id,
+        &StatutBody {
+            statut: "en_instruction".into(),
+            motif: None,
+        },
+    )
+    .await
+    .unwrap();
+    for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
+        ent.deposer_piece_famille(etab, &jeton, dossier.id, &p.code, "p.pdf")
+            .await
+            .unwrap();
+        ent.decider_piece_for_actor(
+            etab,
+            a,
+            ar,
+            dossier.id,
+            &p.code,
+            &PieceDecisionBody {
+                statut: "acceptee".into(),
+                motif: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let (d, dr) = dir(c);
+    ent.decider_for_actor(
+        etab,
+        d,
+        dr,
+        dossier.id,
+        &DecisionBody {
+            decision: "admis".into(),
+            motif: None,
+        },
+    )
+    .await
+    .unwrap();
+    (dossier.id, jeton)
+}
+
+async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
+    let (id,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = $2",
+    )
+    .bind(dossier)
+    .bind(rang)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    id
+}
+
+fn second_parent(email: &str) -> ResponsableFormulaireDto {
+    ResponsableFormulaireDto {
+        nom: "Ollivander".into(),
+        prenom: Some("Garrick".into()),
+        lien: Some("pere".into()),
+        email: Some(email.into()),
+        meme_foyer: false,
+        autorite_parentale: true,
+        ..Default::default()
+    }
+}
+
+async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+    let (p,): (Uuid,) =
+        sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
+            .bind(etab)
+            .bind(user)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    p
+}
+
+fn valider_corps(resp: Vec<ResolutionResponsable>, eleve: Option<ChoixEleve>) -> ValidationBody {
+    ValidationBody {
+        responsables: resp,
+        eleve,
+        ..Default::default()
+    }
+}
+
+/// TEST D'ATTAQUE (§2.2 pt 1) : un dossier qui nomme l'e-mail d'un parent existant ne
+/// lui donne AUCUN accès — ni à la validation, ni tant qu'il n'a pas confirmé lui-même.
+#[tokio::test]
+async fn attaque_email_parent_existant_aucun_acces() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let lea = c.parent_lea.user_id;
+    let lea_personne = personne_de(&ent, etab, lea).await;
+    let deposant = format!("deposant-{}@exemple.test", Uuid::new_v4().simple());
+    // Le dossier désigne comme second parent l'adresse d'un parent déjà connu.
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &deposant,
+        formulaire(camp, "Rowena", Some(second_parent(&c.parent_lea.email))),
+    )
+    .await;
+
+    // La validation présente la correspondance ; sans décision humaine, elle est refusée
+    // et RIEN n'est créé (ni élève, ni personne, ni lien).
+    let corr = ent
+        .correspondances_for_actor(etab, d, dr, dossier)
+        .await
+        .unwrap();
+    let rang2 = corr.responsables.iter().find(|r| r.rang == 2).unwrap();
+    let cand = rang2
+        .candidats
+        .iter()
+        .find(|p| p.personne_id == lea_personne)
+        .expect("la fiche existante est proposée");
+    assert!(cand.a_un_compte && cand.raison == "email");
+    assert!(
+        !cand.email_masque.as_deref().unwrap_or("").contains(&c.parent_lea.email),
+        "adresse masquée"
+    );
+    let r = ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
+        .await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_eleve WHERE etablissement_id = $1 AND prenom = 'Rowena'",
+            etab
+        )
+        .await,
+        0
+    );
+    // Aucun e-mail n'est parti pour un fait annulé.
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_envoi WHERE etablissement_id = $1",
+            etab
+        )
+        .await,
+        0
+    );
+
+    // Une personne de l'établissement confirme le rapprochement.
+    let resp2 = resp_id(&ent, dossier, 2).await;
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![ResolutionResponsable {
+                    responsable_id: resp2,
+                    personne: ChoixPersonne::Existante {
+                        personne_id: lea_personne,
+                    },
+                    foyer: Some(ChoixFoyer::Nouveau),
+                }],
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+    // Le lien est EN ATTENTE : aucun accès, aucune ligne de lien, aucune lecture possible.
+    assert!(ent
+        .lien_parent_eleve(etab, lea, v.eleve_id)
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        compter(
+            &ent,
+            &format!("SELECT count(*) FROM ent_eleve_lien WHERE personne_id = '{lea_personne}' AND eleve_id = $1"),
+            v.eleve_id
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_lien_attente WHERE dossier_id = $1 AND statut = 'en_attente'",
+            dossier
+        )
+        .await,
+        1
+    );
+    // Rien ne part avant la validation de la transaction du distributeur, puis la file part.
+    let dist = distributeur(&ent, etab);
+    let avant = ent.mailer().dry_run_corps().len();
+    dist.distribuer_tout().await.unwrap();
+    assert_eq!(ent.mailer().dry_run_corps().len(), avant, "rien n'est envoyé dans la transaction");
+    ent.expedier_envois_inscriptions(100).await.unwrap();
+    // La confirmation est demandée au titulaire du compte, à l'adresse DU COMPTE.
+    let (_, sujet, _) = ent
+        .mailer()
+        .dry_run_corps()
+        .into_iter()
+        .rev()
+        .find(|(to, s, _)| to == &c.parent_lea.email && s.contains("Confirmez"))
+        .expect("demande de confirmation envoyée au parent existant");
+    assert!(sujet.contains("Confirmez"));
+    // Toujours aucun accès tant qu'elle n'a pas confirmé.
+    assert!(ent.lien_parent_eleve(etab, lea, v.eleve_id).await.unwrap().is_none());
+    // Elle confirme : le lien devient actif, avec les droits du paramétrage (autorité → oui).
+    let jeton = jeton_invitation_recu(&ent, &c.parent_lea.email);
+    let acc = ent.accepter_invitation(etab, &jeton).await.unwrap();
+    assert_eq!(acc.resultat, "compte_rattache");
+    assert!(ent.lien_parent_eleve(etab, lea, v.eleve_id).await.unwrap().is_some());
+    assert!(ent.accepter_invitation(etab, &jeton).await.is_err(), "usage unique");
+}
+
+/// Un parent existant qui refuse : aucun lien n'est jamais créé.
+#[tokio::test]
+async fn refus_du_parent_existant_aucun_lien() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let lea = c.parent_lea.user_id;
+    let lea_personne = personne_de(&ent, etab, lea).await;
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &format!("dep-{}@exemple.test", Uuid::new_v4().simple()),
+        formulaire(camp, "Fleur", Some(second_parent(&c.parent_lea.email))),
+    )
+    .await;
+    let resp2 = resp_id(&ent, dossier, 2).await;
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![ResolutionResponsable {
+                    responsable_id: resp2,
+                    personne: ChoixPersonne::Existante {
+                        personne_id: lea_personne,
+                    },
+                    foyer: Some(ChoixFoyer::Nouveau),
+                }],
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+    distributeur(&ent, etab).distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
+    let jeton = jeton_invitation_recu(&ent, &c.parent_lea.email);
+    ent.refuser_invitation(etab, &jeton).await.unwrap();
+    assert!(ent.accepter_invitation(etab, &jeton).await.is_err());
+    assert!(ent.lien_parent_eleve(etab, lea, v.eleve_id).await.unwrap().is_none());
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_lien_attente WHERE dossier_id = $1 AND statut = 'refuse'",
+            dossier
+        )
+        .await,
+        1
+    );
+}
+
+/// Fratrie (§2.2 pt 2) : un foyer existant est proposé et confirmé, pas de nouveau foyer.
+#[tokio::test]
+async fn fratrie_foyer_existant_confirme() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let lea_personne = personne_de(&ent, etab, c.parent_lea.user_id).await;
+    // Léa (déjà connue, avec un foyer) inscrit un autre enfant.
+    let mut f = formulaire(camp, "Ginny", None);
+    f.responsable.nom = "Lea".into();
+    let (dossier, _) = dossier_admis(&ent, &c, camp, &c.parent_lea.email, f).await;
+    let resp1 = resp_id(&ent, dossier, 1).await;
+    let corr = ent
+        .correspondances_for_actor(etab, d, dr, dossier)
+        .await
+        .unwrap();
+    let cand = corr.responsables[0]
+        .candidats
+        .iter()
+        .find(|p| p.personne_id == lea_personne)
+        .expect("fiche connue proposée");
+    assert!(cand.foyers.iter().any(|f| f.foyer_id == c.foyer_lea_id), "foyer proposé");
+    let foyers_avant = compter(&ent, "SELECT count(*) FROM ent_foyer WHERE etablissement_id = $1", etab).await;
+    // Sans confirmation du foyer : refus.
+    let sans_foyer = valider_corps(
+        vec![ResolutionResponsable {
+            responsable_id: resp1,
+            personne: ChoixPersonne::Existante {
+                personne_id: lea_personne,
+            },
+            foyer: None,
+        }],
+        None,
+    );
+    assert!(ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &sans_foyer)
+        .await
+        .is_err());
+    let avec_foyer = valider_corps(
+        vec![ResolutionResponsable {
+            responsable_id: resp1,
+            personne: ChoixPersonne::Existante {
+                personne_id: lea_personne,
+            },
+            foyer: Some(ChoixFoyer::Existant {
+                foyer_id: c.foyer_lea_id,
+            }),
+        }],
+        None,
+    );
+    let v = ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &avec_foyer)
+        .await
+        .unwrap();
+    assert_eq!(
+        compter(&ent, "SELECT count(*) FROM ent_foyer WHERE etablissement_id = $1", etab).await,
+        foyers_avant,
+        "aucun nouveau foyer"
+    );
+    // Le lien (en attente de confirmation de Léa) pointera vers le foyer existant.
+    let (foyer,): (Option<Uuid>,) = sqlx::query_as(
+        "SELECT foyer_id FROM ent_inscription_lien_attente WHERE dossier_id = $1",
+    )
+    .bind(dossier)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(foyer, Some(c.foyer_lea_id));
+    assert!(ent.lien_parent_eleve(etab, c.parent_lea.user_id, v.eleve_id).await.unwrap().is_none());
+}
+
+/// Doublon d'élève (§2.2 pt 3) : plus de refus sec, rattachement à la fiche existante.
+#[tokio::test]
+async fn ancien_eleve_rattache_a_la_fiche_existante() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let (nom, prenom, naissance): (String, String, Option<chrono::NaiveDate>) = sqlx::query_as(
+        "SELECT nom, prenom, date_naissance FROM ent_eleve WHERE id = $1",
+    )
+    .bind(c.eleve_lea_id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    let mut f = formulaire(camp, &prenom, None);
+    f.eleve.nom = nom;
+    f.eleve.date_naissance = naissance;
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &format!("ancien-{}@exemple.test", Uuid::new_v4().simple()),
+        f,
+    )
+    .await;
+    let eleves_avant = compter(&ent, "SELECT count(*) FROM ent_eleve WHERE etablissement_id = $1", etab).await;
+    let corr = ent
+        .correspondances_for_actor(etab, d, dr, dossier)
+        .await
+        .unwrap();
+    assert!(corr.eleves.iter().any(|e| e.eleve_id == c.eleve_lea_id));
+    // Choix humain obligatoire.
+    assert!(ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
+        .await
+        .is_err());
+    // La fiche a déjà des responsables : sans confirmation explicite, refus (INE copié).
+    assert!(corr.eleves.iter().any(|e| e.responsables_lies > 0));
+    assert!(ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![],
+                Some(ChoixEleve::Existant {
+                    eleve_id: c.eleve_lea_id,
+                    confirme_responsables_existants: false,
+                }),
+            ),
+        )
+        .await
+        .is_err());
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![],
+                Some(ChoixEleve::Existant {
+                    eleve_id: c.eleve_lea_id,
+                    confirme_responsables_existants: true,
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    assert_eq!(v.eleve_id, c.eleve_lea_id, "rattaché à la fiche existante");
+    assert_eq!(
+        compter(&ent, "SELECT count(*) FROM ent_eleve WHERE etablissement_id = $1", etab).await,
+        eleves_avant,
+        "aucune fiche créée"
+    );
+}
+
+/// Envois (§2.2 pts 6, 17) : un échec d'envoi est tracé et repris, jamais avalé ; le
+/// code de vérification est haché avec un secret serveur (pt 20).
+#[tokio::test]
+async fn echec_d_envoi_trace_et_code_hmac() {
+    let Some((mut ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let email = format!("hmac-{}@exemple.test", Uuid::new_v4().simple());
+    let demande = ent.demarrer_preinscription(etab, &email).await.unwrap();
+    let code = code_recu(&ent, &email);
+    let (h,): (String,) = sqlx::query_as("SELECT code_hash FROM ent_preinscription_verification WHERE id = $1")
+        .bind(demande.demande_id)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    assert_ne!(
+        h,
+        ent_auth::hash_token(&format!("preinscription:{}:{code}", demande.demande_id)),
+        "plus un SHA-256 sans secret"
+    );
+    let jeton = ent
+        .verifier_preinscription(etab, demande.demande_id, &code)
+        .await
+        .unwrap()
+        .jeton;
+    let dossier = ent
+        .deposer_preinscription(etab, &jeton, &formulaire(camp, "Dobby", None))
+        .await
+        .unwrap();
+    let (a, ar) = adm(&c);
+    for p in dossier.pieces.iter().filter(|p| p.obligatoire) {
+        ent.deposer_piece_famille(etab, &jeton, dossier.id, &p.code, "p.pdf").await.unwrap();
+        ent.decider_piece_for_actor(etab, a, ar, dossier.id, &p.code, &PieceDecisionBody { statut: "acceptee".into(), motif: None }).await.unwrap();
+    }
+    ent.decider_for_actor(etab, d, dr, dossier.id, &DecisionBody { decision: "admis".into(), motif: None }).await.unwrap();
+    ent.valider_inscription_for_actor(etab, d, dr, dossier.id, &ValidationBody::default())
+        .await
+        .unwrap();
+    // La messagerie « n'envoie rien de confirmé » : l'échec est consigné et repris plus tard.
+    ent.installer_mailer_de_test(false, false);
+    distributeur(&ent, etab).distribuer_tout().await.unwrap();
+    assert!(ent.expedier_envois_inscriptions(100).await.unwrap() >= 1);
+    let (statut, tentatives, erreur): (String, i32, Option<String>) = sqlx::query_as(
+        "SELECT statut, tentatives, derniere_erreur FROM ent_inscription_envoi
+          WHERE dossier_id = $1 AND kind = 'invitation'",
+    )
+    .bind(dossier.id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((statut.as_str(), tentatives), ("a_envoyer", 1));
+    assert!(erreur.is_some(), "échec tracé");
+    // Le délai de reprise n'est pas écoulé : rien n'est rejoué tout de suite.
+    assert_eq!(ent.expedier_envois_inscriptions(100).await.unwrap(), 0);
+    // Reprises jusqu'à l'échec définitif : message et invitation marqués, trace conservée.
+    for _ in 0..6 {
+        sqlx::query("UPDATE ent_inscription_envoi SET prochain_essai = now() WHERE etablissement_id = $1")
+            .bind(etab)
+            .execute(ent.pool())
+            .await
+            .unwrap();
+        ent.expedier_envois_inscriptions(100).await.unwrap();
+    }
+    let (statut,): (String,) = sqlx::query_as(
+        "SELECT statut FROM ent_inscription_envoi WHERE dossier_id = $1 AND kind = 'invitation'",
+    )
+    .bind(dossier.id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(statut, "echec");
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_invitation WHERE dossier_id = $1 AND statut = 'non_envoyee'",
+            dossier.id
+        )
+        .await,
+        1
+    );
 }

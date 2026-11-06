@@ -140,6 +140,30 @@ fn forme(v: &Value) -> Value {
     }
 }
 
+/// RF-07 : valeurs NON aléatoires d'un défi (ni `challenge` ni identifiants) — réel et
+/// factice doivent coïncider : clés, `rpId`, `timeout`, `userVerification`, type et clés
+/// de chaque identifiant autorisé.
+fn valeurs_fixes(v: &Value) -> Value {
+    let pk = &v["options"]["publicKey"];
+    let cles = |x: &Value| -> Vec<String> {
+        let mut k: Vec<String> = x.as_object().map(|m| m.keys().cloned().collect()).unwrap_or_default();
+        k.sort();
+        k
+    };
+    let allow: Vec<Value> = pk["allowCredentials"]
+        .as_array()
+        .map(|a| a.iter().map(|c| json!({"type": c["type"], "cles": cles(c)})).collect())
+        .unwrap_or_default();
+    json!({
+        "cles": cles(pk),
+        "rpId": pk["rpId"],
+        "timeout": pk["timeout"],
+        "userVerification": pk["userVerification"],
+        "allow_types": allow.first().cloned(),
+        "options_cles": cles(&v["options"]),
+    })
+}
+
 // --- Limitation de débit ------------------------------------------------------
 
 #[tokio::test]
@@ -577,6 +601,27 @@ async fn abus_attaquant_ne_verrouille_pas_la_victime_et_passkey_non_bloquee() {
         forme(&start.json()),
         "même forme réel / factice"
     );
+    assert_eq!(
+        valeurs_fixes(&faux.json()),
+        valeurs_fixes(&start.json()),
+        "mêmes valeurs fixes réel / factice (RF-07)"
+    );
+    // Le nombre d'identifiants annoncés du factice est stable pour une même adresse.
+    let email_faux = format!("stable-{}@ent.test", Uuid::new_v4().simple());
+    let mut nb = std::collections::HashSet::new();
+    for _ in 0..4 {
+        let r = post(
+            &app,
+            "/auth/passkey/login/start",
+            json!({"email": email_faux, "etablissement_id": etab}),
+            Some(&ip_victime),
+            None,
+            None,
+        )
+        .await;
+        nb.insert(r.json()["options"]["publicKey"]["allowCredentials"].as_array().unwrap().len());
+    }
+    assert_eq!(nb.len(), 1, "nombre d'allowCredentials stable pour un même compte factice");
 }
 
 // --- Indiscernabilité ---------------------------------------------------------

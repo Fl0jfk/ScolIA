@@ -154,7 +154,7 @@ impl Consommateur for Sonde {
     }
     fn traiter<'a>(&'a self, tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
         Box::pin(async move {
-            let (etab,): (String,) = sqlx::query_as("SELECT current_setting('ent.etablissement_id', true)")
+            let (etab,): (String,) = sqlx::query_as("SELECT current_setting('app.etablissement_id', true)")
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(|e| e.to_string())?;

@@ -446,6 +446,9 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
     // Récupération de passkey en libre-service (D-018) : les jetons font foi.
+    // Changement d'e-mail en deux temps (RF-01) : les jetons font foi.
+    ("POST", "/auth/email/confirmer"),
+    ("POST", "/auth/email/annuler"),
     ("POST", "/auth/passkey/recuperation"),
     ("POST", "/auth/passkey/recuperation/confirmer"),
     ("POST", "/auth/passkey/recuperation/annuler"),
@@ -456,6 +459,7 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/verifier"),
     // Invitation du second responsable (S2-3) : le jeton reçu par e-mail fait foi.
     ("POST", "/inscriptions/invitations/accepter"),
+    ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
 ];
