@@ -335,7 +335,8 @@ fn domaine_psy() {
 
 fn specs_domaine_documents() -> Vec<Spec> {
     vec![
-            lire("documents-liste", "/eleves/{eleve}/documents", TOUS, STAFF),
+            // RF-15 : le professeur ne liste que les dossiers de ses élèves (non liée : refusé).
+            lire("documents-liste", "/eleves/{eleve}/documents", TOUS, STAFF_HORS_PROF),
             lire("document-fichier", "/documents/{doc}/fichier",
                 &[Admin, Direction, Administratif, Parent, Eleve], &[]),
             // Document restreint (verrouillé) : seuls les rôles de gestion documentaire.
