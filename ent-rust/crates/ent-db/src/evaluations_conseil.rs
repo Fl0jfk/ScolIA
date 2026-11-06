@@ -26,7 +26,7 @@ use ent_types::evaluations::{
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::evaluations::{conflit, db, introuvable, refus, texte_borne, types_eva};
+use crate::evaluations::{conflit, db, introuvable, refus, statut_periode_tx, texte_borne, types_eva};
 use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
 
@@ -146,6 +146,17 @@ impl PgEnt {
             .await?;
         match body.matiere_id {
             Some(matiere) => {
+                let connue: Option<(i32,)> = sqlx::query_as(
+                    "SELECT 1 FROM ent_matiere WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(matiere)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(db)?;
+                if connue.is_none() {
+                    return Err(introuvable());
+                }
                 let etab_entier = self
                     .a_action_etablissement(etab, acteur, role, Action::NotesSaisir)
                     .await?;
@@ -195,6 +206,9 @@ impl PgEnt {
             }
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if !statut_periode_tx(&mut tx, etab, body.periode_id).await?.autorise_appreciations() {
+            return Err(conflit("période fermée : appréciations verrouillées"));
+        }
         let (id,): (Uuid,) = if let Some(matiere) = body.matiere_id {
             sqlx::query_as(
                 "INSERT INTO ent_note_appreciation (id, etablissement_id, periode_id, eleve_id, matiere_id, texte, auteur_user_id)
@@ -454,6 +468,11 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let voeux = self.eva_voeux_avis(etab, &ids, Some(conseil_id)).await?;
+        // Absences et retards : seulement pour les élèves que l'acteur suit en vie scolaire
+        // (`absences.lire`) ; sanctions : `suivi.eleve`. Sinon « non communiqué ».
+        let voit_absences = self.eleves_autorises(etab, acteur, role, Action::AbsencesLire).await?;
+        let voit_suivi = self.eleves_autorises(etab, acteur, role, Action::SuiviEleve).await?;
+        let dans = |s: &Option<std::collections::HashSet<Uuid>>, id: &Uuid| s.as_ref().is_none_or(|s| s.contains(id));
         let absences: HashMap<Uuid, (i64, i64)> =
             absences.into_iter().map(|(e, n, nj)| (e, (n, nj))).collect();
         let retards: HashMap<Uuid, i64> = retards.into_iter().collect();
@@ -501,10 +520,10 @@ impl PgEnt {
                 moyenne_generale: calc.generales.get(id).map(|g| g.arrondie(a)),
                 appreciations_manquantes: manquantes,
                 appreciation_generale: generale,
-                absences: abs,
-                absences_non_justifiees: abs_nj,
-                retards: retards.get(id).copied().unwrap_or(0),
-                sanctions: sanctions.get(id).copied().unwrap_or(0),
+                absences: dans(&voit_absences, id).then_some(abs),
+                absences_non_justifiees: dans(&voit_absences, id).then_some(abs_nj),
+                retards: dans(&voit_absences, id).then(|| retards.get(id).copied().unwrap_or(0)),
+                sanctions: dans(&voit_suivi, id).then(|| sanctions.get(id).copied().unwrap_or(0)),
                 decision: dossiers.get(id).cloned(),
                 voeux: voeux.get(id).cloned().unwrap_or_default(),
             });
@@ -691,6 +710,22 @@ impl PgEnt {
         if !effectif.iter().any(|(id, _, _)| *id == eleve_id) {
             return Err(refus("élève hors de la classe du conseil"));
         }
+        if conseil.statut == "annule" {
+            return Err(conflit("conseil annulé"));
+        }
+        let (publie,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_bulletin
+                             WHERE etablissement_id = $1 AND eleve_id = $2 AND periode_id = $3 AND statut = 'publie')",
+        )
+        .bind(etab)
+        .bind(eleve_id)
+        .bind(periode_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db)?;
+        if publie {
+            return Err(conflit("bulletin publié : l'avis communiqué à la famille ne se modifie plus"));
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
         let (avis_id,): (Uuid,) = sqlx::query_as(
             "INSERT INTO ent_orientation_avis (id, etablissement_id, voeu_id, eleve_id, conseil_id, avis,
@@ -809,13 +844,15 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (eleve_id, voeu_id) = row.ok_or_else(introuvable)?;
-        if self.lien_parent_eleve(etab, acteur, eleve_id).await?.is_none() {
+        if self.lien_parent_eleve(etab, acteur, eleve_id).await?.is_none()
+            || !self.actor_can_read_notes(etab, acteur, role, eleve_id).await?
+        {
             return Err(introuvable());
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
-        sqlx::query(
+        let maj = sqlx::query(
             "UPDATE ent_orientation_avis SET reponse_famille = $3, reponse_par_user_id = $4, reponse_le = now()
-              WHERE etablissement_id = $1 AND id = $2",
+              WHERE etablissement_id = $1 AND id = $2 AND reponse_famille IS NULL",
         )
         .bind(etab)
         .bind(avis_id)
@@ -824,6 +861,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        if maj.rows_affected() == 0 {
+            return Err(conflit("réponse déjà transmise"));
+        }
         tx.publier(MetierEventDraft {
             etablissement_id: etab,
             type_name: types_eva::ORIENTATION_REPONSE.to_string(),

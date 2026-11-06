@@ -6505,6 +6505,18 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 .get_devoir(cmd.etablissement_id, devoir_id)
                 .await?
                 .ok_or(DomainError::DevoirIntrouvable)?;
+            // S2-7 : un devoir de grille (rattaché à un service) se saisit par la grille,
+            // qui contrôle le service, l'effectif et le verrou.
+            let (grille,): (bool,) = sqlx::query_as(
+                "SELECT service_id IS NOT NULL FROM ent_devoir WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(cmd.etablissement_id)
+            .bind(devoir_id)
+            .fetch_one(&self.pool)
+            .await?;
+            if grille {
+                return Err(EntDbError::ConflitDossier("devoir de grille : saisir depuis la grille"));
+            }
             periode_id = Some(devoir.periode_id);
             matiere_id = devoir.matiere_id;
             sur = devoir.sur;

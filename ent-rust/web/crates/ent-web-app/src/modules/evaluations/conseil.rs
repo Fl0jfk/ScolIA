@@ -156,10 +156,7 @@ fn LigneEleve(
             <div class="eva-eleve__tete">
                 <strong>{nom.clone()}</strong>
                 <span>{format!("Moyenne générale : {}", moyenne_fr(eleve.moyenne_generale))}</span>
-                <span class="texte-attenue">{format!(
-                    "{} absence(s) dont {} non justifiée(s) · {} retard(s) · {} sanction(s)",
-                    eleve.absences, eleve.absences_non_justifiees, eleve.retards, eleve.sanctions
-                )}</span>
+                <span class="texte-attenue">{resume_vie_scolaire(&eleve)}</span>
                 {(!manquantes.is_empty()).then(|| view! {
                     <Badge libelle=format!("Appréciation manquante : {}", manquantes.join(", ")) ton=TonEtat::Avertissement/>
                 })}
@@ -189,6 +186,21 @@ fn LigneEleve(
             })}
         </li>
     }
+}
+
+/// Résumé de vie scolaire ; « non communiqué » quand le serveur ne transmet pas le compteur.
+fn resume_vie_scolaire(e: &PreparationEleveDto) -> String {
+    let n = |x: Option<i64>| x.map(|v| v.to_string()).unwrap_or_else(|| "?".into());
+    if e.absences.is_none() && e.sanctions.is_none() {
+        return "Vie scolaire : non communiquée".into();
+    }
+    format!(
+        "{} absence(s) dont {} non justifiée(s) · {} retard(s) · {} sanction(s)",
+        n(e.absences),
+        n(e.absences_non_justifiees),
+        n(e.retards),
+        n(e.sanctions)
+    )
 }
 
 #[component]

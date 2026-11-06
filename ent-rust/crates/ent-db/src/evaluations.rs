@@ -91,6 +91,25 @@ pub(crate) fn texte_borne(v: &str, max: usize) -> Result<String, EntDbError> {
 
 const MAX_SAISIES: usize = 500;
 
+/// Relit le statut de la période **dans la transaction** avec un verrou partagé : un
+/// changement de statut concurrent (UPDATE) attend la fin de l'écriture, ou l'inverse.
+pub(crate) async fn statut_periode_tx(
+    tx: &mut sqlx::PgConnection,
+    etab: Uuid,
+    periode_id: Uuid,
+) -> Result<NotePeriodeStatut, EntDbError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT statut FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2 FOR SHARE",
+    )
+    .bind(etab)
+    .bind(periode_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    let (s,) = row.ok_or_else(introuvable)?;
+    Ok(NotePeriodeStatut::parse(&s).unwrap_or(NotePeriodeStatut::Fermee))
+}
+
 // ───────────────────────────── Lectures internes ─────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -903,6 +922,9 @@ impl PgEnt {
             None => String::new(),
         };
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if !statut_periode_tx(&mut tx, etab, periode.id).await?.autorise_saisie_notes() {
+            return Err(conflit("période verrouillée : saisie des notes fermée"));
+        }
         sqlx::query(
             "INSERT INTO ent_devoir (id, etablissement_id, periode_id, matiere_id, classe, classe_id,
                                      groupe_id, service_id, titre, date_devoir, coef, sur,
@@ -1025,6 +1047,9 @@ impl PgEnt {
             }
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if !statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
+            return Err(conflit("période verrouillée : saisie des notes fermée"));
+        }
         // Verrou du devoir : deux saisies concurrentes du même devoir sont sérialisées.
         sqlx::query("SELECT 1 FROM ent_devoir WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
             .bind(etab)
@@ -1047,6 +1072,24 @@ impl PgEnt {
             match (saisie, existant) {
                 (None, None) => rapport.inchanges += 1,
                 (None, Some(_)) => {
+                    let (corrigee,): (bool,) = sqlx::query_as(
+                        "SELECT EXISTS (SELECT 1 FROM ent_note_correction c JOIN ent_note n
+                                          ON n.id = c.note_id AND n.etablissement_id = c.etablissement_id
+                                         WHERE c.etablissement_id = $1 AND n.devoir_id = $2 AND n.eleve_id = $3)",
+                    )
+                    .bind(etab)
+                    .bind(devoir_id)
+                    .bind(eleve_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    if corrigee {
+                        rapport.refuses.push(RefusSaisieDto {
+                            eleve_id,
+                            motif: "résultat corrigé après fermeture : effacement impossible".into(),
+                        });
+                        continue;
+                    }
                     sqlx::query(
                         "DELETE FROM ent_note WHERE etablissement_id = $1 AND devoir_id = $2 AND eleve_id = $3",
                     )
@@ -1139,16 +1182,24 @@ impl PgEnt {
         let mut publie_le = devoir.publie_le;
         if publie_le.is_none() {
             let mut tx = self.pool().begin().await.map_err(db)?;
-            let (le,): (chrono::DateTime<Utc>,) = sqlx::query_as(
+            let maj: Option<(chrono::DateTime<Utc>,)> = sqlx::query_as(
                 "UPDATE ent_devoir SET publie_le = now(), publie_par_user_id = $3
-                  WHERE etablissement_id = $1 AND id = $2 RETURNING publie_le",
+                  WHERE etablissement_id = $1 AND id = $2 AND publie_le IS NULL RETURNING publie_le",
             )
             .bind(etab)
             .bind(devoir_id)
             .bind(acteur)
-            .fetch_one(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
+            let Some((le,)) = maj else {
+                // Publication concurrente : déjà faite, aucun second événement.
+                tx.rollback().await.map_err(db)?;
+                return Ok(DevoirGrilleDto {
+                    publie_le: self.eva_devoir(etab, devoir_id).await?.publie_le,
+                    ..self.eva_devoir_dto(etab, devoir_id).await?
+                });
+            };
             tx.publier(MetierEventDraft {
                 etablissement_id: etab,
                 type_name: types_eva::EVALUATION_PUBLIEE.to_string(),
@@ -1174,6 +1225,19 @@ impl PgEnt {
             coef: devoir.coef,
             sur: devoir.sur,
             publie_le,
+            stats: StatsDto::default(),
+        })
+    }
+
+    async fn eva_devoir_dto(&self, etab: Uuid, id: Uuid) -> Result<DevoirGrilleDto, EntDbError> {
+        let d = self.eva_devoir(etab, id).await?;
+        Ok(DevoirGrilleDto {
+            id: d.id,
+            titre: d.titre,
+            date_devoir: d.date_devoir,
+            coef: d.coef,
+            sur: d.sur,
+            publie_le: d.publie_le,
             stats: StatsDto::default(),
         })
     }
@@ -1207,7 +1271,34 @@ impl PgEnt {
         let statut = StatutResultat::parse(&body.statut).ok_or(refus("statut inconnu"))?;
         let valeur = valider_resultat(statut, body.valeur, devoir.sur).map_err(|e| refus(erreur_saisie(e)))?;
         self.exiger_eleve_existe(etab, body.eleve_id).await?;
+        // L'élève doit appartenir à l'effectif du service (ou de la classe) du devoir.
+        let (classe_id, groupe_id) = match devoir.service_id {
+            Some(sid) => {
+                let sv = self.eva_service(etab, sid).await?;
+                (sv.classe_id, sv.groupe_id)
+            }
+            None => {
+                let (c,): (Option<Uuid>,) = sqlx::query_as(
+                    "SELECT classe_id FROM ent_devoir WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(devoir_id)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db)?;
+                (c, None)
+            }
+        };
+        let effectif = self
+            .eva_effectif(etab, classe_id, groupe_id, periode.date_debut, periode.date_fin)
+            .await?;
+        if !effectif.iter().any(|(id, _, _)| *id == body.eleve_id) {
+            return Err(refus("élève hors de l'effectif de l'évaluation"));
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
+        if statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
+            return Err(conflit("période ouverte : corriger depuis la grille"));
+        }
         sqlx::query("SELECT 1 FROM ent_devoir WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
             .bind(etab)
             .bind(devoir_id)
