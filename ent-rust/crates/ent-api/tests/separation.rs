@@ -278,6 +278,20 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 "/dossier/mes-liens-en-attente/00000000-0000-0000-0000-000000000001/reponse",
                 Some(r#"{"accepter":true}"#)),
             lire("mes-liens-en-attente", "/dossier/mes-liens-en-attente", TOUS, TOUS),
+            // Socle 4 (lot A0 bis) : confirmation au guichet (personnes.gerer), alertes de
+            // protection et « ne pas solliciter » (direction). Aucune de ces routes ne s'applique
+            // à une ressource d'un autre établissement ; les alertes ne listent que celles de
+            // l'établissement de l'appelant, et jamais une adresse.
+            ecrire_sur_b("confirmer-guichet-B", "POST",
+                "/dossier/liens-en-attente/00000000-0000-0000-0000-000000000001/confirmer-guichet",
+                Some(r#"{"piece":"carte_identite"}"#)),
+            ecrire_sur_b("ne-pas-solliciter-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/ne-pas-solliciter",
+                Some(r#"{"actif":true}"#)),
+            ecrire_sur_b("ouvrir-adresse-protegee-B", "POST",
+                "/dossier/adresses-protegees/00000000-0000-0000-0000-000000000001/ouvrir", None),
+            Spec { interdits: &["adresse\":"], ..lire("alertes-protection", "/dossier/alertes-protection",
+                &[Admin, Direction], &[Admin, Direction]) },
     ]
 }
 

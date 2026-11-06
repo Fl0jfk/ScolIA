@@ -15,7 +15,8 @@ use ent_db::{
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable,
 };
 use ent_types::dossier::{
-    ActionFicheDto, AjoutResponsableBody, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
+    ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto,
+    ConfirmationGuichetBody, ConfirmationGuichetDto, NePasSolliciterBody, ProtectionADeclarerDto, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
     FicheEleveDto, FusionBody, FusionDto, LienBody, PayeursBody, PersonneBody, PersonneDto,
     PersonneTrouveeDto, ResponsableDto, ResumeSectionsDto, SectionsDto, SuspensionBody,
 };
@@ -41,6 +42,17 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/dossier/mes-liens-en-attente/{id}/reponse",
             post(repondre_lien_en_attente),
+        )
+        // Lot A0 bis : confirmation au guichet, protection des personnes (direction)
+        .route(
+            "/dossier/liens-en-attente/{id}/confirmer-guichet",
+            post(confirmer_guichet),
+        )
+        .route("/dossier/alertes-protection", get(alertes_protection))
+        .route("/dossier/personnes/{id}/ne-pas-solliciter", post(ne_pas_solliciter))
+        .route(
+            "/dossier/adresses-protegees/{id}/ouvrir",
+            post(ouvrir_adresse_protegee),
         )
         .route("/dossier/eleves/{id}/payeurs", put(payeurs))
         .route("/dossier/eleves/{id}/contacts", get(contacts).post(ajouter_contact))
@@ -505,6 +517,111 @@ async fn repondre_lien_en_attente(
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// ADM-82 : le secrétariat confirme un lien en attente au guichet (type de pièce et auteur tracés).
+async fn confirmer_guichet(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ConfirmationGuichetBody>,
+) -> Res<Json<ConfirmationGuichetDto>> {
+    let piece = ent_db::PieceIdentite::parse(b.piece.trim())
+        .ok_or((StatusCode::BAD_REQUEST, "type de pièce inconnu".to_string()))?;
+    let lien_id = state
+        .ent
+        .confirmer_lien_guichet_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            piece,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(ConfirmationGuichetDto { lien_id }))
+}
+
+/// Alertes de protection (adresses parquées, « ne pas solliciter » à confirmer) — direction.
+async fn alertes_protection(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Res<Json<AlertesProtectionDto>> {
+    let a = state
+        .ent
+        .alertes_protection_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AlertesProtectionDto {
+        adresses_a_traiter: a
+            .adresses_a_traiter
+            .into_iter()
+            .map(|x| AdresseParqueeDto {
+                id: x.id,
+                personne_id: x.personne_id,
+                nom: x.nom,
+                prenom: x.prenom,
+                origine: x.origine,
+                created_at: x.created_at,
+            })
+            .collect(),
+        ne_pas_solliciter_a_confirmer: a
+            .ne_pas_solliciter_a_confirmer
+            .into_iter()
+            .map(|x| ProtectionADeclarerDto {
+                personne_id: x.personne_id,
+                nom: x.nom,
+                prenom: x.prenom,
+                declaree_le: x.declaree_le,
+            })
+            .collect(),
+    }))
+}
+
+/// La direction pose, confirme ou lève « ne pas solliciter » pour une personne.
+async fn ne_pas_solliciter(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<NePasSolliciterBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .definir_ne_pas_solliciter_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            b.actif,
+            b.reference,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// La direction ouvre une adresse parquée (POST : jamais préchargée ni mise en cache ; journalisé).
+async fn ouvrir_adresse_protegee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Response> {
+    let adresse = state
+        .ent
+        .ouvrir_adresse_protegee_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    let mut rep = Json(AdresseProtegeeDto { adresse }).into_response();
+    rep.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok(rep)
 }
 
 async fn modifier_lien(

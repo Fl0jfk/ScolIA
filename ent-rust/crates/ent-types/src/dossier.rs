@@ -135,6 +135,63 @@ pub struct ReponseLienBody {
     pub accepter: bool,
 }
 
+/// Corps de `POST /dossier/liens-en-attente/{id}/confirmer-guichet` : la pièce d'identité vue
+/// au guichet. Seul le type est enregistré (jamais la copie ni le numéro).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmationGuichetBody {
+    /// `carte_identite`, `passeport`, `titre_sejour`, `permis_conduire`, `livret_famille`, `autre`.
+    pub piece: String,
+}
+
+/// Réponse de la confirmation au guichet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmationGuichetDto {
+    /// Lien réel créé (`None` si la personne était déjà liée à l'élève).
+    pub lien_id: Option<Uuid>,
+}
+
+/// Corps de `POST /dossier/personnes/{id}/ne-pas-solliciter` (direction).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NePasSolliciterBody {
+    pub actif: bool,
+    /// Référence de la pièce de protection (scellée en base, jamais renvoyée).
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+/// Adresse à protéger mise de côté, vue de la direction (sans l'adresse).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdresseParqueeDto {
+    pub id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub origine: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// « Ne pas solliciter » déclaré par une famille, à confirmer par la direction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtectionADeclarerDto {
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub declaree_le: Option<DateTime<Utc>>,
+}
+
+/// `GET /dossier/alertes-protection` : alertes d'information de la direction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlertesProtectionDto {
+    pub adresses_a_traiter: Vec<AdresseParqueeDto>,
+    pub ne_pas_solliciter_a_confirmer: Vec<ProtectionADeclarerDto>,
+}
+
+/// Réponse de `POST /dossier/adresses-protegees/{id}/ouvrir` (consultation journalisée).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdresseProtegeeDto {
+    pub adresse: String,
+}
+
 /// Corps de `POST /dossier/liens/{id}/suspendre`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuspensionBody {
