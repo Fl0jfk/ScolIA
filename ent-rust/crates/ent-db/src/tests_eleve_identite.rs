@@ -347,16 +347,13 @@ async fn correction_remplace_changement_ajoute() {
         matches!(doublon, Err(EntDbError::ConflitDossier(_))),
         "{doublon:?}"
     );
-    // Retour à aujourd'hui : on resynchronise (la base de test est partagée).
+    // Retour à aujourd'hui : la version annoncée n'est pas encore effective, la fiche
+    // retrouve la version en vigueur (la correction).
     sqlx::query("SELECT ent_eleve_identite_resynchroniser(current_date)")
         .execute(ent.pool())
         .await
         .unwrap();
-    assert_eq!(
-        projection(&ent, e.id).await.nom,
-        nouveau_nom,
-        "la projection ne recule pas sans nouvelle version"
-    );
+    assert_eq!(projection(&ent, e.id).await.nom, corrige);
 
     // Historique complet pour la direction : 3 versions (création remplacée, correction, changement).
     let h = ent
