@@ -877,3 +877,43 @@ async fn faible_export_onde_reserve_aux_administratifs() {
     let r = c.ent.exporter_onde_csv_for_actor("direction", cmd(Some(c.non_suivie.clone()))).await;
     assert!(r.is_ok(), "direction : {r:?}");
 }
+
+/// RF-11 : le verrou par IP (bourrage) ne ferme pas la porte aux comptes déjà connus depuis
+/// ce réseau (NAT d'établissement), mais refuse toujours un compte inconnu depuis cette IP.
+#[tokio::test]
+async fn rf11_verrou_ip_epargne_les_comptes_connus_du_reseau() {
+    struct Garde;
+    impl Drop for Garde {
+        fn drop(&mut self) {
+            std::env::remove_var("ENT_LOGIN_MAX_FAILED_IP");
+        }
+    }
+    let Some(ent) = ent().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = Uuid::new_v4();
+    let connu = format!("rf11c-{}@ent.local", Uuid::new_v4().simple());
+    let inconnu = format!("rf11i-{}@ent.local", Uuid::new_v4().simple());
+    ent.register_user(&connu, MDP, None, etab, "prof").await.unwrap();
+    ent.register_user(&inconnu, MDP, None, etab, "prof").await.unwrap();
+    let b = Uuid::new_v4().into_bytes();
+    let ip = format!("10.{}.{}.{}", b[0], b[1], b[2]);
+
+    // Le professeur « connu » s'est déjà connecté depuis le collège.
+    ent.login_with_ip(&connu, MDP, etab, Some(&ip)).await.expect("connexion initiale");
+
+    let _g = Garde;
+    std::env::set_var("ENT_LOGIN_MAX_FAILED_IP", "3");
+    // Un élève épuise le seuil par IP avec des comptes quelconques.
+    for i in 0..6 {
+        let r = ent
+            .login_with_ip(&format!("bourrage-{i}-{}@ent.local", Uuid::new_v4().simple()), "x", etab, Some(&ip))
+            .await;
+        assert!(r.is_err());
+    }
+    let r = ent.login_with_ip(&inconnu, MDP, etab, Some(&ip)).await;
+    assert!(format!("{:?}", r.err()).contains("TooMany"), "compte sans session depuis cette IP : refusé");
+    let r = ent.login_with_ip(&connu, MDP, etab, Some(&ip)).await;
+    assert!(r.is_ok(), "compte connu depuis ce réseau : épargné : {:?}", r.err());
+}

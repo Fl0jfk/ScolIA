@@ -39,6 +39,11 @@ pub struct Regle {
     pub ip: Option<Quota>,
     pub id: Option<Quota>,
     pub champ_id: Option<&'static str>,
+    /// RF-13 : dépassement du seau par identifiant = **absorption** (202 neutre, handler
+    /// non appelé, donc aucun envoi) au lieu d'un 429. Un tiers qui épuise le seau d'une
+    /// victime ne la prive plus de sa propre demande en lui renvoyant des 429, et ne
+    /// révèle rien ; le plafond par IP reste un refus dur.
+    pub absorbe_id: bool,
 }
 
 /// Règle applicable à un gabarit de route, `None` si non limitée.
@@ -48,6 +53,7 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
         ip,
         id,
         champ_id,
+        absorbe_id: matches!(nom, "FORGOT_PASSWORD" | "PASSKEY_RECUP"),
     };
     Some(match gabarit {
         // Connexion : le plafond par IP protège le CPU (Argon2) ; pas de seau par
@@ -143,6 +149,13 @@ fn reponse_limite(retry_after_secs: u64) -> Response {
     res
 }
 
+/// Réponse identique à celle du handler (202, corps vide) pour une demande absorbée.
+fn reponse_absorbee() -> Response {
+    let mut res = Response::new(Body::empty());
+    *res.status_mut() = StatusCode::ACCEPTED;
+    res
+}
+
 /// Couche axum : contrôle les quotas avant le handler.
 pub async fn limiter_debit(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let gabarit = match req.extensions().get::<MatchedPath>() {
@@ -189,6 +202,9 @@ pub async fn limiter_debit(State(state): State<AppState>, req: Request, next: Ne
             if let Decision::Limite { retry_after_secs } =
                 limiteur.verifier(&route, "id", &id, q).await
             {
+                if regle.absorbe_id {
+                    return reponse_absorbee();
+                }
                 return reponse_limite(retry_after_secs);
             }
         }

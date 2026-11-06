@@ -204,10 +204,11 @@ async fn abus_429_retry_after_au_dela_du_quota_par_identifiant() {
         None,
     )
     .await;
-    assert_eq!(r.statut, StatusCode::TOO_MANY_REQUESTS);
-    let attente: u64 = r.en_tetes["retry-after"].to_str().unwrap().parse().unwrap();
-    assert!((1..=3600).contains(&attente), "Retry-After = {attente}");
-    assert_eq!(r.texte, anti_abus::MESSAGE_LIMITE, "message neutre");
+    // RF-13 : au-delà du plafond par e-mail, la demande est ABSORBÉE (202 neutre, aucun
+    // envoi) et non refusée : épuiser le seau d'une victime ne lui renvoie pas de 429.
+    assert_eq!(r.statut, StatusCode::ACCEPTED, "absorbée, pas de déni ciblé");
+    assert!(!r.en_tetes.contains_key("retry-after"));
+    assert_ne!(r.texte, anti_abus::MESSAGE_LIMITE);
 
     // Un autre e-mail n'est pas pénalisé.
     let autre = format!("autre-{}@ent.test", Uuid::new_v4().simple());

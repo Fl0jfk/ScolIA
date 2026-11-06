@@ -396,7 +396,14 @@ impl PgAuthRepo {
             return Err(AuthError::TooManyAttempts);
         }
         if let Some(k) = &ip_key {
-            if self.login_attempt(k, login_max_failed_ip()).await?.verrouille {
+            // RF-11 : derrière un NAT d'établissement, un élève qui épuise le seuil par IP ne
+            // doit pas fermer la porte aux comptes déjà connus depuis ce réseau. Le verrou par
+            // IP (bourrage sur des comptes quelconques) ne vise donc que les comptes SANS
+            // session récente depuis cette IP ; les comptes connus restent bornés par le verrou
+            // dur (compte, IP) ci-dessus et par le ralentissement du compte.
+            if self.login_attempt(k, login_max_failed_ip()).await?.verrouille
+                && !self.appareil_connu(&email, client_ip.unwrap_or("")).await
+            {
                 return Err(AuthError::TooManyAttempts);
             }
         }
@@ -692,6 +699,21 @@ impl PgAuthRepo {
             .await;
         }
         Ok(Tentative { compte, verrouille })
+    }
+
+    /// Le compte a-t-il ouvert une session depuis cette IP ces 30 derniers jours ?
+    /// (Erreur de lecture = « inconnu » : on reste sur le refus.)
+    async fn appareil_connu(&self, email: &str, ip: &str) -> bool {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM ent_session s JOIN ent_user u ON u.id = s.user_id
+              WHERE u.email = $1 AND s.ip_creation = $2
+                AND s.created_at > now() - interval '30 days')",
+        )
+        .bind(email)
+        .bind(ip)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or(false)
     }
 
     /// Rend le décompte d'une tentative **réussie** (le compteur ne reflète que

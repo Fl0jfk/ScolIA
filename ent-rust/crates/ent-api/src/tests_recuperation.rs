@@ -679,6 +679,7 @@ async fn recup_limitation_de_debit_par_adresse() {
         let (st, _) = appel(&app, "POST", RECUP, None, Some(corps.clone())).await;
         assert_eq!(st, StatusCode::ACCEPTED, "demande {i}");
     }
+    // RF-13 : le plafond par e-mail absorbe (202, aucun envoi) au lieu de refuser.
     let (st, _) = appel(&app, "POST", RECUP, None, Some(corps)).await;
-    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(st, StatusCode::ACCEPTED);
 }
