@@ -126,7 +126,7 @@ Procédure d'activation (hypothèse de séquence, à valider avant production) :
 Un superutilisateur contourne toujours la RLS, même avec `FORCE` : en CI, la connexion de test habituelle est superutilisateur, d'où l'utilisation d'un rôle dédié.
 
 ## 5. Limites connues et reste à faire
-- Pilote sur 22 tables ; le reste de l'isolation est applicatif.
+- Pilote sur 22 tables (migration 100), étendu à 6 tables du lot S2-11 santé / accompagnement (migration 215) : 28 au total ; le reste de l'isolation est applicatif.
 - Mode `off` par défaut : aucune protection tant que `ENT_RLS_MODE` n'est pas positionné.
 - Pas de test d'intégration HTTP en mode strict, ni de mesure de performance : à faire avant activation.
 - La suite complète tourne en mode par défaut avec le rôle propriétaire (superutilisateur local) : elle ne prouve pas que tout le code de domaine fonctionne sous un rôle non propriétaire ; à ajouter pour la bascule (rôle applicatif sur la suite d'intégration).
