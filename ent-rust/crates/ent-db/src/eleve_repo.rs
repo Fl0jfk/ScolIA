@@ -293,11 +293,9 @@ impl PgEleveRepo {
                 $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18, now()
             )
             ON CONFLICT (id) DO UPDATE SET
-                nom = EXCLUDED.nom,
-                prenom = EXCLUDED.prenom,
+                -- nom, prénom, sexe, date de naissance : identité versionnée (E2), écrite
+                -- par la base depuis une version ; jamais ici.
                 ine = EXCLUDED.ine,
-                sexe = EXCLUDED.sexe,
-                date_naissance = EXCLUDED.date_naissance,
                 numero_badge = EXCLUDED.numero_badge,
                 redoublant = EXCLUDED.redoublant,
                 photo_key = EXCLUDED.photo_key,

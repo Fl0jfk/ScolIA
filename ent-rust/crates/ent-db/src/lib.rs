@@ -73,6 +73,7 @@ mod perimetre;
 mod droits_repo;
 mod droits_ctx;
 mod eleve_champs;
+pub mod identite;
 pub mod dossier_personnes;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
@@ -232,6 +233,8 @@ mod tests_inscriptions;
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_socle;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_identite;
 
 #[cfg(test)]
 mod integration_tests {

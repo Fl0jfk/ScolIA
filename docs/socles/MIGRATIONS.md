@@ -15,7 +15,8 @@ Chaque session qui écrit des migrations reçoit une plage réservée ici, pour 
 | 250–254 | socle 3, lot I0 (correctifs S2-3) | `ent-socle-inscriptions-i0` | en cours |
 | 255–259 | correctifs revue finale socle 1 (RF-01, RF-04) | `ent-socle1-revue-correctifs` | en cours |
 | 260–279 | socle 4 dossier administratif (conception : `04_ADMINISTRATIF.md` §16) | `ent-socle-administratif-conception` (conception seulement) | réservé |
-| 280–299 | socle 2 élève, lots E2 et suivants | à venir | réservé |
+| 280–289 | socle 2 élève, lot E2 (identité versionnée) : 280 | `ent-socle-eleve-e2` | en cours (280 utilisée) |
+| 290–299 | socle 2 élève, lots E3 et suivants | à venir | réservé |
 | 300–329 | socle 3 inscriptions, lots I1 et suivants | à venir | réservé |
 
 Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTIONS.md` (200–219) sont remplacées par ce registre.

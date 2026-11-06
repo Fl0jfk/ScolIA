@@ -213,6 +213,19 @@ pub fn router() -> Router<AppState> {
             "/eleves/{id}/identite",
             axum::routing::put(update_identite_eleve),
         )
+        .route(
+            "/eleves/{id}/identite/corrections",
+            post(corriger_identite_eleve),
+        )
+        .route(
+            "/eleves/{id}/identite/changements",
+            post(changer_etat_civil_eleve),
+        )
+        .route("/eleves/{id}/identite/usages", post(definir_usage_eleve))
+        .route(
+            "/eleves/{id}/identite/historique",
+            get(historique_identite_eleve),
+        )
         .route("/eleves/{id}/dossier", get(get_dossier))
         .route(
             "/eleves/{id}/documents",
@@ -2922,6 +2935,182 @@ async fn update_identite_eleve(
         .await
         .map_err(map_db)?;
     Ok(Json(EleveDto::from(&eleve)))
+}
+
+// ───────────── Socle 2 (l'élève), lot E2 : identité versionnée ─────────────
+
+fn modif_identite(c: ent_types::identite::ChampsIdentiteBody) -> domain_eleve::ModifIdentite {
+    domain_eleve::ModifIdentite {
+        nom_naissance: c.nom_naissance,
+        nom_usage: c.nom_usage,
+        prenoms: c.prenoms,
+        rang_prenom_usuel: c.rang_prenom_usuel,
+        prenom_usage: c.prenom_usage,
+        sexe: c.sexe,
+        date_naissance: c.date_naissance,
+        naissance_commune: c.naissance_commune,
+        naissance_commune_cog: c.naissance_commune_cog,
+        naissance_pays_cog: c.naissance_pays_cog,
+        naissance_lieu_etranger: c.naissance_lieu_etranger,
+    }
+}
+
+fn version_identite_dto(v: &domain_eleve::IdentiteVersion) -> ent_types::identite::IdentiteVersionDto {
+    ent_types::identite::IdentiteVersionDto {
+        id: v.id,
+        nom_naissance: v.nom_naissance.clone(),
+        nom_usage: v.nom_usage.clone(),
+        prenoms: v.prenoms.clone(),
+        rang_prenom_usuel: v.rang_prenom_usuel,
+        prenom_usage: v.prenom_usage.clone(),
+        sexe: v.sexe.clone(),
+        date_naissance: v.date_naissance,
+        naissance_commune: v.naissance_commune.clone(),
+        naissance_commune_cog: v.naissance_commune_cog.clone(),
+        naissance_pays_cog: v.naissance_pays_cog.clone(),
+        naissance_lieu_etranger: v.naissance_lieu_etranger.clone(),
+        nature: v.nature.as_str().to_string(),
+        effet_du: v.effet_du,
+        remplace_version_id: v.remplace_version_id,
+        remplacee_par: v.remplacee_par,
+        motif: v.motif.clone(),
+        piece_document_id: v.piece_document_id,
+        source: v.source.clone(),
+        sensible: v.sensible,
+        enregistre_le: v.enregistre_le,
+        enregistre_par: v.enregistre_par,
+    }
+}
+
+fn resultat_identite_dto(
+    r: &ent_db::identite::ResultatIdentite,
+) -> ent_types::identite::ResultatIdentiteDto {
+    ent_types::identite::ResultatIdentiteDto {
+        version: version_identite_dto(&r.version),
+        champs: r.champs.iter().map(|c| (*c).to_string()).collect(),
+    }
+}
+
+/// Les sources réservées au système (import, fusion, reprise…) ne sont pas saisissables
+/// depuis une route de personnel.
+fn source_saisie(s: Option<String>) -> Result<String, (StatusCode, String)> {
+    match s.as_deref() {
+        None | Some("saisie") => Ok("saisie".into()),
+        Some("ancien_etablissement") => Ok("ancien_etablissement".into()),
+        Some(_) => Err((StatusCode::BAD_REQUEST, "source non autorisée pour cette saisie".into())),
+    }
+}
+
+/// ELV-03 — `POST /eleves/{id}/identite/corrections`.
+async fn corriger_identite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::CorrigerIdentiteBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .corriger_identite(
+            &session.role,
+            ent_db::identite::CorrectionIdentite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                version_id: body.version_id,
+                modif: modif_identite(body.champs),
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-04 — `POST /eleves/{id}/identite/changements`.
+async fn changer_etat_civil_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::ChangerEtatCivilBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .enregistrer_changement_etat_civil(
+            &session.role,
+            ent_db::identite::ChangementEtatCivil {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                modif: modif_identite(body.champs),
+                effet_du: body.effet_du,
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-05 — `POST /eleves/{id}/identite/usages`.
+async fn definir_usage_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::DefinirUsageBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .definir_usage(
+            &session.role,
+            ent_db::identite::UsageIdentite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                nom_usage: body.nom_usage,
+                prenom_usage: body.prenom_usage,
+                effet_du: body.effet_du,
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-06 — `GET /eleves/{id}/identite/historique` (G5 ; versions sensibles : G6).
+async fn historique_identite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ent_types::identite::IdentiteVersionDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesHistoriqueLire, "rôle insuffisant pour l'historique d'identité")
+        .await?;
+    let versions = state
+        .ent
+        .historique_identite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(versions.iter().map(version_identite_dto).collect()))
 }
 
 async fn change_mef(

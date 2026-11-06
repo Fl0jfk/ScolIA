@@ -263,6 +263,16 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
             lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
             lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
+            // Socle 2 (E2) : historique d'identité réservé à `eleves.historique.lire`
+            // (Admin, Direction, Administratif) ; jamais la famille ni le professeur.
+            lire("historique-identite", "/eleves/{eleve}/identite/historique",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("identite-correction-sur-B", "POST", "/eleves/{eleve}/identite/corrections",
+                Some(r#"{"champs":{"nom_naissance":"Separation"},"motif":"separation"}"#)),
+            ecrire_sur_b("identite-changement-sur-B", "POST", "/eleves/{eleve}/identite/changements",
+                Some(r#"{"champs":{"nom_naissance":"Separation"},"effet_du":"{jour}","motif":"separation","piece_document_id":"00000000-0000-0000-0000-000000000001"}"#)),
+            ecrire_sur_b("identite-usage-sur-B", "POST", "/eleves/{eleve}/identite/usages",
+                Some(r#"{"prenom_usage":"Separation"}"#)),
             lire("carnet", "/eleves/{eleve}/carnet",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },

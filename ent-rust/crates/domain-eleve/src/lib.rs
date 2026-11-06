@@ -14,6 +14,7 @@ mod champs;
 mod continuum;
 mod document;
 mod dossier;
+mod identite;
 mod invitation;
 mod fiche_sante;
 mod fiche_sante_pdf;
@@ -90,6 +91,11 @@ pub use champs::{
 pub use dossier::{
     age_ans_au, assert_parts_paiement, plan_ajouter_option, plan_update_identite, AjouterOption,
     DossierEleve, DossierSections, EleveOption, LienDossier, OptionNature, UpdateIdentite,
+};
+pub use identite::{
+    filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,
+    source_valide as source_identite_valide, ChampIdentite, DemandeVersion, ErreurIdentite,
+    IdentiteVersion, ModifIdentite, NatureVersion, VersionPlanifiee,
 };
 pub use invitation::{
     email_compte_eleve_defaut, generer_mot_de_passe_temporaire, plan_inviter_compte_eleve,

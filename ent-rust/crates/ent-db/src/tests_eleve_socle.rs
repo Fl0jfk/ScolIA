@@ -36,6 +36,11 @@ fn nouvel_eleve(etab: Uuid, nom: &str, acteur: Uuid) -> CreateEleve {
     }
 }
 
+/// Nom sans chiffre (l'identité versionnée refuse les chiffres dans un nom).
+fn alpha(prefixe: &str) -> String {
+    format!("{prefixe}{}", &Uuid::new_v4().simple().to_string()[..8].replace(char::is_numeric, "x"))
+}
+
 fn unique(prefixe: &str) -> String {
     format!("{prefixe}{}", &Uuid::new_v4().simple().to_string()[..8])
 }
@@ -197,7 +202,7 @@ async fn creation_defaite_si_le_journal_echoue() {
         .update_identite(UpdateIdentite {
             etablissement_id: etab,
             eleve_id: existant,
-            nom: Some(unique("Chg")),
+            nom: Some(alpha("Chg")),
             prenom: None,
             ine: None,
             sexe: None,
@@ -233,7 +238,7 @@ async fn identite_evenement_et_journal_sans_valeurs() {
         .create_eleve(nouvel_eleve(etab, &unique("Ident"), cast.administratif.user_id))
         .await
         .unwrap();
-    let nouveau = unique("Nouveau");
+    let nouveau = alpha("Nouveau");
     ent.update_identite(UpdateIdentite {
         etablissement_id: etab,
         eleve_id: e.id,
@@ -257,9 +262,12 @@ async fn identite_evenement_et_journal_sans_valeurs() {
     .fetch_one(ent.pool())
     .await
     .unwrap();
-    assert_eq!(payload["champs"], serde_json::json!(["nom", "date_naissance"]));
+    // E2 : nom et date de naissance passent par une version (correction) ; l'événement
+    // porte la version, la nature et les NOMS de champs.
+    assert_eq!(payload["nature"], "correction");
+    assert_eq!(payload["champs"], serde_json::json!(["nom_naissance", "date_naissance"]));
     let (journal, libelle): (serde_json::Value, String) = sqlx::query_as(
-        "SELECT payload, libelle FROM ent_journal_modif WHERE eleve_id = $1 AND action = 'identite_modifiee'",
+        "SELECT payload, libelle FROM ent_journal_modif WHERE eleve_id = $1 AND action = 'identite_correction'",
     )
     .bind(e.id)
     .fetch_one(ent.pool())

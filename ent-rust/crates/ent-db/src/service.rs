@@ -3923,6 +3923,13 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let planned = plan_create(cmd)?;
         let etab = planned.eleve.etablissement_id;
         let mut tx = TenantTx::begin(&self.pool, etab).await?;
+        // Auteur de la version d'identité initiale (écrite par la base à l'insertion).
+        if let Some(a) = actor.as_deref().filter(|a| Uuid::parse_str(a).is_ok()) {
+            sqlx::query("SELECT set_config('ent.acteur_id', $1, true)")
+                .bind(a)
+                .execute(&mut *tx)
+                .await?;
+        }
         PgEleveRepo::upsert_sur(&mut tx, &planned.eleve).await?;
         for p in &planned.periodes_initiales {
             PgPeriodeRepo::ouvrir_premiere_sur(&mut tx, p).await?;
@@ -4022,28 +4029,37 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !changed {
             return Ok(eleve);
         }
-        let champs = champs_identite_modifies(&current, &eleve);
+        let acteur = actor.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+        // Nom, prénom, sexe, date de naissance : version d'identité (correction), pas de
+        // colonne écrasée. Elle publie et journalise elle-même (noms de champs seulement).
+        PgEnt::correction_heritee(&mut tx, &current, &eleve, acteur).await?;
+        let champs: Vec<&'static str> = champs_identite_modifies(&current, &eleve)
+            .into_iter()
+            .filter(|c| !matches!(*c, "nom" | "prenom" | "sexe" | "date_naissance"))
+            .collect();
         PgEleveRepo::upsert_sur(&mut tx, &eleve).await?;
-        tx.publier(MetierEventDraft {
-            etablissement_id: eleve.etablissement_id,
-            type_name: types::ELEVE_IDENTITY_CHANGED.to_string(),
-            aggregate: AggregateKind::Eleve,
-            aggregate_id: eleve.id,
-            eleve_id: Some(eleve.id),
-            payload: json!({ "champs": champs }),
-            actor_user_id: actor.clone(),
-        })
-        .await?;
-        journal_eleve_tx(
-            &mut tx,
-            eleve.etablissement_id,
-            eleve.id,
-            "identite_modifiee",
-            "Identité de l'élève modifiée",
-            json!({ "champs": champs }),
-            &actor,
-        )
-        .await?;
+        if !champs.is_empty() {
+            tx.publier(MetierEventDraft {
+                etablissement_id: eleve.etablissement_id,
+                type_name: types::ELEVE_IDENTITY_CHANGED.to_string(),
+                aggregate: AggregateKind::Eleve,
+                aggregate_id: eleve.id,
+                eleve_id: Some(eleve.id),
+                payload: json!({ "champs": champs }),
+                actor_user_id: actor.clone(),
+            })
+            .await?;
+            journal_eleve_tx(
+                &mut tx,
+                eleve.etablissement_id,
+                eleve.id,
+                "identite_modifiee",
+                "Identité de l'élève modifiée",
+                json!({ "champs": champs }),
+                &actor,
+            )
+            .await?;
+        }
         tx.commit()
             .await
             ?;
