@@ -32,6 +32,8 @@ import {
 } from "@/app/lib/mistral-models";
 import { loadScoliaPersonalSignalsBrief } from "@/app/lib/brain-ai/personal-signals";
 import { detectWizardStartTool, isWritingHelpRequest } from "@/app/lib/brain-ai/wizard-intent";
+import { classifyScoliaMode, quickRoute } from "@/app/lib/brain-ai/intent-router";
+import { runGeneralChat } from "@/app/lib/brain-ai/general-chat";
 import {
   TRAVELS_CLASSES_AUTRES_LABEL,
   TRAVELS_CLASSES_AUTRES_VALUE,
@@ -806,6 +808,31 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const signedIn = Boolean(input.toolCtx.userId) && input.audience === "private";
 
+  // Aiguillage : action métier (cadre strict, outils) ou hors métier (LLM classique).
+  // Des fichiers joints ou encore actifs restent dans le cadre métier, qui sait les lire.
+  const activeFiles =
+    Array.isArray(conversationState.slots.chatFiles) &&
+    conversationState.slots.chatFiles.length > 0 &&
+    Number(conversationState.slots.chatFilesTurnsLeft ?? 0) > 0;
+  const hasFiles = Boolean(input.attachments?.length) || activeFiles;
+  let mode = quickRoute(input.message, { hasFiles });
+  if (mode === null) {
+    mode = input.apiKey
+      ? await classifyScoliaMode(input.message, input.history, input.apiKey)
+      : "metier";
+  }
+  console.info("[brain-ai] mode", { mode, userId: input.toolCtx.userId });
+  if (mode === "general" && input.apiKey) {
+    return runGeneralChat({
+      message: input.message,
+      history: input.history,
+      apiKey: input.apiKey,
+      firstName: input.toolCtx.firstName,
+      etablissementId: signedIn ? input.toolCtx.etablissementId : null,
+      conversationState,
+    });
+  }
+
   // Bypass LLM : intention d'action → wizard UI tout de suite (select / boutons).
   // Pas avec des fichiers joints : le modèle doit d'abord les lire.
   if (signedIn && !input.attachments?.length) {
@@ -828,7 +855,9 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     };
   }
 
-  const writingHelp = isWritingHelpRequest(input.message);
+  // La rédaction pure part en mode hors métier. Ici ne reste que la rédaction sur des
+  // fichiers joints (outils coupés pour ce tour) ; « réécris et envoie-le » garde les outils.
+  const writingHelp = hasFiles && isWritingHelpRequest(input.message);
 
   let knowledge;
   try {
