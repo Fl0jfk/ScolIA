@@ -360,7 +360,9 @@ fn traduire(e: sqlx::Error) -> EntDbError {
                 return EntDbError::ConflitDossier("une version existe déjà à cette date d'effet")
             }
             Some("23503") => return EntDbError::SaisieInvalide("référence inconnue"),
-            Some("23514") => return EntDbError::SaisieInvalide("valeur refusée par les règles d'identité"),
+            Some("23514") => {
+                return EntDbError::SaisieInvalide("valeur refusée par les règles d'identité")
+            }
             _ => {}
         }
     }
@@ -541,7 +543,9 @@ impl PgEnt {
                 .await
                 .map_err(traduire)?;
         }
-        PgIdentiteRepo::inserer(&mut *tx, &v).await.map_err(traduire)?;
+        PgIdentiteRepo::inserer(&mut *tx, &v)
+            .await
+            .map_err(traduire)?;
         let champs: Vec<&'static str> = plan.champs.iter().map(|c| c.nom()).collect();
         tx.publier(MetierEventDraft {
             etablissement_id: etab,
@@ -609,7 +613,11 @@ impl PgEnt {
             role,
             Some(eleve),
             "identite",
-            if voit_sensible { "historique_complet" } else { "historique" },
+            if voit_sensible {
+                "historique_complet"
+            } else {
+                "historique"
+            },
             "Consultation de l'historique d'identité",
         )
         .await;
@@ -639,7 +647,10 @@ impl PgEnt {
     ) -> Result<Option<ResultatIdentite>, EntDbError> {
         let (etab, eleve) = (avant.etablissement_id, avant.id);
         let (nom, prenom) = (avant.nom != apres.nom, avant.prenom != apres.prenom);
-        let (sexe, naissance) = (avant.sexe != apres.sexe, avant.date_naissance != apres.date_naissance);
+        let (sexe, naissance) = (
+            avant.sexe != apres.sexe,
+            avant.date_naissance != apres.date_naissance,
+        );
         if !(nom || prenom || sexe || naissance) {
             return Ok(None);
         }

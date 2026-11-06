@@ -18,7 +18,10 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 }
 
 fn unique(prefixe: &str) -> String {
-    format!("{prefixe}{}", &Uuid::new_v4().simple().to_string()[..8].replace(char::is_numeric, "x"))
+    format!(
+        "{prefixe}{}",
+        &Uuid::new_v4().simple().to_string()[..8].replace(char::is_numeric, "x")
+    )
 }
 
 fn aujourdhui() -> NaiveDate {
@@ -167,11 +170,12 @@ async fn reprise_de_l_existant_idempotente() {
         .await
         .unwrap();
     tx.commit().await.unwrap();
-    let sans: (Option<Uuid>,) = sqlx::query_as("SELECT identite_version_id FROM ent_eleve WHERE id = $1")
-        .bind(id)
-        .fetch_one(ent.pool())
-        .await
-        .unwrap();
+    let sans: (Option<Uuid>,) =
+        sqlx::query_as("SELECT identite_version_id FROM ent_eleve WHERE id = $1")
+            .bind(id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
     assert!(sans.0.is_none());
 
     let (n1,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_reprendre()")
@@ -186,11 +190,12 @@ async fn reprise_de_l_existant_idempotente() {
     assert_eq!(n2, 0, "la reprise doit être idempotente");
     // Rejouer les migrations ne crée rien non plus.
     ent.migrate().await.unwrap();
-    let (versions,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1")
-        .bind(id)
-        .fetch_one(ent.pool())
-        .await
-        .unwrap();
+    let (versions,): (i64,) =
+        sqlx::query_as("SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1")
+            .bind(id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
     assert_eq!(versions, 1);
 
     let (nature, source, nom_n, sexe): (String, String, String, Option<String>) = sqlx::query_as(
@@ -211,7 +216,11 @@ async fn reprise_de_l_existant_idempotente() {
     .fetch_one(ent.pool())
     .await
     .unwrap();
-    assert_eq!((a_traiter, origine.as_deref()), (1, Some("X")), "valeur d'origine conservée dans le rapport");
+    assert_eq!(
+        (a_traiter, origine.as_deref()),
+        (1, Some("X")),
+        "valeur d'origine conservée dans le rapport"
+    );
     // Égalité projection ↔ version pour tous les élèves.
     let (ecarts,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_eleve e
@@ -255,7 +264,10 @@ async fn correction_remplace_changement_ajoute() {
             .await
             .unwrap();
     assert_eq!(remplacee_par, Some(r.version.id));
-    assert_eq!(r.version.effet_du, effet0, "une correction garde la date d'effet de la version corrigée");
+    assert_eq!(
+        r.version.effet_du, effet0,
+        "une correction garde la date d'effet de la version corrigée"
+    );
     let p = projection(&ent, e.id).await;
     assert_eq!(p.nom, corrige);
     assert_eq!(p.identite_version_id, Some(r.version.id));
@@ -269,7 +281,10 @@ async fn correction_remplace_changement_ajoute() {
             },
         )
         .await;
-    assert!(matches!(deja, Err(EntDbError::ConflitDossier(_))), "{deja:?}");
+    assert!(
+        matches!(deja, Err(EntDbError::ConflitDossier(_))),
+        "{deja:?}"
+    );
 
     // — Changement réel : pièce et motif obligatoires, effet daté —
     let futur = aujourdhui() + Duration::days(30);
@@ -289,7 +304,10 @@ async fn correction_remplace_changement_ajoute() {
     let refus = ent
         .enregistrer_changement_etat_civil(role, changement(autre_piece, &nouveau_nom, futur))
         .await;
-    assert!(matches!(refus, Err(EntDbError::SaisieInvalide(_))), "{refus:?}");
+    assert!(
+        matches!(refus, Err(EntDbError::SaisieInvalide(_))),
+        "{refus:?}"
+    );
     // Pièce inconnue : refusée.
     let inconnue = ent
         .enregistrer_changement_etat_civil(role, changement(Uuid::new_v4(), &nouveau_nom, futur))
@@ -300,7 +318,10 @@ async fn correction_remplace_changement_ajoute() {
         .enregistrer_changement_etat_civil(role, changement(ma_piece, &nouveau_nom, futur))
         .await
         .unwrap();
-    assert_eq!(c.version.remplace_version_id, None, "un changement ne remplace rien");
+    assert_eq!(
+        c.version.remplace_version_id, None,
+        "un changement ne remplace rien"
+    );
     assert_eq!(c.version.piece_document_id, Some(ma_piece));
     assert_eq!(c.version.effet_du, futur);
     // La fiche garde la valeur actuelle jusqu'à la date d'effet…
@@ -322,23 +343,41 @@ async fn correction_remplace_changement_ajoute() {
     let doublon = ent
         .enregistrer_changement_etat_civil(role, changement(ma_piece, &unique("Autre"), futur))
         .await;
-    assert!(matches!(doublon, Err(EntDbError::ConflitDossier(_))), "{doublon:?}");
+    assert!(
+        matches!(doublon, Err(EntDbError::ConflitDossier(_))),
+        "{doublon:?}"
+    );
     // Retour à aujourd'hui : on resynchronise (la base de test est partagée).
     sqlx::query("SELECT ent_eleve_identite_resynchroniser(current_date)")
         .execute(ent.pool())
         .await
         .unwrap();
-    assert_eq!(projection(&ent, e.id).await.nom, nouveau_nom, "la projection ne recule pas sans nouvelle version");
+    assert_eq!(
+        projection(&ent, e.id).await.nom,
+        nouveau_nom,
+        "la projection ne recule pas sans nouvelle version"
+    );
 
     // Historique complet pour la direction : 3 versions (création remplacée, correction, changement).
     let h = ent
-        .historique_identite_pour_acteur(etab, cast.direction.user_id, Role::Direction.as_str(), e.id)
+        .historique_identite_pour_acteur(
+            etab,
+            cast.direction.user_id,
+            Role::Direction.as_str(),
+            e.id,
+        )
         .await
         .unwrap();
     assert_eq!(h.len(), 3);
-    assert!(h.iter().any(|v| v.nature.as_str() == "creation" && v.remplacee_par.is_some()));
-    assert!(h.iter().any(|v| v.nature.as_str() == "correction" && v.motif.is_some()));
-    assert!(h.iter().any(|v| v.nature.as_str() == "changement_etat_civil"));
+    assert!(h
+        .iter()
+        .any(|v| v.nature.as_str() == "creation" && v.remplacee_par.is_some()));
+    assert!(h
+        .iter()
+        .any(|v| v.nature.as_str() == "correction" && v.motif.is_some()));
+    assert!(h
+        .iter()
+        .any(|v| v.nature.as_str() == "changement_etat_civil"));
 }
 
 /// Refus de toute écriture directe de l'identité et immutabilité des versions.
@@ -364,7 +403,9 @@ async fn ecriture_directe_refusee() {
     ] {
         let r = sqlx::query(sql).bind(e.id).execute(ent.pool()).await;
         let refus = r.expect_err(sql);
-        let code = refus.as_database_error().and_then(|d| d.code().map(|c| c.to_string()));
+        let code = refus
+            .as_database_error()
+            .and_then(|d| d.code().map(|c| c.to_string()));
         assert_eq!(code.as_deref(), Some("42501"), "{sql} → {refus}");
     }
     // Les autres colonnes restent modifiables, et l'identité n'a pas bougé.
@@ -450,13 +491,25 @@ async fn aucun_etat_civil_dans_les_evenements() {
     assert_eq!(journal.len(), 2);
     let tout = format!("{evenements:?}{journal:?}");
     for interdit in [nom.as_str(), prenom_usage.as_str(), "2008", "Quimperl"] {
-        assert!(!tout.contains(interdit), "état civil en clair ({interdit}) : {tout}");
+        assert!(
+            !tout.contains(interdit),
+            "état civil en clair ({interdit}) : {tout}"
+        );
     }
-    assert!(tout.contains("prenom_usage") && tout.contains("nom_naissance"), "noms de champs attendus");
+    assert!(
+        tout.contains("prenom_usage") && tout.contains("nom_naissance"),
+        "noms de champs attendus"
+    );
     // Version sensible : jamais visible de la famille.
-    let sensible_visible = journal.iter().filter(|(p, _, vis)| *vis && p["nature"] == "usage").count();
+    let sensible_visible = journal
+        .iter()
+        .filter(|(p, _, vis)| *vis && p["nature"] == "usage")
+        .count();
     assert_eq!(sensible_visible, 0);
-    let correction_visible = journal.iter().filter(|(p, _, vis)| *vis && p["nature"] == "correction").count();
+    let correction_visible = journal
+        .iter()
+        .filter(|(p, _, vis)| *vis && p["nature"] == "correction")
+        .count();
     assert_eq!(correction_visible, 1);
 }
 
@@ -487,9 +540,12 @@ async fn droits_ecriture_et_historique() {
     )
     .await
     .unwrap();
-    ent.corriger_identite(role, correction(etab, e.id, admin, champs_nom(&unique("Visible"))))
-        .await
-        .unwrap();
+    ent.corriger_identite(
+        role,
+        correction(etab, e.id, admin, champs_nom(&unique("Visible"))),
+    )
+    .await
+    .unwrap();
 
     // Écriture refusée au CPE, au professeur, à la famille.
     for (u, r) in [
@@ -509,13 +565,23 @@ async fn droits_ecriture_et_historique() {
         .historique_identite_pour_acteur(etab, admin, role, e.id)
         .await
         .unwrap();
-    assert!(h.iter().all(|v| !v.sensible), "version sensible visible sans G6");
+    assert!(
+        h.iter().all(|v| !v.sensible),
+        "version sensible visible sans G6"
+    );
     assert!(h.iter().all(|v| v.nature.as_str() != "usage"));
     let h2 = ent
-        .historique_identite_pour_acteur(etab, cast.direction.user_id, Role::Direction.as_str(), e.id)
+        .historique_identite_pour_acteur(
+            etab,
+            cast.direction.user_id,
+            Role::Direction.as_str(),
+            e.id,
+        )
         .await
         .unwrap();
-    assert!(h2.iter().any(|v| v.sensible && v.nature.as_str() == "usage"));
+    assert!(h2
+        .iter()
+        .any(|v| v.sensible && v.nature.as_str() == "usage"));
     assert!(h2.len() > h.len());
     // La lecture est journalisée (acteur, objet), jamais le contenu.
     let (n,): (i64,) = sqlx::query_as(
@@ -529,7 +595,10 @@ async fn droits_ecriture_et_historique() {
 
     // Cloisonnement : établissement inconnu ou version d'un autre élève.
     let etranger = ent
-        .corriger_identite(role, correction(Uuid::new_v4(), e.id, admin, champs_nom(&unique("X"))))
+        .corriger_identite(
+            role,
+            correction(Uuid::new_v4(), e.id, admin, champs_nom(&unique("X"))),
+        )
         .await;
     assert!(etranger.is_err());
     let autre = ent
@@ -572,7 +641,10 @@ async fn ancienne_saisie_d_identite_passe_par_une_version() {
     let nouveau = unique("Renomme");
     ent.update_identite(cmd(&nouveau)).await.unwrap();
     let p = projection(&ent, e.id).await;
-    assert_eq!((p.nom.as_str(), p.prenom.as_str()), (nouveau.as_str(), "Zélie-Rose"));
+    assert_eq!(
+        (p.nom.as_str(), p.prenom.as_str()),
+        (nouveau.as_str(), "Zélie-Rose")
+    );
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1 AND nature = 'correction'",
     )
@@ -605,6 +677,9 @@ async fn ancienne_saisie_d_identite_passe_par_une_version() {
             ..cmd("")
         })
         .await;
-    assert!(matches!(refus, Err(EntDbError::ConflitDossier(_))), "{refus:?}");
+    assert!(
+        matches!(refus, Err(EntDbError::ConflitDossier(_))),
+        "{refus:?}"
+    );
     assert_eq!(projection(&ent, e.id).await.prenom, "Zel");
 }

@@ -196,18 +196,19 @@ fn nom_propre(s: &str, vide: &'static str) -> Result<String, ErreurIdentite> {
         return Err(ErreurIdentite::Invalide(vide));
     }
     if n.chars().count() > 120 {
-        return Err(ErreurIdentite::Invalide("nom ou prénom trop long (120 caractères au plus)"));
+        return Err(ErreurIdentite::Invalide(
+            "nom ou prénom trop long (120 caractères au plus)",
+        ));
     }
     if n.chars().any(|c| c.is_control() || c.is_numeric()) {
-        return Err(ErreurIdentite::Invalide("un nom ou un prénom ne contient ni chiffre ni caractère de contrôle"));
+        return Err(ErreurIdentite::Invalide(
+            "un nom ou un prénom ne contient ni chiffre ni caractère de contrôle",
+        ));
     }
     Ok(n)
 }
 
-fn facultatif(
-    v: Option<String>,
-    vide: &'static str,
-) -> Result<Option<String>, ErreurIdentite> {
+fn facultatif(v: Option<String>, vide: &'static str) -> Result<Option<String>, ErreurIdentite> {
     match v {
         None => Ok(None),
         Some(s) if nettoyer(&s).is_empty() => Ok(None),
@@ -263,7 +264,11 @@ fn appliquer(
 
     if let Some(n) = &modif.nom_naissance {
         let n = nom_propre(n, "le nom de naissance est obligatoire")?;
-        maj(ChampIdentite::NomNaissance, n != v.nom_naissance, &mut champs);
+        maj(
+            ChampIdentite::NomNaissance,
+            n != v.nom_naissance,
+            &mut champs,
+        );
         v.nom_naissance = n;
     }
     if let Some(ps) = &modif.prenoms {
@@ -278,11 +283,17 @@ fn appliquer(
         v.prenoms = ps;
     }
     if let Some(r) = modif.rang_prenom_usuel {
-        maj(ChampIdentite::RangPrenomUsuel, r != v.rang_prenom_usuel, &mut champs);
+        maj(
+            ChampIdentite::RangPrenomUsuel,
+            r != v.rang_prenom_usuel,
+            &mut champs,
+        );
         v.rang_prenom_usuel = r;
     }
     if v.rang_prenom_usuel < 1 || v.rang_prenom_usuel as usize > v.prenoms.len() {
-        return Err(ErreurIdentite::Invalide("le prénom usuel doit être l'un des prénoms"));
+        return Err(ErreurIdentite::Invalide(
+            "le prénom usuel doit être l'un des prénoms",
+        ));
     }
     if let Some(u) = &modif.nom_usage {
         let u = facultatif(u.clone(), "nom d'usage vide")?;
@@ -307,33 +318,57 @@ fn appliquer(
     if let Some(d) = modif.date_naissance {
         if let Some(d) = d {
             if d > aujourdhui {
-                return Err(ErreurIdentite::Invalide("la date de naissance est dans le futur"));
+                return Err(ErreurIdentite::Invalide(
+                    "la date de naissance est dans le futur",
+                ));
             }
             if d < NaiveDate::from_ymd_opt(1900, 1, 1).expect("date valide") {
-                return Err(ErreurIdentite::Invalide("date de naissance invraisemblable"));
+                return Err(ErreurIdentite::Invalide(
+                    "date de naissance invraisemblable",
+                ));
             }
         }
-        maj(ChampIdentite::DateNaissance, d != v.date_naissance, &mut champs);
+        maj(
+            ChampIdentite::DateNaissance,
+            d != v.date_naissance,
+            &mut champs,
+        );
         v.date_naissance = d;
     }
     if let Some(x) = &modif.naissance_commune {
         let x = texte_libre(x.clone())?;
-        maj(ChampIdentite::NaissanceCommune, x != v.naissance_commune, &mut champs);
+        maj(
+            ChampIdentite::NaissanceCommune,
+            x != v.naissance_commune,
+            &mut champs,
+        );
         v.naissance_commune = x;
     }
     if let Some(x) = &modif.naissance_commune_cog {
         let x = code_court(x.clone())?;
-        maj(ChampIdentite::NaissanceCommuneCog, x != v.naissance_commune_cog, &mut champs);
+        maj(
+            ChampIdentite::NaissanceCommuneCog,
+            x != v.naissance_commune_cog,
+            &mut champs,
+        );
         v.naissance_commune_cog = x;
     }
     if let Some(x) = &modif.naissance_pays_cog {
         let x = code_court(x.clone())?;
-        maj(ChampIdentite::NaissancePaysCog, x != v.naissance_pays_cog, &mut champs);
+        maj(
+            ChampIdentite::NaissancePaysCog,
+            x != v.naissance_pays_cog,
+            &mut champs,
+        );
         v.naissance_pays_cog = x;
     }
     if let Some(x) = &modif.naissance_lieu_etranger {
         let x = texte_libre(x.clone())?;
-        maj(ChampIdentite::NaissanceLieuEtranger, x != v.naissance_lieu_etranger, &mut champs);
+        maj(
+            ChampIdentite::NaissanceLieuEtranger,
+            x != v.naissance_lieu_etranger,
+            &mut champs,
+        );
         v.naissance_lieu_etranger = x;
     }
     champs.sort();
@@ -348,7 +383,10 @@ fn est_sensible(champs: &[ChampIdentite], nature: NatureVersion, heritee: bool) 
     let intime = champs.iter().any(|c| {
         matches!(
             c,
-            ChampIdentite::PrenomUsage | ChampIdentite::Sexe | ChampIdentite::Prenoms | ChampIdentite::RangPrenomUsuel
+            ChampIdentite::PrenomUsage
+                | ChampIdentite::Sexe
+                | ChampIdentite::Prenoms
+                | ChampIdentite::RangPrenomUsuel
         )
     });
     match nature {
@@ -372,7 +410,9 @@ fn motif_valide(m: &Option<String>) -> Result<Option<String>, ErreurIdentite> {
             if n.is_empty() {
                 Ok(None)
             } else if n.chars().count() > 500 || n.chars().any(|c| c.is_control() && c != '\n') {
-                Err(ErreurIdentite::Invalide("motif invalide (500 caractères au plus)"))
+                Err(ErreurIdentite::Invalide(
+                    "motif invalide (500 caractères au plus)",
+                ))
             } else {
                 Ok(Some(n.to_string()))
             }
@@ -401,7 +441,11 @@ pub fn planifier_version(
         NatureVersion::Correction | NatureVersion::ChangementEtatCivil | NatureVersion::Usage => {}
         _ => return Err(ErreurIdentite::Invalide("nature réservée au système")),
     }
-    if matches!(d.nature, NatureVersion::Correction | NatureVersion::ChangementEtatCivil) && motif.is_none() {
+    if matches!(
+        d.nature,
+        NatureVersion::Correction | NatureVersion::ChangementEtatCivil
+    ) && motif.is_none()
+    {
         return Err(ErreurIdentite::Invalide("le motif est obligatoire"));
     }
     if d.nature == NatureVersion::ChangementEtatCivil && d.piece_document_id.is_none() {
@@ -487,11 +531,16 @@ pub fn filtrer_historique(
     if voit_sensible {
         return versions;
     }
-    let masquees: std::collections::HashSet<Uuid> =
-        versions.iter().filter(|v| v.sensible).map(|v| v.id).collect();
+    let masquees: std::collections::HashSet<Uuid> = versions
+        .iter()
+        .filter(|v| v.sensible)
+        .map(|v| v.id)
+        .collect();
     versions.retain(|v| !v.sensible);
     for v in &mut versions {
-        if v.remplace_version_id.is_some_and(|id| masquees.contains(&id)) {
+        if v.remplace_version_id
+            .is_some_and(|id| masquees.contains(&id))
+        {
             v.remplace_version_id = None;
         }
         if v.remplacee_par.is_some_and(|id| masquees.contains(&id)) {
@@ -564,7 +613,13 @@ mod tests {
     #[test]
     fn correction_remplace_la_version_et_garde_sa_date() {
         let b = base();
-        let p = planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, nom("Dupont")), d(2026, 11, 6)).unwrap();
+        let p = planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, nom("Dupont")),
+            d(2026, 11, 6),
+        )
+        .unwrap();
         assert_eq!(p.version.effet_du, b.effet_du);
         assert_eq!(p.version.remplace_version_id, Some(b.id));
         assert_eq!(p.champs, vec![ChampIdentite::NomNaissance]);
@@ -637,7 +692,10 @@ mod tests {
         dm.effet_du = Some(b.effet_du);
         let p = planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).unwrap();
         assert_eq!(p.version.remplace_version_id, Some(b.id));
-        assert!(p.version.sensible, "hérite de la version remplacée (elle porte un prénom d'usage)");
+        assert!(
+            p.version.sensible,
+            "hérite de la version remplacée (elle porte un prénom d'usage)"
+        );
         // Un changement d'état civil le même jour reste un conflit.
         let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Martin"));
         dm.effet_du = Some(b.effet_du);
@@ -651,13 +709,20 @@ mod tests {
             nom_usage: Some(Some("Martin-Dupond".into())),
             ..Default::default()
         };
-        let p = planifier_version(&b, &[], demande(NatureVersion::Usage, m), d(2026, 11, 6)).unwrap();
+        let p =
+            planifier_version(&b, &[], demande(NatureVersion::Usage, m), d(2026, 11, 6)).unwrap();
         assert!(!p.version.sensible);
         let m = ModifIdentite {
             sexe: Some(Some("F".into())),
             ..Default::default()
         };
-        let p = planifier_version(&b, &[], demande(NatureVersion::ChangementEtatCivil, m), d(2026, 11, 6)).unwrap();
+        let p = planifier_version(
+            &b,
+            &[],
+            demande(NatureVersion::ChangementEtatCivil, m),
+            d(2026, 11, 6),
+        )
+        .unwrap();
         assert!(p.version.sensible);
     }
 
@@ -665,7 +730,13 @@ mod tests {
     fn correction_d_une_version_sensible_reste_sensible() {
         let mut b = base();
         b.sensible = true;
-        let p = planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, nom("Dupont")), d(2026, 11, 6)).unwrap();
+        let p = planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, nom("Dupont")),
+            d(2026, 11, 6),
+        )
+        .unwrap();
         assert!(p.version.sensible);
     }
 
@@ -673,10 +744,22 @@ mod tests {
     fn refuse_modification_vide_et_valeurs_invalides() {
         let b = base();
         // Même valeur : aucune modification.
-        assert!(planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, nom("Dupond")), d(2026, 11, 6)).is_err());
+        assert!(planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, nom("Dupond")),
+            d(2026, 11, 6)
+        )
+        .is_err());
         for mauvais in ["", "  ", "Dup0nd", "Du\u{0}pond"] {
             assert!(
-                planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, nom(mauvais)), d(2026, 11, 6)).is_err(),
+                planifier_version(
+                    &b,
+                    &[b.effet_du],
+                    demande(NatureVersion::Correction, nom(mauvais)),
+                    d(2026, 11, 6)
+                )
+                .is_err(),
                 "{mauvais:?}"
             );
         }
@@ -684,29 +767,57 @@ mod tests {
             date_naissance: Some(Some(d(2030, 1, 1))),
             ..Default::default()
         };
-        assert!(planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, futur), d(2026, 11, 6)).is_err());
+        assert!(planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, futur),
+            d(2026, 11, 6)
+        )
+        .is_err());
         let sexe = ModifIdentite {
             sexe: Some(Some("X".into())),
             ..Default::default()
         };
-        assert!(planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, sexe), d(2026, 11, 6)).is_err());
+        assert!(planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, sexe),
+            d(2026, 11, 6)
+        )
+        .is_err());
         let rang = ModifIdentite {
             rang_prenom_usuel: Some(3),
             ..Default::default()
         };
-        assert!(planifier_version(&b, &[b.effet_du], demande(NatureVersion::Correction, rang), d(2026, 11, 6)).is_err());
+        assert!(planifier_version(
+            &b,
+            &[b.effet_du],
+            demande(NatureVersion::Correction, rang),
+            d(2026, 11, 6)
+        )
+        .is_err());
     }
 
     #[test]
     fn natures_systeme_refusees_et_version_deja_remplacee() {
         let b = base();
-        for n in [NatureVersion::Creation, NatureVersion::Reprise, NatureVersion::Import, NatureVersion::Fusion] {
+        for n in [
+            NatureVersion::Creation,
+            NatureVersion::Reprise,
+            NatureVersion::Import,
+            NatureVersion::Fusion,
+        ] {
             assert!(planifier_version(&b, &[], demande(n, nom("Autre")), d(2026, 11, 6)).is_err());
         }
         let mut r = base();
         r.remplacee_par = Some(Uuid::new_v4());
         assert!(matches!(
-            planifier_version(&r, &[], demande(NatureVersion::Correction, nom("Dupont")), d(2026, 11, 6)),
+            planifier_version(
+                &r,
+                &[],
+                demande(NatureVersion::Correction, nom("Dupont")),
+                d(2026, 11, 6)
+            ),
             Err(ErreurIdentite::Conflit(_))
         ));
     }
@@ -732,7 +843,10 @@ mod tests {
     #[test]
     fn noms_de_champs_stables() {
         assert_eq!(ChampIdentite::PrenomUsage.nom(), "prenom_usage");
-        assert_eq!(NatureVersion::parse("changement_etat_civil"), Some(NatureVersion::ChangementEtatCivil));
+        assert_eq!(
+            NatureVersion::parse("changement_etat_civil"),
+            Some(NatureVersion::ChangementEtatCivil)
+        );
         assert_eq!(NatureVersion::parse("x"), None);
     }
 }

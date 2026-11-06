@@ -23,27 +23,59 @@ where
 pub struct ChampsIdentiteBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub nom_naissance: Option<String>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub nom_usage: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prenoms: Option<Vec<String>>,
     /// Rang (à partir de 1) du prénom usuel parmi les prénoms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rang_prenom_usuel: Option<i16>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub prenom_usage: Option<Option<String>>,
     /// `"M"` ou `"F"`.
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub sexe: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub date_naissance: Option<Option<NaiveDate>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub naissance_commune: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub naissance_commune_cog: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub naissance_pays_cog: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub naissance_lieu_etranger: Option<Option<String>>,
 }
 
@@ -80,9 +112,17 @@ pub struct ChangerEtatCivilBody {
 /// `POST /eleves/{id}/identite/usages` (ELV-05) : nom ou prénom d'usage.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DefinirUsageBody {
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub nom_usage: Option<Option<String>>,
-    #[serde(default, deserialize_with = "double_option", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub prenom_usage: Option<Option<String>>,
     #[serde(default)]
     pub effet_du: Option<NaiveDate>,

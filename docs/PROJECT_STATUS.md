@@ -3,6 +3,10 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 « l'élève » — lot E2, identité versionnée (2026-11-06, branche `ent-socle-eleve-e2`)
+Code (migration `280_eleve_identite_versionnee.sql`, `domain-eleve::identite`, `ent-db::identite`, 4 routes `/eleves/{id}/identite/…`, DTO `ent-types::identite`). Tout se modifie, rien ne s'efface : versions immuables avec date d'effet, **nature** (correction d'une erreur ≠ changement réel ≠ usage), source, auteur, motif et pièce justificative (document privé de l'élève, lu par URL pré-signée) ; projection « identité courante » maintenue et **protégée par la base** (écriture directe refusée) ; historique consultable selon les droits (G5, versions sensibles G6) ; événements et journal sans état civil ; reprise idempotente de l'existant. État détaillé, limites (valeurs sensibles non encore scellées, paramétrage E5, COG non vérifié) et écarts : `docs/socles/02_ELEVE.md` §16.1. **Implémenté, testé en local** (résultats chiffrés en fin de session ci-dessous), non validé par Florian, non prêt pilote. Non fait : E3 à E11, planification de `resynchroniser_identites()`, scellement E7.
+RESULTATS_E2
+
 ## Socle 2 « l'élève » — lots E0 et E1 (2026-11-06, branche `ent-socle-eleve-e0-e1`)
 Code, **testé en local** (voir l'état détaillé dans `docs/socles/02_ELEVE.md` §16.1) : E0 (transaction unique création/identité avec journal et événement, événements sans état civil, homonymes minimisés, migration 240 de clés composées sur 16 tables) et E1 (16 actions `eleves.*`, groupes de champs G0–G6 en un point, raisons de masquage, niveau d'identité dérivé, portée « désignés » étendue aux sites et niveaux, gabarit « Accueil »). Fusion de `ent-integration-lot5` faite. Non fait : E2 à E11, branchement de `eleves.photo.gerer`, écrans. Aucune durée de conservation codée (Q-E15). Rien n'est « prêt pilote ».
 
