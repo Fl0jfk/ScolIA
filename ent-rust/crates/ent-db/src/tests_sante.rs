@@ -169,6 +169,16 @@ async fn pai_complet_signatures_par_version_et_revision() {
     ent.signer_pai_for_actor(etab, d, rd, lea, "chef_etablissement", Some("A. Dumbledore"))
         .await
         .unwrap();
+    // La direction ne signe pas « infirmier » à la place de l'infirmière.
+    assert!(matches!(
+        ent.signer_pai_for_actor(etab, d, rd, lea, "infirmier", Some("Faux nom")).await,
+        Err(EntDbError::Forbidden)
+    ));
+    // Signature d'une version périmée : conflit, rien d'enregistré.
+    assert!(matches!(
+        ent.signer_pai_version_for_actor(etab, parent.0, parent.1, lea, "famille", None, Some(v0 + 99)).await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
     // Un parent sans lien avec Léa ne signe pas.
     assert!(matches!(
         ent.signer_pai_for_actor(etab, cast.parent_tom.user_id, "parent", lea, "famille", None).await,
@@ -181,7 +191,10 @@ async fn pai_complet_signatures_par_version_et_revision() {
     ));
     let avant = ent.pai_complet_for_actor(etab, i, ri, lea).await.unwrap().unwrap();
     assert!(!avant.complet && avant.parties_manquantes == vec!["famille".to_string()]);
-    let signe = ent.signer_pai_for_actor(etab, parent.0, parent.1, lea, "famille", None).await.unwrap();
+    let signe = ent
+        .signer_pai_version_for_actor(etab, parent.0, parent.1, lea, "famille", None, Some(v0))
+        .await
+        .unwrap();
     assert!(signe.complet && signe.signatures.len() == 4);
     // Signature en double : refusée.
     assert!(matches!(
@@ -517,6 +530,8 @@ async fn contraintes_publiees_par_audience_et_droits() {
         ent.retirer_contrainte_for_actor(etab, i, ri, arachide).await,
         Err(EntDbError::Domain(DomainError::NotFound))
     ));
+    // Une publication manuelle du même code ne détache pas la contrainte du PAI.
+    ent.publier_contrainte_for_actor(i, ri, pub_("trousse_urgence", vec![Audience::Enseignants], lea)).await.unwrap();
     ent.enregistrer_pai_for_actor(ri, pai_cmd(&cast, lea, false), None).await.unwrap();
     let apres = ent.contraintes_eleve_for_actor(etab, i, ri, lea, None).await.unwrap();
     assert!(apres.iter().all(|c| c.code != "trousse_urgence" && c.code != "repas_sans_arachide"));
@@ -724,6 +739,20 @@ async fn accompagnement_amenagements_visibles_du_professeur_sans_diagnostic() {
         Err(EntDbError::Forbidden)
     ));
 
+    // Un dispositif d'un autre élève ne se lie pas (AESH, réunion).
+    let autre_dispo = ent.ouvrir_dispositif_for_actor(d, rd, ouvrir(draco, "pps")).await.unwrap();
+    assert!(ent
+        .affecter_aesh_for_actor(d, rd, crate::accompagnement::AffecterAesh {
+            etablissement_id: etab,
+            eleve_id: lea,
+            dispositif_id: Some(autre_dispo.dispositif.id),
+            aesh_nom: "X".into(),
+            heures_hebdo: None,
+            date_debut: today_utc(),
+            date_fin: None,
+        })
+        .await
+        .is_err());
     // AESH et équipe éducative ; compte rendu chiffré et réservé à la gestion.
     let aesh = ent
         .affecter_aesh_for_actor(
@@ -826,7 +855,21 @@ async fn fiche_d_urgence_niveaux_droits_et_journal() {
     .await
     .unwrap();
 
+    ent.publier_contrainte_for_actor(
+        i,
+        ri,
+        PublierContrainte {
+            etablissement_id: etab,
+            eleve_id: lea,
+            code: "repas_sans_arachide".into(),
+            audiences: vec![Audience::Restauration],
+            date_fin: None,
+        },
+    )
+    .await
+    .unwrap();
     let complete = ent.fiche_urgence_for_actor(etab, i, ri, lea).await.unwrap();
+    assert!(complete.contraintes.iter().any(|c| c.code == "repas_sans_arachide"));
     assert_eq!(complete.niveau, "complete");
     assert_eq!(complete.protocole_urgence.as_deref(), Some(SENT_PROTOCOLE));
     assert_eq!(complete.medecin_nom.as_deref(), Some("Dr Rogue"));
@@ -839,6 +882,8 @@ async fn fiche_d_urgence_niveaux_droits_et_journal() {
     assert_eq!(min.niveau, "minimale");
     assert!(min.protocole_urgence.is_none() && min.medecin_nom.is_none() && min.urgence_tel.is_none());
     assert!(min.contraintes.iter().any(|c| c.code == "ne_pas_courir"));
+    // Niveau minimal : jamais les contraintes réservées à la restauration (allergie alimentaire).
+    assert!(min.contraintes.iter().all(|c| c.code != "repas_sans_arachide"));
     assert!(min.trousse_urgence);
     let rendu = serde_json::to_string(&min).unwrap();
     for s in TOUS_SENTINELLES {

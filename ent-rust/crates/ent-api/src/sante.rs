@@ -348,6 +348,9 @@ async fn enregistrer_pai(
 struct SignatureBody {
     partie: String,
     signataire_nom: Option<String>,
+    /// Version du PAI que la personne a lue : refus (409) si elle a changé depuis.
+    #[serde(default)]
+    version: Option<i32>,
 }
 
 async fn signer_pai(
@@ -358,13 +361,14 @@ async fn signer_pai(
 ) -> Res<Json<PaiComplet>> {
     state
         .ent
-        .signer_pai_for_actor(
+        .signer_pai_version_for_actor(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             &b.partie,
             b.signataire_nom.as_deref(),
+            b.version,
         )
         .await
         .map(Json)

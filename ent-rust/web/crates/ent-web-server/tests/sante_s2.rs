@@ -251,6 +251,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
             &SignerPaiBody {
                 partie: "famille".into(),
                 signataire_nom: None,
+                version: None,
             },
         )
         .await
@@ -265,7 +266,8 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
             harry,
             &SignerPaiBody {
                 partie: "famille".into(),
-                signataire_nom: None
+                signataire_nom: None,
+                version: None
             }
         )
         .await,
@@ -276,7 +278,8 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
             harry,
             &SignerPaiBody {
                 partie: "medecin".into(),
-                signataire_nom: Some("Dr X".into())
+                signataire_nom: Some("Dr X".into()),
+                version: None
             }
         )
         .await,
@@ -289,7 +292,8 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
                 harry,
                 &SignerPaiBody {
                     partie: "famille".into(),
-                    signataire_nom: None
+                    signataire_nom: None,
+                    version: None
                 }
             )
             .await,
@@ -301,6 +305,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
             &SignerPaiBody {
                 partie: "medecin".into(),
                 signataire_nom: Some("Dr Chourave".into()),
+                version: None,
             },
         )
         .await

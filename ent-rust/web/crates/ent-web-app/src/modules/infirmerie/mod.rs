@@ -610,11 +610,13 @@ fn SignaturesPai(pai: PaiCompletDto, eleve_id: Uuid, ecriture: Ecriture) -> impl
             .map(|p| (p.to_string(), libelle_partie(p).to_string()))
             .collect();
     let peut_signer = !options.is_empty() && pai.pai.actif;
+    let version = pai.version;
     let envoyer = Callback::new(move |_| {
         let corps = SignerPaiBody {
             partie: partie.get_untracked(),
             signataire_nom: Some(nom_signataire.get_untracked().trim().to_string())
                 .filter(|n| !n.is_empty()),
+            version: Some(version),
         };
         ecriture.lancer(async move {
             session::client().signer_pai(eleve_id, &corps).await?;

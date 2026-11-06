@@ -138,6 +138,8 @@ fn FicheEnfant(eleve_id: Uuid) -> impl IntoView {
 #[component]
 fn ContenuPai(p: PaiCompletDto, eleve_id: Uuid, ecriture: Ecriture) -> impl IntoView {
     let signer = peut_signer(&p);
+    // La signature porte la version lue : refusée si le PAI a changé entre-temps.
+    let version = p.version;
     let famille_a_signe = p.signatures.iter().any(|s| s.partie == "famille");
     view! {
         <dl class="ra-definitions">
@@ -179,7 +181,7 @@ fn ContenuPai(p: PaiCompletDto, eleve_id: Uuid, ecriture: Ecriture) -> impl Into
                 on_click=Callback::new(move |_| {
                     ecriture.lancer(async move {
                         session::client()
-                            .signer_pai(eleve_id, &ent_types::sante::SignerPaiBody { partie: "famille".into(), signataire_nom: None })
+                            .signer_pai(eleve_id, &ent_types::sante::SignerPaiBody { partie: "famille".into(), signataire_nom: None, version: Some(version) })
                             .await?;
                         Ok("Merci : votre signature est enregistrée.".to_string())
                     });

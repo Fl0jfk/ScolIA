@@ -140,6 +140,9 @@ pub struct EnregistrerPaiBody {
 pub struct SignerPaiBody {
     pub partie: String,
     pub signataire_nom: Option<String>,
+    /// Version du PAI lue par le signataire (refus si elle a changé depuis).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

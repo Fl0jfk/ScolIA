@@ -575,6 +575,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        verifier_dispositif(&mut tx, etab, cmd.eleve_id, cmd.dispositif_id).await?;
         let a: AeshAffectation = sqlx::query_as(
             "INSERT INTO ent_aesh_affectation
                 (id, etablissement_id, eleve_id, dispositif_id, aesh_nom, heures_hebdo, date_debut,
@@ -621,6 +622,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        verifier_dispositif(&mut tx, etab, cmd.eleve_id, cmd.dispositif_id).await?;
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_equipe_reunion
@@ -670,7 +672,8 @@ impl PgEnt {
         let cr = court(compte_rendu, 8000)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let l: Option<(Uuid,)> = sqlx::query_as(
-            "SELECT eleve_id FROM ent_equipe_reunion WHERE etablissement_id = $1 AND id = $2",
+            "SELECT eleve_id FROM ent_equipe_reunion
+              WHERE etablissement_id = $1 AND id = $2 AND statut = 'planifiee'",
         )
         .bind(etab)
         .bind(reunion_id)
@@ -973,7 +976,7 @@ async fn lire_dispositif(
 ) -> Result<Dispositif, EntDbError> {
     let d: Option<Dispositif> = sqlx::query_as(
         "SELECT id, eleve_id, kind, libelle, date_debut, date_fin, date_revision, statut
-           FROM ent_eleve_dispositif WHERE etablissement_id = $1 AND id = $2",
+           FROM ent_eleve_dispositif WHERE etablissement_id = $1 AND id = $2 AND kind <> 'pai'",
     )
     .bind(etab)
     .bind(id)
@@ -981,6 +984,29 @@ async fn lire_dispositif(
     .await
     .map_err(db)?;
     d.ok_or_else(introuvable)
+}
+
+/// Le dispositif lié (facultatif) existe, est de CET élève et de cet établissement.
+async fn verifier_dispositif(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    dispositif_id: Option<Uuid>,
+) -> Result<(), EntDbError> {
+    let Some(did) = dispositif_id else {
+        return Ok(());
+    };
+    let ok: Option<(i32,)> = sqlx::query_as(
+        "SELECT 1 FROM ent_eleve_dispositif
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3 AND kind <> 'pai'",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(did)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    ok.map(|_| ()).ok_or_else(invalide)
 }
 
 #[cfg(test)]

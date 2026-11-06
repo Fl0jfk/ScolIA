@@ -600,6 +600,24 @@ impl PgEnt {
         partie: &str,
         signataire_nom: Option<&str>,
     ) -> Result<PaiComplet, EntDbError> {
+        self.signer_pai_version_for_actor(etab, acteur, role, eleve_id, partie, signataire_nom, None)
+            .await
+    }
+
+    /// Signature d'une version précise : si `version_attendue` est fournie et ne correspond
+    /// plus à la version courante (PAI modifié entre-temps), conflit — on ne signe jamais un
+    /// contenu qu'on n'a pas vu.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn signer_pai_version_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        partie: &str,
+        signataire_nom: Option<&str>,
+        version_attendue: Option<i32>,
+    ) -> Result<PaiComplet, EntDbError> {
         if !PARTIES_PAI.contains(&partie) {
             return Err(invalide());
         }
@@ -627,6 +645,10 @@ impl PgEnt {
             if partie == "chef_etablissement" && !matches!(parsed, Role::Direction | Role::Admin) {
                 return Err(EntDbError::Forbidden);
             }
+            // L'infirmier signe pour lui-même : pas de signature « infirmier » par un autre profil.
+            if partie == "infirmier" && parsed != Role::Infirmerie {
+                return Err(EntDbError::Forbidden);
+            }
             nom = texte(signataire_nom.unwrap_or(""), 120)?;
             if nom.is_empty() {
                 return Err(invalide());
@@ -641,13 +663,19 @@ impl PgEnt {
         if !pai.actif {
             return Err(DomainError::PaiInactif.into());
         }
-        let (version,): (i32,) =
-            sqlx::query_as("SELECT version FROM ent_pai WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(pai.id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
+        let (version,): (i32,) = sqlx::query_as(
+            "SELECT version FROM ent_pai WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(pai.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if version_attendue.is_some_and(|v| v != version) {
+            return Err(EntDbError::ConflitDossier(
+                "le PAI a été modifié : relisez-le avant de signer",
+            ));
+        }
         let signature_id = Uuid::new_v4();
         let ins = sqlx::query(
             "INSERT INTO ent_pai_signature
@@ -1404,10 +1432,13 @@ impl PgEnt {
                FROM ent_contrainte_publiee
               WHERE etablissement_id = $1 AND eleve_id = $2 AND actif
                 AND date_debut <= CURRENT_DATE AND (date_fin IS NULL OR date_fin >= CURRENT_DATE)
+                AND ($3 OR audiences && ARRAY['enseignants', 'sorties']::text[])
               ORDER BY code",
         )
         .bind(etab)
         .bind(eleve_id)
+        // Niveau minimal : jamais les contraintes réservées à la restauration (allergie alimentaire).
+        .bind(complet)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
@@ -1605,8 +1636,13 @@ async fn publier_contrainte_tx(
              date_fin, publie_par_user_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          ON CONFLICT (etablissement_id, eleve_id, code) WHERE actif DO UPDATE SET
-            audiences = EXCLUDED.audiences, source = EXCLUDED.source,
-            source_id = EXCLUDED.source_id, date_debut = EXCLUDED.date_debut,
+            audiences = EXCLUDED.audiences,
+            -- Une publication manuelle ne détache pas une contrainte dérivée du PAI.
+            source = CASE WHEN ent_contrainte_publiee.source = 'pai' AND EXCLUDED.source = 'manuel'
+                          THEN ent_contrainte_publiee.source ELSE EXCLUDED.source END,
+            source_id = CASE WHEN ent_contrainte_publiee.source = 'pai' AND EXCLUDED.source = 'manuel'
+                             THEN ent_contrainte_publiee.source_id ELSE EXCLUDED.source_id END,
+            date_debut = EXCLUDED.date_debut,
             date_fin = EXCLUDED.date_fin, publie_par_user_id = EXCLUDED.publie_par_user_id
          RETURNING id",
     )
@@ -1682,10 +1718,10 @@ async fn informer_famille_tx(
     jour: NaiveDate,
     acteur: Uuid,
 ) -> Result<(), EntDbError> {
-    sqlx::query(
+    let maj = sqlx::query(
         "UPDATE ent_infirmerie_passage SET famille_information = 'informee',
             famille_informee_at = now(), famille_informee_par = $3, updated_at = now()
-          WHERE etablissement_id = $1 AND id = $2",
+          WHERE etablissement_id = $1 AND id = $2 AND famille_information <> 'informee'",
     )
     .bind(etab)
     .bind(passage_id)
@@ -1693,6 +1729,10 @@ async fn informer_famille_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
+    // Deux appels concurrents : un seul événement, donc une seule notification.
+    if maj.rows_affected() == 0 {
+        return Ok(());
+    }
     evenement(
         conn,
         etab,
