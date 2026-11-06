@@ -130,6 +130,26 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
     let compta = par_role(&base, &l, "compta").await;
     let lily = parent_de(&base, &l, "Harry").await;
 
+    // 0. Module fermé par défaut (pas de donnée de santé sans HDS) : refus côté serveur ;
+    //    seul un administrateur l'active.
+    assert!(!infirmiere
+        .module_sante_actif()
+        .await
+        .expect("état du module"));
+    assert!(
+        infirmiere.catalogue_sante().await.is_err(),
+        "module fermé : refus"
+    );
+    assert!(
+        infirmiere.definir_module_sante(true).await.is_err(),
+        "activation réservée"
+    );
+    assert!(direction
+        .definir_module_sante(true)
+        .await
+        .expect("activation"));
+    assert!(infirmiere.catalogue_sante().await.is_ok(), "module ouvert");
+
     // 1. L'infirmière enregistre le PAI (formulaire validé par le modèle d'écran).
     let corps_pai = composer_pai(&SaisiePai {
         motif: MOTIF_SECRET.into(),

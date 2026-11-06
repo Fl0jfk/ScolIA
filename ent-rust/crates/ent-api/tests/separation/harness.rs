@@ -458,6 +458,20 @@ impl Monde {
             user_ids.insert(*a, uuid(&l.json["user_id"]));
         }
 
+        // Le module santé est fermé par défaut (règle produit : pas de donnée de santé sans
+        // hébergement HDS). La matrice, qui éprouve les routes de santé, l'active explicitement
+        // dans chaque établissement ; le refus par défaut a ses propres tests
+        // (`tests_sante_module`, `sante_s2`).
+        let act = self
+            .appel(
+                "PUT",
+                "/sante/module",
+                jetons.get(&Acteur::Direction).map(String::as_str),
+                Some(&json!({"actif": true})),
+            )
+            .await;
+        assert_eq!(act.statut, StatusCode::OK, "activation du module santé");
+
         let mut o = Objets {
             etab,
             users,

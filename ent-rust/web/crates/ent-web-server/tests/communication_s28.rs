@@ -165,7 +165,10 @@ async fn campagne_apercu_puis_confirmation_et_droits() {
         classe_id: classe.id.to_string(),
     })
     .expect("saisie valide");
-    let c = direction.creer_campagne_information(&corps).await.expect("création");
+    let c = direction
+        .creer_campagne_information(&corps)
+        .await
+        .expect("création");
     assert_eq!(c.statut, "brouillon");
 
     // Aperçu : destinataires nommés, sans adresse ni numéro ; rien n'est parti.

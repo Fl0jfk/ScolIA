@@ -66,7 +66,10 @@ impl ApiClient {
     }
 
     /// `POST /campagnes` : brouillon.
-    pub async fn creer_campagne_information(&self, b: &NouvelleCampagneBody) -> Result<CampagneDto, ApiError> {
+    pub async fn creer_campagne_information(
+        &self,
+        b: &NouvelleCampagneBody,
+    ) -> Result<CampagneDto, ApiError> {
         self.appel(Methode::Post, "/campagnes", Some(corps(b)?))
             .await
     }

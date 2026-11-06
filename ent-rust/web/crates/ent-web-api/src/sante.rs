@@ -22,6 +22,25 @@ fn corps<T: serde::Serialize>(valeur: &T) -> Result<serde_json::Value, ApiError>
 }
 
 impl ApiClient {
+    /// `GET /sante/module` : le module santé est-il activé pour l'établissement ? (fermé par
+    /// défaut : pas de donnée de santé sans hébergement HDS).
+    pub async fn module_sante_actif(&self) -> Result<bool, ApiError> {
+        let v: serde_json::Value = self.appel(Methode::Get, "/sante/module", None).await?;
+        Ok(v["actif"].as_bool().unwrap_or(false))
+    }
+
+    /// `PUT /sante/module` : active ou désactive le module (administrateurs seulement).
+    pub async fn definir_module_sante(&self, actif: bool) -> Result<bool, ApiError> {
+        let v: serde_json::Value = self
+            .appel(
+                Methode::Put,
+                "/sante/module",
+                Some(json!({ "actif": actif })),
+            )
+            .await?;
+        Ok(v["actif"].as_bool().unwrap_or(false))
+    }
+
     /// `GET /sante/catalogue` : contraintes et aménagements normalisés, issues, parties du PAI.
     pub async fn catalogue_sante(&self) -> Result<CatalogueSanteDto, ApiError> {
         self.appel(Methode::Get, "/sante/catalogue", None).await

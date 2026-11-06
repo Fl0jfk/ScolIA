@@ -13,6 +13,7 @@ mod vie_scolaire;
 pub mod evaluations;
 mod evaluations_bulletin;
 mod evaluations_conseil;
+pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations;
 pub mod campagnes;

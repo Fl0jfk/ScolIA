@@ -157,6 +157,12 @@ pub fn app(state: AppState) -> Router {
             state.clone(),
             tenant::resoudre_tenant,
         ))
+        // Module santé désactivé par défaut : refus côté serveur des routes de santé tant que
+        // l'établissement ne l'a pas activé (règle produit : pas de donnée de santé sans HDS).
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            sante::exiger_module,
+        ))
         // R2 (D-017) : droits effectifs de la personne, une fois par requête.
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -276,6 +282,8 @@ mod tests_dossier;
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sante_module;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]

@@ -8,8 +8,10 @@
 //! Minimisation : les listes destinées aux professeurs, à la restauration et aux
 //! sorties ne portent que des codes du catalogue fermé et leur libellé neutre.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRequestParts, Path, Query, Request, State};
 use axum::http::StatusCode;
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::{NaiveDate, NaiveTime};
@@ -33,8 +35,112 @@ use crate::AppState;
 
 type Res<T> = Result<T, (StatusCode, String)>;
 
+// ---------------------------------------------------------------------------
+// Module santé désactivé par défaut (règle produit : pas de donnée de santé sans HDS)
+// ---------------------------------------------------------------------------
+
+/// Message renvoyé tant que l'établissement n'a pas activé le module.
+pub const MODULE_SANTE_DESACTIVE: &str =
+    "Le module santé est désactivé pour cet établissement (hébergement certifié HDS requis).";
+
+/// Segments `/eleves/{id}/<segment>` qui portent des données de santé ou d'accompagnement
+/// (routes de ce module et anciennes routes PAI / fiche santé).
+const SEGMENTS_ELEVE_SANTE: &[&str] = &[
+    "fiche-sante",
+    "fiche-sante.pdf",
+    "pai",
+    "pai-complet",
+    "fiche-urgence",
+    "accompagnement",
+    "dispositifs",
+    "aesh",
+    "reunions",
+    "amenagements",
+    "contraintes",
+];
+
+/// Ce chemin donne-t-il accès à une donnée de santé ou d'accompagnement ? Seul
+/// `/sante/module` (lecture / réglage de l'activation) en est exclu.
+pub fn chemin_de_sante(chemin: &str) -> bool {
+    let chemin = chemin.trim_end_matches('/');
+    if chemin == "/sante/module" {
+        return false;
+    }
+    if chemin == "/sante"
+        || chemin.starts_with("/sante/")
+        || chemin == "/accompagnement"
+        || chemin.starts_with("/accompagnement/")
+        || chemin == "/infirmerie"
+        || chemin.starts_with("/infirmerie/")
+        || chemin.starts_with("/pai/")
+    {
+        return true;
+    }
+    let mut segments = chemin.trim_start_matches('/').split('/');
+    matches!(
+        (segments.next(), segments.next(), segments.next()),
+        (Some("eleves"), Some(_), Some(s)) if SEGMENTS_ELEVE_SANTE.contains(&s)
+    )
+}
+
+/// Couche d'`app()` : refuse (403) tout accès aux données de santé tant que l'établissement de
+/// la session n'a pas activé le module. Fermée en cas d'erreur de lecture du paramètre. Sans
+/// session valide, la requête continue : le handler répond lui-même 401 (aucune donnée).
+pub async fn exiger_module(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    if !chemin_de_sante(req.uri().path()) {
+        return next.run(req).await;
+    }
+    let (mut parts, body) = req.into_parts();
+    let etab = match EntSession::from_request_parts(&mut parts, &state).await {
+        Ok(s) => s.etablissement_id,
+        Err(_) => return next.run(Request::from_parts(parts, body)).await,
+    };
+    match state.ent.module_sante_actif(etab).await {
+        Ok(true) => next.run(Request::from_parts(parts, body)).await,
+        Ok(false) => (StatusCode::FORBIDDEN, MODULE_SANTE_DESACTIVE).into_response(),
+        Err(_) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Module santé indisponible (état non lisible).",
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct EtatModule {
+    actif: bool,
+}
+
+async fn module_lire(State(state): State<AppState>, session: EntSession) -> Res<Json<EtatModule>> {
+    let actif = state
+        .ent
+        .module_sante_actif(session.etablissement_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(EtatModule { actif }))
+}
+
+async fn module_definir(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<EtatModule>,
+) -> Res<Json<EtatModule>> {
+    let actif = state
+        .ent
+        .definir_module_sante(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            b.actif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(EtatModule { actif }))
+}
+
 pub fn routes() -> Router<AppState> {
     Router::new()
+        .route("/sante/module", get(module_lire).put(module_definir))
         .route("/sante/catalogue", get(catalogue))
         // Infirmerie
         .route("/sante/passages", get(passages).post(creer_passage))
