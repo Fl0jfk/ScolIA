@@ -380,10 +380,13 @@ impl PgAuthRepo {
             return Err(AuthError::InvalidCredentials);
         }
 
-        // Clés de garde. La clé du compteur global est l'e-mail normalisé (clé
-        // historique) ; les deux autres portent un préfixe (`ip:`, `compte-ip:`).
+        // Clés de garde, toutes préfixées (`email:`, `ip:`, `compte-ip:`). Revue finale
+        // socle 1 : la clé globale était l'e-mail brut ; un « e-mail » forgé
+        // `compte-ip:victime@x|<ip>` (accepté par `normalize_email`) incrémentait alors
+        // la clé dure (compte, IP) d'une victime depuis n'importe quelle IP.
         let ip_key = client_ip.map(|ip| format!("ip:{ip}"));
         let hard_key = format!("compte-ip:{email}|{}", client_ip.unwrap_or("-"));
+        let global_key = format!("email:{email}");
 
         if self
             .login_attempt(&hard_key, login_max_failed())
@@ -398,7 +401,7 @@ impl PgAuthRepo {
             }
         }
         // Compteur global du compte (aucun seuil de refus) → ralentissement.
-        let global = self.login_attempt(&email, i32::MAX).await?;
+        let global = self.login_attempt(&global_key, i32::MAX).await?;
         let delai = slowdown_ms(global.compte);
         if delai > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(delai)).await;
@@ -457,7 +460,7 @@ impl PgAuthRepo {
         if let Some(k) = &ip_key {
             self.login_attempt_refund(k).await?;
         }
-        self.login_attempt_refund(&email).await?;
+        self.login_attempt_refund(&global_key).await?;
 
         Ok(LoginIdentity {
             user_id,
@@ -1086,18 +1089,10 @@ impl PgAuthRepo {
     ) -> Result<(), AuthError> {
         assert_password_policy(new_password)?;
 
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT password_hash FROM ent_user WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|_| AuthError::InvalidCredentials)?;
-
-        let Some((password_hash,)) = row else {
-            return Err(AuthError::InvalidCredentials);
-        };
-
-        if !verify_password(current_password, &password_hash)? {
+        // Revue finale socle 1 : même compteur de ré-authentification que les autres
+        // routes sensibles (`reauth:<user_id>`, 5 échecs / 15 min) ; avant, une session
+        // volée pouvait deviner le mot de passe actuel sans limite.
+        if !self.verify_current_password(user_id, current_password).await? {
             return Err(AuthError::InvalidCredentials);
         }
 

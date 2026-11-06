@@ -747,8 +747,13 @@ pub fn router() -> Router<AppState> {
     r
 }
 
-async fn ui_page() -> axum::response::Html<&'static str> {
-    ui::app_html()
+async fn ui_page() -> impl axum::response::IntoResponse {
+    // Revue finale socle 1 : CSP à empreinte du script unique de l'ancienne UI.
+    let (page, csp) = ui::page_et_csp();
+    (
+        [(header::CONTENT_SECURITY_POLICY, csp)],
+        axum::response::Html(page),
+    )
 }
 
 #[derive(Debug, Serialize)]
@@ -4120,7 +4125,7 @@ async fn list_dispenses_vs_jour(
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_dispenses_vs_jour_for_actor(session.etablissement_id, &session.role, jour)
+        .list_dispenses_vs_jour_for_actor(session.etablissement_id, session.user_id, &session.role, jour)
         .await
         .map_err(map_db)?;
     Ok(Json(

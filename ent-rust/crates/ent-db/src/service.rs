@@ -1205,10 +1205,10 @@ impl PgEnt {
         role: &str,
         limit: i64,
     ) -> Result<Vec<MailOutboxRow>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
-            return Err(EntDbError::Forbidden);
-        }
+        // Revue finale socle 1 : l'historique des envois (adresses des familles, sujets
+        // nominatifs) est réservé à `audit.lire` ; avant, tout personnel (professeur,
+        // comptable, infirmerie…) le lisait.
+        Self::exiger_etablissement(role, Action::AuditLire)?;
         let lim = limit.clamp(1, 200);
         Ok(self.mail_outbox.list_recent(etablissement_id, lim).await?)
     }
@@ -1219,8 +1219,10 @@ impl PgEnt {
         role: &str,
         limit: i64,
     ) -> Result<Vec<crate::sms_repo::SmsOutboxRow>, EntDbError> {
+        // Revue finale socle 1 : téléphones des familles et corps nominatifs des SMS
+        // (sanctions, absences) → `audit.lire`, ou la vie scolaire (CPE) qui les envoie.
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
+        if parsed != Role::Cpe && !Self::peut_etablissement(role, Action::AuditLire) {
             return Err(EntDbError::Forbidden);
         }
         let lim = limit.clamp(1, 200);
@@ -2214,7 +2216,9 @@ impl PgEnt {
                     "type": "public-key",
                     "id": b64url(&aleatoire_32()),
                 }],
-                "userVerification": "preferred",
+                // Revue finale socle 1 : même valeur que le vrai défi (webauthn-rs exige
+                // la vérification de l'utilisateur) ; « preferred » trahissait le factice.
+                "userVerification": "required",
             }
         });
         let expires_at = Utc::now() + chrono::Duration::minutes(passkey_challenge_minutes());
@@ -5073,6 +5077,20 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !self.auth.is_member(etablissement_id, user_id).await? {
             return Err(DomainError::NotFound.into());
         }
+        // Revue finale socle 1 (D-013) : le téléphone est porté par l'identité globale ;
+        // un tiers d'un établissement ne le modifie pas pour une personne aussi membre
+        // d'un autre établissement (ses SMS y partiraient vers le numéro choisi). Même
+        // règle que `cible_compte_autorisee` pour l'e-mail.
+        if !self_edit
+            && self
+                .auth
+                .list_memberships_for_user(user_id)
+                .await?
+                .iter()
+                .any(|(etab, _)| *etab != etablissement_id)
+        {
+            return Err(EntDbError::Forbidden);
+        }
         self.set_user_telephone(user_id, telephone).await
     }
 
@@ -5799,6 +5817,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         cmd: SaisirAppreciation,
     ) -> Result<Appreciation, EntDbError> {
         if !Self::role_can_saisir_notes(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        // Revue finale socle 1 : même portée que la saisie de note (`notes.saisir`,
+        // professeur : ses élèves) ; avant, tout professeur écrivait l'appréciation de
+        // n'importe quel élève de l'établissement.
+        if !self
+            .autoriser_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::NotesSaisir,
+                cmd.eleve_id,
+            )
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         self.eleves
@@ -11382,10 +11415,12 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             if cmd.interdit_etablissement {
                 return Err(EntDbError::Forbidden);
             }
-            if self
+            // Revue finale socle 1 : le droit coché « autoriser les sorties » du lien
+            // est exigé (il n'était lu que par l'ancienne UI).
+            if !self
                 .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
                 .await?
-                .is_none()
+                .is_some_and(|l| l.peut_autoriser_sorties)
             {
                 return Err(EntDbError::Forbidden);
             }
@@ -11596,10 +11631,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         match parsed {
             Role::Parent => {
-                if self
+                // Revue finale socle 1 : droit coché « autoriser les sorties » exigé.
+                if !self
                     .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
                     .await?
-                    .is_none()
+                    .is_some_and(|l| l.peut_autoriser_sorties)
                 {
                     return Err(EntDbError::Forbidden);
                 }
@@ -14858,20 +14894,35 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn list_dispenses_vs_jour_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<DispenseVs>, EntDbError> {
-        if !Self::role_can_gerer_dispenses_vs(role)
-            && !Role::parse(role)
-                .map(|r| r.can_faire_appel() || r.can_lire_vs_absences())
-                .unwrap_or(false)
+        if Self::role_can_gerer_dispenses_vs(role) {
+            return Ok(self
+                .dispenses_vs
+                .list_actives_au_jour(etablissement_id, jour)
+                .await?);
+        }
+        if !Role::parse(role)
+            .map(|r| r.can_faire_appel() || r.can_lire_vs_absences())
+            .unwrap_or(false)
         {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self
+        // Revue finale socle 1 : hors gestionnaires des dispenses, la liste (motif
+        // médical, commentaire) est bornée aux élèves suivis (comme la route par élève).
+        let toutes = self
             .dispenses_vs
             .list_actives_au_jour(etablissement_id, jour)
-            .await?)
+            .await?;
+        match self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        {
+            None => Ok(toutes),
+            Some(ids) => Ok(toutes.into_iter().filter(|d| ids.contains(&d.eleve_id)).collect()),
+        }
     }
 
     /// Helper appel / EDT : dispense active couvrant la matière ce jour.
@@ -18392,6 +18443,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                             jour,
                         )
                         .await?;
+                    // Revue finale socle 1 : même portée que `absences.lire` (professeur :
+                    // ses élèves) ; avant, le copilote listait tout l'établissement.
+                    let rows = match self
+                        .eleves_autorises(etablissement_id, actor_user_id, role, Action::AbsencesLire)
+                        .await?
+                    {
+                        None => rows,
+                        Some(ids) => rows.into_iter().filter(|r| ids.contains(&r.0)).collect(),
+                    };
                     let total: i64 = rows.iter().map(|(_, _, _, n)| *n).sum();
                     let contexte = match &classe {
                         Some(c) => format!("classe {c}, "),

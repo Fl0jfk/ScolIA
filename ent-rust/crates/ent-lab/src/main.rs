@@ -6582,7 +6582,7 @@ async fn explorer_dispenses_vs(
     ));
 
     let jour_file = ent
-        .list_dispenses_vs_jour_for_actor(cast.etablissement_id, Role::Cpe.as_str(), jour)
+        .list_dispenses_vs_jour_for_actor(cast.etablissement_id, cast.cpe.user_id, Role::Cpe.as_str(), jour)
         .await
         .map_err(|e| e.to_string())?;
     if jour_file.len() < 2 {
