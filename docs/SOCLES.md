@@ -23,7 +23,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 
 **Cycle d'un socle** (méthode de la roadmap) : **1. réflexion de fond** → document `docs/socles/NN_<NOM>.md` (état des lieux, recherche réglementaire sur les textes officiels, acteurs, modèle de données, actions, droits, événements émis et consommés, écrans, mobile, RGPD, tests, au-delà du marché, questions fermées) ; **2. action** (code) ; **3. test** (automatisé, isolation, CI) ; puis mise à jour de `PROJECT_STATUS.md`.
 
-**Un socle est terminé quand** : chaque action de son périmètre existe côté serveur avec son droit dans le catalogue (D-017) ; tous ses faits inter-domaines passent par l'outbox, en transaction ; ses écrans Leptos remplacent ceux de `ui.rs` pour son domaine ; ses tests d'isolation entre établissements sont dans la matrice ; ses données ont une catégorie de conservation ; ses indicateurs sont exposés au pilotage ; ses actions sont décrites pour l'assistant (identifiant, effets, confirmation).
+**Un socle est terminé quand** : chaque action de son périmètre existe côté serveur avec son droit dans le catalogue (D-017) ; tous ses faits inter-domaines passent par l'outbox, en transaction ; ses écrans Leptos remplacent ceux de `ui.rs` pour son domaine ; ses tests d'isolation entre établissements sont dans la matrice ; ses données ont une catégorie de conservation ; ses indicateurs sont exposés au pilotage ; ses actions sont décrites pour l'assistant (identifiant, effets, confirmation). **[R, proposition du 2026-11-06]** Précisé par le cœur IA : ses lectures et commandes sont déclarées au registre `ent-ia` selon le *contrat IA* (`docs/socles/IA_COEUR.md` §5 : droit D-017, portée, sensibilité, volume ; pour les commandes, simulation, niveau de confirmation, réversibilité, texte d'aperçu), avec les tests de garde (équivalence écran / IA, isolation, simulation sans écriture) et le jeu d'évaluation du socle.
 
 ---
 
@@ -98,6 +98,15 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Ne contient pas** : fédération ÉduConnect / guichet agents (→ 9) ; outils RGPD (→ 27).
 - **Apporte** : à chaque socle, le catalogue où déclarer ses actions, la matrice d'isolation où ajouter ses routes, le chiffrement pour ses champs sensibles.
 - **Existant [F]** : `ent-auth`, `ent-oidc`, migrations 084–100, `docs/SOCLE1_SECURITE.md` (suivi lot par lot ; restes à vérifier dans ce document, ex. essai du cookie dans un vrai navigateur).
+
+#### 1 bis. Cœur IA (transverse, dès le socle 2) — **proposition [R], non validée**
+- **Pourquoi ici** : D-024 place l'IA « au cœur, pas à la fin ». Ce qui doit exister tôt n'est pas l'assistant conversationnel (il reste au socle 30) mais **le contrat** que chaque socle remplit au moment où il est codé ; sans lui, chaque socle déjà livré serait à reprendre. Ce n'est pas un socle numéroté (il ne possède aucune donnée métier) : il se construit **en parallèle du socle 2**, comme le socle 5. Aucun socle n'est renuméroté ni déplacé.
+- **Contient** : registre statique des capacités (lectures et commandes déclarées par les socles) ; exécution sous l'identité et les droits effectifs de la personne (D-017), sans droit propre ; brouillons d'action avec simulation, confirmation humaine hors modèle et re-vérification des droits ; journal IA en ajout seul ; fiche de contexte minimisée (classes de sensibilité, pseudonymisation, données non fiables encadrées) ; fournisseur nul et simulé, puis adaptateurs de fournisseurs souverains par établissement, sans repli ; quotas et coûts ; actions `ia.*` ; rebranchement du copilote existant (portée à la source, constat RF-04 b).
+- **Ne contient pas** : la conversation, les familles et les élèves, les enchaînements (→ 30) ; les règles automatiques (→ 31) ; la recherche sémantique (→ 30 au plus tôt).
+- **Dépend de** : 1. **Apporte** : à chaque socle, le contrat IA de ses critères de fin (§1) ; au socle 2, les premiers usages (synthèse de fiche, recherche structurée, qualité des données expliquée).
+- **Étapes** : IA-0 fondations et IA-1 « socle 2 décrit » **sans aucun modèle de langage** ; premier fournisseur en labo après revue contractuelle (Q-IA2) ; premiers usages réels avec les socles 3–4, AIPD faite. Lots IA-L0 à IA-L10.
+- **Existant [F]** : `ent-db/src/copilote.rs` (déterministe, sans modèle), `docs/AI_PLATFORM.md` ; Next.js utilise Mistral (évaluation franche : `IA_COEUR.md` §2.4).
+- **Conception** : `docs/socles/IA_COEUR.md`.
 
 #### 2. L'élève
 - **Contient** : identité et état civil historisés (noms de naissance et d'usage, prénoms, sexe, naissance, nationalité) ; **cycle de vie** explicite dans l'établissement (prévu → inscrit → actif → sorti → archivé) ; **scolarité datée** année par année : classe et groupes (affectations), options, MEF, régime (externe, demi-pension, interne), statuts (redoublant, nouvel arrivant, auditeur) ; compte élève et invitation ; photo et trombinoscope ; champs personnalisés de l'établissement ; **fiche 360°** (coquille où chaque socle branche sa section) ; **chronologie** typée filtrée par les droits ; **point d'entrée des actions** (le catalogue proposé selon les droits du lecteur) ; recherche d'élève, homonymes, **fusion réversible de deux dossiers élèves** ; passage à la majorité et recalcul des droits.
@@ -340,6 +349,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : assistant dans la conversation (16), dans le périmètre exact de l'utilisateur (jamais plus de droits) ; questions en langage naturel ; **propositions d'actions du catalogue** (identifiants stables), exécutées par les services métier après **confirmation humaine** ; explication (chaîne de causalité) ; rédaction assistée validée (appréciations, messages, comptes rendus) ; résumé de dossier ; choix du fournisseur (Mistral prioritaire, sous garanties contractuelles) ; aucune clé côté client ; minimisation, journal, évaluation de la qualité ; fonctionnement complet sans IA.
 - **Dépend de** : 16, 27 (minimisation, registre), 29 ; le catalogue d'actions (1) et la chronologie (2).
 - **Existant [F]** : `ent-db/src/copilote.rs` (assistant déterministe, lecture seule, sans LLM) ; `ent-brain` ; `docs/AI_PLATFORM.md`.
+- **Repose sur le cœur IA [R]** (§1 bis, `docs/socles/IA_COEUR.md`) : registre, brouillons, confirmation, journal, minimisation et fournisseurs y sont construits dès le socle 2 ; le socle 30 n'apporte que la conversation, ses enchaînements de tâches et l'ouverture aux familles et aux élèves.
 - **Place** : ancien « socle 3 » de la roadmap. Après le jalon pilote parce que l'IA vaut ce que valent les actions et les données qu'elle peut toucher ; **ses points d'accroche sont posés dès le socle 2** (chaque socle décrit ses actions pour l'assistant). [R] Peut remonter juste après 16 si la priorité commerciale l'exige : il ne dépend durement que de 16, 27 et du catalogue.
 - **Faire mieux** : « fais l'appel de la 4B comme lundi sauf Léa » → aperçu → confirmation ; jamais d'action invisible.
 
@@ -468,7 +478,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | Jalon | Après le socle | Ce qu'on peut affirmer |
 |---|---|---|
 | J0 | 1 | Sécurité démontrée (fait). |
-| J1 « Cœur » | 4 (et 5 en parallèle) | On sait qui est l'élève, comment il est entré, qui en répond, où et quand il est scolarisé. |
+| J1 « Cœur » | 4 (et 5 en parallèle) | On sait qui est l'élève, comment il est entré, qui en répond, où et quand il est scolarisé. [R] Le cœur IA (§1 bis) est en place et les socles 2 à 4 sont décrits pour lui. |
 | J2 « Journée » | 15 (et 16) | Une journée complète d'établissement (emploi du temps, appel web et mobile, vie scolaire, accueil, remplacements, messagerie) sans l'ancienne interface. |
 | J3 « Pilote » | 29 | Premier établissement réel : pédagogie, argent des familles, conformité, reprise de données, à-faire unifié. Les domaines non refaits restent servis par l'existant. |
 | J4 « Différence » | 33 | IA, automatisations, travail collaboratif, visio. |
@@ -489,7 +499,8 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | Design system et frontend Leptos | `ent-rust/web/`, `docs/FRONTEND_LEPTOS.md` | ses écrans ; retrait des écrans correspondants de `ui.rs` |
 | Applications mobiles | socle 11 | ses écrans quotidiens |
 | Isolation | matrice de séparation, RLS | ses routes et tables |
-| Pilotage, IA | socles 47, 30 | ses indicateurs ; la description de ses actions |
+| Pilotage | socle 47 | ses indicateurs |
+| Cœur IA [R] | §1 bis, `docs/socles/IA_COEUR.md` (dès le socle 2) ; conversation au socle 30 | ses lectures et commandes au registre (contrat IA), ses tests de garde, son jeu d'évaluation |
 
 ---
 
@@ -547,7 +558,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | Q-A | Valider l'ordre 5 → 51 ? | Oui, avec 5 mené en parallèle de 2–4. |
 | Q-B | **Paie** (socle 49) : la construire (déclarations sociales, conventions collectives) ou s'interfacer avec un logiciel de paie ? `ent-metier-checklist.md` l'avait écartée (« DROP »). | Garder le socle dans la carte, trancher au moment de sa réflexion de fond, après une étude du coût réglementaire. |
 | Q-C | **Comptabilité générale** (socle 48) complète pour le privé, ou export vers le logiciel comptable existant ? (même mention « DROP ») | Même réponse que Q-B. |
-| Q-D | Position de l'IA (socle 30) : après le pilote, ou remontée juste après la messagerie (16) ? | Après le pilote, points d'accroche posés dès le socle 2. |
+| Q-D | Position de l'IA (socle 30) : après le pilote, ou remontée juste après la messagerie (16) ? | Après le pilote, points d'accroche posés dès le socle 2. **Mise à jour 2026-11-06 (D-024)** : le **cœur IA** (§1 bis) se construit en parallèle du socle 2 ; la conversation (30) garde sa place ; questions détaillées Q-IA1 à Q-IA14 dans `docs/socles/IA_COEUR.md` §18. |
 | Q-E | Premier degré (50) et post-bac (51) : dans la sortie visée fin 2027 (D-007) ou après ? | Après, sauf client pilote qui les exige (cf. Q8 de `SOCLE2_DOMAINES.md`). |
 | Q-F | Solveur d'emploi du temps : socle 52 ? | À étudier après J5. |
 | Q-G | Hébergement certifié pour la santé (Q7) : à faire trancher par le DPO **avant** le socle 34. | Oui. |
