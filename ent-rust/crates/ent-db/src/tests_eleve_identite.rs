@@ -373,7 +373,7 @@ async fn correction_remplace_changement_ajoute() {
         .any(|v| v.nature.as_str() == "creation" && v.remplacee_par.is_some()));
     assert!(h
         .iter()
-        .any(|v| v.nature.as_str() == "correction" && v.motif.is_some()));
+        .any(|v| v.nature.as_str() == "correction" && v.motif_code.as_deref() == Some("faute_de_frappe")));
     assert!(h
         .iter()
         .any(|v| v.nature.as_str() == "changement_etat_civil"));
