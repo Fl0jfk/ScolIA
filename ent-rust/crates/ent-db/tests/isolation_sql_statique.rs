@@ -57,6 +57,10 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ("email_change_repo.rs", "UPDATE ent_email_change SET statut = 'annulee', closed_at = now() WHERE user_id = $1", "remplacement de la demande non confirmée de la personne"),
     ("email_change_repo.rs", "UPDATE ent_email_change SET statut = 'annulee', closed_at = now() WHERE id = $1", "abandon par id de la demande créée dans le même parcours"),
     ("email_change_repo.rs", "UPDATE ent_email_change SET statut = $2, closed_at = now() WHERE id = $1", "clôture par id lu dans la même transaction (FOR UPDATE)"),
+    ("email_change_repo.rs", "SELECT user_id FROM ent_email_change WHERE confirm_hash = $1", "résolution de la personne par empreinte du jeton de confirmation (secret 256 bits)"),
+    ("email_change_repo.rs", "SELECT user_id FROM ent_email_change WHERE annul_hash = $1", "résolution de la personne par empreinte du jeton d'annulation (secret 256 bits)"),
+    ("email_change_repo.rs", "SELECT count(*) FROM ent_email_change WHERE user_id = $1", "plafond de demandes par personne (identité globale)"),
+    ("email_change_repo.rs", "UPDATE ent_email_change SET statut = 'revertee', closed_at = now() WHERE user_id = $1", "rétablissement : clôture de la chaîne de changements de la personne"),
     ("email_change_repo.rs", "DELETE FROM ent_email_change WHERE created_at", "purge globale des demandes anciennes (maintenance)"),
     // OIDC : maintenance de démarrage et purge.
     ("oidc_repo.rs", "UPDATE ent_oidc_provider SET client_secret = $2 WHERE id = $1", "rechiffrement du secret au démarrage, par id lu juste avant"),

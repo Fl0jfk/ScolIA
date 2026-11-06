@@ -56,6 +56,11 @@ async fn securiser(
         .bind(GEL_HEURES)
         .execute(&mut **tx)
         .await?;
+        // Les identités SSO déjà liées (rattachées à l'ancienne adresse) sont coupées.
+        sqlx::query("DELETE FROM ent_oidc_identity WHERE user_id = $1")
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
     }
     sqlx::query(
         "UPDATE ent_recuperation_passkey SET statut = 'annulee', closed_at = now()
@@ -164,6 +169,8 @@ impl PgEmailChangeRepo {
     ) -> Result<Option<ChangementEmail>, AuthError> {
         let err = |_| AuthError::InvalidCredentials;
         let mut tx = self.pool.begin().await.map_err(err)?;
+        // Même ordre de verrous que `creer` : la personne d'abord, la demande ensuite.
+        self.verrouiller_personne(&mut tx, "confirm_hash", confirm_hash).await.map_err(err)?;
         let row: Option<Ligne> = sqlx::query_as(
             "UPDATE ent_email_change SET statut = 'confirmee', confirmed_at = now()
              WHERE confirm_hash = $1 AND statut = 'demandee' AND confirm_expires_at > now()
@@ -208,6 +215,7 @@ impl PgEmailChangeRepo {
     pub async fn annuler(&self, annul_hash: &str) -> Result<Option<ChangementEmail>, AuthError> {
         let err = |_| AuthError::InvalidCredentials;
         let mut tx = self.pool.begin().await.map_err(err)?;
+        self.verrouiller_personne(&mut tx, "annul_hash", annul_hash).await.map_err(err)?;
         let row: Option<(Uuid, Uuid, Uuid, Uuid, bool, String, String, String)> = sqlx::query_as(
             "SELECT id, user_id, etablissement_id, actor_user_id, tiers, ancien_email,
                     nouveau_email, statut
@@ -230,12 +238,10 @@ impl PgEmailChangeRepo {
         let mut sessions = 0;
         if retabli {
             let maj = sqlx::query(
-                "UPDATE ent_user SET email = $2, updated_at = now()
-                 WHERE id = $1 AND email = $3",
+                "UPDATE ent_user SET email = $2, updated_at = now() WHERE id = $1",
             )
             .bind(user_id)
             .bind(&ancien)
-            .bind(&nouveau)
             .execute(&mut *tx)
             .await;
             match maj {
@@ -243,8 +249,18 @@ impl PgEmailChangeRepo {
                 Err(e) if email_pris(&e) => return Err(AuthError::EmailTaken),
                 _ => return Err(AuthError::InvalidCredentials),
             }
-            // Rétablissement : le gel est (re)posé quel que soit l'auteur initial.
+            // Rétablissement : le gel est (re)posé quel que soit l'auteur initial. Les
+            // changements confirmés ensuite (enchaînement) sont annulés avec celui-ci : la
+            // personne retrouve l'adresse qu'elle avait avant la chaîne.
             sessions = securiser(&mut tx, user_id, true).await.map_err(err)?;
+            sqlx::query(
+                "UPDATE ent_email_change SET statut = 'revertee', closed_at = now()
+                 WHERE user_id = $1 AND statut = 'confirmee'",
+            )
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(err)?;
         }
         sqlx::query(
             "UPDATE ent_email_change SET statut = $2, closed_at = now() WHERE id = $1",
@@ -266,6 +282,40 @@ impl PgEmailChangeRepo {
             retabli: retabli,
             sessions_revoquees: sessions,
         }))
+    }
+
+    /// Verrouille la ligne `ent_user` de la personne visée par un jeton (avant tout verrou
+    /// sur `ent_email_change`, comme `creer`) : évite l'inversion d'ordre de verrous.
+    async fn verrouiller_personne(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        colonne: &str,
+        hash: &str,
+    ) -> Result<(), sqlx::Error> {
+        let sql = match colonne {
+            "confirm_hash" => "SELECT user_id FROM ent_email_change WHERE confirm_hash = $1",
+            _ => "SELECT user_id FROM ent_email_change WHERE annul_hash = $1",
+        };
+        let u: Option<(Uuid,)> = sqlx::query_as(sql).bind(hash).fetch_optional(&mut **tx).await?;
+        if let Some((u,)) = u {
+            sqlx::query("SELECT id FROM ent_user WHERE id = $1 FOR UPDATE")
+                .bind(u)
+                .fetch_optional(&mut **tx)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Demandes de changement d'e-mail créées pour cette personne sur 24 h.
+    pub async fn demandes_recentes(&self, user_id: Uuid) -> Result<i64, sqlx::Error> {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_email_change
+             WHERE user_id = $1 AND created_at > now() - interval '24 hours'",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(n)
     }
 
     /// Le compte est-il gelé (réinitialisation / récupération suspendues) ?

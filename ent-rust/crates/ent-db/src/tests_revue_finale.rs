@@ -516,6 +516,35 @@ async fn rf04d_exports_lsl_lsun_bornes_aux_classes_enseignees() {
     assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSL classe enseignée : {r:?}");
     let r = c.ent.exporter_lsun_csv_for_actor("prof", c.prof, lsun(&c.suivie)).await;
     assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSUN classe enseignée : {r:?}");
+    // Notanet et Parcoursup : même borne (revue indépendante).
+    let r = c
+        .ent
+        .exporter_notanet_csv_for_actor(
+            "prof",
+            c.prof,
+            domain_eleve::ExporterNotanet {
+                etablissement_id: c.etab,
+                periode_id: c.periode,
+                classe: c.non_suivie.clone(),
+            },
+            jour,
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "Notanet classe non enseignée : {r:?}");
+    let r = c
+        .ent
+        .exporter_parcoursup_csv_for_actor(
+            "prof",
+            c.prof,
+            domain_eleve::ExporterParcoursup {
+                etablissement_id: c.etab,
+                annee_scolaire: "2026-2027".into(),
+                classe: c.non_suivie.clone(),
+            },
+            jour,
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "Parcoursup classe non enseignée : {r:?}");
     // La direction garde sa portée.
     let r = c.ent.exporter_lsl_csv_for_actor("direction", c.direction, lsl(&c.non_suivie)).await;
     assert!(!matches!(r, Err(EntDbError::Forbidden)), "direction : {r:?}");
@@ -687,4 +716,40 @@ async fn rf04g_devoirs_et_cahier_de_textes_bornes_aux_classes_enseignees() {
     assert!(matches!(r, Err(EntDbError::Forbidden)), "cahier hors classe : {r:?}");
     let r = c.ent.creer_cahier_texte_for_actor("prof", cahier(&c.suivie)).await;
     assert!(r.is_ok(), "cahier classe enseignée : {r:?}");
+}
+
+/// RF-01 (revue indépendante) : deux changements enchaînés par un tiers — le lien
+/// d'annulation du PREMIER rétablit l'adresse d'origine ; au-delà de 3 demandes par
+/// 24 h sur une même cible, refus.
+#[tokio::test]
+async fn rf01_chaine_de_changements_retablie_et_plafonnee() {
+    let Some(mut ent) = ent().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    ent.install_mail_dry_run();
+    let url = std::env::var("ENT_DATABASE_URL").unwrap();
+    let pool = sqlx::PgPool::connect(&url).await.expect("pool");
+    let etab = Uuid::new_v4();
+    let sfx = Uuid::new_v4().simple().to_string();
+    let mk = |r: &str| format!("rf01c-{r}-{sfx}@ent.local");
+    let dir = ent.register_user(&mk("dir"), MDP, None, etab, "direction").await.unwrap();
+    let cible = ent.register_user(&mk("prof"), MDP, None, etab, "prof").await.unwrap();
+    let (a1, a2) = (mk("a1"), mk("a2"));
+    ent.set_user_email_for_actor("direction", etab, dir.id, cible.id, &a1, None, BASE).await.unwrap();
+    let annul1 = lien_envoye(&ent, &mk("prof"), "/email/annuler").unwrap();
+    let c1 = lien_envoye(&ent, &a1, "/email/confirmer").unwrap();
+    ent.confirmer_changement_email(&c1).await.unwrap();
+    ent.set_user_email_for_actor("direction", etab, dir.id, cible.id, &a2, None, BASE).await.unwrap();
+    let c2 = lien_envoye(&ent, &a2, "/email/confirmer").unwrap();
+    ent.confirmer_changement_email(&c2).await.unwrap();
+    assert_eq!(email_de(&pool, cible.id).await, a2);
+    ent.annuler_changement_email(&annul1).await.expect("annulation du premier lien");
+    assert_eq!(email_de(&pool, cible.id).await, mk("prof"), "adresse d'origine rétablie");
+    // Plafond : 2 demandes déjà faites, une 3ᵉ passe, la 4ᵉ est refusée.
+    ent.set_user_email_for_actor("direction", etab, dir.id, cible.id, &mk("a3"), None, BASE).await.unwrap();
+    let r = ent
+        .set_user_email_for_actor("direction", etab, dir.id, cible.id, &mk("a4"), None, BASE)
+        .await;
+    assert!(r.is_err(), "plafond de demandes : {r:?}");
 }

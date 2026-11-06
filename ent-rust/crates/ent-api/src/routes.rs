@@ -6420,6 +6420,7 @@ async fn export_notanet(
         .ent
         .exporter_notanet_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterNotanet {
                 etablissement_id: session.etablissement_id,
                 periode_id: q.periode_id,
@@ -6457,6 +6458,7 @@ async fn export_parcoursup(
         .ent
         .exporter_parcoursup_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterParcoursup {
                 etablissement_id: session.etablissement_id,
                 annee_scolaire: q.annee_scolaire,

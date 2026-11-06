@@ -3104,6 +3104,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     .find_user_id_by_email(&email)
                     .await?
                     .ok_or(EntDbError::OidcCompteInconnu)?;
+                // RF-01 : pas de rattachement par e-mail pendant le gel qui suit un
+                // changement d'adresse fait par un tiers.
+                if self.email_change.est_gele(candidate).await? {
+                    return Err(EntDbError::OidcCompteInconnu);
+                }
                 self.oidc
                     .link_identity(provider.id, &identity.subject, candidate)
                     .await?;
@@ -3332,6 +3337,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .await?;
 
         if !target.is_staff() {
+            // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un
+            // tiers : on le dit à l'acteur plutôt que d'envoyer un lien inopérant.
+            if self.email_change.est_gele(target_user_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
             self.envoyer_lien_reinitialisation(
                 target_user_id,
                 public_base_url,
@@ -5217,6 +5227,11 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         };
         if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
             return Err(EntDbError::EnvoiImpossible);
+        }
+        // Plafond : pas de rafale de demandes (gel prolongé, courriels vers une adresse
+        // arbitraire) sur une même cible.
+        if self.email_change.demandes_recentes(user_id).await? >= 3 {
+            return Err(AuthError::TooManyAttempts.into());
         }
 
         let ancien = self.auth.resolve_user_email(user_id).await?;
@@ -14470,6 +14485,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn exporter_notanet_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterNotanet,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
@@ -14479,6 +14495,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_notanet(cmd)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
+            .await?;
         self.notes
             .get_periode(cmd.etablissement_id, cmd.periode_id)
             .await?
@@ -14523,6 +14542,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn exporter_parcoursup_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterParcoursup,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
@@ -14530,6 +14550,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_parcoursup(cmd)?;
+        // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
+        self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
+            .await?;
         let eleves = self
             .eleves
             .list_en_classe_au(cmd.etablissement_id, &cmd.classe, jour)
