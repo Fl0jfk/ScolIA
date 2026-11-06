@@ -16,6 +16,7 @@ mod referentiel_s2;
 mod roles;
 mod routes;
 mod vie_scolaire;
+mod evaluations;
 pub mod tenant;
 mod ui;
 

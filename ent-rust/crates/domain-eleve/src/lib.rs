@@ -65,6 +65,8 @@ mod edt_contrainte;
 mod absence_rh;
 mod edition_vs;
 mod lsun_export;
+/// Socle 2, lot S2-7 : règles de calcul des moyennes, exports de livrets.
+pub mod evaluation;
 
 pub use absence::{
     annee_scolaire_de, corps_alerte_seuil, debut_annee_scolaire, module_absences_voit_absent,
@@ -302,7 +304,7 @@ pub use notes::{
     NotePeriodeStatut, NotePourMoyenne, SaisirAppreciation,
 };
 pub use bulletin_pdf::{
-    assert_periode_bulletin, plan_bulletin_eleve, render_bulletin_pdf, BulletinEleve,
+    assert_periode_bulletin, plan_bulletin_eleve, render_bulletin_pdf, rendre_pdf_lignes, BulletinEleve,
     LigneBulletinMatiere,
 };
 pub use sanction::{

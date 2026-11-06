@@ -165,6 +165,72 @@ pub(crate) fn build_pdf(lines: &[String]) -> Vec<u8> {
     out
 }
 
+/// PDF texte sur plusieurs pages A4 (56 lignes par page), police Helvetica.
+/// Les caractères hors Latin-1 simple sont translittérés (voir `ascii_latin`).
+pub fn rendre_pdf_lignes(lines: &[String]) -> Vec<u8> {
+    const PAR_PAGE: usize = 56;
+    let pages: Vec<&[String]> = if lines.is_empty() {
+        vec![&[]]
+    } else {
+        lines.chunks(PAR_PAGE).collect()
+    };
+    let n = pages.len();
+    // Objets : 1 catalogue, 2 pages, 3 police, puis (page, contenu) par page.
+    let mut objects: Vec<Vec<u8>> = Vec::new();
+    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
+    let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 4 + 2 * i)).collect();
+    objects.push(format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")).into_bytes());
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
+    for (i, page) in pages.iter().enumerate() {
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {} 0 R \
+/Resources << /Font << /F1 3 0 R >> >> >>",
+                5 + 2 * i
+            )
+            .into_bytes(),
+        );
+        let mut content = String::from("BT\n/F1 10 Tf\n45 805 Td\n13.5 TL\n");
+        for (j, line) in page.iter().enumerate() {
+            if j > 0 {
+                content.push_str("T*\n");
+            }
+            content.push_str(&format!("({}) Tj\n", pdf_escape(line)));
+        }
+        if n > 1 {
+            content.push_str(&format!("T*\nT*\n(Page {} / {n}) Tj\n", i + 1));
+        }
+        content.push_str("ET\n");
+        let stream = content.into_bytes();
+        let mut obj = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
+        obj.extend_from_slice(&stream);
+        obj.extend_from_slice(b"\nendstream");
+        objects.push(obj);
+    }
+    let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
+    let mut offsets = Vec::with_capacity(objects.len());
+    for (i, obj) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        out.extend_from_slice(obj);
+        out.extend_from_slice(b"\nendobj\n");
+    }
+    let xref_at = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    out.extend_from_slice(b"0000000000 65535 f \n");
+    for off in &offsets {
+        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
 pub fn render_bulletin_pdf(b: &BulletinEleve) -> Vec<u8> {
     let mut lines = vec![
         "ScolIA — Bulletin scolaire".into(),
@@ -219,6 +285,16 @@ mod tests {
             date_fin: NaiveDate::from_ymd_opt(2026, 12, 20).unwrap(),
             statut,
         }
+    }
+
+    #[test]
+    fn pdf_multipage() {
+        let lignes: Vec<String> = (0..130).map(|i| format!("Ligne {i} é")).collect();
+        let pdf = rendre_pdf_lignes(&lignes);
+        assert!(pdf.starts_with(b"%PDF-1.4"));
+        assert!(pdf.windows(9).any(|w| w == b"/Count 3 "));
+        assert!(pdf.windows(10).any(|w| w == b"Page 3 / 3"));
+        assert!(rendre_pdf_lignes(&[]).windows(9).any(|w| w == b"/Count 1 "));
     }
 
     #[test]

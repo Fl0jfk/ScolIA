@@ -23,6 +23,7 @@ mod discipline_vs;
 mod dossier;
 mod droits_moteur;
 mod edt;
+mod evaluations;
 mod journee_vs;
 mod referentiel;
 mod referentiel_admin;
