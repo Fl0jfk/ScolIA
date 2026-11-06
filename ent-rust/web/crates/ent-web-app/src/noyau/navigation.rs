@@ -8,6 +8,14 @@ use super::droits_moteur::DroitsMoteur;
 
 pub const ACCUEIL: &str = "/web";
 pub const EMPLOI_DU_TEMPS: &str = "/web/emploi-du-temps";
+/// EDT de la semaine (personnel, classe, salle, élève) : S2-5.
+pub const EDT_SEMAINE: &str = "/web/edt/semaine";
+/// Absences de personnel et remplacements (`edt.gerer`) : S2-5.
+pub const REMPLACEMENTS: &str = "/web/edt/remplacements";
+/// Changements d'emploi du temps vus par l'élève et sa famille : S2-5.
+pub const CHANGEMENTS_EDT: &str = "/web/changements-edt";
+/// Délégations de droits (« mes délégations » pour le personnel, gestion avec `delegations.gerer`).
+pub const DELEGATIONS: &str = "/web/delegations";
 pub const APPEL: &str = "/web/appel";
 pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
@@ -47,6 +55,16 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.emploi_du_temps {
         v.push(entree("Emploi du temps", EMPLOI_DU_TEMPS, NomIcone::Agenda));
     }
+    if droits.personnel {
+        v.push(entree("EDT de la semaine", EDT_SEMAINE, NomIcone::Agenda));
+    }
+    if droits.portail_famille || droits.mes_absences {
+        v.push(entree(
+            "Changements d'EDT",
+            CHANGEMENTS_EDT,
+            NomIcone::Agenda,
+        ));
+    }
     if droits.faire_appel {
         v.push(entree("Appel", APPEL, NomIcone::Appel));
     }
@@ -78,6 +96,12 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
+    }
+    if moteur.peut_gerer_edt() {
+        v.push(entree("Remplacements", REMPLACEMENTS, NomIcone::Personne));
+    }
+    if droits.personnel {
+        v.push(entree("Délégations", DELEGATIONS, NomIcone::Passkey));
     }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
@@ -128,7 +152,15 @@ mod tests {
             .collect();
         assert_eq!(
             prof,
-            [ACCUEIL, EMPLOI_DU_TEMPS, APPEL, MES_CLASSES, MESSAGES]
+            [
+                ACCUEIL,
+                EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
+                APPEL,
+                MES_CLASSES,
+                DELEGATIONS,
+                MESSAGES
+            ]
         );
         let secretariat: Vec<String> = entrees(droits_du_role("administratif"))
             .into_iter()
@@ -139,10 +171,12 @@ mod tests {
             [
                 ACCUEIL,
                 EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
+                DELEGATIONS,
                 MESSAGES
             ]
         );
@@ -152,7 +186,7 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, CLASSES],
+            [ACCUEIL, EDT_SEMAINE, CLASSES, DELEGATIONS],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -161,7 +195,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, CHANGEMENTS_EDT, ABSENCES, MESSAGES],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -173,10 +207,12 @@ mod tests {
             [
                 ACCUEIL,
                 EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
+                DELEGATIONS,
                 MESSAGES
             ]
         );
@@ -186,7 +222,16 @@ mod tests {
             .into_iter()
             .map(|e| e.href)
             .collect();
-        assert_eq!(eleve, [ACCUEIL, EMPLOI_DU_TEMPS, ABSENCES, MESSAGES]);
+        assert_eq!(
+            eleve,
+            [
+                ACCUEIL,
+                EMPLOI_DU_TEMPS,
+                CHANGEMENTS_EDT,
+                ABSENCES,
+                MESSAGES
+            ]
+        );
     }
 
     fn droit(action: &str, portee: &str) -> ent_web_api::DroitEffectif {
@@ -231,6 +276,32 @@ mod tests {
     }
 
     #[test]
+    fn le_moteur_ouvre_les_remplacements_et_la_semaine_reste_au_personnel() {
+        let edt = DroitsMoteur::new(vec![droit("edt.gerer", "etablissement")]);
+        let v = adresses(droits_du_role("cpe"), &edt);
+        assert!(v.contains(&REMPLACEMENTS.to_string()));
+        // Sans le droit, pas d'entrée (le serveur refuserait de toute façon).
+        let sans = adresses(droits_du_role("cpe"), &DroitsMoteur::default());
+        assert!(!sans.contains(&REMPLACEMENTS.to_string()));
+        // La semaine et les délégations reçues sont ouvertes à tout le personnel.
+        for role in ["prof", "cpe", "administratif", "compta"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(v.contains(&EDT_SEMAINE.to_string()), "{role}");
+            assert!(v.contains(&DELEGATIONS.to_string()), "{role}");
+        }
+        // Famille et élève : changements d'emploi du temps, jamais l'administration.
+        for role in ["parent", "eleve"] {
+            let v = adresses(droits_du_role(role), &edt);
+            assert!(v.contains(&CHANGEMENTS_EDT.to_string()), "{role}");
+            assert!(!v.contains(&DELEGATIONS.to_string()), "{role}");
+            assert!(!v.contains(&EDT_SEMAINE.to_string()), "{role}");
+        }
+        // Les pages restent distinctes pour l'élément de menu actif.
+        assert!(!ent_web_ui::lien_actif(EDT_SEMAINE, REMPLACEMENTS));
+        assert!(!ent_web_ui::lien_actif(EMPLOI_DU_TEMPS, EDT_SEMAINE));
+    }
+
+    #[test]
     fn un_role_parametre_ouvre_la_journee_sans_le_profil() {
         // Un professeur qui reçoit « absences.declarer » voit « Journée » (l'accueil), pas « Vie scolaire ».
         let moteur = DroitsMoteur::new(vec![droit("absences.declarer", "etablissement")]);
@@ -246,7 +317,7 @@ mod tests {
     #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
+        assert_eq!(v, [ACCUEIL, CHANGEMENTS_EDT, ABSENCES, MESSAGES]);
     }
 
     #[test]

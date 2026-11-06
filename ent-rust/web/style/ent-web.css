@@ -482,3 +482,51 @@
 .jvs-liste--discrete { font-size: var(--taille-s); color: var(--c-attenue); }
 .jvs-demi { margin-top: var(--esp-1); }
 .disc-eleve { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin-block: var(--esp-3); }
+
+/* --- EDT de la semaine, remplacements, changements, délégations (S2-5) ------------------- */
+.edts-choix { display: grid; gap: var(--esp-3); max-width: 28rem; margin-bottom: var(--esp-3); }
+.edts-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.edts-semaine-titre { font-size: var(--taille-l); margin: 0 var(--esp-2); }
+.edts-semaine { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--esp-3); align-items: start; }
+.edts-jour { display: grid; gap: var(--esp-2); padding: var(--esp-4); min-width: 0; background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }
+.edts-jour--aujourdhui { box-shadow: inset 0 0 0 2px var(--c-acc), var(--ombre-1); }
+.edts-jour__titre { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); font-size: var(--taille-m); }
+.edts-jour__resume, .edts-jour__ferme { color: var(--c-attenue); font-size: var(--taille-s); }
+.edts-seances { list-style: none; margin: 0; padding: 0; display: grid; }
+.edts-seance { display: grid; gap: 2px; padding: var(--esp-3) 0; border-top: 1px solid var(--c-ligne); min-width: 0; }
+.edts-seance:first-child { border-top: 0; padding-top: var(--esp-1); }
+.edts-seance__heure { font-size: var(--taille-s); font-weight: var(--graisse-forte); color: var(--c-acc-fort); font-variant-numeric: tabular-nums; }
+.edts-seance__titre { font-weight: var(--graisse-forte); overflow-wrap: anywhere; }
+.edts-seance__detail { font-size: var(--taille-s); color: var(--c-attenue); overflow-wrap: anywhere; }
+.edts-seance--annulee .edts-seance__titre { text-decoration: line-through; }
+.edts-aide { margin-top: var(--esp-3); }
+@media (max-width: 767px) { .edts-semaine { grid-template-columns: 1fr; } }
+
+.rpl-periode, .chg-periode { display: flex; flex-wrap: wrap; align-items: end; gap: var(--esp-3); margin-bottom: var(--esp-4); }
+.rpl-section, .dlg-section { margin-block: var(--esp-6); display: grid; gap: var(--esp-3); }
+.rpl-liste, .dlg-liste, .chg-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-3); }
+.rpl-carte, .dlg-carte, .chg-carte { display: grid; gap: var(--esp-2); padding: var(--esp-4); min-width: 0; background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); overflow-wrap: anywhere; }
+.rpl-carte__tete, .dlg-carte__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); }
+.rpl-carte__detail, .rpl-carte__resume, .dlg-carte__detail, .rpl-seance__detail { font-size: var(--taille-s); color: var(--c-attenue); }
+.rpl-carte__resume { font-weight: var(--graisse-forte); color: var(--c-encre); }
+.rpl-carte__actions, .rpl-seance__actions, .dlg-carte__actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.rpl-seances { list-style: none; margin: var(--esp-2) 0 0; padding: 0; display: grid; }
+.rpl-seance { display: grid; gap: var(--esp-1); padding: var(--esp-3) 0; border-top: 1px solid var(--c-ligne); }
+.rpl-seance__horaire { font-size: var(--taille-s); font-weight: var(--graisse-forte); color: var(--c-acc-fort); }
+.rpl-seance__cours { font-weight: var(--graisse-forte); }
+.rpl-formulaire, .dlg-formulaire { display: grid; gap: var(--esp-3); max-width: 36rem; }
+.rpl-classes, .dlg-droits { display: grid; gap: var(--esp-1); border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon-petit); padding: var(--esp-3); }
+.rpl-apercu { padding: var(--esp-3); border-radius: var(--rayon); background: var(--c-surface-2); border: 1px solid var(--c-ligne); display: grid; gap: var(--esp-2); }
+.rpl-apercu__classes { margin: 0; padding-left: var(--esp-5); }
+.confirmation__rappel { margin-top: var(--esp-2); }
+
+.chg-jours { display: grid; gap: var(--esp-4); }
+.chg-jour { display: grid; gap: var(--esp-2); }
+.chg-jour__titre { font-size: var(--taille-l); }
+.chg-carte__heure { font-size: var(--taille-s); font-weight: var(--graisse-forte); color: var(--c-acc-fort); font-variant-numeric: tabular-nums; }
+.chg-carte__cours { font-weight: var(--graisse-forte); }
+.chg-carte__detail, .chg-carte__motif { font-size: var(--taille-s); color: var(--c-attenue); }
+.dlg-carte__droits { font-weight: var(--graisse-forte); }
+@media (max-width: 767px) {
+  .rpl-carte__actions .ui-btn, .rpl-seance__actions .ui-btn, .dlg-carte__actions .ui-btn { flex: 1 1 100%; min-height: var(--cible); }
+}

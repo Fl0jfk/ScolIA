@@ -68,6 +68,10 @@ pub fn App() -> impl IntoView {
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
+                    <Route path=path!("edt/semaine") view=modules::edt_semaine::PageSemaineEdt/>
+                    <Route path=path!("edt/remplacements") view=modules::remplacements::PageRemplacements/>
+                    <Route path=path!("changements-edt") view=modules::changements_edt::PageChangementsEdt/>
+                    <Route path=path!("delegations") view=modules::delegations::PageDelegations/>
                     <Route path=path!("appel") view=modules::appel::PageAppel/>
                     <Route path=path!("classes") view=modules::classes::PageClasses/>
                     <Route path=path!("classes/:id") view=modules::classes::PageClasse/>
