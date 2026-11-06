@@ -769,6 +769,20 @@ Ordre recommandé : E0 → E1 → E2 → (E3, E4 en parallèle) → (E5, E6, E7 
 
 ---
 
+### 16.1 État des lots (2026-11-06, branche `ent-socle-eleve-e0-e1`)
+
+| Lot | État | Détail |
+|---|---|---|
+| **E0** | implémenté, testé en local | `create_eleve` et `update_identite` : fait + journal + événement dans une `TenantTx` (journal en erreur = tout est défait, test avec déclencheur de panne) ; événements et journal sans valeur d'identité (noms de champs) ; homonymes : date de naissance masquée aux profils sans état civil et non prise en compte dans leur score ; migration `240_eleve_cles_composees.sql` : `UNIQUE (etablissement_id, id)` sur `ent_eleve`, clés composées `NOT VALID` puis validées si aucun orphelin, sur 12 tables (§2.2) **et** `ent_inscription_dossier`, `ent_import_ligne`, `ent_travail_remise`, `ent_travail_eleve` (lot 5) ; orphelins listés dans `ent_eleve_orphelin` (jamais supprimés), `ent_eleve_valider_cles()` relance la validation. Tests : `ent-db/src/tests_eleve_socle.rs`. |
+| **E1** | implémenté, testé en local | 16 actions `eleves.*` au catalogue (portées, inclusions §12.2, modèles par défaut) ; groupes G0–G6 en un point (`domain-eleve::champs`, `ent-db::eleve_champs`) ; raisons de masquage (`droit_manquant`, `hors_portee`, `reserve_au_personnel`) dans `EleveDto.masques` et `FicheEleveDto.masques` ; `NiveauIdentite` dérivé des droits (ancienne règle par profil conservée comme oracle de test) ; portée « désignés » étendue aux sites et niveaux (Q-E9) ; gabarit de rôle « Accueil » (web). |
+
+**Écarts assumés par rapport au §12.2 (à valider par Florian).**
+1. `eleves.lire` (G1 : régime, MEF, dates d'entrée et de sortie, motif de sortie, redoublant) est donné par défaut à Admin, Direction, Administratif **seulement**, et non à CPE, Compta, Infirmerie, Psy, Prof comme dans le tableau : ces profils ne voyaient pas ces champs (niveaux « santé » et « réduit »), et la consigne était de ne rien élargir. L'accès à la fiche (`GET /eleves/{id}`) passe par `eleves.annuaire`, donné à tout le personnel. Ouvrir G1 à un rôle = cocher `eleves.lire`.
+2. Le badge de cantine est rangé en G3 (identifiants), avec l'INE.
+3. Le filtre « confidentialité renforcée » de l'annuaire (Q-E3) n'existe pas encore : il arrive avec E7.
+
+Reste (non fait) : `eleves.photo.gerer` n'est pas encore branché sur les routes photo ; les nouvelles actions d'écriture ne remplacent pas encore `eleves.gerer` sur les routes ; lots E2 à E11.
+
 ## 17. Questions à trancher par le porteur du projet
 
 | # | Question | Options | Recommandation |
