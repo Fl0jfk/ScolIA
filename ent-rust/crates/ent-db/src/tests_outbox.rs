@@ -474,22 +474,22 @@ async fn consommateur_borne_a_l_etablissement_de_l_evenement() {
     };
     let etab_a = cast.etablissement_id;
     let etab_b = Uuid::new_v4();
-    // Événement forgé dans B qui cite un élève de A : aucune notification.
+    // Événement forgé dans B qui cite un élève de A : depuis la clé composée
+    // (etablissement_id, eleve_id) du lot E0, la base le REFUSE à l'écriture
+    // (avant : il était accepté puis ignoré par les consommateurs).
     let mut forge = brouillon(etab_b, types::ELEVE_ABSENCE_DECLARED, Uuid::new_v4(), Some(cast.eleve_lea_id));
     forge.aggregate = AggregateKind::Absence;
     forge.payload = json!({"debut": "2026-11-05", "source": "appel"});
-    let e_b = publier_seul(&ent, forge).await;
+    let mut tx = ent.pool().begin().await.unwrap();
+    assert!(tx.publier(forge).await.is_err(), "événement inter-établissements accepté");
+    drop(tx);
 
     let mut d = ent.distributeur(config_test(etab_b));
     let sonde = Arc::new(Sonde::new("test.isolation", &[types::ELEVE_ABSENCE_DECLARED]));
     d.enregistrer(sonde.clone()).unwrap();
     let r = d.distribuer_tout().await.unwrap();
-    assert_eq!(r.distribues, 1);
+    assert_eq!(r.distribues, 0);
     assert_eq!(sonde.hors_etab.load(Ordering::SeqCst), 0, "transaction bornée à l'établissement");
-    assert_eq!(
-        compter(&ent, "SELECT count(*) FROM ent_notification WHERE source_event_id = $1", e_b.id).await,
-        0
-    );
     assert!(ent.mes_notifications(etab_b, cast.parent_lea.user_id, 50).await.unwrap().is_empty());
     // Un distributeur restreint à B ne touche pas aux événements de A.
     let e_a = publier_seul(&ent, brouillon(etab_a, "test.isolation", Uuid::new_v4(), None)).await;
