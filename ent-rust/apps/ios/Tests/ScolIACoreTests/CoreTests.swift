@@ -62,11 +62,18 @@ final class CapacitesTests: XCTestCase {
         Me(userId: "u", email: "x", etablissementId: "e", role: role, eleveId: eleve, passkeyCount: 1, portee: portee)
     }
 
+    let droitsProf = ["notes.lire", "notes.saisir", "absences.lire", "dossier.lire", "messagerie.eleve", "punitions.donner"]
+        .map { Droit(action: $0, portee: "mes_classes") }
+
     func testProfesseur() {
-        let e = Capacites.espace(me: me("prof"), droits: [Droit(action: "notes.saisir", portee: "mes_classes")])
-        XCTAssertEqual(e.profil, .professeur)
+        let e = Capacites.espace(me: me("prof"), droits: droitsProf)
+        XCTAssertEqual(e.profil, .personnel)
+        XCTAssertTrue(e.enseigne)
         XCTAssertEqual(Array(e.modules.prefix(2)), [.accueil, .appel])
         XCTAssertTrue(e.contient(.saisieNotes))
+        XCTAssertTrue(e.contient(.agenda))
+        XCTAssertFalse(e.contient(.vieScolaire)) // absences.lire limité à « mes classes »
+        XCTAssertFalse(e.contient(.absences))
         XCTAssertEqual(e.modules.last, .profil)
     }
 
@@ -74,23 +81,47 @@ final class CapacitesTests: XCTestCase {
         let e = Capacites.espace(me: me("parent"), droits: [])
         XCTAssertEqual(e.profil, .famille)
         XCTAssertTrue(e.contient(.absences))
+        XCTAssertTrue(e.contient(.notes))
         XCTAssertFalse(e.contient(.appel))
+        XCTAssertFalse(e.contient(.saisieNotes))
     }
 
     func testEleve() {
         let e = Capacites.espace(me: me("eleve", eleve: "el1"), droits: [])
         XCTAssertEqual(e.profil, .eleve)
         XCTAssertFalse(e.contient(.absences))
+        XCTAssertFalse(e.contient(.appel))
+        XCTAssertTrue(e.contient(.edt))
     }
 
     func testRoleLibreVieScolaire() {
         let e = Capacites.espace(me: me("administratif"), droits: [Droit(action: "absences.lire", portee: "etablissement")])
-        XCTAssertEqual(e.profil, .vieScolaire)
+        XCTAssertEqual(e.profil, .personnel)
         XCTAssertTrue(e.contient(.vieScolaire))
+        XCTAssertFalse(e.contient(.appel))
+        XCTAssertFalse(e.contient(.saisieNotes))
+    }
+
+    func testEcransIndependantsDuNomDuRole() {
+        let droits = [Droit(action: "appel.verifier", portee: "etablissement"), Droit(action: "absences.declarer", portee: "etablissement")]
+        let a = Capacites.espace(me: me("cpe"), droits: droits).modules
+        let b = Capacites.espace(me: me("role_invente"), droits: droits).modules
+        XCTAssertEqual(a, b)
+        XCTAssertTrue(a.contains(.vieScolaire) && a.contains(.appel))
+    }
+
+    func testSansDroitLePersonnelAQueLeSocle() {
+        let e = Capacites.espace(me: me("direction"), droits: [])
+        XCTAssertEqual(e.modules, [.accueil, .messagerie, .edt, .profil])
+    }
+
+    func testSaisieDeNotesSelonLeDroit() {
+        XCTAssertTrue(Capacites.espace(me: me("x"), droits: [Droit(action: "notes.saisir", portee: "designes", cibles: ["c1"])]).contient(.saisieNotes))
+        XCTAssertFalse(Capacites.espace(me: me("x"), droits: [Droit(action: "notes.lire", portee: "etablissement")]).contient(.saisieNotes))
     }
 
     func testEnrolement() {
-        let e = Capacites.espace(me: me("prof", portee: "enrolement"), droits: [])
+        let e = Capacites.espace(me: me("prof", portee: "enrolement"), droits: droitsProf)
         XCTAssertTrue(e.enrolementRequis)
         XCTAssertEqual(e.modules, [.profil])
     }
@@ -183,7 +214,8 @@ final class ConnexionTests: XCTestCase {
         let coffre = CoffreMemoire()
         let svc = ServiceConnexion(client: client(s, coffre), coffre: coffre, cache: CacheMemoire(), passkey: FauxPasskey())
         guard case .connecte(_, let espace) = try await svc.connexionPasskey(email: "prof@lpnb.fr") else { return XCTFail() }
-        XCTAssertEqual(espace.profil, .professeur)
+        XCTAssertEqual(espace.profil, .personnel)
+        XCTAssertTrue(espace.enseigne)
         XCTAssertEqual(coffre.lire(), "jeton-secret")
         let start = try JSONSerialization.jsonObject(with: s.recues[0].corps!) as! [String: Any]
         XCTAssertEqual(start["client"] as? String, "mobile")

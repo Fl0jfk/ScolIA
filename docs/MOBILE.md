@@ -132,26 +132,45 @@ Interface prête (`FournisseurPush`), implémentation par défaut inactive. À l
 
 Aucune modification du backend n'a été faite dans ce chantier.
 
-## 10. Vérifications (2026-11-06, conteneur Linux)
+## 10. Vérifications (2026-11-06, conteneur Linux, deuxième passe)
 
 | Élément | Résultat |
 |---|---|
-| Android `:core` | `./gradlew -Pscolia.coreSeulement=true :core:test` : **32 tests verts** (Kotlin 2.2.21, JDK 21, cible 17) |
-| Android `:app` | **non compilé** : `dl.google.com` / `maven.google.com` refusés par le réseau du conteneur (SDK, AGP, androidx, Compose introuvables, miroirs aussi bloqués). Analyse par `kotlinc` contre `android.jar` (API 35) : aucune erreur de syntaxe ; erreurs restantes toutes dues aux bibliothèques androidx absentes |
-| iOS `ScolIACore` | image Docker `swift:6.1-noble` : `swift build` OK, **28 tests verts** |
-| iOS `ScolIAUI` + `App` | **non compilé** (pas de SDK iOS sous Linux) ; `swiftc -parse` : syntaxe valide |
-| Sur appareil | rien (passkeys, biométrie, QR, App Links non essayés) |
+| Android `:core` | `./gradlew :core:test` : **34 tests verts** (Kotlin 2.2.21, JDK 21, cible 17), dont 7 sur `Capacites` (écrans selon les droits) |
+| Android `:app` (compilation) | **`assembleDebug` OK** (APK debug ~31 Mo) et **`assembleRelease` OK** (R8 + ProGuard, APK non signé ~4,5 Mo) ; SDK 35, build-tools 35.0.0, AGP 8.11.1, Gradle 8.14.3 |
+| Android `:app` (tests sans appareil) | **8 tests Compose verts** (`EcransComposeTest`, JVM + Robolectric 4.14.1, SDK 34 simulé) : rattachement refusant une adresse hors `scolia.fr`, connexion (passkey d'abord, mot de passe en secours), verrou, enrôlement bloquant, navigation professeur / famille / rôle libre selon les droits, appel complet (marquage puis clôture **seulement après confirmation**) |
+| Android lint | `lintDebug` : **0 erreur**, 19 avertissements (versions de bibliothèques plus récentes, `SharedPreferences.edit` KTX, icône d'appli absente, orientation fixe) |
+| iOS `ScolIACore` | chaîne Swift 6.1.2 pour Linux (tar officiel `download.swift.org`) : `swift test` : **31 tests verts** (28 + 3 ajoutés pour les droits) |
+| iOS `ScolIAUI` + `App` | **non compilé** (pas de SDK iOS hors macOS) ; `swiftc -parse` : syntaxe valide sur les 6 fichiers |
+| Sur appareil / émulateur | **rien** (passkeys, biométrie, QR, App Links, TalkBack non essayés) |
 
-Une revue indépendante (sans compilation) du code Compose et SwiftUI a été faite ; ses constats sont traités au §12.
+### Ce que cette passe a changé
+- **Écrans selon les droits du serveur** : `Capacites` (Kotlin et Swift) ne contient plus aucun nom de rôle pour le personnel ; modules calculés depuis `/roles/mes-droits` (action + portée) : `Appel` = `absences.lire` avec portée « mes classes/groupes » ou `absences.declarer` ; `Vie scolaire` = `absences.lire` portée établissement, `appel.verifier`, `absences.justifier` ou `assiduite.signaler` ; `Saisie de notes` = `notes.saisir` ; `Cahier de textes` = portée enseignant ; `Messages`, `EDT`, `Mon compte` pour tout le personnel. Un rôle libre créé par l'établissement (D-017) obtient donc les bons écrans (test dédié). **Exception documentée** : élève et famille, pour qui `droits_effectifs` renvoie une liste vide par conception (lien légal, hors rôles libres) : seul `/auth/me` (`role` ou `eleve_id`) les distingue. `Profil` se réduit à `ELEVE / FAMILLE / PERSONNEL` (choix de la source des données).
+- `FLAG_SECURE` posé aussi sur les boîtes de dialogue Compose.
+- Premier build réel de `:app` : aucune correction de code n'a été nécessaire pour compiler.
 
-Pour compiler ailleurs : Android Studio / SDK 35 → `cd ent-rust/apps/android && ./gradlew assembleDebug test` ; Mac → `brew install xcodegen && cd ent-rust/apps/ios && xcodegen generate && open ScolIA.xcodeproj`.
+### Lancer les vérifications
+```
+# Android (JDK 17+, Android SDK 35 : ANDROID_HOME ou local.properties sdk.dir=…)
+cd ent-rust/apps/android
+./gradlew :core:test :app:testDebugUnitTest :app:assembleDebug :app:lintDebug
+# Sans SDK Android : ./gradlew -Pscolia.coreSeulement=true :core:test
+# Si Maven Central répond 429 (limite de débit) : miroir au choix, hors dépôt (~/.gradle/init.d) ;
+#   pour l'image Android de Robolectric : -Pscolia.robolectricRepo=https://<miroir>/maven2/
+
+# iOS, cœur seul (Linux ou Mac, Swift 5.9+)
+cd ent-rust/apps/ios && swift test
+```
+
+### Hôtes réseau nécessaires (conteneur à accès limité)
+`dl.google.com` (SDK Android et dépôt Google Maven : AGP, androidx, Compose), `download.swift.org` (chaîne Swift Linux), plus Maven Central / `plugins.gradle.org` (ouverts par défaut, mais Maven Central peut limiter le débit : voir ci-dessus).
 
 ## 11. Suites proposées
 
-1. Compiler `:app` et `ScolIAUI` sur une machine équipée, corriger, lancer sur émulateur / simulateur contre le labo.
-2. M1 (associations de domaine) : préalable à toute passkey native.
-3. M2 + M4, puis choix du fournisseur push.
-4. Tests d'interface (Compose UI tests, XCUITest) et essais TalkBack / VoiceOver.
+1. **Sur un Mac (Xcode 16+, SDK iOS 18)** : `brew install xcodegen && cd ent-rust/apps/ios && xcodegen generate && open ScolIA.xcodeproj` ; lancer le schéma `ScolIA` sur simulateur iPhone (iOS 17+) ; `swift test` pour le cœur ; corriger les erreurs de compilation de `ScolIAUI` (jamais compilé : attendre un jeu d'erreurs de type isolation `@MainActor`/Sendable, API SwiftUI, `AuthenticationServices`) ; vérifier le labo local (`http://127.0.0.1:3001?etablissement_id=<uuid>`). Ajouter ensuite des tests d'interface (XCUITest) et la signature (équipe Apple, `aps-environment` seulement quand le push sera choisi).
+2. **Android sur émulateur / appareil** : `./gradlew :app:installDebug` (API 28+, services Play pour les passkeys) contre le labo (`http://10.0.2.2:3001?etablissement_id=<uuid>`) ; essais TalkBack ; tests instrumentés Compose (`androidTest`) pour le parcours complet.
+3. M1 (associations de domaine) : préalable à toute passkey native, y compris le build Debug (`fr.scolia.mobile.debug`).
+4. M2 + M4, puis choix du fournisseur push.
 5. Liaison de la clé du jeton à l'authentification de l'appareil.
 
 ## 12. Revue indépendante (2026-11-06) — corrigé / restant
@@ -169,11 +188,10 @@ Corrigé après revue :
 - changement d'établissement : la reprise en cours est annulée (pas d'état d'un autre établissement) ; démarrage hors ligne : message explicite ;
 - `toString` / `description` de la requête et de la réponse de connexion sans jeton ; OkHttp exposé au module `app` ; `POST_NOTIFICATIONS` et `aps-environment` retirés tant que le push n'est pas choisi ; orientations iPad.
 
-Restant (non bloquant, à traiter à la première compilation) :
+Restant (non bloquant, à traiter ; la compilation Android est faite, celle d'iOS reste à faire sur Mac) :
 - démarrage à froid hors ligne : le cache n'est pas accessible tant que `/auth/me` ne répond pas (prévoir un `Me` mis en cache) ;
 - Xcode 16 (SDK iOS 18) recommandé (isolation `@MainActor` des vues) ;
 - build Debug Android (`fr.scolia.mobile.debug`) : à déclarer aussi dans `assetlinks.json` pour tester passkeys et App Links ;
-- `FLAG_SECURE` non appliqué aux boîtes de dialogue Compose (`DialogProperties(securePolicy = SecureOn)`) ;
 - une seule instance de transport HTTP à partager (OkHttp / URLSession) ;
 - iOS au-delà de 5 onglets (famille : 7) : onglet « Plus » système, à remplacer éventuellement par un menu maison comme sur Android ;
 - clé du jeton non liée à la biométrie (§4).

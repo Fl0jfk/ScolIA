@@ -127,7 +127,7 @@ struct Accueil: View {
                     Button { ouvrir(m) } label: { Label(m.titre, systemImage: m.symbole) }
                 }
             }
-            if espace.profil == .professeur {
+            if espace.enseigne {
                 Section("Mes cours du jour") {
                     Chargeur(modele: modele, cle: "cours", charger: { try await modele.lecteur!.lire(Chemins.mesCreneaux(aujourdHui()), [EdtCreneau].self) }) { cr, _ in
                         if cr.isEmpty { Text("Aucun cours aujourd'hui.") }
