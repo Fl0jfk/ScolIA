@@ -10,7 +10,7 @@ use crate::dossier_personnes::{
 use ent_auth::Role;
 use uuid::Uuid;
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(super) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
@@ -20,15 +20,15 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-fn foyers(ent: &PgEnt) -> crate::foyer_repo::PgFoyerRepo {
+pub(super) fn foyers(ent: &PgEnt) -> crate::foyer_repo::PgFoyerRepo {
     crate::foyer_repo::PgFoyerRepo::new(ent.pool().clone())
 }
 
-fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
+pub(super) fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
     (cast.direction.user_id, Role::Direction.as_str())
 }
 
-async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
+pub(super) async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
         .fetch_one(ent.pool())
@@ -38,7 +38,7 @@ async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
 }
 
 /// Élève neuf (les tests se rejouent sans dépendre des données précédentes).
-async fn eleve_neuf(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
+pub(super) async fn eleve_neuf(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, status, created_at, updated_at)
@@ -54,7 +54,7 @@ async fn eleve_neuf(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
 }
 
 /// Personne neuve AVEC compte de connexion (retourne personne_id, user_id).
-async fn personne_avec_compte(ent: &PgEnt, etab: Uuid, nom: &str, email: &str) -> (Uuid, Uuid) {
+pub(super) async fn personne_avec_compte(ent: &PgEnt, etab: Uuid, nom: &str, email: &str) -> (Uuid, Uuid) {
     let user = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
@@ -88,7 +88,7 @@ async fn personne_avec_compte(ent: &PgEnt, etab: Uuid, nom: &str, email: &str) -
     (p, user)
 }
 
-fn declaration(nom: &str, prenom: &str, email: Option<&str>, rang: i16) -> DeclarationResponsable {
+pub(super) fn declaration(nom: &str, prenom: &str, email: Option<&str>, rang: i16) -> DeclarationResponsable {
     DeclarationResponsable {
         cle: Uuid::new_v4(),
         rang,
@@ -113,7 +113,7 @@ fn declaration(nom: &str, prenom: &str, email: Option<&str>, rang: i16) -> Decla
     }
 }
 
-fn lien_saisie(personne_id: Option<Uuid>, foyer: Option<Uuid>) -> LienSaisie {
+pub(super) fn lien_saisie(personne_id: Option<Uuid>, foyer: Option<Uuid>) -> LienSaisie {
     LienSaisie {
         personne_id,
         foyer_id: foyer,
@@ -129,7 +129,7 @@ fn lien_saisie(personne_id: Option<Uuid>, foyer: Option<Uuid>) -> LienSaisie {
     }
 }
 
-fn saisie(nom: &str, email: Option<&str>, tel: Option<&str>) -> PersonneSaisie {
+pub(super) fn saisie(nom: &str, email: Option<&str>, tel: Option<&str>) -> PersonneSaisie {
     PersonneSaisie {
         nom: nom.into(),
         prenom: Some("Ada".into()),

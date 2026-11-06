@@ -227,6 +227,8 @@ mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
