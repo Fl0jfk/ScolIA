@@ -3,9 +3,11 @@
 //! de suspension…) restent décidés par le serveur ; ce client transporte.
 
 use ent_types::dossier::{
-    AjoutResponsableBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto,
-    LienBody, LienEnAttenteDto, MonLienEnAttenteDto, PayeurPartDto, PayeursBody, PersonneBody,
-    PersonneDto, ReponseLienBody, ResponsableDto, SuspensionBody,
+    AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto, ConfirmationGuichetBody,
+    ConfirmationGuichetDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto,
+    LienBody, LienEnAttenteDto, LienEnAttenteEleveDto, MonLienEnAttenteDto, NePasSolliciterBody,
+    PayeurPartDto, PayeursBody, PersonneBody, PersonneDto, ReponseLienBody, ResponsableDto,
+    SuspensionBody,
 };
 use uuid::Uuid;
 
@@ -121,6 +123,72 @@ impl ApiClient {
             )
             .await?;
         Ok(())
+    }
+
+    /// `GET /dossier/eleves/{id}/liens-en-attente` : demandes de lien en attente (personnel).
+    pub async fn liens_en_attente_eleve(
+        &self,
+        eleve_id: Uuid,
+    ) -> Result<Vec<LienEnAttenteEleveDto>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/dossier/eleves/{eleve_id}/liens-en-attente"),
+            None,
+        )
+        .await
+    }
+
+    /// `POST /dossier/liens-en-attente/{id}/confirmer-guichet` : pièce d'identité vue au guichet
+    /// (seul le type est transmis, jamais de copie ni de numéro).
+    pub async fn confirmer_lien_guichet(
+        &self,
+        attente_id: Uuid,
+        piece: &str,
+    ) -> Result<ConfirmationGuichetDto, ApiError> {
+        let c = corps(&ConfirmationGuichetBody {
+            piece: piece.to_string(),
+        })?;
+        self.appel(
+            Methode::Post,
+            &format!("/dossier/liens-en-attente/{attente_id}/confirmer-guichet"),
+            Some(c),
+        )
+        .await
+    }
+
+    /// `GET /dossier/alertes-protection` (direction seule).
+    pub async fn alertes_protection(&self) -> Result<AlertesProtectionDto, ApiError> {
+        self.appel(Methode::Get, "/dossier/alertes-protection", None)
+            .await
+    }
+
+    /// `POST /dossier/personnes/{id}/ne-pas-solliciter` (direction) : `204`.
+    pub async fn definir_ne_pas_solliciter(
+        &self,
+        personne_id: Uuid,
+        actif: bool,
+        reference: Option<String>,
+    ) -> Result<(), ApiError> {
+        let c = corps(&NePasSolliciterBody { actif, reference })?;
+        self.appel(
+            Methode::Post,
+            &format!("/dossier/personnes/{personne_id}/ne-pas-solliciter"),
+            Some(c),
+        )
+        .await
+    }
+
+    /// `POST /dossier/adresses-protegees/{id}/ouvrir` : consultation journalisée de l'adresse.
+    pub async fn ouvrir_adresse_protegee(
+        &self,
+        adresse_id: Uuid,
+    ) -> Result<AdresseProtegeeDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/dossier/adresses-protegees/{adresse_id}/ouvrir"),
+            Some(serde_json::json!({})),
+        )
+        .await
     }
 
     /// `POST /dossier/liens/{id}/suspendre` (motif obligatoire).

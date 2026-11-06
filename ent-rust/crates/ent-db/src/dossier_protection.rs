@@ -348,7 +348,65 @@ pub struct AlertesProtection {
     pub ne_pas_solliciter_a_confirmer: Vec<ProtectionADeclarer>,
 }
 
+/// Lien en attente d'un élève, vu du personnel (guichet, ADM-82).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LienEnAttenteEleve {
+    pub attente_id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub a_un_compte: bool,
+    pub lien: String,
+    /// `saisie` ou `inscription`.
+    pub source: String,
+    pub demande_le: DateTime<Utc>,
+}
+
 impl PgEnt {
+    /// Liens en attente de confirmation pour un élève (personnel habilité, `personnes.gerer`) :
+    /// de quoi proposer la confirmation au guichet. Ni coordonnées ni marqueur de protection.
+    pub async fn liens_en_attente_eleve_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+    ) -> Result<Vec<LienEnAttenteEleve>, EntDbError> {
+        self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
+            .await?;
+        self.dossier_exiger_eleve(etab, eleve_id).await?;
+        let rows: Vec<(Uuid, Uuid, String, Option<String>, bool, String, String, DateTime<Utc>)> =
+            sqlx::query_as(
+                "SELECT a.id, p.id, p.nom, p.prenom, (p.user_id IS NOT NULL), a.lien, a.source, a.created_at
+                   FROM ent_lien_attente a
+                   JOIN ent_personne p ON p.id = a.personne_id AND p.etablissement_id = a.etablissement_id
+                  WHERE a.etablissement_id = $1 AND a.eleve_id = $2 AND a.statut = 'en_attente'
+                  ORDER BY a.created_at",
+            )
+            .bind(etab)
+            .bind(eleve_id)
+            .fetch_all(self.pool())
+            .await
+            .map_err(db)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(attente_id, personne_id, nom, prenom, a_un_compte, lien, source, demande_le)| {
+                    LienEnAttenteEleve {
+                        attente_id,
+                        personne_id,
+                        nom,
+                        prenom,
+                        a_un_compte,
+                        lien,
+                        source,
+                        demande_le,
+                    }
+                },
+            )
+            .collect())
+    }
+
     /// Alertes « adresse à protéger parquée » et « ne pas solliciter à confirmer ».
     /// Réservé à la direction (`liens.suspendre`).
     pub async fn alertes_protection_for_actor(

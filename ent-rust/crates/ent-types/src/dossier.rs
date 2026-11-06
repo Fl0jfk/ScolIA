@@ -135,6 +135,20 @@ pub struct ReponseLienBody {
     pub accepter: bool,
 }
 
+/// Lien en attente d'un élève, vu du personnel : de quoi le confirmer au guichet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LienEnAttenteEleveDto {
+    pub attente_id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub a_un_compte: bool,
+    pub lien: String,
+    /// `saisie` ou `inscription`.
+    pub source: String,
+    pub demande_le: DateTime<Utc>,
+}
+
 /// Corps de `POST /dossier/liens-en-attente/{id}/confirmer-guichet` : la pièce d'identité vue
 /// au guichet. Seul le type est enregistré (jamais la copie ni le numéro).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

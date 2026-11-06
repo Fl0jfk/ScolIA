@@ -16,7 +16,7 @@ use ent_db::{
 };
 use ent_types::dossier::{
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto,
-    ConfirmationGuichetBody, ConfirmationGuichetDto, NePasSolliciterBody, ProtectionADeclarerDto, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
+    ConfirmationGuichetBody, ConfirmationGuichetDto, LienEnAttenteEleveDto, NePasSolliciterBody, ProtectionADeclarerDto, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
     FicheEleveDto, FusionBody, FusionDto, LienBody, PayeursBody, PersonneBody, PersonneDto,
     PersonneTrouveeDto, ResponsableDto, ResumeSectionsDto, SectionsDto, SuspensionBody,
 };
@@ -47,6 +47,10 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/dossier/liens-en-attente/{id}/confirmer-guichet",
             post(confirmer_guichet),
+        )
+        .route(
+            "/dossier/eleves/{id}/liens-en-attente",
+            get(liens_en_attente_eleve),
         )
         .route("/dossier/alertes-protection", get(alertes_protection))
         .route("/dossier/personnes/{id}/ne-pas-solliciter", post(ne_pas_solliciter))
@@ -540,6 +544,38 @@ async fn confirmer_guichet(
         .await
         .map_err(map_db)?;
     Ok(Json(ConfirmationGuichetDto { lien_id }))
+}
+
+/// Liens en attente de confirmation d'un élève (personnel : proposer le guichet).
+async fn liens_en_attente_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<LienEnAttenteEleveDto>>> {
+    let v = state
+        .ent
+        .liens_en_attente_eleve_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        v.into_iter()
+            .map(|l| LienEnAttenteEleveDto {
+                attente_id: l.attente_id,
+                personne_id: l.personne_id,
+                nom: l.nom,
+                prenom: l.prenom,
+                a_un_compte: l.a_un_compte,
+                lien: l.lien,
+                source: l.source,
+                demande_le: l.demande_le,
+            })
+            .collect(),
+    ))
 }
 
 /// Alertes de protection (adresses parquées, « ne pas solliciter » à confirmer) — direction.

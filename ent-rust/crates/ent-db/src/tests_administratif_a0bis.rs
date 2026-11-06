@@ -537,6 +537,19 @@ async fn confirmation_au_guichet_piece_et_auteur_traces() {
     else {
         panic!("attendu : lien en attente");
     };
+    // Le secrétariat voit la demande en attente de l'élève (sans coordonnées) ; pas les autres rôles.
+    let en_attente = ent
+        .liens_en_attente_eleve_for_actor(etab, adm, adm_role, eleve)
+        .await
+        .unwrap();
+    assert_eq!(en_attente.len(), 1);
+    assert_eq!(en_attente[0].attente_id, attente_id);
+    assert!(en_attente[0].a_un_compte && en_attente[0].source == "saisie");
+    assert!(matches!(
+        ent.liens_en_attente_eleve_for_actor(etab, cast.parent_lea.user_id, Role::Parent.as_str(), eleve)
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
     // Droit insuffisant ou autre établissement : rien ne se passe.
     for (acteur, role) in [
         (cast.prof.user_id, Role::Prof.as_str()),

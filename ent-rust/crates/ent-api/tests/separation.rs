@@ -282,6 +282,8 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
             // protection et « ne pas solliciter » (direction). Aucune de ces routes ne s'applique
             // à une ressource d'un autre établissement ; les alertes ne listent que celles de
             // l'établissement de l'appelant, et jamais une adresse.
+            lire("liens-en-attente-eleve", "/dossier/eleves/{eleve}/liens-en-attente",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
             ecrire_sur_b("confirmer-guichet-B", "POST",
                 "/dossier/liens-en-attente/00000000-0000-0000-0000-000000000001/confirmer-guichet",
                 Some(r#"{"piece":"carte_identite"}"#)),
