@@ -1025,7 +1025,7 @@ async fn eleve_labels_batch(
         .collect();
     let map = state
         .ent
-        .eleve_labels(session.etablissement_id, &ids)
+        .eleve_labels_for_actor(session.etablissement_id, session.user_id, &session.role, &ids)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -6876,6 +6876,12 @@ async fn effectif_classe(
     let eleves = state
         .ent
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
+        .await
+        .map_err(map_db)?;
+    // D-022 : un professeur de groupe ne voit que les élèves de ses groupes.
+    let eleves = state
+        .ent
+        .restreindre_eleves_du_professeur(session.etablissement_id, session.user_id, &session.role, eleves)
         .await
         .map_err(map_db)?;
     Ok(Json(EffectifDto {

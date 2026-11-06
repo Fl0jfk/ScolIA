@@ -4139,13 +4139,39 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         limit: i64,
         niveau: NiveauIdentite,
     ) -> Result<Vec<Eleve>, EntDbError> {
-        let rows = self.search_eleves(etablissement_id, q, limit, niveau).await?;
-        self.restreindre_eleves_du_professeur(etablissement_id, actor_user_id, role, rows)
-            .await
+        // Professeur : on filtre APRÈS une recherche élargie, puis on tronque (sinon la limite
+        // écarterait ses propres élèves au profit d'élèves hors périmètre).
+        let large = if Role::parse(role) == Some(Role::Prof) { 2000 } else { limit };
+        let rows = self.search_eleves(etablissement_id, q, large, niveau).await?;
+        let mut rows = self
+            .restreindre_eleves_du_professeur(etablissement_id, actor_user_id, role, rows)
+            .await?;
+        rows.truncate(limit.max(0) as usize);
+        Ok(rows)
+    }
+
+    /// D-022 : libellés d'élèves ; un professeur n'obtient que ceux de son périmètre.
+    pub async fn eleve_labels_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, String>, EntDbError> {
+        let mut ids = ids.to_vec();
+        if Role::parse(role) == Some(Role::Prof) {
+            if let Some(ok) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::DossierLire)
+                .await?
+            {
+                ids.retain(|i| ok.contains(i));
+            }
+        }
+        Ok(self.eleve_labels(etablissement_id, &ids).await?.into_iter().collect())
     }
 
     /// D-022 : pour un professeur, ne garde que les élèves qu'il suit (groupes compris).
-    async fn restreindre_eleves_du_professeur(
+    pub async fn restreindre_eleves_du_professeur(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
