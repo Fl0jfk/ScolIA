@@ -19,7 +19,9 @@ async fn demarrer() -> Option<String> {
         .unwrap_or_else(|e| panic!("base de test locale uniquement : {e}"));
     let nom_base = parsed.path().trim_start_matches('/').to_ascii_lowercase();
     assert!(
-        ["test", "proto", "lab"].iter().any(|m| nom_base.contains(m)),
+        ["test", "proto", "lab"]
+            .iter()
+            .any(|m| nom_base.contains(m)),
         "le nom de la base doit contenir test, proto ou lab (refusé : {nom_base})"
     );
     let (app, _) = ent_web_server::routeur_complet()
@@ -28,9 +30,12 @@ async fn demarrer() -> Option<String> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     Some(format!("http://{addr}"))
 }

@@ -103,7 +103,10 @@ mod tests {
     fn erreurs_des_liens() {
         let invalide = message_erreur_lien(&ApiError::Invalide("x".into()));
         assert!(invalide.contains("invalide, expiré ou déjà utilisé"));
-        assert_eq!(invalide, message_erreur_lien(&ApiError::Introuvable("y".into())));
+        assert_eq!(
+            invalide,
+            message_erreur_lien(&ApiError::Introuvable("y".into()))
+        );
         assert!(message_erreur_lien(&ApiError::TropDeRequetes).contains("Trop de tentatives"));
         assert!(message_erreur_lien(&ApiError::Serveur(503, "x".into())).contains("reste valable"));
     }
