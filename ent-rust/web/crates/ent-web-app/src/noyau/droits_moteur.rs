@@ -67,6 +67,21 @@ impl DroitsMoteur {
     pub fn peut_signaler_assiduite(&self) -> bool {
         self.a("assiduite.signaler")
     }
+
+    /// Préparer et lancer des campagnes (quelle que soit la portée : le serveur borne le ciblage).
+    pub fn peut_lancer_campagne(&self) -> bool {
+        self.a("campagnes.lancer")
+    }
+
+    /// Organiser les rencontres parents-professeurs (portée établissement).
+    pub fn peut_gerer_rencontres(&self) -> bool {
+        self.a_etablissement("rencontres.gerer")
+    }
+
+    /// Créer des formulaires ou lire les consentements d'un objet.
+    pub fn peut_gerer_formulaires(&self) -> bool {
+        self.a_etablissement("formulaires.gerer") || self.a_etablissement("consentements.lire")
+    }
 }
 
 #[cfg(test)]

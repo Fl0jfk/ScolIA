@@ -65,9 +65,22 @@ async fn run_api() {
         .ok()
         .map(|e| e.trim().to_ascii_lowercase())
         .is_some_and(|v| ent_auth::ENVS_NON_PROD.contains(&v.as_str()));
-    if let Err(e) = ent_sms::SmsService::from_env_strict(non_prod) {
-        eprintln!("ent-api : {e}");
-        std::process::exit(1);
+    match ent_sms::SmsService::from_env_strict(non_prod) {
+        Err(e) => {
+            eprintln!("ent-api : {e}");
+            std::process::exit(1);
+        }
+        Ok(sms) => {
+            if let Some(e) = sms.erreur_config() {
+                tracing::warn!(erreur = %e, "configuration SMS OVH invalide : SMS simulés");
+            }
+            tracing::info!(
+                fournisseur = sms.fournisseur(),
+                reel = sms.is_live(),
+                "SMS : {}",
+                if sms.is_live() { "envoi réel" } else { "mode simulé" }
+            );
+        }
     }
 
     // Socle 2 (S2-0) : distribution de l'outbox (réactions entre domaines) en
