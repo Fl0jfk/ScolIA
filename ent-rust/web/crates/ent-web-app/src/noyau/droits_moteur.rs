@@ -97,6 +97,16 @@ impl DroitsMoteur {
     pub fn peut_gerer_formulaires(&self) -> bool {
         self.a_etablissement("formulaires.gerer") || self.a_etablissement("consentements.lire")
     }
+
+    /// Consulter la comptabilité (la gestion implique la lecture, comme côté serveur).
+    pub fn peut_lire_facturation(&self) -> bool {
+        self.a_etablissement("facturation.lire") || self.a_etablissement("facturation.gerer")
+    }
+
+    /// Générer, émettre, prélever, relancer, exporter (S2-9).
+    pub fn peut_gerer_facturation(&self) -> bool {
+        self.a_etablissement("facturation.gerer")
+    }
 }
 
 #[cfg(test)]

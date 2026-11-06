@@ -462,7 +462,7 @@ pub fn render_sepa_pain008(
         ));
         for l in group {
             let p = &l.prelevement;
-            let dbtr_bic = l.bic.as_deref().unwrap_or("NOTPROVIDED");
+            // Sans BIC : `Othr/Id = NOTPROVIDED` (le motif XSD de `BIC` refuse ce texte).
             xml.push_str("<DrctDbtTxInf>");
             xml.push_str(&format!(
                 "<PmtId><EndToEndId>{}</EndToEndId></PmtId>",
@@ -482,10 +482,15 @@ pub fn render_sepa_pain008(
             ));
             xml.push_str("<AmdmntInd>false</AmdmntInd>");
             xml.push_str("</MndtRltdInf></DrctDbtTx>");
-            xml.push_str(&format!(
-                "<DbtrAgt><FinInstnId><BIC>{}</BIC></FinInstnId></DbtrAgt>",
-                xml_escape(dbtr_bic)
-            ));
+            match l.bic.as_deref().filter(|b| !b.trim().is_empty()) {
+                Some(bic) => xml.push_str(&format!(
+                    "<DbtrAgt><FinInstnId><BIC>{}</BIC></FinInstnId></DbtrAgt>",
+                    xml_escape(bic)
+                )),
+                None => xml.push_str(
+                    "<DbtrAgt><FinInstnId><Othr><Id>NOTPROVIDED</Id></Othr></FinInstnId></DbtrAgt>",
+                ),
+            }
             xml.push_str(&format!(
                 "<Dbtr><Nm>{}</Nm></Dbtr>",
                 xml_escape(&l.titulaire)

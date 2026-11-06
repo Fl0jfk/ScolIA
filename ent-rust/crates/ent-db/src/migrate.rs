@@ -138,6 +138,13 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/191_campagnes.sql"),
     include_str!("../../../migrations/192_rencontres.sql"),
     include_str!("../../../migrations/193_formulaires.sql"),
+    include_str!("../../../migrations/200_fin_parametres_tarifs.sql"),
+    include_str!("../../../migrations/201_fin_sources.sql"),
+    include_str!("../../../migrations/202_fin_sepa.sql"),
+    include_str!("../../../migrations/203_fin_reglements_lettrage.sql"),
+    include_str!("../../../migrations/204_fin_relances.sql"),
+    include_str!("../../../migrations/205_fin_export_comptable.sql"),
+    include_str!("../../../migrations/206_fin_rls.sql"),
     include_str!("../../../migrations/250_inscriptions_i0.sql"),
     include_str!("../../../migrations/255_email_confirmation.sql"),
 ];

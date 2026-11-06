@@ -22,6 +22,7 @@ pub mod dossier;
 pub mod edt;
 pub mod edt_s2;
 pub mod evaluations;
+pub mod finances;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;

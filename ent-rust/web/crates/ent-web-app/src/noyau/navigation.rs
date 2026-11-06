@@ -44,6 +44,9 @@ pub const CAMPAGNES: &str = "/web/campagnes";
 pub const RENCONTRES: &str = "/web/rencontres";
 pub const RENDEZ_VOUS: &str = "/web/rendez-vous";
 pub const FORMULAIRES: &str = "/web/formulaires";
+/// Finances (S2-9) : comptabilité (personnel) et factures des payeurs (familles).
+pub const COMPTABILITE: &str = "/web/comptabilite";
+pub const MES_FACTURES: &str = "/web/mes-factures";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -154,7 +157,13 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.portail_famille {
         v.push(entree("Réinscription", REINSCRIPTION, NomIcone::Ecole));
+        v.push(entree("Factures", MES_FACTURES, NomIcone::Annonce));
     }
+    // S2-9 : comptabilité selon le moteur de droits (rôles paramétrés compris).
+    if moteur.peut_lire_facturation() {
+        v.push(entree("Comptabilité", COMPTABILITE, NomIcone::Salle));
+    }
+    // Administration des rôles : toujours en dernier.
     if droits.gerer_roles {
         v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
     }
@@ -259,7 +268,8 @@ mod tests {
                 RENDEZ_VOUS,
                 FORMULAIRES,
                 MESSAGES,
-                REINSCRIPTION
+                REINSCRIPTION,
+                MES_FACTURES
             ],
             "une famille ne voit pas l'appel"
         );
@@ -396,9 +406,13 @@ mod tests {
                 RENDEZ_VOUS,
                 FORMULAIRES,
                 MESSAGES,
-                REINSCRIPTION
+                REINSCRIPTION,
+                MES_FACTURES
             ]
         );
+        // Un parent ne voit jamais la comptabilité, même si le moteur répondait par erreur.
+        let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
     }
 
     #[test]
@@ -463,6 +477,18 @@ mod tests {
             "/web/direction/roles/6f1c3c80"
         ));
         assert!(!ent_web_ui::lien_actif(ROLES, POLITIQUE_SECURITE));
+    }
+
+    #[test]
+    fn comptabilite_selon_le_moteur_de_droits() {
+        let lire = DroitsMoteur::new(vec![droit("facturation.lire", "etablissement")]);
+        let v = adresses(droits_du_role("administratif"), &lire);
+        assert!(v.contains(&COMPTABILITE.to_string()));
+        assert!(lire.peut_lire_facturation() && !lire.peut_gerer_facturation());
+        let gerer = DroitsMoteur::new(vec![droit("facturation.gerer", "etablissement")]);
+        assert!(gerer.peut_lire_facturation() && gerer.peut_gerer_facturation());
+        let v = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
     }
 
     #[test]

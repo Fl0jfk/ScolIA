@@ -587,3 +587,12 @@
 .eva-notes { list-style: none; margin: 0; padding: 0; white-space: normal; }
 .eva-export { margin-block: var(--esp-3); }
 @media (max-width: 40rem) { .eva-appreciation { width: 12rem; } }
+/* Finances (S2-9) */
+.fin-defilement { overflow-x: auto; max-width: 100%; }
+.fin-tableau { width: 100%; border-collapse: collapse; font-size: var(--taille-s); }
+.fin-tableau caption { text-align: left; font-weight: 600; padding-block: var(--esp-2); }
+.fin-tableau th, .fin-tableau td { text-align: left; padding: var(--esp-2); border-bottom: 1px solid var(--c-ligne); vertical-align: top; }
+.fin-tableau input[type="checkbox"] { width: 20px; height: 20px; margin: 0; accent-color: var(--c-acc); }
+.fin-nombre { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fin-rangee { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; }
+.fin-solde { display: flex; flex-wrap: wrap; gap: var(--esp-4); align-items: baseline; }

@@ -471,6 +471,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
+    // Préinscription (S2-3, D-014) : e-mail vérifié par code, invitation par jeton.
+    ("POST", "/preinscription/demarrer"),
+    ("POST", "/preinscription/verifier"),
+    ("POST", "/inscriptions/invitations/accepter"),
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];

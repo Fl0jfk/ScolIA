@@ -10,6 +10,7 @@ mod dossier;
 mod dto;
 pub mod http_garde;
 mod ical;
+mod finances;
 mod inscriptions;
 pub mod obs;
 mod referentiel;
@@ -274,6 +275,8 @@ mod tests_dossier;
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;

@@ -94,6 +94,12 @@ pub mod dossier_personnes;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
 pub mod imports;
+// Finances reliées (socle 2, lot S2-9).
+pub mod finances;
+pub mod finances_calcul;
+pub mod finances_reactions;
+pub mod finances_sepa;
+pub mod paiement_en_ligne;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -262,6 +268,8 @@ mod tests_vie_scolaire;
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
+#[cfg(all(test, feature = "labo"))]
+mod tests_finances;
 
 #[cfg(test)]
 mod integration_tests {

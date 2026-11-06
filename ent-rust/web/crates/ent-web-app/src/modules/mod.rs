@@ -15,6 +15,7 @@ pub mod dossier;
 pub mod edt;
 pub mod edt_semaine;
 pub mod evaluations;
+pub mod finances;
 pub mod formulaires;
 pub mod inscriptions;
 pub mod journee_vs;

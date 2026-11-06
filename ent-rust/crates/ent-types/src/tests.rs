@@ -260,3 +260,30 @@ fn communication_aller_retour() {
             "eleve_prenom":"Harry","eleve_nom":"Potter","responsable_nom":"Lily Potter"}"#,
     );
 }
+
+#[test]
+fn finances_aller_retour() {
+    use crate::finances::*;
+    aller_retour::<FactureResumeDto>(
+        r#"{"id":"00000000-0000-0000-0000-000000000001","numero":"F2026-000001","type_piece":"facture","origine":"annuelle","statut":"emise","foyer_id":"00000000-0000-0000-0000-000000000002","foyer":"Foyer A","libelle":"Scolarité 2030-2031","annee_scolaire":"2030-2031","total_centimes":1000001,"regle_centimes":0,"reste_centimes":1000001,"facture_origine_id":null,"created_at":"2026-11-06T10:00:00Z","emise_at":"2026-11-06T10:05:00Z"}"#,
+    );
+    aller_retour::<RejetBody>(r#"{"code":"AM04"}"#);
+    aller_retour::<EtatPaiementEnLigneDto>(
+        r#"{"actif":false,"prestataire":null,"message":"Non proposé."}"#,
+    );
+    // Le contenu de l'export n'est sérialisé qu'à la création.
+    let e = ExportComptableDto {
+        id: uuid::Uuid::nil(),
+        numero: "EXP2026-0001".into(),
+        debut: chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+        fin: chrono::NaiveDate::from_ymd_opt(2026, 9, 30).unwrap(),
+        format: "scolia_ecritures_v1".into(),
+        nb_ecritures: 2,
+        total_debit_centimes: 100,
+        total_credit_centimes: 100,
+        empreinte: "ab".into(),
+        created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+        contenu: None,
+    };
+    assert!(!serde_json::to_string(&e).unwrap().contains("contenu"));
+}
