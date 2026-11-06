@@ -18,6 +18,7 @@ pub mod auth;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;
+pub mod edt_s2;
 pub mod referentiel;
 pub mod referentiel_admin;
 pub mod vie_scolaire;

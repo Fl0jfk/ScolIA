@@ -41,6 +41,7 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
     vec![
         Arc::new(ConsommateurNotifications),
         Arc::new(ConsommateurRelanceAppel),
+        Arc::new(crate::edt_reactions::ConsommateurNotificationsEdt),
     ]
 }
 

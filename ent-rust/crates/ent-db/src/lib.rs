@@ -61,6 +61,11 @@ mod ref_commun;
 mod referentiel_structure;
 mod referentiel_annee;
 mod referentiel_seances;
+pub mod edt_admin;
+pub mod edt_remplacement;
+mod edt_masse;
+pub mod delegation;
+mod edt_reactions;
 mod referentiel_classe_id;
 mod referentiel_groupes;
 mod retard_repo;
@@ -162,6 +167,19 @@ pub use referentiel_structure::{
     JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
     NIVEAUX_NATIONAUX,
 };
+pub use edt_admin::{
+    detecter_conflits, tous_les_conflits, CibleEdt, ConflitEdt, CreneauAdmin, CreneauConflit,
+    CreneauSaisie, Indisponibilite, JourFerme, NatureConflit, ResultatCreneau, SeanceSemaine,
+    SemaineEdt,
+};
+pub use edt_remplacement::{
+    AbsenceSeances, AbsenceVue, Candidat, ChangementEdt, ClasseTouchee, CmdAnnulationMasse,
+    CmdDeplacement, CmdRemplacement, RapportMasse, ResultatException, SeanceTouchee,
+    DROITS_REMPLACEMENT,
+};
+pub use delegation::{
+    droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
+};
 pub use dossier_personnes::{
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
@@ -200,6 +218,8 @@ mod scenarios;
 mod tests_referentiel;
 #[cfg(all(test, feature = "labo"))]
 mod tests_referentiel_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_s2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

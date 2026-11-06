@@ -402,6 +402,27 @@ fn domaine_appel() {
     jouer("appel", &specs_domaine_appel());
 }
 
+fn specs_domaine_edt() -> Vec<Spec> {
+    vec![
+            // S2-5 : l'emploi du temps d'un élève et ses changements ne sortent que pour le
+            // personnel, l'élève lui-même et ses responsables au lien actif.
+            lire("edt-changements", "/eleves/{eleve}/edt/changements?du={jour}&au={jour}", TOUS, STAFF),
+            lire("edt-semaine-eleve", "/edt/semaine?cible=eleve&id={eleve}&jour={jour}", TOUS, STAFF),
+            // Administration : gestion de l'EDT seulement (edt.gerer), jamais les familles ni le prof.
+            lire("edt-conflits", "/edt/admin/conflits", GESTION_HORS_PROF, &[]),
+            lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),
+            ecrire_sur_b("edt-annulation-masse-B", "POST", "/edt/annulation-masse",
+                Some(r#"{"du":"{jour}","au":"{jour}","portee":"etablissement","cibles":[],"heure_debut":null,"heure_fin":null,"motif_public":"x","cle":null,"apercu":true}"#)),
+            ecrire_sur_b("edt-remplacement-B", "POST", "/edt/remplacements",
+                Some(r#"{"creneau_id":"{appel}","jour":"{jour}","remplacant_user_id":"{eleve}","absence_rh_id":null,"nouvelle_salle":null}"#)),
+    ]
+}
+
+#[test]
+fn domaine_edt() {
+    jouer("emploi du temps, remplacements, délégations", &specs_domaine_edt());
+}
+
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",

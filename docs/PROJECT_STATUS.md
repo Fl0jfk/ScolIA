@@ -5,7 +5,7 @@ Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS
 
 ## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
 Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
-- Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
+- Catalogue d'actions réuni : 49 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4 + 2 de S2-5) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.
 - Migrations : … 099, 100 (RLS), 102, 110–112, 120–123 (dossier), 130–134 (vie scolaire) ; aucune collision, aucun renumérotage ; `MIGRATION_TAG` = `134_vs_discipline`.
 - Santé/psy/facturation : `TenantTx` (RLS) **et** scellement des champs sensibles conservés ; le rechiffrement en cas de course garde aussi le filtre `etablissement_id` du lot 3.
 - Corrections d'intégration : homonymes `Seance`/`Periode` (référentiel et vie scolaire) : convention de `ent-socle2-ecrans-ref-vs` (`SeanceRef`, `PeriodeRef`) ; doublons d'`ApiClient` (`mes_droits`, `definir_responsables_groupe`) réduits à une définition, `DroitEffectif` = alias de `DroitApi` ; garde SQL statique : filtre `etablissement_id` ajouté aux 6 `UPDATE ent_personne` de la fusion de personnes (aucune exception nouvelle) ; inventaire des routes de la matrice étendu à `dossier.rs` et `vie_scolaire.rs`.

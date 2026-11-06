@@ -110,6 +110,10 @@ pub enum Action {
     LiensSuspendre,
     /// Fusionner ou défusionner des personnes en doublon (DOS-15).
     PersonnesFusionner,
+    /// Annuler en masse des cours (grève, fermeture, sortie de niveau), EDT-08 (S2-5).
+    EdtAnnulerMasse,
+    /// Accorder, révoquer et consulter les délégations de droits datées, ADM-04 (S2-5).
+    DelegationsGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -126,7 +130,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 47] = [
+    pub const TOUTES: [Action; 49] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -176,6 +180,8 @@ impl Action {
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
+        Action::EdtAnnulerMasse,
+        Action::DelegationsGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -228,6 +234,8 @@ impl Action {
             Self::PayeursDefinir => "payeurs.definir",
             Self::LiensSuspendre => "liens.suspendre",
             Self::PersonnesFusionner => "personnes.fusionner",
+            Self::EdtAnnulerMasse => "edt.annuler_masse",
+            Self::DelegationsGerer => "delegations.gerer",
         }
     }
 
@@ -281,6 +289,8 @@ impl Action {
             Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
             Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
             Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
+            Self::EdtAnnulerMasse => "Annuler en masse des cours (grève, fermeture, sortie de niveau)",
+            Self::DelegationsGerer => "Déléguer des droits pour une durée limitée",
         }
     }
 
@@ -326,7 +336,9 @@ impl Action {
             Self::PersonnesGerer
             | Self::PayeursDefinir
             | Self::LiensSuspendre
-            | Self::PersonnesFusionner => &[Portee::Etablissement],
+            | Self::PersonnesFusionner
+            | Self::EdtAnnulerMasse
+            | Self::DelegationsGerer => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -527,6 +539,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(LiensSuspendre));
         d.push(etab(PersonnesFusionner));
+        // S2-5 : annulation en masse et délégations (EDT-08 ★, ADM-04) : direction.
+        d.push(etab(EdtAnnulerMasse));
+        d.push(etab(DelegationsGerer));
     }
     d
 }

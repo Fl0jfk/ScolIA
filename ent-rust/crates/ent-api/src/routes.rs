@@ -740,6 +740,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::dossier::routes());
     // Vie scolaire complète (S2-4, module séparé : `vie_scolaire.rs`).
     let r = r.merge(crate::vie_scolaire::routes());
+    // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
+    let r = r.merge(crate::edt_s2::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))

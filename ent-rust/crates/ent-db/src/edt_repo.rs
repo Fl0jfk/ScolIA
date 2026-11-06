@@ -298,40 +298,6 @@ impl PgEdtRepo {
         Ok(row.map(CalendrierAbRow::into_calendrier))
     }
 
-    pub async fn upsert_exception(&self, e: &EdtException) -> Result<(), DomainError> {
-        sqlx::query(
-            r#"
-            INSERT INTO ent_edt_exception (
-                id, etablissement_id, creneau_id, jour, kind,
-                remplacant_user_id, nouvelle_salle, motif,
-                created_by_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-            ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
-                id = EXCLUDED.id,
-                kind = EXCLUDED.kind,
-                remplacant_user_id = EXCLUDED.remplacant_user_id,
-                nouvelle_salle = EXCLUDED.nouvelle_salle,
-                motif = EXCLUDED.motif,
-                created_by_user_id = EXCLUDED.created_by_user_id,
-                created_at = EXCLUDED.created_at
-            "#,
-        )
-        .bind(e.id)
-        .bind(e.etablissement_id)
-        .bind(e.creneau_id)
-        .bind(e.jour)
-        .bind(e.kind.as_str())
-        .bind(e.remplacant_user_id)
-        .bind(e.nouvelle_salle.as_deref())
-        .bind(&e.motif)
-        .bind(e.created_by_user_id)
-        .bind(e.created_at)
-        .execute(&self.pool)
-        .await
-        .map_err(map_sqlx)?;
-        Ok(())
-    }
-
     pub async fn get_exception(
         &self,
         etablissement_id: Uuid,

@@ -248,13 +248,13 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
 | EDT-01 | Importer un EDT (fichier) | ADF ★ | prévisualisation ; rapprochement classes/services | créneaux | `edt.import` [F] | I |
-| EDT-02 | Créer/modifier un créneau | ADF | fin > début [F] ; contraintes (prof, salle) | créneau | `edt.creneau_created` [F], `edt.creneau_modifie` | I |
+| EDT-02 | Créer/modifier un créneau | ADF | fin > début [F] ; contraintes (prof, salle) | créneau | `edt.creneau_created` [F], `edt.creneau_modifie` | I (conflits détectés, S2-5) |
 | EDT-03 | Lier un créneau à un service d'enseignement | ADF | service de la même année | droits CLS cohérents | `edt.creneau_modifie` | A |
 | EDT-04 | Déclarer une exception (annulation, déplacement, changement de salle) | ADF, CPE, DIR | unique par (créneau, jour) [F] | exception | `edt.exception` [F] | I |
-| EDT-05 | Organiser un remplacement | DIR, ADF | remplaçant disponible ; délégation datée (droits CLS temporaires) | exception + délégation | `edt.remplacement_organise` | P |
+| EDT-05 | Organiser un remplacement | DIR, ADF | remplaçant disponible ; délégation datée (droits CLS temporaires) | exception + délégation | `edt.remplacement_organise` | I (S2-5) |
 | EDT-06 | Matérialiser les séances datées | SYS | à partir des créneaux, A/B, calendrier | `ent_edt_seance` | `edt.seances_generees` | A |
-| EDT-07 | Consulter l'EDT (prof, élève, classe, salle) + iCal | tous · CLS/LIEN/SOI | exceptions visibles | lecture | — | P (classe/salle A) |
-| EDT-08 | Annuler en masse (grève, fermeture, sortie de niveau) | DIR ★ | prévisualisation des classes touchées | exceptions en lot | `edt.annulation_masse` | A |
+| EDT-07 | Consulter l'EDT (prof, élève, classe, salle) + iCal | tous · CLS/LIEN/SOI | exceptions visibles | lecture | — | I (semaine, S2-5) ; iCal des nouvelles vues non fait |
+| EDT-08 | Annuler en masse (grève, fermeture, sortie de niveau) | DIR ★ | prévisualisation des classes touchées | exceptions en lot | `edt.annulation_masse` | I (S2-5) |
 
 ### D5 — Vie scolaire (VS)
 
@@ -431,7 +431,7 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 | ADM-01 | Configurer l'établissement (nom, domaines, sites, logo) | ADM ★ | domaine unique (D-012) | établissement | `etab.param` [F] | P (096) |
 | ADM-02 | Provisionner un personnel (compte + rôle) | ADM, DIR | identité unique (D-013) | membership | `compte.provisionne` | I |
 | ADM-03 | Changer / retirer un rôle | ADM, DIR ★ | hiérarchie ; révocation des sessions (B5) | rôle historisé | `compte.role_change` | A |
-| ADM-04 | Déléguer un droit daté (remplaçant, organisateur, PP intérim) | DIR | date de fin obligatoire | délégation | `delegation.accordee` / `_expiree` | A |
+| ADM-04 | Déléguer un droit daté (remplaçant, organisateur, PP intérim) | DIR | date de fin obligatoire | délégation | `delegation.accordee` / `_expiree` | I (S2-5) |
 | ADM-05 | Désactiver un compte (départ) | ADM ★ | sessions révoquées | compte inactif | `compte.desactive` | P |
 | ADM-06 | Politique de sécurité (passkey obligatoire, vagues) | ADM ★ | D-009 | politique | `securite.politique_changee` | P (095) |
 | ADM-07 | Configurer le SSO | ADM ★ | découverte validée [F] | fournisseur | `oidc.fournisseur_configure` | I |
@@ -477,8 +477,8 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 | RH-01 | Tenir la fiche personnel (poste, quotité, disciplines) | ADF, DIR | données RH minimales (pas de paie) | fiche | `rh.fiche_modifiee` | P |
 | RH-02 | Déclarer une absence de personnel | personnel · SOI ; ADF | | absence RH | `rh.absence` [F] | I |
 | RH-03 | Valider l'absence | DIR | | absence validée | `rh.absence_validee` [F] | I |
-| RH-04 | Organiser les remplacements de courte durée | DIR, ADF | séances touchées listées automatiquement | exceptions EDT, délégation | `edt.remplacement_organise` | A |
-| RH-05 | Informer les familles des cours annulés | SYS | familles des classes touchées, sans motif | notification | `notification.envoyee` | A |
+| RH-04 | Organiser les remplacements de courte durée | DIR, ADF | séances touchées listées automatiquement | exceptions EDT, délégation | `edt.remplacement_organise` | I (S2-5) |
+| RH-05 | Informer les familles des cours annulés | SYS | familles des classes touchées, sans motif | notification | `notification.envoyee` | I (S2-5, notification interne) |
 
 ### D20 — Sorties et séjours scolaires (SEJ) — nouveau
 
@@ -901,6 +901,43 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Vérification des textes officiels (voir ci-dessus).
 
 **Tests** : voir la ligne « Tests S2-4 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
+
+### 6.5 S2-5 — réalisé (2026-11-06, branche `ent-socle2-edt`)
+
+**Niveau : implémenté + testé en local** (PostgreSQL jetable). Non validé pilote, non fusionné. Construit sur `ent-integration-lot4` (outbox S2-0, séances datées S2-2, vie scolaire S2-4, moteur de rôles). Les règles marquées [H] (durée maximale d'une délégation, droits donnés au remplaçant) sont des hypothèses de travail paramétrables à valider.
+
+**Livré [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Migrations additives | `170_edt_admin.sql`, `171_edt_remplacement.sql`, `172_delegation.sql` (`MIGRATION_TAG = "172_delegation"`) | `ent_edt_creneau.groupe_id` (créneau d'un groupe, d'une option, d'un demi-groupe) ; `ent_edt_deplacement` (cours déplacés) ; `ent_edt_annulation_masse` (lots, clé d'idempotence) ; `ent_edt_exception.{lot_id, absence_rh_id, nature}` ; `ent_delegation` (droits JSON, début, **fin obligatoire**, source, statut) |
+| Conflits (EDT-02) | `ent-db/src/edt_admin.rs` | Fonction pure testée : professeur, salle (comparée par site), classe (classe entière ↔ groupe en conflit, deux groupes distincts compatibles), indisponibilités déclarées (`prof_indispo`, `salle_indispo`), semaines A/B (A et B ne se rencontrent jamais, « toutes » rencontre les deux), bornes qui se touchent sans conflit. Création / modification **refusées** avec la liste des conflits (HTTP 409), aperçu sans écriture, revérification sous verrou (deux créations simultanées) ; classe, groupe, professeur, salle validés dans l'établissement. Détection d'ensemble `GET /edt/admin/conflits`. |
+| Administration (EDT-01/02/03) | `edt_admin.rs`, routes `/edt/admin/*` | créneaux créer / modifier / supprimer (409 si des séances existent), salles (modification), groupes dans le créneau, lien service (existant S2-2). |
+| Vue de la semaine (EDT-07) | `GET /edt/semaine?cible=personnel|classe|salle|eleve` | Calculée par la logique de génération des séances (A/B, exceptions, vacances, fermetures), sans écriture : semaine A/B, jours fermés, statuts `prevue`, `annulee`, `remplacee`, `deplacee`, `ajoutee`. Le personnel lit tout ; un élève ou un responsable (**lien actif**) ne lit que l'élève concerné ; élève d'un autre établissement = 404. |
+| Absence → séances (RH-02/03/04) | `edt_remplacement.rs`, `GET /edt/absences`, `/edt/absences/{id}/seances` | Déclaration et validation d'une absence de personnel passent par l'**outbox** (`rh.absence`, `rh.absence_validee`, un seul événement même si on valide deux fois, **motif jamais dans l'événement**). Séances touchées calculées automatiquement (titulaire ou remplaçant), avec le nombre restant à traiter ; avant validation, rien n'est proposé. |
+| Remplaçants proposés | `GET /edt/remplacants` | Personnel `prof` de l'établissement, **disponible** (ni absent, ni en cours à ce créneau — titulaire, remplaçant ou cours déplacé —, ni indisponible) ; compétents (enseignent déjà la matière) d'abord, puis le moins chargé ; `tous=true` ajoute les non compétents. Aucun conflit n'est proposé ni accepté. |
+| Remplacement validé (EDT-05) | `POST /edt/remplacements` | Une transaction : exception, séance datée, **délégation datée** du remplaçant (`absences.lire` limité à la classe ou au groupe, le jour du remplacement), `edt.remplacement_organise` + `delegation.accordee`. Idempotent (même demande = rien de plus ; changer de remplaçant révoque la délégation précédente). Refus : absence non validée, hors période, cours annulé ou déplacé, remplaçant en conflit. |
+| Annulation, salle, déplacement (EDT-04) | `/edt/annulations`, `/edt/changements-salle`, `/edt/deplacements`, `DELETE /edt/exceptions-levee` | Tous en transaction avec l'événement `edt.exception` (nature annulation / changement_salle / deplacement) ; déplacement vers un jour ouvré sans conflit (professeur, classe, salle, cours déjà déplacés, indisponibilité) ; séance déplacée = séance de source `deplacement`, jamais écrasée par la régénération ; lever une exception rétablit la séance et prévient. L'ancienne route `POST /edt/exceptions` publie désormais aussi dans l'outbox. |
+| Annulation en masse (EDT-08 ★) | `POST /edt/annulation-masse` (`edt.annuler_masse`) | Portée établissement / niveau / classes, heures facultatives ; **aperçu** (classes touchées, nombre de séances, déjà annulées) puis application en un lot et **un** événement ; vacances et jours fermés exclus d'office, A/B respecté ; clé d'idempotence (même clé + même demande = rien de nouveau, même clé + autre demande = 409) ; pas de lot vide. |
+| Délégations (ADM-04) | `ent-db/src/delegation.rs`, `/delegations*` (`delegations.gerer`) | Droits du catalogue, **date de fin obligatoire**, durée ≤ 366 jours [H], personnel de l'établissement seulement, pas à soi-même, anti-escalade (on ne délègue que ce que l'on détient), `roles.gerer`, `securite.politique`, `delegations.gerer` jamais délégables (pas de chaîne). Lues par le moteur de droits à **chaque requête** : l'expiration est la date elle-même (pas de tâche de fond nécessaire) ; un balayage (toutes les 10 min) enregistre `expiree` et publie `delegation.expiree` **une seule fois**. Révocation immédiate, `GET /delegations/mes` (ses propres délégations). |
+| Notifications (RH-05) | consommateur `d4.notifications_edt` (`ent-db/src/edt_reactions.rs`) | Élèves (comptes), responsables au lien actif et remplaçant prévenus ; **sans motif** (seul le motif public d'un lot est diffusé) ; tout est relu dans l'établissement de l'événement ; l'état courant de l'exception prime (une annulation levée avant traitement n'est pas notifiée) ; une notification par destinataire et par lot ; idempotent (marque du distributeur + clé unique) ; **non rejouable** (un rejeu tardif notifierait un état périmé). |
+| Droits | `ent-auth/src/actions.rs` | `edt.annuler_masse` et `delegations.gerer` (admin, direction ; portée établissement). `edt.gerer` existant couvre créneaux, remplacements, annulations, déplacements (admin, direction, administratif, cpe). Catalogue : 49 actions. |
+| Contrat JSON | `ent-types/src/edt_s2.rs` | DTO partagés avec Leptos ; la réponse 409 d'un créneau en conflit est `ConflitsReponseDto`. |
+
+**Import (EDT-01)** : le **format STS-web n'est pas codé** (spécification non obtenue : `docs/INTEROPERABILITE_NATIONALE.md` — « ne pas coder `sts_emp` avant confirmation » ; bascule OMOGEN en cours). Les deux imports CSV existants sont **documentés ici** : (1) natif `POST /edt/import` (`;`, en-tête facultatif) `Classe;Matière;UUID du professeur;Jour 1-7;Début HH:MM;Fin HH:MM[;Salle;Semaine toutes|a|b]` ; (2) export Pronote simplifié (`format=pronote`) `Classe;Matière;E-mail ENT de l'enseignant;Jour (Lundi…Dimanche ou 1-7);Début (08h00 ou 08:00);Fin[;Salle;Fréquence H|A|S1|B|S2]`. Aperçu (`dry_run`) avec détection des conflits avant écriture.
+
+**Tests** (`ent-db/src/tests_edt_s2.rs`, feature `labo` ; `ent-api/src/tests_edt_s2.rs` ; `ent-api/tests/separation.rs`) : conflits (professeur, salle, classe, groupes, sites, indisponibilités, A/B, bornes) ; création / modification / suppression, aperçu sans écriture, validation de saisie, droits (professeur, comptabilité refusés) ; semaine A/B sans calendrier puis avec calendrier, vacances, quatre cibles, accès élève / parent / étranger ; absence → séances → remplaçants (compétent, occupé, indisponible, absent) → remplacement idempotent → délégation datée → notifications (parents et comptes de la bonne classe seulement, aucun motif, aucune notification en double) ; changement de remplaçant, annulation, levée ; état périmé non notifié, isolation entre établissements (y compris événement forgé) ; annulation en masse (aperçu, vacances, A/B, clé d'idempotence, droits, une notification par lot) ; déplacement (conflits, jour fermé, cours déjà déplacés, idempotence, levée) ; délégations (garde-fous, anti-escalade, expiration simulée par la date, révocation, balayage publié une fois, début futur, isolation) ; HTTP : codes 201/200/204/400/403/404/409, contrat `ent_types`, isolation ; matrice de séparation (`domaine_edt`) ; inventaire des routes étendu à `edt_s2.rs` ; garde SQL statique.
+
+**Écarts et limites [signalés]**
+- **STS-web non codé** (voir ci-dessus). Pas d'import des services d'enseignement depuis un fichier national.
+- Compétence d'un remplaçant = enseigne déjà la matière (libellé) : la discipline de la fiche personnel (RH-01) n'existe pas encore.
+- Les séances touchées d'une absence sont calculées sur 62 jours au plus ; les cours déplacés **vers** l'absent ne sont pas listés.
+- Un déplacement le même jour n'ajoute pas de séance datée (seule la vue de la semaine le montre) ; un déplacement vers un autre jour crée une séance de source `deplacement`. L'appel (S2-4) lit toujours les créneaux (`seances_du_jour`) : à brancher sur les séances datées, comme prévu au lot S2-4.
+- Un remplacement n'étend pas automatiquement l'appel : le droit d'appel du remplaçant reste celui de l'exception (fenêtre existante `FENETRE_REMPLACEMENT_JOURS`) ; la délégation ajoute `absences.lire` sur la classe pour le jour.
+- RH-01 (fiche personnel) et la refus d'une absence (RH-03) ne sont pas traités ; une absence validée puis retirée ne défait pas les remplacements (lever chaque exception, ou annulation en masse inverse non faite).
+- Les familles sont prévenues dans l'application (notification interne) ; le canal e-mail / SMS / push de la toile (S2-0, point 3 du reste à faire) n'existe pas encore.
+- Le calcul de semaine est fait en direct (pas de cache) : bornes 62 jours ; pas d'export iCal des nouvelles vues (l'export iCal existant ne tient pas compte des déplacements).
+- Écrans : voir « Écrans Leptos » ci-dessous.
 
 ## 7. Décisions à soumettre à Florian (questions fermées)
 
