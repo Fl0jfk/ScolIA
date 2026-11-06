@@ -42,6 +42,7 @@ Sonnet = agent principal par défaut pour le développement courant. Haiku = exp
 Pas d'orchestration complexe permanente. Éviter de relire tout le dépôt inutilement. `/compact` et `/clear` gèrent le contexte, pas le quota.
 
 ## Qualité
+**Exigence « masterclass » (Florian, 2026-11-06)** : chaque domaine métier est pensé de A à Z, en autonomie et avec bon sens, jamais un écran minimal. Florian ne liste pas les actions : c'est à nous de les déduire des besoins réels de chaque acteur (établissement, direction, secrétariat, profs, CPE/vie scolaire, accueil, familles, élèves mineurs et majeurs) — ce qui leur fait perdre du temps, ce qu'ils redoutent, ce qui les ravirait — jusqu'à des dizaines ou centaines d'actions utiles, avec cas limites et liens vers les autres domaines. Ce n'est pas une exhaustivité mécanique. Méthode (D-021) : on avance **socle par socle** (carte `docs/SOCLES.md` ; élève, puis inscriptions, puis dossier administratif…), **conception sur Opus** (`docs/socles/`) avant tout code, **code sur Sonnet**, puis relecture de Florian.
 Une fonctionnalité terminée couvre, selon le périmètre : UI, logique métier, API, DB, validation, permissions, erreurs/cas limites, historique, tests, sécurité et documentation. Distinguer découvert / proposé / implémenté / testé / validé / prêt pilote / prêt production. Vérifications déterministes (format, build, tests, lint, diff) quand elles sont sûres. Après trois tentatives infructueuses, arrêter et revoir le plan.
 
 ## Documentation
