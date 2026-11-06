@@ -411,7 +411,7 @@ impl PgEnt {
             return Ok(false);
         }
         let (ok,): (bool,) = sqlx::query_as(
-            "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien l
+            "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_actif l
                 JOIN ent_membership m ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
                WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3 AND m.role = 'parent')",
         )
@@ -601,7 +601,7 @@ impl PgEnt {
         }
         if Role::parse(a.role) == Some(Role::Parent) {
             let enfants: Vec<(Uuid,)> = sqlx::query_as(
-                "SELECT eleve_id FROM ent_eleve_lien WHERE etablissement_id = $1 AND user_id = $2",
+                "SELECT eleve_id FROM ent_eleve_lien_actif WHERE etablissement_id = $1 AND user_id = $2",
             )
             .bind(a.etablissement_id)
             .bind(a.user_id)
@@ -1634,7 +1634,7 @@ impl PgEnt {
             Vec::new()
         } else if Role::parse(a.role) == Some(Role::Parent) {
             let l: Vec<(Uuid,)> = sqlx::query_as(
-                "SELECT eleve_id FROM ent_eleve_lien WHERE etablissement_id = $1 AND user_id = $2",
+                "SELECT eleve_id FROM ent_eleve_lien_actif WHERE etablissement_id = $1 AND user_id = $2",
             )
             .bind(a.etablissement_id)
             .bind(a.user_id)

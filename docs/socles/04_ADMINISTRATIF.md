@@ -8,7 +8,7 @@
 
 **Méthode et limites de ce document.** Les sous-agents d'exploration lancés au début ont été arrêtés par une limite d'usage : toutes les vérifications dans le code ont été faites directement (lecture ciblée des migrations 007, 015, 024–032, 062, 075, 078, 120–123, de `ent-db/src/dossier_personnes.rs`, `foyer_repo.rs`, `champs_chiffres.rs`, `ent-api/src/dossier.rs`, `ent-auth/src/actions.rs`, et de quatre fichiers Next.js). Ce qui n'a pas été relu ligne à ligne est signalé.
 
-Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Les situations familiales réelles · §5 Frontières · §6 Concepts · §7 Historique · §8 Modèle de données cible · §9 Actions métier · §10 Logiciel ou paramétrage · §11 Échanges avec l'extérieur · §12 Sécurité et données sensibles · §13 Droits · §14 Événements · §15 Écrans clés · §16 Plan de migration · §17 Lots de code · §18 Questions à trancher · §19 Récapitulatif.
+Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Les situations familiales réelles · §5 Frontières · §6 Concepts · §7 Historique · §8 Modèle de données cible · §9 Actions métier · §10 Logiciel ou paramétrage · §11 Échanges avec l'extérieur · §12 Sécurité et données sensibles · §13 Droits · §14 Événements · §15 Écrans clés · §16 Plan de migration · §17 Lots de code · §18 Questions à trancher · §19 Récapitulatif · §20 État du lot A0.
 
 ---
 
@@ -1072,3 +1072,39 @@ Ordre recommandé : **A0** (débloque le socle 3) → A1 → A2 → (A3, A4 en p
 - `SOCLE2_DOMAINES.md` §6.2 annonçait « coordonnées sur la personne » comme choix ; ce document les sort de la personne (historique, multiples) — §8.4, avec projection de compatibilité.
 - Next.js adresse la messagerie au **foyer**, contre D-014 (« comptes parents uniquement, chaque parent a son espace ») — non repris (§2.4).
 - `02_ELEVE.md` §7.1 prévoyait les migrations 140–149 puis `03_INSCRIPTIONS.md` 160–169 / 200–219 ; le registre `MIGRATIONS.md` fait foi (socle 4 : 260–279), et les trois socles touchent les mêmes tables pour les clés composées et la RLS — Q-A20.
+
+
+---
+
+## 20. État du lot A0 (2026-11-06, branche `ent-socle-administratif-a0`)
+
+**Implémenté et testé en local (PostgreSQL local) ; non validé par Florian, non prêt pilote.** Base : `ent-socle-inscriptions-i0` + `ent-mc0hoe`.
+
+| Élément du tableau §16 / §17 | État | Où |
+|---|---|---|
+| Migration 260 : fuseau | fait : fonction `ent_aujourdhui()` (Europe/Paris), vue `ent_eleve_lien_actif` recalculée | `migrations/260_administratif_a0.sql` |
+| Migration 260 : clés composées | fait : `UNIQUE (etablissement_id, id)` sur personnes, foyers, liens ; clés composées lien→personne, contact→personne, fusion→personnes, `NOT VALID` puis validées **seulement s'il n'y a aucun orphelin** (vue de contrôle `ent_dossier_orphelins_v`). Pas de clé composée lien→foyer (la clé existante est en `SET NULL`) | idem |
+| Port `correspondances` | fait (`correspondances_tx`) : lecture, e-mail masqué, jamais de rapprochement ; l'e-mail n'est **pas vérifié** (candidat seulement) | `ent-db/src/dossier_personnes_ports.rs` |
+| Port `integrer_declaration` | fait (`integrer_declaration_tx`, dans la transaction de l'appelant) : sans choix humain, une déclaration qui a des correspondances est refusée ; foyer existant à confirmer ; une même personne ne sert pas deux responsables | idem |
+| Lien vers une personne avec compte = invitation | fait : table `ent_lien_attente` (socle 4, reprend les lignes de `ent_inscription_lien_attente`) ; `confirmer_liens_attente_tx` / `refuser_liens_attente_tx` ; pour la saisie directe, `GET /dossier/mes-liens-en-attente` et `POST …/{id}/reponse` (seule la personne concernée décide) | idem + `ent-api/src/dossier.rs` |
+| Commande unique `ajouter_responsable` | fait (`ajouter_responsable_for_actor`, route `POST /dossier/eleves/{id}/responsables/ajout`, une transaction) ; l'écran Leptos l'appelle en une requête ; `lier_personne_for_actor` applique la même règle d'invitation | idem + `web/crates/ent-web-app/src/modules/dossier/actions.rs` |
+| Envois aux familles | fait : `emails_parents_eleve` / `telephones_parents_eleve` lisent la **fiche de la personne** (compte en simple repli) et ses préférences (`ent_personne_preference`, sous-ensemble de la table de §8.4 : `canal_email`, `canal_sms`, `courrier_papier`) ; un parent sans compte reçoit ses messages | `ent-db/src/foyer_repo.rs` |
+| Inscriptions via les ports | fait pour personnes, foyers, liens, confirmation et refus d'invitation | `ent-db/src/inscriptions.rs` |
+
+**Critères de fin** : « second parent non vérifié ne reçoit aucun accès » ✔ (`second_parent_non_verifie_ne_recoit_aucun_acces`) ; fratrie validée en deux fois = un seul foyer ✔ (`fratrie_validee_en_deux_fois_un_seul_foyer`) ; bord de journée ✔ (`jour_metier_europe_paris_bord_de_journee`) ; parent sans compte destinataire ✔ ; ajout atomique ✔ ; clés composées sans orphelin ✔.
+
+**Reste, noté pour les lots suivants**
+- **I1** : `accepter_invitation` écrit encore `ent_personne.user_id` directement (rattachement du compte) ; `imports.rs` (socle 9) insère encore dans `ent_eleve_lien` ; l'ancienne table `ent_inscription_lien_attente` n'est plus écrite (à supprimer après validation) ; l'écran de rapprochement du frontend reste à faire.
+- **A2** : vérification de l'e-mail par code (aujourd'hui une adresse saisie dans un dossier validé devient destinataire sans preuve de possession) ; préférences modifiables par la personne ; normalisation E.164.
+- **Interprétation** de « aucun envoi sans confirmation humaine pour un envoi manuel » : le lot n'ajoute aucun envoi ; ajouter un responsable ou une invitation `saisie` n'envoie rien (testé : la boîte d'envoi ne bouge pas). Les envois automatiques existants (suites d'un geste humain) sont inchangés.
+- Pas d'écran pour « mes liens en attente » (routes et client web faits, UI à faire) ni de notification à la personne invitée par saisie directe.
+- RLS sur `ent_lien_attente` et `ent_personne_preference` : lot A14 (comme les autres tables du socle).
+- Une fusion de personnes ne déplace pas les liens en attente de la personne absorbée (ils ne s'activent pas : aucune fuite, mais à traiter en A9).
+
+**Revue de sécurité du lot (skill `security-review` + relecture indépendante `review-sonnet`)**
+- Corrigés : (H1) quatre lectures du cahier de textes (`cahier.rs` ×3, `cahier_reactions.rs`) lisaient la table brute `ent_eleve_lien` et ignoraient suspension, dates et fusion : elles lisent maintenant la vue `ent_eleve_lien_actif` (point unique) ; (M3) une demande de lien déjà en attente est remplacée par la plus récente (même origine) ou refusée nettement (origine différente) au lieu d'être reprise silencieusement avec des droits périmés.
+- **Non corrigés, à décider** (hors périmètre A0 ou choix de conception) :
+  - (H2) `rattacher_compte` par le personnel et la fusion de personnes donnent à un compte les liens **déjà actifs** d'une fiche sans confirmation de la personne : à traiter avec les lots A4/A9 (les passer par l'attente) ; **question pour Florian**.
+  - (M1) un e-mail ou un téléphone saisi dans un dossier validé devient destinataire sans preuve de possession (et l'e-mail de la fiche prime sur celui du compte) : vérification par code au lot A2 ; les envois ne tiennent pas compte des droits fins du lien (comme avant).
+  - (M2) le refus d'invitation par jeton suspend le lien sans journal (aucun compte authentifié pour le signer ; le motif et la date sont sur le lien).
+  - (B1) pas d'annulation ni d'expiration des attentes ; (B2) clés étrangères simples sur `ent_lien_attente` et `ent_personne_preference` (clés composées au lot A14 avec la RLS) ; (B3) `accepter_invitation` ne contrôle pas le rôle du compte existant ; (B6) numéros SMS non normalisés (doublons possibles) ; (B7) la vue `ent_eleve_lien_actif` est recréée à chaque démarrage (comme avant), sans reprise des droits d'accès éventuels.

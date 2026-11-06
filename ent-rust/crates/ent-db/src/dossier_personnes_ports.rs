@@ -488,14 +488,49 @@ pub async fn creer_attente_tx(
         .await?;
         return Ok(id);
     }
-    let (existant,): (Uuid,) = sqlx::query_as(
-        "SELECT id FROM ent_lien_attente
-          WHERE etablissement_id = $1 AND eleve_id = $2 AND personne_id = $3 AND statut = 'en_attente'",
+    // Une demande est déjà en attente pour (élève, personne) : même origine → la plus récente
+    // remplace les droits et dates (la personne confirmera ce que l'établissement vient de
+    // demander) ; origine différente → conflit net (jamais de confirmation de droits périmés,
+    // ni de demande inconfirmable depuis l'autre canal).
+    let (existant, src, src_ref): (Uuid, String, Option<Uuid>) = sqlx::query_as(
+        "SELECT id, source, source_ref FROM ent_lien_attente
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND personne_id = $3 AND statut = 'en_attente'
+          FOR UPDATE",
     )
     .bind(etab)
     .bind(eleve_id)
     .bind(personne_id)
-    .fetch_one(conn)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if src != source.code() || src_ref != source_ref {
+        return Err(conflit(
+            "une invitation est déjà en attente pour cette personne et cet élève",
+        ));
+    }
+    sqlx::query(
+        "UPDATE ent_lien_attente SET foyer_id = $3, lien = $4, autorite_parentale = $5, garde = $6,
+                date_debut = $7, date_fin = $8, peut_voir_notes = $9, peut_voir_vs = $10,
+                peut_justifier_absence = $11, peut_autoriser_sorties = $12, est_payeur = $13,
+                part_paiement = $14, demande_par = $15
+          WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(existant)
+    .bind(spec.foyer_id)
+    .bind(&spec.lien)
+    .bind(spec.autorite_parentale)
+    .bind(&spec.garde)
+    .bind(spec.date_debut)
+    .bind(spec.date_fin)
+    .bind(spec.droits.notes)
+    .bind(spec.droits.vs)
+    .bind(spec.droits.justifier)
+    .bind(spec.droits.sorties)
+    .bind(spec.payeur)
+    .bind(spec.part_paiement)
+    .bind(actor)
+    .execute(conn)
     .await
     .map_err(db)?;
     Ok(existant)

@@ -785,3 +785,62 @@ async fn cles_composees_sans_orphelin() {
     .unwrap();
     assert_eq!(non_validees, 0);
 }
+
+/// Une demande déjà en attente est remplacée par la plus récente (même origine) ; une demande
+/// d'une autre origine est refusée nettement (revue de sécurité A0, M3).
+#[tokio::test]
+async fn demande_deja_en_attente_remplacee_ou_refusee() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let (d, r) = dir(&cast);
+    let u = Uuid::new_v4().simple().to_string();
+    let (pers, user) =
+        personne_avec_compte(&ent, etab, "Doublon", &format!("doublon-{u}@exemple.fr")).await;
+    let eleve = eleve_neuf(&ent, etab, "DemandeDouble").await;
+    let LienResultat::EnAttente { attente_id: a1, .. } = ent
+        .lier_personne_for_actor(etab, d, r, eleve, &lien_saisie(Some(pers), None))
+        .await
+        .unwrap()
+    else {
+        panic!("attente attendue");
+    };
+    let nouvelle = LienSaisie {
+        lien: "tuteur".into(),
+        peut_voir_notes: false,
+        ..lien_saisie(Some(pers), None)
+    };
+    let LienResultat::EnAttente { attente_id: a2, .. } = ent
+        .lier_personne_for_actor(etab, d, r, eleve, &nouvelle)
+        .await
+        .unwrap()
+    else {
+        panic!("attente attendue");
+    };
+    assert_eq!(a1, a2, "une seule demande ouverte");
+    assert_eq!(
+        ent.mes_liens_en_attente(etab, user).await.unwrap()[0].lien,
+        "tuteur"
+    );
+    // Autre origine (inscription) : refus net, rien n'est écrasé.
+    let decl = declaration("Doublon", "Dora", None, 1);
+    let mut tx = ent.pool().begin().await.unwrap();
+    let e = integrer_declaration_tx(
+        &mut tx,
+        etab,
+        eleve,
+        &[decl.clone()],
+        &[Resolution {
+            cle: decl.cle,
+            personne: Some(ResolutionPersonne::MemePersonne(pers)),
+            foyer: None,
+        }],
+        SourceLien::Inscription,
+        d,
+    )
+    .await;
+    assert!(matches!(e, Err(EntDbError::ConflitDossier(_))), "{e:?}");
+    tx.rollback().await.unwrap();
+}
