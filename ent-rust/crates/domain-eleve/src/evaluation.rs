@@ -666,7 +666,7 @@ pub fn xml_bien_forme(doc: &str) -> Result<(), String> {
             return Err("balise sans nom".into());
         }
         let attributs = &corps[nom.len()..];
-        if attributs.matches('"').count() % 2 != 0 {
+        if !attributs.matches('"').count().is_multiple_of(2) {
             return Err(format!("guillemets déséquilibrés dans <{nom}>"));
         }
         verifier_entites(attributs)?;
