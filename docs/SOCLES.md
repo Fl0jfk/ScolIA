@@ -575,3 +575,30 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - Le mot « socle 2 » désignait jusqu'ici « tous les domaines » (`ROADMAP.md`, `SOCLE2_DOMAINES.md`, D-019, lots S2-x). Désormais **socle 2 = l'élève**. D-019 (public et privé ensemble) s'applique à tous les socles à partir du 2. Le nom du fichier `SOCLE2_DOMAINES.md` est conservé (historique) ; un avertissement y renvoie ici.
 - `docs/ent-metier-checklist.md` classe « Compta OGEC / Paie » en « DROP » (hors cœur ENT) ; Florian les inclut dans la liste des socles : la carte les garde, en fin de parcours (Q-B, Q-C).
 - L'ordre fixé place les inscriptions (3) avant le dossier administratif (4) qu'elles alimentent : règle de contournement au socle 3.
+
+---
+
+## 10. Trous relevés par la matrice
+
+Ajout du 2026-11-06 (branche `ent-matrice-charlemagne`). Source : `docs/MATRICE_CHARLEMAGNE.md`, à lire avec ses limites (§0 : sources éditeur inaccessibles depuis la session de recherche, donc fonctions de Charlemagne **non vérifiées** au détail ; modules de Charlemagne établis par leur nom seulement). La carte ci-dessus n'est **pas modifiée** : ces propositions sont des **[R]** à valider.
+
+| Trou | Objet | Où l'ajouter [R] |
+|---|---|---|
+| T-01, T-02 | Guichet de demandes internes et familles (routage, prise en charge, délégation) ; demandes de reprographie et d'heures supplémentaires | **Nouveau socle N1** « Demandes et flux de travail » (à défaut : 29 + 31) |
+| T-03 | Construction de l'emploi du temps (génération avec contraintes) : module Emploi du temps de Charlemagne | Socle 10 (lot) ou **nouveau socle N2** ; à décider avec Q-F, **avant** J5 vu D-024 |
+| T-04, T-05 | Paie et comptabilité d'organisme : modules Paie et Comptabilité de Charlemagne | Socles 49 et 48 conservés ; Q-B et Q-C à trancher plus tôt (la checklist les classait « DROP ») |
+| T-06 | Santé et sécurité au travail (registre, médecine du travail, habilitations obligatoires) | Socle 49 (sous-domaine) |
+| T-07, T-08, T-09 | Accueil d'un nouvel agent, climat social anonyme, planning de service du personnel non enseignant | Socle 6 (+ 7, 15, 47) |
+| T-10 | Attestations et diplômes d'établissement, chaîne de signatures, vérification publique | Socle 7 |
+| T-11 | Fiches de dialogue avant le conseil de classe | Socle 23 (+ 19) |
+| T-12 | Signalement bien-être confidentiel par l'élève | Socle 36 (+ 13) |
+| T-13 | Classement automatique de pièces par lecture de PDF | Socle 7 (+ 28) |
+| T-14, T-15 | Rattrapage des cours d'un professeur absent ; interventions transversales | Socles 15 et 10 |
+| T-16, T-17, T-18 | Événements avec réponse (RSVP) et partenariats ; site public ; simulateurs de tarifs et de fournitures | Socles 19, 17 (ou **nouveau socle N3** « Présence publique »), 24 |
+| T-19, T-20 | Covoiturage ; détails de voyages (devis de transport, commande cuisine, GED comptable, blog parents) | Socles 43 et 42 |
+| T-21 | Ensemble scolaire / réseau d'établissements | Hors carte (§7), Q13 : à décider |
+| T-22 à T-24 | Blog, wiki, forum, casier ; porte-monnaie prépayé de cantine ; permis à points | Socles 32, 40 + 25, 13 |
+| T-25 | Échanges avec le rectorat / la DDEC et enquêtes de rentrée (module Rectorat de Charlemagne, contenu à préciser) | Socles 9 et 47 |
+| T-26 à T-31 | Export complet d'un dossier ; garde-fous sociaux sur impayés ; pré-contrôle des exports officiels ; charge de saisie des enseignants ; sondage de créneaux ; annulation d'une bascule d'année | Socles 2 + 27, 25 + 40 + 36, 22 + 9, 8 + 20 + 47, 18, 5 |
+
+**Question nouvelle à Florian** : Q-H — créer les socles N1, N2 (si Q-F est « oui »), N3 ? Recommandation [R] : oui pour N1 ; N2 seulement après avoir mesuré, avec le secrétariat, l'usage réel du module Emploi du temps de Charlemagne.
