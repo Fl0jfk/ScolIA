@@ -49,6 +49,15 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ("recuperation_repo.rs", "UPDATE ent_session SET revoked_at = now() WHERE user_id = $1", "finalisation : révocation de toutes les sessions de la personne (A1)"),
     ("recuperation_repo.rs", "SET statut = 'terminee', closed_at = now() WHERE id = $1", "clôture par id lu dans la même transaction"),
     ("recuperation_repo.rs", "DELETE FROM ent_recuperation_passkey WHERE created_at < $1", "purge globale des demandes closes ou périmées (maintenance)"),
+    // Changement d'e-mail en deux temps (RF-01, migration 255) : identité globale ; lignes
+    // adressées par user_id (personne verrouillée), id créé/lu dans la même transaction ou
+    // empreinte d'un jeton secret de 256 bits à usage unique.
+    ("email_change_repo.rs", "UPDATE ent_recuperation_passkey SET statut = 'annulee', closed_at = now() WHERE user_id = $1", "changement d'e-mail par un tiers : annule les récupérations de passkey de la personne (RF-01)"),
+    ("email_change_repo.rs", "UPDATE ent_session SET revoked_at = now() WHERE user_id = $1", "changement d'e-mail : révocation de toutes les sessions de la personne (identité globale)"),
+    ("email_change_repo.rs", "UPDATE ent_email_change SET statut = 'annulee', closed_at = now() WHERE user_id = $1", "remplacement de la demande non confirmée de la personne"),
+    ("email_change_repo.rs", "UPDATE ent_email_change SET statut = 'annulee', closed_at = now() WHERE id = $1", "abandon par id de la demande créée dans le même parcours"),
+    ("email_change_repo.rs", "UPDATE ent_email_change SET statut = $2, closed_at = now() WHERE id = $1", "clôture par id lu dans la même transaction (FOR UPDATE)"),
+    ("email_change_repo.rs", "DELETE FROM ent_email_change WHERE created_at", "purge globale des demandes anciennes (maintenance)"),
     // OIDC : maintenance de démarrage et purge.
     ("oidc_repo.rs", "UPDATE ent_oidc_provider SET client_secret = $2 WHERE id = $1", "rechiffrement du secret au démarrage, par id lu juste avant"),
     ("oidc_repo.rs", "FROM ent_oidc_provider WHERE client_secret NOT LIKE", "migration de démarrage du chiffrement des secrets hérités (aucune donnée exposée)"),
