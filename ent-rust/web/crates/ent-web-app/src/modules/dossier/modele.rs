@@ -498,6 +498,7 @@ mod tests {
             contacts: vec![],
             actions: vec![],
             alertes: vec![],
+            masques: vec![],
         };
         assert!(sections_accessibles(&f, false).is_empty());
         f.sections.vs = true;

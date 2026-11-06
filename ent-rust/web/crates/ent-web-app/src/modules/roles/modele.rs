@@ -110,9 +110,13 @@ pub const MODELES: &[ModeleRole] = &[
     ModeleRole {
         id: "accueil",
         nom: "Accueil",
-        description: "Savoir si un élève est présent, sans accès aux notes ni aux dossiers.",
+        description: "Trouver un élève, voir sa classe et sa scolarité, savoir s'il est présent : sans notes, état civil, identifiants ni dossier.",
         profil: None,
-        droits: &[("absences.lire", "etablissement")],
+        droits: &[
+            ("eleves.annuaire", "etablissement"),
+            ("eleves.lire", "etablissement"),
+            ("absences.lire", "etablissement"),
+        ],
     },
     ModeleRole {
         id: "direction",

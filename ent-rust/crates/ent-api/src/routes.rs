@@ -972,14 +972,20 @@ async fn search_eleves(
 ) -> Result<Json<Vec<EleveDto>>, (StatusCode, String)> {
     session.require_staff()?;
     let needle = q.q.unwrap_or_default();
-    // Niveau d'identité unique par rôle ; badge interrogeable seulement s'il est exposé.
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
+    // E1 : groupes de champs ouverts pour CE lecteur (annuaire avec sa portée) ; le
+    // badge n'est interrogeable que si les identifiants sont visibles partout.
     let rows = state
         .ent
-        .search_eleves(session.etablissement_id, &needle, 50, niveau)
+        .search_eleves_pour_acteur(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &needle,
+            50,
+        )
         .await
         .map_err(map_db)?;
-    Ok(Json(rows.iter().map(|e| EleveDto::pour(e, niveau)).collect()))
+    Ok(Json(rows.iter().map(EleveDto::depuis_vue).collect()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1348,11 +1354,17 @@ async fn get_dossier(
         d.storage_key = None;
     }
     dossier.eleve.photo_key = None;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
-    dossier.minimise(niveau);
+    // E1 : groupes ouverts pour ce lecteur et cet élève (point unique de minimisation).
+    let groupes = state
+        .ent
+        .profil_champs(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?
+        .pour(dossier.eleve.id);
+    dossier.minimise_groupes(&groupes);
     let mut value = serde_json::to_value(&dossier)
         .map_err(|e| erreur_interne(&e))?;
-    if niveau != domain_eleve::NiveauIdentite::Complet {
+    if !groupes.ouvert(domain_eleve::GroupeChamps::Scolarite) {
         // Donnée retirée = `null` (« non renseigné »), jamais un `false` trompeur.
         if let Some(e) = value.get_mut("eleve").and_then(|e| e.as_object_mut()) {
             e.insert("redoublant".into(), serde_json::Value::Null);
@@ -2797,14 +2809,13 @@ async fn get_eleve(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EleveDto>, (StatusCode, String)> {
-    let eleve = state
+    let vue = state
         .ent
-        .get_eleve_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .get_eleve_vue_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "élève introuvable".into()))?;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
-    Ok(Json(EleveDto::pour(&eleve, niveau)))
+    Ok(Json(EleveDto::depuis_vue(&vue)))
 }
 
 async fn change_classe(
@@ -5055,6 +5066,7 @@ async fn rechercher_homonymes(
         .ent
         .rechercher_homonymes_for_actor(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             RechercherHomonymes {
                 etablissement_id: session.etablissement_id,
@@ -6806,16 +6818,20 @@ async fn effectif_classe(
     Query(q): Query<EffectifQuery>,
 ) -> Result<Json<EffectifDto>, (StatusCode, String)> {
     session.require_read_effectif()?;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
     let eleves = state
         .ent
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
         .await
         .map_err(map_db)?;
+    let vues = state
+        .ent
+        .vues_eleves_pour_acteur(session.etablissement_id, session.user_id, &session.role, eleves)
+        .await
+        .map_err(map_db)?;
     Ok(Json(EffectifDto {
         classe,
         jour: q.jour,
-        eleves: eleves.iter().map(|e| EleveDto::pour(e, niveau)).collect(),
+        eleves: vues.iter().map(EleveDto::depuis_vue).collect(),
     }))
 }
 

@@ -70,6 +70,7 @@ mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
 mod droits_ctx;
+mod eleve_champs;
 pub mod dossier_personnes;
 mod securite_repo;
 mod etablissement_repo;
@@ -119,7 +120,10 @@ pub use auth_repo::{
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
-pub use domain_eleve::{DeclarerRetard, NiveauIdentite, Retard};
+pub use domain_eleve::{
+    DeclarerRetard, GroupeChamps, GroupesAutorises, MasqueChamps, NiveauIdentite, ProfilChamps,
+    Retard,
+};
 pub use domain_eleve::{
     CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence, NiveauMaitrise,
 };
@@ -150,6 +154,7 @@ pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_ctx::DroitsActeur;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use eleve_champs::EleveVue;
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};

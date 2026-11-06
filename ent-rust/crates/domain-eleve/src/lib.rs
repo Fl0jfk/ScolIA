@@ -10,6 +10,7 @@
 mod absence;
 mod annonce;
 mod carnet;
+mod champs;
 mod continuum;
 mod document;
 mod dossier;
@@ -81,6 +82,10 @@ pub use document::{
     plan_deposer_document, AjouterDispositif, DeciderGrant, DemanderGrant, DeposerDocument,
     DispositifKind, DocConfidentialite, DocTiroir, DocumentGrant, EleveDispositif, EleveDocument,
     GrantStatus,
+};
+pub use champs::{
+    EtatGroupe, GroupeChamps, GroupesAutorises, MasqueChamps, PorteeGroupe, ProfilChamps,
+    RaisonMasquage,
 };
 pub use dossier::{
     age_ans_au, assert_parts_paiement, plan_ajouter_option, plan_update_identite, AjouterOption,
@@ -390,23 +395,10 @@ impl NiveauIdentite {
 }
 
 impl Eleve {
-    /// Retire les champs d'identité non autorisés pour `niveau`.
+    /// Retire les champs d'identité non autorisés pour `niveau` (compatibilité :
+    /// le niveau est exprimé en groupes, point unique `minimise_groupes`, E1).
     pub fn minimise(&mut self, niveau: NiveauIdentite) {
-        if niveau == NiveauIdentite::Complet {
-            return;
-        }
-        self.ine = None;
-        self.numero_badge = None;
-        self.regime = None;
-        self.mef = None;
-        self.motif_sortie = None;
-        self.redoublant = false;
-        self.date_entree = None;
-        self.date_sortie = None;
-        if niveau == NiveauIdentite::Reduit {
-            self.sexe = None;
-            self.date_naissance = None;
-        }
+        self.minimise_groupes(&GroupesAutorises::depuis_niveau(niveau));
     }
 }
 

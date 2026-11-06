@@ -83,7 +83,7 @@ use domain_eleve::{
     AffecterBourse, AjouterDispositif, AjouterOption, AttributKind, BourseType, ChangeAttribut,
     ChangeClasse, ChangeMef, ChangeRegime, ChangeSite, ChangeStatus, ChoisirOptionN1,
     ConfigurerAcompteCampagne, CreateEleve, CreerBourseType, CreerRepasActivite,
-    ConfirmerReinscription, CutoverOp, DeciderBourse, DeciderGrant, DecisionAbsence, DeclareAbsence,
+    ConfirmerReinscription, DeciderBourse, DeciderGrant, DecisionAbsence, DeclareAbsence,
     DemanderGrant, DeposerDocument, DocConfidentialite, DocTiroir, DocumentGrant, DomainError,
     DispenseSource, DossierEleve, DossierSections, Eleve, EleveBourse, EleveDispenseRepas,
     EleveDispositif, EleveDocument, EleveGrilleRepas, EleveOption, ElevePeriode, EleveStatus,
@@ -4063,22 +4063,21 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         niveau: NiveauIdentite,
     ) -> Result<Vec<Eleve>, EntDbError> {
         // Le badge n'est interrogeable que si le niveau l'expose (pas d'oracle).
-        Ok(self
-            .eleves
-            .search(etablissement_id, q, limit, niveau.voit_badge())
-            .await?)
+        self.search_eleves_brut(etablissement_id, q, limit, niveau.voit_badge())
+            .await
     }
 
-    /// Niveau d'identité élève exposé à un rôle (point unique de minimisation).
-    /// Parent / élève : inchangé (leurs propres données, déjà filtrées par lien).
-    pub fn niveau_identite(role: &str) -> NiveauIdentite {
-        match Role::parse(role) {
-            Some(Role::Admin | Role::Direction | Role::Administratif | Role::Parent | Role::Eleve) => {
-                NiveauIdentite::Complet
-            }
-            Some(Role::Infirmerie) => NiveauIdentite::Sante,
-            _ => NiveauIdentite::Reduit,
-        }
+    pub(crate) async fn search_eleves_brut(
+        &self,
+        etablissement_id: Uuid,
+        q: &str,
+        limit: i64,
+        avec_badge: bool,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        Ok(self
+            .eleves
+            .search(etablissement_id, q, limit, avec_badge)
+            .await?)
     }
 
     pub async fn search_staff(
@@ -5549,7 +5548,20 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
-        if parsed.can_read_all_eleves() {
+        if parsed.is_staff() {
+            // E1 : l'annuaire (désignation) est une action du catalogue, avec sa portée.
+            if !self
+                .autoriser_eleve(
+                    etablissement_id,
+                    actor_user_id,
+                    role,
+                    Action::ElevesAnnuaire,
+                    eleve_id,
+                )
+                .await?
+            {
+                return Ok(None);
+            }
             return self.get_eleve(etablissement_id, eleve_id).await;
         }
         if parsed == Role::Parent {
@@ -13302,6 +13314,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     pub async fn rechercher_homonymes_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         cmd: RechercherHomonymes,
     ) -> Result<Vec<HomonymeCandidat>, EntDbError> {
@@ -13309,12 +13322,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if !Self::role_can_manage_eleves(role) && !parsed.can_read_all_eleves() {
             return Err(EntDbError::Forbidden);
         }
-        // E0 : minimisation. Un profil qui ne voit pas la date de naissance ne la
-        // reçoit pas, et la date qu'il fournirait n'entre pas dans le score (sinon
-        // le score serait un oracle de la date de naissance des élèves).
-        let niveau = Self::niveau_identite(role);
-        let voit_naissance = niveau != NiveauIdentite::Reduit;
-        let date_naissance = if voit_naissance { cmd.date_naissance } else { None };
+        // E0/E1 : minimisation par groupes. Un lecteur qui ne voit pas l'état civil
+        // d'un candidat ne reçoit pas sa date de naissance, et la date qu'il fournirait
+        // n'entre pas dans le score de ce candidat (sinon le score serait un oracle de
+        // la date de naissance des élèves).
+        let profil = self
+            .profil_champs(etablissement_id, actor_user_id, role)
+            .await?;
+        let voit_naissance = |id: Uuid| profil.pour(id).ouvert(domain_eleve::GroupeChamps::EtatCivil);
+        let date_naissance = cmd.date_naissance;
         let (nom, prenom) = plan_rechercher_homonymes(RechercherHomonymes {
             etablissement_id,
             nom: cmd.nom,
@@ -13324,15 +13340,17 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         // Le badge n'est interrogeable que s'il est visible (pas d'oracle).
         let candidats = self
             .eleves
-            .search(etablissement_id, &nom, 50, niveau.voit_badge())
+            .search(etablissement_id, &nom, 50, profil.badge_interrogeable())
             .await?;
         let mut out: Vec<HomonymeCandidat> = candidats
             .into_iter()
+            .filter(|e| profil.voit_designation(e.id))
             .filter_map(|e| {
+                let voit = voit_naissance(e.id);
                 let score = score_homonyme(
                     &nom,
                     &prenom,
-                    date_naissance,
+                    if voit { date_naissance } else { None },
                     &e.nom,
                     &e.prenom,
                     e.date_naissance,
@@ -13344,7 +13362,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     eleve_id: e.id,
                     nom: e.nom,
                     prenom: e.prenom,
-                    date_naissance: if voit_naissance { e.date_naissance } else { None },
+                    date_naissance: if voit { e.date_naissance } else { None },
                     classe: e.classe,
                     score,
                 })

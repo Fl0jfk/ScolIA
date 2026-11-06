@@ -117,6 +117,16 @@ fn compte(n: usize) -> u32 {
 
 fn fiche_dto(f: FicheEleve) -> FicheEleveDto {
     let s = f.sections;
+    let masques = f
+        .masques
+        .iter()
+        .map(|m| ent_types::dossier::MasqueChampsDto {
+            groupe: m.groupe.to_string(),
+            raison: m.raison.to_string(),
+            action: m.action.map(str::to_string),
+            message: m.message.clone(),
+        })
+        .collect();
     FicheEleveDto {
         eleve_id: f.eleve.id,
         nom: f.eleve.nom,
@@ -164,6 +174,7 @@ fn fiche_dto(f: FicheEleve) -> FicheEleveDto {
             })
             .collect(),
         alertes: f.alertes,
+        masques,
     }
 }
 
