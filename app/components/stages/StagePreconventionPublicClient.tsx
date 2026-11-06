@@ -216,6 +216,12 @@ function StagePreconventionPublicContent() {
   const [parent2Email, setParent2Email] = useState("");
   const [editingParentEmail, setEditingParentEmail] = useState(false);
   const [infoMsg, setInfoMsg] = useState<string | null>(null);
+  // Résultat de « Enregistrer le brouillon » / « Valider », affiché près des boutons :
+  // un message en haut de page passe inaperçu, surtout sur mobile.
+  const [saveFeedback, setSaveFeedback] = useState<{
+    kind: "success" | "error";
+    text: string;
+  } | null>(null);
   const [tutorEmailEdit, setTutorEmailEdit] = useState("");
   const [identityProof, setIdentityProof] = useState<string | null>(null);
   // Fratrie renvoyée par le serveur (calculée depuis les adresses vérifiées par code).
@@ -365,6 +371,7 @@ function StagePreconventionPublicContent() {
   const loadConvention = useCallback(async (activeToken: string, knownBirthDate?: string) => {
     if (!activeToken) return;
     setError(null);
+    setSaveFeedback(null);
     const res = await fetch(`/api/stages/public/student?token=${encodeURIComponent(activeToken)}`, {
       cache: "no-store",
     });
@@ -898,18 +905,38 @@ function StagePreconventionPublicContent() {
     setBusy(true);
     setError(null);
     setInfoMsg(null);
+    setSaveFeedback(null);
     try {
       const res = await fetch("/api/stages/public/student", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, action, convention }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Erreur");
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.convention) {
+        throw new Error(
+          data?.error ||
+            "Enregistrement impossible pour le moment. Vérifiez votre connexion puis réessayez.",
+        );
+      }
       setConvention(data.convention);
-      if (action === "submit") setDone(true);
+      if (action === "submit") {
+        setDone(true);
+      } else {
+        const time = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        setSaveFeedback({
+          kind: "success",
+          text: `Brouillon enregistré à ${time}. Vous pourrez le reprendre plus tard depuis votre espace.`,
+        });
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Erreur");
+      setSaveFeedback({
+        kind: "error",
+        text:
+          e instanceof Error && e.message
+            ? e.message
+            : "Enregistrement impossible pour le moment. Réessayez.",
+      });
     } finally {
       setBusy(false);
     }
@@ -1830,6 +1857,7 @@ function StagePreconventionPublicContent() {
                   onSave={() => void save("save")}
                   onSubmit={() => void save("submit")}
                   busy={busy}
+                  feedback={saveFeedback}
                   identityLocked={identityLockedByServer}
                   reminders={reminders}
                   officialPeriods={officialPeriods}

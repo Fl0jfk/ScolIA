@@ -54,9 +54,12 @@ export default function StagePreconventionForm({
   scheduleConstraints,
   cycleLabel,
   contactsLocked = false,
+  feedback = null,
 }: {
   /** Page publique : e-mails élève / responsables affichés masqués, en lecture seule. */
   contactsLocked?: boolean;
+  /** Résultat du dernier enregistrement / envoi, affiché à côté des boutons. */
+  feedback?: { kind: "success" | "error"; text: string } | null;
   convention: StageConvention;
   onChange: (next: StageConvention) => void;
   onSave: () => void;
@@ -284,6 +287,12 @@ export default function StagePreconventionForm({
             >
               Retirer le 2ᵉ responsable
             </button>
+          ) : null}
+          {contactsLocked ? (
+            <p className="text-[11px] leading-relaxed text-stone-500">
+              Adresses grisées et partiellement masquées pour protéger vos données : elles ne se
+              modifient pas ici, cela n&apos;empêche pas d&apos;enregistrer le brouillon.
+            </p>
           ) : null}
         </div>
 
@@ -540,20 +549,32 @@ export default function StagePreconventionForm({
         </section>
       )}
 
+      {feedback ? (
+        <p
+          role={feedback.kind === "error" ? "alert" : "status"}
+          className={
+            feedback.kind === "error"
+              ? "rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800"
+              : "rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+          }
+        >
+          {feedback.text}
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2 pt-2">
         <button
           type="button"
           disabled={busy}
           onClick={onSave}
-          className="rounded-lg border border-stone-300 px-4 py-2 font-semibold"
+          className="rounded-lg border border-stone-300 px-4 py-2 font-semibold disabled:opacity-60"
         >
-          Enregistrer le brouillon
+          {busy ? "Enregistrement…" : "Enregistrer le brouillon"}
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={onSubmit}
-          className="rounded-lg bg-[#2F6B4A] px-4 py-2 font-semibold text-white"
+          className="rounded-lg bg-[#2F6B4A] px-4 py-2 font-semibold text-white disabled:opacity-60"
         >
           {submitLabel}
         </button>
