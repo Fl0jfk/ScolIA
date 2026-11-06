@@ -100,6 +100,27 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             None,
             None,
         ),
+        // Préinscription (S2-3, D-014) : la demande envoie un code par e-mail
+        // (seau par IP et par e-mail, strict) ; la vérification est bornée par
+        // demande (5 essais en base) et par IP ; invitation : jeton de 256 bits.
+        "/preinscription/demarrer" => r(
+            "PREINSCRIPTION_DEMARRER",
+            Some(Quota::new(10, 900)),
+            Some(Quota::new(3, 3600)),
+            Some("email"),
+        ),
+        "/preinscription/verifier" => r(
+            "PREINSCRIPTION_VERIFIER",
+            Some(Quota::new(30, 900)),
+            Some(Quota::new(10, 900)),
+            Some("demande_id"),
+        ),
+        "/inscriptions/invitations/accepter" => r(
+            "INVITATION_ACCEPTER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("jeton"),
+        ),
         "/auth/oidc/{slug}/start" => r("OIDC_START", Some(Quota::new(30, 300)), None, None),
         _ => return None,
     })

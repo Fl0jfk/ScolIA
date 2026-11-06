@@ -39,7 +39,11 @@ CREATE OR REPLACE FUNCTION ent_eleve_tables_a_cle() RETURNS TEXT[] LANGUAGE sql 
         'ent_eleve_periode', 'ent_eleve_scolarite_annee', 'ent_eleve_option',
         'ent_eleve_option_annee', 'ent_eleve_compte', 'ent_eleve_lien',
         'ent_eleve_document', 'ent_eleve_dispositif', 'ent_eleve_grille_repas',
-        'ent_eleve_bourse', 'ent_eleve_dispense_repas', 'ent_metier_event'
+        'ent_eleve_bourse', 'ent_eleve_dispense_repas', 'ent_metier_event',
+        -- Tables du socle 3 (inscriptions) et du cahier de textes, qui ne portaient
+        -- qu'une clé simple vers ent_eleve (sans garantie d'établissement).
+        'ent_inscription_dossier', 'ent_import_ligne', 'ent_travail_remise',
+        'ent_travail_eleve'
     ]
 $$;
 

@@ -81,6 +81,16 @@ pub mod types {
     pub const EDT_EXCEPTION: &str = "edt.exception";
     pub const EDT_CALENDRIER_AB: &str = "edt.calendrier_ab";
     pub const CAHIER_TEXTE: &str = "cahier.texte";
+    // Cahier de textes et travail (S2-6, D7).
+    pub const CAHIER_SEANCE_RENSEIGNEE: &str = "cahier.seance_renseignee";
+    pub const CAHIER_TRAVAIL_DONNE: &str = "cahier.travail_donne";
+    pub const CAHIER_TRAVAIL_MODIFIE: &str = "cahier.travail_modifie";
+    pub const CAHIER_TRAVAIL_SUPPRIME: &str = "cahier.travail_supprime";
+    pub const CAHIER_PIECE_JOINTE: &str = "cahier.piece_jointe";
+    pub const CAHIER_TRAVAIL_A_RENDRE: &str = "cahier.travail_a_rendre";
+    pub const CAHIER_TRAVAIL_RENDU: &str = "cahier.travail_rendu";
+    pub const CAHIER_COPIE_RENDUE: &str = "cahier.copie_rendue";
+    pub const CAHIER_VISE: &str = "cahier.vise";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";
@@ -183,6 +193,22 @@ pub mod types {
     pub const FOYER_PAYEUR_DEFINI: &str = "foyer.payeur_defini";
     pub const RETARD_DECLARE: &str = "vs.retard";
     pub const COMPETENCE_EVALUEE: &str = "note.competence";
+    /// S2-3 (D3) : campagnes, préinscriptions, instruction, décision, validation.
+    pub const ADMISSION_CAMPAGNE_OUVERTE: &str = "admission.campagne_ouverte";
+    pub const ADMISSION_CAMPAGNE_FERMEE: &str = "admission.campagne_fermee";
+    pub const ADMISSION_DEPOSEE: &str = "admission.deposee";
+    pub const ADMISSION_ETAPE_CHANGEE: &str = "admission.etape_changee";
+    pub const ADMISSION_DECIDEE: &str = "admission.decidee";
+    pub const ADMISSION_RELANCE_ENVOYEE: &str = "admission.relance_envoyee";
+    /// Fait central de la toile (§4.3) : affectation, invitations, accueil…
+    pub const INSCRIPTION_VALIDEE: &str = "inscription.validee";
+    pub const SCOLARITE_DEPART_ANNONCE: &str = "scolarite.depart_annonce";
+    pub const RESPONSABLE_INVITE: &str = "inscription.responsable_invite";
+    pub const INVITATION_ACCEPTEE: &str = "inscription.invitation_acceptee";
+    pub const MANDAT_SEPA_A_SIGNER: &str = "fac.sepa_mandat_a_signer";
+    /// S2-3 (D23) : import en lot, rejets traités.
+    pub const IMPORT_LOT_APPLIQUE: &str = "import.lot_applique";
+    pub const IMPORT_REJET_TRAITE: &str = "import.rejet_traite";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +274,10 @@ pub enum AggregateKind {
     /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
     Referentiel,
     Personne,
+    /// Dossier d'admission / de réinscription et campagnes (S2-3).
+    Admission,
+    /// Lot d'import (S2-3, D23).
+    Import,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -121,6 +121,13 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/132_vs_verification_appel.sql"),
     include_str!("../../../migrations/133_vs_punition.sql"),
     include_str!("../../../migrations/134_vs_discipline.sql"),
+    include_str!("../../../migrations/140_inscription_campagne.sql"),
+    include_str!("../../../migrations/141_inscription_dossier.sql"),
+    include_str!("../../../migrations/142_preinscription_verification.sql"),
+    include_str!("../../../migrations/143_mandat_sepa_demande.sql"),
+    include_str!("../../../migrations/144_import_lot.sql"),
+    include_str!("../../../migrations/145_inscription_invitation.sql"),
+    include_str!("../../../migrations/150_cahier_textes.sql"),
     include_str!("../../../migrations/240_eleve_cles_composees.sql"),
 ];
 

@@ -735,11 +735,14 @@ pub fn router() -> Router<AppState> {
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
     let r = r.merge(crate::referentiel_s2::routes());
+    let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
     let r = r.merge(crate::dossier::routes());
     // Vie scolaire complète (S2-4, module séparé : `vie_scolaire.rs`).
     let r = r.merge(crate::vie_scolaire::routes());
+    // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
+    let r = r.merge(crate::inscriptions::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -11130,6 +11133,14 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
     // Classement par VARIANTE avant toute heuristique de texte : une erreur de
     // validation métier reste un 4xx, seules les vraies pannes sont des 500.
     match &err {
+        ent_db::EntDbError::Refus(nature, _) => {
+            let code = match nature {
+                ent_db::RefusMetier::Invalide => StatusCode::UNPROCESSABLE_ENTITY,
+                ent_db::RefusMetier::Conflit => StatusCode::CONFLICT,
+                ent_db::RefusMetier::Interdit => StatusCode::FORBIDDEN,
+            };
+            return (code, err.to_string());
+        }
         ent_db::EntDbError::FichierAbsent => return (StatusCode::NOT_FOUND, err.to_string()),
         ent_db::EntDbError::LiensIndisponibles => {
             tracing::error!("liens de fichiers désactivés : ENT_OBJECT_SIGNING_KEY absente ou invalide (fail-closed)");

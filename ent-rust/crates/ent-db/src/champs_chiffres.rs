@@ -27,6 +27,7 @@ const USAGE_DERIVATION: &str = "champs-sensibles:v1";
 pub const CHAMPS_CHIFFRES: &[(&str, &[&str])] = &[
     ("ent_fac_sepa_mandat", &["iban", "bic", "titulaire"]),
     ("ent_foyer_iban_histo", &["iban", "bic", "titulaire"]),
+    ("ent_mandat_sepa_demande", &["iban", "bic", "titulaire"]),
     (
         "ent_fiche_sante",
         &[

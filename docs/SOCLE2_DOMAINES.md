@@ -229,21 +229,21 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
-| INS-01 | Ouvrir une campagne d'admission | DIR | niveaux, capacités, pièces, dates | campagne | `admission.campagne_ouverte` | A |
-| INS-02 | Déposer une préinscription (famille) | PAR (vérifié par code/passkey avant affichage, D-014) | réponse identique compte existant ou non | dossier d'admission « déposé » | `admission.deposee` | A |
-| INS-03 | Instruire un dossier (pièces, étape, RDV) | ADF | étapes paramétrées ; motif à chaque refus | étape | `admission.etape_changee` | P (`ent_inscription_suivi` [F]) |
-| INS-04 | Décider (admis / liste d'attente / refusé) | DIR ★ | motif ; courrier généré | décision | `admission.decidee` | A |
-| INS-05 | **Valider l'inscription** | ADF, DIR ★ | dossier complet ; classe ou niveau cible ; payeurs | élève actif (DOS-01 si nouveau), affectation, régime | `inscription.validee` | A |
+| INS-01 | Ouvrir une campagne d'admission | DIR | niveaux, capacités, pièces, dates | campagne | `admission.campagne_ouverte` | I |
+| INS-02 | Déposer une préinscription (famille) | PAR (vérifié par code/passkey avant affichage, D-014) | réponse identique compte existant ou non | dossier d'admission « déposé » | `admission.deposee` | I |
+| INS-03 | Instruire un dossier (pièces, étape, RDV) | ADF | étapes paramétrées ; motif à chaque refus | étape | `admission.etape_changee` | I |
+| INS-04 | Décider (admis / liste d'attente / refusé) | DIR ★ | motif ; courrier généré | décision | `admission.decidee` | I |
+| INS-05 | **Valider l'inscription** | ADF, DIR ★ | dossier complet ; classe ou niveau cible ; payeurs | élève actif (DOS-01 si nouveau), affectation, régime | `inscription.validee` | I |
 | INS-06 | Ouvrir une campagne de réinscription | DIR | exigences et acompte [F] | campagne | `reinscription.campagne_ouverte` [F] | I |
 | INS-07 | Confirmer la réinscription (famille) | PAR · LIEN | documents requis [F] ; acompte si configuré | confirmation | `eleve.reinscription_confirmee` [F] | I |
-| INS-08 | Ne pas se réinscrire / annoncer un départ | PAR · LIEN | motif ; date | départ prévu | `scolarite.depart_annonce` | A |
+| INS-08 | Ne pas se réinscrire / annoncer un départ | PAR · LIEN | motif ; date | départ prévu | `scolarite.depart_annonce` | I |
 | INS-09 | Montée de niveau (projection puis officielle) | ADF ★ | officielle seulement après décision du conseil (D6) | scolarité N+1 | `eleve.montee_lot` [F], `scolarite.passage_valide` | P |
 | INS-10 | Changer de régime (externe, DP, interne) | ADF · ETAB | date d'effet ; impacts facture/repas/internat | période régime | `eleve.regime_changed` [F] | I |
 | INS-11 | Changer d'options / de MEF | ADF | cohérence MEF/options | période | `scolarite.mef_changed` [F], `eleve.option_added` [F] | I |
 | INS-12 | Enregistrer un départ (radiation, exeat) | ADF, DIR ★ | date ; établissement d'accueil ; soldes signalés | statut sorti ; affectations fermées | `eleve.sortie` [F] | P |
-| INS-13 | Inviter le second responsable à la validation | SYS sur `inscription.validee` | e-mail indiqué par le premier (D-014) | invitation | `eleve.compte_invite` | A |
-| INS-14 | Reprendre l'IBAN masqué et signer un nouveau mandat | PAR | seulement si identité réutilisée (D-014) | IBAN copié, mandat à signer | `fac.sepa_mandat` [F] | A |
-| INS-15 | Relancer les pièces manquantes | SYS planifié / ADF | pas plus d'une relance tous les N jours | notification | `admission.relance_envoyee` | A |
+| INS-13 | Inviter le second responsable à la validation | SYS sur `inscription.validee` | e-mail indiqué par le premier (D-014) | invitation | `eleve.compte_invite` | I |
+| INS-14 | Reprendre l'IBAN masqué et signer un nouveau mandat | PAR | seulement si identité réutilisée (D-014) | IBAN copié, mandat à signer | `fac.sepa_mandat` [F] | I |
+| INS-15 | Relancer les pièces manquantes | SYS planifié / ADF | pas plus d'une relance tous les N jours | notification | `admission.relance_envoyee` | I |
 
 ### D4 — Emplois du temps (EDT)
 
@@ -311,16 +311,16 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
-| CDT-01 | Renseigner le contenu d'une séance | PRF · service | rattaché à une séance datée (EDT-06) | contenu | `cahier.seance_renseignee` | P (`cahier.texte` [F]) |
-| CDT-02 | Donner un travail à faire | PRF · service | date `pour_le` ≥ séance | travail visible | `cahier.travail_donne` | P |
-| CDT-03 | Modifier/supprimer | PRF · AUT ; DIR | historique ; notification si déjà vu | — | `cahier.travail_modifie` | A |
-| CDT-04 | Joindre des pièces / ressources | PRF | fichiers privés, URL pré-signées | pièces | `cahier.piece_jointe` | A |
-| CDT-05 | Demander un travail à rendre en ligne | PRF | date limite ; format | travail « à rendre » | `cahier.travail_a_rendre` | A |
-| CDT-06 | Rendre un travail | ELV · SOI | avant/après échéance (retard marqué) | remise | `cahier.travail_rendu` | A |
-| CDT-07 | Corriger / rendre la copie | PRF | lien possible vers une note (EVA-02) | retour | `cahier.copie_rendue` | A |
-| CDT-08 | Voir l'agenda « à faire » | ELV · SOI ; PAR · LIEN | inclut évaluations annoncées | lecture | — | P |
-| CDT-09 | Marquer un travail comme fait (élève) | ELV | indicateur personnel | état | — | A |
-| CDT-10 | Viser le cahier de textes (inspection, direction) | DIR | lecture par classe/prof | visa | `cahier.vise` | A |
+| CDT-01 | Renseigner le contenu d'une séance | PRF · service | rattaché à une séance datée (EDT-06) | contenu | `cahier.seance_renseignee` | I (S2-6) |
+| CDT-02 | Donner un travail à faire | PRF · service | date `pour_le` ≥ séance | travail visible | `cahier.travail_donne` | I (S2-6) |
+| CDT-03 | Modifier/supprimer | PRF · AUT ; DIR | historique ; notification si déjà vu | — | `cahier.travail_modifie` | I (S2-6) |
+| CDT-04 | Joindre des pièces / ressources | PRF | fichiers privés, URL pré-signées | pièces | `cahier.piece_jointe` | I (S2-6) |
+| CDT-05 | Demander un travail à rendre en ligne | PRF | date limite ; format | travail « à rendre » | `cahier.travail_a_rendre` | I (S2-6) |
+| CDT-06 | Rendre un travail | ELV · SOI | avant/après échéance (retard marqué) | remise | `cahier.travail_rendu` | I (S2-6) |
+| CDT-07 | Corriger / rendre la copie | PRF | lien possible vers une note (EVA-02) | retour | `cahier.copie_rendue` | I (S2-6) |
+| CDT-08 | Voir l'agenda « à faire » | ELV · SOI ; PAR · LIEN | inclut évaluations annoncées | lecture | — | I (S2-6) |
+| CDT-09 | Marquer un travail comme fait (élève) | ELV | indicateur personnel | état | — | I (S2-6) |
+| CDT-10 | Viser le cahier de textes (inspection, direction) | DIR | lecture par classe/prof | visa | `cahier.vise` | I (S2-6, visa en base ; écran non fait) |
 
 ### D8 — Communication (COM)
 
@@ -521,10 +521,10 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
-| IOP-01 | Importer SIECLE (élèves, responsables, structures) | ADF ★ | prévisualisation ; rapprochement par INE puis identité ; jamais d'écrasement silencieux | créations/mises à jour via les commandes des domaines (DOS, REF) | `import.lot_applique` + événements métier | A |
+| IOP-01 | Importer SIECLE (élèves, responsables, structures) | ADF ★ | prévisualisation ; rapprochement par INE puis identité ; jamais d'écrasement silencieux | créations/mises à jour via les commandes des domaines (DOS, REF) | `import.lot_applique` + événements métier | P (format ScolIA, S2-3) |
 | IOP-02 | Importer STS-Web (personnels, services) | ADF ★ | | services | `import.lot_applique` | A |
 | IOP-03 | Importer ONDE (premier degré) | ADF ★ | si premier degré dans le périmètre (Q8) | | `import.lot_applique` | A |
-| IOP-04 | Traiter les rejets d'un import | ADF | ligne par ligne | corrections | `import.rejet_traite` | A |
+| IOP-04 | Traiter les rejets d'un import | ADF | ligne par ligne | corrections | `import.rejet_traite` | I |
 | IOP-05 | Exporter (LSU, LSL, Notanet, Affelnet, Parcoursup, ONDE) | ADF, DIR ★ | trace | fichier | `export.realise` | P |
 | IOP-06 | Connexion ÉduConnect / FranceConnect | utilisateur | fédération (comme `ent-oidc`) ; aucun provisionnement implicite | session | `auth.connexion_federee` | A |
 | IOP-07 | Accès aux ressources (GAR) | ELV, PRF | affectations transmises au GAR [H] | — | — | A |
@@ -903,6 +903,100 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Vérification des textes officiels (voir ci-dessus).
 
 **Tests** : voir la ligne « Tests S2-4 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
+
+### 6.3 S2-3 — réalisé (2026-11-05, branche `ent-socle2-inscriptions`, fusionne S2-0, S2-1, S2-2)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. Couvre INS-01 → INS-08, INS-13 → INS-15, D-014 (préinscription vérifiée, second parent, IBAN masqué) et IOP-01/04 au format ScolIA documenté ; le reste est listé plus bas.
+
+**Données (migrations additives `140`→`145`, `MIGRATION_TAG = "145_inscription_invitation"`) [F]**
+
+| Migration | Contenu |
+|---|---|
+| `140_inscription_campagne.sql` | `ent_inscription_campagne` (nature `admission`/`reinscription`, année cible `AAAA-AAAA`, dates, statut `brouillon`/`ouverte`/`fermee`, message aux familles ; **une seule campagne ouverte** par nature et année), niveaux avec capacité, pièces demandées |
+| `141_inscription_dossier.sql` | `ent_inscription_dossier` (**copie propre à l'établissement** du formulaire, D-014 ; e-mail vérifié du déposant ; `reutilise_identite` ; états `brouillon` → `deposee` → `en_instruction`/`incomplet` → `admis`/`liste_attente`/`refuse` → `validee` ; `desistement`), responsables (rang 1 déposant, rang 2 second parent ; **parents séparés ⇒ e-mail obligatoire**, contrainte en base), pièces (motif obligatoire en cas de refus), suivi (étapes, commentaires internes ou visibles de la famille, pièces, relances) |
+| `142_preinscription_verification.sql` | `ent_preinscription_verification` (code à 6 chiffres en empreinte, 5 essais, 15 min ; jeton de préinscription en empreinte, 2 h ; méthode `code` ou `session`), `ent_profil_personnel` (ce que la personne choisit de garder, D-013), `ent_identite_journal` (réutilisations, copies d'IBAN, rattachements, au niveau ENT) |
+| `143_mandat_sepa_demande.sql` | `ent_mandat_sepa_demande` : IBAN repris ou saisi, **chiffré** (D3, ajouté à `CHAMPS_CHIFFRES`), statut `a_signer`/`signe` ; aucune référence à l'établissement d'origine |
+| `144_import_lot.sql` | `ent_import_lot`, `ent_import_ligne` (données brutes, statut, motifs de rejet, élève créé) |
+| `145_inscription_invitation.sql` | `ent_inscription_invitation` (jeton en empreinte, 14 jours, une par dossier et responsable) |
+
+**Service (`ent-db/src/inscriptions.rs`, `imports.rs`, `inscriptions_reactions.rs`), API (`ent-api/src/inscriptions.rs`, 31 routes), types `ent-types::inscriptions`**
+
+| Action | Route | Droit / garde |
+|---|---|---|
+| INS-01/06 campagnes : créer, modifier, ouvrir (réinscription : dossiers préparés pour chaque élève actif, responsables avec autorité repris, idempotent), fermer | `GET/POST /inscriptions/campagnes`, `PUT …/{id}`, `POST …/{id}/ouvrir\|fermer` | `inscriptions.gerer` (nouveau ; admin, direction, administratif) |
+| INS-02 préinscription : démarrer (**réponse et e-mail identiques que le compte existe ou non**), vérifier le code (erreur unique), ou jeton depuis une session ouverte (passkey) ; espace (« Nous avons déjà vos informations ? », campagnes, dossiers, message de confidentialité) ; dépôt (adresse vérifiée imposée comme responsable 1, « utiliser mes informations ? » tracé, « enregistrer dans mon profil ? » non par défaut) ; suivi ; pièces déclarées | `POST /preinscription/demarrer\|verifier\|session`, `GET /preinscription/moi`, `POST /preinscription/dossiers`, `GET …/{id}`, `POST …/{id}/pieces/{code}` | public + limitation de débit (`anti_abus.rs`) puis en-tête `X-Preinscription` ; dossier lisible par la seule adresse déposante |
+| INS-03 instruction : étape, pièce acceptée/refusée (motif), commentaire (interne ou visible) ; INS-15 relance (pièces obligatoires manquantes, une tous les 3 jours, e-mail) | `GET /inscriptions/dossiers[?campagne_id&statut]`, `GET …/{id}`, `POST …/{id}/statut\|pieces/{code}\|commentaires\|relancer` | `inscriptions.gerer` |
+| INS-04 ★ décision admis / liste d'attente / refus (motif obligatoire hors admission, **capacité du niveau** vérifiée sous verrou) | `POST …/{id}/decision` | `inscriptions.decider` (nouveau ; admin, direction ; accordable par rôle paramétré) |
+| INS-05 ★ validation : pièces obligatoires acceptées ; classe de l'établissement ; **une transaction** : élève (`preinscrit`, homonyme/INE refusé), personnes retrouvées par e-mail ou créées, foyers (un par parent séparé), liens (payeur 100 % = déposant), dossier `validee`, `inscription.validee` dans l'outbox | `POST …/{id}/valider` | `inscriptions.decider` |
+| INS-07 / INS-08 réinscription par le responsable lié (lien actif, autorité) : confirmer (régime), annoncer un départ (motif hors événement) | `GET /inscriptions/famille/reinscriptions`, `POST …/{id}/confirmer\|depart` | session parent + `ent_eleve_lien_actif` |
+| INS-13 invitation (consommateur) puis acceptation : compte créé (lien d'activation envoyé) ou **identité existante rattachée** (D-013), personne reliée au compte | `POST /inscriptions/invitations/accepter` | public (jeton 256 bits, usage unique, 14 j) |
+| INS-14 / D-014 coordonnées bancaires **à la validation seulement** : IBAN d'un autre établissement proposé **masqué** (`FR76 •••• 0189`) si l'identité a été réutilisée, ou saisi ; **nouveau mandat à signer** puis signé (mandat actif + historique IBAN, chiffrés) | `GET /preinscription/dossiers/{id}/banque`, `POST …/mandat`, `POST …/mandat/signer` | jeton du déposant ; proposition revérifiée côté serveur ; copie tracée dans `ent_identite_journal` |
+| IOP-01 / IOP-04 import : prévisualiser (aucun élève écrit), appliquer (lignes « à créer » revérifiées, une transaction), traiter un rejet (ignorer / corriger puis créer) | `POST /imports/eleves`, `GET /imports/{id}`, `POST /imports/{id}/appliquer`, `POST /imports/lignes/{id}/traiter` | `imports.appliquer` (nouveau ; admin, direction, administratif) |
+
+**Réactions à `inscription.validee` (outbox S2-0, §4.3)** : `d1.affectation_inscription` (affectation à la classe cible dans l'année de la classe ; élève rendu actif dans la classe de l'année courante ; rejouable), `d2.invitations_responsables` (une invitation par responsable avec e-mail sans compte rattaché, second parent compris ; e-mail ; non rejouable), `d8.accueil_inscription` (notification interne aux responsables déjà titulaires d'un compte, e-mail d'accueil au déposant ; non rejouable). Données relues au traitement, bornées à l'établissement de l'événement ; idempotence par la marque du distributeur **et** par des clés uniques (affectation ouverte, invitation, notification). Charge utile minimale : identifiants, nature, année, classe, niveau, régime, personnes payeuses (ni coordonnées ni IBAN).
+
+**Événements publiés en transaction** : `admission.campagne_ouverte` / `reinscription.campagne_ouverte`, `admission.campagne_fermee`, `admission.deposee`, `admission.etape_changee`, `admission.decidee` (sans motif), `admission.relance_envoyee`, `inscription.validee`, `eleve.created`, `personne.creee`, `eleve.lien_updated`, `eleve.reinscription_confirmee`, `scolarite.depart_annonce` (sans motif), `fac.sepa_mandat_a_signer`, `fac.sepa_mandat`, `personne.compte_rattache`, `inscription.invitation_acceptee`, `import.lot_applique`, `import.rejet_traite` (agrégats `admission` et `import` ajoutés). Chronologie de l'élève : « Inscription validée », « Départ annoncé par la famille ».
+
+**Format d'import `scolia_eleves_v1`** (les formats AAF / BEE ne sont pas disponibles, voir `docs/INTEROPERABILITE_NATIONALE.md` de la branche `ent-socle2-interop-etude`, §6 et §12 : AAF sous convention académique pour le public, BEE en sortie pour le privé, spécifications sur demande ; un lecteur AAF/BEE produira les mêmes lignes) : CSV UTF-8 (BOM toléré), séparateur `;`, guillemets doubles, **en-tête obligatoire**, colonnes dans un ordre libre parmi `nom`, `prenom`, `date_naissance` (obligatoires ; date `JJ/MM/AAAA` ou `AAAA-MM-JJ`), `sexe` (`F`/`M`), `ine`, `classe` (code d'une classe de l'année courante), `regime` (`externe`, `demi_pension`, `interne`), `resp1_nom`, `resp1_prenom`, `resp1_email`, `resp1_telephone`, `resp1_lien` (`mere`, `pere`, `tuteur`, `autre`), mêmes colonnes `resp2_*` ; 5 000 lignes et 2 Mo au plus. Rapprochement : INE (même INE et autre identité ⇒ rejet), puis nom + prénom + date de naissance ; élève déjà présent ⇒ « existant », **jamais modifié** ; doublon dans le fichier ⇒ rejet ; responsable retrouvé par e-mail (fratrie : une seule personne). Rapport : statut et motifs par ligne.
+
+**Frontend Leptos** (`ent-web-app/src/modules/inscriptions/`) : `/web/preinscription` (public : e-mail → code → espace → formulaire pré-rempli ou libre, second parent, suivi, pièces, IBAN masqué et signature du mandat ; jeton gardé en mémoire uniquement), `/web/invitation` (public), `/web/inscriptions` (personnel : campagnes, création, ouverture/fermeture, dossiers, instruction, décision, validation, selon les actions annoncées par le serveur), `/web/reinscription` (responsables : confirmer, annoncer un départ). Entrées de navigation « Inscriptions » (profils de gestion des élèves) et « Réinscription » (familles). Client `ent-web-api` : `ClientPreinscription` (en-tête `X-Preinscription`). Logique d'écran pure testée (`modele.rs`).
+
+**Tests** : `ent-db/src/tests_inscriptions.rs` (7 scénarios Postgres : parcours famille de bout en bout avec anti-énumération, code unique et erreur indiscernable, parents séparés, instruction, décision réservée, validation transactionnelle, réactions, invitation du second parent acceptée ; IBAN masqué et nouveau mandat entre deux établissements ; capacité et droits (8 profils + rôle paramétré) ; réinscription (préparation idempotente, une seule campagne ouverte, responsable lié seulement, départ, accueil) ; réactions idempotentes (double distribution, relivraison forcée, rejeu refusé pour les envois externes) ; import avec rejets (prévisualisation sans écriture, application unique, fratrie, correction, ignorer, réimport sans écrasement) ; isolation entre établissements (dossiers, jetons, invitations, classes, lots, distributeur borné)) ; tests unitaires (`inscriptions`, `imports`) ; `ent-api/src/tests_inscriptions.rs` (HTTP : 202 indiscernables, 401 sans jeton, 400 identiques, 201/400/403/404/409, import) ; `ent-web-app` (modèle) ; `ent-web-server/tests/inscriptions.rs` (rendu serveur des pages et parcours contre le vrai backend).
+
+**Résultats (2026-11-05, Postgres 16 local jetable, Rust 1.99.0)** : `tests_inscriptions` 7/7 + 9 tests unitaires (ent-db) ; test HTTP S2-3 1/1 (ent-api) ; suite complète du workspace (`cargo test --locked --no-fail-fast --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1`) : **581 réussis, 0 échec, 1 ignoré** ; clippy du job backend sans erreur (avertissements préexistants seulement) ; frontend : clippy `-D warnings` (SSR, serveur, serveur labo, wasm32) sans avertissement, tests unitaires `ent-web-ui`/`ent-web-api`/`ent-web-app` 19 + 122 + 14, `cargo leptos build --release --precompress` réussi, `entetes_securite` 3/3, `droits_parite` 19/19, `contre_backend` 9/9, `inscriptions` 2/2, `ent-web-session` 12/12 ; formatage CI conforme. CI GitHub non vérifiée.
+
+**Écarts par rapport à la conception [signalés]**
+- Une seule table de dossier pour admission et réinscription (`nature`) ; l'ancienne `ent_reinscription_campagne` (018, vannes documentaires et acompte, lue par `ui.rs`) n'est ni reprise ni modifiée : deux mécanismes de réinscription coexistent jusqu'au retrait de l'ancienne interface.
+- Vérification « passkey » : une **session ouverte dans l'établissement** (passkey comprise) délivre le jeton ; la cérémonie passkey pour un parent **sans compte dans cet établissement** (identité `scolia.fr` d'un autre établissement) n'est pas faite : il passe par le code e-mail.
+- Pièces : la famille **déclare** la pièce (nom du fichier) ; le dépôt du fichier par le service documentaire (URL pré-signées, antivirus) n'est pas branché.
+- Signature du mandat = consentement explicite horodaté par l'adresse vérifiée ; pas de signature électronique qualifiée.
+- `inscription.validee` : 3 réactions sur les 8 du §4.3 ; facturation (échéancier), grille repas, internat, documents de rentrée et consentements restent à brancher.
+- Validation (INS-05) donnée par défaut à la direction seulement (`inscriptions.decider`) ; le secrétariat l'obtient par un rôle paramétré (D-017).
+- Profil personnel enregistré seulement si la personne a déjà un compte ; à défaut, rien n'est gardé au niveau ENT.
+
+**Reste à faire dans S2-3** : réactions facturation (échéancier selon formules et payeurs, D10), repas (D11), internat (D12), documents de rentrée (D9) et consentements (D24) ; INS-09 montée officielle après décision du conseil, INS-10/11/12 depuis les écrans ; dépôt réel des pièces ; choix de la classe par liste dans l'écran de validation ; lecteurs AAF (public) et BEE dès réception des spécifications, remontée BEE (IOP-L4, agrément) ; fusion des deux mécanismes de réinscription.
+
+### 6.3 S2-6 — réalisé (2026-11-05, branche `ent-socle2-cahier`)
+
+**Niveau : implémenté + testé en local** (Postgres jetable). Non validé pilote, non fusionné. La branche contient les fusions de `ent-socle2-outbox` (S2-0) et `ent-socle2-referentiel` (S2-2). Écrans Leptos : **faits (3)**, vérifiés en rendu serveur et par le modèle d'écran ; **non vérifiés dans un navigateur** (voir limites).
+
+**Livré [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| Migration additive | `ent-rust/migrations/150_cahier_textes.sql` (`MIGRATION_TAG = "150_cahier_textes"`) | `ent_seance_contenu` (CDT-01, une ligne versionnée par séance), `ent_travail` (classe **ou** groupe, type `a_faire` / `a_rendre` / `controle`, durée estimée 1–600 min, date limite, retard accepté ou non, formats acceptés, suppression logique), `ent_travail_remise` (une par travail et élève), `ent_cdt_piece` (genres `ressource`, `seance`, `copie`, `annotation` ; clé de stockage jamais exposée), `ent_travail_eleve` (fait / vu), `ent_cdt_historique` (CDT-03), `ent_cdt_visa` (CDT-10). Reprise **idempotente** de l'ancien `ent_cahier_texte` (`ancien_id` unique) + déclencheur pour les nouvelles entrées de l'ancienne route `/cahier-texte` (conservée telle quelle). |
+| Droits (D-017) | `ent-auth/src/actions.rs`, `ent-db/src/cahier.rs` | actions `cahier.lire`, `cahier.ecrire` (implique la lecture), `cahier.viser` (établissement entier seulement). Modèles par défaut : Admin et Direction = lire + écrire + viser ; Administratif et CPE = lire ; Enseignant = lire + écrire en portée **mes classes** ; autres = rien. Portée « mes classes » = service d'enseignement sur la classe ou le groupe, ou séance datée assurée (titulaire ou remplaçant) ; `mes_groupes` = responsable du groupe ; `désignés` = classes ou groupes cochés. Élève sur lui-même (compte lié), responsable selon `ent_eleve_lien` ; jamais de rôle libre pour eux. |
+| Fichiers | `ent-object/src/upload.rs` (`UsageFichier::PieceCahier`, `Copie`, 10 Mo, variables `ENT_UPLOAD_MAX_CAHIER` / `ENT_UPLOAD_MAX_COPIE`) | contrôle D2 à chaque dépôt (signature binaire, liste blanche, nom assaini, fichier actif refusé, antivirus branchable, type retenu = celui des octets) ; formats acceptés par travail ; **stockés dans le magasin d'objets** (clé `établissement/cahier/…`), ouverts par **lien signé court** après contrôle des droits (`POST /cahier/pieces/{id}/lien`, téléchargement forcé). Copie lisible par l'élève auteur, son responsable lié et le personnel `cahier.ecrire` sur la cible — **pas** par un camarade, un autre professeur, la vie scolaire ni le secrétariat. |
+| Routes | `ent-api/src/cahier.rs` (merge dans `routes.rs`) | `/cahier/seances` (+ `PUT …/{id}/contenu`), `/cahier/mon-cahier`, `/cahier/travaux` (GET par cible, POST), `/cahier/travaux/{id}` (GET détail = « vu », PUT, DELETE), `…/historique`, `…/fait`, `…/suivi`, `…/pieces`, `/cahier/contenus/{id}/pieces`, `…/remise`, `/cahier/remises/{id}/retour`, `/cahier/pieces/{id}/lien`, `/cahier/agenda`, `/cahier/charge`, `/cahier/visas`. Refus métier explicites (`EntDbError::Refus` : 422 / 409 / 403 avec message). |
+| DTO | `ent-types/src/cahier.rs` | contrat JSON partagé serveur / navigateur ; `ent-db` dépend maintenant d'`ent-types` (chemin local, aucune dépendance externe). |
+| Événements (outbox) | `ent-events` (`cahier.*`), publiés par `tx.publier` dans la transaction du fait | `cahier.seance_renseignee`, `travail_donne`, `travail_a_rendre`, `travail_modifie` (charge : `deja_vu`), `travail_supprime`, `piece_jointe`, `travail_rendu` (une fois par remise), `copie_rendue`, `vise`. |
+| Notifications | `ent-db/src/cahier_reactions.rs`, consommateur `d7.notifications` (rejouable) | travail donné ou à rendre → élèves de la cible + leurs comptes élève et responsables liés ; modifié → seulement si un élève l'avait déjà vu ; copie rendue par l'élève → **professeur auteur** (une seule notification même si l'élève ajoute des fichiers) ; copie corrigée → élève et responsables. Tout est relu à l'établissement de l'événement ; clé unique (`source_event_id`, destinataire, `kind`) + marque du distributeur : un rejeu ne duplique rien. |
+| Agenda et charge | `cahier_agenda`, `cahier_charge` | agenda élève / famille par échéance (travail, contrôle annoncé, état fait / rendu / retard / corrigé) ; **charge** par jour pour une classe ou un groupe (cumul classe + groupes rattachés), alerte de surcharge si > 120 min estimées ou ≥ 2 contrôles le même jour (réglable par appel, bornes 15–600 min et 1–10) ; l'alerte est aussi renvoyée dès la création d'un travail. Visible de l'équipe (`cahier.lire` sur la cible), pas des familles. |
+| Écrans Leptos | `ent-rust/web/crates/ent-web-app/src/modules/cahier/` | `/web/cahier` (enseignant : semaine, contenu des séances, travail à donner, travaux et jours chargés par classe), `/web/cahier/travaux/:id` (copies reçues, téléchargement, retour), `/web/agenda` (élève : à faire / fait / rendre un fichier ; famille : agenda de chaque enfant en lecture seule). Modèle d'écran pur testé en natif (`modele.rs`), client typé `ent-web-api/src/cahier.rs`, entrées de navigation et droits d'affichage (parité testée avec `ent-auth`), CSS dans la feuille de l'application (aucun style en ligne, CSP inchangée). |
+
+**Tests** (feature `labo`, PostgreSQL local jetable)
+- `ent-db/src/tests_cahier.rs` — 15 tests : contenu de séance versionné et historique ; séance de groupe visible du seul groupe ; travail visible par classe et par groupe (élève, famille, professeur, autres profils) ; échéances (passée, avant la séance, durée, type, formats) ; charge et alerte de surcharge ; modification / suppression / historique / « déjà vu » ; pièces privées (D2, magasin d'objets, liens signés, refus des camarades et des autres établissements) ; rendu tardif, retard refusé, dépôt complémentaire sans second événement, retour du professeur, note liée d'un autre élève refusée ; « fait » personnel ; droits par le moteur (rôle paramétré désigné et `mes_groupes`, retrait immédiat) ; visa réservé à la direction ; isolation entre établissements ; reprise de l'ancien cahier ; atomicité (panne de l'outbox → aucun travail) ; notifications idempotentes (redistribution + rejeu du consommateur).
+- `ent-web-server/tests/cahier.rs` — 3 tests contre le vrai backend : pages rendues (CSP, langue, aucun style en ligne), parcours enseignant → élève → famille → copie → correction avec lien signé réellement servi, 401 sans session.
+- `ent-web-app` (`modele.rs`) — 11 tests natifs ; `droits_parite.rs` — parité des droits d'affichage avec `ent-auth`.
+
+**Résultats (2026-11-05, Postgres 16 local jetable, Rust 1.97 — la CI vise 1.99)** :
+- suite backend complète `cargo test --locked --no-fail-fast --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1` : **564 réussis, 0 échec, 1 ignoré** (code de sortie 0) ; `tests_cahier` 15/15 ;
+- clippy du job backend (3 commandes) : code de sortie 0 ; `cargo build --locked --workspace` : réussi ;
+- frontend : clippy `-D warnings` (SSR, serveur, serveur + labo, wasm32 `hydrate`) propre ; tests natifs `ent-web-ui` / `ent-web-api` / `ent-web-app` : 153 réussis ; `ent-web-server` : `cahier` 3/3, `droits_parite` 20/20, `entetes_securite` 3/3 ; formatage CI (`cargo fmt … --check` web + `ent-types`) : OK ; `ent-rust/web/Cargo.lock` et `ent-rust/Cargo.lock` à jour (une ligne chacun : `ent-db` → `ent-types`) ;
+- **non exécutés** : `cargo leptos build --release --precompress` (outil absent de ce poste), `contre_backend` et `ent-web-session` du job frontend, audits `cargo deny` / `cargo audit`, CI GitHub.
+
+**Écarts par rapport au §3 et limites [signalés]**
+- **CDT-08** : l'agenda inclut les contrôles annoncés **saisis comme travail de type `controle`** ; il ne lit pas encore les devoirs notés (`ent_devoir`) : à relier avec le lot évaluations (EVA).
+- **CDT-10** : le visa est enregistré et lisible (route, droits, événement) mais **sans écran** ; la lecture « par classe / par professeur » passe par `GET /cahier/travaux` et `/cahier/seances?classe_id=`.
+- **CDT-07** : le lien vers une note existe (`note_id` validé : même établissement, même élève) côté API ; l'écran n'expose pas encore le choix de la note.
+- **Date limite** : calculée en **UTC** (fin de journée) ; le fuseau de l'établissement n'est pas encore modélisé. Un rendu après la limite est accepté et marqué en retard, sauf si le professeur a désactivé le retard.
+- **CDT-03** : modification par l'auteur ou la direction (`cahier.viser`) ; la notification « déjà vu » repose sur l'ouverture du détail par l'élève (pas par la famille).
+- Rappel « la veille » (catalogue §4.2) : **non fait** (planificateur à venir dans S2-0).
+- Un travail ciblé sur un groupe se donne depuis une séance du groupe (ou par l'API) ; l'écran enseignant propose la classe de la séance, pas encore un choix de groupe hors séance.
+- Les ressources s'ajoutent par l'API (`…/pieces`) ; l'écran enseignant ne propose pas encore l'ajout de fichier à une séance ou à un travail (seul le dépôt de l'élève et le retour annoté ont leur sélecteur de fichier).
+- Un objet écrit dans le magasin avant un échec de validation de la transaction peut rester orphelin (nettoyage différé à prévoir).
+- Écrans **non testés dans un navigateur** (clavier, 375 px, axe-core, lecteur d'écran) : seuls le rendu serveur, le modèle d'écran, clippy (SSR et wasm) et le parcours HTTP sont vérifiés. `cargo leptos build` non exécuté (outil absent de ce poste).
+- Aucune migration `151`–`159` utilisée.
 
 ## 7. Décisions à soumettre à Florian (questions fermées)
 
