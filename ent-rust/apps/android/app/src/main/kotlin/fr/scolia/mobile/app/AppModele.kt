@@ -98,6 +98,16 @@ class AppModele(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Branchement de test (Robolectric) : client et lecteur factices, sans Keystore ni réseau. */
+    internal fun brancherPourTest(r: Rattachement, c: ApiClient, l: LecteurHorsLigne, e: EtatConnexion, verrou: Boolean = false) {
+        rattachements = listOf(r)
+        actif = r
+        client = c
+        lecteur = l
+        etat = e
+        verrouille = verrou
+    }
+
     private fun configurer(r: Rattachement) {
         val coffre = CoffreKeystore(getApplication(), r.baseUrl)
         val c = ApiClient(r.baseUrl, TransportOkHttp(userAgent = "ScolIA-Android/${BuildConfig.VERSION_NAME}"), coffre::lire, r.etablissementIdLabo)

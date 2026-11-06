@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -249,6 +250,7 @@ fun Coquille(modele: AppModele, connecte: EtatConnexion.Connecte) {
                     NavigationBarItem(
                         selected = courant == m,
                         onClick = { courant = m },
+                        modifier = Modifier.testTag("module-${m.name}"),
                         icon = { Icon(icone(m), contentDescription = null) },
                         label = { Text(m.titre, maxLines = 1) },
                     )
@@ -263,6 +265,7 @@ fun Coquille(modele: AppModele, connecte: EtatConnexion.Connecte) {
                                 espace.autres.forEach { m ->
                                     DropdownMenuItem(
                                         text = { Text(m.titre) },
+                                        modifier = Modifier.testTag("module-${m.name}"),
                                         leadingIcon = { Icon(icone(m), contentDescription = null) },
                                         onClick = { courant = m; menu = false },
                                     )

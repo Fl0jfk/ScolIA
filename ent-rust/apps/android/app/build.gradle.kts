@@ -45,6 +45,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        // Robolectric (tests Compose sans appareil) a besoin des ressources fusionnées.
+        unitTests.isIncludeAndroidResources = true
+        // Facultatif : miroir Maven pour le téléchargement de l'image Android de Robolectric
+        // (-Pscolia.robolectricRepo=https://miroir/maven2/) quand Maven Central limite le débit.
+        unitTests.all { t ->
+            providers.gradleProperty("scolia.robolectricRepo").orNull?.let {
+                t.systemProperty("robolectric.dependency.repo.url", it)
+                t.systemProperty("robolectric.dependency.repo.id", "miroir")
+            }
+        }
+    }
+
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
@@ -81,4 +94,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation(kotlin("test"))
+    // Tests Compose sans appareil ni émulateur (JVM + Robolectric).
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("androidx.test:core-ktx:1.6.1")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
