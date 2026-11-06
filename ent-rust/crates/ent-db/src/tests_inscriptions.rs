@@ -453,6 +453,7 @@ async fn parcours_famille_de_bout_en_bout() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await
@@ -1004,6 +1005,7 @@ async fn reinscription_campagne() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await
@@ -1091,6 +1093,7 @@ async fn reactions_idempotentes() {
             &ValidationBody {
                 classe_id: Some(classe),
                 regime: None,
+                ..Default::default()
             },
         )
         .await

@@ -474,6 +474,9 @@ async fn jeton_famille_limite_de_debit_et_roles() {
         return;
     };
     let (eleve_id, persona) = compte;
+    let pool = sqlx::PgPool::connect(&ent_db::url_base_de_test().expect("base"))
+        .await
+        .unwrap();
     let naissance = |annees: i32| {
         format!("{}-01-15", chrono::Datelike::year(&chrono::Utc::now()) - annees)
     };
@@ -481,7 +484,7 @@ async fn jeton_famille_limite_de_debit_et_roles() {
         sqlx::query("UPDATE ent_eleve SET date_naissance = $2::date WHERE id = $1")
             .bind(eleve_id)
             .bind(naissance(age))
-            .execute(ent.pool())
+            .execute(&pool)
             .await
             .unwrap();
         let (st, b) = appel_ip(
