@@ -2031,3 +2031,263 @@ async fn echec_d_envoi_trace_et_code_hmac() {
         1
     );
 }
+
+fn courriels_vers(ent: &PgEnt, email: &str) -> usize {
+    ent.mailer()
+        .dry_run_corps()
+        .into_iter()
+        .filter(|(to, _, _)| to == email)
+        .count()
+}
+
+/// A0-b / A0-c — le second parent est déclaré « ne pas solliciter » avec une adresse à protéger :
+/// l'adresse n'est écrite en clair ni dans le dossier ni dans la fiche, et AUCUNE invitation ni
+/// demande d'accord ne part vers lui ; le premier parent, lui, est invité normalement.
+#[tokio::test]
+async fn second_parent_ne_pas_solliciter_aucune_invitation() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let u = Uuid::new_v4().simple().to_string();
+    let deposant = format!("mere-{u}@exemple.test");
+    let protege = format!("pere-{u}@exemple.test");
+    let mut second = second_parent(&protege);
+    second.adresse = Some("3 impasse Cachée, 69003 Lyon".into());
+    second.reserve = Some(ReserveResponsableDto {
+        adresse_a_proteger: true,
+        ne_pas_solliciter: true,
+        ne_pas_solliciter_ref: Some("ordonnance JAF 2026/118".into()),
+        ..Default::default()
+    });
+    let (dossier, _) =
+        dossier_admis(&ent, &c, camp, &deposant, formulaire(camp, "Luna", Some(second))).await;
+    let resp2 = resp_id(&ent, dossier, 2).await;
+    // Dossier : adresse jamais en clair, référence scellée.
+    let (adresse, scellee, reference): (Option<String>, Option<String>, Option<String>) =
+        sqlx::query_as(
+            "SELECT adresse, adresse_protegee, ne_pas_solliciter_ref
+               FROM ent_inscription_responsable WHERE id = $1",
+        )
+        .bind(resp2)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(adresse, None);
+    assert!(scellee.unwrap().starts_with("enc:v1:"));
+    assert!(reference.unwrap().starts_with("enc:v1:"));
+    // Le personnel voit les indicateurs, jamais l'adresse ni la référence.
+    let (a, ar) = adm(&c);
+    let vue = ent.dossier_for_actor(etab, a, ar, dossier).await.unwrap();
+    let r2 = vue.responsables.iter().find(|r| r.rang == 2).unwrap();
+    assert_eq!(r2.formulaire.adresse, None);
+    let reserve = r2.formulaire.reserve.as_ref().unwrap();
+    assert!(reserve.ne_pas_solliciter && reserve.adresse_a_proteger);
+    assert_eq!(reserve.ne_pas_solliciter_ref, None);
+
+    ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
+        .await
+        .unwrap();
+    distributeur(&ent, etab).distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
+    // Premier parent invité ; second parent : rien, ni invitation, ni message, ni ligne d'envoi.
+    assert!(
+        ent.mailer()
+            .dry_run_corps()
+            .iter()
+            .any(|(to, sujet, _)| to == &deposant && sujet.contains("Invitation")),
+        "le premier parent est invité"
+    );
+    assert_eq!(courriels_vers(&ent, &protege), 0, "aucun message vers la personne protégée");
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_invitation WHERE responsable_id IN (SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = 2)",
+            dossier
+        )
+        .await,
+        0
+    );
+    // Fiche : « ne pas solliciter » posé, adresse absente, alerte pour la direction.
+    let (pid,): (Uuid,) = sqlx::query_as("SELECT personne_id FROM ent_inscription_responsable WHERE id = $1")
+        .bind(resp2)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    let (adresse,): (Option<String>,) = sqlx::query_as("SELECT adresse FROM ent_personne WHERE id = $1")
+        .bind(pid)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(adresse, None);
+    let alertes = ent.alertes_protection_for_actor(etab, d, dr).await.unwrap();
+    assert!(alertes.adresses_a_traiter.iter().any(|x| x.personne_id == pid));
+    assert!(alertes.ne_pas_solliciter_a_confirmer.iter().any(|x| x.personne_id == pid));
+    assert!(!format!("{alertes:?}").contains("Cachée"));
+}
+
+/// A0-c — la direction pose « ne pas solliciter » sur la fiche APRÈS la validation et avant
+/// l'envoi des invitations : l'invitation du second parent n'est jamais créée.
+#[tokio::test]
+async fn ne_pas_solliciter_pose_avant_l_envoi_bloque_l_invitation() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let u = Uuid::new_v4().simple().to_string();
+    let deposant = format!("mere2-{u}@exemple.test");
+    let second = format!("pere2-{u}@exemple.test");
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &deposant,
+        formulaire(camp, "Hermione", Some(second_parent(&second))),
+    )
+    .await;
+    ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default())
+        .await
+        .unwrap();
+    let resp2 = resp_id(&ent, dossier, 2).await;
+    let (pid,): (Uuid,) = sqlx::query_as("SELECT personne_id FROM ent_inscription_responsable WHERE id = $1")
+        .bind(resp2)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    ent.definir_ne_pas_solliciter_for_actor(etab, d, dr, pid, true, None)
+        .await
+        .unwrap();
+    distributeur(&ent, etab).distribuer_tout().await.unwrap();
+    ent.expedier_envois_inscriptions(100).await.unwrap();
+    assert_eq!(courriels_vers(&ent, &second), 0);
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_envoi WHERE dossier_id = $1 AND destinataire LIKE 'pere2-%'",
+            dossier
+        )
+        .await,
+        0
+    );
+    // Le premier parent est invité normalement.
+    assert!(courriels_vers(&ent, &deposant) >= 2);
+}
+
+/// A0-c — aucune relance de pièces vers un déposant « ne pas solliciter » ; la relance d'un
+/// dossier ordinaire fonctionne toujours.
+#[tokio::test]
+async fn relance_refusee_vers_une_personne_ne_pas_solliciter() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (a, ar) = adm(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let u = Uuid::new_v4().simple().to_string();
+    // Dossier ordinaire : relancé.
+    let ordinaire = format!("ordinaire-{u}@exemple.test");
+    let jeton = verifier(&ent, etab, &ordinaire).await;
+    let d1 = ent
+        .deposer_preinscription(etab, &jeton, &formulaire(camp, "Neville", None))
+        .await
+        .unwrap();
+    assert_eq!(ent.relancer_for_actor(etab, a, ar, d1.id).await.unwrap(), 1);
+    assert_eq!(courriels_vers(&ent, &ordinaire), 2, "code + relance");
+    // Déposant déclaré « ne pas solliciter » : relance refusée, rien n'est envoyé ni tracé.
+    let protege = format!("protege-{u}@exemple.test");
+    let jeton = verifier(&ent, etab, &protege).await;
+    let mut f = formulaire(camp, "Dean", None);
+    f.responsable.reserve = Some(ReserveResponsableDto {
+        ne_pas_solliciter: true,
+        ..Default::default()
+    });
+    let d2 = ent.deposer_preinscription(etab, &jeton, &f).await.unwrap();
+    let r = ent.relancer_for_actor(etab, a, ar, d2.id).await;
+    assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
+    assert_eq!(courriels_vers(&ent, &protege), 1, "seulement le code de vérification");
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_dossier WHERE id = $1 AND derniere_relance_le IS NOT NULL",
+            d2.id
+        )
+        .await,
+        0
+    );
+}
+
+/// A0-d — le second parent qui a déjà un compte confirme « Vous êtes déclaré responsable de X »
+/// en un geste depuis son compte, sans cliquer le lien de l'e-mail d'invitation.
+#[tokio::test]
+async fn parent_connecte_confirme_le_lien_d_inscription_en_un_geste() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let lea = c.parent_lea.user_id;
+    let lea_personne = personne_de(&ent, etab, lea).await;
+    let deposant = format!("deposant3-{}@exemple.test", Uuid::new_v4().simple());
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &deposant,
+        formulaire(camp, "Parvati", Some(second_parent(&c.parent_lea.email))),
+    )
+    .await;
+    let resp2 = resp_id(&ent, dossier, 2).await;
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &valider_corps(
+                vec![ResolutionResponsable {
+                    responsable_id: resp2,
+                    personne: ChoixPersonne::Existante {
+                        personne_id: lea_personne,
+                    },
+                    foyer: Some(ChoixFoyer::Nouveau),
+                }],
+                None,
+            ),
+        )
+        .await
+        .unwrap();
+    assert!(ent.lien_parent_eleve(etab, lea, v.eleve_id).await.unwrap().is_none());
+    // La demande issue de l'inscription figure dans « mes liens en attente » (minimisée).
+    let mes = ent.mes_liens_en_attente(etab, lea).await.unwrap();
+    let ma_demande = mes
+        .iter()
+        .find(|m| m.eleve_prenom == "Parvati")
+        .expect("« Vous êtes déclaré responsable de Parvati »");
+    assert_eq!(ma_demande.eleve_initiale, "L");
+    // Un autre compte ne peut pas la confirmer.
+    assert!(ent
+        .repondre_lien_en_attente(etab, c.parent_tom.user_id, ma_demande.id, true)
+        .await
+        .is_err());
+    // Un geste, sans jeton ni e-mail.
+    ent.repondre_lien_en_attente(etab, lea, ma_demande.id, true)
+        .await
+        .unwrap();
+    assert!(ent.lien_parent_eleve(etab, lea, v.eleve_id).await.unwrap().is_some());
+    let (voie,): (String,) =
+        sqlx::query_as("SELECT confirmation_voie FROM ent_lien_attente WHERE id = $1")
+            .bind(ma_demande.id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    assert_eq!(voie, "personne_connectee");
+}
