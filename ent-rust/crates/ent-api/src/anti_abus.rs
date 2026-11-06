@@ -40,9 +40,10 @@ pub struct Regle {
     pub id: Option<Quota>,
     pub champ_id: Option<&'static str>,
     /// RF-13 : dépassement du seau par identifiant = **absorption** (202 neutre, handler
-    /// non appelé, donc aucun envoi) au lieu d'un 429. Un tiers qui épuise le seau d'une
-    /// victime ne la prive plus de sa propre demande en lui renvoyant des 429, et ne
-    /// révèle rien ; le plafond par IP reste un refus dur.
+    /// non appelé, donc aucun envoi) au lieu d'un 429. Ne révèle rien (le tiers ne peut
+    /// plus distinguer un seau plein) ; limite connue : la victime dont le seau est vidé
+    /// ne reçoit pas de nouvel e-mail avant la fin de la fenêtre, mais les liens déjà
+    /// envoyés par les demandes du tiers sont valides. Le plafond par IP reste un refus dur.
     pub absorbe_id: bool,
 }
 

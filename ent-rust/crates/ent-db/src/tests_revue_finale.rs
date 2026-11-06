@@ -914,6 +914,9 @@ async fn rf11_verrou_ip_epargne_les_comptes_connus_du_reseau() {
     }
     let r = ent.login_with_ip(&inconnu, MDP, etab, Some(&ip)).await;
     assert!(format!("{:?}", r.err()).contains("TooMany"), "compte sans session depuis cette IP : refusé");
+    // Pas d'oracle : un mauvais mot de passe sur le compte connu répond comme les autres.
+    let r = ent.login_with_ip(&connu, "mauvais-mot-de-passe", etab, Some(&ip)).await;
+    assert!(format!("{:?}", r.err()).contains("TooMany"), "réponse uniforme tant que l'IP est verrouillée");
     let r = ent.login_with_ip(&connu, MDP, etab, Some(&ip)).await;
     assert!(r.is_ok(), "compte connu depuis ce réseau : épargné : {:?}", r.err());
 }

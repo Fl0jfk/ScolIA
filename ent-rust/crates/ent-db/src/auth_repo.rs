@@ -198,6 +198,15 @@ fn env_u64(nom: &str, defaut: u64) -> u64 {
 /// doublé à chaque échec supplémentaire, plafonné à `ENT_LOGIN_SLOWDOWN_MAX_MS`
 /// (défaut 3000 ms). Retarde l'attaque distribuée sans jamais refuser un
 /// utilisateur légitime.
+/// Erreur d'échec d'authentification : uniforme (`TooManyAttempts`) tant que l'IP est verrouillée.
+fn echec(ip_verrouillee: bool) -> AuthError {
+    if ip_verrouillee {
+        AuthError::TooManyAttempts
+    } else {
+        AuthError::InvalidCredentials
+    }
+}
+
 fn slowdown_ms(echecs_comptes: i32) -> u64 {
     slowdown_calcul(
         echecs_comptes,
@@ -387,6 +396,7 @@ impl PgAuthRepo {
         let ip_key = client_ip.map(|ip| format!("ip:{ip}"));
         let hard_key = format!("compte-ip:{email}|{}", client_ip.unwrap_or("-"));
         let global_key = format!("email:{email}");
+        let mut ip_verrouillee = false;
 
         if self
             .login_attempt(&hard_key, login_max_failed())
@@ -398,13 +408,19 @@ impl PgAuthRepo {
         if let Some(k) = &ip_key {
             // RF-11 : derrière un NAT d'établissement, un élève qui épuise le seuil par IP ne
             // doit pas fermer la porte aux comptes déjà connus depuis ce réseau. Le verrou par
-            // IP (bourrage sur des comptes quelconques) ne vise donc que les comptes SANS
-            // session récente depuis cette IP ; les comptes connus restent bornés par le verrou
-            // dur (compte, IP) ci-dessus et par le ralentissement du compte.
-            if self.login_attempt(k, login_max_failed_ip()).await?.verrouille
-                && !self.appareil_connu(&email, client_ip.unwrap_or("")).await
-            {
-                return Err(AuthError::TooManyAttempts);
+            // IP (bourrage) ne vise donc que les comptes SANS session récente depuis cette IP ;
+            // les comptes connus restent bornés par le verrou dur (compte, IP) et le
+            // ralentissement. Pas d'oracle : tant que l'IP est verrouillée, TOUT échec
+            // (compte inconnu, connu, mauvais mot de passe) renvoie `TooManyAttempts`.
+            if self.login_attempt(k, login_max_failed_ip()).await?.verrouille {
+                if self
+                    .appareil_connu(&email, client_ip.unwrap_or(""), etablissement_id)
+                    .await
+                {
+                    ip_verrouillee = true;
+                } else {
+                    return Err(AuthError::TooManyAttempts);
+                }
             }
         }
         // Compteur global du compte (aucun seuil de refus) → ralentissement.
@@ -428,11 +444,11 @@ impl PgAuthRepo {
             // E-mail inconnu : on hache quand même un mot de passe factice pour
             // éviter de révéler l'existence du compte par le temps de réponse.
             let _ = verify_password(password, DUMMY_PASSWORD_HASH.as_str());
-            return Err(AuthError::InvalidCredentials);
+            return Err(echec(ip_verrouillee));
         };
 
         if !verify_password(password, &password_hash)? {
-            return Err(AuthError::InvalidCredentials);
+            return Err(echec(ip_verrouillee));
         }
 
         let membership: Option<(String,)> = sqlx::query_as(
@@ -455,7 +471,7 @@ impl PgAuthRepo {
                 etablissement_id = %etablissement_id,
                 "connexion refusée : mot de passe correct mais compte non membre de l'établissement"
             );
-            return Err(AuthError::InvalidCredentials);
+            return Err(echec(ip_verrouillee));
         };
 
         // Connexion réussie : le verrou (compte, IP) repart à zéro, et les
@@ -703,14 +719,15 @@ impl PgAuthRepo {
 
     /// Le compte a-t-il ouvert une session depuis cette IP ces 30 derniers jours ?
     /// (Erreur de lecture = « inconnu » : on reste sur le refus.)
-    async fn appareil_connu(&self, email: &str, ip: &str) -> bool {
+    async fn appareil_connu(&self, email: &str, ip: &str, etablissement_id: Uuid) -> bool {
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM ent_session s JOIN ent_user u ON u.id = s.user_id
-              WHERE u.email = $1 AND s.ip_creation = $2
+              WHERE u.email = $1 AND s.ip_creation = $2 AND s.etablissement_id = $3
                 AND s.created_at > now() - interval '30 days')",
         )
         .bind(email)
         .bind(ip)
+        .bind(etablissement_id)
         .fetch_one(&self.pool)
         .await
         .unwrap_or(false)
