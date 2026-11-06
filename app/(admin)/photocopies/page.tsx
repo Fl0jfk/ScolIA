@@ -42,6 +42,10 @@ import {
 } from "@/app/lib/photocopies-couleur-types";
 import { clearDashboardSignalsCache } from "@/app/lib/dashboard-signals-cache";
 
+/** 401 à l'envoi : la session a expiré pendant la saisie (le formulaire reste rempli). */
+const PHOTOCOPIES_SESSION_EXPIRED =
+  "Votre session a expiré. Reconnectez-vous dans un autre onglet, puis revenez ici et cliquez à nouveau sur « Envoyer » : votre saisie est conservée.";
+
 /** Ligne « Options » d'une carte de demande (rien pour les anciennes demandes). */
 function PhotocopieOptionsRow({ item }: { item: PhotoCopieRecord }) {
   const label = photoCopieOptionsLabel(item);
@@ -366,7 +370,8 @@ export default function PhotocopiesCouleurPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ fileName: documentFile.name, contentType: documentFile.type }),
         });
-        const prepJson = await prep.json();
+        if (prep.status === 401) throw new Error(PHOTOCOPIES_SESSION_EXPIRED);
+        const prepJson = await prep.json().catch(() => ({}));
         if (!prep.ok) throw new Error(prepJson.error || "Préparation du fichier impossible.");
         const put = await fetch(prepJson.uploadUrl, {
           method: "PUT",
@@ -396,6 +401,7 @@ export default function PhotocopiesCouleurPage() {
           ...(documents.length > 0 ? { documents } : {}),
         }),
       });
+      if (res.status === 401) throw new Error(PHOTOCOPIES_SESSION_EXPIRED);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data?.error || "Enregistrement impossible.");
