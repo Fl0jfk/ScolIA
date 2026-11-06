@@ -160,6 +160,7 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
                 a_suspendre=a_suspendre
                 a_retablir=a_retablir
             />
+            {gerer.then(|| view! { <actions::LiensEnAttente eleve_id=eleve_id recharger=recharger/> })}
         </section>
 
         <section class="classe-section" aria-labelledby="fiche-contacts">

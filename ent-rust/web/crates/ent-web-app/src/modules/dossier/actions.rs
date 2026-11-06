@@ -3,7 +3,9 @@
 //! ou rétablir un lien. Chaque écriture : erreurs affichées dans le dialogue, arrêt sur
 //! 401 (reconnexion par-dessus la page), rechargement de la fiche après succès.
 
-use ent_web_api::{ApiError, ContactUrgenceDto, ResponsableDto, ResultatLien};
+use ent_web_api::{
+    ApiError, ContactUrgenceDto, LienEnAttenteEleveDto, ResponsableDto, ResultatLien,
+};
 use ent_web_ui::{
     use_notifications, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation, Dialogue, Niveau,
     Selection, Taille, TonEtat, Variante, ZoneTexte,
@@ -13,7 +15,8 @@ use leptos::task::spawn_local;
 use uuid::Uuid;
 
 use super::modele::{
-    contact_depuis, nom_personne, parts_payeurs, valider_motif, SaisieResponsable,
+    contact_depuis, libelle_demande, message_guichet, nom_personne, parts_payeurs, piece_a_envoyer,
+    trier_demandes, valider_motif, SaisieResponsable, CASE_VERIFICATION, PIECES_IDENTITE,
 };
 use crate::noyau::{reconnexion, session};
 
@@ -459,5 +462,105 @@ pub fn DialogueRetablir(
             libelle_confirmer="Rétablir"
             on_confirmer=confirmer
         />
+    }
+}
+
+/// Demandes de lien en attente de l'élève (personnel `personnes.gerer`) : confirmation au guichet
+/// après vérification d'une pièce d'identité. Seul le type de pièce est transmis.
+#[component]
+pub fn LiensEnAttente(eleve_id: Uuid, recharger: Callback<()>) -> impl IntoView {
+    let demandes =
+        LocalResource::new(move || async move { session::client().liens_en_attente_eleve(eleve_id).await });
+    let cible = RwSignal::new(None::<(Uuid, String)>);
+    let apres = Callback::new(move |_| {
+        demandes.refetch();
+        recharger.run(());
+    });
+    view! {
+        {move || match demandes.get() {
+            Some(Ok(l)) if !l.is_empty() => {
+                let l: Vec<LienEnAttenteEleveDto> = trier_demandes(l);
+                view! {
+                    <h3 id="fiche-attentes">"Liens en attente de confirmation"</h3>
+                    <ul class="ui-liste" aria-labelledby="fiche-attentes">
+                        {l.into_iter().map(|d| {
+                            let phrase = libelle_demande(&d);
+                            let nom = phrase.clone();
+                            let (id, acces) = (d.attente_id, format!("Confirmer au guichet : {phrase}"));
+                            view! {
+                                <li class="ui-liste__element">
+                                    <div class="ui-liste__principal"><span class="ui-liste__titre">{phrase}</span></div>
+                                    <Bouton variante=Variante::Secondaire taille=Taille::Compacte
+                                        libelle_accessible=acces
+                                        on_click=Callback::new(move |_| cible.set(Some((id, nom.clone()))))>
+                                        "Confirmer au guichet"
+                                    </Bouton>
+                                </li>
+                            }
+                        }).collect_view()}
+                    </ul>
+                }.into_any()
+            }
+            _ => ().into_any(),
+        }}
+        <DialogueGuichet cible=cible recharger=apres/>
+    }
+}
+
+#[component]
+fn DialogueGuichet(cible: RwSignal<Option<(Uuid, String)>>, recharger: Callback<()>) -> impl IntoView {
+    let notifications = use_notifications();
+    let ouvert = RwSignal::new(false);
+    Effect::new(move |_| ouvert.set(cible.get().is_some()));
+    Effect::new(move |_| {
+        if !ouvert.get() {
+            cible.set(None);
+        }
+    });
+    let piece = RwSignal::new(String::new());
+    let verifiee = RwSignal::new(false);
+    let erreur = RwSignal::new(None::<String>);
+    let en_cours = RwSignal::new(false);
+    let envoyer = Callback::new(move |_| {
+        let Some((id, nom)) = cible.get_untracked() else {
+            return;
+        };
+        let code = match piece_a_envoyer(&piece.get_untracked(), verifiee.get_untracked()) {
+            Ok(c) => c,
+            Err(m) => return erreur.set(Some(m)),
+        };
+        erreur.set(None);
+        en_cours.set(true);
+        spawn_local(async move {
+            let r = session::client().confirmer_lien_guichet(id, &code).await;
+            en_cours.set(false);
+            match r {
+                Ok(c) => {
+                    notifications.succes(message_guichet(c.lien_id.is_some(), &nom));
+                    piece.set(String::new());
+                    verifiee.set(false);
+                    ouvert.set(false);
+                    recharger.run(());
+                }
+                Err(e) => erreur.set(Some(message_echec(e))),
+            }
+        });
+    });
+    let mut options = vec![(String::new(), "Choisir…".to_string())];
+    options.extend(PIECES_IDENTITE.iter().map(|(c, l)| ((*c).to_string(), (*l).to_string())));
+    view! {
+        <Dialogue ouvert=ouvert titre="Confirmer au guichet" id="fiche-guichet">
+            <form class="pile" on:submit=move |ev| { ev.prevent_default(); envoyer.run(()); }>
+                <p>{move || cible.get().map(|(_, n)| format!("Personne : {n}"))}</p>
+                <p class="texte-attenue">"Seul le type de pièce est enregistré : ni la copie, ni le numéro."</p>
+                {move || erreur.get().map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })}
+                <Selection id="guichet-piece" libelle="Type de pièce d'identité vue" valeur=piece options=options requis=true/>
+                <Case id="guichet-verifiee" libelle=CASE_VERIFICATION coche=verifiee/>
+                <div class="ui-dialogue__actions">
+                    <Bouton variante=Variante::Secondaire on_click=Callback::new(move |_| ouvert.set(false))>"Annuler"</Bouton>
+                    <Bouton variante=Variante::Primaire soumettre=true en_cours=en_cours>"Confirmer le lien"</Bouton>
+                </div>
+            </form>
+        </Dialogue>
     }
 }

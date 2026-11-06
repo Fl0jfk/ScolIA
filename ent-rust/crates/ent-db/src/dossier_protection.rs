@@ -520,6 +520,17 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+            // Le marqueur copié sur les dossiers d'inscription tombe aussi (sinon il bloquerait
+            // encore les invitations et relances après la levée par la direction).
+            sqlx::query(
+                "UPDATE ent_inscription_responsable SET ne_pas_solliciter = false
+                  WHERE etablissement_id = $1 AND personne_id = $2",
+            )
+            .bind(etab)
+            .bind(personne_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         }
         journal_tx(
             &mut tx,

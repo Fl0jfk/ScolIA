@@ -7,7 +7,7 @@
 use chrono::NaiveDate;
 use ent_web_api::{
     ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto,
-    LienBody, PersonneBody, PersonneDto, ResponsableDto,
+    LienBody, LienEnAttenteEleveDto, PersonneBody, PersonneDto, ResponsableDto,
 };
 use uuid::Uuid;
 
@@ -356,6 +356,78 @@ pub fn parts_payeurs(saisies: &[(Uuid, String)]) -> Result<Vec<(Uuid, i16)>, Str
     Ok(v)
 }
 
+/// Pièces d'identité acceptées au guichet : (code de l'API, libellé). Seul le TYPE est enregistré
+/// par le serveur : l'écran ne demande ni numéro, ni copie.
+pub const PIECES_IDENTITE: [(&str, &str); 6] = [
+    ("carte_identite", "Carte nationale d'identité"),
+    ("passeport", "Passeport"),
+    ("titre_sejour", "Titre de séjour"),
+    ("permis_conduire", "Permis de conduire"),
+    ("livret_famille", "Livret de famille"),
+    ("autre", "Autre pièce officielle"),
+];
+
+/// Libellé d'une pièce à partir de son code (le code inconnu est affiché tel quel).
+pub fn libelle_piece(code: &str) -> String {
+    PIECES_IDENTITE
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map(|(_, l)| (*l).to_string())
+        .unwrap_or_else(|| code.to_string())
+}
+
+/// Phrase de la case de confirmation du guichet.
+pub const CASE_VERIFICATION: &str =
+    "J'ai vérifié une pièce d'identité en cours de validité de cette personne";
+
+/// Contrôle local avant l'envoi : une pièce de la liste fermée et la case cochée. Renvoie le code
+/// à transmettre. Le serveur revérifie tout.
+pub fn piece_a_envoyer(piece: &str, verifiee: bool) -> Result<String, String> {
+    if !PIECES_IDENTITE.iter().any(|(c, _)| *c == piece) {
+        return Err("Choisissez le type de pièce d'identité présentée.".into());
+    }
+    if !verifiee {
+        return Err("Confirmez que vous avez vérifié une pièce d'identité en cours de validité.".into());
+    }
+    Ok(piece.to_string())
+}
+
+/// Texte d'une demande en attente : « NOM Prénom — lien (origine) ».
+pub fn libelle_demande(l: &LienEnAttenteEleveDto) -> String {
+    let nom = match l.prenom.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        Some(p) => format!("{p} {}", l.nom.to_uppercase()),
+        None => l.nom.to_uppercase(),
+    };
+    let origine = match l.source.as_str() {
+        "inscription" => "issue d'une inscription",
+        _ => "saisie par l'établissement",
+    };
+    if l.lien.trim().is_empty() {
+        format!("{nom} ({origine})")
+    } else {
+        format!("{nom} · {} ({origine})", l.lien.trim())
+    }
+}
+
+/// Demandes les plus anciennes d'abord.
+pub fn trier_demandes(mut v: Vec<LienEnAttenteEleveDto>) -> Vec<LienEnAttenteEleveDto> {
+    v.sort_by(|a, b| {
+        a.demande_le
+            .cmp(&b.demande_le)
+            .then_with(|| a.attente_id.cmp(&b.attente_id))
+    });
+    v
+}
+
+/// Message de retour après une confirmation au guichet.
+pub fn message_guichet(lien_cree: bool, nom: &str) -> String {
+    if lien_cree {
+        format!("Lien confirmé au guichet : {nom} est maintenant responsable de l'élève.")
+    } else {
+        format!("{nom} était déjà liée à l'élève : la demande est close.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -520,5 +592,73 @@ mod tests {
             Some("/web/vie-scolaire")
         );
         assert!(!peut(&f.actions, ACTION_SUSPENDRE));
+    }
+
+    #[test]
+    fn pieces_codes_et_libelles() {
+        let codes: Vec<&str> = PIECES_IDENTITE.iter().map(|(c, _)| *c).collect();
+        assert_eq!(
+            codes,
+            [
+                "carte_identite",
+                "passeport",
+                "titre_sejour",
+                "permis_conduire",
+                "livret_famille",
+                "autre"
+            ]
+        );
+        assert_eq!(libelle_piece("passeport"), "Passeport");
+        assert_eq!(libelle_piece("inconnu"), "inconnu");
+        assert!(PIECES_IDENTITE.iter().all(|(_, l)| !l.trim().is_empty()));
+    }
+
+    #[test]
+    fn guichet_exige_une_piece_de_la_liste_et_la_case() {
+        assert!(piece_a_envoyer("", true).is_err());
+        assert!(piece_a_envoyer("passeport", false).is_err());
+        assert!(piece_a_envoyer("n'importe quoi", true).is_err());
+        assert_eq!(piece_a_envoyer("passeport", true).unwrap(), "passeport");
+    }
+
+    #[test]
+    fn la_confirmation_ne_transporte_que_le_type_de_piece() {
+        // Aucun champ numéro ni copie : le corps ne contient que `piece`.
+        let corps = serde_json::to_value(ent_types::dossier::ConfirmationGuichetBody {
+            piece: "carte_identite".into(),
+        })
+        .unwrap();
+        let champs: Vec<&String> = corps.as_object().unwrap().keys().collect();
+        assert_eq!(champs, ["piece"]);
+        assert!(PIECES_IDENTITE
+            .iter()
+            .all(|(c, l)| !c.contains("numero") && !l.to_lowercase().contains("numéro")));
+        assert!(!CASE_VERIFICATION.to_lowercase().contains("numéro"));
+    }
+
+    #[test]
+    fn demandes_en_attente_libelle_tri_et_message() {
+        let d = |n: u128, t: i64, prenom: Option<&str>, source: &str| LienEnAttenteEleveDto {
+            attente_id: Uuid::from_u128(n),
+            personne_id: Uuid::from_u128(n),
+            nom: "Martin".into(),
+            prenom: prenom.map(Into::into),
+            a_un_compte: false,
+            lien: "mère".into(),
+            source: source.into(),
+            demande_le: chrono::DateTime::from_timestamp(t, 0).unwrap(),
+        };
+        assert_eq!(
+            libelle_demande(&d(1, 0, Some("Léa"), "inscription")),
+            "Léa MARTIN · mère (issue d'une inscription)"
+        );
+        assert_eq!(
+            libelle_demande(&d(1, 0, None, "saisie")),
+            "MARTIN · mère (saisie par l'établissement)"
+        );
+        let v = trier_demandes(vec![d(1, 20, None, "saisie"), d(2, 10, None, "saisie")]);
+        assert_eq!(v[0].attente_id, Uuid::from_u128(2));
+        assert!(message_guichet(true, "Léa").contains("confirmé"));
+        assert!(message_guichet(false, "Léa").contains("déjà"));
     }
 }

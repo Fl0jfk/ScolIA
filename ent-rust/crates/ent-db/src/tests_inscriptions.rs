@@ -2127,6 +2127,19 @@ async fn second_parent_ne_pas_solliciter_aucune_invitation() {
     assert!(alertes.adresses_a_traiter.iter().any(|x| x.personne_id == pid));
     assert!(alertes.ne_pas_solliciter_a_confirmer.iter().any(|x| x.personne_id == pid));
     assert!(!format!("{alertes:?}").contains("Cachée"));
+    // La levée par la direction retire aussi le marqueur copié sur le dossier.
+    ent.definir_ne_pas_solliciter_for_actor(etab, d, dr, pid, false, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_inscription_responsable WHERE id = $1 AND ne_pas_solliciter",
+            resp2
+        )
+        .await,
+        0
+    );
 }
 
 /// A0-c — la direction pose « ne pas solliciter » sur la fiche APRÈS la validation et avant
