@@ -1,5 +1,6 @@
 package fr.scolia.mobile.app.ecrans
 
+import fr.scolia.mobile.app.ui.DIALOGUE_SECURISE
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -195,7 +196,7 @@ private fun EcranAppel(modele: AppModele) {
     }
     if (confirmer) {
         // Action sensible : confirmation explicite (CLAUDE.md, sécurité).
-        AlertDialog(
+        AlertDialog(properties = DIALOGUE_SECURISE, 
             onDismissRequest = { confirmer = false },
             title = { Text("Valider l'appel ?") },
             text = { Text("$absents absent(s), $retards retard(s). Les familles seront prévenues ; l'appel ne sera plus modifiable.") },
@@ -268,7 +269,7 @@ private fun EcranAbsences(modele: AppModele) {
             MessageErreur(erreur)
             val a = aJustifier
             if (a != null) {
-                AlertDialog(
+                AlertDialog(properties = DIALOGUE_SECURISE, 
                     onDismissRequest = { aJustifier = null },
                     title = { Text("Justifier l'absence du ${dateFr(a.debut)}") },
                     text = {
@@ -387,7 +388,7 @@ private fun EcranSaisieNotes(modele: AppModele) {
             Button(onClick = { confirmer = true }, enabled = !enCours && aEnvoyer.isNotEmpty(), modifier = Modifier.heightIn(min = 48.dp)) {
                 Text("Enregistrer les notes")
             }
-            if (confirmer) AlertDialog(
+            if (confirmer) AlertDialog(properties = DIALOGUE_SECURISE, 
                 onDismissRequest = { confirmer = false },
                 title = { Text("Enregistrer ${aEnvoyer.size} note(s) ?") },
                 text = { Text("« ${d.titre} », $k, notes sur ${note(d.sur)}.") },

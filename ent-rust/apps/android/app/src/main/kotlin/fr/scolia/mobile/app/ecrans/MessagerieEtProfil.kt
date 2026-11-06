@@ -1,5 +1,6 @@
 package fr.scolia.mobile.app.ecrans
 
+import fr.scolia.mobile.app.ui.DIALOGUE_SECURISE
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
@@ -103,7 +104,7 @@ private fun EcranFil(modele: AppModele, filId: String, retour: () -> Unit) {
         Button(onClick = { confirmer = true }, enabled = reponse.isNotBlank() && !envoi, modifier = Modifier.heightIn(min = 48.dp)) { Text("Envoyer") }
         if (confirmer) {
             // Envoi de message : confirmation humaine (CLAUDE.md).
-            AlertDialog(
+            AlertDialog(properties = DIALOGUE_SECURISE, 
                 onDismissRequest = { confirmer = false },
                 title = { Text("Envoyer ce message ?") },
                 text = { Text(reponse.take(300)) },

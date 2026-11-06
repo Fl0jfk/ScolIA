@@ -164,3 +164,8 @@ fun dateFr(iso: String): String {
 }
 
 fun note(v: Double): String = if (v % 1.0 == 0.0) v.toInt().toString() else "%.2f".format(v).trimEnd('0').trimEnd(',', '.')
+
+/** Les boîtes de dialogue ont leur propre fenêtre : `FLAG_SECURE` (pas de capture) doit y être posé aussi. */
+val DIALOGUE_SECURISE = androidx.compose.ui.window.DialogProperties(
+    securePolicy = androidx.compose.ui.window.SecureFlagPolicy.SecureOn,
+)

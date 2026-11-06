@@ -177,7 +177,7 @@ fun EcranConnexion(modele: AppModele) {
             Text("Retirer cet établissement de l'appli")
         }
         if (confirmerOubli) {
-            AlertDialog(
+            AlertDialog(properties = DIALOGUE_SECURISE, 
                 onDismissRequest = { confirmerOubli = false },
                 title = { Text("Retirer cet établissement ?") },
                 text = { Text("La session et les données gardées sur ce téléphone pour cet établissement seront effacées.") },
