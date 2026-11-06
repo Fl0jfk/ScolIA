@@ -236,7 +236,8 @@ async fn rls_politiques_presentes_et_forcees() {
          WHERE c.relrowsecurity AND c.relforcerowsecurity AND p.policyname = 'ent_rls_etablissement'",
     )
     .fetch_one(&e.admin).await.unwrap().get(0);
-    assert_eq!(n, 22, "22 tables pilotes avec RLS activée et forcée");
+    // 22 tables pilotes (migration 100) + 17 tables des finances (S2-9, migration 206).
+    assert_eq!(n, 22 + 17, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
