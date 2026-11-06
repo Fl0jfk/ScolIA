@@ -157,13 +157,13 @@ function todayStartMs(): number {
 }
 
 /** Timestamp (début de journée) du séjour pour tri / comparaison. */
-function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
+export function tripTravelStartMs(trip: { data?: TravelsTripData }): number | null {
   const raw = trip.data?.startDate || trip.data?.date;
   return parseTravelDayStartMs(raw);
 }
 
 /** Dernier jour du séjour (fin pour les voyages, date unique pour les sorties). */
-function tripTravelEndMs(trip: {
+export function tripTravelEndMs(trip: {
   type?: string;
   data?: TravelsTripData;
 }): number | null {
@@ -204,13 +204,25 @@ export function filterTripsForModuleList<T extends TripListRow>(
   return sortTripsActiveBeforePast(list);
 }
 
-/** Séjours en cours / à venir d'abord, terminés ensuite (cartes grisées). */
+/**
+ * Séjours en cours / à venir d'abord (du plus proche au plus lointain, sans date à la fin),
+ * terminés ensuite (du plus récent au plus ancien, cartes grisées).
+ */
 export function sortTripsActiveBeforePast<T extends TripListRow>(trips: T[]): T[] {
   return [...trips].sort((a, b) => {
     const aPast = isTripTravelDatePast(a);
     const bPast = isTripTravelDatePast(b);
     if (aPast !== bPast) return aPast ? 1 : -1;
-    return 0;
+    if (aPast) {
+      return (tripTravelEndMs(b) ?? 0) - (tripTravelEndMs(a) ?? 0);
+    }
+    const aStart = tripTravelStartMs(a);
+    const bStart = tripTravelStartMs(b);
+    if (aStart == null || bStart == null) {
+      if (aStart == null && bStart == null) return 0;
+      return aStart == null ? 1 : -1;
+    }
+    return aStart - bStart;
   });
 }
 

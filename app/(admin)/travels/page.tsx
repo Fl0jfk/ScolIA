@@ -37,6 +37,13 @@ import {
 import { canEnterTravelsDetail } from "@/app/lib/accueil-access";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { TravelsAssistanceButton } from "@/app/components/travels/TravelsAssistanceButton";
+import {
+  TRAVEL_RAIL_KEY_ATTR,
+  TravelsMonthRailHorizontal,
+  TravelsMonthRailVertical,
+  useTravelMonthRail,
+} from "@/app/components/travels/TravelsMonthRail";
+import { travelCardAnchorId, travelMonthRailKey } from "@/app/lib/travels-month-rail";
 import { useTravelsAssistanceCard } from "@/app/hooks/useTravelsAssistanceCard";
 
 type TravelsMainTab = "dossiers" | "settings";
@@ -172,6 +179,8 @@ function TripDashboardContent() {
       return (t.data?.etablissement || defaultLabel) === filterEtab;
     });
   }, [trips, filterEtab, searchQuery, etabFilterOptions]);
+
+  const monthRail = useTravelMonthRail(filteredTrips);
 
   const unreadSummary = useMemo(() => {
     let tripCount = 0;
@@ -320,9 +329,14 @@ function TripDashboardContent() {
       {loading ? (
         <div className="text-center py-20">Chargement des dossiers...</div>
       ) : filteredTrips.length > 0 ? (
+        <>
+        <div className="lg:hidden">
+          <TravelsMonthRailHorizontal {...monthRail} />
+        </div>
+        <div className="flex items-start gap-6">
         <div
           data-tour="travels-list"
-          className="grid grid-cols-1 gap-6 lg:grid-cols-2"
+          className="grid min-w-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-2"
         >
           {filteredTrips.map((trip, tripIndex) => {
             const defaultEtab = etabFilterOptions.showGroupe
@@ -330,20 +344,33 @@ function TripDashboardContent() {
               : etabFilterOptions.labels[0] || "Établissement";
             const etabLabel = trip.data?.etablissement || defaultEtab;
             return (
-              <TravelsTripBentoCard
+              <div
                 key={trip.id}
-                trip={trip}
-                etabLabel={etabLabel}
-                vis={etabCardVisual(etabLabel)}
-                canOpenTrip={canOpenTrip}
-                index={tripIndex}
-                unreadInternalCount={trip.unreadInternalCount ?? 0}
-                formatDate={formatDate}
-                onOpen={() => router.push(`/travels/${trip.id}`)}
-              />
+                id={travelCardAnchorId(trip.id)}
+                {...{ [TRAVEL_RAIL_KEY_ATTR]: travelMonthRailKey(trip) }}
+                className="flex min-w-0 scroll-mt-32 flex-col lg:scroll-mt-6 [&>article]:flex-1"
+              >
+                <TravelsTripBentoCard
+                  trip={trip}
+                  etabLabel={etabLabel}
+                  vis={etabCardVisual(etabLabel)}
+                  canOpenTrip={canOpenTrip}
+                  index={tripIndex}
+                  unreadInternalCount={trip.unreadInternalCount ?? 0}
+                  formatDate={formatDate}
+                  onOpen={() => router.push(`/travels/${trip.id}`)}
+                />
+              </div>
             );
           })}
         </div>
+        {monthRail.entries.length >= 2 ? (
+          <aside className="hidden w-48 shrink-0 self-stretch lg:block">
+            <TravelsMonthRailVertical {...monthRail} />
+          </aside>
+        ) : null}
+        </div>
+        </>
       ) : (
         <ModuleEmptyState className="py-20 rounded-[2.5rem]">
           <p className="font-bold text-xl">
