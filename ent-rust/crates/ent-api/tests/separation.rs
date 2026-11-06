@@ -446,6 +446,7 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/verifier"),
     // Invitation du second responsable (S2-3) : le jeton reçu par e-mail fait foi.
     ("POST", "/inscriptions/invitations/accepter"),
+    ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
 ];
