@@ -376,8 +376,9 @@ fn appliquer(
 }
 
 /// Une version est **sensible** quand son existence révèle une information intime :
-/// prénom d'usage, mention de sexe, prénoms de l'état civil. Une correction d'une version
-/// sensible reste sensible. Les valeurs ne sont jamais copiées hors de la version
+/// prénom d'usage, mention de sexe, prénoms de l'état civil. La sensibilité est **collante** :
+/// une version construite sur une version sensible en recopie les valeurs et l'est donc
+/// aussi (sinon un lecteur sans G6 les déduirait de la version suivante). Les valeurs ne sont jamais copiées hors de la version
 /// (événements : noms de champs seulement).
 fn est_sensible(champs: &[ChampIdentite], nature: NatureVersion, heritee: bool) -> bool {
     let intime = champs.iter().any(|c| {
@@ -515,7 +516,7 @@ pub fn planifier_version(
     version.piece_document_id = d.piece_document_id;
     version.source = d.source;
     version.source_ref = d.source_ref;
-    version.sensible = est_sensible(&champs, d.nature, base.sensible && remplace);
+    version.sensible = est_sensible(&champs, d.nature, base.sensible);
     version.enregistre_le = Utc::now();
     version.enregistre_par = d.acteur;
     Ok(VersionPlanifiee { version, champs })
@@ -544,9 +545,8 @@ pub fn filtrer_historique(
             v.remplace_version_id = None;
         }
         if v.remplacee_par.is_some_and(|id| masquees.contains(&id)) {
-            // La version a été remplacée par une correction sensible : elle apparaît
-            // comme remplacée sans dire par quoi.
-            v.remplacee_par = Some(Uuid::nil());
+            // Remplacée par une version masquée : aucune trace de son existence.
+            v.remplacee_par = None;
         }
     }
     versions
@@ -700,6 +700,29 @@ mod tests {
         let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Martin"));
         dm.effet_du = Some(b.effet_du);
         assert!(planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).is_err());
+    }
+
+    #[test]
+    fn la_sensibilite_est_collante_sur_les_versions_suivantes() {
+        let mut b = base();
+        b.sensible = true;
+        b.prenom_usage = Some("Jo".into());
+        let m = ModifIdentite {
+            nom_usage: Some(Some("Martin".into())),
+            ..Default::default()
+        };
+        let mut dm = demande(NatureVersion::Usage, m);
+        dm.effet_du = Some(d(2026, 11, 7));
+        let p = planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6)).unwrap();
+        assert!(p.version.sensible, "recopie le prénom d'usage sensible");
+        let mut dm = demande(NatureVersion::ChangementEtatCivil, nom("Autre"));
+        dm.effet_du = Some(d(2026, 11, 7));
+        assert!(
+            planifier_version(&b, &[b.effet_du], dm, d(2026, 11, 6))
+                .unwrap()
+                .version
+                .sensible
+        );
     }
 
     #[test]

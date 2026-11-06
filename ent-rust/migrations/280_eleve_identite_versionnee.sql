@@ -196,6 +196,14 @@ CREATE TABLE IF NOT EXISTS ent_eleve_identite_a_traiter (
     traite_le        TIMESTAMPTZ,
     UNIQUE (eleve_id, champ, cause)
 );
+ALTER TABLE ent_eleve_identite_a_traiter ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ent_eleve_identite_a_traiter FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ent_rls_etablissement ON ent_eleve_identite_a_traiter;
+CREATE POLICY ent_rls_etablissement ON ent_eleve_identite_a_traiter FOR ALL
+    USING (etablissement_id = (SELECT ent_rls_etablissement())
+        OR ((SELECT ent_rls_etablissement()) IS NULL AND NOT (SELECT ent_rls_strict())))
+    WITH CHECK (etablissement_id = (SELECT ent_rls_etablissement())
+        OR ((SELECT ent_rls_etablissement()) IS NULL AND NOT (SELECT ent_rls_strict())));
 
 CREATE OR REPLACE FUNCTION ent_eleve_sexe_normalise(s TEXT) RETURNS TEXT
 LANGUAGE sql IMMUTABLE AS $$

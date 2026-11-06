@@ -2904,6 +2904,10 @@ async fn update_identite_eleve(
     Json(body): Json<UpdateIdentiteBody>,
 ) -> Result<Json<EleveDto>, (StatusCode, String)> {
     session.require_manage_eleves()?;
+    // Les changements de nom, prénom, sexe, naissance sont des écritures d'identité (E2).
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
     let ine = body
         .ine
         .map(|s| s.trim().to_string())

@@ -204,7 +204,7 @@ impl PgIdentiteRepo {
         ancienne: Uuid,
         nouvelle: Uuid,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
+        let r = sqlx::query(
             "UPDATE ent_eleve_identite SET remplacee_par = $4
              WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3 AND remplacee_par IS NULL",
         )
@@ -214,6 +214,9 @@ impl PgIdentiteRepo {
         .bind(nouvelle)
         .execute(&mut *conn)
         .await?;
+        if r.rows_affected() != 1 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
@@ -277,7 +280,8 @@ impl PgIdentiteRepo {
             .collect())
     }
 
-    /// La pièce est-elle un document de CET élève dans CET établissement ?
+    /// La pièce est-elle un document administratif ou familial de CET élève dans CET
+    /// établissement ? (jamais un document de santé)
     async fn piece_de_l_eleve(
         conn: &mut PgConnection,
         etab: Uuid,
@@ -286,7 +290,8 @@ impl PgIdentiteRepo {
     ) -> Result<bool, sqlx::Error> {
         let r: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_eleve_document
-             WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3",
+             WHERE etablissement_id = $1 AND eleve_id = $2 AND id = $3
+               AND tiroir IN ('administratif', 'famille') AND confidentialite <> 'sante'",
         )
         .bind(etab)
         .bind(eleve)
@@ -354,6 +359,9 @@ fn erreur(e: ErreurIdentite) -> EntDbError {
 
 /// Une violation de la garde ou d'une contrainte devient un refus lisible.
 fn traduire(e: sqlx::Error) -> EntDbError {
+    if matches!(e, sqlx::Error::RowNotFound) {
+        return EntDbError::ConflitDossier("la version à remplacer a changé, réessayer");
+    }
     if let sqlx::Error::Database(d) = &e {
         match d.code().as_deref() {
             Some("23505") => {
@@ -532,7 +540,7 @@ impl PgEnt {
                 .map_err(traduire)?
             {
                 return Err(EntDbError::SaisieInvalide(
-                    "pièce justificative inconnue pour cet élève",
+                    "pièce justificative inconnue ou non admise pour cet élève",
                 ));
             }
         }
