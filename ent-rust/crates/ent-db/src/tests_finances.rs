@@ -892,6 +892,10 @@ async fn sepa_rejets_reglements_relances_export() {
         .unwrap();
     assert_eq!(nature, "pain008");
     let xml = String::from_utf8(xml).unwrap();
+    // Validation hors suite (xmllint + schéma ISO) : `ENT_PAIN008_SORTIE=/chemin/fichier.xml`.
+    if let Ok(chemin) = std::env::var("ENT_PAIN008_SORTIE") {
+        std::fs::write(chemin, &xml).unwrap();
+    }
     assert!(xml.contains("<NbOfTxs>1</NbOfTxs>"));
     assert!(xml.contains("FR7630006000011234567890189"));
     assert!(xml.contains("<SeqTp>FRST</SeqTp>"));
