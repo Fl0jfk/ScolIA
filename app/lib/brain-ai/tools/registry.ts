@@ -231,7 +231,7 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
   {
     name: "list_eleves_filtered",
     description:
-      "Liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). Affiche un catalogue groupé par classe avec aperçu PDF cliquable pour chaque document — ne pas inventer de liens.",
+      "Liste les élèves filtrés par classe/pôle et/ou accompagnement (PAP, PAI, PPS, GEVASCO) : renvoie nom, prénom, classe et accompagnements de chacun, que tu mets en forme selon la demande (tableau, comptage par classe…). Ex. « tous les PAP du collège », « PAP de 6ème B ». « 6ème A » / « sixième A » = classe 6A (pas 6E). avecDocuments=true UNIQUEMENT si l’utilisateur veut les documents eux-mêmes (PDF, pièces, ouvrir/voir le PAP) : l’UI affiche alors un catalogue de PDF.",
     parameters: {
       type: "object",
       properties: {
@@ -243,6 +243,10 @@ const BRAIN_TOOLS: BrainToolDefinition[] = [
         accompagnement: {
           type: "string",
           description: "pap | pai | pps | gevasco | any",
+        },
+        avecDocuments: {
+          type: "boolean",
+          description: "true seulement si l’utilisateur demande les PDF / pièces. Sinon omettre.",
         },
       },
       additionalProperties: false,

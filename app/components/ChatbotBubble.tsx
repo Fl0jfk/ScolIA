@@ -14,6 +14,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import ScoliaAiMark from "@/app/components/ScoliaAiMark";
+import { messageTables, splitMessageSegments } from "@/app/lib/brain-ai/markdown-table";
 import {
   clearScoliaMemory,
   defaultWelcomeMessage,
@@ -151,6 +152,51 @@ function shortUrlLabel(rawUrl: string): string {
   } catch {
     return rawUrl.length > 42 ? `${rawUrl.slice(0, 40)}…` : rawUrl;
   }
+}
+
+/** Tableau d'une réponse ScolIA (liste d'élèves, etc.), défilement horizontal si large. */
+function ChatTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+  return (
+    <div className="my-2 overflow-x-auto rounded-xl border border-black/8 whitespace-normal">
+      <table className="w-full border-collapse text-left text-[13px]">
+        <thead className="bg-[color:var(--dash-soft-muted)]">
+          <tr>
+            {headers.map((h, i) => (
+              <th key={i} className="px-3 py-2 font-semibold text-[var(--dash-ink)]">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={ri} className="border-t border-black/5">
+              {r.map((c, ci) => (
+                <td key={ci} className="px-3 py-1.5 text-[var(--dash-ink)]">
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Excel à partir des tableaux affichés (une feuille par tableau). Rien de plus que l'écran. */
+async function exportTablesToExcel(tables: Array<{ headers: string[]; rows: string[][] }>) {
+  const XLSX = await import("xlsx");
+  const book = XLSX.utils.book_new();
+  tables.forEach((t, i) => {
+    const sheet = XLSX.utils.aoa_to_sheet([t.headers, ...t.rows]);
+    sheet["!cols"] = t.headers.map((h, c) => ({
+      wch: Math.min(40, Math.max(h.length, ...t.rows.map((r) => (r[c] || "").length)) + 2),
+    }));
+    XLSX.utils.book_append_sheet(book, sheet, tables.length > 1 ? `Liste ${i + 1}` : "Liste");
+  });
+  const stamp = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(book, `scolia-liste-${stamp}.xlsx`);
 }
 
 function renderMessageContent(
@@ -1095,6 +1141,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
             const isUser = m.role === "user";
             const messageCtas = !isUser && Array.isArray(m.ctas) ? m.ctas : [];
             const messageCatalog = !isUser && m.docCatalog ? m.docCatalog : null;
+            const tables = !isUser ? messageTables(m.content) : [];
             return (
               <div
                 key={i}
@@ -1107,7 +1154,7 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                 ) : null}
                 <div
                   className={`min-w-0 ${
-                    messageCatalog
+                    messageCatalog || tables.length
                       ? "w-full max-w-[min(96%,42rem)]"
                       : "max-w-[min(92%,36rem)]"
                   }`}
@@ -1119,10 +1166,20 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                         : "rounded-[1.35rem] rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)] shadow-[0_1px_0_rgba(0,0,0,0.03)]"
                     }`}
                   >
-                    {renderMessageContent(m.content, {
-                      onDark: isUser,
-                      onPreviewHref: openUrlPreview,
-                    })}
+                    {tables.length
+                      ? splitMessageSegments(m.content).map((seg, si) =>
+                          seg.type === "table" ? (
+                            <ChatTable key={`t_${si}`} headers={seg.headers} rows={seg.rows} />
+                          ) : (
+                            <Fragment key={`s_${si}`}>
+                              {renderMessageContent(seg.text, { onPreviewHref: openUrlPreview })}
+                            </Fragment>
+                          ),
+                        )
+                      : renderMessageContent(m.content, {
+                          onDark: isUser,
+                          onPreviewHref: openUrlPreview,
+                        })}
                   </div>
                   {!isUser && messageCatalog ? (
                     <BrainDocCatalogPanel
@@ -1167,6 +1224,15 @@ export default function ChatbotBubble({ pageMode = false, embedded = false }: Pr
                       >
                         {copiedIndex === i ? "Copié ✓" : "Copier"}
                       </button>
+                      {tables.length ? (
+                        <button
+                          type="button"
+                          onClick={() => void exportTablesToExcel(tables)}
+                          className="rounded-full px-2 py-0.5 text-[11px] font-semibold text-[var(--dash-ink)] transition hover:bg-black/5"
+                        >
+                          Exporter en Excel
+                        </button>
+                      ) : null}
                       {i === messages.length - 1 && !loading && isSignedIn && !pendingConfirmation && !pendingChoices && !pendingFileUpload
                         ? REWRITE_ACTIONS.map((a) => (
                             <button

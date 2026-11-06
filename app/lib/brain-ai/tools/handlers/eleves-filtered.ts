@@ -95,6 +95,8 @@ export async function handleListElevesFiltered(
   if (!etabId) return { ok: false, error: "Établissement introuvable." };
 
   const classe = String(args.classe || args.className || args.pole || "").trim();
+  /** Catalogue PDF seulement si on demande les documents eux-mêmes. */
+  const wantsDocuments = args.avecDocuments === true || args.avecDocuments === "true";
   const kindRaw = String(args.accompagnement || args.kind || args.has || "").trim();
   const kind = kindRaw ? parseAccompKind(kindRaw) : "any";
   if (kindRaw && kind === null) {
@@ -322,6 +324,26 @@ export async function handleListElevesFiltered(
         ]
           .filter(Boolean)
           .join("\n");
+
+  // Sans demande de documents : données brutes pour le modèle, qui met en forme selon la
+  // demande (tableau nom / prénom / classe, comptage, export…). Pas de catalogue PDF imposé.
+  if (!wantsDocuments) {
+    return {
+      ok: true,
+      data: {
+        total: rows.length,
+        filtre: filterScopeLabel || null,
+        accompagnement: focusCode || null,
+        eleves: rows.map((r) => ({
+          nom: r.nom,
+          prenom: r.prenom,
+          classe: r.classe,
+          accompagnements: r.accompagnementKinds.map((k) => accompagnementKindDef(k).code),
+        })),
+      },
+      summaryFr: `${rows.length} élève(s)${filterScopeLabel ? ` — ${filterScopeLabel}` : ""}${focusCode ? ` avec ${focusCode}` : ""}.`,
+    };
+  }
 
   return {
     ok: true,

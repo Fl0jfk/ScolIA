@@ -148,7 +148,11 @@ function stripEleveDocumentLinks(text: string): string {
 /** Outils dont la réponse structurée (summaryFr + ctas) doit primer sur le LLM. */
 function shouldMaterializeStructuredList(toolName: string, result: BrainToolResult): boolean {
   if (!result.ok) return false;
-  if (toolName === "list_eleves_filtered") return true;
+  // Catalogue PDF seulement quand l'utilisateur a demandé les documents ; sinon le modèle
+  // reçoit la liste et répond dans la forme voulue (tableau, comptage…).
+  if (toolName === "list_eleves_filtered") {
+    return Boolean(result.data && typeof result.data === "object" && "docCatalog" in result.data);
+  }
   if (toolName === "open_eleve_dossier") {
     const ctas = extractCtas(result.data);
     return ctas.some((c) => c.preview);
@@ -918,7 +922,12 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
 
   const systemPrompt =
     `Tu es ScolIA, l'assistant institutionnel de l'établissement (Brain AI).\n` +
-    `Réponds en français, précis, utile et concis.\n` +
+    `Réponds en français, précis et utile.\n` +
+    `Comprendre avant d'agir (le plus important) :\n` +
+    `- Demande-toi ce que l'utilisateur veut VRAIMENT obtenir : quelle information, quel filtre, quelle FORME de réponse (liste, tableau, nombre, colonnes précises, texte). Les outils sont des moyens, pas des réponses toutes faites.\n` +
+    `- Combine plusieurs outils si besoin, puis filtre, trie, compte et reformate leurs résultats pour répondre exactement à la demande. Ne recrache pas la présentation par défaut d'un outil si on t'a demandé autre chose ; si l'utilisateur corrige (« je veux juste nom, prénom, classe »), adapte-toi immédiatement.\n` +
+    `- Liste demandée : fais un tableau markdown (| Nom | Prénom | Classe |…) avec seulement les colonnes utiles ou demandées, trié de façon logique (classe puis nom), avec le total. Écris la liste ENTIÈRE, sans la tronquer. Sous un tableau, l'interface propose « Exporter en Excel » : signale-le en une phrase quand la liste est longue ou qu'on parle d'Excel / de fichier.\n` +
+    `- Si la demande est vraiment ambiguë, pose UNE question courte ; sinon, fais au mieux et dis ce que tu as compris.\n` +
     (input.toolCtx.firstName
       ? `L’utilisateur s’appelle ${input.toolCtx.firstName} — tu peux l’appeler par son prénom, ton professionnel.\n`
       : "") +
@@ -952,7 +961,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Classes : « 6ème A » / « sixième A » = 6A (pas 6E). Toujours garder la lettre de division.\n` +
     `- create_reservation = réservation salle | create_trip = NOUVELLE sortie uniquement | create_request = demande | create_absence = absence | create_photocopie_demand | create_hse_demand.\n` +
     `- Navigation : resolve_and_open | open_eleve_dossier | open_trip | search_eleves | list_eleves_filtered (PAP/classe/pôle).\n` +
-    `- list_eleves_filtered : pour « tous les PAP du collège / d’une classe », appeler l’outil. L’UI affiche le catalogue complet groupé par classe — ne pas tronquer la liste dans le texte, juste confirmer le total et renvoyer vers les cartes.\n` +
+    `- list_eleves_filtered : pour « les PAP du collège / d’une classe ». avecDocuments=true seulement si on veut les PDF ; sinon tu reçois la liste et tu la présentes comme demandé.\n` +
     `- Mutations : update_eleve_regime | update_eleve_grille_repas | create_eleve_preinscrit | create_accueil_absence | cancel_accueil_absence | create_absence (soi) | decide_rh_absence | create_photocopie_demand | create_reservation | create_request | create_trip | create_hse_demand | assign_internat_room | resend_stage_signatures.\n` +
     `- Internat : get_internat_status | open_internat_appel | assign_internat_room.\n` +
     `- Messagerie interne : send_internal_message (personnel uniquement, récap + confirmation avant envoi). « Envoie-le à … » après une rédaction = envoyer le dernier texte rédigé, tel quel.\n` +
@@ -965,7 +974,7 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
     `- Si needsConfirmation : présente uniquement le récap (l'UI a Confirmer / Modifier / Annuler).\n` +
     `- N'invente pas : si l'info manque après les outils, dis-le clairement.\n` +
     `- Liens en URL complète https://…\n` +
-    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte. L’UI affiche le catalogue / les boutons d’ouverture. Dans le texte, cite le total et éventuellement le détail par classe (noms), sans liens.\n` +
+    `- Pièces PAP/PAI/PPS/GEVASCO : INTERDIT de coller des liens /api/eleves/…/documents/…/file dans le texte (l’UI affiche les boutons d’ouverture quand les documents sont demandés).\n` +
     `Séjours scolaires (travels) :\n` +
     `- SIMPLE ≠ COMPLEX : SIMPLE n'a pas d'étape devis bus ; COMPLEX avec needsBus=true a Logistique puis Signature.\n` +
     `- À PROF_LOGISTICS : créateur / administratif / compta peut « Choisir » un devis ; direction peut « Choisir et signer ».\n` +
@@ -1079,6 +1088,8 @@ export async function runBrainChat(input: RunBrainChatInput): Promise<BrainChatR
         temperature: 0.2,
         messages,
         ...mistralModelOptions(model),
+        // Cadre métier : il faut comprendre la demande et combiner les outils → réflexion moyenne.
+        ...(model === MISTRAL_LARGE_MODEL ? { reasoning_effort: "medium" } : {}),
       };
       // Aide à la rédaction : réponse texte directe, pas d'outil (évite qu'un mot
       // comme « absence » dans le texte collé déclenche une action).
