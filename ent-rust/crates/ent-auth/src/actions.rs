@@ -128,6 +128,15 @@ pub enum Action {
     EdtAnnulerMasse,
     /// Accorder, révoquer et consulter les délégations de droits datées, ADM-04 (S2-5).
     DelegationsGerer,
+    // ── S2-7 : évaluations, bulletins, livrets ──────────────────────────────
+    /// Changer le statut (verrou) d'une période de notes, EVA-07.
+    PeriodesVerrouiller,
+    /// Générer et publier les bulletins, appréciation générale de direction, EVA-10.
+    BulletinsPublier,
+    /// Corriger une note après fermeture de la période (motif obligatoire), EVA-14.
+    NotesCorriger,
+    /// Exporter les livrets (LSU, LSL), EVA-12.
+    LivretsExporter,
 }
 
 /// Sur quoi une action s'applique.
@@ -144,7 +153,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 55] = [
+    pub const TOUTES: [Action; 59] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -202,6 +211,11 @@ impl Action {
         Action::CahierViser,
         Action::EdtAnnulerMasse,
         Action::DelegationsGerer,
+        // S2-7
+        Action::PeriodesVerrouiller,
+        Action::BulletinsPublier,
+        Action::NotesCorriger,
+        Action::LivretsExporter,
     ];
 
     pub fn code(self) -> &'static str {
@@ -262,6 +276,10 @@ impl Action {
             Self::CahierViser => "cahier.viser",
             Self::EdtAnnulerMasse => "edt.annuler_masse",
             Self::DelegationsGerer => "delegations.gerer",
+            Self::PeriodesVerrouiller => "periodes.verrouiller",
+            Self::BulletinsPublier => "bulletins.publier",
+            Self::NotesCorriger => "notes.corriger",
+            Self::LivretsExporter => "livrets.exporter",
         }
     }
 
@@ -323,6 +341,10 @@ impl Action {
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
             Self::EdtAnnulerMasse => "Annuler en masse des cours (grève, fermeture, sortie de niveau)",
             Self::DelegationsGerer => "Déléguer des droits pour une durée limitée",
+            Self::PeriodesVerrouiller => "Ouvrir, verrouiller ou fermer une période de notes",
+            Self::BulletinsPublier => "Générer et publier les bulletins",
+            Self::NotesCorriger => "Corriger une note après fermeture de la période",
+            Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
         }
     }
 
@@ -376,6 +398,11 @@ impl Action {
             Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
             }
+            // S2-7 : actions de direction sur toute une période ou toute une classe.
+            Self::PeriodesVerrouiller
+            | Self::BulletinsPublier
+            | Self::NotesCorriger
+            | Self::LivretsExporter => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -604,6 +631,16 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(InscriptionsDecider));
+    }
+    // S2-7 : verrou des périodes, bulletins et corrections après fermeture à la
+    // direction ; exports de livrets aussi au secrétariat (administratif).
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PeriodesVerrouiller));
+        d.push(etab(BulletinsPublier));
+        d.push(etab(NotesCorriger));
+    }
+    if direction_admin {
+        d.push(etab(LivretsExporter));
     }
     d
 }

@@ -289,9 +289,15 @@ impl PgNoteRepo {
             r#"
             SELECT id, etablissement_id, eleve_id, matiere_id, valeur, sur,
                    date_note, auteur_user_id, libelle, devoir_id, periode_id
-            FROM ent_note
-            WHERE etablissement_id = $1 AND eleve_id = $2
-            ORDER BY date_note DESC, created_at DESC
+            FROM ent_note n
+            WHERE n.etablissement_id = $1 AND n.eleve_id = $2
+              -- S2-7 : résultats non numériques et évaluations non publiées exclus
+              -- des lectures historiques (la grille et le relevé les traitent).
+              AND n.statut = 'note'
+              AND NOT EXISTS (SELECT 1 FROM ent_devoir d
+                               WHERE d.id = n.devoir_id AND d.etablissement_id = n.etablissement_id
+                                 AND d.publication_explicite AND d.publie_le IS NULL)
+            ORDER BY n.date_note DESC, n.created_at DESC
             "#,
         )
         .bind(etablissement_id)
@@ -437,6 +443,8 @@ impl PgNoteRepo {
               AND n.eleve_id = $2
               AND n.periode_id = $3
               AND n.matiere_id = $4
+              AND n.statut = 'note'
+              AND NOT (d.id IS NOT NULL AND d.publication_explicite AND d.publie_le IS NULL)
             "#,
         )
         .bind(etablissement_id)

@@ -94,6 +94,12 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::discipline_vs::PageSignalements/>
+                    <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>
+                    <Route path=path!("evaluations/grille") view=modules::evaluations::PageGrille/>
+                    <Route path=path!("evaluations/classes/:id") view=modules::evaluations::PageVueClasse/>
+                    <Route path=path!("evaluations/conseils/:id") view=modules::evaluations::PageConseil/>
+                    <Route path=path!("evaluations/bulletins") view=modules::evaluations::PageBulletins/>
+                    <Route path=path!("evaluations/eleves/:id") view=modules::evaluations::PageEvaluationsEleve/>
                     <Route path=path!("referentiel") view=modules::referentiel_admin::PageReferentiel/>
                     <Route path=path!("referentiel/annees") view=modules::referentiel_admin::PageAnnees/>
                     <Route path=path!("referentiel/structure") view=modules::referentiel_admin::PageStructure/>

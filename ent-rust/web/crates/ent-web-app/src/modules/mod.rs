@@ -13,6 +13,7 @@ pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;
 pub mod edt_semaine;
+pub mod evaluations;
 pub mod inscriptions;
 pub mod journee_vs;
 pub mod messagerie;
