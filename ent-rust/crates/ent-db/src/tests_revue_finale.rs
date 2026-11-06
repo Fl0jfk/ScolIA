@@ -232,3 +232,208 @@ async fn rf15_telephone_d_un_double_membre_non_modifiable() {
         .await
         .expect("soi-même");
 }
+
+// ───────────────────────── RF-01 : prise de compte par changement d'e-mail ─────────────────────────
+
+/// Dernier jeton d'un lien `…/<chemin>?token=…` envoyé à `a` (messagerie à blanc).
+fn lien_envoye(ent: &PgEnt, a: &str, chemin: &str) -> Option<String> {
+    ent.mailer()
+        .dry_run_corps()
+        .into_iter()
+        .rev()
+        .filter(|(to, _, _)| to == a)
+        .find_map(|(_, _, corps)| {
+            let i = corps.find(&format!("{chemin}?token="))? + chemin.len() + "?token=".len();
+            Some(corps[i..].chars().take_while(|c| c.is_ascii_hexdigit()).collect::<String>())
+        })
+}
+
+async fn email_de(pool: &sqlx::PgPool, id: Uuid) -> String {
+    sqlx::query_scalar("SELECT email FROM ent_user WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn gele(pool: &sqlx::PgPool, id: Uuid) -> bool {
+    sqlx::query_scalar("SELECT COALESCE(recuperation_gel_jusqu > now(), false) FROM ent_user WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+const BASE: &str = "http://localhost:8088";
+
+/// Rejoue l'enchaînement décrit par la revue (RF-01) et vérifie qu'il échoue :
+/// 1. un Administratif ne change pas l'e-mail d'un compte du personnel ;
+/// 2. une Direction le peut, mais rien ne change avant la confirmation par la nouvelle
+///    adresse, et l'ancienne adresse reçoit un lien d'annulation ;
+/// 3. même confirmée par l'attaquant, « mot de passe oublié » n'envoie rien, un jeton de
+///    réinitialisation est refusé et une récupération de passkey en cours est annulée
+///    (gel 72 h) ;
+/// 4. le lien d'annulation de la victime rétablit son adresse ;
+/// 5. un pair (Direction → Direction, Admin → Admin) est refusé.
+#[tokio::test]
+async fn rf01_prise_de_compte_par_changement_d_email_echoue() {
+    let Some(mut ent) = ent().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    ent.install_mail_dry_run();
+    let url = std::env::var("ENT_DATABASE_URL").unwrap();
+    let pool = sqlx::PgPool::connect(&url).await.expect("pool");
+    let etab = Uuid::new_v4();
+    let sfx = Uuid::new_v4().simple().to_string();
+    let mk = |r: &str| format!("rf01-{r}-{sfx}@ent.local");
+    let dir = ent.register_user(&mk("dir"), MDP, None, etab, "direction").await.unwrap();
+    let dir2 = ent.register_user(&mk("dir2"), MDP, None, etab, "direction").await.unwrap();
+    let adm = ent.register_user(&mk("adm"), MDP, None, etab, "administratif").await.unwrap();
+    let admin = ent.register_user(&mk("admin"), MDP, None, etab, "admin").await.unwrap();
+    let admin2 = ent.register_user(&mk("admin2"), MDP, None, etab, "admin").await.unwrap();
+    let victime = ent.register_user(&mk("psy"), MDP, None, etab, "psy").await.unwrap();
+    let pirate = format!("rf01-pirate-{sfx}@ent.local");
+
+    // 1. L'Administratif (voie historique de l'attaque) est refusé sur le personnel.
+    let r = ent
+        .set_user_email_for_actor("administratif", etab, adm.id, victime.id, &pirate, None, BASE)
+        .await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "administratif → psy : {r:?}");
+    // 5. Pairs refusés.
+    for (role, acteur, cible) in [("direction", dir.id, dir2.id), ("admin", admin.id, admin2.id)] {
+        let r = ent.set_user_email_for_actor(role, etab, acteur, cible, &pirate, None, BASE).await;
+        assert!(matches!(r, Err(EntDbError::Forbidden)), "pair {role} : {r:?}");
+    }
+
+    // La victime a une récupération de passkey en attente (cas d'un compte à passkey).
+    let recup = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_recuperation_passkey
+             (id, user_id, etablissement_id, statut, confirm_hash, confirm_expires_at,
+              annul_hash, final_hash, effective_at, final_expires_at)
+         VALUES ($1, $2, $3, 'en_attente', $4, now() + interval '1 hour', $5, $6,
+                 now() + interval '1 hour', now() + interval '3 days')",
+    )
+    .bind(recup)
+    .bind(victime.id)
+    .bind(etab)
+    .bind(format!("c-{recup}"))
+    .bind(format!("a-{recup}"))
+    .bind(format!("f-{recup}"))
+    .execute(&pool)
+    .await
+    .expect("récupération factice");
+
+    // 2. La Direction demande le changement : rien n'est effectif.
+    ent.set_user_email_for_actor("direction", etab, dir.id, victime.id, &pirate, None, BASE)
+        .await
+        .expect("demande acceptée (niveau inférieur)");
+    assert_eq!(
+        email_de(&pool, victime.id).await,
+        mk("psy"),
+        "l'adresse ne change pas avant confirmation"
+    );
+    let annul = lien_envoye(&ent, &mk("psy"), "/email/annuler")
+        .expect("l'ancienne adresse reçoit un lien d'annulation");
+    let confirm = lien_envoye(&ent, &pirate, "/email/confirmer")
+        .expect("la nouvelle adresse reçoit un lien de confirmation");
+    // La récupération en cours est annulée dès la demande.
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_recuperation_passkey WHERE id = $1")
+            .bind(recup)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(statut, "annulee", "récupération en cours annulée");
+
+    // 3. L'attaquant confirme (il contrôle la nouvelle boîte) : l'adresse change…
+    ent.confirmer_changement_email(&confirm).await.expect("confirmation");
+    assert_eq!(email_de(&pool, victime.id).await, pirate);
+    // … le lien est à usage unique …
+    assert!(matches!(
+        ent.confirmer_changement_email(&confirm).await,
+        Err(EntDbError::EmailLienInvalide)
+    ));
+    // … mais « mot de passe oublié » vers sa boîte est gelé : aucun e-mail.
+    let avant = ent.mailer().dry_run_corps().len();
+    let envoye = ent
+        .demander_reinitialisation_mot_de_passe(&pirate, BASE)
+        .await
+        .expect("réponse neutre");
+    assert!(!envoye, "gel : pas de lien de réinitialisation");
+    assert_eq!(ent.mailer().dry_run_corps().len(), avant, "aucun e-mail parti");
+    // Un jeton de réinitialisation obtenu autrement est refusé pendant le gel.
+    let jeton = ent.reset_token_for_test(&pirate).await.unwrap().unwrap();
+    let r = ent.reinitialiser_mot_de_passe_par_token(&jeton, "Pirate-Pass-9876!").await;
+    assert!(r.is_err(), "réinitialisation refusée pendant le gel : {r:?}");
+    // Le mot de passe de la victime n'a pas changé.
+    assert!(ent
+        .login_start_client(&pirate, MDP, etab, Some("10.1.1.1"), ClientSession::Web, None)
+        .await
+        .is_ok());
+    // La récupération de passkey est gelée (même avec une passkey).
+    sqlx::query(
+        "INSERT INTO ent_passkey_credential (id, etablissement_id, user_id, cred_id, passkey, name)
+         VALUES ($1, $2, $3, $4, '{}'::jsonb, 'rf01')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(victime.id)
+    .bind(Uuid::new_v4().to_string())
+    .execute(&pool)
+    .await
+    .expect("passkey factice");
+    assert!(
+        !ent.demander_recuperation_passkey(&pirate, etab, BASE).await.unwrap(),
+        "récupération de passkey gelée"
+    );
+
+    // 4. La victime annule via l'ancienne adresse : son adresse est rétablie, gel maintenu.
+    ent.annuler_changement_email(&annul).await.expect("rétablissement");
+    assert_eq!(email_de(&pool, victime.id).await, mk("psy"));
+    assert!(gele(&pool, victime.id).await, "gel maintenu");
+    assert!(matches!(
+        ent.annuler_changement_email(&annul).await,
+        Err(EntDbError::EmailLienInvalide)
+    ));
+}
+
+/// Un changement fait par soi-même n'est pas gelé mais reste soumis à la confirmation,
+/// et un lien expiré ne confirme rien.
+#[tokio::test]
+async fn rf01_changement_personnel_confirme_sans_gel() {
+    let Some(mut ent) = ent().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    ent.install_mail_dry_run();
+    let url = std::env::var("ENT_DATABASE_URL").unwrap();
+    let pool = sqlx::PgPool::connect(&url).await.expect("pool");
+    let etab = Uuid::new_v4();
+    let sfx = Uuid::new_v4().simple().to_string();
+    let ancien = format!("rf01s-{sfx}@ent.local");
+    let nouveau = format!("rf01s-nouveau-{sfx}@ent.local");
+    let u = ent.register_user(&ancien, MDP, None, etab, "prof").await.unwrap();
+    ent.set_user_email_for_actor("prof", etab, u.id, u.id, &nouveau, Some(MDP), BASE)
+        .await
+        .expect("demande");
+    assert_eq!(email_de(&pool, u.id).await, ancien);
+    let confirm = lien_envoye(&ent, &nouveau, "/email/confirmer").unwrap();
+    sqlx::query("UPDATE ent_email_change SET confirm_expires_at = now() - interval '1 second' WHERE user_id = $1")
+        .bind(u.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        ent.confirmer_changement_email(&confirm).await,
+        Err(EntDbError::EmailLienInvalide)
+    ));
+    ent.set_user_email_for_actor("prof", etab, u.id, u.id, &nouveau, Some(MDP), BASE)
+        .await
+        .unwrap();
+    let confirm = lien_envoye(&ent, &nouveau, "/email/confirmer").unwrap();
+    ent.confirmer_changement_email(&confirm).await.unwrap();
+    assert_eq!(email_de(&pool, u.id).await, nouveau);
+    assert!(!gele(&pool, u.id).await, "pas de gel pour soi-même");
+}

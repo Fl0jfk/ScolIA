@@ -1215,6 +1215,9 @@ impl PgAuthRepo {
         let row: Option<(Uuid,)> = sqlx::query_as(
             "UPDATE ent_password_reset SET used_at = now()
              WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()
+               AND NOT EXISTS (SELECT 1 FROM ent_user u
+                               WHERE u.id = ent_password_reset.user_id
+                                 AND u.recuperation_gel_jusqu > now())
              RETURNING user_id",
         )
         .bind(token_hash)

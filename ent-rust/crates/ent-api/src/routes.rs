@@ -166,6 +166,8 @@ pub fn router() -> Router<AppState> {
         .route("/auth/password", post(change_password))
         .route("/auth/forgot-password", post(forgot_password))
         .route("/auth/reset-password", post(reset_password))
+        .route("/auth/email/confirmer", post(email_confirmer))
+        .route("/auth/email/annuler", post(email_annuler))
         .route("/auth/passkey/recuperation", post(recuperation_passkey_demander))
         .route(
             "/auth/passkey/recuperation/confirmer",
@@ -5345,10 +5347,47 @@ async fn set_user_email(
             id,
             body.email.trim(),
             body.current_password.as_deref(),
+            &base_url_publique(),
         )
         .await
         .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
+    // 202 : le changement n'est effectif qu'après confirmation par la nouvelle adresse.
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Changement d'e-mail, confirmation par le lien reçu à la nouvelle adresse (public).
+async fn email_confirmer(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .confirmer_changement_email(&body.token)
+        .await
+        .map_err(map_email_lien)?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Changement d'e-mail, annulation / rétablissement par le lien de l'ancienne adresse (public).
+async fn email_annuler(
+    State(state): State<AppState>,
+    Json(body): Json<RecuperationPasskeyJeton>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    jeton_recuperation_valide(&body.token)?;
+    state
+        .ent
+        .annuler_changement_email(&body.token)
+        .await
+        .map_err(map_email_lien)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn map_email_lien(err: ent_db::EntDbError) -> (StatusCode, String) {
+    match &err {
+        ent_db::EntDbError::EmailLienInvalide => (StatusCode::BAD_REQUEST, err.to_string()),
+        _ => map_compte_sensible(&err).unwrap_or_else(|| map_db(err)),
+    }
 }
 
 async fn delete_lien_eleve(

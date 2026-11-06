@@ -66,6 +66,7 @@ mod referentiel_groupes;
 mod retard_repo;
 mod competence_repo;
 mod passkey_repo;
+mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
 mod droits_repo;

@@ -436,6 +436,9 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
     // Récupération de passkey en libre-service (D-018) : les jetons font foi.
+    // Changement d'e-mail en deux temps (RF-01) : les jetons font foi.
+    ("POST", "/auth/email/confirmer"),
+    ("POST", "/auth/email/annuler"),
     ("POST", "/auth/passkey/recuperation"),
     ("POST", "/auth/passkey/recuperation/confirmer"),
     ("POST", "/auth/passkey/recuperation/annuler"),

@@ -413,6 +413,9 @@ pub enum EntDbError {
     /// Finalisation demandée avant la fin du délai de sécurité (D-018).
     #[error("délai de sécurité en cours")]
     RecuperationDelaiEnCours(DateTime<Utc>),
+    /// Lien de changement d'e-mail inconnu, déjà utilisé, annulé ou expiré (RF-01).
+    #[error("lien de changement d'adresse invalide ou expiré")]
+    EmailLienInvalide,
     /// Plafond de passkeys atteint pour ce compte.
     #[error("limite de passkeys atteinte ({0} maximum)")]
     PasskeyPlafond(i64),
@@ -661,6 +664,7 @@ pub struct PgEnt {
     /// est absente/invalide hors labo/test : `connect` refuse alors de démarrer.
     secrets: Option<SecretBox>,
     recup: crate::recuperation_repo::PgRecuperationRepo,
+    email_change: crate::email_change_repo::PgEmailChangeRepo,
     oidc: PgOidcRepo,
     oidc_transport: RwLock<Arc<dyn OidcTransport>>,
     events: PgEventStore,
@@ -764,6 +768,7 @@ impl PgEnt {
             },
             secrets: SecretBox::from_env().ok(),
             recup: crate::recuperation_repo::PgRecuperationRepo::new(pool.clone()),
+            email_change: crate::email_change_repo::PgEmailChangeRepo::new(pool.clone()),
             oidc: PgOidcRepo::new(pool.clone()),
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
@@ -2464,6 +2469,7 @@ impl PgEnt {
         };
         if !self.auth.is_member(etablissement_id, user_id).await.unwrap_or(false)
             || self.passkeys.count_for_user(user_id).await? == 0
+            || self.email_change.est_gele(user_id).await?
         {
             return Ok(false);
         }
@@ -2661,18 +2667,17 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         }
         let ok = match (op, actor) {
+            // RF-01 : jamais d'un pair ; un niveau strictement inférieur seulement.
+            // L'Administratif ne touche qu'aux comptes famille / élève (aucun compte de
+            // personnel : c'est la voie de prise de compte décrite par la revue).
+            (OperationCompte::Email, Role::Admin) => target != Role::Admin,
+            (OperationCompte::Email, Role::Direction) => {
+                !matches!(target, Role::Admin | Role::Direction)
+            }
+            (OperationCompte::Email, Role::Administratif) => {
+                matches!(target, Role::Parent | Role::Eleve)
+            }
             (_, Role::Admin) => true,
-            (OperationCompte::Email, Role::Direction) => target != Role::Admin,
-            (OperationCompte::Email, Role::Administratif) => matches!(
-                target,
-                Role::Parent
-                    | Role::Eleve
-                    | Role::Prof
-                    | Role::Cpe
-                    | Role::Compta
-                    | Role::Infirmerie
-                    | Role::Psy
-            ),
             (OperationCompte::Identifiants, Role::Direction) => {
                 !matches!(target, Role::Admin | Role::Direction)
             }
@@ -3506,6 +3511,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         let Ok(Some(user_id)) = self.auth.find_user_id_by_email(email).await else {
             return Ok(false);
         };
+        // RF-01 : gel de 72 h après un changement d'e-mail par un tiers (réponse neutre).
+        if self.email_change.est_gele(user_id).await? {
+            return Ok(false);
+        }
         // Réponse HTTP neutre (202) quoi qu'il arrive : si l'URL publique est
         // absente, la messagerie non prête ou l'envoi non confirmé, aucun jeton
         // ne reste actif ; on journalise seulement (côté serveur).
@@ -5094,15 +5103,18 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         self.set_user_telephone(user_id, telephone).await
     }
 
-    /// Changement d'adresse e-mail (identité globale, donc strictement encadré).
+    /// Changement d'adresse e-mail (identité globale, donc strictement encadré) — RF-01.
     ///
     /// * soi-même : uniquement avec le mot de passe actuel (`current_password`) ;
-    /// * Admin → tout membre ; Direction → tout membre sauf Admin ;
-    ///   Administratif → Parent, Élève, Prof, Cpe, Compta, Infirmerie, Psy.
+    /// * tiers, **niveau strictement inférieur** (jamais un pair) : Admin → tout sauf
+    ///   Admin ; Direction → tout sauf Admin et Direction ; Administratif → Parent, Élève.
     ///
-    /// Après changement : **toutes** les sessions de la cible sont révoquées,
-    /// le journal porte l'acteur réel et des empreintes (jamais d'adresse en
-    /// clair), et l'ANCIENNE adresse est prévenue si la messagerie est prête.
+    /// Le changement n'est **pas immédiat** : un lien de confirmation part vers la NOUVELLE
+    /// adresse, l'ANCIENNE reçoit une alerte avec un lien d'annulation (qui rétablit
+    /// l'ancienne adresse jusqu'à 72 h après la confirmation). Messagerie ou URL publique
+    /// absente → `EnvoiImpossible`, rien n'est modifié. Un changement demandé par un tiers
+    /// annule les récupérations de passkey en cours et gèle 72 h la réinitialisation de
+    /// mot de passe et la récupération de passkey.
     pub async fn set_user_email_for_actor(
         &self,
         role: &str,
@@ -5111,8 +5123,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         user_id: Uuid,
         email: &str,
         current_password: Option<&str>,
+        public_base_url: &str,
     ) -> Result<(), EntDbError> {
-        let target_role = if actor_user_id == user_id {
+        let tiers = actor_user_id != user_id;
+        let target_role = if !tiers {
             if !self.auth.is_member(etablissement_id, user_id).await? {
                 return Err(EntDbError::Forbidden);
             }
@@ -5135,42 +5149,154 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .as_str()
             .to_string()
         };
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
 
         let ancien = self.auth.resolve_user_email(user_id).await?;
         let nouveau = ent_auth::normalize_email(email)?;
-        self.auth.set_email(user_id, &nouveau).await?;
-        let sessions = self.auth.revoke_all_for_user(user_id).await?;
-        // Un lien envoyé à l'ANCIENNE adresse ne doit plus rien permettre.
-        self.auth.invalidate_pending_resets(user_id).await?;
-        self.audit_compte(
-            etablissement_id,
-            actor_user_id,
-            role,
-            "email_modifie",
-            "Adresse e-mail d'un compte modifiée",
-            json!({
-                "cible_user_id": user_id.to_string(),
-                "cible_role": target_role,
-                "ancienne_empreinte": empreinte_email(&ancien),
-                "nouvelle_empreinte": empreinte_email(&nouveau),
-                "sessions_revoquees": sessions,
-            }),
-        )
-        .await;
-
-        // Prévenir l'ancienne adresse (best-effort, silencieux si pas de messagerie).
-        if self.mailer.is_ready() && ancien != nouveau {
+        if self.auth.find_user_id_by_email(&nouveau).await?.is_some() {
+            return Err(AuthError::EmailTaken.into());
+        }
+        let (confirm_raw, confirm_hash) = generate_reset_token();
+        let (annul_raw, annul_hash) = generate_reset_token();
+        let id = self
+            .email_change
+            .creer(
+                user_id,
+                etablissement_id,
+                actor_user_id,
+                tiers,
+                &ancien,
+                &nouveau,
+                &confirm_hash,
+                &annul_hash,
+            )
+            .await?;
+        let base = public_base_url.trim_end_matches('/');
+        let envoi = self
+            .mailer
+            .send(OutgoingMail {
+                to: nouveau.clone(),
+                subject: "Confirmez votre nouvelle adresse e-mail ENT".into(),
+                body_text: format!(
+                    "Bonjour,\n\nCette adresse a été indiquée comme nouvelle adresse de connexion d'un compte ENT. \
+Pour confirmer (lien valable {} minutes), ouvrez :\n{base}/email/confirmer?token={confirm_raw}\n\n\
+Sans confirmation, rien ne sera modifié. Si vous n'êtes pas concerné(e), ignorez ce message.\n",
+                    crate::email_change_repo::CONFIRMATION_TTL_MINUTES,
+                ),
+                attachments: vec![],
+            })
+            .await;
+        if !matches!(&envoi, Ok(r) if self.envoi_reussi(r)) {
+            let _ = self.email_change.abandonner(id).await;
+            return Err(EntDbError::EnvoiImpossible);
+        }
+        if tiers {
+            // Dès la demande : plus aucune récupération en cours ni lien de mot de passe actif.
+            self.email_change.geler_et_annuler_recuperations(user_id).await?;
+        }
+        // Alerte de l'ancienne adresse avec lien d'annulation (best-effort).
+        if ancien != nouveau {
             let _ = self
                 .mailer
                 .send(OutgoingMail {
                     to: ancien,
+                    subject: "Changement d'adresse e-mail demandé sur votre compte ENT".into(),
+                    body_text: format!(
+                        "Bonjour,\n\nUn changement de l'adresse e-mail de votre compte ENT a été demandé. \
+Ce n'est pas vous ? Annulez-le immédiatement (le lien reste actif {} h, y compris si le changement a déjà \
+été confirmé : l'ancienne adresse sera alors rétablie) :\n{base}/email/annuler?token={annul_raw}\n\n\
+Sans action de votre part, l'adresse changera dès que la nouvelle aura été confirmée.\n",
+                        crate::email_change_repo::GEL_HEURES,
+                    ),
+                    attachments: vec![],
+                })
+                .await;
+        }
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            role,
+            "email_changement_demande",
+            "Changement d'adresse e-mail d'un compte demandé (confirmation en attente)",
+            json!({
+                "cible_user_id": user_id.to_string(),
+                "cible_role": target_role,
+                "tiers": tiers,
+                "ancienne_empreinte": empreinte_email(&self.auth.resolve_user_email(user_id).await?),
+                "nouvelle_empreinte": empreinte_email(&nouveau),
+            }),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Confirmation par le lien reçu à la nouvelle adresse (public, le jeton fait foi) :
+    /// applique le changement, révoque les sessions, annule récupérations et liens de mot
+    /// de passe ; gel de 72 h si le changement vient d'un tiers.
+    pub async fn confirmer_changement_email(&self, token: &str) -> Result<(), EntDbError> {
+        let c = self
+            .email_change
+            .confirmer(&hash_token(token.trim()))
+            .await?
+            .ok_or(EntDbError::EmailLienInvalide)?;
+        self.audit_compte(
+            c.etablissement_id,
+            c.actor_user_id,
+            "",
+            "email_modifie",
+            "Adresse e-mail d'un compte modifiée (confirmée par la nouvelle adresse)",
+            json!({
+                "cible_user_id": c.user_id.to_string(),
+                "tiers": c.tiers,
+                "ancienne_empreinte": empreinte_email(&c.ancien_email),
+                "nouvelle_empreinte": empreinte_email(&c.nouveau_email),
+                "sessions_revoquees": c.sessions_revoquees,
+            }),
+        )
+        .await;
+        if self.mailer.is_ready() && c.ancien_email != c.nouveau_email {
+            let _ = self
+                .mailer
+                .send(OutgoingMail {
+                    to: c.ancien_email,
                     subject: "L'adresse e-mail de votre compte ENT a changé".into(),
-                    body_text: "Bonjour,\n\nL'adresse e-mail de votre compte ENT vient d'être modifiée et toutes vos sessions ont été fermées. Si vous n'êtes pas à l'origine de ce changement, contactez immédiatement l'établissement.\n".into(),
+                    body_text: "Bonjour,\n\nL'adresse e-mail de votre compte ENT vient d'être modifiée et toutes vos sessions ont été fermées. Si vous n'êtes pas à l'origine de ce changement, utilisez le lien d'annulation du message précédent ou contactez immédiatement l'établissement.\n".into(),
                     attachments: vec![],
                 })
                 .await;
         }
         Ok(())
+    }
+
+    /// Annulation par le lien reçu à l'ancienne adresse (public, le jeton fait foi) :
+    /// annule la demande, ou rétablit l'ancienne adresse (gel de 72 h maintenu).
+    pub async fn annuler_changement_email(&self, token: &str) -> Result<(), EntDbError> {
+        let c = self
+            .email_change
+            .annuler(&hash_token(token.trim()))
+            .await?
+            .ok_or(EntDbError::EmailLienInvalide)?;
+        self.audit_compte(
+            c.etablissement_id,
+            c.actor_user_id,
+            "",
+            if c.retabli { "email_retabli" } else { "email_changement_annule" },
+            "Changement d'adresse e-mail annulé par l'ancienne adresse",
+            json!({
+                "cible_user_id": c.user_id.to_string(),
+                "retabli": c.retabli,
+                "sessions_revoquees": c.sessions_revoquees,
+            }),
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Purge les demandes de changement d'e-mail anciennes (maintenance boot).
+    pub async fn purger_changements_email(&self) -> Result<u64, EntDbError> {
+        Ok(self.email_change.purger().await?)
     }
 
     /// Crée (ou retrouve) un compte parent et le rattache à un élève sur ce foyer.
