@@ -5,6 +5,8 @@
 
 mod absence_repo;
 mod assiduite;
+pub mod sante_acc;
+pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
 mod champs_chiffres;
@@ -216,6 +218,8 @@ mod tests_outbox;
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sante;
 
 #[cfg(test)]
 mod integration_tests {

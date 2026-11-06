@@ -168,6 +168,8 @@ pub enum DispositifKind {
     Pps,
     Pai,
     Gevasco,
+    Ppre,
+    Ulis,
     Autre,
 }
 
@@ -178,6 +180,8 @@ impl DispositifKind {
             Self::Pps => "pps",
             Self::Pai => "pai",
             Self::Gevasco => "gevasco",
+            Self::Ppre => "ppre",
+            Self::Ulis => "ulis",
             Self::Autre => "autre",
         }
     }
@@ -188,6 +192,8 @@ impl DispositifKind {
             "pps" => Some(Self::Pps),
             "pai" => Some(Self::Pai),
             "gevasco" => Some(Self::Gevasco),
+            "ppre" => Some(Self::Ppre),
+            "ulis" => Some(Self::Ulis),
             "autre" => Some(Self::Autre),
             _ => None,
         }

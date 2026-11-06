@@ -27,6 +27,7 @@ mod journee_vs;
 mod referentiel;
 mod referentiel_admin;
 mod roles;
+mod sante;
 mod securite;
 mod vie_scolaire;
 
@@ -35,6 +36,15 @@ pub use communication::{
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
 pub use droits_moteur::DroitEffectif;
+pub use ent_types::sante::{
+    AeshDto, AffecterAeshBody, AmenagementDto, AmenagementsEleveDto, CatalogueSanteDto,
+    CloturePassageBody, ContraintePublieeDto, ContraintesEleveDto, DefinirAmenagementBody,
+    DispositifARevoirDto, DispositifDto, DossierAccompagnementDto, EnregistrerPaiBody,
+    EnregistrerProtocoleBody, EntreeCatalogueDto, FicheUrgenceDto, NouveauPassageBody,
+    OuvrirDispositifBody, PaiARevoirDto, PaiBaseDto, PaiCompletDto, PassageSanteDto,
+    PersonneUrgenceDto, PlanifierReunionBody, ProtocoleSanteDto, PublierContrainteBody,
+    ReunionEquipeDto, ReviserDispositifBody, SignaturePaiDto, SignerPaiBody,
+};
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,

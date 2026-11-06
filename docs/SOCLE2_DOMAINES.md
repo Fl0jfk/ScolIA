@@ -404,12 +404,12 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 |---|---|---|---|---|---|---|
 | SAN-01 | Saisir/valider la fiche santé | PAR · LIEN ; INF valide | niveau SANTE ; consultations journalisées [F] | fiche | `infirmerie.fiche_sante` [F] | I |
 | SAN-02 | Enregistrer un passage à l'infirmerie | INF | motif, soins, issue (retour en classe, famille appelée) | passage | `infirmerie.passage` [F] | I |
-| SAN-03 | Informer la famille d'un passage | INF (selon règle) | aucun détail médical dans la notification | notification | `infirmerie.famille_informee` | A |
-| SAN-04 | Renvoyer l'élève au domicile | INF, CPE ★ | responsable joint ; personne autorisée (DOS-08) | sortie tracée, absence créée | `infirmerie.renvoi_domicile` | A |
+| SAN-03 | Informer la famille d'un passage | INF (selon règle) | aucun détail médical dans la notification | notification | `infirmerie.famille_informee` | I (S2-11) |
+| SAN-04 | Renvoyer l'élève au domicile | INF, CPE ★ | responsable joint ; personne autorisée (DOS-08) | sortie tracée, absence créée | `infirmerie.renvoi_domicile` | P (S2-11 : renvoi consigné, absence non créée) |
 | SAN-05 | Établir / signer un PAI | INF, médecin ; PAR signe | pièces [F] | PAI | `infirmerie.pai`, `infirmerie.pai_signe` [F] | I |
-| SAN-06 | Publier une contrainte non médicale dérivée (« PAI alimentaire », « trousse d'urgence ») | INF | seule information partagée avec RST, séjours, profs | indicateur minimal | `sante.contrainte_publiee` | A |
+| SAN-06 | Publier une contrainte non médicale dérivée (« PAI alimentaire », « trousse d'urgence ») | INF | seule information partagée avec RST, séjours, profs | indicateur minimal | `sante.contrainte_publiee` | I (S2-11) |
 | SAN-07 | Consigner un entretien psy / RDV / dossier | PSY | dossier psy visible du seul psy (+ DIR habilité, B8) | dossier | `psy.*` [F] | I |
-| SAN-08 | Registre des traitements / protocoles d'urgence | INF | | registre | `sante.protocole_mis_a_jour` | A |
+| SAN-08 | Registre des traitements / protocoles d'urgence | INF | | registre | `sante.protocole_mis_a_jour` | I (S2-11) |
 
 ### D14 — Pilotage (PIL)
 
@@ -464,11 +464,11 @@ Les identifiants sont **stables** : on n'en réutilise jamais un supprimé.
 
 | ID | Action | Acteur · périmètre | Préconditions / règles clés | Effets | Événements | État |
 |---|---|---|---|---|---|---|
-| ACC-01 | Ouvrir un dispositif (PAP, PPS, PPRE, ULIS) | DIR, PP ; INF/médecin pour PAP | pièces ; dates de révision | dispositif | `eleve.dispositif_ajoute` [F] | P |
-| ACC-02 | Définir les aménagements pédagogiques et d'examen | PP, DIR | liste normalisée (tiers-temps, police adaptée…) | aménagements visibles des profs de CLS | `accompagnement.amenagements_definis` | A |
-| ACC-03 | Affecter un AESH | DIR | | affectation | `accompagnement.aesh_affecte` | A |
-| ACC-04 | Réunir l'équipe éducative / de suivi | DIR, CPE | convocations, compte rendu | réunion | `accompagnement.equipe_reunie` | A |
-| ACC-05 | Réviser / clore un dispositif | DIR | échéance | statut | `accompagnement.dispositif_revise` | A |
+| ACC-01 | Ouvrir un dispositif (PAP, PPS, PPRE, ULIS) | DIR, PP ; INF/médecin pour PAP | pièces ; dates de révision | dispositif | `eleve.dispositif_ajoute` [F] | I (S2-11) |
+| ACC-02 | Définir les aménagements pédagogiques et d'examen | PP, DIR | liste normalisée (tiers-temps, police adaptée…) | aménagements visibles des profs de CLS | `accompagnement.amenagements_definis` | I (S2-11) |
+| ACC-03 | Affecter un AESH | DIR | | affectation | `accompagnement.aesh_affecte` | I (S2-11) |
+| ACC-04 | Réunir l'équipe éducative / de suivi | DIR, CPE | convocations, compte rendu | réunion | `accompagnement.equipe_reunie` | P (S2-11 : convocations non envoyées) |
+| ACC-05 | Réviser / clore un dispositif | DIR | échéance | statut | `accompagnement.dispositif_revise` | I (S2-11) |
 
 ### D19 — Personnels, absences et remplacements (RH) — nouveau
 
@@ -901,6 +901,48 @@ Règles : les quatre nouvelles actions n'acceptent que la portée « établissem
 - Vérification des textes officiels (voir ci-dessus).
 
 **Tests** : voir la ligne « Tests S2-4 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
+
+### 6.5 S2-11 — santé et accompagnement : réalisé (2026-11-06, branche `ent-socle2-sante`)
+
+**Niveau : implémenté + testé en local** (PostgreSQL 16 jetable). Non validé pilote, non fusionné. **Q7 (hébergement certifié HDS) reste à faire trancher par le DPO** : d'ici là, minimisation stricte et chiffrement (voir « Point HDS à soumettre » ci-dessous). Construit sur `ent-integration-lot4` (S2-0 outbox, S2-1 personnes et liens, RLS pilote, chiffrement D3). Ancienne UI (`ui.rs`) non lue ni étendue.
+
+**Conception livrée [F]**
+
+| Élément | Où | Détail |
+|---|---|---|
+| PAI complet (SAN-05) | migration `210`, `ent-db/src/sante_acc.rs` | Version incrémentée à chaque écriture ; **signatures par partie et par version** (famille, médecin, chef d'établissement, infirmier, collectivité) : toute modification invalide les signatures (`ent_pai_signature`, unique par PAI × version × partie). Quatre parties requises (famille, médecin, chef, infirmier) ; « complet » quand elles ont toutes signé la version courante. Révision annuelle (`date_revision`, un an après le début par défaut, liste « PAI à réviser » à 30 jours), trousse d'urgence (présence, lieu de rangement non médical, péremption). La famille signe depuis son compte (lien actif) ; médecin et collectivité sont consignés par l'infirmerie (nom obligatoire) ; seule la direction signe pour le chef d'établissement. Ancienne route de signature famille conservée (délègue au nouveau parcours). |
+| Contraintes publiées (SAN-06) | migration `211`, `sante_acc.rs` | **Catalogue fermé** (17 codes : « repas sans arachide », « trousse d'urgence », « ne pas courir »…) ; la base ne reçoit **aucun texte libre** ; audiences restauration / enseignants / sorties, chaque code n'admettant que ses audiences. Publication manuelle par l'infirmerie ; la trousse du PAI se publie et se retire d'elle-même ; un PAI inactif retire ce qu'il a dérivé. Lecture : personnel de santé (tout, avec la source), restauration (`repas.gerer/scanner`), sorties (`sorties.gerer/controler`), enseignants (`contraintes.lire`, portée « mes classes »). La **source** (PAI) n'est jamais communiquée hors santé. |
+| Passages (SAN-02/03/04) | migration `213`, `sante_acc.rs` | Heures, motif, soins (chiffrés), issue (retour en classe, repos, famille appelée, renvoi au domicile, secours). **Information de la famille** (SAN-03) : règle par défaut [H] — accident, famille appelée, renvoi au domicile, secours → automatique ; sinon à la demande ; notification interne **sans motif ni soins** (`infirmerie_passage`), à tous les responsables au lien actif, idempotente. **Renvoi au domicile** (SAN-04) : exige une personne habilitée (responsable au lien actif ou contact d'urgence validé « peut récupérer »), consignée avec son nom. |
+| Fiche d'urgence | `sante_acc.rs`, `/web/infirmerie/eleves/{id}/urgence` | Imprimable (styles `@media print`). Niveau **complet** (`sante.lire`) : protocole du PAI, médecin, téléphone d'urgence. Niveau **minimal** (`sante.urgence_lire`, professeur sur ses élèves, CPE, direction…) : responsables, contacts, contraintes publiées, trousse, consigne générale — ni diagnostic, ni traitement, ni protocole. Chaque consultation est journalisée. |
+| Registre des protocoles (SAN-08) | migration `214` | Textes génériques de l'établissement (jamais liés à un élève), versionnés, titre unique. |
+| Accompagnement (ACC-01→05) | migration `212`, `ent-db/src/accompagnement.rs` | `ent_eleve_dispositif` étendu (PPRE, ULIS, statut, révision) ; **aménagements** du catalogue fermé (14 codes : tiers-temps, police adaptée…) avec portée cours / examen ; AESH (nom, quotité, dates) ; réunions d'équipe éducative / de suivi (compte rendu **chiffré**, réservé à la gestion). Clôture d'un dispositif : aménagements liés retirés. Un PAP peut être ouvert par l'infirmerie (`sante.saisir`), les autres types par `accompagnement.gerer`. |
+| Droits | `ent-auth/src/actions.rs` | 4 actions : `accompagnement.gerer` (admin, direction), `amenagements.lire` (professeur : mes classes ; admin, direction, administratif, CPE, infirmerie, psy), `contraintes.lire` (professeur : mes classes ; admin, direction, administratif, CPE, infirmerie), `sante.urgence_lire` (professeur : mes classes ; admin, direction, administratif, CPE, infirmerie) → **51 actions**. |
+| Chiffrement et RLS | `champs_chiffres.rs`, migration `215` | **Étendus** : `ent_pai` (motif, mesures, protocole, note interne), `ent_infirmerie_passage` (note, soins), `ent_equipe_reunion` (compte rendu) en plus de la fiche santé et du dossier psy ; `TenantTx` partout ; RLS forcée sur les 6 nouvelles tables. |
+| Événements | `types_sante`, `types_acc` | Tous publiés dans la transaction du fait (outbox S2-0). Charges utiles : identifiants, états, dates techniques — **jamais** de motif, de soins, de code de contrainte ni de nom d'aménagement. |
+| API | `ent-api/src/sante.rs` | 29 méthodes sur 24 chemins. Droits décidés par `ent-db`. |
+| Écrans Leptos | `/web/infirmerie` (+ `eleves/{id}`, `eleves/{id}/urgence`), `/web/accompagnement` (+ `eleves/{id}`), `/web/amenagements`, `/web/sante-enfant` | Infirmerie : tableau du jour, saisie et clôture d'un passage (renvoi contrôlé), PAI à réviser, fiche santé (PAI, signatures, contraintes). Accompagnement : dispositifs, aménagements, AESH, réunions. Professeur : ses élèves aménagés et les contraintes de son public, sans diagnostic. Famille : PAI à lire et signer, passages visibles (sans note), aménagements. |
+
+**Minimisation : fuites corrigées dans l'existant [F]** (les charges utiles d'événements portaient des données de santé) : `infirmerie.fiche_sante` (allergies, traitements), `infirmerie.pai` et `infirmerie.pai_signe` (motif du PAI = diagnostic), `infirmerie.pai_piece` (nom du fichier), `infirmerie.passage` (motif), `infirmerie.fiche_sante_pdf` (drapeau PAI), `psy.dossier` (axes de suivi). Ces événements ne portent plus que des identifiants, états et dates.
+
+**Écarts par rapport au §3 [signalés]**
+- **PP (professeur principal)** : pas de notion de PP dans le moteur de droits ; ACC-01/02 « DIR, PP » → direction par défaut, et un établissement peut attribuer `accompagnement.gerer` (portée « mes classes ») à un rôle de professeur principal. Pas de rôle « médecin ».
+- **SAN-04** : le renvoi au domicile est consigné (personne habilitée, événement) mais **l'absence n'est pas créée** ni la sortie VS tracée (couplage avec DOS-08 / sorties non fait).
+- **SAN-03** : la règle d'information de la famille est une valeur par défaut [H], non paramétrable par l'établissement.
+- **ACC-04** : planification et compte rendu ; les **convocations** (notification aux participants) ne sont pas envoyées. ACC-03 : AESH saisi par son nom (pas de compte AESH).
+- **Fiche d'urgence de séjour (SEJ-08)** : la route et l'écran existent (niveau minimal) ; l'accès temporaire limité à la durée du séjour, la copie hors ligne et l'effacement après retour relèvent de S2-12.
+- **Restauration** : elle lit la liste des contraintes (`GET /sante/contraintes?audience=restauration`) ; aucun consommateur d'événement n'alerte la cantine (le domaine D11 n'en a pas encore).
+- Aménagements dans les **convocations d'examen** (EXA) et placements : S2-13.
+- Libellé libre d'un dispositif (120 caractères) : non chiffré et visible du suivi ; la consigne « pas de diagnostic » est une règle d'usage, non vérifiable par le système.
+- Pièces du PAI (ordonnances) : stockées dans le magasin d'objets, **non chiffrées au repos** par ce lot.
+
+**Point HDS à soumettre au DPO (Q7) — questions, pas des faits**
+1. Le PAI, les notes de soins, la fiche santé et les notes du psychologue relèvent-ils de l'hébergement de données de santé certifié (HDS), pour un éditeur qui héberge pour le compte d'établissements ? Le cas échéant, quel hébergeur certifié [H : à vérifier pour Scaleway] pour la base et le magasin d'objets ?
+2. Quelles données de santé sont réellement nécessaires à l'ENT ? Proposition [R] : ne garder dans l'ENT que la contrainte publiée et la fiche d'urgence minimale, le reste (motif, protocole, ordonnances) restant au dossier de l'infirmerie.
+3. Durées de conservation et effacement (passages, PAI échus, comptes rendus d'équipe) ; droit d'accès de la famille aux passages ; AIPD.
+4. Habilitations : qui, hors infirmerie, peut recevoir la fiche d'urgence minimale (professeur, encadrant de séjour) et pour quelle durée.
+5. Chiffrement actuel : champs applicatifs AES-256-GCM (clé `ENT_SECRETS_KEY` dérivée) ; les pièces et sauvegardes ne le sont pas dans ce lot.
+
+**Tests** : voir la ligne « Tests S2-11 » de `docs/PROJECT_STATUS.md` pour les résultats exacts.
 
 ## 7. Décisions à soumettre à Florian (questions fermées)
 

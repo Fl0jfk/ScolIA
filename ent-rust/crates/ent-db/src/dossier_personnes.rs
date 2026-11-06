@@ -698,7 +698,7 @@ impl PgEnt {
         })
     }
 
-    async fn responsables_bruts(
+    pub(crate) async fn responsables_bruts(
         &self,
         etab: Uuid,
         eleve_id: Uuid,
@@ -725,7 +725,7 @@ impl PgEnt {
         Ok(rows.into_iter().map(Responsable::from).collect())
     }
 
-    async fn contacts_bruts(
+    pub(crate) async fn contacts_bruts(
         &self,
         etab: Uuid,
         eleve_id: Uuid,

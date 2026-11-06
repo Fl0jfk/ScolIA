@@ -16,6 +16,14 @@ pub const JOURNEE: &str = "/web/journee";
 pub const REFERENTIEL: &str = "/web/referentiel";
 pub const DISCIPLINE: &str = "/web/discipline";
 pub const SIGNALEMENTS: &str = "/web/signalements";
+/// Infirmerie (S2-11) : tableau du jour ; fiche d'un élève : `/web/infirmerie/eleves/{id}`.
+pub const INFIRMERIE: &str = "/web/infirmerie";
+/// Accompagnement (S2-11) : PAP, PPS, aménagements ; élève : `/web/accompagnement/eleves/{id}`.
+pub const ACCOMPAGNEMENT: &str = "/web/accompagnement";
+/// Aménagements des élèves d'un professeur et contraintes publiées (S2-11).
+pub const AMENAGEMENTS: &str = "/web/amenagements";
+/// Santé de l'enfant côté famille : PAI à signer, passages visibles, aménagements (S2-11).
+pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
@@ -76,8 +84,20 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if moteur.peut_signaler_assiduite() {
         v.push(entree("Signalements", SIGNALEMENTS, NomIcone::Annonce));
     }
+    if moteur.peut_lire_sante() {
+        v.push(entree("Infirmerie", INFIRMERIE, NomIcone::Personne));
+    }
+    if moteur.peut_gerer_accompagnement() {
+        v.push(entree("Accompagnement", ACCOMPAGNEMENT, NomIcone::Personne));
+    }
+    if moteur.peut_lire_amenagements() || moteur.peut_lire_contraintes() {
+        v.push(entree("Aménagements", AMENAGEMENTS, NomIcone::Ecole));
+    }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
+    }
+    if droits.portail_famille {
+        v.push(entree("Santé", SANTE_ENFANT, NomIcone::Personne));
     }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
@@ -161,7 +181,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, ABSENCES, SANTE_ENFANT, MESSAGES],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -244,9 +264,32 @@ mod tests {
     }
 
     #[test]
+    fn sante_et_accompagnement_selon_les_droits_du_moteur() {
+        let sante = DroitsMoteur::new(vec![droit("sante.lire", "etablissement")]);
+        let v = adresses(droits_du_role("infirmerie"), &sante);
+        assert!(v.contains(&INFIRMERIE.to_string()));
+        assert!(!v.contains(&ACCOMPAGNEMENT.to_string()));
+        let acc = DroitsMoteur::new(vec![droit("accompagnement.gerer", "etablissement")]);
+        assert!(adresses(droits_du_role("direction"), &acc).contains(&ACCOMPAGNEMENT.to_string()));
+        // Professeur : « Aménagements » (ses élèves), ni infirmerie ni accompagnement.
+        let prof = DroitsMoteur::new(vec![
+            droit("amenagements.lire", "mes_classes"),
+            droit("contraintes.lire", "mes_classes"),
+        ]);
+        let v = adresses(droits_du_role("prof"), &prof);
+        assert!(v.contains(&AMENAGEMENTS.to_string()));
+        assert!(!v.contains(&INFIRMERIE.to_string()) && !v.contains(&ACCOMPAGNEMENT.to_string()));
+        // Sans réponse du moteur, aucune de ces entrées n'apparaît.
+        let seul = adresses(droits_du_role("infirmerie"), &DroitsMoteur::default());
+        for absent in [INFIRMERIE, ACCOMPAGNEMENT, AMENAGEMENTS] {
+            assert!(!seul.contains(&absent.to_string()));
+        }
+    }
+
+    #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, ABSENCES, MESSAGES]);
+        assert_eq!(v, [ACCUEIL, ABSENCES, SANTE_ENFANT, MESSAGES]);
     }
 
     #[test]

@@ -131,8 +131,8 @@ use domain_eleve::{
     detect_conflits_edt, grille_edt_defaut, parse_edt_import_csv, parse_edt_pronote_csv,
     solve_edt_greedy_soft, EdtContrainteSoft, EdtDemande, EdtImportLigne, EdtImportParseError,
     EdtImportReport, EdtSolveReport,
-    plan_attacher_ordonnance_pai, plan_resume_fiche_sante, plan_signer_pai_famille,
-    plan_upsert_dossier_psy, plan_upsert_fiche_sante, plan_upsert_pai,
+    plan_attacher_ordonnance_pai, plan_resume_fiche_sante,
+    plan_upsert_dossier_psy, plan_upsert_fiche_sante,
     render_courrier_orientation_pdf, render_resume_fiche_sante_pdf, semaine_ab_au_jour,
     vue_dossier_famille, vue_entretien_psy_famille, vue_fiche_sante_famille, vue_pai_famille,
     vue_passage_infirmerie_famille, vue_rdv_famille, AttacherOrdonnancePai,
@@ -5441,6 +5441,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Ok(self.foyers.link_parent(cmd).await?)
     }
 
+    pub(crate) fn infirmerie_repo(&self) -> &PgInfirmerieRepo {
+        &self.infirmerie
+    }
+
     pub async fn lien_parent_eleve(
         &self,
         etablissement_id: Uuid,
@@ -8460,7 +8464,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
 
     /// Le personnel `role` a-t-il `action` sur cet élève ? Familles et élèves :
     /// jamais (garde-fou 1) — leurs règles relationnelles restent à l'appelant.
-    async fn staff_eleve(
+    pub(crate) async fn staff_eleve(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
@@ -14931,8 +14935,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 aggregate: AggregateKind::Infirmerie,
                 aggregate_id: passage.id,
                 eleve_id: Some(passage.eleve_id),
+                // Minimisation (S2-11) : ni motif, ni soins dans l'événement.
                 payload: json!({
-                    "motif": passage.motif.as_str(),
                     "jour": passage.jour.to_string(),
                     "visible_famille": passage.visible_famille,
                 }),
@@ -15075,10 +15079,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 aggregate: AggregateKind::Infirmerie,
                 aggregate_id: fiche.id,
                 eleve_id: Some(fiche.eleve_id),
+                // Minimisation (S2-11) : aucune donnée de santé dans l'événement.
                 payload: json!({
                     "pai_actif": fiche.pai_actif,
-                    "allergies": fiche.allergies,
-                    "traitements": fiche.traitements,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })
@@ -15130,61 +15133,17 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Err(EntDbError::Forbidden)
     }
 
+    /// PAI (création ou mise à jour). Délègue au module santé (S2-11) : une seule
+    /// transaction (PAI chiffré, version, contraintes dérivées, événement minimal).
     pub async fn upsert_pai_for_actor(
         &self,
         role: &str,
         cmd: UpsertPai,
     ) -> Result<Pai, EntDbError> {
-        if !self
-            .staff_eleve(
-                cmd.etablissement_id,
-                cmd.actor_user_id,
-                role,
-                Action::SanteSaisir,
-                cmd.eleve_id,
-            )
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        self.eleves
-            .get(cmd.etablissement_id, cmd.eleve_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let actor = cmd.actor_user_id;
-        let etab = cmd.etablissement_id;
-        let eleve_id = cmd.eleve_id;
-        let actif = cmd.actif;
-        let planned = plan_upsert_pai(cmd)?;
-        let pai = self.infirmerie.upsert_pai(&planned).await?;
-        // Aligne le flag fiche santé si une fiche existe déjà.
-        if let Some(mut fiche) = self.infirmerie.get_fiche(etab, eleve_id).await? {
-            if fiche.pai_actif != actif {
-                fiche.pai_actif = actif;
-                fiche.updated_by_user_id = actor;
-                fiche.updated_at = Utc::now();
-                let _ = self.infirmerie.upsert_fiche(&fiche).await?;
-            }
-        }
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: pai.etablissement_id,
-                type_name: types::INFIRMERIE_PAI.to_string(),
-                aggregate: AggregateKind::Infirmerie,
-                aggregate_id: pai.id,
-                eleve_id: Some(pai.eleve_id),
-                payload: json!({
-                    "motif": pai.motif,
-                    "actif": pai.actif,
-                    "date_debut": pai.date_debut.to_string(),
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?;
-        Ok(pai)
+        self.enregistrer_pai_for_actor(role, cmd, None).await
     }
 
-    async fn get_pai_for_actor_sans_trace(
+    pub(crate) async fn get_pai_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -15230,44 +15189,23 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         Err(EntDbError::Forbidden)
     }
 
+    /// Signature du PAI par la famille (version courante). Délègue au module santé.
     pub async fn signer_pai_famille_for_actor(
         &self,
         role: &str,
         cmd: SignerPaiFamille,
     ) -> Result<Pai, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed != Role::Parent {
-            return Err(EntDbError::Forbidden);
-        }
-        let lien = self
-            .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
+        let complet = self
+            .signer_pai_for_actor(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                cmd.eleve_id,
+                "famille",
+                None,
+            )
             .await?;
-        if lien.is_none() {
-            return Err(EntDbError::Forbidden);
-        }
-        let current = self
-            .infirmerie
-            .get_pai(cmd.etablissement_id, cmd.eleve_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let actor = cmd.actor_user_id;
-        let updated = plan_signer_pai_famille(&current, &cmd)?;
-        let pai = self.infirmerie.update_pai_signature(&updated).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: pai.etablissement_id,
-                type_name: types::INFIRMERIE_PAI_SIGNE.to_string(),
-                aggregate: AggregateKind::Infirmerie,
-                aggregate_id: pai.id,
-                eleve_id: Some(pai.eleve_id),
-                payload: json!({
-                    "motif": pai.motif,
-                    "signe_famille": true,
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?;
-        Ok(vue_pai_famille(&pai))
+        Ok(vue_pai_famille(&complet.pai))
     }
 
     pub async fn attacher_ordonnance_pai_for_actor(
@@ -15328,7 +15266,6 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 eleve_id: Some(piece.eleve_id),
                 payload: json!({
                     "pai_id": piece.pai_id,
-                    "nom": piece.nom,
                     "mime_type": piece.mime_type,
                     "taille_octets": piece.taille_octets,
                     "storage_key": key,
@@ -15473,7 +15410,6 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 aggregate_id: fiche.id,
                 eleve_id: Some(eleve_id),
                 payload: json!({
-                    "pai_actif": resume.pai_actif,
                     "octets": bytes.len(),
                 }),
                 actor_user_id: Some(actor_user_id.to_string()),
@@ -15627,7 +15563,6 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 payload: json!({
                     "suivi_actif": dossier.suivi_actif,
                     "signale_famille": dossier.signale_famille,
-                    "axes_suivi": dossier.axes_suivi,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })

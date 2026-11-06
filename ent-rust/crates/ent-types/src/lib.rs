@@ -20,6 +20,7 @@ pub mod dossier;
 pub mod edt;
 pub mod referentiel;
 pub mod referentiel_admin;
+pub mod sante;
 pub mod vie_scolaire;
 
 #[cfg(test)]

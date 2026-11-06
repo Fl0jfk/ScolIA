@@ -93,3 +93,13 @@ Toutes ces actions n'admettent que la portée `etablissement` (les contrôles d'
 
 ## Actions ajoutées par le socle 2, lot S2-1 (2026-11-05)
 `personnes.gerer` (responsables, contacts, liens ; modèles admin, direction, administratif), `payeurs.definir` (+ comptabilité), `liens.suspendre` et `personnes.fusionner` (admin, direction). Portée « établissement » seulement (une personne n'est pas rattachée à une classe). Familles : toujours hors rôles libres ; leurs accès passent par le **lien actif** (`ent_eleve_lien_actif` : ni suspendu, ni hors de ses dates), lu en un point unique (`PgFoyerRepo::lien_parent_eleve`). Détail : `docs/SOCLE2_DOMAINES.md` §6.2.
+
+## Actions ajoutées par le socle 2, lot S2-11 (2026-11-06)
+| Action | Ce qu'elle ouvre | Modèle par défaut |
+|---|---|---|
+| `accompagnement.gerer` | ouvrir, réviser et clore les dispositifs (PAP, PPS, PPRE, ULIS), définir les aménagements, affecter un AESH, tenir les réunions d'équipe | Admin, Direction (établissement) ; un établissement peut l'attribuer à un rôle « professeur principal » (portée « mes classes ») |
+| `amenagements.lire` | lire les **aménagements** d'un élève (catalogue fermé, sans diagnostic ni type de dispositif) | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie, Psy : établissement |
+| `contraintes.lire` | lire les contraintes publiées destinées aux **enseignants** (sans donnée médicale) | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie : établissement |
+| `sante.urgence_lire` | lire la fiche d'urgence **minimale** (contacts, contraintes, trousse) ; le niveau complet exige `sante.lire` | Prof : mes classes ; Admin, Direction, Administratif, CPE, Infirmerie : établissement |
+
+Règles : la restauration lit les contraintes de son audience avec `repas.gerer` / `repas.scanner`, les sorties avec `sorties.gerer` / `sorties.controler` (établissement entier seulement) ; le personnel de santé (`sante.lire`) voit toutes les audiences et la source. Un professeur n'a **jamais** `sante.lire` : il ne reçoit que des aménagements et des contraintes du catalogue. Familles et élèves restent hors rôles libres : PAI, passages visibles et aménagements de leur enfant par le lien actif.
