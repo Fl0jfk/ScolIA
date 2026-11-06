@@ -91,6 +91,19 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some(Quota::new(10, 900)),
             Some("token"),
         ),
+        // Changement d'e-mail (RF-01) : jetons de 256 bits, seau par IP et par jeton.
+        "/auth/email/confirmer" => r(
+            "EMAIL_CONFIRMER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("token"),
+        ),
+        "/auth/email/annuler" => r(
+            "EMAIL_ANNULER",
+            Some(Quota::new(20, 900)),
+            Some(Quota::new(10, 900)),
+            Some("token"),
+        ),
         "/auth/passkey/login/start" => {
             r("PASSKEY_LOGIN_START", Some(Quota::new(30, 300)), None, None)
         }

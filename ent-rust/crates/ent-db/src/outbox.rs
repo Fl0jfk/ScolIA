@@ -635,11 +635,20 @@ impl Distributeur {
     ) -> Result<Issue, String> {
         let etab = evt.etablissement_id();
         let mut tx = self.pool.begin().await.map_err(|e| e.to_string())?;
-        sqlx::query("SELECT set_config('ent.etablissement_id', $1, true)")
+        // Revue finale socle 1 : même variable que la politique RLS (`app.etablissement_id`,
+        // migration 100) et que `TenantTx` ; l'ancien nom `ent.etablissement_id` n'était lu
+        // par aucune politique, les consommateurs échappaient donc à la RLS.
+        sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
             .bind(etab.to_string())
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
+        if crate::RlsMode::from_env() == crate::RlsMode::Strict {
+            sqlx::query("SELECT set_config('app.rls_strict', 'on', true)")
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
         let marque = sqlx::query(
             r#"
             INSERT INTO ent_event_traitement (consommateur, event_id, etablissement_id)

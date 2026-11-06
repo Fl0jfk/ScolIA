@@ -81,14 +81,20 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
 
 
-## F-008 — Contrainte redéfinie par une migration et rejeu des migrations
+## F-008 — Contrôles d'accès oubliés sur des chemins annexes (revue finale du socle 1, 2026-11-06)
+- **Fait** : la règle « professeur → ses élèves » (B1, D-017) était appliquée aux routes principales mais pas à des chemins voisins qui renvoient ou écrivent les mêmes données : appréciations, copilote, dispenses du jour, exports LSL/LSUN, bulletins, conseils, devoirs. Le droit coché « autoriser les sorties » d'un responsable n'était vérifié que par l'ancienne UI JavaScript, pas par le serveur.
+- **Cause** : contrôle pensé route par route ; une donnée exposée par plusieurs chemins n'était bornée que sur le premier ; confiance implicite dans l'interface.
+- **Leçon** : pour chaque donnée sensible, recenser **tous** les chemins qui la lisent ou l'écrivent (listes, exports, copilote, PDF, journaux) et les faire passer par `autoriser_eleve` / `eleves_autorises` ; aucun droit ne doit être appliqué seulement côté interface. Détail : `docs/REVUE_SECURITE_SOCLE1.md` (RF-02, RF-04).
+
+## F-009 — Contrainte redéfinie par une migration et rejeu des migrations
 
 - **Date / contexte :** 2026-11-05, socle 2, lot S2-3 (branche `ent-socle2-inscriptions`).
 - **Approche :** élargir la contrainte `ent_affectation_source_chk` dans une nouvelle migration (`144`) pour ajouter les sources « inscription » et « import », alors que la migration `110` la redéfinit déjà (`DROP CONSTRAINT` puis `ADD CONSTRAINT`).
 - **Résultat observé (faits) :** repéré à la relecture, avant tout test : `migrate.rs` rejoue **toutes** les migrations à chaque démarrage ; la `110` rejouée recréerait la contrainte étroite et échouerait dès qu'une ligne porte une nouvelle source.
 - **Correction :** aucune nouvelle valeur ; les réactions S2-3 utilisent les sources existantes (`saisie` pour une inscription validée, `lot` pour un import).
 - **Apprentissage :** tant que les migrations sont rejouées, une contrainte `CHECK` ne doit être redéfinie qu'à un seul endroit ; pour l'élargir, modifier cette migration-là (et seulement en élargissant) ou introduire un suivi des migrations appliquées.
-## F-008 — Sessions cloud lancées sur Opus par défaut
+
+## F-010 — Sessions cloud lancées sur Opus par défaut
 
 - **Date / contexte :** 2026-11-06, socle 2, sessions cloud parallèles.
 - **Résultat observé (faits) :** `create_session` hérite du modèle de la session appelante (Opus). Sur 9 sessions actives, 6 tournaient sur Opus, dont une intégration de lot (fusion + tests, environ 6 $), contrairement à la règle « Sonnet par défaut » de `CLAUDE.md`. Relevé par Florian.

@@ -1,7 +1,5 @@
 //! Face web labo — pages HTML (pas de dump JSON). Les données viennent de Postgres via l’API.
 
-use axum::response::Html;
-
 use std::sync::OnceLock;
 
 /// Page servie. Les emplacements `@@L_*@@` / `@@LABO_PWD@@` de `APP` n'ont de
@@ -9,14 +7,51 @@ use std::sync::OnceLock;
 /// que si la feature `labo` est compilée ET `ENT_ENV` est explicitement non
 /// productif ; sinon ils sont vides. Sans la feature, aucun fragment ni
 /// constante de labo n'existe dans le binaire.
-pub fn app_html() -> Html<&'static str> {
+/// Page servie et sa politique CSP (calculée une fois).
+pub fn page_et_csp() -> (&'static str, &'static str) {
     #[cfg(feature = "labo")]
     if crate::routes::env_non_prod() {
-        static LABO: OnceLock<String> = OnceLock::new();
-        return Html(LABO.get_or_init(|| assemble(true)).as_str());
+        static LABO: OnceLock<(String, String)> = OnceLock::new();
+        let (p, c) = LABO.get_or_init(|| {
+            let p = assemble(true);
+            let c = csp_pour(&p);
+            (p, c)
+        });
+        return (p.as_str(), c.as_str());
     }
-    static PROD: OnceLock<String> = OnceLock::new();
-    Html(PROD.get_or_init(|| assemble(false)).as_str())
+    static PROD: OnceLock<(String, String)> = OnceLock::new();
+    let (p, c) = PROD.get_or_init(|| {
+        let p = assemble(false);
+        let c = csp_pour(&p);
+        (p, c)
+    });
+    (p.as_str(), c.as_str())
+}
+
+/// CSP de l'ancienne UI (revue finale socle 1) : la page n'a qu'un script, en ligne et
+/// statique ; il est autorisé par son empreinte SHA-256. Un balisage injecté (par ex.
+/// `<img onerror=…>` via `innerHTML`) ne peut donc rien exécuter, et `connect-src`
+/// / `img-src` limitées à l'origine gênent l'exfiltration du jeton du `localStorage`.
+/// Les styles en ligne (attributs `style=`) restent autorisés.
+pub(crate) fn csp_pour(page: &str) -> String {
+    use base64::Engine as _;
+    let script = page
+        .split_once("<script>")
+        .and_then(|(_, reste)| reste.split_once("</script>"))
+        .map(|(s, _)| s)
+        .unwrap_or("");
+    let empreinte_hex = ent_auth::hash_token(script);
+    let octets: Vec<u8> = (0..empreinte_hex.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&empreinte_hex[i..i + 2], 16).ok())
+        .collect();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(octets);
+    format!(
+        "default-src 'self'; script-src 'sha256-{b64}'; style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; worker-src 'self'; \
+         manifest-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; \
+         form-action 'self'; frame-ancestors 'self'"
+    )
 }
 
 /// Page complète pour le mode demandé (`labo` n'a d'effet qu'avec la feature).
@@ -116,6 +151,32 @@ mod tests {
             assert!(!page.contains(m), "marqueur non résolu : {m}");
         }
         assert!(page.contains("id=\"loginForm\""));
+    }
+
+    /// Revue finale socle 1 : la CSP n'autorise que le script de la page (empreinte),
+    /// aucun `unsafe-inline` pour les scripts, et la page ne contient aucun gestionnaire
+    /// d'événement en attribut (qui serait bloqué par cette CSP).
+    #[test]
+    fn csp_ancienne_ui_autorise_seulement_le_script_de_la_page() {
+        for labo in [false, true] {
+            let page = assemble(labo);
+            let csp = csp_pour(&page);
+            assert_eq!(page.matches("<script").count(), 1, "un seul script attendu");
+            let script_src = csp
+                .split(';')
+                .map(str::trim)
+                .find(|d| d.starts_with("script-src"))
+                .expect("script-src");
+            assert!(script_src.starts_with("script-src 'sha256-"), "{script_src}");
+            assert!(!script_src.contains("unsafe"), "{script_src}");
+            assert!(csp.contains("object-src 'none'") && csp.contains("base-uri 'none'"));
+            assert!(csp.contains("connect-src 'self'"));
+            for attr in [" onclick=", " onload=", " onerror=", " onchange=", " onsubmit=", "javascript:"] {
+                assert!(!page.contains(attr), "attribut actif en ligne : {attr}");
+            }
+        }
+        // L'empreinte change avec le script : une page modifiée ne réutilise pas l'ancienne.
+        assert_ne!(csp_pour("<script>a</script>"), csp_pour("<script>b</script>"));
     }
 
     #[cfg(not(feature = "labo"))]
