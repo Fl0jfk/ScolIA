@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 2 — S2-7 évaluations, conseils, bulletins, livrets (2026-11-06)
+Une période complète de l'évaluation au bulletin : grille par service et période (coefficients, barèmes, absent / dispensé / non noté), moyennes exactes à règles explicites et arrondi paramétrable, publication des évaluations aux familles, verrou de période, correction motivée après fermeture, appréciations (professeur, PP, conseil), conseil outillé (préparation, mentions, décisions, avis sur les vœux, réponse famille), bilan de cycle, **bulletin versionné et immuable** (PDF, publié, archivé au dossier), exports LSU/LSL **au format documenté [NV]** (XSD officiels non accessibles), événements `evaluation.publiee` et `note.bulletin_publie` → familles (outbox, consommateur `d6.evaluations`), 6 écrans Leptos `/web/evaluations/*`. Migrations 180–182, 4 actions, 31 routes. **Implémenté + testé en local**, non validé pilote ; mentions, décisions et codes du socle [H]. Détail, écarts et reste à faire : `docs/SOCLE2_DOMAINES.md` §6.5. Branche `ent-socle2-evaluations`. **Tests S2-7** : RESULTATS_A_COMPLETER
+
 ## Intégration du lot 4 (2026-11-05 → 06, branche `ent-integration-lot4`, base `ent-integration-lot3` 3daefa7)
 Fusions git réelles, dans l'ordre : `ent-socle1-rls-integre`, `ent-socle2-dossier`, `ent-socle2-vie-scolaire`, `ent-socle2-ecrans-ref-vs`. Écartées : `ent-socle2-inscriptions` et `ent-socle2-cahier` (absentes d'origin au moment de l'intégration).
 - Catalogue d'actions réuni : 47 actions (38 du lot 3 + 4 de S2-1 + 5 de S2-4) ; tests de non-régression des modèles par défaut de toutes les branches verts ensemble.

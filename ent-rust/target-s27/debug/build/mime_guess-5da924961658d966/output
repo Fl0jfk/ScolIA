@@ -1,0 +1,1 @@
+cargo:rustc-env=MIME_TYPES_GENERATED_PATH=/home/user/ScolIA/ent-rust/target-s27/debug/build/mime_guess-5da924961658d966/out/mime_types_generated.rs
