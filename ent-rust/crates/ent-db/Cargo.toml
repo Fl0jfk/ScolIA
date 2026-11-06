@@ -23,6 +23,7 @@ ent-push = { path = "../ent-push" }
 ent-bank = { path = "../ent-bank" }
 ent-object = { path = "../ent-object" }
 ent-oidc = { path = "../ent-oidc" }
+ent-types = { path = "../ent-types" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { version = "0.8", default-features = false, features = [

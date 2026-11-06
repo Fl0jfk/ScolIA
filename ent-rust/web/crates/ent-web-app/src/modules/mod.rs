@@ -10,6 +10,7 @@ pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;
 pub mod journee_vs;
+pub mod inscriptions;
 pub mod messagerie;
 pub mod recuperation;
 pub mod referentiel_admin;

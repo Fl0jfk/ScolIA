@@ -23,6 +23,10 @@ pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 pub const ROLES: &str = "/web/direction/roles";
 pub const ROLES_NOUVEAU: &str = "/web/direction/roles/nouveau";
 pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
+/// Inscriptions (S2-3) : personnel, réinscription famille, préinscription publique.
+pub const INSCRIPTIONS: &str = "/web/inscriptions";
+pub const REINSCRIPTION: &str = "/web/reinscription";
+pub const PREINSCRIPTION: &str = "/web/preinscription";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -85,6 +89,14 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.gerer_roles {
         v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
     }
+    // S2-3 : mêmes profils que la gestion du référentiel (modèle par défaut
+    // d'`inscriptions.gerer`) ; le serveur reste juge (rôles paramétrés).
+    if droits.gerer_classes {
+        v.push(entree("Inscriptions", INSCRIPTIONS, NomIcone::Ecole));
+    }
+    if droits.portail_famille {
+        v.push(entree("Réinscription", REINSCRIPTION, NomIcone::Ecole));
+    }
     v
 }
 
@@ -143,7 +155,8 @@ mod tests {
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
-                MESSAGES
+                MESSAGES,
+                INSCRIPTIONS
             ]
         );
         let compta: Vec<String> = entrees(droits_du_role("compta"))
@@ -161,7 +174,7 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, ABSENCES, MESSAGES],
+            [ACCUEIL, ABSENCES, MESSAGES, REINSCRIPTION],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
