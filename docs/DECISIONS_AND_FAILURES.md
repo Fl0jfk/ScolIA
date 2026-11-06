@@ -85,3 +85,10 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Fait** : la règle « professeur → ses élèves » (B1, D-017) était appliquée aux routes principales mais pas à des chemins voisins qui renvoient ou écrivent les mêmes données : appréciations, copilote, dispenses du jour, exports LSL/LSUN, bulletins, conseils, devoirs. Le droit coché « autoriser les sorties » d'un responsable n'était vérifié que par l'ancienne UI JavaScript, pas par le serveur.
 - **Cause** : contrôle pensé route par route ; une donnée exposée par plusieurs chemins n'était bornée que sur le premier ; confiance implicite dans l'interface.
 - **Leçon** : pour chaque donnée sensible, recenser **tous** les chemins qui la lisent ou l'écrivent (listes, exports, copilote, PDF, journaux) et les faire passer par `autoriser_eleve` / `eleves_autorises` ; aucun droit ne doit être appliqué seulement côté interface. Détail : `docs/REVUE_SECURITE_SOCLE1.md` (RF-02, RF-04).
+## F-008 — Sessions cloud lancées sur Opus par défaut
+
+- **Date / contexte :** 2026-11-06, socle 2, sessions cloud parallèles.
+- **Résultat observé (faits) :** `create_session` hérite du modèle de la session appelante (Opus). Sur 9 sessions actives, 6 tournaient sur Opus, dont une intégration de lot (fusion + tests, environ 6 $), contrairement à la règle « Sonnet par défaut » de `CLAUDE.md`. Relevé par Florian.
+- **Cause :** paramètre `model` non renseigné au lancement ; pas de choix explicite par session.
+- **Correction / règle :** à chaque `create_session`, renseigner `model` explicitement. **Sonnet par défaut** (lots métier, écrans, intégrations, mobile). **Opus seulement** pour une revue de sécurité adverse, un domaine à risque (finances/SEPA) ou une décision d'architecture structurante, en le justifiant dans le titre ou la consigne. **Haiku** pour recherches ciblées et doc légère (sous-agents). Les sessions déjà lancées ne sont pas interrompues.
+- **Apprentissage :** un défaut hérité n'est pas un choix ; le modèle fait partie de la conception de chaque tâche déléguée.
