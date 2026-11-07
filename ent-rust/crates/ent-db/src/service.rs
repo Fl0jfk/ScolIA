@@ -7684,10 +7684,33 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Ok((existing, lignes));
         }
 
-        let effectif = self
+        let mut effectif = self
             .eleves
             .list_en_classe_au(etablissement_id, &creneau.classe, jour)
             .await?;
+        // D-022 (recette personas 1, RP1-24) : l'appel d'un cours de groupe ne porte que sur
+        // les élèves affectés au groupe à la date, jamais sur toute la classe.
+        let groupe: Option<Uuid> = sqlx::query_scalar(
+            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(creneau.id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        if let Some(groupe_id) = groupe {
+            let membres: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT eleve_id FROM ent_affectation
+                  WHERE etablissement_id = $1 AND groupe_id = $2
+                    AND date_debut <= $3 AND (date_fin IS NULL OR date_fin >= $3)",
+            )
+            .bind(etablissement_id)
+            .bind(groupe_id)
+            .bind(jour)
+            .fetch_all(&self.pool)
+            .await?;
+            effectif.retain(|e| membres.contains(&e.id));
+        }
 
         let appel = Appel {
             id: Uuid::new_v4(),
@@ -13148,6 +13171,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_id_for_user(cmd.etablissement_id, cmd.actor_user_id)
                 .await?;
             if linked != Some(current.eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
+            // Recette personas 1 (RP1-10) : un élève mineur ne signe pas à la place de ses
+            // responsables ; seul l'élève majeur signe lui-même.
+            if !self
+                .eleve_est_majeur(cmd.etablissement_id, current.eleve_id, today_utc())
+                .await?
+            {
                 return Err(EntDbError::Forbidden);
             }
         }
