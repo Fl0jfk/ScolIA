@@ -11,9 +11,9 @@
 --
 -- Additif, idempotent, rejoué à chaque démarrage.
 
-ALTER TABLE ent_affectation DROP CONSTRAINT IF EXISTS ent_affectation_source_chk;
-ALTER TABLE ent_affectation ADD CONSTRAINT ent_affectation_source_chk
-    CHECK (source IN ('saisie', 'amorcage', 'sync_classe', 'lot', 'montee', 'option_heritee', 'scolarite'));
+-- Les affectations issues d'options héritées ou des commandes portent la source `saisie` (la
+-- contrainte de source d'`ent_affectation` est rejouée par la migration 110 à chaque démarrage :
+-- on n'y ajoute aucune valeur). L'origine « option héritée » se lit dans `ent_eleve_option_groupe`.
 
 CREATE TABLE IF NOT EXISTS ent_eleve_option_groupe (
     source            TEXT NOT NULL CHECK (source IN ('option', 'option_annee')),
@@ -85,7 +85,7 @@ BEGIN
         v_aff := gen_random_uuid();
         INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, groupe_id, date_debut, date_fin, source)
         VALUES (v_aff, o.etablissement_id, v_annee, o.eleve_id, v_groupe, o.date_debut,
-                CASE WHEN v_fin >= o.date_debut THEN v_fin END, 'option_heritee');
+                CASE WHEN v_fin >= o.date_debut THEN v_fin END, 'saisie');
         INSERT INTO ent_eleve_option_groupe (source, option_id, etablissement_id, eleve_id, groupe_id, affectation_id)
         VALUES ('option', o.id, o.etablissement_id, o.eleve_id, v_groupe, v_aff);
     ELSE
@@ -122,7 +122,7 @@ BEGIN
     v_groupe := ent_eleve_option_groupe_assurer(o.etablissement_id, v_an.id, o.code, o.libelle);
     v_aff := gen_random_uuid();
     INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, groupe_id, date_debut, date_fin, source)
-    VALUES (v_aff, o.etablissement_id, v_an.id, o.eleve_id, v_groupe, v_an.date_debut, v_an.date_fin, 'option_heritee');
+    VALUES (v_aff, o.etablissement_id, v_an.id, o.eleve_id, v_groupe, v_an.date_debut, v_an.date_fin, 'saisie');
     INSERT INTO ent_eleve_option_groupe (source, option_id, etablissement_id, eleve_id, groupe_id, affectation_id)
     VALUES ('option_annee', o.id, o.etablissement_id, o.eleve_id, v_groupe, v_aff);
     RETURN v_aff;

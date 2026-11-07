@@ -337,14 +337,32 @@ async fn journal(
     visible_famille: bool,
     acteur: Option<Uuid>,
 ) -> Result<(), EntDbError> {
+    // Les faits sensibles (décès, capacité, mobilité, modalité, dérogation de régime) sont
+    // journalisés pour l'audit mais dans un domaine absent de la liste blanche de la
+    // chronologie 360° : ils n'y apparaissent pas, même sous un titre neutre.
+    let domaine = if matches!(
+        action,
+        "eleve_decede"
+            | "capacite_declaree"
+            | "capacite_levee"
+            | "mobilite_ouverte"
+            | "mobilite_fermee"
+            | "modalite_enregistree"
+            | "regime_derogation"
+    ) {
+        "eleve_sensible"
+    } else {
+        "scolarite"
+    };
     sqlx::query(
         "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
                                          payload, visible_famille, actor_user_id, created_at)
-         VALUES ($1,$2,$3,'scolarite',$4,$5,$6,$7,$8, now())",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
     .bind(eleve)
+    .bind(domaine)
     .bind(action)
     .bind(libelle)
     .bind(payload)
@@ -1042,7 +1060,7 @@ impl PgEnt {
         // Affectation de classe de l'année : l'ouverte est close la veille (ou remplacée si elle
         // démarre le jour même), puis la nouvelle est ouverte.
         let remplacee = sqlx::query(
-            "UPDATE ent_affectation SET classe_id = $4, source = 'scolarite'
+            "UPDATE ent_affectation SET classe_id = $4, source = 'saisie'
              WHERE etablissement_id = $1 AND eleve_id = $2 AND annee_id = $3
                AND classe_id IS NOT NULL AND date_fin IS NULL AND date_debut >= $5",
         )
@@ -1068,7 +1086,7 @@ impl PgEnt {
             .map_err(traduire)?;
             sqlx::query(
                 "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,'scolarite')",
+                 VALUES ($1,$2,$3,$4,$5,$6,'saisie')",
             )
             .bind(Uuid::new_v4())
             .bind(etab)
@@ -1132,7 +1150,7 @@ impl PgEnt {
             }
             sqlx::query(
                 "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, groupe_id, date_debut, date_fin, source)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,'scolarite')",
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,'saisie')",
             )
             .bind(Uuid::new_v4())
             .bind(etab)

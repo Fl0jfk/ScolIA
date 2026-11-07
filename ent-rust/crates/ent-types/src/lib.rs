@@ -21,6 +21,7 @@ pub mod dossier;
 pub mod edt;
 pub mod identifiants;
 pub mod identite;
+pub mod scolarite;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;

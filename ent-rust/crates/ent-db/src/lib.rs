@@ -242,6 +242,8 @@ mod tests_eleve_socle;
 mod tests_eleve_identite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_identifiants;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_scolarite;
 
 #[cfg(test)]
 mod integration_tests {

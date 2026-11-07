@@ -15,8 +15,8 @@ Chaque session qui écrit des migrations reçoit une plage réservée ici, pour 
 | 250–254 | socle 3, lot I0 (correctifs S2-3) | `ent-socle-inscriptions-i0` | 250 écrite (`250_inscriptions_i0.sql`) ; 251–254 libres ; fusionnée dans `ent-integration-lot6` |
 | 255–259 | correctifs revue finale socle 1 (RF-01, RF-04) | `ent-socle1-revue-correctifs` | 255 écrite ; fusionnée dans `ent-integration-lot6` ; `MIGRATION_TAG` = `255_email_confirmation` |
 | 260–279 | socle 4 dossier administratif (conception : `04_ADMINISTRATIF.md` §16) | `ent-socle-administratif-conception` (conception seulement) | réservé |
-| 280–289 | socle 2 élève, lot E2 (identité versionnée) : 280 | `ent-socle-eleve-e2` | en cours (280 utilisée) |
-| 290–299 | socle 2 élève, lots E3 et suivants | à venir | réservé |
+| 280–289 | socle 2 élève : 280 (lot E2, identité versionnée) ; **281–282 (lot E3 : identifiants, numéro)** ; **283–286 (lot E4 : scolarisations et statut dérivé, inscriptions, capacité et majorité, options)** ; 287–289 libres | `ent-socle-eleve-e2` (280) puis `ent-socle-eleve-e3-e4` (281–286) | 280 sur E2 ; 281–286 écrites, testées en local ; `MIGRATION_TAG` = `286_eleve_options` |
+| 290–299 | socle 2 élève, lots E5 et suivants | à venir | réservé |
 | 300–329 | socle 3 inscriptions, lots I1 et suivants | à venir | réservé |
 | 330–349 | socle 5 structure de l'établissement et année scolaire (conception : `05_STRUCTURE.md` §18) | `ent-socle-structure-conception` (conception seulement) | réservé |
 | 350–369 | socle 6 personnels, services et équipes (conception : `06_PERSONNELS.md` §17 ; 350–351 et la partie accès de 357 touchent des tables du socle 1) | `ent-socle-personnels-conception` (conception seulement) | réservé |
