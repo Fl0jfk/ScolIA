@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { readFileSync, existsSync } from "fs";
 
 function loadEnv() {
-  for (const f of [".env.local", ".env", ".cursor/mcp.local.env"]) {
+  for (const f of [".env.local", ".env"]) {
     if (!existsSync(f)) continue;
     for (const line of readFileSync(f, "utf8").split(/\r?\n/)) {
       const m = line.match(/^([A-Z0-9_]+)=(.*)$/);

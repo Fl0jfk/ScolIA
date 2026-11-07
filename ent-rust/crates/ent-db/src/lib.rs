@@ -1,0 +1,593 @@
+//! Persistance Postgres locale pour l'ENT Rust.
+//!
+//! **Sécurité :** `PgEnt::connect` refuse toute URL hors loopback.
+//! **Anti-doublon :** pas de table miroir de `ent_eleve` (effectif = query datée).
+
+mod absence_repo;
+mod assiduite;
+pub mod sante_acc;
+pub mod accompagnement;
+mod discipline_vs;
+mod vie_scolaire;
+/// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
+pub mod evaluations;
+mod evaluations_bulletin;
+mod evaluations_conseil;
+pub mod module_sante;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations;
+pub mod campagnes;
+pub mod formulaires;
+pub mod notifications;
+pub mod rencontres;
+mod champs_chiffres;
+mod annonce_repo;
+mod appel_repo;
+mod auth_repo;
+mod carnet_repo;
+mod cahier_texte_repo;
+mod continuum_repo;
+mod copilote;
+mod edt_repo;
+mod document_repo;
+mod eleve_compte_repo;
+mod eleve_repo;
+mod event_store;
+mod foyer_repo;
+mod infirmerie_repo;
+mod psy_repo;
+mod matiere_repo;
+mod migrate;
+mod motif_repo;
+mod fac_repo;
+mod mail_repo;
+mod sms_repo;
+mod push_repo;
+mod bank_repo;
+mod msg_repo;
+mod note_repo;
+pub mod cahier;
+pub mod cahier_reactions;
+pub mod outbox;
+pub mod reactions;
+mod option_repo;
+mod periode_repo;
+mod pg_err;
+#[cfg(test)]
+mod tests_l6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_communication;
+#[cfg(test)]
+mod tests_champs_chiffres;
+mod repas_repo;
+mod sanction_repo;
+mod tenant_tx;
+mod sortie_repo;
+mod internat_repo;
+mod dispense_vs_repo;
+mod journal_repo;
+mod alerte_cpe_repo;
+mod doc_signer_repo;
+mod conseil_classe_repo;
+mod info_comp_repo;
+mod vacances_repo;
+mod menu_cantine_repo;
+mod quotient_repo;
+mod referentiel_repo;
+mod ref_commun;
+mod referentiel_structure;
+mod referentiel_annee;
+mod referentiel_seances;
+pub mod edt_admin;
+pub mod edt_remplacement;
+mod edt_masse;
+pub mod delegation;
+mod edt_reactions;
+mod referentiel_classe_id;
+mod referentiel_groupes;
+mod retard_repo;
+mod competence_repo;
+mod passkey_repo;
+mod email_change_repo;
+mod recuperation_repo;
+mod perimetre;
+mod droits_repo;
+mod droits_ctx;
+pub mod dossier_personnes;
+pub mod inscriptions;
+pub mod inscriptions_reactions;
+pub mod imports;
+// Finances reliées (socle 2, lot S2-9).
+pub mod finances;
+pub mod finances_calcul;
+pub mod finances_reactions;
+pub mod finances_sepa;
+pub mod paiement_en_ligne;
+mod securite_repo;
+mod etablissement_repo;
+mod oidc_repo;
+mod pra;
+mod tva_repo;
+mod param_etab_repo;
+mod salle_repo;
+mod filiere_repo;
+mod inscription_repo;
+mod iban_histo_repo;
+mod tarif_conso_repo;
+mod absence_rh_repo;
+mod edition_vs_repo;
+mod stage_repo;
+mod edt_contrainte_repo;
+#[cfg(feature = "labo")]
+mod seed;
+mod service;
+mod signal_repo;
+pub mod url_guard;
+pub mod rate_limit;
+pub use rate_limit::{Decision, Quota, RateLimiter};
+
+pub use ent_events::EventBusError;
+pub use ent_object::presign;
+pub use ent_object::ObjectStoreError;
+pub use assiduite::{
+    bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, DemiJournee,
+    Periode, RegleAssiduite,
+};
+pub use discipline_vs::{
+    date_effacement, regle_effacement_defaut, DonnerPunition, EffacementRapport, EngagerProcedure,
+    ModeEffacement, ProcedureDisciplinaire, Punition, PunitionType, SignalementAssiduite,
+    CATEGORIES_SANCTION,
+};
+pub use vie_scolaire::{
+    types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
+    DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
+    SeanceSansAppel, TableauJour, VerificationAppels,
+};
+pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
+pub use auth_repo::{
+    AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
+    SessionAppareil, SessionInfo, StaffMember,
+};
+pub use edt_repo::{jour_semaine_iso, EdtCreneau};
+pub use domain_eleve::{EdtException, EdtExceptionKind};
+pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
+pub use domain_eleve::{DeclarerRetard, NiveauIdentite, Retard};
+pub use domain_eleve::{
+    CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence, NiveauMaitrise,
+};
+pub use annonce_repo::PgAnnonceRepo;
+pub use retard_repo::PgRetardRepo;
+pub use competence_repo::{EvaluationLue, PgCompetenceRepo};
+pub use passkey_repo::{ChallengeRow, PasskeyRow, PgPasskeyRepo};
+pub use oidc_repo::{
+    OidcProviderPublic, OidcProviderRow, OidcProviderUpsert, OidcStateInsert, OidcStateRow,
+    PgOidcRepo,
+};
+pub use eleve_compte_repo::EleveCompte;
+pub use copilote::{
+    analyser, format_eur, Intention, ReponseCopilote, CAPACITES, COPILOTE_JOURS_DEFAUT,
+};
+pub use foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, UpdateLien};
+// S2-7 : commandes utiles aux tests contre le backend (frontend).
+pub use domain_eleve::{CreateEleve, CreerNotePeriode};
+pub use mail_repo::MailOutboxRow;
+pub use iban_histo_repo::IbanHisto;
+/// D2 : contrôle des fichiers déposés (réexport d'`ent-object`).
+pub use ent_object::upload;
+pub use champs_chiffres::{
+    rechiffrer_champs_sensibles, ChampsSensibles, RapportRechiffrement, CHAMPS_CHIFFRES,
+};
+pub use sms_repo::SmsOutboxRow;
+pub use push_repo::PushDevice;
+pub use service::EnfantFamille;
+pub use matiere_repo::{CreateMatiere, Matiere};
+pub use securite_repo::PolitiqueSecurite;
+pub use droits_ctx::DroitsActeur;
+pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use ref_commun::Acteur;
+pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
+pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
+pub use referentiel_groupes::{GroupeAdmin, ResponsableGroupe};
+pub use referentiel_seances::{
+    planifier_seances, CreneauSource, ExceptionSource, RapportSeances, Seance as SeanceRef, SeancePlan,
+};
+pub use referentiel_structure::{
+    code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
+    JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
+    NIVEAUX_NATIONAUX,
+};
+pub use edt_admin::{
+    detecter_conflits, tous_les_conflits, CibleEdt, ConflitEdt, CreneauAdmin, CreneauConflit,
+    CreneauSaisie, Indisponibilite, JourFerme, NatureConflit, ResultatCreneau, SeanceSemaine,
+    SemaineEdt,
+};
+pub use edt_remplacement::{
+    AbsenceSeances, AbsenceVue, Candidat, ChangementEdt, ClasseTouchee, CmdAnnulationMasse,
+    CmdDeplacement, CmdRemplacement, RapportMasse, ResultatException, SeanceTouchee,
+    DROITS_REMPLACEMENT,
+};
+pub use delegation::{
+    droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
+};
+pub use dossier_personnes::{
+    ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
+    LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
+};
+pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
+pub use referentiel_repo::{
+    niveau_de_code, role_peut_gerer_referentiel, role_peut_lire_referentiel, AnneeScolaire,
+    ROLE_AUTORISE_MOTEUR_GESTION, ROLE_AUTORISE_MOTEUR_LECTURE,
+    Affectation, Classe, ClasseResume, CreerService, Groupe, RapportAmorcage,
+    ServiceEnseignement,
+};
+pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
+pub use tenant_tx::{RlsMode, TenantTx};
+pub use pra::{
+    EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,
+    TABLES_VOLATILES,
+};
+pub use motif_repo::AbsenceMotif;
+pub use note_repo::{Note, SaisirNote};
+pub use option_repo::PgOptionRepo;
+#[cfg(feature = "labo")]
+pub use seed::{LaboCast, LaboEleve, LaboPersona, LABO_PASSWORD};
+pub use service::nom_fichier_document;
+pub use service::{
+    BankRapprochementSummary, EntDbError, LienFichier, LoginOutcome, OidcProviderParams, PgEnt,
+    PersonnelProvisionne, ProvisionnerPersonnel, ReinitialisationMdp, RefusMetier, SondeMetrique,
+};
+pub use ent_oidc::{OidcError, OidcTransport};
+pub use domain_eleve::SignalAbsence;
+pub use url_guard::{assert_local_postgres_url, UrlGuardError};
+
+#[cfg(all(test, feature = "labo"))]
+mod scenarios;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_referentiel;
+#[cfg(all(test, feature = "labo"))]
+mod tests_referentiel_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_s2;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_socle1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rls;
+
+#[cfg(all(test, feature = "labo"))]
+mod tests_roles;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sso_securite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_outbox;
+#[cfg(all(test, feature = "labo"))]
+mod tests_revue_finale;
+#[cfg(all(test, feature = "labo"))]
+mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_vie_scolaire;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_cahier;
+#[cfg(all(test, feature = "labo"))]
+mod tests_finances;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sante;
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use chrono::NaiveDate;
+    use domain_eleve::{
+        ChangeClasse, CreateEleve, DeclareAbsence, SortirEleve, today_utc, EleveStatus,
+    };
+    use uuid::Uuid;
+
+    fn local_url() -> Option<String> {
+        std::env::var("ENT_DATABASE_URL")
+            .ok()
+            .filter(|u| !u.trim().is_empty())
+    }
+
+    async fn connect_local() -> Option<PgEnt> {
+        let url = local_url()?;
+        if assert_local_postgres_url(&url).is_err() {
+            panic!("ENT_DATABASE_URL must be local — refus de lancer L1 sur un hôte distant");
+        }
+        let mut ent = PgEnt::connect(&url).await.expect("connect local");
+        ent.migrate().await.expect("migrate");
+        ent.install_brain_p0();
+        Some(ent)
+    }
+
+    #[tokio::test]
+    async fn connect_rejects_remote_even_if_env_points_away() {
+        match PgEnt::connect("postgresql://u:p@51.158.57.80:20566/db").await {
+            Err(EntDbError::Url(UrlGuardError::RemoteHost { host })) => {
+                assert_eq!(host, "51.158.57.80");
+            }
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("remote must fail before TCP"),
+        }
+    }
+
+    #[tokio::test]
+    async fn create_and_change_classe_persists_when_local_db_available() {
+        let Some(ent) = connect_local().await else {
+            eprintln!("skip: set ENT_DATABASE_URL to a 127.0.0.1 Postgres to run L1");
+            return;
+        };
+
+        let etab = Uuid::new_v4();
+        let eleve = ent
+            .create_eleve(CreateEleve {
+                etablissement_id: etab,
+                nom: "Test".into(),
+                prenom: "L1".into(),
+                ine: None,
+                sexe: None,
+                date_naissance: None,
+                numero_badge: None,
+                redoublant: false,
+                classe: Some("6A".into()),
+                regime: None,
+                mef: None,
+                site: None,
+                date_entree: Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()),
+                date_sortie: None,
+                motif_sortie: None,
+                actor_user_id: Some("coder".into()),
+            })
+            .await
+            .expect("create");
+
+        let jour = today_utc();
+        ent.change_classe(ChangeClasse {
+            etablissement_id: etab,
+            eleve_id: eleve.id,
+            nouvelle_classe: "5B".into(),
+            date_effet: jour,
+            actor_user_id: None,
+        })
+        .await
+        .expect("change");
+
+        let loaded = ent
+            .get_eleve(etab, eleve.id)
+            .await
+            .expect("get")
+            .expect("exists");
+        assert_eq!(loaded.classe.as_deref(), Some("5B"));
+
+        let in_5b = ent
+            .eleves_en_classe_au(etab, "5B", jour)
+            .await
+            .expect("effectif");
+        assert!(in_5b.iter().any(|e| e.id == eleve.id));
+        let in_6a = ent
+            .eleves_en_classe_au(etab, "6A", jour)
+            .await
+            .expect("old");
+        assert!(!in_6a.iter().any(|e| e.id == eleve.id));
+
+        let brain = ent.brain().expect("brain installed");
+        assert!(brain
+            .journal
+            .types()
+            .contains(&"scolarite.classe_changed".to_string()));
+
+        let other = Uuid::new_v4();
+        assert!(ent.get_eleve(other, eleve.id).await.expect("x").is_none());
+        assert!(ent
+            .eleves_en_classe_au(other, "5B", jour)
+            .await
+            .expect("iso")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn date_effet_jeudi_laisse_mardi_en_6a() {
+        let Some(ent) = connect_local().await else {
+            eprintln!("skip: set ENT_DATABASE_URL to a 127.0.0.1 Postgres to run L1");
+            return;
+        };
+
+        let etab = Uuid::new_v4();
+        let mardi = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
+        let jeudi = NaiveDate::from_ymd_opt(2026, 10, 8).unwrap();
+        let eleve = ent
+            .create_eleve(CreateEleve {
+                etablissement_id: etab,
+                nom: "Chrono".into(),
+                prenom: "Daté".into(),
+                ine: None,
+                sexe: None,
+                date_naissance: None,
+                numero_badge: None,
+                redoublant: false,
+                classe: Some("6A".into()),
+                regime: Some("DP".into()),
+                mef: None,
+                site: None,
+                date_entree: Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()),
+                date_sortie: None,
+                motif_sortie: None,
+                actor_user_id: None,
+            })
+            .await
+            .expect("create");
+
+        ent.change_classe(ChangeClasse {
+            etablissement_id: etab,
+            eleve_id: eleve.id,
+            nouvelle_classe: "5B".into(),
+            date_effet: jeudi,
+            actor_user_id: None,
+        })
+        .await
+        .expect("cutover");
+
+        let mardi_6a = ent
+            .eleves_en_classe_au(etab, "6A", mardi)
+            .await
+            .expect("mardi");
+        assert!(mardi_6a.iter().any(|e| e.id == eleve.id));
+        let jeudi_5b = ent
+            .eleves_en_classe_au(etab, "5B", jeudi)
+            .await
+            .expect("jeudi");
+        assert!(jeudi_5b.iter().any(|e| e.id == eleve.id));
+
+        let periodes = ent.list_periodes(etab, eleve.id).await.expect("hist");
+        assert!(periodes.iter().any(|p| p.valeur == "6A" && p.date_fin.is_some()));
+        assert!(periodes
+            .iter()
+            .any(|p| p.valeur == "5B" && p.date_fin.is_none()));
+    }
+
+    #[tokio::test]
+    async fn sortie_retire_de_leffectif_sans_effacer_historique() {
+        let Some(ent) = connect_local().await else {
+            eprintln!("skip: set ENT_DATABASE_URL to a 127.0.0.1 Postgres to run L1");
+            return;
+        };
+
+        let etab = Uuid::new_v4();
+        let entree = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
+        let sortie = today_utc();
+        let eleve = ent
+            .create_eleve(CreateEleve {
+                etablissement_id: etab,
+                nom: "Sortie".into(),
+                prenom: "L1".into(),
+                ine: None,
+                sexe: None,
+                date_naissance: None,
+                numero_badge: None,
+                redoublant: false,
+                classe: Some("3C".into()),
+                regime: None,
+                mef: None,
+                site: None,
+                date_entree: Some(entree),
+                date_sortie: None,
+                motif_sortie: None,
+                actor_user_id: None,
+            })
+            .await
+            .expect("create");
+
+        let avant = entree;
+        assert!(ent
+            .eleves_en_classe_au(etab, "3C", avant)
+            .await
+            .expect("avant")
+            .iter()
+            .any(|e| e.id == eleve.id));
+
+        ent.sortir(SortirEleve {
+            etablissement_id: etab,
+            eleve_id: eleve.id,
+            date_sortie: sortie,
+            motif_sortie: Some("fin".into()),
+            actor_user_id: None,
+        })
+        .await
+        .expect("sortie");
+
+        let in_3c = ent
+            .eleves_en_classe_au(etab, "3C", sortie)
+            .await
+            .expect("effectif");
+        assert!(!in_3c.iter().any(|e| e.id == eleve.id));
+        let loaded = ent.get_eleve(etab, eleve.id).await.expect("get").expect("row");
+        assert_eq!(loaded.status, EleveStatus::Sorti);
+        assert_eq!(loaded.date_sortie, Some(sortie));
+        // Historique encore lisible
+        assert!(!ent
+            .list_periodes(etab, eleve.id)
+            .await
+            .expect("hist")
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn absence_motif_sejour_lue_partout_quand_local_db() {
+        let Some(ent) = connect_local().await else {
+            eprintln!("skip: set ENT_DATABASE_URL to a 127.0.0.1 Postgres to run L1");
+            return;
+        };
+
+        let etab = Uuid::new_v4();
+        let eleve = ent
+            .create_eleve(CreateEleve {
+                etablissement_id: etab,
+                nom: "Sejour".into(),
+                prenom: "JourJ".into(),
+                ine: None,
+                sexe: None,
+                date_naissance: None,
+                numero_badge: None,
+                redoublant: false,
+                classe: Some("4B".into()),
+                regime: None,
+                mef: None,
+                site: None,
+                date_entree: None,
+                date_sortie: None,
+                motif_sortie: None,
+                actor_user_id: None,
+            })
+            .await
+            .expect("create");
+
+        let debut = today_utc();
+        let fin = debut + chrono::Duration::days(1);
+        ent.declare_absence(DeclareAbsence {
+            etablissement_id: etab,
+            eleve_id: eleve.id,
+            debut,
+            fin,
+            motif: "sejour".into(),
+            actor_user_id: None,
+        })
+        .await
+        .expect("declare");
+
+        assert!(ent
+            .eleve_est_absent(etab, eleve.id, debut)
+            .await
+            .expect("read"));
+        assert!(ent
+            .eleve_est_absent(etab, eleve.id, fin)
+            .await
+            .expect("read fin"));
+        let other = Uuid::new_v4();
+        assert!(!ent
+            .eleve_est_absent(other, eleve.id, debut)
+            .await
+            .expect("tenant"));
+    }
+}
+
+/// URL de la base des tests d'intégration (`ENT_DATABASE_URL`).
+///
+/// Sans base : `None` et le test s'ignore en local, mais **échoue explicitement** en CI
+/// (`CI` défini) ou si `ENT_EXIGER_BASE=1` : un test d'intégration vert sans avoir rien
+/// vérifié donne une fausse assurance (socle 3, I0 §2.2 pt 13).
+pub fn url_base_de_test() -> Option<String> {
+    let url = std::env::var("ENT_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty());
+    if url.is_none() {
+        let exige = std::env::var("ENT_EXIGER_BASE").is_ok_and(|v| matches!(v.trim(), "1" | "true"))
+            || std::env::var("CI").is_ok_and(|v| !v.trim().is_empty() && v.trim() != "false");
+        assert!(
+            !exige,
+            "ENT_DATABASE_URL absente : les tests d'intégration exigent une base en CI (ENT_EXIGER_BASE)"
+        );
+    }
+    url
+}

@@ -8,10 +8,12 @@ import { decodeSiecleBuffer } from "@/app/lib/nomenclature-import/siecle-xml-par
 import { parseNomenclatureXml, parseStructuresDivisions } from "@/app/lib/nomenclature-import/siecle-nomenclature-parse";
 import { parseGeographiqueXml } from "@/app/lib/nomenclature-import/siecle-geographique-parse";
 
-const defaultDir = "/home/ubuntu/.cursor/projects/workspace/uploads";
-
 async function main() {
-  const dir = process.argv[2] || defaultDir;
+  const dir = process.argv[2];
+  if (!dir) {
+    console.error("Usage : test-siecle-nomenclature-import <dossier contenant les XML>");
+    process.exit(1);
+  }
   const files = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith(".xml"));
   if (!files.length) {
     console.error("Aucun XML dans", dir);

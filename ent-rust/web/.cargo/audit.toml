@@ -1,0 +1,14 @@
+# cargo audit — exceptions documentées (D-015). Aucune exception sans raison ni date de revue.
+# Utilisé pour les deux workspaces : copie dans `web/.cargo/audit.toml`.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — crate `rsa` (attaque « Marvin »), pas de version corrigée.
+    # `rsa` n'est présent dans Cargo.lock que via `sqlx-mysql` (pilote MySQL de sqlx),
+    # recensé par le lockfile mais jamais activé ni compilé : l'ENT n'utilise que
+    # PostgreSQL. Vérifié le 2026-11-03 : `cargo tree -i rsa` vide, aucun artefact
+    # `librsa` compilé, `cargo deny` (graphe réellement compilé) : « advisories ok ».
+    # À revoir si un pilote MySQL est activé ou quand sqlx retire la dépendance.
+    # Revue : 2027-02-01.
+    "RUSTSEC-2023-0071",
+]

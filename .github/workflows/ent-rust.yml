@@ -1,0 +1,195 @@
+# CI de l'ENT Rust (backend `ent-rust/` + frontend Leptos `ent-rust/web/`) — D-015.
+# Indépendante des workflows Next.js : déclenchée uniquement sur la branche ENT.
+# Aucun secret, aucun déploiement, aucune base distante : PostgreSQL éphémère local
+# au runner (127.0.0.1), données fictives de labo uniquement.
+
+name: ENT Rust
+
+on:
+  push:
+    branches: [ENT]
+    paths: ["ent-rust/**", ".github/workflows/ent-rust.yml"]
+  pull_request:
+    branches: [ENT]
+    paths: ["ent-rust/**", ".github/workflows/ent-rust.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ent-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"          # inutile en CI, alourdit le cache
+  CARGO_PROFILE_DEV_DEBUG: "0"    # pas d'info de débogage en CI
+  RUST_MIN_STACK: "16777216"      # même réglage qu'ent-api (ui.rs)
+  RUST_TOOLCHAIN: "1.99.0"
+
+jobs:
+  formatage:
+    name: Formatage (cargo fmt)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - name: Frontend Leptos et ent-types (bloquant)
+        run: |
+          # -p explicite : `--all` formaterait aussi les crates du backend (dépendances par chemin).
+          cargo fmt --manifest-path ent-rust/web/Cargo.toml -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check
+          cargo fmt --manifest-path ent-rust/Cargo.toml -p ent-types --check
+      - name: Backend existant (dette de formatage connue, non bloquant)
+        # 706 écarts recensés le 2026-11-03 (code antérieur jamais formaté).
+        # Rendu bloquant après le commit de formatage dédié (décision en attente).
+        continue-on-error: true
+        run: cargo fmt --manifest-path ent-rust/Cargo.toml --all --check
+
+  audits:
+    name: Audits des dépendances
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2
+      - name: cargo deny (vulnérabilités, licences, doublons, provenance)
+        run: |
+          cargo deny --manifest-path ent-rust/Cargo.toml check
+          cargo deny --manifest-path ent-rust/web/Cargo.toml check
+      - name: cargo audit — backend
+        working-directory: ent-rust
+        run: cargo audit
+      - name: cargo audit — frontend
+        working-directory: ent-rust/web
+        run: cargo audit
+
+  backend:
+    name: Backend (clippy, compilation, tests)
+    runs-on: ubuntu-latest
+    # La suite complète (≈ 570 tests, un seul fil) dépasse 55 min depuis le lot 3.
+    timeout-minutes: 300
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ent_ci
+          POSTGRES_DB: ent_ci_test
+          POSTGRES_HOST_AUTH_METHOD: trust   # conteneur jetable, accessible au seul runner
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
+      ENT_ENV: test   # gate_open fail-closed (1b5b1b47) : POST /auth/register des tests L2 exige un env non productif
+    defaults:
+      run:
+        working-directory: ent-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "ent-rust -> target"
+      - name: Clippy (erreurs bloquantes ; avertissements existants signalés)
+        run: |
+          cargo clippy --locked --workspace --all-targets
+          cargo clippy --locked --workspace --all-targets --features ent-api/labo,ent-lab/labo
+          cargo clippy --locked -p ent-types --all-targets -- -D warnings
+      - name: "Compilation (profil production, SANS la feature labo)"
+        run: cargo build --locked --workspace
+      - name: Séparation labo / production (L4, le binaire sans feature ne contient aucun code de labo)
+        run: |
+          set -eu
+          test -f target/debug/ent-api
+          for motif in 'DevLocalPass1!' '/labo/bootstrap' '/auth/register' 'seed_labo_cast'; do
+            if grep -aqF -- "$motif" target/debug/ent-api; then
+              echo "::error::le binaire ent-api (sans feature labo) contient « $motif »"
+              exit 1
+            fi
+          done
+          echo "OK : ent-api sans feature labo ne contient ni mot de passe public ni route de labo."
+      - name: Tests sans la feature labo (404 labo / register, page /login sans mot de passe)
+        run: cargo test --locked -p ent-api -p ent-db -- --test-threads=1
+      - name: Tests (unitaires + intégration sur PostgreSQL éphémère, feature labo)
+        run: cargo test --locked --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1
+
+  frontend:
+    name: Frontend Leptos (clippy, tests, build, tests contre le backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ent_ci
+          POSTGRES_DB: ent_ci_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
+      ENT_ENV: lab
+      ENT_ALLOW_LABO: "1"
+      # Lus à la COMPILATION par Leptos (nom du script d'hydratation) : sans eux, les pages
+      # rendues par `cargo test` ne référencent pas /pkg/ent-web.js (échec du 1er run CI,
+      # reproduit localement sur base vierge). Mêmes valeurs que scripts/env.sh.
+      LEPTOS_OUTPUT_NAME: ent-web
+      LEPTOS_SITE_PKG_DIR: pkg
+    defaults:
+      run:
+        working-directory: ent-rust/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "ent-rust/web -> target"   # inclut target/front (WebAssembly)
+      - name: Outils Leptos (versions épinglées, D-010)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-leptos@0.3.11,wasm-bindgen-cli@0.2.130
+      - name: wasm-opt (binaryen version_123)
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz | tar xz
+          echo "${{ runner.temp }}/binaryen-version_123/bin" >> "$GITHUB_PATH"
+      - name: ent-types compile pour le navigateur (wasm32)
+        run: cargo build --locked --manifest-path ../Cargo.toml -p ent-types --target wasm32-unknown-unknown
+      - name: Clippy (bloquant sur les avertissements)
+        run: |
+          cargo clippy --locked -p ent-web-ui -p ent-web-api -p ent-web-app --all-targets --features ent-web-app/ssr -- -D warnings
+          cargo clippy --locked -p ent-web-server -p ent-web-session --all-targets -- -D warnings
+          cargo clippy --locked -p ent-web-server -p ent-web-session --all-targets --features ent-web-server/labo -- -D warnings
+          cargo clippy --locked -p ent-web-app --lib --target wasm32-unknown-unknown --features hydrate -- -D warnings
+      - name: Tests unitaires (design system, client API, modèle d'appel)
+        run: cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr
+      - name: Build Leptos (release, fichiers précompressés)
+        run: cargo leptos build --release --precompress
+      - name: En-têtes de sécurité des pages /web (CSP à nonce, sans base ni backend)
+        run: cargo test --locked -p ent-web-server --test entetes_securite --test droits_parite
+      - name: Tests contre le vrai backend (PostgreSQL éphémère, données de labo fictives)
+        run: cargo test --locked -p ent-web-server --features labo --test contre_backend -- --test-threads=1
+      - name: Prototype isolé de session par cookie (D-016, contre le vrai backend)
+        # /auth/register n'existe que dans ent-api compilé avec sa feature `labo` (L4) :
+        # activée par la commande, sans toucher au manifeste d'ent-web-session.
+        run: cargo test --locked -p ent-web-session --features ent-api/labo -- --test-threads=1
+      - name: Taille des fichiers envoyés au navigateur
+        run: ls -l target/site/pkg

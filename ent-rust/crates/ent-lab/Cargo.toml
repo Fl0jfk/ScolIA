@@ -1,0 +1,32 @@
+[package]
+name = "ent-lab"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Runner labo — fait vivre le cast multi-personas et rapporte ce qui remonte"
+
+[[bin]]
+name = "ent-lab"
+path = "src/main.rs"
+required-features = ["labo"]
+
+[features]
+# Runner labo : exige le cast et le mot de passe public d'ent-db (feature `labo`).
+# `cargo run -p ent-lab --features labo`. Jamais dans l'image de production.
+labo = ["ent-db/labo"]
+
+[dependencies]
+chrono = { workspace = true }
+domain-eleve = { path = "../domain-eleve" }
+ent-auth = { path = "../ent-auth" }
+ent-db = { path = "../ent-db" }
+ent-oidc = { path = "../ent-oidc" }
+ent-obs = { path = "../ent-obs" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+uuid = { workspace = true }
+serde_json = { workspace = true }
+# Authentificateur logiciel : le labo pilote un **vrai** parcours WebAuthn
+# (passkey) de bout en bout. Labo uniquement — jamais dans l'image prod
+# (`cargo build -p ent-api`).
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }

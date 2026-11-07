@@ -1,0 +1,43 @@
+[package]
+name = "ent-web-server"
+description = "Serveur du prototype : ent-api existant + pages Leptos, même origine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "ent-web-server"
+path = "src/main.rs"
+
+[[bin]]
+name = "seed-labo-web"
+path = "src/bin/seed_labo_web.rs"
+required-features = ["labo"]
+
+[features]
+# Labo (L4) : données de labo via /labo/bootstrap (ent-api compilé avec sa feature `labo`).
+# DÉSACTIVÉE par défaut ; requise par les tests contre le backend et `seed-labo-web`.
+labo = ["ent-api/labo"]
+
+[dependencies]
+ent-api = { workspace = true }
+ent-web-session = { workspace = true }
+ent-web-app = { workspace = true, features = ["ssr"] }
+ent-web-api = { workspace = true, features = ["natif"] }
+leptos = { workspace = true, features = ["ssr"] }
+leptos_axum = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+ent-db = { workspace = true }
+ent-types = { workspace = true }
+ent-auth = { workspace = true }
+reqwest = { workspace = true }

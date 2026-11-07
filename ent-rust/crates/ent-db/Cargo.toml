@@ -1,0 +1,47 @@
+[package]
+name = "ent-db"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Postgres local ENT — garde URL, migrations, repos socle élève + events"
+
+[features]
+# Labo : cast Harry Potter, mot de passe public `LABO_PASSWORD`, scénarios.
+# DÉSACTIVÉE par défaut ; jamais dans l'image de production (L4).
+labo = []
+
+[dependencies]
+chrono = { workspace = true }
+domain-eleve = { path = "../domain-eleve" }
+ent-auth = { path = "../ent-auth" }
+ent-brain = { path = "../ent-brain" }
+ent-events = { path = "../ent-events" }
+ent-mail = { path = "../ent-mail" }
+ent-sms = { path = "../ent-sms" }
+ent-push = { path = "../ent-push" }
+ent-bank = { path = "../ent-bank" }
+ent-object = { path = "../ent-object" }
+ent-oidc = { path = "../ent-oidc" }
+# Types JSON partagés (S2-7 : les services d'évaluation produisent directement ces DTO).
+ent-types = { path = "../ent-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "derive",
+] }
+thiserror = { workspace = true }
+tracing = "0.1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+url = "2"
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
