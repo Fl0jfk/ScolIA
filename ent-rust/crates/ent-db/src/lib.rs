@@ -283,6 +283,7 @@ mod tests_cahier;
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sante;
+#[cfg(all(test, feature = "labo"))]
 mod tests_eleve_socle;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_identite;
