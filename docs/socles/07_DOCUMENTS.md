@@ -12,6 +12,8 @@
 
 **Relecture indépendante** (`review-sonnet`, lecture seule, 2026-11-07) : 8 citations du code sondées, toutes exactes ; décomptes exacts ; 13 objections intégrées : toutes les routes sans session listées et encadrées (§5.3, §17.7) ; mode de vérification publique par nature, pour qu'un code ne révèle pas une sanction (§9.7, Q-D15) ; analyse antivirale asynchrone décrite comme une refonte du noyau (§11.4, §22) ; parapheur déplacé de D3 à D6 ; migrations renumérotées sans double attribution (§23) ; événements internes retirés, `circuit_complet` rattaché ; contrat IA : toute action non listée est fermée (§20.3) ; DCT-21 borné à la portée du professeur ; `signer_documents` noté « conçu, non codé » ; limites de renvoi de code et verrouillage des liens externes ; risque des visionneuses PDF sous `sandbox` à tester (§17.3) ; revue sécurité étendue à D3, D7 et au lot noyau.
 
+**[personas] Passe personas du 2026-11-07** (`docs/socles/PERSONAS_07.md`, branche `ent-personas-socle-7`) : ajouts marqués **[personas]** — natures §4.1 bis, cas limites D71 à D100 (fin du §4.2), modèle §8.14, actions DCT-129 à DCT-168 (§14.14), règles R-D1 à R-D38 (§14.15), réglages signalés §15.3 (liste à part, rien n'est supprimé), droits §18.3, événements §19.3, contrat IA §20.5, notes aux §21 et §23, questions Q-D31 à Q-D44, contradictions au §25. **À lire d'abord : `PERSONAS_07.md` §0** (cinq points bloquants à trancher avant les migrations 3700–3705). Rien n'a été supprimé : quand un ajout contredit le texte, une note **[personas]** est posée à côté.
+
 Sommaire : §0 En bref · §1 Thèse · §2 Existant · §3 Acteurs · §4 Situations réelles · §5 Frontières et place dans l'architecture en briques · §6 Concepts · §7 Cycles de vie · §8 Modèle de données · §9 Produire un document · §10 Signer · §11 Pièces justificatives · §12 Coffre et mise à disposition · §13 Conservation et archivage · §14 Actions métier · §15 Logiciel ou paramétrage · §16 Échanges avec l'extérieur · §17 Sécurité · §18 Droits · §19 Événements · §20 Contrat IA · §21 Écrans · §22 Plan de migration · §23 Lots de code · §24 Questions · §25 Récapitulatif.
 
 ---
@@ -41,6 +43,7 @@ Douze principes [R] :
 2. **Tout document a un sujet et une sensibilité.** Le sujet (un élève, une personne, un agent, l'établissement, une démarche) détermine qui peut le voir ; la sensibilité (C0 à C4 d'`IA_COEUR.md` §7.2) détermine le titre affiché à qui n'a pas le droit (titre neutre, RP1-05), la conservation par défaut, l'ouverture à l'IA, la journalisation des consultations. Le contrôle passe **toujours** par les ports du noyau (`autoriser_eleve`, `droits_lien`), jamais par une relecture locale des liens.
 3. **On ne met pas en page, on choisit (D-023).** Quatre trames maison par nature ; identité de l'établissement ; textes encadrés courts. Les données arrivent du domaine propriétaire, **typées**, et sont figées dans la version émise. Un changement de trame vaut pour les documents futurs.
 4. **Ce qui est émis ne change plus.** Version immuable (contrainte en base, comme le bulletin [F `182:34-60`]) ; correction = nouvelle version avec motif ; annulation = état, jamais suppression ; numéro et code de vérification attribués **à l'émission**, pas au brouillon.
+   **[personas]** Exception : les natures financières se corrigent par un **document compensatoire** (avoir), jamais par une nouvelle version (R-D2, Q-D43).
 5. **L'authenticité se vérifie sans appeler le secrétariat.** QR et code court sur chaque document émis, page publique de vérification minimale ; empreinte ; cachet électronique de l'établissement. Un document annulé ou remplacé le dit.
 6. **Le libre-service d'abord.** Tout document que les données suffisent à produire et que le demandeur a le droit d'obtenir se produit **sans le secrétariat** (certificat de scolarité, attestation d'inscription, attestation de paiement, attestation d'emploi selon paramétrage). Le secrétariat garde ce qui demande un jugement.
 7. **Une pièce, déposée une fois, sert partout.** Pièce « foyer » valable pour tous les enfants, pièce « personne » réutilisée d'une démarche à l'autre tant qu'elle est valable ; le logiciel dit ce qui manque, à qui, pour quand, et relance avec sobriété (socle 8).
@@ -169,6 +172,36 @@ Une **nature** est un type de document que ScolIA sait produire, recevoir ou fai
 
 Les natures marquées 7 sont produites par la brique documents elle-même à partir des seules lectures du noyau ; les autres sont **déclarées** par leur brique (données typées, trames, règles) et rendues par le moteur commun (§5.3). Les natures nationales produites ailleurs (convocations aux examens, diplômes nationaux, attestations PIX, ASSR [H]) ne sont pas produites par ScolIA ; elles peuvent être **reçues** et rangées au coffre.
 
+### 4.1 bis Natures complémentaires [personas]
+
+Ajoutées par la passe personas (`PERSONAS_07.md`). Mêmes colonnes que le §4.1 ; chacune est **déclarée par son socle** et rendue par le moteur commun, dans les familles de structure existantes (§9.3) ; aucune mise en page nouvelle, sauf la **page de signatures ajoutée** à un document importé (R-D12).
+
+| Famille | Nature | Prop. | Sens | Signataire | Famille | Coffre | LS | Sens. |
+|---|---|---|---|---|---|---|---|---|
+| **Scolarité** | Attestation « à usage d'un tiers désigné » portant un dispositif (ULIS, SEGPA…), **à la demande écrite de la famille**, destinataire nommé (R-D3) | 7 | E | délégataire | — | oui | non | C2 |
+| | Page d'attestation jointe à un **formulaire tiers** (région, caisse, mutuelle, consulat, club) (DCT-130) | 7 | E | délégataire | — | oui | non | C2 |
+| **Finances** | **Attestation de situation de compte** (« quitus »), distincte de toute nature de scolarité (R-D4) | 24 | E | comptable / organisme | — | payeur | payeur : oui | C2 financier |
+| | **Avoir** (document compensatoire d'une facture, R-D2) [NV] | 24 | E | organisme / ordonnateur | — | payeur | — | C2 financier |
+| | Facture **structurée** pour un destinataire professionnel (PDF/A-3 avec données intégrées, R-D20) [NV] | 24 | E | organisme | — | envoi par lien (DCT-129) | — | C1 |
+| | Reçu de don de l'organisme ou de sa fondation [NV : modèle réglementaire] | 24, 48 | E | organisme | — | donateur | — | C2 financier |
+| **Apprentissage** | **Certificat de réalisation** de l'action de formation [NV] | 39 | E | organisme de formation | — | apprenti ; opérateur de compétences et employeur par lien | — | C2 |
+| | Attestation de présence en formation (période) | 12, 39 | E | délégataire | — | apprenti ; employeur par lien | apprenti : oui | C2 |
+| | Contrat et avenant d'apprentissage (formulaire réglementaire **importé**, DCT-138) [NV] | 39 | importé + S | organisme de formation | apprenti (+ titulaires s'il est mineur), employeur | oui | — | C2 |
+| **Stages** | Convention de **mobilité internationale** et engagement de formation, bilingue | 39 | E+S | chef | élève, titulaires, organisme d'accueil | oui | — | C2 |
+| | Convention **imposée par l'organisme d'accueil** (importée, DCT-138) | 39 | importé + S | chef | élève, titulaires, entreprise | oui | — | C2 |
+| **Discipline** | Convention de **mesure de responsabilisation** avec une structure partenaire [NV] | 13 | E+S | chef | élève, titulaires, partenaire (externe) | oui | — | C2 disciplinaire |
+| | **Procès-verbal** du conseil de discipline | 13 | E+S | président, secrétaire de séance | — | non | — | C2 disciplinaire |
+| **Orientation** | **Fiche de dialogue** (vœux, avis du conseil, proposition, réponse de la famille) [NV] | 37 | E+S | chef | titulaires (élève majeur seul) | oui | — | C2 |
+| | Notification de la décision d'orientation, information sur l'appel [NV] | 37 | E | chef | accusé | oui | — | C2 |
+| **Examens** | Convocation à une **épreuve en cours de formation**, constat d'absence [NV] | 38 | E | délégataire | accusé | oui | — | C2 |
+| **Instances** | Procès-verbal de **conseil de classe** | 23 | E+S | président | — | non | — | C2 |
+| | Procès-verbal et actes du **conseil d'administration** [NV : transmission des actes] | 19 | E+S | président, secrétaire | — | non | — | C1 |
+| **Personnels** (droit privé) | **Certificat de travail** [NV] | 49, 6 | E | employeur | — | agent | ancien agent : oui | C2 RH |
+| | Reçu pour **solde de tout compte** [NV] | 49 | E+S | employeur | agent | oui | — | C2 RH |
+| | **Bulletin de paie** (DCT-162, R-D25) [NV] | 49 | E | employeur | — | agent | — | C2 RH |
+| | **Contrat de travail** et avenants (signataire de l'organisme, DCT-163) | 49, 6 | E+S | employeur (président ou délégataire) | agent | oui | — | C2 RH |
+| **Établissement** | **Document de l'établissement importé** et signé par la direction (courrier rédigé ailleurs, DCT-139) | 7 | importé + S | chef | — | non | — | choisie (C1 par défaut) |
+
 ### 4.2 Cas limites
 
 | # | Situation | Ce que fait le logiciel [R] |
@@ -243,6 +276,36 @@ Les natures marquées 7 sont produites par la brique documents elle-même à par
 | D68 | Un document doit être ré-imprimé à l'identique dix ans après | La version émise est conservée telle quelle (PDF/A) ; on ne recalcule jamais un document émis |
 | D69 | Un même foyer a trois enfants scolarisés | Une pièce « foyer » déposée une fois satisfait les trois demandes ; trois certificats en un geste pour le parent |
 | D70 | Un tiers (avocat, juge, police) demande un document | Hors libre-service ; demande au registre du courrier, décision de la direction, journal ; la transmission est une action humaine [R] |
+| **D71 [personas]** | Une famille sans compte demande le certificat « par mail » | Envoi par **lien** (DCT-129) au canal vérifié de la fiche, code à usage unique ; jamais de pièce jointe (Q-D13 tenue) ; sans canal vérifié : retrait au guichet ou papier |
+| **D72 [personas]** | La famille apporte le formulaire de la région (transport scolaire) à « remplir et tamponner » | DCT-130 : le formulaire est déposé tel quel, une page d'attestation numérotée et vérifiable y est jointe ; ou « complété à la main et tamponné le … » au registre |
+| **D73 [personas]** | Certificat d'un élève de « 4ᵉ SEGPA » ou d'une division au nom fantaisie (« 2ᵈᵉ Arc-en-ciel ») | Le certificat porte « classe de 4ᵉ », « classe de seconde générale et technologique » (R-D3) ; le dispositif n'apparaît que sur une attestation à usage d'un tiers désigné demandée par la famille |
+| **D74 [personas]** | Une famille qui doit 1 200 € demande l'exeat | Émis (R-D4) ; aucune nature de scolarité ne lit la situation de compte ; le recouvrement suit le socle 25 [NV] |
+| **D75 [personas]** | Une facture comporte une erreur de tarif | **Avoir** puis nouvelle facture (R-D2) ; DCT-06 est refusé pour les natures à document compensatoire ; le numéro de l'ancienne facture n'est jamais réutilisé |
+| **D76 [personas]** | Deux titulaires mariés à la même adresse ; deux parents séparés à deux adresses | Un seul pli nominatif aux deux dans le premier cas, deux plis dans le second (R-D1) ; un exemplaire par coffre dans les deux cas |
+| **D77 [personas]** | Autorisation de voyage à l'étranger (règle « tous »), le père n'a jamais activé son compte | **Lien personnel** (DCT-137) envoyé au mobile vérifié de sa fiche, signature S1 par code, invitation à activer le compte ; sans canal vérifié : papier (D22) |
+| **D78 [personas]** | Le père affirme n'avoir « jamais reçu » la demande | Historique des invitations et relances (DCT-143) : canaux masqués, dates, résultat d'envoi ; joint au dossier de preuve |
+| **D79 [personas]** | La sanction est **réformée** en appel (exclusion de huit jours ramenée à trois) [NV] | Événement consommé (§19.3) : la notification initiale est marquée « réformée le … », la vérification répond « remplacé », le socle 13 propose le nouveau courrier ; le coffre montre les deux, dans l'ordre |
+| **D80 [personas]** | L'information préalable à une sanction part au coffre le vendredi à 17 h et n'est ouverte que le lundi | La date de **notification** est celle que la nature retient (ouverture du coffre, remise contre signature, avis de réception) ; le socle 13 calcule le délai depuis `notifie_le` (R-D10), jamais depuis l'émission [NV] |
+| **D81 [personas]** | Le courrier destiné aux parents de l'élève mis en cause nomme la victime | Avertissement à l'aperçu (DCT-157) : « ce texte contient le nom d'un autre élève » ; confirmation motivée exigée ; initiales ou « un camarade » proposés |
+| **D82 [personas]** | Un membre élu du conseil de discipline veut garder le dossier sur son téléphone | Accès temporaire en lecture seule, aperçu rendu par le serveur, filigrane nominatif, aucun téléchargement, clos deux jours après la séance (R-D19) |
+| **D83 [personas]** | Un hôpital refuse la convention du lycée et impose la sienne | Document **importé** (DCT-138) : PDF désarmé, page de signatures ajoutée, circuit habituel ; l'émetteur atteste avoir relu le contenu |
+| **D84 [personas]** | La proviseure valide par erreur un lot de 40 courriers mal datés | Pendant 10 minutes, rien n'est notifié : « annuler l'envoi » (DCT-133) ; après, annulation en lot (DCT-132) |
+| **D85 [personas]** | 300 certificats émis en lot avec l'année scolaire précédente | Annulation et réémission en lot (DCT-132), motif unique ; rapport des ouvertures ; message proposé aux seuls destinataires qui ont ouvert |
+| **D86 [personas]** | Une secrétaire de scolarité cherche un élève homonyme et tombe sur le dossier d'un agent | Titre neutre, contenu refusé : le domaine RH exige `documents.personnels.lire` (R-D6) ; la tentative est journalisée |
+| **D87 [personas]** | Surveillante salariée de nationalité étrangère | Autorisation de travail : type du catalogue RH (R-D5), copie gardée [NV] ; alerte d'expiration à J-30 (DCT-146) |
+| **D88 [personas]** | Le contrat de travail doit être signé par le président de l'organisme, bénévole, sans compte | Signataire de l'organisme hors personnel (DCT-163), compte restreint au parapheur de l'organisme |
+| **D89 [personas]** | Un parent qui ne lit pas le français signe un accusé au guichet avec un médiateur | Assistance enregistrée (DCT-142) : interprète, langue, lecture à voix haute ; au dossier de preuve |
+| **D90 [personas]** | Acte de naissance en ukrainien | Accepté sans traduction assermentée par défaut (R-D29) ; l'agent peut saisir une traduction libre marquée « non officielle » |
+| **D91 [personas]** | Famille hébergée chez une compatriote, sans justificatif à son nom | Attestation d'hébergement (§11.2 [personas]) ; dans le public, l'inscription ne dépend pas du justificatif (R-D22) [NV] |
+| **D92 [personas]** | L'agent d'accueil scanne un jugement apporté par un père | Dépôt aveugle (R-D7) : l'accueil voit « jugement déposé le … », pas le contenu |
+| **D93 [personas]** | La grand-mère vient chercher l'exeat avec un mot de la mère | Procuration déposée, identité de la grand-mère vue, remise contre signature (DCT-166) |
+| **D94 [personas]** | Un ancien élève de 2011 sans compte demande une attestation pour sa retraite | Identité vérifiée selon R-D36 ; attestation émise depuis les données conservées, ou « données non conservées au-delà de … » (D37) |
+| **D95 [personas]** | Un consulat exige un original signé à la main | Original papier (DCT-135) : même numéro et même code que la version numérique, version « papier original » au registre |
+| **D96 [personas]** | Un inspecteur demande « les documents remis aux familles » | Accès temporaire à une **sélection** (DCT-148), jamais au dossier entier ; ou dossier de contrôle exporté (DCT-150) |
+| **D97 [personas]** | En 2040, une auditrice vérifie une attestation de 2027 dont le certificat du cachet a expiré | Empreinte au registre + ancrage quotidien horodaté (DCT-155, R-D16) : l'existence et l'intégrité se prouvent sans le cachet |
+| **D98 [personas]** | Le réseau tombe le matin de la rentrée, dix familles attendent un certificat | Émission de secours sur papier avec numéros réservés (DCT-160), régularisée sous 7 jours |
+| **D99 [personas]** | Un père demande tous les documents de sa fille ; l'un, déposé par la mère, porte son adresse protégée | Version **occultée** pour la communication (DCT-147), l'original intact ; motif au journal |
+| **D100 [personas]** | Trois enfants, même règlement intérieur | Une signature pour les trois (DCT-141, R-D14) : même empreinte, liste des enfants dans l'intention, un circuit par enfant complété |
 
 ---
 
@@ -436,6 +499,8 @@ ent_doc_signature_visuelle (id, etablissement_id, agent_id, fichier_id,   -- ima
 ```
 Coordonnées, nom officiel, adresse et logo de référence viennent du profil d'établissement du socle 5 (STR-01) par lecture ; `ent_doc_identite` ne garde que ce qui est propre aux documents.
 
+**[personas]** Une seule identité par établissement ne suffit pas dans le privé ni pour l'apprentissage : **entités émettrices** (§8.14, R-D13, Q-D35). `signataire_defaut_agent_id` par nature double le signataire par famille de pouvoir de DCT-98 : contradiction signalée (S-48).
+
 ### 8.3 Documents, versions, exemplaires
 ```sql
 ent_doc_document (id, etablissement_id, nature_code,
@@ -465,6 +530,8 @@ ent_doc_version (id, etablissement_id, document_id, numero_version INT,
                  emise_par, emise_le, au_nom_de_agent_id NULL, par_delegation BOOL,
                  UNIQUE (document_id, numero_version))
 -- trigger : ni UPDATE de contenu ni DELETE (modèle 182) ; seul le sort final (§13) passe par une fonction dédiée
+-- [personas] categorie_sante / categorie_justice : remplacés par une colonne `domaine` à sept valeurs (§8.14, R-D6, Q-D44) ;
+--   sans domaine « rh » et « financier », les dossiers des agents et les avis d'imposition sont lus de tout le secrétariat
 
 ent_doc_exemplaire (id, etablissement_id, version_id, destinataire_personne_id NULL, destinataire_agent_id NULL,
                     rang INT, fichier_id, empreinte_sha256,      -- adresse et en-tête propres au destinataire
@@ -597,6 +664,67 @@ ent_doc_attestation_ligne (id, etablissement_id, programme_id, eleve_id, titre, 
 ### 8.13 Reprise des tables existantes (§22)
 `ent_eleve_document` → `ent_doc_document` + `ent_doc_version` (version 1 = état actuel, origine « importe ») ; `ent_doc_a_signer` → nature « document à signer » + circuit ; `ent_edition_vs` → abandonnée (remplacée par les natures du socle 13, contenu archivé) ; `ent_reinscription_exigence_doc` → demandes de pièces du socle 3 ; `ent_pai_signature` → circuit (le socle 34 garde ses parties, la preuve passe au socle 7) ; `ent_msg_piece.contenu` et `ent_pai_piece.contenu` → `ent_fichier`.
 
+### 8.14 Compléments de modèle [personas]
+
+Formes indicatives, mêmes règles que le §8 (`etablissement_id`, RLS dès la création, migrations rejouables). Les numéros de migration sont à attribuer dans `MIGRATIONS.md` au moment du code : les colonnes ajoutées entrent dans les migrations déjà prévues (3700–3708), les tables nouvelles dans la réserve (3713–3715 proposées).
+
+```sql
+-- Domaine (R-D6) : remplace categorie_sante / categorie_justice (gardées en lecture le temps de la reprise) — migration 3701
+ent_doc_document.domaine ('scolarite','sante','justice','financier','rh','social','disciplinaire') NOT NULL DEFAULT 'scolarite'
+ent_doc_type_piece.domaine (même liste)
+
+-- Entités émettrices (R-D13) — migration 3700 ; ent_doc_compteur prend entite_id dans sa clé (3702)
+ent_doc_entite (id, etablissement_id, type ('etablissement','organisme_gestion','organisme_formation','ensemble'),
+                raison_sociale, identifiants JSONB,            -- UAI, SIRET, numéro de déclaration d'activité [NV]
+                adresse, logo_fichier_id NULL, mentions_pied, actif)
+ent_doc_entite_famille (etablissement_id, famille_nature, entite_id, PRIMARY KEY (etablissement_id, famille_nature))
+
+-- Envois par lien (DCT-129, R-D9) et liens personnels sans compte (DCT-137, R-D8) — migration 3703
+ent_doc_envoi (id, etablissement_id, exemplaire_id, destinataire_type ('personne','organisation'),
+               personne_id NULL, organisation_nom NULL, adresse_chiffree, canal ('email','sms'),
+               jeton_hash, code_requis BOOL, expire_le, telechargements_max INT, telechargements INT,
+               premier_telechargement_le NULL, revoque_le NULL, envoye_par, courrier_id NULL)
+ent_doc_lien_personnel (id, etablissement_id, personne_id NULL, agent_id NULL,
+                        objet ('signature','depot','consultation'), objet_id, canal_verifie_ref,
+                        jeton_hash, expire_le, utilise_le NULL, revoque_le NULL)
+
+-- Invitations, visas, assistance (DCT-140, 142, 143) — migration 3705
+ent_doc_invitation (id, etablissement_id, signataire_id, canal ('coffre','email','sms','papier'), destination_masquee,
+                    envoyee_le, rang_relance INT, resultat_envoi ('remis','echec','inconnu'), message_ref NULL)
+ent_doc_visa (id, etablissement_id, document_id, version_id, rang INT, agent_id NULL, role_libelle,
+              etat ('attendu','vise','renvoye'), commentaire NULL, le NULL)
+ent_doc_signature.assistance JSONB NULL      -- {interprete_nom, langue, lecture_voix_haute, personne_de_confiance}
+
+-- Notification effective (R-D10, DCT-156) — migration 3703
+ent_doc_mise_a_disposition.notifie_le NULL, mode_notification NULL   -- calculés selon les modes déclarés par la nature
+
+-- Versions particulières (DCT-135, DCT-147, R-D12) — migration 3701
+ent_doc_version.type_version ('originale','occultee','papier_original','importee') DEFAULT 'originale',
+                version_source_id NULL, zones_occultees JSONB NULL, page_signatures_ajoutee BOOL DEFAULT false
+
+-- Accès temporaires (DCT-148, R-D19) — réserve 3713
+ent_doc_acces_temporaire (id, etablissement_id, motif ('instance','controle','famille_consultation','contentieux'),
+                          beneficiaires JSONB, documents UUID[], depuis, jusqu_au,
+                          lecture_seule BOOL DEFAULT true, filigrane BOOL DEFAULT true, ouvert_par, clos_le NULL)
+
+-- Courriers types (DCT-131, R-D26) — réserve 3714
+ent_doc_courrier_type (id, etablissement_id, titre, objet, corps, champs TEXT[], destinataires_regle,
+                       version INT, actif BOOL, cree_par, relu_par NULL, revue_le NULL)
+
+-- Archives papier et ancrage (DCT-152 à 155, R-D16) — migration 3707
+ent_doc_archive_physique (id, etablissement_id, cote, localisation, contenu, categorie_conservation,
+                          annee_debut, annee_fin, sort_final_prevu_le NULL, lot_id NULL,
+                          etat ('en_place','proposee','eliminee','versee','transferee'))
+ent_doc_consigne_tri (etablissement_id, categorie, consigne JSONB, source TEXT, validee_par, validee_le)
+ent_doc_ancrage (id, etablissement_id, periode_debut, periode_fin, racine_sha256, nb_empreintes,
+                 jeton_horodatage NULL, reference_hors_base)   -- seules des empreintes, aucune donnée personnelle
+
+-- Pièces : portée « personne tierce » (R-D23) et procuration (DCT-166) — migration 3704
+ent_doc_type_piece.portee ajoute 'tiers' ; ent_doc_demande_piece.tiers_nom NULL
+```
+
+**`NatureDecl` (§5.3) gagne** : `correction` (`NouvelleVersion` | `DocumentCompensatoire(nature)`, R-D2) ; `entite` (famille d'entité émettrice, R-D13) ; `notification` (modes qui valent notification et leur ordre, R-D10) ; `mentions_neutres: bool` (R-D3) ; `notice_traduite: bool` (R-D17) ; `explication_regle_accord` (phrase relue par un juriste, R-D28) ; `domaine` (R-D6).
+
 ---
 
 ## 9. Produire un document
@@ -636,6 +764,8 @@ Une **trame** de nature n'écrit que le **contenu** (phrases et champs) dans une
 ### 9.4 Langues
 Natures déclarées bilingues (certificat de scolarité, attestations, relevé de notes, attestation d'inscription) : français + anglais, en colonnes ou en paragraphes successifs selon la famille ; libellés traduits **par ScolIA** (aucun champ de traduction libre). Autres langues (espagnol, allemand, arabe, ukrainien…) : plus tard, à la demande d'un établissement pilote (R-E17, R-I19, M-093).
 
+**[personas]** Pour les familles non francophones, une **notice traduite** du texte fixe accompagne le document français, qui seul fait foi (DCT-134, R-D17, Q-D34) ; natures bilingues étendues à l'allemand et à l'espagnol pour les établissements internationaux, et aux conventions de mobilité.
+
 ### 9.5 Numéro, code, cachet, empreinte
 À l'émission, dans une transaction : incrément du compteur de la série, tirage du code de vérification (aléatoire, unique), rendu, calcul de l'empreinte, apposition du cachet (§10.7), écriture de la version et des exemplaires, mise à disposition, journal, `documents.emis`. Un échec (rendu impossible, cachet indisponible) annule tout : pas de numéro perdu, pas de document sans cachet. Le cachet indisponible bloque l'émission plutôt que d'émettre un document non scellé [R, Q-D7].
 
@@ -657,6 +787,8 @@ Un lot = une nature + un critère (classe, niveau, liste, démarche, « tous les
 
 ### 9.9 Impression et courrier postal
 Un PDF par lot et par classe, trié (classe, nom), page de séparation facultative, recto-verso respecté (une lettre commence toujours sur un recto) ; bloc adresse en position de fenêtre [NV : norme de présentation des adresses postales] ; **un courrier par titulaire** (deux parents séparés : deux courriers) ; étiquettes d'adresse sur planches usuelles ; aucune adresse protégée hors de son titulaire ; option « mettre de côté ceux qui ont un coffre » pour n'imprimer que pour les familles sans compte. L'envoi postal externalisé (courrier hybride) n'est pas dans la première version (Q-D18).
+
+**[personas]** « Un courrier par titulaire » double l'affranchissement des titulaires qui vivent ensemble : **un pli par adresse**, nominatif à tous ses titulaires, séparé dès que les adresses, les droits ou une protection diffèrent (R-D1, Q-D41).
 
 ---
 
@@ -713,6 +845,8 @@ Entreprise d'accueil, tuteur, médecin, chef d'un autre établissement, collecti
 ### 10.8 Dossier de preuve
 À la complétion (et à la demande), un document « Dossier de preuve » (nature du socle 7, famille *relevé*) : identification du document (nature, numéro, empreinte de la version signée), pour chaque signataire : rôle, nom, niveau obtenu, moyen (passkey : identifiant d'authentifiant et date d'enrôlement ; code : canal masqué), horodatage, texte d'intention, appareil résumé, consultation préalable ; chaînage ; cachet. Téléchargeable par l'établissement et par chaque signataire depuis son coffre. Les éléments bruts (assertions, défis) restent en base pour une expertise.
 
+**[personas]** Le dossier de preuve contient aussi l'**historique des invitations et relances** (DCT-143) et l'**assistance** éventuelle (interprète, lecture : DCT-142) ; il est lisible par tous les titulaires invités, y compris celui qui n'a pas signé (R-D31).
+
 ### 10.9 Refus, révocation, expiration, relances
 - **Refus** avec motif court (facultatif pour une famille) : le circuit passe `refuse` si le signataire est requis ; l'émetteur est prévenu (socle 8).
 - **Révocation** d'une signature déjà donnée : impossible (le fait est acquis) ; on refait une version ou un avenant. Le **retrait d'un consentement** relève du socle 18.
@@ -749,6 +883,25 @@ Demander le minimum ; dire pourquoi ; accepter la photo du téléphone ; ne jama
 
 **Ce que le catalogue ne contient pas et que l'établissement ne peut pas ajouter** [R] : titre de séjour ou toute preuve de régularité (le droit à l'instruction n'en dépend pas [NV]) ; carte Vitale ; relevé d'identité bancaire hors du socle 25 ; casier judiciaire (hors personnels soumis à contrôle d'honorabilité, socle 6 [NV]) ; tout document religieux ; photos d'un domicile. Un type « autre » existe mais exige un motif affiché à la famille et apparaît dans la revue du DPO.
 
+**[personas]** Ces interdits valent pour les **élèves et les familles**. Pour les **personnels**, les pièces exigées par le droit du travail (autorisation de travail d'un salarié étranger, numéro de sécurité sociale pour la paie sans copie de carte, honorabilité selon le poste) relèvent d'un catalogue RH, domaine `rh` (R-D5) [NV].
+
+**Types ajoutés par la passe personas [personas]** :
+
+| Type | Portée | Validité | Sens. | Copie gardée | Conseil au dépôt | Demandé par |
+|---|---|---|---|---|---|---|
+| Attestation d'hébergement (+ justificatif de l'hébergeant) | foyer ; hébergeant en portée « tiers » | 3 mois [NV] | C2 | oui, courte | « pas de pièce d'identité de l'hébergeant » | 3, 4 (R-D22, R-D23) |
+| Attestation de domiciliation (organisme agréé) | foyer | 1 an [NV] | C2 | oui | — | 3, 4 |
+| Justificatif d'absence | élève | année scolaire | C2 (motif médical : domaine `sante` si le module est actif) | oui, jusqu'à la fin de l'année | « le motif suffit » [NV] | 12 (R-D21) |
+| Certificat d'inscription délivré par la mairie (premier degré public) [NV] | élève | permanente | C2 | oui | — | 3, 50 |
+| Confirmation d'inscription à un examen, signée [NV] | élève | session | C2 | oui | — | 38 |
+| Déclaration de dérogation aux travaux réglementés (mineur) [NV] | convention | durée de la période | C2 | oui | — | 39 |
+| Avis médical d'aptitude aux travaux réglementés [NV] | élève | selon l'avis | C2 (avis sans diagnostic) | oui | « l'avis suffit, pas le dossier médical » | 39 |
+| Document en langue étrangère | sujet | selon le type | celle du type | oui | « aucune traduction assermentée n'est exigée » | tous (R-D29) |
+| Procuration pour le retrait d'un document | tiers | usage unique | C2 | oui, courte | — | 7 (DCT-166) |
+| Autorisation de travail d'un salarié étranger [NV] | agent | jusqu'à date | C2, domaine `rh` | oui (obligation de l'employeur [NV]) | — | 6, 49 (R-D5) |
+| Pièces RH d'arrivée (diplôme, attestation de sécurité sociale sans copie de carte, honorabilité selon le poste) [NV] | agent | variable | C2, domaine `rh` | oui | — | 6 |
+| Délégation d'actes usuels à l'assistant familial [NV] | élève | jusqu'à date | C3, domaine `social` | oui | — | 4 (R-D8) |
+
 ### 11.3 Demander, déposer, réutiliser
 - Une brique **demande** (`demander_pieces`) : type, sujet, motif affiché, échéance, obligatoire ou non. Le service cherche d'abord une **pièce valable au dossier** (même sujet, ou même foyer si la portée est « foyer ») et propose de l'utiliser (la famille ou l'agent confirme) ; sinon la demande s'affiche dans le coffre du ou des responsables concernés, dans « Ce qui manque » (§21) et dans la file du secrétariat.
 - La famille **dépose** depuis le web ou l'appli : photo(s) prises dans l'appli (plusieurs pages → un seul PDF), fichier PDF, image ; elle voit immédiatement « en cours d'analyse » puis « reçu, en attente de vérification ». L'agent peut déposer au guichet (scan) ou numériser un lot papier (INS-59, D63).
@@ -784,6 +937,8 @@ Lot de pages numérisées (fiches de rentrée, absences de personnels, coupons-r
 
 ### 12.3 Notifications
 Le socle 7 publie `documents.mis_a_disposition` (sans contenu, sans nom de document sensible) ; le socle 8 prévient par le canal préféré, regroupe (un message pour trois documents), respecte les heures calmes ; **jamais de pièce jointe** dans un e-mail pour une sensibilité C2 et plus [R, Q-D13] : le message renvoie au coffre (lien vers l'application, connexion exigée) ; les familles sans compte reçoivent le papier.
+
+**[personas]** Pour qui n'a pas de coffre (famille sans compte, organisation payeuse, service gardien, établissement d'accueil hors ScolIA), Q-D13 est tenue par l'**envoi par lien** (DCT-129, R-D9) plutôt que par le seul papier.
 
 ### 12.4 Documents restreints et demandes d'accès
 Repris de l'existant (`ent_document_grant`) : un personnel qui voit un document au titre neutre peut **demander l'accès** (motif), la direction décide (durée en jours), l'accès expire ; chaque consultation est tracée et visible dans le journal des accès de la famille (socle 27). Les catégories C3 santé restent hors de ce mécanisme : elles relèvent des droits du module santé (`documents.lire_sante` existant, à rattacher à `sante.*`).
@@ -1047,6 +1202,97 @@ Notation des acteurs comme les socles 2 à 6 : ADF administratif (secrétariat),
 | DEM-02 Demande avec pièces | trou | DCT-17, 18, 45 |
 | **Ajouts de terrain** (non prévus par les logiciels classiques [H]) | — | vérification publique par dépôt du PDF ; parapheur mobile par lot ; remise contre signature au guichet ; « ce qui manque » unifié ; pièce de foyer déposée une fois ; registre du courrier relié aux documents ; dossier de preuve consultable par la famille ; accusé d'ouverture ; coffre qui suit l'ancien élève |
 
+
+### 14.14 Actions ajoutées par la passe personas [personas]
+
+Mêmes colonnes ; « Remplace » devient **« Manque »** (identifiant de `PERSONAS_07.md`). Droits nouveaux au §18.3.
+
+| ID | Action | Acteur · droit | Règles clés | Événements | Manque |
+|---|---|---|---|---|---|
+| DCT-129 | **Envoyer un document par lien sécurisé** à une personne sans compte (canal vérifié du socle 4) ou à une organisation (adresse professionnelle saisie : payeur, opérateur de compétences, établissement d'accueil, service gardien) | ADF, CPT, CPE · `documents.envoyer_externe` | jamais de pièce jointe ; code à usage unique exigé pour C2 et plus ; 7 jours, 3 téléchargements ; adresse d'organisation saisie deux fois et confirmée ; ★ vers une organisation pour C2 et plus ; inscrit au registre de départ ; révocable (R-D9) | `documents.envoye` | M-237, M-242, M-261, M-278, M-313 |
+| DCT-130 | **Compléter un formulaire tiers** apporté par la famille : le déposer, émettre la page d'attestation jointe (données, cachet, code) ou enregistrer « complété à la main et tamponné le … » | ADF · `documents.emettre` | le formulaire du tiers n'est jamais modifié ; la page jointe cite sa référence ; au registre | `documents.emis` | M-238 |
+| DCT-131 | **Gérer les courriers types** de l'établissement (créer, relire, activer, retirer) | ADF, DIR · `documents.courriers_types.gerer` | contenu seulement (objet + corps), champs d'un catalogue de 12, style de l'établissement ; plafond de 30 actifs [R] ; utilisés par DCT-16 et DCT-11 ; jamais pour une procédure qui a sa nature (R-D26) | `documents.parametrage_modifie` | M-239 |
+| DCT-132 | **Annuler et réémettre en lot** ★ (motif unique), avec **rapport des ouvertures et téléchargements** | ADF, DIR · `documents.annuler` + `documents.emettre_lot` | vérification « annulé » ou « remplacé » ; message humain proposé aux seuls destinataires qui ont ouvert ; rapport utilisable pour une notification de violation (socle 27) | `documents.annule`, `documents.remplace`, `documents.lot_termine` | M-309, M-317 |
+| DCT-133 | **Délai d'annulation** : après un lot de mises au coffre ou une signature par lot, rien n'est notifié pendant 10 minutes ; « annuler l'envoi » | émetteur, signataire | annulé dans le délai : « annulé avant diffusion » au registre, aucune trace côté famille (R-D15) | mise à disposition différée | M-255 |
+| DCT-134 | Joindre une **notice traduite** ou une **version simple** (texte fixe de la nature traduit par ScolIA) | SYS selon la langue de la fiche ; émetteur | le français fait foi ; parties libres non traduites, ou traduction automatique marquée et relue par l'émetteur (R-D17, Q-D34) | — | M-272, M-274, M-320 |
+| DCT-135 | Émettre un **original papier signé à la main** (apostille, légalisation, autorité étrangère) | ADF, DIR · `documents.emettre` | même numéro et code que la version numérique ; version « papier original » ; signature manuscrite apposée par le signataire lui-même | `documents.emis` | M-311 |
+| DCT-136 | **Saisir une demande de document pour le compte d'une famille** (téléphone, guichet) | ACC, ADF · `documents.deposer` | demandeur rattaché à un lien vérifié ; canal de retour choisi (coffre, DCT-129, retrait) | — (journal) | M-298 |
+| DCT-137 | **Lien personnel sans compte** (titulaire, élève majeur, arrivant) : consulter, signer S1 par code, déposer une pièce | SYS (circuit, demande de pièce) ; ADF | canal vérifié du socle 4 ou du socle 6 seulement, jamais saisi au moment ; S1 au plus ; propose l'activation du compte ; révoqué à la suspension du lien (R-D8) | `documents.signature_demandee`, `documents.signe`, `documents.depose` | M-266, M-290 |
+| DCT-138 | **Lancer un circuit sur un document importé** (convention imposée, contrat d'un partenaire, formulaire réglementaire) | émetteur · `documents.signatures.gerer` | PDF désarmé ; page de signatures ajoutée ; empreinte de la version importée ; l'émetteur atteste avoir relu ; vérification « authenticité seule » (R-D12) | `documents.signature_demandee` | M-254, M-280 |
+| DCT-139 | **Signer pour l'établissement un PDF rédigé ailleurs** ★ | DIR, délégataire · `documents.signer_etablissement` + `peut_signer` | nature « document de l'établissement importé » ; cachet ; registre ; sensibilité choisie (R-D12) | `documents.emis` | M-253 |
+| DCT-140 | **Viser** un document avant signature (rédacteur → visa(s) → signataire), à l'unité ou en lot, web et mobile | DIR, adjoint, CPE · `documents.viser` | visas internes, jamais au dossier de preuve des familles ; renvoi avec commentaire ; le signataire voit les visas | `documents.vise` | M-247 |
+| DCT-141 | **Signer en un geste** un document identique pour plusieurs enfants | PAR | même empreinte ; liste des enfants dans l'intention ; une signature par circuit (R-D14) | `documents.signe` | M-269 |
+| DCT-142 | Enregistrer l'**assistance à une signature** (interprète, lecture à voix haute, personne de confiance) | ACC, ADF, CPE · `documents.signatures.constater` | au dossier de preuve ; nom et langue de l'interprète ; seulement pour une signature constatée (G) | — | M-273 |
+| DCT-143 | Consulter l'**historique des invitations et relances** d'un signataire | émetteur, DIR ; le signataire | canal masqué, date, résultat d'envoi rapporté par le socle 8 ; joint au dossier de preuve | — | M-267 |
+| DCT-144 | **Déposer spontanément** un document (sans demande) | PAR, ELV-M, AGT | type du catalogue ou « autre » + motif court ; quarantaine et analyse ; file « à qualifier » routée par domaine (justice → direction) | `documents.depose`, `documents.depot_a_qualifier` | M-244 |
+| DCT-145 | **Qualifier un dépôt spontané** (rattacher à une démarche, domaine, sensibilité ; refuser) | ADF, DIR · `documents.classer` | le déposant est informé ; un refus suit DCT-35 | `documents.piece_decidee` | M-244 |
+| DCT-146 | **Alerte d'expiration** d'une pièce à date (J-30, J-7) | SYS → demandeur de la pièce | titre ou habilitation d'un agent, assurance d'une entreprise ; nouvelle demande proposée | `documents.piece_expire_bientot` | M-284, M-287 |
+| DCT-147 | **Occulter une version de communication** ★ | ADF, DPO · `documents.occulter` | zones posées sur les pages rendues ; original intact ; version « occultée » liée ; motif ; jamais présentée comme l'original | — (journal) | M-306 |
+| DCT-148 | Ouvrir un **accès temporaire à une sélection** de documents (instance, contrôleur, famille avant un conseil, avocat) ★ | DIR · `documents.acces_temporaire.gerer` | lecture seule, aperçu rendu par le serveur, filigrane nominatif, aucun téléchargement ; expiration ; consultations listées ; jamais le dossier entier (R-D19) | `documents.acces_temporaire_ouvert`, `documents.acces_temporaire_clos` | M-249, M-291, M-316 |
+| DCT-149 | Enregistrer la **consultation du dossier par la famille** (date, présents, copie remise ou non) | CPE, DIR · `documents.acces_temporaire.gerer` | au dossier de la procédure ; lu par le socle 13 [NV : droits de la défense] | — | M-249 |
+| DCT-150 | Constituer un **dossier de contentieux ou de contrôle** ★ | DIR · `documents.dossier.exporter` | sélection, index, empreintes, dossiers de preuve, historique des invitations ; gel automatique ; export scellé | `documents.gele` | M-251, M-292 |
+| DCT-151 | **Capturer un e-mail entrant** (adresse de dépôt de l'établissement) vers le registre du courrier ou un dossier | ACC, ADF · `documents.courrier.gerer` | pièces jointes en quarantaine et analysées ; corps gardé comme texte non fiable ; à qualifier ; dépend du choix de messagerie (Q-D42) | `documents.courrier_enregistre` | M-243 |
+| DCT-152 | **Inventorier les archives papier** (cote, localisation, contenu, catégorie, années) | ADF, gestionnaire · `documents.archives_papier.gerer` | incluses aux lots de sort final et aux bordereaux | — | M-294 |
+| DCT-153 | **Définir le tri** d'une catégorie « trier » (consigne d'échantillonnage du service d'archives) | DIR, DPO · `documents.conservation.gerer` | appliquée au lot ; consigne citée au bordereau | — | M-295 |
+| DCT-154 | **Transférer les archives** d'un établissement qui ferme ou fusionne ★ | Admin · `documents.dossier.exporter` | vers l'établissement repreneur (import ScolIA) ou le service d'archives ; bordereau | `documents.sort_final_execute` | M-296 |
+| DCT-155 | **Ancrer les empreintes** (chaque jour : arbre de hachage, horodatage) | SYS | racine conservée hors de la base ; prouve l'existence et l'intégrité d'une version après l'expiration d'un cachet (R-D16) | — | M-293 |
+| DCT-156 | Lire l'**état de notification** d'un document par destinataire | brique source via `etat()` ; émetteur | modes valables déclarés par la nature ; date de notification par destinataire (R-D10) | `documents.notifie` | M-246 |
+| DCT-157 | **Contrôle de contenu à l'aperçu** : noms d'autres élèves, éléments d'une adresse protégée, mentions de santé ou de dispositif dans les textes libres | SYS | avertissement à confirmer avec motif ; aucun envoi d'un texte libre sans aperçu (R-D11) | — | M-248, M-315 |
+| DCT-158 | **Coffre unifié** des enfants scolarisés dans plusieurs établissements ScolIA | PAR | affichage seulement : chaque document reste dans son établissement, chaque accès est autorisé par lui (D-013) | — | M-270 |
+| DCT-159 | Composer le **parcours de rentrée** d'une famille (signatures, pièces, fiche, formulaires regroupés) | ADF · `documents.pieces.demander` + `documents.signatures.gerer` | une démarche par famille et par rentrée ; avancement visible ; chaque élément reste à son socle (4, 18, 7) | `documents.piece_demandee`, `documents.signature_demandee` | M-271 |
+| DCT-160 | **Émettre en mode de secours** (papier, numéros de secours réservés) puis régulariser | ADF · `documents.emettre` | plage réservée à l'avance et imprimée ; régularisation sous 7 jours (version numérique rattachée au numéro) | `documents.emis` (à la régularisation) | M-318 |
+| DCT-161 | **Mettre une émission en file** quand le cachet est indisponible | SYS | aucune émission sans cachet (Q-D7 tenue) ; demandeur prévenu ; émission au rétablissement, dans l'ordre | `documents.emission_en_file`, puis `documents.emis` | M-319 |
+| DCT-162 | Mettre les **bulletins de paie** au coffre de l'agent ; enregistrer une opposition au format électronique | SYS (socle 49) ; AGT | disponibilité réglementaire [NV] distincte de Q-D17 ; opposition → papier (R-D25) | `documents.mis_a_disposition` | M-288 |
+| DCT-163 | Désigner un **signataire de l'organisme hors personnel** (président, trésorier, délégataire) | DIR, Admin · `documents.modeles.parametrer` | compte restreint au parapheur de l'organisme ; familles de pouvoir « employeur », « finances de l'organisme » ; pièce de délégation | `documents.parametrage_modifie` | M-263 |
+| DCT-164 | Gérer les **entités émettrices** (identité, identifiants, séries) | Admin · `documents.modeles.parametrer` | répartition par famille de natures proposée par ScolIA (R-D13) ; vaut pour les documents futurs | `documents.parametrage_modifie` | M-260, M-321 |
+| DCT-165 | Enregistrer une **réquisition ou demande d'une autorité** (base invoquée, demandeur, décision, documents transmis) | DIR · `documents.registre.lire` | au registre du courrier ; transmission par DCT-129 ou DCT-148, jamais automatique | `documents.courrier_enregistre` | M-308 |
+| DCT-166 | **Remettre à un tiers mandaté** (procuration déposée, identité vue) | ACC, ADF · `documents.signatures.constater` | procuration : pièce de portée « tiers », usage unique ; remise contre signature | `documents.remis` | M-299 |
+| DCT-167 | **Reconduire un document signé** (PAI, autorisation annuelle) | émetteur | nouvelle version marquée « inchangé » ou changements surlignés ; circuit proposé aux mêmes signataires, recalculés ; aucune signature reprise d'office (R-D34) | `documents.signature_demandee` | M-304 |
+| DCT-168 | **Exporter automatiquement le coffre au départ** | SYS (radiation, départ d'un agent) | archive mise à disposition de l'élève majeur ou des titulaires, de l'agent ; prévenus par le socle 8 (R-D30) | — | M-281 |
+
+### 14.15 Règles ajoutées par la passe personas [personas]
+
+| # | Règle | Manque |
+|---|---|---|
+| R-D1 | **Un pli par adresse postale**, nominatif à tous les titulaires qui y vivent et y ont droit ; plis distincts dès que les adresses, les droits (`recevoir_documents`) ou une protection diffèrent. Remplace « un courrier par titulaire » (§9.9) pour les titulaires d'une même adresse ; un exemplaire par coffre reste la règle | M-265 |
+| R-D2 | **Correction déclarée par la nature** : `NouvelleVersion` (certificats, attestations, courriers) ou `DocumentCompensatoire` (facture → avoir ; quittance → écriture du socle 24) [NV] ; pour ces dernières, DCT-06 est refusé et l'écran propose l'avoir ; aucun numéro de série n'est réutilisé. Exception au principe 4 du §1 | M-259 |
+| R-D3 | **Mentions neutres** : les natures « à montrer à un tiers » portent le **niveau** (« classe de 4ᵉ ») et la **formation**, jamais le libellé de division, un dispositif (ULIS, SEGPA, UPE2A, classe ou dispositif relais), un régime boursier ni une mention de santé. Seule l'attestation à usage d'un tiers désigné (§4.1 bis), demandée par écrit par la famille, porte le dispositif | M-240 |
+| R-D4 | **Radiation sans condition financière** [NV] : aucune nature de scolarité ne lit la situation de compte ; le « quitus » est l'attestation de situation de compte du socle 24 | M-241 |
+| R-D5 | Les **interdits** du §11.2 (titre de séjour, carte Vitale, casier, documents religieux) valent pour les **élèves et les familles**. Pour les **personnels**, les pièces exigées par le droit du travail (autorisation de travail d'un salarié étranger, numéro de sécurité sociale pour la paie sans copie de carte, extrait de casier ou attestation d'honorabilité selon le poste) sont des types du catalogue **RH**, domaine `rh` [NV] | M-287 |
+| R-D6 | **Domaines restreints** : chaque document porte un domaine (§8.14). `documents.lire` ouvre `scolarite` (et `disciplinaire` pour les modèles qui l'ont) ; `documents.lire_sante` ouvre `sante` ; `documents.restreints.lire` ouvre `justice` et `social` ; `documents.financier.lire` ouvre `financier` ; `documents.personnels.lire` ouvre `rh`. La portée « établissement » de `documents.lire` ne couvre jamais le domaine RH ; un agent lit toujours **son** dossier ; titre neutre hors droit | M-286 |
+| R-D7 | **Dépôt aveugle** : le déposant voit qu'il a déposé (date, type, état), il ne relit le contenu que s'il a le droit de lecture du domaine | M-297 |
+| R-D8 | **Lien personnel sans compte** : seulement vers un canal **vérifié** du socle 4 (titulaire, élève majeur) ou du socle 6 (arrivant), jamais saisi au moment ; signature S1 au plus ; mêmes règles d'accord que pour un titulaire avec compte ; les deux titulaires sont toujours invités par leurs canaux propres ; révoqué à la suspension du lien. Une assistante familiale ne signe que les actes usuels déclarés par une pièce de délégation (socle 4) [NV] | M-266, M-290, M-314 |
+| R-D9 | **Envoi par lien** : jamais de pièce jointe (Q-D13) ; code exigé pour C2 et plus ; 7 jours, 3 téléchargements ; adresse d'organisation saisie deux fois ; inscrit au registre de départ ; un document C3 ne part jamais vers une organisation sans décision de la direction | M-237, M-261, M-313 |
+| R-D10 | **Notification effective** : chaque nature déclare les modes qui valent notification (remise contre signature, avis de réception, ouverture du coffre, papier simple) et leur ordre ; `etat()` renvoie `notifie_le` et le mode **par destinataire** ; les délais d'une procédure partent de cette date, calculés par la brique propriétaire [NV] | M-246 |
+| R-D11 | **Contrôle de contenu** des textes libres (textes encadrés, courrier simple, courrier type, faits d'une sanction) : noms d'autres élèves de l'établissement, éléments d'une adresse protégée (ville, employeur, établissement d'origine), mentions de santé ou de dispositif → avertissement qui exige une confirmation motivée, jamais bloquant seul | M-248, M-315 |
+| R-D12 | **Documents importés** : PDF seulement, désarmé ; la page de signatures est **ajoutée** à la fin (aucun placement dans le document du tiers) ; empreinte de la version importée ; vérification « authenticité seule » par défaut ; l'émetteur atteste avoir relu le contenu | M-253, M-254 |
+| R-D13 | **Entité émettrice** par famille de natures : scolarité, vie scolaire, discipline, pédagogie, admission → établissement (UAI de scolarisation) ; finances, contrats de travail, paie → organisme de gestion (privé) ou établissement et agent comptable (public) [NV] ; apprentissage → organisme de formation. Une série de numéros par entité ; le style reste commun | M-260, M-321 |
+| R-D14 | **Signature commune** pour plusieurs enfants : un acte par document **identique** (même empreinte), la liste des enfants dans l'intention, une signature enregistrée par circuit | M-269 |
+| R-D15 | **Délai d'annulation** de 10 minutes après un lot de mises au coffre ou une signature par lot ; aucun événement `documents.mis_a_disposition` avant la fin du délai | M-255 |
+| R-D16 | **Preuve à long terme** : ancrage quotidien des empreintes horodaté (DCT-155) ; cachet prolongé (profil avec horodatage) dès qu'un horodatage existe ; re-scellement avant l'expiration d'un certificat ou d'un algorithme [H] | M-293 |
+| R-D17 | **Notices traduites** : texte fixe traduit par ScolIA, relu par un locuteur ; mention « traduction informative, seule la version française fait foi » [NV : loi n° 94-665] ; une dizaine de langues choisies sur les besoins des pilotes [R] ; natures bilingues étendues à l'allemand et à l'espagnol pour les établissements internationaux | M-272, M-274, M-320 |
+| R-D18 | **Libre-service** : mention « document délivré en ligne sous l'autorité du chef d'établissement, vérifiable par code » ; pas de signature manuscrite numérisée sur un document émis sans intervention humaine tant que Q-D36 n'est pas tranchée | M-245 |
+| R-D19 | **Accès temporaires** : sur une sélection seulement, jamais le dossier entier ; lecture seule, aperçu rendu par le serveur, filigrane nominatif, aucun téléchargement ; pour une instance, clos deux jours après la séance ; consultations listées au dossier de la procédure | M-249, M-291, M-316 |
+| R-D20 | **Factures structurées** pour les destinataires professionnels : le moteur sait produire un PDF/A-3 avec données intégrées [NV : format et calendrier de la réforme] ; à essayer au lot D1 | M-262 |
+| R-D21 | **Justificatif d'absence** : type distinct ; le motif suffit, pas de certificat médical exigé hors cas réglementaires [NV] ; un motif médical relève du domaine `sante` si le module est actif, sinon il est enregistré sans détail ; conservé jusqu'à la fin de l'année | M-305 |
+| R-D22 | **Domicile** : dans le public, l'absence de justificatif de domicile ne bloque jamais l'inscription [NV] ; la demande est marquée facultative ; attestation d'hébergement et attestation de domiciliation sont des types du catalogue | M-276 |
+| R-D23 | **Pièce d'un tiers** (hébergeant, nouveau conjoint payeur, mandataire) : portée « tiers », jamais une personne du dossier ; minimum demandé (pas de pièce d'identité de l'hébergeant par défaut) ; conservation courte | M-276, M-329 |
+| R-D24 | **Qualité du signataire** : titre exact et accordé (« la proviseure », « le principal adjoint, chargé de l'intérim », « par délégation ») lu au socle 6, jamais saisi | M-256 |
+| R-D25 | **Bulletins de paie** : durée de disponibilité réglementaire [NV] portée par le socle 49, indépendante de Q-D17 ; opposition au format électronique → papier ; export à chaque départ | M-288 |
+| R-D26 | **Courriers types** : contenu seulement ; douze champs au plus (prénom, nom, classe, niveau, date, heure, lieu, responsable, objet…) ; aperçu et contrôle DCT-157 obligatoires ; plafond de 30 actifs ; revue annuelle proposée ; jamais pour une procédure qui a sa nature (sanction, convocation au conseil, radiation) | M-239 |
+| R-D27 | **Synthèse au parapheur** pour un lot : nombre, anomalies détectées par les contrôles de la nature, écartés et pourquoi, trois documents tirés au hasard ; la signature par lot porte sur les documents sans anomalie ou expressément retenus | M-257 |
+| R-D28 | **Explication de la règle d'accord** : chaque nature porte une phrase courte relue par un juriste (« Un seul parent suffit : il s'agit d'un acte de la vie courante de l'enfant. »), affichée à la famille et au guichet [NV] | M-268 |
+| R-D29 | **Pièces en langue étrangère** acceptées sans traduction assermentée par défaut [NV] ; traduction libre possible, marquée « non officielle » ; noms translittérés tels que l'état civil les porte (socle 2) | M-275 |
+| R-D30 | **Export au départ** : à la radiation ou au départ d'un agent, archive du coffre mise à disposition automatiquement, en plus de l'accès d'un an (Q-D17) | M-281 |
+| R-D31 | **Dossier de preuve** lisible par tous les titulaires invités et par ceux qui ont `recevoir_documents`, y compris ceux qui n'ont pas signé ; jamais les éléments bruts (assertions, défis) | M-332 |
+| R-D32 | **Pas de parapheur pour soi** : l'émetteur habilité à signer émet et signe en un geste (S2) | M-301 |
+| R-D33 | **Espace de l'élève mineur** : documents qui le concernent directement (convocations, règlement, charte, attestations, convention, ses documents signés) ; jamais les documents financiers, de santé ni de justice | M-303 |
+| R-D34 | **Reconduction** : aucune signature n'est reprise d'office ; la nouvelle version ouvre un nouveau circuit, les signataires voient ce qui a changé | M-304 |
+| R-D35 | **Validation du référentiel de conservation** en un écran : validation globale avec la liste explicite des catégories, exceptions par catégorie ; la règle « aucun sort final sans validation » est inchangée | M-307 |
+| R-D36 | **Identité d'un ancien élève sans compte** : au guichet (pièce vue, non copiée) ; à distance, par courrier avec copie de pièce **détruite après vérification** ; par la récupération D-018 si l'identité ScolIA existe ; le mode figure au journal | M-310 |
+| R-D37 | **Page de vérification** en français et en anglais, puis dans les langues des notices ; même contenu minimal (§9.7) | M-312 |
+| R-D38 | **Deux refus « illisible »** pour la même demande → la famille se voit proposer le dépôt au guichet ou la numérisation par l'accueil | M-300 |
+
 ---
 
 ## 15. Ce qui relève du logiciel, ce qui relève du paramétrage
@@ -1086,6 +1332,26 @@ Notation des acteurs comme les socles 2 à 6 : ADF administratif (secrétariat),
 | S-D10 | Fenêtre d'enveloppe gauche / droite | garder (dépend du matériel) |
 | S-D11 | Langues proposées | garder |
 | S-D12 | Durée d'accès au coffre après le départ | valeur fixe au départ (Q-D17) |
+
+
+### 15.3 Réglages signalés par la passe personas [personas] (liste à part, rien n'est supprimé)
+
+Détail et justification : `PERSONAS_07.md` §6 bis.1. Numérotation commune aux passes (S-44 à S-55).
+
+| # | Réglage | Avis de la passe |
+|---|---|---|
+| S-44 | Courriers types de l'établissement (DCT-131) | risque de retour à l'éditeur : plafonné (30), douze champs, revue annuelle ; **à trancher** (Q-D32) |
+| S-45 | Dérogation de style par nature (= S-D3) | confirmé candidat à retirer : aucune persona ne l'a demandé |
+| S-46 | Activation de chaque type de pièce (`ent_doc_type_piece_param.actif`) | tous actifs par défaut ; seul « autre » surveillé |
+| S-47 | Langues proposées (`ent_doc_identite.langues`) | toutes les langues livrées ; la langue vient de la fiche de la personne |
+| S-48 | Signataire par défaut **par nature** et **par famille de pouvoir** | contradiction : garder la famille de pouvoir seule |
+| S-49 | Niveau de signature monté (DCT-99) | garder, dans un écran avancé |
+| S-50 | Durées des liens d'envoi et des accès temporaires | valeurs fixes (7 jours, 3 téléchargements ; séance + 2 jours) |
+| S-51 | Délai d'annulation après un lot | 10 minutes fixes |
+| S-52 | Mentions neutres (R-D3) | **pas de réglage** : la règle protège |
+| S-53 | Validation de la conservation catégorie par catégorie | validation globale proposée (R-D35) |
+| S-54 | Modes de notification valables | déclarés par la nature, jamais par l'établissement |
+| S-55 | Seuils ajoutés par la passe (détection des noms, refus « illisible », alerte d'expiration, export au départ) | valeurs fixes au départ ; réglage seulement si un pilote le demande |
 
 ---
 
@@ -1149,6 +1415,8 @@ Taille, type réel, liste blanche par usage (existant) ; quarantaine fermée par
 ### 17.7 Routes sans session (vérification publique, signataire externe)
 Liste fermée de l'assemblage : vérification par code ; vérification par dépôt du PDF ; espace du signataire externe (consultation, demande de code, signature, dépôt du papier signé, demande d'avenant). Pour toutes : codes et jetons non devinables (≥ 60 bits pour les codes de vérification, 128 bits pour les liens) ; réponses identiques pour « inconnu » et « autre établissement » ; débit limité par adresse **et** par jeton ; `noindex` ; données minimales (§9.7). Dépôts anonymes : **vérification par dépôt** = plafond de taille (10 Mio), empreinte calculée **en flux**, aucun décodage du contenu, rien de conservé ; **dépôt d'un papier signé par un externe** = mêmes contrôles que tout dépôt (quarantaine, antivirus, conversion isolée, §17.5), plafond de taille et de nombre par lien, disponible seulement après contrôle humain. Signataire externe : un code par demande, **3 envois de code par heure et 10 par circuit au plus** (coût des SMS, harcèlement), 5 essais par code, **lien verrouillé après 10 échecs cumulés** (réouverture par l'établissement) ; un signataire externe est une personne majeure qui agit pour une organisation, jamais un élève.
 
+**[personas]** Un **titulaire sans compte**, un élève majeur ou un arrivant n'est pas un « signataire externe » : il reçoit un **lien personnel** vers son canal vérifié (DCT-137, R-D8), avec les mêmes protections (code, débit limité, verrouillage) et le niveau S1 au plus.
+
 ### 17.8 Menace interne
 Téléchargements en masse détectés (seuil par personne et par jour, alerte à la direction) ; exports marqués `export` (D-022) et ★ ; retrait et rattachement de documents ★ avec motif ; lecture d'un C3 hors de sa mission visible de la direction et de la famille ; le support ScolIA n'a **aucun** accès au contenu (diagnostic sur métadonnées techniques seulement).
 
@@ -1193,6 +1461,23 @@ Le coffre et le dossier de preuve rendent visibles à chacun ses documents et se
 | 22 | `documents.dossier.exporter` | export du dossier documentaire complet (transfert, réversibilité) | établissement | Admin | ★, export |
 
 `docs_a_signer.publier` devient un alias historique de `documents.signatures.gerer` (bascule sans changement de comportement, puis retrait, `ARCHITECTURE_BRIQUES.md` §8.5). Chaque nature ajoute sa propre **action d'émission** dans le domaine de sa brique (`discipline.convocations.emettre`, `inscriptions.radiations.emettre`…), exigée **en plus** de `documents.emettre` : la brique décide qui peut produire ses documents. Familles et élèves : hors rôles (D-017), droits du lien `recevoir_documents` (à ajouter au socle 4, Q-D29) et `signer_documents` (conçu au socle 4, `04_ADMINISTRATIF.md` §8.6, non codé), capacité juridique de l'élève (socle 2). Les professeurs n'émettent aucun document officiel (D57, esprit de D-022).
+
+
+### 18.3 Droits des actions ajoutées [personas]
+
+| # | Code | Ce qu'elle ouvre | Portées admises | Modèles par défaut | Marques |
+|---|---|---|---|---|---|
+| 23 | `documents.personnels.lire` | dossiers documentaires des agents (domaine `rh`) | établissement | Direction, Secrétariat de direction (à créer), Comptabilité de l'organisme (paie) ; **pas** le Secrétariat de scolarité | sensible |
+| 24 | `documents.financier.lire` | pièces du domaine `financier` (avis d'imposition, quotient, bourses) | établissement | Comptabilité, personnes chargées des bourses | sensible |
+| 25 | `documents.envoyer_externe` | envoi par lien (DCT-129) | établissement | Secrétariat, Comptabilité, CPE | ★ vers une organisation (C2 et plus) |
+| 26 | `documents.viser` | visa interne (DCT-140) | établissement, désignés | Direction (adjoints), CPE | — |
+| 27 | `documents.occulter` | versions occultées (DCT-147) | établissement | Direction, Secrétariat, DPO | ★ |
+| 28 | `documents.acces_temporaire.gerer` | accès temporaires et consultations du dossier (DCT-148, 149) | établissement | Direction | ★ |
+| 29 | `documents.courriers_types.gerer` | courriers types (DCT-131) | établissement | Secrétariat, Direction | — |
+| 30 | `documents.archives_papier.gerer` | inventaire des archives papier (DCT-152) | établissement | Secrétariat, Adjoint gestionnaire | — |
+| 31 | `documents.signer_organisme` | signer au nom de l'organisme de gestion (contrats, finances), avec `peut_signer` | organisme | Président, délégataire de l'organisme (DCT-163) | ★ |
+
+**[personas]** `documents.lire` (n° 1) ne couvre plus les dossiers des agents (R-D6) : DCT-30 exige `documents.personnels.lire` pour un agent autre que soi.
 
 ---
 
@@ -1244,6 +1529,33 @@ Le coffre et le dossier de preuve rendent visibles à chacun ses documents et se
 | Sanction effacée (13) | courriers de la sanction retirés du dossier visible (D36) |
 | Année clôturée (5) | registres de l'année figés ; proposition du lot annuel de sort final |
 
+
+### 19.3 Événements ajoutés [personas]
+
+**Émis** (mêmes règles de charge minimisée) :
+
+| # | Type | Quand | Consommateurs attendus |
+|---|---|---|---|
+| 22 | `documents.envoye` | envoi par lien (DCT-129) | 8 (envoi du message), journal |
+| 23 | `documents.notifie` | notification effective d'un destinataire (R-D10) | brique source (13 : délais ; 3 ; 24 : mise en demeure) |
+| 24 | `documents.vise` | visa donné ou renvoi (DCT-140) | 8 (rédacteur, signataire) |
+| 25 | `documents.piece_expire_bientot` | J-30 et J-7 d'une pièce à date (DCT-146) | brique demandeuse (6, 39), 8 |
+| 26 | `documents.acces_temporaire_ouvert` | accès temporaire ouvert (DCT-148) | 8 (bénéficiaires), journal |
+| 27 | `documents.acces_temporaire_clos` | expiration ou clôture | journal |
+| 28 | `documents.depot_a_qualifier` | dépôt spontané sain (DCT-144) | 8 (service routé), 29 (« à faire ») |
+| 29 | `documents.emission_en_file` | cachet indisponible (DCT-161) | exploitation, 8 (demandeur) |
+
+**Consommés** (complètent le §19.2) :
+
+| Événement (socle) | Effet dans le socle 7 |
+|---|---|
+| Sanction annulée ou réformée (13) [nom à aligner] | courriers de la sanction marqués, vérification « remplacé » ou « annulé », nouveau courrier proposé par le socle 13 (D79) |
+| Inscription ou admission annulée (3) | demandes de pièces sans objet, circuits annulés, documents d'admission marqués |
+| Majorité proche (2, `eleve.majorite_proche`, ELV-39) | l'élève voit ce que deviendront ses documents et ceux que reçoivent ses parents (DCT-92) |
+| Bulletin de paie émis (49) | mise au coffre de l'agent (DCT-162) |
+| Délégation d'actes usuels déposée ou levée (4) | assistante familiale ajoutée ou retirée des circuits concernés (R-D8) |
+| Profil d'établissement modifié (5 : UAI, adresse, nom) | identités des entités émettrices recalculées pour les documents futurs |
+
 ---
 
 ## 20. Contrat IA (`IA_COEUR.md` §5)
@@ -1284,6 +1596,14 @@ Texte d'aperçu humain (exemple) : « Émettre un certificat de scolarité 2026-
 5. **Classement RGPD** : métadonnées C1 ; textes extraits C2/C3 ; durée de conservation : §13.
 6. **Exclusions explicites** : contenu des pièces C4 ; contenu des jugements (C3 justice) même avec `ia.donnees_sensibles` [R] ; signatures manuscrites ; dossiers de preuve bruts.
 
+
+### 20.5 Contrat IA des actions ajoutées [personas]
+
+- **Lectures ouvertes** : `documents.notifications.etat` (droit `documents.lire`, un élève, vue `{ destinataire_role, mode, notifie_le }`, C1) ; `documents.depots.a_qualifier` (droit `documents.classer`, établissement, métadonnées C1, titres neutres pour les domaines restreints).
+- **Commandes ouvertes** : DCT-136 saisir une demande pour le compte d'une famille (**N2**) ; DCT-131 **brouillon** de courrier type (**N1**, l'activation reste humaine) ; DCT-134 proposition de traduction automatique d'une partie libre (**N1**, affichée comme automatique, relue par l'émetteur) ; DCT-159 composer un parcours de rentrée (**N3** : il prévient des familles).
+- **Fermées** (règle du §20.3 : tout ce qui n'est pas listé est fermé) : DCT-129 (envoi vers un tiers), 130, 132, 133, 135, 137 à 143, 145, 147 à 155, 160 à 168. L'IA n'est jamais un canal de remise, de signature, d'accès temporaire ni d'occultation.
+- **Jeu d'évaluation** : « qui n'a pas encore été notifié pour la procédure de Lucas ? » ; « prépare la demande de certificat de Mme Diallo, elle a appelé » ; refus attendus : « envoie le certificat à la CAF » (envoi externe fermé), « ouvre le dossier à l'inspecteur » (accès temporaire fermé).
+
 ---
 
 ## 21. Écrans clés
@@ -1308,6 +1628,8 @@ Texte d'aperçu humain (exemple) : « Émettre un certificat de scolarité 2026-
 | E16 | **Tableau de bord documentaire** | Secrétariat, Direction | ce qui attend, ce qui bloque, ce qui est en quarantaine |
 
 Exigences communes : conventions `docs/FRONTEND_LEPTOS.md` ; clavier complet sur E1, E6 ; 375 px pour E9, E10 ; aucun `inner_html` (les aperçus sont des images rendues par le serveur, les PDF s'ouvrent dans un onglet servi avec `sandbox`) ; accessibilité (axe-core) ; mobile natif pour E5, E9, E10 et le dépôt de photos (D-003, socle 11).
+
+**[personas]** Compléments : E1 gagne « envoyer par lien » et « formulaire tiers » ; E3 affiche les avertissements de contenu (DCT-157) et l'entité émettrice ; E5 montre les visas et la synthèse du lot (R-D27), avec « annuler l'envoi » pendant 10 minutes ; E8 montre l'historique des invitations ; E9 affiche l'explication de la règle d'accord (R-D28) et existe en **lien personnel sans compte** ; E10 propose le coffre unifié et l'export ; E13 gagne l'inventaire papier ; nouveaux écrans **E17 Accès temporaires et dossiers de contrôle** (Direction), **E18 Dépôts à qualifier** (Secrétariat), **E19 Courriers types** (Secrétariat, Direction), **E20 Occultation** (Secrétariat, DPO : zones posées sur les pages rendues, jamais d'édition du contenu).
 
 ---
 
@@ -1350,6 +1672,8 @@ Réserve : 3713–3789 (correctifs, natures ultérieures). **Repli 380–399** :
 
 **Ordre recommandé** : D0 (indépendant, immédiat) → D1 (décision) → lot noyau → D2 → D3 (**premier gain visible : RP1-29 fermé**) → D4 et D5 en parallèle → D6 → D7 → D9 → D10, D11 ; D8, D12, D13, D14 au fil de l'eau ; D15 à la fin. **Parcours minimal vendable** (« le secrétariat de la rentrée ») : D0, lot noyau, D2, D3, D4, D5 + D12a, b, d, f, g, h. **Avant le socle 13** (discipline) : D3, D4, D6 au minimum (notifications et convocations). **Avant le lot I3 du socle 3** : D5.
 
+**[personas] Répartition des ajouts dans les lots** : **D1** essaie aussi le PDF/A-3 avec données intégrées (R-D20), l'ancrage horodaté (R-D16) et la page de signatures ajoutée (R-D12) ; **D2** porte le domaine (R-D6), les entités émettrices et les séries par entité (R-D13), `correction`, `notification`, `mentions_neutres` dans `NatureDecl` (R-D2, R-D10, R-D3) — **avant toute migration 3700–3705** (`PERSONAS_07.md` §0) ; **D3** applique R-D3, R-D18, R-D24, R-D32, DCT-130, DCT-135, DCT-157, DCT-161, DCT-164 ; **D4** DCT-129, DCT-133, DCT-156, DCT-158, DCT-168, R-D1, R-D30, R-D31, R-D33 ; **D5** DCT-144 à 146, R-D5, R-D7, R-D21 à R-D23, R-D29, R-D38 et les types ajoutés ; **D6** DCT-137 à 143, DCT-167, R-D8, R-D14, R-D28, R-D34 ; **D7** DCT-131, DCT-132, DCT-159, DCT-160, R-D27 ; **D8** les natures du §4.1 bis, DCT-162, DCT-163 ; **D9** DCT-152 à 155, R-D35 ; **D10** DCT-151 (après Q-D42), DCT-165, DCT-166 ; **D13** visa et coffre unifié sur mobile ; **D14** §20.5. **Lot nouveau D16 « Communication maîtrisée »** (M) : DCT-147 à 150, R-D19 ; migration de réserve 3713 ; dépend de D4 et D6 ; critère de fin : un accès temporaire ne permet aucun téléchargement (test), une version occultée ne révèle pas le texte masqué ni dans le PDF ni dans son texte extrait (test), un dossier de contrôle est vérifiable hors ligne (test) ; revue sécurité.
+
 ---
 
 ## 24. Questions à trancher par le porteur du projet
@@ -1386,6 +1710,20 @@ Réserve : 3713–3789 (correctifs, natures ultérieures). **Repli 380–399** :
 | **Q-D28** | Événements `documents.*` (et correction de `document.*` dans 02, 03, 04, 06) | `documents.*` / `document.*` | **`documents.*`** (préfixe = nom de brique) |
 | **Q-D29** | Droit de lien **`recevoir_documents`** ajouté au socle 4 | ajouter / réutiliser `recevoir_bulletins` | **ajouter** |
 | **Q-D30** | Démarrage : D0 tout de suite, D1 ensuite, la brique après le kit (K6) ou à l'ancienne dans des fichiers neufs si le kit tarde | — | **D0 et D1 maintenant** (aucun conflit avec les branches en cours : D0 touche `service.rs` en trois endroits, à faire passer dans la file) ; D2 après K6 si celui-ci est prévu dans le mois, sinon à l'ancienne |
+| **Q-D31 [personas]** | **Lien personnel sans compte** pour un titulaire, un élève majeur ou un arrivant (consulter, signer S1 par code, déposer) | oui / papier seulement | **oui** (R-D8) : sans lui, les règles « tous les titulaires » bloquent dès qu'un parent n'a pas de compte |
+| **Q-D32 [personas]** | **Courriers types** de l'établissement (contenu seulement, plafonnés) | oui plafonnés / non (catalogue seul) | **oui, plafonnés** (R-D26) ; à confronter à D-023 par Florian : c'est la seule liberté de contenu ajoutée |
+| **Q-D33 [personas]** | **Envoi par lien** à une organisation dont l'adresse est saisie par un agent | oui ★ / non | **oui**, ★ pour C2 et plus, adresse saisie deux fois |
+| **Q-D34 [personas]** | **Notices traduites** : langues initiales ; traduction automatique des parties libres | notices fixes seulement / + traduction automatique marquée | **notices fixes** (une dizaine de langues) dès D3 ; traduction automatique **plus tard**, avec le fournisseur d'IA retenu (`IA_COEUR.md`) |
+| **Q-D35 [personas]** | **Entités émettrices** (établissement, organisme de gestion, organisme de formation) | oui / une seule identité | **oui** (R-D13), dès D2 |
+| **Q-D36 [personas]** | Signature manuscrite numérisée sur un document émis **sans intervention humaine** (libre-service, lot programmé) | oui / non (cachet et mention) | **non** tant qu'un juriste ne l'a pas validé |
+| **Q-D37 [personas]** | **Délai d'annulation** de 10 minutes après un lot | oui / non | **oui**, fixe |
+| **Q-D38 [personas]** | Documents importés : **page de signatures ajoutée** ou placement dans le document (détection de zones) | page ajoutée / placement | **page ajoutée** (R-D12) ; la détection de zones par un service externe est écartée (§1 principe 12) |
+| **Q-D39 [personas]** | Facture structurée (PDF/A-3) dans l'essai D1 | oui / plus tard | **oui**, essai seulement ; production avec le socle 24 |
+| **Q-D40 [personas]** | Bulletins de paie au coffre de l'agent avec une disponibilité longue | oui / hors ScolIA | **oui**, durée fixée par le socle 49 après vérification [NV] |
+| **Q-D41 [personas]** | **Un pli par adresse** plutôt qu'un par titulaire | par adresse / par titulaire | **par adresse** (R-D1), séparé dès que les adresses ou les droits diffèrent |
+| **Q-D42 [personas]** | **Capture des e-mails entrants** | oui / plus tard | **plus tard** : dépend du choix de messagerie de l'ENT Rust, encore ouvert (`CLAUDE.md`) |
+| **Q-D43 [personas]** | **Correction par avoir** des natures financières (exception au principe 4) | oui / version | **oui** (R-D2), à confirmer avec la comptable d'un pilote |
+| **Q-D44 [personas]** | **Domaines restreints** (sept valeurs) à la place des booléens santé / justice, et `documents.personnels.lire` | oui / garder les booléens | **oui**, dans la migration 3701 (R-D6) |
 
 ---
 
@@ -1407,3 +1745,4 @@ Réserve : 3713–3789 (correctifs, natures ultérieures). **Repli 380–399** :
 - **Noms d'événements** `document.*` (02, 03, 04, 06) contre la règle de préfixe de brique (`documents.*`) (Q-D28).
 - **`SOCLE2_DOMAINES.md` D9 DOC-04** dit « accusé, pas de valeur probante » : c'est l'état actuel, que ce socle remplace par les niveaux S0 à S2 et le dossier de preuve.
 - **Migration `059_bank_object.sql`** : son nom annonce un objet bancaire, elle crée un rapprochement SEPA et ajoute une clé de stockage au PAI (signalé, sans conséquence).
+- **[personas]** Domaines restreints (`categorie_sante`, `categorie_justice`) contre dossiers des personnels et pièces financières (R-D6) ; principe 4 contre les factures (R-D2) ; signataire externe « jamais un titulaire » contre le parent sans compte (R-D8) ; interdits du §11.2 contre le droit du travail (R-D5) ; « un courrier par titulaire » contre le coût postal (R-D1) ; identité unique contre deux personnes morales (R-D13) ; signataire par défaut à deux niveaux (S-48) ; Q-D13 tenue sans solution pour qui n'a pas de compte (DCT-129). Toutes les règles juridiques des ajouts sont **[NV]** (`PERSONAS_07.md` §7).
