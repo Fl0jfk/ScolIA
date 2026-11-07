@@ -34,8 +34,16 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 État au 2026-11-07, 11 h UTC :
 - **Sur `ENT`** : socle 1, lot 6 (correctifs de la revue de sécurité, inscriptions corrigées I0, cahier de textes, documentation des socles).
 - **Lot 7** (`ent-integration-lot7`) : évaluations, finances, communication, santé désactivée par défaut, emploi du temps ; vert en local, en validation CI GitHub.
-- **Lot 8** (`ent-integration-lot8`) : socle 2 E0–E2, socle 4 A0 + A0 bis, failles faibles socle 1, D-022, mobile ; démarre sur le lot 7.
-- **Branches prêtes pour le lot 9** : `ent-socle-inscriptions-i1` (socle 3 I1), puis à venir `ent-socle-eleve-e3-e4`, `ent-socle-administratif-a1`, `ent-d022-bis-enseignements`, `ent-recette-personas-1`.
+- **Lot 8** (`ent-integration-lot8`) : socle 2 E0–E2, socle 4 A0 + A0 bis, failles faibles socle 1, D-022, mobile ; démarre sur le lot 7. Attention (contradicteur) : `ent-mobile-app` et `ent-socle1-revue-faibles` sont très en retard sur leur base ; `ent-d022-bis-enseignements` contient déjà `ent-d022-portee-groupes` et le lot 7 : ne pas intégrer D-022 deux fois.
+- **Ordre de la file après le lot 8** (une branche à la fois, chacune repart de la nouvelle tête d'ENT) : E3-E4 → A1 → I1 → D-022 bis → correctifs de la recette. La recette personas 1 porte sur le socle 1 et le lot 7, **pas** sur les socles 2 à 4 : une recette P1 sera relancée sur une branche contenant E4, A1 et I1.
+- **Branches concernées** : `ent-socle-inscriptions-i1` (socle 3 I1), puis à venir `ent-socle-eleve-e3-e4`, `ent-socle-administratif-a1`, `ent-d022-bis-enseignements`, `ent-recette-personas-1`.
 
 ## 5. Transmission à un futur pilote
 Un pilote qui reprend : lire ce document, `CLAUDE.md`, `docs/DECISIONS.md` (les décisions de Florian font foi), `docs/ROADMAP.md` (jalons de preuve), `docs/SOCLES.md` (carte), `docs/socles/` (conceptions), `docs/PROJECT_STATUS.md` (état technique), `docs/DECISIONS_AND_FAILURES.md` (erreurs à ne pas refaire) ; lister les sessions et les branches ; reprendre la file du §4. Les conceptions et les décisions sont indépendantes du modèle : un modèle plus récent peut les approfondir sans les refaire.
+
+## 6. Objections du contradicteur
+Chaque revue du contradicteur est résumée ici avec le traitement de chaque objection (fait / écarté et pourquoi).
+- **2026-11-07 (revue 1)** : recette 1 sur le mauvais code → recadrée, recette P1 à prévoir (fait) ; lignées divergentes → ordre de file écrit, chaque lot repart de la tête d'ENT (fait) ; `perimetre.rs` modifié deux fois → D-022 bis fait foi, le correctif de la recette sera reporté à la main avec revue (à faire) ; registre des migrations faux → corrigé (fait) ; D-022 bis code « cours » avant le socle 5 → marqué provisoire (à faire) ; branches périmées dans le lot 8 → signalé à l'intégrateur (à faire) ; cadence → débit à mesurer et annoncer chaque semaine (fait, §7) ; CI par PR → adopté pour les prochaines intégrations (à faire) ; trop de branches en parallèle sur les mêmes fichiers → **cause structurelle traitée par D-026 (architecture en briques)**.
+
+## 7. Débit
+Mesure : lots arrivés sur `ENT` par jour, et lots de code terminés sur branche par jour. Au 2026-11-07 : 1 intégration sur ENT en 1,5 jour (lot 6) ; environ 6 lots de code terminés par jour sur branche.
