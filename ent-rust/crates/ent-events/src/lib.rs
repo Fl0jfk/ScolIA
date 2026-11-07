@@ -17,6 +17,12 @@ pub mod types {
     pub const ELEVE_IDENTITY_CHANGED: &str = "eleve.identity_changed";
     /// Identifiant externe ajouté, confirmé, contesté, révoqué (système et statuts, jamais la valeur).
     pub const ELEVE_IDENTIFIANT_CHANGE: &str = "eleve.identifiant_change";
+    /// Proposition déposée / décidée (lot E5) : identifiant, cible, source, noms de champs —
+    /// jamais une valeur.
+    pub const ELEVE_PROPOSITION_DEPOSEE: &str = "eleve.proposition_deposee";
+    pub const ELEVE_PROPOSITION_DECIDEE: &str = "eleve.proposition_decidee";
+    /// Paramétrage des champs de l'élève modifié (ELV-26) : noms de champs, jamais de valeur.
+    pub const PARAMETRAGE_ELEVE_MODIFIE: &str = "parametrage.eleve_modifie";
     /// Réintégration d'un ancien élève sur sa fiche (ELV-12).
     pub const ELEVE_REINTEGRE: &str = "eleve.reintegre";
     /// Passage à la majorité (ELV-14, tâche nocturne) et sa veille de 30 jours (ELV-39).

@@ -97,6 +97,8 @@ mod droits_ctx;
 mod eleve_champs;
 pub mod identifiants;
 pub mod identite;
+pub mod param_eleve;
+pub mod propositions;
 pub mod scolarite;
 pub mod dossier_personnes;
 pub mod eleve_ports;
@@ -306,6 +308,8 @@ mod tests_eleve_identite;
 mod tests_eleve_identifiants;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_scolarite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_propositions;
 
 #[cfg(test)]
 mod integration_tests {

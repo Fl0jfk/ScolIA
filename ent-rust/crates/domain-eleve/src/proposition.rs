@@ -17,10 +17,12 @@
 //! Aucune valeur d'identité ne sort de ce module vers un message d'erreur : les erreurs sont
 //! des textes fixes.
 
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::identifiant::SystemeIdentifiant;
-use crate::identite::ChampIdentite;
+use crate::identite::{ChampIdentite, IdentiteVersion, ModifIdentite};
 
 // ───────────────────────── Vocabulaires ─────────────────────────
 
@@ -484,6 +486,77 @@ pub fn champ_catalogue_du_systeme(s: SystemeIdentifiant) -> Option<&'static str>
     }
 }
 
+// ───────────────────────── Valeurs d'identité ─────────────────────────
+
+fn texte_ou_null(v: &Option<String>) -> Value {
+    v.as_ref().map_or(Value::Null, |s| json!(s))
+}
+
+/// Valeur canonique (JSON) d'un champ d'identité du catalogue dans une version.
+pub fn valeur_identite(v: &IdentiteVersion, champ: &str) -> Option<Value> {
+    Some(match champ {
+        "nom_naissance" => json!(v.nom_naissance),
+        "nom_usage" => texte_ou_null(&v.nom_usage),
+        "prenoms" => json!(v.prenoms),
+        "prenom_usage" => texte_ou_null(&v.prenom_usage),
+        "sexe" => texte_ou_null(&v.sexe),
+        "date_naissance" => v
+            .date_naissance
+            .map_or(Value::Null, |d| json!(d.format("%Y-%m-%d").to_string())),
+        "naissance_commune" => texte_ou_null(&v.naissance_commune),
+        "naissance_commune_cog" => texte_ou_null(&v.naissance_commune_cog),
+        "naissance_pays_cog" => texte_ou_null(&v.naissance_pays_cog),
+        "naissance_lieu_etranger" => texte_ou_null(&v.naissance_lieu_etranger),
+        _ => return None,
+    })
+}
+
+/// Construit la modification d'identité qui porte les valeurs proposées (`null` retire un
+/// champ facultatif). Les valeurs sont normalisées et contrôlées plus tard par
+/// `planifier_version`, qui reste la seule autorité sur les formats.
+pub fn modif_depuis_valeurs(champs: &[(String, Value)]) -> Result<ModifIdentite, ErreurProposition> {
+    let mauvais = ErreurProposition::Invalide("valeur proposée de forme invalide");
+    let texte = |v: &Value| -> Result<Option<String>, ErreurProposition> {
+        match v {
+            Value::Null => Ok(None),
+            Value::String(s) => Ok(Some(s.clone())),
+            _ => Err(mauvais),
+        }
+    };
+    let mut m = ModifIdentite::default();
+    for (champ, v) in champs {
+        match champ.as_str() {
+            "nom_naissance" => m.nom_naissance = Some(texte(v)?.ok_or(mauvais)?),
+            "nom_usage" => m.nom_usage = Some(texte(v)?),
+            "prenom_usage" => m.prenom_usage = Some(texte(v)?),
+            "prenoms" => {
+                let Value::Array(a) = v else { return Err(mauvais) };
+                m.prenoms = Some(
+                    a.iter()
+                        .map(|p| p.as_str().map(str::to_string).ok_or(mauvais))
+                        .collect::<Result<Vec<_>, _>>()?,
+                );
+            }
+            "sexe" => m.sexe = Some(texte(v)?),
+            "date_naissance" => {
+                m.date_naissance = Some(match texte(v)? {
+                    None => None,
+                    Some(s) => Some(
+                        NaiveDate::parse_from_str(&s, "%Y-%m-%d")
+                            .map_err(|_| ErreurProposition::Invalide("date de naissance : AAAA-MM-JJ"))?,
+                    ),
+                })
+            }
+            "naissance_commune" => m.naissance_commune = Some(texte(v)?),
+            "naissance_commune_cog" => m.naissance_commune_cog = Some(texte(v)?),
+            "naissance_pays_cog" => m.naissance_pays_cog = Some(texte(v)?),
+            "naissance_lieu_etranger" => m.naissance_lieu_etranger = Some(texte(v)?),
+            _ => return Err(ErreurProposition::Invalide("champ d'identité inconnu")),
+        }
+    }
+    Ok(m)
+}
+
 // ───────────────────────── Réglage d'un champ ─────────────────────────
 
 /// Paramétrage d'un champ par l'établissement (`ent_param_eleve_champ`).
@@ -730,14 +803,16 @@ pub struct ContexteAuto<'a> {
 /// Une règle automatique s'applique-t-elle ? `Ok(())` ou la raison du refus. Toujours
 /// explicite : sans règle active, rien ne s'applique seul.
 pub fn evaluer_auto(c: ContexteAuto<'_>) -> Result<(), RaisonNonAuto> {
-    if !c.regle_active {
-        return Err(RaisonNonAuto::AucuneRegle);
+    // Raisons de fond d'abord (elles ne dépendent d'aucun réglage) : un champ sensible ou une
+    // source non automatisable ne s'appliquera jamais seul, quelle que soit la règle.
+    if c.def.sensible {
+        return Err(RaisonNonAuto::ChampSensible);
     }
     if !c.source.automatisable() {
         return Err(RaisonNonAuto::SourceNonAutomatisable);
     }
-    if c.def.sensible {
-        return Err(RaisonNonAuto::ChampSensible);
+    if !c.regle_active {
+        return Err(RaisonNonAuto::AucuneRegle);
     }
     if c.reglage.verrouille {
         return Err(RaisonNonAuto::ChampVerrouille);
@@ -1194,6 +1269,66 @@ mod tests {
         }
         assert_eq!(champ_catalogue_du_systeme(SystemeIdentifiant::Ine), Some("ine"));
         assert_eq!(champ_catalogue_du_systeme(SystemeIdentifiant::Badge), None);
+    }
+
+    #[test]
+    fn valeurs_identite_aller_retour() {
+        use crate::identite::NatureVersion;
+        let v = IdentiteVersion {
+            id: uuid::Uuid::nil(),
+            etablissement_id: uuid::Uuid::nil(),
+            eleve_id: uuid::Uuid::nil(),
+            nom_naissance: "Dupont".into(),
+            nom_usage: None,
+            prenoms: vec!["Jeanne".into(), "Marie".into()],
+            rang_prenom_usuel: 1,
+            prenom_usage: None,
+            sexe: Some("F".into()),
+            date_naissance: NaiveDate::from_ymd_opt(2011, 5, 3),
+            naissance_commune_cog: None,
+            naissance_commune: Some("Lyon".into()),
+            naissance_pays_cog: None,
+            naissance_lieu_etranger: None,
+            date_naissance_precision: "jour".into(),
+            date_naissance_statut: "declaree".into(),
+            nom_ecriture_origine: None,
+            prenoms_ecriture_origine: None,
+            motif_code: None,
+            nature: NatureVersion::Creation,
+            effet_du: NaiveDate::from_ymd_opt(2024, 9, 1).unwrap(),
+            remplace_version_id: None,
+            remplacee_par: None,
+            motif: None,
+            piece_document_id: None,
+            source: "saisie".into(),
+            source_ref: None,
+            sensible: false,
+            enregistre_le: chrono::Utc::now(),
+            enregistre_par: None,
+        };
+        for d in CATALOGUE.iter().filter(|d| d.cible == CibleProposition::Identite) {
+            assert!(valeur_identite(&v, d.code).is_some(), "{}", d.code);
+        }
+        assert_eq!(valeur_identite(&v, "date_naissance"), Some(json!("2011-05-03")));
+        assert_eq!(valeur_identite(&v, "nom_usage"), Some(Value::Null));
+        assert_eq!(valeur_identite(&v, "ine"), None);
+        let m = modif_depuis_valeurs(&[
+            ("nom_naissance".into(), json!("Durand")),
+            ("prenoms".into(), json!(["A", "B"])),
+            ("nom_usage".into(), Value::Null),
+            ("date_naissance".into(), json!("2011-05-04")),
+        ])
+        .unwrap();
+        assert_eq!(m.nom_naissance.as_deref(), Some("Durand"));
+        assert_eq!(m.prenoms.as_ref().map(Vec::len), Some(2));
+        assert_eq!(m.nom_usage, Some(None));
+        assert_eq!(m.date_naissance, NaiveDate::from_ymd_opt(2011, 5, 4).map(Some));
+        // Formes invalides.
+        assert!(modif_depuis_valeurs(&[("nom_naissance".into(), Value::Null)]).is_err());
+        assert!(modif_depuis_valeurs(&[("nom_naissance".into(), json!(12))]).is_err());
+        assert!(modif_depuis_valeurs(&[("prenoms".into(), json!("A"))]).is_err());
+        assert!(modif_depuis_valeurs(&[("date_naissance".into(), json!("demain"))]).is_err());
+        assert!(modif_depuis_valeurs(&[("ine".into(), json!("X"))]).is_err());
     }
 
     #[test]

@@ -52,6 +52,8 @@ pub const CHAMPS_CHIFFRES: &[(&str, &[&str])] = &[
     ),
     ("ent_infirmerie_passage", &["note_soins", "soins"]),
     ("ent_equipe_reunion", &["compte_rendu"]),
+    // Socle 2, lot E5 : valeurs actuelle et proposée d'une proposition (toujours scellées).
+    ("ent_eleve_proposition_champ", &["actuel", "propose"]),
     // Socle 4, lot A0 bis : adresse à protéger parquée, référence de la pièce de protection.
     ("ent_adresse_protegee", &["adresse"]),
     ("ent_personne_reserve", &["ne_pas_solliciter_ref"]),

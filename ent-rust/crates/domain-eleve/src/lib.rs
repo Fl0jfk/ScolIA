@@ -112,7 +112,7 @@ pub use identifiant::{
 };
 pub use proposition::{
     champ as champ_catalogue, champ_catalogue_de, champ_catalogue_du_systeme, evaluer_auto,
-    nom_regle_auto, reglage_profil, regles_auto_profil, statut_final, valider_regle_auto,
+    modif_depuis_valeurs, nom_regle_auto, reglage_profil, valeur_identite, regles_auto_profil, statut_final, valider_regle_auto,
     valider_reglage, verifier_acceptation, verifier_depot,
     verifier_modification_directe, vient_de_la_source_qui_fait_foi, CibleProposition,
     ContexteAuto, DefChamp, Deposant, ErreurProposition, ModificationLocale, OrigineProposition,

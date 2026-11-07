@@ -291,6 +291,28 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 Some(r#"{"motif":"separation"}"#)),
             ecrire_sur_b("badge-perdu-sur-B", "POST", "/eleves/{eleve}/badge/perdu",
                 Some(r#"{"nouveau_badge":"SEPARATION-BADGE"}"#)),
+            // Socle 2 (E5) : propositions. La file et le détail sont réservés à
+            // `eleves.propositions.traiter` (Admin, Direction, Administratif) ; le déposant ne
+            // voit que les siennes (parent avec lien actif ; l'élève mineur est refusé) ;
+            // toute écriture sur un élève d'un autre établissement échoue.
+            lire("propositions-file", "/eleves/propositions",
+                &[Admin, Direction, Administratif], &[]),
+            lire("propositions-eleve", "/eleves/{eleve}/propositions",
+                &[Admin, Direction, Administratif, Parent, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif]),
+            lire("propositions-champs-signalables", "/eleves/{eleve}/propositions/champs",
+                &[Parent, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+            ecrire_sur_b("proposition-depot-sur-B", "POST", "/eleves/{eleve}/propositions",
+                Some(r#"{"champs":{"nom_naissance":"Separation"}}"#)),
+            ecrire_sur_b("proposition-decision-sur-B", "POST",
+                "/eleves/propositions/00000000-0000-0000-0000-000000000001/decision",
+                Some(r#"{"champs_acceptes":["nom_naissance"],"nature":"correction","motif_code":"autre","motif":"separation"}"#)),
+            ecrire_sur_b("proposition-retrait-sur-B", "POST",
+                "/eleves/propositions/00000000-0000-0000-0000-000000000001/retrait", None),
+            // Paramétrage des champs (ELV-26) : administrateur seulement.
+            lire("parametrage-eleve", "/eleves/parametrage", &[Admin], &[]),
+            // Les écritures de paramétrage n'ont aucun identifiant d'un autre établissement :
+            // elles agissent sur l'établissement de la session (testées à part, `eleve_propositions`).
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
             // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
             lire("scolarite", "/eleves/{eleve}/scolarite",

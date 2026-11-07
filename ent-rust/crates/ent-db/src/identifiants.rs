@@ -447,6 +447,11 @@ impl PgEnt {
         let mut tx = self
             .ouvrir_commande_identifiant(cmd.etablissement_id, cmd.eleve_id)
             .await?;
+        // Lot E5 : un identifiant géré par une source externe (INE sous SIECLE…) ne se saisit
+        // pas localement ; un champ verrouillé non plus.
+        if let Some(champ) = domain_eleve::champ_catalogue_du_systeme(cmd.systeme) {
+            Self::exiger_champs_modifiables(&mut tx, cmd.etablissement_id, &[champ]).await?;
+        }
         let mut r = Self::ecrire_identifiant(&mut tx, &cmd).await?;
         tx.commit().await?;
         // Un rôle qui ne lit pas les identifiants (badge seul) n'apprend pas quel autre élève
@@ -463,6 +468,21 @@ impl PgEnt {
         &self,
         cmd: AjoutIdentifiant,
     ) -> Result<ResultatIdentifiant, EntDbError> {
+        // Lot E5 : une donnée venue d'un flux officiel (import AAF/BEE/ONDE, retour BEE,
+        // ÉduConnect) n'écrit jamais directement dans la fiche : elle passe par une proposition
+        // (`deposer_proposition_systeme`), appliquée par une règle explicite ou une personne.
+        if matches!(
+            cmd.provenance,
+            ProvenanceIdentifiant::ImportAaf
+                | ProvenanceIdentifiant::ImportBee
+                | ProvenanceIdentifiant::ImportOnde
+                | ProvenanceIdentifiant::RetourBee
+                | ProvenanceIdentifiant::Educonnect
+        ) {
+            return Err(EntDbError::SaisieInvalide(
+                "un flux officiel passe par une proposition (deposer_proposition_systeme)",
+            ));
+        }
         let mut tx = self
             .ouvrir_commande_identifiant(cmd.etablissement_id, cmd.eleve_id)
             .await?;

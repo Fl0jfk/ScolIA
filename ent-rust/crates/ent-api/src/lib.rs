@@ -22,6 +22,7 @@ mod routes;
 mod vie_scolaire;
 mod evaluations;
 mod communication_s28;
+mod eleve_propositions;
 mod sante;
 pub mod tenant;
 mod ui;
@@ -270,6 +271,8 @@ mod tests_l6;
 mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_propositions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_abus;
 #[cfg(all(test, feature = "labo"))]
