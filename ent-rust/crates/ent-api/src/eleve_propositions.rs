@@ -160,8 +160,21 @@ async fn deposer_proposition(
             .await
     }
     .map_err(map_db)?;
-    // La famille ne voit ni la valeur de la fiche ni le détail des règles internes.
-    Ok((StatusCode::CREATED, Json(depot_dto(&r, !famille))))
+    // Ni la famille ni un personnel qui ne traite pas les propositions ne voient la valeur de
+    // la fiche (état civil, identifiants, versions sensibles : groupes G2, G3, G6) ni le détail
+    // des règles internes : le dépôt ne donne aucun droit de lecture.
+    let interne = !famille
+        && state
+            .ent
+            .a_action_quelconque(
+                session.etablissement_id,
+                session.user_id,
+                &session.role,
+                ent_auth::Action::ElevesPropositionsTraiter,
+            )
+            .await
+            .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(depot_dto(&r, interne))))
 }
 
 /// `GET /eleves/{id}/propositions` — le déposant : les siennes ; le secrétariat : celles de

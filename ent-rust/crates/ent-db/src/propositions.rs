@@ -297,6 +297,27 @@ async fn entete_verrouillee(
     .await?)
 }
 
+/// Verrouille la proposition DANS L'ORDRE commun à tous les chemins : l'élève d'abord, puis la
+/// proposition (un dépôt, une décision, un retrait ou une expiration simultanés ne s'interbloquent pas).
+async fn verrouiller_proposition(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<Option<EnteteProposition>, EntDbError> {
+    let l: Option<(Option<Uuid>,)> = sqlx::query_as(
+        "SELECT eleve_id FROM ent_eleve_proposition WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((eleve,)) = l else { return Ok(None) };
+    if let Some(eleve) = eleve {
+        verrouiller_eleve(&mut *conn, etab, eleve).await?;
+    }
+    entete_verrouillee(conn, etab, id).await
+}
+
 async fn verrouiller_eleve(conn: &mut PgConnection, etab: Uuid, eleve: Uuid) -> Result<(), EntDbError> {
     if PgIdentiteRepo::verrouiller_eleve(conn, etab, eleve).await? {
         Ok(())
@@ -745,6 +766,25 @@ impl PgEnt {
         let noms: Vec<String> = diffs.iter().map(|(c, _, _)| c.clone()).collect();
         Self::remplacer_anciennes(tx, cmd, &noms).await?;
 
+        // Conflit : la version d'identité en vigueur est une modification LOCALE (correction,
+        // changement ou usage saisis par une personne, ou acceptés d'une source locale), et non
+        // une reprise, une création ou un import. Un import ne l'écrase alors jamais seul : il
+        // attend une décision (la décision, qui compare les valeurs, tranche). Grain : la
+        // version entière, pas le champ.
+        let conflit_local = match (cmd.cible, base_version) {
+            (CibleProposition::Identite, Some(v)) => {
+                let (nature, source): (String, String) = sqlx::query_as(
+                    "SELECT nature, source FROM ent_eleve_identite WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(v)
+                .fetch_one(&mut **tx)
+                .await?;
+                matches!(nature.as_str(), "correction" | "changement_etat_civil" | "usage")
+                    && source != "import"
+            }
+            _ => false,
+        };
         // Partage : champs que les règles automatiques peuvent appliquer / champs à décider.
         let mut auto: Vec<(String, Value, Value)> = Vec::new();
         let mut manuel: Vec<(String, Value, Value)> = Vec::new();
@@ -759,9 +799,7 @@ impl PgEnt {
                 source: cmd.source,
                 origine: cmd.origine,
                 regle_active,
-                // Les valeurs viennent d'être lues dans cette transaction, verrou d'élève pris :
-                // aucune modification locale n'a pu s'intercaler depuis.
-                conflit: false,
+                conflit: conflit_local,
             }) {
                 Ok(()) => auto.push(d),
                 Err(raison) => {
@@ -771,13 +809,14 @@ impl PgEnt {
             }
         }
         if !auto.is_empty() {
+            // Point de reprise AVANT d'insérer : si l'application échoue (ex. un INE confirmé
+            // existe), la part automatique est défaite sans trace et rejoint les champs à décider
+            // (aucune modification attendue ne disparaît).
+            sqlx::query("SAVEPOINT application_auto").execute(&mut **tx).await?;
             let entete = Self::inserer_proposition(tx, cmd, base_version, &commentaire, &auto).await?;
             let noms_auto: Vec<String> = auto.iter().map(|(c, _, _)| c.clone()).collect();
             tracer(tx, types::ELEVE_PROPOSITION_DEPOSEE, "deposee", &entete, &noms_auto, "en_attente", cmd.depose_par)
                 .await?;
-            // Application dans un point de reprise : si elle échoue (ex. un INE confirmé
-            // existe), la proposition reste en attente pour une décision humaine.
-            sqlx::query("SAVEPOINT application_auto").execute(&mut **tx).await?;
             let acceptes: Vec<(String, Value)> = auto.iter().map(|(c, _, p)| (c.clone(), p.clone())).collect();
             let params = ParamsApplication {
                 nature: Some(NatureVersion::Import),
@@ -804,9 +843,7 @@ impl PgEnt {
                     for (c, _, _) in &auto {
                         resultat.raisons_non_auto.push((c.clone(), "application_impossible"));
                     }
-                    let mut v = assembler(&mut *tx, etab, vec![entete], true).await?;
-                    resultat.en_attente = v.pop();
-                    return Ok(resultat);
+                    manuel.extend(auto);
                 }
             }
         }
@@ -900,8 +937,11 @@ impl PgEnt {
         match role {
             "parent" => {
                 let (ok,): (bool,) = sqlx::query_as(
+                    // Responsable légal : lien actif ET autorité parentale (un tiers lié à l'élève
+                    // ne propose pas de modifier son état civil).
                     "SELECT EXISTS (SELECT 1 FROM ent_eleve_lien_actif
-                                     WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3)",
+                                     WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3
+                                       AND autorite_parentale)",
                 )
                 .bind(etab)
                 .bind(user)
@@ -1214,15 +1254,11 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let e = entete_verrouillee(&mut tx, etab, d.proposition_id)
+        // Ordre des verrous identique à celui du dépôt (élève, puis proposition).
+        let e = verrouiller_proposition(&mut tx, etab, d.proposition_id)
             .await?
             .ok_or(domain_eleve::DomainError::NotFound)?;
         let eleve = e.eleve_id.ok_or(EntDbError::SaisieInvalide("élève inconnu"))?;
-        verrouiller_eleve(&mut tx, etab, eleve).await?;
-        // Relecture sous verrou : la proposition a pu être décidée entre-temps.
-        let e = entete_verrouillee(&mut tx, etab, d.proposition_id)
-            .await?
-            .ok_or(domain_eleve::DomainError::NotFound)?;
         if e.statut != "en_attente" {
             return Err(EntDbError::ConflitDossier("cette proposition est déjà décidée"));
         }
@@ -1311,7 +1347,7 @@ impl PgEnt {
         proposition_id: Uuid,
     ) -> Result<(), EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let e = entete_verrouillee(&mut tx, etab, proposition_id)
+        let e = verrouiller_proposition(&mut tx, etab, proposition_id)
             .await?
             .ok_or(domain_eleve::DomainError::NotFound)?;
         // Un autre compte ne retire pas la demande de quelqu'un d'autre ; même réponse qu'une
@@ -1359,7 +1395,7 @@ impl PgEnt {
         let mut n = 0;
         for (etab, id) in dues {
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let Some(e) = entete_verrouillee(&mut tx, etab, id).await? else { continue };
+            let Some(e) = verrouiller_proposition(&mut tx, etab, id).await? else { continue };
             if e.statut != "en_attente" {
                 continue;
             }

@@ -84,6 +84,7 @@ async fn e5_parcours_http_parametrage_signalement_et_decision() {
     let (admin, _) = inscrire(&app, etab, "admin").await;
     let (adm, _) = inscrire(&app, etab, "administratif").await;
     let (prof, _) = inscrire(&app, etab, "prof").await;
+    let (cpe, _) = inscrire(&app, etab, "cpe").await;
     let (parent, _) = inscrire(&app, etab, "parent").await;
 
     let eleve = ent
@@ -146,30 +147,40 @@ async fn e5_parcours_http_parametrage_signalement_et_decision() {
     .await;
     assert_eq!(s, StatusCode::FORBIDDEN, "correction directe interdite sous SIECLE : {v}");
 
-    // Signalement du personnel : une proposition, jamais une modification.
+    // Signalement du personnel : une proposition, jamais une modification. Un professeur
+    // ne signale que les élèves de ses classes et groupes (D-022) : celui-ci n'en fait pas partie.
+    let (s, _) = appel(&app, "POST", &format!("/eleves/{eid}/propositions"), &prof, Some(json!({"champs": {"nom_naissance": "Dupond"}}))).await;
+    assert_eq!(s, StatusCode::FORBIDDEN, "professeur hors de ses classes");
     let (s, v) = appel(
         &app,
         "POST",
         &format!("/eleves/{eid}/propositions"),
-        &prof,
+        &cpe,
         Some(json!({"champs": {"nom_naissance": "Dupond"}})),
     )
     .await;
     assert_eq!(s, StatusCode::CREATED, "{v}");
     let pid = v["en_attente"]["id"].as_str().unwrap().to_string();
     assert_eq!(v["en_attente"]["source"], "personnel");
-    assert_eq!(v["en_attente"]["champs"][0]["actuel"], "Dupont");
+    // Le dépôt ne donne aucun droit de lecture : le CPE (sans `eleves.propositions.traiter`)
+    // ne voit pas la valeur de la fiche dans la réponse.
+    assert!(v["en_attente"]["champs"][0]["actuel"].is_null(), "{v}");
+    assert!(v["raisons_non_auto"].as_array().unwrap().is_empty());
+    // Le secrétariat, lui, voit la valeur actuelle.
+    let (s, v) = appel(&app, "GET", &format!("/eleves/propositions/{pid}"), &adm, None).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(v["champs"][0]["actuel"], "Dupont");
     // Champ inconnu / lot vide : 400.
-    let (s, _) = appel(&app, "POST", &format!("/eleves/{eid}/propositions"), &prof, Some(json!({"champs": {"inconnu": "x"}}))).await;
+    let (s, _) = appel(&app, "POST", &format!("/eleves/{eid}/propositions"), &cpe, Some(json!({"champs": {"inconnu": "x"}}))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
-    let (s, _) = appel(&app, "POST", &format!("/eleves/{eid}/propositions"), &prof, Some(json!({"champs": {}}))).await;
+    let (s, _) = appel(&app, "POST", &format!("/eleves/{eid}/propositions"), &cpe, Some(json!({"champs": {}}))).await;
     assert_eq!(s, StatusCode::BAD_REQUEST);
 
     // File : le secrétariat la voit ; le professeur et le parent non.
     let (s, v) = appel(&app, "GET", "/eleves/propositions?statut=en_attente", &adm, None).await;
     assert_eq!(s, StatusCode::OK);
     assert!(v.as_array().unwrap().iter().any(|p| p["id"] == pid.as_str()));
-    for jeton in [&prof, &parent] {
+    for jeton in [&prof, &cpe, &parent] {
         let (s, _) = appel(&app, "GET", "/eleves/propositions", jeton, None).await;
         assert_eq!(s, StatusCode::FORBIDDEN);
         let (s, _) = appel(&app, "GET", &format!("/eleves/propositions/{pid}"), jeton, None).await;

@@ -478,6 +478,7 @@ impl PgEnt {
                 | ProvenanceIdentifiant::ImportOnde
                 | ProvenanceIdentifiant::RetourBee
                 | ProvenanceIdentifiant::Educonnect
+                | ProvenanceIdentifiant::RepriseLogiciel
         ) {
             return Err(EntDbError::SaisieInvalide(
                 "un flux officiel passe par une proposition (deposer_proposition_systeme)",
@@ -486,6 +487,11 @@ impl PgEnt {
         let mut tx = self
             .ouvrir_commande_identifiant(cmd.etablissement_id, cmd.eleve_id)
             .await?;
+        // Le verrou et la source qui fait foi s'appliquent aussi aux traitements du serveur
+        // (ex. INE déclaré par la famille à l'inscription, socle 3), sauf le badge.
+        if let Some(champ) = domain_eleve::champ_catalogue_du_systeme(cmd.systeme) {
+            Self::exiger_champs_modifiables(&mut tx, cmd.etablissement_id, &[champ]).await?;
+        }
         let r = Self::ecrire_identifiant(&mut tx, &cmd).await?;
         tx.commit().await?;
         Ok(r)
@@ -514,6 +520,13 @@ impl PgEnt {
             .await?;
         let de = StatutIdentifiant::parse(&actuel.statut).ok_or(DomainError::NotFound)?;
         transition_identifiant_permise(de, vers).map_err(erreur)?;
+        // Lot E5 : confirmer ou révoquer un identifiant géré par une source externe (ou sur un
+        // champ verrouillé) est une écriture locale ; contester n'en est pas une (c'est un doute).
+        if matches!(vers, StatutIdentifiant::Confirme | StatutIdentifiant::Revoque) {
+            if let Some(champ) = domain_eleve::champ_catalogue_du_systeme(systeme) {
+                Self::exiger_champs_modifiables(&mut tx, etab, &[champ]).await?;
+            }
+        }
         if vers == StatutIdentifiant::Confirme {
             // Un identifiant contesté ne redevient confirmé que si la collision a disparu.
             if systeme.unique_par_etablissement()

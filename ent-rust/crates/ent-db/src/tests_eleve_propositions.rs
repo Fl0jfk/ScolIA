@@ -1349,3 +1349,199 @@ async fn file_des_propositions_filtres_et_remplacement_des_imports() {
     assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
     reset(&ent, etab).await;
 }
+
+/// Une modification LOCALE plus récente (correction du secrétariat) n'est jamais écrasée seule
+/// par un import : conflit visible, la proposition attend une personne.
+#[tokio::test]
+async fn import_ne_ecrase_pas_une_modification_locale_plus_recente() {
+    let Some((ent, cast)) = labo().await else { return };
+    let (etab, admin, secr) = (cast.etablissement_id, cast.admin.user_id, cast.administratif.user_id);
+    let role = Role::Admin.as_str();
+    // SIECLE fait foi mais la modification locale reste libre ; règle automatique explicite.
+    ent.parametrer_champ(role, etab, admin, ModifChamp {
+        champ: "nom_naissance".into(),
+        source_qui_fait_foi: Some(SourceFoi::Siecle),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    ent.definir_regle_auto(role, etab, admin, "nom_naissance", SourceProposition::Import, true).await.unwrap();
+    let e = eleve_avec(&ent, etab, "Conflit", (2011, 4, 2)).await;
+    // Import ordinaire : appliqué.
+    let n1 = nom_unique("Siecle");
+    let r = ent.deposer_proposition_systeme(import_siecle(etab, e.id, vec![("nom_naissance", json!(n1))])).await.unwrap();
+    assert!(r.appliquee_auto.is_some());
+    // Le secrétariat corrige localement.
+    let local = nom_unique("Local");
+    ent.corriger_identite(Role::Administratif.as_str(), CorrectionIdentite {
+        etablissement_id: etab,
+        eleve_id: e.id,
+        version_id: None,
+        modif: ModifIdentite { nom_naissance: Some(local.clone()), ..Default::default() },
+        motif_code: "faute_de_frappe".into(),
+        motif: None,
+        piece_document_id: None,
+        source: "saisie".into(),
+        acteur: secr,
+    })
+    .await
+    .unwrap();
+    // L'import suivant (valeur différente) n'écrase pas la correction : en attente, conflit.
+    let n2 = nom_unique("Siecle");
+    let r = ent.deposer_proposition_systeme(import_siecle(etab, e.id, vec![("nom_naissance", json!(n2))])).await.unwrap();
+    assert!(r.appliquee_auto.is_none());
+    assert_eq!(r.raisons_non_auto, vec![("nom_naissance".to_string(), "conflit_avec_la_fiche")]);
+    assert_eq!(nom_courant(&ent, e.id).await, local);
+    // Une personne tranche : acceptée, l'import redevient la dernière version (plus de conflit).
+    let id = r.en_attente.unwrap().entete.id;
+    ent.decider_proposition(Role::Administratif.as_str(), DecisionProposition {
+        champs_acceptes: vec!["nom_naissance".into()],
+        ..decision(etab, id, secr)
+    })
+    .await
+    .unwrap();
+    assert_eq!(nom_courant(&ent, e.id).await, n2);
+    let n3 = nom_unique("Siecle");
+    let r = ent.deposer_proposition_systeme(import_siecle(etab, e.id, vec![("nom_naissance", json!(n3))])).await.unwrap();
+    assert!(r.appliquee_auto.is_some());
+    reset(&ent, etab).await;
+}
+
+/// Un lot mixte dont la part automatique échoue ne perd RIEN : la part automatique rejoint les
+/// champs à décider dans une seule proposition en attente, et la fiche n'a pas bougé.
+#[tokio::test]
+async fn echec_de_la_part_automatique_ne_perd_aucune_modification() {
+    let Some((ent, cast)) = labo().await else { return };
+    let (etab, admin) = (cast.etablissement_id, cast.admin.user_id);
+    ent.appliquer_profil(Role::Admin.as_str(), etab, admin, ProfilEtablissement::Public).await.unwrap();
+    let e = eleve_avec(&ent, etab, "Panne", (2011, 4, 2)).await;
+    let avant = nom_courant(&ent, e.id).await;
+    sqlx::query(
+        "CREATE OR REPLACE FUNCTION ent_test_panne_identite() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+         BEGIN IF NEW.nom_naissance LIKE 'Panne%' AND NEW.source = 'import' THEN
+             RAISE EXCEPTION 'panne simulée' USING ERRCODE = '23514'; END IF; RETURN NEW; END $$",
+    )
+    .execute(ent.pool())
+    .await
+    .unwrap();
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool()).await.unwrap();
+    sqlx::query("CREATE TRIGGER ent_test_panne_identite BEFORE INSERT ON ent_eleve_identite FOR EACH ROW EXECUTE FUNCTION ent_test_panne_identite()")
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    let r = ent
+        .deposer_proposition_systeme(import_siecle(
+            etab,
+            e.id,
+            vec![("nom_naissance", json!(nom_unique("Panne"))), ("prenoms", json!(["Aurélie"]))],
+        ))
+        .await;
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool()).await.unwrap();
+    let r = r.unwrap();
+    assert!(r.appliquee_auto.is_none());
+    let p = r.en_attente.clone().expect("tout attend une personne");
+    let mut champs: Vec<&str> = p.champs.iter().map(|c| c.champ.as_str()).collect();
+    champs.sort();
+    assert_eq!(champs, vec!["nom_naissance", "prenoms"]);
+    assert!(r.raisons_non_auto.iter().any(|(c, m)| c == "nom_naissance" && *m == "application_impossible"), "{r:?}");
+    assert_eq!(nom_courant(&ent, e.id).await, avant);
+    // Aucune proposition intermédiaire laissée en base pour cet élève.
+    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_proposition WHERE eleve_id = $1")
+        .bind(e.id)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    reset(&ent, etab).await;
+}
+
+/// Responsable légal = lien actif ET autorité parentale ; sans autorité, ni dépôt ni lecture.
+#[tokio::test]
+async fn sans_autorite_parentale_pas_de_depot() {
+    let Some((ent, cast)) = labo().await else { return };
+    let (etab, admin) = (cast.etablissement_id, cast.admin.user_id);
+    let (lea, parent) = (cast.eleve_lea_id, cast.parent_lea.user_id);
+    ouvrir_famille(&ent, etab, admin, "nom_usage").await;
+    let cmd = || depot(etab, lea, CibleProposition::Identite, SourceProposition::Famille, None,
+        vec![("nom_usage", json!(nom_unique("Usuel")))], None);
+    let (initial,): (bool,) = sqlx::query_as(
+        "SELECT autorite_parentale FROM ent_eleve_lien l JOIN ent_personne p ON p.id = l.personne_id
+         WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND p.user_id = $3 LIMIT 1",
+    )
+    .bind(etab)
+    .bind(lea)
+    .bind(parent)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert!(initial);
+    async fn majl(ent: &PgEnt, (etab, lea, parent): (Uuid, Uuid, Uuid), v: bool) {
+        sqlx::query(
+            "UPDATE ent_eleve_lien SET autorite_parentale = $4 WHERE etablissement_id = $1 AND eleve_id = $2
+             AND personne_id IN (SELECT id FROM ent_personne WHERE user_id = $3)",
+        )
+        .bind(etab)
+        .bind(lea)
+        .bind(parent)
+        .bind(v)
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    }
+    let ids = (etab, lea, parent);
+    majl(&ent, ids, false).await;
+    let r = ent.deposer_proposition_famille("parent", cmd(), parent).await;
+    let l = ent.mes_propositions("parent", etab, parent, lea).await;
+    let c = ent.champs_signalables("parent", etab, parent, lea).await;
+    majl(&ent, ids, true).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
+    assert!(matches!(l, Err(EntDbError::Forbidden)));
+    assert!(matches!(c, Err(EntDbError::Forbidden)));
+    assert!(ent.deposer_proposition_famille("parent", cmd(), parent).await.unwrap().en_attente.is_some());
+    reset(&ent, etab).await;
+}
+
+/// Verrous : confirmer ou révoquer un INE géré par SIECLE est une écriture locale refusée ;
+/// contester (un doute) reste possible ; le chemin système respecte aussi le verrou.
+#[tokio::test]
+async fn transitions_d_identifiant_respectent_le_verrou() {
+    let Some((ent, cast)) = labo().await else { return };
+    let (etab, admin, secr) = (cast.etablissement_id, cast.admin.user_id, cast.administratif.user_id);
+    let role = Role::Administratif.as_str();
+    let e = eleve_avec(&ent, etab, "Transition", (2011, 4, 2)).await;
+    let valeur = format!("4321{}", alea(7).to_uppercase());
+    let r = ent
+        .ajouter_identifiant(role, crate::identifiants::AjoutIdentifiant {
+            etablissement_id: etab,
+            eleve_id: e.id,
+            systeme: domain_eleve::SystemeIdentifiant::Ine,
+            valeur,
+            provenance: domain_eleve::ProvenanceIdentifiant::Saisie,
+            valide_du: None,
+            preuve_document_id: None,
+            acteur: Some(secr),
+        })
+        .await
+        .unwrap();
+    ent.appliquer_profil(Role::Admin.as_str(), etab, admin, ProfilEtablissement::Public).await.unwrap();
+    let id = r.identifiant.id;
+    let r = ent.confirmer_identifiant(role, etab, e.id, id, secr, "verification").await;
+    assert!(matches!(r, Err(EntDbError::Refus(_, _))), "{r:?}");
+    let r = ent.revoquer_identifiant(role, etab, e.id, id, secr, Some("erreur")).await;
+    assert!(matches!(r, Err(EntDbError::Refus(_, _))), "{r:?}");
+    ent.contester_identifiant(role, etab, e.id, id, secr, Some("doute sur l'INE")).await.unwrap();
+    let r = ent
+        .ajouter_identifiant_systeme(crate::identifiants::AjoutIdentifiant {
+            etablissement_id: etab,
+            eleve_id: e.id,
+            systeme: domain_eleve::SystemeIdentifiant::Ine,
+            valeur: format!("8765{}", alea(7).to_uppercase()),
+            provenance: domain_eleve::ProvenanceIdentifiant::DocumentFamille,
+            valide_du: None,
+            preuve_document_id: None,
+            acteur: None,
+        })
+        .await;
+    assert!(matches!(r, Err(EntDbError::Refus(_, _))), "{r:?}");
+    reset(&ent, etab).await;
+}
