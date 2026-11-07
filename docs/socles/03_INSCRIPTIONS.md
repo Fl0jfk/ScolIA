@@ -6,6 +6,8 @@
 
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin cité ; les chemins `lot5:` renvoient à la branche `origin/ent-integration-lot5`, la plus avancée, qui contient tout `ent-socle2-inscriptions`) ; **[F Next]** fait lu dans l'application Next.js ; **[S]** fait sourcé sur le web (source citée au §19) ; **[H]** hypothèse (mémoire ou déduction) ; **[NV]** règle réglementaire non vérifiée sur un texte officiel, **à vérifier avant de coder** ; **[R]** recommandation (non décidée). Les identifiants d'actions métier `INS-xx` existants sont conservés ; les nouveaux prennent la suite (`INS-16`…), sans renumérotation.
 
+**[personas] Passe « personas » du 2026-11-06.** Ajouts marqués **[personas]** : actions INS-53 à INS-84 (§11), règles R-I1 à R-I27 et cas limites (§17 bis), questions Q-I21 à Q-I26 (§18). Origine de chaque ajout : `docs/socles/PERSONAS_02-04.md`. **À signaler au lot I0 en cours** : un responsable marqué « à ne pas solliciter » ne reçoit ni demande d'accord, ni invitation, ni relance (INS-57, R-I8) ; une adresse déclarée « à protéger » n'est jamais transmise en clair au socle 4 (INS-58, R-I9 ; lot A0 du socle 4).
+
 Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Public, privé sous contrat, hors contrat · §5 Frontières (socles 2 et 4) · §6 Concepts et vocabulaire · §7 Cycles de vie · §8 Modèle de données cible · §9 Logiciel ou paramétrage · §10 Échanges avec l'extérieur · §11 Actions métier · §12 Droits · §13 Événements · §14 Écrans · §15 Données personnelles, sécurité, équité · §16 Plan de migration · §17 Lots de code · §18 Questions à trancher · §19 Récapitulatif faits / hypothèses / sources.
 
 ---
@@ -140,6 +142,8 @@ La méthode du projet demande de partir de ce que chacun perd comme temps, redou
 
 **Cas limites à traiter dès la conception** [R] (chacun renvoie à une règle du §7 ou du §8) : fratrie (jumeaux compris) ; famille recomposée ; enfant confié à l'aide sociale à l'enfance, dont l'adresse ne doit pas être connue (confidentialité renforcée, `02_ELEVE.md` §7.6) ; parent seul titulaire de l'autorité parentale (pièce) ; parents en désaccord ; tuteur ; élève majeur, émancipé, majeur protégé ; enfant venant de l'étranger sans INE ni bulletins ; enfant allophone ; enfant en instruction en famille qui revient ; enfant venant du hors contrat ; ancien élève qui revient ; double inscription (place gardée dans le privé et affectation dans le public) ; désistement le 31 août ; élève inscrit mais jamais venu ; départ en cours de trimestre ; exclusion définitive (procédure disciplinaire, socle 13) ; décès d'un élève (procédure humaine, aucun envoi automatique) ; changement d'établissement à l'intérieur du même tenant (école → collège : ce n'est pas un départ, `02_ELEVE.md` §7.4) ; même enfant dans deux établissements ScolIA (deux élèves sans lien visible, D-013).
 
+**[personas] Cas limites ajoutés** (règles au §17 bis) : mère protégée par une ordonnance qui inscrit en ligne un dimanche soir ; jumeaux à admettre ensemble ; famille sans domicile stable ou en hébergement d'urgence ; famille sans titre de séjour ; famille non francophone ; enfant arrivé de l'étranger sans certificat de radiation possible ; départ annoncé trois jours avant ; arrivée en juillet après la clôture des admissions ; élève en mobilité un an à l'étranger ; décès d'un candidat ou d'un élève pendant une démarche ; validation faite par erreur ; recours contre un refus ; panne le dernier jour de la réinscription ; secrétariat fermé en août ; membre de commission parent d'un candidat ; reprise des dossiers en cours lors d'un changement de logiciel en pleine saison.
+
 ---
 
 ## 4. Public, privé sous contrat, hors contrat
@@ -178,7 +182,8 @@ D-019 impose les deux d'emblée. Le domaine est **le même** ; ce qui change, c'
   - `accord_responsables = un_seul | tous_les_titulaires` (préréglage : `tous_les_titulaires` pour l'admission dans le privé ; `un_seul` pour la réinscription et pour le public) ;
   - **désaccord déclaré** par un titulaire de l'autorité parentale (à tout moment, y compris un parent qui n'est pas déposant et qui écrit à l'établissement) ⇒ le dossier passe en **« bloqué : désaccord des responsables »**, aucune décision ni validation possible, message neutre aux deux parents (« l'établissement ne peut pas trancher ; seule une décision commune ou du juge aux affaires familiales le permet » [S]) ; levée avec pièce (accord écrit, décision de justice) ;
   - **un seul titulaire** de l'autorité parentale (décès, retrait, jugement) : déclaré avec pièce ; le socle 4 en garde la trace sur le lien ;
-  - parent **sans e-mail** : accord recueilli sur papier, scanné et joint (pièce `accord_responsable`), saisi par le secrétariat avec son nom.
+  - parent **sans e-mail** : accord recueilli sur papier, scanné et joint (pièce `accord_responsable`), saisi par le secrétariat avec son nom ;
+  - **[personas] responsable à ne pas solliciter** (danger, ordonnance de protection, décision de justice) : aucune demande d'accord, invitation, relance ni copie ne lui est envoyée ; l'accord est « dispensé » par décision motivée de la direction, pièce attendue (INS-57, R-I8, R-I10). Sans cette règle, la demande d'accord révèle l'établissement de l'enfant.
 - **Écart avec D-014** : D-014 envoie l'invitation du second parent **à la validation**. Pour une admission dans le privé, l'accord doit exister **avant** l'engagement (contrat, acompte). Proposition : une **demande d'accord** (lien, vérification de l'e-mail par code, sans création de compte) part au dépôt ou à l'admission ; l'invitation à créer le compte reste à la validation, comme D-014. Question Q-I5.
 
 ### 4.5 Ce que tous les établissements doivent produire
@@ -726,6 +731,8 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-22 | Pointer la présence, enregistrer un contact à l'accueil | ACC · `inscriptions.contacts.gerer` | tablette ou téléphone (QR) | `inscription.accueil_presence` |
 | INS-23 | Suivre un contact (trace d'échange, relance, conversion, perte) | ADF, DIR · idem | traces internes courtes | `inscription.contact_converti` |
 | INS-24 | Proposer et gérer des rendez-vous (visite, entretien) | ADF · idem ; PAR, CTC (réservation) | réservation provisoire qui expire, confirmation, reconfirmation J-N, changement de créneau par lien (cf. Next.js) | `inscription.rdv_*` |
+| INS-53 [personas] | Organiser une **session de tests d'admission** (convocations, salles, surveillants, présence, résultats saisis par les correcteurs) | ADF · `inscriptions.instruire` ; MBR · `inscriptions.avis` | les résultats sont des **avis** internes, jamais une décision ; aménagements annoncés (sans détail médical) pris en compte ; convocation dans la langue de la famille si disponible (R-I4) | `inscription.session_tests_*` |
+| INS-54 [personas] | Recueillir un **avis externe** par lien à usage unique (club sportif, conservatoire, section internationale) | ADF · `inscriptions.instruire` ; tiers sans compte | lien unique, 7 jours ; le tiers ne voit que nom, prénom, niveau visé et la question posée ; la famille est informée qu'un avis extérieur est demandé ; la réponse devient un avis interne (R-I23) | `inscription.avis_externe_*` |
 
 ### 11.3 Candidature et instruction
 
@@ -740,6 +747,13 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-28 | Demander l'accord d'un responsable, enregistrer un accord papier, déclarer un désaccord | SYS ; ADF ; PAR | §4.4 ; désaccord ⇒ `bloque_desaccord` | `inscription.accord_*`, `inscription.bloque_desaccord` |
 | INS-29 | Échanger avec la famille sur le dossier | ADF ↔ PAR | messages « à propos du dossier » (socle 16 quand disponible) | — |
 | INS-30 | Détecter et fusionner des candidatures en double | ADF · idem | même candidat dans deux dossiers ouverts | `inscription.dossiers_fusionnes` |
+| INS-55 [personas] | **Modifier une démarche déposée** (vœux, informations, pièce oubliée) tant qu'aucune décision n'est rendue | PAR (déposant), ELV majeur | chaque modification est versionnée et visible du secrétariat (« modifié après dépôt ») ; la date de dépôt est conservée ; vœux gelés à l'ouverture de la commission (paramètre) | `admission.modifiee` |
+| INS-56 [personas] | **Changer l'e-mail du déposant**, ou transférer la démarche à l'autre responsable | PAR ; ADF au guichet (identité vérifiée) | nouvelle adresse vérifiée par code ; l'ancienne est prévenue ; transfert seulement vers un responsable déclaré titulaire de l'autorité, avec son accord ; jamais vers une personne « à ne pas solliciter » | `inscription.deposant_change` |
+| INS-57 [personas] | **Marquer un responsable « à ne pas solliciter »** ★ (danger, ordonnance de protection, décision de justice) | DIR · `inscriptions.decider` | supprime demandes d'accord, invitations, relances et copies vers cette personne, y compris celles déjà programmées ; motif scellé ; pièce attendue ; règle d'accord recalculée (« dispensé : décision de la direction ») ; le déposant voit seulement « la direction prend contact avec vous » ; transmis au socle 4 à la validation (R-I8) | `inscription.sollicitation_suspendue` (sans motif ni personne) |
+| INS-58 [personas] | Déclarer, **dès la préinscription**, une situation qui exige la confidentialité (adresse à protéger, personne à ne pas contacter) | PAR, ELV majeur | case dédiée avec un texte court, scellé ; dossier marqué pour la direction **avant** toute demande d'accord ; l'adresse marquée n'est jamais transmise en clair au socle 4 (R-I9) | `inscription.confidentialite_demandee` |
+| INS-59 [personas] | **Numériser un dossier papier** reçu par courrier (lot de pages → pièces typées) | ADF · `inscriptions.instruire` | découpage assisté (pages, types), aperçu, contrôle du type réel (socle 7) ; sort de l'original selon le paramétrage (rendu, archivé, détruit) | `inscription.piece_controlee` |
+| INS-60 [personas] | **Préparer la démarche par l'élève**, vérifiée et déposée par le responsable | ELV (âge minimal paramétré, désactivé par défaut) ; PAR | l'élève ne voit ni ne remplit les champs financiers ni les coordonnées des responsables ; seul le responsable dépose (R-I22) | — |
+| INS-61 [personas] | Demander un **interprète** ou une traduction (rendez-vous, courrier de décision) | PAR ; ADF | marque sur le dossier et le rendez-vous ; rappel « pas d'enfant interprète pour une décision » ; la langue est gardée pour les envois (socle 8) | — |
 
 ### 11.4 Évaluation et décision
 
@@ -750,6 +764,12 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-04 | Décider (admis, sous réserve, attente, refus, ajourné) | DIR · `inscriptions.decider` ★ | motif interne obligatoire ; motif communiqué selon paramétrage ; courrier généré ; dépassement de capacité confirmé | `admission.decidee` [F] |
 | INS-33 | Revoir une décision | DIR · idem ★ | nouvelle décision qui remplace, motif | `admission.decidee` [F] |
 | INS-34 | Gérer la liste d'attente (rang, proposer une place libérée) | DIR · idem | le système **désigne** le suivant ; une personne confirme l'envoi | `inscription.place_proposee` |
+| INS-62 [personas] | **Programmer la publication des décisions** (une date et une heure pour une commission ou une offre) | DIR · `inscriptions.decider` ★ | décisions prises mais invisibles jusqu'à l'heure ; envois groupés ; confirmation demandée pour une heure entre 20 h et 8 h, un dimanche ou un jour férié (R-I7) | `admission.decisions_publiees` |
+| INS-63 [personas] | **Se déporter** d'un dossier (conflit d'intérêts) | MBR, DIR | détection proposée : le membre est responsable, contact ou personnel apparenté déclaré du candidat (socles 4 et 6) ; il ne voit plus le dossier ni ses avis ; tracé (R-I13) | `inscription.deport` |
+| INS-64 [personas] | **Lier les décisions** de plusieurs dossiers (jumeaux, fratrie : « ensemble ou pas du tout ») | DIR ; PAR (souhait déclaré au dépôt) | la commission voit le groupe ; décisions différentes possibles seulement avec confirmation explicite (R-I14) | — |
+| INS-65 [personas] | **Proposer une offre alternative** (« pas de place en bilangue, une place en classe standard ») | DIR · `inscriptions.decider` | décision `admis` sur une autre offre ; la famille accepte ou décline ; le vœu initial peut rester en liste d'attente | `admission.decidee` |
+| INS-66 [personas] | **Enregistrer et instruire un recours** contre une décision (refus, liste d'attente, non-réinscription) | ADF, DIR · `inscriptions.decider` | date de réception, auteur, objet ; échéance de réponse paramétrée ; réponse motivée et courrier ; nouvelle décision éventuelle (INS-33) ; public : orientation vers l'autorité compétente [NV, à vérifier] (R-I12) | `inscription.recours_recu` / `_repondu` |
+| INS-67 [personas] | Produire le **dossier de justification** d'une décision (critères affichés, avis, pièces, chronologie, auteurs) | DIR · `inscriptions.avis.lire` + `inscriptions.exporter` | pour un recours, le Défenseur des droits, un contrôle ; filigrane ; journalisé | `export.realise` |
 
 ### 11.5 Confirmation et validation
 
@@ -763,6 +783,9 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-14 | Reprendre l'IBAN masqué et demander un nouveau mandat | PAR | D-014 [F] | (socle 25) |
 | INS-38 | Ouvrir les tâches de rentrée | SYS sur `inscription.validee` | fiche de rentrée (socle 4), fiche santé (34), autorisations (18), photo (2) apparaissent dans l'à-faire de la famille | — |
 | INS-39 | Se désister après admission ou validation | PAR ; ADF (constat) | §7.1 ; remboursement selon contrat (commande) | `inscription.desistement` |
+| INS-68 [personas] | **Annuler une validation erronée** ★ (mauvais enfant, mauvaise année, doublon) | DIR · `inscriptions.valider` | délai court paramétré (défaut 72 h) ; refusée si un autre socle a produit des données depuis (liste montrée : utiliser alors le désistement ou ELV-02) ; appelle les commandes inverses des socles 2 et 4 ; invitations révoquées ; facture annulée par commande (R-I11) | `inscription.validation_annulee` |
+| INS-69 [personas] | Délivrer une **attestation d'inscription pour l'année à venir** | PAR (libre-service) ; ADF | dès la validation ; année et niveau prévu (« sous réserve de la décision de passage » si inconnu) ; vérifiable par code (socle 7) ; bilingue possible (R-I19) | `document.emis` |
+| INS-70 [personas] | Demander un **changement de vœu ou d'option après la validation**, avant la rentrée | PAR (titulaire) | selon places et date limite (socle 5) ; décision humaine ; frais recalculés par commande ; refus motivé | `inscription.voeu_change` |
 
 ### 11.6 Réinscription
 
@@ -774,6 +797,8 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-09 | Appliquer la décision de passage au dossier de réinscription | SYS sur événement du socle 23 ; ADF | niveau, redoublement, réorientation ; famille informée | `inscription.niveau_determine` |
 | INS-41 | Traiter les sans-réponse à la date limite | ADF, DIR | prolonger, valider (tacite), ouvrir un départ | — |
 | INS-10, INS-11 | Changer de régime, d'options (en cours d'année) | — | **déplacées au socle 2** (ELV-10) ; le socle 3 ne les porte que comme vœux N+1 | — |
+| INS-71 [personas] | **Réserver la place d'un élève en mobilité** (année à l'étranger, `02_ELEVE.md` ELV-35) | ADF · `inscriptions.instruire` | dossier de réinscription `confirmee` sans conditions de rentrée ; relance pour confirmer le retour à une date ; place comptée dans les effectifs prévisionnels | `eleve.reinscription_confirmee` |
+| INS-72 [personas] | **Relancer de façon ciblée** (pas ouvert ; commencé sans finir ; un seul parent a répondu ; conditions manquantes) | ADF | compteurs par cible ; canal choisi ; plafond et heures calmes inchangés | `admission.relance_envoyee` [F] |
 
 ### 11.7 Départ et rentrée
 
@@ -785,6 +810,12 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-44 | Enregistrer une arrivée en cours d'année | ADF · `inscriptions.instruire` + `inscriptions.valider` | procédure courte (§7.5) ; classe choisie dans une liste | `inscription.validee` |
 | INS-45 | Produire les listes mairies (rentrée, mutations mensuelles) | ADF · `inscriptions.exporter` | par commune de résidence (socle 4) ; envoi humain tracé | `export.realise` |
 | INS-46 | Créer les départs de fin d'année en lot | ADF · `inscriptions.departs.gerer` ★ | fin de cycle, élèves sans inscription N+1 | `scolarite.depart_enregistre` |
+| INS-73 [personas] | Émettre les **certificats de radiation en lot** | ADF · `inscriptions.departs.gerer` ★ | signature du chef d'établissement en une fois ; dépôt dans le coffre de chaque famille (socle 7) ; transmission sur demande (INS-74) | `document.emis` |
+| INS-74 [personas] | **Transmettre le dossier scolaire** à l'établissement d'accueil | ADF · `inscriptions.departs.gerer` | à la demande de la famille ou de l'établissement d'accueil ; contenu choisi et listé (bulletins, livret, décisions d'orientation, certificat) ; **jamais** santé ni suivi social hors de leurs circuits ; famille informée ; bordereau d'envoi conservé (R-I20) | `scolarite.dossier_transmis` |
+| INS-75 [personas] | **Répondre à une demande** de dossier ou de certificat reçue d'un autre établissement | ADF | vérification de la demande (UAI, interlocuteur, élève effectivement parti vers cet établissement) ; réponse tracée ; refus motivé si la demande ne correspond à rien | `scolarite.dossier_transmis` |
+| INS-76 [personas] | Enregistrer un **départ vers l'instruction en famille ou l'étranger** avec ses références | ADF · `inscriptions.departs.gerer` | référence d'autorisation ou de déclaration exigée selon la règle vérifiée [NV, à vérifier : autorisation préalable de l'instruction en famille] ; sans référence : alerte direction et lien vers la procédure du socle 12 | `scolarite.depart_enregistre` |
+| INS-77 [personas] | **Signaler à l'administration** les places vacantes et les affectés non inscrits | ADF, DIR · `inscriptions.exporter` | public, Affelnet ; liste datée ; envoi humain tracé [NV : circuit exact] | `export.realise` |
+| INS-78 [personas] | Suivre la **complétude de rentrée** par classe (fiche de rentrée, santé, assurance, photo, autorisations, comptes activés) | ADF ; PP (lecture de sa classe) | « fait / pas fait » seulement, jamais le contenu (santé surtout) ; relance groupée | — |
 
 ### 11.8 Pilotage, paramétrage, imports
 
@@ -796,6 +827,12 @@ Notation des acteurs comme `02_ELEVE.md` §11 : ADF administratif (secrétariat)
 | INS-50 | Paramétrer (profil, types de campagne actifs, modèles de courriers, motifs, critères, page publique) | ADM · `inscriptions.parametrer` | dans les bornes du logiciel | `parametrage.inscriptions_modifie` |
 | INS-51 | Importer une liste d'élèves affectés | ADF · `imports.appliquer` [F] | cadre du socle 9 ; crée des dossiers `affectes`, jamais des élèves | `import.lot_applique` [F] |
 | INS-52 | Purger les données arrivées à échéance | SYS | durées DPO ; journal de purge | `inscription.purge` |
+| INS-79 [personas] | **Prolonger ou décaler une échéance** pour toute une campagne ou une sélection (panne, intempérie, grève postale) ★ | DIR · `inscriptions.campagnes.gerer` | familles prévenues ; relances recalées ; motif public court ; jamais rétroactif au détriment d'une famille | `inscription.echeance_prolongee` |
+| INS-80 [personas] | Déclarer une **fermeture du secrétariat** (vacances) : délais suspendus, message aux familles | DIR, ADF · `inscriptions.campagnes.gerer` | délais de réponse des familles et échéances internes recalculés (R-I6) ; message sur « Mes démarches » ; urgences redirigées vers un contact | `inscription.fermeture_declaree` |
+| INS-81 [personas] | **Reprendre des dossiers en cours** depuis un ancien logiciel ou un tableur (mise en service en pleine saison) | ADF · `imports.appliquer` | dossiers créés dans leur état réel (déposé, admis, sur liste d'attente) avec leur date d'origine ; pièces jointes ; **aucun** envoi rétroactif (R-I26) | `import.lot_applique` [F] |
+| INS-82 [personas] | **Vérifier une priorité déclarée** (fratrie, enfant du personnel, ancien élève) | SYS propose ; ADF confirme | lecture minimisée aux socles 2, 4 (port `fratrie`), 6 ; réponse « vérifiée / non trouvée », sans exposer d'autre donnée | — |
+| INS-83 [personas] | Signaler une **suspicion de fraude** (justificatif de domicile, bulletin falsifié) | ADF → DIR | note interne scellée ; aucune conséquence automatique ; décision humaine (R-I21) | — |
+| INS-84 [personas] | Imprimer la **fiche d'inscription** d'un candidat ou d'un élève (dossier complet, une page par section) | ADF · `inscriptions.lire` | trame prête (R-I27) ; avis internes exclus sauf droit `inscriptions.avis.lire` ; filigrane — présente dans Next.js et sur le marché (D-024) | — |
 
 ---
 
@@ -1031,6 +1068,44 @@ Ordre recommandé : **I0** (débloque la fusion de S2-3) → **I1** → **I2** �
 
 ---
 
+## 17 bis. Ajouts de la passe « personas » [personas]
+
+Origine, personas et gravité : `docs/socles/PERSONAS_02-04.md`. Le lot qui porte chaque règle est indiqué ; **I0** et **A0** signalent un lot en cours.
+
+| # | Règle [personas] | Lot |
+|---|---|---|
+| R-I1 | **Liste noire étendue.** Le logiciel ne demande jamais, et signale dans les questions personnalisées et les pièces demandées : titre de séjour, situation administrative au regard du séjour, nationalité des responsables, revenus ou avis d'imposition **avant l'admission** (la tarification relève du socle 26, après), en plus de la religion, de l'origine, des opinions et de la santé avant l'admission (§15.5). Le catalogue des types de pièces ne contient aucun « titre de séjour ». Fondement : droit à l'instruction indépendant de la situation administrative [NV, à vérifier] | I2, I13 |
+| R-I2 | **Pièce « sans objet ».** Statut de pièce `sans_objet`, distinct de `dispensee`, avec motif codé (`arrivee_etranger`, `instruction_famille`, `premiere_scolarisation`, `autre`) : un enfant arrivé de l'étranger n'a pas de certificat de radiation ; jamais bloquant ; compté à part dans les statistiques | I3 |
+| R-I3 | **Pièces en langue étrangère.** Attribut `langue` sur la pièce ; traduction jointe **facultative** ; aucune exigence de traduction assermentée sauf paramétrage explicite [NV] | I3 |
+| R-I4 | **Parcours famille multilingue.** Préinscription, Mes démarches, accord du second parent et réinscription disponibles en français et dans d'autres langues (liste du logiciel ; premières langues proposées [R] : anglais, arabe, espagnol, portugais, turc, ukrainien, russe, dari) ; les textes du logiciel sont traduits par ScolIA ; les textes de l'établissement restent en français, avec traduction facultative ; la langue choisie est gardée pour les envois (socle 8) ; les documents contractuels en français font foi | I14b (+29) |
+| R-I5 | **Arrivées hors campagne.** La campagne `en_cours_annee` de N+1 s'ouvre dès la clôture des admissions de N+1 (arrivées d'été, mutations) ; un établissement peut choisir un mode **admission au fil de l'eau** (campagne d'admission permanente, sans date de clôture : hors contrat surtout) | I2 |
+| R-I6 | **Délais et fermetures.** Les fermetures du secrétariat sont des événements du calendrier (socle 5, cible « secrétariat ») ; un délai famille qui expire pendant une fermeture est reporté au jour de réouverture + N jours (paramètre) ; relances suspendues ; les délais peuvent se compter en jours ouvrés (paramètre) | I5, I8 |
+| R-I7 | **Publication programmée.** Désactivée par défaut ; une décision programmée n'est visible ni de la famille ni des compteurs publics avant l'heure ; confirmation demandée pour une heure entre 20 h et 8 h, un dimanche ou un jour férié | I5 |
+| R-I8 | **« À ne pas solliciter ».** Marque posée par la direction (INS-57) ou demandée par la famille (INS-58) ; effets **immédiats** : aucune demande d'accord, invitation, relance ou copie vers la personne, y compris déjà programmées ; la personne n'apparaît dans aucune liste d'envoi de la démarche ; à la validation, la marque est transmise au socle 4 (interdiction de communication ou adresse protégée, décidées par la direction). **I0 doit déjà respecter la marque pour la demande d'accord ; A0 pour l'invitation** | **I0**, I4, I6 ; **A0** |
+| R-I9 | **Confidentialité déclarée à la préinscription.** Une adresse déclarée « à protéger » est stockée scellée dans le dossier (`champs_chiffres`) et **n'est jamais transmise en clair** au socle 4 : `integrer_declaration` reçoit le champ réservé `adresse_a_proteger` et la parque pour la direction (socle 4, R-A39) ; aucune demande d'accord ne part tant que la direction n'a pas statué | I2, I6 ; **A0** |
+| R-I10 | **Accord dispensé.** Quand la règle est « tous les titulaires » et qu'un titulaire est « à ne pas solliciter », la condition d'accord est remplie par une **dispense motivée** de la direction (pièce attendue), jamais automatiquement | I4 |
+| R-I11 | **Annulation d'une validation.** Délai paramétré (défaut 72 h, bornes 0 à 7 jours) ; refus si un autre socle a produit des données depuis (note, absence, paiement reçu, document signé) ; sinon commandes inverses dans **une** transaction : annulation de l'élève créé (ELV-02) ou de l'inscription annuelle, liens créés clos par le socle 4 (sans effacement), invitations révoquées, facture annulée par commande ; le dossier revient à `confirme` | I6 |
+| R-I12 | **Recours.** Échéance de réponse paramétrée ; la réponse est une décision humaine motivée ; dans le public, le recours contre une affectation relève de l'autorité académique [NV, à vérifier] : ScolIA enregistre et oriente, ne décide pas | I5 |
+| R-I13 | **Conflit d'intérêts en commission.** Un membre lié au candidat (socle 4 : responsable, contact, payeur ; socle 6 : apparenté déclaré) se voit proposer le déport ; ses avis déjà donnés restent mais sont marqués ; il ne vote pas | I5 |
+| R-I14 | **Décisions liées.** Groupe de dossiers déclaré par la famille (jumeaux, fratrie) ; la commission voit le groupe ; des décisions différentes exigent une confirmation explicite et un motif | I5 |
+| R-I15 | **Sous-capacités d'internat.** Une offre de régime interne peut se décomposer en **unités d'hébergement** (dortoirs, chambres adaptées) avec leur capacité et leurs conditions d'accès, définies par l'établissement ; le compteur de places dit s'il reste une place **compatible** ; l'affectation à une chambre reste au socle 41 | I2 |
+| R-I16 | **Départ express.** Un départ annoncé moins de 5 jours ouvrés avant sa date déclenche une checklist prioritaire : certificat émis le jour de l'enregistrement, documents de l'année déposés au coffre, compte famille gardé 30 jours, soldes signalés sans bloquer | I9 |
+| R-I17 | **Élève majeur sans responsable.** Aucun responsable n'est exigé ; la règle d'accord ne s'applique pas ; payeur : l'élève lui-même ou un organisme ; les contrôles de qualité « aucune autorité active » ne s'appliquent pas à un majeur | I2, I6 |
+| R-I18 | **Fratrie sur plusieurs campagnes.** Un enfant en admission et un autre en réinscription la même année : une seule page « Mes démarches », une seule signature du contrat quand le gabarit le permet | I8, I14b |
+| R-I19 | **Attestation d'inscription.** Vérifiable par code ou QR (socle 7) ; mention « sous réserve de la décision de passage » quand le niveau n'est pas connu ; bilingue possible | I6 (+7) |
+| R-I20 | **Dossier scolaire transmis.** Liste fermée de contenus ; la famille en est informée et peut le consulter ; jamais santé (34) ni suivi social (36) ; envoi par lien court sécurisé ou papier, avec bordereau conservé | I9 |
+| R-I21 | **Fraude suspectée.** Aucune conséquence automatique ; note scellée lisible de la direction ; dans le public, procédure de l'autorité [NV, à vérifier] | I5 |
+| R-I22 | **Co-remplissage par l'élève.** Désactivé par défaut ; âge minimal paramétré ; l'élève ne voit ni les champs financiers ni les coordonnées des responsables ; seul le responsable dépose | I14b |
+| R-I23 | **Avis externe.** La famille est informée dans le formulaire qu'un avis extérieur peut être demandé (finalité, destinataire) ; le tiers ne voit que le strict nécessaire ; son lien expire en 7 jours | I5 |
+| R-I24 | **Tests d'admission.** Les résultats sont des avis ; un tri par résultat n'est qu'un affichage choisi par une personne ; aucun seuil d'admission automatique | I5 |
+| R-I25 | **Familles sans domicile stable.** Le justificatif de domicile n'est jamais bloquant ; une attestation de domiciliation (centre communal d'action sociale, association) est acceptée [NV, à vérifier pour le public] | I3 |
+| R-I26 | **Reprise en pleine saison.** Table de correspondance des états de l'ancien logiciel ; dates d'origine conservées (dépôt, décision) ; aucune notification, relance ni accusé de réception rétroactif ; rapport des dossiers non rapprochés | I11 (+28) |
+| R-I27 | **Courriers et documents en trames prêtes (D-023).** Les « modèles de courriers paramétrables » et le « gabarit du certificat » (§9, §11) deviennent un **choix parmi 3 ou 4 trames** par type (accusé de réception, demande de pièces, convocation, décisions, proposition de place, non-réinscription, réponse à un recours, attestation d'inscription, certificat de radiation, bordereau du dossier scolaire, fiche d'inscription, listes mairie) ; l'établissement n'ajuste que son identité et un texte libre encadré ; aucune trame ne se construit dans un traitement de texte. Le paramétrage existant n'est pas supprimé : il est **signalé** pour décision commune (`PERSONAS_02-04.md` §5 bis.2, S-07 à S-14) | I13 (+7) |
+
+**Droits** : aucun nouveau droit ; INS-57 et INS-62 utilisent `inscriptions.decider`, INS-79 et INS-80 `inscriptions.campagnes.gerer`. **Événements ajoutés** : `admission.modifiee`, `inscription.deposant_change`, `inscription.sollicitation_suspendue`, `inscription.confidentialite_demandee`, `admission.decisions_publiees`, `inscription.deport`, `inscription.recours_recu` / `_repondu`, `inscription.validation_annulee`, `inscription.voeu_change`, `scolarite.dossier_transmis`, `inscription.echeance_prolongee`, `inscription.fermeture_declaree`, `inscription.session_tests_*`, `inscription.avis_externe_*` ; charges utiles sans donnée personnelle. **Consommé** : `eleve.decede` (socle 2) clôt toute démarche en cours de l'élève sans aucun message.
+
+---
+
 ## 18. Questions à trancher par le porteur du projet
 
 | # | Question | Options | Recommandation |
@@ -1055,6 +1130,12 @@ Ordre recommandé : **I0** (débloque la fusion de S2-3) → **I1** → **I2** �
 | **Q-I18** | Démarches réglementaires à vérifier avant les lots I5, I8, I9, I11 : formats Affelnet/SIECLE, certificat de radiation, listes mairies (art. L131-6), accord des parents, non-réinscription | — | les ajouter à la liste des démarches de `INTEROPERABILITE_NATIONALE.md` §12 ; consultation juridique pour l'accord des parents et la non-réinscription |
 | **Q-I19** | Paiement en ligne des frais de dossier et de l'acompte | — | dépend de Q5 (`SOCLE2_DOMAINES.md`) ; en attendant : virement, chèque, prélèvement après mandat |
 | **Q-I20** | Réinscription « tacite » préréglée pour le public, « explicite » pour le privé | oui / non | **oui** |
+| **Q-I21** [personas] | « À ne pas solliciter » (INS-57, R-I8) et confidentialité déclarée à la préinscription (INS-58, R-I9) : à intégrer **dès I0**, avant la fusion de S2-3 ? | maintenant / plus tard | **maintenant** : sans cela, la demande d'accord du second parent peut révéler l'établissement d'un enfant protégé |
+| Q-I22 [personas] | Délai d'annulation d'une validation erronée (R-I11) | 0 / 72 h / 7 jours | **72 h**, tant qu'aucun autre socle n'a produit de données |
+| Q-I23 [personas] | Langues du parcours famille (R-I4) : lesquelles d'abord, et qui traduit les textes du logiciel ? | — | anglais, arabe, espagnol, portugais, turc, ukrainien, russe, dari ; traduction professionnelle relue, pas de traduction automatique non relue |
+| Q-I24 [personas] | Publication programmée des décisions (R-I7) : activée par défaut dans le privé ? | oui / non | **non** (choix de chaque établissement) |
+| Q-I25 [personas] | Recours (INS-66) : délai de réponse par défaut ? | — | **15 jours** [R], paramétrable ; à confronter aux contrats de scolarisation |
+| Q-I26 [personas] | Ouverture automatique de la campagne `en_cours_annee` de N+1 à la clôture des admissions (R-I5) ? | oui / non | **oui** |
 
 ---
 
