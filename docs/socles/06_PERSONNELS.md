@@ -6,6 +6,8 @@
 
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin cité) ; **[F Next]** fait lu dans l'application Next.js (lecture seule) ; **[S]** fait sourcé repris d'un document du dépôt qui cite sa source ; **[H]** hypothèse (mémoire ou déduction) ; **[NV]** règle réglementaire citée de mémoire, **à vérifier sur un texte officiel avant de coder** ; **[R]** recommandation (non décidée). Les identifiants d'actions métier **`PRS-xx`** sont nouveaux et stables (le préfixe `PER-` est déjà pris par le périscolaire et `ADM-` par le socle 4, voir §20) ; la correspondance avec `RH-xx`, `ADM-xx` (D15) et `REF-12/13` de `SOCLE2_DOMAINES.md` est indiquée. **Plage de migrations : 350–369** (`docs/socles/MIGRATIONS.md`).
 
+**[personas] Passe personas du 2026-11-07** (`docs/socles/PERSONAS_05-06.md`, branche `ent-personas-socles-5-6`) : ajouts marqués **[personas]** — cas limites P47 à P60 (§4.3), notes de correction (§7, §8.2), modèle §8.14, actions PRS-116 à PRS-147 (§10.11), règles R-P1 à R-P26 (§10.12), droits §14.3, événements §15.3, lots P15 et P16 (§18), questions Q-P28 à Q-P35. **À lire d'abord : `PERSONAS_05-06.md` §0** (contradictions avec le socle 5 — cours / service, fonction de périmètre — et engagements simultanés, à trancher avant les lots P0, P1, P3, P4). Rien n'a été supprimé.
+
 **Méthode et limites.** Trois sous-agents Haiku ont relevé en lecture seule : le catalogue d'actions et le moteur de rôles (`ent-auth`, `droits_repo.rs`), le périmètre et les tables du référentiel (`perimetre.rs`, migrations 092, 098, 110, 080), le modèle des personnels de Next.js (`db/schema.ts`, `db/schema-ent-relational.ts`, `app/lib/intranet-roles.ts`, `app/lib/personnel-types.ts`). Les points structurants ont été revérifiés directement (migrations 005, 092, 098, 110, 120 ; `auth_repo.rs:820-833` ; `service.rs:3175-3290, 4394` ; `perimetre.rs:1-26` ; `routes.rs:196-201, 755-761, 1035-1101`). **La session du socle 5** (`ent-socle-structure-conception`) **n'était pas poussée** au moment de la rédaction (`git ls-remote` le 2026-11-06) : la frontière suit `SOCLES.md` §3 et les points à accorder sont listés au §5.4.
 
 Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Les situations réelles · §5 Frontières · §6 Concepts · §7 Le temps et l'historique · §8 Modèle de données cible · §9 Comment ce socle alimente les droits · §10 Actions métier · §11 Logiciel ou paramétrage · §12 Échanges avec l'extérieur · §13 Sécurité et données sensibles · §14 Droits (catalogue) · §15 Événements · §16 Écrans clés · §17 Plan de migration · §18 Lots de code · §19 Questions à trancher · §20 Récapitulatif.
@@ -199,6 +201,25 @@ Chaque cas doit pouvoir être saisi **sans contournement** (pas de « compte par
 | P45 | Enseignant d'un dispositif hors classe (ULIS, UPE2A, classe relais) | Service sur un groupe de dispositif | Voit les élèves du dispositif ; les professeurs des classes d'inclusion voient les élèves inclus dans leurs services |
 | P46 | Équipe éducative ou de suivi réunie autour d'un élève | Équipe constituée ponctuelle, membres datés, objet = élève | Liste de diffusion et convocation (socle 19) ; **aucun droit** par l'équipe seule (Q-P9) |
 
+### 4.3 Cas limites ajoutés par la passe personas [personas]
+
+| # | Situation | Ce que le socle enregistre | Effets attendus |
+|---|---|---|---|
+| P47 | **Maître contractuel (État) qui fait aussi des surveillances payées par l'OGEC** | Deux engagements **simultanés** : `maitre_contractuel` (employeur État) et `salarie_organisme` (OGEC), quotités distinctes (R-P1) | Un seul agent ; la paie (49) ne lit que l'engagement OGEC ; les services d'enseignement suivent le premier, le planning de surveillance (PRS-133) le second |
+| P48 | **AED qui est aussi étudiante en BTS du même lycée** | Casquette personnel et casquette élève (majeure) sur la même personne | La portée de vie scolaire **exclut sa propre classe et ses groupes** (R-P5) ; alerte à la direction à la création ; ses consultations de camarades sont impossibles, pas seulement tracées |
+| P49 | **Contractuelle renouvelée de mois en mois** ; un renouvellement saisi le 2 janvier pour un contrat fini le 31 décembre | Engagements successifs ; prolongation | Alertes J-7 et J-1 (« l'accès se fermera ce soir ») ; si la prolongation arrive après la fermeture, réouverture **sans nouvelle invitation** dans les 30 jours (R-P9) |
+| P50 | **Contractuel nommé le lundi, arrivé le jeudi** ; procès-verbal d'installation signé à l'arrivée [NV] | Date prévue (`du`) et date de prise de fonctions réelle (`installe_le`, PRS-116) | Droits élèves à la prise de poste, pas au premier cours (R-P3) ; le procès-verbal rejoint « mes documents » (PRS-140) |
+| P51 | **Titulaire sur zone de remplacement** : trois suppléances dans trois établissements ScolIA, l'une prolongée cinq fois | Un agent par établissement (D-013) ; interventions `suppleant` datées ; prolongations | Chaque prolongation décale la fin **sans** nouvelle annonce aux familles (R-P19) ; « mes établissements » pour elle seule |
+| P52 | **Inspectrice** en visite pour une professeure (rendez-vous de carrière [NV]) ; **formateur** qui visite un stagiaire | Accès temporaire de consultation (PRS-125), casquette `intervenant` datée d'un jour | Lecture du cahier, de la progression, de l'emploi du temps de l'enseignante et de la liste de la classe visitée ; aucune donnée de vie scolaire ni de santé ; l'enseignante est informée (R-P8) |
+| P53 | **Infirmière qui intervient deux heures** dans chaque classe de 4ᵉ (éducation à la sexualité [NV]) ; policier de prévention une séance | Intervention ponctuelle sur des séances (PRS-124), sans service | Liste de la séance, le jour de la séance ; figure dans l'équipe de la classe ces jours-là |
+| P54 | **Agent multi-établissements qui perd sa passkey le jour de la rentrée** | Récupération D-018 en cours (délai de 24 à 48 h) ; clé de prêt locale (PRS-120) | Accès à **cet** établissement seulement, au plus 48 h, alerte à la personne et dans ses autres établissements (R-P16) |
+| P55 | **Professeure en disponibilité un an** (ou détachement, congé parental) | Suspension datée de l'engagement (PRS-147, R-P4), engagement non clos | Accès suspendu par défaut ; services en suppléance ou vacants ; missions à transférer ; retour : suspension levée, rien à recréer |
+| P56 | **AED qui devient contractuel enseignant en mars** | Fin de l'engagement `aed`, nouvel engagement `contractuel` ; nouvelle fonction (PRS-146) | Rôles proposés de nouveau (le modèle « Assistant d'éducation » n'est pas gardé par défaut) ; historique conservé |
+| P57 | **Vacataire payé à l'heure** (hors contrat, études de l'OGEC) | Engagement `vacataire` ; interventions | Relevé du **service fait** par séance assurée (PRS-145), base de la paie (49) |
+| P58 | **AESH** qui accompagne un élève d'ULIS inclus en 5B pour deux cours | Mission AESH (socle 35) sur l'élève ; inclusions du socle 5 (STR-102) | Elle reçoit les changements de classe, de groupe et d'inclusion de l'élève (R-P20) ; elle figure dans l'équipe de la 5B pour les conseils (R-P21) |
+| P59 | **Professeur dont le fils du voisin** (ou une nièce) est dans sa classe | Lien personnel déclaré (PRS-137) | Déport proposé au conseil de classe, à la constitution, au conseil de discipline ; consultations du dossier tracées à part (R-P6) |
+| P60 | **Bénévole d'aide aux devoirs** et intervenants d'un établissement hors contrat | Engagement `benevole` ou `intervenant` ; vérification d'honorabilité datée (PRS-143) [NV] | Échéance de renouvellement signalée ; aucune intervention planifiée sans vérification à jour si l'établissement l'exige |
+
 ---
 
 ## 5. Frontières
@@ -329,6 +350,7 @@ Mêmes trois mécanismes que `02_ELEVE.md` §6 : **lignes datées**, **journal e
 
 Règles [R] :
 - **Dates métier en Europe/Paris**, bornes **incluses** ; « jusqu'au 3 avril » = fin le 3 avril à 23 h 59, heure de Paris.
+  - **[personas] Correction proposée (R-P2)** : lire « dans le **fuseau de l'établissement** » (profil du socle 5, STR-03 ; Europe/Paris par défaut), comme la passe 2–4 l'a fait pour les socles 2 à 4 (A0-a). Vaut pour tout ce document, y compris le lot P0 et le §8.
 - **Le futur est normal** : arrivée, mission, suppléance, fin de contrat se saisissent à l'avance ; une tâche quotidienne applique les effets (ouverture et fermeture d'accès, attributions) et publie les événements **le jour J**, de façon idempotente. Les droits, eux, sont calculés à chaque requête (D-017 [F]) : la tâche ne sert qu'aux effets de bord (sessions, notifications).
 - **Correction ≠ changement** : corriger l'agent d'une intervention saisie par erreur ne crée pas de « changement de professeur » pour les familles ; il n'y a pas d'information automatique.
 - **Lecture à une date** : tous les ports prennent une date ; « qui enseignait l'histoire en 3C le 12 mars ? » a une réponse.
@@ -387,6 +409,8 @@ ent_agent_engagement
   EXCLUDE USING gist (etablissement_id WITH =, agent_id WITH =, daterange(du, au, '[]') WITH &&)
      WHERE (annule_le IS NULL)        -- pas deux engagements simultanés dans un même établissement
 ```
+
+**[personas] Correction proposée (R-P1, Q-P29)** : la contrainte d'exclusion ci-dessus interdit deux engagements simultanés. Or un maître payé par l'État fait aussi des surveillances payées par l'OGEC, un AED est aussi vacataire d'étude (cas P47, P57). L'exclusion doit porter sur `(agent_id, employeur_type, coalesce(employeur_organisme_id), nature)`, pas sur l'agent seul ; une alerte de qualité signale deux engagements simultanés de même employeur. **À changer dans la migration 352, avant le lot P1.** Voir aussi la suspension d'engagement (§8.14, R-P4) : le cas P10 parle d'« engagement suspendu », que le modèle ci-dessus ne permet pas.
 
 Règles [R] : un engagement `intervenant`, `benevole`, `stagiaire_ecole`, `service_civique` **exige** une date de fin (au plus un an, prolongeable) et un référent ; un engagement sans fin pour un `contractuel` déclenche une alerte de qualité (« date de fin à saisir ? ») mais n'est pas bloqué (CDI [NV]).
 
@@ -643,6 +667,77 @@ ent_revue_acces_ligne
 
 ### 8.13 Paramétrage du domaine
 
+### 8.14 Compléments de modèle [personas]
+
+Pseudo-DDL, mêmes règles que §8. **Numéros de migration à attribuer** dans `MIGRATIONS.md` (la plage 350–369 est entièrement répartie, §17). Si Q-P28 retient une table unique « cours » (socle 5), les ajouts sur `ent_service_enseignement` s'appliquent à cette table.
+
+```
+ent_agent_engagement (§8.2)
+  + installe_le DATE NULL, + pv_installation_document_id UUID NULL      -- PRS-116 : prise de fonctions réelle [NV]
+  + motif_fin : codes ajoutés 'fin_periode_essai','rupture_conventionnelle','licenciement','abandon_de_poste',
+                'detachement','radiation'                                -- R-P13 [NV]
+  -- exclusion remplacée : par (agent, employeur_type, employeur_organisme_id, nature)  (R-P1)
+ent_agent_engagement_suspension                                           -- R-P4 : disponibilité, détachement, congé parental
+  id, engagement_id, du DATE, au DATE NULL, motif_code, acces_suspendu BOOLEAN DEFAULT true, annule_le
+
+ent_agent_dossier_arrivee                                                 -- PRS-117, PRS-118 (trou T-07)
+  id, etablissement_id, agent_id, engagement_id, ouvert_le, soumis_le NULL, valide_le NULL, valide_par
+ent_agent_dossier_piece  dossier_id, code_piece, document_id NULL (socle 7), etat ('attendue','deposee','validee','refusee','sans_objet')
+  -- pièces demandées selon la nature d'engagement ; les pièces d'employeur de droit privé (paie) relèvent du socle 49
+
+ent_service_note_passation                                                -- PRS-122, R-P7
+  id, etablissement_id, service_id, auteur_agent_id, texte (≤ 4 000 car.), progression_ref NULL, ecrite_le, remplace_id NULL
+
+ent_intervention_ponctuelle                                               -- PRS-124 (T-15, part socle 6)
+  id, etablissement_id, agent_id NULL, personne_id NULL, objet_code, seances UUID[] (socle 10) | (cours_id, du, au),
+  referent_agent_id, annule_le
+ent_acces_temporaire                                                      -- PRS-125, R-P8 : inspection, formateur, tuteur extérieur
+  id, etablissement_id, personne_id, nature ('inspection','formation','tutelle_externe','controle'),
+  agent_concerne_id NULL, classe_ou_cours_ids UUID[], du TIMESTAMPTZ, au TIMESTAMPTZ (≤ 1 jour, prolongeable à 5),
+  lectures TEXT[] ('cahier','progression','edt','liste_classe'), demande_par, informe_agent_le, revoque_le
+
+ent_agent_voeu_service                                                    -- PRS-127
+  id, etablissement_id, agent_id, annee_id (N+1), voeux JSONB (niveaux, cours, options), heures_sup_acceptees NUMERIC NULL,
+  commentaire (≤ 500), depose_le
+ent_repartition_proposition   id, annee_id, discipline, propose_par (coordinateur), contenu JSONB, etat, arbitre_le   -- PRS-128
+ent_annee_repartition_publication  annee_id, publiee_le, par                -- PRS-129, R-P17
+
+ent_agent_service_du                                                      -- PRS-130 [NV : composantes exactes]
+  id, etablissement_id, agent_id, annee_id, obligation_hebdo NUMERIC, du DATE, au DATE NULL
+ent_agent_service_du_composante  service_du_id, nature ('decharge','ponderation','reduction','complement_ailleurs','autre'),
+  libelle, heures NUMERIC, motif_code
+ent_etat_service                                                          -- PRS-131 : état de service signé [NV]
+  id, agent_id, annee_id, version, contenu JSONB (figé), document_id, signe_le NULL, reserves TEXT NULL (≤ 1 000)
+
+ent_mission + remuneration_nature TEXT NULL CHECK (… IN ('aucune','imp','part_modulable_pp','pacte','hse','ogec','autre'))
+            + volume NUMERIC NULL, + unite TEXT NULL ('heures','taux','forfait')  -- PRS-132, R-P11 : jamais de montant
+
+ent_poste_service                                                         -- PRS-133 (trou T-09) : grille, cantine, étude, nuit…
+  id, etablissement_id, site_id NULL, code, libelle, heure_debut, heure_fin, jours SMALLINT[], semaines TEXT NULL,
+  effectif_min SMALLINT, nature ('surveillance','accueil','restauration','entretien','internat_nuit','astreinte','autre'),
+  responsable_fonction_id NULL, ferme_le
+ent_planning_regle     id, agent_id, poste_id, jours, semaines, du, au NULL                -- cycles A/B (semaines du socle 5)
+ent_planning_exception id, agent_id, poste_id NULL, date, nature ('ajout','retrait','echange'), motif_code, valide_par
+ent_planning_echange   id, demandeur_agent_id, receveur_agent_id, exceptions UUID[], etat, valide_par, valide_le   -- PRS-134
+  -- compteur : heures planifiées vs heures dues de l'engagement (annualisées) ; aucune donnée de paie
+
+ent_agent_lien_eleve                                                      -- PRS-137, R-P6
+  id, etablissement_id, agent_id, eleve_id, nature ('famille_hors_lien_legal','proche','voisin','autre'),
+  declare_par ('agent','direction'), du, au NULL
+  -- lisible : l'agent, la direction ; jamais les familles ni les collègues
+
+ent_mission_type + code fourni 'encadrement' (périmètre : agents)          -- PRS-139 : responsable fonctionnel
+ent_agent_verification                                                    -- PRS-143 [NV]
+  id, agent_id, nature ('honorabilite'), verifiee_le DATE, par, resultat ('conforme','non_conforme'), echeance DATE NULL
+  -- jamais le contenu d'un extrait ni d'un fichier consulté
+ent_cle_securite_pret                                                     -- PRS-119, PRS-120 (ou socle 44)
+  id, etablissement_id, numero_inventaire, agent_id NULL, pretee_le, rendue_le, locale_seulement BOOLEAN, expire_le NULL
+
+ent_pouls_campagne / ent_pouls_reponse                                    -- PRS-144, R-P12 : DÉSACTIVÉ par défaut
+  reponse : campagne_id, date, valeur SMALLINT (1..5), fonction_famille TEXT NULL — AUCUN agent_id, aucun texte libre
+ent_agent_qualification.code + 'sst','ssiap','caces','haccp','bafa','bnssa'  -- R-P14 [NV]
+```
+
 `ent_param_personnels` (une ligne par établissement) : délai de grâce en lecture après fin d'intervention ou d'engagement (Q-P6) ; lecture du titulaire pendant une suppléance (Q-P5) ; cardinalité et règle d'éligibilité du PP ; nombre de jours de vacance avant alerte ; visibilité de l'annuaire pour les familles et les élèves (fonctions affichées, photo) ; casquettes autorisées ; profils de base par fonction ; durée de validité des invitations ; parcours (modèles) ; fréquence proposée de la revue des accès ; indicateurs d'activité activés ou non (Q-P21) ; accès des intervenants (sans compte, compte invité).
 
 ---
@@ -840,6 +935,78 @@ Pourquoi une nouvelle portée plutôt que `designes` : avec `designes`, il faudr
 
 Total : **86 actions** (dont 11 de l'agent pour lui-même, 4 pour les familles et les élèves, 7 automatiques).
 
+### 10.11 Actions ajoutées par la passe personas [personas]
+
+Source de chaque action : manque `M-xxx` de `PERSONAS_05-06.md`. Même format que ci-dessus.
+
+| ID | Action | Acteur | Règles clés | Événement | Ancien |
+|---|---|---|---|---|---|
+| PRS-116 | Enregistrer la **prise de fonctions effective** (date réelle, procès-verbal d'installation [NV]) (M-173) | SEC, DIR | distincte de la date prévue ; trame du procès-verbal ; étape du parcours d'arrivée | `personnel.installe` | — |
+| PRS-117 | **Compléter son dossier d'arrivée** : coordonnées, contact d'urgence, photo, pièces demandées selon la nature d'engagement (M-175, trou T-07) | AGT (avant ou après la date de début) | lien de l'invitation ; pièces au socle 7 ; pièces de paie de droit privé renvoyées au socle 49 | `personnel.dossier_soumis` | — |
+| PRS-118 | **Valider le dossier d'arrivée**, pièce par pièce (M-175) | SEC | refus motivé (code) ; étape « fiche complète » cochée | `personnel.dossier_valide` | — |
+| PRS-119 | **Prêter une clé de sécurité** à un agent, l'enrôler au guichet, la récupérer au départ (M-180) | SEC | parc inventorié (ou socle 44) ; étape de départ « matériel rendu » | `personnel.cle_pretee` / `_rendue` | — |
+| PRS-120 | Ouvrir un **accès de secours local** à un agent de plusieurs établissements qui a perdu sa passkey ★ (M-181) | DIR | R-P16 ; clé de prêt valable dans cet établissement seulement, ≤ 48 h, pendant la récupération D-018 ; Q-P31 | `acces.secours_ouvert` | — |
+| PRS-121 | **Renouveler un engagement** en un geste, sans rupture d'accès (M-179) | SEC, DIR | R-P9 ; services, missions et rôles prolongés avec lui (aperçu) | `personnel.engagement_modifie` | — |
+| PRS-122 | Écrire, lire une **note de passation** attachée à un service (progression, évaluations prévues, points d'attention) (M-177) | titulaire, coordinateur, DIR ; lecture : intervenants successifs | R-P7 ; versionnée | `service.note_passation_ecrite` | — |
+| PRS-123 | Voir le **dossier de l'arrivant** sur une page : emploi du temps, classes avec trombinoscope, PP et CPE de ses classes, élèves à aménagement (35), plan des salles, contacts, règlement, note de passation (M-176) | AGT | accessible dès la date de début (sans élèves avant, §8.4) ; imprimable (trame) | — | — |
+| PRS-124 | Programmer une **intervention ponctuelle** d'un agent ou d'un partenaire sur des séances, sans service annuel (M-171, part socle 6 de T-15) | DIR, CPE, PP | portée = élèves de la séance, le jour de la séance ; référent obligatoire pour un partenaire | `intervention.programmee` | — |
+| PRS-125 | Ouvrir un **accès de consultation temporaire** (inspection, formateur, tuteur extérieur) (M-195) | DIR ★ | R-P8 ; lectures choisies dans une liste fermée ; enseignant concerné informé ; aucune donnée de vie scolaire ni de santé | `acces.temporaire_ouvert` / `_clos` | — |
+| PRS-126 | Préparer le **dossier d'un contrôle ou d'une inspection** : personnels (fonctions, titres déclarés), structure, effectifs, emplois du temps [NV] (M-196) | DIR | export tracé (D-022) ; trame ; aucune coordonnée personnelle | `export.realise` | — |
+| PRS-127 | Recueillir les **vœux de service** des enseignants pour N+1 (niveaux, cours, options, heures supplémentaires acceptées) ; vœux d'emploi du temps transmis au socle 10 (M-140) | DIR ouvre ; AGT dépose | campagne datée ; chacun ne voit que ses vœux ; le coordinateur voit ceux de sa discipline | `service.voeux_deposes` | — |
+| PRS-128 | **Proposer la répartition** d'une discipline sur les cours de N+1 ; la direction arbitre (M-158) | coordinateur de discipline (mission) ; DIR | brouillon distinct de la répartition retenue ; aucun effet sur les droits | `service.repartition_proposee` | — |
+| PRS-129 | **Publier la répartition prévisionnelle** aux enseignants (leurs cours de N+1, sans élèves) (M-159) | DIR ★ | R-P17 ; mention « prévisionnelle » ; modifications ultérieures signalées à l'intéressé | `service.repartition_publiee` | — |
+| PRS-130 | Définir les **composantes du service dû** (obligation, décharges, pondérations, compléments ailleurs) ; calculer l'écart et les heures supplémentaires année [NV] (M-155, M-212) | SEC, DIR | aucune donnée de grade ni de rémunération ; l'agent voit son calcul | `personnel.service_du_modifie` | — |
+| PRS-131 | Éditer et faire signer l'**état de service** de chaque enseignant (trame), avec réserves possibles [NV] (M-156) | SEC prépare ; AGT signe ; DIR contresigne | version figée ; signature par le socle 7 ; une réserve n'empêche pas la signature | `personnel.etat_service_signe` | — |
+| PRS-132 | Attacher à une mission une **rémunération indicative** (nature et volume, jamais de montant) ; état des missions rémunérées exportable [NV] (M-157) | DIR | R-P11 ; lu par le socle 49 et par l'agent comptable (export) | `mission.remuneration_modifiee` | — |
+| PRS-133 | Définir des **postes de service** et le **planning de service** des personnels non enseignants : cycles, exceptions, compteur d'heures annualisées (M-185, M-213, M-228 ; trou T-09) | CPE (AED), gestionnaire (agents), DIR | R-P10 ; jours fermés et semaines lus au socle 5 ; absences au socle 15 ; Q-P30 | `planning.publie`, `planning.modifie` | — |
+| PRS-134 | Demander un **échange de service** entre agents ; validation par le responsable (M-186) | AGT ; responsable fonctionnel | les deux agents d'accord ; compteurs recalculés | `planning.echange_valide` | — |
+| PRS-135 | Voir **qui est de service maintenant** (poste, agent, moyen de joindre) (M-188) | accueil, vie scolaire, DIR ; port pour le socle 14 | d'après le planning, l'emploi du temps et les absences ; coordonnées professionnelles seules | — | — |
+| PRS-136 | Voir les **intervenants et visiteurs attendus aujourd'hui** (M-189) | accueil, DIR | intervenants ponctuels, accès temporaires, engagements du jour ; référent affiché | — | — |
+| PRS-137 | **Déclarer un lien personnel avec un élève** hors lien légal (M-236) | AGT ; DIR | R-P6 ; déport ; jamais visible des collègues | `personnel.lien_eleve_declare` (sans nature) | — |
+| PRS-138 | Voir l'**organigramme fonctionnel** calculé (fonctions, missions), version réduite publiable aux familles (M-219, PER-03) | personnels ; FAM (réduite) | aucune coordonnée personnelle ; trame imprimable | — | — |
+| PRS-139 | Désigner le **responsable fonctionnel** d'un agent (mission « encadrement », périmètre : agents) (M-220) | DIR | valideur des demandes des socles 15 et N1 ; un seul actif par agent et par nature de demande | `mission.attribuee` (type encadrement) | — |
+| PRS-140 | **« Mes documents »** : recevoir les pièces qui le concernent (états de service, procès-verbal, arrêtés, attestations) ; dépôt en lot avec rattachement (M-218, PER-08) | SEC dépose ; AGT lit | moteur du socle 7 (rattachement, T-13) ; aucune pièce de santé | `document.depose` (7) | — |
+| PRS-141 | **Partager ses créneaux occupés** d'un établissement ScolIA vers un autre, sans lieu ni nature (M-182) | AGT | D-013 : décision de l'agent seul, révocable ; l'autre établissement reçoit des indisponibilités | `personnel.indisponibilites` | — |
+| PRS-142 | **Demander une attestation d'emploi**, délivrée selon une trame et signée par un habilité (M-217) | AGT demande ; SEC délivre | `peut_signer` (§8.9) ; données minimales (fonction, dates, quotité) | `document.emis` (7) | — |
+| PRS-143 | Enregistrer une **vérification d'honorabilité** (date, auteur, résultat binaire, échéance) [NV] (M-214) | DIR | jamais le contenu ; alerte d'échéance ; blocage de planification paramétrable | `personnel.verification_enregistree` | — |
+| PRS-144 | **Pouls d'humeur** anonyme du personnel (désactivé par défaut) (M-232, trou T-08) | Admin active ; AGT répond ; DIR lit les agrégats | R-P12 ; R-P24 ; Q-P32 | — | — |
+| PRS-145 | **Relevé du service fait** par intervenant (séances assurées d'après les socles 10 et 12) (M-193) | SEC, comptabilité ; AGT (le sien) | export pour la paie (49) et l'état mensuel ; corrections tracées | `personnel.service_fait_arrete` | — |
+| PRS-146 | **Changer la fonction** d'un agent en cours d'année (AED devenu enseignant) (M-222) | DIR, SEC ★ | engagement clos et nouveau, ou nouvelle fonction ; rôles proposés de nouveau, jamais conservés seuls | `personnel.fonctions_modifiees` | — |
+| PRS-147 | **Suspendre un engagement** (disponibilité, détachement, congé parental) sans le clore, puis lever la suspension (M-221) | DIR, SEC ★ | R-P4 | `personnel.engagement_suspendu` / `_repris` | — |
+
+Total après la passe : **118 actions** (86 + 32).
+
+### 10.12 Règles ajoutées par la passe personas [personas]
+
+| Id | Règle | Manque |
+|---|---|---|
+| R-P1 | **Engagements simultanés** permis s'ils diffèrent par l'employeur ou la nature (maître + salarié de l'OGEC ; AED + vacataire) ; l'exclusion porte sur (agent, employeur, nature) ; alerte si deux engagements simultanés ont le même employeur | M-191 |
+| R-P2 | Toutes les dates métier dans le **fuseau de l'établissement** (profil du socle 5), Europe/Paris par défaut ; lot P0 inclus | M-215 |
+| R-P3 | Une intervention commence par défaut à la **date de prise de poste** (installation ou début d'engagement), pas au premier cours | M-174 |
+| R-P4 | **Suspension d'engagement** : accès suspendu par défaut (la casquette parent est conservée) ; services proposés en suppléance ou déclarés vacants ; missions à transférer (aperçu) ; la levée rétablit l'accès sans nouvelle invitation | M-221 |
+| R-P5 | **Casquette élève et casquette personnel** sur la même personne : la portée de la casquette personnel **exclut** ses propres classes, groupes et cours, à toute date ; alerte à la direction à la création ; aucun rôle ne peut lever cette exclusion | M-187 |
+| R-P6 | **Lien personnel déclaré** : déport proposé (conseil de classe, constitution, conseil de discipline, jury, commission) ; consultations du dossier de l'élève tracées à part, comme Q-P3 ; la nature du lien n'est lue que par l'agent et la direction | M-236 |
+| R-P7 | La **note de passation** appartient au service : visible des intervenants actifs et suivants, du coordinateur, de la direction ; jamais des familles ni des élèves ; jamais exportée ; conservée le temps de l'année | M-177 |
+| R-P8 | **Accès temporaire** : lecture seule, liste fermée de lectures, aucune donnée de vie scolaire, de santé ni de dossier administratif ; un jour, prolongeable à cinq ; enseignant concerné informé avant ; journal ; aucun compte permanent créé (casquette `intervenant` datée) | M-195 |
+| R-P9 | **Fin d'engagement** : alertes à J-7 et J-1 (agent, direction) ; une prolongation saisie dans les 30 jours après la fermeture rouvre l'accès sans nouvelle invitation | M-179 |
+| R-P10 | **Planning de service** : heures planifiées comparées aux heures dues de l'engagement (compteur), sans paie ; jours fermés et semaines A/B lus au socle 5 ; échanges validés par le responsable ; publication datée aux agents | M-185 |
+| R-P11 | **Rémunération d'une mission** : nature et volume seulement, jamais de montant, de grade ni d'échelon ; le montant relève du socle 49 (privé) ou de l'agent comptable (public) | M-157 |
+| R-P12 | **Pouls d'humeur** : désactivé par défaut ; aucune donnée nominative (pas d'`agent_id`), pas de texte libre ; agrégats affichés seulement à partir de 10 réponses par période et par famille de fonctions ; jamais croisé avec un autre indicateur | M-232 |
+| R-P13 | **Motifs de fin** complétés (fin de période d'essai, rupture conventionnelle, licenciement, abandon de poste, détachement, radiation) [NV] ; toujours codés, jamais de texte | M-192 |
+| R-P14 | **Qualifications** : codes ajoutés (sauveteur secouriste du travail, sécurité incendie, conduite d'engins, hygiène alimentaire, animation, surveillance de baignade) [NV] ; alerte d'expiration **avant les séances** qui l'exigent (atelier, piscine), pas seulement à date fixe | M-207, M-209 |
+| R-P15 | Le **professeur principal** est visible des familles dès la publication des classes de N+1 (STR-78 du socle 5) ou, à défaut, dès l'ouverture de l'année | M-172 |
+| R-P16 | **Accès de secours local** : cet établissement seulement, au plus 48 h, une fois par récupération ; alerte à la personne et dans chacun de ses établissements (D-018) ; clos à la fin de la récupération | M-181 |
+| R-P17 | **Répartition prévisionnelle publiée** : accès aux cours de N+1 sans élèves (cahier, progression), marqué « prévisionnel » ; tout changement ultérieur est signalé à l'intéressé | M-159 |
+| R-P18 | L'**invitation** peut partir sur une adresse personnelle quand l'adresse professionnelle n'existe pas encore ; l'adresse personnelle reste d'usage `perso` (jamais affichée) ; la bascule vers l'adresse professionnelle ne recrée rien | M-178 |
+| R-P19 | **Prolonger une suppléance** décale la fin de l'intervention sans nouvelle annonce aux familles ni nouvelle note de passation ; seule la fin réelle est annoncée | M-223 |
+| R-P20 | Les titulaires d'une **mission à périmètre d'élèves** (AESH, tuteur) reçoivent les changements de classe, de groupe et d'inclusion de ces élèves (événement `referentiel.composition_modifiee` du socle 5) | M-225 |
+| R-P21 | L'**équipe pédagogique d'une classe** inclut les AESH dont un élève accompagné fait partie de la classe ou d'un cours de la classe à la date | M-226 |
+| R-P22 | **Export du registre des entrées et sorties** des salariés de l'organisme (dates, nature, fonction), tracé, réservé à la comptabilité de l'OGEC et à la direction [NV] | M-194 |
+| R-P23 | La **revue des accès** liste aussi les accès temporaires, les accès de secours et les clés prêtées | M-230 |
+| R-P24 | Avant d'activer le planning de service, les indicateurs d'activité ou le pouls d'humeur, l'écran d'activation rappelle l'**information des personnels** et, dans le privé, la **consultation des représentants** [NV] ; l'activation enregistre la date de cette information | M-233 |
+| R-P25 | **Contrat IA** (D-025) des actions ajoutées : commandes ★ (PRS-120, 125, 129, 146, 147) en confirmation renforcée avec aperçu serveur ; l'IA ne lit jamais les liens personnels, les vérifications d'honorabilité, le pouls ni les réserves d'un état de service | M-235 |
+| R-P26 | Les **noms d'événements** consommés s'alignent sur ceux du socle 5 (`referentiel.annee_ouverte`, `referentiel.annee_cloturee`, `referentiel.classe_archivee`, `referentiel.groupe_ferme`) | M-234 |
+
 ---
 
 ## 11. Ce qui relève du logiciel, ce qui relève du paramétrage
@@ -978,6 +1145,19 @@ Règles [R] :
 - **Modèles de rôles fournis** [R], copiables et modifiables (D-017) : Professeur ; Professeur principal (porté par la mission) ; CPE ; CPE référent (porté par la mission) ; Assistant d'éducation ; Surveillant d'internat ; Accueil ; Secrétariat de scolarité ; Secrétariat de direction ; Comptabilité ; Direction ; Infirmerie ; Psychologue ; Assistant de service social ; Documentaliste ; Accompagnement AESH (porté par la mission du socle 35) ; Intervenant (appel de son groupe, cahier en lecture) ; Restauration ; Maintenance (aucune donnée d'élève).
 - Les routes ne font qu'un pré-filtre ; le service refait le contrôle précis, comme en R2 [F].
 
+### 14.3 Droits des actions ajoutées [personas]
+
+| Action | Libellé | Portées admises | Modèle par défaut |
+|---|---|---|---|
+| `planning.gerer` | Postes et planning de service, validation des échanges (PRS-133, 134) | établissement, sites désignés, `mon_perimetre` (agents encadrés) | Admin, Direction ; CPE et gestionnaire en `mon_perimetre` [R] |
+| `planning.lire` | Qui est de service maintenant, visiteurs attendus (PRS-135, 136) | établissement, sites désignés | Direction, vie scolaire, accueil |
+| `acces.temporaire` | Accès de consultation temporaire et accès de secours (PRS-120, 125) | établissement | Admin, Direction ; anti-escalade |
+| `services.voeux` | Ouvrir une campagne de vœux, lire les vœux, arbitrer les propositions (PRS-127 à 129) | établissement, `mon_perimetre` (discipline du coordinateur) | Direction ; coordinateur en `mon_perimetre` |
+| `personnels.service_du.gerer` | Composantes du service dû, états de service, service fait (PRS-130, 131, 145) | établissement | Admin, Direction, Administratif |
+| `personnels.verifications` | Vérifications d'honorabilité (PRS-143) | établissement | Direction seulement |
+
+Les autres actions ajoutées utilisent `personnels.gerer`, `personnels.acces.gerer`, `missions.gerer`, `personnels.exporter` et la portée `moi` (§14.2). Le pouls (PRS-144) n'a **aucune** action de lecture nominative : ses agrégats passent par `personnels.indicateurs.lire`, désactivée par défaut.
+
 ---
 
 ## 15. Événements
@@ -1024,6 +1204,26 @@ Règles [R] :
 | `rh.absence_validee` | 15 | **aucune écriture** : le socle 15 appelle `nommer_suppleant` s'il organise une suppléance |
 | `materiel.restitue` | 44 | étape de départ |
 | `import.lot_applique` | 9 | propositions à traiter (STS-web, AAF) |
+
+**[personas]** Les noms de la colonne « Événement » ci-dessus (`annee.ouverte`, `annee.cloturee`, `classe.archivee`, `groupe.archive`) sont à remplacer par ceux qu'émet le socle 5 (`referentiel.annee_ouverte`, `referentiel.annee_cloturee`, `referentiel.classe_archivee`, `referentiel.groupe_ferme`) : R-P26.
+
+### 15.3 Événements ajoutés [personas]
+
+| Événement | Sens | Charge utile | Consommateurs ou producteur |
+|---|---|---|---|
+| `personnel.installe`, `personnel.dossier_soumis`, `personnel.dossier_valide` | émis | `agent_id`, date | parcours, 49 (prise de fonctions) |
+| `personnel.engagement_suspendu` / `_repris` | émis | `engagement_id`, dates | 1 (accès), 10, 15, 8 |
+| `acces.secours_ouvert`, `acces.temporaire_ouvert` / `_clos` | émis | `user_id` ou `personne_id`, durée | 1, 8 (alerte à la personne), revue des accès |
+| `service.note_passation_ecrite` | émis | `service_id` | 8 (intervenants du service) |
+| `intervention.programmee` | émis | séances | 10, 12 (liste de la séance) |
+| `service.voeux_deposes`, `service.repartition_proposee`, `service.repartition_publiee` | émis | `annee_id`, compteurs | 8, 10 (vœux d'emploi du temps) |
+| `personnel.service_du_modifie`, `personnel.etat_service_signe`, `personnel.service_fait_arrete` | émis | `agent_id`, année ou période | 49, 47 |
+| `mission.remuneration_modifiee` | émis | `mission_id`, nature | 49 |
+| `planning.publie`, `planning.modifie`, `planning.echange_valide` | émis | postes, agents, dates | 14 (présents), 15, 8 |
+| `personnel.lien_eleve_declare` | émis | `agent_id`, `eleve_id` (**sans nature**) | 5 (constitution), 13, 23 (déport) |
+| `personnel.verification_enregistree` | émis | `agent_id`, échéance | parcours, planification |
+| `referentiel.composition_modifiee` (socle 5, avec inclusions) | consommé | groupe ou cours, entrants, sortants | prévenir les titulaires de missions sur ces élèves (R-P20) |
+| `referentiel.groupe_scinde` (socle 5) | consommé | groupes | service à pourvoir signalé à la direction |
 
 ---
 
@@ -1105,6 +1305,23 @@ Chaque lot livre : migrations, dépôt (`ent-db`), service en transaction unique
 | **P13 RLS, conservation** | 364 à 366 ; purges après décision DPO | P1–P6 ; DPO | RLS stricte testée | M |
 | **P14 Retrait des projections** | 368, 369 | tous ; socles 10, 12, 15, 20, 21 lisant `agent_id` | grep des lectures à zéro | S |
 
+**[personas] Lots ajoutés et changements** (`PERSONAS_05-06.md`) :
+
+| Lot | Contenu | Dépend de | Critère de fin | Effort |
+|---|---|---|---|---|
+| **P0** (changé) | dates dans le **fuseau de l'établissement** au lieu d'Europe/Paris (R-P2) | socle 5 S2 (fuseau au profil) ou valeur par défaut | test de bord de journée avec deux fuseaux | — |
+| **P1** (changé) | exclusion des engagements par (agent, employeur, nature) (R-P1) ; suspension d'engagement (R-P4) ; motifs de fin (R-P13) ; noms d'événements alignés (R-P26) | — | maître + salarié OGEC enregistrés (test) ; disponibilité sans clôture (test) | — |
+| **P3** (changé) | **après Q-P28** : interventions posées sur le cours du socle 5 ; intervention dès la prise de poste (R-P3) | socle 5 S4 | une seule table du cours (test de garde) | — |
+| **P4** (changé) | **après Q-S21** : aucune fonction de périmètre propre ; le socle 6 fournit les interventions à `structure::perimetre` ; R-P5 (élève + personnel) dans les tests D-022 | socle 5 S1 | l'AED étudiante ne voit aucun camarade (test) | — |
+| **P15 Planning de service** | PRS-133 à 136 ; `planning.*` ; compteurs ; port « de service maintenant » pour le socle 14 | P1 ; socle 5 S3 (jours, semaines) | planning de 15 AED sur deux semaines tournantes avec exceptions et échanges ; présents à une heure donnée exacts | L |
+| **P16 Arrivée enrichie** | PRS-116 à 123, 140, 142 ; trames (procès-verbal, attestation, dossier de l'arrivant) | P2, P7 ; socle 7 | arrivée d'une contractuelle à 8 h, appel à 10 h (parcours de labo) ; renouvellement sans rupture (test) | M |
+| P8 (complété) | PRS-127 à 132 (vœux, propositions, publication, service dû, état de service, rémunérations des missions) | P3 | état de service signé sur le labo ; publication prévisionnelle sans droit sur les élèves (test) | +M |
+| P10 (complété) | PRS-120, 125, 126 (accès temporaires et de secours) ; R-P23 | P2 | accès d'inspection clos seul après un jour (test) | +S |
+| P7 (complété) | PRS-121, 137, 143, 145 à 147 | P3 | — | +M |
+| P11 (complété) | sous-lots P11i planning, P11j arrivée enrichie et « mes documents » | lots back | — | +M |
+
+PRS-144 (pouls) n'entre dans aucun lot tant que Q-P32 n'est pas tranchée. Migrations : numéros à attribuer hors de la plage 350–369, déjà pleine.
+
 Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, P3 en parallèle) → P4 → (P5, P6, P7) → P8 → P9, P10 → P11 au fil de l'eau → P12, P13 → P14. Parcours minimal vendable (« rentrée des personnels d'un établissement ») : P0, P1, P2, P3, P4, P7 + P11a, b, c, d, f. **Avant le socle 10** (emploi du temps) : P0 à P4 au minimum, puisque le créneau se rattache au service et l'appel à l'intervention.
 
 ---
@@ -1140,6 +1357,14 @@ Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, 
 | **Q-P25** | Préparation de la répartition de N+1 dans ce socle (heures prévues portées par le socle 5) | 6 / 5 / 10 | **6**, à confirmer avec la conception du socle 5 (§5.4) |
 | **Q-P26** | Vérifications réglementaires avant les lots P3, P4, P7 : natures d'engagement et employeurs, PP (nombre, terminale), obligations de service, AED et AESH (durées de contrat), maîtres du privé sous contrat (statut, guichet Agents, STS-web), personnels des collectivités, référents obligatoires, délégation de signature du chef d'établissement, droit à la déconnexion, information et consultation des personnels sur les traitements les concernant | — | **lecture des textes** par une session dédiée (code de l'éducation, statuts particuliers, circulaires), sources consignées dans ce document |
 | **Q-P27** | Préfixe des actions métier `PRS-` (le socle 4 a repris `ADM-`, déjà utilisé par D15 dans `SOCLE2_DOMAINES.md`) | — | **`PRS-`** ; signaler la collision `ADM-` au socle 4 |
+| **Q-P28** [personas] | **Service d'enseignement (ici) et cours (socle 5) : un seul objet** (même question que Q-S20) | une table, création par le socle 5, interventions ici / deux tables | **une table** ; le socle 6 garde interventions, heures dues, missions ; PRS-40 appelle la création du cours (STR-57). **Bloquant avant P3** |
+| **Q-P29** [personas] | **Engagements simultanés** (maître + salarié de l'OGEC, AED + vacataire) | exclusion par agent / par (agent, employeur, nature) | **par (agent, employeur, nature)** (R-P1). **Bloquant avant P1** |
+| Q-P30 [personas] | **Planning de service** des personnels non enseignants : socle 6 (lot P15) ou socle 15 ? | 6 / 15 / nouveau socle | **socle 6** (c'est l'organisation du travail, comme le service d'enseignement) ; le socle 15 y lit les postes à remplacer |
+| Q-P31 [personas] | **Accès de secours local** (PRS-120) pour un agent de plusieurs établissements, pendant la récupération D-018 | non / oui, borné | **oui, borné** (48 h, cet établissement, alertes) ; à valider au regard de D-018 et de la revue de sécurité |
+| Q-P32 [personas] | **Pouls d'humeur** anonyme (trou T-08) | l'écarter / le concevoir désactivé / l'activer | **le concevoir désactivé**, et ne le coder qu'à la demande d'un pilote ; risque de perception de surveillance |
+| Q-P33 [personas] | **Service des enseignants** : jusqu'où aller (composantes du service dû, heures supplémentaires année, état de service, natures de rémunération des missions) sans faire la paie ? [NV] | minimal / complet sans montants | **complet sans montants** (R-P11) ; vérifier les textes avant P8 (Q-P26) |
+| Q-P34 [personas] | **Accès d'inspection** (PRS-125) : l'accord de l'enseignant est-il requis, ou seulement son information ? [NV] | accord / information | **information préalable** ; vérifier le cadre de l'inspection |
+| Q-P35 [personas] | **Vérification d'honorabilité** (PRS-143) : quelles personnes, quelles obligations dans chaque secteur ? [NV] | — | **vérifier** avant P7 ; ne jamais stocker le contenu d'une vérification |
 
 ---
 
@@ -1160,3 +1385,5 @@ Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, 
 - `SOCLE2_DOMAINES.md` REF-13 (« un PP par classe ») : figé dans un index unique, alors que le besoin est paramétrable (cas P17).
 - Préfixes d'actions métier : `ADM-` désigne D15 dans `SOCLE2_DOMAINES.md` et le dossier administratif dans `04_ADMINISTRATIF.md` ; `PER-` désigne le périscolaire ; ce document utilise `PRS-` (Q-P27).
 - La conception du socle 5 n'était pas consultable : les points §5.4 sont à accorder avant les lots P3 et P8.
+- **[personas]** Lue depuis (`05_STRUCTURE.md`), elle répond à §5.4 : groupes créés avant tout service (point 1, oui) ; heures prévues portées par la maquette du socle 5 (point 2, oui) ; année en préparation (point 3, oui) ; ensemble scolaire = un établissement à plusieurs sites et UAI (point 5) ; matières du socle 5 (point 6) ; sites désignés (point 7). Mais elle **possède aussi** « ce qui est enseigné à qui » (`ent_cours`) et la **seule** fonction de périmètre (`structure::perimetre`) : contradiction avec §5.3, §8.5 et §9 de ce document (Q-P28, Q-S21) ; et ses noms d'événements diffèrent (R-P26).
+- **[personas]** La contrainte d'exclusion des engagements (§8.2) contredit les doubles employeurs réels (R-P1) ; le cas P10 parle d'« engagement suspendu » sans modèle (R-P4) ; « Europe/Paris » (§7, lot P0) contredit le fuseau du profil du socle 5 (R-P2).

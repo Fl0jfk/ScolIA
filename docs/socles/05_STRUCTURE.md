@@ -4,6 +4,8 @@
 **Branche :** `ent-socle-structure-conception`.
 **À lire avec :** `CLAUDE.md`, `docs/VISION.md`, `docs/PRODUCT_SPEC.md`, `docs/DECISIONS.md` (D-017, D-019, D-020, D-021, **D-022**), `docs/ROLES_ET_DROITS.md`, `docs/SOCLES.md` (§3, socle 5), `docs/socles/02_ELEVE.md`, `03_INSCRIPTIONS.md`, `04_ADMINISTRATIF.md` (sur lesquels ce document s'appuie), `docs/SOCLE2_DOMAINES.md` (§3 D1, §6.3 S2-2), `docs/INTEROPERABILITE_NATIONALE.md`, `docs/socles/MIGRATIONS.md`.
 
+**[personas] Passe personas du 2026-11-07** (`docs/socles/PERSONAS_05-06.md`, branche `ent-personas-socles-5-6`) : ajouts marqués **[personas]** — cas limites en fin de §4.5, modèle §9.10, actions STR-93 à STR-114 (§12.10), règles R-S1 à R-S24 (§12.11), droits §13.3, événements §14.3, lots §18 (note), questions Q-S20 à Q-S26. **À lire d'abord : `PERSONAS_05-06.md` §0** (contradictions avec le socle 6 à trancher avant les lots S1 et S4). Rien n'a été supprimé.
+
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin cité) ; **[F Next]** fait lu dans l'application Next.js (lecture seule) ; **[S]** fait sourcé repris d'un document du dépôt qui cite sa source ; **[H]** hypothèse (mémoire, déduction, pratique du terrain) ; **[NV]** règle réglementaire ou format national cité de mémoire, **à vérifier sur un texte officiel avant de coder** ; **[R]** recommandation (non décidée). Les identifiants d'actions métier `STR-xx` sont nouveaux et stables ; la correspondance avec les anciens `REF-xx` de `SOCLE2_DOMAINES.md` est indiquée. **Plage de migrations : 330–349** (`docs/socles/MIGRATIONS.md`).
 
 **Méthode.** Trois explorations en lecture seule (sous-agents) : schéma SQL du référentiel (migrations 008, 021, 022, 048, 073, 076, 077, 092, 096, 098, 110–112), logique et droits (`ent-db/src/referentiel_*.rs`, `referentiel_repo.rs`, `perimetre.rs`, `droits_repo.rs`, `ent-api/src/referentiel*.rs`, `ent-auth/src/actions.rs`, tests), écrans Leptos et application Next.js. Les constats décisifs ont été relus directement (`perimetre.rs:127-139`, `referentiel_annee.rs:230-250` et `297-335`, `referentiel_repo.rs:508-534`). Ce qui n'a pas été relu ligne à ligne est signalé au §19.
@@ -199,6 +201,20 @@ Algorithme [R] : recherche locale (affectation initiale gloutonne puis échanges
 | Neige : fermeture du site demain | Fermeture exceptionnelle ciblée (site, niveaux), aperçu des effets, confirmation ; événement consommé par 10, 12, 40, 8 |
 | Un professeur part en congé long | Rien dans la structure : les cours restent, le service est modifié (socles 6, 15) ; le tableau de bord signale « cours sans intervenant » |
 | Un atelier s'arrête en février | Groupe fermé à la date ; responsables et membres clos |
+| **[personas]** Un élève d'ULIS suit les mathématiques et l'EPS en 5B, le reste dans sa classe de référence | **Inclusion individuelle** datée dans les deux cours de la 5B (STR-102, R-S5) : il figure sur leurs listes d'appel et de notes ; les professeurs de la 5B le voient pour ces cours seulement ; l'AESH est prévenue de tout changement (06 R-P20) |
+| **[personas]** Décloisonnement à l'école : les CE2 vont en CM1 pour les mathématiques le jeudi | Inclusions individuelles (ou groupe « CE2 maths ») dans le cours de CM1 ; exclusion du cours de mathématiques de CE2 sur le même créneau |
+| **[personas]** Une élève part trois mois en échange au Canada ; une correspondante est accueillie au printemps | Exclusion datée de tous ses cours (pas d'absence à chaque heure, socle 12) ; la correspondante, non inscrite, est **accueillie** dans les cours datés de la classe (STR-102 ; statut d'accueil temporaire au socle 2) et figure sur les listes d'appel |
+| **[personas]** Neige : transports interdits, 180 internes présents | Fermeture **à effets différenciés** (R-S1) : cours fermés, internat et restauration maintenus, accueil des externes présents ; l'aperçu liste les internes présents |
+| **[personas]** Alerte cyclonique (outre-mer) : fermeture décidée par la préfecture selon le niveau, levée parfois dans la nuit [NV] | Fermeture conditionnelle avec **levée programmée** ou prolongation (STR-94) ; un seul message par changement (socle 8) |
+| **[personas]** Un élève de 2ᵈᵉ générale est réorienté en 2ᵈᵉ professionnelle du même lycée en novembre | **Réorientation** en une commande (STR-101) : inscription annuelle (formation) par le port du socle 2, classe, enseignements suivis, groupes |
+| **[personas]** Une commission d'appel de juillet fait passer en 1ʳᵉ un élève prévu en redoublement, déjà placé en 2ᵈᵉ de N+1 | **Révision de la montée** (STR-105) : affectations N+1 annulées, élève remis « à affecter », alerte à la direction et à la campagne de constitution |
+| **[personas]** Neuf désistements et six arrivées après la validation de la constitution | **Campagne rouverte** (STR-106) : élèves déjà placés verrouillés, seuls les mouvements d'été sont calculés |
+| **[personas]** Un élève est resté trois semaines dans le mauvais groupe de spécialité (appels faits, deux notes) | **Correction rétroactive** (STR-104, R-S6) : affectation erronée annulée, vraie affectation à la date d'origine ; appels et notes concernés listés aux socles 12 et 21 ; aucune annonce de « changement » |
+| **[personas]** Le groupe d'espagnol de 1ʳᵉ compte 36 élèves en septembre | **Dédoublement** (STR-103) : deux groupes, cours dupliqué, service à pourvoir signalé au socle 6 |
+| **[personas]** Le gymnase municipal ferme deux semaines (travaux de la mairie) | Indisponibilité datée du **lieu extérieur** (STR-109) ; séances signalées au socle 10 |
+| **[personas]** Classes mêlant élèves sous statut scolaire et apprentis (lycée professionnel) | Calendrier d'alternance porté par un groupe « apprentis de la classe » (cible de groupe, §9.3) ; périodes en entreprise par classe |
+| **[personas]** L'établissement passe à ScolIA en janvier (reprise en pleine année) | **Reprise datée** (STR-113, R-S13) : affectations et enseignements suivis depuis la rentrée, pas l'état du jour |
+| **[personas]** Un élève change de classe pour des raisons de protection | Motif codé confidentiel ; notifications sans motif ; la classe d'origine n'est pas informée de la destination (R-S12) |
 
 ---
 
@@ -334,6 +350,8 @@ S'y ajoutent, par des faits de structure explicites :
 - **Responsable de groupe** : portée « mes groupes » (inchangée), qui inclut désormais les membres **actifs à la date** (filtre sur `date_fin`, correction du défaut n° 18).
 
 Et rien d'autre : ni l'ancienne jointure par texte de classe, ni « une classe où j'ai un groupe ».
+
+**[personas]** Le « public » du cours inclut les **membres individuels** datés (R-S5 : élève d'ULIS inclus, décloisonnement, accueil temporaire) et en retire les exclus ; un élève exclu de la saisie (échange, scolarité partagée) n'apparaît plus dans l'appel du cours pour ces dates. Cette fonction est **la seule** (Q-S21) : le socle 6 lui fournit les interventions, il ne recalcule pas le périmètre.
 
 ### 8.2 Conséquences
 - Classe mixte allemand/espagnol : le cours d'allemand a pour public le groupe « 4AB-Allemand » ; son professeur voit ce groupe. Le cours de mathématiques a pour public la classe ; son professeur voit la classe.
@@ -586,6 +604,69 @@ La validation écrit les affectations par la commande `affecter` (source `consti
 | `ent_filiere.mef` texte | → `mef_id` |
 | Fonctions qui créent (`ent_assurer_annee`, `ent_resoudre_classe`, `referentiel_assurer_annee`, `sync_affectation_classe`) | création retirée ; résolution qui **échoue** sur inconnu (le trigger de double écriture garde la lecture tant que Q14 n'est pas fini) |
 
+### 9.10 Compléments de modèle [personas]
+
+Pseudo-DDL, mêmes règles que §9 (établissement, clés composées, RLS, aucune suppression physique). **Numéros de migration à attribuer** dans `MIGRATIONS.md` (la plage 330–349 est déjà entièrement répartie, §18).
+
+```
+-- Point A de PERSONAS_05-06 §0 (Q-S20) : si le cours et le service d'enseignement du socle 6 deviennent une seule table,
+-- les colonnes ci-dessous s'appliquent à cette table unique.
+
+ent_cours_membre_individuel                  -- R-S5 : inclusions et exclusions datées (ULIS, décloisonnement, échange, accueil)
+  id, etablissement_id, annee_id, cours_id
+  eleve_id NULL, personne_accueillie_id NULL -- élève inscrit, ou personne accueillie temporairement (socle 2 : statut d'accueil)
+  nature TEXT CHECK (nature IN ('inclusion','exclusion'))
+  du DATE, au DATE NULL, motif_code TEXT     -- ulis, upe2a, decloisonnement, avance, parcours_amenage, scolarite_partagee,
+                                             -- echange, accueil_temporaire, dispense_cours, autre
+  annulee_le TIMESTAMPTZ NULL
+  -- public_du_cours(c, d) = (classe ou groupe à d) ∪ inclusions actives − exclusions actives
+
+ent_calendrier_evenement (§9.3) + services_touches TEXT[] NULL
+  -- R-S1 : {cours, accueil_eleves, restauration, internat, transports, secretariat, intendance, accueil, cdi}
+  -- effet 'accueil_seulement' ajouté (établissement ouvert, cours non assurés)
+  + levee_prevue_le TIMESTAMPTZ NULL, + conditionnelle BOOLEAN DEFAULT false   -- STR-94 (alerte météo, préfecture)
+  + publie_personnels BOOLEAN DEFAULT false                                     -- R-S19
+ent_calendrier_cible + service TEXT NULL     -- STR-93 : fermeture ou ouverture d'un service seul (secrétariat fermé en août)
+ref_calendrier_officiel.type + 'examen_national'                                -- STR-114 [NV : source]
+
+ent_lieu                                     -- STR-109, R-S14 : lieux extérieurs conventionnés
+  id, etablissement_id, libelle, adresse_id NULL, proprietaire TEXT NULL, convention_document_id NULL,
+  trajet_minutes SMALLINT NULL, mode_trajet TEXT NULL, ferme_le DATE NULL
+ent_salle + lieu_id NULL                     -- une salle « extérieure » appartient à un lieu
+ent_salle_disponibilite                      -- fenêtres attribuées (inverse des indisponibilités) : jour, heure_debut, heure_fin, du, au
+
+ent_classe + code_national TEXT NULL         -- R-S10 : code de division de la base nationale, distinct du code affiché
+ent_groupe + capacite_bloquante BOOLEAN DEFAULT false                           -- R-S15
+ent_offre_enseignement + admission TEXT DEFAULT 'libre'
+  CHECK (admission IN ('libre','sur_avis','sur_test','sur_dossier'))            -- section européenne, option sélective
+ent_eleve_enseignement.etat + 'quitte' ; + fin_nature TEXT NULL
+  CHECK (fin_nature IN ('changement_en_cours_annee','abandon_fin_premiere','fermeture_offre','depart','correction'))  -- R-S16
+
+ent_demande_structure                        -- STR-100, STR-108 : demandes de changement d'enseignement ou de classe
+  id, etablissement_id, annee_id, eleve_id, type ('enseignement','classe'), demande JSONB,
+  deposee_par_personne_id NULL, deposee_par_user_id NULL, motif_code, avis JSONB (PP, professeurs), etat
+  ('deposee','en_avis','acceptee','refusee','retiree'), decision_par, decide_le, effet_le DATE NULL, reponse_document_id NULL
+  -- s'appuie sur le moteur de formulaires (18) ou de demandes (N1) quand ils existent ; ici : l'objet et ses effets
+
+ent_structure_scenario                       -- STR-98 : scénarios de structure prévisionnelle
+  id, etablissement_id, annee_id, libelle, contenu JSONB (classes par niveau, dédoublements, offres), besoins_heures NUMERIC,
+  retenu BOOLEAN, presente_le DATE NULL, document_id NULL, par, le
+
+ent_constat_effectifs                        -- STR-97, R-S4 : photographie figée
+  id, etablissement_id, annee_id, date_reference DATE, version SMALLINT, chiffres JSONB (par niveau, MEF, classe,
+  enseignement, régime), signe_par, signe_le, remplace_id NULL, document_id NULL
+  -- jamais recalculé ; une correction = une nouvelle version
+
+ent_constitution_contributeur                -- STR-107, R-S17 : avis des écoles d'origine
+  id, campagne_id, personne_id, ecole_origine TEXT, eleves UUID[], invite_le, jeton_hash, expire_le, revoque_le
+ent_constitution_eleve + choix_fratrie TEXT NULL CHECK (… IN ('ensemble','separes','indifferent'))   -- R-S8
+ent_constitution_contrainte.type + origine TEXT DEFAULT 'saisie' CHECK (origine IN ('saisie','mesure'))  -- R-S7
+  -- origine 'mesure' : posée par le socle 13 ou 36, motif jamais copié, non retirable par la campagne
+
+ent_liste_favorite                           -- STR-112 : liste à la demande enregistrée
+  id, etablissement_id, user_id, libelle, filtres JSONB (structure), colonnes TEXT[] (catalogue du socle 2), partagee BOOLEAN
+```
+
 ---
 
 ## 10. Ce qui relève du logiciel, ce qui relève du paramétrage
@@ -766,6 +847,64 @@ Colonnes : identifiant ; action ; qui (profil par défaut · action de droit) ; 
 | STR-91 | Voir le journal des changements de structure | Dir, Adm · `audit.lire` ou `referentiel.lire` (sans données élève) | — | — |
 | STR-92 | Vérifier la cohérence (tâche nocturne et à la demande) | SYS | mêmes contrôles que le tableau de bord ; alerte aux responsables | `referentiel.controle_alerte` |
 
+### 12.10 Actions ajoutées par la passe personas [personas]
+
+Source de chaque action : manque `M-xxx` de `PERSONAS_05-06.md`. Même format que ci-dessus.
+
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| STR-93 | Déclarer les **jours d'ouverture et de fermeture des services** (secrétariat, intendance, restauration, internat, accueil, CDI), indépendamment des cours (M-167) | Dir, Adm · `calendrier.gerer` | cible `service` (§9.10) ; « fermeture estivale du secrétariat » ; lu par les délais des socles 3, 8, 24 (R-S2) | `referentiel.calendrier_modifie` |
+| STR-94 | Déclarer une **fermeture conditionnelle** et programmer sa **levée** ou sa prolongation (alerte météo, décision préfectorale) ★ (M-216) | Dir · `calendrier.gerer` | prolonge STR-25 ; levée programmée exécutée seule, avec un seul message par changement ; outre-mer : niveaux d'alerte [NV] | `referentiel.fermeture_exceptionnelle`, `referentiel.fermeture_levee` |
+| STR-95 | **Annuler une ouverture d'année** (retour arrière complet) ★ (M-146, trou T-31) | Dir · `annee.basculer` | R-S3 ; aperçu : notifications déjà parties, faits déjà saisis dans N+1 ; N redevient courante, N+1 repasse en préparation | `referentiel.ouverture_annulee` |
+| STR-96 | **Publier les informations de rentrée** de N+1 aux familles et aux élèves avant l'ouverture : date et heure de rentrée du niveau, classe (si publiée, STR-78), PP (si nommé, 06), calendrier N+1 (M-145) | Dir, Adm · `calendrier.gerer` | rien d'autre de N+1 n'est visible ; le portail montre N et « l'année prochaine » côte à côte (constat G13) | `referentiel.rentree_publiee` |
+| STR-97 | **Arrêter un constat d'effectifs** à une date : chiffres figés, signés, comparés à N-1, exportés ★ (M-147) | Dir · `annee.preparer` ; export : `structure.exporter` | R-S4 ; nouvelle version si correction ; trame « constat d'effectifs » ; transmis par le socle 9, consolidé au 47 | `referentiel.constat_arrete` |
+| STR-98 | Enregistrer, comparer, retenir un **scénario de structure prévisionnelle** (classes par niveau, dédoublements, offres) et le présenter (M-139) | Dir · `enseignements.gerer` | besoins en heures calculés comme STR-45 ; un seul retenu ; trame de présentation aux instances (socle 46) ; sans effet sur la structure tant qu'il n'est pas appliqué | `referentiel.scenario_structure_retenu` |
+| STR-99 | Voir le **tableau des combinaisons de choix** (doublettes, triplettes, LV × options) et les **incompatibilités avec les barrettes** ; simuler une autre barrette (M-152) | Dir, Adm · `enseignements.gerer` | lit les vœux (socle 3) et les enseignements suivis ; simulation sans écriture ; élèves bloqués nommés | — |
+| STR-100 | Instruire une **demande de changement d'enseignement suivi** (option, spécialité, langue) déposée par la famille, l'élève majeur ou le PP : avis, décision, effet daté, réponse (M-169) | dépôt : famille (lien avec droit « décider »), élève majeur, PP ; avis : professeurs concernés, PP · `constitution.contribuer` ; décision : Dir, Adm · `affectations.gerer` | date limite de l'offre = avertissement ; capacité ; effet par STR-62 ; réponse par trame ; enseignement quitté conservé (R-S16) | `referentiel.demande_structure_decidee` |
+| STR-101 | **Réorientation en cours d'année** (changement de formation) : inscription annuelle par le port du socle 2, classe, enseignements suivis, groupes, en une commande ★ (M-199) | Dir, Adm · `affectations.gerer` | aperçu des cours quittés et rejoints ; notes conservées au cours d'origine (21) ; passerelle vers un autre établissement : socle 3 | `scolarite.classe_changed`, `referentiel.enseignements_suivis_modifies` |
+| STR-102 | **Inclure** un élève dans un cours d'une autre classe ou d'un autre groupe, l'en **exclure**, ou **accueillir** une personne non inscrite dans des cours, à des dates (M-224, M-211, M-200) | Adm · `affectations.gerer` ; enseignant référent ULIS · `affectations.gerer` portée `mon_perimetre` [R] | R-S5 ; motif codé ; jamais de motif de santé affiché ; listes d'appel et de notes mises à jour ; AESH prévenue (06 R-P20) | `referentiel.composition_modifiee` (`cours_id`, entrants, sortants) |
+| STR-103 | **Scinder un groupe** (dédoublement) ou fusionner deux groupes ★ (M-153) | Dir, Adm · `structure.gerer` | assistant : répartition des membres (alphabétique, équilibrée, manuelle), cours dupliqué ou fermé, service à pourvoir signalé au socle 6 | `referentiel.groupe_scinde` / `_fusionne` |
+| STR-104 | **Corriger rétroactivement** une affectation erronée ★ (M-154) | Adm · `affectations.gerer` | R-S6 ; aperçu des appels et notes saisis sur la mauvaise cible ; aucune notification de « changement » | `referentiel.affectation_corrigee` |
+| STR-105 | **Réviser la montée** après une décision d'appel ou une commission de juillet (M-166) | Dir, Adm · `annee.preparer` | affectations N+1 annulées, inscription annuelle N+1 corrigée par le port du socle 2, élève remis « à affecter », campagne prévenue | `referentiel.montee_revisee` |
+| STR-106 | **Rouvrir une campagne de constitution validée** pour les arrivées et départs d'été (M-144) | Dir · `constitution.preparer` | R-S18 ; élèves déjà placés verrouillés par défaut ; nouvelle validation = nouvelles affectations seulement | `constitution.rouverte` |
+| STR-107 | Recueillir les **avis des enseignants des écoles d'origine** (liaison école–collège) : accès invité limité à la campagne, ou import d'une fiche de liaison (M-141) | Dir · `constitution.preparer` | R-S17 ; même grille que STR-73/74 ; purgé avec la campagne | `constitution.contributeur_invite` |
+| STR-108 | Instruire les **demandes de changement de classe** des familles après publication (M-148) | Dir · `constitution.preparer` | non opposables ; motif codé ; réponse par trame ; date limite fixe (S-42) ; effet par STR-61 | `referentiel.demande_structure_decidee` |
+| STR-109 | Déclarer un **lieu extérieur** (gymnase municipal, piscine, stade) : adresse, temps de trajet, convention, **fenêtres de disponibilité** (M-205) | Admin, Adm · `etablissement.parametrer` | R-S14 ; indisponibilités du lieu (travaux de la mairie) comme STR-09 | `referentiel.lieu_*` |
+| STR-110 | Rendre **plusieurs salles indisponibles** pour un événement du calendrier (examens, réquisition) en un geste (M-227) | Dir, Adm · `etablissement.parametrer` | liées à l'événement : déplacées ou annulées avec lui ; séances touchées signalées (10) | `referentiel.salle_indisponible` (lot) |
+| STR-111 | **Imprimer ou exporter des listes** par classe, groupe, cours, option, langue, régime selon quatre trames : liste simple, émargement, trombinoscope, étiquettes ; et la **liste d'affichage de rentrée** (M-162) | personnel selon portée ; export fichier : Adm · `structure.exporter` (D-022) | R-S9 pour l'affichage ; filigrane et journal pour le trombinoscope (02 §7.6) ; disponible hors ligne en PDF préparé la veille de la rentrée | — |
+| STR-112 | **Liste à la demande** : filtres de structure, colonnes choisies dans le catalogue autorisé par les groupes de lecture du socle 2, enregistrée en favori (M-163) | Adm, Dir · `structure.exporter` | jamais un professeur pour l'export (D-022) ; colonnes = groupes de lecture du lecteur ; réglage signalé S-43 | `export.realise` (9) |
+| STR-113 | **Reprendre en cours d'année** la structure, les affectations et les enseignements suivis **datés depuis la rentrée** depuis l'ancien logiciel (M-161) | Adm · `structure.importer` | R-S13 ; cadre d'import du socle 9, socle 28 ; rejets listés ; aucune affectation inventée | `referentiel.affectations_lot` |
+| STR-114 | **Adopter les dates des examens nationaux** (écrits du brevet, du baccalauréat) comme les vacances (M-168) | Dir, Adm · `calendrier.gerer` | source centrale [NV] ; effets ciblés par niveau (fin des cours avancée) | `referentiel.calendrier_adopte` |
+
+### 12.11 Règles ajoutées par la passe personas [personas]
+
+| Id | Règle | Manque |
+|---|---|---|
+| R-S1 | **Une fermeture a des effets différenciés.** Le déclarant coche les services touchés (cours, accueil des élèves présents, restauration, internat, transports) ; **par défaut, si des internes sont présents, internat et restauration restent ouverts** ; l'effet `accueil_seulement` (« établissement ouvert, cours non assurés ») existe ; l'aperçu nomme les internes présents et les repas maintenus. Les socles 40 et 41 n'annulent que ce qui est coché | M-202, M-203 |
+| R-S2 | Les **jours ouvrés administratifs** (services ouverts) sont distincts des jours de cours ; les délais des socles 3, 8 et 24 les comptent | M-167 |
+| R-S3 | **Annuler une ouverture** est possible jusqu'au **premier jour de cours** de N+1 si aucun appel ni aucune évaluation n'y a été saisi ; au-delà, refus (corrections ordinaires) ; les notifications déjà envoyées sont listées et un message correctif est proposé (socle 8, envoi humain) | M-146 |
+| R-S4 | Un **constat d'effectifs** est figé : il n'est jamais recalculé ; une correction crée une nouvelle version qui cite la précédente | M-147 |
+| R-S5 | **Public d'un cours = classe ou groupe, plus les inclusions, moins les exclusions**, datées. `public_du_cours` et la règle de visibilité du §8 les intègrent : le professeur voit l'élève inclus pour les dates d'inclusion ; l'élève exclu n'est ni sur la liste d'appel ni sur la saisie de notes du cours pour les dates d'exclusion (il reste dans l'annuaire de sa classe) | M-224, M-211, M-200 |
+| R-S6 | **Corriger ≠ changer.** Une affectation erronée est annulée (`annulee_le`) et la bonne posée à la date d'origine ; aucune notification de « changement » aux familles ; les appels et notes saisis sur la mauvaise cible sont signalés aux socles 12 et 21 pour revue, jamais déplacés seuls | M-154 |
+| R-S7 | Une **mesure d'éloignement** publiée par le socle 13 ou 36 (identifiants seulement) devient une contrainte « séparer » d'origine `mesure` dans toute campagne de constitution, et une alerte de composition si les deux élèves se retrouvent dans un même groupe ou cours ; la direction voit « contrainte réservée », jamais le motif | M-143 |
+| R-S8 | **Fratrie du même niveau** (jumeaux) : le choix de la famille (ensemble, séparés, indifférent) est recueilli par défaut, même si les souhaits des familles sont désactivés ; c'est une contrainte souple | M-142 |
+| R-S9 | **Liste d'affichage de rentrée** : prénom et initiale du nom par défaut, classe, salle, heure ; jamais de date de naissance, de dispositif (ULIS, UPE2A), d'option révélant une situation | M-164 |
+| R-S10 | La classe porte un **code national de division** distinct de son libellé ; les exports utilisent le code ; contrôle de rentrée « division sans code » en public et privé sous contrat | M-165 |
+| R-S11 | Le **fuseau du profil** (STR-03) est la **seule** source du fuseau pour tous les socles, y compris le socle 6 (`06_PERSONNELS.md` R-P2) | M-215 |
+| R-S12 | **Changement de classe pour protection** : motif codé confidentiel (lecture direction) ; notifications aux équipes sans motif ; l'équipe d'origine apprend le départ, pas la destination | M-170 |
+| R-S13 | **Reprise en cours d'année** : affectations, enseignements suivis et groupes repris **avec leurs dates** depuis la rentrée ; un historique absent est signalé, jamais inventé | M-161 |
+| R-S14 | Un **lieu extérieur** n'est utilisable que dans ses fenêtres de disponibilité ; le socle 10 lit fenêtres et temps de trajet comme contraintes ; le socle 42 lit le trajet | M-205 |
+| R-S15 | Une **capacité de sécurité** (bassin, atelier, laboratoire) peut être bloquante ; les autres capacités restent des avertissements | M-206 |
+| R-S16 | Un **enseignement quitté** garde sa nature (changement en cours d'année, abandon de fin de 1ʳᵉ, fermeture de l'offre) et ses dates ; l'abandon d'une spécialité en fin de 1ʳᵉ est une transition normale, pas un changement [NV] ; les exports d'examen et d'orientation (9, 38) le lisent | M-198 |
+| R-S17 | Un **contributeur invité** d'une école d'origine ne voit que les élèves entrants qui viennent de son école, pendant la période d'avis, avec la même grille que les professeurs ; jeton à usage limité ; purgé avec la campagne | M-141 |
+| R-S18 | Une **campagne rouverte** garde verrouillés les élèves déjà placés ; seuls arrivées, départs et déverrouillages explicites sont recalculés ; les familles déjà informées ne reçoivent un message que si la classe de leur enfant change | M-144 |
+| R-S19 | Un événement du calendrier peut être **publié aux personnels seulement** (conseil pédagogique, formation, pré-rentrée) | M-149 |
+| R-S20 | Contrôle de rentrée : **effectif d'un cours supérieur à la capacité** de sa salle de référence ou prévue | M-160 |
+| R-S21 | Un cours peut avoir pour public un **groupe d'activité** (chorale) ; il compte alors dans le service de l'intervenant (06) | M-183 |
+| R-S22 | Le **calendrier personnel** d'une famille réunit tous ses enfants de l'établissement (un abonnement iCal, chaque événement étiqueté par enfant) | M-229 |
+| R-S23 | Les **noms d'événements** du socle 5 (`referentiel.*`) font foi ; les consommateurs (socle 6) s'y alignent | M-234 |
+| R-S24 | **Contrat IA** (D-025, `IA_COEUR.md` §5) des actions ajoutées : lectures déclarées (STR-99, 111, 112 en sensibilité « liste nominative ») ; commandes ★ (STR-94, 95, 97, 101, 103, 104) en confirmation renforcée avec aperçu serveur ; aucune lecture des notes scellées, des contraintes d'origine `mesure` ni des motifs de protection par l'IA | M-235 |
+
 ---
 
 ## 13. Droits (catalogue `ent_auth::Action`)
@@ -799,6 +938,13 @@ Règles :
 - **Oracle de compatibilité** (même mécanisme que `r2_modele_identique_aux_capacites_historiques` [F]) : pour chaque profil, l'union des nouvelles actions par défaut ouvre exactement les routes ouvertes aujourd'hui ; les seules différences volontaires sont les nouveautés (constitution, composition d'atelier) et la **restriction D-022** (le professeur perd la vue de la classe entière là où il n'a qu'un groupe), annoncée comme correction.
 - `annee.basculer`, `annee.rouvrir`, `constitution.preparer` : portée établissement seulement ; anti-escalade inchangée.
 - Familles et élèves : hors rôles libres (D-017) ; ils lisent leur calendrier, leur classe et leurs groupes **publiés** par le lien actif ; souhaits de constitution par le lien avec droit de décision (socle 4).
+
+### 13.3 Droits des actions ajoutées [personas]
+
+Aucune nouvelle action de droit n'est nécessaire : les actions STR-93 à STR-114 utilisent celles du §13.2. Deux précisions [R] :
+- `affectations.gerer` admet la portée **`mon_perimetre`** (socle 6) pour l'enseignant référent d'un dispositif (ULIS, UPE2A), limité aux inclusions et exclusions des élèves du dispositif (STR-102).
+- Le **contributeur invité** d'une école d'origine (STR-107) n'a aucun rôle : il agit par un jeton de campagne limité à `constitution.contribuer` sur les élèves entrants de son école (R-S17) ; il n'est pas un personnel de l'établissement.
+- Familles et élèves majeurs déposent les demandes de STR-100 et STR-108 par leur lien (droit « décider », socle 4), sans action du catalogue.
 
 ---
 
@@ -842,6 +988,24 @@ Règles :
 | `eleve.confidentialite_changee` | 2 | trombinoscopes et listes publiées recalculés |
 | `service.*` (socle 6) | 6 | contrôle « cours sans intervenant » recalculé |
 | `edt.import_realise` (socle 10) | 10 | écarts de structure proposés (STR-83) |
+
+### 14.3 Événements ajoutés [personas]
+
+| Événement | Sens | Charge utile | Consommateurs ou producteur |
+|---|---|---|---|
+| `referentiel.fermeture_exceptionnelle` (enrichi) | émis | + `services_touches[]`, `conditionnelle`, `levee_prevue_le` | 10, 12, 40, **41**, 43, 8 : chacun n'agit que sur les services cochés (R-S1) |
+| `referentiel.ouverture_annulee` (étendu à STR-95) | émis | `annee_id`, compteurs de notifications déjà envoyées | tous (année de travail), 8 |
+| `referentiel.rentree_publiee` | émis | `annee_id`, niveaux | 8, 29 (portail) |
+| `referentiel.constat_arrete` | émis | `constat_id`, date de référence, version | 9, 47 |
+| `referentiel.scenario_structure_retenu` | émis | `scenario_id` | 6 (répartition prévisionnelle), 46 |
+| `referentiel.demande_structure_decidee` | émis | `demande_id`, type, état | 8 (réponse), 2 (chronologie) |
+| `referentiel.groupe_scinde` / `_fusionne` | émis | groupes source et cibles | 6 (services à pourvoir), 10, 12, 21 |
+| `referentiel.affectation_corrigee` | émis | `eleve_id`, cible erronée, cible juste, période | **12, 21** (revue des saisies), 2 ; **jamais 8** (pas de « changement » annoncé) |
+| `referentiel.montee_revisee` | émis | `eleve_id`, `annee_id` | 3, 24, constitution |
+| `constitution.rouverte`, `constitution.contributeur_invite` | émis | identifiants, compteurs | 8 |
+| `referentiel.lieu_*` | émis | `lieu_id`, dates | 10, 42 |
+| `referentiel.composition_modifiee` (étendu) | émis | + `cours_id` pour les inclusions et exclusions | 10, 12, 20, 21, **6** (missions sur élèves : AESH, R-P20) |
+| mesure d'éloignement (nom à fixer par les socles 13 et 36) | consommé | deux `eleve_id`, dates, **aucun motif** | contrainte `mesure` (R-S7) |
 
 ---
 
@@ -930,6 +1094,8 @@ Chaque lot livre : migrations, dépôt (`ent-db`), service en transaction unique
 
 Ordre recommandé : **S0 → S1** (sécurité d'abord) → (S2, S5 en parallèle) → (S3, S4, S7) → S6 → S8 → (S9, S10, S11) → S12 au fil de l'eau → S13. **Parcours minimal vendable** (« une rentrée complète dans l'ENT ») : S0, S1, S2, S3, S4, S5, S6, S8 + S12a, c, e, g ; la constitution (S9) est l'argument commercial de juin et suit immédiatement.
 
+**[personas] Place des ajouts dans les lots** (`PERSONAS_05-06.md`) : **avant S1 et S4**, trancher Q-S20 et Q-S21 (§0 de la passe, points A et B) ; **S4** : inclusions et exclusions (`ent_cours_membre_individuel`, R-S5) dans le modèle du cours dès le départ ; **S3** : fermeture à effets différenciés, levée programmée, services administratifs, examens nationaux, publication aux personnels (STR-93, 94, 114 ; R-S1, R-S2, R-S19) ; **S2** : lieux extérieurs et disponibilités, salles en lot (STR-109, 110) ; **S5** : admission sur avis ou test, enseignement quitté (R-S16) ; **S6** : inclusions, dédoublement de groupe, correction rétroactive, réorientation, demandes (STR-100 à 104, 108) ; **S8** : annulation d'ouverture, révision de la montée, informations de rentrée (STR-95, 96, 105) ; **S9** : campagne rouverte, contributeurs invités, fratries, mesures d'éloignement (STR-106, 107 ; R-S7, R-S8) ; **S10** : scénarios de structure, combinaisons et barrettes, constat (STR-97 à 99) ; **S11** : reprise datée, code de division (STR-113 ; R-S10) ; **S12** : sous-lot **S12h « listes »** (STR-111, 112, trames). Migrations : numéros à attribuer hors de la plage 330–349, déjà pleine.
+
 Plage de migrations (registre `MIGRATIONS.md`) : 330 correctifs d'état et garde-fous ; 331 clés composées ; 332 profil et paramètres ; 333 calendrier ; 334 semaines ; 335 périodisations ; 336 grilles ; 337 bâtiments et salles ; 338 matières et offre ; 339 classes et groupes ; 340 enseignements suivis ; 341 cours ; 342 affectations ; 343 constitution ; 344 opérations d'année ; 345 maquette et dotation ; 346 RLS ; 347–349 retraits (après validation).
 
 ---
@@ -957,6 +1123,13 @@ Plage de migrations (registre `MIGRATIONS.md`) : 330 correctifs d'état et garde
 | Q-S17 | Les enseignements « hors contrat » d'un établissement sous contrat (option payante) : portés par l'offre, facturés par le socle 24 | oui / non | **oui** |
 | Q-S18 | Vérification réglementaire avant S3, S5, S8, S10 : calendrier par zone et outre-mer, fériés d'Alsace-Moselle et d'outre-mer, volumes horaires de référence et règles de choix (LV2, spécialités), groupes de besoin, dotation et présentation aux instances, codes de modalité d'élection, formats SIECLE structures et STS (et son successeur), GAR | — | **consultation** des textes ; ajout à `INTEROPERABILITE_NATIONALE.md` §12 ; corriger au passage la mention « aucune colonne `uai` » (`INTEROPERABILITE_NATIONALE.md:159`), fausse : `ent_site.uai` existe [F `110:14-15`] |
 | Q-S19 | Les migrations 112 (qui écrivent des données à leur application et créent années et classes) : neutraliser la création dans une migration correctrice (330) sans réécrire 112 | oui / non | **oui** |
+| **Q-S20** [personas] | **Cours (socle 5) et service d'enseignement (socle 6) : un seul objet.** Les deux conceptions possèdent chacune « ce qui est enseigné à qui » (`ent_cours` ici, `ent_service_enseignement` enrichi au socle 6) | une table, socle 5 crée et structure, socle 6 porte les interventions / deux tables | **une table** (l'existant `ent_service_enseignement` devient le cours) ; création et public par le socle 5 ; interventions, heures dues par le socle 6 ; PRS-40 appelle STR-57 ; une seule reprise (fusion de M7 et de la migration 354 du socle 6). **Bloquant avant S4 et P3** |
+| **Q-S21** [personas] | **Une seule fonction de périmètre** : `structure::perimetre` (ici) et `services::eleves_vus` (socle 6) | fonction du socle 5 qui lit les interventions / fonction du socle 6 | **socle 5**, qui lit les interventions (en saisie, en lecture, délai de grâce) fournies par le socle 6 ; un seul jeu de tests D-022. **Bloquant avant S1 et P4** |
+| Q-S22 [personas] | Annuler une ouverture d'année (STR-95) : jusqu'à quand ? | jamais / jusqu'au premier jour de cours / sans limite | **jusqu'au premier jour de cours**, sans saisie dans N+1 (R-S3) |
+| **Q-S23** [personas] | Membres individuels d'un cours (inclusions, exclusions, accueil temporaire) | oui / groupes seulement | **oui** : un groupe par élève inclus serait ingérable et les listes d'appel resteraient fausses (R-S5) |
+| Q-S24 [personas] | Avis des enseignants des écoles d'origine (STR-107) | accès invité par jeton / import d'une fiche seulement / rien | **les deux**, accès invité désactivé par défaut |
+| Q-S25 [personas] | Liste à la demande (STR-112) : catalogue de colonnes, ou listes fixes seulement (risque de « requêteur », D-023) | catalogue court / listes fixes | **douze listes prêtes + catalogue court**, réglage signalé S-43 |
+| Q-S26 [personas] | Constats d'effectifs : dates officielles (enquêtes publiques, forfait d'externat dans le privé) [NV] | — | **vérifier** les dates et contenus attendus avant S10 ; ajouter à `INTEROPERABILITE_NATIONALE.md` §12 |
 
 ---
 
@@ -976,3 +1149,6 @@ Plage de migrations (registre `MIGRATIONS.md`) : 330 correctifs d'état et garde
 - `INTEROPERABILITE_NATIONALE.md:159` (« aucune colonne `uai` ») contre `110:14-15` — Q-S18.
 - D-022 (le professeur ne voit que ses groupes) contre le code actuel (branche EDT de `perimetre.rs`, `classes_du_prof`) — lot S1.
 - `SOCLES.md` place les réservations de salles au socle 44 et ce document garde les salles (lieux, capacité, indisponibilités) au socle 5 : cohérent, mais l'indisponibilité pour travaux (5) et la réservation (44) devront partager le même calcul de disponibilité (contrat à écrire au socle 44).
+- **[personas]** Ce document et `06_PERSONNELS.md` (écrit sans pouvoir lire celui-ci) **possèdent tous deux** l'objet « ce qui est enseigné à qui » (cours ici, service d'enseignement là-bas) et annoncent chacun la **seule** fonction de périmètre (`structure::perimetre` ici, `services::eleves_vus` là-bas) — Q-S20, Q-S21.
+- **[personas]** Le socle 6 consomme `annee.ouverte`, `annee.cloturee`, `classe.archivee`, `groupe.archive` ; ce document émet `referentiel.annee_ouverte`, `referentiel.annee_cloturee`, `referentiel.classe_archivee`, `referentiel.groupe_ferme` — R-S23.
+- **[personas]** Le principe 8 (« une fermeture se déclare une fois et produit tous ses effets ») annulerait les repas des internes présents : précisé par R-S1, sans retirer le principe.
