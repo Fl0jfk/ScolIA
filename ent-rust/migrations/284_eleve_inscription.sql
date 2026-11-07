@@ -93,6 +93,14 @@ BEGIN
         WHERE a.etablissement_id = l.etablissement_id AND a.libelle = l.annee_scolaire;
         IF v_annee IS NULL THEN
             v_y := substr(l.annee_scolaire, 1, 4)::int;
+            -- Une année pas encore commencée n'est jamais créée par la reprise (c'est la préparation
+            -- de l'année suivante du référentiel qui la crée) : la ligne attend, rangée « à traiter ».
+            IF make_date(v_y, 9, 1) > current_date THEN
+                INSERT INTO ent_eleve_inscription_a_traiter (etablissement_id, eleve_id, legacy_id, cause)
+                VALUES (l.etablissement_id, l.eleve_id, l.id, 'annee_future') ON CONFLICT DO NOTHING;
+                PERFORM set_config('ent.inscription_pont', 'off', true);
+                RETURN NULL;
+            END IF;
             v_annee := ent_assurer_annee(l.etablissement_id, make_date(v_y, 9, 15));
         END IF;
     END IF;

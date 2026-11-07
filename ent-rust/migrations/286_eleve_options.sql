@@ -176,11 +176,16 @@ END $$;
 SELECT ent_eleve_option_reprendre();
 
 -- Comparaison avant / après : une ligne par ancienne option reprise ou à traiter.
+DROP FUNCTION IF EXISTS ent_eleve_option_comparaison(UUID);
 CREATE OR REPLACE FUNCTION ent_eleve_option_comparaison(p_etab UUID)
-RETURNS TABLE (heritees BIGINT, reprises BIGINT, a_traiter BIGINT) LANGUAGE sql STABLE AS $$
+RETURNS TABLE (heritees BIGINT, reprises BIGINT, a_traiter BIGINT, en_attente BIGINT) LANGUAGE sql STABLE AS $$
     SELECT
         (SELECT count(*) FROM ent_eleve_option WHERE etablissement_id = p_etab)
           + (SELECT count(*) FROM ent_eleve_option_annee WHERE etablissement_id = p_etab AND statut = 'retenue'),
         (SELECT count(*) FROM ent_eleve_option_groupe WHERE etablissement_id = p_etab),
-        (SELECT count(*) FROM ent_eleve_option_a_traiter WHERE etablissement_id = p_etab AND traite_le IS NULL)
+        (SELECT count(*) FROM ent_eleve_option_a_traiter WHERE etablissement_id = p_etab AND traite_le IS NULL),
+        -- retenues d'une année pas encore commencée : reprises à son démarrage
+        (SELECT count(*) FROM ent_eleve_option_annee o JOIN ent_annee_scolaire a
+            ON a.etablissement_id = o.etablissement_id AND a.libelle = o.annee_scolaire
+          WHERE o.etablissement_id = p_etab AND o.statut = 'retenue' AND a.date_debut > current_date)
 $$;

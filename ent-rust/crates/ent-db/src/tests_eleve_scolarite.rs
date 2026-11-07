@@ -719,9 +719,9 @@ async fn classe_et_options_par_affectations_du_referentiel() {
     assert_eq!(lien, 1);
     let (r,): (i64,) = sqlx::query_as("SELECT ent_eleve_option_reprendre()").fetch_one(ent.pool()).await.unwrap();
     assert_eq!(r, 0);
-    let (herit, reprises, a_traiter): (i64, i64, i64) =
-        sqlx::query_as("SELECT heritees, reprises, a_traiter FROM ent_eleve_option_comparaison($1)").bind(etab).fetch_one(ent.pool()).await.unwrap();
-    assert!(herit > 0 && reprises + a_traiter >= herit, "comparaison avant/après : {herit} {reprises} {a_traiter}");
+    let (herit, reprises, a_traiter, attente): (i64, i64, i64, i64) =
+        sqlx::query_as("SELECT heritees, reprises, a_traiter, en_attente FROM ent_eleve_option_comparaison($1)").bind(etab).fetch_one(ent.pool()).await.unwrap();
+    assert!(herit > 0 && reprises + a_traiter + attente >= herit, "comparaison avant/après : {herit} {reprises} {a_traiter} {attente}");
 }
 
 /// ELV-10 / R-E5 : régime et site datés ; dates autorisées par l'établissement, dérogation
