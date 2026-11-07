@@ -110,3 +110,9 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Correction :** les cinq commits de la branche ont été rejoués localement sur leur base (`43180f7`) sans ce dossier (copie `eval-propre`, contenu identique hors `target-s27/`, vérifié par `git diff`), puis fusionnés avec `--no-ff`. La branche d'origine n'est pas modifiée ; son ancêtre git diffère donc de celui fusionné.
 - **Apprentissage :** ignorer tout `target*/` dans `.gitignore` ; contrôler la taille d'une branche (`git diff --stat`) avant de la fusionner ; ne pas choisir un `CARGO_TARGET_DIR` dans l'arbre suivi.
 
+## F-012 — Pilotage multi-sessions : consignes perdues, conteneurs qui redémarrent, intégration bloquée
+
+- **Date / contexte :** 2026-11-06 → 07, socles 2 à 4 et lots d'intégration 6 à 8.
+- **Faits :** (1) des consignes envoyées par message à des sessions déjà lancées (correctifs des personas, D-022) ont été **refusées** par ces sessions, à raison, car elles ne venaient pas du porteur du projet ; (2) les conteneurs cloud ont redémarré à de nombreuses reprises et ont coupé les suites de tests longues (70 à 100 min), bloquant le lot 7 pendant une nuit ; (3) la CI GitHub, lancée à la main sur la branche, a trouvé en 30 min une erreur de compilation que les suites locales coupées n'atteignaient pas ; (4) aucun regard extérieur sur les consignes du pilote avant lancement.
+- **Correction :** règles du §2 de `docs/PILOTAGE.md` (consignes dans le message de lancement, CI GitHub comme juge, file d'intégration unique, rôle de contradicteur avant chaque vague).
+- **Apprentissage :** le goulot n'est pas l'écriture du code mais l'assemblage et la validation ; il faut un rôle dédié et une validation fiable.

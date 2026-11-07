@@ -45,3 +45,16 @@ Chaque socle est un domaine entier conçu en profondeur avant d'être codé (doc
 ## Repris de la feuille de route initiale
 
 Préparation pilote (charge, RGPD, restauration testée, documentation, support) → socles 27 à 29, plus les domaines nécessaires au pilote choisi (la restauration, par exemple, peut être servie par l'existant ou avancée). Innovations : moteur documentaire et conversion → socle 7 ; bureautique ArtCraft → socle 32 ; automatisations → socle 31.
+
+## Jalons de preuve (Florian, 2026-11-07)
+
+Florian accepte que la date d'arrivée glisse ; il exige **des preuves régulières et réelles** que l'ENT peut être mené au bout. Chaque jalon se démontre sur le logiciel qui tourne (données fictives de labo, captures et démonstration en direct), pas sur des documents.
+
+| Jalon | Visé | Ce qu'on doit pouvoir montrer |
+|---|---|---|
+| P1 « Le cœur tourne » | fin novembre 2026 | Socles 2 à 4 codés et recettés par personas : fiche élève centrale, identité avec historique, inscription complète d'un élève jusqu'à la rentrée, foyers et parents séparés, droits et cloisonnement démontrés par attaque. |
+| P2 « Une journée d'établissement » | fin décembre 2026 | Socles 5, 6, 10, 12 : structure et rentrée, personnels et services, emploi du temps, appel web et mobile ; une journée réelle déroulée de bout en bout par les personas. |
+| P3 « Un trimestre » | fin février 2027 | Notes, bulletins, conseils, messagerie, vie scolaire, facturation : un trimestre complet joué de bout en bout. |
+| P4 « Pilote » | printemps 2027 (environ 6 mois) | Socles jusqu'au 29 : utilisable pour l'année de transition dans l'établissement de Florian (sans module santé), avec la fiche « avant les premières vraies données » remplie. |
+
+Si un jalon glisse, on le dit au moment où on le voit, avec la raison et la nouvelle estimation.
