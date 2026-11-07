@@ -26,6 +26,8 @@ use sqlx::PgConnection;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
+use crate::dossier_personnes;
+use crate::eleve_ports;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
@@ -494,7 +496,15 @@ impl PgEnt {
         self.lot_import(etab, lot_id).await
     }
 
-    /// Crée l'élève d'une ligne valide (personnes, foyer, liens, affectation).
+    /// Crée l'élève d'une ligne valide (personnes, foyer, liens, affectation) **par les commandes
+    /// des autres socles** : `eleve_ports::creer_eleve_tx` (socle 2), `integrer_declaration_tx`
+    /// (socle 4) et l'affectation du référentiel. Ce module n'écrit lui-même dans aucune de leurs
+    /// tables (test de garde `tests_garde_inscriptions`).
+    ///
+    /// Rapprochement : une fiche déjà créée **par un import** pour le même e-mail, et qui n'a pas
+    /// de compte, est reprise (fratrie dans un même fichier) avec son foyer ; toute autre
+    /// correspondance (compte existant, fiche saisie ailleurs, même nom seulement) donne une
+    /// **nouvelle** fiche — jamais un lien implicite vers une personne existante (§2.2 n° 1).
     async fn creer_depuis_ligne(
         conn: &mut PgConnection,
         etab: Uuid,
@@ -503,120 +513,110 @@ impl PgEnt {
         lot_id: Uuid,
         actor: Uuid,
     ) -> Result<Uuid, EntDbError> {
-        let eleve_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, ine, status, regime, sexe, date_naissance,
-                                    classe_id, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,'actif',$6,$7,$8,$9, now(), now())",
+        let eleve_id = eleve_ports::creer_eleve_tx(
+            conn,
+            etab,
+            &eleve_ports::NouvelEleve {
+                nom: &l.nom,
+                prenom: &l.prenom,
+                ine: l.ine.as_deref(),
+                sexe: l.sexe.as_deref(),
+                date_naissance: l.date_naissance,
+                regime: l.regime.as_deref(),
+                statut: eleve_ports::StatutInitial::Actif,
+            },
+            eleve_ports::OrigineFait {
+                source: eleve_ports::SourceEleve::Import,
+                source_ref: Some(lot_id),
+            },
+            actor,
         )
-        .bind(eleve_id)
-        .bind(etab)
-        .bind(&l.nom)
-        .bind(&l.prenom)
-        .bind(&l.ine)
-        .bind(&l.regime)
-        .bind(&l.sexe)
-        .bind(l.date_naissance)
-        .bind(classe_id)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
+        .await?;
         if let Some(c) = classe_id {
-            sqlx::query(
-                "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut, source)
-                 SELECT $1, $2, c.annee_id, $3, c.id, GREATEST(a.date_debut, CURRENT_DATE), 'lot'
-                   FROM ent_classe c JOIN ent_annee_scolaire a ON a.id = c.annee_id
-                  WHERE c.etablissement_id = $2 AND c.id = $4
-                 ON CONFLICT (etablissement_id, eleve_id, annee_id)
-                    WHERE classe_id IS NOT NULL AND date_fin IS NULL DO NOTHING",
-            )
-            .bind(Uuid::new_v4())
-            .bind(etab)
-            .bind(eleve_id)
-            .bind(c)
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
+            eleve_ports::affecter_arrivee_en_cours_d_annee_tx(conn, etab, eleve_id, c, "lot")
+                .await?;
         }
-        let foyer = if l.responsables.is_empty() {
-            None
-        } else {
-            let f = Uuid::new_v4();
-            sqlx::query("INSERT INTO ent_foyer (id, etablissement_id, libelle) VALUES ($1,$2,$3)")
-                .bind(f)
-                .bind(etab)
-                .bind(format!("Foyer {}", l.nom.to_uppercase()))
-                .execute(&mut *conn)
-                .await
-                .map_err(db)?;
-            Some(f)
-        };
+        let mut declarations = Vec::new();
+        let mut resolutions = Vec::new();
         for (i, r) in l.responsables.iter().enumerate() {
-            // Personne retrouvée par e-mail (fratrie) SEULEMENT si elle n'a pas de compte :
-            // un lien actif vers un titulaire de compte exige sa confirmation (I0, §2.2 pt 1) ;
-            // sinon une nouvelle fiche est créée (source « reprise »).
-            let existante: Option<(Uuid,)> = match &r.email {
-                Some(e) => sqlx::query_as(
-                    "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND lower(email) = $2
-                       AND fusionnee_dans IS NULL AND eleve_id IS NULL AND user_id IS NULL
-                     ORDER BY created_at LIMIT 1",
+            let cle = Uuid::new_v4();
+            let d = dossier_personnes::DeclarationResponsable {
+                cle,
+                rang: (i + 1) as i16,
+                nom: r.nom.clone(),
+                prenom: r.prenom.clone(),
+                civilite: None,
+                email: r.email.clone(),
+                telephone: r.telephone.clone().filter(|t| t.len() <= 40),
+                adresse: None,
+                lien: r.lien.clone(),
+                // Un seul foyer par ligne : le premier responsable le crée, les autres le partagent.
+                meme_foyer: true,
+                autorite_parentale: true,
+                droits: dossier_personnes::DroitsDeclares {
+                    notes: true,
+                    vs: true,
+                    justifier: true,
+                    sorties: false,
+                },
+                payeur: i == 0,
+                part_paiement: if i == 0 { Some(100) } else { None },
+                reserve: Default::default(),
+            };
+            let mut reprise: Option<(Uuid, Option<Uuid>)> = None;
+            for c in dossier_personnes::correspondances_tx(conn, etab, &d).await? {
+                if c.raison != "email" || c.a_un_compte {
+                    continue;
+                }
+                let (de_import,): (bool,) = sqlx::query_as(
+                    "SELECT source = 'reprise' FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
                 )
                 .bind(etab)
-                .bind(e)
-                .fetch_optional(&mut *conn)
+                .bind(c.personne_id)
+                .fetch_one(&mut *conn)
                 .await
-                .map_err(db)?,
-                None => None,
-            };
-            let personne_id = match existante {
-                Some((p,)) => p,
-                None => {
-                    let p = Uuid::new_v4();
-                    sqlx::query(
-                        "INSERT INTO ent_personne (id, etablissement_id, nom, prenom, email, telephone, source)
-                         VALUES ($1,$2,$3,$4,$5,$6,'reprise')",
-                    )
-                    .bind(p)
-                    .bind(etab)
-                    .bind(&r.nom)
-                    .bind(&r.prenom)
-                    .bind(&r.email)
-                    .bind(r.telephone.as_deref().filter(|t| t.len() <= 40))
-                    .execute(&mut *conn)
-                    .await
-                    .map_err(db)?;
-                    p
+                .map_err(db)?;
+                if de_import {
+                    let foyer = match c.foyers.as_slice() {
+                        [f] => Some(f.foyer_id),
+                        _ => None,
+                    };
+                    reprise = Some((c.personne_id, foyer));
+                    break;
                 }
-            };
-            let payeur = i == 0;
-            sqlx::query(
-                "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, personne_id, foyer_id, lien,
-                     autorite_parentale, peut_voir_notes, peut_voir_vs, peut_justifier_absence,
-                     peut_autoriser_sorties, est_payeur, part_paiement, created_at, updated_at)
-                 VALUES ($1,$2,$3,$4,$5,$6,true,true,true,true,false,$7,$8,now(),now())",
-            )
-            .bind(Uuid::new_v4())
-            .bind(etab)
-            .bind(eleve_id)
-            .bind(personne_id)
-            .bind(foyer)
-            .bind(&r.lien)
-            .bind(payeur)
-            .bind(if payeur { Some(100_i16) } else { None })
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
+            }
+            resolutions.push(match reprise {
+                Some((p, Some(f))) => dossier_personnes::Resolution {
+                    cle,
+                    personne: Some(dossier_personnes::ResolutionPersonne::MemePersonne(p)),
+                    foyer: Some(dossier_personnes::ResolutionFoyer::MemeFoyer(f)),
+                },
+                Some((p, None)) => dossier_personnes::Resolution {
+                    cle,
+                    personne: Some(dossier_personnes::ResolutionPersonne::MemePersonne(p)),
+                    // Fiche reprise sans foyer unique : un nouveau foyer, explicite.
+                    foyer: Some(dossier_personnes::ResolutionFoyer::NouveauFoyer),
+                },
+                None => dossier_personnes::Resolution {
+                    cle,
+                    personne: Some(dossier_personnes::ResolutionPersonne::NouvellePersonne),
+                    foyer: None,
+                },
+            });
+            declarations.push(d);
         }
-        conn.publier(MetierEventDraft {
-            etablissement_id: etab,
-            type_name: types::ELEVE_CREATED.into(),
-            aggregate: AggregateKind::Eleve,
-            aggregate_id: eleve_id,
-            eleve_id: Some(eleve_id),
-            payload: json!({ "eleve_id": eleve_id, "statut": "actif", "source": "import", "lot_id": lot_id }),
-            actor_user_id: Some(actor.to_string()),
-        })
-        .await?;
+        if !declarations.is_empty() {
+            dossier_personnes::integrer_declaration_tx(
+                conn,
+                etab,
+                eleve_id,
+                &declarations,
+                &resolutions,
+                dossier_personnes::SourceLien::Import,
+                actor,
+            )
+            .await?;
+        }
         Ok(eleve_id)
     }
 

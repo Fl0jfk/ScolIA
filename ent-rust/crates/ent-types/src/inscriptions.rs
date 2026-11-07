@@ -259,10 +259,18 @@ pub struct DecisionBody {
 /// Corps de `POST /inscriptions/dossiers/{id}/valider` (INS-05).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationBody {
+    /// Classe choisie dans la liste : **arrivée en cours d'année seulement** (classe de l'année
+    /// courante). Avant la rentrée, la validation n'affecte personne (socle 5).
     #[serde(default)]
     pub classe_id: Option<Uuid>,
     #[serde(default)]
     pub regime: Option<String>,
+    /// Niveau de l'inscription annuelle prévue (à défaut : le niveau demandé du dossier).
+    #[serde(default)]
+    pub niveau: Option<String>,
+    /// Parcours (option, section, filière) de l'inscription annuelle prévue.
+    #[serde(default)]
+    pub parcours: Option<String>,
     /// Choix humains de rapprochement (I0, §2.2 pts 1-3). Obligatoire pour tout
     /// responsable ayant des correspondances possibles (`GET …/correspondances`).
     #[serde(default)]
@@ -373,6 +381,12 @@ pub struct ValidationDto {
     pub dossier_id: Uuid,
     pub eleve_id: Uuid,
     pub evenement_id: Uuid,
+    /// Inscription annuelle **prévue** créée par la validation (socle 2).
+    #[serde(default)]
+    pub inscription_annuelle_id: Option<Uuid>,
+    /// `true` seulement pour une arrivée en cours d'année avec une classe choisie.
+    #[serde(default)]
+    pub affecte_en_classe: bool,
 }
 
 // ---------------------------------------------------------------------------

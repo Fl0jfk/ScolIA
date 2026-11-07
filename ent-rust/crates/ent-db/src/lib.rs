@@ -98,6 +98,7 @@ pub mod identifiants;
 pub mod identite;
 pub mod scolarite;
 pub mod dossier_personnes;
+pub mod eleve_ports;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
 pub mod imports;
