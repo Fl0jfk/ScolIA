@@ -481,11 +481,15 @@ impl PgEnt {
         let (ok,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_service_enseignement
                              WHERE etablissement_id = $1 AND prof_user_id = $2
-                               AND classe_id = $3 AND professeur_principal)",
+                               AND classe_id = $3 AND professeur_principal
+                               AND EXISTS (SELECT 1 FROM ent_annee_scolaire y
+                                            WHERE y.id = annee_id AND y.etablissement_id = $1
+                                              AND y.date_debut <= $4 AND y.date_fin >= $4))",
         )
         .bind(etab)
         .bind(acteur)
         .bind(classe_id)
+        .bind(today_utc())
         .fetch_one(self.pool())
         .await
         .map_err(db)?;
@@ -503,11 +507,15 @@ impl PgEnt {
             "SELECT EXISTS (SELECT 1 FROM ent_service_enseignement s
                               LEFT JOIN ent_groupe g ON g.id = s.groupe_id AND g.etablissement_id = s.etablissement_id
                              WHERE s.etablissement_id = $1 AND s.prof_user_id = $2
-                               AND (s.classe_id = $3 OR g.classe_id = $3))",
+                               AND (s.classe_id = $3 OR g.classe_id = $3)
+                               AND EXISTS (SELECT 1 FROM ent_annee_scolaire y
+                                            WHERE y.id = s.annee_id AND y.etablissement_id = $1
+                                              AND y.date_debut <= $4 AND y.date_fin >= $4))",
         )
         .bind(etab)
         .bind(acteur)
         .bind(classe_id)
+        .bind(today_utc())
         .fetch_one(self.pool())
         .await
         .map_err(db)?;
@@ -1571,11 +1579,12 @@ impl PgEnt {
                     matiere_id: *m,
                     libelle: lib.clone(),
                     coef: *coef,
-                    stats: stats_dto(calc.stats_matiere.get(m).copied(), a),
+                    // D-022 : agrégats de la classe entière non communiqués à qui ne la voit pas.
+                    stats: stats_dto(calc.stats_matiere.get(m).copied().filter(|_| autorises.is_none()), a),
                 })
                 .collect(),
             lignes,
-            stats_generale: stats_dto(calc.stats_generale, a),
+            stats_generale: stats_dto(calc.stats_generale.filter(|_| autorises.is_none()), a),
         })
     }
 

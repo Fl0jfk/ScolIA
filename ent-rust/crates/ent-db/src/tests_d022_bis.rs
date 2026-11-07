@@ -188,6 +188,14 @@ async fn conseil_borne_au_groupe_du_professeur() {
     // Professeur d'espagnol : l'autre groupe, jamais celui d'allemand.
     let p = ent.preparation_conseil_for_actor(etab, m.prof_esp, prof, conseil.id).await.unwrap();
     assert_eq!(ids(&p), ens(&m.esp));
+    // Vue de classe : lignes du groupe seulement, aucune statistique de la classe entière.
+    let v = ent
+        .vue_classe_for_actor(etab, m.prof_all, prof, m.classe, m.periode)
+        .await
+        .unwrap();
+    let lv: HashSet<Uuid> = v.lignes.iter().map(|l| l.eleve_id).collect();
+    assert_eq!(lv, ens(&m.all), "vue de classe : groupe seulement");
+    assert!(v.stats_generale.moyenne.is_none(), "statistiques de classe non communiquées");
     // Professeur principal et direction : classe entière.
     let tous: HashSet<Uuid> = m.all.iter().chain(m.esp.iter()).copied().collect();
     let p = ent.preparation_conseil_for_actor(etab, m.prof_principal, prof, conseil.id).await.unwrap();
