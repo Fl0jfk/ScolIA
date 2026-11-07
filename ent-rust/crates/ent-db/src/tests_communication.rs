@@ -860,7 +860,7 @@ async fn rendez_vous_une_seule_famille_l_emporte() {
 // ─── 7. Formulaires et consentements ─────────────────────────────────────────
 
 async fn photo_trombi(ent: &PgEnt, etab: Uuid, eleve: Uuid, jour: chrono::NaiveDate) -> Option<String> {
-    ent.list_trombi_classe_for_actor(etab, "direction", "4B", jour)
+    ent.list_trombi_classe_for_actor(etab, Uuid::new_v4(), "direction", "4B", jour)
         .await
         .unwrap()
         .into_iter()
@@ -932,7 +932,7 @@ async fn consentement_droit_a_l_image_applique_au_trombinoscope() {
         .unwrap();
     assert_eq!(n, 1);
     // Un refus n'affecte pas les autres élèves de la classe.
-    let autres = ent.list_trombi_classe_for_actor(etab, "direction", "4B", jour).await.unwrap();
+    let autres = ent.list_trombi_classe_for_actor(etab, Uuid::new_v4(), "direction", "4B", jour).await.unwrap();
     assert!(autres.iter().filter(|e| e.eleve_id != harry).all(|e| e.photo_key.is_none() || e.photo_key.is_some()));
     // Qui consent ? Lecture du seul objet, par classe, réservée aux habilités.
     let liste = ent.consentements_classe_for_actor(etab, adm, role, "droit_image", c4b).await.unwrap();

@@ -4173,6 +4173,46 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             .await?)
     }
 
+    /// D-022 : libellés d'élèves ; un professeur n'obtient que ceux de son périmètre.
+    pub async fn eleve_labels_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, String>, EntDbError> {
+        let mut ids = ids.to_vec();
+        if Role::parse(role) == Some(Role::Prof) {
+            if let Some(ok) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::DossierLire)
+                .await?
+            {
+                ids.retain(|i| ok.contains(i));
+            }
+        }
+        Ok(self.eleve_labels(etablissement_id, &ids).await?.into_iter().collect())
+    }
+
+    /// D-022 : pour un professeur, ne garde que les élèves qu'il suit (groupes compris).
+    pub async fn restreindre_eleves_du_professeur(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        eleves: Vec<Eleve>,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        if Role::parse(role) != Some(Role::Prof) {
+            return Ok(eleves);
+        }
+        match self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::DossierLire)
+            .await?
+        {
+            None => Ok(eleves),
+            Some(ok) => Ok(eleves.into_iter().filter(|e| ok.contains(&e.id)).collect()),
+        }
+    }
+
     pub async fn search_staff(
         &self,
         etablissement_id: Uuid,
@@ -5080,6 +5120,25 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             return Err(EntDbError::Forbidden);
         }
         Ok(())
+    }
+
+    /// D-022 : les exports officiels (LSL, LSU/LSUN, Notanet, Parcoursup, ONDE) sont
+    /// réservés aux administratifs. Action `exports.officiels` à l'établissement entier ;
+    /// absente du modèle « professeur » (un rôle libre peut l'accorder).
+    pub async fn exiger_export_officiel(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<(), EntDbError> {
+        if self
+            .a_action_etablissement(etablissement_id, actor_user_id, role, Action::ExportsOfficiels)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(EntDbError::Forbidden)
+        }
     }
 
     /// RF-04 (d à g) : le périmètre « mes classes » appliqué à une CLASSE entière. Un
@@ -7670,6 +7729,90 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
 
     /// Ouvre l'appel d'un **créneau** au jour J (effectif = dates d'effet).
     /// Titulaire, remplaçant nominatif, ou staff VS.
+    /// D-022 : élèves d'un appel. Créneau rattaché à un groupe (LV2, option…) → les
+    /// membres du groupe ; sinon la classe. Un professeur (ni supervision) ne fait l'appel
+    /// que des élèves qu'il suit (`eleves_suivis_par_prof`) : une classe mixte ne lui
+    /// livre jamais les élèves de l'autre groupe.
+    async fn effectif_appel(
+        &self,
+        creneau: &EdtCreneau,
+        jour: NaiveDate,
+        acteur_user_id: Uuid,
+        role: &str,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        let (groupe,): (Option<Uuid>,) = sqlx::query_as(
+            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(creneau.etablissement_id)
+        .bind(creneau.id)
+        .fetch_one(&self.pool)
+        .await?;
+        let mut effectif = self
+            .eleves
+            .list_en_classe_au(creneau.etablissement_id, &creneau.classe, jour)
+            .await?;
+        if let Some(g) = groupe {
+            let membres: Vec<(Uuid,)> = sqlx::query_as(
+                "SELECT a.eleve_id FROM ent_affectation a
+                  WHERE a.etablissement_id = $1 AND a.groupe_id = $2
+                    AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3)",
+            )
+            .bind(creneau.etablissement_id)
+            .bind(g)
+            .bind(jour)
+            .fetch_all(&self.pool)
+            .await?;
+            let membres: std::collections::HashSet<Uuid> = membres.into_iter().map(|(i,)| i).collect();
+            effectif.retain(|e| membres.contains(&e.id));
+        }
+        if !Self::role_peut_ouvrir_appel_remplacant(role) {
+            let suivis: std::collections::HashSet<Uuid> = self
+                .eleves_suivis_par_prof(creneau.etablissement_id, acteur_user_id, jour)
+                .await?
+                .into_iter()
+                .collect();
+            effectif.retain(|e| suivis.contains(&e.id));
+        }
+        Ok(effectif)
+    }
+
+    /// D-022 : rattache (ou détache, `None`) un créneau à un groupe du référentiel.
+    pub async fn rattacher_creneau_groupe_for_actor(
+        &self,
+        role: &str,
+        etablissement_id: Uuid,
+        creneau_id: Uuid,
+        groupe_id: Option<Uuid>,
+    ) -> Result<(), EntDbError> {
+        if !Self::role_can_manage_edt(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        if let Some(g) = groupe_id {
+            let (ok,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_groupe WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etablissement_id)
+            .bind(g)
+            .fetch_one(&self.pool)
+            .await?;
+            if !ok {
+                return Err(DomainError::NotFound.into());
+            }
+        }
+        let r = sqlx::query(
+            "UPDATE ent_edt_creneau SET groupe_id = $3 WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(creneau_id)
+        .bind(groupe_id)
+        .execute(&self.pool)
+        .await?;
+        if r.rows_affected() == 0 {
+            return Err(DomainError::NotFound.into());
+        }
+        Ok(())
+    }
+
     pub async fn ouvrir_appel(
         &self,
         etablissement_id: Uuid,
@@ -7721,8 +7864,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
 
         let effectif = self
-            .eleves
-            .list_en_classe_au(etablissement_id, &creneau.classe, jour)
+            .effectif_appel(&creneau, jour, auteur_user_id, role)
             .await?;
 
         let appel = Appel {
@@ -13498,10 +13640,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .ok_or(DomainError::NotFound)?;
         self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &conseil.classe)
             .await?;
-        Ok(self
+        let dossiers = self
             .conseils
             .list_dossiers_conseil(etablissement_id, conseil_id)
-            .await?)
+            .await?;
+        // D-022 : un professeur de groupe ne voit que les dossiers des élèves de son groupe.
+        // Pour tout rôle (délégations, rôles libres à portée limitée compris).
+        if let Some(ok) = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await?
+        {
+            return Ok(dossiers.into_iter().filter(|d| ok.contains(&d.eleve_id)).collect());
+        }
+        Ok(dossiers)
     }
 
     pub async fn list_conseils_eleve_for_actor(
@@ -14064,6 +14215,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn list_trombi_classe_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         classe: &str,
         jour: NaiveDate,
@@ -14078,6 +14230,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let eleves = self
             .eleves
             .list_en_classe_au(etablissement_id, classe, jour)
+            .await?;
+        // D-022 : un professeur ne voit que les élèves de ses groupes dans une classe mixte.
+        let eleves = self
+            .restreindre_eleves_du_professeur(etablissement_id, actor_user_id, role, eleves)
             .await?;
         // S2-8 (D24) : un refus du droit à l'image masque la photo.
         let ids: Vec<Uuid> = eleves.iter().map(|e| e.id).collect();
@@ -14519,10 +14675,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         cmd: ExporterLsl,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role) && !Self::role_can_manage_eleves(role) {
-            return Err(EntDbError::Forbidden);
-        }
         let cmd = plan_exporter_lsl(cmd)?;
+        self.exiger_export_officiel(cmd.etablissement_id, actor_user_id, role)
+            .await?;
         let periode = self
             .notes
             .get_periode(cmd.etablissement_id, cmd.periode_id)
@@ -14590,13 +14745,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn exporter_onde_csv_for_actor(
         &self,
         role: &str,
+        actor_user_id: Uuid,
         cmd: ExporterOnde,
     ) -> Result<String, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !Self::role_can_manage_eleves(role) && !parsed.can_manage_continuum() {
-            return Err(EntDbError::Forbidden);
-        }
         let cmd = plan_exporter_onde(cmd)?;
+        self.exiger_export_officiel(cmd.etablissement_id, actor_user_id, role)
+            .await?;
         let eleves = if let Some(ref classe) = cmd.classe {
             self.eleves
                 .list_en_classe_au(cmd.etablissement_id, classe, cmd.jour_reference)
@@ -14679,12 +14833,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd: ExporterNotanet,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role)
-            && !Self::role_can_manage_eleves(role)
-        {
-            return Err(EntDbError::Forbidden);
-        }
         let cmd = plan_exporter_notanet(cmd)?;
+        self.exiger_export_officiel(cmd.etablissement_id, actor_user_id, role)
+            .await?;
         // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
         self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
             .await?;
@@ -14736,10 +14887,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd: ExporterParcoursup,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
-        if !(Self::role_can_manage_eleves(role) || Self::role_can_saisir_notes(role)) {
-            return Err(EntDbError::Forbidden);
-        }
         let cmd = plan_exporter_parcoursup(cmd)?;
+        self.exiger_export_officiel(cmd.etablissement_id, actor_user_id, role)
+            .await?;
         // RF-04 (d) : un professeur n'exporte que les classes qu'il enseigne.
         self.exiger_classe_dans_perimetre(cmd.etablissement_id, actor_user_id, role, &cmd.classe)
             .await?;
@@ -15336,12 +15486,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         cmd: ExporterLsun,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role)
-            && !Self::role_can_manage_eleves(role)
-        {
-            return Err(EntDbError::Forbidden);
-        }
         let cmd = plan_exporter_lsun(cmd)?;
+        self.exiger_export_officiel(cmd.etablissement_id, actor_user_id, role)
+            .await?;
         let periode = self
             .notes
             .get_periode(cmd.etablissement_id, cmd.periode_id)

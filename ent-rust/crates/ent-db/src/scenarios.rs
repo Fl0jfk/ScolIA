@@ -2250,8 +2250,8 @@ async fn competences_lues_par_la_famille_et_export_lsu_reel() {
     // 5) L'export LSU lit les évaluations réelles (codes 1..4), pas une devinette.
     let csv = ent
         .exporter_lsun_csv_for_actor(
-            Role::Prof.as_str(),
-            cast.prof.user_id,
+            Role::Direction.as_str(),
+            cast.direction.user_id,
             ExporterLsun {
                 etablissement_id: etab,
                 periode_id: periode.id,

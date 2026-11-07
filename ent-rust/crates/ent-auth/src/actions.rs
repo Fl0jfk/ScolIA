@@ -159,6 +159,8 @@ pub enum Action {
     CahierEcrire,
     /// Viser le cahier de textes d'une classe ou d'un professeur (inspection, direction).
     CahierViser,
+    /// Produire les exports officiels (LSL, LSU/LSUN, Notanet, Parcoursup, ONDE…) — D-022.
+    ExportsOfficiels,
     /// Annuler en masse des cours (grève, fermeture, sortie de niveau), EDT-08 (S2-5).
     EdtAnnulerMasse,
     /// Accorder, révoquer et consulter les délégations de droits datées, ADM-04 (S2-5).
@@ -242,7 +244,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 100] = [
+    pub const TOUTES: [Action; 101] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -315,6 +317,7 @@ impl Action {
         Action::CahierLire,
         Action::CahierEcrire,
         Action::CahierViser,
+        Action::ExportsOfficiels,
         Action::EdtAnnulerMasse,
         Action::DelegationsGerer,
         // S2-7
@@ -422,6 +425,7 @@ impl Action {
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
             Self::CahierViser => "cahier.viser",
+            Self::ExportsOfficiels => "exports.officiels",
             Self::EdtAnnulerMasse => "edt.annuler_masse",
             Self::DelegationsGerer => "delegations.gerer",
             Self::PeriodesVerrouiller => "periodes.verrouiller",
@@ -528,6 +532,7 @@ impl Action {
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
+            Self::ExportsOfficiels => "Produire les exports officiels (LSL, LSU, Notanet, Parcoursup, ONDE)",
             Self::EdtAnnulerMasse => "Annuler en masse des cours (grève, fermeture, sortie de niveau)",
             Self::DelegationsGerer => "Déléguer des droits pour une durée limitée",
             Self::PeriodesVerrouiller => "Ouvrir, verrouiller ou fermer une période de notes",
@@ -596,7 +601,8 @@ impl Action {
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
-            | Self::NotificationsGerer => &[Portee::Etablissement],
+            | Self::NotificationsGerer
+            | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
             Self::FacturationGerer
@@ -735,7 +741,13 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     // `can_read_all_eleves` (Q-E3). Le détail de scolarité (G1, régime, MEF, dates),
     // jusqu'ici réservé au niveau « complet », reste à ces profils : un établissement
     // l'ouvre à d'autres rôles en cochant `eleves.lire` (aucun élargissement implicite).
-    d.push(etab(ElevesAnnuaire));
+    // D-022 : le professeur ne trouve et ne voit que les élèves de ses classes et groupes
+    // (jamais l'établissement entier) ; la portée « mes classes » suit la règle du groupe.
+    if role == Role::Prof {
+        d.push((ElevesAnnuaire, Portee::MesClasses));
+    } else {
+        d.push(etab(ElevesAnnuaire));
+    }
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ElevesLire));
         d.push(etab(ElevesIdentifiantsLire));
@@ -969,6 +981,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
     // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).
+    // D-022 : les exports officiels sont faits par les administratifs (direction,
+    // secrétariat) ; jamais par le modèle « professeur » (retourné plus haut).
+    if role.can_manage_eleves() {
+        d.push(etab(ExportsOfficiels));
+    }
     if role.can_manage_eleves() {
         d.push(etab(InscriptionsGerer));
         d.push(etab(ImportsAppliquer));
@@ -1095,6 +1112,11 @@ mod tests {
         assert_eq!(a(Role::Direction, LiensSuspendre), Some(Portee::Etablissement));
         assert_eq!(a(Role::Cpe, PersonnesFusionner), None);
         assert_eq!(a(Role::Prof, PersonnesGerer), None);
+        // D-022 : exports officiels réservés aux administratifs.
+        assert_eq!(a(Role::Prof, ExportsOfficiels), None);
+        assert_eq!(a(Role::Cpe, ExportsOfficiels), None);
+        assert_eq!(a(Role::Direction, ExportsOfficiels), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, ExportsOfficiels), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
         assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
@@ -1173,7 +1195,9 @@ mod tests {
     #[test]
     fn r2_non_regression_profil_par_action() {
         use Action::*;
-        let oracle: [(Action, fn(Role) -> bool); 14] = [
+        let oracle: [(Action, fn(Role) -> bool); 15] = [
+            // D-022 (écart voulu avec l'historique : le professeur n'exporte plus).
+            (ExportsOfficiels, Role::can_manage_eleves),
             (FacturationGerer, Role::can_manage_facturation),
             (FacturationLire, Role::can_manage_facturation),
             (BoursesGerer, Role::can_manage_bourses),
@@ -1235,7 +1259,17 @@ mod tests {
         };
         for r in tous {
             // Lecture : tout le personnel (ancien `can_read_all_eleves`), pas les familles.
-            assert_eq!(a_action(r, ElevesAnnuaire), r.can_read_all_eleves(), "{r:?} annuaire");
+            if r == Role::Prof {
+                // D-022 : portée « mes classes » (classes et groupes), jamais l'établissement entier.
+                let portees: Vec<Portee> = modele_par_defaut(r)
+                    .into_iter()
+                    .filter(|(y, _)| *y == ElevesAnnuaire)
+                    .map(|(_, p)| p)
+                    .collect();
+                assert_eq!(portees, vec![Portee::MesClasses], "Prof annuaire");
+            } else {
+                assert_eq!(a_action(r, ElevesAnnuaire), r.can_read_all_eleves(), "{r:?} annuaire");
+            }
             // Écritures et historique : ancien `can_manage_eleves`.
             for x in [
                 ElevesCreer,

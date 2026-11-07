@@ -1089,7 +1089,7 @@ async fn eleve_labels_batch(
         .collect();
     let map = state
         .ent
-        .eleve_labels(session.etablissement_id, &ids)
+        .eleve_labels_for_actor(session.etablissement_id, session.user_id, &session.role, &ids)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -6652,7 +6652,13 @@ async fn list_trombi_classe(
     let jour = q.jour.unwrap_or_else(today_utc);
     let list = state
         .ent
-        .list_trombi_classe_for_actor(session.etablissement_id, &session.role, &classe, jour)
+        .list_trombi_classe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &classe,
+            jour,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(TrombiEntreeDto::from).collect()))
@@ -7347,6 +7353,7 @@ async fn export_onde(
         .ent
         .exporter_onde_csv_for_actor(
             &session.role,
+            session.user_id,
             ExporterOnde {
                 etablissement_id: session.etablissement_id,
                 classe: q.classe,

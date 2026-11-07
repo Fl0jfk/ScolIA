@@ -3,7 +3,7 @@
 
 use chrono::NaiveDate;
 use ent_web_api::cahier_types::{ChargeDto, SeanceCahierDto, TravailDto};
-use ent_web_api::ApiError;
+use ent_web_api::{ApiError, EnseignementApi};
 use ent_web_ui::{
     use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation,
     EnTetePage, EtatVide, GroupeChoix, Icone, LienBouton, Niveau, NomIcone, Squelette, Taille,
@@ -21,6 +21,7 @@ use super::modele::{
     libelle_type, nb_a_renseigner, seances_par_jour, semaine_demandee, semaine_voisine,
     valider_contenu, valider_travail, Erreurs, SaisieTravail,
 };
+use crate::composants_metier::classes::{enseignement_du_creneau, libelle_enseignement};
 use crate::noyau::coquille::use_droits;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
@@ -54,6 +55,16 @@ fn ContenuCahier() -> impl IntoView {
         let l = lundi.get();
         async move { session::client().cahier_seances(l, fin_de_semaine(l)).await }
     });
+    // Liste unique « mes enseignements » (classes et groupes) : effectif de chaque séance.
+    let enseignements = LocalResource::new(move || {
+        let l = lundi.get();
+        async move {
+            session::client()
+                .mes_enseignements(l)
+                .await
+                .unwrap_or_default()
+        }
+    });
     let adresse = move |decalage: i64| {
         format!(
             "{}?semaine={}",
@@ -83,7 +94,7 @@ fn ContenuCahier() -> impl IntoView {
             Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| seances.refetch())/> }.into_any(),
             Some(Ok(l)) => {
                 let rafraichir = Callback::new(move |_| seances.refetch());
-                view! { <SemaineSeances seances=l lundi=lundi.get() on_change=rafraichir/> }.into_any()
+                view! { <SemaineSeances seances=l enseignements=enseignements.get().unwrap_or_default() lundi=lundi.get() on_change=rafraichir/> }.into_any()
             }
         }}
     }
@@ -92,6 +103,7 @@ fn ContenuCahier() -> impl IntoView {
 #[component]
 fn SemaineSeances(
     seances: Vec<SeanceCahierDto>,
+    enseignements: Vec<EnseignementApi>,
     lundi: NaiveDate,
     on_change: Callback<()>,
 ) -> impl IntoView {
@@ -127,7 +139,11 @@ fn SemaineSeances(
                             <ul class="cdt-liste">
                                 {liste
                                     .into_iter()
-                                    .map(|s| view! { <li><CarteSeance seance=s on_change=on_change/></li> })
+                                    .map(|s| {
+                                        let effectif = enseignement_du_creneau(&enseignements, &s.classe, &s.matiere_libelle)
+                                            .map(libelle_enseignement);
+                                        view! { <li><CarteSeance seance=s effectif=effectif on_change=on_change/></li> }
+                                    })
                                     .collect_view()}
                             </ul>
                         </section>
@@ -147,7 +163,12 @@ fn SemaineSeances(
 }
 
 #[component]
-fn CarteSeance(seance: SeanceCahierDto, on_change: Callback<()>) -> impl IntoView {
+fn CarteSeance(
+    seance: SeanceCahierDto,
+    /// Libellé de l'enseignement (groupe ou classe) avec effectif, si identifié sans ambiguïté.
+    effectif: Option<String>,
+    on_change: Callback<()>,
+) -> impl IntoView {
     let id = seance.seance_id;
     let annulee = seance.statut == "annulee";
     let renseignee = seance.contenu.is_some();
@@ -179,6 +200,7 @@ fn CarteSeance(seance: SeanceCahierDto, on_change: Callback<()>) -> impl IntoVie
                 <h3 class="cdt-seance__titre">{titre}</h3>
                 <Badge libelle=badge ton=ton/>
             </header>
+            {effectif.map(|e| view! { <p class="cdt-seance__detail">{e}</p> })}
             {apercu.map(|a| view! { <p class="cdt-seance__apercu">{a}</p> })}
             {(nb_travaux > 0).then(|| view! {
                 <p class="cdt-seance__detail">

@@ -261,8 +261,9 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
-            lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
-            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
+            // D-022 : un professeur ne lit que la fiche des élèves de ses classes et groupes.
+            lire("eleve", "/eleves/{eleve}", TOUS, STAFF_HORS_PROF),
+            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF_HORS_PROF),
             // Socle 2 (E2) : historique d'identité réservé à `eleves.historique.lire`
             // (Admin, Direction, Administratif) ; jamais la famille ni le professeur.
             lire("historique-identite", "/eleves/{eleve}/identite/historique",
@@ -556,6 +557,9 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
             lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
             lire("mes-creneaux", "/edt/mes-creneaux", &[Admin, Direction, Administratif, Cpe, Prof, Eleve], &[]),
+            // D-022 bis : liste unique des enseignements du personnel, jamais des familles.
+            lire("mes-enseignements", "/referentiel/mes-enseignements",
+                &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy], &[]),
     ]
 }
 
@@ -709,6 +713,7 @@ fn invariant_etablissement_id_client_est_ignore() {
         "/annonces".to_string(),
         "/eleves/search?q=Potter".to_string(),
         "/edt/mes-creneaux".to_string(),
+        "/referentiel/mes-enseignements".to_string(),
         format!("/eleves/{harry}/documents"),
         format!("/eleves/{harry}/notes"),
         format!("/eleves/{harry}/dossier"),
@@ -788,6 +793,7 @@ fn invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes() {
         for chemin in [
             "/messages/fils", "/facturation/factures", "/foyers", "/matieres", "/audit/journal",
             "/personnel/search?q=a", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
+            "/referentiel/mes-enseignements",
             "/infirmerie/passages", "/psy/entretiens", "/documents/grants/pending",
         ] {
             for a in Acteur::TOUS {

@@ -12,6 +12,7 @@ mod vie_scolaire;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
 pub mod evaluations;
 mod evaluations_bulletin;
+mod enseignements;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -275,6 +276,10 @@ mod tests_sso_securite;
 mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;
+#[cfg(all(test, feature = "labo"))]
+mod tests_d022;
+#[cfg(all(test, feature = "labo"))]
+mod tests_d022_bis;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
