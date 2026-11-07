@@ -4681,7 +4681,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// a rien à fermer), mais l'appelant ne déclenche la cascade que sur une
     /// **transition** vers `Sorti`, pour ne pas republier d'événements à chaque
     /// écriture ultérieure.
-    async fn appliquer_repercussions_sortie(
+    pub(crate) async fn appliquer_repercussions_sortie(
         &self,
         etab: Uuid,
         eleve_id: Uuid,

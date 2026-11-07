@@ -228,6 +228,28 @@ pub fn router() -> Router<AppState> {
             "/eleves/{id}/identite/historique",
             get(historique_identite_eleve),
         )
+        // Socle 2, lot E3 : identifiants externes (INE…) et badge.
+        .route(
+            "/eleves/{id}/identifiants",
+            get(lister_identifiants_eleve).post(ajouter_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/confirmer",
+            post(confirmer_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/contester",
+            post(contester_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/revoquer",
+            post(revoquer_identifiant_eleve),
+        )
+        .route("/eleves/{id}/badge/perdu", post(badge_perdu_eleve))
+        .route(
+            "/eleves/identifiants/contestes",
+            get(lister_identifiants_contestes),
+        )
         .route("/eleves/{id}/dossier", get(get_dossier))
         .route(
             "/eleves/{id}/documents",
@@ -3134,6 +3156,188 @@ async fn historique_identite_eleve(
         .await
         .map_err(map_db)?;
     Ok(Json(versions.iter().map(version_identite_dto).collect()))
+}
+
+// ───────────── Socle 2 (l'élève), lot E3 : identifiants externes ─────────────
+
+fn identifiant_dto(i: &ent_db::identifiants::IdentifiantEleve) -> ent_types::identifiants::IdentifiantDto {
+    ent_types::identifiants::IdentifiantDto {
+        id: i.id,
+        eleve_id: i.eleve_id,
+        systeme: i.systeme.clone(),
+        valeur: i.valeur.clone(),
+        statut: i.statut.clone(),
+        provenance: i.provenance.clone(),
+        preuve_document_id: i.preuve_document_id,
+        valide_du: i.valide_du,
+        valide_au: i.valide_au,
+        confirme_le: i.confirme_le,
+        confirme_par_source: i.confirme_par_source.clone(),
+        motif: i.motif.clone(),
+        enregistre_le: i.enregistre_le,
+        utilisable_pour_export: domain_eleve::StatutIdentifiant::parse(&i.statut)
+            .is_some_and(domain_eleve::identifiant_utilisable_pour_export),
+    }
+}
+
+/// ELV-07 — `GET /eleves/{id}/identifiants` (G3, lecture journalisée).
+async fn lister_identifiants_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ent_types::identifiants::IdentifiantDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentifiantsLire, "rôle insuffisant pour lire les identifiants")
+        .await?;
+    let l = state
+        .ent
+        .identifiants_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(l.iter().map(identifiant_dto).collect()))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants`. Une collision n'échoue pas : l'identifiant
+/// est enregistré `conteste` (réponse 201, `collision = true`).
+async fn ajouter_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identifiants::AjouterIdentifiantBody>,
+) -> Result<(StatusCode, Json<ent_types::identifiants::ResultatIdentifiantDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    let systeme = domain_eleve::SystemeIdentifiant::parse(&body.systeme)
+        .ok_or((StatusCode::BAD_REQUEST, "système d'identifiant inconnu".into()))?;
+    let provenance = match body.provenance.as_deref() {
+        None => domain_eleve::ProvenanceIdentifiant::Saisie,
+        Some(p) => domain_eleve::ProvenanceIdentifiant::parse(p)
+            .ok_or((StatusCode::BAD_REQUEST, "provenance inconnue".into()))?,
+    };
+    let r = state
+        .ent
+        .ajouter_identifiant(
+            &session.role,
+            ent_db::identifiants::AjoutIdentifiant {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                systeme,
+                valeur: body.valeur,
+                provenance,
+                valide_du: body.valide_du,
+                preuve_document_id: body.preuve_document_id,
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ent_types::identifiants::ResultatIdentifiantDto {
+            identifiant: identifiant_dto(&r.identifiant),
+            collision: r.collision,
+            autre_eleve_id: r.collision_eleve_id,
+            remplace: r.remplace,
+            existant: r.existant,
+        }),
+    ))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/confirmer`.
+async fn confirmer_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::ConfirmerIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .confirmer_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, &body.source)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/contester`.
+async fn contester_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::MotifIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .contester_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, Some(&body.motif))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/revoquer`.
+async fn revoquer_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::MotifIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .revoquer_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, Some(&body.motif))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-41 — `POST /eleves/{id}/badge/perdu` : l'ancien badge est révoqué, le nouveau actif.
+async fn badge_perdu_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identifiants::BadgePerduBody>,
+) -> Result<Json<Option<ent_types::identifiants::ResultatIdentifiantDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    let r = state
+        .ent
+        .declarer_badge_perdu(&session.role, session.etablissement_id, id, session.user_id, body.nouveau_badge.as_deref())
+        .await
+        .map_err(map_db)?;
+    Ok(Json(r.map(|r| ent_types::identifiants::ResultatIdentifiantDto {
+        identifiant: identifiant_dto(&r.identifiant),
+        collision: r.collision,
+        autre_eleve_id: r.collision_eleve_id,
+        remplace: r.remplace,
+        existant: r.existant,
+    })))
+}
+
+/// Qualité des données — `GET /eleves/identifiants/contestes`.
+async fn lister_identifiants_contestes(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<ent_types::identifiants::IdentifiantConsteDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentifiantsLire, "rôle insuffisant pour lire les identifiants")
+        .await?;
+    let l = state
+        .ent
+        .identifiants_contestes(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        l.into_iter()
+            .map(|c| ent_types::identifiants::IdentifiantConsteDto {
+                identifiant_id: c.identifiant_id,
+                eleve_id: c.eleve_id,
+                systeme: c.systeme,
+                motif: c.motif,
+                autre_eleve_id: c.autre_eleve_id,
+            })
+            .collect(),
+    ))
 }
 
 async fn change_mef(

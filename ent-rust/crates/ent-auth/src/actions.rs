@@ -133,6 +133,8 @@ pub enum Action {
     ElevesSortie,
     /// Gérer les photos des élèves.
     ElevesPhotoGerer,
+    /// Gérer le badge de l'élève : déclarer perdu, attribuer un nouveau badge (ELV-41).
+    ElevesBadgeGerer,
     /// Décider les propositions.
     ElevesPropositionsTraiter,
     /// Fusionner et défusionner des élèves.
@@ -173,7 +175,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 69] = [
+    pub const TOUTES: [Action; 70] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -234,6 +236,7 @@ impl Action {
         Action::ElevesScolariteGerer,
         Action::ElevesSortie,
         Action::ElevesPhotoGerer,
+        Action::ElevesBadgeGerer,
         Action::ElevesPropositionsTraiter,
         Action::ElevesFusionner,
         Action::ElevesConfidentielGerer,
@@ -308,6 +311,7 @@ impl Action {
             Self::ElevesScolariteGerer => "eleves.scolarite.gerer",
             Self::ElevesSortie => "eleves.sortie",
             Self::ElevesPhotoGerer => "eleves.photo.gerer",
+            Self::ElevesBadgeGerer => "eleves.badge.gerer",
             Self::ElevesPropositionsTraiter => "eleves.propositions.traiter",
             Self::ElevesFusionner => "eleves.fusionner",
             Self::ElevesConfidentielGerer => "eleves.confidentiel.gerer",
@@ -383,6 +387,7 @@ impl Action {
             Self::ElevesScolariteGerer => "Gérer la scolarité (entrées, inscriptions, régime, site)",
             Self::ElevesSortie => "Clôturer la scolarité d'un élève (radiation)",
             Self::ElevesPhotoGerer => "Gérer les photos des élèves",
+            Self::ElevesBadgeGerer => "Gérer le badge des élèves (perte, remplacement)",
             Self::ElevesPropositionsTraiter => "Décider les propositions de modification d'identité",
             Self::ElevesFusionner => "Fusionner ou défusionner des élèves en doublon",
             Self::ElevesConfidentielGerer => "Confidentialité renforcée et données d'identité sensibles",
@@ -456,6 +461,7 @@ impl Action {
             | Self::ElevesScolariteGerer
             | Self::ElevesSortie
             | Self::ElevesPhotoGerer
+            | Self::ElevesBadgeGerer
             | Self::ElevesPropositionsTraiter
             | Self::ElevesFusionner
             | Self::ElevesConfidentielGerer
@@ -723,6 +729,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if direction_admin || role == Role::Cpe {
         d.push(etab(ElevesPhotoGerer));
+        d.push(etab(ElevesBadgeGerer));
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(ElevesFusionner));
@@ -955,6 +962,11 @@ mod tests {
             assert_eq!(a_action(r, ElevesParametrer), r == Role::Admin);
             assert_eq!(
                 a_action(r, ElevesPhotoGerer),
+                matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)
+            );
+            // ELV-41 : le badge perdu est géré aussi par la vie scolaire (CPE).
+            assert_eq!(
+                a_action(r, ElevesBadgeGerer),
                 matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)
             );
         }

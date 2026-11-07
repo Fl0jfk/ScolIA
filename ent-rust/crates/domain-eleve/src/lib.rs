@@ -14,6 +14,8 @@ mod champs;
 mod continuum;
 mod document;
 mod dossier;
+mod identifiant;
+mod scolarite;
 mod identite;
 mod invitation;
 mod fiche_sante;
@@ -91,6 +93,19 @@ pub use champs::{
 pub use dossier::{
     age_ans_au, assert_parts_paiement, plan_ajouter_option, plan_update_identite, AjouterOption,
     DossierEleve, DossierSections, EleveOption, LienDossier, OptionNature, UpdateIdentite,
+};
+pub use scolarite::{
+    date_changement_autorisee, date_majorite, est_majeur_le, planifier_cloture as planifier_cloture_scolarisation,
+    planifier_ouverture as planifier_ouverture_scolarisation, prochaine_date_autorisee, se_chevauchent,
+    statut_derive, CloturePlanifiee, CodeModalite, DatesChangement, DemandeCloture, DemandeOuverture,
+    Etablissement as EtablissementScolarite, ErreurScolarite, EtatInscription, MotifDerogationRegime, MotifEntree,
+    MotifSortie, NatureCapacite, OuverturePlanifiee, Periode as PeriodeScolarisation, StatutApprenant,
+    StatutEleve, TypeEtablissement, TypeMobilite,
+};
+pub use identifiant::{
+    motif_valide as motif_identifiant_valide, normaliser_valeur as normaliser_identifiant,
+    transition_permise as transition_identifiant_permise, utilisable_pour_export as identifiant_utilisable_pour_export,
+    ErreurIdentifiant, ProvenanceIdentifiant, StatutIdentifiant, SystemeIdentifiant,
 };
 pub use identite::{
     filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,

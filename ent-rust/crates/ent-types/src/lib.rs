@@ -19,6 +19,7 @@ pub mod cahier;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;
+pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
 pub mod referentiel;
