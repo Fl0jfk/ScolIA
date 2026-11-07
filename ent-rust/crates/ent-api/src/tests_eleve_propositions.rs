@@ -75,7 +75,7 @@ async fn e5_parcours_http_parametrage_signalement_et_decision() {
         eprintln!("skip E5 HTTP: ENT_DATABASE_URL");
         return;
     };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let state = AppState::nouveau(ent);
     let ent = state.ent.clone();

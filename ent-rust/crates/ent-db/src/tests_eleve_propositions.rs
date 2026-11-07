@@ -6,7 +6,7 @@
 //! aux autres suites.
 
 use super::*;
-use crate::identite::{ChangementEtatCivil, CorrectionIdentite, UsageIdentite};
+use crate::identite::{CorrectionIdentite, UsageIdentite};
 use crate::param_eleve::ModifChamp;
 use crate::propositions::{DecisionProposition, DepotProposition, FiltrePropositions};
 use chrono::{Duration, NaiveDate, Utc};
