@@ -110,6 +110,41 @@ pub enum Action {
     LiensSuspendre,
     /// Fusionner ou défusionner des personnes en doublon (DOS-15).
     PersonnesFusionner,
+    // ── Socle 2 (l'élève), lot E1 : droits d'identité et groupes de champs ──
+    /// Trouver un élève et voir sa désignation (G0).
+    ElevesAnnuaire,
+    /// Voir la scolarité de l'élève (G1).
+    ElevesLire,
+    /// Voir l'état civil de l'élève (G2).
+    ElevesEtatCivilLire,
+    /// Voir l'INE et les identifiants de l'élève (G3).
+    ElevesIdentifiantsLire,
+    /// Voir l'historique d'identité de l'élève (G5).
+    ElevesHistoriqueLire,
+    /// Créer un élève, annuler une création erronée.
+    ElevesCreer,
+    /// Corriger ou changer l'identité de l'élève.
+    ElevesIdentiteModifier,
+    /// Gérer l'INE et les identifiants.
+    ElevesIdentifiantsGerer,
+    /// Gérer scolarisations, inscriptions annuelles, régime et site.
+    ElevesScolariteGerer,
+    /// Clôturer une scolarisation.
+    ElevesSortie,
+    /// Gérer les photos des élèves.
+    ElevesPhotoGerer,
+    /// Gérer le badge de l'élève : déclarer perdu, attribuer un nouveau badge (ELV-41).
+    ElevesBadgeGerer,
+    /// Décider les propositions.
+    ElevesPropositionsTraiter,
+    /// Fusionner et défusionner des élèves.
+    ElevesFusionner,
+    /// Confidentialité renforcée et versions sensibles (G6).
+    ElevesConfidentielGerer,
+    /// Exports nominatifs d'élèves.
+    ElevesExporter,
+    /// Paramétrage élève de l'établissement.
+    ElevesParametrer,
     /// Campagnes d'admission / de réinscription et instruction des dossiers
     /// (pièces, étapes, commentaires, relances) — S2-3, INS-01/03/06/15.
     InscriptionsGerer,
@@ -176,7 +211,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 68] = [
+    pub const TOUTES: [Action; 85] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -226,6 +261,23 @@ impl Action {
         Action::PayeursDefinir,
         Action::LiensSuspendre,
         Action::PersonnesFusionner,
+        Action::ElevesAnnuaire,
+        Action::ElevesLire,
+        Action::ElevesEtatCivilLire,
+        Action::ElevesIdentifiantsLire,
+        Action::ElevesHistoriqueLire,
+        Action::ElevesCreer,
+        Action::ElevesIdentiteModifier,
+        Action::ElevesIdentifiantsGerer,
+        Action::ElevesScolariteGerer,
+        Action::ElevesSortie,
+        Action::ElevesPhotoGerer,
+        Action::ElevesBadgeGerer,
+        Action::ElevesPropositionsTraiter,
+        Action::ElevesFusionner,
+        Action::ElevesConfidentielGerer,
+        Action::ElevesExporter,
+        Action::ElevesParametrer,
         Action::InscriptionsGerer,
         Action::InscriptionsDecider,
         Action::ImportsAppliquer,
@@ -300,6 +352,23 @@ impl Action {
             Self::PayeursDefinir => "payeurs.definir",
             Self::LiensSuspendre => "liens.suspendre",
             Self::PersonnesFusionner => "personnes.fusionner",
+            Self::ElevesAnnuaire => "eleves.annuaire",
+            Self::ElevesLire => "eleves.lire",
+            Self::ElevesEtatCivilLire => "eleves.etat_civil.lire",
+            Self::ElevesIdentifiantsLire => "eleves.identifiants.lire",
+            Self::ElevesHistoriqueLire => "eleves.historique.lire",
+            Self::ElevesCreer => "eleves.creer",
+            Self::ElevesIdentiteModifier => "eleves.identite.modifier",
+            Self::ElevesIdentifiantsGerer => "eleves.identifiants.gerer",
+            Self::ElevesScolariteGerer => "eleves.scolarite.gerer",
+            Self::ElevesSortie => "eleves.sortie",
+            Self::ElevesPhotoGerer => "eleves.photo.gerer",
+            Self::ElevesBadgeGerer => "eleves.badge.gerer",
+            Self::ElevesPropositionsTraiter => "eleves.propositions.traiter",
+            Self::ElevesFusionner => "eleves.fusionner",
+            Self::ElevesConfidentielGerer => "eleves.confidentiel.gerer",
+            Self::ElevesExporter => "eleves.exporter",
+            Self::ElevesParametrer => "eleves.parametrer",
             Self::InscriptionsGerer => "inscriptions.gerer",
             Self::InscriptionsDecider => "inscriptions.decider",
             Self::ImportsAppliquer => "imports.appliquer",
@@ -374,6 +443,23 @@ impl Action {
             Self::PayeursDefinir => "Désigner les payeurs et leurs parts",
             Self::LiensSuspendre => "Suspendre ou rétablir le lien d'un responsable",
             Self::PersonnesFusionner => "Fusionner ou défusionner des personnes en doublon",
+            Self::ElevesAnnuaire => "Trouver un élève et voir sa désignation (nom, classe, photo)",
+            Self::ElevesLire => "Voir la scolarité détaillée de l'élève (régime, MEF, dates)",
+            Self::ElevesEtatCivilLire => "Voir l'état civil de l'élève (sexe, date de naissance)",
+            Self::ElevesIdentifiantsLire => "Voir l'INE et les identifiants de l'élève (badge…)",
+            Self::ElevesHistoriqueLire => "Voir l'historique d'identité de l'élève",
+            Self::ElevesCreer => "Créer un élève ou annuler une création erronée",
+            Self::ElevesIdentiteModifier => "Corriger l'identité, enregistrer un changement d'état civil",
+            Self::ElevesIdentifiantsGerer => "Gérer l'INE et les identifiants des élèves",
+            Self::ElevesScolariteGerer => "Gérer la scolarité (entrées, inscriptions, régime, site)",
+            Self::ElevesSortie => "Clôturer la scolarité d'un élève (radiation)",
+            Self::ElevesPhotoGerer => "Gérer les photos des élèves",
+            Self::ElevesBadgeGerer => "Gérer le badge des élèves (perte, remplacement)",
+            Self::ElevesPropositionsTraiter => "Décider les propositions de modification d'identité",
+            Self::ElevesFusionner => "Fusionner ou défusionner des élèves en doublon",
+            Self::ElevesConfidentielGerer => "Confidentialité renforcée et données d'identité sensibles",
+            Self::ElevesExporter => "Exporter des listes nominatives d'élèves",
+            Self::ElevesParametrer => "Paramétrer les champs et règles de l'élève",
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
             Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
@@ -408,6 +494,9 @@ impl Action {
     pub fn accordee_par(self) -> &'static [Action] {
         match self {
             Self::FacturationLire => &[Self::FacturationGerer],
+            // E1 (§12.2) : seules inclusions explicites des droits « élève ».
+            Self::ElevesEtatCivilLire => &[Self::ElevesIdentiteModifier],
+            Self::ElevesIdentifiantsLire => &[Self::ElevesIdentifiantsGerer],
             _ => &[],
         }
     }
@@ -442,6 +531,30 @@ impl Action {
             | Self::MatieresGerer
             | Self::ConseilsGerer
             | Self::DocsSignerPublier => &[Portee::Etablissement],
+            // E1 : lectures d'identité par groupe, 4 portées (comme `_` ci-dessous) ;
+            // les écritures et la gouvernance sont d'établissement entier.
+            Self::ElevesAnnuaire
+            | Self::ElevesLire
+            | Self::ElevesEtatCivilLire
+            | Self::ElevesIdentifiantsLire => &[
+                Portee::Etablissement,
+                Portee::MesClasses,
+                Portee::MesGroupes,
+                Portee::Designes,
+            ],
+            Self::ElevesHistoriqueLire
+            | Self::ElevesCreer
+            | Self::ElevesIdentiteModifier
+            | Self::ElevesIdentifiantsGerer
+            | Self::ElevesScolariteGerer
+            | Self::ElevesSortie
+            | Self::ElevesPhotoGerer
+            | Self::ElevesBadgeGerer
+            | Self::ElevesPropositionsTraiter
+            | Self::ElevesFusionner
+            | Self::ElevesConfidentielGerer
+            | Self::ElevesExporter
+            | Self::ElevesParametrer => &[Portee::Etablissement],
             // S2-1 : actions sur les personnes (non rattachées à une classe) :
             // établissement entier seulement.
             Self::PersonnesGerer
@@ -491,7 +604,7 @@ impl Portee {
             Self::Etablissement => "Tout l'établissement",
             Self::MesClasses => "Mes classes (enseignement)",
             Self::MesGroupes => "Mes groupes et ateliers (responsable)",
-            Self::Designes => "Classes ou groupes désignés",
+            Self::Designes => "Classes, groupes, sites ou niveaux désignés",
         }
     }
 
@@ -522,6 +635,22 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     d.push(etab(ReferentielLire));
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ReferentielGerer));
+    }
+    // E1 : l'annuaire (désignation) est ouvert à tout le personnel, comme l'ancien
+    // `can_read_all_eleves` (Q-E3). Le détail de scolarité (G1, régime, MEF, dates),
+    // jusqu'ici réservé au niveau « complet », reste à ces profils : un établissement
+    // l'ouvre à d'autres rôles en cochant `eleves.lire` (aucun élargissement implicite).
+    d.push(etab(ElevesAnnuaire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(ElevesLire));
+        d.push(etab(ElevesIdentifiantsLire));
+    }
+    // État civil : niveau « complet » et niveau « santé » (infirmerie) historiques.
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Infirmerie
+    ) {
+        d.push(etab(ElevesEtatCivilLire));
     }
     // Cahier de textes (S2-6) : lecture pour la direction, l'administratif et la vie scolaire ;
     // écriture (contenu, travail, correction des copies) pour la direction et les professeurs
@@ -712,6 +841,34 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(EdtAnnulerMasse));
         d.push(etab(DelegationsGerer));
     }
+    // E1 : écritures et gouvernance de l'élève. Les écritures reprennent exactement
+    // `eleves.gerer` (Admin, Direction, Administratif) ; elles accompagnent cette
+    // action, si bien qu'aucun profil existant ne change.
+    if role.can_manage_eleves() {
+        for a in [
+            ElevesHistoriqueLire,
+            ElevesCreer,
+            ElevesIdentiteModifier,
+            ElevesIdentifiantsGerer,
+            ElevesScolariteGerer,
+            ElevesSortie,
+            ElevesPropositionsTraiter,
+            ElevesExporter,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if direction_admin || role == Role::Cpe {
+        d.push(etab(ElevesPhotoGerer));
+        d.push(etab(ElevesBadgeGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(ElevesFusionner));
+        d.push(etab(ElevesConfidentielGerer));
+    }
+    if role == Role::Admin {
+        d.push(etab(ElevesParametrer));
+    }
     // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
     // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).
     if role.can_manage_eleves() {
@@ -900,6 +1057,84 @@ mod tests {
                 assert_eq!(action.portees_admises(), &[Portee::Etablissement]);
             }
         }
+    }
+
+    /// E1 : les nouvelles actions « élève » reproduisent exactement les capacités
+    /// historiques (`Role::can_*`) pour chaque profil — aucun droit gagné ni perdu.
+    #[test]
+    fn e1_modele_identique_aux_capacites_historiques() {
+        use Action::*;
+        let tous = [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Compta,
+            Role::Prof,
+            Role::Infirmerie,
+            Role::Psy,
+            Role::Parent,
+            Role::Eleve,
+        ];
+        let a_action = |r: Role, x: Action| {
+            let m = modele_par_defaut(r);
+            let dir: Vec<_> = m.iter().filter(|(y, _)| *y == x).collect();
+            assert!(dir.iter().all(|(_, p)| *p == Portee::Etablissement), "{r:?} {x:?}");
+            !dir.is_empty()
+        };
+        for r in tous {
+            // Lecture : tout le personnel (ancien `can_read_all_eleves`), pas les familles.
+            assert_eq!(a_action(r, ElevesAnnuaire), r.can_read_all_eleves(), "{r:?} annuaire");
+            // Écritures et historique : ancien `can_manage_eleves`.
+            for x in [
+                ElevesCreer,
+                ElevesIdentiteModifier,
+                ElevesIdentifiantsGerer,
+                ElevesScolariteGerer,
+                ElevesSortie,
+                ElevesPropositionsTraiter,
+                ElevesExporter,
+                ElevesHistoriqueLire,
+            ] {
+                assert_eq!(a_action(r, x), r.can_manage_eleves(), "{r:?} {}", x.code());
+            }
+            // Identifiants (INE, badge) et détail de scolarité : niveau « complet ».
+            assert_eq!(a_action(r, ElevesIdentifiantsLire), r.can_manage_eleves(), "{r:?}");
+            assert_eq!(a_action(r, ElevesLire), r.can_manage_eleves(), "{r:?}");
+            // État civil : niveau « complet » et « santé ».
+            assert_eq!(
+                a_action(r, ElevesEtatCivilLire),
+                r.can_manage_eleves() || r == Role::Infirmerie,
+                "{r:?} état civil"
+            );
+            // Gouvernance : direction (fusion, confidentialité), admin (paramétrage).
+            let direction = matches!(r, Role::Admin | Role::Direction);
+            assert_eq!(a_action(r, ElevesFusionner), direction);
+            assert_eq!(a_action(r, ElevesConfidentielGerer), direction);
+            assert_eq!(a_action(r, ElevesParametrer), r == Role::Admin);
+            assert_eq!(
+                a_action(r, ElevesPhotoGerer),
+                matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)
+            );
+            // ELV-41 : le badge perdu est géré aussi par la vie scolaire (CPE).
+            assert_eq!(
+                a_action(r, ElevesBadgeGerer),
+                matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)
+            );
+        }
+        // `eleves.gerer` reste dans le catalogue et accompagne les nouvelles écritures.
+        for r in tous {
+            assert_eq!(a_action(r, ElevesGerer), a_action(r, ElevesCreer), "{r:?}");
+        }
+        // Inclusions explicites (§12.2), et aucune autre.
+        assert_eq!(ElevesEtatCivilLire.accordee_par(), &[ElevesIdentiteModifier]);
+        assert_eq!(ElevesIdentifiantsLire.accordee_par(), &[ElevesIdentifiantsGerer]);
+        assert!(ElevesLire.accordee_par().is_empty());
+        // Portées : lectures par groupe sur 4 portées, le reste d'établissement.
+        assert_eq!(ElevesAnnuaire.portees_admises().len(), 4);
+        assert_eq!(ElevesLire.portees_admises().len(), 4);
+        assert_eq!(ElevesFusionner.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(Action::parse("eleves.confidentiel.gerer"), Some(ElevesConfidentielGerer));
     }
 
     #[test]

@@ -150,6 +150,23 @@ async fn run_api() {
         (x.clone(), x.lancer(), rappels)
     });
 
+    // Socle 2 (E4) : tâche quotidienne de l'élève (statuts dérivés, majorité, identités
+    // annoncées devenues effectives). Idempotente, lancée toutes les heures car « le jour »
+    // dépend du fuseau de chaque établissement. Désactivable (`ENT_TACHES_ELEVES=0`).
+    let taches_eleves = taches_eleves_actives().then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            loop {
+                match ent.tache_nocturne_eleves().await {
+                    Ok(b) => tracing::info!(?b, "tâche quotidienne des élèves"),
+                    Err(e) => tracing::warn!("tâche quotidienne des élèves : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -160,6 +177,9 @@ async fn run_api() {
         .await
         .expect("serve");
     if let Some(t) = expediteur_inscriptions {
+        t.abort();
+    }
+    if let Some(t) = taches_eleves {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {
@@ -177,6 +197,17 @@ async fn run_api() {
 fn notifications_actives() -> bool {
     !matches!(
         std::env::var("ENT_NOTIFICATIONS_EXPEDITEUR")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "non" | "off"
+    )
+}
+
+fn taches_eleves_actives() -> bool {
+    !matches!(
+        std::env::var("ENT_TACHES_ELEVES")
             .unwrap_or_default()
             .trim()
             .to_ascii_lowercase()

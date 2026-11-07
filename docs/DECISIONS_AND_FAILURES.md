@@ -81,6 +81,8 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Apprentissage :** vérifier l'isolation effective d'un agent (`git worktree list`, branche courante) dans les minutes qui suivent son lancement.
 
 
+## F-008 — Sessions cloud lancées sur Opus par défaut
+
 ## F-008 — Contrôles d'accès oubliés sur des chemins annexes (revue finale du socle 1, 2026-11-06)
 - **Fait** : la règle « professeur → ses élèves » (B1, D-017) était appliquée aux routes principales mais pas à des chemins voisins qui renvoient ou écrivent les mêmes données : appréciations, copilote, dispenses du jour, exports LSL/LSUN, bulletins, conseils, devoirs. Le droit coché « autoriser les sorties » d'un responsable n'était vérifié que par l'ancienne UI JavaScript, pas par le serveur.
 - **Cause** : contrôle pensé route par route ; une donnée exposée par plusieurs chemins n'était bornée que sur le premier ; confiance implicite dans l'interface.

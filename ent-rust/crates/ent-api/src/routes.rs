@@ -215,6 +215,61 @@ pub fn router() -> Router<AppState> {
             "/eleves/{id}/identite",
             axum::routing::put(update_identite_eleve),
         )
+        .route(
+            "/eleves/{id}/identite/corrections",
+            post(corriger_identite_eleve),
+        )
+        .route(
+            "/eleves/{id}/identite/changements",
+            post(changer_etat_civil_eleve),
+        )
+        .route("/eleves/{id}/identite/usages", post(definir_usage_eleve))
+        .route(
+            "/eleves/{id}/identite/historique",
+            get(historique_identite_eleve),
+        )
+        // Socle 2, lot E3 : identifiants externes (INE…) et badge.
+        .route(
+            "/eleves/{id}/identifiants",
+            get(lister_identifiants_eleve).post(ajouter_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/confirmer",
+            post(confirmer_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/contester",
+            post(contester_identifiant_eleve),
+        )
+        .route(
+            "/eleves/{id}/identifiants/{identifiant_id}/revoquer",
+            post(revoquer_identifiant_eleve),
+        )
+        .route("/eleves/{id}/badge/perdu", post(badge_perdu_eleve))
+        .route(
+            "/eleves/identifiants/contestes",
+            get(lister_identifiants_contestes),
+        )
+        // Socle 2, lot E4 : scolarité (scolarisations, inscriptions, changements datés).
+        .route("/eleves/{id}/scolarite", get(scolarite_eleve))
+        .route("/eleves/{id}/scolarisations", post(ouvrir_scolarisation_eleve))
+        .route("/eleves/{id}/scolarisations/reintegrer", post(reintegrer_eleve_route))
+        .route("/eleves/{id}/scolarisations/cloturer", post(cloturer_scolarisation_eleve))
+        .route("/eleves/{id}/deces", post(deces_eleve))
+        .route(
+            "/eleves/{id}/inscriptions/{annee_id}",
+            axum::routing::put(inscription_annuelle_eleve),
+        )
+        .route("/eleves/{id}/scolarite/classe", post(changer_classe_eleve))
+        .route("/eleves/{id}/scolarite/options", post(changer_options_eleve))
+        .route("/eleves/{id}/scolarite/regime", post(changer_regime_eleve))
+        .route("/eleves/{id}/scolarite/site", post(changer_site_eleve))
+        .route("/eleves/{id}/capacites", post(declarer_capacite_eleve))
+        .route("/eleves/{id}/capacites/{capacite_id}/lever", post(lever_capacite_eleve))
+        .route("/eleves/{id}/mobilites", post(ouvrir_mobilite_eleve))
+        .route("/eleves/{id}/mobilites/{mobilite_id}/fermer", post(fermer_mobilite_eleve))
+        .route("/eleves/{id}/modalites", post(enregistrer_modalite_eleve))
+        .route("/eleves/{id}/modalites/{modalite_id}/terminer", post(terminer_modalite_eleve))
         .route("/eleves/{id}/dossier", get(get_dossier))
         .route(
             "/eleves/{id}/documents",
@@ -992,14 +1047,20 @@ async fn search_eleves(
 ) -> Result<Json<Vec<EleveDto>>, (StatusCode, String)> {
     session.require_staff()?;
     let needle = q.q.unwrap_or_default();
-    // Niveau d'identité unique par rôle ; badge interrogeable seulement s'il est exposé.
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
+    // E1 : groupes de champs ouverts pour CE lecteur (annuaire avec sa portée) ; le
+    // badge n'est interrogeable que si les identifiants sont visibles partout.
     let rows = state
         .ent
-        .search_eleves(session.etablissement_id, &needle, 50, niveau)
+        .search_eleves_pour_acteur(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &needle,
+            50,
+        )
         .await
         .map_err(map_db)?;
-    Ok(Json(rows.iter().map(|e| EleveDto::pour(e, niveau)).collect()))
+    Ok(Json(rows.iter().map(EleveDto::depuis_vue).collect()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1368,11 +1429,17 @@ async fn get_dossier(
         d.storage_key = None;
     }
     dossier.eleve.photo_key = None;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
-    dossier.minimise(niveau);
+    // E1 : groupes ouverts pour ce lecteur et cet élève (point unique de minimisation).
+    let groupes = state
+        .ent
+        .profil_champs(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?
+        .pour(dossier.eleve.id);
+    dossier.minimise_groupes(&groupes);
     let mut value = serde_json::to_value(&dossier)
         .map_err(|e| erreur_interne(&e))?;
-    if niveau != domain_eleve::NiveauIdentite::Complet {
+    if !groupes.ouvert(domain_eleve::GroupeChamps::Scolarite) {
         // Donnée retirée = `null` (« non renseigné »), jamais un `false` trompeur.
         if let Some(e) = value.get_mut("eleve").and_then(|e| e.as_object_mut()) {
             e.insert("redoublant".into(), serde_json::Value::Null);
@@ -2817,14 +2884,13 @@ async fn get_eleve(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<EleveDto>, (StatusCode, String)> {
-    let eleve = state
+    let vue = state
         .ent
-        .get_eleve_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .get_eleve_vue_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map_err(map_db)?
         .ok_or_else(|| (StatusCode::NOT_FOUND, "élève introuvable".into()))?;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
-    Ok(Json(EleveDto::pour(&eleve, niveau)))
+    Ok(Json(EleveDto::depuis_vue(&vue)))
 }
 
 async fn change_classe(
@@ -2897,6 +2963,10 @@ async fn update_identite_eleve(
     Json(body): Json<UpdateIdentiteBody>,
 ) -> Result<Json<EleveDto>, (StatusCode, String)> {
     session.require_manage_eleves()?;
+    // Les changements de nom, prénom, sexe, naissance sont des écritures d'identité (E2).
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
     let ine = body
         .ine
         .map(|s| s.trim().to_string())
@@ -2928,6 +2998,878 @@ async fn update_identite_eleve(
         .await
         .map_err(map_db)?;
     Ok(Json(EleveDto::from(&eleve)))
+}
+
+// ───────────── Socle 2 (l'élève), lot E2 : identité versionnée ─────────────
+
+fn modif_identite(c: ent_types::identite::ChampsIdentiteBody) -> domain_eleve::ModifIdentite {
+    domain_eleve::ModifIdentite {
+        nom_naissance: c.nom_naissance,
+        nom_usage: c.nom_usage,
+        prenoms: c.prenoms,
+        rang_prenom_usuel: c.rang_prenom_usuel,
+        prenom_usage: c.prenom_usage,
+        sexe: c.sexe,
+        date_naissance: c.date_naissance,
+        naissance_commune: c.naissance_commune,
+        naissance_commune_cog: c.naissance_commune_cog,
+        naissance_pays_cog: c.naissance_pays_cog,
+        naissance_lieu_etranger: c.naissance_lieu_etranger,
+        date_naissance_precision: c.date_naissance_precision,
+        date_naissance_statut: c.date_naissance_statut,
+        nom_ecriture_origine: c.nom_ecriture_origine,
+        prenoms_ecriture_origine: c.prenoms_ecriture_origine,
+    }
+}
+
+fn version_identite_dto(v: &domain_eleve::IdentiteVersion) -> ent_types::identite::IdentiteVersionDto {
+    ent_types::identite::IdentiteVersionDto {
+        id: v.id,
+        nom_naissance: v.nom_naissance.clone(),
+        nom_usage: v.nom_usage.clone(),
+        prenoms: v.prenoms.clone(),
+        rang_prenom_usuel: v.rang_prenom_usuel,
+        prenom_usage: v.prenom_usage.clone(),
+        sexe: v.sexe.clone(),
+        date_naissance: v.date_naissance,
+        naissance_commune: v.naissance_commune.clone(),
+        naissance_commune_cog: v.naissance_commune_cog.clone(),
+        naissance_pays_cog: v.naissance_pays_cog.clone(),
+        naissance_lieu_etranger: v.naissance_lieu_etranger.clone(),
+        date_naissance_precision: v.date_naissance_precision.clone(),
+        date_naissance_statut: v.date_naissance_statut.clone(),
+        nom_ecriture_origine: v.nom_ecriture_origine.clone(),
+        prenoms_ecriture_origine: v.prenoms_ecriture_origine.clone(),
+        motif_code: v.motif_code.clone(),
+        nature: v.nature.as_str().to_string(),
+        effet_du: v.effet_du,
+        remplace_version_id: v.remplace_version_id,
+        remplacee_par: v.remplacee_par,
+        motif: v.motif.clone(),
+        piece_document_id: v.piece_document_id,
+        source: v.source.clone(),
+        sensible: v.sensible,
+        enregistre_le: v.enregistre_le,
+        enregistre_par: v.enregistre_par,
+    }
+}
+
+fn resultat_identite_dto(
+    r: &ent_db::identite::ResultatIdentite,
+) -> ent_types::identite::ResultatIdentiteDto {
+    ent_types::identite::ResultatIdentiteDto {
+        version: version_identite_dto(&r.version),
+        champs: r.champs.iter().map(|c| (*c).to_string()).collect(),
+    }
+}
+
+/// Les sources réservées au système (import, fusion, reprise…) ne sont pas saisissables
+/// depuis une route de personnel.
+fn source_saisie(s: Option<String>) -> Result<String, (StatusCode, String)> {
+    match s.as_deref() {
+        None | Some("saisie") => Ok("saisie".into()),
+        Some("ancien_etablissement") => Ok("ancien_etablissement".into()),
+        Some(_) => Err((StatusCode::BAD_REQUEST, "source non autorisée pour cette saisie".into())),
+    }
+}
+
+/// ELV-03 — `POST /eleves/{id}/identite/corrections`.
+async fn corriger_identite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::CorrigerIdentiteBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .corriger_identite(
+            &session.role,
+            ent_db::identite::CorrectionIdentite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                version_id: body.version_id,
+                modif: modif_identite(body.champs),
+                motif_code: body.motif_code,
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-04 — `POST /eleves/{id}/identite/changements`.
+async fn changer_etat_civil_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::ChangerEtatCivilBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .enregistrer_changement_etat_civil(
+            &session.role,
+            ent_db::identite::ChangementEtatCivil {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                modif: modif_identite(body.champs),
+                effet_du: body.effet_du,
+                motif_code: body.motif_code,
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-05 — `POST /eleves/{id}/identite/usages`.
+async fn definir_usage_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identite::DefinirUsageBody>,
+) -> Result<(StatusCode, Json<ent_types::identite::ResultatIdentiteDto>), (StatusCode, String)> {
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour modifier l'identité d'un élève")
+        .await?;
+    let source = source_saisie(body.source)?;
+    let r = state
+        .ent
+        .definir_usage(
+            &session.role,
+            ent_db::identite::UsageIdentite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                nom_usage: body.nom_usage,
+                prenom_usage: body.prenom_usage,
+                effet_du: body.effet_du,
+                motif_code: body.motif_code,
+                motif: body.motif,
+                piece_document_id: body.piece_document_id,
+                source,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_identite_dto(&r))))
+}
+
+/// ELV-06 — `GET /eleves/{id}/identite/historique` (G5 ; versions sensibles : G6).
+async fn historique_identite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ent_types::identite::IdentiteVersionDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesHistoriqueLire, "rôle insuffisant pour l'historique d'identité")
+        .await?;
+    let versions = state
+        .ent
+        .historique_identite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(versions.iter().map(version_identite_dto).collect()))
+}
+
+// ───────────── Socle 2 (l'élève), lot E3 : identifiants externes ─────────────
+
+fn identifiant_dto(i: &ent_db::identifiants::IdentifiantEleve) -> ent_types::identifiants::IdentifiantDto {
+    ent_types::identifiants::IdentifiantDto {
+        id: i.id,
+        eleve_id: i.eleve_id,
+        systeme: i.systeme.clone(),
+        valeur: i.valeur.clone(),
+        statut: i.statut.clone(),
+        provenance: i.provenance.clone(),
+        preuve_document_id: i.preuve_document_id,
+        valide_du: i.valide_du,
+        valide_au: i.valide_au,
+        confirme_le: i.confirme_le,
+        confirme_par_source: i.confirme_par_source.clone(),
+        motif: i.motif.clone(),
+        enregistre_le: i.enregistre_le,
+        utilisable_pour_export: domain_eleve::StatutIdentifiant::parse(&i.statut)
+            .is_some_and(domain_eleve::identifiant_utilisable_pour_export),
+    }
+}
+
+/// ELV-07 — `GET /eleves/{id}/identifiants` (G3, lecture journalisée).
+async fn lister_identifiants_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<ent_types::identifiants::IdentifiantDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentifiantsLire, "rôle insuffisant pour lire les identifiants")
+        .await?;
+    let l = state
+        .ent
+        .identifiants_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(l.iter().map(identifiant_dto).collect()))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants`. Une collision n'échoue pas : l'identifiant
+/// est enregistré `conteste` (réponse 201, `collision = true`).
+async fn ajouter_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identifiants::AjouterIdentifiantBody>,
+) -> Result<(StatusCode, Json<ent_types::identifiants::ResultatIdentifiantDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    let systeme = domain_eleve::SystemeIdentifiant::parse(&body.systeme)
+        .ok_or((StatusCode::BAD_REQUEST, "système d'identifiant inconnu".into()))?;
+    let provenance = match body.provenance.as_deref() {
+        None => domain_eleve::ProvenanceIdentifiant::Saisie,
+        Some(p) => domain_eleve::ProvenanceIdentifiant::parse(p)
+            .ok_or((StatusCode::BAD_REQUEST, "provenance inconnue".into()))?,
+    };
+    let r = state
+        .ent
+        .ajouter_identifiant(
+            &session.role,
+            ent_db::identifiants::AjoutIdentifiant {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                systeme,
+                valeur: body.valeur,
+                provenance,
+                valide_du: body.valide_du,
+                preuve_document_id: body.preuve_document_id,
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ent_types::identifiants::ResultatIdentifiantDto {
+            identifiant: identifiant_dto(&r.identifiant),
+            collision: r.collision,
+            autre_eleve_id: r.collision_eleve_id,
+            remplace: r.remplace,
+            existant: r.existant,
+        }),
+    ))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/confirmer`.
+async fn confirmer_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::ConfirmerIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .confirmer_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, &body.source)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/contester`.
+async fn contester_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::MotifIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .contester_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, Some(&body.motif))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-07 — `POST /eleves/{id}/identifiants/{identifiant_id}/revoquer`.
+async fn revoquer_identifiant_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, identifiant_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::identifiants::MotifIdentifiantBody>,
+) -> Result<Json<ent_types::identifiants::IdentifiantDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    let i = state
+        .ent
+        .revoquer_identifiant(&session.role, session.etablissement_id, id, identifiant_id, session.user_id, Some(&body.motif))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(identifiant_dto(&i)))
+}
+
+/// ELV-41 — `POST /eleves/{id}/badge/perdu` : l'ancien badge est révoqué, le nouveau actif.
+async fn badge_perdu_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::identifiants::BadgePerduBody>,
+) -> Result<Json<Option<ent_types::identifiants::ResultatIdentifiantDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    let r = state
+        .ent
+        .declarer_badge_perdu(&session.role, session.etablissement_id, id, session.user_id, body.nouveau_badge.as_deref())
+        .await
+        .map_err(map_db)?;
+    Ok(Json(r.map(|r| ent_types::identifiants::ResultatIdentifiantDto {
+        identifiant: identifiant_dto(&r.identifiant),
+        collision: r.collision,
+        autre_eleve_id: r.collision_eleve_id,
+        remplace: r.remplace,
+        existant: r.existant,
+    })))
+}
+
+/// Qualité des données — `GET /eleves/identifiants/contestes`.
+async fn lister_identifiants_contestes(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<ent_types::identifiants::IdentifiantConsteDto>>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentifiantsLire, "rôle insuffisant pour lire les identifiants")
+        .await?;
+    let l = state
+        .ent
+        .identifiants_contestes(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        l.into_iter()
+            .map(|c| ent_types::identifiants::IdentifiantConsteDto {
+                identifiant_id: c.identifiant_id,
+                eleve_id: c.eleve_id,
+                systeme: c.systeme,
+                motif: c.motif,
+                autre_eleve_id: c.autre_eleve_id,
+            })
+            .collect(),
+    ))
+}
+
+// ───────────── Socle 2 (l'élève), lot E4 : scolarité ─────────────
+
+fn etab_scolarite(b: ent_types::scolarite::EtablissementBody) -> Result<domain_eleve::EtablissementScolarite, (StatusCode, String)> {
+    let type_ = match b.type_.as_deref() {
+        None => None,
+        Some(t) => Some(
+            domain_eleve::TypeEtablissement::parse(t)
+                .ok_or((StatusCode::BAD_REQUEST, "type d'établissement inconnu".into()))?,
+        ),
+    };
+    Ok(domain_eleve::EtablissementScolarite { uai: b.uai, libelle: b.libelle, type_ })
+}
+
+fn etab_body(uai: &Option<String>, libelle: &Option<String>, type_: &Option<String>) -> ent_types::scolarite::EtablissementBody {
+    ent_types::scolarite::EtablissementBody { uai: uai.clone(), libelle: libelle.clone(), type_: type_.clone() }
+}
+
+fn scolarisation_dto(s: &ent_db::scolarite::ScolarisationEleve) -> ent_types::scolarite::ScolarisationDto {
+    ent_types::scolarite::ScolarisationDto {
+        id: s.id,
+        eleve_id: s.eleve_id,
+        date_entree: s.date_entree,
+        motif_entree: s.motif_entree.clone(),
+        origine: etab_body(&s.origine_uai, &s.origine_libelle, &s.origine_type),
+        date_sortie: s.date_sortie,
+        motif_sortie: s.motif_sortie.clone(),
+        motif_sortie_libre: s.motif_sortie_libre.clone(),
+        destination: etab_body(&s.destination_uai, &s.destination_libelle, &s.destination_type),
+        exeat_document_id: s.exeat_document_id,
+        source: s.source.clone(),
+        cree_le: s.cree_le,
+    }
+}
+
+fn inscription_dto(i: &ent_db::scolarite::InscriptionEleve) -> ent_types::scolarite::InscriptionDto {
+    ent_types::scolarite::InscriptionDto {
+        id: i.id,
+        annee_id: i.annee_id,
+        scolarisation_id: i.scolarisation_id,
+        niveau_id: i.niveau_id,
+        mef_id: i.mef_id,
+        statut_apprenant: i.statut_apprenant.clone(),
+        etat: i.etat.clone(),
+        redoublement: i.redoublement,
+        decision_passage: i.decision_passage.clone(),
+        source: i.source.clone(),
+    }
+}
+
+fn resultat_scolarisation_dto(r: &ent_db::scolarite::ResultatScolarisation) -> ent_types::scolarite::ResultatScolarisationDto {
+    ent_types::scolarite::ResultatScolarisationDto {
+        scolarisation: scolarisation_dto(&r.scolarisation),
+        statut: r.statut.clone(),
+        statut_change: r.statut_change,
+    }
+}
+
+fn code_inconnu<T>(v: Option<T>, quoi: &str) -> Result<T, (StatusCode, String)> {
+    v.ok_or((StatusCode::BAD_REQUEST, format!("{quoi} inconnu")))
+}
+
+/// ELV-21 (partie scolarité) — `GET /eleves/{id}/scolarite` : statut dérivé et historique (G1).
+async fn scolarite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ent_types::scolarite::ScolariteDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesLire, "rôle insuffisant pour lire la scolarité")
+        .await?;
+    let (statut, scol, insc) = state
+        .ent
+        .scolarite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(ent_types::scolarite::ScolariteDto {
+        statut,
+        scolarisations: scol.iter().map(scolarisation_dto).collect(),
+        inscriptions: insc.iter().map(inscription_dto).collect(),
+    }))
+}
+
+/// ELV-08 — `POST /eleves/{id}/scolarisations`.
+async fn ouvrir_scolarisation_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::OuvrirScolarisationBody>,
+) -> Result<(StatusCode, Json<ent_types::scolarite::ResultatScolarisationDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let motif = code_inconnu(domain_eleve::MotifEntree::parse(&body.motif), "motif d'entrée")?;
+    let r = state
+        .ent
+        .ouvrir_scolarisation(
+            &session.role,
+            ent_db::scolarite::OuvertureScolarisation {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                date_entree: body.date_entree,
+                motif,
+                origine: etab_scolarite(body.origine)?,
+                source: "saisie".into(),
+                source_ref: None,
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_scolarisation_dto(&r))))
+}
+
+/// ELV-12 — `POST /eleves/{id}/scolarisations/reintegrer`.
+async fn reintegrer_eleve_route(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::ReintegrerBody>,
+) -> Result<(StatusCode, Json<ent_types::scolarite::ResultatScolarisationDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let r = state
+        .ent
+        .reintegrer_eleve(
+            &session.role,
+            ent_db::scolarite::OuvertureScolarisation {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                date_entree: body.date_entree,
+                motif: domain_eleve::MotifEntree::Retour,
+                origine: etab_scolarite(body.origine)?,
+                source: "saisie".into(),
+                source_ref: None,
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(resultat_scolarisation_dto(&r))))
+}
+
+/// ELV-11 ★ — `POST /eleves/{id}/scolarisations/cloturer`.
+async fn cloturer_scolarisation_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::CloturerScolarisationBody>,
+) -> Result<Json<ent_types::scolarite::ResultatScolarisationDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesSortie, "rôle insuffisant pour clôturer une scolarisation")
+        .await?;
+    let motif = code_inconnu(domain_eleve::MotifSortie::parse(&body.motif), "motif de sortie")?;
+    let r = state
+        .ent
+        .cloturer_scolarisation(
+            &session.role,
+            ent_db::scolarite::ClotureScolarisation {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                date_sortie: body.date_sortie,
+                motif,
+                motif_libre: body.motif_libre,
+                destination: etab_scolarite(body.destination)?,
+                exeat_document_id: body.exeat_document_id,
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(resultat_scolarisation_dto(&r)))
+}
+
+/// ELV-34 ★ — `POST /eleves/{id}/deces` : sortie pour décès, `eleve.decede` sans détail.
+async fn deces_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::DecesBody>,
+) -> Result<Json<ent_types::scolarite::ResultatScolarisationDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesSortie, "rôle insuffisant pour enregistrer un décès")
+        .await?;
+    let r = state
+        .ent
+        .enregistrer_deces(&session.role, session.etablissement_id, id, body.date, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(resultat_scolarisation_dto(&r)))
+}
+
+/// ELV-09 — `PUT /eleves/{id}/inscriptions/{annee_id}`.
+async fn inscription_annuelle_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, annee_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::scolarite::InscriptionAnnuelleBody>,
+) -> Result<Json<ent_types::scolarite::InscriptionDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let etat = code_inconnu(domain_eleve::EtatInscription::parse(&body.etat), "état d'inscription")?;
+    let statut_apprenant = match body.statut_apprenant.as_deref() {
+        None => domain_eleve::StatutApprenant::Scolaire,
+        Some(s) => code_inconnu(domain_eleve::StatutApprenant::parse(s), "statut d'apprenant")?,
+    };
+    let i = state
+        .ent
+        .enregistrer_inscription_annuelle(
+            &session.role,
+            ent_db::scolarite::InscriptionAnnuelle {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                annee_id,
+                niveau_id: body.niveau_id,
+                mef_id: body.mef_id,
+                statut_apprenant,
+                etat,
+                redoublement: body.redoublement,
+                source: "saisie".into(),
+                acteur: Some(session.user_id),
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(inscription_dto(&i)))
+}
+
+/// ELV-09 — `POST /eleves/{id}/scolarite/classe`.
+async fn changer_classe_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::ChangerClasseBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    state
+        .ent
+        .changer_classe(
+            &session.role,
+            ent_db::scolarite::ChangementClasse {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                classe_id: body.classe_id,
+                date_effet: body.date_effet,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// ELV-09 — `POST /eleves/{id}/scolarite/options`.
+async fn changer_options_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::ChangerOptionsBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    state
+        .ent
+        .changer_options(
+            &session.role,
+            ent_db::scolarite::ChangementOptions {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                annee_id: body.annee_id,
+                ajouter: body.ajouter,
+                retirer: body.retirer,
+                date_effet: body.date_effet,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn changer_regime_ou_site_route(
+    state: AppState,
+    session: EntSession,
+    id: Uuid,
+    kind: domain_eleve::AttributKind,
+    body: ent_types::scolarite::ChangerRegimeSiteBody,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let derogation = match body.derogation.as_deref() {
+        None => None,
+        Some(d) => Some(code_inconnu(domain_eleve::MotifDerogationRegime::parse(d), "motif de dérogation")?),
+    };
+    state
+        .ent
+        .changer_regime_ou_site(
+            &session.role,
+            ent_db::scolarite::ChangementRegimeSite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                kind,
+                valeur: body.valeur,
+                date_effet: body.date_effet,
+                derogation,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// ELV-10 — `POST /eleves/{id}/scolarite/regime` (dates autorisées ou dérogation motivée).
+async fn changer_regime_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::ChangerRegimeSiteBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    changer_regime_ou_site_route(state, session, id, domain_eleve::AttributKind::Regime, body).await
+}
+
+/// ELV-10 — `POST /eleves/{id}/scolarite/site`.
+async fn changer_site_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::ChangerRegimeSiteBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    changer_regime_ou_site_route(state, session, id, domain_eleve::AttributKind::Site, body).await
+}
+
+fn capacite_dto(c: &ent_db::scolarite::CapaciteEleve) -> ent_types::scolarite::CapaciteDto {
+    ent_types::scolarite::CapaciteDto {
+        id: c.id,
+        eleve_id: c.eleve_id,
+        nature: c.nature.clone(),
+        du: c.du,
+        au: c.au,
+        piece_document_id: c.piece_document_id,
+        motif: c.motif.clone(),
+        saisi_le: c.saisi_le,
+        levee_le: c.levee_le,
+    }
+}
+
+/// ELV-13 ★ — `POST /eleves/{id}/capacites`.
+async fn declarer_capacite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::DeclarerCapaciteBody>,
+) -> Result<(StatusCode, Json<ent_types::scolarite::CapaciteDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour déclarer une capacité")
+        .await?;
+    let nature = code_inconnu(domain_eleve::NatureCapacite::parse(&body.nature), "nature de capacité")?;
+    let c = state
+        .ent
+        .declarer_capacite(
+            &session.role,
+            ent_db::scolarite::DeclarationCapacite {
+                etablissement_id: session.etablissement_id,
+                eleve_id: id,
+                nature,
+                du: body.du,
+                piece_document_id: body.piece_document_id,
+                motif: body.motif,
+                acteur: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(capacite_dto(&c))))
+}
+
+/// ELV-13 ★ — `POST /eleves/{id}/capacites/{capacite_id}/lever`.
+async fn lever_capacite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, capacite_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::scolarite::LeverCapaciteBody>,
+) -> Result<Json<ent_types::scolarite::CapaciteDto>, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesIdentiteModifier, "rôle insuffisant pour lever une capacité")
+        .await?;
+    let c = state
+        .ent
+        .lever_capacite(&session.role, session.etablissement_id, id, capacite_id, body.au, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(capacite_dto(&c)))
+}
+
+/// ELV-35 — `POST /eleves/{id}/mobilites`.
+async fn ouvrir_mobilite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::OuvrirMobiliteBody>,
+) -> Result<(StatusCode, Json<ent_types::scolarite::MobiliteDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let type_ = code_inconnu(domain_eleve::TypeMobilite::parse(&body.type_), "type de mobilité")?;
+    let m = state
+        .ent
+        .ouvrir_mobilite(&session.role, session.etablissement_id, id, type_, body.du, body.retour_prevu, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ent_types::scolarite::MobiliteDto {
+            id: m.id,
+            eleve_id: m.eleve_id,
+            type_: m.type_,
+            du: m.du,
+            au: m.au,
+            retour_prevu: m.retour_prevu,
+        }),
+    ))
+}
+
+/// ELV-35 — `POST /eleves/{id}/mobilites/{mobilite_id}/fermer`.
+async fn fermer_mobilite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, mobilite_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::scolarite::FinPeriodeBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    state
+        .ent
+        .fermer_mobilite(&session.role, session.etablissement_id, id, mobilite_id, body.au, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// ELV-36 — `POST /eleves/{id}/modalites`.
+async fn enregistrer_modalite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::scolarite::EnregistrerModaliteBody>,
+) -> Result<(StatusCode, Json<ent_types::scolarite::ModaliteDto>), (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    let code = code_inconnu(domain_eleve::CodeModalite::parse(&body.code), "code de modalité")?;
+    let m = state
+        .ent
+        .enregistrer_modalite(&session.role, session.etablissement_id, id, code, body.du, body.au, body.piece_document_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(ent_types::scolarite::ModaliteDto { id: m.id, eleve_id: m.eleve_id, code: m.code, du: m.du, au: m.au }),
+    ))
+}
+
+/// ELV-36 — `POST /eleves/{id}/modalites/{modalite_id}/terminer`.
+async fn terminer_modalite_eleve(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, modalite_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<ent_types::scolarite::FinPeriodeBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    session.require_staff()?;
+    session
+        .require_action(&state.ent, ent_auth::Action::ElevesScolariteGerer, "rôle insuffisant pour gérer la scolarité")
+        .await?;
+    state
+        .ent
+        .terminer_modalite(&session.role, session.etablissement_id, id, modalite_id, body.au, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn change_mef(
@@ -5076,6 +6018,7 @@ async fn rechercher_homonymes(
         .ent
         .rechercher_homonymes_for_actor(
             session.etablissement_id,
+            session.user_id,
             &session.role,
             RechercherHomonymes {
                 etablissement_id: session.etablissement_id,
@@ -6868,16 +7811,20 @@ async fn effectif_classe(
     Query(q): Query<EffectifQuery>,
 ) -> Result<Json<EffectifDto>, (StatusCode, String)> {
     session.require_read_effectif()?;
-    let niveau = ent_db::PgEnt::niveau_identite(&session.role);
     let eleves = state
         .ent
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
         .await
         .map_err(map_db)?;
+    let vues = state
+        .ent
+        .vues_eleves_pour_acteur(session.etablissement_id, session.user_id, &session.role, eleves)
+        .await
+        .map_err(map_db)?;
     Ok(Json(EffectifDto {
         classe,
         jour: q.jour,
-        eleves: eleves.iter().map(|e| EleveDto::pour(e, niveau)).collect(),
+        eleves: vues.iter().map(EleveDto::depuis_vue).collect(),
     }))
 }
 

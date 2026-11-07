@@ -23,10 +23,13 @@ pub mod edt;
 pub mod edt_s2;
 pub mod evaluations;
 pub mod finances;
+pub mod identifiants;
+pub mod identite;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;
 pub mod sante;
+pub mod scolarite;
 pub mod vie_scolaire;
 
 #[cfg(test)]

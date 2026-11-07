@@ -7,7 +7,7 @@
 use crate::{
     normalize_ine, CarnetEntree, DomainError, Eleve, EleveBourse, EleveDispenseRepas,
     EleveDispositif, EleveDocument, EleveGrilleRepas, ElevePeriode, Incident, OptionAnnee, Sanction,
-    ScolariteAnnee, AttributKind, NiveauIdentite,
+    ScolariteAnnee, NiveauIdentite,
 };
 use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
@@ -150,20 +150,7 @@ impl DossierEleve {
     /// que si la date de naissance l'est (Complet, Sante). `redoublement_possible` ne peut pas
     /// être « absent » dans ce type : la route le sérialise à `null` hors Complet.
     pub fn minimise(&mut self, niveau: NiveauIdentite) {
-        self.eleve.minimise(niveau);
-        if niveau == NiveauIdentite::Complet {
-            return;
-        }
-        if niveau == NiveauIdentite::Reduit {
-            self.age_ans = None;
-        }
-        self.periodes
-            .retain(|p| !matches!(p.kind, AttributKind::Regime | AttributKind::Mef));
-        for a in &mut self.continuum {
-            a.mef = None;
-            a.regime = None;
-            a.redoublement_possible = false;
-        }
+        self.minimise_groupes(&crate::GroupesAutorises::depuis_niveau(niveau));
     }
 }
 

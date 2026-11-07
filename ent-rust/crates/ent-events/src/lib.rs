@@ -15,12 +15,27 @@ pub mod types {
     pub const ELEVE_CREATED: &str = "eleve.created";
     pub const ELEVE_STATUS_CHANGED: &str = "eleve.status_changed";
     pub const ELEVE_IDENTITY_CHANGED: &str = "eleve.identity_changed";
-    /// Réservé : aucun émetteur tant que « scolarité ouverte/fermée » (période
-    /// vs année) n'est pas tranché côté produit — ne pas inventer la sémantique.
+    /// Identifiant externe ajouté, confirmé, contesté, révoqué (système et statuts, jamais la valeur).
+    pub const ELEVE_IDENTIFIANT_CHANGE: &str = "eleve.identifiant_change";
+    /// Réintégration d'un ancien élève sur sa fiche (ELV-12).
+    pub const ELEVE_REINTEGRE: &str = "eleve.reintegre";
+    /// Passage à la majorité (ELV-14, tâche nocturne) et sa veille de 30 jours (ELV-39).
+    pub const ELEVE_MAJEUR: &str = "eleve.majeur";
+    pub const ELEVE_MAJORITE_PROCHE: &str = "eleve.majorite_proche";
+    /// Capacité juridique déclarée ou levée (ELV-13) : nature seulement.
+    pub const ELEVE_CAPACITE_CHANGEE: &str = "eleve.capacite_changee";
+    /// Décès d'un élève (ELV-34, R-E12) : aucun détail dans la charge utile.
+    pub const ELEVE_DECEDE: &str = "eleve.decede";
+    pub const SCOLARITE_MOBILITE_OUVERTE: &str = "scolarite.mobilite_ouverte";
+    pub const SCOLARITE_MOBILITE_FERMEE: &str = "scolarite.mobilite_fermee";
+    pub const SCOLARITE_MODALITE_CHANGEE: &str = "scolarite.modalite_changee";
+    /// Une scolarisation s'ouvre (socle 2, lot E4 : émis par ELV-08 et ELV-12) ;
+    /// charge utile : `scolarisation_id`, dates, motif codé — jamais de donnée d'identité.
     pub const SCOLARITE_OPENED: &str = "scolarite.opened";
     pub const SCOLARITE_CLASSE_CHANGED: &str = "scolarite.classe_changed";
     pub const SCOLARITE_MEF_CHANGED: &str = "scolarite.mef_changed";
     pub const SCOLARITE_SITE_CHANGED: &str = "scolarite.site_changed";
+    /// Une scolarisation se clôt (ELV-11, ELV-34) ; mêmes règles de charge utile.
     pub const SCOLARITE_CLOSED: &str = "scolarite.closed";
     pub const ELEVE_REGIME_CHANGED: &str = "eleve.regime_changed";
     pub const ELEVE_SORTIE: &str = "eleve.sortie";
