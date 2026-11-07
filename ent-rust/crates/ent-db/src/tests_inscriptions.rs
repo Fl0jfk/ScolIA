@@ -2304,3 +2304,449 @@ async fn parent_connecte_confirme_le_lien_d_inscription_en_un_geste() {
             .unwrap();
     assert_eq!(voie, "personne_connectee");
 }
+
+// ---------------------------------------------------------------------------
+// Lot I1 (socle 3) : ports vers les socles 2 et 4, inscription annuelle prévue
+// ---------------------------------------------------------------------------
+
+async fn classe_annee_future(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
+    let a = Uuid::new_v4();
+    let today = chrono::Utc::now().date_naive();
+    sqlx::query(
+        "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
+         VALUES ($1,$2,$3,$4,$5,false)",
+    )
+    .bind(a)
+    .bind(etab)
+    .bind(format!("future-{}", &a.simple().to_string()[..6]))
+    .bind(today + chrono::Duration::days(300))
+    .bind(today + chrono::Duration::days(660))
+    .execute(ent.pool())
+    .await
+    .unwrap();
+    let c = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_classe (id, etablissement_id, annee_id, code, libelle) VALUES ($1,$2,$3,$4,$4)")
+        .bind(c)
+        .bind(etab)
+        .bind(a)
+        .bind(code)
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    c
+}
+
+/// I1 / §2.2 n° 6 : valider en février ne crée AUCUNE affectation ; l'élève reçoit une inscription
+/// annuelle prévue (année, niveau, parcours, régime) par la commande du socle 2. L'événement et le
+/// journal ne portent aucun état civil ; la version d'identité initiale vient de l'admission.
+#[tokio::test]
+async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let email = format!("i1-{}@exemple.test", Uuid::new_v4().simple());
+    let (dossier, _) = dossier_admis(&ent, &c, camp, &email, formulaire(camp, "Rosmerta", None)).await;
+    // Une classe de l'année SUIVANTE est proposée : sans effet (constitution des classes = socle 5).
+    let future = classe_annee_future(&ent, etab, "6F").await;
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &ValidationBody {
+                classe_id: Some(future),
+                niveau: Some("6EME".into()),
+                parcours: Some("Option latin".into()),
+                regime: Some("interne".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!v.affecte_en_classe);
+    let ia = v.inscription_annuelle_id.expect("inscription annuelle");
+    let (annee, niveau, parcours, regime, statut, source, source_ref): (
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        Option<Uuid>,
+    ) = sqlx::query_as(
+        "SELECT annee_scolaire, niveau, parcours, regime, statut, source, source_ref
+           FROM ent_eleve_scolarite_annee WHERE id = $1 AND eleve_id = $2",
+    )
+    .bind(ia)
+    .bind(v.eleve_id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(annee, "2027-2028");
+    assert_eq!(
+        (niveau.as_deref(), parcours.as_deref(), regime.as_deref()),
+        (Some("6EME"), Some("Option latin"), Some("interne"))
+    );
+    assert_eq!((statut.as_str(), source.as_str()), ("projetee", "admission"));
+    assert_eq!(source_ref, Some(dossier));
+    let (trace,): (Option<Uuid>,) =
+        sqlx::query_as("SELECT inscription_annuelle_id FROM ent_inscription_dossier WHERE id = $1")
+            .bind(dossier)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    assert_eq!(trace, Some(ia), "le dossier garde la trace de l'inscription prévue");
+    // Réactions rejouées : toujours aucune affectation, élève « préinscrit », sans classe.
+    distributeur(&ent, etab).distribuer_tout().await.unwrap();
+    assert_eq!(
+        compter(&ent, "SELECT count(*) FROM ent_affectation WHERE eleve_id = $1", v.eleve_id).await,
+        0
+    );
+    let (st, classe): (String, Option<Uuid>) =
+        sqlx::query_as("SELECT status, classe_id FROM ent_eleve WHERE id = $1")
+            .bind(v.eleve_id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    assert_eq!((st.as_str(), classe), ("preinscrit", None));
+    // Aucune donnée d'identité dans l'événement de création ni dans le journal de l'inscription.
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_metier_event
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND payload::text ILIKE '%Lovegood%'",
+    )
+    .bind(etab)
+    .bind(v.eleve_id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_journal_modif
+          WHERE eleve_id = $1 AND payload::text ILIKE '%Lovegood%'",
+    )
+    .bind(v.eleve_id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
+    // Version d'identité initiale : source « admission », auteur = la direction.
+    let (src, par): (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT source, enregistre_par FROM ent_eleve_identite WHERE eleve_id = $1 ORDER BY enregistre_le LIMIT 1",
+    )
+    .bind(v.eleve_id)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((src.as_str(), par), ("admission", Some(d)));
+}
+
+/// I1 : arrivée en cours d'année (classe de l'année courante choisie) = seul cas d'affectation ;
+/// l'inscription annuelle prévue est tout de même enregistrée.
+#[tokio::test]
+async fn i1_arrivee_en_cours_d_annee_affecte_en_classe() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let email = format!("i1b-{}@exemple.test", Uuid::new_v4().simple());
+    let (dossier, _) = dossier_admis(&ent, &c, camp, &email, formulaire(camp, "Pomona", None)).await;
+    let classe = classe_courante(&ent, etab, "6G").await;
+    let v = ent
+        .valider_inscription_for_actor(
+            etab,
+            d,
+            dr,
+            dossier,
+            &ValidationBody {
+                classe_id: Some(classe),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert!(v.affecte_en_classe);
+    assert!(v.inscription_annuelle_id.is_some());
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_affectation WHERE eleve_id = $1 AND classe_id IS NOT NULL",
+            v.eleve_id
+        )
+        .await,
+        1
+    );
+    // Rejeu de l'événement : idempotent.
+    let dist = distributeur(&ent, etab);
+    dist.distribuer_tout().await.unwrap();
+    dist.distribuer_tout().await.unwrap();
+    assert_eq!(
+        compter(&ent, "SELECT count(*) FROM ent_affectation WHERE eleve_id = $1", v.eleve_id).await,
+        1
+    );
+    let (st, cl): (String, Option<Uuid>) =
+        sqlx::query_as("SELECT status, classe_id FROM ent_eleve WHERE id = $1")
+            .bind(v.eleve_id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    assert_eq!((st.as_str(), cl), ("actif", Some(classe)));
+}
+
+/// I1 : un ancien élève rattaché à sa fiche reçoit l'inscription annuelle prévue sur cette même
+/// fiche ; une année déjà vécue (ou courante) n'est jamais réécrite.
+#[tokio::test]
+async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let (d, dr) = dir(&c);
+    let camp = campagne_ouverte(&ent, &c, "admission", None).await;
+    let (nom, prenom, naissance): (String, String, Option<chrono::NaiveDate>) =
+        sqlx::query_as("SELECT nom, prenom, date_naissance FROM ent_eleve WHERE id = $1")
+            .bind(c.eleve_tom_id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    let mut f = formulaire(camp, &prenom, None);
+    f.eleve.nom = nom;
+    f.eleve.date_naissance = naissance;
+    let (dossier, _) = dossier_admis(
+        &ent,
+        &c,
+        camp,
+        &format!("retour-{}@exemple.test", Uuid::new_v4().simple()),
+        f,
+    )
+    .await;
+    // L'année cible est déjà « courante » pour cet élève (ligne d'une autre origine) : conflit net.
+    sqlx::query(
+        "INSERT INTO ent_eleve_scolarite_annee (id, etablissement_id, eleve_id, annee_scolaire, statut, source)
+         VALUES ($1,$2,$3,'2027-2028','courante','saisie')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(c.eleve_tom_id)
+    .execute(ent.pool())
+    .await
+    .unwrap();
+    let corps = valider_corps(
+        vec![],
+        Some(ChoixEleve::Existant {
+            eleve_id: c.eleve_tom_id,
+            confirme_responsables_existants: true,
+        }),
+    );
+    assert!(
+        matches!(
+            ent.valider_inscription_for_actor(etab, d, dr, dossier, &corps).await,
+            Err(EntDbError::ConflitDossier(_))
+        ),
+        "année déjà vécue : jamais réécrite"
+    );
+    // Rien n'a été fait (une seule transaction) : le dossier reste à valider.
+    let (statut,): (String,) =
+        sqlx::query_as("SELECT statut FROM ent_inscription_dossier WHERE id = $1")
+            .bind(dossier)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    assert_eq!(statut, "admis");
+    sqlx::query("DELETE FROM ent_eleve_scolarite_annee WHERE eleve_id = $1 AND annee_scolaire = '2027-2028'")
+        .bind(c.eleve_tom_id)
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    let v = ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &corps)
+        .await
+        .unwrap();
+    assert_eq!(v.eleve_id, c.eleve_tom_id);
+    assert_eq!(
+        compter(
+            &ent,
+            "SELECT count(*) FROM ent_eleve_scolarite_annee WHERE eleve_id = $1 AND annee_scolaire = '2027-2028' AND statut = 'projetee'",
+            c.eleve_tom_id
+        )
+        .await,
+        1
+    );
+}
+
+/// I1 : la commande d'inscription annuelle est idempotente, bornée et refuse un élève inconnu.
+#[tokio::test]
+async fn i1_port_inscription_annuelle_idempotent_et_borne() {
+    use crate::eleve_ports::*;
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    let actor = c.direction.user_id;
+    let mut tx = ent.pool().begin().await.unwrap();
+    let eleve = creer_eleve_tx(
+        &mut tx,
+        etab,
+        &NouvelEleve {
+            nom: "Port",
+            prenom: "Test",
+            ine: None,
+            sexe: Some("F"),
+            date_naissance: None,
+            regime: None,
+            statut: StatutInitial::Preinscrit,
+        },
+        OrigineFait { source: SourceEleve::Admission, source_ref: None },
+        actor,
+    )
+    .await
+    .unwrap();
+    let ins = |niveau: &'static str, parcours: Option<&'static str>| InscriptionAnnuellePrevue {
+        eleve_id: eleve,
+        annee_scolaire: "2031-2032",
+        niveau: Some(niveau),
+        parcours,
+        regime: Some("externe"),
+        source: SourceInscription::Admission,
+        source_ref: None,
+    };
+    let a = enregistrer_inscription_annuelle_tx(&mut tx, etab, &ins("6EME", None), actor)
+        .await
+        .unwrap();
+    let b = enregistrer_inscription_annuelle_tx(&mut tx, etab, &ins("5EME", Some("Latin")), actor)
+        .await
+        .unwrap();
+    assert_eq!(a, b, "même ligne mise à jour");
+    let (niveau, parcours): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT niveau, parcours FROM ent_eleve_scolarite_annee WHERE id = $1",
+    )
+    .bind(a)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!((niveau.as_deref(), parcours.as_deref()), (Some("5EME"), Some("Latin")));
+    // Bornes.
+    let long: &'static str = Box::leak("x".repeat(200).into_boxed_str());
+    assert!(matches!(
+        enregistrer_inscription_annuelle_tx(&mut tx, etab, &ins("6EME", Some(long)), actor).await,
+        Err(EntDbError::SaisieInvalide(_))
+    ));
+    // Élève inconnu.
+    let mut inconnu = ins("6EME", None);
+    inconnu.eleve_id = Uuid::new_v4();
+    assert!(enregistrer_inscription_annuelle_tx(&mut tx, etab, &inconnu, actor)
+        .await
+        .is_err());
+    // Nom vide refusé par la commande de création.
+    assert!(creer_eleve_tx(
+        &mut tx,
+        etab,
+        &NouvelEleve {
+            nom: " ",
+            prenom: "X",
+            ine: None,
+            sexe: None,
+            date_naissance: None,
+            regime: None,
+            statut: StatutInitial::Preinscrit,
+        },
+        OrigineFait { source: SourceEleve::Import, source_ref: None },
+        actor,
+    )
+    .await
+    .is_err());
+    tx.rollback().await.unwrap();
+}
+
+/// I1 : l'import passe par les commandes ; il ne rattache jamais une ligne à une personne qui a
+/// un compte (le parent existant ne reçoit aucun lien), mais reprend la fratrie d'un même fichier.
+#[tokio::test]
+async fn i1_import_par_les_ports_sans_lien_vers_un_compte_existant() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    classe_courante(&ent, etab, "6H").await;
+    let s = Uuid::new_v4().simple().to_string()[..6].to_string();
+    let (email_parent_connu,): (String,) =
+        sqlx::query_as("SELECT email FROM ent_user WHERE id = $1")
+            .bind(c.parent_lea.user_id)
+            .fetch_one(ent.pool())
+            .await
+            .unwrap();
+    let csv = format!(
+        "nom;prenom;date_naissance;sexe;classe;resp1_nom;resp1_email;resp1_lien\n\
+Granger{s};Hugo;01/04/2014;M;6H;Granger;mere-{s}@exemple.test;mere\n\
+Granger{s};Rose;01/04/2014;F;6H;Granger;mere-{s}@exemple.test;mere\n\
+Intrus{s};Zed;01/04/2014;M;6H;Intrus;{email_parent_connu};pere\n"
+    );
+    let (a, ar) = adm(&c);
+    let lot = ent
+        .previsualiser_import_for_actor(
+            etab,
+            a,
+            ar,
+            &ImportBody { nom_fichier: "i1.csv".into(), contenu: csv },
+        )
+        .await
+        .unwrap();
+    let lot = ent.appliquer_import_for_actor(etab, a, ar, lot.id).await.unwrap();
+    assert_eq!(lot.nb_creees, 3);
+    // Fratrie du même fichier : une personne, un foyer, deux liens payeurs.
+    let (pers, foyers, liens): (i64, i64, i64) = sqlx::query_as(
+        "SELECT count(DISTINCT l.personne_id), count(DISTINCT l.foyer_id), count(*)
+           FROM ent_eleve_lien l JOIN ent_eleve e ON e.id = l.eleve_id
+          WHERE e.etablissement_id = $1 AND e.nom = $2",
+    )
+    .bind(etab)
+    .bind(format!("Granger{s}"))
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((pers, foyers, liens), (1, 1, 2));
+    // Version d'identité : source « import », auteur = l'administratif qui applique le lot.
+    let (src, par): (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT i.source, i.enregistre_par FROM ent_eleve_identite i JOIN ent_eleve e ON e.id = i.eleve_id
+          WHERE e.etablissement_id = $1 AND e.nom = $2 LIMIT 1",
+    )
+    .bind(etab)
+    .bind(format!("Granger{s}"))
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((src.as_str(), par), ("import", Some(a)));
+    // Le parent qui a un compte : AUCUN lien vers lui ; une nouvelle fiche sans compte est créée.
+    let parent_lea = personne_de(&ent, etab, c.parent_lea.user_id).await;
+    let (liens_parent,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_eleve_lien l JOIN ent_eleve e ON e.id = l.eleve_id
+          WHERE e.etablissement_id = $1 AND e.nom = $2 AND l.personne_id = $3",
+    )
+    .bind(etab)
+    .bind(format!("Intrus{s}"))
+    .bind(parent_lea)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(liens_parent, 0, "l'import ne donne aucun accès à un parent existant");
+    let (sans_compte,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_eleve_lien l JOIN ent_eleve e ON e.id = l.eleve_id
+           JOIN ent_personne p ON p.id = l.personne_id
+          WHERE e.etablissement_id = $1 AND e.nom = $2 AND p.user_id IS NULL",
+    )
+    .bind(etab)
+    .bind(format!("Intrus{s}"))
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(sans_compte, 1);
+}
