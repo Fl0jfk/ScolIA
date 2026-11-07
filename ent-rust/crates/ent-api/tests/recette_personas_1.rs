@@ -1101,7 +1101,11 @@ fn rp1_c11_bis_documents_famille_cloisonnes_par_foyer() {
             .await
             .expect("mot de passe de James");
         let jeton_james = s.connecter(&email).await;
-        let lily = s.user("Lily Potter");
+        let (lily,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_user WHERE email = $1")
+            .bind(s.email("Lily Potter"))
+            .fetch_one(&pool)
+            .await
+            .expect("compte de Lily");
         let doc = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_eleve_document (id, etablissement_id, eleve_id, tiroir, titre, confidentialite, source, created_by_user_id)
