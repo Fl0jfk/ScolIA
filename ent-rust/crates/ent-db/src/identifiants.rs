@@ -678,6 +678,16 @@ impl PgEnt {
             None => None,
         };
         tx.commit().await?;
+        // Sans droit de lecture des identifiants, on ne dit pas QUEL autre élève porte la valeur.
+        let mut resultat = resultat;
+        if let Some(r) = resultat.as_mut() {
+            if !self
+                .a_action_etablissement(etab, acteur, role, Action::ElevesIdentifiantsLire)
+                .await?
+            {
+                r.collision_eleve_id = None;
+            }
+        }
         Ok(resultat)
     }
 

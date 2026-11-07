@@ -113,6 +113,11 @@ BEGIN
     IF v_aff IS NOT NULL THEN RETURN v_aff; END IF;
     SELECT a.* INTO v_an FROM ent_annee_scolaire a
     WHERE a.etablissement_id = o.etablissement_id AND a.libelle = o.annee_scolaire;
+    -- Une année pas encore commencée n'est pas reprise (la montée du référentiel y pose ses propres
+    -- affectations : on éviterait un doublon) ; la reprise suivante la verra une fois commencée.
+    IF v_an.id IS NOT NULL AND v_an.date_debut > current_date THEN
+        RETURN NULL;
+    END IF;
     IF v_an.id IS NULL OR btrim(coalesce(o.code, '')) = '' THEN
         INSERT INTO ent_eleve_option_a_traiter (etablissement_id, eleve_id, source, option_id, cause)
         VALUES (o.etablissement_id, o.eleve_id, 'option_annee', o.id,
