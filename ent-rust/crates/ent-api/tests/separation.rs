@@ -1047,7 +1047,8 @@ fn specs_domaine_annuaire_et_vie_scolaire_famille() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
                 STAFF_HORS_PROF) },
             // Un parent doit avoir le drapeau « vie scolaire » (Narcissa, Molly : non).
-            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve], STAFF_HORS_PROF),
+            // RP1-07 : la comptabilité ne lit plus le journal de vie scolaire (ni liée, ni non liée).
+            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Infirmiere, Psy, Parent, Eleve], &[Admin, Direction, Administratif, Cpe, Infirmiere, Psy]),
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("points-vs", "/eleves/{eleve}/points-vs",
                 &[Admin, Direction, Administratif, Cpe, Parent],
                 &[Admin, Direction, Administratif, Cpe]) },

@@ -282,6 +282,10 @@ En local, Rust 1.99.0, PostgreSQL 16 (CI : 18), base vierge, après tous les cor
 - Formatage : `cargo fmt … -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check` et `cargo fmt … -p ent-types --check` : OK ; nouveaux fichiers de test vérifiés par `rustfmt --edition 2021 --check`. Aucun `cargo fmt --all`.
 - Non faits : CI GitHub, `cargo deny` / `audit`, tests du frontend Leptos (frontend non modifié), navigateur.
 
+## 5 ter. Validation des correctifs (branche `ent-recette-1-correctifs`)
+
+PostgreSQL 16 local : `ent-db` (`--features ent-db/labo --lib`) **314 réussis, 0 échec** ; `ent-api` (`--features ent-api/labo`) bibliothèque **97**, `recette_personas_1` **14** (plus aucun `#[ignore]`), `recette_personas_rf16` 1, `referentiel` 4, `separation` **41**, `fichiers_*` 16, `tenant_hote` 8, `span_requete` 1 ; `ent-auth` 33 ; clippy avec et sans labo : 0 erreur ; formatage : OK. Tests existants adaptés (anciens comportements) : matrice `separation.rs` ligne « journal » (la comptabilité n'y a plus accès, RP1-07). Non faits : CI GitHub, `cargo deny` / `audit`, navigateur.
+
 ## 6. Questions pour Florian
 
 - **Q-RP1-1** (RP1-11) : messagerie et parents séparés — un fil ouvert par un responsable reste-t-il privé à ce responsable et au personnel ? Les relances de facture vont-elles aux seuls payeurs du foyer ?
