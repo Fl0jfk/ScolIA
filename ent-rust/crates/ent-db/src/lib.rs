@@ -55,7 +55,7 @@ mod periode_repo;
 mod pg_err;
 #[cfg(test)]
 mod tests_l6;
-#[cfg(test)]
+#[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(test)]
 mod tests_champs_chiffres;
