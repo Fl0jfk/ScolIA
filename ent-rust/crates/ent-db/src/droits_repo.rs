@@ -9,6 +9,7 @@ use std::collections::HashSet;
 
 use chrono::NaiveDate;
 use domain_eleve::{today_utc, DomainError};
+use crate::droits_ctx::accorde;
 use ent_auth::{modele_par_defaut, Action, Portee, Role};
 use serde_json::json;
 use uuid::Uuid;
@@ -113,7 +114,7 @@ impl PgEnt {
             .droits_effectifs(etablissement_id, user_id, role_base)
             .await?
             .iter()
-            .any(|d| d.action == action && d.portee == Portee::Etablissement))
+            .any(|d| accorde(d.action, action) && d.portee == Portee::Etablissement))
     }
 
     /// L'acteur peut-il exercer `action` sur cet élève ? (union des portées)
@@ -131,7 +132,7 @@ impl PgEnt {
         let jour = today_utc();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
-        for d in droits.iter().filter(|d| d.action == action) {
+        for d in droits.iter().filter(|d| accorde(d.action, action)) {
             match d.portee {
                 Portee::Etablissement => return Ok(true),
                 Portee::MesClasses => classes = true,
@@ -179,7 +180,7 @@ impl PgEnt {
         let mut ens: HashSet<Uuid> = HashSet::new();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
-        for d in droits.iter().filter(|d| d.action == action) {
+        for d in droits.iter().filter(|d| accorde(d.action, action)) {
             match d.portee {
                 Portee::Etablissement => return Ok(None),
                 Portee::MesClasses => classes = true,
@@ -198,7 +199,10 @@ impl PgEnt {
                     AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
                     AND (($2 AND a.groupe_id IN (SELECT r.groupe_id FROM ent_groupe_responsable r
                                                   WHERE r.etablissement_id = $1 AND r.user_id = $3))
-                         OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5))",
+                         OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5)
+                         OR EXISTS (SELECT 1 FROM ent_classe c
+                                     WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
+                                       AND (c.site_id = ANY($5) OR c.niveau_id = ANY($5))))",
             )
             .bind(etablissement_id)
             .bind(groupes)
@@ -249,7 +253,10 @@ impl PgEnt {
             "SELECT EXISTS (
                SELECT 1 FROM ent_affectation a
                 WHERE a.etablissement_id = $1 AND a.eleve_id = $3
-                  AND (a.classe_id = ANY($2) OR a.groupe_id = ANY($2))
+                  AND (a.classe_id = ANY($2) OR a.groupe_id = ANY($2)
+                       OR EXISTS (SELECT 1 FROM ent_classe c
+                                   WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
+                                     AND (c.site_id = ANY($2) OR c.niveau_id = ANY($2))))
                   AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4))",
         )
         .bind(etablissement_id)
@@ -690,10 +697,13 @@ impl PgEnt {
                 if cibles.is_empty() || cibles.len() > MAX_CIBLES {
                     return Err(DomainError::ValeurInvalide.into());
                 }
-                // Les cibles doivent être des classes ou groupes de CET établissement.
+                // Les cibles doivent être des classes, groupes, sites ou niveaux de CET
+                // établissement (Q-E9 : un secrétariat de site, un référent de niveau).
                 let (n,): (i64,) = sqlx::query_as(
                     "SELECT (SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = ANY($2))
-                          + (SELECT count(*) FROM ent_groupe WHERE etablissement_id = $1 AND id = ANY($2))",
+                          + (SELECT count(*) FROM ent_groupe WHERE etablissement_id = $1 AND id = ANY($2))
+                          + (SELECT count(*) FROM ent_site WHERE etablissement_id = $1 AND id = ANY($2))
+                          + (SELECT count(*) FROM ent_niveau WHERE etablissement_id = $1 AND id = ANY($2))",
                 )
                 .bind(etablissement_id)
                 .bind(&cibles)

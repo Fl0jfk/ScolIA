@@ -474,19 +474,33 @@ async fn jeton_famille_limite_de_debit_et_roles() {
         return;
     };
     let (eleve_id, persona) = compte;
-    let pool = sqlx::PgPool::connect(&ent_db::url_base_de_test().expect("base"))
+    let ent = ent_db::PgEnt::connect(&ent_db::url_base_de_test().expect("base"))
         .await
         .unwrap();
     let naissance = |annees: i32| {
         format!("{}-01-15", chrono::Datelike::year(&chrono::Utc::now()) - annees)
     };
     for (age, attendu) in [(14, StatusCode::FORBIDDEN), (20, StatusCode::OK)] {
-        sqlx::query("UPDATE ent_eleve SET date_naissance = $2::date WHERE id = $1")
-            .bind(eleve_id)
-            .bind(naissance(age))
-            .execute(&pool)
-            .await
-            .unwrap();
+        // L'identité ne s'écrit plus directement (E2) : correction versionnée.
+        ent.corriger_identite(
+            ent_auth::Role::Administratif.as_str(),
+            ent_db::identite::CorrectionIdentite {
+                etablissement_id: cast.etablissement_id,
+                eleve_id,
+                version_id: None,
+                modif: domain_eleve::ModifIdentite {
+                    date_naissance: Some(chrono::NaiveDate::parse_from_str(&naissance(age), "%Y-%m-%d").ok()),
+                    ..Default::default()
+                },
+                motif_code: "faute_de_frappe".into(),
+                motif: None,
+                piece_document_id: None,
+                source: "saisie".into(),
+                acteur: cast.administratif.user_id,
+            },
+        )
+        .await
+        .unwrap();
         let (st, b) = appel_ip(
             &app,
             "POST",

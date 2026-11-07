@@ -316,6 +316,21 @@ pub struct FicheEleveDto {
     pub contacts: Vec<ContactUrgenceDto>,
     pub actions: Vec<ActionFicheDto>,
     pub alertes: Vec<String>,
+    /// Groupes de champs masqués pour ce lecteur, avec la raison (E1).
+    #[serde(default)]
+    pub masques: Vec<MasqueChampsDto>,
+}
+
+/// Un groupe de champs masqué et pourquoi (jamais de masquage muet).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasqueChampsDto {
+    pub groupe: String,
+    /// `droit_manquant`, `hors_portee` ou `reserve_au_personnel`.
+    pub raison: String,
+    /// Action du catalogue qui ouvrirait le groupe (absente pour une réserve absolue).
+    #[serde(default)]
+    pub action: Option<String>,
+    pub message: String,
 }
 
 /// `GET /dossier/eleves/{id}/chronologie` : une entrée (titre neutre).

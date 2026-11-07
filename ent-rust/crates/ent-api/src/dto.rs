@@ -24,6 +24,9 @@ pub struct EleveDto {
     pub date_entree: Option<NaiveDate>,
     pub date_sortie: Option<NaiveDate>,
     pub motif_sortie: Option<String>,
+    /// Groupes de champs masqués pour ce lecteur, avec la raison (E1). Absent si rien n'est masqué.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub masques: Vec<domain_eleve::MasqueChamps>,
 }
 
 impl From<&Eleve> for EleveDto {
@@ -46,11 +49,23 @@ impl From<&Eleve> for EleveDto {
             date_entree: e.date_entree,
             date_sortie: e.date_sortie,
             motif_sortie: e.motif_sortie.clone(),
+            masques: Vec::new(),
         }
     }
 }
 
 impl EleveDto {
+    /// DTO d'un élève déjà minimisé par groupes (E1) : `redoublant` est `null` si
+    /// la scolarité est masquée, et les masquages sont expliqués.
+    pub fn depuis_vue(v: &ent_db::EleveVue) -> Self {
+        let mut dto = Self::from(&v.eleve);
+        if !v.groupes.ouvert(domain_eleve::GroupeChamps::Scolarite) {
+            dto.redoublant = None;
+        }
+        dto.masques = v.groupes.masques();
+        dto
+    }
+
     /// DTO minimisé selon le niveau d'identité du rôle (même forme JSON).
     pub fn pour(e: &Eleve, niveau: NiveauIdentite) -> Self {
         let mut c = e.clone();

@@ -57,6 +57,37 @@ fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
     (cast.direction.user_id, Role::Direction.as_str())
 }
 
+/// L'identité ne s'écrit plus directement (E2) : la date de naissance se fixe par une
+/// correction versionnée.
+async fn fixer_naissance(
+    ent: &PgEnt,
+    etab: Uuid,
+    acteur: Uuid,
+    role: &str,
+    eleve: Uuid,
+    date: chrono::NaiveDate,
+) {
+    ent.corriger_identite(
+        role,
+        crate::identite::CorrectionIdentite {
+            etablissement_id: etab,
+            eleve_id: eleve,
+            version_id: None,
+            modif: domain_eleve::ModifIdentite {
+                date_naissance: Some(Some(date)),
+                ..Default::default()
+            },
+            motif_code: "faute_de_frappe".into(),
+            motif: None,
+            piece_document_id: None,
+            source: "saisie".into(),
+            acteur,
+        },
+    )
+    .await
+    .unwrap();
+}
+
 /// Reprise : chaque lien existant porte une personne ; une personne par compte et
 /// par établissement ; rejouer les migrations ne crée rien ; le code existant
 /// (`link_parent`) crée la personne au besoin.
@@ -285,24 +316,12 @@ async fn eleve_majeur_payeur_de_sa_scolarite() {
     let etab = cast.etablissement_id;
     let (d, r) = dir(&cast);
     let draco = cast.eleve_tom_id;
-    sqlx::query("UPDATE ent_eleve SET date_naissance = $3 WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(draco)
-        .bind(today_utc() - chrono::Duration::days(365 * 12))
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    fixer_naissance(&ent, etab, d, r, draco, today_utc() - chrono::Duration::days(365 * 12)).await;
     assert!(matches!(
         ent.personne_eleve_majeur_for_actor(etab, d, r, draco).await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    sqlx::query("UPDATE ent_eleve SET date_naissance = $3 WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(draco)
-        .bind(today_utc() - chrono::Duration::days(365 * 19))
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    fixer_naissance(&ent, etab, d, r, draco, today_utc() - chrono::Duration::days(365 * 19)).await;
     let soi = ent.personne_eleve_majeur_for_actor(etab, d, r, draco).await.unwrap();
     let encore = ent.personne_eleve_majeur_for_actor(etab, d, r, draco).await.unwrap();
     assert_eq!(soi.id, encore.id, "une seule fiche par élève");

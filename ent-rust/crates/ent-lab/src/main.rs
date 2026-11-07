@@ -7248,6 +7248,7 @@ async fn explorer_vacances_homonymes_menus(
     let homos = ent
         .rechercher_homonymes_for_actor(
             cast.etablissement_id,
+            cast.administratif.user_id,
             Role::Administratif.as_str(),
             RechercherHomonymes {
                 etablissement_id: cast.etablissement_id,
@@ -7275,6 +7276,7 @@ async fn explorer_vacances_homonymes_menus(
     let refuse_parent = ent
         .rechercher_homonymes_for_actor(
             cast.etablissement_id,
+            cast.parent_lea.user_id,
             Role::Parent.as_str(),
             RechercherHomonymes {
                 etablissement_id: cast.etablissement_id,

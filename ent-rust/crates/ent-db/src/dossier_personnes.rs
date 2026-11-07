@@ -277,6 +277,8 @@ pub struct FicheEleve {
     pub contacts: Vec<ContactUrgence>,
     pub actions: Vec<ActionFiche>,
     pub alertes: Vec<String>,
+    /// Groupes de champs masqués pour ce lecteur, avec la raison (E1).
+    pub masques: Vec<domain_eleve::MasqueChamps>,
 }
 
 /// Entrée de la chronologie de l'élève (titre neutre, jamais de texte libre
@@ -831,7 +833,12 @@ impl PgEnt {
         else {
             return Ok(None);
         };
-        dossier.minimise(PgEnt::niveau_identite(role));
+        // E1 : groupes de champs ouverts pour CE lecteur et CET élève (point unique).
+        let groupes = self
+            .profil_champs(etab, actor, role)
+            .await?
+            .pour(eleve_id);
+        dossier.minimise_groupes(&groupes);
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let (responsables, contacts) = if dossier.sections.famille {
             match self.lecture_famille(etab, actor, role, eleve_id).await? {
@@ -903,6 +910,7 @@ impl PgEnt {
             contacts,
             actions,
             alertes,
+            masques: groupes.masques(),
         }))
     }
 

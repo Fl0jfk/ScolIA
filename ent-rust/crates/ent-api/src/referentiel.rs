@@ -2,7 +2,7 @@
 //!
 //! Droits (autorité : `ent-db`, qui re-vérifie le rôle) : écriture Admin / Direction /
 //! Administratif ; lecture tout le personnel ; parents et élèves : refusé. Les listes
-//! d'élèves passent par la minimisation d'identité (`PgEnt::niveau_identite`).
+//! d'élèves passent par la minimisation d'identité (`PgEnt::profil_champs`, groupes de champs E1).
 //! Une référence d'un autre établissement répond 404, comme une référence inconnue.
 
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ use chrono::NaiveDate;
 use domain_eleve::today_utc;
 use ent_auth::Action;
 use ent_db::{
-    Acteur, Affectation, AnneeScolaire, Classe, ClasseResume, CreerService, Groupe, PgEnt,
+    Acteur, Affectation, AnneeScolaire, Classe, ClasseResume, CreerService, Groupe,
     RapportAmorcage, ServiceEnseignement,
 };
 use ent_types::referentiel::{
@@ -263,7 +263,11 @@ async fn get_classe(
         .await
         .map_err(map_db)?
         .ok_or_else(classe_introuvable)?;
-    let niveau = PgEnt::niveau_identite(&session.role);
+    let profil = state
+        .ent
+        .profil_champs(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
     let eleves = state
         .ent
         .eleves_de_la_classe(session.etablissement_id, id, jour)
@@ -287,8 +291,9 @@ async fn get_classe(
         jour,
         eleves: eleves
             .into_iter()
+            .filter(|e| profil.voit_designation(e.id))
             .map(|mut e| {
-                e.minimise(niveau);
+                e.minimise_groupes(&profil.pour(e.id));
                 EleveClasseDto {
                     id: e.id,
                     nom: e.nom,
