@@ -369,7 +369,7 @@ pub async fn affecter_arrivee_en_cours_d_annee_tx(
         return Ok(false);
     }
     let debut = std::cmp::max(debut_annee, Utc::now().date_naive());
-    sqlx::query(
+    let pose = sqlx::query(
         "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut, source)
          VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (etablissement_id, eleve_id, annee_id)
@@ -385,7 +385,22 @@ pub async fn affecter_arrivee_en_cours_d_annee_tx(
     .execute(&mut *conn)
     .await
     .map_err(db)?;
-    if courante {
+    // Une affectation déjà posée (même classe ou autre) n'est jamais remplacée ici : la fiche
+    // n'est alignée que si l'affectation vient d'être créée (sinon fiche et affectation divergent).
+    let deja_a_cette_classe = pose.rows_affected() == 0
+        && sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM ent_affectation
+                             WHERE etablissement_id = $1 AND eleve_id = $2 AND annee_id = $3
+                               AND classe_id = $4 AND date_fin IS NULL)",
+        )
+        .bind(etab)
+        .bind(eleve_id)
+        .bind(annee_id)
+        .bind(classe_id)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    if courante && (pose.rows_affected() == 1 || deja_a_cette_classe) {
         // Classe courante de l'élève (le déclencheur `classe_id` aligne le texte).
         sqlx::query(
             "UPDATE ent_eleve SET classe_id = $3, status = 'actif', updated_at = now()
