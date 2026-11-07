@@ -745,6 +745,16 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::vie_scolaire::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
+    // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
+    let r = r.merge(crate::edt_s2::routes());
+    // Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
+    let r = r.merge(crate::evaluations::routes());
+    // Communication complète (S2-8, module séparé : `communication_s28.rs`).
+    let r = r.merge(crate::communication_s28::routes());
+    // Finances reliées (socle 2, S2-9 : `finances.rs`).
+    let r = r.merge(crate::finances::routes());
+    // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
+    let r = r.merge(crate::sante::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -9602,7 +9612,7 @@ async fn get_facture(
     }))
 }
 
-fn attachment_response(
+pub(crate) fn attachment_response(
     bytes: Vec<u8>,
     filename: &str,
     content_type: &'static str,
@@ -11753,7 +11763,7 @@ debug_masque!(OidcCompleteBody { } masque { code, state });
 debug_masque!(OidcUpsertBody { slug, issuer } masque { client_id, client_secret });
 
 /// Trace un téléchargement ou un export sensible (journal en ajout seul).
-async fn tracer_acces(
+pub(crate) async fn tracer_acces(
     state: &AppState,
     session: &EntSession,
     domaine: &str,

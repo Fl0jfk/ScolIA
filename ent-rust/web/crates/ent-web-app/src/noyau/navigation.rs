@@ -8,6 +8,14 @@ use super::droits_moteur::DroitsMoteur;
 
 pub const ACCUEIL: &str = "/web";
 pub const EMPLOI_DU_TEMPS: &str = "/web/emploi-du-temps";
+/// EDT de la semaine (personnel, classe, salle, élève) : S2-5.
+pub const EDT_SEMAINE: &str = "/web/edt/semaine";
+/// Absences de personnel et remplacements (`edt.gerer`) : S2-5.
+pub const REMPLACEMENTS: &str = "/web/edt/remplacements";
+/// Changements d'emploi du temps vus par l'élève et sa famille : S2-5.
+pub const CHANGEMENTS_EDT: &str = "/web/changements-edt";
+/// Délégations de droits (« mes délégations » pour le personnel, gestion avec `delegations.gerer`).
+pub const DELEGATIONS: &str = "/web/delegations";
 pub const APPEL: &str = "/web/appel";
 pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
@@ -16,9 +24,19 @@ pub const JOURNEE: &str = "/web/journee";
 pub const REFERENTIEL: &str = "/web/referentiel";
 pub const DISCIPLINE: &str = "/web/discipline";
 pub const SIGNALEMENTS: &str = "/web/signalements";
+/// Infirmerie (S2-11) : tableau du jour ; fiche d'un élève : `/web/infirmerie/eleves/{id}`.
+pub const INFIRMERIE: &str = "/web/infirmerie";
+/// Accompagnement (S2-11) : PAP, PPS, aménagements ; élève : `/web/accompagnement/eleves/{id}`.
+pub const ACCOMPAGNEMENT: &str = "/web/accompagnement";
+/// Aménagements des élèves d'un professeur et contraintes publiées (S2-11).
+pub const AMENAGEMENTS: &str = "/web/amenagements";
+/// Santé de l'enfant côté famille : PAI à signer, passages visibles, aménagements (S2-11).
+pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const CAHIER: &str = "/web/cahier";
 pub const AGENDA: &str = "/web/agenda";
+/// Évaluations, conseils, bulletins (S2-7).
+pub const EVALUATIONS: &str = "/web/evaluations";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
@@ -29,6 +47,14 @@ pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";
 pub const INSCRIPTIONS: &str = "/web/inscriptions";
 pub const REINSCRIPTION: &str = "/web/reinscription";
 pub const PREINSCRIPTION: &str = "/web/preinscription";
+pub const NOTIFICATIONS: &str = "/web/notifications";
+pub const CAMPAGNES: &str = "/web/campagnes";
+pub const RENCONTRES: &str = "/web/rencontres";
+pub const RENDEZ_VOUS: &str = "/web/rendez-vous";
+pub const FORMULAIRES: &str = "/web/formulaires";
+/// Finances (S2-9) : comptabilité (personnel) et factures des payeurs (familles).
+pub const COMPTABILITE: &str = "/web/comptabilite";
+pub const MES_FACTURES: &str = "/web/mes-factures";
 /// Fiche élève 360° : `/web/eleves/{id}` (S2-1).
 pub const ELEVES: &str = "/web/eleves";
 
@@ -52,6 +78,16 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     let mut v = vec![entree("Aujourd'hui", ACCUEIL, NomIcone::Accueil)];
     if droits.emploi_du_temps {
         v.push(entree("Emploi du temps", EMPLOI_DU_TEMPS, NomIcone::Agenda));
+    }
+    if droits.personnel {
+        v.push(entree("EDT de la semaine", EDT_SEMAINE, NomIcone::Agenda));
+    }
+    if droits.portail_famille || droits.mes_absences {
+        v.push(entree(
+            "Changements d'EDT",
+            CHANGEMENTS_EDT,
+            NomIcone::Agenda,
+        ));
     }
     if droits.faire_appel {
         v.push(entree("Appel", APPEL, NomIcone::Appel));
@@ -88,8 +124,48 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if moteur.peut_signaler_assiduite() {
         v.push(entree("Signalements", SIGNALEMENTS, NomIcone::Annonce));
     }
+    // Évaluations : personnel qui lit ou saisit des notes (moteur), familles, élèves.
+    if (droits.personnel && (moteur.a("notes.saisir") || moteur.a("notes.lire")))
+        || droits.portail_famille
+        || droits.mes_absences
+    {
+        v.push(entree("Évaluations", EVALUATIONS, NomIcone::Ecole));
+    }
+    if moteur.peut_lire_sante() {
+        v.push(entree("Infirmerie", INFIRMERIE, NomIcone::Personne));
+    }
+    if moteur.peut_gerer_accompagnement() {
+        v.push(entree("Accompagnement", ACCOMPAGNEMENT, NomIcone::Personne));
+    }
+    if moteur.peut_lire_amenagements() || moteur.peut_lire_contraintes() {
+        v.push(entree("Aménagements", AMENAGEMENTS, NomIcone::Ecole));
+    }
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("Absences", ABSENCES, NomIcone::Personne));
+    }
+    if moteur.peut_gerer_edt() {
+        v.push(entree("Remplacements", REMPLACEMENTS, NomIcone::Personne));
+    }
+    if droits.personnel {
+        v.push(entree("Délégations", DELEGATIONS, NomIcone::Passkey));
+    }
+    // Communication (S2-8) : la famille réserve ses rendez-vous et signe ses formulaires (un
+    // élève majeur signe lui-même) ; l'enseignant voit ses rendez-vous ; le personnel gère
+    // campagnes, rencontres et formulaires selon les droits effectifs du moteur.
+    if droits.portail_famille || droits.mes_classes {
+        v.push(entree("Rendez-vous", RENDEZ_VOUS, NomIcone::Agenda));
+    }
+    if droits.portail_famille || droits.mes_absences || moteur.peut_gerer_formulaires() {
+        v.push(entree("Formulaires", FORMULAIRES, NomIcone::Annonce));
+    }
+    if moteur.peut_lancer_campagne() {
+        v.push(entree("Campagnes", CAMPAGNES, NomIcone::Annonce));
+    }
+    if moteur.peut_gerer_rencontres() {
+        v.push(entree("Rencontres", RENCONTRES, NomIcone::Agenda));
+    }
+    if droits.portail_famille {
+        v.push(entree("Santé", SANTE_ENFANT, NomIcone::Personne));
     }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
@@ -101,7 +177,13 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.portail_famille {
         v.push(entree("Réinscription", REINSCRIPTION, NomIcone::Ecole));
+        v.push(entree("Factures", MES_FACTURES, NomIcone::Annonce));
     }
+    // S2-9 : comptabilité selon le moteur de droits (rôles paramétrés compris).
+    if moteur.peut_lire_facturation() {
+        v.push(entree("Comptabilité", COMPTABILITE, NomIcone::Salle));
+    }
+    // Administration des rôles : toujours en dernier.
     if droits.gerer_roles {
         v.push(entree("Rôles et droits", ROLES, NomIcone::Passkey));
     }
@@ -110,7 +192,10 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
 
 /// Liens du pied de navigation, communs à tous les profils : le compte de la personne.
 pub fn liens_compte() -> Vec<EntreeNav> {
-    vec![entree("Compte", SECURITE, NomIcone::Passkey)]
+    vec![
+        entree("Compte", SECURITE, NomIcone::Passkey),
+        entree("Notifications", NOTIFICATIONS, NomIcone::Annonce),
+    ]
 }
 
 /// Texte du compteur de messages non lus (rien à zéro, « 99+ » au-delà de 99).
@@ -151,9 +236,12 @@ mod tests {
             [
                 ACCUEIL,
                 EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
                 APPEL,
                 CAHIER,
                 MES_CLASSES,
+                DELEGATIONS,
+                RENDEZ_VOUS,
                 MESSAGES
             ]
         );
@@ -166,10 +254,12 @@ mod tests {
             [
                 ACCUEIL,
                 EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
+                DELEGATIONS,
                 MESSAGES,
                 INSCRIPTIONS
             ]
@@ -180,7 +270,7 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, CLASSES],
+            [ACCUEIL, EDT_SEMAINE, CLASSES, DELEGATIONS],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -189,7 +279,19 @@ mod tests {
             .collect();
         assert_eq!(
             parent,
-            [ACCUEIL, AGENDA, ABSENCES, MESSAGES, REINSCRIPTION],
+            [
+                ACCUEIL,
+                CHANGEMENTS_EDT,
+                AGENDA,
+                EVALUATIONS,
+                ABSENCES,
+                RENDEZ_VOUS,
+                FORMULAIRES,
+                SANTE_ENFANT,
+                MESSAGES,
+                REINSCRIPTION,
+                MES_FACTURES
+            ],
             "une famille ne voit pas l'appel"
         );
         let cpe: Vec<String> = entrees(droits_du_role("cpe"))
@@ -201,10 +303,12 @@ mod tests {
             [
                 ACCUEIL,
                 EMPLOI_DU_TEMPS,
+                EDT_SEMAINE,
                 APPEL,
                 CLASSES,
                 VIE_SCOLAIRE,
                 JOURNEE,
+                DELEGATIONS,
                 MESSAGES
             ]
         );
@@ -216,7 +320,16 @@ mod tests {
             .collect();
         assert_eq!(
             eleve,
-            [ACCUEIL, EMPLOI_DU_TEMPS, AGENDA, ABSENCES, MESSAGES]
+            [
+                ACCUEIL,
+                EMPLOI_DU_TEMPS,
+                CHANGEMENTS_EDT,
+                AGENDA,
+                EVALUATIONS,
+                ABSENCES,
+                FORMULAIRES,
+                MESSAGES
+            ]
         );
     }
 
@@ -262,6 +375,32 @@ mod tests {
     }
 
     #[test]
+    fn le_moteur_ouvre_les_remplacements_et_la_semaine_reste_au_personnel() {
+        let edt = DroitsMoteur::new(vec![droit("edt.gerer", "etablissement")]);
+        let v = adresses(droits_du_role("cpe"), &edt);
+        assert!(v.contains(&REMPLACEMENTS.to_string()));
+        // Sans le droit, pas d'entrée (le serveur refuserait de toute façon).
+        let sans = adresses(droits_du_role("cpe"), &DroitsMoteur::default());
+        assert!(!sans.contains(&REMPLACEMENTS.to_string()));
+        // La semaine et les délégations reçues sont ouvertes à tout le personnel.
+        for role in ["prof", "cpe", "administratif", "compta"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(v.contains(&EDT_SEMAINE.to_string()), "{role}");
+            assert!(v.contains(&DELEGATIONS.to_string()), "{role}");
+        }
+        // Famille et élève : changements d'emploi du temps, jamais l'administration.
+        for role in ["parent", "eleve"] {
+            let v = adresses(droits_du_role(role), &edt);
+            assert!(v.contains(&CHANGEMENTS_EDT.to_string()), "{role}");
+            assert!(!v.contains(&DELEGATIONS.to_string()), "{role}");
+            assert!(!v.contains(&EDT_SEMAINE.to_string()), "{role}");
+        }
+        // Les pages restent distinctes pour l'élément de menu actif.
+        assert!(!ent_web_ui::lien_actif(EDT_SEMAINE, REMPLACEMENTS));
+        assert!(!ent_web_ui::lien_actif(EMPLOI_DU_TEMPS, EDT_SEMAINE));
+    }
+
+    #[test]
     fn un_role_parametre_ouvre_la_journee_sans_le_profil() {
         // Un professeur qui reçoit « absences.declarer » voit « Journée » (l'accueil), pas « Vie scolaire ».
         let moteur = DroitsMoteur::new(vec![droit("absences.declarer", "etablissement")]);
@@ -275,9 +414,88 @@ mod tests {
     }
 
     #[test]
+    fn sante_et_accompagnement_selon_les_droits_du_moteur() {
+        let sante = DroitsMoteur::new(vec![droit("sante.lire", "etablissement")]);
+        let v = adresses(droits_du_role("infirmerie"), &sante);
+        assert!(v.contains(&INFIRMERIE.to_string()));
+        assert!(!v.contains(&ACCOMPAGNEMENT.to_string()));
+        let acc = DroitsMoteur::new(vec![droit("accompagnement.gerer", "etablissement")]);
+        assert!(adresses(droits_du_role("direction"), &acc).contains(&ACCOMPAGNEMENT.to_string()));
+        // Professeur : « Aménagements » (ses élèves), ni infirmerie ni accompagnement.
+        let prof = DroitsMoteur::new(vec![
+            droit("amenagements.lire", "mes_classes"),
+            droit("contraintes.lire", "mes_classes"),
+        ]);
+        let v = adresses(droits_du_role("prof"), &prof);
+        assert!(v.contains(&AMENAGEMENTS.to_string()));
+        assert!(!v.contains(&INFIRMERIE.to_string()) && !v.contains(&ACCOMPAGNEMENT.to_string()));
+        // Sans réponse du moteur, aucune de ces entrées n'apparaît.
+        let seul = adresses(droits_du_role("infirmerie"), &DroitsMoteur::default());
+        for absent in [INFIRMERIE, ACCOMPAGNEMENT, AMENAGEMENTS] {
+            assert!(!seul.contains(&absent.to_string()));
+        }
+    }
+
+    #[test]
     fn famille_et_eleve_ne_voient_aucun_ecran_d_administration() {
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
-        assert_eq!(v, [ACCUEIL, AGENDA, ABSENCES, MESSAGES, REINSCRIPTION]);
+        assert_eq!(
+            v,
+            [
+                ACCUEIL,
+                CHANGEMENTS_EDT,
+                AGENDA,
+                EVALUATIONS,
+                ABSENCES,
+                RENDEZ_VOUS,
+                FORMULAIRES,
+                SANTE_ENFANT,
+                MESSAGES,
+                REINSCRIPTION,
+                MES_FACTURES
+            ]
+        );
+        // Un parent ne voit jamais la comptabilité, même si le moteur répondait par erreur.
+        let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    #[test]
+    fn evaluations_selon_les_droits_sur_les_notes() {
+        // Personnel : seulement avec « notes.lire » ou « notes.saisir » (quelle que soit la portée).
+        let sans = adresses(droits_du_role("compta"), &DroitsMoteur::default());
+        assert!(!sans.contains(&EVALUATIONS.to_string()));
+        let prof = DroitsMoteur::new(vec![droit("notes.saisir", "mes_classes")]);
+        assert!(adresses(droits_du_role("prof"), &prof).contains(&EVALUATIONS.to_string()));
+        let eleve = adresses(droits_du_role("eleve"), &DroitsMoteur::default());
+        assert!(eleve.contains(&EVALUATIONS.to_string()));
+    }
+
+    #[test]
+    fn communication_selon_les_droits_effectifs() {
+        let moteur = DroitsMoteur::new(vec![
+            droit("campagnes.lancer", "etablissement"),
+            droit("rencontres.gerer", "etablissement"),
+            droit("formulaires.gerer", "etablissement"),
+        ]);
+        let v = adresses(droits_du_role("direction"), &moteur);
+        for attendu in [CAMPAGNES, RENCONTRES, FORMULAIRES] {
+            assert!(
+                v.contains(&attendu.to_string()),
+                "{attendu} manquant : {v:?}"
+            );
+        }
+        // Sans réponse du moteur, aucune entrée de gestion ; la famille garde les siennes.
+        let seul = adresses(droits_du_role("direction"), &DroitsMoteur::default());
+        for absent in [CAMPAGNES, RENCONTRES, FORMULAIRES] {
+            assert!(!seul.contains(&absent.to_string()));
+        }
+        // Un professeur avec « campagnes.lancer » sur ses classes voit « Campagnes ».
+        let p = DroitsMoteur::new(vec![droit("campagnes.lancer", "designes")]);
+        assert!(adresses(droits_du_role("prof"), &p).contains(&CAMPAGNES.to_string()));
+        // La gestion des rencontres exige la portée établissement.
+        let r = DroitsMoteur::new(vec![droit("rencontres.gerer", "mes_classes")]);
+        assert!(!adresses(droits_du_role("prof"), &r).contains(&RENCONTRES.to_string()));
     }
 
     #[test]
@@ -307,6 +525,18 @@ mod tests {
     }
 
     #[test]
+    fn comptabilite_selon_le_moteur_de_droits() {
+        let lire = DroitsMoteur::new(vec![droit("facturation.lire", "etablissement")]);
+        let v = adresses(droits_du_role("administratif"), &lire);
+        assert!(v.contains(&COMPTABILITE.to_string()));
+        assert!(lire.peut_lire_facturation() && !lire.peut_gerer_facturation());
+        let gerer = DroitsMoteur::new(vec![droit("facturation.gerer", "etablissement")]);
+        assert!(gerer.peut_lire_facturation() && gerer.peut_gerer_facturation());
+        let v = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    #[test]
     fn compteur_de_messages_non_lus() {
         assert_eq!(libelle_compteur(0), None);
         assert_eq!(libelle_compteur(-3), None);
@@ -323,8 +553,12 @@ mod tests {
     #[test]
     fn le_compte_est_accessible_a_tous_les_profils() {
         let liens = liens_compte();
-        assert_eq!(liens.len(), 1);
+        assert_eq!(liens.len(), 2);
         assert_eq!(liens[0].href, SECURITE);
+        assert_eq!(
+            liens[1].href, NOTIFICATIONS,
+            "préférences de notification pour tous"
+        );
         // Le lien « Compte » est actif sur ses sous-pages, pas sur la politique de l'établissement.
         assert!(ent_web_ui::lien_actif(SECURITE, "/web/securite"));
         assert!(!ent_web_ui::lien_actif(SECURITE, POLITIQUE_SECURITE));

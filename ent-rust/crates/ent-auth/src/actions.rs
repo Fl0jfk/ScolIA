@@ -126,6 +126,42 @@ pub enum Action {
     CahierViser,
     /// Produire les exports officiels (LSL, LSU/LSUN, Notanet, Parcoursup, ONDE…) — D-022.
     ExportsOfficiels,
+    /// Annuler en masse des cours (grève, fermeture, sortie de niveau), EDT-08 (S2-5).
+    EdtAnnulerMasse,
+    /// Accorder, révoquer et consulter les délégations de droits datées, ADM-04 (S2-5).
+    DelegationsGerer,
+    // ── S2-7 : évaluations, bulletins, livrets ──────────────────────────────
+    /// Changer le statut (verrou) d'une période de notes, EVA-07.
+    PeriodesVerrouiller,
+    /// Générer et publier les bulletins, appréciation générale de direction, EVA-10.
+    BulletinsPublier,
+    /// Corriger une note après fermeture de la période (motif obligatoire), EVA-14.
+    NotesCorriger,
+    /// Exporter les livrets (LSU, LSL), EVA-12.
+    LivretsExporter,
+    // ── S2-8 : communication complète ───────────────────────────────────────
+    /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
+    CampagnesLancer,
+    /// Organiser les rencontres parents-professeurs et leurs créneaux (AGD-02).
+    RencontresGerer,
+    /// Créer et publier des formulaires, autorisations et consentements (FRM-01/03).
+    FormulairesGerer,
+    /// Consulter qui consent, pour un objet précis (FRM-04).
+    ConsentementsLire,
+    /// Régler les plafonds d'envoi et consulter la traçabilité des envois (PLT-05).
+    NotificationsGerer,
+    /// Ouvrir, réviser et clore les dispositifs d'accompagnement (PAP, PPS, PPRE, ULIS),
+    /// définir les aménagements, affecter un AESH, réunir l'équipe (S2-11, ACC-01→05).
+    AccompagnementGerer,
+    /// Lire les aménagements pédagogiques d'un élève (sans diagnostic) : professeurs
+    /// de l'élève et personnel de suivi (S2-11, ACC-02).
+    AmenagementsLire,
+    /// Lire les contraintes publiées sans donnée médicale (« ne pas courir »…) destinées
+    /// aux enseignants (S2-11, SAN-06).
+    ContraintesLire,
+    /// Lire la fiche d'urgence minimale (contacts, contraintes publiées) d'un élève
+    /// pour une sortie ou un séjour (S2-11, SEJ-08).
+    SanteUrgenceLire,
 }
 
 /// Sur quoi une action s'applique.
@@ -142,7 +178,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 54] = [
+    pub const TOUTES: [Action; 69] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -199,6 +235,22 @@ impl Action {
         Action::CahierEcrire,
         Action::CahierViser,
         Action::ExportsOfficiels,
+        Action::EdtAnnulerMasse,
+        Action::DelegationsGerer,
+        // S2-7
+        Action::PeriodesVerrouiller,
+        Action::BulletinsPublier,
+        Action::NotesCorriger,
+        Action::LivretsExporter,
+        Action::CampagnesLancer,
+        Action::RencontresGerer,
+        Action::FormulairesGerer,
+        Action::ConsentementsLire,
+        Action::NotificationsGerer,
+        Action::AccompagnementGerer,
+        Action::AmenagementsLire,
+        Action::ContraintesLire,
+        Action::SanteUrgenceLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -258,6 +310,21 @@ impl Action {
             Self::CahierEcrire => "cahier.ecrire",
             Self::CahierViser => "cahier.viser",
             Self::ExportsOfficiels => "exports.officiels",
+            Self::EdtAnnulerMasse => "edt.annuler_masse",
+            Self::DelegationsGerer => "delegations.gerer",
+            Self::PeriodesVerrouiller => "periodes.verrouiller",
+            Self::BulletinsPublier => "bulletins.publier",
+            Self::NotesCorriger => "notes.corriger",
+            Self::LivretsExporter => "livrets.exporter",
+            Self::CampagnesLancer => "campagnes.lancer",
+            Self::RencontresGerer => "rencontres.gerer",
+            Self::FormulairesGerer => "formulaires.gerer",
+            Self::ConsentementsLire => "consentements.lire",
+            Self::NotificationsGerer => "notifications.gerer",
+            Self::AccompagnementGerer => "accompagnement.gerer",
+            Self::AmenagementsLire => "amenagements.lire",
+            Self::ContraintesLire => "contraintes.lire",
+            Self::SanteUrgenceLire => "sante.urgence_lire",
         }
     }
 
@@ -318,6 +385,23 @@ impl Action {
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
             Self::ExportsOfficiels => "Produire les exports officiels (LSL, LSU, Notanet, Parcoursup, ONDE)",
+            Self::EdtAnnulerMasse => "Annuler en masse des cours (grève, fermeture, sortie de niveau)",
+            Self::DelegationsGerer => "Déléguer des droits pour une durée limitée",
+            Self::PeriodesVerrouiller => "Ouvrir, verrouiller ou fermer une période de notes",
+            Self::BulletinsPublier => "Générer et publier les bulletins",
+            Self::NotesCorriger => "Corriger une note après fermeture de la période",
+            Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
+            Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
+            Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
+            Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
+            Self::ConsentementsLire => "Consulter les consentements (objet par objet)",
+            Self::NotificationsGerer => "Régler les plafonds d'envoi et suivre les envois",
+            Self::AccompagnementGerer => {
+                "Gérer l'accompagnement : PAP, PPS, aménagements, AESH, équipe éducative"
+            }
+            Self::AmenagementsLire => "Lire les aménagements pédagogiques d'un élève (sans diagnostic)",
+            Self::ContraintesLire => "Lire les contraintes publiées pour les enseignants (sans donnée médicale)",
+            Self::SanteUrgenceLire => "Lire la fiche d'urgence minimale d'un élève (sortie, séjour)",
         }
     }
 
@@ -343,6 +427,10 @@ impl Action {
             | Self::ReferentielLire
             | Self::ReferentielGerer
             | Self::CahierViser
+            | Self::RencontresGerer
+            | Self::FormulairesGerer
+            | Self::ConsentementsLire
+            | Self::NotificationsGerer
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -365,11 +453,18 @@ impl Action {
             Self::PersonnesGerer
             | Self::PayeursDefinir
             | Self::LiensSuspendre
-            | Self::PersonnesFusionner => &[Portee::Etablissement],
+            | Self::PersonnesFusionner
+            | Self::EdtAnnulerMasse
+            | Self::DelegationsGerer => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
             }
+            // S2-7 : actions de direction sur toute une période ou toute une classe.
+            Self::PeriodesVerrouiller
+            | Self::BulletinsPublier
+            | Self::NotesCorriger
+            | Self::LivretsExporter => &[Portee::Etablissement],
             _ => &[
                 Portee::Etablissement,
                 Portee::MesClasses,
@@ -461,6 +556,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
             MessagerieEleve,
             SuiviEleve,
             PunitionsDonner,
+            // S2-11 : aménagements et contraintes publiées des élèves qu'il enseigne ;
+            // fiche d'urgence minimale pour une sortie de sa classe.
+            AmenagementsLire,
+            ContraintesLire,
+            SanteUrgenceLire,
         ] {
             d.push((a, Portee::MesClasses));
         }
@@ -519,6 +619,34 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(RolesGerer));
         d.push(etab(SecuritePolitique));
+    }
+    // S2-11 : accompagnement (direction), aménagements et contraintes publiées
+    // (personnel de suivi), fiche d'urgence minimale (encadrement des sorties).
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AccompagnementGerer));
+    }
+    if matches!(
+        role,
+        Role::Admin
+            | Role::Direction
+            | Role::Administratif
+            | Role::Cpe
+            | Role::Infirmerie
+            | Role::Psy
+    ) {
+        d.push(etab(AmenagementsLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie
+    ) {
+        d.push(etab(ContraintesLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie
+    ) {
+        d.push(etab(SanteUrgenceLire));
     }
     // ── R2 : domaines sensibles (miroir exact des `can_*` historiques) ──
     if role.can_saisir_infirmerie() {
@@ -586,6 +714,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(LiensSuspendre));
         d.push(etab(PersonnesFusionner));
+        // S2-5 : annulation en masse et délégations (EDT-08 ★, ADM-04) : direction.
+        d.push(etab(EdtAnnulerMasse));
+        d.push(etab(DelegationsGerer));
     }
     // S2-3 : inscriptions (gestion des élèves) ; décision et validation ★ :
     // direction (un rôle paramétré peut l'accorder au secrétariat, D-017).
@@ -600,6 +731,27 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(InscriptionsDecider));
+    }
+    // S2-7 : verrou des périodes, bulletins et corrections après fermeture à la
+    // direction ; exports de livrets aussi au secrétariat (administratif).
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PeriodesVerrouiller));
+        d.push(etab(BulletinsPublier));
+        d.push(etab(NotesCorriger));
+    }
+    if direction_admin {
+        d.push(etab(LivretsExporter));
+    }
+    // S2-8 : communication. Campagnes, rencontres, plafonds : direction (COM-05 DIR★,
+    // AGD-02 DIR). Formulaires et consentements : direction, administratif, CPE.
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(CampagnesLancer));
+        d.push(etab(RencontresGerer));
+        d.push(etab(NotificationsGerer));
+    }
+    if direction_admin || role == Role::Cpe {
+        d.push(etab(FormulairesGerer));
+        d.push(etab(ConsentementsLire));
     }
     d
 }

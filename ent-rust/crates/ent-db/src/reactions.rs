@@ -18,6 +18,7 @@
 //! Ce consommateur est rejouable (aucun envoi externe) ; le canal mail/SMS/push
 //! viendra comme consommateur séparé, non rejouable.
 
+use crate::notifications::{notifier_personne, EnvoiAPlanifier};
 use crate::outbox::{Consommateur, EvenementDistribue, FutureTraitement};
 use ent_events::types;
 use chrono::{DateTime, Utc};
@@ -34,6 +35,8 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
     types::ELEVE_ABSENCE_JUSTIFIED,
     types::ELEVE_ABSENCE_REFUSED,
     types::RETARD_DECLARE,
+    // S2-11 : information de la famille après un passage à l'infirmerie.
+    "infirmerie.famille_informee",
 ];
 
 /// Consommateurs installés par défaut dans le distributeur de l'ENT.
@@ -42,6 +45,8 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(ConsommateurNotifications),
         Arc::new(ConsommateurRelanceAppel),
         Arc::new(crate::cahier_reactions::ConsommateurCahier),
+        Arc::new(crate::edt_reactions::ConsommateurNotificationsEdt),
+        Arc::new(ConsommateurEvaluations),
     ]
 }
 
@@ -49,6 +54,9 @@ struct Message {
     kind: &'static str,
     titre: String,
     corps: String,
+    /// Les décisions et retards se regroupent en résumé quotidien ; une absence
+    /// constatée part tout de suite.
+    regroupable: bool,
 }
 
 fn jour_fr(iso: Option<&str>) -> String {
@@ -76,6 +84,7 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
             let jour = jour_fr(p.get("debut").and_then(|v| v.as_str()));
             Some(Message {
                 kind: "absence_constatee",
+                regroupable: false,
                 titre: format!("Absence de {prenom}"),
                 corps: format!(
                     "{prenom} a été noté(e) absent(e) à l'appel le {jour}. \
@@ -85,11 +94,13 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
         }
         types::ELEVE_ABSENCE_JUSTIFIED => Some(Message {
             kind: "absence_justifiee",
+            regroupable: true,
             titre: format!("Absence de {prenom} justifiée"),
             corps: format!("Le justificatif d'absence de {prenom} a été accepté."),
         }),
         types::ELEVE_ABSENCE_REFUSED => Some(Message {
             kind: "absence_refusee",
+            regroupable: true,
             titre: format!("Justificatif de {prenom} refusé"),
             corps: format!(
                 "Le justificatif d'absence de {prenom} n'a pas été accepté. \
@@ -100,8 +111,22 @@ fn message_pour(evt: &EvenementDistribue, prenom: &str) -> Option<Message> {
             let jour = jour_fr(p.get("jour").and_then(|v| v.as_str()));
             Some(Message {
                 kind: "retard",
+                regroupable: true,
                 titre: format!("Retard de {prenom}"),
                 corps: format!("{prenom} a été noté(e) en retard le {jour}."),
+            })
+        }
+        // Aucun détail médical : ni motif, ni soins, ni issue (SAN-03).
+        "infirmerie.famille_informee" => {
+            let jour = jour_fr(p.get("jour").and_then(|v| v.as_str()));
+            Some(Message {
+                kind: "infirmerie_passage",
+                regroupable: false,
+                titre: format!("Passage de {prenom} à l'infirmerie"),
+                corps: format!(
+                    "{prenom} s'est présenté(e) à l'infirmerie le {jour}. \
+                     Pour en savoir plus, contactez l'infirmerie ou la vie scolaire."
+                ),
             })
         }
         _ => None,
@@ -138,33 +163,41 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
         JOIN ent_membership m
           ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
         WHERE l.etablissement_id = $1 AND l.eleve_id = $2
-          AND l.peut_voir_vs AND m.role = 'parent'
+          AND (l.peut_voir_vs OR $3) AND m.role = 'parent'
         "#,
     )
     .bind(etab)
     .bind(eleve_id)
+    // Information de santé : tous les responsables au lien actif, indépendamment
+    // du droit « vie scolaire » (la famille doit savoir, sans détail).
+    .bind(evt.event().type_name == "infirmerie.famille_informee")
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
     for (user_id,) in destinataires {
-        sqlx::query(
-            r#"
-            INSERT INTO ent_notification (
-                id, etablissement_id, destinataire_user_id, eleve_id,
-                kind, titre, corps, source_event_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-            ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
-            "#,
+        // Dans l'ENT (idempotent) puis envois e-mail / SMS / push planifiés selon les
+        // préférences de la personne (S2-8). Les envois sont expédiés plus tard, hors
+        // de cette transaction : ce consommateur reste rejouable.
+        notifier_personne(
+            &mut *tx,
+            EnvoiAPlanifier {
+                etablissement_id: etab,
+                user_id,
+                kind: m.kind,
+                titre: &m.titre,
+                corps: &m.corps,
+                eleve_id: Some(eleve_id),
+                notification_id: None,
+                source_type: "evenement",
+                source_id: evt.event().id,
+                cle_dedup: format!("evt:{}:{}", evt.event().id, m.kind),
+                droit_requis: Some("peut_voir_vs"),
+                regroupable: m.regroupable,
+                canaux_voulus: &["email", "sms", "push"],
+            },
+            evt.event().id,
+            Utc::now(),
         )
-        .bind(Uuid::new_v4())
-        .bind(etab)
-        .bind(user_id)
-        .bind(eleve_id)
-        .bind(m.kind)
-        .bind(&m.titre)
-        .bind(&m.corps)
-        .bind(evt.event().id)
-        .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
     }
@@ -306,5 +339,207 @@ impl Consommateur for ConsommateurRelanceAppel {
         evt: &'a EvenementDistribue,
     ) -> FutureTraitement<'a> {
         Box::pin(notifier_relance(tx, evt))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Évaluations (S2-7) : évaluation publiée, bulletin publié → familles et élève.
+// ---------------------------------------------------------------------------
+
+pub const CONSOMMATEUR_EVALUATIONS: &str = "d6.evaluations";
+
+pub struct ConsommateurEvaluations;
+
+const TYPES_EVALUATIONS: &[&str] = &["evaluation.publiee", types::NOTE_BULLETIN_PUBLIE];
+
+/// Destinataires d'un élève relus au traitement : responsables au lien ACTIF avec
+/// `peut_voir_notes` (compte parent membre) et le compte de l'élève lui-même.
+async fn destinataires_notes(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+) -> Result<Vec<Uuid>, String> {
+    let rows: Vec<(Uuid,)> = sqlx::query_as(
+        r#"
+        SELECT DISTINCT l.user_id
+          FROM ent_eleve_lien_actif l
+          JOIN ent_membership m ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
+         WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.peut_voir_notes AND m.role = 'parent'
+        UNION
+        SELECT c.user_id
+          FROM ent_eleve_compte c
+          JOIN ent_membership m ON m.user_id = c.user_id AND m.etablissement_id = c.etablissement_id
+         WHERE c.etablissement_id = $1 AND c.eleve_id = $2 AND m.role = 'eleve'
+        "#,
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows.into_iter().map(|(u,)| u).collect())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn inserer_notification(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    user: Uuid,
+    eleve: Uuid,
+    kind: &str,
+    titre: &str,
+    corps: &str,
+    source: Uuid,
+) -> Result<(), String> {
+    sqlx::query(
+        r#"
+        INSERT INTO ent_notification (
+            id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(user)
+    .bind(eleve)
+    .bind(kind)
+    .bind(titre)
+    .bind(corps)
+    .bind(source)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Aucune note ni appréciation recopiée : la famille consulte le portail (droits relus).
+async fn notifier_evaluations(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
+    let etab = evt.etablissement_id();
+    let e = evt.event();
+    match e.type_name.as_str() {
+        types::NOTE_BULLETIN_PUBLIE => {
+            let Some(eleve_id) = e.eleve_id else {
+                return Ok(());
+            };
+            let Some(bulletin_id) = e
+                .payload
+                .get("bulletin_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| Uuid::parse_str(s).ok())
+            else {
+                return Ok(());
+            };
+            // Relu dans l'établissement de l'événement : bulletin publié de CET élève.
+            let row: Option<(String, String)> = sqlx::query_as(
+                r#"
+                SELECT el.prenom, p.libelle
+                  FROM ent_bulletin b
+                  JOIN ent_eleve el ON el.id = b.eleve_id AND el.etablissement_id = b.etablissement_id
+                  JOIN ent_note_periode p ON p.id = b.periode_id AND p.etablissement_id = b.etablissement_id
+                 WHERE b.etablissement_id = $1 AND b.id = $2 AND b.eleve_id = $3 AND b.statut = 'publie'
+                "#,
+            )
+            .bind(etab)
+            .bind(bulletin_id)
+            .bind(eleve_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((prenom, periode)) = row else {
+                return Ok(());
+            };
+            for user in destinataires_notes(tx, etab, eleve_id).await? {
+                inserer_notification(
+                    tx,
+                    etab,
+                    user,
+                    eleve_id,
+                    "bulletin_publie",
+                    &format!("Bulletin de {prenom} disponible"),
+                    &format!("Le bulletin « {periode} » de {prenom} est disponible dans l'espace évaluations."),
+                    e.id,
+                )
+                .await?;
+            }
+        }
+        "evaluation.publiee" => {
+            let row: Option<(String, String)> = sqlx::query_as(
+                r#"
+                SELECT d.titre, m.libelle
+                  FROM ent_devoir d
+                  JOIN ent_matiere m ON m.id = d.matiere_id AND m.etablissement_id = d.etablissement_id
+                 WHERE d.etablissement_id = $1 AND d.id = $2 AND d.publie_le IS NOT NULL
+                "#,
+            )
+            .bind(etab)
+            .bind(e.aggregate_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((titre, matiere)) = row else {
+                return Ok(());
+            };
+            let eleves: Vec<(Uuid, String)> = sqlx::query_as(
+                r#"
+                SELECT DISTINCT n.eleve_id, el.prenom
+                  FROM ent_note n
+                  JOIN ent_eleve el ON el.id = n.eleve_id AND el.etablissement_id = n.etablissement_id
+                 WHERE n.etablissement_id = $1 AND n.devoir_id = $2
+                 ORDER BY el.prenom
+                "#,
+            )
+            .bind(etab)
+            .bind(e.aggregate_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            // Une notification par destinataire (frères et sœurs regroupés).
+            let mut par_user: Vec<(Uuid, Uuid, Vec<String>)> = Vec::new();
+            for (eleve_id, prenom) in eleves {
+                for user in destinataires_notes(tx, etab, eleve_id).await? {
+                    match par_user.iter_mut().find(|(u, _, _)| *u == user) {
+                        Some((_, _, p)) => p.push(prenom.clone()),
+                        None => par_user.push((user, eleve_id, vec![prenom.clone()])),
+                    }
+                }
+            }
+            for (user, eleve_id, prenoms) in par_user {
+                inserer_notification(
+                    tx,
+                    etab,
+                    user,
+                    eleve_id,
+                    "evaluation_publiee",
+                    &format!("Nouvelle note en {matiere}"),
+                    &format!(
+                        "Les résultats de « {titre} » ({matiere}) sont disponibles pour {}.",
+                        prenoms.join(", ")
+                    ),
+                    e.id,
+                )
+                .await?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+impl Consommateur for ConsommateurEvaluations {
+    fn nom(&self) -> &'static str {
+        CONSOMMATEUR_EVALUATIONS
+    }
+
+    fn types(&self) -> &'static [&'static str] {
+        TYPES_EVALUATIONS
+    }
+
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
+        Box::pin(notifier_evaluations(tx, evt))
     }
 }

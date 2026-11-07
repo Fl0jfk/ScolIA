@@ -16,12 +16,17 @@
 pub mod appel;
 pub mod auth;
 pub mod cahier;
+pub mod communication;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;
+pub mod edt_s2;
+pub mod evaluations;
+pub mod finances;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;
+pub mod sante;
 pub mod vie_scolaire;
 
 #[cfg(test)]

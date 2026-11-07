@@ -13,5 +13,6 @@ pub mod non_lus;
 pub mod portee;
 pub mod reconnexion;
 pub mod session;
+pub mod telechargement;
 pub mod temps;
 pub mod webauthn;

@@ -314,6 +314,30 @@ fn specs_domaine_sante() -> Vec<Spec> {
             lire("pai", "/eleves/{eleve}/pai", SANTE_LIEE, SANTE_NON_LIEE),
             lire("infirmerie", "/infirmerie/passages?eleve_id={eleve}", SANTE_LIEE, SANTE_NON_LIEE),
             ecrire_sur_b("fiche-sante-B", "PUT", "/eleves/{eleve}/fiche-sante", Some(r#"{"allergies":"separation"}"#)),
+            // Lot S2-11 : PAI complet, passages, fiche d'urgence, contraintes, accompagnement.
+            lire("pai-complet", "/eleves/{eleve}/pai-complet", SANTE_LIEE, SANTE_NON_LIEE),
+            lire("passages-sante", "/sante/passages?eleve_id={eleve}", SANTE_LIEE, SANTE_NON_LIEE),
+            lire("fiche-urgence", "/eleves/{eleve}/fiche-urgence",
+                &[Admin, Direction, Administratif, Cpe, Infirmiere, Prof], &[Admin, Direction, Administratif, Cpe, Infirmiere]),
+            lire("contraintes-enseignants", "/eleves/{eleve}/contraintes?audience=enseignants",
+                &[Admin, Direction, Administratif, Cpe, Infirmiere, Prof], &[Admin, Direction, Administratif, Cpe, Infirmiere]),
+            lire("amenagements", "/eleves/{eleve}/amenagements",
+                &[Admin, Direction, Administratif, Cpe, Infirmiere, Psy, Prof, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif, Cpe, Infirmiere, Psy]),
+            lire("accompagnement", "/eleves/{eleve}/accompagnement", SANTE_NON_LIEE, SANTE_NON_LIEE),
+            ecrire_sur_b("pai-complet-B", "PUT", "/eleves/{eleve}/pai-complet",
+                Some(r#"{"motif":"separation","mesures_accueil":"separation","date_debut":"{jour}"}"#)),
+            ecrire_sur_b("signature-pai-B", "POST", "/eleves/{eleve}/pai/signatures",
+                Some(r#"{"partie":"famille"}"#)),
+            ecrire_sur_b("contrainte-B", "POST", "/eleves/{eleve}/contraintes",
+                Some(r#"{"code":"ne_pas_courir","audiences":["enseignants"]}"#)),
+            ecrire_sur_b("passage-sante-B", "POST", "/sante/passages",
+                Some(r#"{"eleve_id":"{eleve}","jour":"{jour}","motif":"soins","note_soins":"separation"}"#)),
+            ecrire_sur_b("dispositif-B", "POST", "/eleves/{eleve}/dispositifs", Some(r#"{"kind":"pap"}"#)),
+            ecrire_sur_b("amenagement-B", "POST", "/eleves/{eleve}/amenagements",
+                Some(r#"{"code":"tiers_temps","portee":"cours"}"#)),
+            ecrire_sur_b("aesh-B", "POST", "/eleves/{eleve}/aesh",
+                Some(r#"{"aesh_nom":"separation","date_debut":"{jour}"}"#)),
     ]
 }
 
@@ -403,6 +427,25 @@ fn domaine_appel() {
     jouer("appel", &specs_domaine_appel());
 }
 
+fn specs_domaine_edt() -> Vec<Spec> {
+    vec![
+            // S2-5 : l'emploi du temps d'un élève et ses changements ne sortent que pour le
+            // personnel, l'élève lui-même et ses responsables au lien actif.
+            lire("edt-changements", "/eleves/{eleve}/edt/changements?du={jour}&au={jour}", TOUS, STAFF),
+            lire("edt-semaine-eleve", "/edt/semaine?cible=eleve&id={eleve}&jour={jour}", TOUS, STAFF),
+            // Administration : gestion de l'EDT seulement (edt.gerer), jamais les familles ni le prof.
+            lire("edt-conflits", "/edt/admin/conflits", GESTION_HORS_PROF, &[]),
+            lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),
+            ecrire_sur_b("edt-remplacement-B", "POST", "/edt/remplacements",
+                Some(r#"{"creneau_id":"{appel}","jour":"{jour}","remplacant_user_id":"{eleve}","absence_rh_id":null,"nouvelle_salle":null}"#)),
+    ]
+}
+
+#[test]
+fn domaine_edt() {
+    jouer("emploi du temps, remplacements, délégations", &specs_domaine_edt());
+}
+
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",
@@ -453,6 +496,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
+    // Préinscription (S2-3, D-014) : e-mail vérifié par code, invitation par jeton.
+    ("POST", "/preinscription/demarrer"),
+    ("POST", "/preinscription/verifier"),
+    ("POST", "/inscriptions/invitations/accepter"),
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];

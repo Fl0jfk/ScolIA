@@ -20,15 +20,20 @@ mod appel;
 mod auth;
 mod cahier;
 mod communication;
+mod communication_s28;
 mod discipline_vs;
 mod dossier;
 mod droits_moteur;
 mod edt;
+mod edt_s2;
+mod evaluations;
+mod finances;
 mod inscriptions;
 mod journee_vs;
 mod referentiel;
 mod referentiel_admin;
 mod roles;
+mod sante;
 mod securite;
 mod vie_scolaire;
 
@@ -38,6 +43,18 @@ pub use communication::{
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
 pub use droits_moteur::DroitEffectif;
+pub use edt_s2::{
+    chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
+};
+pub use ent_types::sante::{
+    AeshDto, AffecterAeshBody, AmenagementDto, AmenagementsEleveDto, CatalogueSanteDto,
+    CloturePassageBody, ContraintePublieeDto, ContraintesEleveDto, DefinirAmenagementBody,
+    DispositifARevoirDto, DispositifDto, DossierAccompagnementDto, EnregistrerPaiBody,
+    EnregistrerProtocoleBody, EntreeCatalogueDto, FicheUrgenceDto, NouveauPassageBody,
+    OuvrirDispositifBody, PaiARevoirDto, PaiBaseDto, PaiCompletDto, PassageSanteDto,
+    PersonneUrgenceDto, PlanifierReunionBody, ProtocoleSanteDto, PublierContrainteBody,
+    ReunionEquipeDto, ReviserDispositifBody, SignaturePaiDto, SignerPaiBody,
+};
 pub use roles::{
     ActionCatalogue, CatalogueRoles, ConfirmationRecuperation, DroitApi, PersonnelApi,
     PorteeCatalogue, RoleApi, SaisieRole,
@@ -65,6 +82,8 @@ pub use ent_types::dossier::{
     PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
+/// Types des finances (S2-9), partagés avec `ent-api`.
+pub use ent_types::finances as types_finances;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.
 pub use ent_types::inscriptions as types_inscriptions;
 pub use ent_types::referentiel::{

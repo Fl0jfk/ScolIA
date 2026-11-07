@@ -67,6 +67,75 @@ impl DroitsMoteur {
     pub fn peut_signaler_assiduite(&self) -> bool {
         self.a("assiduite.signaler")
     }
+
+    /// Créneaux, remplacements, annulations et déplacements de séances (`edt.gerer`).
+    pub fn peut_gerer_edt(&self) -> bool {
+        self.a("edt.gerer")
+    }
+
+    /// Annuler en masse les cours d'une période (grève, fermeture) : `edt.annuler_masse`.
+    pub fn peut_annuler_masse(&self) -> bool {
+        self.a("edt.annuler_masse")
+    }
+
+    /// Accorder et révoquer des délégations de droits (`delegations.gerer`).
+    pub fn peut_gerer_delegations(&self) -> bool {
+        self.a("delegations.gerer")
+    }
+
+    /// Préparer et lancer des campagnes (quelle que soit la portée : le serveur borne le ciblage).
+    pub fn peut_lancer_campagne(&self) -> bool {
+        self.a("campagnes.lancer")
+    }
+
+    /// Organiser les rencontres parents-professeurs (portée établissement).
+    pub fn peut_gerer_rencontres(&self) -> bool {
+        self.a_etablissement("rencontres.gerer")
+    }
+
+    /// Créer des formulaires ou lire les consentements d'un objet.
+    pub fn peut_gerer_formulaires(&self) -> bool {
+        self.a_etablissement("formulaires.gerer") || self.a_etablissement("consentements.lire")
+    }
+
+    /// Consulter la comptabilité (la gestion implique la lecture, comme côté serveur).
+    pub fn peut_lire_facturation(&self) -> bool {
+        self.a_etablissement("facturation.lire") || self.a_etablissement("facturation.gerer")
+    }
+
+    /// Générer, émettre, prélever, relancer, exporter (S2-9).
+    pub fn peut_gerer_facturation(&self) -> bool {
+        self.a_etablissement("facturation.gerer")
+    }
+
+    /// Infirmerie : lire les passages, le PAI et la fiche d'urgence complète (S2-11).
+    pub fn peut_lire_sante(&self) -> bool {
+        self.a("sante.lire")
+    }
+
+    /// Infirmerie : saisir passages, PAI, contraintes publiées, protocoles.
+    pub fn peut_saisir_sante(&self) -> bool {
+        self.a("sante.saisir")
+    }
+
+    /// Ouvrir et suivre les dispositifs d'accompagnement (PAP, PPS…), définir les aménagements.
+    pub fn peut_gerer_accompagnement(&self) -> bool {
+        self.a("accompagnement.gerer")
+    }
+
+    /// Lire les aménagements des élèves dont on a la charge (sans diagnostic).
+    pub fn peut_lire_amenagements(&self) -> bool {
+        self.a("amenagements.lire")
+    }
+
+    /// Lire les contraintes publiées destinées aux enseignants, à la restauration ou aux sorties.
+    pub fn peut_lire_contraintes(&self) -> bool {
+        self.a("contraintes.lire")
+            || self.a_etablissement("repas.gerer")
+            || self.a_etablissement("repas.scanner")
+            || self.a_etablissement("sorties.gerer")
+            || self.a_etablissement("sorties.controler")
+    }
 }
 
 #[cfg(test)]
@@ -88,6 +157,50 @@ mod tests {
         assert!(!d.peut_verifier_appels() && !d.peut_declarer_absence());
         assert!(!d.peut_donner_punition() && !d.peut_gerer_discipline());
         assert!(!d.peut_signaler_assiduite());
+        assert!(!d.peut_gerer_edt() && !d.peut_annuler_masse() && !d.peut_gerer_delegations());
+        assert!(!d.peut_lire_sante() && !d.peut_saisir_sante());
+        assert!(!d.peut_gerer_accompagnement() && !d.peut_lire_amenagements());
+        assert!(!d.peut_lire_contraintes());
+    }
+
+    #[test]
+    fn droits_de_l_emploi_du_temps_et_des_delegations() {
+        // Un secrétariat gère l'emploi du temps sans pouvoir annuler en masse ni déléguer.
+        let d = DroitsMoteur::new(vec![droit("edt.gerer", "etablissement")]);
+        assert!(d.peut_gerer_edt() && !d.peut_annuler_masse() && !d.peut_gerer_delegations());
+        let direction = DroitsMoteur::new(vec![
+            droit("edt.gerer", "etablissement"),
+            droit("edt.annuler_masse", "etablissement"),
+            droit("delegations.gerer", "etablissement"),
+        ]);
+        assert!(
+            direction.peut_gerer_edt()
+                && direction.peut_annuler_masse()
+                && direction.peut_gerer_delegations()
+        );
+    }
+
+    #[test]
+    fn sante_et_accompagnement_selon_les_actions() {
+        let infirmiere = DroitsMoteur::new(vec![
+            droit("sante.lire", "etablissement"),
+            droit("sante.saisir", "etablissement"),
+        ]);
+        assert!(infirmiere.peut_lire_sante() && infirmiere.peut_saisir_sante());
+        assert!(!infirmiere.peut_gerer_accompagnement());
+        // Un professeur : aménagements et contraintes de ses élèves seulement.
+        let prof = DroitsMoteur::new(vec![
+            droit("amenagements.lire", "mes_classes"),
+            droit("contraintes.lire", "mes_classes"),
+        ]);
+        assert!(prof.peut_lire_amenagements() && prof.peut_lire_contraintes());
+        assert!(!prof.peut_lire_sante());
+        // La restauration lit les contraintes sans voir la santé.
+        let cantine = DroitsMoteur::new(vec![droit("repas.gerer", "etablissement")]);
+        assert!(cantine.peut_lire_contraintes() && !cantine.peut_lire_sante());
+        // « repas.gerer » limité à des classes ne suffit pas (le catalogue n'admet que l'établissement).
+        let limite = DroitsMoteur::new(vec![droit("repas.gerer", "mes_classes")]);
+        assert!(!limite.peut_lire_contraintes());
     }
 
     #[test]

@@ -58,6 +58,31 @@ async fn run_api() {
         });
     tracing::info!("ent-api listening on http://{bind} (local only)");
 
+    // Socle 2 (S2-8) : SMS en mode réel (OVH, D-004) fail-closed hors labo — une
+    // configuration absente ou invalide refuse le démarrage au lieu de retomber
+    // silencieusement en mode simulé.
+    let non_prod = std::env::var("ENT_ENV")
+        .ok()
+        .map(|e| e.trim().to_ascii_lowercase())
+        .is_some_and(|v| ent_auth::ENVS_NON_PROD.contains(&v.as_str()));
+    match ent_sms::SmsService::from_env_strict(non_prod) {
+        Err(e) => {
+            eprintln!("ent-api : {e}");
+            std::process::exit(1);
+        }
+        Ok(sms) => {
+            if let Some(e) = sms.erreur_config() {
+                tracing::warn!(erreur = %e, "configuration SMS OVH invalide : SMS simulés");
+            }
+            tracing::info!(
+                fournisseur = sms.fournisseur(),
+                reel = sms.is_live(),
+                "SMS : {}",
+                if sms.is_live() { "envoi réel" } else { "mode simulé" }
+            );
+        }
+    }
+
     // Socle 2 (S2-0) : distribution de l'outbox (réactions entre domaines) en
     // tâche de fond. Désactivable (`ENT_OUTBOX_DISTRIBUTEUR=0`) pour un
     // déploiement où un processus dédié s'en charge.
@@ -72,7 +97,7 @@ async fn run_api() {
 
     // Inscriptions (I0) : expédition des messages mis en file par les réactions, hors de
     // toute transaction métier (reprise et échecs tracés en base).
-    let expediteur = distributeur_actif().then(|| {
+    let expediteur_inscriptions = distributeur_actif().then(|| {
         let ent = state.ent.clone();
         tokio::spawn(async move {
             loop {
@@ -82,6 +107,47 @@ async fn run_api() {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
         })
+    });
+    // S2-5 (ADM-04) : balayage des délégations échues (enregistre l'expiration et publie
+    // `delegation.expiree` une fois). Les droits, eux, s'éteignent par la date seule.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = ent.delegations_balayer(domain_eleve::today_utc()).await {
+                    tracing::warn!("balayage des délégations : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            }
+        });
+    }
+    // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
+    // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
+    let expediteur = notifications_actives().then(|| {
+        let x = std::sync::Arc::new(
+            state
+                .ent
+                .expediteur(ent_db::notifications::ConfigExpedition::default()),
+        );
+        let rappels = {
+            let ent = state.ent.clone();
+            tokio::spawn(async move {
+                loop {
+                    if let Err(e) = ent
+                        .emettre_rappels_rdv(
+                            chrono::Utc::now(),
+                            chrono::Duration::hours(24),
+                            None,
+                        )
+                        .await
+                    {
+                        tracing::warn!(error = %e, "rappels de rendez-vous en échec");
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+                }
+            })
+        };
+        (x.clone(), x.lancer(), rappels)
     });
 
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
@@ -93,14 +159,30 @@ async fn run_api() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
-    if let Some(t) = expediteur {
+    if let Some(t) = expediteur_inscriptions {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {
         d.arreter();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(10), tache).await;
     }
+    if let Some((x, tache, rappels)) = expediteur {
+        x.arreter();
+        rappels.abort();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), tache).await;
+    }
     tracing::info!("ent-api arrêté proprement");
+}
+
+fn notifications_actives() -> bool {
+    !matches!(
+        std::env::var("ENT_NOTIFICATIONS_EXPEDITEUR")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "non" | "off"
+    )
 }
 
 fn distributeur_actif() -> bool {

@@ -37,6 +37,7 @@ chrono = { workspace = true }
 domain-eleve = { path = "../domain-eleve" }
 ent-auth = { path = "../ent-auth" }
 ent-db = { path = "../ent-db" }
+ent-sms = { path = "../ent-sms" }
 ent-obs = { path = "../ent-obs" }
 ent-types = { path = "../ent-types" }
 serde = { workspace = true }

@@ -519,6 +519,7 @@ dependencies = [
  "ent-db",
  "ent-obs",
  "ent-oidc",
+ "ent-sms",
  "ent-types",
  "http-body-util",
  "serde",
@@ -684,6 +685,8 @@ dependencies = [
 name = "ent-sms"
 version = "0.1.0"
 dependencies = [
+ "reqwest",
+ "sha1",
  "thiserror 2.0.21",
  "tokio",
 ]

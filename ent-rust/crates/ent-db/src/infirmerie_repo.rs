@@ -4,7 +4,7 @@ use domain_eleve::{
 };
 use crate::champs_chiffres::ChampsSensibles;
 use crate::tenant_tx::TenantTx;
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
 pub struct PgInfirmerieRepo {
@@ -13,6 +13,8 @@ pub struct PgInfirmerieRepo {
 }
 
 const T_FICHE: &str = "ent_fiche_sante";
+const T_PAI: &str = "ent_pai";
+const T_PASSAGE: &str = "ent_infirmerie_passage";
 
 /// Valeurs chiffrées d'une fiche santé (AAD = table + colonne + id de la ligne).
 struct FicheScellee {
@@ -30,6 +32,11 @@ impl PgInfirmerieRepo {
             pool,
             champs: ChampsSensibles::depuis_env(),
         }
+    }
+
+    /// Coffre des champs sensibles (partagé avec le module santé / accompagnement).
+    pub(crate) fn champs(&self) -> &ChampsSensibles {
+        &self.champs
     }
 
     /// Remplace le coffre des champs sensibles (tests).
@@ -53,6 +60,8 @@ impl PgInfirmerieRepo {
 
     pub async fn insert(&self, p: &PassageInfirmerie) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
+        // D3 : la note de soins est chiffrée (AAD = table + colonne + id de la ligne).
+        let note_scellee = self.champs.sceller(T_PASSAGE, "note_soins", p.id, &p.note_soins)?;
         sqlx::query(
             r#"
             INSERT INTO ent_infirmerie_passage (
@@ -66,7 +75,7 @@ impl PgInfirmerieRepo {
         .bind(p.eleve_id)
         .bind(p.jour)
         .bind(p.motif.as_str())
-        .bind(&p.note_soins)
+        .bind(&note_scellee)
         .bind(p.visible_famille)
         .bind(p.created_by_user_id)
         .bind(p.created_at)
@@ -101,7 +110,10 @@ impl PgInfirmerieRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(PassageRow::into_passage).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.into_passage(&self.champs).transpose())
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub async fn list_jour(
@@ -128,7 +140,10 @@ impl PgInfirmerieRepo {
         .await
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(rows.into_iter().filter_map(PassageRow::into_passage).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|r| r.into_passage(&self.champs).transpose())
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub async fn upsert_fiche(&self, f: &FicheSante) -> Result<FicheSante, DomainError> {
@@ -240,16 +255,44 @@ impl PgInfirmerieRepo {
         row.map(|r| r.into_fiche(&self.champs)).transpose()
     }
 
-    pub async fn upsert_pai(&self, p: &Pai) -> Result<Pai, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
+    /// Écriture du PAI dans la transaction de l'appelant (S2-11). `extras` : champs
+    /// du PAI complet ; `None` conserve ceux déjà en base (valeurs par défaut à la
+    /// création). La version est incrémentée à chaque écriture : les signatures des
+    /// versions précédentes ne valent plus. Les textes sont chiffrés (D3, AAD = id
+    /// réel de la ligne).
+    pub(crate) async fn upsert_pai_tx(
+        &self,
+        conn: &mut PgConnection,
+        p: &Pai,
+        extras: Option<&crate::sante_acc::ExtrasPai>,
+    ) -> Result<Pai, DomainError> {
+        let existant: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_pai WHERE etablissement_id = $1 AND eleve_id = $2",
+        )
+        .bind(p.etablissement_id)
+        .bind(p.eleve_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(map_sqlx)?;
+        let id_ligne = existant.map(|(i,)| i).unwrap_or(p.id);
+        let defaut;
+        let ex = match extras {
+            Some(e) => e,
+            None => {
+                defaut = crate::sante_acc::ExtrasPai::par_defaut(p.date_debut);
+                &defaut
+            }
+        };
+        let sc = self.sceller_pai(id_ligne, p)?;
         let row = sqlx::query_as::<_, PaiRow>(
             r#"
             INSERT INTO ent_pai (
                 id, etablissement_id, eleve_id, motif, mesures_accueil, protocole_urgence,
                 note_interne, date_debut, date_fin, actif,
                 signe_famille_at, signe_famille_user_id,
-                updated_by_user_id, updated_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                updated_by_user_id, updated_at,
+                date_revision, trousse_urgence, trousse_lieu, trousse_peremption
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
             ON CONFLICT (etablissement_id, eleve_id) DO UPDATE SET
                 id = ent_pai.id,
                 motif = EXCLUDED.motif,
@@ -262,20 +305,25 @@ impl PgInfirmerieRepo {
                 signe_famille_at = EXCLUDED.signe_famille_at,
                 signe_famille_user_id = EXCLUDED.signe_famille_user_id,
                 updated_by_user_id = EXCLUDED.updated_by_user_id,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                version = ent_pai.version + 1,
+                date_revision = CASE WHEN $19 THEN EXCLUDED.date_revision ELSE ent_pai.date_revision END,
+                trousse_urgence = CASE WHEN $19 THEN EXCLUDED.trousse_urgence ELSE ent_pai.trousse_urgence END,
+                trousse_lieu = CASE WHEN $19 THEN EXCLUDED.trousse_lieu ELSE ent_pai.trousse_lieu END,
+                trousse_peremption = CASE WHEN $19 THEN EXCLUDED.trousse_peremption ELSE ent_pai.trousse_peremption END
             RETURNING id, etablissement_id, eleve_id, motif, mesures_accueil, protocole_urgence,
                       note_interne, date_debut, date_fin, actif,
                       signe_famille_at, signe_famille_user_id,
                       updated_by_user_id, updated_at
             "#,
         )
-        .bind(p.id)
+        .bind(id_ligne)
         .bind(p.etablissement_id)
         .bind(p.eleve_id)
-        .bind(&p.motif)
-        .bind(&p.mesures_accueil)
-        .bind(&p.protocole_urgence)
-        .bind(&p.note_interne)
+        .bind(&sc.0)
+        .bind(&sc.1)
+        .bind(&sc.2)
+        .bind(&sc.3)
         .bind(p.date_debut)
         .bind(p.date_fin)
         .bind(p.actif)
@@ -283,39 +331,45 @@ impl PgInfirmerieRepo {
         .bind(p.signe_famille_user_id)
         .bind(p.updated_by_user_id)
         .bind(p.updated_at)
-        .fetch_one(&mut *tx)
+        .bind(ex.date_revision)
+        .bind(ex.trousse_urgence)
+        .bind(&ex.trousse_lieu)
+        .bind(ex.trousse_peremption)
+        .bind(extras.is_some())
+        .fetch_one(&mut *conn)
         .await
         .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.into_pai())
+        if row.id != id_ligne {
+            // Course : la ligne a été créée entre-temps sous un autre id ; on rechiffre
+            // avec l'id réellement stocké pour qu'elle reste lisible.
+            let sc = self.sceller_pai(row.id, p)?;
+            sqlx::query(
+                r#"UPDATE ent_pai SET motif = $2, mesures_accueil = $3, protocole_urgence = $4,
+                       note_interne = $5
+                   WHERE id = $1 AND etablissement_id = $6"#,
+            )
+            .bind(row.id)
+            .bind(&sc.0)
+            .bind(&sc.1)
+            .bind(&sc.2)
+            .bind(&sc.3)
+            .bind(row.etablissement_id)
+            .execute(&mut *conn)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(Pai { id: row.id, ..p.clone() });
+        }
+        row.into_pai(&self.champs)
     }
 
-    pub async fn update_pai_signature(&self, p: &Pai) -> Result<Pai, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
-        let row = sqlx::query_as::<_, PaiRow>(
-            r#"
-            UPDATE ent_pai SET
-                signe_famille_at = $3,
-                signe_famille_user_id = $4,
-                updated_at = $5
-            WHERE etablissement_id = $1 AND eleve_id = $2
-            RETURNING id, etablissement_id, eleve_id, motif, mesures_accueil, protocole_urgence,
-                      note_interne, date_debut, date_fin, actif,
-                      signe_famille_at, signe_famille_user_id,
-                      updated_by_user_id, updated_at
-            "#,
-        )
-        .bind(p.etablissement_id)
-        .bind(p.eleve_id)
-        .bind(p.signe_famille_at)
-        .bind(p.signe_famille_user_id)
-        .bind(Utc::now())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(map_sqlx)?
-        .ok_or(DomainError::NotFound)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.into_pai())
+    fn sceller_pai(&self, id: Uuid, p: &Pai) -> Result<(String, String, String, String), DomainError> {
+        let c = &self.champs;
+        Ok((
+            c.sceller(T_PAI, "motif", id, &p.motif)?,
+            c.sceller(T_PAI, "mesures_accueil", id, &p.mesures_accueil)?,
+            c.sceller(T_PAI, "protocole_urgence", id, &p.protocole_urgence)?,
+            c.sceller(T_PAI, "note_interne", id, &p.note_interne)?,
+        ))
     }
 
     pub async fn get_pai(
@@ -324,6 +378,17 @@ impl PgInfirmerieRepo {
         eleve_id: Uuid,
     ) -> Result<Option<Pai>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let pai = self.get_pai_tx(&mut tx, etablissement_id, eleve_id).await?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(pai)
+    }
+
+    pub(crate) async fn get_pai_tx(
+        &self,
+        conn: &mut PgConnection,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Option<Pai>, DomainError> {
         let row = sqlx::query_as::<_, PaiRow>(
             r#"
             SELECT id, etablissement_id, eleve_id, motif, mesures_accueil, protocole_urgence,
@@ -336,11 +401,10 @@ impl PgInfirmerieRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut *conn)
         .await
         .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.map(PaiRow::into_pai))
+        row.map(|r| r.into_pai(&self.champs)).transpose()
     }
 
     pub async fn insert_pai_piece(&self, piece: &PaiPiece) -> Result<(), DomainError> {
@@ -473,15 +537,15 @@ struct PaiRow {
 }
 
 impl PaiRow {
-    fn into_pai(self) -> Pai {
-        Pai {
+    fn into_pai(self, c: &ChampsSensibles) -> Result<Pai, DomainError> {
+        Ok(Pai {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
-            motif: self.motif,
-            mesures_accueil: self.mesures_accueil,
-            protocole_urgence: self.protocole_urgence,
-            note_interne: self.note_interne,
+            motif: c.ouvrir(T_PAI, "motif", self.id, &self.motif)?,
+            mesures_accueil: c.ouvrir(T_PAI, "mesures_accueil", self.id, &self.mesures_accueil)?,
+            protocole_urgence: c.ouvrir(T_PAI, "protocole_urgence", self.id, &self.protocole_urgence)?,
+            note_interne: c.ouvrir(T_PAI, "note_interne", self.id, &self.note_interne)?,
             date_debut: self.date_debut,
             date_fin: self.date_fin,
             actif: self.actif,
@@ -489,7 +553,7 @@ impl PaiRow {
             signe_famille_user_id: self.signe_famille_user_id,
             updated_by_user_id: self.updated_by_user_id,
             updated_at: self.updated_at,
-        }
+        })
     }
 }
 
@@ -542,19 +606,21 @@ struct PassageRow {
 }
 
 impl PassageRow {
-    fn into_passage(self) -> Option<PassageInfirmerie> {
-        let motif = PassageInfirmerieMotif::parse(&self.motif)?;
-        Some(PassageInfirmerie {
+    fn into_passage(self, c: &ChampsSensibles) -> Result<Option<PassageInfirmerie>, DomainError> {
+        let Some(motif) = PassageInfirmerieMotif::parse(&self.motif) else {
+            return Ok(None);
+        };
+        Ok(Some(PassageInfirmerie {
             id: self.id,
             etablissement_id: self.etablissement_id,
             eleve_id: self.eleve_id,
             jour: self.jour,
             motif,
-            note_soins: self.note_soins,
+            note_soins: c.ouvrir(T_PASSAGE, "note_soins", self.id, &self.note_soins)?,
             visible_famille: self.visible_famille,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
-        })
+        }))
     }
 }
 

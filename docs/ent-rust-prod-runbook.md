@@ -71,6 +71,13 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `ENT_CORS_ORIGINS` | *(vide)* | Liste d'origines (virgules) ou `*`. Vide → same-origin uniquement. |
 | `RUST_LOG` | `info` | Filtre de logs (`tracing_subscriber`). |
 | `ENT_OBJECT_DIR` / `ENT_OBJECT_S3_HTTP` / `ENT_MAIL_LIVE` / `ENT_SMS_LIVE` / `ENT_PUSH_LIVE` / `ENT_BANK_LIVE` | *(dry-run)* | Sorties live optionnelles (S3 / SMTP / SMS / push / banque). |
+| `ENT_SMS_LIVE` | *(vide = simulé)* | `1` → envoi **réel** des SMS par OVH (D-004). Sans lui, les SMS sont simulés (journal `ent_sms_outbox`, statut `simule` côté notifications). **Fail-closed** : hors `ENT_ENV` lab/labo/dev/local/test, `ENT_SMS_LIVE=1` sans configuration OVH complète et valide **refuse le démarrage** (jamais de repli silencieux en mode simulé). `ENT_SMS_DRY_RUN=1` force le mode simulé. |
+| `ENT_SMS_OVH_ENDPOINT` | `ovh-eu` | Point d'accès de l'API OVH : `ovh-eu`, `ovh-ca` ou `ovh-us` (liste fermée, pas d'URL libre). |
+| `ENT_SMS_OVH_APPLICATION_KEY` / `ENT_SMS_OVH_APPLICATION_SECRET` / `ENT_SMS_OVH_CONSUMER_KEY` | — | Clés de l'application OVH (créée sur `api.ovh.com/createApp`) et clé de consommateur avec les droits `POST /sms/{service}/jobs` seulement. **Secrets : coffre, jamais en dépôt ni dans le frontend.** Les requêtes sont signées (`X-Ovh-Signature`, SHA-1 de la spécification OVH) ; l'horloge est calée sur `GET /auth/time`. |
+| `ENT_SMS_OVH_SERVICE` | — | Nom du compte SMS OVH (`sms-xx12345-1`) ; lettres, chiffres, `-` et `_` seulement. |
+| `ENT_SMS_OVH_SENDER` | — | Expéditeur alphanumérique validé chez OVH (11 caractères au plus). |
+| `ENT_SMS_OVH_NO_STOP_CLAUSE` | `1` | `0` → OVH ajoute la mention « STOP » (messages à caractère publicitaire). Les messages de l'ENT sont des messages de service. |
+| `ENT_NOTIFICATIONS_EXPEDITEUR` | *(actif)* | `0` → n'expédie pas les e-mails, SMS et push planifiés par ce processus (un processus dédié doit alors s'en charger) ni les rappels de rendez-vous. |
 | `ENT_OBJECT_SIGNING_KEY` | *(vide)* | Secret HMAC (≥ 32 octets, aléatoire) des liens courts de fichiers (`GET /fichiers/{jeton}`). **Obligatoire en prod** : sans lui, les routes `…/lien` répondent 503 (fail-closed). En `ENT_ENV` lab/labo/dev/local/test, une clé éphémère est générée. |
 | `ENT_OBJECT_LINK_TTL_SECS` | `60` | Durée de vie d'un lien court (plafond 900). |
 | `ENT_OBJECT_PUBLIC_BASE_URL` | *(vide)* | Préfixe absolu des liens locaux (ex. `https://ent.exemple.fr`) ; vide → URL relative `/fichiers/…`. |
@@ -99,6 +106,13 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 | `CONFIRM_RESTORE` | *(vide)* | `oui` → exécute la restauration destructive (`scripts/restauration-postgres.sh`). |
 
 ---
+
+## Notifications, SMS OVH et plafonds (S2-8)
+
+- **Chaîne** : fait métier → notification dans l'ENT → envois planifiés par canal (`ent_notification_envoi`) selon les préférences de la personne → expéditeur (tâche de fond d'`ent-api`). E-mail, SMS et push sont **simulés** tant que leur mode live n'est pas activé ; l'envoi simulé est tracé (`simule`).
+- **SMS** : désactivé par défaut pour chaque personne (consentement explicite). Plafonds par établissement (table `ent_notification_plafond`, défauts : 200 SMS/jour, 3 SMS/personne/jour, 300 SMS/campagne, 5 campagnes/jour), modifiables par `notifications.gerer` (`PUT /notifications/plafonds`). Un SMS est « au plus une fois » : un envoi resté `envoi` plus de 15 minutes (arrêt brutal) passe en `echec` / `interrompu` et **n'est jamais renvoyé automatiquement**.
+- **Mise en service OVH** : créer l'application et la clé de consommateur limitée à `POST /sms/{service}/jobs`, valider l'expéditeur chez OVH, poser les variables ci-dessus dans le coffre, puis `ENT_SMS_LIVE=1`. **Aucun appel réel vers OVH n'a été fait pendant le développement** : faire un premier envoi à un numéro de test avant tout envoi en masse et vérifier le crédit.
+- **Surveillance** : `SELECT canal, statut, count(*) FROM ent_notification_envoi GROUP BY 1, 2` ; motifs d'envoi non parti dans `motif` (`plafond_personne`, `plafond_etablissement`, `droit_retire`, `sans_telephone`, `canal_non_configure`, `interrompu`).
 
 ## Santé & supervision
 

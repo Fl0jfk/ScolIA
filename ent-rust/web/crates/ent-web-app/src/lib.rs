@@ -71,6 +71,10 @@ pub fn App() -> impl IntoView {
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
+                    <Route path=path!("edt/semaine") view=modules::edt_semaine::PageSemaineEdt/>
+                    <Route path=path!("edt/remplacements") view=modules::remplacements::PageRemplacements/>
+                    <Route path=path!("changements-edt") view=modules::changements_edt::PageChangementsEdt/>
+                    <Route path=path!("delegations") view=modules::delegations::PageDelegations/>
                     <Route path=path!("appel") view=modules::appel::PageAppel/>
                     <Route path=path!("classes") view=modules::classes::PageClasses/>
                     <Route path=path!("classes/:id") view=modules::classes::PageClasse/>
@@ -78,18 +82,38 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
                     <Route path=path!("journee") view=modules::journee_vs::PageJourneeVs/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
+                    <Route path=path!("accompagnement") view=modules::accompagnement::PageAccompagnement/>
+                    <Route path=path!("accompagnement/eleves/:id") view=modules::accompagnement::PageAccompagnementEleve/>
+                    <Route path=path!("amenagements") view=modules::amenagements::PageAmenagements/>
+                    <Route path=path!("sante-enfant") view=modules::sante_famille::PageSanteEnfant/>
+                    <Route path=path!("infirmerie") view=modules::infirmerie::PageInfirmerie/>
+                    <Route path=path!("infirmerie/eleves/:id") view=modules::infirmerie::PageInfirmerieEleve/>
+                    <Route path=path!("infirmerie/eleves/:id/urgence") view=modules::infirmerie::PageFicheUrgence/>
                     <Route path=path!("eleves/:id") view=modules::dossier::PageFicheEleve/>
                     <Route path=path!("inscriptions") view=modules::inscriptions::PageInscriptions/>
                     <Route path=path!("reinscription") view=modules::inscriptions::PageReinscription/>
                     <Route path=path!("cahier") view=modules::cahier::PageCahier/>
                     <Route path=path!("cahier/travaux/:id") view=modules::cahier::PageCopies/>
                     <Route path=path!("agenda") view=modules::cahier::PageAgenda/>
+                    <Route path=path!("comptabilite") view=modules::finances::PageComptabilite/>
+                    <Route path=path!("mes-factures") view=modules::finances::PageFinancesFamille/>
                     <Route path=path!("messages") view=modules::messagerie::PageMessages/>
                     <Route path=path!("messages/nouveau") view=modules::messagerie::PageNouveauMessage/>
                     <Route path=path!("messages/:id") view=modules::messagerie::PageConversation/>
                     <Route path=path!("securite") view=modules::securite::PageSecurite/>
+                    <Route path=path!("notifications") view=modules::notifications::PagePreferencesNotification/>
+                    <Route path=path!("campagnes") view=modules::campagnes::PageCampagnes/>
+                    <Route path=path!("rencontres") view=modules::rendez_vous::PageRencontres/>
+                    <Route path=path!("rendez-vous") view=modules::rendez_vous::PageRendezVous/>
+                    <Route path=path!("formulaires") view=modules::formulaires::PageFormulaires/>
                     <Route path=path!("discipline") view=modules::discipline_vs::PageDiscipline/>
                     <Route path=path!("signalements") view=modules::discipline_vs::PageSignalements/>
+                    <Route path=path!("evaluations") view=modules::evaluations::PageEvaluations/>
+                    <Route path=path!("evaluations/grille") view=modules::evaluations::PageGrille/>
+                    <Route path=path!("evaluations/classes/:id") view=modules::evaluations::PageVueClasse/>
+                    <Route path=path!("evaluations/conseils/:id") view=modules::evaluations::PageConseil/>
+                    <Route path=path!("evaluations/bulletins") view=modules::evaluations::PageBulletins/>
+                    <Route path=path!("evaluations/eleves/:id") view=modules::evaluations::PageEvaluationsEleve/>
                     <Route path=path!("referentiel") view=modules::referentiel_admin::PageReferentiel/>
                     <Route path=path!("referentiel/annees") view=modules::referentiel_admin::PageAnnees/>
                     <Route path=path!("referentiel/structure") view=modules::referentiel_admin::PageStructure/>

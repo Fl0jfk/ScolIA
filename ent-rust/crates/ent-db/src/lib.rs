@@ -5,8 +5,21 @@
 
 mod absence_repo;
 mod assiduite;
+pub mod sante_acc;
+pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
+/// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
+pub mod evaluations;
+mod evaluations_bulletin;
+mod evaluations_conseil;
+pub mod module_sante;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations;
+pub mod campagnes;
+pub mod formulaires;
+pub mod notifications;
+pub mod rencontres;
 mod champs_chiffres;
 mod annonce_repo;
 mod appel_repo;
@@ -42,6 +55,8 @@ mod periode_repo;
 mod pg_err;
 #[cfg(test)]
 mod tests_l6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_communication;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -63,6 +78,11 @@ mod ref_commun;
 mod referentiel_structure;
 mod referentiel_annee;
 mod referentiel_seances;
+pub mod edt_admin;
+pub mod edt_remplacement;
+mod edt_masse;
+pub mod delegation;
+mod edt_reactions;
 mod referentiel_classe_id;
 mod referentiel_groupes;
 mod retard_repo;
@@ -77,6 +97,12 @@ pub mod dossier_personnes;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
 pub mod imports;
+// Finances reliées (socle 2, lot S2-9).
+pub mod finances;
+pub mod finances_calcul;
+pub mod finances_reactions;
+pub mod finances_sepa;
+pub mod paiement_en_ligne;
 mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
@@ -142,6 +168,8 @@ pub use copilote::{
     analyser, format_eur, Intention, ReponseCopilote, CAPACITES, COPILOTE_JOURS_DEFAUT,
 };
 pub use foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, UpdateLien};
+// S2-7 : commandes utiles aux tests contre le backend (frontend).
+pub use domain_eleve::{CreateEleve, CreerNotePeriode};
 pub use mail_repo::MailOutboxRow;
 pub use iban_histo_repo::IbanHisto;
 /// D2 : contrôle des fichiers déposés (réexport d'`ent-object`).
@@ -167,6 +195,19 @@ pub use referentiel_structure::{
     code_niveau_de_texte, grille_standard, verifier_couverture, CreneauGrille, CreneauGrilleSaisie,
     JourCalendrier, Mef, MefImport, Niveau, Periode as PeriodeRef, PeriodeSaisie, RapportImportMef, Site,
     NIVEAUX_NATIONAUX,
+};
+pub use edt_admin::{
+    detecter_conflits, tous_les_conflits, CibleEdt, ConflitEdt, CreneauAdmin, CreneauConflit,
+    CreneauSaisie, Indisponibilite, JourFerme, NatureConflit, ResultatCreneau, SeanceSemaine,
+    SemaineEdt,
+};
+pub use edt_remplacement::{
+    AbsenceSeances, AbsenceVue, Candidat, ChangementEdt, ClasseTouchee, CmdAnnulationMasse,
+    CmdDeplacement, CmdRemplacement, RapportMasse, ResultatException, SeanceTouchee,
+    DROITS_REMPLACEMENT,
+};
+pub use delegation::{
+    droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
 };
 pub use dossier_personnes::{
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
@@ -206,6 +247,8 @@ mod scenarios;
 mod tests_referentiel;
 #[cfg(all(test, feature = "labo"))]
 mod tests_referentiel_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_s2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
@@ -230,6 +273,10 @@ mod tests_vie_scolaire;
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
+#[cfg(all(test, feature = "labo"))]
+mod tests_finances;
+#[cfg(all(test, feature = "labo"))]
+mod tests_sante;
 
 #[cfg(test)]
 mod integration_tests {

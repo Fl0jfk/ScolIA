@@ -131,8 +131,8 @@ use domain_eleve::{
     detect_conflits_edt, grille_edt_defaut, parse_edt_import_csv, parse_edt_pronote_csv,
     solve_edt_greedy_soft, EdtContrainteSoft, EdtDemande, EdtImportLigne, EdtImportParseError,
     EdtImportReport, EdtSolveReport,
-    plan_attacher_ordonnance_pai, plan_resume_fiche_sante, plan_signer_pai_famille,
-    plan_upsert_dossier_psy, plan_upsert_fiche_sante, plan_upsert_pai,
+    plan_attacher_ordonnance_pai, plan_resume_fiche_sante,
+    plan_upsert_dossier_psy, plan_upsert_fiche_sante,
     render_courrier_orientation_pdf, render_resume_fiche_sante_pdf, semaine_ab_au_jour,
     vue_dossier_famille, vue_entretien_psy_famille, vue_fiche_sante_famille, vue_pai_famille,
     vue_passage_infirmerie_famille, vue_rdv_famille, AttacherOrdonnancePai,
@@ -1042,6 +1042,10 @@ impl PgEnt {
             self.mail_dry_run_accepte,
         ) {
             d.enregistrer(c).expect("consommateurs d'inscription aux noms uniques");
+        }
+        // S2-9 : facturation par événements (inscription, régime, sortie, absence).
+        for c in crate::finances_reactions::consommateurs_finances() {
+            d.enregistrer(c).expect("consommateur de facturation au nom unique");
         }
         d
     }
@@ -5780,6 +5784,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.foyers.link_parent(cmd).await?)
     }
 
+    pub(crate) fn infirmerie_repo(&self) -> &PgInfirmerieRepo {
+        &self.infirmerie
+    }
+
     pub async fn lien_parent_eleve(
         &self,
         etablissement_id: Uuid,
@@ -6919,6 +6927,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get_devoir(cmd.etablissement_id, devoir_id)
                 .await?
                 .ok_or(DomainError::DevoirIntrouvable)?;
+            // S2-7 : un devoir de grille (rattaché à un service) se saisit par la grille,
+            // qui contrôle le service, l'effectif et le verrou.
+            let (grille,): (bool,) = sqlx::query_as(
+                "SELECT service_id IS NOT NULL FROM ent_devoir WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(cmd.etablissement_id)
+            .bind(devoir_id)
+            .fetch_one(&self.pool)
+            .await?;
+            if grille {
+                return Err(EntDbError::ConflitDossier("devoir de grille : saisir depuis la grille"));
+            }
             periode_id = Some(devoir.periode_id);
             matiere_id = devoir.matiere_id;
             sur = devoir.sur;
@@ -7271,24 +7291,63 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
         let actor = cmd.actor_user_id;
         let ex = plan_poser_edt_exception(cmd)?;
-        self.edt.upsert_exception(&ex).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 : l'exception et son événement entrent dans l'outbox dans la même transaction
+        // (élèves et familles prévenus par `d4.notifications_edt`). Le motif libre n'est plus
+        // recopié dans l'événement.
+        let map = |e: sqlx::Error| EntDbError::Domain(crate::pg_err::map_sqlx("edt_repo", e));
+        let mut tx = self.pool().begin().await.map_err(map)?;
+        sqlx::query(
+            "INSERT INTO ent_edt_exception (
+                id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
+                motif, created_by_user_id, created_at, nature
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$5)
+             ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
+                kind = EXCLUDED.kind, remplacant_user_id = EXCLUDED.remplacant_user_id,
+                nouvelle_salle = EXCLUDED.nouvelle_salle, motif = EXCLUDED.motif,
+                created_by_user_id = EXCLUDED.created_by_user_id, created_at = EXCLUDED.created_at,
+                lot_id = NULL, absence_rh_id = NULL, nature = EXCLUDED.nature
+             RETURNING id",
+        )
+        .bind(ex.id)
+        .bind(ex.etablissement_id)
+        .bind(ex.creneau_id)
+        .bind(ex.jour)
+        .bind(ex.kind.as_str())
+        .bind(ex.remplacant_user_id)
+        .bind(ex.nouvelle_salle.as_deref())
+        .bind(&ex.motif)
+        .bind(ex.created_by_user_id)
+        .bind(ex.created_at)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map)?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            let type_name = if ex.kind == EdtExceptionKind::Remplacement {
+                "edt.remplacement_organise"
+            } else {
+                types::EDT_EXCEPTION
+            };
+            conn.publier(MetierEventDraft {
                 etablissement_id: ex.etablissement_id,
-                type_name: types::EDT_EXCEPTION.to_string(),
+                type_name: type_name.to_string(),
                 aggregate: AggregateKind::Edt,
                 aggregate_id: ex.creneau_id,
                 eleve_id: None,
                 payload: json!({
                     "exception_id": ex.id,
-                    "kind": ex.kind.as_str(),
+                    "creneau_id": ex.creneau_id,
                     "jour": ex.jour.to_string(),
+                    "nature": ex.kind.as_str(),
                     "remplacant_user_id": ex.remplacant_user_id,
-                    "motif": ex.motif,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit().await.map_err(map)?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(ex)
     }
 
@@ -8957,7 +9016,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
 
     /// Le personnel `role` a-t-il `action` sur cet élève ? Familles et élèves :
     /// jamais (garde-fou 1) — leurs règles relationnelles restent à l'appelant.
-    async fn staff_eleve(
+    pub(crate) async fn staff_eleve(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
@@ -14128,8 +14187,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let eleves = self
             .restreindre_eleves_du_professeur(etablissement_id, actor_user_id, role, eleves)
             .await?;
+        // S2-8 (D24) : un refus du droit à l'image masque la photo.
+        let ids: Vec<Uuid> = eleves.iter().map(|e| e.id).collect();
+        let masques = self
+            .eleves_ayant_refuse(
+                etablissement_id,
+                &ids,
+                crate::formulaires::OBJET_DROIT_IMAGE,
+            )
+            .await?;
         Ok(eleves
             .into_iter()
+            .map(|mut e| {
+                if masques.contains(&e.id) {
+                    e.photo_key = None;
+                }
+                e
+            })
             .map(|e| TrombiEntree {
                 eleve_id: e.id,
                 nom: e.nom,
@@ -14172,6 +14246,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let Some(key) = eleve.photo_key.as_ref() else {
             return Ok(None);
         };
+        // S2-8 (D24) : photo masquée si le droit à l'image est refusé.
+        if !self
+            .eleves_ayant_refuse(
+                etablissement_id,
+                &[eleve.id],
+                crate::formulaires::OBJET_DROIT_IMAGE,
+            )
+            .await?
+            .is_empty()
+        {
+            return Ok(None);
+        }
         // Clé non conforme (autre élève / établissement) : jamais lue, comme « absente ».
         if !photo_storage_key_is_owned(&eleve, key) {
             tracing::warn!(
@@ -14825,9 +14911,33 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_declarer_absence_rh(cmd)?;
-        self.absences_rh.insert(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 (RH-02) : l'absence et son événement entrent dans l'outbox dans la même
+        // transaction. Le motif (texte libre, parfois médical) n'est jamais dans l'événement.
+        let mut tx = self.pool().begin().await.map_err(|e| {
+            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
+        })?;
+        sqlx::query(
+            "INSERT INTO ent_absence_rh (
+                id, etablissement_id, user_id, debut, fin, motif, statut,
+                created_by_user_id, created_at
+             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+        )
+        .bind(planned.id)
+        .bind(planned.etablissement_id)
+        .bind(planned.user_id)
+        .bind(planned.debut)
+        .bind(planned.fin)
+        .bind(&planned.motif)
+        .bind(&planned.statut)
+        .bind(planned.created_by_user_id)
+        .bind(planned.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            conn.publier(MetierEventDraft {
                 etablissement_id: planned.etablissement_id,
                 type_name: types::ABSENCE_RH.to_string(),
                 aggregate: AggregateKind::AbsenceRh,
@@ -14837,11 +14947,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     "user_id": planned.user_id,
                     "debut": planned.debut.to_string(),
                     "fin": planned.fin.to_string(),
-                    "motif": planned.motif,
                 }),
                 actor_user_id: Some(planned.created_by_user_id.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit()
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(planned)
     }
 
@@ -14861,19 +14975,48 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get(etablissement_id, absence_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        if current.statut == "validee" {
+            return Ok(current); // idempotent : pas de second événement
+        }
         let planned = plan_valider_absence_rh(current, actor_user_id)?;
-        self.absences_rh.update_statut(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
+        // S2-5 (RH-03) : validation et événement `rh.absence_validee` dans la même transaction.
+        let mut tx = self.pool().begin().await.map_err(|e| {
+            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
+        })?;
+        sqlx::query(
+            "UPDATE ent_absence_rh SET statut = $3, created_by_user_id = $4
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(planned.etablissement_id)
+        .bind(planned.id)
+        .bind(&planned.statut)
+        .bind(planned.created_by_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        let ev = {
+            use crate::outbox::Publier;
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            conn.publier(MetierEventDraft {
                 etablissement_id,
                 type_name: types::ABSENCE_RH_VALIDEE.to_string(),
                 aggregate: AggregateKind::AbsenceRh,
                 aggregate_id: planned.id,
                 eleve_id: None,
-                payload: json!({ "statut": planned.statut }),
+                payload: json!({
+                    "statut": planned.statut,
+                    "user_id": planned.user_id,
+                    "debut": planned.debut.to_string(),
+                    "fin": planned.fin.to_string(),
+                }),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
-            .await?;
+            .await?
+        };
+        tx.commit()
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
+        self.diffuser_apres_commit(&[ev]);
         Ok(planned)
     }
 
@@ -15492,8 +15635,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Infirmerie,
                 aggregate_id: passage.id,
                 eleve_id: Some(passage.eleve_id),
+                // Minimisation (S2-11) : ni motif, ni soins dans l'événement.
                 payload: json!({
-                    "motif": passage.motif.as_str(),
                     "jour": passage.jour.to_string(),
                     "visible_famille": passage.visible_famille,
                 }),
@@ -15636,10 +15779,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Infirmerie,
                 aggregate_id: fiche.id,
                 eleve_id: Some(fiche.eleve_id),
+                // Minimisation (S2-11) : aucune donnée de santé dans l'événement.
                 payload: json!({
                     "pai_actif": fiche.pai_actif,
-                    "allergies": fiche.allergies,
-                    "traitements": fiche.traitements,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })
@@ -15691,61 +15833,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Err(EntDbError::Forbidden)
     }
 
+    /// PAI (création ou mise à jour). Délègue au module santé (S2-11) : une seule
+    /// transaction (PAI chiffré, version, contraintes dérivées, événement minimal).
     pub async fn upsert_pai_for_actor(
         &self,
         role: &str,
         cmd: UpsertPai,
     ) -> Result<Pai, EntDbError> {
-        if !self
-            .staff_eleve(
-                cmd.etablissement_id,
-                cmd.actor_user_id,
-                role,
-                Action::SanteSaisir,
-                cmd.eleve_id,
-            )
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
-        self.eleves
-            .get(cmd.etablissement_id, cmd.eleve_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let actor = cmd.actor_user_id;
-        let etab = cmd.etablissement_id;
-        let eleve_id = cmd.eleve_id;
-        let actif = cmd.actif;
-        let planned = plan_upsert_pai(cmd)?;
-        let pai = self.infirmerie.upsert_pai(&planned).await?;
-        // Aligne le flag fiche santé si une fiche existe déjà.
-        if let Some(mut fiche) = self.infirmerie.get_fiche(etab, eleve_id).await? {
-            if fiche.pai_actif != actif {
-                fiche.pai_actif = actif;
-                fiche.updated_by_user_id = actor;
-                fiche.updated_at = Utc::now();
-                let _ = self.infirmerie.upsert_fiche(&fiche).await?;
-            }
-        }
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: pai.etablissement_id,
-                type_name: types::INFIRMERIE_PAI.to_string(),
-                aggregate: AggregateKind::Infirmerie,
-                aggregate_id: pai.id,
-                eleve_id: Some(pai.eleve_id),
-                payload: json!({
-                    "motif": pai.motif,
-                    "actif": pai.actif,
-                    "date_debut": pai.date_debut.to_string(),
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?;
-        Ok(pai)
+        self.enregistrer_pai_for_actor(role, cmd, None).await
     }
 
-    async fn get_pai_for_actor_sans_trace(
+    pub(crate) async fn get_pai_for_actor_sans_trace(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -15791,44 +15889,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Err(EntDbError::Forbidden)
     }
 
+    /// Signature du PAI par la famille (version courante). Délègue au module santé.
     pub async fn signer_pai_famille_for_actor(
         &self,
         role: &str,
         cmd: SignerPaiFamille,
     ) -> Result<Pai, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed != Role::Parent {
-            return Err(EntDbError::Forbidden);
-        }
-        let lien = self
-            .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
+        let complet = self
+            .signer_pai_for_actor(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                cmd.eleve_id,
+                "famille",
+                None,
+            )
             .await?;
-        if lien.is_none() {
-            return Err(EntDbError::Forbidden);
-        }
-        let current = self
-            .infirmerie
-            .get_pai(cmd.etablissement_id, cmd.eleve_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let actor = cmd.actor_user_id;
-        let updated = plan_signer_pai_famille(&current, &cmd)?;
-        let pai = self.infirmerie.update_pai_signature(&updated).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: pai.etablissement_id,
-                type_name: types::INFIRMERIE_PAI_SIGNE.to_string(),
-                aggregate: AggregateKind::Infirmerie,
-                aggregate_id: pai.id,
-                eleve_id: Some(pai.eleve_id),
-                payload: json!({
-                    "motif": pai.motif,
-                    "signe_famille": true,
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?;
-        Ok(vue_pai_famille(&pai))
+        Ok(vue_pai_famille(&complet.pai))
     }
 
     pub async fn attacher_ordonnance_pai_for_actor(
@@ -15889,7 +15966,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 eleve_id: Some(piece.eleve_id),
                 payload: json!({
                     "pai_id": piece.pai_id,
-                    "nom": piece.nom,
                     "mime_type": piece.mime_type,
                     "taille_octets": piece.taille_octets,
                     "storage_key": key,
@@ -16034,7 +16110,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate_id: fiche.id,
                 eleve_id: Some(eleve_id),
                 payload: json!({
-                    "pai_actif": resume.pai_actif,
                     "octets": bytes.len(),
                 }),
                 actor_user_id: Some(actor_user_id.to_string()),
@@ -16188,7 +16263,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 payload: json!({
                     "suivi_actif": dossier.suivi_actif,
                     "signale_famille": dossier.signale_famille,
-                    "axes_suivi": dossier.axes_suivi,
                 }),
                 actor_user_id: Some(actor.to_string()),
             })
