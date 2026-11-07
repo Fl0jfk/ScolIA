@@ -6886,11 +6886,17 @@ async fn effectif_classe(
         .await
         .map_err(map_db)?;
     // RP1-03 / RP1-07 : bornée aux élèves que l'acteur suit (professeur) ; vide pour la compta.
-    let suivis = state
-        .ent
-        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
-        .await
-        .map_err(map_db)?;
+    // La comptabilité garde l'effectif (identité minimisée par `niveau_identite`) : c'est son
+    // besoin légitime ; seul le professeur est borné à ses élèves.
+    let suivis = if session.role == "compta" {
+        None
+    } else {
+        state
+            .ent
+            .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+            .await
+            .map_err(map_db)?
+    };
     let eleves: Vec<_> = eleves
         .into_iter()
         .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.id)))
