@@ -264,6 +264,8 @@ mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
+mod tests_recette_personas;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;

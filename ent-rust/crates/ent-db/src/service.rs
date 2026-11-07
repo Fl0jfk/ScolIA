@@ -5883,7 +5883,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_comptes
                 .eleve_id_for_user(etablissement_id, actor_user_id)
                 .await?;
-            return Ok(linked == Some(eleve_id));
+            if linked != Some(eleve_id) {
+                return Ok(false);
+            }
+            // RF-22 : un élève mineur ne déclare pas sa propre absence (cf. B3).
+            return self
+                .eleve_est_majeur(etablissement_id, eleve_id, today_utc())
+                .await;
         }
         Ok(false)
     }
@@ -9233,6 +9239,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get(etablissement_id, eleve_id)
                 .await?
                 .ok_or(DomainError::NotFound)?;
+            // RF-15 (D-017) : le droit « dossier.lire » et sa portée décident ;
+            // un professeur ne liste que les documents de ses élèves.
+            if !self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DossierLire, eleve_id)
+                .await?
+            {
+                return Err(EntDbError::Forbidden);
+            }
         } else if matches!(parsed, Role::Parent) {
             if self
                 .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
@@ -9264,6 +9278,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             if !accessible {
                 doc.storage_key = None;
                 doc.mime_type = None;
+                // RF-15 : le titre d'un document restreint/santé n'est pas révélé.
+                if doc.confidentialite != DocConfidentialite::Standard {
+                    doc.titre = "Document à accès restreint".to_string();
+                }
             }
             out.push((doc, accessible));
         }
@@ -14448,7 +14466,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         cmd: ExporterLsl,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role) && !Self::role_can_manage_eleves(role) {
+        // D-022 : exports officiels réservés aux administratifs ; un professeur n'exporte jamais.
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_lsl(cmd)?;
@@ -14608,9 +14627,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd: ExporterNotanet,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role)
-            && !Self::role_can_manage_eleves(role)
-        {
+        // D-022 : exports officiels réservés aux administratifs ; un professeur n'exporte jamais.
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_notanet(cmd)?;
@@ -14665,7 +14683,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         cmd: ExporterParcoursup,
         jour: NaiveDate,
     ) -> Result<String, EntDbError> {
-        if !(Self::role_can_manage_eleves(role) || Self::role_can_saisir_notes(role)) {
+        // D-022 : exports officiels réservés aux administratifs ; un professeur n'exporte jamais.
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_parcoursup(cmd)?;
@@ -15265,9 +15284,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         cmd: ExporterLsun,
     ) -> Result<String, EntDbError> {
-        if !Self::role_can_saisir_notes(role)
-            && !Self::role_can_manage_eleves(role)
-        {
+        // D-022 : exports officiels réservés aux administratifs ; un professeur n'exporte jamais.
+        if !Self::role_can_manage_eleves(role) {
             return Err(EntDbError::Forbidden);
         }
         let cmd = plan_exporter_lsun(cmd)?;

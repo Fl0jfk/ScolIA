@@ -488,7 +488,8 @@ async fn rf04() -> Option<Rf04> {
     })
 }
 
-/// RF-04 (d) : exports LSL et LSUN refusés pour une classe non enseignée.
+/// RF-04 (d) : exports LSL et LSUN refusés pour une classe non enseignée (et, depuis D-022,
+/// pour toute classe : un professeur n'exporte jamais).
 #[tokio::test]
 async fn rf04d_exports_lsl_lsun_bornes_aux_classes_enseignees() {
     let Some(c) = rf04().await else {
@@ -512,10 +513,11 @@ async fn rf04d_exports_lsl_lsun_bornes_aux_classes_enseignees() {
     assert!(matches!(r, Err(EntDbError::Forbidden)), "LSL classe non enseignée : {r:?}");
     let r = c.ent.exporter_lsun_csv_for_actor("prof", c.prof, lsun(&c.non_suivie)).await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "LSUN classe non enseignée : {r:?}");
+    // D-022 : un professeur n'exporte jamais, même pour une classe qu'il enseigne.
     let r = c.ent.exporter_lsl_csv_for_actor("prof", c.prof, lsl(&c.suivie)).await;
-    assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSL classe enseignée : {r:?}");
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "LSL classe enseignée : {r:?}");
     let r = c.ent.exporter_lsun_csv_for_actor("prof", c.prof, lsun(&c.suivie)).await;
-    assert!(!matches!(r, Err(EntDbError::Forbidden)), "LSUN classe enseignée : {r:?}");
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "LSUN classe enseignée : {r:?}");
     // Notanet et Parcoursup : même borne (revue indépendante).
     let r = c
         .ent
