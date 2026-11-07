@@ -21,10 +21,10 @@ pub mod dossier;
 pub mod edt;
 pub mod identifiants;
 pub mod identite;
-pub mod scolarite;
 pub mod inscriptions;
 pub mod referentiel;
 pub mod referentiel_admin;
+pub mod scolarite;
 pub mod vie_scolaire;
 
 #[cfg(test)]

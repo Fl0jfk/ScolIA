@@ -255,6 +255,14 @@ pub fn planifier_ouverture(
             "la scolarisation chevauche une scolarisation existante de cet élève",
         ));
     }
+    // Un élève décédé ne rouvre jamais, quelle que soit la voie (R-E12).
+    if existantes
+        .iter()
+        .max_by_key(|p| p.date_entree)
+        .is_some_and(|p| p.motif_sortie == Some(MotifSortie::Deces))
+    {
+        return Err(ErreurScolarite::Conflit("un élève décédé ne peut pas être réintégré"));
+    }
     if reintegration {
         let derniere = existantes
             .iter()
@@ -262,9 +270,6 @@ pub fn planifier_ouverture(
             .ok_or(ErreurScolarite::Invalide(
                 "aucune scolarisation passée : ouvrir une scolarisation (première inscription)",
             ))?;
-        if derniere.motif_sortie == Some(MotifSortie::Deces) {
-            return Err(ErreurScolarite::Conflit("un élève décédé ne peut pas être réintégré"));
-        }
         if demande.motif != MotifEntree::Retour {
             return Err(ErreurScolarite::Invalide("une réintégration a pour motif « retour »"));
         }
@@ -470,6 +475,8 @@ mod tests {
         }];
         assert!(planifier_ouverture(&sorti, ouvrir(jour, MotifEntree::PassageInterne), true, jour).is_err());
         let decede = [Periode { motif_sortie: Some(MotifSortie::Deces), ..sorti[0].clone() }];
+        // Même par une entrée ordinaire (pas seulement la réintégration).
+        assert!(planifier_ouverture(&decede, ouvrir(jour, MotifEntree::ChangementEtablissement), false, jour).is_err());
         assert!(matches!(
             planifier_ouverture(&decede, ouvrir(jour, MotifEntree::Retour), true, jour),
             Err(ErreurScolarite::Conflit(_))

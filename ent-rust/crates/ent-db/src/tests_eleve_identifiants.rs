@@ -487,6 +487,11 @@ async fn badge_perdu_et_droits_par_systeme() {
     .await
     .unwrap();
     assert_eq!(revoque, 2 - 1);
+    // Collision de badge : le CPE (sans droit de lecture des identifiants) ne sait pas QUEL élève.
+    let autre = eleve_avec(&ent, etab, "Badge2", None, Some(&format!("ZZ-{}", alea(6)))).await;
+    let (bautre,): (String,) = sqlx::query_as("SELECT numero_badge FROM ent_eleve WHERE id = $1").bind(autre.id).fetch_one(ent.pool()).await.unwrap();
+    let coll = ent.declarer_badge_perdu(Role::Cpe.as_str(), etab, e.id, cpe, Some(&bautre)).await.unwrap().unwrap();
+    assert!(coll.collision && coll.collision_eleve_id.is_none());
     // Le CPE ne gère pas l'INE ; le professeur ne gère rien.
     let ine_cpe = ent
         .ajouter_identifiant(Role::Cpe.as_str(), ajout(etab, e.id, SystemeIdentifiant::Ine, &ine(), cpe))
@@ -503,7 +508,7 @@ async fn badge_perdu_et_droits_par_systeme() {
         .identifiants_pour_acteur(etab, cast.administratif.user_id, Role::Administratif.as_str(), e.id)
         .await
         .unwrap();
-    assert_eq!(l.len(), 2);
+    assert_eq!(l.len(), 3, "ancien (révoqué), nouveau (révoqué par le second remplacement), contesté");
     // La lecture est journalisée sans la valeur.
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'identifiants' AND action = 'consultation'",

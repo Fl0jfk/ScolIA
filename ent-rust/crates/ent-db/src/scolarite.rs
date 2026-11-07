@@ -673,7 +673,8 @@ impl PgEnt {
             json!({
                 "scolarisation_id": courante.id,
                 "date_sortie": plan.date_sortie.to_string(),
-                "motif": plan.motif.code(),
+                // Un décès n'apparaît que dans `eleve.decede` (consommateurs désignés).
+                "motif": if deces { "autre" } else { plan.motif.code() },
             }),
             cmd.acteur,
         )
@@ -686,7 +687,7 @@ impl PgEnt {
             types::ELEVE_SORTIE,
             json!({
                 "date_sortie": plan.date_sortie.to_string(),
-                "motif_sortie": plan.motif.code(),
+                "motif_sortie": if deces { "autre" } else { plan.motif.code() },
                 "status": if plan.date_sortie <= jour { "sorti" } else { "actif" },
             }),
             cmd.acteur,
@@ -1612,6 +1613,10 @@ impl PgEnt {
              ORDER BY date_entree DESC"
         );
         let scol: Vec<ScolarisationEleve> = sqlx::query_as(&sql).bind(etab).bind(eleve).fetch_all(&mut *conn).await?;
+        drop(conn);
+        self.tracer_acces_sensible(etab, acteur, role, Some(eleve), "scolarite", "consultation",
+            "Consultation de la scolarité de l'élève").await;
+        let mut conn = self.pool().acquire().await?;
         let sql = format!(
             "SELECT {COL_INSC} FROM ent_eleve_inscription WHERE etablissement_id = $1 AND eleve_id = $2
              ORDER BY date_debut DESC NULLS LAST"
@@ -1652,38 +1657,50 @@ impl PgEnt {
         .fetch_all(self.pool())
         .await?;
         for (etab, eleve, ancien, nouveau) in changes {
-            let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let (_, legacy): (Option<String>, String) = Repo::statuts(&mut tx, etab, eleve).await?;
-            evenement(
-                &mut tx,
-                etab,
-                eleve,
-                types::ELEVE_STATUS_CHANGED,
-                json!({
-                    "ancien_statut": ancien,
-                    "nouveau_statut": nouveau,
-                    "nouveau_status": legacy,
-                    "cause": "tache_quotidienne",
-                }),
-                None,
-            )
-            .await?;
-            tx.commit().await?;
-            bilan.statuts_changes += 1;
-            if nouveau == "sorti" {
-                let sortie: Option<(Option<NaiveDate>,)> = sqlx::query_as(
-                    "SELECT date_sortie FROM ent_eleve_scolarisation
-                     WHERE etablissement_id = $1 AND eleve_id = $2 AND date_sortie IS NOT NULL
-                     ORDER BY date_sortie DESC LIMIT 1",
+            // Un échec sur un élève ne bloque ni les autres ni les autres établissements.
+            let r: Result<(), EntDbError> = async {
+                let mut tx = TenantTx::begin(self.pool(), etab).await?;
+                let (_, legacy): (Option<String>, String) = Repo::statuts(&mut tx, etab, eleve).await?;
+                evenement(
+                    &mut tx,
+                    etab,
+                    eleve,
+                    types::ELEVE_STATUS_CHANGED,
+                    json!({
+                        "ancien_statut": ancien,
+                        "nouveau_statut": nouveau,
+                        "nouveau_status": legacy,
+                        "cause": "tache_quotidienne",
+                    }),
+                    None,
                 )
-                .bind(etab)
-                .bind(eleve)
-                .fetch_optional(self.pool())
                 .await?;
-                if let Some((Some(d),)) = sortie {
-                    self.appliquer_repercussions_sortie(etab, eleve, d, None).await?;
-                    bilan.repercussions_sortie += 1;
-                }
+                tx.commit().await?;
+                Ok(())
+            }
+            .await;
+            match r {
+                Ok(()) => bilan.statuts_changes += 1,
+                Err(e) => tracing::warn!(error = %e, "tâche quotidienne : événement de statut non publié"),
+            }
+        }
+        // Répercussions de sortie (idempotentes) : on rejoue les sorties des 3 derniers jours, pour
+        // qu'un échec ponctuel ou une sortie datée dans le futur ne soit jamais perdu.
+        let sorties: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
+            "SELECT e.etablissement_id, e.id, max(s.date_sortie)
+             FROM ent_eleve e JOIN ent_eleve_scolarisation s
+               ON s.etablissement_id = e.etablissement_id AND s.eleve_id = e.id
+             WHERE e.statut = 'sorti' AND s.date_sortie IS NOT NULL
+               AND s.date_sortie >= ent_jour_etablissement(e.etablissement_id) - 3
+               AND s.date_sortie <= ent_jour_etablissement(e.etablissement_id)
+             GROUP BY e.etablissement_id, e.id",
+        )
+        .fetch_all(self.pool())
+        .await?;
+        for (etab, eleve, date) in sorties {
+            match self.appliquer_repercussions_sortie(etab, eleve, date, None).await {
+                Ok(()) => bilan.repercussions_sortie += 1,
+                Err(e) => tracing::warn!(error = %e, "tâche quotidienne : répercussions de sortie à rejouer"),
             }
         }
         // — Majorité —

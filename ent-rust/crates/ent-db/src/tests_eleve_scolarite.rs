@@ -358,6 +358,22 @@ async fn deces_ferme_la_scolarisation_sans_detail_et_interdit_le_retour() {
         .reintegrer_eleve(Role::Direction.as_str(), ouverture(etab, e.id, aujourdhui() + Duration::days(1), MotifEntree::Retour, admin))
         .await;
     assert!(matches!(retour, Err(EntDbError::ConflitDossier(_))), "{retour:?}");
+    // Même par une entrée ordinaire, ou par l'ancien chemin (réactivation) : refusé.
+    let ordinaire = ent
+        .ouvrir_scolarisation(Role::Direction.as_str(), ouverture(etab, e.id, aujourdhui() + Duration::days(1), MotifEntree::ChangementEtablissement, admin))
+        .await;
+    assert!(matches!(ordinaire, Err(EntDbError::ConflitDossier(_))), "{ordinaire:?}");
+    let ancien = ent
+        .change_status(ChangeStatus { etablissement_id: etab, eleve_id: e.id, nouveau_status: EleveStatus::Actif, actor_user_id: None })
+        .await;
+    assert!(ancien.is_err(), "réactivation d'un décédé par l'ancien chemin");
+    // Le décès n'apparaît ni dans les événements de scolarité ni dans la colonne héritée.
+    let (ev,): (serde_json::Value,) = sqlx::query_as(
+        "SELECT jsonb_agg(payload) FROM ent_metier_event WHERE eleve_id = $1 AND type IN ('scolarite.closed','eleve.sortie')",
+    ).bind(e.id).fetch_one(ent.pool()).await.unwrap();
+    assert!(!ev.to_string().contains("deces"), "{ev}");
+    let (col,): (Option<String>,) = sqlx::query_as("SELECT motif_sortie FROM ent_eleve WHERE id = $1").bind(e.id).fetch_one(ent.pool()).await.unwrap();
+    assert_eq!(col, None);
     // Le journal ne montre pas le décès à la famille.
     let (visible,): (bool,) = sqlx::query_as(
         "SELECT visible_famille FROM ent_journal_modif WHERE eleve_id = $1 AND action = 'eleve_decede'",

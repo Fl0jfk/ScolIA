@@ -441,11 +441,19 @@ impl PgEnt {
                 "provenance réservée aux flux officiels",
             ));
         }
+        let peut_lire = self
+            .a_action_etablissement(cmd.etablissement_id, acteur, role, Action::ElevesIdentifiantsLire)
+            .await?;
         let mut tx = self
             .ouvrir_commande_identifiant(cmd.etablissement_id, cmd.eleve_id)
             .await?;
-        let r = Self::ecrire_identifiant(&mut tx, &cmd).await?;
+        let mut r = Self::ecrire_identifiant(&mut tx, &cmd).await?;
         tx.commit().await?;
+        // Un rôle qui ne lit pas les identifiants (badge seul) n'apprend pas quel autre élève
+        // porte la valeur : il sait seulement qu'il y a collision.
+        if !peut_lire {
+            r.collision_eleve_id = None;
+        }
         Ok(r)
     }
 

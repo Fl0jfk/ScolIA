@@ -217,6 +217,7 @@ BEGIN
 END $$;
 
 -- ───────────────────────── Pont des écritures héritées ─────────────────────────
+-- (Le pont ne remplace JAMAIS un identifiant confirmé : l'écriture héritée est refusée, SQLSTATE 55000.)
 -- Tout chemin qui écrit encore `ent_eleve.ine` ou `numero_badge` (création, import,
 -- inscription, labo, ancienne saisie d'identité) est converti en identifiant : INE déclaré
 -- par la saisie, badge confirmé. Les projections ci-dessus écrivent sous le drapeau
@@ -238,7 +239,7 @@ BEGIN
             END IF;
         ELSIF char_length(v) <= 64 THEN
             PERFORM ent_eleve_identifiant_enregistrer(
-                NEW.etablissement_id, NEW.id, 'INE', upper(v), 'saisie', 'declare', current_date, acteur, NULL, true);
+                NEW.etablissement_id, NEW.id, 'INE', upper(v), 'saisie', 'declare', current_date, acteur, NULL, false);
         END IF;
     END IF;
     IF TG_OP = 'INSERT' OR NEW.numero_badge IS DISTINCT FROM OLD.numero_badge THEN
@@ -249,7 +250,7 @@ BEGIN
             END IF;
         ELSIF char_length(v) <= 64 THEN
             PERFORM ent_eleve_identifiant_enregistrer(
-                NEW.etablissement_id, NEW.id, 'BADGE', v, 'badge', 'confirme', current_date, acteur, NULL, true);
+                NEW.etablissement_id, NEW.id, 'BADGE', v, 'badge', 'confirme', current_date, acteur, NULL, false);
         END IF;
     END IF;
     RETURN NULL;

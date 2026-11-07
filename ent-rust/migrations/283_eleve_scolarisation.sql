@@ -189,13 +189,13 @@ BEGIN
             status = coalesce(legacy, CASE WHEN status = 'sorti' THEN 'preinscrit' ELSE status END),
             date_entree = ref.date_entree,
             date_sortie = ref.date_sortie,
-            motif_sortie = coalesce(ref.motif_sortie_libre, ref.motif_sortie)
+            motif_sortie = CASE WHEN ref.motif_sortie = 'deces' THEN NULL ELSE coalesce(ref.motif_sortie_libre, ref.motif_sortie) END
         WHERE etablissement_id = p_etab AND id = p_eleve
           AND (statut IS DISTINCT FROM nouveau_statut
                OR status IS DISTINCT FROM coalesce(legacy, CASE WHEN status = 'sorti' THEN 'preinscrit' ELSE status END)
                OR date_entree IS DISTINCT FROM ref.date_entree
                OR date_sortie IS DISTINCT FROM ref.date_sortie
-               OR motif_sortie IS DISTINCT FROM coalesce(ref.motif_sortie_libre, ref.motif_sortie));
+               OR motif_sortie IS DISTINCT FROM CASE WHEN ref.motif_sortie = 'deces' THEN NULL ELSE coalesce(ref.motif_sortie_libre, ref.motif_sortie) END);
     END IF;
     PERFORM set_config('ent.scolarite_projection', 'off', true);
     RETURN QUERY SELECT ancien_statut, nouveau_statut;
@@ -280,6 +280,12 @@ BEGIN
        AND NEW.date_entree IS DISTINCT FROM derniere.date_entree THEN
         UPDATE ent_eleve_scolarisation SET date_entree = NEW.date_entree
         WHERE id = derniere.id AND etablissement_id = NEW.etablissement_id;
+    END IF;
+    -- Un décès ne se défait pas par l'ancien chemin (R-E12) : réouverture refusée.
+    IF derniere.motif_sortie = 'deces'
+       AND ((NEW.date_sortie IS DISTINCT FROM OLD.date_sortie AND NEW.date_sortie IS NULL)
+            OR (NEW.status IS DISTINCT FROM OLD.status AND NEW.status <> 'sorti' AND OLD.status = 'sorti')) THEN
+        RAISE EXCEPTION 'scolarisation : un décès ne se défait pas par l''ancien chemin' USING ERRCODE = '42501';
     END IF;
     IF NEW.date_sortie IS DISTINCT FROM OLD.date_sortie THEN
         IF NEW.date_sortie IS NULL THEN

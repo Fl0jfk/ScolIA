@@ -17,13 +17,14 @@ CREATE TABLE IF NOT EXISTS ent_param_eleve_numero (
     modifie_le              TIMESTAMPTZ NOT NULL DEFAULT now(),
     modifie_par             UUID,
     -- Un format doit contenir un compteur `{seq:N}` (N de 1 à 9), n'utiliser que
-    -- lettres, chiffres et `{}:_-`, et — si le compteur est remis à zéro chaque année —
-    -- contenir `{AAAA}` (sinon deux années donneraient le même numéro).
+    -- lettres, chiffres et `{}:_-`, et contenir `{AAAA}` si et seulement si le compteur est remis
+    -- à zéro chaque année (sinon deux années donneraient le même numéro, ou le compteur global
+    -- entrerait en collision avec les numéros d'une année).
     CONSTRAINT ent_param_eleve_numero_format_chk CHECK (
         char_length(format) <= 40
         AND format ~ '^[A-Za-z0-9{}:_-]+$'
         AND format ~ '\{seq:[1-9]\}'
-        AND (NOT remise_a_zero_annuelle OR format LIKE '%{AAAA}%')
+        AND (remise_a_zero_annuelle = (format LIKE '%{AAAA}%'))
     )
 );
 ALTER TABLE ent_param_eleve_numero ENABLE ROW LEVEL SECURITY;
