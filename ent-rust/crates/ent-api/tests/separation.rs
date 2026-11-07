@@ -294,6 +294,22 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 "/dossier/adresses-protegees/00000000-0000-0000-0000-000000000001/ouvrir", None),
             Spec { interdits: &["adresse\":"], ..lire("alertes-protection", "/dossier/alertes-protection",
                 &[Admin, Direction], &[Admin, Direction]) },
+            // Socle 4 (lot A1) : interdictions de remise (consigne : `remise.lire`, jamais pour une
+            // famille), conflits d'intérêts (direction). Aucune écriture sur l'établissement B ;
+            // un motif d'interdiction n'apparaît jamais dans un cas hors direction.
+            Spec { interdits: &["motif_scelle", "enc:v1:"], ..lire("interdictions", "/dossier/eleves/{eleve}/interdictions",
+                &[Admin, Direction, Administratif, Cpe, Prof, Infirmiere],
+                &[Admin, Direction, Administratif, Cpe, Infirmiere]) },
+            ecrire_sur_b("poser-interdiction-B", "POST", "/dossier/eleves/{eleve}/interdictions",
+                Some(r#"{"personne_libelle":"Separation","objet":["remise"],"fondement":"decision_etablissement","consigne":"Ne pas remettre"}"#)),
+            ecrire_sur_b("lever-interdiction-B", "POST",
+                "/dossier/interdictions/00000000-0000-0000-0000-000000000001/lever",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("declarer-conflit-interet-B", "POST", "/dossier/eleves/{eleve}/conflit-interet",
+                Some(r#"{"nature":"proche"}"#)),
+            ecrire_sur_b("lever-conflit-interet-B", "POST",
+                "/dossier/conflits-interet/00000000-0000-0000-0000-000000000001/lever", None),
+            lire("conflits-interet", "/dossier/conflits-interet", &[Admin, Direction], &[Admin, Direction]),
     ]
 }
 

@@ -1246,3 +1246,53 @@ Toutes les nouvelles routes sont dans la matrice d'isolation (`separation.rs`, d
 - **Non corrigés, à décider** : (M) les notifications dans l'application (`reactions.rs`, `cahier_reactions.rs`) visent encore un parent protégé qui a un compte et un lien actif — elles ne sont pas des sollicitations sortantes, mais révèlent de l'activité ; (L) la confirmation au guichet n'exige pas de second contrôle (tracée et auditée seulement) ; (L) un parent mal intentionné peut déclarer l'autre « ne pas solliciter » pour supprimer ses invitations : atténué par l'alerte direction et le guichet, jamais par un blocage d'accès ; (L) pas de RLS sur les trois nouvelles tables (lot A14, comme le reste du socle) ; (L) une adresse protégée déjà présente en clair dans une fiche existante n'est pas rétroactivement scellée (lot A3).
 - Écrans Leptos : voir `PROJECT_STATUS.md`.
 
+
+## 22. État du lot A1 « droits et minimisation » (2026-11-07, branche `ent-socle-administratif-a1`)
+
+**Implémenté et testé en local (PostgreSQL local) ; non validé par Florian, non prêt pilote.** Base : lots A0 et A0 bis. Migrations **270 à 272** (273–274 réservées au lot A14, RLS) ; `MIGRATION_TAG` = `272_contact_declarant`. Le lot E1 du socle 2 (même mécanisme) n'étant **pas encore dans le code**, A1 pose le mécanisme générique (vue de groupes pure + point d'application unique) ; E1 devra le **réutiliser**, pas le redéfinir (`ent_auth::minimisation`, §22.2).
+
+### 22.1 Catalogue (§13) et modèles par défaut
+
+15 actions ajoutées à `ent_auth::Action` (53 → 68) : `responsables.lire`, `.adresses.lire`, `.juridique.lire`, `.protege.lire`, `.protege.gerer`, `liens.juridique.gerer`, `remise.lire`, `.gerer`, `.interdire`, `personnes.identifiants.gerer`, `dossier_admin.propositions.traiter`, `fiche_rentree.gerer`, `dossier_admin.exporter`, `dossier_admin.parametrer`, `responsables.acces_urgence`. Portées : les quatre lectures (`responsables.lire`, `.adresses.lire`, `.juridique.lire`, `remise.lire`) acceptent les quatre portées ; toutes les autres : établissement seulement. Inclusions explicites uniquement (`personnes.gerer` ⊃ F0–F2, `liens.juridique.gerer` ⊃ F3, `remise.gerer` ⊃ `remise.lire`, `responsables.protege.gerer` ⊃ F4) ; le moteur de droits (`autoriser_eleve`, `eleves_autorises`, `a_action_etablissement`) les applique désormais (jusqu'ici seule `peut_etablissement` le faisait).
+
+**Matrice historique identique** : test `matrice_historique_inchangee_par_a1` (`ent-auth/src/actions.rs`) — profils × 53 actions d'avant A1 figés, plus `r2_*` existants. Aucun droit historique n'a changé ; seules les 15 actions nouvelles sont ajoutées aux modèles.
+
+**Nouveau profil de base `accueil`** (`Role::Accueil`, « Accueil (modèle nouveau) » du §13.2) : `responsables.lire`, `remise.lire`, `absences.declarer`, `referentiel.lire` — rien d'autre. C'est le « rôle Accueil de démonstration » ; aucun écran de gestion de rôle ne le propose encore (écrans d'administration des rôles : R2).
+
+| Profil | F0 F1 | F2 | F3 | F4 | R | Payeurs |
+|---|---|---|---|---|---|---|
+| Admin, Direction | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Administratif | ✔ | ✔ | ✔ | — | ✔ | ✔ |
+| CPE | ✔ | — | ✔ | — | ✔ | — |
+| Comptabilité | ✔ | ✔ | — | — | — | ✔ |
+| Professeur (mes classes) | ✔ | — | — | — | ✔ | — |
+| Infirmerie, Accueil | ✔ | — | — | — | ✔ | — |
+| Psychologue | — | — | — | — | — | — |
+| Titulaire (famille) | soi : ✔ ; autres : F0 seulement | soi | soi | — | ses contacts | soi |
+
+Oracle : `minimisation::tests::oracle_profils_par_groupe` (profil × groupe, depuis `modele_par_defaut`).
+
+**Écarts voulus avec le comportement d'avant A1** (avant : toute personne ayant la section « famille » lisait *tous* les champs d'un responsable) — **à valider par Florian** : (1) le professeur ne lit plus que F0, F1 et R de ses élèves ; (2) la vie scolaire perd adresses et payeurs ; (3) la comptabilité perd la situation juridique (F3) et les contacts d'urgence, garde adresses et payeurs ; (4) le secrétariat (Administratif) perd F4 (motif et référence d'une suspension de lien, aujourd'hui lisibles en clair) ; (5) l'infirmerie **gagne** F0, F1 et R (contacts d'urgence : avant, rien) ; (6) une famille ne voit plus de l'autre responsable que la désignation (avant : aussi autorité, garde, dates, droits du lien) et ne voit que les contacts qu'elle a déclarés ou saisis par l'établissement (avant : tous). Tous suivent le §13.2 et le §12.2 de la conception.
+
+### 22.2 Mécanisme : un seul point
+
+- **Fonction pure** `ent_auth::minimisation` : `vue_personnel(droits, conflit)` et `vue_titulaire(est_moi)` → `VueGroupes` (F0–F4, R, payeurs, indicateur de conflit, liste des groupes fermés **avec leur raison**). Aucune autre règle de minimisation.
+- **Service** `ent-db/src/dossier_droits.rs` : `vue_groupes_eleve` (droits par élève, portées résolues par le moteur ; conflit d'intérêts), `lecture_dossier_admin` (responsables, contacts, interdictions filtrés d'après la vue). `responsables_eleve_for_actor`, `contacts_eleve_for_actor` et `fiche_eleve_for_actor` n'ont plus de filtre propre : elles appellent ce point.
+- **Raisons de masquage** : `Responsable.masque` (par personne) et `FicheEleve.masquages` (par groupe) → DTO `MasquageDto` (`groupe`, `libelle`, `raison` = `droit_manquant` | `conflit_interet` | `autre_responsable` | `reserve_etablissement`, `message`, `action_a_demander`). Les valeurs masquées sont neutres (vide / faux) : un champ vide n'est jamais ambigu. L'écran fiche élève (Leptos) affiche le message à la place de la valeur et un bandeau « Interdictions en cours ».
+- Bris de glace `responsables.acces_urgence` : **action au catalogue seulement** (modèle : Direction) ; le mécanisme temporaire (motif, durée, alerte, revue à 72 h) relève de `02_ELEVE.md` R-E11 / lot E7 et n'est pas implémenté.
+
+### 22.3 Règles [personas] du lot
+
+| Règle | Implémentation | Test |
+|---|---|---|
+| **R-A18 conflit d'intérêts** | Détection : l'agent a une fiche personne liée à l'élève (lien, même ancien ou suspendu ; payeur ; contact d'urgence) ou une **déclaration** (`ent_conflit_interet` : par l'agent pour lui-même, ou par la direction pour un autre agent ; natures `ex_conjoint`, `ancien_foyer`, `proche`, `autre` ; seule la direction lève, jamais l'agent). Effet : F2, F3, F4 et payeurs **fermés quels que soient ses droits** (raison `conflit_interet`) ; F0, F1, R ouverts avec **trace d'accès sensible** (journal `conflit_interet`, tableau `GET /dossier/conflits-interet` pour la direction) ; toute écriture sur ce dossier (liens, payeurs, contacts, personnes, interdictions, « ne pas solliciter ») refusée : « doit être faite par un collègue » ; la recherche et la lecture directe d'une personne ferment l'adresse. Sa casquette de parent (session famille) est inchangée | `conflit_d_interet_agent_parent_de_l_eleve`, `conflit_d_interet_declare_ex_conjoint`, `conflit_d_interet_contact_d_urgence`, `interdiction_sur_son_propre_dossier_par_un_collegue` |
+| **Droit d'accès d'un parent sans les données de l'autre** | `vue_titulaire` : ses données en entier (hors F4), de l'autre responsable la désignation et la nature du lien ; contacts : ses propres déclarations + saisies de l'établissement (`ent_eleve_contact_urgence.declare_par_personne_id`, migration 272) ; jamais d'interdiction, jamais F4. Aucune donnée de l'autre dans la réponse de la fiche (test sur la représentation complète) | `droit_d_acces_d_un_parent_sans_les_donnees_de_l_autre` |
+| **Interdiction de remise visible de l'accueil et de la vie scolaire** | Table `ent_eleve_interdiction` (sous-ensemble de §8.8) ; consigne et personne visée avec `remise.lire` (accueil, vie scolaire, infirmerie, secrétariat, direction ; prof : ses élèves) ; fondement avec F3 ; **motif scellé** (AES-256-GCM) lisible avec F4 seulement, consultation tracée ; invisible de la **personne visée** (même agent d'accueil) et de toute famille ; pose et levée par `remise.interdire` (Admin, Direction), levée motivée, jamais de suppression ; `demande_titulaire` enregistrée **non bloquante** ; période (future ou échue = inactive) ; motif jamais en clair en base ni au journal ni dans un événement (aucun événement publié) | `interdiction_de_remise_visible_accueil_et_vie_scolaire`, `interdiction_validation_et_periode` |
+
+Routes ajoutées (toutes dans la matrice d'isolation `separation.rs`, domaine « élève / dossier ») : `GET|POST /dossier/eleves/{id}/interdictions`, `POST /dossier/interdictions/{id}/lever`, `POST /dossier/eleves/{id}/conflit-interet`, `GET /dossier/conflits-interet`, `POST /dossier/conflits-interet/{id}/lever`.
+
+### 22.4 Limites et points à décider
+
+- **Non fait dans A1** : propagation d'une interdiction aux postes et caches mobiles en moins d'une minute (R-A10), rappel à 48 h et pièce justificative (R-A9), alerte de cohérence autorisé + interdit (§8.8), fiche de secours (R-A11) — lot A5, qui reprend la table `ent_eleve_interdiction` posée ici. Détection du conflit par « ancien membre de foyer » : par déclaration seulement (tables de foyers au lot A3). Rapprochement automatique personne ↔ agent (`06_PERSONNELS.md`) : ici, par le compte de la fiche personne (`ent_personne.user_id`). Lecture de F3 *sur la fiche personne* (`get_personne`) : toujours soumise à `personnes.gerer` seul. Extrait RGPD d'un parent (R-A31, ADM-69) : lot A14 — A1 fournit la règle de vue (`vue_titulaire`), pas l'export. Les lectures hors fiche qui exposent des coordonnées de responsables (destinataires, A11 ; documents, socle 7) ne passent pas encore par la vue.
+- **Notifications à la direction** : l'alerte de conflit est un tableau (accès tracés sur 30 jours + déclarations) ; pas de notification poussée.
+- **Questions pour Florian** : (a) valider les six écarts de §22.1 ; (b) l'infirmerie doit-elle vraiment lire F0/F1/R (conception : oui ; avant : non) ? (c) un agent en conflit d'intérêts qui est **direction** : les écritures sur son dossier passent par une autre personne de la direction — acceptable dans un établissement à direction unique (le chef d'établissement parent d'élève) ? ; (d) le bris de glace doit-il exister avant E7 ?

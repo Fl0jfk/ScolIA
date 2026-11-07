@@ -8,6 +8,7 @@ use chrono::NaiveDate;
 use ent_web_api::{
     ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto,
     LienBody, LienEnAttenteEleveDto, PersonneBody, PersonneDto, ResponsableDto,
+    MasquageDto,
 };
 use uuid::Uuid;
 
@@ -55,6 +56,18 @@ pub fn etat_lien(r: &ResponsableDto, jour: NaiveDate) -> EtatLien {
         // Le serveur dit inactif sans raison visible (personne fusionnée…).
         EtatLien::Suspendu
     }
+}
+
+/// Message à afficher à la place d'un groupe de champs fermé (lot A1) : `None` si le groupe est
+/// ouvert. Un champ vide n'est jamais ambigu : absent ≠ masqué.
+pub fn message_masque(masque: &[MasquageDto], groupe: &str) -> Option<String> {
+    masque
+        .iter()
+        .find(|m| m.groupe == groupe)
+        .map(|m| match &m.action_a_demander {
+            Some(a) => format!("{} (droit à demander : {a})", m.message),
+            None => m.message.clone(),
+        })
 }
 
 pub fn libelle_garde(g: Option<&str>) -> &'static str {
@@ -473,11 +486,36 @@ mod tests {
             peut_autoriser_sorties: false,
             est_payeur: false,
             part_paiement: None,
+            masque: vec![],
         }
     }
 
     fn jour() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 11, 5).unwrap()
+    }
+
+    #[test]
+    fn message_masque_explique_le_groupe_ferme() {
+        let m = vec![
+            MasquageDto {
+                groupe: "F2".into(),
+                libelle: "Adresses des responsables".into(),
+                raison: "droit_manquant".into(),
+                message: "Votre rôle n'ouvre pas cette information.".into(),
+                action_a_demander: Some("responsables.adresses.lire".into()),
+            },
+            MasquageDto {
+                groupe: "F4".into(),
+                libelle: "Données protégées".into(),
+                raison: "conflit_interet".into(),
+                message: "Réservé à un collègue.".into(),
+                action_a_demander: None,
+            },
+        ];
+        let f2 = message_masque(&m, "F2").unwrap();
+        assert!(f2.contains("Votre rôle") && f2.contains("responsables.adresses.lire"));
+        assert_eq!(message_masque(&m, "F4").as_deref(), Some("Réservé à un collègue."));
+        assert_eq!(message_masque(&m, "F1"), None);
     }
 
     #[test]
@@ -582,6 +620,8 @@ mod tests {
             contacts: vec![],
             actions: vec![],
             alertes: vec![],
+            masquages: vec![],
+            interdictions: vec![],
         };
         assert!(sections_accessibles(&f, false).is_empty());
         f.sections.vs = true;

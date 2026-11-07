@@ -248,7 +248,11 @@ impl PgEnt {
         eleve_id: Uuid,
     ) -> Result<LectureDossierAdmin, EntDbError> {
         let (vue, mon_lien) = self.vue_groupes_eleve(etab, actor, role, eleve_id).await?;
-        let masquages = vue.masquages.clone();
+        // Les codes de droits à demander n'ont de sens que pour le personnel et pour un titulaire :
+        // un élève (ou un compte sans lien) ne reçoit aucune explication de masquage.
+        let sait_expliquer = mon_lien.is_some()
+            || Role::parse(role).map(Role::is_staff).unwrap_or(false);
+        let masquages = if sait_expliquer { vue.masquages.clone() } else { Vec::new() };
         let mut sortie = LectureDossierAdmin {
             vue: vue.clone(),
             masquages,
@@ -377,6 +381,48 @@ impl PgEnt {
             self.exiger_pas_de_conflit(etab, actor, role, e).await?;
         }
         Ok(())
+    }
+
+    /// Parmi `ids`, les personnes liées (responsable ou contact) à un élève avec lequel l'agent est
+    /// en conflit d'intérêts (R-A18) ; sa propre fiche n'en fait pas partie. Sert à fermer F2 dans
+    /// la recherche et la lecture des personnes, qui contournent sinon la lecture par élève.
+    pub(crate) async fn personnes_en_conflit(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        ids: &[Uuid],
+    ) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+        if ids.is_empty() || !Role::parse(role).map(Role::is_staff).unwrap_or(false) {
+            return Ok(Default::default());
+        }
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            "WITH conflits AS (
+                SELECT l.eleve_id FROM ent_personne p
+                  JOIN ent_eleve_lien l ON l.personne_id = p.id AND l.etablissement_id = p.etablissement_id
+                 WHERE p.etablissement_id = $1 AND p.user_id = $2
+                UNION
+                SELECT c.eleve_id FROM ent_personne p
+                  JOIN ent_eleve_contact_urgence c ON c.personne_id = p.id AND c.etablissement_id = p.etablissement_id
+                 WHERE p.etablissement_id = $1 AND p.user_id = $2
+                UNION
+                SELECT eleve_id FROM ent_conflit_interet
+                 WHERE etablissement_id = $1 AND user_id = $2 AND leve_le IS NULL)
+             SELECT DISTINCT x.personne_id FROM (
+                SELECT personne_id, eleve_id FROM ent_eleve_lien WHERE etablissement_id = $1
+                UNION ALL
+                SELECT personne_id, eleve_id FROM ent_eleve_contact_urgence WHERE etablissement_id = $1) x
+              WHERE x.eleve_id IN (SELECT eleve_id FROM conflits) AND x.personne_id = ANY($3)
+                AND NOT EXISTS (SELECT 1 FROM ent_personne q
+                                 WHERE q.etablissement_id = $1 AND q.id = x.personne_id AND q.user_id = $2)",
+        )
+        .bind(etab)
+        .bind(actor)
+        .bind(ids)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db)?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
     // ───────────────────────────── Interdictions ─────────────────────────────

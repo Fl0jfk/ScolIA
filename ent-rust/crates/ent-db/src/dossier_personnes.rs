@@ -989,11 +989,20 @@ impl PgEnt {
             .fetch_all(self.pool())
             .await
             .map_err(db)?;
+        // R-A18 : l'adresse (F2) d'une personne liée à un élève de l'agent est fermée.
+        let ids: Vec<Uuid> = rows.iter().map(|r| r.personne.id).collect();
+        let en_conflit = self.personnes_en_conflit(etab, actor, role, &ids).await?;
         Ok(rows
             .into_iter()
-            .map(|r| PersonneTrouvee {
-                personne: r.personne,
-                nb_liens: r.nb_liens,
+            .map(|r| {
+                let mut personne = r.personne;
+                if en_conflit.contains(&personne.id) {
+                    personne.adresse = None;
+                }
+                PersonneTrouvee {
+                    personne,
+                    nb_liens: r.nb_liens,
+                }
             })
             .collect())
     }
@@ -1007,10 +1016,21 @@ impl PgEnt {
     ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
-        let mut conn = self.pool().acquire().await.map_err(db)?;
-        personne_tx(&mut conn, etab, personne_id, false)
+        let mut personne = {
+            let mut conn = self.pool().acquire().await.map_err(db)?;
+            personne_tx(&mut conn, etab, personne_id, false)
+                .await?
+                .ok_or(EntDbError::Domain(DomainError::NotFound))?
+        };
+        // R-A18 : adresse (F2) fermée pour un agent en conflit d'intérêts.
+        if self
+            .personnes_en_conflit(etab, actor, role, &[personne_id])
             .await?
-            .ok_or(EntDbError::Domain(DomainError::NotFound))
+            .contains(&personne_id)
+        {
+            personne.adresse = None;
+        }
+        Ok(personne)
     }
 
     /// DOS-03 : créer une personne (avec ou sans compte, sans e-mail possible).

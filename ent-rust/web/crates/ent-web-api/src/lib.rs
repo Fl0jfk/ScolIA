@@ -66,7 +66,7 @@ pub use ent_types::dossier::{
     AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,
     EntreeChronologieDto, FicheEleveDto, LienBody, LienEnAttenteDto, LienEnAttenteEleveDto,
     MonLienEnAttenteDto, PersonneBody, PersonneDto, ProtectionADeclarerDto, ReponseLienBody,
-    ResponsableDto, ResumeSectionsDto, SectionsDto,
+    InterdictionDto, MasquageDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.

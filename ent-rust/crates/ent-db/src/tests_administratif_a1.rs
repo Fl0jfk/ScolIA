@@ -253,6 +253,22 @@ async fn conflit_d_interet_agent_parent_de_l_eleve() {
     assert!(b.masque.iter().any(|m| m.groupe.code() == "F4" && m.raison.code() == "conflit_interet"));
     assert!(traces(&ent, etab, sylvie).await > traces_avant, "accès tracé comme sensible");
 
+    // La recherche et la lecture d'une personne ne contournent pas la règle (adresse = F2).
+    let trouvees = ent.rechercher_personnes_for_actor(etab, sylvie, "administratif", "ParentB").await.unwrap();
+    let b_trouvee = trouvees.iter().find(|t| t.personne.id == dos.pers_b).unwrap();
+    assert!(b_trouvee.personne.adresse.is_none() && b_trouvee.personne.telephone.is_some());
+    let b_lue = ent.get_personne_for_actor(etab, sylvie, "administratif", dos.pers_b).await.unwrap();
+    assert!(b_lue.adresse.is_none());
+    // Sa propre fiche reste lisible en entier.
+    assert!(ent.get_personne_for_actor(etab, sylvie, "administratif", dos.pers_a).await.unwrap().adresse.is_some());
+    let (_, collegue_lecteur) = agent(&ent, etab, Role::Administratif, "Lecteur").await;
+    assert!(ent
+        .get_personne_for_actor(etab, collegue_lecteur, "administratif", dos.pers_b)
+        .await
+        .unwrap()
+        .adresse
+        .is_some());
+
     // Les contacts d'urgence (R) restent lisibles.
     assert!(ent.contacts_eleve_for_actor(etab, sylvie, "administratif", dos.eleve).await.is_ok());
 
