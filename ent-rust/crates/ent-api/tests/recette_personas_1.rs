@@ -614,7 +614,6 @@ fn rp1_c10_eleve_mineur_ne_signe_pas_seul() {
 
 // RP1-03 : Prof 3 (groupe de 2, sans créneau) → fiche de classe 4B et trombi avec Ginny (200).
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-03 : le professeur d'un groupe voit la liste et le trombinoscope de toute la classe (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c03_classe_et_trombi_bornes_au_groupe() {
     lance(async {
         let s = scene!(Scene::classe_mixte(false));
@@ -644,7 +643,6 @@ fn rp1_c03_classe_et_trombi_bornes_au_groupe() {
 
 // RP1-04 : Prof 5 (sans classe) → chronologie et photo de Harry en 200.
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-04 : tout professeur lit la chronologie et la photo de tout élève (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c04_professeur_sans_classe_ne_lit_pas_la_chronologie() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -661,7 +659,6 @@ fn rp1_c04_professeur_sans_classe_ne_lit_pas_la_chronologie() {
 
 // RP1-07 : Compta → journal, alertes CPE, dispenses VS (« asthme »), conseils de Harry en 200.
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-07 : la comptabilité lit la vie scolaire et le suivi de tout élève (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c07_comptabilite_hors_metier() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -686,7 +683,6 @@ fn rp1_c07_comptabilite_hors_metier() {
 
 // RP1-11 : James (père, autre foyer) lisait le fil privé ouvert par Lily (200 avec le message).
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-11 : un parent séparé lit le fil privé ouvert par l'autre parent (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c11_parent_separe_ne_lit_pas_le_fil_de_l_autre_parent() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -769,7 +765,6 @@ fn rp1_c11_parent_separe_ne_lit_pas_le_fil_de_l_autre_parent() {
 
 // RP1-20 : Rogue lit « asthme » (dispenses-vs) et le type de dispositif « pap » (dossier) de Harry.
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-20 : le professeur voit le motif médical et le type de dispositif de Harry hors module santé (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c20_professeur_ne_voit_ni_motif_medical_ni_type_de_dispositif() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -832,7 +827,6 @@ fn rp1_c20_professeur_ne_voit_ni_motif_medical_ni_type_de_dispositif() {
 
 // RP1-27 : Molly → créneaux de rencontre de Ginny : Flitwick (hors groupe) proposé.
 #[test]
-#[ignore = "FAILLE OUVERTE RP1-27 : un professeur de groupe est proposé aux rencontres pour un élève hors du groupe (docs/recette/RECETTE_PERSONAS_1.md)"]
 fn rp1_c27_rencontre_sans_prof_hors_groupe() {
     lance(async {
         let s = scene!(Scene::classe_mixte(true));
@@ -892,5 +886,295 @@ fn rp1_c27_rencontre_sans_prof_hors_groupe() {
             "Flitwick proposé à Molly pour Ginny : {}",
             m.texte
         );
+    });
+}
+
+// ───────────────────────── Fonctions manquantes livrées ─────────────────────────
+
+// RP1-02 : gérer les membres d'un groupe par l'API (droit, périmètre D-022, journal), sans SQL.
+#[test]
+fn rp1_c02_gerer_les_membres_d_un_groupe() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let g = s
+            .req(
+                "POST",
+                "/referentiel/groupes",
+                Some("Direction"),
+                Some(&json!({"code":"4B-ALL","libelle":"4B LV2 allemand","classe_id":s.classe_4b})),
+            )
+            .await;
+        assert!(g.statut.is_success(), "groupe : {}", g.texte);
+        let groupe = uuid(&g.json["id"]);
+        let m = s.req("GET", "/matieres", Some("Direction"), None).await;
+        let matiere = uuid(&m.json.as_array().and_then(|a| a.first()).expect("matière")["id"]);
+        let sv = s
+            .req(
+                "POST",
+                "/referentiel/services",
+                Some("Direction"),
+                Some(&json!({"prof_user_id":s.user("Prof 3"),"groupe_id":groupe,"matiere_id":matiere})),
+            )
+            .await;
+        assert!(sv.statut.is_success(), "service : {}", sv.texte);
+        let (harry, ginny) = (s.eleve("Harry"), s.eleve("Ginny"));
+        let chemin = format!("/referentiel/groupes/{groupe}/membres");
+
+        // Droit : ni le professeur, ni la famille, ni l'élève, ni la comptabilité n'écrivent.
+        for qui in ["Prof 3", "Lily Potter", "Harry", "Compta"] {
+            let r = s
+                .req("POST", &chemin, Some(qui), Some(&json!({"eleve_id":harry})))
+                .await;
+            assert!(r.est_refus(), "{qui} ajoute un membre : {}", r.statut);
+        }
+        // Le secrétariat et la direction gèrent.
+        let r = s
+            .req("POST", &chemin, Some("Administratif"), Some(&json!({"eleve_id":harry})))
+            .await;
+        assert_eq!(r.statut, StatusCode::CREATED, "ajout Harry : {}", r.texte);
+        let r = s
+            .req("POST", &chemin, Some("Direction"), Some(&json!({"eleve_id":harry})))
+            .await;
+        assert_eq!(r.statut, StatusCode::CONFLICT, "doublon : {}", r.texte);
+        let r = s
+            .req("POST", &chemin, Some("Direction"), Some(&json!({"eleve_id":ginny})))
+            .await;
+        assert_eq!(r.statut, StatusCode::CREATED, "ajout Ginny : {}", r.texte);
+
+        // Liste : la direction voit les deux ; le professeur du groupe les deux (ce sont ses
+        // élèves) ; un professeur sans lien aucun.
+        let l = s.req("GET", &chemin, Some("Direction"), None).await;
+        assert_eq!(l.json.as_array().map(Vec::len), Some(2), "membres : {}", l.texte);
+        let l = s.req("GET", &chemin, Some("Prof 3"), None).await;
+        assert!(l.texte.contains(&ginny.to_string()), "Prof 3 : {}", l.texte);
+        let l = s.req("GET", &chemin, Some("Prof 5"), None).await;
+        assert!(
+            !l.texte.contains(&ginny.to_string()) && !l.texte.contains(&harry.to_string()),
+            "Prof 5 voit des membres : {}",
+            l.texte
+        );
+        for qui in ["Lily Potter", "Harry"] {
+            let l = s.req("GET", &chemin, Some(qui), None).await;
+            assert!(l.est_refus(), "{qui} liste les membres : {}", l.statut);
+        }
+
+        // Retrait : l'élève sort du périmètre du professeur de groupe.
+        let r = s
+            .req(
+                "DELETE",
+                &format!("{chemin}/{ginny}?date_fin=2000-01-01"),
+                Some("Direction"),
+                None,
+            )
+            .await;
+        assert_eq!(r.statut, StatusCode::NO_CONTENT, "retrait : {}", r.texte);
+        let l = s.req("GET", &chemin, Some("Direction"), None).await;
+        assert!(!l.texte.contains(&ginny.to_string()), "Ginny reste : {}", l.texte);
+        let r = s
+            .req("DELETE", &format!("{chemin}/{ginny}"), Some("Direction"), None)
+            .await;
+        assert!(r.est_refus(), "second retrait : {}", r.statut);
+
+        // Journal : une ligne par geste, avec l'auteur.
+        let j = s
+            .req("GET", "/audit/journal?domaine=referentiel", Some("Direction"), None)
+            .await;
+        assert!(
+            j.texte.contains("groupe_membre_ajoute") && j.texte.contains("groupe_membre_retire"),
+            "journal de groupe absent : {}",
+            j.texte
+        );
+    });
+}
+
+// RP1-06 : profil de base « personnel » sans droit propre ; les rôles D-017 s'ajoutent au-dessus.
+#[test]
+fn rp1_c06_profil_personnel_minimal() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let harry = s.eleve("Harry");
+        let email = format!("accueil-{}@ent.lab", Uuid::new_v4());
+        let p = s
+            .req(
+                "POST",
+                "/etablissement/personnel",
+                Some("Direction"),
+                Some(&json!({"email":email,"display_name":"Accueil Test","role":"personnel"})),
+            )
+            .await;
+        assert_eq!(p.statut, StatusCode::CREATED, "création : {}", p.texte);
+        let mdp = p.json["mot_de_passe_temporaire"].as_str().expect("mot de passe").to_string();
+        let l = s
+            .appel(
+                "POST",
+                "/auth/login",
+                None,
+                Some(&json!({"email":email,"password":mdp,"etablissement_id":s.etab})),
+            )
+            .await;
+        assert_eq!(l.statut, StatusCode::OK, "connexion : {}", l.texte);
+        let jeton = l.json["token"].as_str().expect("jeton").to_string();
+        let user = uuid(&p.json["user_id"]);
+
+        // Sans rôle : aucune donnée d'élève, aucun outil d'administration.
+        for chemin in [
+            "/audit/journal".to_string(),
+            "/mails".to_string(),
+            "/sms".to_string(),
+            "/facturation/factures".to_string(),
+            "/exports/onde".to_string(),
+            "/documents/grants/pending".to_string(),
+            format!("/dossier/eleves/{harry}/responsables"),
+            format!("/eleves/{harry}/notes"),
+            format!("/eleves/{harry}/absences"),
+            format!("/eleves/{harry}/journal"),
+            format!("/dossier/eleves/{harry}/chronologie"),
+        ] {
+            let r = s.appel("GET", &chemin, Some(&jeton), None).await;
+            assert!(r.est_refus(), "profil minimal lit {chemin} : {}", r.statut);
+        }
+        let decl = json!({"eleve_id":harry,"debut_jour":aujourdhui(),"fin_jour":aujourdhui(),
+            "motif":"maladie","declarant_nom":"Mme Potter","declarant_qualite":"mère"});
+        let r = s
+            .appel("POST", "/vs/declarations/accueil", Some(&jeton), Some(&decl))
+            .await;
+        assert!(r.est_refus(), "déclaration sans rôle : {}", r.statut);
+
+        // Le rôle « Accueil » (absences.declarer) ajoute exactement ce droit.
+        let role = s
+            .req(
+                "POST",
+                "/roles",
+                Some("Direction"),
+                Some(&json!({"nom":"Accueil","droits":[{"action":"absences.declarer","portee":"etablissement"}]})),
+            )
+            .await;
+        assert!(role.statut.is_success(), "rôle : {}", role.texte);
+        let rid = uuid(&role.json["id"]);
+        let a = s
+            .req("PUT", &format!("/roles/{rid}/membres/{user}"), Some("Direction"), Some(&json!({})))
+            .await;
+        assert_eq!(a.statut, StatusCode::NO_CONTENT, "attribution : {}", a.texte);
+        let r = s
+            .appel("POST", "/vs/declarations/accueil", Some(&jeton), Some(&decl))
+            .await;
+        assert_eq!(r.statut, StatusCode::CREATED, "déclaration avec rôle : {}", r.texte);
+        for chemin in ["/audit/journal", "/facturation/factures", "/exports/onde"] {
+            let r = s.appel("GET", chemin, Some(&jeton), None).await;
+            assert!(r.est_refus(), "le rôle Accueil ouvre {chemin} : {}", r.statut);
+        }
+        let r = s
+            .appel("GET", &format!("/eleves/{harry}/notes"), Some(&jeton), None)
+            .await;
+        assert!(r.est_refus(), "le rôle Accueil lit les notes : {}", r.statut);
+    });
+}
+
+// RP1-11 (suite) : relances de facture et documents de famille ne passent pas d'un foyer à l'autre.
+#[test]
+fn rp1_c11_bis_documents_famille_cloisonnes_par_foyer() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let harry = s.eleve("Harry");
+        let pool = s.pool().await;
+        // Un second foyer (James) et un document de famille déposé par Lily.
+        let f = s
+            .req("POST", "/foyers", Some("Administratif"), Some(&json!({"libelle":"Foyer James"})))
+            .await;
+        let foyer = uuid(&f.json["id"]);
+        let email = format!("james-{}@ent.lab", Uuid::new_v4());
+        let l = s
+            .req(
+                "POST",
+                &format!("/foyers/{foyer}/liens"),
+                Some("Administratif"),
+                Some(&json!({"eleve_id":harry,"email":email,"display_name":"James Potter","lien":"père",
+                    "peut_voir_notes":true,"peut_voir_vs":true,"peut_justifier_absence":true,
+                    "peut_autoriser_sorties":false,"est_payeur":false})),
+            )
+            .await;
+        assert_eq!(l.statut, StatusCode::CREATED, "lien : {}", l.texte);
+        sqlx::query("UPDATE ent_user SET password_hash = (SELECT password_hash FROM ent_user WHERE email = $1) WHERE email = $2")
+            .bind(s.email("Lily Potter"))
+            .bind(&email)
+            .execute(&pool)
+            .await
+            .expect("mot de passe de James");
+        let jeton_james = s.connecter(&email).await;
+        let lily = s.user("Lily Potter");
+        let doc = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_eleve_document (id, etablissement_id, eleve_id, tiroir, titre, confidentialite, source, created_by_user_id)
+             VALUES ($1,$2,$3,'famille','Justificatif de domicile — nouvelle adresse','standard','depot_famille',$4)",
+        )
+        .bind(doc)
+        .bind(s.etab)
+        .bind(harry)
+        .bind(lily)
+        .execute(&pool)
+        .await
+        .expect("document de Lily");
+        // Une relance de facture adressée aux payeurs du foyer de Lily.
+        let fil = Uuid::new_v4();
+        let (foyer_lily, payeuse): (Uuid, bool) = sqlx::query_as(
+            "SELECT l.foyer_id, l.est_payeur FROM ent_eleve_lien l JOIN ent_user u ON u.id = l.user_id
+              WHERE u.email = $1 AND l.eleve_id = $2",
+        )
+        .bind(s.email("Lily Potter"))
+        .bind(harry)
+        .fetch_one(&pool)
+        .await
+        .expect("foyer de Lily");
+        assert!(payeuse, "Lily doit être payeuse dans le labo");
+        sqlx::query(
+            "INSERT INTO ent_msg_fil (id, etablissement_id, eleve_id, sujet, created_by_user_id, foyer_id)
+             VALUES ($1,$2,$3,'Relance facture LAB-TEST',$4,$5)",
+        )
+        .bind(fil)
+        .bind(s.etab)
+        .bind(harry)
+        .bind(s.user("Direction"))
+        .bind(foyer_lily)
+        .execute(&pool)
+        .await
+        .expect("fil de relance");
+        pool.close().await;
+        let liste = s.req("GET", "/messages/fils", Some("Lily Potter"), None).await;
+        assert!(liste.texte.contains(&fil.to_string()), "Lily ne voit pas sa relance : {}", liste.texte);
+        let liste = s.appel("GET", "/messages/fils", Some(&jeton_james), None).await;
+        assert!(!liste.texte.contains(&fil.to_string()), "James voit la relance de Lily : {}", liste.texte);
+        let g = s
+            .appel("GET", &format!("/messages/fils/{fil}"), Some(&jeton_james), None)
+            .await;
+        assert!(g.est_refus(), "James lit la relance de Lily : {}", g.statut);
+        let chez_lily = s
+            .req("GET", &format!("/eleves/{harry}/documents"), Some("Lily Potter"), None)
+            .await;
+        assert!(chez_lily.texte.contains("nouvelle adresse"), "Lily ne voit pas son document : {}", chez_lily.texte);
+        let chez_james = s
+            .appel("GET", &format!("/eleves/{harry}/documents"), Some(&jeton_james), None)
+            .await;
+        assert!(
+            !chez_james.texte.contains("nouvelle adresse") && !chez_james.texte.contains(&doc.to_string()),
+            "James voit le document de Lily : {}",
+            chez_james.texte
+        );
+    });
+}
+
+// RP1-30 : les types de punition existent dès le premier jour (amorçage automatique).
+#[test]
+fn rp1_c30_types_de_punition_amorces_pour_la_vie_scolaire() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let t = s.req("GET", "/vs/punition-types", Some("CPE"), None).await;
+        assert!(t.statut.is_success(), "types : {} {}", t.statut, t.texte);
+        assert!(
+            t.json.as_array().is_some_and(|a| a.len() >= 4),
+            "aucun type de punition pour la CPE le premier jour : {}",
+            t.texte
+        );
+        let encore = s.req("GET", "/vs/punition-types", Some("CPE"), None).await;
+        assert_eq!(t.json, encore.json, "l'amorçage doit être idempotent");
     });
 }

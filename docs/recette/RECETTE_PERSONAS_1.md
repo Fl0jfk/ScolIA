@@ -1,6 +1,6 @@
 # Recette par personas n° 1 — sur le logiciel réel
 
-**Date :** 2026-11-07 — **Branche :** `ent-recette-personas-1` (base `ent-integration-lot7` + documentation `ent-mc0hoe`) — **Statut :** recette faite, correctifs partiels, **à relire par Florian**.
+**Date :** 2026-11-07 — **Branche :** `ent-recette-personas-1` (base `ent-integration-lot7` + documentation `ent-mc0hoe`) — **Statut :** recette faite ; six failles ouvertes fermées et manques RP1-02 / RP1-06 livrés dans `ent-recette-1-correctifs` (2026-11-07) ; **à relire par Florian**.
 **Méthode (D-021, étape 4) :** serveur `ent-api` compilé avec la feature `labo`, lancé en local (`ENT_ENV=lab`, `ENT_ALLOW_LABO=1`) sur une base PostgreSQL 16 locale jetable (`ent_recette_lab`) ; deux établissements de labo (A et B) créés par `POST /labo/bootstrap` ; toutes les actions jouées **par l'API HTTP réelle** (client Python `urllib`, jetons Bearer), comme le ferait l'interface. Aucune base, aucun secret, aucun déploiement de production ; Next.js non touché.
 **Écrans Leptos** : non joués dans un navigateur cette fois (les écrans `/web/*` appellent les mêmes routes ; la recette visuelle — clavier, 375 px, lecteur d'écran — reste à faire).
 
@@ -111,7 +111,7 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP1-11 — faille, élevée — Parents séparés : le second parent lit les fils privés et les relances de l'autre.**
 *Preuve* : Lily → `POST /messages/fils {"eleve_id":"<Harry>","sujet":"Situation familiale — confidentiel","message":"… notre déménagement au 4 rue des Lilas."}` → 201. James (autre foyer) → `GET /messages/fils` → ce fil + « Relance facture LAB-HARRY-2 » (foyer de Lily) ; `GET /messages/fils/{id}` → 200 avec le message. Les coordonnées de Lily sont bien masquées dans `/dossier/eleves/{H}/responsables`. Les fils sont rattachés à l'élève, pas à la personne (RF-34, décision produit en attente).
-**Test ajouté en échec** : `rp1_c11_parent_separe_ne_lit_pas_le_fil_de_l_autre_parent`. Proposition : un fil ouvert par un responsable n'est visible que de lui et du personnel ; un fil ouvert par le personnel « à la famille » vise des responsables nommés ; les relances de facture ne vont qu'aux payeurs du foyer concerné. À décider avec Florian (Q-RP1-1).
+**Corrigé + test** (décision du pilote, D-014 et minimisation : *un responsable ne lit que les fils auxquels il participe et les documents de son propre foyer*). Migration 375 : `ent_msg_fil.prive_user_id` (fil ouvert par un responsable : privé entre lui et l'établissement ; l'élève ne le lit pas non plus) et `ent_msg_fil.foyer_id` (relance de facture : lisible des seuls **payeurs actifs** du foyer, jamais d'un élève) ; rattrapage des fils existants dans la migration. Un fil ouvert par l'établissement (carnet, alerte d'assiduité) reste visible de chaque responsable de l'élève. Contrôle unique `actor_can_access_fil` (lecture, réponse, pièce, archivage, classement) et filtre des listes ; les notifications push d'un fil privé ou de foyer ne vont qu'à ses destinataires ; les e-mails de facture et de quittance ne vont qu'aux payeurs du foyer ; un document du tiroir « famille » déposé par un responsable n'est lisible (ni listé) que des responsables du même foyer. Tests : `rp1_c11_parent_separe_ne_lit_pas_le_fil_de_l_autre_parent`, `rp1_c11_bis_documents_famille_cloisonnes_par_foyer` (relance + document). **Reste** : les événements `msg_fil_ouvert` (sujet du fil) alimentent la chronologie du personnel, jamais celle de la famille ; à vérifier au socle 4 si la chronologie s'ouvre aux familles.
 
 **RP1-21 — faille, élevée — Le professeur voit le motif judiciaire d'une suspension de lien et les payeurs (RF-16).**
 *Preuve* : direction → `POST /dossier/liens/{lien James}/suspendre {"motif":"ordonnance de protection","reference":"JAF 2026/123"}` → 200 ; Rogue → `GET /dossier/eleves/{Harry}/fiche` → `…"suspension_motif":"ordonnance de protection","suspension_reference":"JAF 2026/123",…"est_payeur":true,"part_paiement":100`.
@@ -135,23 +135,23 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP1-03 — faille, moyenne — Le professeur d'un groupe voit la liste et le trombinoscope de toute la classe.**
 *Preuve* : Flitwick → `GET /referentiel/classes/{4B}` → `eleves` : Hermione, Harry, Ginny ; `GET /classes/4B/trombi` → les trois photos. Aussi Prof 5 (sans classe) et la comptabilité.
-**Test ajouté en échec** : `rp1_c03_classe_et_trombi_bornes_au_groupe`.
+**Corrigé + test** : `PgEnt::eleves_suivis_restreints` (action `suivi_eleve` : `None` = établissement, sinon l'ensemble des élèves suivis ; vide pour la comptabilité) filtre `GET /referentiel/classes/{id}`, `GET /classes/{classe}/trombi` et `GET /classes/{classe}/effectif` ; test `rp1_c03_classe_et_trombi_bornes_au_groupe`.
 
 **RP1-04 — faille, moyenne — Tout professeur lit la fiche d'identité de tout élève.**
 *Preuve* : Prof 5 (sans classe) → `GET /eleves/{Draco}`, `/eleves/{id}/dossier` (sections identité, scolarité, options), `/dossier/eleves/{id}/fiche`, `/dossier/eleves/{id}/chronologie` (« Photo mise à jour », « Passage dans l'année suivante »…), `/eleves/{id}/photo`, `/eleves/{id}/edt`, `/eleves/{id}/periodes`, `/classes/5A/trombi`, `/eleves/search`, `/eleves/labels` → 200. Les sections sensibles (notes, VS, famille, documents) sont bien masquées. C'est un « annuaire » plus large que D-022 (« toute donnée élève ») : à trancher (Q-RP1-2) — annuaire minimal (nom, classe) pour tout le personnel, fiche et chronologie pour les seuls élèves suivis.
-**Test ajouté en échec** : `rp1_c04_professeur_sans_classe_ne_lit_pas_la_chronologie` (borne la chronologie et la photo, pas l'annuaire).
+**Corrigé + test pour la chronologie et la photo** : `chronologie_eleve_for_actor` et `photo_cle_for_actor` passent par `exiger_perimetre_prof` (action `suivi_eleve`) ; test `rp1_c04_professeur_sans_classe_ne_lit_pas_la_chronologie`. **Reste ouvert (Q-RP1-2, décision attendue)** : l'« annuaire » (`/eleves/{id}`, `/eleves/search`, `/eleves/labels`, `/eleves/{id}/dossier` identité) reste lisible de tout professeur ; ce n'est pas une régression, mais plus large que D-022.
 
 **RP1-07 — faille, moyenne — La comptabilité lit la vie scolaire et le suivi de tout élève.**
 *Preuve* : Compta → `GET /eleves/{Harry}/journal` (« Consultation du PAI »…), `/eleves/{Harry}/alertes-cpe`, `/eleves/{Harry}/dispenses-vs` (« dispense EPS (asthme, certificat médical) »), `/eleves/{Harry}/conseils` (appréciation et décision du conseil), `/eleves/{Harry}/docs-a-signer`, `/eleves/{Harry}/sorties`, `/eleves/{Harry}/internat`, `/dossier/eleves/{Harry}/chronologie`, `/classes/4B/effectif` → 200. Ses besoins : factures, repas, bourses, payeurs.
-**Test ajouté en échec** : `rp1_c07_comptabilite_hors_metier`.
+**Corrigé + test** : `ent-auth/src/actions.rs` (modèle par défaut) — la comptabilité n'a plus `suivi_eleve` ni `journal.lire` (elle garde `dossier.lire`, `facturation.*`, `bourses.*`, `repas.*`, `payeurs.definir`). Conséquences : journal, alertes CPE, dispenses VS, conseils, documents à signer, sorties, internat, chronologie, photo, effectif et trombinoscope lui sont refusés ou vides. Test `rp1_c07_comptabilite_hors_metier`. Un rôle D-017 peut toujours rendre ces droits à un compte comptabilité précis.
 
 **RP1-20 — faille, moyenne — Données de santé en clair hors du module santé fermé.**
 *Preuve* : Rogue (professeur de la classe), CPE, infirmerie, parent, élève → `GET /eleves/{Harry}/dispenses-vs` → `"commentaire":"Seed audit — dispense EPS (asthme, certificat médical)."` ; `GET /eleves/{Harry}/journal` → « Consultation du PAI », « … dossier psychologue » ; `GET /eleves/{Harry}/dossier` → `dispositifs: [{"kind":"pap","libelle":"Plan d'accompagnement personnalisé"}]` pour le professeur (la règle S2-11 ne lui donne que des aménagements, jamais le type de dispositif). Lié à RF-15 / RF-18.
-**Test ajouté en échec** : `rp1_c20_professeur_ne_voit_ni_motif_medical_ni_type_de_dispositif`.
+**Corrigé + test** : (1) fiche d'un élève suivi par un professeur : `dispositifs` retiré (`dossier_sections_for_actor`) ; les aménagements restent servis par la règle S2-11 ; (2) dispenses VS : commentaire libre vidé et motif « médical » ramené à « autre » pour le personnel hors direction, CPE, infirmerie, psychologue ; (3) journal d'un élève : les traces `consultation` (« Consultation du PAI »…) ne sont servies qu'avec `audit.lire`. Test `rp1_c20_professeur_ne_voit_ni_motif_medical_ni_type_de_dispositif`. **Reste** : la CPE voit toujours le commentaire de dispense (elle gère les dispenses).
 
 **RP1-27 — faille, moyenne — Rencontres parents-professeurs : un professeur de groupe est proposé pour un élève hors du groupe.**
 *Preuve* : Molly → `GET /famille/rencontres/{rencontre 4B}/enfants/{Ginny}/creneaux` → Flitwick et Rogue (Ginny n'est pas dans le groupe de Flitwick) ; réservation possible. Même cause que RP1-23 (liste des enseignants par classe).
-**Test ajouté en échec** : `rp1_c27_rencontre_sans_prof_hors_groupe`.
+**Corrigé + test** : `ent-db/src/rencontres.rs` (`enseignants_de_eleve`) — côté famille (créneaux proposés et réservation), un enseignant d'un groupe n'est proposé que si l'enfant y est affecté aujourd'hui ; la vue de gestion de la direction garde tous les enseignants de la classe. Test `rp1_c27_rencontre_sans_prof_hors_groupe`.
 
 **RP1-08 — faille, faible — Réponses « par défaut » pour un élève d'un autre établissement.**
 *Preuve* : direction B → `GET /eleves/{Harry de A}/absent?jour=…` → 200 `{"absent":false}` ; `/points-vs` → `{"solde":20,"depart":20}` ; `/sorties` → `{"autorisation":null}`. Rien ne fuit, mais la réponse diffère d'un refus (oracle d'existence faible). **Signalé.**
@@ -167,9 +167,9 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 ### 3.2 Fonctions manquantes
 
-**RP1-02 — manque, élevée — Mettre un élève dans un groupe.** Aucune route n'appelle `referentiel_affecter_eleve_groupe` (seuls des tests l'utilisent) ; l'import n'écrit que la classe. Sans cela, pas de LV2, d'options ni d'ateliers, donc pas de D-022. *Preuve* : grep du dépôt ; la recette a dû écrire `ent_affectation` en base de labo. **Signalé** (à livrer avec le socle 5, lot S1 ; c'est un préalable de tout pilote).
+**RP1-02 — manque, élevée — Mettre un élève dans un groupe. [LIVRÉ]** Aucune route n'appelle `referentiel_affecter_eleve_groupe` (seuls des tests l'utilisent) ; l'import n'écrit que la classe. Sans cela, pas de LV2, d'options ni d'ateliers, donc pas de D-022. *Preuve* : grep du dépôt ; la recette a dû écrire `ent_affectation` en base de labo. **Livré** : `GET|POST /referentiel/groupes/{id}/membres`, `DELETE /referentiel/groupes/{id}/membres/{eleve_id}?date_fin=` ; écriture = action `referentiel.gerer` (direction, admin, secrétariat ; ni professeur, ni comptabilité, ni famille, ni élève) ; lecture = `referentiel.lire` bornée aux élèves suivis (un professeur ne liste que ses élèves) ; 409 sur doublon, 404 hors établissement ; année verrouillée respectée ; chaque ajout et retrait écrit dans le journal (`domaine=referentiel`, `groupe_membre_ajoute` / `groupe_membre_retire`, auteur, groupe, date d'effet). Test `rp1_c02_gerer_les_membres_d_un_groupe` ; matrice d'isolation (`separation.rs`) : routes inventoriées, 401 sans session, groupe et élève d'un autre établissement, comptes famille / élève / compta / professeur refusés. **Non fait** : vérifier que l'élève appartient à la classe du groupe (la classe est encore en partie un texte, voir `perimetre.rs`) ; affectation en masse (import) ; interface Leptos.
 
-**RP1-06 — manque, élevée — Profil de base minimal pour l'accueil, les AED, les agents.** `POST /etablissement/personnel` n'accepte que les dix profils historiques (`agent`, `aed` → 403) ; un rôle D-017 n'ajoute que des droits. *Preuve* : l'accueil créé en `administratif` + rôle « Accueil » lit `/audit/journal`, `/mails`, `/sms`, `/facturation/factures`, `/exports/onde`, `/documents/grants/pending`, `/dossier/eleves/{id}/responsables` (200 partout) ; l'AED créé en `cpe` lit les notes de tout élève. **Signalé** (proposition : profil « personnel » sans aucun droit propre, droits entièrement portés par les rôles ; à placer au socle 6, lot P0).
+**RP1-06 — manque, élevée — Profil de base minimal pour l'accueil, les AED, les agents. [LIVRÉ]** `POST /etablissement/personnel` n'accepte que les dix profils historiques (`agent`, `aed` → 403) ; un rôle D-017 n'ajoute que des droits. *Preuve* : l'accueil créé en `administratif` + rôle « Accueil » lit `/audit/journal`, `/mails`, `/sms`, `/facturation/factures`, `/exports/onde`, `/documents/grants/pending`, `/dossier/eleves/{id}/responsables` (200 partout) ; l'AED créé en `cpe` lit les notes de tout élève. **Livré** : nouveau profil `personnel` (`Role::Personnel`, `POST /etablissement/personnel {"role":"personnel"}`) **sans aucun droit propre** : `modele_par_defaut` est vide, tous les `can_*` historiques sont faux ; les rôles D-017 ajoutent les droits (ex. « Accueil » = `absences.declarer`, « AED » = appel, absences, punitions, sorties). Test `rp1_c06_profil_personnel_minimal` : sans rôle, refus partout (journal d'audit, e-mails, SMS, factures, ONDE, demandes d'accès, responsables, notes, absences, journal, chronologie, déclaration d'absence) ; avec le rôle « Accueil », la déclaration devient possible et rien d'autre. **À noter** : l'interface historique (`ui.rs`, F-001) n'est pas étendue ; les profils `agent` / `aed` restent refusés (le nom de profil est `personnel`, le métier est porté par le rôle). Le socle 6 (lot P0) reprendra ce profil comme base de ses modèles de rôle.
 
 **RP1-29 — manque, élevée — Certificat de scolarité et éditions prêtes.** Aucune route de certificat (`/eleves/{id}/certificat*` → 404) ; `GET /editions-vs` → `[]` (les modèles sont à écrire de zéro). Charlemagne : certificat en un clic, courriers types. Contraire à D-023 (trames prêtes). **Signalé** (socle 7).
 
@@ -177,7 +177,7 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP1-28 — manque, moyenne — Le professeur ne voit pas les consentements de sa classe.** Rogue → `GET /consentements/droit_image/classes/{4B}` → 403, `/formulaires/{id}/resultats` → 403 : il ne sait pas qui refuse la photo avant un projet. **Signalé.**
 
-**RP1-30 — manque, moyenne — Types de punition absents à l'ouverture, la CPE ne peut pas les poser.** `GET /vs/punition-types` → `[]` ; CPE → `POST /vs/punition-types/amorcer` → 403 (direction seulement) : aucune punition possible le premier jour. **Signalé** (amorçage automatique à la création de l'établissement, D-023).
+**RP1-30 — manque, moyenne — Types de punition absents à l'ouverture, la CPE ne peut pas les poser. [CORRIGÉ]** `GET /vs/punition-types` → `[]` ; CPE → `POST /vs/punition-types/amorcer` → 403 (direction seulement) : aucune punition possible le premier jour. **Corrigé + test** : `GET /vs/punition-types` amorce les quatre types par défaut s'il n'y en a aucun (`types_punition_ou_amorce`, idempotent) ; l'amorçage explicite reste réservé à la direction ; test `rp1_c30_types_de_punition_amorces_pour_la_vie_scolaire`.
 
 ### 3.3 Défauts
 
@@ -213,12 +213,15 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 | RP1-05 | moyenne | corrigé + test | `service.rs` (`list_documents_meta_eleve_for_actor`) | `tests_recette_personas::rp1_c05_…` |
 | RP1-09 | moyenne | corrigé + test | `service.rs` (`actor_can_declare_absence`) | `tests_recette_personas::rp1_c09_…` |
 | RP1-10 | moyenne | corrigé + test | `service.rs` (`signer_doc_a_signer_for_actor`) | `recette_personas_1::rp1_c10_…` |
-| RP1-11 | élevée | **test en échec** (`#[ignore]`) | — (décision Q-RP1-1) | `rp1_c11_…` |
-| RP1-03 | moyenne | **test en échec** | — | `rp1_c03_…` |
-| RP1-04 | moyenne | **test en échec** | — (décision Q-RP1-2) | `rp1_c04_…` |
-| RP1-07 | moyenne | **test en échec** | — | `rp1_c07_…` |
-| RP1-20 | moyenne | **test en échec** | — | `rp1_c20_…` |
-| RP1-27 | moyenne | **test en échec** | — | `rp1_c27_…` |
+| RP1-11 | élevée | corrigé + test (décision du pilote) | `ent-db/src/msg_repo.rs`, `service.rs`, `foyer_repo.rs`, migration 375 | `rp1_c11_…`, `rp1_c11_bis_…` |
+| RP1-03 | moyenne | corrigé + test | `service.rs` (`eleves_suivis_restreints`), `routes.rs`, `referentiel.rs` | `rp1_c03_…` |
+| RP1-04 | moyenne | corrigé + test (chronologie, photo) ; annuaire : décision Q-RP1-2 | `dossier_personnes.rs`, `service.rs` | `rp1_c04_…` |
+| RP1-07 | moyenne | corrigé + test | `ent-auth/src/actions.rs` | `rp1_c07_…` |
+| RP1-20 | moyenne | corrigé + test | `service.rs` | `rp1_c20_…` |
+| RP1-27 | moyenne | corrigé + test | `ent-db/src/rencontres.rs` | `rp1_c27_…` |
+| RP1-02 | élevée (manque) | livré + test | `referentiel_repo.rs`, `ent-api/src/referentiel.rs` | `rp1_c02_…`, matrice `separation.rs` |
+| RP1-06 | élevée (manque) | livré + test | `ent-auth/src/roles.rs` | `rp1_c06_…` |
+| RP1-30 | moyenne (manque) | corrigé + test | `discipline_vs.rs` | `rp1_c30_…` |
 | autres | — | signalés | — | — |
 
 **Tests existants adaptés** (ils encodaient l'ancien comportement, aucun supprimé ni désactivé) : `tests_revue_finale::rf04d` (un professeur est désormais refusé aussi pour sa propre classe en LSL / LSUN) ; matrice `ent-api/tests/separation.rs`, ligne « documents-liste » (élève non lié : `STAFF_HORS_PROF`, comme la ligne « journal ») ; scénarios `ent-db/src/scenarios.rs` et `ent-lab/src/main.rs` (exports faits par l'administratif au lieu du professeur).

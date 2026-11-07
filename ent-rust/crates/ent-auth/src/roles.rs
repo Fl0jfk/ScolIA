@@ -15,6 +15,9 @@ pub enum Role {
     Prof,
     Infirmerie,
     Psy,
+    /// Profil de base **minimal** (RP1-06) : accueil, AED, agent, intendance. Aucun droit
+    /// propre ; tout vient des rôles paramétrables (D-017) qui s'ajoutent au-dessus.
+    Personnel,
     Parent,
     Eleve,
 }
@@ -30,6 +33,7 @@ impl Role {
             Self::Prof => "prof",
             Self::Infirmerie => "infirmerie",
             Self::Psy => "psy",
+            Self::Personnel => "personnel",
             Self::Parent => "parent",
             Self::Eleve => "eleve",
         }
@@ -45,6 +49,7 @@ impl Role {
             "prof" | "enseignant" => Some(Self::Prof),
             "infirmerie" | "infirmiere" | "infirmier" => Some(Self::Infirmerie),
             "psy" | "psychologue" => Some(Self::Psy),
+            "personnel" => Some(Self::Personnel),
             "parent" => Some(Self::Parent),
             "eleve" => Some(Self::Eleve),
             "staff" => Some(Self::Administratif),

@@ -937,6 +937,8 @@ impl PgEnt {
         limite: usize,
     ) -> Result<Vec<EntreeChronologie>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        // RP1-04 : la chronologie n'est lue que par le personnel qui suit l'élève.
+        self.exiger_perimetre_prof(etab, actor, role, eleve_id).await?;
         if self
             .get_eleve_for_actor(etab, actor, role, eleve_id)
             .await?

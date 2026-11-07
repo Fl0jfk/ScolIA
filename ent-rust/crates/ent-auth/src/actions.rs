@@ -582,9 +582,13 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_read_all_eleves() {
         d.push(etab(DossierLire));
-        d.push(etab(SuiviEleve));
+        // RP1-07 : la comptabilité n'a aucun besoin de la vie scolaire ni du suivi
+        // (journal, alertes CPE, dispenses, conseils, sorties, internat, chronologie).
+        if role != Role::Compta {
+            d.push(etab(SuiviEleve));
+        }
     }
-    if role.can_read_all_eleves() || role.can_manage_eleves() {
+    if (role.can_read_all_eleves() || role.can_manage_eleves()) && role != Role::Compta {
         d.push(etab(JournalLire));
     }
     if matches!(

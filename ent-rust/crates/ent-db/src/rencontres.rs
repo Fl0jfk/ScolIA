@@ -501,7 +501,8 @@ impl PgEnt {
         if r.statut != "ouverte" {
             return Err(EntDbError::ConflitDossier("la prise de rendez-vous n'est pas ouverte"));
         }
-        let profs = enseignants_de(self.pool(), etab, r.classe_id).await?;
+        // RP1-27 : seulement les enseignants qui ont CET enfant (classe entière ou son groupe).
+        let profs = enseignants_de_eleve(self.pool(), etab, r.classe_id, eleve_id).await?;
         let rows: Vec<(Uuid, Uuid, DateTime<Utc>, DateTime<Utc>, String, Option<Uuid>, Option<Uuid>)> =
             sqlx::query_as(
                 "SELECT id, enseignant_user_id, debut, fin, statut, reserve_par_user_id, eleve_id
@@ -563,7 +564,7 @@ impl PgEnt {
         if r.statut != "ouverte" {
             return Err(EntDbError::ConflitDossier("la prise de rendez-vous n'est pas ouverte"));
         }
-        let profs = enseignants_de(self.pool(), etab, r.classe_id).await?;
+        let profs = enseignants_de_eleve(self.pool(), etab, r.classe_id, eleve_id).await?;
         if !profs.iter().any(|(id, _, _)| *id == enseignant) {
             return Err(EntDbError::SaisieInvalide("cet enseignant n'a pas votre enfant en classe"));
         }
@@ -767,6 +768,43 @@ async fn enseignants_de(
     )
     .bind(etab)
     .bind(classe_id)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, nom, m)| (id, nom.unwrap_or_else(|| "(enseignant)".into()), m.unwrap_or_default()))
+        .collect())
+}
+
+/// Enseignants (id, nom, matières) qui ont **cet élève** : service de la classe entière, ou
+/// service d'un groupe de la classe auquel l'élève est affecté aujourd'hui (D-022, RP1-27).
+async fn enseignants_de_eleve(
+    pool: &sqlx::PgPool,
+    etab: Uuid,
+    classe_id: Uuid,
+    eleve_id: Uuid,
+) -> Result<Vec<(Uuid, String, String)>, EntDbError> {
+    let rows: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT s.prof_user_id, max(u.display_name),
+                string_agg(DISTINCT NULLIF(s.matiere_libelle, ''), ', ')
+           FROM ent_service_enseignement s
+           JOIN ent_user u ON u.id = s.prof_user_id
+           LEFT JOIN ent_groupe g ON g.id = s.groupe_id AND g.etablissement_id = s.etablissement_id
+          WHERE s.etablissement_id = $1
+            AND (s.classe_id = $2
+                 OR (g.classe_id = $2
+                     AND EXISTS (SELECT 1 FROM ent_affectation a
+                                  WHERE a.etablissement_id = s.etablissement_id
+                                    AND a.eleve_id = $3 AND a.groupe_id = s.groupe_id
+                                    AND a.date_debut <= CURRENT_DATE
+                                    AND (a.date_fin IS NULL OR a.date_fin >= CURRENT_DATE))))
+          GROUP BY s.prof_user_id
+          ORDER BY max(u.display_name) NULLS LAST, s.prof_user_id",
+    )
+    .bind(etab)
+    .bind(classe_id)
+    .bind(eleve_id)
     .fetch_all(pool)
     .await
     .map_err(db)?;

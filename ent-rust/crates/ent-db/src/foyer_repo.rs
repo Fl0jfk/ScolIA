@@ -562,6 +562,68 @@ impl PgFoyerRepo {
         Ok(row.map(LienRow::into_lien))
     }
 
+    /// Un document déposé par `createur` est-il lisible du responsable `lecteur` ? (D-014,
+    /// RP1-11) : oui si le déposant n'est pas un responsable (établissement, élève), si c'est
+    /// le lecteur, ou si les deux responsables sont dans le **même foyer** pour cet élève.
+    pub async fn document_famille_lisible(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        createur: Option<Uuid>,
+        lecteur: Uuid,
+    ) -> Result<bool, DomainError> {
+        let Some(createur) = createur else {
+            return Ok(true);
+        };
+        if createur == lecteur {
+            return Ok(true);
+        }
+        let (ok,): (bool,) = sqlx::query_as(
+            r#"
+            SELECT NOT EXISTS (SELECT 1 FROM ent_membership m
+                                WHERE m.user_id = $3 AND m.etablissement_id = $1 AND m.role = 'parent')
+                OR EXISTS (SELECT 1 FROM ent_eleve_lien a
+                             JOIN ent_eleve_lien b
+                               ON b.etablissement_id = a.etablissement_id
+                              AND b.eleve_id = a.eleve_id AND b.foyer_id = a.foyer_id
+                            WHERE a.etablissement_id = $1 AND a.eleve_id = $2
+                              AND a.user_id = $3 AND b.user_id = $4)
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(createur)
+        .bind(lecteur)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ok)
+    }
+
+    /// E-mails des **payeurs actifs** d'un foyer (facture, quittance : D-014).
+    pub async fn emails_payeurs_foyer(
+        &self,
+        etablissement_id: Uuid,
+        foyer_id: Uuid,
+    ) -> Result<Vec<String>, DomainError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"
+            SELECT DISTINCT u.email
+            FROM ent_eleve_lien_actif l
+            JOIN ent_user u ON u.id = l.user_id
+            WHERE l.etablissement_id = $1 AND l.foyer_id = $2 AND l.est_payeur
+              AND u.email IS NOT NULL AND trim(u.email) <> ''
+            ORDER BY u.email
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(foyer_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(|(e,)| e).collect())
+    }
+
     /// E-mails des responsables liés à l'élève (portail famille).
     pub async fn emails_parents_eleve(
         &self,

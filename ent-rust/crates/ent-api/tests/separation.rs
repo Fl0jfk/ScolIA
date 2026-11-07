@@ -537,6 +537,9 @@ fn invariant_inventaire_couvre_tous_les_fichiers_de_routes() {
         ("GET", "/etablissement/domaines"),
         ("PUT", "/referentiel/groupes/{id}/responsables"),
         ("POST", "/referentiel/services"),
+        ("GET", "/referentiel/groupes/{id}/membres"),
+        ("POST", "/referentiel/groupes/{id}/membres"),
+        ("DELETE", "/referentiel/groupes/{id}/membres/{eleve_id}"),
     ] {
         assert!(r.iter().any(|x| x.methode == m && x.chemin == p), "route attendue absente de l'inventaire : {m} {p}");
     }
@@ -1562,6 +1565,44 @@ fn c6_colonnes_user_id_du_client_hors_etablissement_refusees() {
         } else {
             echecs.push(format!("préparation : création de groupe impossible ({} {})", g.statut, g.texte));
         }
+        // RP1-02 : membres de groupe. Un groupe de B manipulé depuis A, un élève de B mis dans un
+        // groupe de A, et les comptes famille / élève sans aucun droit de gestion.
+        let gb = m.appel("POST", "/referentiel/groupes", Some(b.jetons[&Direction].as_str()), Some(&json!({
+            "annee_id": id_premier(&json_de(m, b.jetons[&Direction].as_str(), "/referentiel/annees").await),
+            "code": format!("GB{}", &Uuid::new_v4().simple().to_string()[..6]), "libelle": "atelier B"}))).await;
+        if gb.est_succes() {
+            let gbid = gb.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("GET", &format!("/referentiel/groupes/{gbid}/membres"), Some(dir_a), None).await;
+            exige_refus(&mut echecs, "groupe: membres d'un groupe de B (lecture)", &r);
+            let r = m.appel("POST", &format!("/referentiel/groupes/{gbid}/membres"), Some(dir_a),
+                Some(&json!({"eleve_id": a.objets.eleve}))).await;
+            exige_refus(&mut echecs, "groupe: ajout dans un groupe de B", &r);
+            let r = m.appel("DELETE", &format!("/referentiel/groupes/{gbid}/membres/{}", a.objets.eleve), Some(dir_a), None).await;
+            exige_refus(&mut echecs, "groupe: retrait d'un groupe de B", &r);
+            cas += 3;
+        }
+        if g.est_succes() {
+            let gid = g.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("POST", &format!("/referentiel/groupes/{gid}/membres"), Some(dir_a),
+                Some(&json!({"eleve_id": b.objets.eleve}))).await;
+            exige_refus(&mut echecs, "groupe: élève de B dans un groupe de A", &r);
+            cas += 1;
+            for (acteur, nom) in [(Parent, "parent"), (Eleve, "élève"), (Compta, "compta"), (Prof, "professeur")] {
+                for (meth, chemin, corps) in [
+                    ("POST", format!("/referentiel/groupes/{gid}/membres"), Some(json!({"eleve_id": a.objets.eleve}))),
+                    ("DELETE", format!("/referentiel/groupes/{gid}/membres/{}", a.objets.eleve), None),
+                ] {
+                    let r = m.appel(meth, &chemin, Some(a.jetons[&acteur].as_str()), corps.as_ref()).await;
+                    exige_refus(&mut echecs, &format!("groupe: {meth} membres par {nom}"), &r);
+                    cas += 1;
+                }
+            }
+            for (acteur, nom) in [(Parent, "parent"), (Eleve, "élève")] {
+                let r = m.appel("GET", &format!("/referentiel/groupes/{gid}/membres"), Some(a.jetons[&acteur].as_str()), None).await;
+                exige_refus(&mut echecs, &format!("groupe: liste des membres par {nom}"), &r);
+                cas += 1;
+            }
+        }
         // Attribution de rôle à une personne de B ; rôle de B attribué à une personne de A.
         let role = m.appel("POST", "/roles", Some(adm_a), Some(&json!({
             "nom": format!("Croisé {}", &Uuid::new_v4().simple().to_string()[..6]), "droits": []}))).await;
@@ -1747,6 +1788,9 @@ fn c6_routes_du_socle1_inventaire_401_et_separation() {
             ("DELETE", format!("/roles/{nul}/membres/{nul}"), None),
             ("GET", "/roles/mes-droits".into(), None),
             ("PUT", format!("/referentiel/groupes/{nul}/responsables"), Some(json!({"responsables": []}))),
+            ("GET", format!("/referentiel/groupes/{nul}/membres"), None),
+            ("POST", format!("/referentiel/groupes/{nul}/membres"), Some(json!({"eleve_id": nul}))),
+            ("DELETE", format!("/referentiel/groupes/{nul}/membres/{nul}"), None),
             ("GET", "/auth/sessions".into(), None),
             ("DELETE", format!("/auth/sessions/{nul}"), None),
             ("GET", "/etablissement/securite".into(), None),

@@ -5712,7 +5712,18 @@ async fn list_trombi_classe(
         .list_trombi_classe_for_actor(session.etablissement_id, &session.role, &classe, jour)
         .await
         .map_err(map_db)?;
-    Ok(Json(list.iter().map(TrombiEntreeDto::from).collect()))
+    // RP1-03 : un professeur de groupe ne voit que ses élèves, pas toute la classe.
+    let suivis = state
+        .ent
+        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        list.iter()
+            .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.eleve_id)))
+            .map(TrombiEntreeDto::from)
+            .collect(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -6874,6 +6885,16 @@ async fn effectif_classe(
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
         .await
         .map_err(map_db)?;
+    // RP1-03 / RP1-07 : bornée aux élèves que l'acteur suit (professeur) ; vide pour la compta.
+    let suivis = state
+        .ent
+        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    let eleves: Vec<_> = eleves
+        .into_iter()
+        .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.id)))
+        .collect();
     Ok(Json(EffectifDto {
         classe,
         jour: q.jour,

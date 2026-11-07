@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use domain_eleve::today_utc;
@@ -42,6 +42,14 @@ pub fn routes() -> Router<AppState> {
             post(affecter_eleve),
         )
         .route("/referentiel/groupes", post(creer_groupe))
+        .route(
+            "/referentiel/groupes/{id}/membres",
+            get(membres_groupe).post(ajouter_membre_groupe),
+        )
+        .route(
+            "/referentiel/groupes/{id}/membres/{eleve_id}",
+            delete(retirer_membre_groupe),
+        )
         .route("/referentiel/services", post(creer_service))
         .route("/referentiel/amorcer", post(amorcer))
         .route("/referentiel/mes-classes", get(mes_classes))
@@ -269,6 +277,16 @@ async fn get_classe(
         .eleves_de_la_classe(session.etablissement_id, id, jour)
         .await
         .map_err(map_db)?;
+    // RP1-03 : un professeur de groupe ne voit que ses élèves, pas toute la classe.
+    let suivis = state
+        .ent
+        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    let eleves: Vec<_> = eleves
+        .into_iter()
+        .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.id)))
+        .collect();
     let services = state
         .ent
         .referentiel_services_de_classe(session.etablissement_id, id)
@@ -422,4 +440,102 @@ async fn mes_classes(
     .map_err(map_db)?;
     let labels = libelles_classes(&state, session.etablissement_id, &list).await?;
     Ok(Json(list.iter().map(|c| classe_dto(c, &labels)).collect()))
+}
+
+#[derive(Debug, Deserialize)]
+struct MembreGroupeBody {
+    eleve_id: Uuid,
+    #[serde(default)]
+    date_debut: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RetraitMembreQuery {
+    date_fin: Option<NaiveDate>,
+}
+
+/// Membres d'un groupe (RP1-02). Lecture du référentiel ; un professeur ne voit que les
+/// élèves qu'il suit (D-022).
+async fn membres_groupe(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<JourQuery>,
+) -> Res<Json<Vec<EleveClasseDto>>> {
+    role_moteur(&state, &session, Action::ReferentielLire).await?;
+    let jour = q.jour.unwrap_or_else(today_utc);
+    let niveau = PgEnt::niveau_identite(&session.role);
+    let suivis = state
+        .ent
+        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    let eleves = state
+        .ent
+        .referentiel_membres_groupe(session.etablissement_id, id, jour)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        eleves
+            .into_iter()
+            .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.id)))
+            .map(|mut e| {
+                e.minimise(niveau);
+                EleveClasseDto {
+                    id: e.id,
+                    nom: e.nom,
+                    prenom: e.prenom,
+                    ine: e.ine,
+                    date_naissance: e.date_naissance,
+                    status: e.status.as_str().to_string(),
+                }
+            })
+            .collect(),
+    ))
+}
+
+/// Ajoute un élève à un groupe (RP1-02) : `referentiel.gerer`, journalisé.
+async fn ajouter_membre_groupe(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MembreGroupeBody>,
+) -> Res<(StatusCode, Json<AffectationDto>)> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
+    let a = state
+        .ent
+        .referentiel_ajouter_membre_groupe(
+            role,
+            session.user_id,
+            session.etablissement_id,
+            id,
+            body.eleve_id,
+            body.date_debut,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(affectation_dto(&a))))
+}
+
+/// Retire un élève d'un groupe (RP1-02) : `referentiel.gerer`, journalisé.
+async fn retirer_membre_groupe(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, eleve_id)): Path<(Uuid, Uuid)>,
+    Query(q): Query<RetraitMembreQuery>,
+) -> Res<StatusCode> {
+    let role = role_moteur(&state, &session, Action::ReferentielGerer).await?;
+    state
+        .ent
+        .referentiel_retirer_membre_groupe(
+            role,
+            session.user_id,
+            session.etablissement_id,
+            id,
+            eleve_id,
+            q.date_fin,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
