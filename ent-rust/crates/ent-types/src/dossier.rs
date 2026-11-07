@@ -72,6 +72,90 @@ pub struct ResponsableDto {
     pub peut_autoriser_sorties: bool,
     pub est_payeur: bool,
     pub part_paiement: Option<i16>,
+    /// Groupes de champs fermés pour ce lecteur sur cette personne, avec la raison (lot A1) :
+    /// un champ vide n'est jamais ambigu (absent ≠ masqué). Les valeurs masquées sont neutres.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masque: Vec<MasquageDto>,
+}
+
+/// Groupe de champs fermé et pourquoi (`04_ADMINISTRATIF.md` §12.2, lot A1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasquageDto {
+    /// `F0` … `F4` ou `R`.
+    pub groupe: String,
+    pub libelle: String,
+    /// `droit_manquant`, `conflit_interet`, `autre_responsable`, `reserve_etablissement`.
+    pub raison: String,
+    /// Message affichable (français simple).
+    pub message: String,
+    /// Droit à demander quand la raison est `droit_manquant` (ex. `responsables.adresses.lire`).
+    #[serde(default)]
+    pub action_a_demander: Option<String>,
+}
+
+/// Interdiction active visible par le lecteur (groupe R ; fondement avec F3, motif avec F4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterdictionDto {
+    pub id: Uuid,
+    pub personne_id: Option<Uuid>,
+    pub personne_libelle: String,
+    pub objet: Vec<String>,
+    pub bloquante: bool,
+    /// Ce que doit faire l'accueil.
+    pub consigne: String,
+    pub du: NaiveDate,
+    pub au: Option<NaiveDate>,
+    #[serde(default)]
+    pub fondement: Option<String>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST /dossier/eleves/{id}/interdictions`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterdictionBody {
+    #[serde(default)]
+    pub personne_id: Option<Uuid>,
+    #[serde(default)]
+    pub personne_libelle: Option<String>,
+    pub objet: Vec<String>,
+    pub fondement: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+    pub consigne: String,
+    #[serde(default)]
+    pub du: Option<NaiveDate>,
+    #[serde(default)]
+    pub au: Option<NaiveDate>,
+}
+
+/// Corps de `POST /dossier/interdictions/{id}/lever`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeverInterdictionBody {
+    pub motif: String,
+}
+
+/// Corps de `POST /dossier/eleves/{id}/conflit-interet` (déclaration).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflitInteretBody {
+    /// Agent concerné (la direction déclare pour un autre) ; absent = l'acteur lui-même.
+    #[serde(default)]
+    pub agent_user_id: Option<Uuid>,
+    /// `ex_conjoint`, `ancien_foyer`, `proche`, `autre`.
+    pub nature: String,
+}
+
+/// Ligne du tableau de la direction : conflits déclarés et accès tracés.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflitInteretDto {
+    pub declaration_id: Option<Uuid>,
+    pub user_id: Uuid,
+    pub eleve_id: Uuid,
+    /// `agent`, `direction` ou `detecte`.
+    pub origine: String,
+    pub nature: Option<String>,
+    pub acces_30j: i64,
+    pub dernier_acces: Option<DateTime<Utc>>,
 }
 
 /// Corps de `POST /dossier/eleves/{id}/responsables` (avec `personne_id`)
@@ -99,6 +183,111 @@ pub struct LienBody {
     pub peut_justifier_absence: bool,
     #[serde(default)]
     pub peut_autoriser_sorties: bool,
+}
+
+/// Corps de `POST /dossier/eleves/{id}/responsables/ajout` : commande unique « ajouter un
+/// responsable » (socle 4, lot A0). Soit `nouvelle_personne` (la personne est créée avec son lien
+/// dans une seule transaction), soit `lien.personne_id` (personne existante) ; jamais les deux.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AjoutResponsableBody {
+    #[serde(default)]
+    pub nouvelle_personne: Option<PersonneBody>,
+    pub lien: LienBody,
+}
+
+/// Réponse `202 Accepted` quand la personne désignée **a un compte** : le lien est en attente de
+/// sa confirmation, il n'ouvre aucun accès.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LienEnAttenteDto {
+    pub en_attente: bool,
+    pub attente_id: Uuid,
+}
+
+/// Lien en attente vu par la personne concernée (minimisé : prénom et initiale de l'élève).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonLienEnAttenteDto {
+    pub id: Uuid,
+    pub eleve_prenom: String,
+    pub eleve_initiale: String,
+    pub lien: String,
+    pub demande_le: DateTime<Utc>,
+}
+
+/// Corps de `POST /dossier/mes-liens-en-attente/{id}/reponse`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReponseLienBody {
+    pub accepter: bool,
+}
+
+/// Lien en attente d'un élève, vu du personnel : de quoi le confirmer au guichet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LienEnAttenteEleveDto {
+    pub attente_id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub a_un_compte: bool,
+    pub lien: String,
+    /// `saisie` ou `inscription`.
+    pub source: String,
+    pub demande_le: DateTime<Utc>,
+}
+
+/// Corps de `POST /dossier/liens-en-attente/{id}/confirmer-guichet` : la pièce d'identité vue
+/// au guichet. Seul le type est enregistré (jamais la copie ni le numéro).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmationGuichetBody {
+    /// `carte_identite`, `passeport`, `titre_sejour`, `permis_conduire`, `livret_famille`, `autre`.
+    pub piece: String,
+}
+
+/// Réponse de la confirmation au guichet.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmationGuichetDto {
+    /// Lien réel créé (`None` si la personne était déjà liée à l'élève).
+    pub lien_id: Option<Uuid>,
+}
+
+/// Corps de `POST /dossier/personnes/{id}/ne-pas-solliciter` (direction).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NePasSolliciterBody {
+    pub actif: bool,
+    /// Référence de la pièce de protection (scellée en base, jamais renvoyée).
+    #[serde(default)]
+    pub reference: Option<String>,
+}
+
+/// Adresse à protéger mise de côté, vue de la direction (sans l'adresse).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdresseParqueeDto {
+    pub id: Uuid,
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub origine: String,
+    pub created_at: DateTime<Utc>,
+}
+
+/// « Ne pas solliciter » déclaré par une famille, à confirmer par la direction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtectionADeclarerDto {
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub declaree_le: Option<DateTime<Utc>>,
+}
+
+/// `GET /dossier/alertes-protection` : alertes d'information de la direction.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AlertesProtectionDto {
+    pub adresses_a_traiter: Vec<AdresseParqueeDto>,
+    pub ne_pas_solliciter_a_confirmer: Vec<ProtectionADeclarerDto>,
+}
+
+/// Réponse de `POST /dossier/adresses-protegees/{id}/ouvrir` (consultation journalisée).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdresseProtegeeDto {
+    pub adresse: String,
 }
 
 /// Corps de `POST /dossier/liens/{id}/suspendre`.
@@ -214,6 +403,12 @@ pub struct FicheEleveDto {
     /// Groupes de champs masqués pour ce lecteur, avec la raison (E1).
     #[serde(default)]
     pub masques: Vec<MasqueChampsDto>,
+    /// Groupes de champs fermés pour ce lecteur, avec la raison (lot A1).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub masquages: Vec<MasquageDto>,
+    /// Interdictions actives visibles (jamais pour une famille).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interdictions: Vec<InterdictionDto>,
 }
 
 /// Un groupe de champs masqué et pourquoi (jamais de masquage muet).

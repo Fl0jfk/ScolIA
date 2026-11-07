@@ -213,7 +213,8 @@ async fn parent_sans_compte_et_parents_separes() {
             ..lien(pere.id, "père", Some(foyer_pere))
         })
         .await
-        .unwrap();
+        .unwrap()
+        .actif();
     assert!(l.actif && l.autorite_parentale);
     assert_eq!(l.garde.as_deref(), Some("alternee"));
     // Doublon de lien refusé.
@@ -330,7 +331,8 @@ async fn eleve_majeur_payeur_de_sa_scolarite() {
     let l = ent
         .lier_personne_for_actor(etab, d, r, draco, &lien(soi.id, "eleve_majeur", Some(cast.foyer_tom_id)))
         .await
-        .unwrap();
+        .unwrap()
+        .actif();
     assert!(!l.autorite_parentale && !l.peut_voir_notes && !l.peut_voir_vs);
     let ok = ent.definir_payeurs_for_actor(etab, d, r, draco, &[(l.lien_id, 100)]).await.unwrap();
     assert!(ok.iter().any(|x| x.lien_id == l.lien_id && x.est_payeur && x.part_paiement == Some(100)));
@@ -584,7 +586,8 @@ async fn isolation_entre_etablissements() {
     let la = ent
         .lier_personne_for_actor(a.etablissement_id, da, ra, a.eleve_lea_id, &lien(p.id, "tuteur", None))
         .await
-        .unwrap();
+        .unwrap()
+        .actif();
     let nf = |e: &Result<_, EntDbError>| matches!(e, Err(EntDbError::Domain(DomainError::NotFound)));
     assert!(nf(&ent.get_personne_for_actor(b.etablissement_id, db_, rb, p.id).await.map(|_| ())));
     assert!(nf(&ent
@@ -666,8 +669,8 @@ async fn fusion_et_defusion_de_personnes() {
         .creer_personne_for_actor(etab, d, r, &personne(&mere.nom, "bis", None, Some("06 00 00 00 01")))
         .await
         .unwrap();
-    let l_harry = ent.lier_personne_for_actor(etab, d, r, harry, &lien(dup.id, "mère", None)).await.unwrap();
-    let l_draco = ent.lier_personne_for_actor(etab, d, r, draco, &lien(dup.id, "tante", None)).await.unwrap();
+    let l_harry = ent.lier_personne_for_actor(etab, d, r, harry, &lien(dup.id, "mère", None)).await.unwrap().actif();
+    let l_draco = ent.lier_personne_for_actor(etab, d, r, draco, &lien(dup.id, "tante", None)).await.unwrap().actif();
     let c = ent
         .ajouter_contact_for_actor(etab, d, r, draco, &ContactSaisie {
             personne_id: Some(dup.id),
@@ -770,7 +773,7 @@ async fn chronologie_filtree_par_les_droits() {
     let (d, r) = dir(&cast);
     let harry = cast.eleve_lea_id;
     let p = ent.creer_personne_for_actor(etab, d, r, &personne("Black", "Sirius", None, None)).await.unwrap();
-    ent.lier_personne_for_actor(etab, d, r, harry, &lien(p.id, "parrain", None)).await.unwrap();
+    ent.lier_personne_for_actor(etab, d, r, harry, &lien(p.id, "parrain", None)).await.unwrap().actif();
     // Un passage à l'infirmerie (événement forgé : seule la classification compte).
     sqlx::query("INSERT INTO ent_metier_event (id, etablissement_id, type, aggregate, aggregate_id, eleve_id, payload, created_at)
                  VALUES ($1,$2,'infirmerie.passage','infirmerie',$1,$3,'{\"motif\":\"secret\"}', now())")

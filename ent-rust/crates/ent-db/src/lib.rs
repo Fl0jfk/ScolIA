@@ -218,8 +218,11 @@ pub use delegation::{
     droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
 };
 pub use dossier_personnes::{
+    AjoutResponsable, LienEnAttente, LienResultat,
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
+    AdresseParquee, AlertesProtection, LienEnAttenteEleve, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
+    ConflitInteretVu, InterdictionSaisie, InterdictionVue, LectureDossierAdmin, NatureConflit as NatureConflitInteret,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -273,6 +276,12 @@ mod tests_outbox;
 mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]

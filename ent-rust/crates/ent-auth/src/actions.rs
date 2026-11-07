@@ -195,6 +195,37 @@ pub enum Action {
     /// Lire la fiche d'urgence minimale (contacts, contraintes publiées) d'un élève
     /// pour une sortie ou un séjour (S2-11, SEJ-08).
     SanteUrgenceLire,
+    // ── Socle 4, lot A1 : droits du dossier administratif (§13 de 04_ADMINISTRATIF.md) ──
+    /// Voir les responsables d'un élève et les moyens de les joindre (désignation, e-mails, téléphones).
+    ResponsablesLire,
+    /// Voir les adresses postales ordinaires des responsables, le foyer et la résidence.
+    ResponsablesAdressesLire,
+    /// Voir la qualité, l'autorité, les droits du lien, les décisions (sans motif).
+    ResponsablesJuridiqueLire,
+    /// Voir les adresses protégées et les motifs scellés de décision ou d'interdiction.
+    ResponsablesProtegeLire,
+    /// Protéger une adresse et gérer les mesures de confidentialité renforcée.
+    ResponsablesProtegeGerer,
+    /// Qualité juridique, autorité, droits du lien, désaccords.
+    LiensJuridiqueGerer,
+    /// Voir les personnes autorisées du jour, les consignes d'interdiction et les contacts d'urgence.
+    RemiseLire,
+    /// Autorisations de remise, validation des propositions.
+    RemiseGerer,
+    /// Poser et lever une interdiction (remise, contact, visite).
+    RemiseInterdire,
+    /// Identifiants nationaux ou d'organisme des personnes.
+    PersonnesIdentifiantsGerer,
+    /// Décider les propositions de modification, traiter les fiches de rentrée.
+    DossierAdminPropositionsTraiter,
+    /// Lancer, suivre et clore les campagnes de fiche de rentrée.
+    FicheRentreeGerer,
+    /// Exports nominatifs, publipostage, liste électorale, extrait RGPD.
+    DossierAdminExporter,
+    /// Paramétrage du domaine (natures de lien, durées, options).
+    DossierAdminParametrer,
+    /// Ouvre F2 et F3 d'un élève hors portée, sur motif, avec alerte à la direction ; jamais F4.
+    ResponsablesAccesUrgence,
 }
 
 /// Sur quoi une action s'applique.
@@ -211,7 +242,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 85] = [
+    pub const TOUTES: [Action; 100] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -300,6 +331,22 @@ impl Action {
         Action::AmenagementsLire,
         Action::ContraintesLire,
         Action::SanteUrgenceLire,
+        // A1
+        Action::ResponsablesLire,
+        Action::ResponsablesAdressesLire,
+        Action::ResponsablesJuridiqueLire,
+        Action::ResponsablesProtegeLire,
+        Action::ResponsablesProtegeGerer,
+        Action::LiensJuridiqueGerer,
+        Action::RemiseLire,
+        Action::RemiseGerer,
+        Action::RemiseInterdire,
+        Action::PersonnesIdentifiantsGerer,
+        Action::DossierAdminPropositionsTraiter,
+        Action::FicheRentreeGerer,
+        Action::DossierAdminExporter,
+        Action::DossierAdminParametrer,
+        Action::ResponsablesAccesUrgence,
     ];
 
     pub fn code(self) -> &'static str {
@@ -390,6 +437,21 @@ impl Action {
             Self::AmenagementsLire => "amenagements.lire",
             Self::ContraintesLire => "contraintes.lire",
             Self::SanteUrgenceLire => "sante.urgence_lire",
+            Self::ResponsablesLire => "responsables.lire",
+            Self::ResponsablesAdressesLire => "responsables.adresses.lire",
+            Self::ResponsablesJuridiqueLire => "responsables.juridique.lire",
+            Self::ResponsablesProtegeLire => "responsables.protege.lire",
+            Self::ResponsablesProtegeGerer => "responsables.protege.gerer",
+            Self::LiensJuridiqueGerer => "liens.juridique.gerer",
+            Self::RemiseLire => "remise.lire",
+            Self::RemiseGerer => "remise.gerer",
+            Self::RemiseInterdire => "remise.interdire",
+            Self::PersonnesIdentifiantsGerer => "personnes.identifiants.gerer",
+            Self::DossierAdminPropositionsTraiter => "dossier_admin.propositions.traiter",
+            Self::FicheRentreeGerer => "fiche_rentree.gerer",
+            Self::DossierAdminExporter => "dossier_admin.exporter",
+            Self::DossierAdminParametrer => "dossier_admin.parametrer",
+            Self::ResponsablesAccesUrgence => "responsables.acces_urgence",
         }
     }
 
@@ -483,6 +545,21 @@ impl Action {
             Self::AmenagementsLire => "Lire les aménagements pédagogiques d'un élève (sans diagnostic)",
             Self::ContraintesLire => "Lire les contraintes publiées pour les enseignants (sans donnée médicale)",
             Self::SanteUrgenceLire => "Lire la fiche d'urgence minimale d'un élève (sortie, séjour)",
+            Self::ResponsablesLire => "Voir les responsables et les joindre (F0, F1)",
+            Self::ResponsablesAdressesLire => "Voir les adresses des responsables (F2)",
+            Self::ResponsablesJuridiqueLire => "Voir la situation juridique (F3)",
+            Self::ResponsablesProtegeLire => "Voir les données protégées (F4)",
+            Self::ResponsablesProtegeGerer => "Protéger une adresse",
+            Self::LiensJuridiqueGerer => "Gérer la situation juridique des liens",
+            Self::RemiseLire => "Voir qui peut récupérer l'élève et les interdictions (R)",
+            Self::RemiseGerer => "Gérer les autorisations de remise",
+            Self::RemiseInterdire => "Poser et lever une interdiction",
+            Self::PersonnesIdentifiantsGerer => "Gérer les identifiants des personnes",
+            Self::DossierAdminPropositionsTraiter => "Décider les propositions de la famille",
+            Self::FicheRentreeGerer => "Gérer les campagnes de fiche de rentrée",
+            Self::DossierAdminExporter => "Exports nominatifs du dossier administratif",
+            Self::DossierAdminParametrer => "Paramétrer le dossier administratif",
+            Self::ResponsablesAccesUrgence => "Bris de glace sur le dossier administratif",
         }
     }
 
@@ -497,6 +574,11 @@ impl Action {
             // E1 (§12.2) : seules inclusions explicites des droits « élève ».
             Self::ElevesEtatCivilLire => &[Self::ElevesIdentiteModifier],
             Self::ElevesIdentifiantsLire => &[Self::ElevesIdentifiantsGerer],
+            // §13.2 : inclusions explicites, aucune autre.
+            Self::ResponsablesLire | Self::ResponsablesAdressesLire => &[Self::PersonnesGerer],
+            Self::ResponsablesJuridiqueLire => &[Self::LiensJuridiqueGerer],
+            Self::RemiseLire => &[Self::RemiseGerer],
+            Self::ResponsablesProtegeLire => &[Self::ResponsablesProtegeGerer],
             _ => &[],
         }
     }
@@ -563,6 +645,19 @@ impl Action {
             | Self::PersonnesFusionner
             | Self::EdtAnnulerMasse
             | Self::DelegationsGerer => &[Portee::Etablissement],
+            // A1 (§13.2) : lectures par groupe à quatre portées (branche par défaut) ; le reste
+            // n'admet que l'établissement (les « sites désignés » viendront avec le référentiel de sites).
+            Self::ResponsablesProtegeLire
+            | Self::ResponsablesProtegeGerer
+            | Self::LiensJuridiqueGerer
+            | Self::RemiseGerer
+            | Self::RemiseInterdire
+            | Self::PersonnesIdentifiantsGerer
+            | Self::DossierAdminPropositionsTraiter
+            | Self::FicheRentreeGerer
+            | Self::DossierAdminExporter
+            | Self::DossierAdminParametrer
+            | Self::ResponsablesAccesUrgence => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
@@ -694,6 +789,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         }
         // R2 : le professeur tient les conseils de classe (contrôle d'établissement).
         d.push(etab(ConseilsGerer));
+        // A1 : désignation, moyens de joindre et remise des élèves qu'il suit (sorties, voyages).
+        d.push((ResponsablesLire, Portee::MesClasses));
+        d.push((RemiseLire, Portee::MesClasses));
         return d;
     }
     if role.can_read_notes_staff() {
@@ -898,6 +996,59 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if direction_admin || role == Role::Cpe {
         d.push(etab(FormulairesGerer));
         d.push(etab(ConsentementsLire));
+    }
+    // ── A1 (§13.2) : groupes de lecture du dossier administratif et droits associés. ──
+    // Le gestionnaire (`personnes.gerer`) détient explicitement les lectures F0–F2 ; la
+    // situation juridique suit `liens.juridique.gerer` (aujourd'hui incluse dans
+    // `personnes.gerer` : mêmes profils, bascule à l'identique).
+    if role.can_manage_eleves() {
+        for a in [
+            ResponsablesLire,
+            ResponsablesAdressesLire,
+            ResponsablesJuridiqueLire,
+            LiensJuridiqueGerer,
+            RemiseLire,
+            RemiseGerer,
+            PersonnesIdentifiantsGerer,
+            DossierAdminPropositionsTraiter,
+            FicheRentreeGerer,
+            DossierAdminExporter,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [ResponsablesProtegeLire, ResponsablesProtegeGerer, RemiseInterdire] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Admin {
+        d.push(etab(DossierAdminParametrer));
+    }
+    // Bris de glace : modèle Direction seulement ; les autres rôles l'obtiennent par paramétrage.
+    if role == Role::Direction {
+        d.push(etab(ResponsablesAccesUrgence));
+    }
+    // Vie scolaire : désigne, joint, voit la situation juridique (sans les payeurs : ils
+    // suivent `payeurs.definir`) et la remise.
+    if role == Role::Cpe {
+        for a in [ResponsablesLire, ResponsablesJuridiqueLire, RemiseLire] {
+            d.push(etab(a));
+        }
+    }
+    // Comptabilité : désignation, moyens de joindre et adresses de facturation.
+    if role == Role::Compta {
+        d.push(etab(ResponsablesLire));
+        d.push(etab(ResponsablesAdressesLire));
+    }
+    // Infirmerie et accueil : qui appeler, qui peut récupérer l'élève.
+    if matches!(role, Role::Infirmerie | Role::Accueil) {
+        d.push(etab(ResponsablesLire));
+        d.push(etab(RemiseLire));
+    }
+    // Accueil (profil nouveau, aucune matrice historique) : déclarer les absences reçues.
+    if role == Role::Accueil {
+        d.push(etab(AbsencesDeclarer));
     }
     d
 }
@@ -1143,5 +1294,291 @@ mod tests {
         assert!(Portee::MesClasses.couvre(Portee::MesClasses));
         assert!(!Portee::MesClasses.couvre(Portee::Etablissement));
         assert!(!Portee::MesGroupes.couvre(Portee::MesClasses));
+    }
+}
+
+/// Oracle A1 : la matrice profils × actions **historique** (les 53 actions d'avant le lot A1) est
+/// figée telle qu'elle était avant ce lot (relevé du modèle par défaut à la base du lot). Seules
+/// les actions ajoutées par A1 (indices 53 et suivants de `TOUTES`) peuvent différer : leurs écarts
+/// avec le comportement historique des écrans sont documentés dans `04_ADMINISTRATIF.md` §22.
+#[cfg(test)]
+mod oracle_a1 {
+    use super::*;
+
+    const HISTORIQUE: [(&str, &[&str]); 10] = [
+        ("admin", &[
+            "absences.declarer@etablissement",
+            "absences.justifier@etablissement",
+            "absences.lire@etablissement",
+            "annonces.publier@etablissement",
+            "appel.verifier@etablissement",
+            "assiduite.signaler@etablissement",
+            "audit.lire@etablissement",
+            "bourses.gerer@etablissement",
+            "cahier.ecrire@etablissement",
+            "cahier.lire@etablissement",
+            "cahier.viser@etablissement",
+            "competences.evaluer@etablissement",
+            "conseils.gerer@etablissement",
+            "discipline.gerer@etablissement",
+            "docs_a_signer.publier@etablissement",
+            "documents.deposer@etablissement",
+            "documents.gerer_droits@etablissement",
+            "documents.lire@etablissement",
+            "documents.lire_sante@etablissement",
+            "dossier.lire@etablissement",
+            "edt.gerer@etablissement",
+            "eleves.gerer@etablissement",
+            "facturation.gerer@etablissement",
+            "facturation.lire@etablissement",
+            "imports.appliquer@etablissement",
+            "incidents.declarer@etablissement",
+            "inscriptions.decider@etablissement",
+            "inscriptions.gerer@etablissement",
+            "internat.gerer@etablissement",
+            "journal.lire@etablissement",
+            "liens.suspendre@etablissement",
+            "matieres.gerer@etablissement",
+            "messagerie.eleve@etablissement",
+            "notes.lire@etablissement",
+            "notes.saisir@etablissement",
+            "payeurs.definir@etablissement",
+            "personnes.fusionner@etablissement",
+            "personnes.gerer@etablissement",
+            "psy.lire@etablissement",
+            "psy.saisir@etablissement",
+            "punitions.donner@etablissement",
+            "referentiel.gerer@etablissement",
+            "referentiel.lire@etablissement",
+            "repas.gerer@etablissement",
+            "repas.scanner@etablissement",
+            "roles.gerer@etablissement",
+            "sanctions.prononcer@etablissement",
+            "sante.lire@etablissement",
+            "sante.saisir@etablissement",
+            "securite.politique@etablissement",
+            "sorties.controler@etablissement",
+            "sorties.gerer@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("direction", &[
+            "absences.declarer@etablissement",
+            "absences.justifier@etablissement",
+            "absences.lire@etablissement",
+            "annonces.publier@etablissement",
+            "appel.verifier@etablissement",
+            "assiduite.signaler@etablissement",
+            "audit.lire@etablissement",
+            "bourses.gerer@etablissement",
+            "cahier.ecrire@etablissement",
+            "cahier.lire@etablissement",
+            "cahier.viser@etablissement",
+            "competences.evaluer@etablissement",
+            "conseils.gerer@etablissement",
+            "discipline.gerer@etablissement",
+            "docs_a_signer.publier@etablissement",
+            "documents.deposer@etablissement",
+            "documents.gerer_droits@etablissement",
+            "documents.lire@etablissement",
+            "documents.lire_sante@etablissement",
+            "dossier.lire@etablissement",
+            "edt.gerer@etablissement",
+            "eleves.gerer@etablissement",
+            "facturation.gerer@etablissement",
+            "facturation.lire@etablissement",
+            "imports.appliquer@etablissement",
+            "incidents.declarer@etablissement",
+            "inscriptions.decider@etablissement",
+            "inscriptions.gerer@etablissement",
+            "internat.gerer@etablissement",
+            "journal.lire@etablissement",
+            "liens.suspendre@etablissement",
+            "matieres.gerer@etablissement",
+            "messagerie.eleve@etablissement",
+            "notes.lire@etablissement",
+            "notes.saisir@etablissement",
+            "payeurs.definir@etablissement",
+            "personnes.fusionner@etablissement",
+            "personnes.gerer@etablissement",
+            "psy.lire@etablissement",
+            "psy.saisir@etablissement",
+            "punitions.donner@etablissement",
+            "referentiel.gerer@etablissement",
+            "referentiel.lire@etablissement",
+            "repas.gerer@etablissement",
+            "repas.scanner@etablissement",
+            "roles.gerer@etablissement",
+            "sanctions.prononcer@etablissement",
+            "sante.lire@etablissement",
+            "sante.saisir@etablissement",
+            "securite.politique@etablissement",
+            "sorties.controler@etablissement",
+            "sorties.gerer@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("administratif", &[
+            "absences.declarer@etablissement",
+            "absences.justifier@etablissement",
+            "absences.lire@etablissement",
+            "annonces.publier@etablissement",
+            "appel.verifier@etablissement",
+            "audit.lire@etablissement",
+            "bourses.gerer@etablissement",
+            "cahier.lire@etablissement",
+            "conseils.gerer@etablissement",
+            "docs_a_signer.publier@etablissement",
+            "documents.deposer@etablissement",
+            "documents.gerer_droits@etablissement",
+            "documents.lire@etablissement",
+            "documents.lire_sante@etablissement",
+            "dossier.lire@etablissement",
+            "edt.gerer@etablissement",
+            "eleves.gerer@etablissement",
+            "facturation.gerer@etablissement",
+            "facturation.lire@etablissement",
+            "imports.appliquer@etablissement",
+            "incidents.declarer@etablissement",
+            "inscriptions.gerer@etablissement",
+            "internat.gerer@etablissement",
+            "journal.lire@etablissement",
+            "matieres.gerer@etablissement",
+            "messagerie.eleve@etablissement",
+            "notes.lire@etablissement",
+            "payeurs.definir@etablissement",
+            "personnes.gerer@etablissement",
+            "punitions.donner@etablissement",
+            "referentiel.gerer@etablissement",
+            "referentiel.lire@etablissement",
+            "repas.gerer@etablissement",
+            "repas.scanner@etablissement",
+            "sanctions.prononcer@etablissement",
+            "sorties.controler@etablissement",
+            "sorties.gerer@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("cpe", &[
+            "absences.declarer@etablissement",
+            "absences.justifier@etablissement",
+            "absences.lire@etablissement",
+            "annonces.publier@etablissement",
+            "appel.verifier@etablissement",
+            "assiduite.signaler@etablissement",
+            "cahier.lire@etablissement",
+            "conseils.gerer@etablissement",
+            "docs_a_signer.publier@etablissement",
+            "dossier.lire@etablissement",
+            "edt.gerer@etablissement",
+            "incidents.declarer@etablissement",
+            "internat.gerer@etablissement",
+            "journal.lire@etablissement",
+            "messagerie.eleve@etablissement",
+            "notes.lire@etablissement",
+            "punitions.donner@etablissement",
+            "referentiel.lire@etablissement",
+            "repas.scanner@etablissement",
+            "sanctions.prononcer@etablissement",
+            "sorties.controler@etablissement",
+            "sorties.gerer@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("compta", &[
+            "bourses.gerer@etablissement",
+            "dossier.lire@etablissement",
+            "facturation.gerer@etablissement",
+            "facturation.lire@etablissement",
+            "journal.lire@etablissement",
+            "payeurs.definir@etablissement",
+            "referentiel.lire@etablissement",
+            "repas.gerer@etablissement",
+            "repas.scanner@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("prof", &[
+            "absences.lire@mes_classes",
+            "cahier.ecrire@mes_classes",
+            "cahier.lire@mes_classes",
+            "competences.evaluer@mes_classes",
+            "conseils.gerer@etablissement",
+            "dossier.lire@mes_classes",
+            "incidents.declarer@etablissement",
+            "journal.lire@mes_classes",
+            "messagerie.eleve@mes_classes",
+            "notes.lire@mes_classes",
+            "notes.saisir@mes_classes",
+            "punitions.donner@mes_classes",
+            "referentiel.lire@etablissement",
+            "suivi.eleve@mes_classes",
+        ]),
+        ("infirmerie", &[
+            "documents.lire_sante@etablissement",
+            "dossier.lire@etablissement",
+            "journal.lire@etablissement",
+            "referentiel.lire@etablissement",
+            "sante.lire@etablissement",
+            "sante.saisir@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("psy", &[
+            "dossier.lire@etablissement",
+            "journal.lire@etablissement",
+            "psy.lire@etablissement",
+            "psy.saisir@etablissement",
+            "referentiel.lire@etablissement",
+            "suivi.eleve@etablissement",
+        ]),
+        ("parent", &[
+        ]),
+        ("eleve", &[
+        ]),
+    ];
+
+    #[test]
+    fn matrice_historique_inchangee_par_a1() {
+        for (code_role, attendu) in HISTORIQUE {
+            let role = Role::parse(code_role).unwrap();
+            let mut obtenu: Vec<String> = modele_par_defaut(role)
+                .into_iter()
+                .filter(|(a, _)| Action::TOUTES[..53].contains(a))
+                .map(|(a, p)| format!("{}@{}", a.code(), p.code()))
+                .collect();
+            obtenu.sort();
+            let attendu: Vec<String> = attendu.iter().map(|x| x.to_string()).collect();
+            assert_eq!(obtenu, attendu, "profil {code_role} : la matrice historique a changé");
+        }
+        // Les actions historiques sont bien les 53 premières du catalogue.
+        assert_eq!(Action::TOUTES[52], Action::CahierViser);
+        assert_eq!(Action::TOUTES[53], Action::ResponsablesLire);
+    }
+
+    /// Le profil « accueil » est nouveau : il n'a aucun droit historique.
+    #[test]
+    fn accueil_n_a_aucun_droit_historique_hors_declaration_et_referentiel() {
+        let historiques: Vec<Action> = modele_par_defaut(Role::Accueil)
+            .into_iter()
+            .map(|(a, _)| a)
+            .filter(|a| Action::TOUTES[..53].contains(a))
+            .collect();
+        assert_eq!(historiques, vec![Action::ReferentielLire, Action::AbsencesDeclarer]);
+    }
+
+    /// Chaque action ajoutée par A1 respecte ses portées admises dans tous les modèles.
+    #[test]
+    fn modeles_a1_respectent_les_portees() {
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            for (a, p) in modele_par_defaut(r) {
+                assert!(a.portees_admises().contains(&p), "{r:?} {a:?} {p:?}");
+            }
+        }
+        // `responsables.protege.*`, `remise.interdire` et le bris de glace : établissement seul.
+        for a in [Action::ResponsablesProtegeLire, Action::ResponsablesProtegeGerer, Action::RemiseInterdire, Action::ResponsablesAccesUrgence] {
+            assert_eq!(a.portees_admises(), &[Portee::Etablissement]);
+        }
+        // Le bris de glace n'est dans aucun modèle hors Direction.
+        for r in [Role::Admin, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            assert!(!modele_par_defaut(r).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence), "{r:?}");
+        }
+        assert!(modele_par_defaut(Role::Direction).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence));
+        // Familles et élèves : aucun droit paramétrable.
+        assert!(modele_par_defaut(Role::Parent).is_empty() && modele_par_defaut(Role::Eleve).is_empty());
     }
 }

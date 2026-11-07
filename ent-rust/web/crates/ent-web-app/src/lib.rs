@@ -70,6 +70,7 @@ pub fn App() -> impl IntoView {
                 <Route path=path!("/web/invitation") view=modules::inscriptions::PageInvitation/>
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
+                    <Route path=path!("mes-liens") view=modules::liens_en_attente::PageMesLiens/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
                     <Route path=path!("edt/semaine") view=modules::edt_semaine::PageSemaineEdt/>
                     <Route path=path!("edt/remplacements") view=modules::remplacements::PageRemplacements/>
@@ -121,6 +122,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("referentiel/calendrier") view=modules::referentiel_admin::PageCalendrier/>
                     <Route path=path!("referentiel/grille") view=modules::referentiel_admin::PageGrille/>
                     <Route path=path!("direction/securite") view=modules::securite::PagePolitiqueSecurite/>
+                    <Route path=path!("direction/protections") view=modules::protections::PageProtections/>
                     <Route path=path!("direction/roles") view=modules::roles::PageRoles/>
                     <Route path=path!("direction/roles/nouveau") view=modules::roles::PageNouveauRole/>
                     <Route path=path!("direction/roles/groupes") view=modules::roles::PageResponsables/>

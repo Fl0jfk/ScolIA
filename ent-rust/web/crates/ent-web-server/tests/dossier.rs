@@ -9,7 +9,7 @@
 
 use std::net::SocketAddr;
 
-use ent_web_api::{ApiClient, ApiError};
+use ent_web_api::{ApiClient, ApiError, ResultatLien};
 use ent_web_app::modules::dossier::modele::{
     contact_depuis, etat_lien, parts_payeurs, peut, EtatLien, SaisieResponsable, ACTION_PERSONNES,
     ACTION_SUSPENDRE,
@@ -111,15 +111,16 @@ async fn fiche_parent_sans_email_suspension_payeurs_contacts() {
         voir_vs: true,
         ..Default::default()
     };
-    let p = secretariat
-        .creer_personne(&saisie.personne().unwrap())
+    // Commande unique : la personne et son lien dans une seule requête.
+    let ResultatLien::Actif(r) = secretariat
+        .ajouter_responsable(harry, &saisie.ajout().unwrap())
         .await
-        .expect("personne");
+        .expect("ajout")
+    else {
+        panic!("père sans compte : lien actif attendu");
+    };
+    let p = r.personne.clone();
     assert!(!p.a_compte && p.email.is_none());
-    let r = secretariat
-        .lier_responsable(harry, &saisie.lien(p.id))
-        .await
-        .expect("lien");
     assert_eq!(
         etat_lien(&r, chrono::Utc::now().date_naive()),
         EtatLien::Actif

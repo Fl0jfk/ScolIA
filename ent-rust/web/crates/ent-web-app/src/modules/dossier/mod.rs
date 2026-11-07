@@ -30,8 +30,8 @@ use actions::{
 };
 use modele::{
     coordonnees, droits_du_lien, etat_lien, filtrer_chronologie, libelle_domaine, libelle_garde,
-    lien_action, nom_personne, peut, sections_accessibles, EtatLien, ACTION_PAYEURS,
-    ACTION_PERSONNES, ACTION_SUSPENDRE,
+    lien_action, message_masque, nom_personne, peut, sections_accessibles, EtatLien,
+    ACTION_PAYEURS, ACTION_PERSONNES, ACTION_SUSPENDRE,
 };
 
 /// Nombre d'entrées de chronologie demandées au serveur.
@@ -128,6 +128,7 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
     let responsables = StoredValue::new(fiche.responsables.clone());
     let sections = sections_accessibles(&fiche, famille);
     let alertes = fiche.alertes.clone();
+    let interdictions = fiche.interdictions.clone();
     let contacts = fiche.contacts.clone();
     let liste_responsables = fiche.responsables.clone();
 
@@ -142,6 +143,25 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
         {(!alertes.is_empty()).then(|| view! {
             <Alerte niveau=Niveau::Avertissement titre="Points à vérifier">
                 <ul>{alertes.into_iter().map(|a| view! { <li>{a}</li> }).collect_view()}</ul>
+            </Alerte>
+        })}
+
+        {(!interdictions.is_empty()).then(|| view! {
+            <Alerte niveau=Niveau::Erreur titre="Interdictions en cours">
+                <ul>{interdictions.into_iter().map(|i| {
+                    let periode = match i.au {
+                        Some(au) => format!("du {} au {}", i.du, au),
+                        None => format!("depuis le {}", i.du),
+                    };
+                    let nature = if i.bloquante { "" } else { " (signalement à vérifier, non bloquant)" };
+                    view! {
+                        <li>
+                            <strong>{i.personne_libelle}</strong>
+                            {format!(" — {} {periode}{nature} : ", i.objet.join(", "))}
+                            {i.consigne}
+                        </li>
+                    }
+                }).collect_view()}</ul>
             </Alerte>
         })}
 
@@ -160,6 +180,7 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
                 a_suspendre=a_suspendre
                 a_retablir=a_retablir
             />
+            {gerer.then(|| view! { <actions::LiensEnAttente eleve_id=eleve_id recharger=recharger/> })}
         </section>
 
         <section class="classe-section" aria-labelledby="fiche-contacts">
@@ -266,10 +287,25 @@ fn TableResponsables(
                             }
                             let garde = libelle_garde(r.garde.as_deref());
                             let droits = droits_du_lien(&r);
-                            let droits = if droits.is_empty() { "aucun".to_string() } else { droits.join(", ") };
+                            let droits = if let Some(m) = message_masque(&r.masque, "F3") {
+                                m
+                            } else if droits.is_empty() {
+                                "aucun".to_string()
+                            } else {
+                                droits.join(", ")
+                            };
                             let payeur = r.est_payeur.then(|| format!("payeur {} %", r.part_paiement.unwrap_or(0)));
                             let coords = coordonnees(&r.personne);
-                            let coords = if coords.is_empty() { "—".to_string() } else { coords.join(" · ") };
+                            let mut coords = if let Some(m) = message_masque(&r.masque, "F1") {
+                                m
+                            } else if coords.is_empty() {
+                                "—".to_string()
+                            } else {
+                                coords.join(" · ")
+                            };
+                            if let Some(m) = message_masque(&r.masque, "F2") {
+                                coords.push_str(&format!(" · adresse : {m}"));
+                            }
                             let compte = if r.personne.a_compte { "avec compte" } else { "sans compte" };
                             let (lien_id, pour) = (r.lien_id, nom.clone());
                             let suspendu = r.suspendu_le.is_some();

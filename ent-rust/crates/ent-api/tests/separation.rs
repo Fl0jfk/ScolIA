@@ -328,6 +328,49 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
             Spec { non_liee_vide: FAMILLE, ..lire("sanctions", "/eleves/{eleve}/sanctions", TOUS, STAFF) },
+            // Socle 4 (lot A0) : ajout d'un responsable (commande unique), lien vers une personne
+            // existante, liens en attente de confirmation. Jamais d'écriture sur l'élève d'un autre
+            // établissement ; la liste « mes liens en attente » ne contient que ceux de l'appelant.
+            ecrire_sur_b("ajout-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables/ajout",
+                Some(r#"{"nouvelle_personne":{"nom":"Separation"},"lien":{"lien":"pere"}}"#)),
+            ecrire_sur_b("lier-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables",
+                Some(r#"{"personne_id":"00000000-0000-0000-0000-000000000001","lien":"pere"}"#)),
+            ecrire_sur_b("repondre-lien-attente-B", "POST",
+                "/dossier/mes-liens-en-attente/00000000-0000-0000-0000-000000000001/reponse",
+                Some(r#"{"accepter":true}"#)),
+            lire("mes-liens-en-attente", "/dossier/mes-liens-en-attente", TOUS, TOUS),
+            // Socle 4 (lot A0 bis) : confirmation au guichet (personnes.gerer), alertes de
+            // protection et « ne pas solliciter » (direction). Aucune de ces routes ne s'applique
+            // à une ressource d'un autre établissement ; les alertes ne listent que celles de
+            // l'établissement de l'appelant, et jamais une adresse.
+            lire("liens-en-attente-eleve", "/dossier/eleves/{eleve}/liens-en-attente",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("confirmer-guichet-B", "POST",
+                "/dossier/liens-en-attente/00000000-0000-0000-0000-000000000001/confirmer-guichet",
+                Some(r#"{"piece":"carte_identite"}"#)),
+            ecrire_sur_b("ne-pas-solliciter-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/ne-pas-solliciter",
+                Some(r#"{"actif":true}"#)),
+            ecrire_sur_b("ouvrir-adresse-protegee-B", "POST",
+                "/dossier/adresses-protegees/00000000-0000-0000-0000-000000000001/ouvrir", None),
+            Spec { interdits: &["adresse\":"], ..lire("alertes-protection", "/dossier/alertes-protection",
+                &[Admin, Direction], &[Admin, Direction]) },
+            // Socle 4 (lot A1) : interdictions de remise (consigne : `remise.lire`, jamais pour une
+            // famille), conflits d'intérêts (direction). Aucune écriture sur l'établissement B ;
+            // un motif d'interdiction n'apparaît jamais dans un cas hors direction.
+            Spec { interdits: &["motif_scelle", "enc:v1:"], ..lire("interdictions", "/dossier/eleves/{eleve}/interdictions",
+                &[Admin, Direction, Administratif, Cpe, Prof, Infirmiere],
+                &[Admin, Direction, Administratif, Cpe, Infirmiere]) },
+            ecrire_sur_b("poser-interdiction-B", "POST", "/dossier/eleves/{eleve}/interdictions",
+                Some(r#"{"personne_libelle":"Separation","objet":["remise"],"fondement":"decision_etablissement","consigne":"Ne pas remettre"}"#)),
+            ecrire_sur_b("lever-interdiction-B", "POST",
+                "/dossier/interdictions/00000000-0000-0000-0000-000000000001/lever",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("declarer-conflit-interet-B", "POST", "/dossier/eleves/{eleve}/conflit-interet",
+                Some(r#"{"nature":"proche"}"#)),
+            ecrire_sur_b("lever-conflit-interet-B", "POST",
+                "/dossier/conflits-interet/00000000-0000-0000-0000-000000000001/lever", None),
+            lire("conflits-interet", "/dossier/conflits-interet", &[Admin, Direction], &[Admin, Direction]),
     ]
 }
 

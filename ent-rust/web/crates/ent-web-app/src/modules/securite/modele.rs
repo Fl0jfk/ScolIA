@@ -189,7 +189,7 @@ pub fn horodatage_local(instant: DateTime<Utc>) -> String {
 // ---------------------------------------------------------------------------
 
 /// Rôles proposés dans la politique : (identifiant du serveur, libellé au pluriel).
-pub const ROLES_POLITIQUE: [(&str, &str); 10] = [
+pub const ROLES_POLITIQUE: [(&str, &str); 11] = [
     ("admin", "Administration"),
     ("direction", "Direction"),
     ("administratif", "Secrétariat"),
@@ -198,6 +198,7 @@ pub const ROLES_POLITIQUE: [(&str, &str); 10] = [
     ("prof", "Enseignants"),
     ("infirmerie", "Infirmerie"),
     ("psy", "Psychologues"),
+    ("accueil", "Accueil"),
     ("parent", "Familles (responsables légaux)"),
     ("eleve", "Élèves"),
 ];
@@ -223,6 +224,7 @@ fn role_canonique(role: &str) -> Option<&'static str> {
         Role::Prof => "prof",
         Role::Infirmerie => "infirmerie",
         Role::Psy => "psy",
+        Role::Accueil => "accueil",
         Role::Parent => "parent",
         Role::Eleve => "eleve",
     })
@@ -501,7 +503,7 @@ mod tests {
         let mut ids: Vec<_> = ROLES_POLITIQUE.iter().map(|(i, _)| *i).collect();
         ids.sort_unstable();
         ids.dedup();
-        assert_eq!(ids.len(), 10, "pas de doublon");
+        assert_eq!(ids.len(), 11, "pas de doublon");
         assert_eq!(libelle_role_politique("prof"), "Enseignants");
         assert_eq!(libelle_role_politique("futur_role"), "futur_role");
     }

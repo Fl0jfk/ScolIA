@@ -12738,10 +12738,24 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         // Parent / élève : uniquement les entrées `visible_famille`.
         let famille_only = parent || eleve;
         let lim = if limit <= 0 { 50 } else { limit.min(200) };
-        Ok(self
+        let mut entrees = self
             .journal
             .list_eleve(etablissement_id, eleve_id, famille_only, lim)
-            .await?)
+            .await?;
+        // A1 : conflits d'intérêts et interdictions ne se lisent pas dans le journal d'un élève
+        // (ils décrivent des données F3/F4) ; la direction les voit dans ses tableaux dédiés.
+        if !famille_only
+            && !self
+                .a_action_etablissement(etablissement_id, user_id, role, Action::ResponsablesProtegeLire)
+                .await?
+        {
+            entrees.retain(|e| {
+                e.domaine != "conflit_interet"
+                    && !e.action.starts_with("conflit_interet")
+                    && !e.action.starts_with("interdiction_")
+            });
+        }
+        Ok(entrees)
     }
 
     /// Journal d'audit filtrable par domaine (ex. `auth`) — staff habilité.

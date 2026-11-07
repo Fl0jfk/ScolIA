@@ -40,6 +40,10 @@ pub const EVALUATIONS: &str = "/web/evaluations";
 pub const MESSAGES: &str = "/web/messages";
 pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
+/// Confirmation des liens de responsabilité déclarés par l'établissement (tous les profils connectés).
+pub const MES_LIENS: &str = "/web/mes-liens";
+/// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
+pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
 pub const ROLES_NOUVEAU: &str = "/web/direction/roles/nouveau";
 pub const ROLES_GROUPES: &str = "/web/direction/roles/groupes";

@@ -332,10 +332,18 @@ async fn inviter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
            JOIN ent_inscription_dossier d ON d.id = r.dossier_id AND d.etablissement_id = r.etablissement_id
            JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
            LEFT JOIN ent_user u ON u.id = p.user_id
-           LEFT JOIN ent_inscription_lien_attente la
-                  ON la.dossier_id = r.dossier_id AND la.responsable_id = r.id AND la.statut = 'en_attente'
+           LEFT JOIN ent_lien_attente la
+                  ON la.etablissement_id = r.etablissement_id AND la.source = 'inscription'
+                 AND la.source_ref = r.id AND la.statut = 'en_attente'
           WHERE r.etablissement_id = $1 AND r.dossier_id = $2 AND d.statut = 'validee'
             AND ((r.email IS NOT NULL AND p.user_id IS NULL) OR la.id IS NOT NULL)
+            -- A0-c : AUCUNE invitation ni demande d'accord vers une personne « ne pas solliciter »
+            -- (déclarée sur le dossier ou posée sur la fiche) : l'invitation révélerait l'élève
+            -- et l'établissement à la personne dont la famille est protégée.
+            AND NOT r.ne_pas_solliciter
+            AND NOT EXISTS (SELECT 1 FROM ent_personne_reserve nps
+                             WHERE nps.etablissement_id = r.etablissement_id
+                               AND nps.personne_id = r.personne_id AND nps.ne_pas_solliciter)
           ORDER BY r.rang",
     )
     .bind(etab)

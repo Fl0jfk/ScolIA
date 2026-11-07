@@ -127,6 +127,32 @@ pub struct ResponsableFormulaireDto {
     pub meme_foyer: bool,
     #[serde(default = "vrai")]
     pub autorite_parentale: bool,
+    /// Champs réservés du contrat `DeclarationResponsables` v1 (socle 4, lot A0 bis). Jamais
+    /// rendus à la famille.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserve: Option<ReserveResponsableDto>,
+}
+
+/// Champs réservés d'un responsable déclaré (tous facultatifs). Une adresse à protéger n'est
+/// pas enregistrée en clair ; « ne pas solliciter » bloque toute invitation, demande d'accord
+/// et relance vers cette personne.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReserveResponsableDto {
+    #[serde(default)]
+    pub adresse_a_proteger: bool,
+    #[serde(default)]
+    pub ne_pas_solliciter: bool,
+    /// Référence de la pièce de protection ; entrée seulement (jamais renvoyée).
+    #[serde(default, skip_serializing)]
+    pub ne_pas_solliciter_ref: Option<String>,
+    #[serde(default)]
+    pub langue: Option<String>,
+    #[serde(default)]
+    pub besoin_interprete: bool,
+    #[serde(default)]
+    pub organisme: Option<String>,
+    #[serde(default)]
+    pub nature_code: Option<String>,
 }
 
 fn vrai() -> bool {

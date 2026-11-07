@@ -93,7 +93,7 @@ async fn comptes_eleve(
         SELECT c.user_id FROM ent_eleve_compte c
          WHERE c.etablissement_id = $1 AND c.eleve_id = $2
         UNION
-        SELECT l.user_id FROM ent_eleve_lien l
+        SELECT l.user_id FROM ent_eleve_lien_actif l
           JOIN ent_membership m ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND m.role = 'parent'
         "#,
