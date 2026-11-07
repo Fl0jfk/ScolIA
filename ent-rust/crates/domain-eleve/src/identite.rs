@@ -558,6 +558,9 @@ pub fn planifier_version(
     let motif = motif_valide(&d.motif)?;
     match d.nature {
         NatureVersion::Correction | NatureVersion::ChangementEtatCivil | NatureVersion::Usage => {}
+        // Lot E5 : une valeur venue d'un flux externe entre par une proposition décidée
+        // (la référence de la proposition est alors obligatoire).
+        NatureVersion::Import if d.source_ref.is_some() => {}
         _ => return Err(ErreurIdentite::Invalide("nature réservée au système")),
     }
     let motif_code = d
@@ -568,6 +571,8 @@ pub fn planifier_version(
     let liste: &[&str] = match d.nature {
         NatureVersion::Correction => MOTIFS_CORRECTION,
         NatureVersion::ChangementEtatCivil => MOTIFS_CHANGEMENT,
+        // Un import n'a pas de motif codé (sa raison d'être est la source).
+        NatureVersion::Import => &[],
         _ => MOTIFS_USAGE,
     };
     if matches!(
@@ -626,7 +631,8 @@ pub fn planifier_version(
             // Une version existe déjà à cette date : un nom ou prénom d'usage la
             // remplace (deux valeurs ne peuvent pas valoir le même jour, l'ancienne
             // reste lisible) ; un changement d'état civil est une correction.
-            let usage_meme_jour = d.nature == NatureVersion::Usage && base.effet_du == e;
+            let usage_meme_jour = matches!(d.nature, NatureVersion::Usage | NatureVersion::Import)
+                && base.effet_du == e;
             if existantes_effet.contains(&e) && !usage_meme_jour {
                 return Err(ErreurIdentite::Conflit(
                     "une version existe déjà à cette date d'effet : utiliser une correction",
@@ -647,7 +653,8 @@ pub fn planifier_version(
     version.nature = d.nature;
     version.effet_du = effet_du;
     let remplace = d.nature == NatureVersion::Correction
-        || (d.nature == NatureVersion::Usage && base.effet_du == effet_du);
+        || (matches!(d.nature, NatureVersion::Usage | NatureVersion::Import)
+            && base.effet_du == effet_du);
     version.remplace_version_id = remplace.then_some(base.id);
     version.remplacee_par = None;
     version.motif_code = motif_code.clone();

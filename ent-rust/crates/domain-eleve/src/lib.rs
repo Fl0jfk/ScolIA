@@ -17,6 +17,7 @@ mod dossier;
 mod identifiant;
 mod scolarite;
 mod identite;
+mod proposition;
 mod invitation;
 mod fiche_sante;
 mod fiche_sante_pdf;
@@ -108,6 +109,15 @@ pub use identifiant::{
     motif_valide as motif_identifiant_valide, normaliser_valeur as normaliser_identifiant,
     transition_permise as transition_identifiant_permise, utilisable_pour_export as identifiant_utilisable_pour_export,
     ErreurIdentifiant, ProvenanceIdentifiant, StatutIdentifiant, SystemeIdentifiant,
+};
+pub use proposition::{
+    champ as champ_catalogue, champ_catalogue_de, champ_catalogue_du_systeme, evaluer_auto,
+    nom_regle_auto, reglage_profil, regles_auto_profil, statut_final, valider_regle_auto,
+    valider_reglage, verifier_acceptation, verifier_depot,
+    verifier_modification_directe, vient_de_la_source_qui_fait_foi, CibleProposition,
+    ContexteAuto, DefChamp, Deposant, ErreurProposition, ModificationLocale, OrigineProposition,
+    ProfilEtablissement, RaisonNonAuto, ReglageChamp, SaisieFamille, SourceFoi, SourceProposition,
+    TypeValeur, CATALOGUE as CATALOGUE_CHAMPS_ELEVE, MOMENTS_OBLIGATOIRE, MOTIFS_REFUS,
 };
 pub use identite::{
     filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,
