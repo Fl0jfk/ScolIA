@@ -615,6 +615,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ent-kit"
+version = "0.1.0"
+
+[[package]]
 name = "ent-lab"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,12 @@
+[package]
+name = "ent-kit"
+description = "PROTOTYPE (D-026, docs/ARCHITECTURE_BRIQUES.md) : déclarations d'une brique (migrations, actions, routes) et registres vérifiés. Non branché sur ent-db / ent-api : aucun changement de comportement."
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+# Aucune dépendance : le kit de déclaration doit rester léger, compilable en
+# WebAssembly (navigation Leptos) et lisible pour la revue de sécurité.
+[dependencies]
