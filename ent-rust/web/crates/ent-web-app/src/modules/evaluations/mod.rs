@@ -171,7 +171,10 @@ fn AccueilPersonnel() -> impl IntoView {
     let services = LocalResource::new(|| async { session::client().services_evaluables().await });
     // Liste unique « mes enseignements » (classes entières et groupes, avec effectif).
     let enseignements = LocalResource::new(|| async {
-        session::client().mes_enseignements(aujourdhui()).await.unwrap_or_default()
+        session::client()
+            .mes_enseignements(aujourdhui())
+            .await
+            .unwrap_or_default()
     });
     let choix = RwSignal::new(String::new());
     view! {

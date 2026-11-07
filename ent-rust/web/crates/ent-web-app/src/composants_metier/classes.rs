@@ -34,7 +34,10 @@ pub fn enseignement_du_creneau<'a>(
     classe_texte: &str,
     matiere: &str,
 ) -> Option<&'a EnseignementApi> {
-    let (c, m) = (classe_texte.trim().to_lowercase(), matiere.trim().to_lowercase());
+    let (c, m) = (
+        classe_texte.trim().to_lowercase(),
+        matiere.trim().to_lowercase(),
+    );
     if c.is_empty() || m.is_empty() {
         return None;
     }
@@ -99,7 +102,13 @@ mod tests {
         assert!(classe_du_creneau(&v, "").is_none());
     }
 
-    fn ens(cible: &str, classe: &str, matiere: &str, nature: &str, effectif: i64) -> EnseignementApi {
+    fn ens(
+        cible: &str,
+        classe: &str,
+        matiere: &str,
+        nature: &str,
+        effectif: i64,
+    ) -> EnseignementApi {
         EnseignementApi {
             service_id: Uuid::nil(),
             nature: nature.into(),
@@ -126,15 +135,24 @@ mod tests {
             ens("4B", "4B", "Français", "classe", 28),
         ];
         // Séance en texte de classe « 4B » pour l'allemand : le groupe, sans ambiguïté.
-        assert_eq!(enseignement_du_creneau(&v, " 4b ", "allemand").map(|e| e.effectif), Some(12));
-        assert_eq!(enseignement_du_creneau(&v, "4B", "Français").map(|e| e.effectif), Some(28));
+        assert_eq!(
+            enseignement_du_creneau(&v, " 4b ", "allemand").map(|e| e.effectif),
+            Some(12)
+        );
+        assert_eq!(
+            enseignement_du_creneau(&v, "4B", "Français").map(|e| e.effectif),
+            Some(28)
+        );
         assert!(enseignement_du_creneau(&v, "4B", "Maths").is_none());
         assert!(enseignement_du_creneau(&v, "", "Français").is_none());
         // Deux enseignements possibles : aucun effectif affiché plutôt qu'un douteux.
         let mut deux = v.clone();
         deux.push(ens("4B", "4B", "Allemand", "classe", 28));
         assert!(enseignement_du_creneau(&deux, "4B", "Allemand").is_none());
-        assert_eq!(libelle_enseignement(&v[0]), "Allemand · 4B-ALL (groupe) · 12 élèves");
+        assert_eq!(
+            libelle_enseignement(&v[0]),
+            "Allemand · 4B-ALL (groupe) · 12 élèves"
+        );
     }
 
     #[test]

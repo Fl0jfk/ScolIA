@@ -91,7 +91,12 @@ pub fn PageAppel() -> impl IntoView {
     // Liste unique « mes enseignements » : effectif réel de la séance (groupe ou classe).
     let enseignements = LocalResource::new(move || {
         let j = jour.get();
-        async move { session::client().mes_enseignements(j).await.unwrap_or_default() }
+        async move {
+            session::client()
+                .mes_enseignements(j)
+                .await
+                .unwrap_or_default()
+        }
     });
 
     let titre = Signal::derive(move || match seance.get() {

@@ -58,7 +58,12 @@ fn ContenuCahier() -> impl IntoView {
     // Liste unique « mes enseignements » (classes et groupes) : effectif de chaque séance.
     let enseignements = LocalResource::new(move || {
         let l = lundi.get();
-        async move { session::client().mes_enseignements(l).await.unwrap_or_default() }
+        async move {
+            session::client()
+                .mes_enseignements(l)
+                .await
+                .unwrap_or_default()
+        }
     });
     let adresse = move |decalage: i64| {
         format!(
