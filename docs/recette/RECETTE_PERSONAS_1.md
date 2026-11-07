@@ -271,15 +271,13 @@ Lancer les tests des failles ouvertes : `cargo test --locked -p ent-api --featur
 
 ## 5 bis. Validation
 
-Local, Rust 1.99.0, PostgreSQL 16 (CI : 18), blank database, after all the fixes (commit `1626ec5` + documentation):
-- `cargo test --locked --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1`: **796 passed, 0 failed, 7 ignored** (the 6 open flaws of `recette_personas_1` + 1 documentation example already ignored before), including the separation matrix, `recette_personas_1` (4 green), `recette_personas_rf16` (1) and `tests_recette_personas` (3); exit 0 (≈ 1 h 40, mostly `ent-db`).
-- `cargo test --locked -p ent-api -p ent-db -- --test-threads=1` (without labo): **162 passed, 0 failed, 1 ignored**.
-- `--ignored` run of `recette_personas_1`: the 6 open-flaw tests **fail**, each for the expected reason (run by the sub-agent before the fixes for RP1-24 and RP1-10, which don't touch these flaws).
-- `cargo clippy --locked --workspace --all-targets` and the same with `--features ent-api/labo,ent-lab/labo`: **0 errors** (105 / 143 warnings already present ; none on the modified lines or the new files).
-- Formatting: `cargo fmt … -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check` and `cargo fmt … -p ent-types --check`: OK ; new test files checked with `rustfmt --edition 2021 --check`. No `cargo fmt --all`.
-- Not run: CI GitHub, `cargo deny` / `audit`, frontend Leptos tests (frontend not modified), browser.
-
----
+En local, Rust 1.99.0, PostgreSQL 16 (CI : 18), base vierge, après tous les correctifs (commit `1626ec5` + documentation) :
+- `cargo test --locked --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1` : **796 réussis, 0 échec, 7 ignorés** (les 6 failles ouvertes de `recette_personas_1` + 1 exemple de documentation déjà ignoré), dont la matrice de séparation, `recette_personas_1` (4 verts), `recette_personas_rf16` (1) et `tests_recette_personas` (3) ; code de sortie 0 (≈ 1 h 40, surtout `ent-db`).
+- `cargo test --locked -p ent-api -p ent-db -- --test-threads=1` (sans labo) : **162 réussis, 0 échec, 1 ignoré**.
+- Passe `--ignored` de `recette_personas_1` : les 6 tests de failles ouvertes **échouent**, chacun pour la raison attendue (passe faite par le sous-agent avant les correctifs RP1-24 et RP1-10, qui ne touchent pas ces failles).
+- `cargo clippy --locked --workspace --all-targets` et la même avec `--features ent-api/labo,ent-lab/labo` : **0 erreur** (105 / 143 avertissements préexistants ; aucun sur les lignes modifiées ni dans les nouveaux fichiers).
+- Formatage : `cargo fmt … -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check` et `cargo fmt … -p ent-types --check` : OK ; nouveaux fichiers de test vérifiés par `rustfmt --edition 2021 --check`. Aucun `cargo fmt --all`.
+- Non faits : CI GitHub, `cargo deny` / `audit`, tests du frontend Leptos (frontend non modifié), navigateur.
 
 ## 6. Questions pour Florian
 
