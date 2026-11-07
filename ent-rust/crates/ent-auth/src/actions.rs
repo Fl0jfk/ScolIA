@@ -1566,22 +1566,39 @@ mod oracle_a1 {
         ]),
     ];
 
+    /// Les 53 actions historiques (catalogue de la base du lot A1). Depuis l'intégration avec
+    /// le socle 2 (E1 : `eleves.*`) et D-022 (`exports.officiels`), elles ne forment plus un
+    /// préfixe du catalogue : on les isole par position relative, jamais par un indice figé.
+    fn historiques() -> Vec<Action> {
+        let pos = |a: Action| Action::TOUTES.iter().position(|x| *x == a).unwrap();
+        let (e1_debut, e1_fin, fin) = (
+            pos(Action::ElevesAnnuaire),
+            pos(Action::ElevesParametrer),
+            pos(Action::CahierViser),
+        );
+        Action::TOUTES
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i < e1_debut || (*i > e1_fin && *i <= fin))
+            .map(|(_, a)| *a)
+            .collect()
+    }
+
     #[test]
     fn matrice_historique_inchangee_par_a1() {
         for (code_role, attendu) in HISTORIQUE {
             let role = Role::parse(code_role).unwrap();
             let mut obtenu: Vec<String> = modele_par_defaut(role)
                 .into_iter()
-                .filter(|(a, _)| Action::TOUTES[..53].contains(a))
+                .filter(|(a, _)| historiques().contains(a))
                 .map(|(a, p)| format!("{}@{}", a.code(), p.code()))
                 .collect();
             obtenu.sort();
             let attendu: Vec<String> = attendu.iter().map(|x| x.to_string()).collect();
             assert_eq!(obtenu, attendu, "profil {code_role} : la matrice historique a changé");
         }
-        // Les actions historiques sont bien les 53 premières du catalogue.
-        assert_eq!(Action::TOUTES[52], Action::CahierViser);
-        assert_eq!(Action::TOUTES[53], Action::ResponsablesLire);
+        // Les actions historiques sont bien au nombre de 53.
+        assert_eq!(historiques().len(), 53);
     }
 
     /// Le profil « accueil » est nouveau : il n'a aucun droit historique.
@@ -1590,7 +1607,7 @@ mod oracle_a1 {
         let historiques: Vec<Action> = modele_par_defaut(Role::Accueil)
             .into_iter()
             .map(|(a, _)| a)
-            .filter(|a| Action::TOUTES[..53].contains(a))
+            .filter(|a| historiques().contains(a))
             .collect();
         assert_eq!(historiques, vec![Action::ReferentielLire, Action::AbsencesDeclarer]);
     }
