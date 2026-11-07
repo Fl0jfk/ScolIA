@@ -46,6 +46,15 @@ pub fn lister(dir: &Path) -> Result<Vec<FichierMigration>, String> {
         if chemin.extension().and_then(|e| e.to_str()) != Some("sql") {
             continue;
         }
+        // Fichiers cachés (sauvegardes d'éditeur) ignorés ; tout autre `.sql`
+        // au nom non conforme fait échouer la compilation.
+        if chemin
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with('.'))
+        {
+            continue;
+        }
         let nom = chemin
             .file_stem()
             .and_then(|s| s.to_str())

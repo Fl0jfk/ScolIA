@@ -89,7 +89,8 @@ pub fn verifier(brique: &'static str, prefixes: &[&str], routes: &[RouteDecl]) -
                 chemin: r.chemin,
             });
         }
-        if !vues.insert((r.methode, r.chemin)) {
+        // `/x/{a}` et `/x/{b}` sont la même route pour axum (panique au démarrage).
+        if !vues.insert((r.methode, forme(r.chemin))) {
             erreurs.push(ErreurRoute::EnDouble {
                 methode: r.methode,
                 chemin: r.chemin,
@@ -116,14 +117,33 @@ pub fn verifier(brique: &'static str, prefixes: &[&str], routes: &[RouteDecl]) -
     erreurs
 }
 
+/// Forme d'un chemin sans le nom de ses paramètres (`/x/{a}` → `/x/{}`).
+fn forme(chemin: &str) -> String {
+    let mut sortie = String::with_capacity(chemin.len());
+    let mut dans_parametre = false;
+    for c in chemin.chars() {
+        match c {
+            '{' => {
+                dans_parametre = true;
+                sortie.push_str("{}");
+            }
+            '}' => dans_parametre = false,
+            _ if dans_parametre => {}
+            _ => sortie.push(c),
+        }
+    }
+    sortie
+}
+
 /// Cas d'isolation générés pour une route (joués par le harnais HTTP de
 /// l'étape 4, qui fournit les acteurs et les identifiants du labo).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CasIsolation {
     /// Sans jeton ou jeton inventé → 401.
     SansSession,
-    /// Personnel sans aucune des actions → refus (403/404), aucune donnée.
-    PersonnelSansAction(Action),
+    /// Personnel qui n'a **aucune** des actions de la route → refus (403/404),
+    /// aucune donnée (sémantique « au moins une des actions »).
+    PersonnelSansAucuneAction,
     /// Action accordée avec une portée qui n'inclut pas l'élève → refus.
     HorsPortee(Action),
     /// Famille d'un autre élève → refus ou réponse indistincte.
@@ -140,16 +160,20 @@ pub fn cas_isolation(r: &RouteDecl) -> Vec<CasIsolation> {
         Acces::Famille => &[],
     };
     cas.push(CasIsolation::SansSession);
+    if !actions.is_empty() {
+        cas.push(CasIsolation::PersonnelSansAucuneAction);
+    }
     for a in actions {
-        cas.push(CasIsolation::PersonnelSansAction(*a));
         if r.cible != Cible::Aucune {
             cas.push(CasIsolation::HorsPortee(*a));
         }
     }
+    // Une liste famille (sans cible) doit aussi rester bornée au lien : le cas
+    // « famille non liée » vérifie qu'aucun élève d'une autre famille n'y paraît.
+    if matches!(r.acces, Acces::Famille | Acces::Mixte { .. }) {
+        cas.push(CasIsolation::FamilleNonLiee);
+    }
     if r.cible != Cible::Aucune {
-        if matches!(r.acces, Acces::Famille | Acces::Mixte { .. }) {
-            cas.push(CasIsolation::FamilleNonLiee);
-        }
         cas.push(CasIsolation::AutreEtablissement);
     }
     cas
@@ -158,9 +182,9 @@ pub fn cas_isolation(r: &RouteDecl) -> Vec<CasIsolation> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actions::{Action, Portee};
+    use crate::actions::Action;
 
-    const LIRE: Action = Action::declarer("infirmerie.passages.lire", "Lire", Portee::TOUTES);
+    const LIRE: Action = Action::new("infirmerie.passages.lire");
 
     #[test]
     fn cas_generes_pour_une_route_eleve() {
@@ -177,7 +201,7 @@ mod tests {
             cas_isolation(&r),
             [
                 CasIsolation::SansSession,
-                CasIsolation::PersonnelSansAction(LIRE),
+                CasIsolation::PersonnelSansAucuneAction,
                 CasIsolation::HorsPortee(LIRE),
                 CasIsolation::AutreEtablissement
             ]
@@ -224,6 +248,26 @@ mod tests {
             methode: Methode::Get,
             chemin: "/infirmerie/p"
         }));
+        // Même route aux noms de paramètres près.
+        let jumelles = [
+            RouteDecl {
+                methode: Methode::Get,
+                chemin: "/infirmerie/{a}",
+                acces: Acces::Famille,
+                cible: Cible::Aucune,
+            },
+            RouteDecl {
+                methode: Methode::Get,
+                chemin: "/infirmerie/{b}",
+                acces: Acces::Famille,
+                cible: Cible::Aucune,
+            },
+        ];
+        assert_eq!(verifier("infirmerie", &["/infirmerie"], &jumelles).len(), 1);
+        assert_eq!(
+            cas_isolation(&jumelles[0]),
+            [CasIsolation::SansSession, CasIsolation::FamilleNonLiee]
+        );
         // « /infirmerie-bis » n'est pas sous « /infirmerie ».
         let bis = [RouteDecl {
             methode: Methode::Get,

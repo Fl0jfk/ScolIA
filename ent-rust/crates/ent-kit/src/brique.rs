@@ -9,7 +9,7 @@
 
 use crate::actions::{Catalogue, DeclActions, ErreurCatalogue};
 use crate::migrations::{assembler, DeclMigrations, ErreurMigration, Migration};
-use crate::routes::{verifier, ErreurRoute, RouteDecl};
+use crate::routes::{verifier, Acces, ErreurRoute, Methode, RouteDecl};
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +44,12 @@ pub enum ErreurAssemblage {
         evenement: &'static str,
     },
     ConsommateurEnDouble(&'static str),
+    /// Une brique ne se déclare pas publique toute seule : la liste des routes
+    /// publiques est tenue par l'assemblage et relue en revue de sécurité.
+    RoutePubliqueNonAutorisee {
+        brique: &'static str,
+        chemin: &'static str,
+    },
 }
 
 /// Résultat d'un assemblage valide : ce que le binaire applique au démarrage.
@@ -64,6 +70,7 @@ pub fn evenement_admis(brique: &str, evenement: &str, historiques: &[&str]) -> b
 pub fn assembler_briques(
     briques: &[Brique],
     evenements_historiques: &[&str],
+    publiques_autorisees: &[(Methode, &str)],
 ) -> Result<Assemblage, Vec<ErreurAssemblage>> {
     let mut erreurs = Vec::new();
     let mut noms = BTreeMap::new();
@@ -91,6 +98,16 @@ pub fn assembler_briques(
                 .into_iter()
                 .map(ErreurAssemblage::Route),
         );
+        for r in b.routes {
+            if matches!(r.acces, Acces::Public { .. })
+                && !publiques_autorisees.contains(&(r.methode, r.chemin))
+            {
+                erreurs.push(ErreurAssemblage::RoutePubliqueNonAutorisee {
+                    brique: b.nom,
+                    chemin: r.chemin,
+                });
+            }
+        }
         routes.extend(b.routes.iter().map(|r| (b.nom, *r)));
         for e in b.evenements {
             if !evenement_admis(b.nom, e, evenements_historiques) {
@@ -129,23 +146,19 @@ pub fn assembler_briques(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actions::{Action, ContributionModele, Portee};
+    use crate::actions::{ContributionModele, Portee};
     use crate::migrations::{Migration, Plage};
-    use crate::routes::{Acces, Cible, Methode};
+    use crate::routes::Cible;
 
     // ---- La brique « infirmerie » telle que l'écrirait une session Sonnet ----
-    const PASSAGES_LIRE: Action = Action::declarer(
-        "infirmerie.passages.lire",
-        "Lire les passages",
-        Portee::TOUTES,
-    )
-    .sensible();
-    const PASSAGES_SAISIR: Action = Action::declarer(
-        "infirmerie.passages.saisir",
-        "Saisir un passage",
-        Portee::ETABLISSEMENT_SEULE,
-    )
-    .sensible();
+    mod actions_infirmerie {
+        use crate::actions::Portee;
+        crate::declarer_actions! {
+            PASSAGES_LIRE = "infirmerie.passages.lire", "Lire les passages", Portee::TOUTES, sensible;
+            PASSAGES_SAISIR = "infirmerie.passages.saisir", "Saisir un passage", Portee::ETABLISSEMENT_SEULE, sensible;
+        }
+    }
+    use actions_infirmerie::{PASSAGES_LIRE, PASSAGES_SAISIR};
 
     const INFIRMERIE: Brique = Brique {
         nom: "infirmerie",
@@ -162,7 +175,7 @@ mod tests {
         actions: DeclActions {
             brique: "infirmerie",
             domaines: &["infirmerie"],
-            actions: &[PASSAGES_LIRE, PASSAGES_SAISIR],
+            definitions: actions_infirmerie::DEFINITIONS,
             modeles: &[ContributionModele {
                 modele: "infirmerie",
                 action: PASSAGES_SAISIR,
@@ -205,7 +218,7 @@ mod tests {
             actions: DeclActions {
                 brique: "noyau",
                 domaines: &["eleves"],
-                actions: &[],
+                definitions: &[],
                 modeles: &[],
             },
             prefixes_routes: &["/eleves"],
@@ -217,7 +230,7 @@ mod tests {
 
     #[test]
     fn une_brique_se_branche_sans_toucher_au_noyau() {
-        let a = assembler_briques(&[noyau_minimal(), INFIRMERIE], &["eleve.created"])
+        let a = assembler_briques(&[noyau_minimal(), INFIRMERIE], &["eleve.created"], &[])
             .expect("assemblage valide");
         assert_eq!(a.migration_tag, Some("400_infirmerie_passages"));
         assert_eq!(a.catalogue.len(), 2);
@@ -234,7 +247,7 @@ mod tests {
         copie.nom = "infirmerie2";
         copie.migrations.brique = "infirmerie2";
         copie.actions.brique = "infirmerie2";
-        let e = assembler_briques(&[INFIRMERIE, copie], &[]).unwrap_err();
+        let e = assembler_briques(&[INFIRMERIE, copie], &[], &[]).unwrap_err();
         assert!(e.contains(&ErreurAssemblage::PrefixeRouteEnDouble {
             prefixe: "/infirmerie",
             a: "infirmerie",
@@ -255,5 +268,28 @@ mod tests {
             x,
             ErreurAssemblage::Catalogue(ErreurCatalogue::DomaineRevendiqueDeuxFois { .. })
         )));
+    }
+
+    #[test]
+    fn une_route_publique_doit_etre_autorisee_par_l_assemblage() {
+        const OUVERTE: RouteDecl = RouteDecl {
+            methode: Methode::Get,
+            chemin: "/infirmerie/horaires",
+            acces: Acces::Public {
+                motif: "horaires d'ouverture affichés à l'accueil",
+            },
+            cible: Cible::Aucune,
+        };
+        let mut b = INFIRMERIE;
+        b.routes = &[OUVERTE];
+        let e = assembler_briques(&[b], &[], &[]).unwrap_err();
+        assert_eq!(
+            e,
+            [ErreurAssemblage::RoutePubliqueNonAutorisee {
+                brique: "infirmerie",
+                chemin: "/infirmerie/horaires"
+            }]
+        );
+        assert!(assembler_briques(&[b], &[], &[(Methode::Get, "/infirmerie/horaires")]).is_ok());
     }
 }
