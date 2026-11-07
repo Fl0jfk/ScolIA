@@ -15,6 +15,8 @@ pub enum Role {
     Prof,
     Infirmerie,
     Psy,
+    /// Accueil de l'établissement (socle 4, A1) : désigne, joint, remet ; profil nouveau.
+    Accueil,
     Parent,
     Eleve,
 }
@@ -30,6 +32,7 @@ impl Role {
             Self::Prof => "prof",
             Self::Infirmerie => "infirmerie",
             Self::Psy => "psy",
+            Self::Accueil => "accueil",
             Self::Parent => "parent",
             Self::Eleve => "eleve",
         }
@@ -45,6 +48,7 @@ impl Role {
             "prof" | "enseignant" => Some(Self::Prof),
             "infirmerie" | "infirmiere" | "infirmier" => Some(Self::Infirmerie),
             "psy" | "psychologue" => Some(Self::Psy),
+            "accueil" => Some(Self::Accueil),
             "parent" => Some(Self::Parent),
             "eleve" => Some(Self::Eleve),
             "staff" => Some(Self::Administratif),

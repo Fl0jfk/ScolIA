@@ -11,10 +11,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ent_db::{
-    ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne, LienResultat,
-    LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable,
+    ConflitInteretVu, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
+    InterdictionSaisie, InterdictionVue, LienResultat, LienSaisie, Personne, PersonneSaisie,
+    PersonneTrouvee, Responsable,
 };
 use ent_types::dossier::{
+    ConflitInteretBody, ConflitInteretDto, InterdictionBody, InterdictionDto, LeverInterdictionBody,
+    MasquageDto,
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto,
     ConfirmationGuichetBody, ConfirmationGuichetDto, LienEnAttenteEleveDto, NePasSolliciterBody, ProtectionADeclarerDto, LienEnAttenteDto, MonLienEnAttenteDto, ReponseLienBody, CompteBody, ContactBody, ContactUrgenceDto, EntreeChronologieDto,
     FicheEleveDto, FusionBody, FusionDto, LienBody, PayeursBody, PersonneBody, PersonneDto,
@@ -58,6 +61,15 @@ pub fn routes() -> Router<AppState> {
             "/dossier/adresses-protegees/{id}/ouvrir",
             post(ouvrir_adresse_protegee),
         )
+        // Lot A1 : interdictions (groupe R) et conflits d'intérêts (R-A18)
+        .route(
+            "/dossier/eleves/{id}/interdictions",
+            get(interdictions).post(poser_interdiction),
+        )
+        .route("/dossier/interdictions/{id}/lever", post(lever_interdiction))
+        .route("/dossier/eleves/{id}/conflit-interet", post(declarer_conflit_interet))
+        .route("/dossier/conflits-interet", get(conflits_interet))
+        .route("/dossier/conflits-interet/{id}/lever", post(lever_conflit_interet))
         .route("/dossier/eleves/{id}/payeurs", put(payeurs))
         .route("/dossier/eleves/{id}/contacts", get(contacts).post(ajouter_contact))
         .route("/dossier/eleves/{id}/personne-eleve", post(personne_eleve))
@@ -119,7 +131,44 @@ fn responsable_dto(r: Responsable) -> ResponsableDto {
         peut_autoriser_sorties: r.peut_autoriser_sorties,
         est_payeur: r.est_payeur,
         part_paiement: r.part_paiement,
+        masque: r.masque.into_iter().map(masquage_dto).collect(),
     }
+}
+
+/// Groupe fermé et raison (A1) : le libellé et le message viennent du catalogue `ent_auth`.
+pub(crate) fn masquage_dto(m: ent_auth::Masquage) -> MasquageDto {
+    MasquageDto {
+        groupe: m.groupe.code().into(),
+        libelle: m.groupe.libelle().into(),
+        raison: m.raison.code().into(),
+        message: m.raison.message().into(),
+        action_a_demander: m.raison.action_a_demander().map(|a| a.code().into()),
+    }
+}
+
+fn interdiction_dto(i: InterdictionVue) -> InterdictionDto {
+    InterdictionDto {
+        id: i.id,
+        personne_id: i.personne_id,
+        personne_libelle: i.personne_libelle,
+        objet: i.objet,
+        bloquante: i.bloquante,
+        consigne: i.consigne,
+        du: i.du,
+        au: i.au,
+        fondement: i.fondement,
+        motif: i.motif,
+    }
+}
+
+/// Réponse portant un motif ou un fondement : jamais mise en cache.
+fn sans_cache<T: serde::Serialize>(v: T) -> Response {
+    let mut rep = Json(v).into_response();
+    rep.headers_mut().insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    rep
 }
 
 fn contact_dto(c: ContactUrgence) -> ContactUrgenceDto {
@@ -187,6 +236,8 @@ fn fiche_dto(f: FicheEleve) -> FicheEleveDto {
             })
             .collect(),
         alertes: f.alertes,
+        masquages: f.masquages.into_iter().map(masquage_dto).collect(),
+        interdictions: f.interdictions.into_iter().map(interdiction_dto).collect(),
     }
 }
 
@@ -820,4 +871,129 @@ async fn defusionner(
         .await
         .map_err(map_db)?;
     Ok(Json(fusion_dto(f)))
+}
+
+// -- Lot A1 : interdictions et conflits d'intérêts ----------------------------
+
+/// Interdictions actives de l'élève (consigne avec `remise.lire`, fondement avec F3, motif avec F4).
+async fn interdictions(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Response> {
+    let v = state
+        .ent
+        .interdictions_eleve_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v.into_iter().map(interdiction_dto).collect::<Vec<_>>()))
+}
+
+async fn poser_interdiction(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<InterdictionBody>,
+) -> Res<(StatusCode, Json<Uuid>)> {
+    let nouvelle = state
+        .ent
+        .poser_interdiction_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &InterdictionSaisie {
+                personne_id: b.personne_id,
+                personne_libelle: b.personne_libelle,
+                objet: b.objet,
+                fondement: b.fondement,
+                motif: b.motif,
+                consigne: b.consigne,
+                du: b.du,
+                au: b.au,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(nouvelle)))
+}
+
+async fn lever_interdiction(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<LeverInterdictionBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .lever_interdiction_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Déclaration d'un conflit d'intérêts (l'agent pour lui-même, ou la direction pour un agent).
+async fn declarer_conflit_interet(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ConflitInteretBody>,
+) -> Res<(StatusCode, Json<Uuid>)> {
+    let nouvelle = state
+        .ent
+        .declarer_conflit_interet_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            b.agent_user_id,
+            id,
+            &b.nature,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(nouvelle)))
+}
+
+async fn lever_conflit_interet(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .lever_conflit_interet_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn conflit_dto(c: ConflitInteretVu) -> ConflitInteretDto {
+    ConflitInteretDto {
+        declaration_id: c.declaration_id,
+        user_id: c.user_id,
+        eleve_id: c.eleve_id,
+        origine: c.origine,
+        nature: c.nature,
+        acces_30j: c.acces_30j,
+        dernier_acces: c.dernier_acces,
+    }
+}
+
+/// Tableau de la direction : conflits déclarés et accès tracés.
+async fn conflits_interet(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Res<Response> {
+    let v = state
+        .ent
+        .conflits_interet_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v.into_iter().map(conflit_dto).collect::<Vec<_>>()))
 }

@@ -72,6 +72,90 @@ pub struct ResponsableDto {
     pub peut_autoriser_sorties: bool,
     pub est_payeur: bool,
     pub part_paiement: Option<i16>,
+    /// Groupes de champs fermés pour ce lecteur sur cette personne, avec la raison (lot A1) :
+    /// un champ vide n'est jamais ambigu (absent ≠ masqué). Les valeurs masquées sont neutres.
+    #[serde(default)]
+    pub masque: Vec<MasquageDto>,
+}
+
+/// Groupe de champs fermé et pourquoi (`04_ADMINISTRATIF.md` §12.2, lot A1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MasquageDto {
+    /// `F0` … `F4` ou `R`.
+    pub groupe: String,
+    pub libelle: String,
+    /// `droit_manquant`, `conflit_interet`, `autre_responsable`, `reserve_etablissement`.
+    pub raison: String,
+    /// Message affichable (français simple).
+    pub message: String,
+    /// Droit à demander quand la raison est `droit_manquant` (ex. `responsables.adresses.lire`).
+    #[serde(default)]
+    pub action_a_demander: Option<String>,
+}
+
+/// Interdiction active visible par le lecteur (groupe R ; fondement avec F3, motif avec F4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterdictionDto {
+    pub id: Uuid,
+    pub personne_id: Option<Uuid>,
+    pub personne_libelle: String,
+    pub objet: Vec<String>,
+    pub bloquante: bool,
+    /// Ce que doit faire l'accueil.
+    pub consigne: String,
+    pub du: NaiveDate,
+    pub au: Option<NaiveDate>,
+    #[serde(default)]
+    pub fondement: Option<String>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST /dossier/eleves/{id}/interdictions`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InterdictionBody {
+    #[serde(default)]
+    pub personne_id: Option<Uuid>,
+    #[serde(default)]
+    pub personne_libelle: Option<String>,
+    pub objet: Vec<String>,
+    pub fondement: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+    pub consigne: String,
+    #[serde(default)]
+    pub du: Option<NaiveDate>,
+    #[serde(default)]
+    pub au: Option<NaiveDate>,
+}
+
+/// Corps de `POST /dossier/interdictions/{id}/lever`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LeverInterdictionBody {
+    pub motif: String,
+}
+
+/// Corps de `POST /dossier/eleves/{id}/conflit-interet` (déclaration).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflitInteretBody {
+    /// Agent concerné (la direction déclare pour un autre) ; absent = l'acteur lui-même.
+    #[serde(default)]
+    pub agent_user_id: Option<Uuid>,
+    /// `ex_conjoint`, `ancien_foyer`, `proche`, `autre`.
+    pub nature: String,
+}
+
+/// Ligne du tableau de la direction : conflits déclarés et accès tracés.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConflitInteretDto {
+    pub declaration_id: Option<Uuid>,
+    pub user_id: Uuid,
+    pub eleve_id: Uuid,
+    /// `agent`, `direction` ou `detecte`.
+    pub origine: String,
+    pub nature: Option<String>,
+    pub acces_30j: i64,
+    pub dernier_acces: Option<DateTime<Utc>>,
 }
 
 /// Corps de `POST /dossier/eleves/{id}/responsables` (avec `personne_id`)
@@ -316,6 +400,12 @@ pub struct FicheEleveDto {
     pub contacts: Vec<ContactUrgenceDto>,
     pub actions: Vec<ActionFicheDto>,
     pub alertes: Vec<String>,
+    /// Groupes de champs fermés pour ce lecteur, avec la raison (lot A1).
+    #[serde(default)]
+    pub masquages: Vec<MasquageDto>,
+    /// Interdictions actives visibles (jamais pour une famille).
+    #[serde(default)]
+    pub interdictions: Vec<InterdictionDto>,
 }
 
 /// `GET /dossier/eleves/{id}/chronologie` : une entrée (titre neutre).

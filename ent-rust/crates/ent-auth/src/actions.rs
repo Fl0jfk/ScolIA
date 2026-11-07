@@ -124,6 +124,37 @@ pub enum Action {
     CahierEcrire,
     /// Viser le cahier de textes d'une classe ou d'un professeur (inspection, direction).
     CahierViser,
+    // ── Socle 4, lot A1 : droits du dossier administratif (§13 de 04_ADMINISTRATIF.md) ──
+    /// Voir les responsables d'un élève et les moyens de les joindre (désignation, e-mails, téléphones).
+    ResponsablesLire,
+    /// Voir les adresses postales ordinaires des responsables, le foyer et la résidence.
+    ResponsablesAdressesLire,
+    /// Voir la qualité, l'autorité, les droits du lien, les décisions (sans motif).
+    ResponsablesJuridiqueLire,
+    /// Voir les adresses protégées et les motifs scellés de décision ou d'interdiction.
+    ResponsablesProtegeLire,
+    /// Protéger une adresse et gérer les mesures de confidentialité renforcée.
+    ResponsablesProtegeGerer,
+    /// Qualité juridique, autorité, droits du lien, désaccords.
+    LiensJuridiqueGerer,
+    /// Voir les personnes autorisées du jour, les consignes d'interdiction et les contacts d'urgence.
+    RemiseLire,
+    /// Autorisations de remise, validation des propositions.
+    RemiseGerer,
+    /// Poser et lever une interdiction (remise, contact, visite).
+    RemiseInterdire,
+    /// Identifiants nationaux ou d'organisme des personnes.
+    PersonnesIdentifiantsGerer,
+    /// Décider les propositions de modification, traiter les fiches de rentrée.
+    DossierAdminPropositionsTraiter,
+    /// Lancer, suivre et clore les campagnes de fiche de rentrée.
+    FicheRentreeGerer,
+    /// Exports nominatifs, publipostage, liste électorale, extrait RGPD.
+    DossierAdminExporter,
+    /// Paramétrage du domaine (natures de lien, durées, options).
+    DossierAdminParametrer,
+    /// Ouvre F2 et F3 d'un élève hors portée, sur motif, avec alerte à la direction ; jamais F4.
+    ResponsablesAccesUrgence,
 }
 
 /// Sur quoi une action s'applique.
@@ -140,7 +171,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 53] = [
+    pub const TOUTES: [Action; 68] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -196,6 +227,22 @@ impl Action {
         Action::CahierLire,
         Action::CahierEcrire,
         Action::CahierViser,
+        // A1
+        Action::ResponsablesLire,
+        Action::ResponsablesAdressesLire,
+        Action::ResponsablesJuridiqueLire,
+        Action::ResponsablesProtegeLire,
+        Action::ResponsablesProtegeGerer,
+        Action::LiensJuridiqueGerer,
+        Action::RemiseLire,
+        Action::RemiseGerer,
+        Action::RemiseInterdire,
+        Action::PersonnesIdentifiantsGerer,
+        Action::DossierAdminPropositionsTraiter,
+        Action::FicheRentreeGerer,
+        Action::DossierAdminExporter,
+        Action::DossierAdminParametrer,
+        Action::ResponsablesAccesUrgence,
     ];
 
     pub fn code(self) -> &'static str {
@@ -254,6 +301,21 @@ impl Action {
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
             Self::CahierViser => "cahier.viser",
+            Self::ResponsablesLire => "responsables.lire",
+            Self::ResponsablesAdressesLire => "responsables.adresses.lire",
+            Self::ResponsablesJuridiqueLire => "responsables.juridique.lire",
+            Self::ResponsablesProtegeLire => "responsables.protege.lire",
+            Self::ResponsablesProtegeGerer => "responsables.protege.gerer",
+            Self::LiensJuridiqueGerer => "liens.juridique.gerer",
+            Self::RemiseLire => "remise.lire",
+            Self::RemiseGerer => "remise.gerer",
+            Self::RemiseInterdire => "remise.interdire",
+            Self::PersonnesIdentifiantsGerer => "personnes.identifiants.gerer",
+            Self::DossierAdminPropositionsTraiter => "dossier_admin.propositions.traiter",
+            Self::FicheRentreeGerer => "fiche_rentree.gerer",
+            Self::DossierAdminExporter => "dossier_admin.exporter",
+            Self::DossierAdminParametrer => "dossier_admin.parametrer",
+            Self::ResponsablesAccesUrgence => "responsables.acces_urgence",
         }
     }
 
@@ -313,6 +375,21 @@ impl Action {
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
             Self::CahierViser => "Viser le cahier de textes (inspection, direction)",
+            Self::ResponsablesLire => "Voir les responsables et les joindre (F0, F1)",
+            Self::ResponsablesAdressesLire => "Voir les adresses des responsables (F2)",
+            Self::ResponsablesJuridiqueLire => "Voir la situation juridique (F3)",
+            Self::ResponsablesProtegeLire => "Voir les données protégées (F4)",
+            Self::ResponsablesProtegeGerer => "Protéger une adresse",
+            Self::LiensJuridiqueGerer => "Gérer la situation juridique des liens",
+            Self::RemiseLire => "Voir qui peut récupérer l'élève et les interdictions (R)",
+            Self::RemiseGerer => "Gérer les autorisations de remise",
+            Self::RemiseInterdire => "Poser et lever une interdiction",
+            Self::PersonnesIdentifiantsGerer => "Gérer les identifiants des personnes",
+            Self::DossierAdminPropositionsTraiter => "Décider les propositions de la famille",
+            Self::FicheRentreeGerer => "Gérer les campagnes de fiche de rentrée",
+            Self::DossierAdminExporter => "Exports nominatifs du dossier administratif",
+            Self::DossierAdminParametrer => "Paramétrer le dossier administratif",
+            Self::ResponsablesAccesUrgence => "Bris de glace sur le dossier administratif",
         }
     }
 
@@ -324,6 +401,11 @@ impl Action {
     pub fn accordee_par(self) -> &'static [Action] {
         match self {
             Self::FacturationLire => &[Self::FacturationGerer],
+            // §13.2 : inclusions explicites, aucune autre.
+            Self::ResponsablesLire | Self::ResponsablesAdressesLire => &[Self::PersonnesGerer],
+            Self::ResponsablesJuridiqueLire => &[Self::LiensJuridiqueGerer],
+            Self::RemiseLire => &[Self::RemiseGerer],
+            Self::ResponsablesProtegeLire => &[Self::ResponsablesProtegeGerer],
             _ => &[],
         }
     }
@@ -360,6 +442,19 @@ impl Action {
             | Self::PayeursDefinir
             | Self::LiensSuspendre
             | Self::PersonnesFusionner => &[Portee::Etablissement],
+            // A1 (§13.2) : lectures par groupe à quatre portées (branche par défaut) ; le reste
+            // n'admet que l'établissement (les « sites désignés » viendront avec le référentiel de sites).
+            Self::ResponsablesProtegeLire
+            | Self::ResponsablesProtegeGerer
+            | Self::LiensJuridiqueGerer
+            | Self::RemiseGerer
+            | Self::RemiseInterdire
+            | Self::PersonnesIdentifiantsGerer
+            | Self::DossierAdminPropositionsTraiter
+            | Self::FicheRentreeGerer
+            | Self::DossierAdminExporter
+            | Self::DossierAdminParametrer
+            | Self::ResponsablesAccesUrgence => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
@@ -465,6 +560,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         }
         // R2 : le professeur tient les conseils de classe (contrôle d'établissement).
         d.push(etab(ConseilsGerer));
+        // A1 : désignation, moyens de joindre et remise des élèves qu'il suit (sorties, voyages).
+        d.push((ResponsablesLire, Portee::MesClasses));
+        d.push((RemiseLire, Portee::MesClasses));
         return d;
     }
     if role.can_read_notes_staff() {
@@ -589,6 +687,59 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(InscriptionsDecider));
+    }
+    // ── A1 (§13.2) : groupes de lecture du dossier administratif et droits associés. ──
+    // Le gestionnaire (`personnes.gerer`) détient explicitement les lectures F0–F2 ; la
+    // situation juridique suit `liens.juridique.gerer` (aujourd'hui incluse dans
+    // `personnes.gerer` : mêmes profils, bascule à l'identique).
+    if role.can_manage_eleves() {
+        for a in [
+            ResponsablesLire,
+            ResponsablesAdressesLire,
+            ResponsablesJuridiqueLire,
+            LiensJuridiqueGerer,
+            RemiseLire,
+            RemiseGerer,
+            PersonnesIdentifiantsGerer,
+            DossierAdminPropositionsTraiter,
+            FicheRentreeGerer,
+            DossierAdminExporter,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [ResponsablesProtegeLire, ResponsablesProtegeGerer, RemiseInterdire] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Admin {
+        d.push(etab(DossierAdminParametrer));
+    }
+    // Bris de glace : modèle Direction seulement ; les autres rôles l'obtiennent par paramétrage.
+    if role == Role::Direction {
+        d.push(etab(ResponsablesAccesUrgence));
+    }
+    // Vie scolaire : désigne, joint, voit la situation juridique (sans les payeurs : ils
+    // suivent `payeurs.definir`) et la remise.
+    if role == Role::Cpe {
+        for a in [ResponsablesLire, ResponsablesJuridiqueLire, RemiseLire] {
+            d.push(etab(a));
+        }
+    }
+    // Comptabilité : désignation, moyens de joindre et adresses de facturation.
+    if role == Role::Compta {
+        d.push(etab(ResponsablesLire));
+        d.push(etab(ResponsablesAdressesLire));
+    }
+    // Infirmerie et accueil : qui appeler, qui peut récupérer l'élève.
+    if matches!(role, Role::Infirmerie | Role::Accueil) {
+        d.push(etab(ResponsablesLire));
+        d.push(etab(RemiseLire));
+    }
+    // Accueil (profil nouveau, aucune matrice historique) : déclarer les absences reçues.
+    if role == Role::Accueil {
+        d.push(etab(AbsencesDeclarer));
     }
     d
 }

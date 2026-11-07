@@ -113,7 +113,7 @@ impl PgEnt {
             .droits_effectifs(etablissement_id, user_id, role_base)
             .await?
             .iter()
-            .any(|d| d.action == action && d.portee == Portee::Etablissement))
+            .any(|d| crate::droits_ctx::accorde(d.action, action) && d.portee == Portee::Etablissement))
     }
 
     /// L'acteur peut-il exercer `action` sur cet élève ? (union des portées)
@@ -131,7 +131,7 @@ impl PgEnt {
         let jour = today_utc();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
-        for d in droits.iter().filter(|d| d.action == action) {
+        for d in droits.iter().filter(|d| crate::droits_ctx::accorde(d.action, action)) {
             match d.portee {
                 Portee::Etablissement => return Ok(true),
                 Portee::MesClasses => classes = true,
@@ -179,7 +179,7 @@ impl PgEnt {
         let mut ens: HashSet<Uuid> = HashSet::new();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
-        for d in droits.iter().filter(|d| d.action == action) {
+        for d in droits.iter().filter(|d| crate::droits_ctx::accorde(d.action, action)) {
             match d.portee {
                 Portee::Etablissement => return Ok(None),
                 Portee::MesClasses => classes = true,

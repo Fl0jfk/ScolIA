@@ -173,6 +173,7 @@ pub use dossier_personnes::{
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
     AdresseParquee, AlertesProtection, LienEnAttenteEleve, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
+    ConflitInteretVu, InterdictionSaisie, InterdictionVue, LectureDossierAdmin, NatureConflit,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -228,6 +229,8 @@ mod tests_dossier_personnes;
 mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]

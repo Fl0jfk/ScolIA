@@ -5,6 +5,7 @@
 
 mod actions;
 mod env;
+mod minimisation;
 mod password;
 mod passkey;
 mod roles;
@@ -21,6 +22,9 @@ pub use passkey::{
 pub use password::{hash_password, verify_password, PasswordError};
 pub use actions::{modele_par_defaut, Action, Portee};
 pub use roles::Role;
+pub use minimisation::{
+    vue_personnel, vue_titulaire, DroitsPersonnel, Groupe, Masquage, Raison, VueGroupes,
+};
 pub use token::{
     generate_challenge_token, generate_reset_token, generate_session_token, generate_temp_password,
     hash_token,

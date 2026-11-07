@@ -1175,6 +1175,7 @@ impl PgEnt {
     ) -> Result<LienResultat, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.dossier_exiger_eleve(etab, eleve_id).await?;
         saisie.valider()?;
         let personne_id = saisie
@@ -1199,6 +1200,7 @@ impl PgEnt {
     ) -> Result<LienResultat, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.dossier_exiger_eleve(etab, eleve_id).await?;
         ajout.lien.valider()?;
         let nouvelle = match (&ajout.nouvelle_personne, ajout.lien.personne_id) {

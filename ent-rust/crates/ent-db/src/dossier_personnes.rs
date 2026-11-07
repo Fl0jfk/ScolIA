@@ -18,7 +18,7 @@
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use domain_eleve::{assert_parts_paiement, today_utc, DomainError, DossierSections};
-use ent_auth::{Action, Role};
+use ent_auth::{Action, Masquage, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use serde_json::{json, Value};
 use sqlx::{PgConnection, Postgres, Transaction};
@@ -183,6 +183,9 @@ pub struct Responsable {
     pub peut_autoriser_sorties: bool,
     pub est_payeur: bool,
     pub part_paiement: Option<i16>,
+    /// Groupes fermés pour ce lecteur sur cette personne, avec la raison (A1) : un champ vide
+    /// n'est jamais ambigu (absent ≠ masqué).
+    pub masque: Vec<Masquage>,
 }
 
 /// Saisie d'un lien de responsabilité (création : `personne_id` requis).
@@ -232,6 +235,8 @@ pub struct ContactUrgence {
     pub peut_recuperer: bool,
     pub statut: String,
     pub commentaire: Option<String>,
+    /// Titulaire qui l'a déclaré (`None` : saisi par l'établissement ou repris de l'existant).
+    pub declare_par_personne_id: Option<Uuid>,
 }
 
 /// Saisie d'un contact : personne existante, ou nouvelle personne.
@@ -277,6 +282,10 @@ pub struct FicheEleve {
     pub contacts: Vec<ContactUrgence>,
     pub actions: Vec<ActionFiche>,
     pub alertes: Vec<String>,
+    /// Groupes de champs fermés pour ce lecteur, avec la raison (A1).
+    pub masquages: Vec<Masquage>,
+    /// Interdictions actives visibles (groupe R) ; jamais pour une famille.
+    pub interdictions: Vec<InterdictionVue>,
 }
 
 /// Entrée de la chronologie de l'élève (titre neutre, jamais de texte libre
@@ -305,16 +314,6 @@ pub struct FusionPersonne {
     pub motif: String,
     pub fusionne_le: DateTime<Utc>,
     pub annule_le: Option<DateTime<Utc>>,
-}
-
-/// Ce que l'acteur peut lire des personnes d'un élève.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LectureFamille {
-    /// Personnel habilité (section « famille ») : tout, coordonnées comprises.
-    Complete,
-    /// Responsable lié et actif : ses coordonnées, les noms des autres.
-    Responsable(Uuid),
-    Aucune,
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +533,7 @@ impl From<ResponsableRow> for Responsable {
             peut_autoriser_sorties: r.peut_autoriser_sorties,
             est_payeur: r.est_payeur,
             part_paiement: r.part_paiement,
+            masque: Vec::new(),
         }
     }
 }
@@ -546,6 +546,7 @@ struct ContactRow {
     peut_recuperer: bool,
     statut: String,
     commentaire: Option<String>,
+    declare_par_personne_id: Option<Uuid>,
     #[sqlx(flatten)]
     personne: Personne,
 }
@@ -651,6 +652,11 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
 mod ports;
 pub use ports::*;
 
+// Lot A1 : droits par groupe de champs, conflit d'intérêts, interdictions
+#[path = "dossier_droits.rs"]
+mod droits_dossier;
+pub use droits_dossier::*;
+
 // Lot A0 bis : champs réservés, « ne pas solliciter », adresse protégée, voies de confirmation
 #[path = "dossier_protection.rs"]
 mod protection;
@@ -679,35 +685,6 @@ impl PgEnt {
         self.get_eleve(etab, eleve_id)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))
-    }
-
-    async fn lecture_famille(
-        &self,
-        etab: Uuid,
-        actor: Uuid,
-        role: &str,
-        eleve_id: Uuid,
-    ) -> Result<LectureFamille, EntDbError> {
-        let Some(parsed) = Role::parse(role) else {
-            return Ok(LectureFamille::Aucune);
-        };
-        if parsed == Role::Parent {
-            return Ok(match self.lien_parent_eleve(etab, actor, eleve_id).await? {
-                Some(l) => LectureFamille::Responsable(l.id),
-                None => LectureFamille::Aucune,
-            });
-        }
-        if !parsed.is_staff() {
-            return Ok(LectureFamille::Aucune);
-        }
-        let s = self
-            .dossier_sections_for_actor(etab, actor, role, eleve_id)
-            .await?;
-        Ok(if s.famille {
-            LectureFamille::Complete
-        } else {
-            LectureFamille::Aucune
-        })
     }
 
     async fn responsables_bruts(
@@ -744,7 +721,7 @@ impl PgEnt {
     ) -> Result<Vec<ContactUrgence>, EntDbError> {
         let sql = format!(
             "SELECT c.id AS contact_id, c.relation, c.ordre, c.peut_recuperer, c.statut,
-                    c.commentaire, {COLS_PERSONNE}
+                    c.commentaire, c.declare_par_personne_id, {COLS_PERSONNE}
                FROM ent_eleve_contact_urgence c
                JOIN ent_personne p ON p.id = c.personne_id AND p.etablissement_id = c.etablissement_id
               WHERE c.etablissement_id = $1 AND c.eleve_id = $2
@@ -766,12 +743,14 @@ impl PgEnt {
                 peut_recuperer: r.peut_recuperer,
                 statut: r.statut,
                 commentaire: r.commentaire,
+                declare_par_personne_id: r.declare_par_personne_id,
             })
             .collect())
     }
 
-    /// Responsables d'un élève vus par l'acteur (minimisation pour les familles :
-    /// les autres responsables sans coordonnées, liens inactifs masqués).
+    /// Responsables d'un élève vus par l'acteur. **Un seul point de minimisation** (A1) : la vue
+    /// de groupes (`vue_groupes_eleve`) décide des champs ; chaque responsable porte les groupes
+    /// fermés et leur raison. Sans aucun groupe lisible : `Forbidden`.
     pub async fn responsables_eleve_for_actor(
         &self,
         etab: Uuid,
@@ -779,29 +758,15 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<Responsable>, EntDbError> {
-        let lecture = self.lecture_famille(etab, actor, role, eleve_id).await?;
-        let tous = self.responsables_bruts(etab, eleve_id).await?;
-        Ok(match lecture {
-            LectureFamille::Aucune => return Err(EntDbError::Forbidden),
-            LectureFamille::Complete => tous,
-            LectureFamille::Responsable(mon_lien) => tous
-                .into_iter()
-                .filter(|r| r.actif)
-                .map(|mut r| {
-                    if r.lien_id != mon_lien {
-                        r.personne = r.personne.sans_coordonnees();
-                        r.est_payeur = false;
-                        r.part_paiement = None;
-                    }
-                    r.suspension_motif = None;
-                    r.suspension_reference = None;
-                    r
-                })
-                .collect(),
-        })
+        let lecture = self.lecture_dossier_admin(etab, actor, role, eleve_id).await?;
+        if !lecture.vue.f0 {
+            return Err(EntDbError::Forbidden);
+        }
+        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        Ok(lecture.responsables)
     }
 
-    /// Contacts d'urgence (personnel habilité, ou responsable actif de l'élève).
+    /// Contacts d'urgence (groupe R pour le personnel ; ceux qu'il a déclarés, pour un titulaire).
     pub async fn contacts_eleve_for_actor(
         &self,
         etab: Uuid,
@@ -809,10 +774,12 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<ContactUrgence>, EntDbError> {
-        match self.lecture_famille(etab, actor, role, eleve_id).await? {
-            LectureFamille::Aucune => Err(EntDbError::Forbidden),
-            _ => self.contacts_bruts(etab, eleve_id).await,
+        let lecture = self.lecture_dossier_admin(etab, actor, role, eleve_id).await?;
+        if !lecture.vue.r {
+            return Err(EntDbError::Forbidden);
         }
+        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        Ok(lecture.contacts)
     }
 
     /// Fiche 360° : identité (minimisée selon le rôle), sections existantes,
@@ -833,18 +800,15 @@ impl PgEnt {
         };
         dossier.minimise(PgEnt::niveau_identite(role));
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let (responsables, contacts) = if dossier.sections.famille {
-            match self.lecture_famille(etab, actor, role, eleve_id).await? {
-                LectureFamille::Aucune => (Vec::new(), Vec::new()),
-                _ => (
-                    self.responsables_eleve_for_actor(etab, actor, role, eleve_id)
-                        .await?,
-                    self.contacts_bruts(etab, eleve_id).await?,
-                ),
-            }
-        } else {
-            (Vec::new(), Vec::new())
-        };
+        let lecture = self.lecture_dossier_admin(etab, actor, role, eleve_id).await?;
+        let (responsables, contacts) = (
+            if lecture.vue.f0 { lecture.responsables } else { Vec::new() },
+            if lecture.vue.r { lecture.contacts } else { Vec::new() },
+        );
+        if lecture.vue.quelque_chose() {
+            self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        }
+        dossier.sections.famille = lecture.vue.f0 || lecture.vue.r;
         let majeur = self.eleve_est_majeur(etab, eleve_id, jour).await?;
         let mut actions = Vec::new();
         if parsed.is_staff() {
@@ -878,7 +842,7 @@ impl PgEnt {
                 }
             }
         }
-        let alertes = if parsed.is_staff() && dossier.sections.famille {
+        let alertes = if parsed.is_staff() && lecture.vue.f1 && lecture.vue.f2 && lecture.vue.f3 && lecture.vue.payeurs {
             alertes_fiche(&responsables)
         } else {
             Vec::new()
@@ -903,6 +867,8 @@ impl PgEnt {
             contacts,
             actions,
             alertes,
+            masquages: lecture.masquages,
+            interdictions: lecture.interdictions,
         }))
     }
 
@@ -1128,6 +1094,7 @@ impl PgEnt {
     ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let s = saisie.normaliser()?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let avant = personne_tx(&mut tx, etab, personne_id, true)
@@ -1211,6 +1178,7 @@ impl PgEnt {
     ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, personne_id, true)
             .await?
@@ -1286,6 +1254,7 @@ impl PgEnt {
     ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         let eleve = self.dossier_exiger_eleve(etab, eleve_id).await?;
         if !self.eleve_est_majeur(etab, eleve_id, today_utc()).await? {
             return Err(invalide("l'élève n'est pas majeur (date de naissance)"));
@@ -1388,6 +1357,7 @@ impl PgEnt {
             .await?;
         let (lien, garde) = saisie.valider()?;
         let avant = self.responsable_par_lien(etab, lien_id).await?;
+        self.exiger_pas_de_conflit(etab, actor, role, avant.eleve_id).await?;
         let soi_meme = avant.lien == LIEN_ELEVE_MAJEUR;
         if soi_meme != (lien == LIEN_ELEVE_MAJEUR) {
             return Err(invalide("lien réservé à l'élève majeur"));
@@ -1476,6 +1446,7 @@ impl PgEnt {
             .filter(|r| !r.is_empty())
             .map(|r| r.chars().take(120).collect::<String>());
         let avant = self.responsable_par_lien(etab, lien_id).await?;
+        self.exiger_pas_de_conflit(etab, actor, role, avant.eleve_id).await?;
         if avant.suspendu_le.is_some() {
             return Err(EntDbError::ConflitDossier("lien déjà suspendu"));
         }
@@ -1533,6 +1504,7 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::LiensSuspendre)
             .await?;
         let avant = self.responsable_par_lien(etab, lien_id).await?;
+        self.exiger_pas_de_conflit(etab, actor, role, avant.eleve_id).await?;
         if avant.suspendu_le.is_none() {
             return Err(EntDbError::ConflitDossier("lien non suspendu"));
         }
@@ -1587,6 +1559,7 @@ impl PgEnt {
     ) -> Result<Vec<Responsable>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PayeursDefinir)
             .await?;
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.dossier_exiger_eleve(etab, eleve_id).await?;
         let liens = self.responsables_bruts(etab, eleve_id).await?;
         let mut vus = std::collections::HashSet::new();
@@ -1671,18 +1644,30 @@ impl PgEnt {
         saisie: &ContactSaisie,
     ) -> Result<ContactUrgence, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        let mut declarant: Option<Uuid> = None;
         let proposition = if parsed == Role::Parent {
-            if self.lien_parent_eleve(etab, actor, eleve_id).await?.is_none() {
+            let Some(lien) = self.lien_parent_eleve(etab, actor, eleve_id).await? else {
                 return Err(EntDbError::Forbidden);
-            }
+            };
             if saisie.personne_id.is_some() {
                 // Un responsable ne parcourt pas les personnes de l'établissement.
                 return Err(EntDbError::Forbidden);
             }
+            // A1 : le contact est rattaché à son déclarant (droit d'accès sans les données de l'autre).
+            let (pid,): (Uuid,) = sqlx::query_as(
+                "SELECT personne_id FROM ent_eleve_lien WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(lien.id)
+            .fetch_one(self.pool())
+            .await
+            .map_err(db)?;
+            declarant = Some(pid);
             true
         } else {
             self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
                 .await?;
+            self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
             false
         };
         self.dossier_exiger_eleve(etab, eleve_id).await?;
@@ -1720,8 +1705,8 @@ impl PgEnt {
         let id = Uuid::new_v4();
         let r = sqlx::query(
             "INSERT INTO ent_eleve_contact_urgence (id, etablissement_id, eleve_id, personne_id,
-                    relation, ordre, peut_recuperer, statut, commentaire)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                    relation, ordre, peut_recuperer, statut, commentaire, declare_par_personne_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
         )
         .bind(id)
         .bind(etab)
@@ -1732,6 +1717,7 @@ impl PgEnt {
         .bind(saisie.peut_recuperer)
         .bind(if proposition { "propose" } else { "valide" })
         .bind(&commentaire)
+        .bind(declarant)
         .execute(&mut *tx)
         .await;
         if let Err(e) = r {
@@ -1810,6 +1796,8 @@ impl PgEnt {
         let Some((eleve_id,)) = row else {
             return Err(EntDbError::Domain(DomainError::NotFound));
         };
+        // R-A18 : la transaction est abandonnée (rien n'est écrit) si l'agent est en conflit.
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.trace_contacts_tx(&mut tx, etab, eleve_id, "contact_valide", contact_id, actor)
             .await?;
         commit(tx).await
@@ -1838,6 +1826,8 @@ impl PgEnt {
         let Some((eleve_id,)) = row else {
             return Err(EntDbError::Domain(DomainError::NotFound));
         };
+        // R-A18 : la transaction est abandonnée (rien n'est écrit) si l'agent est en conflit.
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.trace_contacts_tx(&mut tx, etab, eleve_id, "contact_retire", contact_id, actor)
             .await?;
         commit(tx).await
@@ -2353,6 +2343,7 @@ mod tests {
             peut_autoriser_sorties: false,
             est_payeur: false,
             part_paiement: None,
+            masque: Vec::new(),
         }
     }
 

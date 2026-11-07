@@ -477,6 +477,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::LiensSuspendre)
             .await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let reserve = ReserveDeclaree {
             ne_pas_solliciter: actif,
             ne_pas_solliciter_ref: reference,

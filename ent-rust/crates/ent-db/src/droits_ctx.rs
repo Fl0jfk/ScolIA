@@ -46,7 +46,7 @@ impl DroitsActeur {
 }
 
 /// `accorde(detenue, demandee)` : la détention de `detenue` suffit-elle ?
-fn accorde(detenue: Action, demandee: Action) -> bool {
+pub(crate) fn accorde(detenue: Action, demandee: Action) -> bool {
     detenue == demandee || demandee.accordee_par().contains(&detenue)
 }
 
