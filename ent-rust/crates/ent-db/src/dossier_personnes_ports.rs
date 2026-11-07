@@ -1345,6 +1345,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         personne_tx(&mut tx, etab, personne_id, true)
             .await?

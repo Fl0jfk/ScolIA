@@ -7,8 +7,7 @@
 use chrono::NaiveDate;
 use ent_web_api::{
     ActionFicheDto, AjoutResponsableBody, ContactBody, EntreeChronologieDto, FicheEleveDto,
-    LienBody, LienEnAttenteEleveDto, PersonneBody, PersonneDto, ResponsableDto,
-    MasquageDto,
+    LienBody, LienEnAttenteEleveDto, MasquageDto, PersonneBody, PersonneDto, ResponsableDto,
 };
 use uuid::Uuid;
 
@@ -514,7 +513,10 @@ mod tests {
         ];
         let f2 = message_masque(&m, "F2").unwrap();
         assert!(f2.contains("Votre rôle") && f2.contains("responsables.adresses.lire"));
-        assert_eq!(message_masque(&m, "F4").as_deref(), Some("Réservé à un collègue."));
+        assert_eq!(
+            message_masque(&m, "F4").as_deref(),
+            Some("Réservé à un collègue.")
+        );
         assert_eq!(message_masque(&m, "F1"), None);
     }
 

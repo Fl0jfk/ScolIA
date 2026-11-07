@@ -572,6 +572,8 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (personne_id, scellee) = row.ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        // R-A18 : un agent lié à un élève de cette personne ne lit pas son adresse protégée.
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let adresse = coffre()
             .ouvrir(TABLE_ADRESSE, "adresse", alerte_id, &scellee)
             .map_err(EntDbError::Domain)?;
@@ -630,6 +632,17 @@ impl PgEnt {
         if fusionnee.is_some() {
             return Err(conflit_p("personne fusionnée dans une autre fiche"));
         }
+        // R-A18 : le guichet crée un lien réel sur l'élève ; refusé à l'agent en conflit.
+        let (eleve_attente,): (Uuid,) = sqlx::query_as(
+            "SELECT eleve_id FROM ent_lien_attente WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(attente_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        self.exiger_pas_de_conflit(etab, actor, role, eleve_attente).await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let filtre = FiltreAttente {
             attente_id: Some(attente_id),
             ..Default::default()

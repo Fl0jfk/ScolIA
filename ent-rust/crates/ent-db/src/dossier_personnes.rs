@@ -1441,7 +1441,8 @@ impl PgEnt {
         )
         .await?;
         commit(tx).await?;
-        self.responsable_par_lien(etab, lien_id).await
+        let r = self.responsable_par_lien(etab, lien_id).await?;
+        self.minimiser_pour_acteur(etab, actor, role, r).await
     }
 
     /// DOS-06 ★ : suspendre le lien d'un responsable (décision de justice).
@@ -1510,7 +1511,8 @@ impl PgEnt {
         )
         .await?;
         commit(tx).await?;
-        self.responsable_par_lien(etab, lien_id).await
+        let r = self.responsable_par_lien(etab, lien_id).await?;
+        self.minimiser_pour_acteur(etab, actor, role, r).await
     }
 
     /// Rétablir un lien suspendu.
@@ -1563,7 +1565,8 @@ impl PgEnt {
         )
         .await?;
         commit(tx).await?;
-        self.responsable_par_lien(etab, lien_id).await
+        let r = self.responsable_par_lien(etab, lien_id).await?;
+        self.minimiser_pour_acteur(etab, actor, role, r).await
     }
 
     /// DOS-07 : désigner les payeurs (parts en %, somme = 100) ; les autres liens
@@ -1647,7 +1650,9 @@ impl PgEnt {
         )
         .await?;
         commit(tx).await?;
-        self.responsables_bruts(etab, eleve_id).await
+        let liens = self.responsables_bruts(etab, eleve_id).await?;
+        let (vue, _) = self.vue_groupes_eleve(etab, actor, role, eleve_id).await?;
+        Ok(liens.into_iter().map(|r| minimiser_responsable(r, &vue)).collect())
     }
 
     // -- Contacts d'urgence -------------------------------------------------
@@ -1878,6 +1883,9 @@ impl PgEnt {
         if source_id == cible_id {
             return Err(invalide("une personne ne se fusionne pas avec elle-même"));
         }
+        // R-A18 : fusionner des fiches liées à un élève de l'agent modifie son dossier.
+        self.exiger_pas_de_conflit_personne(etab, actor, role, source_id).await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, cible_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         // Verrous dans un ordre stable (pas d'interblocage entre deux fusions croisées).
         let (a, b) = if source_id < cible_id {
@@ -2058,6 +2066,18 @@ impl PgEnt {
     ) -> Result<FusionPersonne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesFusionner)
             .await?;
+        let liees: Option<(Uuid, Uuid)> = sqlx::query_as(
+            "SELECT source_id, cible_id FROM ent_personne_fusion WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(fusion_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        if let Some((s, c)) = liees {
+            self.exiger_pas_de_conflit_personne(etab, actor, role, s).await?;
+            self.exiger_pas_de_conflit_personne(etab, actor, role, c).await?;
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
         let row: Option<(Uuid, Uuid, Value, DateTime<Utc>, Option<DateTime<Utc>>)> =
             sqlx::query_as(

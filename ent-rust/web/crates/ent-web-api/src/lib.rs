@@ -64,9 +64,9 @@ pub use ent_types::cahier as cahier_types;
 pub use ent_types::dossier::{
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody,
     AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,
-    EntreeChronologieDto, FicheEleveDto, LienBody, LienEnAttenteDto, LienEnAttenteEleveDto,
-    MonLienEnAttenteDto, PersonneBody, PersonneDto, ProtectionADeclarerDto, ReponseLienBody,
-    InterdictionDto, MasquageDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
+    EntreeChronologieDto, FicheEleveDto, InterdictionDto, LienBody, LienEnAttenteDto,
+    LienEnAttenteEleveDto, MasquageDto, MonLienEnAttenteDto, PersonneBody, PersonneDto,
+    ProtectionADeclarerDto, ReponseLienBody, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.

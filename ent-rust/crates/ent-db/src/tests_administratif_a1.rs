@@ -477,9 +477,9 @@ async fn droit_d_acces_d_un_parent_sans_les_donnees_de_l_autre() {
     ent.ajouter_contact_for_actor(etab, dos.user_a, "parent", dos.eleve, &contact("OncleDeA", "0666666666"))
         .await
         .unwrap();
-    ent.ajouter_contact_for_actor(etab, d, r, dos.eleve, &contact("VoisinEcole", "0677777777"))
-        .await
-        .unwrap();
+    let mut voisin = contact("VoisinEcole", "0677777777");
+    voisin.commentaire = Some("note interne du secrétariat".into());
+    ent.ajouter_contact_for_actor(etab, d, r, dos.eleve, &voisin).await.unwrap();
     // Une interdiction visant A, posée par la direction.
     ent.poser_interdiction_for_actor(
         etab,
@@ -523,12 +523,20 @@ async fn droit_d_acces_d_un_parent_sans_les_donnees_de_l_autre() {
         .collect();
     assert!(noms.contains(&"OncleDeA".to_string()) && noms.contains(&"VoisinEcole".to_string()));
     assert!(!noms.contains(&"GrandMereDeB".to_string()));
+    let voisin_vu = ent
+        .contacts_eleve_for_actor(etab, a, "parent", dos.eleve)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.personne.nom == "VoisinEcole")
+        .unwrap();
+    assert!(voisin_vu.commentaire.is_none(), "commentaire interne jamais montré à une famille");
 
     // Fiche : aucune donnée de B ni interdiction, nulle part dans la réponse.
     let fiche = ent.fiche_eleve_for_actor(etab, a, "parent", dos.eleve).await.unwrap().unwrap();
     assert!(fiche.interdictions.is_empty(), "jamais une interdiction qui le vise");
     let texte = format!("{:?} {:?}", fiche.responsables, fiche.contacts);
-    for secret in [TEL_B, ADRESSE_B, EMAIL_B, "GrandMereDeB", "motif sensible", "Jugement"] {
+    for secret in [TEL_B, ADRESSE_B, EMAIL_B, "GrandMereDeB", "motif sensible", "Jugement", "note interne"] {
         assert!(!texte.contains(secret), "fuite vers l'autre parent : {secret}");
     }
     // L'interdiction n'est pas non plus lisible par la route dédiée.
@@ -791,4 +799,110 @@ async fn inclusions_explicites_du_catalogue() {
     assert!(!ResponsablesJuridiqueLire.accordee_par().contains(&PersonnesGerer));
     assert!(ResponsablesProtegeLire.accordee_par() != [PersonnesGerer]);
     assert!(RemiseLire.accordee_par() != [PersonnesGerer]);
+}
+
+/// R-A18 (revue de sécurité) — l'ex-conjoint reste fermé sur un AUTRE élève dont il est responsable ;
+/// la fusion de personnes, la confirmation au guichet et les préférences passent par un collègue.
+#[tokio::test]
+async fn conflit_d_interet_personne_liee_a_un_autre_eleve_et_fusion() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let (d, r) = dir(&cast);
+    let dos = dossier_separe(&ent, etab, "AutreEleve").await;
+    // B est aussi responsable d'un second élève (demi-frère).
+    let autre_eleve = eleve_neuf(&ent, etab, "DemiFrere").await;
+    let user_b: Uuid = sqlx::query_scalar("SELECT user_id FROM ent_personne WHERE id = $1")
+        .bind(dos.pers_b)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap();
+    let LienResultat::EnAttente { attente_id, .. } = ent
+        .lier_personne_for_actor(etab, d, r, autre_eleve, &lien_saisie(Some(dos.pers_b), None))
+        .await
+        .unwrap()
+    else {
+        panic!("attendu : lien en attente");
+    };
+    ent.repondre_lien_en_attente(etab, user_b, attente_id, true).await.unwrap();
+    // Une directrice adjointe est la mère A du premier élève seulement.
+    sqlx::query("UPDATE ent_membership SET role = 'direction' WHERE user_id = $1")
+        .bind(dos.user_a)
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    let vue = ent
+        .responsables_eleve_for_actor(etab, dos.user_a, "direction", autre_eleve)
+        .await
+        .unwrap();
+    let b = de(&vue, dos.pers_b);
+    assert!(b.personne.adresse.is_none() && !b.autorite_parentale, "B reste fermé sur l'autre élève");
+    assert!(b.personne.telephone.is_some(), "F1 reste lisible");
+    // Fusion : refusée à l'agent en conflit (source ou cible liée à son élève).
+    let neuve = ent
+        .creer_personne_for_actor(etab, d, r, &PersonneSaisie { nom: "Neuve".into(), ..Default::default() })
+        .await
+        .unwrap();
+    assert!(matches!(
+        ent.fusionner_personnes_for_actor(etab, dos.user_a, "direction", dos.pers_b, neuve.id, "doublon présumé")
+            .await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
+    // Préférences d'envoi : idem.
+    assert!(matches!(
+        ent.definir_preferences_for_actor(etab, dos.user_a, "direction", dos.pers_b, false, false, true)
+            .await,
+        Err(EntDbError::ConflitDossier(_))
+    ));
+    // Un collègue peut les définir.
+    ent.definir_preferences_for_actor(etab, d, r, dos.pers_b, true, true, false).await.unwrap();
+}
+
+/// Revue de sécurité — une écriture ne renvoie jamais plus que ce que l'acteur lirait.
+#[tokio::test]
+async fn les_ecritures_renvoient_la_vue_minimisee() {
+    let Some((ent, cast)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let (d, r) = dir(&cast);
+    let dos = dossier_separe(&ent, etab, "EcritureMinimisee").await;
+    ent.suspendre_lien_for_actor(etab, d, r, dos.lien_b, "Motif protégé de suspension", Some("REF-9"))
+        .await
+        .unwrap();
+    // La comptabilité définit les payeurs : la réponse ne porte ni autorité, ni motif de suspension.
+    let rep = ent
+        .definir_payeurs_for_actor(etab, cast.compta.user_id, "compta", dos.eleve, &[(dos.lien_a, 100)])
+        .await
+        .unwrap();
+    let a = de(&rep, dos.pers_a);
+    assert!(a.est_payeur && !a.autorite_parentale);
+    let b = de(&rep, dos.pers_b);
+    assert!(b.suspension_motif.is_none() && b.suspension_reference.is_none() && b.suspendu_le.is_none());
+    // Le secrétariat modifie le lien suspendu : jamais le motif (F4) dans la réponse.
+    let rep = ent
+        .modifier_lien_for_actor(etab, cast.administratif.user_id, "administratif", dos.lien_b, &lien_saisie(None, None))
+        .await
+        .unwrap();
+    assert!(rep.suspension_motif.is_none() && rep.suspension_reference.is_none());
+    // Le motif de suspension lu par la direction est tracé comme consultation sensible.
+    let avant: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'motif_protege'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    ent.responsables_eleve_for_actor(etab, d, r, dos.eleve).await.unwrap();
+    let apres: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'motif_protege'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(apres, avant + 1);
 }

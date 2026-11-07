@@ -30,8 +30,8 @@ use actions::{
 };
 use modele::{
     coordonnees, droits_du_lien, etat_lien, filtrer_chronologie, libelle_domaine, libelle_garde,
-    lien_action, message_masque, nom_personne, peut, sections_accessibles, EtatLien, ACTION_PAYEURS,
-    ACTION_PERSONNES, ACTION_SUSPENDRE,
+    lien_action, message_masque, nom_personne, peut, sections_accessibles, EtatLien,
+    ACTION_PAYEURS, ACTION_PERSONNES, ACTION_SUSPENDRE,
 };
 
 /// Nombre d'entrées de chronologie demandées au serveur.

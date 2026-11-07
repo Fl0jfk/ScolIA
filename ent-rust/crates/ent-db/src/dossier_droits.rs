@@ -141,7 +141,25 @@ fn appliquer_vue(mut r: Responsable, v: &VueGroupes) -> Responsable {
     r
 }
 
+/// Même application de la vue que pour les lectures, pour les réponses des écritures : une
+/// écriture ne renvoie jamais plus que ce que l'acteur lirait.
+pub(crate) fn minimiser_responsable(r: Responsable, v: &VueGroupes) -> Responsable {
+    appliquer_vue(r, v)
+}
+
 impl PgEnt {
+    /// Minimise un responsable renvoyé par une écriture d'après les groupes de l'acteur.
+    pub(crate) async fn minimiser_pour_acteur(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        r: Responsable,
+    ) -> Result<Responsable, EntDbError> {
+        let (vue, _) = self.vue_groupes_eleve(etab, actor, role, r.eleve_id).await?;
+        Ok(appliquer_vue(r, &vue))
+    }
+
     /// Droits du personnel sur cet élève (portées résolues par le moteur de droits).
     async fn droits_personnel_eleve(
         &self,
@@ -266,6 +284,20 @@ impl PgEnt {
         let mut mon_personne: Option<Uuid> = None;
         if vue.f0 {
             let tous = self.responsables_bruts(etab, eleve_id).await?;
+            // R-A18 : une personne liée à un AUTRE élève avec lequel l'agent est en conflit
+            // (l'ex-conjoint, responsable d'un autre enfant) reste fermée ici aussi.
+            let vue_conflit = if mon_lien.is_none() && !vue.conflit_interet && vue.quelque_chose() {
+                let ids: Vec<Uuid> = tous.iter().map(|r| r.personne.id).collect();
+                let en_conflit = self.personnes_en_conflit(etab, actor, role, &ids).await?;
+                if en_conflit.is_empty() {
+                    None
+                } else {
+                    let d = self.droits_personnel_eleve(etab, actor, role, eleve_id).await?;
+                    Some((en_conflit, vue_personnel(d, true)))
+                }
+            } else {
+                None
+            };
             sortie.responsables = match mon_lien {
                 Some(mien) => {
                     mon_personne = tous
@@ -280,8 +312,17 @@ impl PgEnt {
                         })
                         .collect()
                 }
-                None => tous.into_iter().map(|r| appliquer_vue(r, &vue)).collect(),
+                None => tous
+                    .into_iter()
+                    .map(|r| match &vue_conflit {
+                        Some((ids, v)) if ids.contains(&r.personne.id) => appliquer_vue(r, v),
+                        _ => appliquer_vue(r, &vue),
+                    })
+                    .collect(),
             };
+            if let Some((_, v)) = &vue_conflit {
+                self.tracer_lecture_conflit(etab, actor, role, eleve_id, v).await;
+            }
         } else if let Some(mien) = mon_lien {
             mon_personne = self.responsables_bruts(etab, eleve_id).await?.iter()
                 .find(|r| r.lien_id == mien)
@@ -295,6 +336,25 @@ impl PgEnt {
                     c.declare_par_personne_id.is_none() || c.declare_par_personne_id == mon_personne
                 });
             }
+            if let Some(mien) = mon_lien {
+                // Un titulaire ne reçoit ni le commentaire interne d'un contact qu'il n'a pas
+                // déclaré, ni les coordonnées d'un contact qui est en fait l'autre responsable.
+                let autres: Vec<Uuid> = self
+                    .responsables_bruts(etab, eleve_id)
+                    .await?
+                    .into_iter()
+                    .filter(|r| r.lien_id != mien)
+                    .map(|r| r.personne.id)
+                    .collect();
+                for c in &mut contacts {
+                    if c.declare_par_personne_id != mon_personne {
+                        c.commentaire = None;
+                    }
+                    if autres.contains(&c.personne.id) {
+                        c.personne = c.personne.clone().sans_coordonnees();
+                    }
+                }
+            }
             if !vue.f2 {
                 for c in &mut contacts {
                     c.personne.adresse = None;
@@ -306,6 +366,22 @@ impl PgEnt {
                     .interdictions_actives(etab, actor, eleve_id, vue.f3, vue.f4)
                     .await?;
             }
+        }
+        // Un motif ou une référence protégés ouverts (F4) sont une consultation sensible tracée.
+        if mon_lien.is_none()
+            && (sortie.interdictions.iter().any(|i| i.motif.is_some())
+                || sortie.responsables.iter().any(|r| r.suspension_motif.is_some()))
+        {
+            self.tracer_acces_sensible(
+                etab,
+                actor,
+                role,
+                Some(eleve_id),
+                "consultation",
+                "motif_protege",
+                "Consultation d'un motif protégé du dossier administratif (F4)",
+            )
+            .await;
         }
         Ok(sortie)
     }
@@ -458,8 +534,11 @@ impl PgEnt {
                 AND (i.au IS NULL OR i.au >= ent_aujourdhui_etab($1, now()))
                 -- la personne visée ne lit jamais l'interdiction qui la vise, même agent
                 AND NOT EXISTS (SELECT 1 FROM ent_personne q
-                                 WHERE q.etablissement_id = i.etablissement_id
-                                   AND q.id = i.personne_id AND q.user_id = $3)
+                                 WHERE q.etablissement_id = i.etablissement_id AND q.user_id = $3
+                                   AND (q.id = i.personne_id
+                                        OR q.id = (SELECT s.fusionnee_dans FROM ent_personne s
+                                                    WHERE s.etablissement_id = i.etablissement_id
+                                                      AND s.id = i.personne_id)))
               ORDER BY i.decide_le, i.id",
         )
         .bind(etab)
