@@ -39,6 +39,7 @@ use uuid::Uuid;
 
 use crate::champs_chiffres::ChampsSensibles;
 use crate::dossier_personnes::{self, PersonneSaisie};
+use crate::eleve_ports;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
@@ -176,6 +177,14 @@ pub fn annee_cible_valide(a: &str) -> bool {
     match (d.parse::<i32>(), f.parse::<i32>()) {
         (Ok(d), Ok(f)) => d.to_string().len() == 4 && f == d + 1,
         _ => false,
+    }
+}
+
+fn bornee(v: Option<String>, max: usize, msg: &'static str) -> Result<Option<String>, EntDbError> {
+    match v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        None => Ok(None),
+        Some(s) if s.chars().count() <= max => Ok(Some(s)),
+        Some(_) => Err(invalide(msg)),
     }
 }
 
@@ -381,6 +390,7 @@ struct DossierRow {
     eleve_ine: Option<String>,
     niveau_demande: Option<String>,
     regime_demande: Option<String>,
+    parcours_demande: Option<String>,
     etablissement_origine: Option<String>,
     classe_cible_id: Option<Uuid>,
     deposant_email: Option<String>,
@@ -393,7 +403,7 @@ struct DossierRow {
 
 const COLS_DOSSIER: &str = "id, campagne_id, nature, statut, eleve_id, eleve_nom, eleve_prenom,
     eleve_date_naissance, eleve_sexe, eleve_ine, niveau_demande, regime_demande,
-    etablissement_origine, classe_cible_id, deposant_email,
+    parcours_demande, etablissement_origine, classe_cible_id, deposant_email,
     reutilise_identite, decision_motif, depose_le, valide_le, derniere_relance_le";
 
 #[derive(sqlx::FromRow, Clone)]
@@ -1846,6 +1856,20 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             }
         };
         let regime = regime.or(d.regime_demande.clone());
+        let niveau = bornee(b.niveau.clone().or(d.niveau_demande.clone()), 40, "niveau trop long")?;
+        let parcours = bornee(
+            b.parcours.clone().or(d.parcours_demande.clone()),
+            120,
+            "parcours trop long",
+        )?;
+        // Arrivée en cours d'année = classe choisie ET classe de l'année courante. Sinon aucune
+        // affectation : la constitution des classes relève du socle 5 (M10, §2.2 n° 6).
+        let classe_affectation = match classe {
+            Some(c) if eleve_ports::classe_de_l_annee_courante_tx(&mut tx, etab, c).await? => {
+                Some(c)
+            }
+            _ => None,
+        };
         let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
 
         let mut payeurs = Vec::new();
@@ -1880,10 +1904,46 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 eleve_id
             }
         };
+        let campagne: (String,) =
+            sqlx::query_as("SELECT annee_cible FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2")
+                .bind(etab)
+                .bind(d.campagne_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+        // Inscription annuelle PRÉVUE (socle 2) : année, niveau, parcours, régime.
+        let inscription_annuelle_id = eleve_ports::enregistrer_inscription_annuelle_tx(
+            &mut tx,
+            etab,
+            &eleve_ports::InscriptionAnnuellePrevue {
+                eleve_id,
+                annee_scolaire: &campagne.0,
+                niveau: niveau.as_deref(),
+                parcours: parcours.as_deref(),
+                regime: regime.as_deref(),
+                source: if d.nature == "reinscription" {
+                    eleve_ports::SourceInscription::Reinscription
+                } else {
+                    eleve_ports::SourceInscription::Admission
+                },
+                source_ref: Some(id),
+            },
+            actor,
+        )
+        .await?;
+        // Arrivée en cours d'année : affectation initiale par la commande du référentiel.
+        let affecte_en_classe = match classe_affectation {
+            Some(c) => {
+                eleve_ports::affecter_arrivee_en_cours_d_annee_tx(&mut tx, etab, eleve_id, c, "saisie")
+                    .await?
+            }
+            None => false,
+        };
         sqlx::query(
             "UPDATE ent_inscription_dossier SET statut = 'validee', eleve_id = $3, classe_cible_id = $4,
                     regime_demande = $5, valide_par = $6, valide_le = now(), updated_at = now(),
-                    resolutions = $7
+                    resolutions = $7, niveau_demande = $8, parcours_demande = $9,
+                    inscription_annuelle_id = $10
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -1893,6 +1953,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .bind(&regime)
         .bind(actor)
         .bind(resolutions)
+        .bind(&niveau)
+        .bind(&parcours)
+        .bind(inscription_annuelle_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1907,13 +1970,6 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             Some(actor),
         )
         .await?;
-        let campagne: (String,) =
-            sqlx::query_as("SELECT annee_cible FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(d.campagne_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
         // Charge utile minimale (§4.2) : identifiants, pas de coordonnées ni d'IBAN.
         let evt = publier(
             &mut tx,
@@ -1927,8 +1983,10 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 "eleve_id": eleve_id,
                 "nature": d.nature,
                 "annee_cible": campagne.0,
-                "classe_id": classe,
-                "niveau": d.niveau_demande,
+                "classe_id": classe_affectation,
+                "inscription_annuelle_id": inscription_annuelle_id,
+                "niveau": niveau,
+                "parcours": parcours,
                 "regime": regime,
                 "payeurs": payeurs,
             }),
@@ -1940,6 +1998,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             dossier_id: id,
             eleve_id,
             evenement_id: evt.id,
+            inscription_annuelle_id: Some(inscription_annuelle_id),
+            affecte_en_classe,
         })
     }
 
@@ -2181,7 +2241,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         })
     }
 
-    /// Fiche élève : rattachement à l'existante (choix humain) ou création.
+    /// Fiche élève : création par la **commande du socle 2** (`eleve_ports::creer_eleve_tx`) ;
+    /// ce module n'écrit jamais lui-même dans `ent_eleve`. Élève « préinscrit » tant qu'aucune
+    /// classe de l'année courante ne lui est affectée (arrivée en cours d'année seulement).
     async fn creer_eleve_tx(
         conn: &mut PgConnection,
         etab: Uuid,
@@ -2189,39 +2251,25 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         regime: Option<&str>,
         actor: Uuid,
     ) -> Result<Uuid, EntDbError> {
-        let eleve_id = Uuid::new_v4();
-        // Élève « préinscrit » tant qu'aucune classe de l'année courante ne lui est
-        // affectée : la réaction d'affectation (`d1.affectation_inscription`) le rend actif.
-        let statut = "preinscrit";
-        sqlx::query(
-            "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, ine, status, regime, sexe,
-                                    date_naissance, created_at, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())",
-        )
-        .bind(eleve_id)
-        .bind(etab)
-        .bind(&d.eleve_nom)
-        .bind(&d.eleve_prenom)
-        .bind(&d.eleve_ine)
-        .bind(statut)
-        .bind(regime)
-        .bind(&d.eleve_sexe)
-        .bind(d.eleve_date_naissance)
-        .execute(&mut *conn)
-        .await
-        .map_err(db)?;
-        publier(
+        eleve_ports::creer_eleve_tx(
             conn,
             etab,
-            types::ELEVE_CREATED,
-            AggregateKind::Eleve,
-            eleve_id,
-            Some(eleve_id),
-            json!({ "eleve_id": eleve_id, "statut": statut, "source": "inscription" }),
-            Some(actor),
+            &eleve_ports::NouvelEleve {
+                nom: &d.eleve_nom,
+                prenom: &d.eleve_prenom,
+                ine: d.eleve_ine.as_deref(),
+                sexe: d.eleve_sexe.as_deref(),
+                date_naissance: d.eleve_date_naissance,
+                regime,
+                statut: eleve_ports::StatutInitial::Preinscrit,
+            },
+            eleve_ports::OrigineFait {
+                source: eleve_ports::SourceEleve::Admission,
+                source_ref: Some(d.id),
+            },
+            actor,
         )
-        .await?;
-        Ok(eleve_id)
+        .await
     }
 
     /// Personnes, foyers et liens : **une seule commande du socle 4**
@@ -3359,34 +3407,8 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         if user_fiche.is_none() {
-            let deja: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND id <> $3",
-            )
-            .bind(etab)
-            .bind(user_id)
-            .bind(personne_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
-            if deja.is_some() {
-                return Err(conflit(
-                    "cette identité est déjà rattachée à une autre fiche : contactez l'établissement",
-                ));
-            }
-            // Garde « personne sans compte » : jamais de réassignation.
-            let r = sqlx::query(
-                "UPDATE ent_personne SET user_id = $3, updated_at = now()
-                  WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL",
-            )
-            .bind(etab)
-            .bind(personne_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-            if r.rows_affected() != 1 {
-                return Err(conflit("cette fiche vient d'être rattachée à un compte"));
-            }
+            // Commande du socle 4 : garde « personne sans compte » et « compte déjà rattaché ».
+            dossier_personnes::rattacher_compte_tx(&mut tx, etab, personne_id, user_id).await?;
         }
         // Liens en attente de CETTE invitation : actifs seulement maintenant, par la commande
         // de confirmation du socle 4.

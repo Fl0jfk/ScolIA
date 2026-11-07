@@ -76,6 +76,7 @@ mod droits_ctx;
 mod eleve_champs;
 pub mod identite;
 pub mod dossier_personnes;
+pub mod eleve_ports;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
 pub mod imports;

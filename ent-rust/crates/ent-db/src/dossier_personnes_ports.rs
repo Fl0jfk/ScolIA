@@ -25,6 +25,8 @@ pub enum SourceLien {
     Inscription,
     /// Saisie directe par le personnel habilité.
     Saisie,
+    /// Import d'une liste d'élèves (cadre d'import S2-3) : toujours de nouvelles fiches.
+    Import,
 }
 
 impl SourceLien {
@@ -32,12 +34,14 @@ impl SourceLien {
         match self {
             SourceLien::Inscription => "inscription",
             SourceLien::Saisie => "saisie",
+            SourceLien::Import => "import",
         }
     }
     fn source_personne(self) -> &'static str {
         match self {
             SourceLien::Inscription => "preinscription",
             SourceLien::Saisie => "saisie",
+            SourceLien::Import => "reprise",
         }
     }
 }
@@ -843,6 +847,58 @@ async fn adresse_parquee_de(
     .await
     .map_err(db)?;
     Ok(r.map(|(id,)| id))
+}
+
+/// Commande du socle 4 : rattache un **compte de connexion** à une personne qui n'en a pas, une
+/// fois que la personne l'a confirmé (acceptation d'une invitation). Jamais de réassignation : la
+/// personne doit être sans compte, et le compte ne doit pas être déjà rattaché à une autre fiche de
+/// l'établissement. Journal et événement dans la transaction de l'appelant.
+pub async fn rattacher_compte_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    personne_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), EntDbError> {
+    let deja: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND id <> $3",
+    )
+    .bind(etab)
+    .bind(user_id)
+    .bind(personne_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    if deja.is_some() {
+        return Err(conflit(
+            "cette identité est déjà rattachée à une autre fiche : contactez l'établissement",
+        ));
+    }
+    let r = sqlx::query(
+        "UPDATE ent_personne SET user_id = $3, updated_at = now()
+          WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL
+            AND fusionnee_dans IS NULL",
+    )
+    .bind(etab)
+    .bind(personne_id)
+    .bind(user_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    if r.rows_affected() != 1 {
+        return Err(conflit("cette fiche vient d'être rattachée à un compte"));
+    }
+    journal_tx(
+        conn,
+        etab,
+        None,
+        "compte_rattache",
+        "Compte rattaché à la personne",
+        json!({ "personne_id": personne_id }),
+        false,
+        user_id,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Confirmation par la personne : les liens en attente deviennent des liens réels (jamais avant).
