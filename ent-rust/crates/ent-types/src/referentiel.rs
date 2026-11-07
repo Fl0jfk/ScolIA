@@ -165,3 +165,30 @@ pub struct RapportAmorcageDto {
     /// Élèves dont la classe saisie (texte) diffère de l'affectation déjà enregistrée.
     pub divergences: i64,
 }
+
+/// Un enseignement du professeur : une classe entière ou un groupe, avec sa matière et
+/// son effectif (`GET /referentiel/mes-enseignements`). Liste unique : l'écran n'a pas à
+/// distinguer classe et groupe. L'effectif ne compte que les élèves que l'acteur est
+/// autorisé à suivre (même règle que `eleves_autorises`, D-022).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnseignementDto {
+    /// Service d'enseignement (clé des grilles de notes et du cahier de textes).
+    pub service_id: Uuid,
+    /// `classe` (classe entière) ou `groupe`.
+    pub nature: String,
+    /// Classe entière, ou classe parente du groupe si elle existe.
+    #[serde(default)]
+    pub classe_id: Option<Uuid>,
+    #[serde(default)]
+    pub groupe_id: Option<Uuid>,
+    /// Code de la classe ou du groupe (« 4B », « 4B-ALL »).
+    pub cible_code: String,
+    /// Code de la classe (celui du groupe pour un atelier transverse : vide).
+    pub classe_code: String,
+    pub matiere_id: Option<Uuid>,
+    pub matiere_libelle: String,
+    pub effectif: i64,
+    pub professeur_principal: bool,
+    /// Libellé prêt à afficher : « Allemand · 4B-ALL (groupe) ».
+    pub libelle: String,
+}

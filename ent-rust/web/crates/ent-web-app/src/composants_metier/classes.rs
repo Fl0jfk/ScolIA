@@ -2,7 +2,7 @@
 //! séance de l'emploi du temps et libellés d'effectif. Utilisé par « Classes » et par la
 //! feuille d'appel.
 
-use ent_web_api::ClasseApi;
+use ent_web_api::{ClasseApi, EnseignementApi};
 
 /// « 1 élève », « 28 élèves », « Aucun élève ».
 pub fn libelle_effectif(n: i64) -> String {
@@ -24,6 +24,31 @@ pub fn classe_du_creneau<'a>(
         return None;
     }
     classes.iter().find(|c| c.code.trim().to_lowercase() == t)
+}
+
+/// Enseignement du professeur correspondant à une séance (classe + matière). Renvoie
+/// `None` si aucun enseignement ne correspond **ou si plusieurs correspondent** (classe
+/// entière et groupe de la même matière) : on n'affiche jamais un effectif douteux.
+pub fn enseignement_du_creneau<'a>(
+    enseignements: &'a [EnseignementApi],
+    classe_texte: &str,
+    matiere: &str,
+) -> Option<&'a EnseignementApi> {
+    let (c, m) = (classe_texte.trim().to_lowercase(), matiere.trim().to_lowercase());
+    if c.is_empty() || m.is_empty() {
+        return None;
+    }
+    let mut trouves = enseignements.iter().filter(|e| {
+        e.matiere_libelle.trim().to_lowercase() == m
+            && (e.cible_code.trim().to_lowercase() == c || e.classe_code.trim().to_lowercase() == c)
+    });
+    let premier = trouves.next()?;
+    trouves.next().is_none().then_some(premier)
+}
+
+/// « Allemand · 4B-ALL (groupe) · 12 élèves » : le libellé unique d'un enseignement.
+pub fn libelle_enseignement(e: &EnseignementApi) -> String {
+    format!("{} · {}", e.libelle, libelle_effectif(e.effectif))
 }
 
 /// Complète le sous-titre de la feuille d'appel : « … · Sixième A · 28 élèves ».
@@ -72,6 +97,44 @@ mod tests {
         assert_eq!(classe_du_creneau(&v, " 4b ").map(|c| c.effectif), Some(12));
         assert!(classe_du_creneau(&v, "3C").is_none());
         assert!(classe_du_creneau(&v, "").is_none());
+    }
+
+    fn ens(cible: &str, classe: &str, matiere: &str, nature: &str, effectif: i64) -> EnseignementApi {
+        EnseignementApi {
+            service_id: Uuid::nil(),
+            nature: nature.into(),
+            classe_id: None,
+            groupe_id: None,
+            cible_code: cible.into(),
+            classe_code: classe.into(),
+            matiere_id: None,
+            matiere_libelle: matiere.into(),
+            effectif,
+            professeur_principal: false,
+            libelle: if nature == "groupe" {
+                format!("{matiere} · {cible} (groupe)")
+            } else {
+                format!("{matiere} · {cible}")
+            },
+        }
+    }
+
+    #[test]
+    fn enseignement_d_une_seance_classe_ou_groupe() {
+        let v = vec![
+            ens("4B-ALL", "4B", "Allemand", "groupe", 12),
+            ens("4B", "4B", "Français", "classe", 28),
+        ];
+        // Séance en texte de classe « 4B » pour l'allemand : le groupe, sans ambiguïté.
+        assert_eq!(enseignement_du_creneau(&v, " 4b ", "allemand").map(|e| e.effectif), Some(12));
+        assert_eq!(enseignement_du_creneau(&v, "4B", "Français").map(|e| e.effectif), Some(28));
+        assert!(enseignement_du_creneau(&v, "4B", "Maths").is_none());
+        assert!(enseignement_du_creneau(&v, "", "Français").is_none());
+        // Deux enseignements possibles : aucun effectif affiché plutôt qu'un douteux.
+        let mut deux = v.clone();
+        deux.push(ens("4B", "4B", "Allemand", "classe", 28));
+        assert!(enseignement_du_creneau(&deux, "4B", "Allemand").is_none());
+        assert_eq!(libelle_enseignement(&v[0]), "Allemand · 4B-ALL (groupe) · 12 élèves");
     }
 
     #[test]

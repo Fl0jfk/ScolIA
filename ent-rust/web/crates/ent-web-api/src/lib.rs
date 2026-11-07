@@ -88,7 +88,8 @@ pub use ent_types::finances as types_finances;
 pub use ent_types::inscriptions as types_inscriptions;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
-    RapportAmorcageDto as RapportAmorcageApi, ServiceDto as ServiceApi,
+    EnseignementDto as EnseignementApi, RapportAmorcageDto as RapportAmorcageApi,
+    ServiceDto as ServiceApi,
 };
 pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,

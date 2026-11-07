@@ -45,6 +45,7 @@ pub fn routes() -> Router<AppState> {
         .route("/referentiel/services", post(creer_service))
         .route("/referentiel/amorcer", post(amorcer))
         .route("/referentiel/mes-classes", get(mes_classes))
+        .route("/referentiel/mes-enseignements", get(mes_enseignements))
 }
 
 #[derive(Debug, Deserialize)]
@@ -422,4 +423,25 @@ async fn mes_classes(
     .map_err(map_db)?;
     let labels = libelles_classes(&state, session.etablissement_id, &list).await?;
     Ok(Json(list.iter().map(|c| classe_dto(c, &labels)).collect()))
+}
+
+/// D-022 bis : liste unique des enseignements du professeur (classes entières et
+/// groupes), avec matière et effectif borné à sa portée.
+async fn mes_enseignements(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<JourQuery>,
+) -> Res<Json<Vec<ent_types::referentiel::EnseignementDto>>> {
+    session.require_staff()?;
+    state
+        .ent
+        .mes_enseignements_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            q.jour.unwrap_or_else(today_utc),
+        )
+        .await
+        .map(Json)
+        .map_err(map_db)
 }

@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveTime;
 use ent_types::evaluations::{CreerConseilBody, PeriodeNotesDto, ServiceEvaluationDto};
+use ent_types::referentiel::EnseignementDto;
 use ent_web_ui::{
     Badge, Bouton, ChampTexte, EnTetePage, EtatVide, Selection, Squelette, TonEtat, Variante,
 };
@@ -35,7 +36,7 @@ use crate::noyau::ecriture::{Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use crate::noyau::temps::aujourdhui;
-use modele::{libelle_statut_periode, periode_par_defaut};
+use modele::{libelle_statut_periode, periode_par_defaut, services_hors_enseignements};
 
 /// Racine des écrans d'évaluation.
 pub const RACINE: &str = "/web/evaluations";
@@ -168,6 +169,10 @@ fn AccueilEleve() -> impl IntoView {
 fn AccueilPersonnel() -> impl IntoView {
     let periodes = LocalResource::new(|| async { session::client().periodes_notes().await });
     let services = LocalResource::new(|| async { session::client().services_evaluables().await });
+    // Liste unique « mes enseignements » (classes entières et groupes, avec effectif).
+    let enseignements = LocalResource::new(|| async {
+        session::client().mes_enseignements(aujourdhui()).await.unwrap_or_default()
+    });
     let choix = RwSignal::new(String::new());
     view! {
         {move || match periodes.get() {
@@ -187,7 +192,7 @@ fn AccueilPersonnel() -> impl IntoView {
             (None, _) => view! { <Squelette lignes=4 libelle="Chargement des services…"/> }.into_any(),
             (Some(Err(e)), _) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| services.refetch())/> }.into_any(),
             (Some(Ok(_)), None) => view! { <EtatVide titre="Choisissez une période" message="Les grilles s'ouvrent pour une période."/> }.into_any(),
-            (Some(Ok(s)), Some(p)) => view! { <ListesPersonnel services=s periode=p/> }.into_any(),
+            (Some(Ok(s)), Some(p)) => view! { <ListesPersonnel services=s enseignements=enseignements.get().unwrap_or_default() periode=p/> }.into_any(),
         }}
         <SectionConseils/>
     }
@@ -245,7 +250,11 @@ fn PanneauPeriode(
 }
 
 #[component]
-fn ListesPersonnel(services: Vec<ServiceEvaluationDto>, periode: Uuid) -> impl IntoView {
+fn ListesPersonnel(
+    services: Vec<ServiceEvaluationDto>,
+    enseignements: Vec<EnseignementDto>,
+    periode: Uuid,
+) -> impl IntoView {
     let moteur = use_droits_moteur();
     // Classes (dédoublonnées) issues des services : vue de classe et bulletins.
     let mut classes: BTreeMap<String, Uuid> = BTreeMap::new();
@@ -255,10 +264,31 @@ fn ListesPersonnel(services: Vec<ServiceEvaluationDto>, periode: Uuid) -> impl I
         }
     }
     let classes: Vec<(String, Uuid)> = classes.into_iter().collect();
+    let autres = services_hors_enseignements(&services, &enseignements);
     view! {
+        {(!enseignements.is_empty()).then(|| view! {
+            <section class="ra-section" aria-labelledby="eva-enseignements">
+                <h2 id="eva-enseignements" class="vs-section-titre">"Mes enseignements"</h2>
+                <ul class="jvs-liste">
+                    {enseignements.iter().map(|e| view! {
+                        <li class="jvs-ligne">
+                            <span>
+                                <strong>{e.libelle.clone()}</strong>
+                                " · "{match e.effectif { 1 => "1 élève".to_string(), n => format!("{n} élèves") }}
+                                {e.professeur_principal.then(|| view! { " " <Badge libelle="Professeur principal" ton=TonEtat::Info/> })}
+                            </span>
+                            <a href=lien_grille(e.service_id, periode)>"Ouvrir la grille"</a>
+                        </li>
+                    }).collect_view()}
+                </ul>
+            </section>
+        })}
         <section class="ra-section" aria-labelledby="eva-services">
-            <h2 id="eva-services" class="vs-section-titre">"Grilles de notes"</h2>
-            {if services.is_empty() {
+            <h2 id="eva-services" class="vs-section-titre">{if enseignements.is_empty() { "Grilles de notes" } else { "Autres grilles de l'établissement" }}</h2>
+            {let services = autres;
+             if services.is_empty() && !enseignements.is_empty() {
+                ().into_any()
+            } else if services.is_empty() {
                 view! { <EtatVide titre="Aucun service" message="Aucun enseignement ne vous est rattaché cette année."/> }.into_any()
             } else {
                 view! {

@@ -121,6 +121,22 @@ impl PgEnt {
             || self.eva_enseigne_classe(etab, acteur, classe_id).await?)
     }
 
+    /// D-022 : élèves de la classe que l'acteur voit dans le dossier du conseil.
+    /// `None` = la classe entière (direction, professeur principal, rôles à portée
+    /// établissement) ; sinon seulement ces élèves (professeur d'un groupe de la classe).
+    pub(crate) async fn eva_eleves_conseil(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        classe_id: Uuid,
+    ) -> Result<Option<std::collections::HashSet<Uuid>>, EntDbError> {
+        if self.eva_peut_decider(etab, acteur, role, classe_id).await? {
+            return Ok(None);
+        }
+        self.eleves_autorises(etab, acteur, role, Action::NotesLire).await
+    }
+
     // ───────────────────────────── Appréciations ─────────────────────────────
 
     /// EVA-05 / EVA-06 : appréciation de matière ou générale (mise à jour si elle existe).
@@ -405,7 +421,15 @@ impl PgEnt {
         let peut_decider = self.eva_peut_decider(etab, acteur, role, classe_id).await?;
         let calc = self.eva_calculer_classe(etab, classe_id, periode_id, false).await?;
         let a = calc.regles.arrondi;
-        let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
+        // D-022 : un professeur de groupe ne voit que les élèves de son groupe.
+        let visibles = self.eva_eleves_conseil(etab, acteur, role, classe_id).await?;
+        let calc_eleves: Vec<(Uuid, String, String)> = calc
+            .eleves
+            .iter()
+            .filter(|e| visibles.as_ref().is_none_or(|v| v.contains(&e.0)))
+            .cloned()
+            .collect();
+        let ids: Vec<Uuid> = calc_eleves.iter().map(|e| e.0).collect();
         let (debut, fin) = (calc.periode.date_debut, calc.periode.date_fin);
         let apprs: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT eleve_id, matiere_id, texte FROM ent_note_appreciation
@@ -493,8 +517,8 @@ impl PgEnt {
             })
             .collect();
         let (mut total_manquantes, mut generales_manquantes) = (0u32, 0u32);
-        let mut eleves = Vec::with_capacity(calc.eleves.len());
-        for (id, nom, prenom) in &calc.eleves {
+        let mut eleves = Vec::with_capacity(calc_eleves.len());
+        for (id, nom, prenom) in &calc_eleves {
             let manquantes: Vec<String> = calc
                 .matieres
                 .iter()
@@ -532,7 +556,12 @@ impl PgEnt {
             conseil,
             periode: Some(calc.periode.dto()),
             arrondi: a.as_str().to_string(),
-            moyenne_classe: calc.stats_generale.map(|s| s.moyenne.arrondie(a)),
+            // Agrégat de la classe entière : non communiqué à un professeur de groupe.
+            moyenne_classe: if visibles.is_none() {
+                calc.stats_generale.map(|s| s.moyenne.arrondie(a))
+            } else {
+                None
+            },
             appreciations_manquantes: total_manquantes,
             appreciations_generales_manquantes: generales_manquantes,
             peut_decider,

@@ -6,7 +6,7 @@ mod feuille;
 pub mod modele;
 
 use chrono::NaiveDate;
-use ent_web_api::Creneau;
+use ent_web_api::{Creneau, EnseignementApi};
 use ent_web_ui::Niveau;
 use ent_web_ui::{
     Alerte, Badge, EnTetePage, EtatVide, Icone, LienBouton, NomIcone, Squelette, TonEtat, Variante,
@@ -18,7 +18,9 @@ use uuid::Uuid;
 
 use modele::jour_demande;
 
-use crate::composants_metier::classes::{classe_du_creneau, sous_titre_appel};
+use crate::composants_metier::classes::{
+    classe_du_creneau, enseignement_du_creneau, libelle_effectif, sous_titre_appel,
+};
 use crate::composants_metier::seances::{lien_appel, moment, trier, Moment};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
@@ -84,6 +86,12 @@ pub fn PageAppel() -> impl IntoView {
             }
             session::client().mes_classes(j).await.unwrap_or_default()
         }
+    });
+
+    // Liste unique « mes enseignements » : effectif réel de la séance (groupe ou classe).
+    let enseignements = LocalResource::new(move || {
+        let j = jour.get();
+        async move { session::client().mes_enseignements(j).await.unwrap_or_default() }
     });
 
     let titre = Signal::derive(move || match seance.get() {
@@ -156,7 +164,7 @@ pub fn PageAppel() -> impl IntoView {
         {move || match (creneau_id.get(), creneaux.get()) {
             (_, None) => view! { <Squelette lignes=4 libelle="Chargement des séances…"/> }.into_any(),
             (_, Some(Err(e))) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| creneaux.refetch())/> }.into_any(),
-            (None, Some(Ok(list))) => view! { <ChoixSeance creneaux=list jour=jour.get()/> }.into_any(),
+            (None, Some(Ok(list))) => view! { <ChoixSeance creneaux=list enseignements=enseignements.get().unwrap_or_default() jour=jour.get()/> }.into_any(),
             (Some(id), Some(Ok(list))) => {
                 if list.iter().any(|c| c.id == id) {
                     view! { <feuille::FeuilleAppel creneau_id=id jour=jour.get()/> }.into_any()
@@ -179,7 +187,11 @@ pub fn PageAppel() -> impl IntoView {
 }
 
 #[component]
-fn ChoixSeance(creneaux: Vec<Creneau>, jour: NaiveDate) -> impl IntoView {
+fn ChoixSeance(
+    creneaux: Vec<Creneau>,
+    enseignements: Vec<EnseignementApi>,
+    jour: NaiveDate,
+) -> impl IntoView {
     if creneaux.is_empty() {
         return view! {
             <EtatVide titre="Aucune séance ce jour" message="Vous n'avez pas de cours à appeler à cette date.">
@@ -200,6 +212,8 @@ fn ChoixSeance(creneaux: Vec<Creneau>, jour: NaiveDate) -> impl IntoView {
                         let m = est_aujourdhui.then(|| moment(&c, heure));
                         let lien = lien_appel(&c, jour);
                         let salle = c.salle.clone().filter(|s| !s.is_empty()).map(|s| format!("Salle {s}"));
+                        let effectif = enseignement_du_creneau(&enseignements, &c.classe, &c.matiere_libelle)
+                            .map(|e| libelle_effectif(e.effectif));
                         view! {
                             <li>
                                 <a class="appel-seance" href=lien>
@@ -208,7 +222,13 @@ fn ChoixSeance(creneaux: Vec<Creneau>, jour: NaiveDate) -> impl IntoView {
                                     </span>
                                     <span class="appel-seance__principal">
                                         <span class="appel-seance__titre">{format!("{} · {}", c.classe, c.matiere_libelle)}</span>
-                                        <span class="appel-seance__detail">{salle.unwrap_or_else(|| "Salle non précisée".into())}</span>
+                                        <span class="appel-seance__detail">{
+                                            let salle = salle.unwrap_or_else(|| "Salle non précisée".into());
+                                            match effectif {
+                                                Some(e) => format!("{salle} · {e}"),
+                                                None => salle,
+                                            }
+                                        }</span>
                                     </span>
                                     {match m {
                                         Some(Moment::EnCours) => Some(view! { <Badge libelle="En cours" ton=TonEtat::Info/> }),

@@ -13616,10 +13616,20 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .ok_or(DomainError::NotFound)?;
         self.exiger_classe_dans_perimetre(etablissement_id, actor_user_id, role, &conseil.classe)
             .await?;
-        Ok(self
+        let dossiers = self
             .conseils
             .list_dossiers_conseil(etablissement_id, conseil_id)
-            .await?)
+            .await?;
+        // D-022 : un professeur de groupe ne voit que les dossiers des élèves de son groupe.
+        if Role::parse(role) == Some(Role::Prof) {
+            if let Some(ok) = self
+                .eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+                .await?
+            {
+                return Ok(dossiers.into_iter().filter(|d| ok.contains(&d.eleve_id)).collect());
+            }
+        }
+        Ok(dossiers)
     }
 
     pub async fn list_conseils_eleve_for_actor(

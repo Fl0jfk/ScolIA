@@ -3,8 +3,22 @@
 //! le serveur les fournit, arrondies selon la règle de l'établissement.
 
 use chrono::NaiveDate;
-use ent_types::evaluations::{PeriodeNotesDto, SaisieResultatBody};
+use ent_types::evaluations::{PeriodeNotesDto, SaisieResultatBody, ServiceEvaluationDto};
+use ent_types::referentiel::EnseignementDto;
 use uuid::Uuid;
+
+/// Services évaluables qui ne sont pas déjà dans « mes enseignements » (direction,
+/// rôles à portée établissement) : la liste unique du professeur n'est jamais dupliquée.
+pub fn services_hors_enseignements(
+    services: &[ServiceEvaluationDto],
+    enseignements: &[EnseignementDto],
+) -> Vec<ServiceEvaluationDto> {
+    services
+        .iter()
+        .filter(|s| !enseignements.iter().any(|e| e.service_id == s.service_id))
+        .cloned()
+        .collect()
+}
 
 /// Contenu d'une cellule de la grille.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -240,6 +254,38 @@ pub fn nom_fichier(base: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn services_deja_dans_mes_enseignements_ne_sont_pas_repetes() {
+        let id = |n: u128| Uuid::from_u128(n);
+        let service = |n: u128| ServiceEvaluationDto {
+            service_id: id(n),
+            classe_id: None,
+            groupe_id: None,
+            cible_code: "4B".into(),
+            matiere_id: id(9),
+            matiere_libelle: "Allemand".into(),
+            prof_user_id: id(1),
+            professeur_principal: false,
+        };
+        let ens = |n: u128| EnseignementDto {
+            service_id: id(n),
+            nature: "groupe".into(),
+            classe_id: None,
+            groupe_id: None,
+            cible_code: "4B-ALL".into(),
+            classe_code: "4B".into(),
+            matiere_id: None,
+            matiere_libelle: "Allemand".into(),
+            effectif: 12,
+            professeur_principal: false,
+            libelle: "Allemand · 4B-ALL (groupe)".into(),
+        };
+        let reste = services_hors_enseignements(&[service(1), service(2)], &[ens(1)]);
+        assert_eq!(reste.len(), 1);
+        assert_eq!(reste[0].service_id, id(2));
+        assert!(services_hors_enseignements(&[service(1)], &[ens(1)]).is_empty());
+    }
+
     use super::*;
 
     #[test]
