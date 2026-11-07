@@ -233,19 +233,24 @@ async fn mes_enseignements_classe_et_groupe_dans_une_seule_liste() {
     let etab = cast.etablissement_id;
     let m = monde(&ent, &cast).await;
     let prof = Role::Prof.as_str();
+    // Le jeu de labo peut déjà donner d'autres services à ces professeurs : on retrouve les nôtres.
     let l = ent.mes_enseignements_for_actor(etab, m.prof_all, prof, today_utc()).await.unwrap();
-    assert_eq!(l.len(), 1);
-    assert_eq!(l[0].nature, "groupe");
-    assert_eq!(l[0].service_id, m.s_all);
-    assert_eq!(l[0].matiere_libelle, "Allemand");
-    assert_eq!(l[0].effectif, 2, "effectif du groupe, pas de la classe");
-    assert_eq!(l[0].classe_id, Some(m.classe), "classe parente du groupe");
-    assert!(l[0].libelle.contains("Allemand") && l[0].libelle.contains("groupe"));
+    let e = l.iter().find(|e| e.service_id == m.s_all).expect("enseignement de groupe");
+    assert_eq!(e.nature, "groupe");
+    assert_eq!(e.matiere_libelle, "Allemand");
+    assert_eq!(e.effectif, 2, "effectif du groupe, pas de la classe");
+    assert_eq!(e.classe_id, Some(m.classe), "classe parente du groupe");
+    assert!(e.libelle.contains("Allemand") && e.libelle.contains("groupe"));
+    assert!(l.iter().all(|x| x.service_id != Uuid::nil()));
     let l = ent.mes_enseignements_for_actor(etab, m.prof_principal, prof, today_utc()).await.unwrap();
-    assert_eq!(l.len(), 1);
-    assert_eq!(l[0].nature, "classe");
-    assert_eq!(l[0].effectif, 4);
-    assert!(l[0].professeur_principal);
+    let e = l
+        .iter()
+        .find(|e| e.nature == "classe" && e.classe_id == Some(m.classe))
+        .expect("enseignement de classe entière");
+    assert_eq!(e.effectif, 4);
+    assert!(e.professeur_principal);
+    // Jamais l'enseignement de groupe d'un autre professeur.
+    assert!(l.iter().all(|x| x.service_id != m.s_all));
     // Les familles n'ont pas d'enseignements.
     assert!(matches!(
         ent.mes_enseignements_for_actor(etab, cast.parent_lea.user_id, "parent", today_utc()).await,
@@ -257,5 +262,6 @@ async fn mes_enseignements_classe_et_groupe_dans_une_seule_liste() {
         .await
         .unwrap()
         .expect("borné");
-    assert_eq!(ok, ens(&m.all));
+    assert!(ens(&m.all).is_subset(&ok), "son groupe est suivi");
+    assert!(ok.is_disjoint(&ens(&m.esp)), "jamais l'autre groupe");
 }
