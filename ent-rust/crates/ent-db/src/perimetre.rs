@@ -4,7 +4,9 @@
 //! un élève s'il lui enseigne aujourd'hui. Sources, dans l'ordre :
 //! 1. référentiel scolaire (`enseigne_a` : service d'enseignement ∩ affectation) ;
 //! 2. emploi du temps historique (créneau du professeur sur la classe texte de l'élève),
-//!    tant que le référentiel n'est pas la source unique des classes ;
+//!    tant que le référentiel n'est pas la source unique des classes ; un créneau de
+//!    **groupe** (`groupe_id`) ne vaut que pour les élèves affectés à ce groupe (D-022,
+//!    recette personas 1, C23) ;
 //! 3. remplacement récent ou prochain (±14 jours) sur un créneau de la classe.
 //!
 //! Défaut sûr : élève inconnu, sorti, ou d'un autre établissement → `false`.
@@ -59,6 +61,12 @@ impl PgEnt {
                    ON c.etablissement_id = e.etablissement_id AND c.classe = e.classe
                 WHERE e.etablissement_id = $1 AND e.id = $3
                   AND (e.date_sortie IS NULL OR e.date_sortie > $4)
+                  AND (c.groupe_id IS NULL
+                       OR EXISTS (
+                          SELECT 1 FROM ent_affectation g
+                           WHERE g.etablissement_id = e.etablissement_id
+                             AND g.eleve_id = e.id AND g.groupe_id = c.groupe_id
+                             AND g.date_debut <= $4 AND (g.date_fin IS NULL OR g.date_fin >= $4)))
                   AND (c.prof_user_id = $2
                        OR EXISTS (
                           SELECT 1 FROM ent_edt_exception x
@@ -130,6 +138,12 @@ impl PgEnt {
                  ON c.etablissement_id = e.etablissement_id AND c.classe = e.classe
               WHERE e.etablissement_id = $1
                 AND (e.date_sortie IS NULL OR e.date_sortie > $3)
+                AND (c.groupe_id IS NULL
+                     OR EXISTS (
+                        SELECT 1 FROM ent_affectation g
+                         WHERE g.etablissement_id = e.etablissement_id
+                           AND g.eleve_id = e.id AND g.groupe_id = c.groupe_id
+                           AND g.date_debut <= $3 AND (g.date_fin IS NULL OR g.date_fin >= $3)))
                 AND (c.prof_user_id = $2
                      OR EXISTS (
                         SELECT 1 FROM ent_edt_exception x
