@@ -25,6 +25,11 @@ required-features = ["labo"]
 name = "fichiers_liens"
 required-features = ["labo"]
 
+# Recette personas 1 (RF-16) : même bootstrap labo.
+[[test]]
+name = "recette_personas_rf16"
+required-features = ["labo"]
+
 [features]
 # Labo (L4) : /labo/bootstrap, /auth/register libre, aide labo de /login,
 # mot de passe public. DÉSACTIVÉE par défaut, jamais dans l'image de production.

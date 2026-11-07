@@ -312,6 +312,11 @@ pub struct FusionPersonne {
 enum LectureFamille {
     /// Personnel habilité (section « famille ») : tout, coordonnées comprises.
     Complete,
+    /// Personnel habilité à la section « famille » sans administrer les
+    /// personnes (professeur, CPE, comptabilité…) : liens actifs seulement,
+    /// coordonnées conservées, sans décision de suspension (motif, référence,
+    /// date) ; `payeurs` n'est vrai que pour la comptabilité.
+    Pedagogique { payeurs: bool },
     /// Responsable lié et actif : ses coordonnées, les noms des autres.
     Responsable(Uuid),
     Aucune,
@@ -693,11 +698,22 @@ impl PgEnt {
         let s = self
             .dossier_sections_for_actor(etab, actor, role, eleve_id)
             .await?;
-        Ok(if s.famille {
-            LectureFamille::Complete
-        } else {
-            LectureFamille::Aucune
-        })
+        if !s.famille {
+            return Ok(LectureFamille::Aucune);
+        }
+        for a in [Action::PersonnesGerer, Action::LiensSuspendre] {
+            if self.a_action_etablissement(etab, actor, role, a).await? {
+                return Ok(LectureFamille::Complete);
+            }
+        }
+        let mut payeurs = false;
+        for a in [Action::PayeursDefinir, Action::FacturationLire] {
+            if self.a_action_etablissement(etab, actor, role, a).await? {
+                payeurs = true;
+                break;
+            }
+        }
+        Ok(LectureFamille::Pedagogique { payeurs })
     }
 
     pub(crate) async fn responsables_bruts(
@@ -774,6 +790,20 @@ impl PgEnt {
         Ok(match lecture {
             LectureFamille::Aucune => return Err(EntDbError::Forbidden),
             LectureFamille::Complete => tous,
+            LectureFamille::Pedagogique { payeurs } => tous
+                .into_iter()
+                .filter(|r| r.actif)
+                .map(|mut r| {
+                    r.suspendu_le = None;
+                    r.suspension_motif = None;
+                    r.suspension_reference = None;
+                    if !payeurs {
+                        r.est_payeur = false;
+                        r.part_paiement = None;
+                    }
+                    r
+                })
+                .collect(),
             LectureFamille::Responsable(mon_lien) => tous
                 .into_iter()
                 .filter(|r| r.actif)
