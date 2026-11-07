@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 8 « notifications et diffusion » — conception (2026-11-07, branche `ent-socle-notifications-conception`)
+Conception seulement, **non décidée**, aucun code : `docs/socles/08_NOTIFICATIONS.md`. Évaluation du lot S2-8 et de l'ancien chemin d'envoi sur `ent-integration-lot8b` : moteur S2-8 solide (dédoublonnage, au plus une fois, droits relus, plafonds sous verrou, campagnes confirmées par empreinte) mais limité aux comptes ; ancien chemin synchrone (14 appelants) qui ignore les droits du lien et fuit des données (adresse dans `mail.envoye`, sanction par SMS, pièce jointe du psychologue). Proposé : brique `notifications` et contrat de notification des briques, 118 actions `NTF-xx`, 16 droits, 16 événements, lots N0–N14 (N0 = correctifs immédiats), 31 questions. Migrations réservées 3800–3899 (repli 400–419). Réglementaire cité en extrait ou de mémoire, à vérifier.
+
 ## Intégration du lot 7 (2026-11-06 → 07, branche `ent-integration-lot7`, base `ent-integration-lot6` 99a6e17)
 Fusions git réelles (`--no-ff`), dans l'ordre : `ent-socle2-edt` (S2-5, migrations 170–172), `ent-socle2-evaluations` (S2-7, 180–182), `ent-socle2-communication` (S2-8, 190–193), `ent-socle2-finances` (S2-9, 200–206), `ent-socle2-sante` (S2-11, 210–215). Aucune branche écartée. **Niveau : implémenté + testé en local (PostgreSQL 16) + CI GitHub partiellement relue ; non validé pilote.**
 - **Évaluations — fusionnée sous forme nettoyée** : deux de ses commits contenaient 1,26 Go d'artefacts de build (`ent-rust/target-s27/`, 4 156 fichiers) ; les cinq commits ont été rejoués sans ce dossier (contenu identique, vérifié), la branche d'origine n'est pas modifiée (F-011). `.gitignore` : `/target-*/` ajouté.
