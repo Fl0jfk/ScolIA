@@ -101,3 +101,10 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Cause :** paramètre `model` non renseigné au lancement ; pas de choix explicite par session.
 - **Correction / règle :** à chaque `create_session`, renseigner `model` explicitement. **Sonnet par défaut** (lots métier, écrans, intégrations, mobile). **Opus seulement** pour une revue de sécurité adverse, un domaine à risque (finances/SEPA) ou une décision d'architecture structurante, en le justifiant dans le titre ou la consigne. **Haiku** pour recherches ciblées et doc légère (sous-agents). Les sessions déjà lancées ne sont pas interrompues.
 - **Apprentissage :** un défaut hérité n'est pas un choix ; le modèle fait partie de la conception de chaque tâche déléguée.
+
+## F-012 — Pilotage multi-sessions : consignes perdues, conteneurs qui redémarrent, intégration bloquée
+
+- **Date / contexte :** 2026-11-06 → 07, socles 2 à 4 et lots d'intégration 6 à 8.
+- **Faits :** (1) des consignes envoyées par message à des sessions déjà lancées (correctifs des personas, D-022) ont été **refusées** par ces sessions, à raison, car elles ne venaient pas du porteur du projet ; (2) les conteneurs cloud ont redémarré à de nombreuses reprises et ont coupé les suites de tests longues (70 à 100 min), bloquant le lot 7 pendant une nuit ; (3) la CI GitHub, lancée à la main sur la branche, a trouvé en 30 min une erreur de compilation que les suites locales coupées n'atteignaient pas ; (4) aucun regard extérieur sur les consignes du pilote avant lancement.
+- **Correction :** règles du §2 de `docs/PILOTAGE.md` (consignes dans le message de lancement, CI GitHub comme juge, file d'intégration unique, rôle de contradicteur avant chaque vague).
+- **Apprentissage :** le goulot n'est pas l'écriture du code mais l'assemblage et la validation ; il faut un rôle dédié et une validation fiable.
