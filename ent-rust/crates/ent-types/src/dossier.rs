@@ -74,7 +74,7 @@ pub struct ResponsableDto {
     pub part_paiement: Option<i16>,
     /// Groupes de champs fermés pour ce lecteur sur cette personne, avec la raison (lot A1) :
     /// un champ vide n'est jamais ambigu (absent ≠ masqué). Les valeurs masquées sont neutres.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub masque: Vec<MasquageDto>,
 }
 
@@ -401,10 +401,10 @@ pub struct FicheEleveDto {
     pub actions: Vec<ActionFicheDto>,
     pub alertes: Vec<String>,
     /// Groupes de champs fermés pour ce lecteur, avec la raison (lot A1).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub masquages: Vec<MasquageDto>,
     /// Interdictions actives visibles (jamais pour une famille).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interdictions: Vec<InterdictionDto>,
 }
 
