@@ -14,20 +14,20 @@ Légende des statuts : **corrigé + test** (correctif dans cette branche, test q
 
 | Type | Critique | Élevée | Moyenne | Faible | Total |
 |---|---|---|---|---|---|
-| Faille | 1 | 6 | 7 | 3 | 17 |
+| Faille | 1 | 5 | 8 | 4 | 18 |
 | Fonction manquante | 0 | 3 | 3 | 0 | 6 |
-| Défaut | 0 | 0 | 6 | 5 | 11 |
+| Défaut | 0 | 0 | 4 | 6 | 10 |
 | Lenteur | 0 | 0 | 0 | 0 | 0 |
 | **Total** | **1** | **9** | **16** | **8** | **34** |
 
-Statuts : **7 corrigés + test**, **9 tests ajoutés en échec** (failles ouvertes), **18 signalés**. Détail en §3. (Chiffres recalculés en §3.4 après intégration des correctifs.)
+Statuts : **8 corrigés + test** (RP1-01, 05, 09, 10, 21, 22, 23, 24), **6 tests ajoutés en échec** (failles ouvertes RP1-03, 04, 07, 11, 20, 27), **20 signalés**. Détail en §3 et §3.4.
 
 Aucune lenteur : sur ~1 500 requêtes, aucune au-dessus de 500 ms (base de labo de 10 élèves : ne dit rien de la tenue en charge).
 
 ### 0.2 Les 10 constats les plus importants
 
 1. **RP1-23 (critique, corrigé)** — D-022 cassée de bout en bout : dès que la direction place un cours de **groupe** dans l'emploi du temps, le professeur du groupe « suit » **toute la classe** (repli « classe texte » de `perimetre.rs`) : notes, absences, appréciations, journal, punitions, compétences, relevé de Ginny, qui n'est pas dans son groupe.
-2. **RP1-24 (élevée, test en échec)** — L'**appel** d'un cours de groupe liste toute la classe et accepte de marquer absente une élève qui n'est pas dans le groupe : de fausses absences partent vers les familles.
+2. **RP1-24 (élevée, corrigé)** — L'**appel** d'un cours de groupe liste toute la classe et accepte de marquer absente une élève qui n'est pas dans le groupe : de fausses absences partent vers les familles.
 3. **RP1-01 (élevée, corrigé)** — Un **professeur exporte** LSL, LSU, Notanet et Parcoursup (INE et notes de toute la classe), contraire à D-022 ; un professeur d'un seul groupe exporte aussi les élèves hors groupe.
 4. **RP1-11 (élevée, test en échec)** — **Parents séparés** : le père (autre foyer) lit le fil de messagerie privé ouvert par la mère, où elle donne sa nouvelle adresse, et les relances de facture du foyer de la mère.
 5. **RP1-21 (élevée, corrigé — RF-16)** — Le professeur de la classe lit sur la fiche élève le **motif « ordonnance de protection »** et la référence du jugement, et qui paie.
@@ -103,7 +103,7 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP1-24 — faille, élevée — L'appel d'un cours de groupe liste toute la classe.**
 *Preuve* : Flitwick → `POST /appels {"creneau_id":"<créneau de groupe>","jour":"2026-11-07"}` → 201 ; `GET /appels/{id}` → lignes Harry, **Ginny**, Hermione ; `POST /appels/{id}/lignes {"eleve_id":"<Ginny>","etat":"absent"}` → **204**. Cause : `ouvrir_appel` (`service.rs`) remplit l'appel par `list_en_classe_au(classe texte)`.
-**Statut** : voir §3.4.
+**Corrigé + test** : `ouvrir_appel` ne garde que les élèves affectés au groupe du créneau à la date (un appel déjà ouvert avant le correctif garde ses lignes) ; test `rp1_c24_appel_de_groupe_borne_au_groupe`.
 
 **RP1-01 — faille, élevée — Un professeur exporte LSL, LSU, Notanet, Parcoursup (D-022).**
 *Preuve* : Rogue (classe entière) et Flitwick (groupe de 2) → `GET /exports/lsl?classe=4B&periode_id=<T1>` → 200 `ine;nom;prenom;classe;matiere;note_20;appreciation;periode` avec les trois élèves de 4B, idem `/exports/lsun`, `/exports/notanet`, `/exports/parcoursup?classe=4B&annee_scolaire=2026-2027`. (La route récente `POST /evaluations/exports` refuse bien les professeurs.)
@@ -131,7 +131,7 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP1-10 — faille, moyenne — Un élève mineur signe seul un document à signer.**
 *Preuve* : Harry → `POST /docs-a-signer/{règlement intérieur}/signer` → 200, statut `signe` : les responsables n'ont plus rien à signer.
-**Statut** : voir §3.4.
+**Corrigé + test** : `signer_doc_a_signer_for_actor` refuse la signature d'un compte élève mineur ; l'élève majeur signe toujours ; test `rp1_c10_eleve_mineur_ne_signe_pas_seul`. Reste à décider quels documents un mineur peut signer lui-même (Q-RP1-6).
 
 **RP1-03 — faille, moyenne — Le professeur d'un groupe voit la liste et le trombinoscope de toute la classe.**
 *Preuve* : Flitwick → `GET /referentiel/classes/{4B}` → `eleves` : Hermione, Harry, Ginny ; `GET /classes/4B/trombi` → les trois photos. Aussi Prof 5 (sans classe) et la comptabilité.
@@ -203,7 +203,29 @@ Format : **RP1-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 ### 3.4 État après correctifs (mis à jour en fin de recette)
 
-_Section complétée après intégration des correctifs des sous-agents — voir ci-dessous._
+| Constat | Gravité | Statut | Fichier corrigé | Test |
+|---|---|---|---|---|
+| RP1-23 | critique | corrigé + test | `ent-db/src/perimetre.rs` | `recette_personas_1::rp1_c23_…` |
+| RP1-24 | élevée | corrigé + test | `ent-db/src/service.rs` (`ouvrir_appel`) | `recette_personas_1::rp1_c24_…` |
+| RP1-01 | élevée | corrigé + test | `service.rs` (4 exports) | `tests_recette_personas::rp1_c01_…` |
+| RP1-21 | élevée | corrigé + test | `ent-db/src/dossier_personnes.rs` | `recette_personas_rf16::rp1_rf16_…` |
+| RP1-22 | élevée | corrigé + test | `ent-db/src/evaluations_conseil.rs` | `recette_personas_1::rp1_c22_…` |
+| RP1-05 | moyenne | corrigé + test | `service.rs` (`list_documents_meta_eleve_for_actor`) | `tests_recette_personas::rp1_c05_…` |
+| RP1-09 | moyenne | corrigé + test | `service.rs` (`actor_can_declare_absence`) | `tests_recette_personas::rp1_c09_…` |
+| RP1-10 | moyenne | corrigé + test | `service.rs` (`signer_doc_a_signer_for_actor`) | `recette_personas_1::rp1_c10_…` |
+| RP1-11 | élevée | **test en échec** (`#[ignore]`) | — (décision Q-RP1-1) | `rp1_c11_…` |
+| RP1-03 | moyenne | **test en échec** | — | `rp1_c03_…` |
+| RP1-04 | moyenne | **test en échec** | — (décision Q-RP1-2) | `rp1_c04_…` |
+| RP1-07 | moyenne | **test en échec** | — | `rp1_c07_…` |
+| RP1-20 | moyenne | **test en échec** | — | `rp1_c20_…` |
+| RP1-27 | moyenne | **test en échec** | — | `rp1_c27_…` |
+| autres | — | signalés | — | — |
+
+**Tests existants adaptés** (ils encodaient l'ancien comportement, aucun supprimé ni désactivé) : `tests_revue_finale::rf04d` (un professeur est désormais refusé aussi pour sa propre classe en LSL / LSUN) ; matrice `ent-api/tests/separation.rs`, ligne « documents-liste » (élève non lié : `STAFF_HORS_PROF`, comme la ligne « journal ») ; scénarios `ent-db/src/scenarios.rs` et `ent-lab/src/main.rs` (exports faits par l'administratif au lieu du professeur).
+
+**Effets de bord connus des correctifs** : la comptabilité ne reçoit plus l'alerte de fiche « payeur avec lien suspendu » (elle ne voit plus les liens suspendus) ; un professeur ne liste plus du tout les documents d'un élève qu'il ne suit pas (il ne peut donc plus en demander l'accès depuis cette liste).
+
+**Validation** : voir §5 bis.
 
 ---
 
@@ -242,9 +264,14 @@ Sources : `docs/MATRICE_CHARLEMAGNE.md` (dont les limites s'appliquent : fonctio
 | idem | `rp1_c09_eleve_mineur_ne_declare_pas_son_absence` | RP1-09 | vert (corrigé) |
 | idem | `rp1_c05_documents_hors_perimetre_et_titre_restreint` | RP1-05 | vert (corrigé) |
 | `ent-api/tests/recette_personas_rf16.rs` | `rp1_rf16_professeur_ne_voit_ni_motif_judiciaire_ni_payeurs` | RP1-21 | vert (corrigé) |
-| `ent-api/tests/recette_personas_1.rs` | voir §3.4 | RP1-03, 04, 07, 10, 11, 20, 22, 23, 24, 27 | voir §3.4 |
+| `ent-api/tests/recette_personas_1.rs` | `rp1_c22_…`, `rp1_c23_…`, `rp1_c24_…`, `rp1_c10_…` | RP1-22, 23, 24, 10 | verts (corrigés) |
+| idem | `rp1_c03_…`, `rp1_c04_…`, `rp1_c07_…`, `rp1_c11_…`, `rp1_c20_…`, `rp1_c27_…` | RP1-03, 04, 07, 11, 20, 27 | **`#[ignore = "FAILLE OUVERTE …"]`**, échouent avec `--ignored` (vérifié) |
 
-Lancer les tests des failles ouvertes : `cargo test --locked -p ent-api --features labo --test recette_personas_1 -- --ignored --test-threads=1` (ils doivent échouer tant que la faille existe).
+Lancer les tests des failles ouvertes : `cargo test --locked -p ent-api --features labo --test recette_personas_1 -- --ignored --test-threads=1` (ils doivent échouer tant que la faille existe). Le nom de la base locale doit contenir `test`, `proto` ou `lab` (garde du harnais).
+
+## 5 bis. Validation
+
+_En cours — complétée en fin de session._
 
 ---
 
