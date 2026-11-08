@@ -413,6 +413,18 @@ pub struct FicheEleveDto {
     /// Interdictions actives visibles (jamais pour une famille).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interdictions: Vec<InterdictionDto>,
+    /// Mentions « ne pas solliciter » des responsables (personnel seulement).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protections: Vec<ProtectionFicheDto>,
+}
+
+/// Alerte « ne pas solliciter » sur la fiche : ni référence, ni adresse.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtectionFicheDto {
+    pub personne_id: Uuid,
+    pub designation: String,
+    /// `true` : confirmée par la direction ; `false` : à confirmer.
+    pub confirmee: bool,
 }
 
 /// Un groupe de champs masqué et pourquoi (jamais de masquage muet).

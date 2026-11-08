@@ -464,6 +464,11 @@
 /* --- Fiche élève 360° (S2-1) ------------------------------------------------ */
 .fiche-section__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-3); }
 .fiche-section__tete h2 { margin: 0; }
+.fiche-identite { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--esp-2) var(--esp-4); margin: 0 0 var(--esp-3); }
+.fiche-identite__ligne { display: flex; flex-direction: column; }
+.fiche-identite dt { font-size: var(--taille-s); color: var(--c-attenue); }
+.fiche-identite dd { margin: 0; font-weight: var(--graisse-forte); overflow-wrap: anywhere; }
+.fiche-scolarite__resume { font-weight: var(--graisse-forte); }
 .fiche-chronologie { max-height: 32rem; overflow-y: auto; }
 .fiche-chronologie__date { width: 6.5rem; flex-shrink: 0; font-size: var(--taille-s); color: var(--c-attenue); font-variant-numeric: tabular-nums; }
 

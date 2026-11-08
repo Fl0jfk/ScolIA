@@ -340,6 +340,15 @@ fn fiche_dto(f: FicheEleve) -> FicheEleveDto {
         masques,
         masquages: f.masquages.into_iter().map(masquage_dto).collect(),
         interdictions: f.interdictions.into_iter().map(interdiction_dto).collect(),
+        protections: f
+            .protections
+            .into_iter()
+            .map(|p| ent_types::dossier::ProtectionFicheDto {
+                personne_id: p.personne_id,
+                designation: p.designation,
+                confirmee: p.confirmee,
+            })
+            .collect(),
     }
 }
 

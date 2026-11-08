@@ -14,6 +14,64 @@ use uuid::Uuid;
 /// Codes d'action du catalogue serveur utilisés par la fiche.
 pub const ACTION_PERSONNES: &str = "personnes.gerer";
 pub const ACTION_PAYEURS: &str = "payeurs.definir";
+/// Texte de l'alerte « ne pas solliciter » d'une fiche (personnel).
+pub fn libelle_protection(p: &ent_web_api::ProtectionFicheDto) -> String {
+    if p.confirmee {
+        format!(
+            "{} : ne pas solliciter (confirmé par la direction)",
+            p.designation
+        )
+    } else {
+        format!(
+            "{} : ne pas solliciter (déclaré, à confirmer par la direction)",
+            p.designation
+        )
+    }
+}
+
+/// Libellé de chaque foyer. Deux foyers distincts de même libellé (parents séparés : « Foyer
+/// MARTIN » deux fois) sont distingués par le prénom de leurs responsables.
+pub fn libelles_foyers(
+    responsables: &[ent_web_api::ResponsableDto],
+) -> std::collections::HashMap<uuid::Uuid, String> {
+    use std::collections::HashMap;
+    let mut base: HashMap<uuid::Uuid, (String, Vec<String>)> = HashMap::new();
+    for r in responsables {
+        if let Some(id) = r.foyer_id {
+            let e = base.entry(id).or_insert_with(|| {
+                (
+                    r.foyer_libelle.clone().unwrap_or_else(|| "Foyer".into()),
+                    Vec::new(),
+                )
+            });
+            let nom = r
+                .personne
+                .prenom
+                .clone()
+                .filter(|p| !p.trim().is_empty())
+                .unwrap_or_else(|| r.personne.nom.clone());
+            if !e.1.contains(&nom) {
+                e.1.push(nom);
+            }
+        }
+    }
+    let mut compte: HashMap<String, usize> = HashMap::new();
+    for (l, _) in base.values() {
+        *compte.entry(l.clone()).or_default() += 1;
+    }
+    base.into_iter()
+        .map(|(id, (l, noms))| {
+            let doublon = compte.get(&l).copied().unwrap_or(0) > 1;
+            let texte = if doublon && !noms.is_empty() {
+                format!("{l} ({})", noms.join(", "))
+            } else {
+                l
+            };
+            (id, texte)
+        })
+        .collect()
+}
+
 pub const ACTION_SUSPENDRE: &str = "liens.suspendre";
 
 /// L'action est-elle proposée par le serveur pour cette fiche ?
@@ -164,8 +222,13 @@ pub struct SectionFiche {
 }
 
 fn pluriel(n: u32, un: &str, plusieurs: &str) -> String {
+    pluriel_genre(n, un, plusieurs, false)
+}
+
+/// Comme `pluriel`, avec l'accord de « aucun / aucune » (note, sanction, option, bourse…).
+fn pluriel_genre(n: u32, un: &str, plusieurs: &str, feminin: bool) -> String {
     match n {
-        0 => format!("aucun {un}"),
+        0 => format!("{} {un}", if feminin { "aucune" } else { "aucun" }),
         1 => format!("1 {un}"),
         _ => format!("{n} {plusieurs}"),
     }
@@ -179,7 +242,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.notes {
         v.push(SectionFiche {
             titre: "Évaluations",
-            detail: pluriel(r.notes, "note", "notes"),
+            detail: pluriel_genre(r.notes, "note", "notes", true),
             lien: None,
         });
     }
@@ -188,7 +251,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
             titre: "Vie scolaire",
             detail: format!(
                 "{}, {}, {}",
-                pluriel(r.sanctions, "sanction", "sanctions"),
+                pluriel_genre(r.sanctions, "sanction", "sanctions", true),
                 pluriel(r.incidents, "incident", "incidents"),
                 pluriel(r.carnet, "mot du carnet", "mots du carnet")
             ),
@@ -209,7 +272,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.options {
         v.push(SectionFiche {
             titre: "Options",
-            detail: pluriel(r.options, "option", "options"),
+            detail: pluriel_genre(r.options, "option", "options", true),
             lien: None,
         });
     }
@@ -223,7 +286,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.bourses {
         v.push(SectionFiche {
             titre: "Bourses",
-            detail: pluriel(r.bourses, "bourse", "bourses"),
+            detail: pluriel_genre(r.bourses, "bourse", "bourses", true),
             lien: None,
         });
     }
@@ -442,6 +505,75 @@ pub fn message_guichet(lien_cree: bool, nom: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scolarité (statut dérivé, scolarisations, inscriptions annuelles)
+// ---------------------------------------------------------------------------
+
+/// Lien de responsabilité en français (le serveur renvoie le code ou le libellé du labo).
+pub fn libelle_lien(code: &str) -> String {
+    match code {
+        "mere" | "mère" => "mère".into(),
+        "pere" | "père" => "père".into(),
+        "tuteur" => "tuteur ou tutrice".into(),
+        "autre" => "autre responsable".into(),
+        autre => autre.to_string(),
+    }
+}
+
+/// Statut dérivé par le serveur (jamais saisi).
+pub fn libelle_statut_scolarite(statut: &str) -> &'static str {
+    match statut {
+        "a_venir" => "Inscrit, entre à la rentrée",
+        "scolarise" => "Scolarisé",
+        "sorti" => "Sorti de l'établissement",
+        "archive" => "Archivé",
+        _ => "Statut inconnu",
+    }
+}
+
+pub fn libelle_motif_entree(motif: &str) -> &'static str {
+    match motif {
+        "premiere_inscription" => "Première inscription",
+        "changement_etablissement" => "Arrivée d'un autre établissement",
+        "retour" => "Retour",
+        "passage_interne" => "Passage interne",
+        "reprise" => "Reprise de données",
+        _ => "Motif non précisé",
+    }
+}
+
+pub fn libelle_etat_inscription(etat: &str) -> &'static str {
+    match etat {
+        "prevue" => "Prévue",
+        "en_cours" => "En cours",
+        "terminee" => "Terminée",
+        "abandonnee" => "Abandonnée",
+        _ => "État inconnu",
+    }
+}
+
+/// « 2027-2028 » pour une année connue, sinon un libellé neutre (jamais d'identifiant).
+pub fn libelle_annee(annee_id: uuid::Uuid, annees: &[(uuid::Uuid, String)]) -> String {
+    annees
+        .iter()
+        .find(|(id, _)| *id == annee_id)
+        .map(|(_, l)| format!("Année {l}"))
+        .unwrap_or_else(|| "Année scolaire".to_string())
+}
+
+/// Phrase de tête : où en est l'élève, et à partir de quand.
+pub fn resume_scolarite(statut: &str, entree: Option<chrono::NaiveDate>) -> String {
+    let base = libelle_statut_scolarite(statut);
+    match (statut, entree) {
+        ("a_venir", Some(d)) => format!(
+            "{base} — scolarisation à partir du {}",
+            d.format("%d/%m/%Y")
+        ),
+        (_, Some(d)) => format!("{base} — depuis le {}", d.format("%d/%m/%Y")),
+        _ => base.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +593,38 @@ mod tests {
             represente_eleve: false,
             fusionnee_dans: None,
         }
+    }
+
+    #[test]
+    fn deux_foyers_de_meme_nom_se_distinguent() {
+        let mut mere = resp();
+        mere.foyer_id = Some(Uuid::from_u128(10));
+        mere.foyer_libelle = Some("Foyer MARTIN".into());
+        mere.personne = personne(Some("Inès"));
+        let mut pere = resp();
+        pere.foyer_id = Some(Uuid::from_u128(11));
+        pere.foyer_libelle = Some("Foyer MARTIN".into());
+        pere.personne = personne(Some("Marc"));
+        let l = libelles_foyers(&[mere.clone(), pere]);
+        assert_eq!(l[&Uuid::from_u128(10)], "Foyer MARTIN (Inès)");
+        assert_eq!(l[&Uuid::from_u128(11)], "Foyer MARTIN (Marc)");
+        // Un foyer unique garde son libellé.
+        assert_eq!(
+            libelles_foyers(&[mere])[&Uuid::from_u128(10)],
+            "Foyer MARTIN"
+        );
+    }
+
+    #[test]
+    fn alerte_ne_pas_solliciter_dit_l_etat() {
+        let mut p = ent_web_api::ProtectionFicheDto {
+            personne_id: Uuid::from_u128(1),
+            designation: "Marc Martin".into(),
+            confirmee: false,
+        };
+        assert!(libelle_protection(&p).contains("à confirmer"));
+        p.confirmee = true;
+        assert!(libelle_protection(&p).contains("confirmé"));
     }
 
     fn resp() -> ResponsableDto {
@@ -625,6 +789,7 @@ mod tests {
             masques: vec![],
             masquages: vec![],
             interdictions: vec![],
+            protections: vec![],
         };
         assert!(sections_accessibles(&f, false).is_empty());
         f.sections.vs = true;
@@ -706,5 +871,37 @@ mod tests {
         assert_eq!(v[0].attente_id, Uuid::from_u128(2));
         assert!(message_guichet(true, "Léa").contains("confirmé"));
         assert!(message_guichet(false, "Léa").contains("déjà"));
+    }
+
+    #[test]
+    fn aucun_s_accorde_avec_le_nom() {
+        assert_eq!(pluriel_genre(0, "note", "notes", true), "aucune note");
+        assert_eq!(pluriel(0, "incident", "incidents"), "aucun incident");
+        assert_eq!(pluriel_genre(2, "option", "options", true), "2 options");
+    }
+
+    #[test]
+    fn scolarite_libelles_et_resume() {
+        assert_eq!(libelle_lien("pere"), "père");
+        assert_eq!(libelle_lien("mère"), "mère");
+        use chrono::NaiveDate;
+        let d = NaiveDate::from_ymd_opt(2027, 9, 1);
+        assert_eq!(
+            resume_scolarite("a_venir", d),
+            "Inscrit, entre à la rentrée — scolarisation à partir du 01/09/2027"
+        );
+        assert_eq!(
+            resume_scolarite("scolarise", d),
+            "Scolarisé — depuis le 01/09/2027"
+        );
+        assert_eq!(resume_scolarite("sorti", None), "Sorti de l'établissement");
+        assert_eq!(libelle_etat_inscription("prevue"), "Prévue");
+        let a = uuid::Uuid::from_u128(1);
+        assert_eq!(
+            libelle_annee(a, &[(a, "2027-2028".into())]),
+            "Année 2027-2028"
+        );
+        assert_eq!(libelle_annee(a, &[]), "Année scolaire");
+        assert!(!libelle_motif_entree("premiere_inscription").contains("_"));
     }
 }

@@ -288,6 +288,18 @@ pub struct FicheEleve {
     pub masquages: Vec<Masquage>,
     /// Interdictions actives visibles (groupe R) ; jamais pour une famille.
     pub interdictions: Vec<InterdictionVue>,
+    /// Mentions « ne pas solliciter » des responsables (démo P1 n° 4) : personnel qui lit les
+    /// responsables seulement, jamais une famille, jamais la référence ni l'adresse.
+    pub protections: Vec<ProtectionFiche>,
+}
+
+/// Une mention « ne pas solliciter » affichée comme alerte sur la fiche du personnel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProtectionFiche {
+    pub personne_id: Uuid,
+    pub designation: String,
+    /// `true` : confirmée par la direction ; `false` : déclarée, à confirmer.
+    pub confirmee: bool,
 }
 
 /// Entrée de la chronologie de l'élève (titre neutre, jamais de texte libre
@@ -863,6 +875,30 @@ impl PgEnt {
         } else {
             Vec::new()
         };
+        let protections = if parsed.is_staff() && lecture.vue.f0 {
+            let ids: Vec<Uuid> = responsables.iter().map(|r| r.personne.id).collect();
+            let lignes: Vec<(Uuid, String, Option<String>, bool)> = sqlx::query_as(
+                "SELECT p.id, p.nom, p.prenom, (r.ne_pas_solliciter_confirme_le IS NOT NULL)
+                   FROM ent_personne_reserve r
+                   JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
+                  WHERE r.etablissement_id = $1 AND r.ne_pas_solliciter AND r.personne_id = ANY($2)
+                  ORDER BY p.nom, p.prenom",
+            )
+            .bind(etab)
+            .bind(&ids)
+            .fetch_all(self.pool())
+            .await?;
+            lignes
+                .into_iter()
+                .map(|(personne_id, nom, prenom, confirmee)| ProtectionFiche {
+                    personne_id,
+                    designation: format!("{} {}", prenom.unwrap_or_default(), nom).trim().to_string(),
+                    confirmee,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let resume = ResumeSections {
             notes: dossier.notes.len(),
             sanctions: dossier.sanctions.len(),
@@ -886,6 +922,7 @@ impl PgEnt {
             masques: groupes.masques(),
             masquages: lecture.masquages,
             interdictions: lecture.interdictions,
+            protections,
         }))
     }
 

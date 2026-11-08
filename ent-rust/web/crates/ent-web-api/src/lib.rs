@@ -83,7 +83,8 @@ pub use ent_types::dossier::{
     AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,
     EntreeChronologieDto, FicheEleveDto, InterdictionDto, LienBody, LienEnAttenteDto,
     LienEnAttenteEleveDto, MasquageDto, MonLienEnAttenteDto, PersonneBody, PersonneDto,
-    ProtectionADeclarerDto, ReponseLienBody, ResponsableDto, ResumeSectionsDto, SectionsDto,
+    ProtectionADeclarerDto, ProtectionFicheDto, ReponseLienBody, ResponsableDto, ResumeSectionsDto,
+    SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des finances (S2-9), partagés avec `ent-api`.

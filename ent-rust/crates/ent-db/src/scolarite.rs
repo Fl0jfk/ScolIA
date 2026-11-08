@@ -1643,6 +1643,80 @@ impl PgEnt {
         Ok((statut, scol, insc))
     }
 
+    /// Scolarité lue par un **responsable légal** (démo P1 n° 3). Droit : un lien ACTIF avec
+    /// l'élève (même point que le reste du portail famille : `lien_parent_eleve`) et une
+    /// personne qui n'est pas marquée « ne pas solliciter ». Sinon `Forbidden` (jamais
+    /// `NotFound` : on ne révèle pas si l'élève existe). Minimisation A1 : la famille reçoit le
+    /// statut, les dates et le motif d'entrée de chaque scolarisation et l'état de chaque
+    /// inscription annuelle ; JAMAIS le motif de sortie (peut être disciplinaire), l'exeat,
+    /// les établissements d'origine et de destination, ni la décision de passage (réservée au
+    /// personnel tant qu'elle n'est pas communiquée par le conseil).
+    pub async fn scolarite_pour_famille(
+        &self,
+        etab: Uuid,
+        parent: Uuid,
+        eleve: Uuid,
+    ) -> Result<(String, Vec<ScolarisationEleve>, Vec<InscriptionEleve>, Vec<(Uuid, String)>), EntDbError> {
+        let mut conn = self.pool().acquire().await?;
+        let lien: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT personne_id FROM ent_eleve_lien_actif
+              WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3",
+        )
+        .bind(etab)
+        .bind(parent)
+        .bind(eleve)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some((personne_id,)) = lien else {
+            return Err(EntDbError::Forbidden);
+        };
+        if crate::dossier_personnes::personne_ne_pas_solliciter_tx(&mut conn, etab, personne_id).await? {
+            return Err(EntDbError::Forbidden);
+        }
+        let jour = Repo::jour(&mut conn, etab).await?;
+        let (statut,): (String,) = sqlx::query_as("SELECT ent_eleve_statut_a($1, $2, $3)")
+            .bind(etab)
+            .bind(eleve)
+            .bind(jour)
+            .fetch_one(&mut *conn)
+            .await?;
+        let sql = format!(
+            "SELECT {COL_SCOL} FROM ent_eleve_scolarisation WHERE etablissement_id = $1 AND eleve_id = $2
+             ORDER BY date_entree DESC"
+        );
+        let mut scol: Vec<ScolarisationEleve> =
+            sqlx::query_as(&sql).bind(etab).bind(eleve).fetch_all(&mut *conn).await?;
+        for s in &mut scol {
+            s.origine_uai = None;
+            s.origine_libelle = None;
+            s.origine_type = None;
+            s.motif_sortie = None;
+            s.motif_sortie_libre = None;
+            s.destination_uai = None;
+            s.destination_libelle = None;
+            s.destination_type = None;
+            s.exeat_document_id = None;
+        }
+        let sql = format!(
+            "SELECT {COL_INSC} FROM ent_eleve_inscription WHERE etablissement_id = $1 AND eleve_id = $2
+             ORDER BY date_debut DESC NULLS LAST"
+        );
+        let mut insc: Vec<InscriptionEleve> =
+            sqlx::query_as(&sql).bind(etab).bind(eleve).fetch_all(&mut *conn).await?;
+        for i in &mut insc {
+            i.decision_passage = None;
+        }
+        let ids: Vec<Uuid> = insc.iter().map(|i| i.annee_id).collect();
+        let annees: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, libelle FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = ANY($2)",
+        )
+        .bind(etab)
+        .bind(&ids)
+        .fetch_all(&mut *conn)
+        .await?;
+        Ok((statut, scol, insc, annees))
+    }
+
     /// Statut dérivé d'un élève à un jour (usage interne : autres domaines, socle 3).
     pub async fn statut_eleve_a(&self, etab: Uuid, eleve: Uuid, jour: NaiveDate) -> Result<String, EntDbError> {
         let (s,): (String,) = sqlx::query_as("SELECT ent_eleve_statut_a($1, $2, $3)")

@@ -9,6 +9,7 @@ use ent_types::dossier::{
     PayeurPartDto, PayeursBody, PersonneBody, PersonneDto, ReponseLienBody, ResponsableDto,
     SuspensionBody,
 };
+use ent_types::scolarite::ScolariteDto;
 use uuid::Uuid;
 
 use crate::{ApiClient, ApiError, Methode};
@@ -61,6 +62,12 @@ impl ApiClient {
             None,
         )
         .await
+    }
+
+    /// `GET /eleves/{id}/scolarite` : statut dérivé, scolarisations et inscriptions annuelles.
+    pub async fn scolarite_eleve(&self, eleve_id: Uuid) -> Result<ScolariteDto, ApiError> {
+        self.appel(Methode::Get, &format!("/eleves/{eleve_id}/scolarite"), None)
+            .await
     }
 
     /// `POST /dossier/personnes` : nouvelle personne (avec ou sans e-mail).
