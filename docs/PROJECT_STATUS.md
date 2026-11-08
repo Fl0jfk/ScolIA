@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Démo P1 jouée à l'écran (2026-11-08, branche `ent-demo-p1-ecrans`, base `ent-recette-2-correctifs`)
+Parcours admission → fiche 360° joué dans un navigateur (Playwright) sur le serveur Leptos réel : `docs/recette/DEMO_P1.md`, captures et scripts dans `docs/recette/demo_p1/`. Corrigés : gel de la fiche élève (effets en boucle), préinscription sans établissement, réserves « ne pas solliciter » / adresse protégée à la préinscription, validation avec rapprochement (plus d'UUID), tâches de fond du serveur web (invitations), fiche avec identité et scolarité. Absent : route de propositions (lot E5), dépôt réel de pièces, scolarité visible de la famille. Aucune migration. Tests : `ent-web-server/tests/demo_p1.rs` (3), `inscriptions`, `dossier` verts ; reste de la suite à rejouer par la CI GitHub. Non validé par Florian.
+
 ## Intégration du lot 8 bis (2026-11-07, branche `ent-integration-lot8b`, base `ENT` d1326cd = lot 7 validé par la CI GitHub)
 Fusions git réelles (`--no-ff`), dans l'ordre : `ent-socle-eleve-e3-e4` (socle 2, E0 à E4 ; migrations 240, 280–286), `ent-socle-administratif-a1` (socle 4, A0, A0 bis, A1 ; 260–272), `ent-socle-inscriptions-i1` (socle 3, I1 ; 300–301), `ent-d022-bis-enseignements` (D-022 et D-022 bis, déjà porteuse de `ent-d022-portee-groupes` : intégrée une seule fois ; 370). Non fusionnées, pour un lot suivant : `ent-recette-personas-1`, `ent-socle1-revue-faibles`, `ent-mobile-app`. `MIGRATION_TAG` = `370_edt_creneau_groupe` ; liste de `migrate.rs` en ordre croissant, égale au répertoire `migrations/`, aucune collision.
 - **Conflits et résolutions** :
