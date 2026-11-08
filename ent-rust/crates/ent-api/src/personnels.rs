@@ -26,30 +26,81 @@ type Res<T> = Result<T, (StatusCode, String)>;
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/personnels/annuaire", get(annuaire))
-        .route("/personnels/fonctions", get(fonctions_catalogue).post(creer_fonction))
+        .route(
+            "/personnels/fonctions",
+            get(fonctions_catalogue).post(creer_fonction),
+        )
         .route("/personnels/agents", post(creer_agent))
         .route("/personnels/agents/{id}", get(fiche))
         .route("/personnels/agents/{id}/identite", put(modifier_identite))
-        .route("/personnels/agents/{id}/engagements", post(ajouter_engagement))
+        .route(
+            "/personnels/agents/{id}/engagements",
+            post(ajouter_engagement),
+        )
         .route("/personnels/agents/{id}/fonctions", post(ajouter_fonction))
-        .route("/personnels/agents/{id}/disciplines", post(ajouter_discipline))
-        .route("/personnels/agents/{id}/qualifications", post(enregistrer_qualification))
-        .route("/personnels/agents/{id}/identifiants", post(ajouter_identifiant))
-        .route("/personnels/agents/{id}/identite-restreinte", put(identite_restreinte))
+        .route(
+            "/personnels/agents/{id}/disciplines",
+            post(ajouter_discipline),
+        )
+        .route(
+            "/personnels/agents/{id}/qualifications",
+            post(enregistrer_qualification),
+        )
+        .route(
+            "/personnels/agents/{id}/identifiants",
+            post(ajouter_identifiant),
+        )
+        .route(
+            "/personnels/agents/{id}/identite-restreinte",
+            put(identite_restreinte),
+        )
         .route("/personnels/agents/{id}/mineur", put(personnel_mineur))
         .route("/personnels/engagements/{id}", put(modifier_engagement))
-        .route("/personnels/engagements/{id}/prolonger", post(prolonger_engagement))
-        .route("/personnels/engagements/{id}/terminer", post(terminer_engagement))
-        .route("/personnels/engagements/{id}/corriger", post(corriger_engagement))
-        .route("/personnels/engagements/{id}/suspendre", post(suspendre_engagement))
-        .route("/personnels/engagements/{id}/reprendre", post(reprendre_engagement))
-        .route("/personnels/fonctions-agent/{id}/terminer", post(terminer_fonction))
-        .route("/personnels/disciplines-agent/{id}/terminer", post(terminer_discipline))
-        .route("/personnels/qualifications/{id}/annuler", post(annuler_qualification))
-        .route("/personnels/identifiants/{id}/clore", post(clore_identifiant))
+        .route(
+            "/personnels/engagements/{id}/prolonger",
+            post(prolonger_engagement),
+        )
+        .route(
+            "/personnels/engagements/{id}/terminer",
+            post(terminer_engagement),
+        )
+        .route(
+            "/personnels/engagements/{id}/corriger",
+            post(corriger_engagement),
+        )
+        .route(
+            "/personnels/engagements/{id}/suspendre",
+            post(suspendre_engagement),
+        )
+        .route(
+            "/personnels/engagements/{id}/reprendre",
+            post(reprendre_engagement),
+        )
+        .route(
+            "/personnels/fonctions-agent/{id}/terminer",
+            post(terminer_fonction),
+        )
+        .route(
+            "/personnels/disciplines-agent/{id}/terminer",
+            post(terminer_discipline),
+        )
+        .route(
+            "/personnels/qualifications/{id}/annuler",
+            post(annuler_qualification),
+        )
+        .route(
+            "/personnels/identifiants/{id}/clore",
+            post(clore_identifiant),
+        )
         .route("/personnels/fusion", post(fusionner_agents))
-        .route("/personnels/moi/contact-urgence", put(definir_contact_urgence))
-        .route("/personnels/moi/contact-urgence/{ordre}", delete(retirer_contact_urgence))
+        .route(
+            "/personnels/moi/contact-urgence",
+            put(definir_contact_urgence),
+        )
+        .route(
+            "/personnels/moi/contact-urgence/{ordre}",
+            delete(retirer_contact_urgence),
+        )
         .route("/personnels/moi/photo", put(definir_photo))
         .route("/personnels/moi/pause-notifications", put(definir_pause))
 }
@@ -73,19 +124,32 @@ async fn annuaire(
         fonction_code: q.fonction,
         etats: q
             .etat
-            .map(|e| e.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+            .map(|e| {
+                e.split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
             .unwrap_or_default(),
         limite: q.limite,
     };
     let v = state
         .ent
-        .annuaire_for_actor(session.etablissement_id, session.user_id, &session.role, &filtre)
+        .annuaire_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &filtre,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(v))
 }
 
-async fn fonctions_catalogue(State(state): State<AppState>, session: EntSession) -> Res<Json<Vec<FonctionCatalogueDto>>> {
+async fn fonctions_catalogue(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<FonctionCatalogueDto>>> {
     let v = state
         .ent
         .fonctions_catalogue_for_actor(session.etablissement_id, session.user_id, &session.role)
@@ -109,7 +173,11 @@ async fn creer_fonction(
 
 /// 201 avec l'agent créé, ou 409 `correspondances_a_confirmer` : aucune écriture tant que la direction
 /// n'a pas choisi une personne existante (`personne_id`) ou confirmé la création (`confirmer_nouvelle`).
-async fn creer_agent(State(state): State<AppState>, session: EntSession, Json(b): Json<CreerAgentBody>) -> Response {
+async fn creer_agent(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<CreerAgentBody>,
+) -> Response {
     match state
         .ent
         .creer_agent_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
@@ -118,14 +186,21 @@ async fn creer_agent(State(state): State<AppState>, session: EntSession, Json(b)
         Ok(ResultatCreationAgent::Cree(c)) => (StatusCode::CREATED, Json(c)).into_response(),
         Ok(ResultatCreationAgent::AConfirmer(correspondances)) => (
             StatusCode::CONFLICT,
-            Json(CorrespondancesAConfirmerDto { code: "correspondances_a_confirmer".into(), correspondances }),
+            Json(CorrespondancesAConfirmerDto {
+                code: "correspondances_a_confirmer".into(),
+                correspondances,
+            }),
         )
             .into_response(),
         Err(e) => map_db(e).into_response(),
     }
 }
 
-async fn fiche(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<FicheAgentDto>> {
+async fn fiche(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<FicheAgentDto>> {
     let f = state
         .ent
         .fiche_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id)
@@ -142,7 +217,13 @@ async fn modifier_identite(
 ) -> Res<Json<IdentiteAgentDto>> {
     let i = state
         .ent
-        .modifier_identite_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .modifier_identite_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(i))
@@ -156,7 +237,13 @@ async fn ajouter_engagement(
 ) -> Res<(StatusCode, Json<EngagementDto>)> {
     let e = state
         .ent
-        .ajouter_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .ajouter_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(e)))
@@ -170,7 +257,13 @@ async fn modifier_engagement(
 ) -> Res<Json<EngagementDto>> {
     let e = state
         .ent
-        .modifier_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .modifier_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(e))
@@ -184,7 +277,13 @@ async fn prolonger_engagement(
 ) -> Res<Json<EngagementDto>> {
     let e = state
         .ent
-        .prolonger_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .prolonger_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(e))
@@ -198,13 +297,23 @@ async fn terminer_engagement(
 ) -> Res<Json<EngagementDto>> {
     let e = state
         .ent
-        .terminer_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .terminer_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(e))
 }
 
-async fn corriger_engagement(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
+async fn corriger_engagement(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
     state
         .ent
         .corriger_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id)
@@ -221,7 +330,13 @@ async fn suspendre_engagement(
 ) -> Res<Json<EngagementDto>> {
     let e = state
         .ent
-        .suspendre_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .suspendre_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(e))
@@ -235,7 +350,13 @@ async fn reprendre_engagement(
 ) -> Res<Json<EngagementDto>> {
     let e = state
         .ent
-        .reprendre_engagement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .reprendre_engagement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(e))
@@ -249,7 +370,13 @@ async fn ajouter_fonction(
 ) -> Res<(StatusCode, Json<AgentFonctionDto>)> {
     let f = state
         .ent
-        .ajouter_fonction_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .ajouter_fonction_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(f)))
@@ -263,7 +390,13 @@ async fn terminer_fonction(
 ) -> Res<StatusCode> {
     state
         .ent
-        .terminer_fonction_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .terminer_fonction_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -277,7 +410,13 @@ async fn ajouter_discipline(
 ) -> Res<(StatusCode, Json<AgentDisciplineDto>)> {
     let d = state
         .ent
-        .ajouter_discipline_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .ajouter_discipline_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(d)))
@@ -291,7 +430,13 @@ async fn terminer_discipline(
 ) -> Res<StatusCode> {
     state
         .ent
-        .terminer_discipline_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .terminer_discipline_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -305,16 +450,31 @@ async fn enregistrer_qualification(
 ) -> Res<(StatusCode, Json<QualificationDto>)> {
     let q = state
         .ent
-        .enregistrer_qualification_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .enregistrer_qualification_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(q)))
 }
 
-async fn annuler_qualification(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
+async fn annuler_qualification(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
     state
         .ent
-        .annuler_qualification_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .annuler_qualification_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -328,16 +488,31 @@ async fn ajouter_identifiant(
 ) -> Res<(StatusCode, Json<IdentifiantAgentDto>)> {
     let i = state
         .ent
-        .ajouter_identifiant_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .ajouter_identifiant_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(i)))
 }
 
-async fn clore_identifiant(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
+async fn clore_identifiant(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
     state
         .ent
-        .clore_identifiant_agent_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .clore_identifiant_agent_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -351,7 +526,13 @@ async fn identite_restreinte(
 ) -> Res<StatusCode> {
     state
         .ent
-        .definir_identite_restreinte_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .definir_identite_restreinte_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -365,7 +546,13 @@ async fn personnel_mineur(
 ) -> Res<StatusCode> {
     state
         .ent
-        .definir_personnel_mineur_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b)
+        .definir_personnel_mineur_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -391,7 +578,12 @@ async fn definir_contact_urgence(
 ) -> Res<Json<ContactUrgenceAgentDto>> {
     let c = state
         .ent
-        .definir_contact_urgence_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
+        .definir_contact_urgence_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(Json(c))
@@ -404,13 +596,22 @@ async fn retirer_contact_urgence(
 ) -> Res<StatusCode> {
     state
         .ent
-        .retirer_contact_urgence_for_actor(session.etablissement_id, session.user_id, &session.role, ordre)
+        .retirer_contact_urgence_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            ordre,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn definir_photo(State(state): State<AppState>, session: EntSession, Json(b): Json<PhotoAgentBody>) -> Res<StatusCode> {
+async fn definir_photo(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<PhotoAgentBody>,
+) -> Res<StatusCode> {
     state
         .ent
         .definir_photo_agent_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
@@ -426,7 +627,12 @@ async fn definir_pause(
 ) -> Res<StatusCode> {
     state
         .ent
-        .definir_pause_notifications_for_actor(session.etablissement_id, session.user_id, &session.role, &b)
+        .definir_pause_notifications_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            &b,
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)

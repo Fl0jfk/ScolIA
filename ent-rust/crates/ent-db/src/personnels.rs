@@ -43,39 +43,121 @@ use crate::tenant_tx::TenantTx;
 // ---------------------------------------------------------------------------------------------
 
 pub const NATURES_ENGAGEMENT: &[&str] = &[
-    "titulaire", "stagiaire", "contractuel", "vacataire", "maitre_contractuel", "maitre_agree",
-    "delegue_auxiliaire", "aed", "aesh", "assistant_langue", "salarie_organisme",
-    "agent_collectivite", "mis_a_disposition", "intervenant", "benevole", "service_civique",
-    "apprenti", "stagiaire_ecole", "a_preciser",
+    "titulaire",
+    "stagiaire",
+    "contractuel",
+    "vacataire",
+    "maitre_contractuel",
+    "maitre_agree",
+    "delegue_auxiliaire",
+    "aed",
+    "aesh",
+    "assistant_langue",
+    "salarie_organisme",
+    "agent_collectivite",
+    "mis_a_disposition",
+    "intervenant",
+    "benevole",
+    "service_civique",
+    "apprenti",
+    "stagiaire_ecole",
+    "a_preciser",
 ];
 /// Natures à durée limitée : date de fin (au plus un an) et référent obligatoires.
-pub const NATURES_LIMITEES: &[&str] = &["intervenant", "benevole", "stagiaire_ecole", "service_civique"];
-pub const EMPLOYEURS: &[&str] = &[
-    "etat", "collectivite", "organisme_gestion", "association", "autre_etablissement", "aucun", "inconnu",
+pub const NATURES_LIMITEES: &[&str] = &[
+    "intervenant",
+    "benevole",
+    "stagiaire_ecole",
+    "service_civique",
 ];
-pub const MOTIFS_ARRIVEE: &[&str] =
-    &["rentree", "nomination", "mutation", "remplacement", "creation_poste", "renouvellement", "autre"];
+pub const EMPLOYEURS: &[&str] = &[
+    "etat",
+    "collectivite",
+    "organisme_gestion",
+    "association",
+    "autre_etablissement",
+    "aucun",
+    "inconnu",
+];
+pub const MOTIFS_ARRIVEE: &[&str] = &[
+    "rentree",
+    "nomination",
+    "mutation",
+    "remplacement",
+    "creation_poste",
+    "renouvellement",
+    "autre",
+];
 /// Motifs de fin, complétés par R-P13 : toujours codés, jamais de texte.
 pub const MOTIFS_FIN: &[&str] = &[
-    "fin_contrat", "mutation", "retraite", "demission", "deces", "fin_mission", "autre",
-    "fin_periode_essai", "rupture_conventionnelle", "licenciement", "abandon_de_poste", "detachement",
+    "fin_contrat",
+    "mutation",
+    "retraite",
+    "demission",
+    "deces",
+    "fin_mission",
+    "autre",
+    "fin_periode_essai",
+    "rupture_conventionnelle",
+    "licenciement",
+    "abandon_de_poste",
+    "detachement",
     "radiation",
 ];
-pub const MOTIFS_SUSPENSION_ENGAGEMENT: &[&str] =
-    &["disponibilite", "detachement", "conge_parental", "conge_long", "formation", "autre"];
+pub const MOTIFS_SUSPENSION_ENGAGEMENT: &[&str] = &[
+    "disponibilite",
+    "detachement",
+    "conge_parental",
+    "conge_long",
+    "formation",
+    "autre",
+];
 pub const MOTIFS_RESTREINTE: &[&str] = &["menace", "protection_judiciaire", "autre"];
-pub const SOURCES_AGENT: &[&str] = &["saisie", "import_sts", "import_aaf", "import_csv", "reprise"];
+pub const SOURCES_AGENT: &[&str] = &[
+    "saisie",
+    "import_sts",
+    "import_aaf",
+    "import_csv",
+    "reprise",
+];
 pub const CODES_QUALIFICATION: &[&str] = &[
-    "secourisme", "encadrement_sortie", "permis_b", "permis_transport", "langue", "habilitation_electrique",
-    "surveillance_baignade", "autre", "sst", "ssiap", "caces", "haccp", "bafa", "bnssa",
+    "secourisme",
+    "encadrement_sortie",
+    "permis_b",
+    "permis_transport",
+    "langue",
+    "habilitation_electrique",
+    "surveillance_baignade",
+    "autre",
+    "sst",
+    "ssiap",
+    "caces",
+    "haccp",
+    "bafa",
+    "bnssa",
 ];
 pub const FAMILLES_FONCTION: &[&str] = &[
-    "direction", "enseignement", "education", "administration", "sante_social", "accompagnement",
-    "service_agents", "technique", "intervention", "autre",
+    "direction",
+    "enseignement",
+    "education",
+    "administration",
+    "sante_social",
+    "accompagnement",
+    "service_agents",
+    "technique",
+    "intervention",
+    "autre",
 ];
 pub const LIENS_URGENCE: &[&str] = &["conjoint", "parent", "enfant", "proche", "autre"];
-pub const SYSTEMES_IDENTIFIANT: &[&str] =
-    &["sts", "aaf_jointure", "guichet_agents", "gar", "edt_logiciel", "ancien_logiciel", "annuaire_entreprise"];
+pub const SYSTEMES_IDENTIFIANT: &[&str] = &[
+    "sts",
+    "aaf_jointure",
+    "guichet_agents",
+    "gar",
+    "edt_logiciel",
+    "ancien_logiciel",
+    "annuaire_entreprise",
+];
 
 /// Pause de notifications : au plus un an (au-delà, l'agent suspend son accès, PRS-37).
 pub(crate) const PAUSE_MAX_JOURS: i64 = 366;
@@ -107,10 +189,16 @@ pub(crate) fn ecriture(err: sqlx::Error) -> EntDbError {
                 "ent_engagement_sans_chevauchement" => {
                     "Un engagement de même employeur et de même nature couvre déjà cette période."
                 }
-                "ent_suspension_sans_chevauchement" => "Une suspension existe déjà sur cette période.",
+                "ent_suspension_sans_chevauchement" => {
+                    "Une suspension existe déjà sur cette période."
+                }
                 "ent_agent_fonction_une_principale" => "Une seule fonction principale à la fois.",
-                "ent_agent_fonction_sans_doublon" => "Cette fonction est déjà attribuée sur la période.",
-                "ent_agent_discipline_une_principale" => "Une seule discipline principale à la fois.",
+                "ent_agent_fonction_sans_doublon" => {
+                    "Cette fonction est déjà attribuée sur la période."
+                }
+                "ent_agent_discipline_une_principale" => {
+                    "Une seule discipline principale à la fois."
+                }
                 "ent_agent_contact_un_par_rang" => "Ce rang de contact d'urgence est déjà utilisé.",
                 "ent_agent_personne_uq" => "Cette personne est déjà agent de l'établissement.",
                 "ent_agent_identifiant_actif_uq" => "Cet identifiant désigne déjà un agent.",
@@ -351,7 +439,12 @@ pub(crate) async fn engagements_agent_tx(
         if meme {
             alertes.push("meme_employeur_simultane".into());
         }
-        if l.au.is_none() && matches!(l.nature.as_str(), "contractuel" | "vacataire" | "delegue_auxiliaire" | "aed") {
+        if l.au.is_none()
+            && matches!(
+                l.nature.as_str(),
+                "contractuel" | "vacataire" | "delegue_auxiliaire" | "aed"
+            )
+        {
             alertes.push("fin_a_saisir".into());
         }
         out.push(EngagementDto {
@@ -511,12 +604,21 @@ pub fn nom_pour_lecteur(
         },
         NiveauAnnuaire::Famille | NiveauAnnuaire::Eleve => {
             if restreinte {
-                let initiale = nom.trim().chars().next().map(|c| c.to_uppercase().to_string());
+                let initiale = nom
+                    .trim()
+                    .chars()
+                    .next()
+                    .map(|c| c.to_uppercase().to_string());
                 match (civilite_courte(civilite), initiale) {
                     (Some(c), Some(i)) => format!("{c} {i}."),
-                    _ => fonction_libelle.unwrap_or("Un membre de l'équipe").to_string(),
+                    _ => fonction_libelle
+                        .unwrap_or("Un membre de l'équipe")
+                        .to_string(),
                 }
-            } else if let Some(n) = nom_affiche_familles.map(str::trim).filter(|n| !n.is_empty()) {
+            } else if let Some(n) = nom_affiche_familles
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+            {
                 n.to_string()
             } else {
                 match civilite_courte(civilite) {
@@ -663,12 +765,16 @@ fn valider_corps(
     }
     if let Some(q) = quotite {
         if !q.is_finite() || q <= 0.0 || q > 100.0 {
-            return Err(invalide("La quotité doit être comprise entre 0 (exclu) et 100."));
+            return Err(invalide(
+                "La quotité doit être comprise entre 0 (exclu) et 100.",
+            ));
         }
     }
     if let Some(h) = heures {
         if !h.is_finite() || !(0.0..=60.0).contains(&h) {
-            return Err(invalide("Les heures dues hebdomadaires doivent être comprises entre 0 et 60."));
+            return Err(invalide(
+                "Les heures dues hebdomadaires doivent être comprises entre 0 et 60.",
+            ));
         }
     }
     let jours = match jours {
@@ -701,7 +807,8 @@ fn date_plausible(d: NaiveDate, aujourdhui: NaiveDate) -> bool {
 
 /// Un an après `du` (inclus) : borne des natures limitées.
 fn un_an_apres(du: NaiveDate) -> NaiveDate {
-    du.checked_add_months(chrono::Months::new(12)).unwrap_or(du + Duration::days(366))
+    du.checked_add_months(chrono::Months::new(12))
+        .unwrap_or(du + Duration::days(366))
 }
 
 async fn exiger_referent(
@@ -754,7 +861,12 @@ fn declaration_de_recherche(s: &PersonneSaisie) -> DeclarationResponsable {
         lien: "autre".into(),
         meme_foyer: false,
         autorite_parentale: false,
-        droits: DroitsDeclares { notes: false, vs: false, justifier: false, sorties: false },
+        droits: DroitsDeclares {
+            notes: false,
+            vs: false,
+            justifier: false,
+            sorties: false,
+        },
         payeur: false,
         part_paiement: None,
         reserve: ReserveDeclaree::default(),
@@ -782,7 +894,10 @@ impl PgEnt {
         role: &str,
         action: Action,
     ) -> Result<(), EntDbError> {
-        if self.a_action_etablissement(etab, actor, role, action).await? {
+        if self
+            .a_action_etablissement(etab, actor, role, action)
+            .await?
+        {
             Ok(())
         } else {
             Err(EntDbError::Forbidden)
@@ -809,10 +924,12 @@ impl PgEnt {
         role: &str,
         filtre: &FiltreAnnuaire,
     ) -> Result<Vec<AgentResumeDto>, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsAnnuaire).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsAnnuaire)
+            .await?;
         // Voir les agents parti / prévus / suspendus exige la fiche d'organisation.
         if filtre.etats.iter().any(|e| e != "actif") {
-            self.exiger_personnels(etab, actor, role, Action::PersonnelsLire).await?;
+            self.exiger_personnels(etab, actor, role, Action::PersonnelsLire)
+                .await?;
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
@@ -829,8 +946,13 @@ impl PgEnt {
         role: &str,
         body: &CreerAgentBody,
     ) -> Result<ResultatCreationAgent, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
-        let matricule = body.matricule_interne.as_deref().map(str::trim).filter(|m| !m.is_empty());
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
+        let matricule = body
+            .matricule_interne
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty());
         if matricule.is_some_and(|m| m.chars().count() > 40) {
             return Err(invalide("Matricule interne : 40 caractères au plus."));
         }
@@ -839,7 +961,9 @@ impl PgEnt {
         let mut avertissements: Vec<String> = Vec::new();
         let personne_id = match (&body.personne_id, &body.personne) {
             (Some(_), Some(_)) | (None, None) => {
-                return Err(invalide("Indiquer une personne existante OU une nouvelle identité."));
+                return Err(invalide(
+                    "Indiquer une personne existante OU une nouvelle identité.",
+                ));
             }
             (Some(pid), None) => {
                 let p: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
@@ -853,7 +977,9 @@ impl PgEnt {
                 .map_err(db)?;
                 let (fusionnee, eleve) = p.ok_or_else(introuvable)?;
                 if fusionnee.is_some() {
-                    return Err(conflit("Cette fiche est fusionnée dans une autre : utiliser la fiche conservée."));
+                    return Err(conflit(
+                        "Cette fiche est fusionnée dans une autre : utiliser la fiche conservée.",
+                    ));
                 }
                 if eleve.is_some() {
                     avertissements.push("personne_est_eleve".into());
@@ -875,7 +1001,9 @@ impl PgEnt {
             (None, Some(nouvelle)) => {
                 let saisie = saisie_de(nouvelle).normaliser()?;
                 if !body.confirmer_nouvelle {
-                    let trouves = correspondances_tx(&mut tx, etab, &declaration_de_recherche(&saisie)).await?;
+                    let trouves =
+                        correspondances_tx(&mut tx, etab, &declaration_de_recherche(&saisie))
+                            .await?;
                     if !trouves.is_empty() {
                         let mut out = Vec::with_capacity(trouves.len());
                         for c in trouves {
@@ -920,7 +1048,17 @@ impl PgEnt {
         .map_err(ecriture)?;
         if let Some(code) = body.fonction_code.as_deref() {
             let fonction_id = fonction_id_tx(&mut tx, etab, code).await?;
-            ajouter_fonction_ligne_tx(&mut tx, etab, agent_id, fonction_id, true, jour, None, actor).await?;
+            ajouter_fonction_ligne_tx(
+                &mut tx,
+                etab,
+                agent_id,
+                fonction_id,
+                true,
+                jour,
+                None,
+                actor,
+            )
+            .await?;
         }
         journal_tx(
             &mut tx,
@@ -941,7 +1079,11 @@ impl PgEnt {
         )
         .await?;
         tx.commit().await.map_err(db)?;
-        Ok(ResultatCreationAgent::Cree(AgentCreeDto { agent_id, personne_id, avertissements }))
+        Ok(ResultatCreationAgent::Cree(AgentCreeDto {
+            agent_id,
+            personne_id,
+            avertissements,
+        }))
     }
 
     /// PRS-02 : modifier l'identité d'un agent (par la personne du socle 4). `personnels.gerer` OU
@@ -955,8 +1097,12 @@ impl PgEnt {
         agent_id: Uuid,
         body: &ModifierIdentiteBody,
     ) -> Result<IdentiteAgentDto, EntDbError> {
-        if !self.a_action_etablissement(etab, actor, role, Action::PersonnelsGerer).await?
-            && !self.a_action_etablissement(etab, actor, role, Action::PersonnesGerer).await?
+        if !self
+            .a_action_etablissement(etab, actor, role, Action::PersonnelsGerer)
+            .await?
+            && !self
+                .a_action_etablissement(etab, actor, role, Action::PersonnesGerer)
+                .await?
         {
             return Err(EntDbError::Forbidden);
         }
@@ -966,18 +1112,27 @@ impl PgEnt {
             agent_tx(&mut tx, etab, agent_id, false).await?.personne_id
         };
         // Conflit d'intérêts (R-A18) : même règle que pour toute personne du dossier.
-        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let avant: Option<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>, Option<Uuid>)> =
-            sqlx::query_as(
-                "SELECT nom, prenom, civilite, email, telephone, telephone_2, adresse, fusionnee_dans
+        let avant: Option<(
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<Uuid>,
+        )> = sqlx::query_as(
+            "SELECT nom, prenom, civilite, email, telephone, telephone_2, adresse, fusionnee_dans
                    FROM ent_personne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-            )
-            .bind(etab)
-            .bind(personne_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
         let (nom, prenom, civilite, email, telephone, telephone_2, adresse, fusionnee) =
             avant.ok_or_else(introuvable)?;
         if fusionnee.is_some() {
@@ -1001,8 +1156,12 @@ impl PgEnt {
             // Le téléphone et l'adresse d'un agent relèvent de `personnels.personnel.lire` (§13.3) :
             // la commande ne les modifie que pour ceux qui les lisent.
             if (champs.contains(&"telephone") || champs.contains(&"adresse"))
-                && !self.a_action_etablissement(etab, actor, role, Action::PersonnelsPersonnelLire).await?
-                && !self.a_action_etablissement(etab, actor, role, Action::PersonnesGerer).await?
+                && !self
+                    .a_action_etablissement(etab, actor, role, Action::PersonnelsPersonnelLire)
+                    .await?
+                && !self
+                    .a_action_etablissement(etab, actor, role, Action::PersonnesGerer)
+                    .await?
             {
                 return Err(EntDbError::Forbidden);
             }
@@ -1031,8 +1190,17 @@ impl PgEnt {
                     .await
                     .map_err(db)?;
             }
-            let payload = json!({ "agent_id": agent_id, "personne_id": personne_id, "champs": champs });
-            journal_tx(&mut tx, etab, "agent_identite_modifiee", "Identité d'un agent modifiée", payload.clone(), actor).await?;
+            let payload =
+                json!({ "agent_id": agent_id, "personne_id": personne_id, "champs": champs });
+            journal_tx(
+                &mut tx,
+                etab,
+                "agent_identite_modifiee",
+                "Identité d'un agent modifiée",
+                payload.clone(),
+                actor,
+            )
+            .await?;
             // Événement du socle 4 : l'autre domaine (dossier administratif) est prévenu.
             tx.publier(MetierEventDraft {
                 etablissement_id: etab,
@@ -1059,7 +1227,8 @@ impl PgEnt {
         agent_id: Uuid,
         body: &EngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let v = valider_corps(
             &body.nature,
             &body.employeur_type,
@@ -1092,7 +1261,9 @@ impl PgEnt {
                 return Err(invalide("Cette nature d'engagement exige une date de fin."));
             };
             if au > un_an_apres(du) {
-                return Err(invalide("Cette nature d'engagement dure un an au plus (prolongeable)."));
+                return Err(invalide(
+                    "Cette nature d'engagement dure un an au plus (prolongeable).",
+                ));
             }
             if v.referent.is_none() {
                 return Err(invalide("Cette nature d'engagement exige un référent."));
@@ -1130,8 +1301,24 @@ impl PgEnt {
         .await
         .map_err(ecriture)?;
         let payload = json!({ "agent_id": agent_id, "engagement_id": id, "nature": v.nature, "du": du, "au": body.au });
-        journal_tx(&mut tx, etab, "engagement_ajoute", "Engagement ajouté", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_AJOUTE, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_ajoute",
+            "Engagement ajouté",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_AJOUTE,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         let dto = engagement_dto_tx(&mut tx, etab, agent_id, id, jour).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1146,7 +1333,8 @@ impl PgEnt {
         engagement_id: Uuid,
         body: &ModifierEngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let v = valider_corps(
             &body.nature,
             &body.employeur_type,
@@ -1164,7 +1352,9 @@ impl PgEnt {
                 return Err(invalide("Cette nature d'engagement exige une date de fin."));
             };
             if au > un_an_apres(avant.du) {
-                return Err(invalide("Cette nature d'engagement dure un an au plus (prolongeable)."));
+                return Err(invalide(
+                    "Cette nature d'engagement dure un an au plus (prolongeable).",
+                ));
             }
             if v.referent.is_none() {
                 return Err(invalide("Cette nature d'engagement exige un référent."));
@@ -1175,14 +1365,18 @@ impl PgEnt {
         }
         if let Some(i) = body.installe_le {
             if i < avant.du || i > jour {
-                return Err(invalide("La prise de fonctions ne précède pas le début et n'est pas dans le futur."));
+                return Err(invalide(
+                    "La prise de fonctions ne précède pas le début et n'est pas dans le futur.",
+                ));
             }
         }
         let mut champs: Vec<&str> = Vec::new();
         if avant.nature != v.nature {
             champs.push("nature");
         }
-        if avant.employeur_type != v.employeur_type || avant.employeur_organisme_id != v.employeur_organisme_id {
+        if avant.employeur_type != v.employeur_type
+            || avant.employeur_organisme_id != v.employeur_organisme_id
+        {
             champs.push("employeur");
         }
         if avant.quotite != v.quotite {
@@ -1223,8 +1417,24 @@ impl PgEnt {
             .map_err(ecriture)?;
             let payload = json!({ "agent_id": avant.agent_id, "engagement_id": engagement_id,
                                   "nature": "modification", "champs": champs });
-            journal_tx(&mut tx, etab, "engagement_modifie", "Engagement modifié", payload.clone(), actor).await?;
-            publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_MODIFIE, avant.agent_id, payload, actor).await?;
+            journal_tx(
+                &mut tx,
+                etab,
+                "engagement_modifie",
+                "Engagement modifié",
+                payload.clone(),
+                actor,
+            )
+            .await?;
+            publier_tx(
+                &mut tx,
+                etab,
+                types::PERSONNEL_ENGAGEMENT_MODIFIE,
+                avant.agent_id,
+                payload,
+                actor,
+            )
+            .await?;
         }
         let dto = engagement_dto_tx(&mut tx, etab, avant.agent_id, engagement_id, jour).await?;
         tx.commit().await.map_err(db)?;
@@ -1241,7 +1451,8 @@ impl PgEnt {
         engagement_id: Uuid,
         body: &ProlongerEngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let avant = engagement_tx(&mut tx, etab, engagement_id, true).await?;
@@ -1253,7 +1464,9 @@ impl PgEnt {
                 return Err(invalide("Date d'engagement invraisemblable."));
             }
             if NATURES_LIMITEES.contains(&avant.nature.as_str()) && au > un_an_apres(avant.du) {
-                return Err(invalide("Cette nature d'engagement dure un an au plus : ouvrir un nouvel engagement."));
+                return Err(invalide(
+                    "Cette nature d'engagement dure un an au plus : ouvrir un nouvel engagement.",
+                ));
             }
         } else if NATURES_LIMITEES.contains(&avant.nature.as_str()) {
             return Err(invalide("Cette nature d'engagement exige une date de fin."));
@@ -1271,8 +1484,24 @@ impl PgEnt {
         .map_err(ecriture)?;
         let payload = json!({ "agent_id": avant.agent_id, "engagement_id": engagement_id, "nature": "prolongation",
                               "au_avant": avant.au, "au": body.au });
-        journal_tx(&mut tx, etab, "engagement_prolonge", "Engagement prolongé", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_MODIFIE, avant.agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_prolonge",
+            "Engagement prolongé",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_MODIFIE,
+            avant.agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         let dto = engagement_dto_tx(&mut tx, etab, avant.agent_id, engagement_id, jour).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1287,7 +1516,8 @@ impl PgEnt {
         engagement_id: Uuid,
         body: &TerminerEngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         if !MOTIFS_FIN.contains(&body.motif_fin.as_str()) {
             return Err(invalide("Motif de fin inconnu."));
         }
@@ -1312,8 +1542,24 @@ impl PgEnt {
         .map_err(ecriture)?;
         let payload = json!({ "agent_id": avant.agent_id, "engagement_id": engagement_id, "nature": "fin",
                               "au": body.au, "motif_fin": body.motif_fin });
-        journal_tx(&mut tx, etab, "engagement_termine", "Fin d'engagement enregistrée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_MODIFIE, avant.agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_termine",
+            "Fin d'engagement enregistrée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_MODIFIE,
+            avant.agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         let dto = engagement_dto_tx(&mut tx, etab, avant.agent_id, engagement_id, jour).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1328,7 +1574,8 @@ impl PgEnt {
         role: &str,
         engagement_id: Uuid,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let avant = engagement_tx(&mut tx, etab, engagement_id, true).await?;
         // Les suspensions de la ligne erronée tombent avec elle.
@@ -1353,8 +1600,24 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let payload = json!({ "agent_id": avant.agent_id, "engagement_id": engagement_id, "nature": "correction" });
-        journal_tx(&mut tx, etab, "engagement_corrige", "Engagement erroné annulé", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_MODIFIE, avant.agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_corrige",
+            "Engagement erroné annulé",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_MODIFIE,
+            avant.agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -1370,7 +1633,8 @@ impl PgEnt {
         engagement_id: Uuid,
         body: &SuspendreEngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         if !MOTIFS_SUSPENSION_ENGAGEMENT.contains(&body.motif_code.as_str()) {
             return Err(invalide("Motif de suspension inconnu."));
         }
@@ -1383,8 +1647,14 @@ impl PgEnt {
             return Err(invalide("Date de suspension invraisemblable."));
         }
         let eng = engagement_tx(&mut tx, etab, engagement_id, true).await?;
-        if body.du < eng.du || eng.au.is_some_and(|fin| body.du > fin || body.au.map_or(true, |a| a > fin)) {
-            return Err(invalide("La suspension doit tenir dans la période de l'engagement."));
+        if body.du < eng.du
+            || eng
+                .au
+                .is_some_and(|fin| body.du > fin || body.au.map_or(true, |a| a > fin))
+        {
+            return Err(invalide(
+                "La suspension doit tenir dans la période de l'engagement.",
+            ));
         }
         if body.acces_suspendu {
             // Garde-fou du dernier administrateur : un administrateur durable dont l'accès serait coupé
@@ -1403,7 +1673,9 @@ impl PgEnt {
             .map_err(db)?;
             if let Some((user,)) = admin {
                 if !Self::autre_administrateur_durable_tx(&mut tx, etab, user).await? {
-                    return Err(conflit("Un établissement ne peut pas perdre son dernier administrateur."));
+                    return Err(conflit(
+                        "Un établissement ne peut pas perdre son dernier administrateur.",
+                    ));
                 }
             }
         }
@@ -1427,8 +1699,24 @@ impl PgEnt {
         // Charge utile sans motif : le motif d'une disponibilité reste dans la table, lisible de la direction.
         let payload = json!({ "agent_id": eng.agent_id, "engagement_id": engagement_id, "suspension_id": id,
                               "du": body.du, "au": body.au, "acces_suspendu": body.acces_suspendu });
-        journal_tx(&mut tx, etab, "engagement_suspendu", "Engagement suspendu", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_SUSPENDU, eng.agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_suspendu",
+            "Engagement suspendu",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_SUSPENDU,
+            eng.agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         let dto = engagement_dto_tx(&mut tx, etab, eng.agent_id, engagement_id, jour).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1444,7 +1732,8 @@ impl PgEnt {
         engagement_id: Uuid,
         body: &ReprendreEngagementBody,
     ) -> Result<EngagementDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let eng = engagement_tx(&mut tx, etab, engagement_id, true).await?;
@@ -1465,7 +1754,8 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let (suspension_id, du) = cible.ok_or_else(|| conflit("Aucune suspension en cours à lever pour cet engagement."))?;
+        let (suspension_id, du) = cible
+            .ok_or_else(|| conflit("Aucune suspension en cours à lever pour cet engagement."))?;
         if body.date_reprise <= du {
             sqlx::query(
                 "UPDATE ent_agent_engagement_suspension SET annule_le = now(), annule_par_user_id = $3
@@ -1492,8 +1782,24 @@ impl PgEnt {
         }
         let payload = json!({ "agent_id": eng.agent_id, "engagement_id": engagement_id,
                               "suspension_id": suspension_id, "reprise": body.date_reprise });
-        journal_tx(&mut tx, etab, "engagement_repris", "Suspension d'engagement levée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_ENGAGEMENT_REPRIS, eng.agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "engagement_repris",
+            "Suspension d'engagement levée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_ENGAGEMENT_REPRIS,
+            eng.agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         let dto = engagement_dto_tx(&mut tx, etab, eng.agent_id, engagement_id, jour).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1508,7 +1814,8 @@ impl PgEnt {
         let (ok,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_membership
                              WHERE etablissement_id = $1 AND user_id <> $2
-                               AND role = 'admin' AND etat = 'ouvert' AND date_fin IS NULL)",
+                               AND role = 'admin' AND etat = 'ouvert' AND date_fin IS NULL
+                               AND NOT ent_agent_acces_suspendu(user_id, etablissement_id))",
         )
         .bind(etab)
         .bind(sauf_user)
@@ -1546,11 +1853,21 @@ pub(crate) async fn identite_tx(
     .fetch_one(conn)
     .await
     .map_err(db)?;
-    Ok(IdentiteAgentDto { personne_id, nom, prenom, civilite, email })
+    Ok(IdentiteAgentDto {
+        personne_id,
+        nom,
+        prenom,
+        civilite,
+        email,
+    })
 }
 
 /// Fonction du catalogue (fournie ou de l'établissement) par son code ; l'établissement l'emporte.
-pub(crate) async fn fonction_id_tx(conn: &mut PgConnection, etab: Uuid, code: &str) -> Result<Uuid, EntDbError> {
+pub(crate) async fn fonction_id_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    code: &str,
+) -> Result<Uuid, EntDbError> {
     let row: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM ent_fonction
           WHERE code = $2 AND (etablissement_id = $1 OR etablissement_id IS NULL) AND archivee_le IS NULL
@@ -1561,7 +1878,8 @@ pub(crate) async fn fonction_id_tx(conn: &mut PgConnection, etab: Uuid, code: &s
     .fetch_optional(conn)
     .await
     .map_err(db)?;
-    row.map(|(id,)| id).ok_or_else(|| invalide("Fonction inconnue."))
+    row.map(|(id,)| id)
+        .ok_or_else(|| invalide("Fonction inconnue."))
 }
 
 #[allow(clippy::too_many_arguments)]

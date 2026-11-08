@@ -275,6 +275,43 @@ BEGIN
 END
 $$;
 
+-- 4 bis. Garde-fou du dernier administrateur (350) : un administrateur dont l'accès est coupé en ce
+-- moment par une suspension d'engagement (disponibilité, congé) n'est plus un administrateur durable.
+-- Même fonction que 350, une condition de plus dans le décompte.
+CREATE OR REPLACE FUNCTION ent_membership_garde_dernier_admin()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    restant BIGINT;
+BEGIN
+    IF OLD.role IS DISTINCT FROM 'admin' OR OLD.etat <> 'ouvert' OR OLD.date_fin IS NOT NULL THEN
+        RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END IF;
+    IF TG_OP = 'UPDATE'
+       AND NEW.user_id = OLD.user_id AND NEW.etablissement_id = OLD.etablissement_id
+       AND NEW.role = 'admin' AND NEW.etat = 'ouvert' AND NEW.date_fin IS NULL THEN
+        RETURN NEW;
+    END IF;
+    IF current_setting('ent.purge_etablissement', true) = 'on' THEN
+        RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END IF;
+
+    PERFORM pg_advisory_xact_lock(hashtextextended('ent_dernier_admin:' || OLD.etablissement_id::text, 0));
+    SELECT count(*) INTO restant
+      FROM ent_membership m
+     WHERE m.etablissement_id = OLD.etablissement_id
+       AND m.user_id <> OLD.user_id
+       AND m.role = 'admin' AND m.etat = 'ouvert' AND m.date_fin IS NULL
+       AND NOT ent_agent_acces_suspendu(m.user_id, m.etablissement_id);
+    IF restant = 0 THEN
+        RAISE EXCEPTION 'dernier_administrateur' USING ERRCODE = '23514',
+            HINT = 'Un établissement ne peut pas perdre son dernier administrateur.';
+    END IF;
+    RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+END
+$$;
+
 -- 5. Un agent par compte du personnel ---------------------------------------------------------
 -- Tout accès de profil « personnel » (ni parent ni élève) a une personne (réutilisée si le compte
 -- en a déjà une — professeur-parent —, sinon créée avec le nom affiché replié dans `nom`, signalé

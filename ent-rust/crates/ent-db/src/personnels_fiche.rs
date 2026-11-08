@@ -16,16 +16,19 @@ use uuid::Uuid;
 
 use crate::dossier_personnes::aujourdhui_tx;
 use crate::personnels::{
-    agent_du_user_tx, agent_tx, ajouter_fonction_ligne_tx, conflit, db, ecriture, engagements_agent_tx,
-    fonction_id_tx, identite_tx, introuvable, invalide, journal_tx, publier_tx, CODES_QUALIFICATION,
-    FAMILLES_FONCTION, LIENS_URGENCE, MOTIFS_RESTREINTE, PAUSE_MAX_JOURS, SYSTEMES_IDENTIFIANT,
+    agent_du_user_tx, agent_tx, ajouter_fonction_ligne_tx, conflit, db, ecriture,
+    engagements_agent_tx, fonction_id_tx, identite_tx, introuvable, invalide, journal_tx,
+    publier_tx, CODES_QUALIFICATION, FAMILLES_FONCTION, LIENS_URGENCE, MOTIFS_RESTREINTE,
+    PAUSE_MAX_JOURS, SYSTEMES_IDENTIFIANT,
 };
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 fn telephone_valide(t: &str) -> bool {
     let t = t.trim();
-    (6..=40).contains(&t.chars().count()) && t.chars().all(|c| c.is_ascii_digit() || " +.-()".contains(c))
+    (6..=40).contains(&t.chars().count())
+        && t.chars()
+            .all(|c| c.is_ascii_digit() || " +.-()".contains(c))
 }
 
 impl PgEnt {
@@ -39,7 +42,9 @@ impl PgEnt {
         if !Role::parse(role).is_some_and(Role::is_staff) {
             return Err(EntDbError::Forbidden);
         }
-        agent_du_user_tx(conn, etab, actor).await?.ok_or(EntDbError::Forbidden)
+        agent_du_user_tx(conn, etab, actor)
+            .await?
+            .ok_or(EntDbError::Forbidden)
     }
 
     // ---- Lecture de la fiche ----------------------------------------------------------------
@@ -56,12 +61,21 @@ impl PgEnt {
     ) -> Result<FicheAgentDto, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let soi = agent_du_user_tx(&mut tx, etab, actor).await? == Some(agent_id);
-        if !soi && !self.a_action_etablissement(etab, actor, role, Action::PersonnelsLire).await? {
+        if !soi
+            && !self
+                .a_action_etablissement(etab, actor, role, Action::PersonnelsLire)
+                .await?
+        {
             return Err(EntDbError::Forbidden);
         }
-        let voit_personnel = soi || self.a_action_etablissement(etab, actor, role, Action::PersonnelsPersonnelLire).await?;
-        let voit_confidentiel =
-            soi || self.a_action_etablissement(etab, actor, role, Action::PersonnelsConfidentielGerer).await?;
+        let voit_personnel = soi
+            || self
+                .a_action_etablissement(etab, actor, role, Action::PersonnelsPersonnelLire)
+                .await?;
+        let voit_confidentiel = soi
+            || self
+                .a_action_etablissement(etab, actor, role, Action::PersonnelsConfidentielGerer)
+                .await?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let a = agent_tx(&mut tx, etab, agent_id, false).await?;
         let identite = identite_tx(&mut tx, etab, a.personne_id).await?;
@@ -112,18 +126,25 @@ impl PgEnt {
             expiree: valable.is_some_and(|v| v < jour),
         })
         .collect();
-        let identifiants: Vec<IdentifiantAgentDto> = sqlx::query_as::<_, (Uuid, String, String, NaiveDate, Option<NaiveDate>)>(
-            "SELECT id, systeme, valeur, du, au FROM ent_agent_identifiant
+        let identifiants: Vec<IdentifiantAgentDto> =
+            sqlx::query_as::<_, (Uuid, String, String, NaiveDate, Option<NaiveDate>)>(
+                "SELECT id, systeme, valeur, du, au FROM ent_agent_identifiant
               WHERE etablissement_id = $1 AND agent_id = $2 ORDER BY systeme, du",
-        )
-        .bind(etab)
-        .bind(agent_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?
-        .into_iter()
-        .map(|(id, systeme, valeur, du, au)| IdentifiantAgentDto { id, systeme, valeur, du, au })
-        .collect();
+            )
+            .bind(etab)
+            .bind(agent_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?
+            .into_iter()
+            .map(|(id, systeme, valeur, du, au)| IdentifiantAgentDto {
+                id,
+                systeme,
+                valeur,
+                du,
+                au,
+            })
+            .collect();
         let contacts_urgence = if voit_personnel {
             let c = contacts_tx(&mut tx, etab, agent_id, jour).await?;
             if !soi && !c.is_empty() {
@@ -150,7 +171,11 @@ impl PgEnt {
             matricule_interne: a.matricule_interne,
             personnel_mineur: a.personnel_mineur,
             identite_restreinte: a.identite_restreinte,
-            identite_restreinte_motif: if voit_confidentiel { a.identite_restreinte_motif } else { None },
+            identite_restreinte_motif: if voit_confidentiel {
+                a.identite_restreinte_motif
+            } else {
+                None
+            },
             identite_a_separer: a.identite_a_separer,
             notifications_en_pause_jusqu_au: a.notifications_en_pause_jusqu_au,
             photo_visible_collegues: a.photo_visible_collegues,
@@ -173,7 +198,8 @@ impl PgEnt {
         actor: Uuid,
         role: &str,
     ) -> Result<Vec<FonctionCatalogueDto>, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsAnnuaire).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsAnnuaire)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lignes: Vec<(Uuid, String, String, String, Option<String>, Option<Uuid>)> = sqlx::query_as(
             "SELECT id, code, libelle, famille, profil_propose, etablissement_id FROM ent_fonction
@@ -186,14 +212,16 @@ impl PgEnt {
         .map_err(db)?;
         Ok(lignes
             .into_iter()
-            .map(|(id, code, libelle, famille, profil_propose, e)| FonctionCatalogueDto {
-                id,
-                code,
-                libelle,
-                famille,
-                profil_propose,
-                propre_etablissement: e.is_some(),
-            })
+            .map(
+                |(id, code, libelle, famille, profil_propose, e)| FonctionCatalogueDto {
+                    id,
+                    code,
+                    libelle,
+                    famille,
+                    profil_propose,
+                    propre_etablissement: e.is_some(),
+                },
+            )
             .collect())
     }
 
@@ -205,15 +233,20 @@ impl PgEnt {
         role: &str,
         body: &CreerFonctionBody,
     ) -> Result<FonctionCatalogueDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let code = body.code.trim();
         let libelle = body.libelle.trim();
         let code_ok = code.len() >= 2
             && code.len() <= 60
             && code.chars().next().is_some_and(|c| c.is_ascii_lowercase())
-            && code.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+            && code
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
         if !code_ok {
-            return Err(invalide("Code de fonction : minuscules, chiffres et tirets bas (2 à 60 caractères)."));
+            return Err(invalide(
+                "Code de fonction : minuscules, chiffres et tirets bas (2 à 60 caractères).",
+            ));
         }
         if libelle.is_empty() || libelle.chars().count() > 120 {
             return Err(invalide("Libellé de fonction : 1 à 120 caractères."));
@@ -242,7 +275,15 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(ecriture)?;
-        journal_tx(&mut tx, etab, "fonction_creee", "Fonction créée", json!({ "fonction_id": id, "code": code }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "fonction_creee",
+            "Fonction créée",
+            json!({ "fonction_id": id, "code": code }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(FonctionCatalogueDto {
             id,
@@ -264,7 +305,8 @@ impl PgEnt {
         agent_id: Uuid,
         body: &AgentFonctionBody,
     ) -> Result<AgentFonctionDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let du = body.du.unwrap_or(jour);
@@ -273,11 +315,41 @@ impl PgEnt {
         }
         agent_tx(&mut tx, etab, agent_id, true).await?;
         let fonction_id = fonction_id_tx(&mut tx, etab, &body.fonction_code).await?;
-        let id = ajouter_fonction_ligne_tx(&mut tx, etab, agent_id, fonction_id, body.principale, du, body.au, actor).await?;
+        let id = ajouter_fonction_ligne_tx(
+            &mut tx,
+            etab,
+            agent_id,
+            fonction_id,
+            body.principale,
+            du,
+            body.au,
+            actor,
+        )
+        .await?;
         let payload = json!({ "agent_id": agent_id, "fonction_code": body.fonction_code, "principale": body.principale, "du": du });
-        journal_tx(&mut tx, etab, "fonction_ajoutee", "Fonction ajoutée à un agent", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_FONCTIONS_MODIFIEES, agent_id, payload, actor).await?;
-        let f = fonctions_tx(&mut tx, etab, agent_id).await?.into_iter().find(|f| f.id == id).ok_or_else(introuvable)?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "fonction_ajoutee",
+            "Fonction ajoutée à un agent",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_FONCTIONS_MODIFIEES,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
+        let f = fonctions_tx(&mut tx, etab, agent_id)
+            .await?
+            .into_iter()
+            .find(|f| f.id == id)
+            .ok_or_else(introuvable)?;
         tx.commit().await.map_err(db)?;
         Ok(f)
     }
@@ -291,8 +363,17 @@ impl PgEnt {
         ligne_id: Uuid,
         body: &TerminerLigneBody,
     ) -> Result<(), EntDbError> {
-        self.terminer_ligne_agent(etab, actor, role, "ent_agent_fonction", ligne_id, body.au, types::PERSONNEL_FONCTIONS_MODIFIEES, "fonction_terminee")
-            .await
+        self.terminer_ligne_agent(
+            etab,
+            actor,
+            role,
+            "ent_agent_fonction",
+            ligne_id,
+            body.au,
+            types::PERSONNEL_FONCTIONS_MODIFIEES,
+            "fonction_terminee",
+        )
+        .await
     }
 
     /// PRS-06 : discipline de poste (matière du référentiel et/ou code national).
@@ -304,8 +385,13 @@ impl PgEnt {
         agent_id: Uuid,
         body: &AgentDisciplineBody,
     ) -> Result<AgentDisciplineDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
-        let code = body.code_discipline_poste.as_deref().map(str::trim).filter(|c| !c.is_empty());
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
+        let code = body
+            .code_discipline_poste
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| !c.is_empty());
         if code.is_some_and(|c| c.chars().count() > 20) {
             return Err(invalide("Code de discipline : 20 caractères au plus."));
         }
@@ -338,8 +424,24 @@ impl PgEnt {
         .await
         .map_err(ecriture)?;
         let payload = json!({ "agent_id": agent_id, "matiere_id": body.matiere_id, "code": code, "principale": body.principale });
-        journal_tx(&mut tx, etab, "discipline_ajoutee", "Discipline de poste ajoutée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_DISCIPLINES_MODIFIEES, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "discipline_ajoutee",
+            "Discipline de poste ajoutée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_DISCIPLINES_MODIFIEES,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(AgentDisciplineDto {
             id,
@@ -359,8 +461,17 @@ impl PgEnt {
         ligne_id: Uuid,
         body: &TerminerLigneBody,
     ) -> Result<(), EntDbError> {
-        self.terminer_ligne_agent(etab, actor, role, "ent_agent_discipline", ligne_id, body.au, types::PERSONNEL_DISCIPLINES_MODIFIEES, "discipline_terminee")
-            .await
+        self.terminer_ligne_agent(
+            etab,
+            actor,
+            role,
+            "ent_agent_discipline",
+            ligne_id,
+            body.au,
+            types::PERSONNEL_DISCIPLINES_MODIFIEES,
+            "discipline_terminee",
+        )
+        .await
     }
 
     /// Fin datée d'une ligne de fonction ou de discipline (tables internes, jamais une entrée client).
@@ -376,7 +487,8 @@ impl PgEnt {
         evenement: &'static str,
         action: &'static str,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ligne: Option<(Uuid, NaiveDate)> = sqlx::query_as(&format!(
             "SELECT agent_id, du FROM {table} WHERE etablissement_id = $1 AND id = $2 AND annule_le IS NULL FOR UPDATE"
@@ -390,15 +502,25 @@ impl PgEnt {
         if au < du {
             return Err(invalide("La fin précède le début."));
         }
-        sqlx::query(&format!("UPDATE {table} SET au = $3 WHERE etablissement_id = $1 AND id = $2"))
-            .bind(etab)
-            .bind(ligne_id)
-            .bind(au)
-            .execute(&mut *tx)
-            .await
-            .map_err(ecriture)?;
+        sqlx::query(&format!(
+            "UPDATE {table} SET au = $3 WHERE etablissement_id = $1 AND id = $2"
+        ))
+        .bind(etab)
+        .bind(ligne_id)
+        .bind(au)
+        .execute(&mut *tx)
+        .await
+        .map_err(ecriture)?;
         let payload = json!({ "agent_id": agent_id, "ligne_id": ligne_id, "au": au });
-        journal_tx(&mut tx, etab, action, "Ligne d'un agent terminée", payload.clone(), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            action,
+            "Ligne d'un agent terminée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
         publier_tx(&mut tx, etab, evenement, agent_id, payload, actor).await?;
         tx.commit().await.map_err(db)?;
         Ok(())
@@ -414,11 +536,16 @@ impl PgEnt {
         agent_id: Uuid,
         body: &QualificationBody,
     ) -> Result<QualificationDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         if !CODES_QUALIFICATION.contains(&body.code.as_str()) {
             return Err(invalide("Qualification inconnue."));
         }
-        let precision = body.precision.as_deref().map(str::trim).filter(|p| !p.is_empty());
+        let precision = body
+            .precision
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
         if precision.is_some_and(|p| p.chars().count() > 80) {
             return Err(invalide("Précision : 80 caractères au plus."));
         }
@@ -448,8 +575,24 @@ impl PgEnt {
         .await
         .map_err(ecriture)?;
         let payload = json!({ "agent_id": agent_id, "code": body.code, "valable_jusqu_au": body.valable_jusqu_au });
-        journal_tx(&mut tx, etab, "qualification_ajoutee", "Qualification enregistrée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_QUALIFICATION_MODIFIEE, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "qualification_ajoutee",
+            "Qualification enregistrée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_QUALIFICATION_MODIFIEE,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(QualificationDto {
             id,
@@ -469,7 +612,8 @@ impl PgEnt {
         role: &str,
         qualification_id: Uuid,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, String)> = sqlx::query_as(
             "UPDATE ent_agent_qualification SET annule_le = now()
@@ -482,8 +626,24 @@ impl PgEnt {
         .map_err(db)?;
         let (agent_id, code) = row.ok_or_else(introuvable)?;
         let payload = json!({ "agent_id": agent_id, "code": code, "nature": "correction" });
-        journal_tx(&mut tx, etab, "qualification_corrigee", "Qualification erronée annulée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_QUALIFICATION_MODIFIEE, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "qualification_corrigee",
+            "Qualification erronée annulée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_QUALIFICATION_MODIFIEE,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -500,8 +660,15 @@ impl PgEnt {
         body: &ContactUrgenceAgentBody,
     ) -> Result<ContactUrgenceAgentDto, EntDbError> {
         let nom = body.nom.trim();
-        let prenom = body.prenom.as_deref().map(str::trim).filter(|p| !p.is_empty());
-        if nom.is_empty() || nom.chars().count() > 120 || prenom.is_some_and(|p| p.chars().count() > 120) {
+        let prenom = body
+            .prenom
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
+        if nom.is_empty()
+            || nom.chars().count() > 120
+            || prenom.is_some_and(|p| p.chars().count() > 120)
+        {
             return Err(invalide("Nom du contact : 1 à 120 caractères."));
         }
         if !(1..=3).contains(&body.ordre) {
@@ -510,7 +677,11 @@ impl PgEnt {
         if !telephone_valide(&body.telephone) {
             return Err(invalide("Numéro de téléphone mal formé."));
         }
-        if body.lien.as_deref().is_some_and(|l| !LIENS_URGENCE.contains(&l)) {
+        if body
+            .lien
+            .as_deref()
+            .is_some_and(|l| !LIENS_URGENCE.contains(&l))
+        {
             return Err(invalide("Lien avec le contact inconnu."));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -537,7 +708,15 @@ impl PgEnt {
         .await
         .map_err(ecriture)?;
         // Ni nom ni numéro dans le journal.
-        journal_tx(&mut tx, etab, "contact_urgence_defini", "Contact d'urgence déclaré", json!({ "agent_id": agent_id, "ordre": body.ordre }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "contact_urgence_defini",
+            "Contact d'urgence déclaré",
+            json!({ "agent_id": agent_id, "ordre": body.ordre }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(ContactUrgenceAgentDto {
             id,
@@ -560,7 +739,15 @@ impl PgEnt {
         let agent_id = Self::mon_agent_tx(&mut tx, etab, actor, role).await?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         retirer_rang_tx(&mut tx, etab, agent_id, ordre, jour).await?;
-        journal_tx(&mut tx, etab, "contact_urgence_retire", "Contact d'urgence retiré", json!({ "agent_id": agent_id, "ordre": ordre }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "contact_urgence_retire",
+            "Contact d'urgence retiré",
+            json!({ "agent_id": agent_id, "ordre": ordre }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -595,8 +782,24 @@ impl PgEnt {
         .map_err(db)?;
         let payload = json!({ "agent_id": agent_id, "collegues": body.visible_collegues,
                               "eleves": body.visible_eleves, "familles": body.visible_familles });
-        journal_tx(&mut tx, etab, "photo_modifiee", "Visibilité de la photo modifiée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_PHOTO_MODIFIEE, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "photo_modifiee",
+            "Visibilité de la photo modifiée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_PHOTO_MODIFIEE,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -625,7 +828,15 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        journal_tx(&mut tx, etab, "notifications_pause", "Pause des notifications modifiée", json!({ "agent_id": agent_id, "jusqu_au": body.jusqu_au }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "notifications_pause",
+            "Pause des notifications modifiée",
+            json!({ "agent_id": agent_id, "jusqu_au": body.jusqu_au }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(body.jusqu_au)
     }
@@ -642,9 +853,13 @@ impl PgEnt {
         agent_id: Uuid,
         body: &IdentiteRestreinteBody,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsConfidentielGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsConfidentielGerer)
+            .await?;
         let motif = if body.restreinte {
-            let m = body.motif.as_deref().ok_or_else(|| invalide("Un motif codé est obligatoire."))?;
+            let m = body
+                .motif
+                .as_deref()
+                .ok_or_else(|| invalide("Un motif codé est obligatoire."))?;
             if !MOTIFS_RESTREINTE.contains(&m) {
                 return Err(invalide("Motif d'identité restreinte inconnu."));
             }
@@ -668,8 +883,24 @@ impl PgEnt {
         .map_err(db)?;
         // Le motif reste dans la table : ni journal ni événement.
         let payload = json!({ "agent_id": agent_id, "posee": body.restreinte });
-        journal_tx(&mut tx, etab, "identite_restreinte", "Identité restreinte modifiée", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_IDENTITE_RESTREINTE, agent_id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "identite_restreinte",
+            "Identité restreinte modifiée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_IDENTITE_RESTREINTE,
+            agent_id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -684,17 +915,28 @@ impl PgEnt {
         agent_id: Uuid,
         body: &PersonnelMineurBody,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         agent_tx(&mut tx, etab, agent_id, true).await?;
-        sqlx::query("UPDATE ent_agent SET personnel_mineur = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(agent_id)
-            .bind(body.personnel_mineur)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        journal_tx(&mut tx, etab, "personnel_mineur", "Statut de personnel mineur modifié", json!({ "agent_id": agent_id, "mineur": body.personnel_mineur }), actor).await?;
+        sqlx::query(
+            "UPDATE ent_agent SET personnel_mineur = $3 WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(agent_id)
+        .bind(body.personnel_mineur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "personnel_mineur",
+            "Statut de personnel mineur modifié",
+            json!({ "agent_id": agent_id, "mineur": body.personnel_mineur }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -709,7 +951,8 @@ impl PgEnt {
         agent_id: Uuid,
         body: &IdentifiantAgentBody,
     ) -> Result<IdentifiantAgentDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         if !SYSTEMES_IDENTIFIANT.contains(&body.systeme.as_str()) {
             return Err(invalide("Système d'identifiant inconnu."));
         }
@@ -736,9 +979,23 @@ impl PgEnt {
         .await
         .map_err(ecriture)?;
         // La valeur n'est pas journalisée (elle peut désigner l'agent dans un système national).
-        journal_tx(&mut tx, etab, "identifiant_ajoute", "Identifiant externe ajouté", json!({ "agent_id": agent_id, "systeme": body.systeme }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "identifiant_ajoute",
+            "Identifiant externe ajouté",
+            json!({ "agent_id": agent_id, "systeme": body.systeme }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
-        Ok(IdentifiantAgentDto { id, systeme: body.systeme.clone(), valeur: valeur.to_string(), du: jour, au: None })
+        Ok(IdentifiantAgentDto {
+            id,
+            systeme: body.systeme.clone(),
+            valeur: valeur.to_string(),
+            du: jour,
+            au: None,
+        })
     }
 
     pub async fn clore_identifiant_agent_for_actor(
@@ -748,7 +1005,8 @@ impl PgEnt {
         role: &str,
         identifiant_id: Uuid,
     ) -> Result<(), EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let row: Option<(Uuid, String)> = sqlx::query_as(
@@ -762,7 +1020,15 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (agent_id, systeme) = row.ok_or_else(introuvable)?;
-        journal_tx(&mut tx, etab, "identifiant_clos", "Identifiant externe clos", json!({ "agent_id": agent_id, "systeme": systeme }), actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "identifiant_clos",
+            "Identifiant externe clos",
+            json!({ "agent_id": agent_id, "systeme": systeme }),
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -800,11 +1066,15 @@ impl PgEnt {
         role: &str,
         body: &FusionnerAgentsBody,
     ) -> Result<FusionAgentsDto, EntDbError> {
-        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer).await?;
-        self.exiger_personnels(etab, actor, role, Action::PersonnesFusionner).await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnelsGerer)
+            .await?;
+        self.exiger_personnels(etab, actor, role, Action::PersonnesFusionner)
+            .await?;
         let motif = body.motif.trim();
         if motif.chars().count() < 3 || motif.chars().count() > 500 {
-            return Err(invalide("Motif de fusion obligatoire (3 à 500 caractères)."));
+            return Err(invalide(
+                "Motif de fusion obligatoire (3 à 500 caractères).",
+            ));
         }
         if body.source_agent_id == body.cible_agent_id {
             return Err(invalide("Un agent ne se fusionne pas avec lui-même."));
@@ -825,11 +1095,23 @@ impl PgEnt {
             .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
-            (s.personne_id, c.personne_id, fusionnee == Some(c.personne_id))
+            (
+                s.personne_id,
+                c.personne_id,
+                fusionnee == Some(c.personne_id),
+            )
         };
         if !deja_fusionnees && src_personne != cible_personne {
-            self.fusionner_personnes_interne(etab, actor, role, src_personne, cible_personne, motif, true)
-                .await?;
+            self.fusionner_personnes_interne(
+                etab,
+                actor,
+                role,
+                src_personne,
+                cible_personne,
+                motif,
+                true,
+            )
+            .await?;
         }
         // 2. Les agents : une transaction.
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -842,7 +1124,11 @@ impl PgEnt {
         };
         let la = agent_tx(&mut tx, etab, a, true).await?;
         let lb = agent_tx(&mut tx, etab, b, true).await?;
-        let (source, cible) = if la.id == body.source_agent_id { (la, lb) } else { (lb, la) };
+        let (source, cible) = if la.id == body.source_agent_id {
+            (la, lb)
+        } else {
+            (lb, la)
+        };
         if source.fusionne_dans_agent_id.is_some() || cible.fusionne_dans_agent_id.is_some() {
             return Err(conflit("Un des agents est déjà fusionné."));
         }
@@ -881,8 +1167,15 @@ impl PgEnt {
         sqlx::query("UPDATE ent_agent_discipline SET agent_id = $3, principale = false WHERE etablissement_id = $1 AND agent_id = $2 AND annule_le IS NULL")
             .bind(etab).bind(source.id).bind(cible.id).execute(&mut *tx).await.map_err(ecriture)?;
         for table in ["ent_agent_qualification", "ent_agent_identifiant"] {
-            sqlx::query(&format!("UPDATE {table} SET agent_id = $3 WHERE etablissement_id = $1 AND agent_id = $2"))
-                .bind(etab).bind(source.id).bind(cible.id).execute(&mut *tx).await.map_err(ecriture)?;
+            sqlx::query(&format!(
+                "UPDATE {table} SET agent_id = $3 WHERE etablissement_id = $1 AND agent_id = $2"
+            ))
+            .bind(etab)
+            .bind(source.id)
+            .bind(cible.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(ecriture)?;
         }
         // Les références (référent, « remplace ») pointent désormais l'agent conservé.
         sqlx::query("UPDATE ent_agent_engagement SET referent_agent_id = $3 WHERE etablissement_id = $1 AND referent_agent_id = $2")
@@ -912,10 +1205,30 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let payload = json!({ "source_agent_id": source.id, "cible_agent_id": cible.id, "engagements_deplaces": deplaces, "le": jour });
-        journal_tx(&mut tx, etab, "agents_fusionnes", "Agents en doublon fusionnés", payload.clone(), actor).await?;
-        publier_tx(&mut tx, etab, types::PERSONNEL_FUSIONNE, cible.id, payload, actor).await?;
+        journal_tx(
+            &mut tx,
+            etab,
+            "agents_fusionnes",
+            "Agents en doublon fusionnés",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_tx(
+            &mut tx,
+            etab,
+            types::PERSONNEL_FUSIONNE,
+            cible.id,
+            payload,
+            actor,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
-        Ok(FusionAgentsDto { source_agent_id: source.id, cible_agent_id: cible.id, engagements_deplaces: deplaces })
+        Ok(FusionAgentsDto {
+            source_agent_id: source.id,
+            cible_agent_id: cible.id,
+            engagements_deplaces: deplaces,
+        })
     }
 }
 
@@ -923,8 +1236,20 @@ impl PgEnt {
 // Lectures internes
 // ---------------------------------------------------------------------------------------------
 
-async fn fonctions_tx(conn: &mut PgConnection, etab: Uuid, agent_id: Uuid) -> Result<Vec<AgentFonctionDto>, EntDbError> {
-    let lignes: Vec<(Uuid, String, String, String, bool, NaiveDate, Option<NaiveDate>)> = sqlx::query_as(
+async fn fonctions_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    agent_id: Uuid,
+) -> Result<Vec<AgentFonctionDto>, EntDbError> {
+    let lignes: Vec<(
+        Uuid,
+        String,
+        String,
+        String,
+        bool,
+        NaiveDate,
+        Option<NaiveDate>,
+    )> = sqlx::query_as(
         "SELECT af.id, f.code, f.libelle, f.famille, af.principale, af.du, af.au
            FROM ent_agent_fonction af JOIN ent_fonction f ON f.id = af.fonction_id
           WHERE af.etablissement_id = $1 AND af.agent_id = $2 AND af.annule_le IS NULL
@@ -937,15 +1262,17 @@ async fn fonctions_tx(conn: &mut PgConnection, etab: Uuid, agent_id: Uuid) -> Re
     .map_err(db)?;
     Ok(lignes
         .into_iter()
-        .map(|(id, fonction_code, libelle, famille, principale, du, au)| AgentFonctionDto {
-            id,
-            fonction_code,
-            libelle,
-            famille,
-            principale,
-            du,
-            au,
-        })
+        .map(
+            |(id, fonction_code, libelle, famille, principale, du, au)| AgentFonctionDto {
+                id,
+                fonction_code,
+                libelle,
+                famille,
+                principale,
+                du,
+                au,
+            },
+        )
         .collect())
 }
 
@@ -968,7 +1295,16 @@ async fn contacts_tx(
     .map_err(db)?;
     Ok(lignes
         .into_iter()
-        .map(|(id, ordre, nom, prenom, lien, telephone)| ContactUrgenceAgentDto { id, ordre, nom, prenom, lien, telephone })
+        .map(
+            |(id, ordre, nom, prenom, lien, telephone)| ContactUrgenceAgentDto {
+                id,
+                ordre,
+                nom,
+                prenom,
+                lien,
+                telephone,
+            },
+        )
         .collect())
 }
 

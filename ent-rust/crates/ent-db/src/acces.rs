@@ -416,7 +416,8 @@ impl PgEnt {
             "SELECT EXISTS (
                SELECT 1 FROM ent_membership
                 WHERE etablissement_id = $1 AND user_id <> $2
-                  AND role = 'admin' AND etat = 'ouvert' AND date_fin IS NULL)",
+                  AND role = 'admin' AND etat = 'ouvert' AND date_fin IS NULL
+                  AND NOT ent_agent_acces_suspendu(user_id, etablissement_id))",
         )
         .bind(etablissement_id)
         .bind(sauf_user_id)
