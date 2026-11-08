@@ -99,7 +99,7 @@ pub struct MatiereDetail {
 
 const SQL_MATIERE: &str =
     "SELECT id, code, libelle, libelle_court, couleur, famille, parent_id, code_national,
-        source_nomenclature, archivee_le FROM ent_matiere";
+        source_nomenclature, archivee_le FROM ent_matiere WHERE etablissement_id = $1";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MatiereSaisie {
@@ -136,15 +136,13 @@ async fn matiere_lue(
     etab: Uuid,
     id: Uuid,
 ) -> Result<MatiereDetail, EntDbError> {
-    sqlx::query_as::<_, MatiereDetail>(&format!(
-        "{SQL_MATIERE} WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
-    ))
-    .bind(etab)
-    .bind(id)
-    .fetch_optional(conn)
-    .await
-    .map_err(db)?
-    .ok_or_else(introuvable)
+    sqlx::query_as::<_, MatiereDetail>(&format!("{SQL_MATIERE} AND id = $2 FOR UPDATE"))
+        .bind(etab)
+        .bind(id)
+        .fetch_optional(conn)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)
 }
 
 async fn parent_valide(
@@ -180,7 +178,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
         let rows = sqlx::query_as::<_, MatiereDetail>(&format!(
-            "{SQL_MATIERE} WHERE etablissement_id = $1 AND ($2 OR archivee_le IS NULL) ORDER BY code"
+            "{SQL_MATIERE} AND ($2 OR archivee_le IS NULL) ORDER BY code"
         ))
         .bind(a.etablissement_id)
         .bind(avec_archivees)
@@ -509,7 +507,7 @@ struct OffreRow {
 
 const SQL_OFFRE: &str = "SELECT id, annee_id, code, libelle, matiere_id, modalite, code_modalite_election,
         admission, hors_contrat, capacite, ouvert_aux_voeux, public_type, date_limite_choix, ordre, source,
-        ferme_le, ferme_motif FROM ent_offre_enseignement";
+        ferme_le, ferme_motif FROM ent_offre_enseignement WHERE etablissement_id = $1";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct OffreSaisie {
@@ -575,7 +573,7 @@ pub(crate) async fn offres_detail(
     ids: Option<&[Uuid]>,
 ) -> Result<Vec<OffreDetail>, EntDbError> {
     let rows = sqlx::query_as::<_, OffreRow>(&format!(
-        "{SQL_OFFRE} WHERE etablissement_id = $1 AND ($2::uuid IS NULL OR annee_id = $2)
+        "{SQL_OFFRE} AND ($2::uuid IS NULL OR annee_id = $2)
             AND ($3::uuid[] IS NULL OR id = ANY($3)) ORDER BY ordre, code"
     ))
     .bind(etab)
@@ -602,7 +600,8 @@ pub(crate) async fn offres_detail(
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
-    let prerequis: Vec<(Uuid, Uuid, String, Option<Uuid>, Option<Uuid>, bool)> = sqlx::query_as(
+    type LignePrerequis = (Uuid, Uuid, String, Option<Uuid>, Option<Uuid>, bool);
+    let prerequis: Vec<LignePrerequis> = sqlx::query_as(
         "SELECT offre_id, id, type, prerequis_offre_id, prerequis_matiere_id, bloquant FROM ent_offre_prerequis
           WHERE etablissement_id = $1 AND offre_id = ANY($2) ORDER BY created_at, id",
     )
@@ -1899,7 +1898,8 @@ pub mod offre {
         }
 
         // Cibles : une offre ciblée doit viser le niveau ou le MEF de l'élève (si connus).
-        let cibles: Vec<(Uuid, Option<Uuid>, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        type LigneCible = (Uuid, Option<Uuid>, Option<Uuid>, Option<Uuid>);
+        let cibles: Vec<LigneCible> = sqlx::query_as(
             "SELECT c.offre_id, c.niveau_id, c.mef_id, m.niveau_id FROM ent_offre_cible c
                LEFT JOIN ent_mef m ON m.id = c.mef_id AND m.etablissement_id = c.etablissement_id
               WHERE c.etablissement_id = $1 AND c.offre_id = ANY($2)",
@@ -2041,7 +2041,8 @@ pub mod offre {
         }
 
         // Prérequis.
-        let prerequis: Vec<(Uuid, String, Option<Uuid>, Option<Uuid>, bool)> = sqlx::query_as(
+        type LignePrerequisVerif = (Uuid, String, Option<Uuid>, Option<Uuid>, bool);
+        let prerequis: Vec<LignePrerequisVerif> = sqlx::query_as(
             "SELECT offre_id, type, prerequis_offre_id, prerequis_matiere_id, bloquant FROM ent_offre_prerequis
               WHERE etablissement_id = $1 AND offre_id = ANY($2)",
         )

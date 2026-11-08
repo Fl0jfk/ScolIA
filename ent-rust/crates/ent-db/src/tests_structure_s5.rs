@@ -375,7 +375,7 @@ async fn regles_de_choix_incompatibilites_prerequis_capacite_et_cibles_appliquee
     en_classe(&ent, &m, ada, n5, "5A").await;
     en_classe(&ent, &m, bob, n5, "5A").await;
 
-    let mut ciblee = |code: &str, modalite: &str, niveaux: Vec<Uuid>| {
+    let ciblee = |code: &str, modalite: &str, niveaux: Vec<Uuid>| {
         let mut s = saisie_offre(m.annee, code, modalite);
         s.niveau_ids = niveaux;
         s
