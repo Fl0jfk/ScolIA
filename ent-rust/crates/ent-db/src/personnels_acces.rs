@@ -79,6 +79,7 @@ impl From<&SessionInfo> for CtxSession {
 }
 
 /// Issue d'une émission : le lien du QR code n'existe que dans la réponse à l'émission.
+#[derive(Debug)]
 pub enum InvitationEmise {
     Email(InvitationDto),
     Qr(InvitationQrDto),
