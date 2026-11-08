@@ -3437,15 +3437,30 @@ async fn scolarite_eleve(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ent_types::scolarite::ScolariteDto>, (StatusCode, String)> {
-    session.require_staff()?;
-    session
-        .require_action(&state.ent, ent_auth::Action::ElevesLire, "rôle insuffisant pour lire la scolarité")
-        .await?;
-    let (statut, scol, insc) = state
-        .ent
-        .scolarite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
-        .await
-        .map_err(map_db)?;
+    // Responsable légal (démo P1 n° 3) : lecture minimisée de la scolarité de SON enfant ;
+    // les droits sont revérifiés dans le dépôt (lien actif, pas de « ne pas solliciter »).
+    let (statut, scol, insc) = if session.role_parsed() == Some(ent_auth::Role::Parent) {
+        state
+            .ent
+            .scolarite_pour_famille(session.etablissement_id, session.user_id, id)
+            .await
+            .map_err(|e| match e {
+                ent_db::EntDbError::Forbidden => {
+                    (StatusCode::FORBIDDEN, "la scolarité de cet élève ne vous est pas ouverte".to_string())
+                }
+                autre => map_db(autre),
+            })?
+    } else {
+        session.require_staff()?;
+        session
+            .require_action(&state.ent, ent_auth::Action::ElevesLire, "rôle insuffisant pour lire la scolarité")
+            .await?;
+        state
+            .ent
+            .scolarite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+            .await
+            .map_err(map_db)?
+    };
     Ok(Json(ent_types::scolarite::ScolariteDto {
         statut,
         scolarisations: scol.iter().map(scolarisation_dto).collect(),

@@ -359,3 +359,77 @@ async fn professeur_d_un_groupe_ne_voit_que_son_groupe() {
     assert!(refuse(prof.fiche_dossier(ginny).await));
     assert!(refuse(prof.scolarite_eleve(ginny).await));
 }
+
+/// Démo P1 n° 3 : la famille lit la scolarité (minimisée) et l'INE de SON enfant ; une autre
+/// famille, un responsable à lien suspendu, un responsable « ne pas solliciter » et l'élève
+/// n'y accèdent pas. Droits vérifiés par le serveur.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_famille_lit_la_scolarite_de_son_enfant() {
+    let Some(base) = demarrer().await else { return };
+    let l = labo::bootstrap(&base).await.expect("labo");
+    let direction = personnel(&base, &l, "direction").await;
+    let harry = l.eleve("Harry").expect("Harry").id;
+    let email_de = |fragment: &str| {
+        l.personas
+            .iter()
+            .find(|p| p.role == "parent" && p.label.contains(fragment))
+            .unwrap_or_else(|| panic!("parent {fragment}"))
+            .email
+            .clone()
+    };
+    let lily_email = email_de("Harry");
+    let lily = client_de(&base, &l, &lily_email).await;
+    let narcissa = client_de(&base, &l, &email_de("Draco")).await;
+
+    // Contrôle positif : le personnel lit, la mère aussi (même statut), sans le réservé au personnel.
+    let personnel_vu = direction.scolarite_eleve(harry).await.expect("direction");
+    let famille_vue = lily.scolarite_eleve(harry).await.expect("la mère lit la scolarité");
+    assert_eq!(famille_vue.statut, personnel_vu.statut);
+    assert_eq!(famille_vue.scolarisations.len(), personnel_vu.scolarisations.len());
+    for s in &famille_vue.scolarisations {
+        assert!(s.motif_sortie.is_none() && s.motif_sortie_libre.is_none());
+        assert!(s.exeat_document_id.is_none());
+        assert!(s.destination.uai.is_none() && s.destination.libelle.is_none());
+        assert!(s.origine.uai.is_none() && s.origine.libelle.is_none());
+    }
+    assert!(famille_vue.inscriptions.iter().all(|i| i.decision_passage.is_none()));
+
+    // L'INE vient de la fiche (groupe G3, ouvert aux familles pour leur enfant).
+    let ine_famille = lily.fiche_dossier(harry).await.expect("fiche famille").ine;
+    let ine_personnel = direction.fiche_dossier(harry).await.expect("fiche").ine;
+    assert_eq!(ine_famille, ine_personnel);
+
+    // Autre famille, élève : refus.
+    assert!(refuse(narcissa.scolarite_eleve(harry).await));
+    if let Some(p) = l.personas.iter().find(|p| p.role == "eleve" && p.label.contains("Harry")) {
+        let eleve = client_de(&base, &l, &p.email).await;
+        assert!(refuse(eleve.scolarite_eleve(harry).await));
+    }
+
+    // La mère telle que la voit la direction : personne et lien.
+    let fiche = direction.fiche_dossier(harry).await.expect("fiche");
+    let mere = fiche
+        .responsables
+        .iter()
+        .find(|r| r.personne.email.as_deref() == Some(lily_email.as_str()))
+        .expect("la mère parmi les responsables");
+
+    // « Ne pas solliciter » : plus d'accès tant que la mention est posée.
+    direction
+        .definir_ne_pas_solliciter(mere.personne.id, true, Some("réf. démo".into()))
+        .await
+        .expect("mention posée");
+    assert!(refuse(lily.scolarite_eleve(harry).await));
+    direction
+        .definir_ne_pas_solliciter(mere.personne.id, false, None)
+        .await
+        .ok();
+
+    // Lien suspendu : refus ; rétabli : accès.
+    direction
+        .suspendre_lien(mere.lien_id, "Mesure de démonstration".into(), None)
+        .await
+        .expect("suspension");
+    assert!(refuse(lily.scolarite_eleve(harry).await));
+    direction.retablir_lien(mere.lien_id).await.expect("rétablissement");
+}
