@@ -115,7 +115,7 @@ async fn donnees(ent: &PgEnt, etab: Uuid, eleve: Uuid, absences: i64, retards: i
 async fn image(ent: &PgEnt, etab: Uuid, ids: &[Uuid]) -> BTreeMap<String, Value> {
     let mut m = BTreeMap::new();
     for e in ids {
-        for t in TABLES_ELEVE {
+        for t in TABLES_ELEVE.iter().filter(|t| !matches!(t.table, "ent_journal_modif" | "ent_metier_event")) {
             let v: Value = sqlx::query_scalar(&format!(
                 "SELECT coalesce(jsonb_agg(to_jsonb(t.*) ORDER BY to_jsonb(t.*)::text), '[]'::jsonb)
                    FROM {} t WHERE t.etablissement_id = $1 AND t.eleve_id = $2",
@@ -165,6 +165,19 @@ async fn nb(ent: &PgEnt, table: &str, etab: Uuid, eleve: Uuid) -> i64 {
         .fetch_one(ent.pool())
         .await
         .unwrap()
+}
+
+/// Fusion avec acquittement de tous les conflits de l'aperçu (deux fiches normales ont chacune
+/// une période de classe ouverte : conflit d'unicité attendu, la ligne du conservé l'emporte).
+async fn fuser(ent: &PgEnt, etab: Uuid, absorbe: Uuid, conserve: Uuid, acteur: Uuid) -> crate::eleve_fusion::FusionEleves {
+    let ap = ent.apercu_fusion_pour_acteur(DIR, etab, acteur, absorbe, conserve).await.unwrap();
+    assert!(ap.conflits.iter().all(|c| c.table == "ent_eleve_periode"), "{:?}", ap.conflits);
+    let mut d = demande(etab, absorbe, conserve, acteur);
+    d.conflits_acquittes = ap.conflits;
+    match ent.fusionner_eleves_pour_acteur(DIR, d).await.unwrap() {
+        ResultatFusion::Faite(f) => f,
+        ResultatFusion::ConflitsAResoudre(c) => panic!("conflits inattendus : {c:?}"),
+    }
 }
 
 fn demande(etab: Uuid, absorbe: Uuid, conserve: Uuid, acteur: Uuid) -> DemandeFusion {
@@ -234,7 +247,7 @@ async fn fusion_puis_defusion_a_l_identique() {
 
     // Aperçu : rien n'est écrit, tout est annoncé.
     let ap = ent.apercu_fusion_pour_acteur(DIR, etab, dir, b.id, a.id).await.unwrap();
-    assert!(ap.possible && ap.conflits.is_empty(), "{:?}", ap.conflits);
+    assert!(ap.possible && ap.conflits.iter().all(|c| c.table == "ent_eleve_periode"), "{:?}", ap.conflits);
     let ligne = |dom: &str| ap.lignes.iter().filter(|l| l.domaine == dom).map(|l| l.a_deplacer).sum::<usize>();
     assert_eq!(ligne("Absences et retards"), 3 + 2, "3 absences et 2 retards de B");
     assert_eq!(ligne("Carnet de liaison"), 1);
@@ -247,9 +260,7 @@ async fn fusion_puis_defusion_a_l_identique() {
         .bind(b.id).fetch_one(ent.pool()).await.unwrap().is_none(), "l'aperçu n'écrit rien");
 
     // Fusion.
-    let ResultatFusion::Faite(f) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else {
-        panic!("aucun conflit attendu")
-    };
+    let f = fuser(&ent, etab, b.id, a.id, dir).await;
     assert_eq!((f.absorbe_id, f.conserve_id), (b.id, a.id));
     assert!(f.annulable_jusqu_au > chrono::Utc::now() + Duration::days(29));
     // Les données de B sont chez A ; B est marqué absorbé et ne porte plus que ses historiques.
@@ -307,9 +318,7 @@ async fn fusion_puis_defusion_a_l_identique() {
         ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f.id).await,
         Err(EntDbError::ConflitDossier(_))
     ));
-    let ResultatFusion::Faite(f2) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else {
-        panic!("refusion possible")
-    };
+    let f2 = fuser(&ent, etab, b.id, a.id, dir).await;
     assert_ne!(f2.id, f.id);
     let fusions = ent.fusions_pour_acteur(DIR, etab, dir, 10).await.unwrap();
     assert_eq!(fusions.len(), 2);
@@ -379,7 +388,7 @@ async fn defusion_refusee_si_une_ligne_deplacee_a_change() {
     let (etab, dir) = (Uuid::new_v4(), cast.direction.user_id);
     let (a, b) = deux_fiches(&ent, &cast, etab).await;
     let avant = image(&ent, etab, &[a.id, b.id]).await;
-    let ResultatFusion::Faite(f) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else { panic!() };
+    let f = fuser(&ent, etab, b.id, a.id, dir).await;
     // Une absence de B (maintenant sur A) est justifiée depuis la fusion ; un retard est supprimé.
     let (abs_id,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 AND debut = $3")
         .bind(etab).bind(a.id).bind(jour(2025, 10, 3)).fetch_one(ent.pool()).await.unwrap();
@@ -416,8 +425,8 @@ async fn delai_d_annulation_et_fusions_chainees() {
     donnees(&ent, etab, b.id, 1, 0, 0, 0).await;
     donnees(&ent, etab, a.id, 1, 0, 0, 0).await;
     // B → A, puis A → C.
-    let ResultatFusion::Faite(f1) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else { panic!() };
-    let ResultatFusion::Faite(f2) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, a.id, c.id, dir)).await.unwrap() else { panic!() };
+    let f1 = fuser(&ent, etab, b.id, a.id, dir).await;
+    let f2 = fuser(&ent, etab, a.id, c.id, dir).await;
     assert_eq!(nb(&ent, "ent_absence", etab, c.id).await, 2);
     assert_eq!(ent.eleve_effectif(etab, b.id).await.unwrap(), c.id, "la chaîne est suivie");
     // Annuler F1 alors que A est absorbé : refusé (ordre inverse).
@@ -430,7 +439,7 @@ async fn delai_d_annulation_et_fusions_chainees() {
     assert_eq!(nb(&ent, "ent_absence", etab, b.id).await, 1);
     assert_eq!(nb(&ent, "ent_absence", etab, a.id).await, 1);
     // Au-delà de 30 jours, la défusion est refusée.
-    let ResultatFusion::Faite(f3) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else { panic!() };
+    let f3 = fuser(&ent, etab, b.id, a.id, dir).await;
     sqlx::query("ALTER TABLE ent_eleve_fusion DISABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool()).await.unwrap();
     sqlx::query("UPDATE ent_eleve_fusion SET fusionne_le = now() - interval '31 days' WHERE id = $1").bind(f3.id).execute(ent.pool()).await.unwrap();
     sqlx::query("ALTER TABLE ent_eleve_fusion ENABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool()).await.unwrap();
@@ -514,7 +523,7 @@ async fn eleve_protege_signale_et_mesure_conservee() {
     .unwrap();
     let ap = ent.apercu_fusion_pour_acteur(DIR, etab, dir, b.id, a.id).await.unwrap();
     assert!(ap.avertissements.contains(&AvertissementFusion::EleveProtege));
-    let ResultatFusion::Faite(f) = ent.fusionner_eleves_pour_acteur(DIR, demande(etab, b.id, a.id, dir)).await.unwrap() else { panic!() };
+    let f = fuser(&ent, etab, b.id, a.id, dir).await;
     let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool()).await.unwrap();
     assert!(protege, "la mesure de B suit la fiche conservée");
     // Les fusions qui touchent un élève protégé n'existent pas pour qui n'a pas G6 : ici la

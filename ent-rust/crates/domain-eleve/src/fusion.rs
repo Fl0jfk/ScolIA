@@ -82,6 +82,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_eleve_bourse", &["id"]),
     d("ent_eleve_capacite", &["id"]),
     d("ent_eleve_compte", &["etablissement_id", "eleve_id"]),
+    d("ent_eleve_confidentialite", &["id"]),
     d("ent_eleve_contact_urgence", &["id"]),
     d("ent_eleve_dispense_repas", &["id"]),
     d("ent_eleve_dispositif", &["id"]),
