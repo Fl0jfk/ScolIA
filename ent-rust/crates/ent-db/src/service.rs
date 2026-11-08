@@ -4311,9 +4311,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             Vec::new()
         };
         let liens = if sections.famille {
-            self.foyers
+            let brut = self
+                .foyers
                 .list_liens_dossier(etablissement_id, eleve_id)
-                .await?
+                .await?;
+            // RP2-01 : même vue A1 que `GET /dossier/eleves/{id}/responsables` (aucune seconde règle).
+            let admin = self
+                .lecture_dossier_admin(etablissement_id, actor_user_id, role, eleve_id)
+                .await?;
+            crate::dossier_personnes::minimiser_liens_dossier(brut, &admin.responsables)
         } else {
             Vec::new()
         };

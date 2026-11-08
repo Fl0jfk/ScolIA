@@ -329,7 +329,7 @@ fn rp2_01_dossier_historique_respecte_la_minimisation_a1() {
         assert_eq!(rep.statut, StatusCode::OK, "James : {}", rep.texte);
         let lily = entree(&rep, "Lily Potter")
             .unwrap_or_else(|| panic!("Lily absente de la désignation : {}", rep.texte));
-        assert_eq!(lily["lien"], json!("mere"), "{lily}");
+        assert_eq!(lily["lien"], json!("mère"), "{lily}");
         assert!(
             lily["email"].is_null(),
             "e-mail de Lily lu par James : {lily}"

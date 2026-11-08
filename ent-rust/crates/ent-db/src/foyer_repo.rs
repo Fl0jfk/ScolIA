@@ -678,7 +678,7 @@ impl PgFoyerRepo {
             .into_iter()
             .map(|r| LienDossier {
                 lien_id: r.lien_id,
-                user_id: r.user_id,
+                user_id: Some(r.user_id),
                 foyer_id: r.foyer_id,
                 foyer_libelle: r.foyer_libelle,
                 lien: r.lien,
