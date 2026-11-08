@@ -62,3 +62,6 @@ Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–
 
 ## Mise à jour du 2026-11-08 (socle 5, lots S0 et S1)
 330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` reste `370_edt_creneau_groupe` : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
+
+## Mise à jour du 2026-11-08 (socle 6, lot P0)
+350 (`350_acces_etat` : état, motif, fin d'un accès ; `ent_acces_ouvert` ; déclencheur du dernier administrateur) et 351 (`351_attributions_datees` : attributions de rôle identifiées, datées, closes au lieu d'effacées ; contrainte d'exclusion) écrites sur `ent-socle-personnels-p0` (base `ent-socle-structure-s0-s1`) et ajoutées dans `migrate.rs` avant 370. `MIGRATION_TAG` reste `370_edt_creneau_groupe` (plus haute migration présente). 352–369 restent réservées au socle 6 (P1 et suivants).

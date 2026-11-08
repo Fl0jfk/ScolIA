@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 6 — lot P0 « correctifs de sécurité » (2026-11-08, branche `ent-socle-personnels-p0`, base `ent-socle-structure-s0-s1`)
+Détail : `docs/socles/06_PERSONNELS.md` §21. Migrations 350 et 351. **Niveau : implémenté + testé en local ; non validé CI ni Florian.** Accès fermé/suspendu/échu : connexion, sessions et jetons refusés ; dernier administrateur protégé (commandes + déclencheur SQL + course) ; plus de mot de passe temporaire pour le personnel (invitation / réinitialisation par lien) ; attributions de rôle datées avec historique ; annuaire sans téléphone ; jour de l'établissement (fuseau, Europe/Paris par défaut) pour le périmètre et les droits. **Reste** : invitation d'un compte élève (mot de passe temporaire encore renvoyé, socles 2-3) ; délégations / emploi du temps encore en UTC ; suppression d'un rôle libre efface ses attributions.
+
 ## Socle 5 — lots S0 et S1 (2026-11-08, branche `ent-socle-structure-s0-s1`, base `ent-integration-lot8b` 540d319)
 Correctifs de l'existant (S0) et objet unique « cours » avec règle de visibilité unique (S1) ; détail et limites : `docs/socles/05_STRUCTURE.md` §21. Migrations 330 et 331 (registre : `docs/socles/MIGRATIONS.md`), `MIGRATION_TAG` inchangé. **Niveau : implémenté + testé en local ; non validé CI ni Florian.** À valider par Florian : le cours = ligne de service enrichie (Q-S20) ; triggers de cohérence plutôt que clés composées ; ouverture d'année refusée sans `forcer` quand des périodes de notes sont ouvertes (écran à adapter).
 

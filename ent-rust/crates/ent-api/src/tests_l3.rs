@@ -541,8 +541,9 @@ async fn l3_jetons_en_attente_invalides_par_email_reset_mot_de_passe_et_reset_pa
     let (st, _) = appel(&app, "POST",
         &format!("/etablissement/personnel/{}/reset-mot-de-passe", prof.id),
         Some(&dir.jeton), None).await;
-    assert_eq!(st, StatusCode::OK);
-    assert_eq!(jetons_actifs(prof.id).await, 0, "jeton invalidé après mot de passe temporaire");
+    assert_eq!(st, StatusCode::ACCEPTED);
+    // Socle 6 P0 : la réinitialisation envoie un nouveau lien ; l'ancien est remplacé, il n'en reste qu'un.
+    assert_eq!(jetons_actifs(prof.id).await, 1, "ancien lien remplacé par le nouveau");
 
     // Reset des passkeys.
     ent.demander_reinitialisation_mot_de_passe(&eleve.email, "http://localhost:8088").await.unwrap();

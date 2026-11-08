@@ -1387,3 +1387,29 @@ Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, 
 - La conception du socle 5 n'était pas consultable : les points §5.4 sont à accorder avant les lots P3 et P8.
 - **[personas]** Lue depuis (`05_STRUCTURE.md`), elle répond à §5.4 : groupes créés avant tout service (point 1, oui) ; heures prévues portées par la maquette du socle 5 (point 2, oui) ; année en préparation (point 3, oui) ; ensemble scolaire = un établissement à plusieurs sites et UAI (point 5) ; matières du socle 5 (point 6) ; sites désignés (point 7). Mais elle **possède aussi** « ce qui est enseigné à qui » (`ent_cours`) et la **seule** fonction de périmètre (`structure::perimetre`) : contradiction avec §5.3, §8.5 et §9 de ce document (Q-P28, Q-S21) ; et ses noms d'événements diffèrent (R-P26).
 - **[personas]** La contrainte d'exclusion des engagements (§8.2) contredit les doubles employeurs réels (R-P1) ; le cas P10 parle d'« engagement suspendu » sans modèle (R-P4) ; « Europe/Paris » (§7, lot P0) contredit le fuseau du profil du socle 5 (R-P2).
+
+
+---
+
+## 21. État du lot P0 (2026-11-08, branche `ent-socle-personnels-p0`)
+
+**Niveau : implémenté + testé en local ; non validé CI GitHub ni Florian.** Migrations 350 et 351.
+
+| Exigence du lot | Réalisation | Test |
+|---|---|---|
+| `acces::fermer` / `suspendre` | `ent-db/src/acces.rs` (fermer, suspendre, rouvrir, programmer une fin) ; routes `POST /etablissement/personnel/{id}/acces/{fermer,suspendre,rouvrir}`, `PUT …/acces/fin` ; Admin/Direction, jamais soi-même, Direction ne touche pas Admin/Direction ; personnels seulement ; sessions et appareils push **de cet établissement** supprimés ; journalisé | `acces_ferme_refuse_connexion_session_et_jeton_…`, `acces_ferme_ou_suspendu_http_…` |
+| Connexion/session/jeton refusés | `ent_acces_ouvert` (350) lu à la connexion, à `issue_session` (tous chemins : mot de passe, passkey, SSO) et à chaque requête (`resolve_bearer`) ; réponse de connexion identique à un mauvais mot de passe | idem |
+| Dernier administrateur | contrôle service (message clair) + déclencheur SQL `ent_membership_garde_dernier_admin` (fermeture, suspension, date de fin, changement de profil, suppression ; verrou consultatif contre deux retraits simultanés) | `dernier_administrateur_protege_…`, `dernier_administrateur_409_…` |
+| Fin du mot de passe temporaire | provisionnement : compte à secret inconnu + invitation par e-mail (lien 7 jours) ; réinitialisation du personnel : lien (30 min) ; `EnvoiImpossible` avant toute création si messagerie absente ; plus aucun secret dans les réponses | `provisionnement_et_reinitialisation_sans_secret_…`, `l3_reinitialisation_par_lien_…` |
+| Attribution à début futur et historique | `attribuer_role_periode_for_actor` ; ligne identifiée, jamais écrasée ; retrait = clôture ; modification de fin = clôture + nouvelle ligne ; exclusion de chevauchement | `attributions_datees_…` |
+| Annuaire sans téléphone | `StaffMember` sans téléphone ; accès non ouverts exclus | `annuaire_du_personnel_sans_telephone…` |
+| Jour de l'établissement | `PgEnt::aujourdhui_etablissement` (fuseau 265, Europe/Paris par défaut) dans `perimetre.rs` et `droits_repo.rs` ; logique D-022 bis inchangée | `bord_de_journee_deux_fuseaux_…`, `perimetre_prof_suit_eleve_…` |
+
+**Écarts à connaître (à valider par Florian).**
+1. Invitation d'un **compte élève** : renvoie encore un mot de passe temporaire (socles 2-3, élèves sans boîte mail probable) — non traité.
+2. Colonne `perimetre` de l'attribution (§17, 351) non créée : sens non défini.
+3. Supprimer un rôle libre supprime ses attributions (historique perdu) ; archivage à prévoir.
+4. `delegation.rs` et `edt_*` calculent encore la date en UTC.
+5. Provisionnement d'une adresse connue ailleurs : réponse identique, mais l'envoi du mail peut s'entendre au temps de réponse.
+6. Un accès à date de fin n'est pas un « administrateur durable » : un établissement garde toujours au moins un administrateur sans fin.
+7. Les listes de destinataires (notifications, etc.) lisant `ent_membership` ne filtrent pas encore l'état : à reprendre au lot P1/P2.
