@@ -1194,9 +1194,9 @@ Les autres actions ajoutées utilisent `personnels.gerer`, `personnels.acces.ger
 
 | Événement | Producteur | Réaction du socle 6 |
 |---|---|---|
-| `annee.ouverte` | 5 | ouvrir les services `prevu` de l'année (si la direction l'a validé, PRS-52) ; clore les missions annuelles de l'année précédente |
-| `annee.cloturee` | 5 | clore services et missions annuelles restées ouvertes ; proposer la reconduction |
-| `classe.archivee`, `groupe.archive` | 5 | clore les services et responsabilités de la cible, alerte si saisies ouvertes |
+| `referentiel.annee_ouverte` | 5 | ouvrir les services `prevu` de l'année (si la direction l'a validé, PRS-52) ; clore les missions annuelles de l'année précédente |
+| `referentiel.annee_cloturee` | 5 | clore services et missions annuelles restées ouvertes ; proposer la reconduction |
+| `referentiel.classe_archivee`, `referentiel.groupe_ferme` | 5 | clore les services et responsabilités de la cible, alerte si saisies ouvertes |
 | `personne.decedee` | 4 | si la personne a un agent : PRS-35 proposé à la direction (jamais automatique) |
 | `personne.fusionnee` / `defusionnee` | 4 | rattacher l'agent à la personne conservée |
 | `passkey.enrolee`, `compte.premiere_connexion` | 1 | étapes de parcours cochées |
@@ -1205,7 +1205,7 @@ Les autres actions ajoutées utilisent `personnels.gerer`, `personnels.acces.ger
 | `materiel.restitue` | 44 | étape de départ |
 | `import.lot_applique` | 9 | propositions à traiter (STS-web, AAF) |
 
-**[personas]** Les noms de la colonne « Événement » ci-dessus (`annee.ouverte`, `annee.cloturee`, `classe.archivee`, `groupe.archive`) sont à remplacer par ceux qu'émet le socle 5 (`referentiel.annee_ouverte`, `referentiel.annee_cloturee`, `referentiel.classe_archivee`, `referentiel.groupe_ferme`) : R-P26.
+**[personas]** R-P26 **appliquée au lot P1** : le tableau ci-dessus porte désormais les noms qu'émet le socle 5 (`referentiel.annee_ouverte`, `referentiel.annee_cloturee`, `referentiel.classe_archivee`, `referentiel.groupe_ferme`) ; les constantes sont dans `ent_events::types` (`REFERENTIEL_*`). Aucun consommateur n'est écrit au lot P1 (ils arrivent avec P3 et P8).
 
 ### 15.3 Événements ajoutés [personas]
 
@@ -1415,3 +1415,33 @@ Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, 
 7. Les listes de destinataires (notifications, etc.) lisant `ent_membership` ne filtrent pas encore l'état : à reprendre au lot P1/P2.
 
 **Revue de sécurité du lot P0 (skill `security-review`, auto-revue Sonnet, 2026-11-08 ; pas une certification).** Examiné : connexion mot de passe / passkey / SSO, ouverture et lecture de session, jetons mobiles (mêmes sessions), commandes d'accès, provisionnement et réinitialisation, attributions de rôle, annuaire, jour d'établissement. Constats : (1) aucun chemin d'ouverture de session ne contourne `ent_acces_ouvert` (`issue_session` le revérifie) ; (2) la lecture de session relit l'état à chaque requête, donc une fermeture agit sans attendre la révocation ; (3) réponse de connexion identique pour accès suspendu et mauvais mot de passe (test) ; (4) cloisonnement : cible cherchée par (établissement, personne), refus uniforme 403, révocation limitée aux sessions de l'établissement (test avec second établissement) ; (5) aucun secret dans les réponses ni le journal (tests) ; (6) déclencheur du dernier administrateur sérialisé par verrou consultatif (test de course). Résidus acceptés : le réglage SQL `ent.purge_etablissement` désactive le garde-fou (jamais posé par l'application, accessible seulement à qui a déjà l'accès SQL) ; lectures `ent_membership` des listes de destinataires sans filtre d'état (point 7 ci-dessus) ; appareils push d'un accès échu par date non purgés (accès refusé de toute façon). Vérifications : tests ent-db du lot (6), ent-api du lot (4), `l3_*`, `api_*` (21), suite `separation` (42), gardes statiques d'isolation ; clippy sans erreur, sans avertissement nouveau sur les fichiers du lot.
+
+## 22. État du lot P1 « agents et engagements » (2026-11-08, branche `ent-socle-personnels-p1`, base `ent-socle-personnels-p0`)
+
+**Niveau : implémenté + testé en local ; non validé par la CI GitHub ni par Florian.** Migrations **352** (`352_agents.sql`), **353** (`353_agents_fonctions.sql`), **361** (`361_agent_identifiants.sql`) ; `MIGRATION_TAG` reste `370_edt_creneau_groupe` (plus haute du répertoire).
+
+| Exigence du lot | Réalisation | Test |
+|---|---|---|
+| Un agent par compte du personnel | déclencheur `ent_membership_agent_sync` (tout accès de profil non parent/élève reçoit personne + agent + engagement `a_preciser` + fonction principale déduite du profil, quel que soit le chemin de création) ; reprise idempotente dans 352/353 | `un_agent_par_compte_du_personnel_avec_fonction_principale`, `reprise_de_l_existant_…` |
+| Professeur-parent = une seule personne (socle 4) | la personne d'un compte est réutilisée (reprise et déclencheur) ; PRS-01 accepte une personne existante (responsable, contact) ; la recherche de correspondances est faite avant toute création | `professeur_parent_une_seule_personne`, `creation_cherche_les_correspondances_…` |
+| Maître sous contrat + salarié OGEC | exclusion de chevauchement par (agent, employeur, organisme, nature) (R-P1) ; alerte de qualité `meme_employeur_simultane` | `maitre_sous_contrat_et_salarie_ogec_…` |
+| Disponibilité / congé sans clôture | `ent_agent_engagement_suspension` (R-P4) ; accès coupé par `ent_agent_acces_suspendu` (tous les engagements courants suspendus avec accès coupé) aux quatre points de contrôle (`ent_acces_ouvert`, connexion, session, appartenance) ; levée sans nouvelle invitation | `disponibilite_ou_conge_…`, `suspension_d_un_engagement_le_maitre_garde_l_acces_…`, HTTP |
+| Ports | `personnels::agent_du_compte` (`PgEnt::agent_du_compte`, `agent_du_compte_tx`) ; `personnels::annuaire` (`annuaire_tx`, `annuaire_for_actor`) à trois niveaux de lecteur (interne, famille, élève) | `annuaire_parite_avec_l_existant_et_vue_des_familles` |
+| Actions `personnels.*`, moteur et oracle | `personnels.annuaire`, `.lire`, `.personnel.lire`, `.confidentiel.gerer`, `.gerer`, `.acces.gerer` ; oracle `Role::can_gerer_personnels` ; `provisionner_personnel` et `cible_compte_autorisee` lisent maintenant l'action (hiérarchie conservée) | `p1_modele_identique_aux_capacites_historiques` (ent-auth), `matrice_de_droits_serveur_et_roles_parametres` |
+| Cloisonnement, RLS, journal | clés étrangères composées, `TenantTx` pour toute commande, politique RLS sur les 9 tables, rôle non propriétaire testé ; journal et événements sans nom, sans coordonnée, sans motif | `isolation_entre_etablissements_…_rls`, `journal_et_evenements_sans_donnee_personnelle` |
+
+**Actions PRS couvertes.** PRS-01 (création, avec correspondances d'abord), 02 (identité, `personnels.gerer` **ou** `personnes.gerer`), 03 et 04 (ajout, modification, prolongation, fin avec motif codé R-P13, correction par annulation), 05 (fonctions, catalogue fourni + fonctions propres à l'établissement), 06 (disciplines), 07 (qualifications, codes R-P14), 08 (contact d'urgence, agent seul), 09 (visibilité de la photo et consentement daté), 10 (pause des notifications), 11 (identité restreinte), 12 (personnel mineur), 13 (fusion d'agents), PRS-147 (suspension d'engagement, R-P4). Identifiants externes (361) : ajout, clôture, recherche d'un agent par identifiant.
+
+**Écarts avec la conception, à valider par Florian.**
+1. **Contact d'urgence** : porté en clair sur la ligne de l'agent (nom, lien, téléphone), **pas** comme `ent_personne`. Une personne du socle 4 serait apparue dans la recherche de personnes du secrétariat, contraire à « visible de la direction seule ». Le téléphone n'est pas chiffré (le mécanisme `champs_chiffres` n'est pas branché) ; lecture par un tiers journalisée.
+2. **`modeles_roles_proposes UUID[]`** remplacé par `profil_propose` (profil de base) : les modèles de rôles propres à un établissement n'existent qu'au lot P4.
+3. **Photo (PRS-09)** : consentement daté et visibilité (collègues / élèves / familles) seulement ; le dépôt du fichier attend le socle 7. Aucune clé étrangère vers un document.
+4. **`ent_agent.etat` n'est pas stocké** : calculé (`ent_agent_etat(établissement, agent, jour)` : `prevu`, `actif`, `suspendu`, `parti`) ; `archive` est réservé au lot P13. Un accès fermé avec engagement courant se lit `parti`.
+5. **`employeur_organisme_id`** sans clé étrangère : `ent_organisme` (socle 4) n'existe pas encore.
+6. **Fusion d'agents (PRS-13)** : la fusion de personnes du socle 4 refuse désormais deux agents (« fusionner les agents ») ; un seul agent côté source suit la personne conservée et **revient à la défusion**. La défusion d'une fusion **d'agents** est refusée côté personnes (« liée à une fusion d'agents ») et **n'est pas livrée** au lot P1 (`agent_origine_id` garde la trace des engagements déplacés).
+7. **Reprise** : le téléphone du compte n'est **pas** copié sur la personne créée (minimisation §13.4) ; l'e-mail du compte l'est, en minuscules, sans usage `pro`/`perso` (qui n'existe pas encore au socle 4) : l'annuaire interne rend donc l'e-mail du compte, comme `/personnel/search`. L'engagement repris commence le jour de création de l'accès (jour de l'établissement) ; un accès fermé donne une fin à la date de fermeture, un accès à fin datée donne cette fin (jamais avant le début).
+8. **Secrétariat** : n'a PAS `personnels.gerer` par défaut (Q-P23 : comportement actuel conservé) ; il a `personnels.lire` et corrige l'identité par `personnes.gerer`. Un rôle paramétré peut lui ouvrir la gestion (testé).
+9. **Familles/élèves** : l'annuaire de leur niveau existe comme port (`NiveauAnnuaire::Famille` / `Eleve`, identité restreinte masquée, personnel mineur exclu, jamais d'e-mail ni de compte) ; aucune route ne l'expose encore (lot P11f, contrôle du lien actif).
+10. **Pas encore faits (lots suivants)** : fermeture automatique à la date de fin d'engagement (tâche quotidienne, P2/P7), réouverture sous 30 jours (R-P9), invitation (P2), casquette parent (P2) : un professeur-parent est une seule personne, mais la bascule de casquette n'est pas livrée. Les listes de destinataires qui lisent `ent_membership` sans filtre d'état (point 7 du lot P0) ne sont pas reprises ici.
+
+**Points de vigilance.** (a) Les personnes du personnel apparaissent désormais dans la recherche de correspondances du socle 4 (c'est voulu : « est-ce M. Martin, père de Léa ? »), mais une déclaration de famille dont le nom ou l'e-mail ressemble à un agent demande maintenant un rapprochement. (b) Le déclencheur est silencieux sur le profil `parent`/`eleve`. (c) `ent_acces_ouvert` et les quatre requêtes d'accès appellent `ent_agent_acces_suspendu` : une jointure supplémentaire par requête authentifiée (index `ent_personne_compte_uq`).
