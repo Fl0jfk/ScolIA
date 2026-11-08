@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 4, lot A2 « personnes et coordonnées » (2026-11-08, branche `ent-socle-administratif-a2`)
+Migrations 273–276, coordonnées datées portées par la fiche de la personne (historique qui/quand/pourquoi sans valeur), E.164, vérification par code, préférences et langue, consentements, divergences compte ↔ fiche rapportées (jamais écrasées), identité versionnée, séparation nom / prénom. Détail, limites et questions : `docs/socles/04_ADMINISTRATIF.md` §23. Testé en local (10 tests A2, matrice d'isolation du dossier) ; **non validé par Florian, pas encore par la CI GitHub**.
+
 ## Intégration du lot 8 bis (2026-11-07, branche `ent-integration-lot8b`, base `ENT` d1326cd = lot 7 validé par la CI GitHub)
 Fusions git réelles (`--no-ff`), dans l'ordre : `ent-socle-eleve-e3-e4` (socle 2, E0 à E4 ; migrations 240, 280–286), `ent-socle-administratif-a1` (socle 4, A0, A0 bis, A1 ; 260–272), `ent-socle-inscriptions-i1` (socle 3, I1 ; 300–301), `ent-d022-bis-enseignements` (D-022 et D-022 bis, déjà porteuse de `ent-d022-portee-groupes` : intégrée une seule fois ; 370). Non fusionnées, pour un lot suivant : `ent-recette-personas-1`, `ent-socle1-revue-faibles`, `ent-mobile-app`. `MIGRATION_TAG` = `370_edt_creneau_groupe` ; liste de `migrate.rs` en ordre croissant, égale au répertoire `migrations/`, aucune collision.
 - **Conflits et résolutions** :
