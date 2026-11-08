@@ -540,15 +540,52 @@ pub async fn annuler_creation_eleve_tx(
     dossier_id: Uuid,
     actor: Uuid,
 ) -> Result<bool, EntDbError> {
-    // La fiche créée par la validation n'a ni scolarisation (l'entrée n'a pas eu lieu), ni classe :
-    // elle est marquée `archive` dans le statut dérivé ; le statut hérité (`status`) n'est pas
-    // touché, ce qui évite d'ouvrir une scolarisation par le pont de l'ancien chemin.
+    // La fiche créée par la validation n'a ni classe ni vie propre. Depuis RP2-10, la validation
+    // ouvre la scolarisation « prévue » (source = ce dossier) : elle seule est admise ; toute autre
+    // scolarisation (saisie, autre dossier, sortie) rend l'annulation impossible. Une scolarisation
+    // ne se supprime jamais : celle du dossier est clôturée à durée nulle (sortie = entrée, motif
+    // « autre »), puis la fiche est marquée `archive`. Le statut hérité (`status`) n'est pas touché
+    // par l'archivage lui-même.
+    let annulable: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_eleve e
+                         WHERE e.etablissement_id = $1 AND e.id = $2 AND e.classe_id IS NULL
+                           AND e.status IN ('preinscrit', 'actif') AND e.date_sortie IS NULL
+                           AND NOT EXISTS (
+                               SELECT 1 FROM ent_eleve_scolarisation s
+                                WHERE s.etablissement_id = $1 AND s.eleve_id = $2
+                                  AND NOT (s.source IN ('admission', 'reinscription') AND s.source_ref = $3
+                                           AND s.date_sortie IS NULL)))",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if !annulable {
+        return Ok(false);
+    }
+    sqlx::query("SELECT set_config('ent.acteur_id', $1, true)")
+        .bind(actor.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    sqlx::query(
+        "UPDATE ent_eleve_scolarisation
+            SET date_sortie = date_entree, motif_sortie = 'autre',
+                motif_sortie_libre = 'Validation du dossier annulée', cloture_le = now(), cloture_par = $4
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND source_ref = $3 AND date_sortie IS NULL",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
     let r = sqlx::query(
         "UPDATE ent_eleve SET statut = 'archive', updated_at = now()
-          WHERE etablissement_id = $1 AND id = $2 AND status = 'preinscrit' AND classe_id IS NULL
-            AND date_sortie IS NULL
-            AND NOT EXISTS (SELECT 1 FROM ent_eleve_scolarisation s
-                             WHERE s.etablissement_id = $1 AND s.eleve_id = $2)",
+          WHERE etablissement_id = $1 AND id = $2 AND classe_id IS NULL",
     )
     .bind(etab)
     .bind(eleve_id)
