@@ -51,3 +51,14 @@ Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG`
 |---|---|---|---|
 | 3800–3899 | socle 8 notifications et diffusion (conception : `08_NOTIFICATIONS.md` §19 et §27), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3800–3810 attribuées (paramètres, avis et destinataires, remises et résumés, préférences et appareils, diffusions, urgences, budget SMS et SMS entrants, retours fournisseurs, gels et liens, vues, reprise), 3811–3889 réserve, 3890–3899 retrait des anciennes tables (055, 057, 058 pour les journaux d'envoi, `ent_notification` de 102, 190, 191) après la durée d'archive | `ent-socle-notifications-conception` (conception seulement) | réservé |
 | 400–419 | socle 8, **repli** si Q-B2 n'est pas adoptée (400–410 attribuées, 419 retrait) | `ent-socle-notifications-conception` (conception seulement) | réservé |
+
+## Réservations du 2026-11-08 (matin)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 273–276 | socle 4 A2 (personnes et coordonnées) | `ent-socle-administratif-a2` | en cours |
+| 287–289 | socle 2 E5 (propositions) | `ent-socle-eleve-e5` | fait |
+| 290–295 | socle 2 E6 (recherche, doublons, fusion) | `ent-socle-eleve-e6` | en cours |
+| 302–309 | socle 3 I2 (campagnes, dossiers) | `ent-socle-inscriptions-i2` | en cours |
+| 330–339 | socle 5 S0–S1 (structure, objet « cours ») | `ent-socle-structure-s0-s1` | en cours |
+| 3800–3899 | socle 8 notifications (conception) | — | réservé |
+| 3900–3999 | socle 9 interopérabilité (conception) | `ent-socle-interop-conception` | réservé |
