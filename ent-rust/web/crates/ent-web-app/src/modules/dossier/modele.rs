@@ -671,6 +671,7 @@ mod tests {
         // Aucun champ numéro ni copie : le corps ne contient que `piece`.
         let corps = serde_json::to_value(ent_types::dossier::ConfirmationGuichetBody {
             piece: "carte_identite".into(),
+            confirmation_direction: false,
         })
         .unwrap();
         let champs: Vec<&String> = corps.as_object().unwrap().keys().collect();

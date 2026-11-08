@@ -147,6 +147,7 @@ impl ApiClient {
     ) -> Result<ConfirmationGuichetDto, ApiError> {
         let c = corps(&ConfirmationGuichetBody {
             piece: piece.to_string(),
+            confirmation_direction: false,
         })?;
         self.appel(
             Methode::Post,

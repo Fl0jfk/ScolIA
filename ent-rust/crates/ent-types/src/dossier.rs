@@ -239,6 +239,10 @@ pub struct LienEnAttenteEleveDto {
 pub struct ConfirmationGuichetBody {
     /// `carte_identite`, `passeport`, `titre_sejour`, `permis_conduire`, `livret_famille`, `autre`.
     pub piece: String,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Réponse de la confirmation au guichet.
@@ -444,6 +448,10 @@ pub struct PersonneTrouveeDto {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompteBody {
     pub user_id: Uuid,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Corps de `POST /dossier/fusions`.
@@ -452,6 +460,10 @@ pub struct FusionBody {
     pub source_id: Uuid,
     pub cible_id: Uuid,
     pub motif: String,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Fusion de personnes (annulable 30 jours).

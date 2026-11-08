@@ -1204,10 +1204,36 @@ impl PgEnt {
         personne_id: Uuid,
         user_id: Uuid,
     ) -> Result<Personne, EntDbError> {
+        self.rattacher_compte_confirme(etab, actor, role, personne_id, user_id, false)
+            .await
+    }
+
+    /// RP2-04 : rattachement d'un compte, avec la confirmation explicite de la direction exigée
+    /// pour une personne « ne pas solliciter ».
+    pub async fn rattacher_compte_confirme(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        personne_id: Uuid,
+        user_id: Uuid,
+        confirmation_direction: bool,
+    ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        self.exiger_confirmation_ne_pas_solliciter(
+            &mut tx,
+            etab,
+            actor,
+            role,
+            &[personne_id],
+            confirmation_direction,
+            "rattachement_compte",
+            None,
+        )
+        .await?;
         let p = personne_tx(&mut tx, etab, personne_id, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1592,6 +1618,10 @@ impl PgEnt {
             .await?;
         self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.dossier_exiger_eleve(etab, eleve_id).await?;
+        // RP2-05 : un élève a toujours au moins un payeur ; un changement remplace la liste.
+        if payeurs.is_empty() {
+            return Err(invalide("au moins un payeur est requis (un changement remplace la liste)"));
+        }
         let liens = self.responsables_bruts(etab, eleve_id).await?;
         let mut vus = std::collections::HashSet::new();
         for (lien_id, part) in payeurs {
@@ -1882,6 +1912,23 @@ impl PgEnt {
         cible_id: Uuid,
         motif: &str,
     ) -> Result<FusionPersonne, EntDbError> {
+        self.fusionner_personnes_confirme(etab, actor, role, source_id, cible_id, motif, false)
+            .await
+    }
+
+    /// RP2-04 : fusion, avec la confirmation explicite de la direction exigée si l'une des deux
+    /// fiches est « ne pas solliciter » (la fusion peut lui ouvrir l'accès aux enfants).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fusionner_personnes_confirme(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        source_id: Uuid,
+        cible_id: Uuid,
+        motif: &str,
+        confirmation_direction: bool,
+    ) -> Result<FusionPersonne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesFusionner)
             .await?;
         let motif = motif.trim();
@@ -1895,6 +1942,17 @@ impl PgEnt {
         self.exiger_pas_de_conflit_personne(etab, actor, role, source_id).await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, cible_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        self.exiger_confirmation_ne_pas_solliciter(
+            &mut tx,
+            etab,
+            actor,
+            role,
+            &[source_id, cible_id],
+            confirmation_direction,
+            "fusion_personnes",
+            None,
+        )
+        .await?;
         // Verrous dans un ordre stable (pas d'interblocage entre deux fusions croisées).
         let (a, b) = if source_id < cible_id {
             (source_id, cible_id)

@@ -839,6 +839,11 @@ impl PgEnt {
         }
         let cible = agent_user_id.unwrap_or(actor);
         let origine = if cible == actor {
+            // RP2-14 : l'agent ne déclare que pour lui-même, sur un élève de son périmètre
+            // (un professeur : un élève qu'il suit) ; sinon refus (pas d'oracle d'existence).
+            if parsed == Role::Prof && !self.prof_suit_eleve(etab, actor, eleve_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
             "agent"
         } else {
             self.dossier_exiger_action(etab, actor, role, Action::ResponsablesProtegeGerer)
