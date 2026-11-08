@@ -22,7 +22,8 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 4. **La CI GitHub fait foi** pour valider une intégration : les conteneurs cloud redémarrent et coupent les suites longues (F-012). Les suites locales servent au développement, découpées par paquet pour être reprises.
 5. **Une seule file d'intégration**, dans l'ordre ; pas deux intégrations en parallèle sur des bases différentes.
 6. **Rien sur `ENT` sans les quatre jobs CI verts** (formatage, audits, backend, frontend) et un contrôle du pilote (journal des commits, `MIGRATION_TAG`, aucun test ignoré ajouté, décisions de Florian respectées).
-7. **Au plus 6 à 7 sessions actives** ; au-delà, la limite d'usage coupe tout.
+7. **Trois sessions actives en continu** (Florian, 2026-11-08) ; on peut en lancer une ou deux de plus quand les autres ne font qu'attendre un retour de CI ou de tests. On accélère en fin de semaine si le quota hebdomadaire reste large. Jamais plus de 6 à 7 : au-delà, la limite d'usage coupe tout.
+10. **Suivi toutes les 30 minutes** (rappel programmé) : voir ce que font les sessions, relancer la CI, archiver, remplacer une session finie ; ne jamais laisser les sessions sans travail.
 8. **Archiver une session** dès que son travail est poussé et qu'elle n'attend plus rien.
 9. **Tout ce qui compte s'écrit dans le dépôt** (décisions, état, leçons), jamais seulement dans une conversation.
 
