@@ -116,9 +116,13 @@ async fn invitation_matrice_de_droits_unicite_et_jeton_jamais_stocke() {
     // Pas d'invitation à soi-même ; pas d'URL publique : aucun jeton produit.
     let mut b = qr();
     b.canal = "sms".into();
-    assert!(ent.inviter_agent_for_actor(etab, dir, "direction", agent, &b, BASE).await.is_err());
+    assert!(ent
+        .inviter_agent_for_actor(etab, dir, "direction", agent, &b, BASE)
+        .await
+        .is_err());
     assert!(matches!(
-        ent.inviter_agent_for_actor(etab, dir, "direction", agent, &qr(), "").await,
+        ent.inviter_agent_for_actor(etab, dir, "direction", agent, &qr(), "")
+            .await,
         Err(EntDbError::EnvoiImpossible)
     ));
 
@@ -145,7 +149,10 @@ async fn invitation_matrice_de_droits_unicite_et_jeton_jamais_stocke() {
     .bind(dir)
     .execute(ent.pool())
     .await;
-    assert!(doublon.is_err(), "deux invitations en attente pour un même agent");
+    assert!(
+        doublon.is_err(),
+        "deux invitations en attente pour un même agent"
+    );
 
     // Le QR rend son lien une seule fois ; la base garde l'empreinte, la liste ne le rend plus.
     let emise = ent
@@ -258,9 +265,10 @@ async fn rls_invitations_et_casquettes_isolees_entre_etablissements() {
             .await
             .unwrap();
         assert_eq!(rien, 0, "{table} : lecture sans établissement");
-        let mut tx = crate::tenant_tx::TenantTx::begin_mode(&app, a, crate::tenant_tx::RlsMode::Strict)
-            .await
-            .unwrap();
+        let mut tx =
+            crate::tenant_tx::TenantTx::begin_mode(&app, a, crate::tenant_tx::RlsMode::Strict)
+                .await
+                .unwrap();
         let (chez_b,): (i64,) = sqlx::query_as(&format!(
             "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
         ))

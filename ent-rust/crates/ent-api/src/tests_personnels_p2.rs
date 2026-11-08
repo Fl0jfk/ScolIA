@@ -77,7 +77,14 @@ async fn accepter(
     for (k, v) in extra.as_object().unwrap() {
         corps[k] = v.clone();
     }
-    appel(app, "POST", "/invitations/personnel/accepter", session, Some(corps)).await
+    appel(
+        app,
+        "POST",
+        "/invitations/personnel/accepter",
+        session,
+        Some(corps),
+    )
+    .await
 }
 
 fn ne_contient_pas(v: &Value, secrets: &[&str]) {
@@ -104,8 +111,12 @@ async fn invitation_nouvelle_identite_passkey_obligatoire_et_aucun_secret() {
     assert_eq!(st, StatusCode::CREATED, "{inv}");
     assert_eq!(inv["etat"], "en_attente");
     assert_eq!(inv["canal"], "email");
-    assert!(inv["email_masque"].as_str().unwrap().contains("***@ent.local"));
-    let lien = lien_email(&ent, &courriel, "/invitation-personnel").expect("lien envoyé par e-mail");
+    assert!(inv["email_masque"]
+        .as_str()
+        .unwrap()
+        .contains("***@ent.local"));
+    let lien =
+        lien_email(&ent, &courriel, "/invitation-personnel").expect("lien envoyé par e-mail");
     assert_eq!(lien.len(), 96, "jeton hexadécimal de 96 caractères");
     ne_contient_pas(&inv, &[&lien, &courriel]);
 
@@ -118,14 +129,16 @@ async fn invitation_nouvelle_identite_passkey_obligatoire_et_aucun_secret() {
             .await
             .unwrap();
     assert_eq!(en_clair, 0, "le jeton n'est pas stocké en clair");
-    let (ligne,): (String,) = sqlx::query_as(
-        "SELECT to_jsonb(i)::text FROM ent_agent_invitation i WHERE id = $1",
-    )
-    .bind(Uuid::parse_str(inv["id"].as_str().unwrap()).unwrap())
-    .fetch_one(&p)
-    .await
-    .unwrap();
-    assert!(!ligne.contains(&lien), "aucune colonne ne contient le jeton");
+    let (ligne,): (String,) =
+        sqlx::query_as("SELECT to_jsonb(i)::text FROM ent_agent_invitation i WHERE id = $1")
+            .bind(Uuid::parse_str(inv["id"].as_str().unwrap()).unwrap())
+            .fetch_one(&p)
+            .await
+            .unwrap();
+    assert!(
+        !ligne.contains(&lien),
+        "aucune colonne ne contient le jeton"
+    );
 
     // La liste ne renvoie jamais le jeton.
     let (st, liste) = appel(
@@ -173,14 +186,26 @@ async fn invitation_nouvelle_identite_passkey_obligatoire_et_aucun_secret() {
     assert_eq!(ok["resultat"], "compte_cree");
     assert_eq!(ok["passkey_a_enroler"], true);
     ne_contient_pas(&ok, &[&lien, NOUVEAU_MDP, &courriel]);
-    assert!(ok.get("token").is_none() && ok.get("session").is_none(), "aucune session ouverte");
+    assert!(
+        ok.get("token").is_none() && ok.get("session").is_none(),
+        "aucune session ouverte"
+    );
 
     // Usage unique : le même lien est désormais refusé, comme un jeton inconnu.
     let (st, deja) = accepter(&app, &lien, None, json!({ "mot_de_passe": NOUVEAU_MDP })).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
-    let (st, inconnu) = accepter(&app, &"0".repeat(96), None, json!({ "mot_de_passe": NOUVEAU_MDP })).await;
+    let (st, inconnu) = accepter(
+        &app,
+        &"0".repeat(96),
+        None,
+        json!({ "mot_de_passe": NOUVEAU_MDP }),
+    )
+    .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
-    assert_eq!(deja, inconnu, "même réponse : aucun oracle sur l'état de l'invitation");
+    assert_eq!(
+        deja, inconnu,
+        "même réponse : aucun oracle sur l'état de l'invitation"
+    );
 
     // Connexion : passkey obligatoire pour la casquette personnel, même sans politique de
     // l'établissement. Session d'enrôlement seulement, puis session complète.
@@ -235,7 +260,10 @@ async fn invitation_nouvelle_identite_passkey_obligatoire_et_aucun_secret() {
     .unwrap();
     assert!(lignes.len() >= 2);
     for (l,) in &lignes {
-        assert!(!l.contains(&lien) && !l.contains(&courriel) && !l.contains(NOUVEAU_MDP), "{l}");
+        assert!(
+            !l.contains(&lien) && !l.contains(&courriel) && !l.contains(NOUVEAU_MDP),
+            "{l}"
+        );
     }
     let (evenements,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1
@@ -275,13 +303,30 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
         .execute(&p)
         .await
         .unwrap();
-    refusee(accepter(&app, &t1, None, json!({"mot_de_passe": NOUVEAU_MDP})).await.0);
     refusee(
-        appel(&app, "POST", "/invitations/personnel/consulter", None, Some(json!({"token": t1})))
+        accepter(&app, &t1, None, json!({"mot_de_passe": NOUVEAU_MDP}))
             .await
             .0,
     );
-    let (_, liste) = appel(&app, "GET", &format!("/personnels/agents/{a1}/invitations"), Some(dir), None).await;
+    refusee(
+        appel(
+            &app,
+            "POST",
+            "/invitations/personnel/consulter",
+            None,
+            Some(json!({"token": t1})),
+        )
+        .await
+        .0,
+    );
+    let (_, liste) = appel(
+        &app,
+        "GET",
+        &format!("/personnels/agents/{a1}/invitations"),
+        Some(dir),
+        None,
+    )
+    .await;
     assert_eq!(liste[0]["etat"], "expiree");
 
     // Annulée.
@@ -292,14 +337,21 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
     let (st, ann) = appel(
         &app,
         "POST",
-        &format!("/personnels/invitations/{}/annuler", i2["id"].as_str().unwrap()),
+        &format!(
+            "/personnels/invitations/{}/annuler",
+            i2["id"].as_str().unwrap()
+        ),
         Some(dir),
         None,
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{ann}");
     assert_eq!(ann["etat"], "annulee");
-    refusee(accepter(&app, &t2, None, json!({"mot_de_passe": NOUVEAU_MDP})).await.0);
+    refusee(
+        accepter(&app, &t2, None, json!({"mot_de_passe": NOUVEAU_MDP}))
+            .await
+            .0,
+    );
 
     // Relancée : l'ancien lien cesse de fonctionner, le nouveau marche.
     let c3 = adresse("relance");
@@ -310,7 +362,10 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
     let (st, r) = appel(
         &app,
         "POST",
-        &format!("/personnels/invitations/{}/relancer", i3["id"].as_str().unwrap()),
+        &format!(
+            "/personnels/invitations/{}/relancer",
+            i3["id"].as_str().unwrap()
+        ),
         Some(&cast.administratif.token),
         None,
     )
@@ -318,7 +373,11 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
     assert_eq!(st, StatusCode::CREATED, "{r}");
     let nouveau = lien_email(&ent, &c3, "/invitation-personnel").unwrap();
     assert_ne!(ancien, nouveau);
-    refusee(accepter(&app, &ancien, None, json!({"mot_de_passe": NOUVEAU_MDP})).await.0);
+    refusee(
+        accepter(&app, &ancien, None, json!({"mot_de_passe": NOUVEAU_MDP}))
+            .await
+            .0,
+    );
     let (st, _) = accepter(&app, &nouveau, None, json!({"mot_de_passe": NOUVEAU_MDP})).await;
     assert_eq!(st, StatusCode::OK);
     // Une invitation utilisée ne s'annule ni ne se relance.
@@ -326,7 +385,10 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
         let (st, _) = appel(
             &app,
             "POST",
-            &format!("/personnels/invitations/{}/{chemin}", r["id"].as_str().unwrap()),
+            &format!(
+                "/personnels/invitations/{}/{chemin}",
+                r["id"].as_str().unwrap()
+            ),
             Some(dir),
             None,
         )
@@ -344,10 +406,20 @@ async fn invitation_expiree_annulee_relancee_ou_utilisee_refusee_et_qr() {
     let lien = qr["lien"].as_str().expect("le QR porte son lien");
     let t4 = jeton_du_lien(lien);
     assert!(qr["invitation"]["email_masque"].is_null());
-    let cree = chrono::DateTime::parse_from_rfc3339(qr["invitation"]["cree_le"].as_str().unwrap()).unwrap();
-    let expire = chrono::DateTime::parse_from_rfc3339(qr["invitation"]["expire_le"].as_str().unwrap()).unwrap();
+    let cree = chrono::DateTime::parse_from_rfc3339(qr["invitation"]["cree_le"].as_str().unwrap())
+        .unwrap();
+    let expire =
+        chrono::DateTime::parse_from_rfc3339(qr["invitation"]["expire_le"].as_str().unwrap())
+            .unwrap();
     assert_eq!((expire - cree).num_minutes(), 10);
-    let (_, liste) = appel(&app, "GET", &format!("/personnels/agents/{a4}/invitations"), Some(dir), None).await;
+    let (_, liste) = appel(
+        &app,
+        "GET",
+        &format!("/personnels/agents/{a4}/invitations"),
+        Some(dir),
+        None,
+    )
+    .await;
     ne_contient_pas(&liste, &[&t4]);
     // Nouvelle identité par QR : l'adresse est saisie par la personne devant le secrétariat.
     let mail_qr = adresse("qr-saisie");
@@ -381,14 +453,13 @@ async fn parent_devenu_professeur(
     let etab = cast.etablissement_id;
     let parent = &cast.parent_lea;
     // Sa fiche « personne » (socle 4) : l'agent est créé SUR cette fiche (une seule personne).
-    let personne: (Uuid,) = sqlx::query_as(
-        "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2",
-    )
-    .bind(etab)
-    .bind(parent.user_id)
-    .fetch_one(&p)
-    .await
-    .expect("le parent du labo a une fiche personne");
+    let personne: (Uuid,) =
+        sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
+            .bind(etab)
+            .bind(parent.user_id)
+            .fetch_one(&p)
+            .await
+            .expect("le parent du labo a une fiche personne");
     let (st, b) = appel(
         app,
         "POST",
@@ -443,7 +514,10 @@ async fn parent_devenu_professeur(
     .fetch_one(&p)
     .await
     .unwrap();
-    assert_eq!(role, "parent", "pas de rattachement sans confirmation explicite");
+    assert_eq!(
+        role, "parent",
+        "pas de rattachement sans confirmation explicite"
+    );
     let (_, en_attente): (StatusCode, Value) = appel(
         app,
         "GET",
@@ -455,7 +529,13 @@ async fn parent_devenu_professeur(
     assert_eq!(en_attente[0]["etat"], "en_attente");
 
     // Confirmation explicite : rattachée, jamais fusionnée.
-    let (st, ok) = accepter(app, &lien, Some(&parent.token), json!({ "confirmer_rattachement": true })).await;
+    let (st, ok) = accepter(
+        app,
+        &lien,
+        Some(&parent.token),
+        json!({ "confirmer_rattachement": true }),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{ok}");
     assert_eq!(ok["resultat"], "identite_rattachee");
     assert_eq!(ok["casquettes"], json!(["personnel", "parent"]));
@@ -480,10 +560,16 @@ async fn parent_devenu_professeur(
     .fetch_one(&p)
     .await
     .unwrap();
-    assert_eq!((fiches, agents), (1, 1), "une seule personne, un seul agent");
+    assert_eq!(
+        (fiches, agents),
+        (1, 1),
+        "une seule personne, un seul agent"
+    );
     // Ses sessions de parent ont été révoquées (le profil a changé).
     assert_eq!(
-        appel(app, "GET", "/auth/me", Some(&parent.token), None).await.0,
+        appel(app, "GET", "/auth/me", Some(&parent.token), None)
+            .await
+            .0,
         StatusCode::UNAUTHORIZED
     );
     // Le lien est consommé.
@@ -508,8 +594,19 @@ async fn parent_devenu_professeur(
     };
     let (_, moi) = appel(app, "GET", "/auth/me", Some(&jeton), None).await;
     assert_eq!(moi["portee"], "enrolement");
-    let (st, _) = appel(app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "parent"}))).await;
-    assert_eq!(st, StatusCode::FORBIDDEN, "pas de bascule avant l'enrôlement de la passkey");
+    let (st, _) = appel(
+        app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "parent"})),
+    )
+    .await;
+    assert_eq!(
+        st,
+        StatusCode::FORBIDDEN,
+        "pas de bascule avant l'enrôlement de la passkey"
+    );
     let (st, r) = enroler(app, &jeton, Some(MDP), "Clé de test").await;
     assert!(st.is_success(), "{r}");
     (jeton, user)
@@ -548,7 +645,15 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
     assert_ne!(reference[4].0, StatusCode::OK, "pas l'enfant d'un autre");
     assert_eq!(reference[6].0, StatusCode::FORBIDDEN);
     assert_eq!(
-        appel(&app, "GET", "/personnels/moi/arrivee", Some(&cast.parent_lea.token), None).await.0,
+        appel(
+            &app,
+            "GET",
+            "/personnels/moi/arrivee",
+            Some(&cast.parent_lea.token),
+            None
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN,
         "un parent pur ne lit pas « préparer mon arrivée »"
     );
@@ -585,9 +690,16 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
         st != StatusCode::OK || !enfants.to_string().contains(&harry.to_string()),
         "casquette professeur : l'enfant n'est pas ouvert par le lien de parenté ({st} {enfants})"
     );
-    for route in [format!("/dossier/eleves/{harry}/responsables"), format!("/dossier/eleves/{harry}/fiche")] {
+    for route in [
+        format!("/dossier/eleves/{harry}/responsables"),
+        format!("/dossier/eleves/{harry}/fiche"),
+    ] {
         let (st, _) = appel(&app, "GET", &route, Some(&jeton), None).await;
-        assert_ne!(st, StatusCode::OK, "{route} : pas d'union des droits du parent et du professeur");
+        assert_ne!(
+            st,
+            StatusCode::OK,
+            "{route} : pas d'union des droits du parent et du professeur"
+        );
     }
     if let Some((absence_id,)) = absence {
         let (st, _) = appel(
@@ -598,11 +710,22 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
             Some(json!({"motif_justif": "maladie"})),
         )
         .await;
-        assert_eq!(st, StatusCode::FORBIDDEN, "un professeur ne justifie pas, même l'absence de son enfant");
+        assert_eq!(
+            st,
+            StatusCode::FORBIDDEN,
+            "un professeur ne justifie pas, même l'absence de son enfant"
+        );
     }
 
     // --- Bascule vers la casquette parent. -----------------------------------------------------
-    let (st, c) = appel(&app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "parent"}))).await;
+    let (st, c) = appel(
+        &app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "parent"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{c}");
     assert_eq!(c["casquettes"][1]["active"], true);
     let (_, moi) = appel(&app, "GET", "/auth/me", Some(&jeton), None).await;
@@ -611,27 +734,74 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
     // Mêmes réponses que le parent pur avant l'invitation : ni plus, ni moins.
     for (i, r) in routes_famille.iter().enumerate() {
         let (st, corps) = appel(&app, "GET", r, Some(&jeton), None).await;
-        assert_eq!(st, reference[i].0, "{r} : statut identique à celui d'un parent pur");
+        assert_eq!(
+            st, reference[i].0,
+            "{r} : statut identique à celui d'un parent pur"
+        );
         if r == "/famille/enfants" {
-            assert_eq!(corps, reference[i].1, "{r} : mêmes enfants que le parent pur");
+            assert_eq!(
+                corps, reference[i].1,
+                "{r} : mêmes enfants que le parent pur"
+            );
         }
     }
     // Les routes du personnel lui sont fermées dans cette casquette.
-    for r in ["/personnels/annuaire", "/eleves/search?q=a", "/personnels/moi/arrivee"] {
-        assert_eq!(appel(&app, "GET", r, Some(&jeton), None).await.0, StatusCode::FORBIDDEN, "{r}");
+    for r in [
+        "/personnels/annuaire",
+        "/eleves/search?q=a",
+        "/personnels/moi/arrivee",
+    ] {
+        assert_eq!(
+            appel(&app, "GET", r, Some(&jeton), None).await.0,
+            StatusCode::FORBIDDEN,
+            "{r}"
+        );
     }
-    let (st, _) = appel(&app, "POST", "/personnels/agents", Some(&jeton), Some(json!({}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/personnels/agents",
+        Some(&jeton),
+        Some(json!({})),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
     // Idempotent, et retour à la casquette personnel : droits de professeur de nouveau, plus ceux du parent.
-    let (st, _) = appel(&app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "parent"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "parent"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    let (st, _) = appel(&app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "principale"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "principale"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     let (_, moi) = appel(&app, "GET", "/auth/me", Some(&jeton), None).await;
     assert_eq!(moi["role"], "prof");
-    assert_eq!(appel(&app, "GET", "/personnels/annuaire", Some(&jeton), None).await.0, StatusCode::OK);
+    assert_eq!(
+        appel(&app, "GET", "/personnels/annuaire", Some(&jeton), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
     // Casquette inconnue.
-    let (st, _) = appel(&app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "admin"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "admin"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
 
     // Journal : « a consulté en tant que parent » se lit dans le journal des changements de casquette.
@@ -646,14 +816,24 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
 
     // Casquette parent fermée : la session qui l'endossait est invalidée, elle ne retombe pas
     // silencieusement sur la casquette personnel.
-    let (st, _) = appel(&app, "POST", "/auth/casquette", Some(&jeton), Some(json!({"casquette": "parent"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/casquette",
+        Some(&jeton),
+        Some(json!({"casquette": "parent"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     sqlx::query("UPDATE ent_membership_casquette SET etat = 'ferme' WHERE etablissement_id = $1 AND casquette = 'parent'")
         .bind(cast.etablissement_id)
         .execute(&p)
         .await
         .unwrap();
-    assert_eq!(appel(&app, "GET", "/auth/me", Some(&jeton), None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        appel(&app, "GET", "/auth/me", Some(&jeton), None).await.0,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[tokio::test]
@@ -668,7 +848,13 @@ async fn deux_fiches_pour_un_compte_exigent_la_fusion_pas_un_rattachement_silenc
     let etab = cast.etablissement_id;
     // La direction crée une NOUVELLE fiche (même adresse que le compte parent) au lieu de réutiliser
     // la fiche du parent : deux fiches pour une seule personne réelle.
-    let agent = agent_neuf(&app, &cast.direction.token, &cast.parent_lea.email, "Doublon").await;
+    let agent = agent_neuf(
+        &app,
+        &cast.direction.token,
+        &cast.parent_lea.email,
+        "Doublon",
+    )
+    .await;
     ent.mailer().clear_receipts();
     let (st, inv) = inviter(&app, &cast.direction.token, agent, "email", "prof").await;
     assert_eq!(st, StatusCode::CREATED, "{inv}");
@@ -692,7 +878,9 @@ async fn deux_fiches_pour_un_compte_exigent_la_fusion_pas_un_rattachement_silenc
     .unwrap();
     assert_eq!(role, "parent");
     assert_eq!(
-        appel(&app, "GET", "/auth/me", Some(&cast.parent_lea.token), None).await.0,
+        appel(&app, "GET", "/auth/me", Some(&cast.parent_lea.token), None)
+            .await
+            .0,
         StatusCode::OK
     );
     let (_, liste) = appel(
@@ -731,7 +919,14 @@ async fn acces_reduit_avant_la_date_d_arrivee_puis_ouverture_complete() {
     let (st, _) = inviter(&app, dir, agent, "email", "prof").await;
     assert_eq!(st, StatusCode::CREATED);
     let lien = lien_email(&ent, &courriel, "/invitation-personnel").unwrap();
-    let (_, ap) = appel(&app, "POST", "/invitations/personnel/consulter", None, Some(json!({"token": lien}))).await;
+    let (_, ap) = appel(
+        &app,
+        "POST",
+        "/invitations/personnel/consulter",
+        None,
+        Some(json!({"token": lien})),
+    )
+    .await;
     assert_eq!(ap["avant_arrivee"], true);
     let (st, ok) = accepter(&app, &lien, None, json!({"mot_de_passe": NOUVEAU_MDP})).await;
     assert_eq!(st, StatusCode::OK, "{ok}");
@@ -763,10 +958,18 @@ async fn acces_reduit_avant_la_date_d_arrivee_puis_ouverture_complete() {
     ] {
         let (st, m) = appel(&app, "GET", &route, Some(&jeton), None).await;
         assert_eq!(st, StatusCode::FORBIDDEN, "{route} : {m}");
-        assert!(m.to_string().contains("arrivee_pas_commencee") || m == json!({}), "{route}");
+        assert!(
+            m.to_string().contains("arrivee_pas_commencee") || m == json!({}),
+            "{route}"
+        );
     }
     // Le signalement d'arrivée n'a rien à signaler tant que l'engagement n'a pas commencé.
-    assert_eq!(ent.signaler_arrivees_du_jour(cast.etablissement_id).await.unwrap(), 0);
+    assert_eq!(
+        ent.signaler_arrivees_du_jour(cast.etablissement_id)
+            .await
+            .unwrap(),
+        0
+    );
 
     // Le matin de la date d'arrivée : la même session ouvre tout, sans nouvelle connexion.
     sqlx::query(
@@ -782,8 +985,18 @@ async fn acces_reduit_avant_la_date_d_arrivee_puis_ouverture_complete() {
     let (st, _) = appel(&app, "GET", "/eleves/search?q=a", Some(&jeton), None).await;
     assert_ne!(st, StatusCode::FORBIDDEN);
     // Signalement : une seule fois (idempotent).
-    assert_eq!(ent.signaler_arrivees_du_jour(cast.etablissement_id).await.unwrap(), 1);
-    assert_eq!(ent.signaler_arrivees_du_jour(cast.etablissement_id).await.unwrap(), 0);
+    assert_eq!(
+        ent.signaler_arrivees_du_jour(cast.etablissement_id)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        ent.signaler_arrivees_du_jour(cast.etablissement_id)
+            .await
+            .unwrap(),
+        0
+    );
 }
 
 async fn connecter_avec(app: &axum::Router, etab: Uuid, email: &str, mdp: &str) -> (String, Uuid) {
@@ -818,23 +1031,57 @@ async fn invitations_cloisonnees_par_etablissement_et_lot() {
     let id = inv["id"].as_str().unwrap();
 
     // La direction de B ne voit, n'annule ni ne relance rien chez A (404 uniforme / 403).
-    let (st, _) = appel(&app, "GET", &format!("/personnels/agents/{agent}/invitations"), Some(&b.direction.token), None).await;
+    let (st, _) = appel(
+        &app,
+        "GET",
+        &format!("/personnels/agents/{agent}/invitations"),
+        Some(&b.direction.token),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::NOT_FOUND);
     for chemin in ["annuler", "relancer"] {
-        let (st, _) = appel(&app, "POST", &format!("/personnels/invitations/{id}/{chemin}"), Some(&b.direction.token), None).await;
+        let (st, _) = appel(
+            &app,
+            "POST",
+            &format!("/personnels/invitations/{id}/{chemin}"),
+            Some(&b.direction.token),
+            None,
+        )
+        .await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{chemin}");
     }
     let (st, _) = inviter(&app, &b.direction.token, agent, "email", "prof").await;
-    assert_eq!(st, StatusCode::NOT_FOUND, "inviter l'agent d'un autre établissement");
+    assert_eq!(
+        st,
+        StatusCode::NOT_FOUND,
+        "inviter l'agent d'un autre établissement"
+    );
     // Un jeton dont le préfixe d'établissement est falsifié ne trouve rien.
     let falsifie = format!("{}{}", b.etablissement_id.simple(), &lien[32..]);
     assert_eq!(
-        appel(&app, "POST", "/invitations/personnel/consulter", None, Some(json!({"token": falsifie}))).await.0,
+        appel(
+            &app,
+            "POST",
+            "/invitations/personnel/consulter",
+            None,
+            Some(json!({"token": falsifie}))
+        )
+        .await
+        .0,
         StatusCode::BAD_REQUEST
     );
     // L'invitation de A reste valable.
     assert_eq!(
-        appel(&app, "POST", "/invitations/personnel/consulter", None, Some(json!({"token": lien}))).await.0,
+        appel(
+            &app,
+            "POST",
+            "/invitations/personnel/consulter",
+            None,
+            Some(json!({"token": lien}))
+        )
+        .await
+        .0,
         StatusCode::OK
     );
 
@@ -852,22 +1099,55 @@ async fn invitations_cloisonnees_par_etablissement_et_lot() {
     let sans = Uuid::parse_str(sans["agent_id"].as_str().unwrap()).unwrap();
     let inconnu = Uuid::new_v4();
     let corps = json!({ "agent_ids": [avec, sans, inconnu], "profil": "prof", "apercu": true });
-    let (st, apercu) = appel(&app, "POST", "/personnels/invitations/lot", Some(&a.administratif.token), Some(corps)).await;
+    let (st, apercu) = appel(
+        &app,
+        "POST",
+        "/personnels/invitations/lot",
+        Some(&a.administratif.token),
+        Some(corps),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{apercu}");
     let res = |v: &Value, id: Uuid| {
-        v.as_array().unwrap().iter().find(|l| l["agent_id"] == json!(id)).unwrap()["resultat"].clone()
+        v.as_array()
+            .unwrap()
+            .iter()
+            .find(|l| l["agent_id"] == json!(id))
+            .unwrap()["resultat"]
+            .clone()
     };
     assert_eq!(res(&apercu, avec), "a_envoyer");
     assert_eq!(res(&apercu, sans), "adresse_manquante");
     assert_eq!(res(&apercu, inconnu), "introuvable");
-    let (_, liste) = appel(&app, "GET", &format!("/personnels/agents/{avec}/invitations"), Some(&a.direction.token), None).await;
+    let (_, liste) = appel(
+        &app,
+        "GET",
+        &format!("/personnels/agents/{avec}/invitations"),
+        Some(&a.direction.token),
+        None,
+    )
+    .await;
     assert_eq!(liste.as_array().unwrap().len(), 0, "l'aperçu n'écrit rien");
     let corps = json!({ "agent_ids": [avec, sans, inconnu], "profil": "prof" });
-    let (st, envoi) = appel(&app, "POST", "/personnels/invitations/lot", Some(&a.administratif.token), Some(corps)).await;
+    let (st, envoi) = appel(
+        &app,
+        "POST",
+        "/personnels/invitations/lot",
+        Some(&a.administratif.token),
+        Some(corps),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{envoi}");
     assert_eq!(res(&envoi, avec), "envoyee");
     assert_eq!(res(&envoi, sans), "adresse_manquante");
-    let (_, liste) = appel(&app, "GET", &format!("/personnels/agents/{avec}/invitations"), Some(&a.direction.token), None).await;
+    let (_, liste) = appel(
+        &app,
+        "GET",
+        &format!("/personnels/agents/{avec}/invitations"),
+        Some(&a.direction.token),
+        None,
+    )
+    .await;
     assert_eq!(liste.as_array().unwrap().len(), 1);
     // Lot : profil hors hiérarchie refusé en bloc.
     let (st, _) = appel(

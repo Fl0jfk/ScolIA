@@ -43,7 +43,9 @@ use uuid::Uuid;
 use crate::auth_repo::{AssuranceSession, PorteeSession, SessionInfo};
 use crate::dossier_personnes::aujourdhui_tx;
 use crate::outbox::Publier;
-use crate::personnels::{agent_tx, conflit, db, ecriture, introuvable, invalide, journal_tx, publier_tx};
+use crate::personnels::{
+    agent_tx, conflit, db, ecriture, introuvable, invalide, journal_tx, publier_tx,
+};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
@@ -124,7 +126,11 @@ fn nouveau_jeton(etab: Uuid) -> (String, String) {
 /// toucher la base. Renvoie l'établissement porté par le jeton et l'empreinte.
 fn lire_jeton(brut: &str) -> Option<(Uuid, String)> {
     let brut = brut.trim();
-    if brut.len() != 96 || !brut.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) {
+    if brut.len() != 96
+        || !brut
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
         return None;
     }
     let etab = Uuid::parse_str(&brut[..32]).ok()?;
@@ -162,7 +168,8 @@ struct LigneInvitation {
     rattachement_identite_existante: bool,
 }
 
-const COLONNES_INVITATION: &str = "i.id, i.agent_id, i.canal, i.email_cible, i.profil_base, i.cree_le,
+const COLONNES_INVITATION: &str =
+    "i.id, i.agent_id, i.canal, i.email_cible, i.profil_base, i.cree_le,
     i.expire_le, i.utilisee_le, i.annulee_le, i.rattachement_identite_existante";
 
 fn dto(l: &LigneInvitation, maintenant: DateTime<Utc>) -> InvitationDto {
@@ -218,7 +225,10 @@ async fn personne_de_l_agent(
 }
 
 /// Compte (n'importe quel établissement) qui porte cette adresse.
-async fn compte_par_email(conn: &mut PgConnection, email: &str) -> Result<Option<Uuid>, EntDbError> {
+async fn compte_par_email(
+    conn: &mut PgConnection,
+    email: &str,
+) -> Result<Option<Uuid>, EntDbError> {
     let row: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = $1")
         .bind(email)
         .fetch_optional(conn)
@@ -388,7 +398,9 @@ impl PgEnt {
     ) -> Result<InvitationEmise, EntDbError> {
         self.exiger_personnels(etab, actor, actor_role, Action::PersonnelsInviter)
             .await?;
-        let profil = self.profil_invitable(etab, actor, actor_role, &body.profil).await?;
+        let profil = self
+            .profil_invitable(etab, actor, actor_role, &body.profil)
+            .await?;
         let canal = match body.canal.as_str() {
             "email" | "qr" => body.canal.as_str(),
             _ => return Err(invalide("Canal inconnu : « email » ou « qr ».")),
@@ -399,10 +411,20 @@ impl PgEnt {
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (brut, ligne) = self
-            .preparer_et_emettre_tx(&mut tx, etab, actor, agent_id, canal, profil, body.email.as_deref(), None)
+            .preparer_et_emettre_tx(
+                &mut tx,
+                etab,
+                actor,
+                agent_id,
+                canal,
+                profil,
+                body.email.as_deref(),
+                None,
+            )
             .await?;
         tx.commit().await.map_err(db)?;
-        self.livrer_invitation(etab, actor, canal, ligne, brut, public_base_url).await
+        self.livrer_invitation(etab, actor, canal, ligne, brut, public_base_url)
+            .await
     }
 
     /// Contrôles propres à une cible, puis émission (partagé par l'invitation simple, le lot et la relance).
@@ -456,8 +478,17 @@ impl PgEnt {
         } else {
             None
         };
-        self.emettre_invitation_tx(tx, etab, actor, agent_id, canal, profil, email.as_deref(), relance_de)
-            .await
+        self.emettre_invitation_tx(
+            tx,
+            etab,
+            actor,
+            agent_id,
+            canal,
+            profil,
+            email.as_deref(),
+            relance_de,
+        )
+        .await
     }
 
     /// Après validation de la transaction : envoie le lien (e-mail) ou le rend (QR). Un envoi qui
@@ -607,7 +638,9 @@ impl PgEnt {
         if l.utilisee_le.is_some() {
             return Err(conflit("Cette invitation a déjà été utilisée."));
         }
-        let profil = self.profil_invitable(etab, actor, actor_role, &l.profil_base).await?;
+        let profil = self
+            .profil_invitable(etab, actor, actor_role, &l.profil_base)
+            .await?;
         if l.canal == "email" && !self.mailer().is_ready() {
             return Err(EntDbError::EnvoiImpossible);
         }
@@ -625,7 +658,8 @@ impl PgEnt {
             .await?;
         tx.commit().await.map_err(db)?;
         let canal = l.canal.clone();
-        self.livrer_invitation(etab, actor, &canal, nouvelle, brut, public_base_url).await
+        self.livrer_invitation(etab, actor, &canal, nouvelle, brut, public_base_url)
+            .await
     }
 
     /// PRS-22 : inviter en lot (par e-mail). L'aperçu ne fait aucune écriture et liste les adresses
@@ -640,7 +674,9 @@ impl PgEnt {
     ) -> Result<Vec<InvitationLotLigneDto>, EntDbError> {
         self.exiger_personnels(etab, actor, actor_role, Action::PersonnelsInviter)
             .await?;
-        let profil = self.profil_invitable(etab, actor, actor_role, &body.profil).await?;
+        let profil = self
+            .profil_invitable(etab, actor, actor_role, &body.profil)
+            .await?;
         if body.agent_ids.is_empty() || body.agent_ids.len() > 200 {
             return Err(invalide("Un lot compte de 1 à 200 agents."));
         }
@@ -718,14 +754,27 @@ impl PgEnt {
                 }
             }
         }
-        let Some(adresse) = personne.email.as_deref().filter(|e| normalize_email(e).is_ok()) else {
+        let Some(adresse) = personne
+            .email
+            .as_deref()
+            .filter(|e| normalize_email(e).is_ok())
+        else {
             return "adresse_manquante";
         };
         if apercu {
             return "a_envoyer";
         }
         match self
-            .preparer_et_emettre_tx(&mut tx, etab, actor, agent_id, "email", profil, Some(adresse), None)
+            .preparer_et_emettre_tx(
+                &mut tx,
+                etab,
+                actor,
+                agent_id,
+                "email",
+                profil,
+                Some(adresse),
+                None,
+            )
             .await
         {
             Ok((brut, ligne)) => {
@@ -771,7 +820,10 @@ impl PgEnt {
     }
 
     /// Aperçu pour la personne qui détient le lien. Toute invitation non valide : même réponse.
-    pub async fn invitation_personnel_apercu(&self, jeton: &str) -> Result<InvitationApercuDto, EntDbError> {
+    pub async fn invitation_personnel_apercu(
+        &self,
+        jeton: &str,
+    ) -> Result<InvitationApercuDto, EntDbError> {
         let invalide_ = || invalide(MSG_INVITATION_INVALIDE);
         let (etab, empreinte) = lire_jeton(jeton).ok_or_else(invalide_)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -787,7 +839,8 @@ impl PgEnt {
         .map_err(db)?
         .ok_or_else(invalide_)?;
         let personne = personne_de_l_agent(&mut tx, etab, l.agent_id).await?;
-        let existant = Self::compte_vise_tx(&mut tx, &personne, l.email_cible.as_deref(), None).await?;
+        let existant =
+            Self::compte_vise_tx(&mut tx, &personne, l.email_cible.as_deref(), None).await?;
         let (avant,): (bool,) = sqlx::query_as(
             "SELECT NOT EXISTS (SELECT 1 FROM ent_agent_engagement e
                                  WHERE e.etablissement_id = $1 AND e.agent_id = $2 AND e.annule_le IS NULL
@@ -895,9 +948,12 @@ impl PgEnt {
                     .email_cible
                     .clone()
                     .or_else(|| corps.email.clone())
-                    .ok_or(ErreurAcceptation::MotDePasse("Adresse e-mail requise.".into()))?;
-                let adresse = normalize_email(&adresse)
-                    .map_err(|_| ErreurAcceptation::MotDePasse("Adresse e-mail invalide.".into()))?;
+                    .ok_or(ErreurAcceptation::MotDePasse(
+                        "Adresse e-mail requise.".into(),
+                    ))?;
+                let adresse = normalize_email(&adresse).map_err(|_| {
+                    ErreurAcceptation::MotDePasse("Adresse e-mail invalide.".into())
+                })?;
                 let hash = hash_password(mdp).map_err(|_| ErreurAcceptation::Invalide)?;
                 let nom = corps
                     .nom_affiche
@@ -1097,7 +1153,12 @@ impl PgEnt {
             casquettes.push("parent".to_string());
         }
         Ok(InvitationAccepteeDto {
-            resultat: if identite_existante { "identite_rattachee" } else { "compte_cree" }.into(),
+            resultat: if identite_existante {
+                "identite_rattachee"
+            } else {
+                "compte_cree"
+            }
+            .into(),
             etablissement_id: etab,
             passkey_a_enroler: true,
             avant_arrivee: avant,
@@ -1381,14 +1442,13 @@ async fn casquette_parent_disponible_tx(
     if existe {
         return Ok(false);
     }
-    let personne: Option<(Uuid,)> = sqlx::query_as(
-        "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2",
-    )
-    .bind(etab)
-    .bind(user_id)
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(db)?;
+    let personne: Option<(Uuid,)> =
+        sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
+            .bind(etab)
+            .bind(user_id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?;
     let Some((personne_id,)) = personne else {
         return Ok(false);
     };
@@ -1465,7 +1525,14 @@ mod tests_unitaires {
         assert_eq!(e, etab);
         assert_eq!(h, empreinte);
         assert_ne!(brut, empreinte, "l'empreinte n'est pas le jeton");
-        for mauvais in ["", "abc", &brut[..95], &brut.to_uppercase(), &format!("{brut}0"), &"0".repeat(96)] {
+        for mauvais in [
+            "",
+            "abc",
+            &brut[..95],
+            &brut.to_uppercase(),
+            &format!("{brut}0"),
+            &"0".repeat(96),
+        ] {
             assert!(lire_jeton(mauvais).is_none(), "{mauvais}");
         }
     }
