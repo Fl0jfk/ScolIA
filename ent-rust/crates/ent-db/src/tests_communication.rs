@@ -990,6 +990,27 @@ async fn consentement_droit_a_l_image_applique_au_trombinoscope() {
     reset(&ent, etab).await;
 }
 
+/// L'identité ne s'écrit plus directement (E2) : la date de naissance se fixe par une
+/// correction versionnée, jamais par un `UPDATE ent_eleve`.
+async fn fixer_naissance(ent: &PgEnt, etab: Uuid, acteur: Uuid, role: &str, eleve: Uuid, date: Option<chrono::NaiveDate>) {
+    ent.corriger_identite(
+        role,
+        crate::identite::CorrectionIdentite {
+            etablissement_id: etab,
+            eleve_id: eleve,
+            version_id: None,
+            modif: domain_eleve::ModifIdentite { date_naissance: Some(date), ..Default::default() },
+            motif_code: "faute_de_frappe".into(),
+            motif: None,
+            piece_document_id: None,
+            source: "saisie".into(),
+            acteur,
+        },
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn eleve_majeur_signe_lui_meme_et_sondage() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
@@ -1003,12 +1024,8 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
     ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "refuse")).await.unwrap();
     assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     // L'élève devient majeur : les responsables ne signent plus, leur refus ne compte plus.
-    sqlx::query("UPDATE ent_eleve SET date_naissance = current_date - INTERVAL '19 years' WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(harry)
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    let majeur = (Utc::now() - Duration::days(19 * 366)).date_naive();
+    fixer_naissance(&ent, etab, adm, role, harry, Some(majeur)).await;
     assert!(ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "accepte")).await.is_err());
     assert!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().is_empty(), "parents sans effet sur un majeur");
     // Son compte élève signe pour lui-même.
@@ -1022,12 +1039,7 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
         ent.repondre_formulaire(etab, eleve_user, f.id, reponse(harry, "refuse")).await.unwrap();
         assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     }
-    sqlx::query("UPDATE ent_eleve SET date_naissance = NULL WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(harry)
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    fixer_naissance(&ent, etab, adm, role, harry, None).await;
     // Sondage : pas d'objet, pas de retrait ; résultat agrégé.
     let s = ent
         .creer_formulaire(
