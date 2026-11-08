@@ -13,6 +13,9 @@ Code, **testé en local** (détail, écarts et points à valider : `docs/socles/
 **Non fait** (hors lot) : rapprochement des imports (§8.3) et création d'élève depuis un import (IOP-L1), cibles scolarisation / inscription / coordonnée / photo (E7), écrans (E9d, E9f), notification du déposant. **Échec préexistant sans lien** : `tests_communication::eleve_majeur_signe_lui_meme_et_sondage` écrit directement `ent_eleve.date_naissance`, refusé par la garde d'identité d'E2 (intégration du lot 8 bis) — test à corriger par le pilote.
 
 
+## Socle 5 — lots S0 et S1 (2026-11-08, branche `ent-socle-structure-s0-s1`, base `ent-integration-lot8b` 540d319)
+Correctifs de l'existant (S0) et objet unique « cours » avec règle de visibilité unique (S1) ; détail et limites : `docs/socles/05_STRUCTURE.md` §21. Migrations 330 et 331 (registre : `docs/socles/MIGRATIONS.md`), `MIGRATION_TAG` inchangé. **Niveau : implémenté + testé en local ; non validé CI ni Florian.** À valider par Florian : le cours = ligne de service enrichie (Q-S20) ; triggers de cohérence plutôt que clés composées ; ouverture d'année refusée sans `forcer` quand des périodes de notes sont ouvertes (écran à adapter).
+
 ## Intégration du lot 8 bis (2026-11-07, branche `ent-integration-lot8b`, base `ENT` d1326cd = lot 7 validé par la CI GitHub)
 Fusions git réelles (`--no-ff`), dans l'ordre : `ent-socle-eleve-e3-e4` (socle 2, E0 à E4 ; migrations 240, 280–286), `ent-socle-administratif-a1` (socle 4, A0, A0 bis, A1 ; 260–272), `ent-socle-inscriptions-i1` (socle 3, I1 ; 300–301), `ent-d022-bis-enseignements` (D-022 et D-022 bis, déjà porteuse de `ent-d022-portee-groupes` : intégrée une seule fois ; 370). Non fusionnées, pour un lot suivant : `ent-recette-personas-1`, `ent-socle1-revue-faibles`, `ent-mobile-app`. `MIGRATION_TAG` = `370_edt_creneau_groupe` ; liste de `migrate.rs` en ordre croissant, égale au répertoire `migrations/`, aucune collision.
 - **Conflits et résolutions** :
@@ -33,6 +36,7 @@ Première recette D-021 (4) : serveur labo local, deux établissements, 20 perso
 
 ## Socle 9 « interopérabilité nationale et identité fédérée » — conception (2026-11-08, branche `ent-socle-interop-conception`)
 Conception seulement, **non décidée**, aucun code : `docs/socles/09_INTEROP.md` (prolonge `docs/INTEROPERABILITE_NATIONALE.md`). Évaluation sur `ent-integration-lot8b` : moteur d'import 144 bien orienté (prévisualisation, rejets, jamais d'écrasement) mais qui écrit directement dans les tables de l'élève et ne lit qu'un CSV maison ; cinq exports « nationaux » en CSV maison et un XML LSU inventé à l'espace de noms d'allure officielle (à neutraliser, lot X0) ; SSO OIDC réutilisable mais rattaché par e-mail ; iCal non abonnable. Proposé : brique `echanges` (connecteurs déclarés, propositions dans les domaines, mémoire de la source et différence à trois voies, garde-fous UAI/année/volume, exports pré-contrôlés, figés, tracés, retours bouclés), référentiels globaux, guichet central de fédération et rattachement par jointure ou code, ScolIA fournisseur d'identité pour le GAR, annuaires sortants, calendriers. 57 fiches de flux, 118 actions `ITP-xx`, 15 droits, lots X0–X19, 16 démarches hors code (chemin critique : contrats ÉduConnect, GAR, agrément BEE, validation LSU/LSL), 32 questions. Migrations réservées 3900–3999 (repli 420–439). **Aucune page officielle n'a pu être ouverte** (réseau) : formats marqués [NV], à vérifier avant tout code.
+
 
 
 ## Socle 8 « notifications et diffusion » — conception (2026-11-07, branche `ent-socle-notifications-conception`)

@@ -239,15 +239,25 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
-        if courante {
-            sqlx::query(
-                "UPDATE ent_annee_scolaire SET courante = false
-                 WHERE etablissement_id = $1 AND courante",
-            )
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(etablissement_id)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        if courante {
+            // Socle 5 S0 (défaut n° 5) : cette ancienne route ne retire plus la courante sans
+            // la clôturer ; elle ne peut poser « courante » que s'il n'y en a pas encore. Pour
+            // changer d'année : préparer, puis ouvrir (REF-02).
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante)",
+            )
+            .bind(etablissement_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if existe {
+                return Err(EntDbError::Domain(DomainError::Conflit));
+            }
         }
         let a = sqlx::query_as::<_, AnneeScolaire>(
             "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
@@ -511,7 +521,20 @@ impl PgEnt {
         prof_user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<ClasseResume>, EntDbError> {
-        let annee = self.referentiel_assurer_annee(etablissement_id, jour).await?;
+        // Lecture seule (S0 n° 3) : jamais de création d'année ; aucune année à cette date = liste vide.
+        let Some(annee_id): Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_annee_scolaire
+              WHERE etablissement_id = $1 AND date_debut <= $2 AND date_fin >= $2
+              ORDER BY courante DESC, date_debut DESC LIMIT 1",
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?
+        else {
+            return Ok(Vec::new());
+        };
         sqlx::query_as::<_, ClasseResume>(&format!(
             "SELECT {COLONNES_CLASSE_RESUME} FROM ent_classe c
              WHERE c.etablissement_id = $1 AND c.annee_id = $2
@@ -525,7 +548,7 @@ impl PgEnt {
              ORDER BY c.code"
         ))
         .bind(etablissement_id)
-        .bind(annee.id)
+        .bind(annee_id)
         .bind(jour)
         .bind(prof_user_id)
         .fetch_all(self.pool())
@@ -1137,21 +1160,7 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<bool, EntDbError> {
         let (ok,): (bool,) = sqlx::query_as(
-            "SELECT EXISTS (
-               SELECT 1
-                 FROM ent_service_enseignement s
-                 JOIN ent_annee_scolaire y
-                   ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
-                 JOIN ent_affectation a
-                   ON a.etablissement_id = s.etablissement_id AND a.annee_id = s.annee_id
-                  AND ((s.classe_id IS NOT NULL AND a.classe_id = s.classe_id)
-                    OR (s.groupe_id IS NOT NULL AND a.groupe_id = s.groupe_id))
-                 JOIN ent_eleve e
-                   ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
-                WHERE s.etablissement_id = $1 AND s.prof_user_id = $2 AND a.eleve_id = $3
-                  AND y.date_debut <= $4 AND y.date_fin >= $4
-                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
-                  AND (e.date_sortie IS NULL OR e.date_sortie > $4))",
+            "SELECT EXISTS (SELECT 1 FROM ent_public_cours_jour($1, $4, NULL, $2, $3))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)

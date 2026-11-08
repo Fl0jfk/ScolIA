@@ -13,7 +13,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::{
-    AnneeDetail, ComparaisonClasse, CreneauGrille, CreneauGrilleSaisie, JourCalendrier, Mef,
+    cours::CoursMembre, AnneeDetail, ComparaisonClasse, CreneauGrille, CreneauGrilleSaisie, JourCalendrier, Mef,
     MefImport, Niveau, PeriodeRef as Periode, PeriodeSaisie, RapportImportMef, RapportLot, RapportOuverture,
     RapportReconduction, RapportSeances, SeanceRef as Seance, Site,
 };
@@ -52,6 +52,9 @@ pub fn routes() -> Router<AppState> {
         .route("/referentiel/calendrier/vacances", post(creer_vacances))
         .route("/referentiel/grille", get(grille).put(definir_grille))
         .route("/referentiel/grille/amorcer", post(amorcer_grille))
+        .route("/referentiel/cours/{id}/public", get(cours_public))
+        .route("/referentiel/cours/{id}/membres", get(cours_membres).post(cours_membre_ajouter))
+        .route("/referentiel/cours-membres/{id}/annuler", post(cours_membre_annuler))
         .route("/referentiel/seances", get(seances))
         .route("/referentiel/creneaux/{id}/service", put(lier_service))
         .route("/referentiel/classe-id/comparaison", get(comparaison))
@@ -73,8 +76,15 @@ async fn ouvrir_annee(
     State(s): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
+    body: Option<Json<CloturerBody>>,
 ) -> Res<Json<RapportOuverture>> {
-    Ok(Json(s.ent.ref_ouvrir_annee(&acteur(&session), id).await.map_err(map_db)?))
+    let forcer = body.map(|b| b.0.forcer).unwrap_or(false);
+    Ok(Json(
+        s.ent
+            .ref_ouvrir_annee_forcee(&acteur(&session), id, forcer)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -636,4 +646,68 @@ async fn rattacher(State(s): State<AppState>, session: EntSession) -> Res<Json<V
             .map(|(table, rattachees)| RattacheDto { table, rattachees })
             .collect(),
     ))
+}
+
+// ───── Cours (socle 5, S1) : public et membres individuels ─────
+
+#[derive(Debug, Deserialize)]
+struct CoursPublicQuery {
+    jour: Option<NaiveDate>,
+}
+
+/// Élèves du public du cours à une date (aujourd'hui par défaut), bornés aux élèves que
+/// l'acteur peut suivre. Réservé à la gestion de la structure et au professeur du cours.
+async fn cours_public(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<CoursPublicQuery>,
+) -> Res<Json<Vec<Uuid>>> {
+    let jour = q.jour.unwrap_or_else(domain_eleve::today_utc);
+    Ok(Json(
+        s.ent
+            .cours_public_pour_acteur(&acteur(&session), id, jour)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn cours_membres(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<CoursMembre>>> {
+    Ok(Json(s.ent.cours_membres(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct MembreBody {
+    eleve_id: Uuid,
+    nature: String,
+    motif_code: String,
+    du: NaiveDate,
+    au: Option<NaiveDate>,
+}
+
+async fn cours_membre_ajouter(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<MembreBody>,
+) -> Res<(StatusCode, Json<CoursMembre>)> {
+    let m = s
+        .ent
+        .cours_membre_ajouter(&acteur(&session), id, b.eleve_id, &b.nature, &b.motif_code, b.du, b.au)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(m)))
+}
+
+async fn cours_membre_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    s.ent.cours_membre_annuler(&acteur(&session), id).await.map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }

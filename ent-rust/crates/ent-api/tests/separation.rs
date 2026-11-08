@@ -602,6 +602,25 @@ fn domaine_edt() {
     jouer("emploi du temps, remplacements, délégations", &specs_domaine_edt());
 }
 
+/// Socle 5, S1 : public et membres individuels d'un cours. Public : gestion de la structure
+/// et professeur du cours ; membres (motifs sensibles) et écritures : gestion seulement.
+fn specs_domaine_cours() -> Vec<Spec> {
+    vec![
+        lire("cours-public", "/referentiel/cours/{cours}/public",
+            &[Admin, Direction, Administratif, Prof], &[Admin, Direction, Administratif, Prof]),
+        lire("cours-membres", "/referentiel/cours/{cours}/membres",
+            &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+        ecrire_sur_b("cours-membre-ajout-B", "POST", "/referentiel/cours/{cours}/membres",
+            Some(r#"{"eleve_id":"{eleve}","nature":"inclusion","motif_code":"ulis","du":"2026-01-05","au":null}"#)),
+        ecrire_sur_b("cours-membre-annulation-B", "POST", "/referentiel/cours-membres/{cours}/annuler", None),
+    ]
+}
+
+#[test]
+fn domaine_cours() {
+    jouer("cours : public et membres individuels", &specs_domaine_cours());
+}
+
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",
@@ -1503,6 +1522,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());
+    v.extend(specs_domaine_cours());
     v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
     v
 }

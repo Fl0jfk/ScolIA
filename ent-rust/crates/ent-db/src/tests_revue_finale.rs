@@ -7,7 +7,7 @@ use ent_auth::AuthError;
 use uuid::Uuid;
 
 async fn ent() -> Option<PgEnt> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -77,7 +77,7 @@ async fn rf05_changement_de_mot_de_passe_limite() {
 }
 
 async fn labo() -> Option<(PgEnt, LaboCast, sqlx::PgPool)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");

@@ -1,7 +1,7 @@
 //! Liste unique « mes enseignements » (D-022 bis) : classes entières et groupes d'un
 //! professeur, avec matière et effectif, calculée par la **même règle** que
-//! `eleves_autorises` (portée D-022). Simple vue sur `ent_service_enseignement` : le
-//! modèle des cours n'est pas modifié (l'objet « cours » relève du socle 5).
+//! `eleves_autorises` (portée D-022). Vue sur le « cours » (`ent_service_enseignement`,
+//! socle 5 S1) ; l'effectif vient du public du cours (`cours.rs`), membres individuels compris.
 
 use chrono::NaiveDate;
 use ent_auth::{Action, Role};
@@ -56,24 +56,11 @@ impl PgEnt {
         for (service_id, classe_id, groupe_id, classe_parente, cible_code, classe_code, matiere, matiere_id, pp) in
             rows
         {
-            let membres: Vec<(Uuid,)> = sqlx::query_as(
-                "SELECT DISTINCT a.eleve_id FROM ent_affectation a
-                   JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
-                  WHERE a.etablissement_id = $1
-                    AND ((a.classe_id IS NOT NULL AND a.classe_id = $2) OR (a.groupe_id IS NOT NULL AND a.groupe_id = $3))
-                    AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
-                    AND (e.date_sortie IS NULL OR e.date_sortie > $4)",
-            )
-            .bind(etab)
-            .bind(classe_id)
-            .bind(groupe_id)
-            .bind(jour)
-            .fetch_all(self.pool())
-            .await
-            .map_err(db)?;
+            // Public du cours par la règle unique (membres individuels compris).
+            let membres = self.public_cours(etab, jour, Some(service_id), None, None).await?;
             let effectif = membres
                 .iter()
-                .filter(|(id,)| autorises.as_ref().is_none_or(|a| a.contains(id)))
+                .filter(|(_, id)| autorises.as_ref().is_none_or(|a| a.contains(id)))
                 .count() as i64;
             let nature = if classe_id.is_some() { "classe" } else { "groupe" };
             let libelle = if classe_id.is_some() {

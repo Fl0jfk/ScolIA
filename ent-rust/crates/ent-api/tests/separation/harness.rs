@@ -148,6 +148,8 @@ pub struct Objets {
     pub absence: Option<Uuid>,
     pub absence_autre: Option<Uuid>,
     pub matiere: Option<Uuid>,
+    /// Cours (service d'enseignement) du professeur de l'établissement (socle 5, S1).
+    pub cours: Option<Uuid>,
     /// Appel ouvert par le professeur de l'établissement (via `POST /appels`).
     pub appel: Option<Uuid>,
     pub users: BTreeMap<String, Uuid>,
@@ -284,6 +286,7 @@ impl Monde {
             facture: if autre { e.facture_autre } else { e.facture },
             absence: if autre { e.absence_autre } else { e.absence },
             matiere: e.matiere,
+            cours: e.cours,
             appel: if autre { None } else { e.appel },
         };
         match c {
@@ -314,6 +317,7 @@ pub struct CibleObjets {
     pub facture: Option<Uuid>,
     pub absence: Option<Uuid>,
     pub matiere: Option<Uuid>,
+    pub cours: Option<Uuid>,
     pub appel: Option<Uuid>,
 }
 
@@ -332,6 +336,7 @@ impl CibleObjets {
             ("{facture}", self.facture),
             ("{absence}", self.absence),
             ("{matiere}", self.matiere),
+            ("{cours}", self.cours),
             ("{appel}", self.appel),
         ] {
             if s.contains(cle) {
@@ -502,6 +507,13 @@ impl Monde {
         let dir = jetons[&Acteur::Direction].clone();
         self.decouvrir(&mut o, &dir).await;
         let prof = jetons[&Acteur::Prof].clone();
+        let ens = self.appel("GET", "/referentiel/mes-enseignements", Some(&prof), None).await;
+        o.cours = ens
+            .json
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|v| v["service_id"].as_str())
+            .and_then(|s| Uuid::parse_str(s).ok());
         self.ouvrir_appel(&mut o, &prof).await;
         Some(Etab {
             objets: o,

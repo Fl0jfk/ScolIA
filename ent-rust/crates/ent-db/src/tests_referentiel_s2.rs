@@ -12,7 +12,7 @@ use ent_auth::Role;
 use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -435,7 +435,14 @@ async fn bascule_d_annee_complete() {
     assert!(est(&err, DomainError::NotFound), "{err:?}");
 
     // Ouverture : l'ancienne courante est clôturée, une seule courante ; la classe courante bascule.
-    let ouv = ent.ref_ouvrir_annee(&direction, suivante.id).await.unwrap();
+    // S0 n° 4 : mêmes contrôles que la clôture directe — périodes de notes ouvertes = refus sans `forcer`.
+    let ouvertes_avant: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_note_periode np JOIN ent_periode p ON p.id = np.periode_id WHERE np.etablissement_id = $1 AND p.annee_id = $2 AND np.statut <> 'fermee'")
+        .bind(e).bind(annee.id).fetch_one(ent.pool()).await.unwrap();
+    if ouvertes_avant > 0 {
+        let err = ent.ref_ouvrir_annee(&direction, suivante.id).await.unwrap_err();
+        assert!(est(&err, DomainError::Conflit), "ouverture refusée sans forcer : {err:?}");
+    }
+    let ouv = ent.ref_ouvrir_annee_forcee(&direction, suivante.id, true).await.unwrap();
     assert_eq!(ouv.annee_cloturee_id, Some(annee.id));
     assert!(ouv.eleves_synchronises >= eleves_4b);
     let courantes: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante")
@@ -465,7 +472,9 @@ async fn bascule_d_annee_complete() {
     let np: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_note_periode np JOIN ent_periode p ON p.id = np.periode_id WHERE np.etablissement_id = $1 AND p.annee_id = $2 AND np.statut <> 'fermee'")
         .bind(e).bind(suivante.id).fetch_one(ent.pool()).await.unwrap();
     let r = ent.ref_cloturer_annee(&direction, suivante.id, false).await;
-    if np > 0 { assert!(r.is_err()); } else { assert!(r.is_ok()); }
+    assert!(r.is_err(), "S0 n° 4-5 : courante sans successeur (ou périodes ouvertes) refusée sans forcer : {r:?}");
+    let r = ent.ref_cloturer_annee(&direction, suivante.id, true).await;
+    assert!(r.is_ok(), "forcer lève le refus ({np} période(s) ouverte(s)) : {r:?}");
     // Événements publiés.
     for t in ["referentiel.annee_creee", "referentiel.annee_ouverte", "referentiel.annee_cloturee",
               "referentiel.structures_reconduites", "referentiel.affectations_lot", "referentiel.periodes_definies"] {

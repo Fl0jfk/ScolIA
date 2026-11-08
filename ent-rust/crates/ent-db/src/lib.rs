@@ -13,6 +13,7 @@ mod vie_scolaire;
 pub mod evaluations;
 mod evaluations_bulletin;
 mod enseignements;
+pub mod cours;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -288,6 +289,8 @@ mod tests_d022;
 mod tests_d022_bis;
 #[cfg(all(test, feature = "labo"))]
 mod tests_recette_personas;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
