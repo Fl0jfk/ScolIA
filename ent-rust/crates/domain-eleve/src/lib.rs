@@ -51,6 +51,8 @@ mod conseil_classe;
 mod info_comp;
 mod vacances;
 mod homonyme;
+mod doublon;
+mod fusion;
 mod menu_cantine;
 mod quotient;
 mod tva;
@@ -222,6 +224,14 @@ pub use info_comp::{
 pub use vacances::{
     jour_est_ferme, plan_creer_periode_vacances, CreerPeriodeVacances, PeriodeVacances,
     VacancesKind,
+};
+pub use doublon::{
+    cle_nom as cle_nom_doublon, evaluer as evaluer_doublon, paire_ordonnee, IdentiteDoublon,
+    RaisonDoublon, ScoreDoublon, SEUIL_DOUBLON,
+};
+pub use fusion::{
+    table_eleve, tables_a_deplacer, Strategie as StrategieFusion, TableEleve, DELAI_DEFUSION_JOURS,
+    TABLES_ELEVE,
 };
 pub use homonyme::{
     normalize_identite, plan_rechercher_homonymes, score_homonyme, HomonymeCandidat,

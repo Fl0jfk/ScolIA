@@ -313,6 +313,22 @@ impl ProfilChamps {
         self.pour(eleve_id).ouvert(GroupeChamps::Designation)
     }
 
+    /// Le groupe est ouvert pour **tous** les élèves de l'établissement (et pas seulement pour
+    /// un ensemble) : condition pour l'interroger dans une recherche sans créer d'oracle.
+    pub fn ouvert_partout(&self, g: GroupeChamps) -> bool {
+        *self.portee(g) == PorteeGroupe::Tout
+    }
+
+    /// Élève en confidentialité renforcée (§7.6) : visible seulement de qui détient G6 pour lui
+    /// (`eleves.confidentiel.gerer`) ou a un **lien direct** avec lui — portée restreinte
+    /// (« mes classes », « mes groupes », « désignés ») qui le contient. Un accès à tout
+    /// l'établissement (accueil, secrétariat sans G6) ne suffit pas.
+    pub fn voit_eleve_protege(&self, eleve_id: Uuid) -> bool {
+        self.pour(eleve_id).ouvert(GroupeChamps::Sensible)
+            || matches!(self.portee(GroupeChamps::Designation),
+                PorteeGroupe::Ensemble(s) if s.contains(&eleve_id))
+    }
+
     /// Le badge est interrogeable (recherche) seulement si G3 est ouvert partout
     /// (pas d'oracle sur le badge d'élèves dont on ne voit pas les identifiants).
     pub fn badge_interrogeable(&self) -> bool {
