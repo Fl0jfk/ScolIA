@@ -114,7 +114,7 @@ Format : **RP2-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 **RP2-01 — faille, élevée — La route historique du dossier contourne la minimisation A1 (parents séparés, payeurs).**
 *Preuve* : Marc (père, autre foyer, rattaché à Rose) → `GET /dossier/eleves/{Rose}/responsables` → Inès : `"email":null,"telephone":null,"adresse":null` (correct) ; mais `GET /eleves/{Rose}/dossier` → `liens: [{"display_name":"Inès Martin","email":"ines.martin@exemple.lab","foyer_id":"ba1f…","est_payeur":true,"part_paiement":100,"user_id":"247f…",…}]`. Professeur de la classe et CPE → `GET /eleves/{Harry}/dossier` → `"est_payeur":true,"part_paiement":100` de Lily (A1 leur ferme les payeurs). Cause : `get_dossier_for_actor` (`ent-db/src/service.rs`) remplit `liens` sans passer par `dossier_droits`.
-**Statut et correctif : voir §3.4** (sous-agent, test `recette_personas_2_dossier::rp2_01_…`).
+**Corrigé + test** : `ent-db/src/dossier_droits.rs` (`minimiser_liens_dossier`) appelé par `get_dossier_for_actor` (`service.rs`) avec la lecture `lecture_dossier_admin` : chaque lien est rapproché du responsable déjà minimisé par A1 (aucune seconde règle) ; lien absent de la vue A1 retiré ; e-mail, téléphone et compte nuls si F1 fermé ; foyer nul si F2 fermé (rattachement du foyer à F2, comme `appliquer_vue`) ; droits du lien à faux si F3 fermé ; payeurs neutralisés s'ils sont fermés. `LienDossier.user_id` devient `Option<Uuid>` (clé toujours présente, `null` si masquée). Test `rp2_01_dossier_historique_respecte_la_minimisation_a1` (échoue sans le correctif, passe avec). Effet de bord : dans l'ancienne interface (`ui.rs`), l'encart foyer ne s'affiche plus pour un profil sans F2 (professeur, CPE) — voulu par A1.
 
 **RP2-04 — faille, élevée — « Ne pas solliciter » ne protège pas contre le rattachement du compte.**
 *Preuve* : la mère déclare le père « à ne pas solliciter » ; le secrétariat inscrit un demi-frère par l'ancien chemin, ce qui crée un compte au père (RP2-03) ; la direction fusionne les deux fiches du père (`POST /dossier/fusions` → 201, sans avertissement) : `GET /famille/enfants` (Marc) → `["Rose","Léo"]` ; plus tard, le secrétariat confirme au guichet le lien du père vers Jade (`POST /dossier/liens-en-attente/{id}/confirmer-guichet {"piece":"carte_identite"}` → 200) : `["Rose","Léo","Jade"]`. L'établissement de l'enfant est ainsi révélé au parent visé, alors que la marque est encore « à confirmer » par la direction.
@@ -187,7 +187,7 @@ Format : **RP2-nn** — type, gravité — constat. *Preuve* (requête → répo
 
 | Constat | Gravité | Statut | Fichier corrigé | Test |
 |---|---|---|---|---|
-| RP2-01 | élevée | *voir ci-dessous* | `ent-db/src/service.rs` (`get_dossier_for_actor`) | `recette_personas_2_dossier::rp2_01_…` |
+| RP2-01 | élevée | **corrigé + test** | `ent-db/src/service.rs` (`get_dossier_for_actor`) | `recette_personas_2_dossier::rp2_01_…` |
 | RP2-04 | élevée | **test en échec** | — (décision Q-RP2-3) | `recette_personas_2_ouvertes::rp2_04_…` |
 | RP2-10 | élevée | **test en échec** | — | `rp2_10_…` |
 | RP2-11 | élevée | **test en échec** | — (décision Q-RP2-1) | `rp2_11_…` |
@@ -222,15 +222,21 @@ Sources : `docs/MATRICE_CHARLEMAGNE.md` (fonctions de Charlemagne déduites, non
 
 | Fichier | Test | Constat | État |
 |---|---|---|---|
-| `ent-api/tests/recette_personas_2_dossier.rs` | `rp2_01_dossier_historique_respecte_la_minimisation_a1` | RP2-01 | *voir §5 bis* |
-| `ent-api/tests/recette_personas_2.rs` | `rp2_t01_…` à `rp2_t06_…` (familles et historique, ne pas solliciter et adresse protégée de bout en bout, professeur de groupe, autre établissement, INE, écritures refusées) | ce qui tient (§0.3) | *voir §5 bis* |
+| `ent-api/tests/recette_personas_2_dossier.rs` | `rp2_01_dossier_historique_respecte_la_minimisation_a1` | RP2-01 | vert (corrigé) |
+| `ent-api/tests/recette_personas_2.rs` | `rp2_t01_…` à `rp2_t06_…` (familles et historique, ne pas solliciter et adresse protégée de bout en bout, professeur de groupe, autre établissement, INE, écritures refusées) | ce qui tient (§0.3) | 6 verts |
 | `ent-api/tests/recette_personas_2_ouvertes.rs` | `rp2_02_…`, `rp2_03_…`, `rp2_04_…`, `rp2_05_…`, `rp2_10_…`, `rp2_11_…`, `rp2_12_…`, `rp2_13_…` | RP2-02, 03, 04, 05, 10, 11, 12, 13 | `#[ignore = "FAILLE OUVERTE …"]` / `"MANQUE …"` |
 
 Lancer les tests ouverts : `cargo test --locked -p ent-api --features labo --test recette_personas_2_ouvertes -- --ignored --test-threads=1` (ils doivent échouer tant que le problème existe). Base locale dont le nom contient `test`, `proto` ou `lab`, `ENT_ENV=lab`, `ENT_ALLOW_LABO=1`.
 
 ## 5 bis. Validation
 
-*À compléter en fin de session.*
+En local, PostgreSQL 16, base de test jetable `ent_recette2_test`, sur le code final de la branche :
+- `cargo test --locked -p ent-api --features labo --test recette_personas_2 --test recette_personas_2_dossier --test recette_personas_2_ouvertes -- --test-threads=1` : **7 réussis, 0 échec, 8 ignorés** (≈ 5 min, surtout les amorçages de labo).
+- Passe `--ignored` de `recette_personas_2_ouvertes` : les **8 tests échouent**, chacun pour la raison annoncée (message qui cite le constat).
+- Rejoués par le sous-agent du correctif : matrice `ent-api --test separation` **41 réussis** ; `ent-db --features labo --lib` (scénarios qui appellent `get_dossier_for_actor`, `tests_dossier_personnes`) **11 réussis**.
+- `cargo clippy --locked --workspace --all-targets` et la même avec `--features ent-api/labo,ent-lab/labo` : **0 erreur** (avertissements préexistants seulement ; aucun sur les lignes modifiées ni dans les nouveaux fichiers).
+- Formatage : `cargo fmt … -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server -p ent-web-session --check` et `cargo fmt … -p ent-types --check` : OK ; nouveaux fichiers de test vérifiés par `rustfmt --edition 2021 --check`. Aucun `cargo fmt --all` ; `service.rs` non reformaté.
+- Non faits : suite complète `ent-db` et `ent-lab`, CI GitHub, frontend Leptos (non modifié), navigateur.
 
 ## 6. Questions pour Florian
 
