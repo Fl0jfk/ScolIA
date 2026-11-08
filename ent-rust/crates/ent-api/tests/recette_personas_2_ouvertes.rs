@@ -999,9 +999,8 @@ fn rp2_12_sortie_termine_l_inscription_annuelle() {
     });
 }
 
-// RP2-13 : régression de RP1-09 (corrigée sur `ent-recette-personas-1`, non fusionnée).
+// RP2-13 : régression de RP1-09 (corrigée par ent-recette-1-correctifs, intégrée au lot 9).
 #[test]
-#[ignore = "FAILLE OUVERTE RP2-13 : Harry (14 ans) déclare lui-même son absence (RP1-09 corrigée sur la branche ent-recette-personas-1, non fusionnée) (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_13_eleve_mineur_ne_declare_pas_son_absence_regression() {
     lance(async {
         let s = scene!(Scene::nouvelle());
