@@ -236,6 +236,13 @@ async fn armer_drapeaux(tx: &mut TenantTx<'static>) -> Result<(), sqlx::Error> {
         .map(|_| ())
 }
 
+async fn desarmer_drapeaux(tx: &mut TenantTx<'static>) -> Result<(), sqlx::Error> {
+    sqlx::query("SELECT set_config('ent.fusion_eleve', 'off', true), set_config('ent.inscription_pont', 'off', true)")
+        .execute(&mut **tx)
+        .await
+        .map(|_| ())
+}
+
 /// Colonnes d'`ent_eleve` qui sont des projections de tables déplacées (statut dérivé, dates,
 /// INE, badge) : sauvegardées avant la fusion, restaurées à la défusion.
 const PROJECTIONS: &str = "status, statut, date_entree, date_sortie, motif_sortie, ine, numero_badge";
@@ -303,6 +310,7 @@ async fn empreintes(
     etab: Uuid,
     eleve: Uuid,
     cles: &[Value],
+    verrou: bool,
 ) -> Result<HashMap<String, String>, sqlx::Error> {
     if cles.is_empty() {
         return Ok(HashMap::new());
@@ -310,11 +318,14 @@ async fn empreintes(
     let sql = format!(
         "SELECT {obj} AS cle, md5(to_jsonb(t.*)::text) AS empreinte
            FROM {table} t JOIN jsonb_to_recordset($3::jsonb) AS {def} ON {jointure}
-          WHERE t.etablissement_id = $1 AND t.eleve_id = $2",
+          WHERE t.etablissement_id = $1 AND t.eleve_id = $2{verrou}",
         obj = objet_cle(t),
         table = t.table,
         def = definition_cle(t),
         jointure = jointure_cle(t),
+        // Défusion : les lignes vérifiées sont verrouillées jusqu'à leur restitution (pas de
+        // modification concurrente entre la vérification et le repointage).
+        verrou = if verrou { " FOR UPDATE OF t" } else { "" },
     );
     let lignes: Vec<(Value, String)> = sqlx::query_as(&sql)
         .bind(etab)
@@ -343,10 +354,23 @@ impl Plan {
         self.tables
             .iter()
             .flat_map(|p| {
-                p.conflits.iter().map(|c| ConflitFusion {
-                    table: p.table.table.to_string(),
-                    cle: c.clone(),
-                    domaine: domaine_fusion(p.table.table).to_string(),
+                p.conflits.iter().map(|c| {
+                    if domaine_protege(p.table.table) {
+                        // Domaine protégé : ni nom de table ni clé réelle (empreinte opaque, stable).
+                        use sha2::{Digest, Sha256};
+                        let h = Sha256::digest(cle_texte(p.table.table, c).as_bytes());
+                        let ref_: String = h.iter().take(8).map(|b| format!("{b:02x}")).collect();
+                        return ConflitFusion {
+                            table: "protege".to_string(),
+                            cle: json!({ "ref": ref_ }),
+                            domaine: domaine_fusion(p.table.table).to_string(),
+                        };
+                    }
+                    ConflitFusion {
+                        table: p.table.table.to_string(),
+                        cle: c.clone(),
+                        domaine: domaine_fusion(p.table.table).to_string(),
+                    }
                 })
             })
             .collect()
@@ -473,6 +497,7 @@ async fn planifier(
         let (deplacees, conflits) = deplacer_table(tx, t, etab, absorbe, conserve).await?;
         tables.push(PlanTable { table: t, deplacees, conflits, restent: 0 });
     }
+    desarmer_drapeaux(tx).await?;
     recalculer_projections(tx, etab, absorbe).await?;
     recalculer_projections(tx, etab, conserve).await?;
     Ok(Plan { tables })
@@ -763,7 +788,7 @@ impl PgEnt {
             if p.deplacees.is_empty() {
                 continue;
             }
-            let emp = empreintes(&mut tx, p.table, etab, conserve.id, &p.deplacees).await?;
+            let emp = empreintes(&mut tx, p.table, etab, conserve.id, &p.deplacees, false).await?;
             for cle in &p.deplacees {
                 let e = emp.get(&cle_texte(p.table.table, cle)).ok_or(EntDbError::ConflitDossier(
                     "une ligne déplacée n'a pas pu être relue",
@@ -771,12 +796,15 @@ impl PgEnt {
                 lignes_registre.push(json!({ "table_nom": p.table.table, "cle": cle, "empreinte": e }));
             }
         }
+        let proj_absorbe_apres = lire_projections(&mut tx, etab, absorbe.id).await?;
+        let proj_conserve_apres = lire_projections(&mut tx, etab, conserve.id).await?;
         let lignes_apercu = plan.lignes();
         let resume = json!({
             "lignes": lignes_apercu.iter().map(|l| json!({
                 "domaine": l.domaine, "table": l.table, "a_deplacer": l.a_deplacer,
                 "en_conflit": l.en_conflit, "restent": l.restent })).collect::<Vec<_>>(),
             "projections": { "absorbe": proj_absorbe, "conserve": proj_conserve },
+            "projections_apres": { "absorbe": proj_absorbe_apres, "conserve": proj_conserve_apres },
             "nb_lignes": lignes_registre.len(),
         });
         let fusion_id = Uuid::new_v4();
@@ -925,7 +953,7 @@ impl PgEnt {
                 return Err(EntDbError::ConflitDossier("table inconnue du registre de fusion"));
             };
             let cles: Vec<Value> = l.iter().map(|(c, _)| c.clone()).collect();
-            let actuelles = empreintes(&mut tx, t, etab, conserve_id, &cles).await?;
+            let actuelles = empreintes(&mut tx, t, etab, conserve_id, &cles, true).await?;
             for (cle, attendue) in l {
                 match actuelles.get(&cle_texte(nom, cle)) {
                     None => modifiees.push(LigneModifiee {
@@ -978,13 +1006,17 @@ impl PgEnt {
                 return Err(EntDbError::ConflitDossier("des lignes déplacées n'ont pas pu être restituées"));
             }
         }
-        // 3. Projections d'`ent_eleve` telles qu'avant la fusion ; marquage levé ; doublons rétablis.
+        desarmer_drapeaux(&mut tx).await?;
+        // 3. Projections d'`ent_eleve` : restituées telles qu'avant la fusion si la fiche n'a pas
+        //    changé depuis ; sinon recalculées (une sortie ou un INE posés depuis la fusion
+        //    restent vrais). Marquage levé ; doublons rétablis.
         let proj = f.resume.get("projections").cloned().unwrap_or(Value::Null);
+        let apres = f.resume.get("projections_apres").cloned().unwrap_or(Value::Null);
         for (id, cle) in [(absorbe_id, "absorbe"), (conserve_id, "conserve")] {
-            if let Some(p) = proj.get(cle).filter(|p| p.is_object()) {
-                ecrire_projections(&mut tx, etab, id, p).await?;
-            } else {
-                recalculer_projections(&mut tx, etab, id).await?;
+            let actuelle = lire_projections(&mut tx, etab, id).await?;
+            match (proj.get(cle).filter(|p| p.is_object()), apres.get(cle)) {
+                (Some(avant), Some(ap)) if *ap == actuelle => ecrire_projections(&mut tx, etab, id, avant).await?,
+                _ => recalculer_projections(&mut tx, etab, id).await?,
             }
         }
         sqlx::query("UPDATE ent_eleve SET fusionne_dans = NULL WHERE etablissement_id = $1 AND id = $2")
@@ -1001,7 +1033,7 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await?;
         for (id, statut) in touches {
-            sqlx::query("UPDATE ent_eleve_doublon SET statut = $3, maj_le = now() WHERE etablissement_id = $1 AND id = $2")
+            sqlx::query("UPDATE ent_eleve_doublon SET statut = $3, maj_le = now() WHERE etablissement_id = $1 AND id = $2 AND statut IN ('fusionne', 'obsolete')")
                 .bind(etab)
                 .bind(id)
                 .bind(statut)
