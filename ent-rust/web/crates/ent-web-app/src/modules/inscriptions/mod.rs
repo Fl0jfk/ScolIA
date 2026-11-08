@@ -34,8 +34,8 @@ use uuid::Uuid;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::{reconnexion, session};
 use modele::{
-    libelle_nature, libelle_regime, libelle_statut, libelle_statut_campagne, niveaux_depuis_texte, peut,
-    pieces_depuis_texte, ton_statut, REGIMES,
+    libelle_nature, libelle_regime, libelle_statut, libelle_statut_campagne, niveaux_depuis_texte,
+    peut, pieces_depuis_texte, ton_statut, REGIMES,
 };
 
 /// Message d'échec d'une écriture ; une session perdue ouvre la reconnexion.

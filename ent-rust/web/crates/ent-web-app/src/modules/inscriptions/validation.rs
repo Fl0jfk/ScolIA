@@ -27,7 +27,9 @@ pub fn ValidationDossier(
     recharger: Callback<()>,
 ) -> impl IntoView {
     let correspondances =
-        LocalResource::new(move || async move { session::client().correspondances_dossier(id).await });
+        LocalResource::new(
+            move || async move { session::client().correspondances_dossier(id).await },
+        );
     let recharger_liste = Callback::new(move |_| correspondances.refetch());
     let noms = StoredValue::new(noms);
     view! {
@@ -60,9 +62,16 @@ fn FormulaireValidation(
     let lignes: Vec<_> = corr
         .responsables
         .iter()
-        .map(|r| (r.clone(), RwSignal::new(String::new()), RwSignal::new(String::new())))
+        .map(|r| {
+            (
+                r.clone(),
+                RwSignal::new(String::new()),
+                RwSignal::new(String::new()),
+            )
+        })
         .collect();
-    let rien_a_choisir = corr.responsables.iter().all(|r| r.candidats.is_empty()) && corr.eleves.is_empty();
+    let rien_a_choisir =
+        corr.responsables.iter().all(|r| r.candidats.is_empty()) && corr.eleves.is_empty();
     let corr = StoredValue::new(corr);
     let signaux: Vec<(RwSignal<String>, RwSignal<String>)> =
         lignes.iter().map(|(_, p, f)| (*p, *f)).collect();
@@ -78,14 +87,21 @@ fn FormulaireValidation(
                 .collect()
         });
         let corps = corr.with_value(|c| {
-            construire_validation(c, &choix, &eleve_choix.get_untracked(), confirme_resp.get_untracked())
+            construire_validation(
+                c,
+                &choix,
+                &eleve_choix.get_untracked(),
+                confirme_resp.get_untracked(),
+            )
         });
         let corps = match corps {
             Ok(c) => c,
             Err(m) => return erreur.set(Some(m)),
         };
         if !verifie.get_untracked() {
-            return erreur.set(Some("Cochez la case de vérification avant de valider.".into()));
+            return erreur.set(Some(
+                "Cochez la case de vérification avant de valider.".into(),
+            ));
         }
         erreur.set(None);
         en_cours.set(true);
@@ -106,26 +122,29 @@ fn FormulaireValidation(
 
     let eleves = corr.with_value(|c| c.eleves.clone());
     let a_eleves = !eleves.is_empty();
-    let options_eleve: Vec<(String, String)> = std::iter::once((String::new(), "— Choisir —".to_string()))
-        .chain(eleves.iter().map(|e| {
-            (
-                e.eleve_id.to_string(),
-                format!(
-                    "Rattacher à la fiche existante : {} {}{}{} ({}, {} responsable(s) déjà lié(s))",
-                    e.prenom,
-                    e.nom,
-                    e.date_naissance.map(|d| format!(", né(e) le {}", d.format("%d/%m/%Y"))).unwrap_or_default(),
-                    if e.ine_identique { ", même INE" } else { "" },
-                    e.statut,
-                    e.responsables_lies
-                ),
-            )
-        }))
-        .chain(std::iter::once((
-            CHOIX_NOUVEAU.to_string(),
-            "Créer une nouvelle fiche (homonyme, autre élève)".to_string(),
-        )))
-        .collect();
+    let options_eleve: Vec<(String, String)> =
+        std::iter::once((String::new(), "— Choisir —".to_string()))
+            .chain(eleves.iter().map(|e| {
+                (
+                    e.eleve_id.to_string(),
+                    format!(
+                "Rattacher à la fiche existante : {} {}{}{} ({}, {} responsable(s) déjà lié(s))",
+                e.prenom,
+                e.nom,
+                e.date_naissance
+                    .map(|d| format!(", né(e) le {}", d.format("%d/%m/%Y")))
+                    .unwrap_or_default(),
+                if e.ine_identique { ", même INE" } else { "" },
+                e.statut,
+                e.responsables_lies
+            ),
+                )
+            }))
+            .chain(std::iter::once((
+                CHOIX_NOUVEAU.to_string(),
+                "Créer une nouvelle fiche (homonyme, autre élève)".to_string(),
+            )))
+            .collect();
     let a_responsables_lies = eleves.iter().any(|e| e.responsables_lies > 0);
 
     view! {

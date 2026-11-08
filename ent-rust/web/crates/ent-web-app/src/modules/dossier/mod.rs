@@ -29,10 +29,10 @@ use actions::{
     DialogueContact, DialoguePayeurs, DialogueResponsable, DialogueRetablir, DialogueSuspension,
 };
 use modele::{
-    libelle_annee, libelle_etat_inscription, libelle_motif_entree, resume_scolarite,
-    coordonnees, droits_du_lien, etat_lien, filtrer_chronologie, libelle_domaine, libelle_garde,
-    lien_action, message_masque, nom_personne, peut, sections_accessibles, EtatLien,
-    ACTION_PAYEURS, ACTION_PERSONNES, ACTION_SUSPENDRE,
+    coordonnees, droits_du_lien, etat_lien, filtrer_chronologie, libelle_annee, libelle_domaine,
+    libelle_etat_inscription, libelle_garde, libelle_motif_entree, lien_action, message_masque,
+    nom_personne, peut, resume_scolarite, sections_accessibles, EtatLien, ACTION_PAYEURS,
+    ACTION_PERSONNES, ACTION_SUSPENDRE,
 };
 
 /// Nombre d'entrées de chronologie demandées au serveur.
@@ -372,7 +372,7 @@ fn TableResponsables(
                                 EtatLien::Suspendu => TonEtat::Mal,
                                 EtatLien::Termine | EtatLien::AVenir => TonEtat::Neutre,
                             };
-                            let mut lien = r.lien.clone();
+                            let mut lien = modele::libelle_lien(&r.lien);
                             if r.autorite_parentale {
                                 lien.push_str(" · autorité parentale");
                             }

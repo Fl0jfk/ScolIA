@@ -446,6 +446,17 @@ pub fn message_guichet(lien_cree: bool, nom: &str) -> String {
 // Scolarité (statut dérivé, scolarisations, inscriptions annuelles)
 // ---------------------------------------------------------------------------
 
+/// Lien de responsabilité en français (le serveur renvoie le code ou le libellé du labo).
+pub fn libelle_lien(code: &str) -> String {
+    match code {
+        "mere" | "mère" => "mère".into(),
+        "pere" | "père" => "père".into(),
+        "tuteur" => "tuteur ou tutrice".into(),
+        "autre" => "autre responsable".into(),
+        autre => autre.to_string(),
+    }
+}
+
 /// Statut dérivé par le serveur (jamais saisi).
 pub fn libelle_statut_scolarite(statut: &str) -> &'static str {
     match statut {
@@ -491,7 +502,10 @@ pub fn libelle_annee(annee_id: uuid::Uuid, annees: &[(uuid::Uuid, String)]) -> S
 pub fn resume_scolarite(statut: &str, entree: Option<chrono::NaiveDate>) -> String {
     let base = libelle_statut_scolarite(statut);
     match (statut, entree) {
-        ("a_venir", Some(d)) => format!("{base} — scolarisation à partir du {}", d.format("%d/%m/%Y")),
+        ("a_venir", Some(d)) => format!(
+            "{base} — scolarisation à partir du {}",
+            d.format("%d/%m/%Y")
+        ),
         (_, Some(d)) => format!("{base} — depuis le {}", d.format("%d/%m/%Y")),
         _ => base.to_string(),
     }
@@ -765,17 +779,25 @@ mod tests {
 
     #[test]
     fn scolarite_libelles_et_resume() {
+        assert_eq!(libelle_lien("pere"), "père");
+        assert_eq!(libelle_lien("mère"), "mère");
         use chrono::NaiveDate;
         let d = NaiveDate::from_ymd_opt(2027, 9, 1);
         assert_eq!(
             resume_scolarite("a_venir", d),
             "Inscrit, entre à la rentrée — scolarisation à partir du 01/09/2027"
         );
-        assert_eq!(resume_scolarite("scolarise", d), "Scolarisé — depuis le 01/09/2027");
+        assert_eq!(
+            resume_scolarite("scolarise", d),
+            "Scolarisé — depuis le 01/09/2027"
+        );
         assert_eq!(resume_scolarite("sorti", None), "Sorti de l'établissement");
         assert_eq!(libelle_etat_inscription("prevue"), "Prévue");
         let a = uuid::Uuid::from_u128(1);
-        assert_eq!(libelle_annee(a, &[(a, "2027-2028".into())]), "Année 2027-2028");
+        assert_eq!(
+            libelle_annee(a, &[(a, "2027-2028".into())]),
+            "Année 2027-2028"
+        );
         assert_eq!(libelle_annee(a, &[]), "Année scolaire");
         assert!(!libelle_motif_entree("premiere_inscription").contains("_"));
     }

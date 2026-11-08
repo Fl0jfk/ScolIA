@@ -3,9 +3,10 @@
 //! d'invitation dans l'adresse. Aucun appel réseau, aucune dépendance Leptos.
 
 use ent_web_api::types_inscriptions::{
-    ChoixEleve, ChoixFoyer, ChoixPersonne, CorrespondancesDto, DossierDto, PersonneCandidateDto,
-    ResolutionResponsable, ResponsableCorrespondancesDto, ValidationBody, EleveFormulaireDto, NiveauCampagneDto, PieceCampagneDto, PieceDossierDto,
-    PreinscriptionBody, ProfilDto, ReserveResponsableDto, ResponsableFormulaireDto,
+    ChoixEleve, ChoixFoyer, ChoixPersonne, CorrespondancesDto, DossierDto, EleveFormulaireDto,
+    NiveauCampagneDto, PersonneCandidateDto, PieceCampagneDto, PieceDossierDto, PreinscriptionBody,
+    ProfilDto, ReserveResponsableDto, ResolutionResponsable, ResponsableCorrespondancesDto,
+    ResponsableFormulaireDto, ValidationBody,
 };
 use ent_web_ui::TonEtat;
 use uuid::Uuid;
@@ -343,11 +344,12 @@ pub fn options_personne(r: &ResponsableCorrespondancesDto) -> Vec<(String, Strin
 /// Foyers proposés pour la personne choisie ; vide si elle n'en a pas (nouveau foyer).
 pub fn options_foyer(c: &PersonneCandidateDto) -> Vec<(String, String)> {
     std::iter::once((String::new(), "— Choisir —".to_string()))
-        .chain(
-            c.foyers
-                .iter()
-                .map(|f| (f.foyer_id.to_string(), format!("Foyer existant : {}", f.libelle))),
-        )
+        .chain(c.foyers.iter().map(|f| {
+            (
+                f.foyer_id.to_string(),
+                format!("Foyer existant : {}", f.libelle),
+            )
+        }))
         .chain(std::iter::once((
             CHOIX_NOUVEAU.to_string(),
             "Nouveau foyer".to_string(),
@@ -403,9 +405,9 @@ pub fn construire_validation(
                     match saisi.foyer.as_str() {
                         "" => {
                             return Err(format!(
-                                "Responsable {} : choisissez un foyer existant ou « nouveau foyer ».",
-                                r.rang
-                            ))
+                            "Responsable {} : choisissez un foyer existant ou « nouveau foyer ».",
+                            r.rang
+                        ))
                         }
                         CHOIX_NOUVEAU => Some(ChoixFoyer::Nouveau),
                         id => Some(ChoixFoyer::Existant {
@@ -428,7 +430,9 @@ pub fn construire_validation(
             "" => return Err("Élève : une fiche porte déjà ce nom ou cet INE, choisissez.".into()),
             CHOIX_NOUVEAU => ChoixEleve::Nouveau,
             id => {
-                let eleve_id = id.parse().map_err(|_| "Fiche élève inconnue.".to_string())?;
+                let eleve_id = id
+                    .parse()
+                    .map_err(|_| "Fiche élève inconnue.".to_string())?;
                 let lies = corr
                     .eleves
                     .iter()
@@ -495,14 +499,21 @@ mod tests {
         let b = corps_preinscription(Uuid::nil(), &s);
         assert!(b.responsable.reserve.is_none());
         assert!(b.second_parent.as_ref().unwrap().reserve.is_none());
-        assert_eq!(b.second_parent.as_ref().unwrap().lien.as_deref(), Some("pere"));
+        assert_eq!(
+            b.second_parent.as_ref().unwrap().lien.as_deref(),
+            Some("pere")
+        );
         // Cases cochées : une seule réserve par personne, et seulement celle demandée.
         s.resp_adresse_protegee = true;
         s.second_ne_pas_solliciter = true;
         let b = corps_preinscription(Uuid::nil(), &s);
         let r1 = b.responsable.reserve.expect("réserve du déposant");
         assert!(r1.adresse_a_proteger && !r1.ne_pas_solliciter);
-        let r2 = b.second_parent.unwrap().reserve.expect("réserve du second parent");
+        let r2 = b
+            .second_parent
+            .unwrap()
+            .reserve
+            .expect("réserve du second parent");
         assert!(r2.ne_pas_solliciter && !r2.adresse_a_proteger);
     }
 
@@ -641,16 +652,34 @@ mod tests {
         let vide = [ChoixSaisi::default()];
         assert!(construire_validation(&corr, &vide, "", false).is_err());
         // Fiche existante avec foyer : le foyer doit aussi être choisi.
-        let sans_foyer = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: String::new() }];
+        let sans_foyer = [ChoixSaisi {
+            personne: Uuid::from_u128(7).to_string(),
+            foyer: String::new(),
+        }];
         assert!(construire_validation(&corr, &sans_foyer, "", false).is_err());
-        let complet = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: Uuid::from_u128(100).to_string() }];
+        let complet = [ChoixSaisi {
+            personne: Uuid::from_u128(7).to_string(),
+            foyer: Uuid::from_u128(100).to_string(),
+        }];
         let b = construire_validation(&corr, &complet, "", false).unwrap();
-        assert!(matches!(b.responsables[0].personne, ChoixPersonne::Existante { .. }));
-        assert!(matches!(b.responsables[0].foyer, Some(ChoixFoyer::Existant { .. })));
+        assert!(matches!(
+            b.responsables[0].personne,
+            ChoixPersonne::Existante { .. }
+        ));
+        assert!(matches!(
+            b.responsables[0].foyer,
+            Some(ChoixFoyer::Existant { .. })
+        ));
         // « Nouvelle fiche » : pas de foyer à choisir.
-        let nouvelle = [ChoixSaisi { personne: CHOIX_NOUVEAU.into(), foyer: String::new() }];
+        let nouvelle = [ChoixSaisi {
+            personne: CHOIX_NOUVEAU.into(),
+            foyer: String::new(),
+        }];
         let b = construire_validation(&corr, &nouvelle, "", false).unwrap();
-        assert!(matches!(b.responsables[0].personne, ChoixPersonne::Nouvelle));
+        assert!(matches!(
+            b.responsables[0].personne,
+            ChoixPersonne::Nouvelle
+        ));
         assert!(b.responsables[0].foyer.is_none());
         // Personne sans foyer : nouveau foyer d'office.
         let corr0 = CorrespondancesDto {
@@ -661,7 +690,10 @@ mod tests {
                 candidats: vec![candidat("Martin", 0)],
             }],
         };
-        let choix = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: String::new() }];
+        let choix = [ChoixSaisi {
+            personne: Uuid::from_u128(7).to_string(),
+            foyer: String::new(),
+        }];
         let b = construire_validation(&corr0, &choix, "", false).unwrap();
         assert!(matches!(b.responsables[0].foyer, Some(ChoixFoyer::Nouveau)));
     }
@@ -686,11 +718,20 @@ mod tests {
         let id = eleve_id.to_string();
         assert!(construire_validation(&corr, &[], &id, false).is_err());
         let b = construire_validation(&corr, &[], &id, true).unwrap();
-        assert!(matches!(b.eleve, Some(ChoixEleve::Existant { confirme_responsables_existants: true, .. })));
+        assert!(matches!(
+            b.eleve,
+            Some(ChoixEleve::Existant {
+                confirme_responsables_existants: true,
+                ..
+            })
+        ));
         let b = construire_validation(&corr, &[], CHOIX_NOUVEAU, false).unwrap();
         assert!(matches!(b.eleve, Some(ChoixEleve::Nouveau)));
         // Aucune correspondance : corps vide, rien à choisir.
-        let rien = CorrespondancesDto { eleves: vec![], responsables: vec![] };
+        let rien = CorrespondancesDto {
+            eleves: vec![],
+            responsables: vec![],
+        };
         let b = construire_validation(&rien, &[], "", false).unwrap();
         assert!(b.responsables.is_empty() && b.eleve.is_none());
     }
@@ -698,7 +739,11 @@ mod tests {
     #[test]
     fn libelles_de_rapprochement_sans_identifiant_technique() {
         let l = libelle_candidat(&candidat("Martin", 1));
-        assert!(l.contains("Ines Martin") && l.contains("même adresse e-mail") && l.contains("a déjà un compte"));
+        assert!(
+            l.contains("Ines Martin")
+                && l.contains("même adresse e-mail")
+                && l.contains("a déjà un compte")
+        );
         assert!(!l.contains("0000"));
         assert_eq!(libelle_statut_campagne("brouillon"), "Brouillon");
         assert_eq!(libelle_statut_campagne("ouverte"), "Ouverte");

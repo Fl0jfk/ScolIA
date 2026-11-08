@@ -153,7 +153,45 @@ pub fn routeur_web(options: LeptosOptions) -> Router {
 /// Démarre l'`ent-api` existant (connexion Postgres locale + migrations) et lui
 /// ajoute le relais de session et le frontend. Renvoie le routeur complet et l'adresse d'écoute.
 pub async fn routeur_complet() -> Result<(Router, SocketAddr), String> {
+    routeur_complet_avec(false).await
+}
+
+/// Comme [`routeur_complet`], et démarre les tâches de fond que `ent-api` lance dans son propre
+/// `main` : distribution de l'outbox (réactions entre domaines : invitations des responsables,
+/// affectations…) et expédition des envois d'inscription. Sans elles, valider une inscription
+/// n'envoie aucune invitation (constat de la démo P1). Désactivables comme dans `ent-api`
+/// (`ENT_OUTBOX_DISTRIBUTEUR=0`). Réservé au binaire ; les tests utilisent `routeur_complet`.
+pub async fn routeur_complet_avec_taches() -> Result<(Router, SocketAddr), String> {
+    routeur_complet_avec(true).await
+}
+
+async fn routeur_complet_avec(taches: bool) -> Result<(Router, SocketAddr), String> {
     let (state, _bind_api) = ent_api::boot_from_env().await?;
+    let distributeur_actif = !matches!(
+        std::env::var("ENT_OUTBOX_DISTRIBUTEUR")
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str(),
+        "0" | "false" | "non" | "off"
+    );
+    if taches && distributeur_actif {
+        let d = std::sync::Arc::new(
+            state
+                .ent
+                .distributeur(ent_db::outbox::ConfigDistribution::default()),
+        );
+        std::mem::drop(d.clone().lancer());
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Err(e) = ent.expedier_envois_inscriptions(50).await {
+                    eprintln!("expédition des envois d'inscription : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        });
+    }
     let options = options_leptos();
     let addr = options.site_addr;
     let session = config_session(addr, |n| std::env::var(n).ok())?;

@@ -2,7 +2,6 @@
 //! d'`ent-api`. Les droits, la minimisation et les règles (parts = 100 %, motif
 //! de suspension…) restent décidés par le serveur ; ce client transporte.
 
-use ent_types::scolarite::ScolariteDto;
 use ent_types::dossier::{
     AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto, ConfirmationGuichetBody,
     ConfirmationGuichetDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto,
@@ -10,6 +9,7 @@ use ent_types::dossier::{
     PayeurPartDto, PayeursBody, PersonneBody, PersonneDto, ReponseLienBody, ResponsableDto,
     SuspensionBody,
 };
+use ent_types::scolarite::ScolariteDto;
 use uuid::Uuid;
 
 use crate::{ApiClient, ApiError, Methode};
