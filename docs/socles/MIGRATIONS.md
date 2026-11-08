@@ -50,7 +50,6 @@ Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTI
 
 Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG` sera calculé automatiquement à partir du répertoire des migrations (voir D-026).
 
-<<<<<<< HEAD
 ## Mise à jour du 2026-11-07 (conception du socle 8)
 | Plage | Attribution | Branche | État |
 |---|---|---|---|
@@ -75,7 +74,6 @@ Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG`
 | 420–439 | socle 9, **repli** si Q-B2 n'est pas adoptée (420–434 attribuées dans le même ordre, 439 retrait) | `ent-socle-interop-conception` (conception seulement) | réservé |
 | 375 | recette 1, correctifs (fil privé des messages, parents séparés) | `ent-recette-1-correctifs` | fait |
 | 376–379 | recette 2, correctifs P1 (RP2-02 à RP2-14) | `ent-recette-2-correctifs` | en cours |
-=======
+
 ## Mise à jour du 2026-11-07 (intégration du lot 8 bis)
 Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–272 (A1 : 273–274 restent réservées) ; 280–286 (E2, E3, E4) ; 300–301 (I1) ; 370 (D-022). Liste de `migrate.rs` = répertoire `migrations/`, ordre croissant, aucune collision ; `MIGRATION_TAG` = `370_edt_creneau_groupe`. D-022 bis n'a pas ajouté de migration au-delà de 370 (371–374 restent réservées).
->>>>>>> origin/ENT

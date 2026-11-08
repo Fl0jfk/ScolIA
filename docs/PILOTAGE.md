@@ -32,7 +32,6 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 
 ## 4. File d'intégration et état (à tenir à jour)
 
-<<<<<<< HEAD
 État au 2026-11-08, 13 h 40 UTC :
 - **Sur `ENT`** : socle 1, lots 6 et 7, **lot 8 bis (socles 2 à 4 : E0–E4, A0–A1, I1, D-022 bis)**, poussé le 2026-11-08 à `b16c7cb` après CI verte (run 42468258695 ; audits et frontend relancés après un échec d'installation d'outils, sans changement de code).
 - **Lot 9** (`ent-integration-lot9`, intégrateur unique) : correctifs recettes 1 et 2, E5–E6, I2, S0–S1 ; en cours.
