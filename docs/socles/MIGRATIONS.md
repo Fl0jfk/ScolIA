@@ -51,3 +51,9 @@ Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG`
 |---|---|---|---|
 | 3800–3899 | socle 8 notifications et diffusion (conception : `08_NOTIFICATIONS.md` §19 et §27), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3800–3810 attribuées (paramètres, avis et destinataires, remises et résumés, préférences et appareils, diffusions, urgences, budget SMS et SMS entrants, retours fournisseurs, gels et liens, vues, reprise), 3811–3889 réserve, 3890–3899 retrait des anciennes tables (055, 057, 058 pour les journaux d'envoi, `ent_notification` de 102, 190, 191) après la durée d'archive | `ent-socle-notifications-conception` (conception seulement) | réservé |
 | 400–419 | socle 8, **repli** si Q-B2 n'est pas adoptée (400–410 attribuées, 419 retrait) | `ent-socle-notifications-conception` (conception seulement) | réservé |
+
+## Mise à jour du 2026-11-08 (conception du socle 9)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 3900–3999 | socle 9 interopérabilité nationale et identité fédérée (conception : `09_INTEROP.md` §15), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3900–3914 attribuées (moteur d'échanges 3900–3908 dont réception centrale de plateforme 3908, référentiels globaux `ref_*` 3909, fédération 3910 — **tables du noyau sécurité**, à renuméroter dans 1000–1199 si Q-B2 les y range, Q-X2 —, fournisseur d'identité 3911, GAR 3912, annuaires sortants et partenaires 3913, calendriers 3914), 3915–3989 réserve, 3990–3999 retrait des anciennes tables (`ent_import_lot`, `ent_import_ligne` de 144 ; `ent_edt_import` de 060) après la durée d'archive | `ent-socle-interop-conception` (conception seulement) | réservé |
+| 420–439 | socle 9, **repli** si Q-B2 n'est pas adoptée (420–434 attribuées dans le même ordre, 439 retrait) | `ent-socle-interop-conception` (conception seulement) | réservé |
