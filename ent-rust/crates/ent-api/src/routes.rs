@@ -12158,7 +12158,9 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         }
         // Dossier élève (S2-1) : classement par variante, messages sans donnée personnelle.
         ent_db::EntDbError::SaisieInvalide(_) => return (StatusCode::BAD_REQUEST, err.to_string()),
-        ent_db::EntDbError::ConflitDossier(_) => return (StatusCode::CONFLICT, err.to_string()),
+        ent_db::EntDbError::ConflitDossier(_) | ent_db::EntDbError::ConflitDossierDetail(_) => {
+            return (StatusCode::CONFLICT, err.to_string())
+        }
         // D2 : fichier déposé refusé (message sans donnée sensible).
         ent_db::EntDbError::Fichier(e) if e.est_taille() => {
             return (StatusCode::PAYLOAD_TOO_LARGE, err.to_string());

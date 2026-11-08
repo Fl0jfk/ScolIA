@@ -568,6 +568,43 @@ fn domaine_listes_de_l_etablissement() {
     jouer("listes de l'établissement (aucune fuite de B)", &specs_domaine_listes_de_l_etablissement());
 }
 
+/// Lot I2 (socle 3) : listes des inscriptions et routes à identifiant du modèle des campagnes
+/// (offres, transitions, blocage, annulation de validation, « ne pas solliciter », prolongation,
+/// fermetures). Les listes sont réservées au personnel qui gère ou décide les inscriptions ; les
+/// routes à identifiant visent un objet de B avec la session de A : jamais un 2xx.
+fn specs_domaine_inscriptions_i2() -> Vec<Spec> {
+    const CORPS_T: &str = r#"{"action":"annuler","motif":"essai de séparation"}"#;
+    let personnel: &[Acteur] = &[Admin, Direction, Administratif];
+    vec![
+        lire("campagnes-liste", "/inscriptions/campagnes", personnel, &[]),
+        lire("dossiers-liste", "/inscriptions/dossiers", personnel, &[]),
+        lire("fermetures-liste", "/inscriptions/fermetures", personnel, &[]),
+        ecrire_sur_b("offres-liste-de-B", "GET", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/offres", None),
+        ecrire_sur_b("offre-creee-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/offres",
+            Some(r#"{"niveau_code":"6EME","libelle_public":"6e"}"#)),
+        ecrire_sur_b("offre-modifiee-sur-B", "PUT", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2",
+            Some(r#"{"niveau_code":"6EME","libelle_public":"6e"}"#)),
+        ecrire_sur_b("offre-archivee-sur-B", "DELETE", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2", None),
+        ecrire_sur_b("statut-campagne-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/statut",
+            Some(r#"{"statut":"suspendue"}"#)),
+        ecrire_sur_b("prolongation-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/prolonger",
+            Some(r#"{"objet":"cloture","nouvelle_date":"2099-01-01","motif_public":"essai"}"#)),
+        ecrire_sur_b("transition-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/transition", Some(CORPS_T)),
+        ecrire_sur_b("blocage-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/blocage",
+            Some(r#"{"bloquer":true,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("annulation-validation-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/annuler-validation",
+            Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("ne-pas-solliciter-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/ne-pas-solliciter",
+            Some(r#"{"rang":2,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("fermeture-annulee-sur-B", "DELETE", "/inscriptions/fermetures/00000000-0000-0000-0000-0000000000b2", None),
+    ]
+}
+
+#[test]
+fn domaine_inscriptions_i2() {
+    jouer("inscriptions I2 (listes, objets de B)", &specs_domaine_inscriptions_i2());
+}
+
 // ───────────────────────── Invariants transverses ─────────────────────────
 
 /// Routes publiques : la **seule** liste d'exceptions à « sans session ⇒ 401 ».

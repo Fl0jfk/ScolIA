@@ -413,6 +413,10 @@ pub enum EntDbError {
     /// Opération du dossier élève incompatible avec l'état actuel.
     #[error("opération en conflit : {0}")]
     ConflitDossier(&'static str),
+    /// Même conflit, avec un détail construit (liste de domaines, de types d'événements) : le
+    /// message est destiné à l'utilisateur et ne contient aucune donnée personnelle.
+    #[error("opération en conflit : {0}")]
+    ConflitDossierDetail(String),
     /// Refus métier explicite (S2-6) : le message est destiné à l'utilisateur.
     #[error("{1}")]
     Refus(RefusMetier, &'static str),

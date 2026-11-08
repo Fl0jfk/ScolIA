@@ -14,7 +14,7 @@
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ent_types::inscriptions::*;
 use serde::Deserialize;
@@ -39,6 +39,21 @@ pub fn routes() -> Router<AppState> {
         .route("/inscriptions/campagnes/{id}", put(modifier_campagne))
         .route("/inscriptions/campagnes/{id}/ouvrir", post(ouvrir_campagne))
         .route("/inscriptions/campagnes/{id}/fermer", post(fermer_campagne))
+        .route(
+            "/inscriptions/campagnes/{id}/offres",
+            get(offres).post(creer_offre),
+        )
+        .route("/inscriptions/campagnes/{id}/statut", post(statut_campagne))
+        .route("/inscriptions/campagnes/{id}/prolonger", post(prolonger))
+        .route(
+            "/inscriptions/offres/{id}",
+            put(modifier_offre).delete(archiver_offre),
+        )
+        .route(
+            "/inscriptions/fermetures",
+            get(fermetures).post(declarer_fermeture),
+        )
+        .route("/inscriptions/fermetures/{id}", delete(annuler_fermeture))
         .route("/inscriptions/dossiers", get(dossiers))
         .route("/inscriptions/dossiers/{id}", get(dossier))
         .route("/inscriptions/dossiers/{id}/statut", post(statut))
@@ -47,6 +62,16 @@ pub fn routes() -> Router<AppState> {
         .route("/inscriptions/dossiers/{id}/relancer", post(relancer))
         .route("/inscriptions/dossiers/{id}/decision", post(decider))
         .route("/inscriptions/dossiers/{id}/valider", post(valider))
+        .route("/inscriptions/dossiers/{id}/transition", post(transition))
+        .route("/inscriptions/dossiers/{id}/blocage", post(blocage))
+        .route(
+            "/inscriptions/dossiers/{id}/annuler-validation",
+            post(annuler_validation),
+        )
+        .route(
+            "/inscriptions/dossiers/{id}/ne-pas-solliciter",
+            post(ne_pas_solliciter),
+        )
         .route(
             "/inscriptions/dossiers/{id}/correspondances",
             get(correspondances),
@@ -81,6 +106,10 @@ pub fn routes() -> Router<AppState> {
         .route("/preinscription/moi", get(espace))
         .route("/preinscription/dossiers", post(deposer))
         .route("/preinscription/dossiers/{id}", get(dossier_famille))
+        .route("/preinscription/demarches", post(deposer_demarche))
+        .route("/preinscription/demarches/{id}", get(demarche_famille))
+        .route("/preinscription/dossiers/{id}/retirer", post(retirer))
+        .route("/preinscription/dossiers/{id}/desister", post(desister))
         .route(
             "/preinscription/dossiers/{id}/pieces/{code}",
             post(piece_famille),
@@ -321,12 +350,12 @@ async fn decider(
     State(state): State<AppState>,
     s: EntSession,
     Path(id): Path<Uuid>,
-    Json(b): Json<DecisionBody>,
+    Json(b): Json<DecisionAvanceeBody>,
 ) -> Res<Json<DossierDto>> {
     Ok(Json(
         state
             .ent
-            .decider_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .decider_avance_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
             .await
             .map_err(map)?,
     ))
@@ -725,5 +754,252 @@ async fn traiter_ligne(
             .traiter_ligne_import_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
             .await
             .map_err(map)?,
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Lot I2 : offre et places, transitions, règles des personas, démarches (fratrie)
+// ---------------------------------------------------------------------------
+
+async fn offres(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<OffreOccupationDto>>> {
+    Ok(Json(
+        state
+            .ent
+            .offres_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn creer_offre(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<OffreBody>,
+) -> Res<(StatusCode, Json<OffreOccupationDto>)> {
+    let o = state
+        .ent
+        .creer_offre_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+        .await
+        .map_err(map)?;
+    Ok((StatusCode::CREATED, Json(o)))
+}
+
+async fn modifier_offre(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<OffreBody>,
+) -> Res<Json<OffreOccupationDto>> {
+    Ok(Json(
+        state
+            .ent
+            .modifier_offre_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn archiver_offre(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .archiver_offre_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+        .await
+        .map_err(map)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct StatutCampagneBody {
+    statut: String,
+}
+
+async fn statut_campagne(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<StatutCampagneBody>,
+) -> Res<Json<CampagneDto>> {
+    Ok(Json(
+        state
+            .ent
+            .changer_statut_campagne_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b.statut)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn prolonger(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ProlongationBody>,
+) -> Res<Json<ProlongationDto>> {
+    Ok(Json(
+        state
+            .ent
+            .prolonger_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn fermetures(State(state): State<AppState>, s: EntSession) -> Res<Json<Vec<FermetureDto>>> {
+    Ok(Json(
+        state
+            .ent
+            .fermetures_for_actor(s.etablissement_id, s.user_id, &s.role)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn declarer_fermeture(
+    State(state): State<AppState>,
+    s: EntSession,
+    Json(b): Json<FermetureBody>,
+) -> Res<(StatusCode, Json<FermetureDto>)> {
+    let f = state
+        .ent
+        .declarer_fermeture_for_actor(s.etablissement_id, s.user_id, &s.role, &b)
+        .await
+        .map_err(map)?;
+    Ok((StatusCode::CREATED, Json(f)))
+}
+
+async fn annuler_fermeture(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .annuler_fermeture_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+        .await
+        .map_err(map)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn transition(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<TransitionBody>,
+) -> Res<Json<DossierDto>> {
+    Ok(Json(
+        state
+            .ent
+            .transition_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn blocage(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<BlocageBody>,
+) -> Res<Json<DossierDto>> {
+    Ok(Json(
+        state
+            .ent
+            .blocage_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn annuler_validation(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<AnnulationValidationBody>,
+) -> Res<Json<AnnulationValidationDto>> {
+    Ok(Json(
+        state
+            .ent
+            .annuler_validation_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn ne_pas_solliciter(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<NePasSolliciterBody>,
+) -> Res<Json<NePasSolliciterDto>> {
+    Ok(Json(
+        state
+            .ent
+            .ne_pas_solliciter_for_actor(s.etablissement_id, s.user_id, &s.role, id, &b)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn deposer_demarche(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+    headers: HeaderMap,
+    b: Result<Json<DemarcheBody>, JsonRejection>,
+) -> Res<(StatusCode, Json<DemarcheDto>)> {
+    let j = jeton(&headers)?;
+    let etab = etab_jeton(&state, &tenant, &j).await?;
+    let b = corps(b)?;
+    let d = state.ent.deposer_demarche(etab, &j, &b).await.map_err(map)?;
+    Ok((StatusCode::CREATED, Json(d)))
+}
+
+async fn demarche_famille(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Res<Json<DemarcheDto>> {
+    let j = jeton(&headers)?;
+    let etab = etab_jeton(&state, &tenant, &j).await?;
+    Ok(Json(
+        state.ent.demarche_famille(etab, &j, id).await.map_err(map)?,
+    ))
+}
+
+async fn retirer(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Res<Json<DossierDto>> {
+    let j = jeton(&headers)?;
+    let etab = etab_jeton(&state, &tenant, &j).await?;
+    Ok(Json(
+        state
+            .ent
+            .retirer_candidature_famille(etab, &j, id)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn desister(
+    State(state): State<AppState>,
+    tenant: TenantHote,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Res<Json<DossierDto>> {
+    let j = jeton(&headers)?;
+    let etab = etab_jeton(&state, &tenant, &j).await?;
+    Ok(Json(
+        state.ent.desister_famille(etab, &j, id).await.map_err(map)?,
     ))
 }

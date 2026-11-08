@@ -1437,3 +1437,45 @@ impl PgEnt {
         Ok(())
     }
 }
+
+/// Commande inverse d'`integrer_declaration_tx` pour l'annulation d'une validation erronée
+/// (INS-68) : suspend, sans les effacer, les liens créés par la validation — ceux écrits dans la
+/// transaction de la validation, qui portent donc son horodatage. Un lien antérieur (élève déjà
+/// connu) n'est jamais touché. Renvoie le nombre de liens suspendus.
+pub async fn suspendre_liens_crees_le_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    cree_le: DateTime<Utc>,
+    motif: &str,
+    decideur: Uuid,
+) -> Result<i64, EntDbError> {
+    let r = sqlx::query(
+        "UPDATE ent_eleve_lien SET suspendu_le = now(), suspendu_par = $4, updated_at = now(),
+                suspension_motif = $5
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND created_at = $3 AND suspendu_le IS NULL",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(cree_le)
+    .bind(decideur)
+    .bind(motif)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    let n = i64::try_from(r.rows_affected()).unwrap_or(i64::MAX);
+    if n > 0 {
+        journal_tx(
+            conn,
+            etab,
+            Some(eleve_id),
+            "liens_suspendus_annulation",
+            "Liens suspendus (validation annulée)",
+            json!({ "nombre": n }),
+            false,
+            decideur,
+        )
+        .await?;
+    }
+    Ok(n)
+}

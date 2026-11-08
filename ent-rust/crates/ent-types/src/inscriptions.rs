@@ -3,10 +3,13 @@
 //! `/preinscription`, `/imports`). Aucune logique métier : l'autorité est `ent-db`.
 //!
 //! États (chaînes) :
-//! - campagne : `"brouillon"`, `"ouverte"`, `"fermee"` ; nature `"admission"` ou
-//!   `"reinscription"` ;
-//! - dossier : `"brouillon"`, `"deposee"`, `"en_instruction"`, `"incomplet"`,
-//!   `"liste_attente"`, `"admis"`, `"refuse"`, `"validee"`, `"desistement"` ;
+//! - campagne : `"brouillon"`, `"planifiee"`, `"ouverte"`, `"suspendue"`, `"fermee"`,
+//!   `"archivee"` ; nature `"admission"`, `"affectes"`, `"reinscription"` ou
+//!   `"en_cours_annee"` ;
+//! - dossier : **`etat`** (lot I2, `03_INSCRIPTIONS.md` §7 : table de transitions dans
+//!   `ent-db::inscriptions_etats`) et, pour les anciens lecteurs, `statut` : `"brouillon"`,
+//!   `"deposee"`, `"en_instruction"`, `"incomplet"`, `"liste_attente"`, `"admis"`, `"refuse"`,
+//!   `"validee"`, `"desistement"` ;
 //! - pièce : `"attendue"`, `"deposee"`, `"acceptee"`, `"refusee"` ;
 //! - ligne d'import : `"a_creer"`, `"existant"`, `"rejet"`, `"creee"`, `"ignoree"`.
 
@@ -48,6 +51,58 @@ pub struct CampagneDto {
     /// Nombre de dossiers par statut (personnel seulement ; vide pour les familles).
     #[serde(default)]
     pub compteurs: Vec<CompteurStatutDto>,
+    /// Année du référentiel (lot I2) ; absente tant que le référentiel ne la connaît pas.
+    #[serde(default)]
+    pub annee_id: Option<Uuid>,
+    /// Version de la campagne : chaque modification en crée une (journal).
+    #[serde(default)]
+    pub version: i32,
+    #[serde(default)]
+    pub regles: ReglesCampagneDto,
+    /// Offres et places (personnel seulement ; vide pour les familles).
+    #[serde(default)]
+    pub offres: Vec<OffreOccupationDto>,
+}
+
+/// Règles paramétrables d'une campagne (`03_INSCRIPTIONS.md` §8.1), dans les bornes du logiciel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReglesCampagneDto {
+    /// `"un_seul"` ou `"tous_les_titulaires"` (accord des responsables).
+    pub accord_responsables: String,
+    pub decision_requise: bool,
+    /// `"jamais"`, `"facultatif"`, `"toujours"`.
+    pub motif_communique: String,
+    /// `"tacite"`, `"explicite"`, `"explicite_avec_acompte"` (réinscription).
+    #[serde(default)]
+    pub mode_reinscription: Option<String>,
+    #[serde(default)]
+    pub date_limite_famille: Option<NaiveDate>,
+    #[serde(default)]
+    pub date_cloture_depot: Option<NaiveDate>,
+    /// Délai de réponse de la famille, 2 à 30 jours.
+    #[serde(default)]
+    pub delai_reponse_jours: Option<i16>,
+    /// Délai pendant lequel une validation erronée peut être annulée, 0 à 168 heures.
+    pub delai_annulation_validation_h: i16,
+    pub page_publique: bool,
+    pub au_fil_de_l_eau: bool,
+}
+
+impl Default for ReglesCampagneDto {
+    fn default() -> Self {
+        Self {
+            accord_responsables: "un_seul".into(),
+            decision_requise: true,
+            motif_communique: "facultatif".into(),
+            mode_reinscription: None,
+            date_limite_famille: None,
+            date_cloture_depot: None,
+            delai_reponse_jours: None,
+            delai_annulation_validation_h: 72,
+            page_publique: false,
+            au_fil_de_l_eau: false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -72,6 +127,13 @@ pub struct CampagneBody {
     pub niveaux: Vec<NiveauCampagneDto>,
     #[serde(default)]
     pub pieces: Vec<PieceCampagneDto>,
+    /// Règles de la campagne ; absentes = valeurs actuelles (création : valeurs par défaut de la
+    /// nature).
+    #[serde(default)]
+    pub regles: Option<ReglesCampagneDto>,
+    /// Motif d'une modification après création (journal des versions).
+    #[serde(default)]
+    pub motif_modification: Option<String>,
 }
 
 /// Résultat de l'ouverture d'une campagne (réinscription : dossiers préparés).
@@ -199,6 +261,11 @@ pub struct DossierResumeDto {
     pub eleve_id: Option<Uuid>,
     pub depose_le: Option<DateTime<Utc>>,
     pub pieces_manquantes: i64,
+    /// État (§7) et numéro lisible du dossier (lot I2).
+    #[serde(default)]
+    pub etat: String,
+    #[serde(default)]
+    pub reference: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -221,6 +288,23 @@ pub struct DossierDto {
     pub reutilise_identite: bool,
     /// Actions possibles pour le lecteur (codes stables).
     pub actions: Vec<String>,
+    /// État du dossier (§7) ; `statut` n'en est que la vue historique.
+    #[serde(default)]
+    pub etat: String,
+    /// Numéro lisible donné à la famille (`ADM-2026-0142`).
+    #[serde(default)]
+    pub reference: String,
+    /// Démarche familiale (fratrie : plusieurs dossiers pour une démarche).
+    #[serde(default)]
+    pub demarche_id: Option<Uuid>,
+    /// Prochaine échéance de la famille (calculée, décalée par les fermetures).
+    #[serde(default)]
+    pub echeance_famille: Option<NaiveDate>,
+    #[serde(default)]
+    pub rang_attente: Option<i32>,
+    /// Fermeture du secrétariat qui suspend les délais (message affiché à la famille).
+    #[serde(default)]
+    pub fermeture: Option<FermetureDto>,
 }
 
 /// Corps de `POST /inscriptions/dossiers/{id}/statut` (instruction).
@@ -254,6 +338,25 @@ pub struct DecisionBody {
     pub decision: String,
     #[serde(default)]
     pub motif: Option<String>,
+}
+
+/// Corps de `POST /inscriptions/dossiers/{id}/decision` (INS-04), forme complète : la forme
+/// `{decision, motif}` de [`DecisionBody`] reste valide (mêmes champs, les autres facultatifs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionAvanceeBody {
+    /// `"admis"`, `"liste_attente"`, `"refuse"`.
+    pub decision: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+    /// Motif communiqué à la famille (selon la règle de la campagne).
+    #[serde(default)]
+    pub motif_communique: Option<String>,
+    /// Offre sur laquelle porte la décision ; à défaut, le premier vœu du dossier.
+    #[serde(default)]
+    pub offre_id: Option<Uuid>,
+    /// Admettre au-delà de la capacité : confirmé et tracé (jamais en silence).
+    #[serde(default)]
+    pub confirmer_depassement: bool,
 }
 
 /// Corps de `POST /inscriptions/dossiers/{id}/valider` (INS-05).
@@ -600,4 +703,255 @@ pub struct TraiterLigneBody {
     pub action: String,
     #[serde(default)]
     pub corrections: std::collections::BTreeMap<String, String>,
+}
+
+// ---------------------------------------------------------------------------
+// Offre, capacités et compteur de places (lot I2, §8.2)
+// ---------------------------------------------------------------------------
+
+/// Corps de `POST /inscriptions/campagnes/{id}/offres` et `PUT /inscriptions/offres/{id}`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OffreBody {
+    /// Code du niveau (`6EME`…) ; rapproché du référentiel quand il existe.
+    pub niveau_code: String,
+    #[serde(default)]
+    pub parcours_code: Option<String>,
+    /// `"externe"`, `"demi_pension"`, `"interne"`.
+    #[serde(default)]
+    pub regime: Option<String>,
+    pub libelle_public: String,
+    /// `None` = capacité non limitée.
+    #[serde(default)]
+    pub capacite: Option<i32>,
+    #[serde(default)]
+    pub places_reservees_reinscription: Option<bool>,
+    #[serde(default)]
+    pub ouverte_candidature: Option<bool>,
+    #[serde(default)]
+    pub conditions_acces: Option<String>,
+    /// Motif d'un changement de capacité (trace).
+    #[serde(default)]
+    pub motif: Option<String>,
+    /// Unités d'hébergement (offre de régime interne, R-I15).
+    #[serde(default)]
+    pub unites: Vec<UniteHebergementDto>,
+}
+
+/// Unité d'hébergement d'une offre de régime interne (dortoir, chambre adaptée…).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UniteHebergementDto {
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    pub libelle: String,
+    pub capacite: i32,
+    #[serde(default)]
+    pub conditions_acces: Option<String>,
+    /// Places prises (vœux retenus rattachés à l'unité) — lecture seule.
+    #[serde(default)]
+    pub occupees: i64,
+}
+
+/// Une offre avec son compteur de places (calculé à chaque lecture, jamais saisi).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OffreOccupationDto {
+    pub id: Uuid,
+    pub campagne_id: Uuid,
+    pub niveau_code: String,
+    pub niveau_id: Option<Uuid>,
+    pub parcours_code: Option<String>,
+    pub regime: Option<String>,
+    pub libelle_public: String,
+    pub capacite: Option<i32>,
+    pub places_reservees_reinscription: bool,
+    pub ouverte_candidature: bool,
+    pub conditions_acces: Option<String>,
+    /// Candidatures en cours d'instruction (informatif, ne consomme pas de place).
+    pub demandes: i64,
+    /// Admis en attente de la réponse de la famille.
+    pub proposees: i64,
+    pub confirmees: i64,
+    pub validees: i64,
+    /// Sur liste d'attente (ne consomme pas de place).
+    pub liste_attente: i64,
+    /// Réinscrits qui gardent une place (offre jumelle d'une campagne de réinscription).
+    pub reserve_reinscription: i64,
+    /// `capacité − réserve − proposées − confirmées − validées` ; négatif = dépassement assumé ;
+    /// `None` quand la capacité n'est pas limitée.
+    pub disponibles: Option<i64>,
+    #[serde(default)]
+    pub unites: Vec<UniteHebergementDto>,
+}
+
+// ---------------------------------------------------------------------------
+// Démarches familiales, fratries, déclarations (lot I2, §8.3 et §8.4)
+// ---------------------------------------------------------------------------
+
+/// Un enfant d'une démarche : l'élève du formulaire et ses vœux (offres classées).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnfantDemarcheBody {
+    pub eleve: EleveFormulaireDto,
+    /// Offres souhaitées, par ordre de préférence (cinq au plus).
+    #[serde(default)]
+    pub voeux: Vec<Uuid>,
+}
+
+/// Responsable supplémentaire (au-delà des deux premiers) : tuteur, beau-parent, ASE…
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AutreResponsableBody {
+    pub responsable: ResponsableFormulaireDto,
+    /// Positions (à partir de 0) des enfants concernés dans la démarche ; vide = tous.
+    #[serde(default)]
+    pub enfants: Vec<usize>,
+}
+
+/// `POST /preinscription/demarches` : une démarche pour un ou plusieurs enfants (fratrie native),
+/// une seule déclaration des responsables.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemarcheBody {
+    pub campagne_id: Uuid,
+    #[serde(default)]
+    pub utiliser_mes_infos: bool,
+    #[serde(default)]
+    pub enregistrer_profil: bool,
+    /// Un à six enfants.
+    pub enfants: Vec<EnfantDemarcheBody>,
+    pub responsable: ResponsableFormulaireDto,
+    #[serde(default)]
+    pub second_parent: Option<ResponsableFormulaireDto>,
+    /// Responsables supplémentaires (quatre au plus).
+    #[serde(default)]
+    pub autres_responsables: Vec<AutreResponsableBody>,
+}
+
+/// Déclaration d'un responsable dans une démarche (sans valeur scellée).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarationResponsableDto {
+    pub ordre: i16,
+    pub est_deposant: bool,
+    pub nom: String,
+    pub prenom: Option<String>,
+    pub lien_code: String,
+    pub autorite_parentale: String,
+    pub foyer_cle: String,
+    pub pour_enfants: Vec<Uuid>,
+    /// Aucune sollicitation (invitation, accord, relance) ne lui est envoyée.
+    pub ne_pas_solliciter: bool,
+    /// Rempli à la validation seulement (retour de la commande du socle 4).
+    pub personne_id: Option<Uuid>,
+}
+
+/// Vue d'une démarche : ses dossiers et ses déclarations.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemarcheDto {
+    pub id: Uuid,
+    pub dossiers: Vec<DossierResumeDto>,
+    pub declarations: Vec<DeclarationResponsableDto>,
+}
+
+// ---------------------------------------------------------------------------
+// Transitions, blocage, annulation de validation, ne pas solliciter (lot I2)
+// ---------------------------------------------------------------------------
+
+/// `POST /inscriptions/dossiers/{id}/transition` : changements d'état hors instruction et hors
+/// décision. `action` : `sans_suite`, `annuler`, `desister`, `reprendre` (depuis « sans suite »),
+/// `non_presente`, `reaffecte`, `non_reinscription_etablissement`, `sans_reponse`,
+/// `reouvrir` (depuis « sans réponse »), `en_attente_passage`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TransitionBody {
+    pub action: String,
+    /// Motif interne obligatoire (3 à 1000 caractères).
+    pub motif: String,
+}
+
+/// `POST /inscriptions/dossiers/{id}/blocage` : poser (désaccord des responsables) ou lever.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlocageBody {
+    /// `true` : poser le blocage ; `false` : le lever (retour à l'état d'avant).
+    pub bloquer: bool,
+    pub motif: String,
+}
+
+/// `POST /inscriptions/dossiers/{id}/annuler-validation` (INS-68 ★).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnulationValidationBody {
+    pub motif: String,
+}
+
+/// Résultat d'une annulation de validation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnulationValidationDto {
+    pub dossier_id: Uuid,
+    pub etat: String,
+    /// Fiche créée par la validation, archivée (ELV-02) ; `false` si l'élève existait déjà.
+    pub eleve_archive: bool,
+    pub inscription_annuelle_retiree: bool,
+    pub liens_suspendus: i64,
+    pub invitations_revoquees: i64,
+}
+
+/// `POST /inscriptions/dossiers/{id}/ne-pas-solliciter` (INS-57 ★, direction).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NePasSolliciterBody {
+    /// Rang (1 à 6) du responsable concerné dans la démarche.
+    pub rang: i16,
+    /// Motif scellé (danger, ordonnance de protection, décision de justice) : jamais renvoyé.
+    pub motif: String,
+}
+
+/// Résultat : nombre d'envois, d'invitations et de demandes retirés.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NePasSolliciterDto {
+    pub envois_annules: i64,
+    pub invitations_annulees: i64,
+}
+
+// ---------------------------------------------------------------------------
+// Échéances et fermetures (INS-79, INS-80)
+// ---------------------------------------------------------------------------
+
+/// `POST /inscriptions/campagnes/{id}/prolonger` (INS-79 ★).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProlongationBody {
+    /// `"date_limite_famille"`, `"cloture"` ou `"echeance_dossiers"`.
+    pub objet: String,
+    pub nouvelle_date: NaiveDate,
+    /// Motif court, communiqué aux familles.
+    pub motif_public: String,
+    /// `echeance_dossiers` : sélection de dossiers ; vide = tous les dossiers ouverts.
+    #[serde(default)]
+    pub dossiers: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProlongationDto {
+    pub id: Uuid,
+    pub objet: String,
+    pub ancienne_date: Option<NaiveDate>,
+    pub nouvelle_date: NaiveDate,
+    pub nb_dossiers: i64,
+    pub familles_prevenues: i64,
+}
+
+/// `POST /inscriptions/fermetures` (INS-80).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FermetureBody {
+    pub date_debut: NaiveDate,
+    pub date_fin: NaiveDate,
+    /// Jours après la réouverture avant lesquels une famille n'est ni échue ni relancée.
+    #[serde(default)]
+    pub report_jours: Option<i16>,
+    pub motif_public: String,
+    #[serde(default)]
+    pub contact_urgence: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FermetureDto {
+    pub id: Uuid,
+    pub date_debut: NaiveDate,
+    pub date_fin: NaiveDate,
+    pub report_jours: i16,
+    pub motif_public: String,
+    pub contact_urgence: Option<String>,
+    pub echeances_reportees: i64,
 }

@@ -173,6 +173,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/286_eleve_options.sql"),
     include_str!("../../../migrations/300_inscription_annuelle_prevue.sql"),
     include_str!("../../../migrations/301_inscriptions_i1_dossier.sql"),
+    include_str!("../../../migrations/302_inscription_campagne_modele.sql"),
+    include_str!("../../../migrations/303_inscription_offre.sql"),
+    include_str!("../../../migrations/304_inscription_demarche_dossier.sql"),
+    include_str!("../../../migrations/305_inscription_declaration_responsable.sql"),
+    include_str!("../../../migrations/306_inscription_offre_reprise_places.sql"),
+    include_str!("../../../migrations/307_inscription_fermeture_prolongation.sql"),
+    include_str!("../../../migrations/308_inscription_validation_annulee.sql"),
+    include_str!("../../../migrations/309_inscription_envoi_information.sql"),
     include_str!("../../../migrations/370_edt_creneau_groupe.sql"),
 ];
 

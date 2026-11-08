@@ -228,6 +228,21 @@ pub mod types {
     pub const ADMISSION_RELANCE_ENVOYEE: &str = "admission.relance_envoyee";
     /// Fait central de la toile (§4.3) : affectation, invitations, accueil…
     pub const INSCRIPTION_VALIDEE: &str = "inscription.validee";
+    /// Lot I2 (socle 3) : cycle de vie des dossiers, offre, échéances. Charges utiles : identifiants,
+    /// codes, dates ; jamais de nom, d'adresse, d'e-mail ni de motif rédigé.
+    pub const ADMISSION_RETIREE: &str = "admission.retiree";
+    pub const INSCRIPTION_DESISTEMENT: &str = "inscription.desistement";
+    pub const INSCRIPTION_BLOQUE_DESACCORD: &str = "inscription.bloque_desaccord";
+    pub const INSCRIPTION_BLOCAGE_LEVE: &str = "inscription.blocage_leve";
+    pub const INSCRIPTION_VALIDATION_ANNULEE: &str = "inscription.validation_annulee";
+    pub const INSCRIPTION_SOLLICITATION_SUSPENDUE: &str = "inscription.sollicitation_suspendue";
+    pub const INSCRIPTION_CAMPAGNE_MODIFIEE: &str = "inscription.campagne_modifiee";
+    pub const INSCRIPTION_OFFRE_MODIFIEE: &str = "inscription.offre_modifiee";
+    pub const INSCRIPTION_ECHEANCE_PROLONGEE: &str = "inscription.echeance_prolongee";
+    pub const INSCRIPTION_FERMETURE_DECLAREE: &str = "inscription.fermeture_declaree";
+    pub const INSCRIPTION_DOSSIER_CLOS: &str = "inscription.dossier_clos";
+    /// Socle 2 : création d'élève annulée (ELV-02, commande appelée par INS-68).
+    pub const ELEVE_CREATION_ANNULEE: &str = "eleve.creation_annulee";
     pub const SCOLARITE_DEPART_ANNONCE: &str = "scolarite.depart_annonce";
     pub const RESPONSABLE_INVITE: &str = "inscription.responsable_invite";
     pub const INVITATION_ACCEPTEE: &str = "inscription.invitation_acceptee";
