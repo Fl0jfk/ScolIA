@@ -179,7 +179,7 @@ async fn parent_sans_compte_est_destinataire_selon_ses_preferences() {
         .telephones_parents_eleve(etab, eleve)
         .await
         .unwrap();
-    assert_eq!(tels, vec![tel.to_string()], "téléphone lu sur la fiche");
+    assert_eq!(tels, vec!["+33612345678".to_string()], "téléphone lu sur la fiche, normalisé E.164");
     // Préférences : plus de SMS, e-mail conservé.
     ent.definir_preferences_for_actor(etab, d, r, res.personne.id, true, false, false)
         .await

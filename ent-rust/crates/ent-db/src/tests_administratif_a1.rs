@@ -9,7 +9,7 @@ use crate::dossier_personnes::{ContactSaisie, InterdictionSaisie, LienResultat, 
 use ent_auth::Role;
 use uuid::Uuid;
 
-const TEL_B: &str = "0611223344";
+const TEL_B: &str = "+33611223344"; // E.164 : la fiche normalise (lot A2)
 const ADRESSE_B: &str = "8 impasse du Lilas, 31000 Toulouse";
 const EMAIL_B: &str = "secret-b@exemple.fr";
 
