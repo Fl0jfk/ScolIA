@@ -64,7 +64,13 @@ pub fn PagePreinscription() -> impl IntoView {
         })
     };
 
+    // Établissement : `?etab=` (labo local) ou configuration du serveur ; à terme, déduit
+    // de l'adresse du site (D-012), ce qui rend les deux inutiles.
+    let requete = use_query_map();
     let demarrer = Callback::new(move |_| {
+        let etab_url = requete
+            .with_untracked(|q| q.get("etab"))
+            .and_then(|e| e.trim().parse::<Uuid>().ok());
         let e = email.get_untracked();
         if !email_plausible(&e) {
             erreur.set(Some("Saisissez une adresse e-mail valide.".into()));
@@ -73,7 +79,14 @@ pub fn PagePreinscription() -> impl IntoView {
         erreur.set(None);
         en_cours.set(true);
         spawn_local(async move {
-            let r = client.get_untracked().demarrer(&e, None).await;
+            let etab = match etab_url {
+                Some(id) => Some(id),
+                None => crate::modules::connexion::config_connexion()
+                    .await
+                    .ok()
+                    .and_then(|c| c.etablissement_id),
+            };
+            let r = client.get_untracked().demarrer(&e, etab).await;
             en_cours.set(false);
             match r {
                 Ok(d) => {
