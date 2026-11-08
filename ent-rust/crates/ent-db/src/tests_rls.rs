@@ -27,7 +27,7 @@ struct Env {
 }
 
 async fn preparer() -> Option<Env> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -237,8 +237,8 @@ async fn rls_politiques_presentes_et_forcees() {
     )
     .fetch_one(&e.admin).await.unwrap().get(0);
     // 22 tables pilotes (migration 100) + 17 finances (S2-9, 206) + 6 santé/accompagnement (S2-11, 215)
-    // + 2 identité versionnée (E2) + 15 des lots E3 et E4.
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15, "tables avec RLS activée et forcée");
+    // + 2 identité versionnée (E2) + 15 des lots E3 et E4 + 2 du socle 5 (S0 archive, S1 membres de cours).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

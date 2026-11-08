@@ -2,11 +2,13 @@
 //!
 //! Règle unique « un professeur ne voit que ses élèves » : un professeur **suit**
 //! un élève s'il lui enseigne aujourd'hui. Sources, dans l'ordre :
-//! 1. référentiel scolaire (`enseigne_a` : service d'enseignement ∩ affectation). Un
-//!    service porte sur une **classe** (professeur principal, enseignement de la classe
-//!    entière) ou sur un **groupe** : dans une classe mixte (LV2 allemand / espagnol), le
-//!    professeur d'allemand ne suit que le groupe allemand (D-022). Matières, groupes et
-//!    services sont du paramétrage libre de l'établissement : aucune liste dans le code ;
+//! 1. référentiel scolaire (`enseigne_a` : **public du cours**, `ent_public_cours_jour`,
+//!    socle 5 S1 : classe ou groupe + membres individuels − exclusions). Un cours porte sur
+//!    une **classe** (professeur principal, enseignement de la classe entière) ou sur un
+//!    **groupe** : dans une classe mixte (LV2 allemand / espagnol), le professeur d'allemand
+//!    ne suit que le groupe allemand (D-022). Matières, groupes et services sont du
+//!    paramétrage libre de l'établissement : aucune liste dans le code. La règle n'existe
+//!    qu'à un endroit (la fonction SQL) ; ce module et `enseignements.rs` l'appellent ;
 //! 2. emploi du temps historique (créneau du professeur sur la classe texte de l'élève),
 //!    **uniquement pour les élèves que le référentiel ne couvre pas encore** : la classe
 //!    texte ignore les groupes et ne doit jamais élargir la portée (D-022) ;
@@ -96,16 +98,7 @@ impl PgEnt {
                              AND fy.date_debut <= $4 AND fy.date_fin >= $4
                              AND fa.date_debut <= $4
                              AND (fa.date_fin IS NULL OR fa.date_fin >= $4))
-                                OR EXISTS (
-                          SELECT 1 FROM ent_service_enseignement ts
-                            JOIN ent_affectation ta
-                              ON ta.etablissement_id = ts.etablissement_id AND ta.annee_id = ts.annee_id
-                             AND ((ts.classe_id IS NOT NULL AND ta.classe_id = ts.classe_id)
-                               OR (ts.groupe_id IS NOT NULL AND ta.groupe_id = ts.groupe_id))
-                           WHERE ts.etablissement_id = e.etablissement_id
-                             AND ts.prof_user_id = c.prof_user_id AND ta.eleve_id = e.id
-                             AND ta.date_debut <= $4
-                             AND (ta.date_fin IS NULL OR ta.date_fin >= $4))))))",
+                                OR EXISTS (SELECT 1 FROM ent_public_cours_jour(c.etablissement_id, $4, NULL, c.prof_user_id, e.id))))))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)
@@ -149,20 +142,7 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<Vec<Uuid>, EntDbError> {
         let rows: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT a.eleve_id
-               FROM ent_service_enseignement s
-               JOIN ent_annee_scolaire y
-                 ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
-               JOIN ent_affectation a
-                 ON a.etablissement_id = s.etablissement_id AND a.annee_id = s.annee_id
-                AND ((s.classe_id IS NOT NULL AND a.classe_id = s.classe_id)
-                  OR (s.groupe_id IS NOT NULL AND a.groupe_id = s.groupe_id))
-               JOIN ent_eleve e
-                 ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
-              WHERE s.etablissement_id = $1 AND s.prof_user_id = $2
-                AND y.date_debut <= $3 AND y.date_fin >= $3
-                AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3)
-                AND (e.date_sortie IS NULL OR e.date_sortie > $3)
+            "SELECT p.eleve_id FROM ent_public_cours_jour($1, $3, NULL, $2, NULL) p
              UNION
              SELECT e.id
                FROM ent_eleve e
@@ -201,16 +181,7 @@ impl PgEnt {
                              AND fy.date_debut <= $3 AND fy.date_fin >= $3
                              AND fa.date_debut <= $3
                              AND (fa.date_fin IS NULL OR fa.date_fin >= $3))
-                              OR EXISTS (
-                          SELECT 1 FROM ent_service_enseignement ts
-                            JOIN ent_affectation ta
-                              ON ta.etablissement_id = ts.etablissement_id AND ta.annee_id = ts.annee_id
-                             AND ((ts.classe_id IS NOT NULL AND ta.classe_id = ts.classe_id)
-                               OR (ts.groupe_id IS NOT NULL AND ta.groupe_id = ts.groupe_id))
-                           WHERE ts.etablissement_id = e.etablissement_id
-                             AND ts.prof_user_id = c.prof_user_id AND ta.eleve_id = e.id
-                             AND ta.date_debut <= $3
-                             AND (ta.date_fin IS NULL OR ta.date_fin >= $3)))))",
+                              OR EXISTS (SELECT 1 FROM ent_public_cours_jour(c.etablissement_id, $3, NULL, c.prof_user_id, e.id)))))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)

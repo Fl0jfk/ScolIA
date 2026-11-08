@@ -25,7 +25,7 @@ struct Ctx {
 }
 
 async fn ctx() -> Option<Ctx> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");

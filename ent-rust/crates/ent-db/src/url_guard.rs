@@ -64,3 +64,17 @@ mod tests {
         );
     }
 }
+
+/// URL de la base de test (feature `labo`). Absente : le test est ignoré en local, mais
+/// **échoue** quand `CI` est défini — un test qui ne vérifie rien ne doit pas passer au vert
+/// (socle 5, S0, défaut n° 19).
+#[cfg(test)]
+pub(crate) fn url_labo_ou_echec() -> Option<String> {
+    match std::env::var("ENT_DATABASE_URL") {
+        Ok(u) if !u.trim().is_empty() => Some(u),
+        _ if std::env::var_os("CI").is_some() => {
+            panic!("ENT_DATABASE_URL absente en CI : les tests sur base ne peuvent pas être ignorés")
+        }
+        _ => None,
+    }
+}

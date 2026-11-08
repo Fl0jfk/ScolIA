@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 const ADMIN: &str = "administratif";
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -23,20 +23,20 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-struct Monde {
-    classe: Uuid,
-    periode: Uuid,
-    all: [Uuid; 2],
-    esp: [Uuid; 2],
-    prof_all: Uuid,
-    prof_esp: Uuid,
-    prof_principal: Uuid,
-    s_all: Uuid,
+pub(crate) struct Monde {
+    pub(crate) classe: Uuid,
+    pub(crate) periode: Uuid,
+    pub(crate) all: [Uuid; 2],
+    pub(crate) esp: [Uuid; 2],
+    pub(crate) prof_all: Uuid,
+    pub(crate) prof_esp: Uuid,
+    pub(crate) prof_principal: Uuid,
+    pub(crate) s_all: Uuid,
 }
 
 /// Classe mixte (4 élèves : 2 allemand, 2 espagnol), un professeur par groupe, un
 /// professeur principal de la classe entière.
-async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
+pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
     let etab = cast.etablissement_id;
     let annee = ent.referentiel_annee_courante_assuree(etab).await.unwrap();
     let sfx = Uuid::new_v4().simple().to_string()[..6].to_string();

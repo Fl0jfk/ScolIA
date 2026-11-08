@@ -180,6 +180,18 @@ impl PgEnt {
         a: &Acteur<'_>,
         annee_id: Uuid,
     ) -> Result<RapportOuverture, EntDbError> {
+        self.ref_ouvrir_annee_forcee(a, annee_id, false).await
+    }
+
+    /// Comme [`Self::ref_ouvrir_annee`] ; `forcer` lève le refus quand l'ancienne courante a
+    /// encore des périodes de notes ouvertes (mêmes contrôles que la clôture directe, socle 5
+    /// S0 défaut n° 4 ; `forcer` est tracé dans l'événement de clôture).
+    pub async fn ref_ouvrir_annee_forcee(
+        &self,
+        a: &Acteur<'_>,
+        annee_id: Uuid,
+        forcer: bool,
+    ) -> Result<RapportOuverture, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -234,7 +246,22 @@ impl PgEnt {
         if classes == 0 || verifier_couverture(&saisies, debut, fin).is_err() {
             return Err(invalide());
         }
-        // Ancienne courante : clôturée d'abord (index unique « une seule courante »).
+        // Ancienne courante : mêmes contrôles que la clôture directe (périodes de notes).
+        let ouvertes: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ent_note_periode np
+               JOIN ent_periode p ON p.id = np.periode_id AND p.etablissement_id = np.etablissement_id
+               JOIN ent_annee_scolaire y ON y.id = p.annee_id AND y.etablissement_id = p.etablissement_id
+              WHERE np.etablissement_id = $1 AND y.courante AND y.id <> $2 AND np.statut <> 'fermee'",
+        )
+        .bind(e)
+        .bind(annee_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if ouvertes > 0 && !forcer {
+            return Err(conflit());
+        }
+        // Clôturée d'abord (index unique « une seule courante »).
         let ancienne: Option<Uuid> = sqlx::query_scalar(
             "UPDATE ent_annee_scolaire SET cloturee_le = now()
               WHERE etablissement_id = $1 AND courante AND id <> $2 RETURNING id",
@@ -269,7 +296,7 @@ impl PgEnt {
         let mut events = Vec::new();
         if let Some(old) = ancienne {
             events.push(
-                publier_ref(&mut tx, a, "referentiel.annee_cloturee", old, json!({ "par": "ouverture" }))
+                publier_ref(&mut tx, a, "referentiel.annee_cloturee", old, json!({ "par": "ouverture", "forcer": forcer }))
                     .await?,
             );
         }
@@ -328,6 +355,23 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if ouvertes > 0 && !forcer {
+            return Err(conflit());
+        }
+        // Fermer l'année courante sans successeur laisserait l'établissement sans année
+        // courante (socle 5 S0, défaut n° 5) : refusé sauf `forcer`.
+        let sans_successeur: bool = sqlx::query_scalar(
+            "SELECT y.courante AND NOT EXISTS (
+                      SELECT 1 FROM ent_annee_scolaire n
+                       WHERE n.etablissement_id = y.etablissement_id AND n.id <> y.id
+                         AND n.cloturee_le IS NULL AND n.date_debut > y.date_debut)
+               FROM ent_annee_scolaire y WHERE y.etablissement_id = $1 AND y.id = $2",
+        )
+        .bind(e)
+        .bind(annee_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if sans_successeur && !forcer {
             return Err(conflit());
         }
         sqlx::query(

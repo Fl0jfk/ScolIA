@@ -203,6 +203,8 @@ impl PgEnt {
                    FROM ent_affectation a
                   WHERE a.etablissement_id = $1
                     AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
+                    AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
+                                   AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4)
                     AND (($2 AND a.groupe_id IN (SELECT r.groupe_id FROM ent_groupe_responsable r
                                                   WHERE r.etablissement_id = $1 AND r.user_id = $3))
                          OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5)
@@ -236,7 +238,9 @@ impl PgEnt {
                  JOIN ent_groupe_responsable r
                    ON r.groupe_id = a.groupe_id AND r.etablissement_id = a.etablissement_id
                 WHERE a.etablissement_id = $1 AND r.user_id = $2 AND a.eleve_id = $3
-                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4))",
+                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
+                  AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
+                                   AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4))",
         )
         .bind(etablissement_id)
         .bind(user_id)
@@ -263,7 +267,9 @@ impl PgEnt {
                        OR EXISTS (SELECT 1 FROM ent_classe c
                                    WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
                                      AND (c.site_id = ANY($2) OR c.niveau_id = ANY($2))))
-                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4))",
+                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
+                  AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
+                                   AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4))",
         )
         .bind(etablissement_id)
         .bind(cibles)
