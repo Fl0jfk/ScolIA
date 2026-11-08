@@ -64,9 +64,11 @@ BEGIN
          WHERE g.id = NEW.groupe_id AND g.etablissement_id = NEW.etablissement_id AND g.annee_id = NEW.annee_id) THEN
         RAISE EXCEPTION 'structure_incoherente: groupe' USING ERRCODE = '23514';
     END IF;
-    IF TG_TABLE_NAME = 'ent_affectation' AND NOT EXISTS (
-        SELECT 1 FROM ent_eleve e WHERE e.id = NEW.eleve_id AND e.etablissement_id = NEW.etablissement_id) THEN
-        RAISE EXCEPTION 'structure_incoherente: eleve' USING ERRCODE = '23514';
+    IF TG_TABLE_NAME = 'ent_affectation' THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM ent_eleve e WHERE e.id = NEW.eleve_id AND e.etablissement_id = NEW.etablissement_id) THEN
+            RAISE EXCEPTION 'structure_incoherente: eleve' USING ERRCODE = '23514';
+        END IF;
     END IF;
     RETURN NEW;
 END
