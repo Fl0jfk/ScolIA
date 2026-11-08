@@ -459,6 +459,12 @@ pub fn construire_validation(
 }
 
 /// Statut d'une campagne (distinct du statut d'un dossier : « brouillon » y est un brouillon).
+/// Une pièce déjà acceptée ou refusée n'a plus de boutons de décision (l'état est affiché) ;
+/// une nouvelle remise par la famille la repasse à « déposée ».
+pub fn piece_a_decider(statut: &str) -> bool {
+    !matches!(statut, "acceptee" | "refusee")
+}
+
 pub fn libelle_statut_campagne(statut: &str) -> &'static str {
     match statut {
         "brouillon" => "Brouillon",
@@ -734,6 +740,14 @@ mod tests {
         };
         let b = construire_validation(&rien, &[], "", false).unwrap();
         assert!(b.responsables.is_empty() && b.eleve.is_none());
+    }
+
+    #[test]
+    fn pas_de_boutons_apres_decision_de_la_piece() {
+        assert!(piece_a_decider("deposee"));
+        assert!(piece_a_decider("attendue"));
+        assert!(!piece_a_decider("acceptee"));
+        assert!(!piece_a_decider("refusee"));
     }
 
     #[test]

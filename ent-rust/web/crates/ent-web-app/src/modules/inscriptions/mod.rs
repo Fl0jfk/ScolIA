@@ -23,7 +23,7 @@ use ent_web_api::types_inscriptions::{
 };
 use ent_web_api::ApiError;
 use ent_web_ui::{
-    use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, EnTetePage, EtatVide,
+    use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Dialogue, EnTetePage, EtatVide,
     Niveau, Selection, Squelette, Taille, TonEtat, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
@@ -34,6 +34,7 @@ use uuid::Uuid;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::{reconnexion, session};
 use modele::{
+    piece_a_decider,
     libelle_nature, libelle_regime, libelle_statut, libelle_statut_campagne, niveaux_depuis_texte,
     peut, pieces_depuis_texte, ton_statut, REGIMES,
 };
@@ -84,6 +85,25 @@ fn ListeCampagnes(
     recharger: Callback<()>,
 ) -> impl IntoView {
     let notifications = use_notifications();
+    // Ouvrir ou fermer une campagne touche les familles : confirmation avant d'agir.
+    let confirmer = RwSignal::new(false);
+    let cible = RwSignal::new(None::<(Uuid, bool, String)>);
+    let appliquer = Callback::new(move |_| {
+        let Some((id, ouverte, _)) = cible.get_untracked() else { return };
+        confirmer.set(false);
+        spawn_local(async move {
+            let client = session::client();
+            let r = if ouverte {
+                client.fermer_campagne(id).await.map(|_| "Campagne fermée.".to_string())
+            } else {
+                client.ouvrir_campagne(id).await.map(|o| format!("Campagne ouverte ({} dossiers préparés).", o.dossiers_prepares))
+            };
+            match r {
+                Ok(m) => { notifications.succes(m); recharger.run(()); }
+                Err(e) => { notifications.info(message_echec(e)); }
+            }
+        })
+    });
     if campagnes.is_empty() {
         return view! { <EtatVide titre="Aucune campagne" message="Créez une campagne d'admission ou de réinscription ci-dessous."/> }.into_any();
     }
@@ -100,19 +120,10 @@ fn ListeCampagnes(
                         let id = c.id;
                         let total: i64 = c.compteurs.iter().map(|x| x.nombre).sum();
                         let ouverte = c.statut == "ouverte";
+                        let libelle_campagne = c.libelle.clone();
                         let basculer = Callback::new(move |_| {
-                            spawn_local(async move {
-                                let client = session::client();
-                                let r = if ouverte {
-                                    client.fermer_campagne(id).await.map(|_| "Campagne fermée.".to_string())
-                                } else {
-                                    client.ouvrir_campagne(id).await.map(|o| format!("Campagne ouverte ({} dossiers préparés).", o.dossiers_prepares))
-                                };
-                                match r {
-                                    Ok(m) => { notifications.succes(m); recharger.run(()); }
-                                    Err(e) => { notifications.info(message_echec(e)); }
-                                }
-                            })
+                            cible.set(Some((id, ouverte, libelle_campagne.clone())));
+                            confirmer.set(true);
                         });
                         view! {
                             <tr>
@@ -130,6 +141,17 @@ fn ListeCampagnes(
                     }).collect_view()}
                 </tbody>
             </table>
+            <Dialogue ouvert=confirmer titre="Confirmer l'action" id="ins-confirmer-campagne">
+                <p>{move || match cible.get() {
+                    Some((_, true, l)) => format!("Fermer la campagne « {l} » ? Les familles ne pourront plus déposer de nouveau dossier ; les dossiers déjà déposés restent instruits."),
+                    Some((_, false, l)) => format!("Ouvrir la campagne « {l} » ? Les dossiers sont préparés et les familles peuvent déposer leur demande."),
+                    None => String::new(),
+                }}</p>
+                <div class="ui-dialogue__actions">
+                    <Bouton variante=Variante::Secondaire on_click=Callback::new(move |_| confirmer.set(false))>"Annuler"</Bouton>
+                    <Bouton variante=Variante::Primaire on_click=appliquer>{move || if matches!(cible.get(), Some((_, true, _))) { "Fermer la campagne" } else { "Ouvrir la campagne" }}</Bouton>
+                </div>
+            </Dialogue>
         </section>
     }.into_any()
 }
@@ -375,7 +397,7 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
                             <th scope="row">{format!("{}{}", p.libelle, if p.obligatoire { " *" } else { "" })}</th>
                             <td><Badge libelle=libelle_statut(&p.statut) ton=ton_statut(&p.statut)/></td>
                             <td>{p.nom_fichier.clone().unwrap_or_default()}</td>
-                            <td>{a("pieces").then(|| view! {
+                            <td>{(a("pieces") && piece_a_decider(&p.statut)).then(|| view! {
                                 <Bouton taille=Taille::Compacte variante=Variante::Secondaire on_click=decider("acceptee")>"Accepter"</Bouton>
                                 <Bouton taille=Taille::Compacte variante=Variante::Discret on_click=decider("refusee")>"Refuser (motif)"</Bouton>
                             })}</td>
