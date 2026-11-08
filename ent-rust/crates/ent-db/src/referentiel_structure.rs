@@ -260,6 +260,12 @@ impl PgEnt {
         if code.is_empty() || code.chars().count() > 40 || libelle.is_empty() || libelle.chars().count() > 120 {
             return Err(invalide());
         }
+        // UAI au format national (socle 5, S2) : la contrainte de base le refuse aussi.
+        let uai = uai.map(str::trim).filter(|v| !v.is_empty()).map(str::to_ascii_uppercase);
+        if uai.as_deref().is_some_and(|u| !crate::structure_etab::uai_valide(u)) {
+            return Err(invalide());
+        }
+        let uai = uai.as_deref();
         let mut tx = self.pool().begin().await.map_err(db)?;
         let s = sqlx::query_as::<_, Site>(
             "INSERT INTO ent_site (id, etablissement_id, code, libelle, adresse, uai)
