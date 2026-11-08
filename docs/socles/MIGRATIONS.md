@@ -56,6 +56,7 @@ Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–
 ## Mise à jour du 2026-11-07 (lot E5, `ent-socle-eleve-e5`)
 Plage 287–289 utilisée en totalité par le lot E5 (socle 2 : propositions et paramétrage) : 287 `eleve_param_champ` (profil, réglage par champ, règles automatiques), 288 `eleve_proposition` (propositions et lignes de champs, valeurs scellées, immuabilité après décision), 289 `eleve_proposition_garde` (une version d'identité de source `import`, `famille` ou `eleve` ne s'insère que si elle référence une proposition décidée). Dans `migrate.rs` elles sont insérées après 286 et avant 300 (ordre croissant) ; `MIGRATION_TAG` ne change pas (`370_edt_creneau_groupe`). **La plage 280–289 du socle 2 est épuisée** : un lot suivant du socle 2 (E6 et au-delà) doit recevoir une nouvelle plage ici avant de démarrer (290–299, indiquée « réservée aux lots E5 et suivants » plus haut, est libre).
 
+
 ## Mise à jour du 2026-11-07 (conception du socle 8)
 | Plage | Attribution | Branche | État |
 |---|---|---|---|
@@ -64,3 +65,20 @@ Plage 287–289 utilisée en totalité par le lot E5 (socle 2 : propositions et 
 
 ## Mise à jour du 2026-11-08 (lot E6, `ent-socle-eleve-e6`)
 Plage **290–294** utilisée par le lot E6 (socle 2 : recherche instantanée, doublons, fusion de fiches), insérées dans `migrate.rs` après 289 et avant 300 : **290** `eleve_recherche` (extensions `pg_trgm` et `unaccent`, fonctions `ent_unaccent` / `ent_cle_recherche`, colonnes `cle_recherche` et `cle_recherche_civil` maintenues par déclencheur, colonne `fusionne_dans`, table `ent_eleve_confidentialite` minimale du §7.6 réutilisée par le lot E7), **291** `eleve_doublon` (`ent_eleve_doublon`, `ent_eleve_non_doublon`, `ent_eleve_doublon_passage`), **292** `eleve_fusion` (`ent_eleve_fusion`, `ent_eleve_fusion_ligne`, registre en ajout seul), **293** `eleve_fusion_gardes` (le drapeau local `ent.fusion_eleve` autorise le repointage de `eleve_id` — et rien d'autre — dans les gardes de scolarisation, identifiant et capacité, et coupe le pont des options), **294** `eleve_fusion_securite` (pas de boucle d'absorption, clé composée de `fusionne_dans`). 295 reste libre pour le lot E6 ; le lot E7 repart de 295. `MIGRATION_TAG` reste `370_edt_creneau_groupe`, plus haute migration présente.
+
+## Réservations du 2026-11-08 (matin)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 273–276 | socle 4 A2 (personnes et coordonnées) | `ent-socle-administratif-a2` | en cours |
+| 287–289 | socle 2 E5 (propositions) | `ent-socle-eleve-e5` | fait |
+| 290–295 | socle 2 E6 (recherche, doublons, fusion) | `ent-socle-eleve-e6` | en cours |
+| 302–309 | socle 3 I2 (campagnes, dossiers) | `ent-socle-inscriptions-i2` | en cours |
+| 330–339 | socle 5 S0–S1 (structure, objet « cours ») | `ent-socle-structure-s0-s1` | en cours |
+| 3800–3899 | socle 8 notifications (conception) | — | réservé |
+| 3900–3999 | socle 9 interopérabilité (conception) | `ent-socle-interop-conception` | réservé |
+
+## Mise à jour du 2026-11-08 (conception du socle 9)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 3900–3999 | socle 9 interopérabilité nationale et identité fédérée (conception : `09_INTEROP.md` §15), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3900–3914 attribuées (moteur d'échanges 3900–3908 dont réception centrale de plateforme 3908, référentiels globaux `ref_*` 3909, fédération 3910 — **tables du noyau sécurité**, à renuméroter dans 1000–1199 si Q-B2 les y range, Q-X2 —, fournisseur d'identité 3911, GAR 3912, annuaires sortants et partenaires 3913, calendriers 3914), 3915–3989 réserve, 3990–3999 retrait des anciennes tables (`ent_import_lot`, `ent_import_ligne` de 144 ; `ent_edt_import` de 060) après la durée d'archive | `ent-socle-interop-conception` (conception seulement) | réservé |
+| 420–439 | socle 9, **repli** si Q-B2 n'est pas adoptée (420–434 attribuées dans le même ordre, 439 retrait) | `ent-socle-interop-conception` (conception seulement) | réservé |
