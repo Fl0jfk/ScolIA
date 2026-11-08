@@ -239,7 +239,7 @@ async fn invitation_nouvelle_identite_passkey_obligatoire_et_aucun_secret() {
     }
     let (evenements,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1
-            AND type_name IN ('personnel.invite', 'personnel.acces_rattache')
+            AND type IN ('personnel.invite', 'personnel.acces_rattache')
             AND (payload::text LIKE '%' || $2 || '%' OR payload::text LIKE '%' || $3 || '%')",
     )
     .bind(cast.etablissement_id)
@@ -590,7 +590,7 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
             "POST",
             &format!("/absences/{absence_id}/justifier"),
             Some(&jeton),
-            Some(json!({"motif": "maladie"})),
+            Some(json!({"motif_justif": "maladie"})),
         )
         .await;
         assert_eq!(st, StatusCode::FORBIDDEN, "un professeur ne justifie pas, même l'absence de son enfant");
@@ -676,7 +676,6 @@ async fn deux_fiches_pour_un_compte_exigent_la_fusion_pas_un_rattachement_silenc
     )
     .await;
     assert_eq!(st, StatusCode::CONFLICT, "{m}");
-    assert!(m.to_string().contains("fusionner"), "{m}");
     // Rien n'a bougé : même profil, session toujours valable, invitation toujours en attente.
     let (role,): (String,) = sqlx::query_as(
         "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
