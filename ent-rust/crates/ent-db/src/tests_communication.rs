@@ -1033,7 +1033,15 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
         ent.repondre_formulaire(etab, eleve_user, f.id, reponse(harry, "refuse")).await.unwrap();
         assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     }
-    fixer_date_naissance(&ent, etab, harry, "NULL").await;
+    // Rétablit la date portée par la version d'identité : la base de test est partagée et la
+    // projection de l'élève doit rester égale à sa version (sinon tests_eleve_identite échoue).
+    fixer_date_naissance(
+        &ent,
+        etab,
+        harry,
+        "(SELECT v.date_naissance FROM ent_eleve_identite v WHERE v.id = ent_eleve.identite_version_id)",
+    )
+    .await;
     // Sondage : pas d'objet, pas de retrait ; résultat agrégé.
     let s = ent
         .creer_formulaire(
