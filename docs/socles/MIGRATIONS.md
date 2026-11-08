@@ -52,6 +52,11 @@ Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTI
 | 3700–3799 | socle 7 documents, pièces et signatures (conception : `07_DOCUMENTS.md` §23), **si la règle « 3000 + 100 × socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée** ; 3700–3712 attribuées, 3713–3789 réserve, 3790–3799 retrait des anciennes tables. La consigne de la session indiquait 4000–4099, qui reviendrait au socle 10 (Q-D1) | `ent-socle-documents-conception` (conception seulement) | réservé |
 | 380–399 | socle 7, **repli** si Q-B2 n'est pas adoptée (380–392 attribuées, 399 retrait) | `ent-socle-documents-conception` (conception seulement) | réservé |
 
+## Mise à jour du 2026-11-08 (socle 4, lot A2)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 273–276 | socle 4, lot A2 « personnes et coordonnées » (plage du socle 4 ; le §16 de la conception les numérotait 263–264, déjà prises par A0 bis) : **273** `personne_coordonnee` (coordonnées datées, historique sans valeur, fonction `ent_tel_e164`), **274** `personne_coordonnee_projection` (projection colonnes héritées ↔ coordonnées, reprise unique), **275** `personne_verification_preferences` (code de vérification, préférences, consentements), **276** `personne_version_divergence` (identité versionnée, décisions sur les divergences compte ↔ fiche). 273–274, qui étaient réservées au lot A14 (RLS), sont consommées par A2 : **le lot A14 prendra 277–278** (permissif puis strict) | `ent-socle-administratif-a2` | **écrites et testées en local** ; `MIGRATION_TAG` reste `370_edt_creneau_groupe` (la plus haute) ; 277–278 réservées à A14 (RLS), 279 libre |
+
 Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG` sera calculé automatiquement à partir du répertoire des migrations (voir D-026).
 
 ## Mise à jour du 2026-11-07 (intégration du lot 8 bis)

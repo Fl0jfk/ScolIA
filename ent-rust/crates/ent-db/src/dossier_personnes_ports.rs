@@ -1449,8 +1449,10 @@ impl PgEnt {
         Ok(())
     }
 
-    /// Préférences de canal de la personne (e-mail, SMS, courrier). Réservé au personnel habilité
-    /// (la personne les modifiera elle-même au lot A7).
+    /// Préférences de canal de la personne (e-mail, SMS, courrier), façade conservée du lot A0 :
+    /// le reste des préférences (langue, accessibilité, horaires) est inchangé. La personne les
+    /// modifie elle-même par `definir_mes_preferences` (lot A2).
+    #[allow(clippy::too_many_arguments)]
     pub async fn definir_preferences_for_actor(
         &self,
         etab: Uuid,
@@ -1464,38 +1466,17 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
-        personne_tx(&mut tx, etab, personne_id, true)
-            .await?
-            .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        sqlx::query(
-            "INSERT INTO ent_personne_preference
-                (personne_id, etablissement_id, canal_email, canal_sms, courrier_papier, updated_by)
-             VALUES ($1,$2,$3,$4,$5,$6)
-             ON CONFLICT (personne_id) DO UPDATE SET canal_email = $3, canal_sms = $4,
-                courrier_papier = $5, updated_by = $6, updated_at = now()",
-        )
-        .bind(personne_id)
-        .bind(etab)
-        .bind(canal_email)
-        .bind(canal_sms)
-        .bind(courrier_papier)
-        .bind(actor)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        journal_tx(
-            &mut tx,
-            etab,
-            None,
-            "preferences_modifiees",
-            "Préférences de contact modifiées",
-            json!({ "personne_id": personne_id }),
-            false,
-            actor,
-        )
-        .await?;
-        commit(tx).await?;
+        let mut p = self
+            .preferences_personne_for_actor(etab, actor, role, personne_id)
+            .await?;
+        p.canaux_refuses = [("email", canal_email), ("sms", canal_sms)]
+            .into_iter()
+            .filter(|(_, ok)| !ok)
+            .map(|(c, _)| c.to_string())
+            .collect();
+        p.courrier_papier = courrier_papier;
+        self.definir_preferences_contact_for_actor(etab, actor, role, personne_id, &p)
+            .await?;
         Ok(())
     }
 }

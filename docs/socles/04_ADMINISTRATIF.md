@@ -1305,3 +1305,36 @@ Routes ajoutées (toutes dans la matrice d'isolation `separation.rs`, domaine «
 - (M) **Un agent qui est aussi parent a deux comptes** (clé `ent_membership` = un rôle par établissement, `rattacher_compte` refuse un compte non parent) : la détection automatique par lien ne se déclenche donc que si le compte professionnel est rattaché à la fiche personne ; dans le cas courant (deux comptes), **seule la déclaration** (agent ou direction) protège. Le test simule le compte unique. Piste : rapprochement à l'embauche (socle 6), déclaration obligatoire, ou casquettes multiples par compte (`06_PERSONNELS.md`). **Question pour Florian.**
 - (M) un parent peut proposer un contact avec `peut_recuperer = true` sans `peut_autoriser_sorties` : le statut « proposé » doit empêcher toute remise (lot A5, qui reprend le contact vers `ent_eleve_remise`).
 - (L) `get_personne` d'une fiche **déjà fusionnée** par un collègue n'ajoute pas l'adresse de la cible ; la lecture d'une liste de liens en attente n'est pas tracée ; la trace de conflit est « au mieux » (une erreur d'écriture n'empêche pas la lecture) et non dédupliquée ; tri des responsables par autorité (laisse deviner l'autorité de l'autre) et champs `a_compte`/`actif` visibles de l'autre responsable ; clés étrangères non composées sur les trois nouvelles tables (lot A14, RLS) ; tout agent peut déclarer un conflit sur n'importe quel élève de l'établissement (oracle d'existence, bruit dans le tableau).
+
+
+## 23. État du lot A2 « personnes et coordonnées » (2026-11-08, branche `ent-socle-administratif-a2`)
+
+**Implémenté et testé en local (PostgreSQL local) ; non validé par Florian, non prêt pilote.** Base : `ent-integration-lot8b`. Migrations **273 à 276** (le §16 les numérotait 263–264, déjà prises par A0 bis ; 273–274 étaient réservées à A14, qui prend 277–278) ; `MIGRATION_TAG` reste `370_edt_creneau_groupe`. Actions : ADM-01 (recherche élargie aux coordonnées), 02, 03, 04 non, 05, 07, 10, 12 ; ADM-06 (rebond) : colonne `delivrabilite` prête, commande au lot 8.
+
+### 23.1 Modèle
+- **`ent_personne_coordonnee`** : une ligne datée (`du`, `au`) par e-mail, mobile, fixe, professionnel ou adresse postale de contact ; usages (`notifications`, `urgence`, `facturation`, `connexion`) ; un seul principal par groupe ; `verifiee_le` + voie ; `a_verifier` pour un numéro non normalisable. Corriger ou remplacer ferme la ligne et en ouvre une (`remplace_id`) : rien ne s'écrase.
+- **`ent_personne_coordonnee_histo`** : qui, quand, **pourquoi** (raison codée obligatoire, motif libre facultatif), nature (`ajout`, `correction`, `remplacement`, `retrait`, `principal`, `usages`, `verification`, `divergence_resolue`…), voie (`personnel`, `personne`, `systeme`). **Aucune valeur.**
+- **Projection** (274) : les colonnes `ent_personne.email / telephone / telephone_2 / adresse` sont maintenues par la base d'après les coordonnées ; un écrivain historique (inscriptions, imports) qui les modifie ferme l'ancienne valeur et ouvre la nouvelle — **aucune coordonnée perdue**. Attribution de l'auteur par variables de transaction. Reprise unique des données existantes (marqueur), compte de connexion compris.
+- **Le compte est une coordonnée** : à son rattachement, son e-mail et son téléphone entrent dans la fiche (`connexion`) ; ils servent aux envois seulement si la fiche n'a aucune autre coordonnée du genre (comportement d'avant).
+- **E.164** : `normaliser_telephone` (Rust) et `ent_tel_e164` (SQL) concordent (test sur 26 entrées). Solution maison, sans dépendance (Q-A28).
+- **Vérification par code** (275) : six chiffres, HMAC sous le secret serveur, 15 min, 5 essais, 3 demandes par heure et par coordonnée, erreur unique ; message sans nom d'enfant ni d'établissement. Une coordonnée saisie par la famille n'est jamais principale avant vérification (sauf première de son genre) ; un remplacement par la famille ne ferme l'ancienne valeur qu'à la vérification.
+- **Préférences** : langue, canaux refusés (e-mail, SMS), courrier papier, accessibilité, plages de joignabilité, fuseau ; versions en ajout seul ; jamais « oublié » (refuser e-mail et SMS exige le courrier). **Consentements** : texte versionné, refus par défaut, papier avec référence de pièce, retrait à tout moment.
+- **Divergences compte ↔ fiche** (276) : vue calculée à la lecture (`absent_de_la_fiche`, `different_du_principal`), valeurs **masquées** dans les listes ; décision explicite (`distinct_voulu`, `conserver_fiche`, `adopter_compte`) valable tant que les deux valeurs ne changent pas. Jamais écrasées en silence.
+- **Identité versionnée** (`ent_personne_version`) : correction ≠ changement, motif obligatoire ; changement de prénom ou de civilité = sensible : anciennes valeurs scellées (AES-256-GCM) et lisibles avec `responsables.protege.lire` seulement, lecture tracée (R-A28). Tout écrivain historique laisse une version. Séparation nom / prénom en lot (ADM-10) : proposition prudente, validation humaine, mêmes mots exigés, tout ou rien.
+
+### 23.2 Règles des personas
+Adresse à protéger : refus d'écrire une adresse si une adresse protégée attend la direction. « Ne pas solliciter » : aucun code de vérification à l'initiative de l'établissement (la personne peut vérifier ce qu'elle a saisi). Aucune valeur dans les journaux ni les événements (test sur les traces). Une personne inconnue ou d'un autre établissement répond 404 (lecture comme écriture). Lecture des adresses : F2 ; fermée pour un agent en conflit d'intérêts.
+
+### 23.3 Routes
+`/dossier/personnes/{id}/{coordonnees[/historique|/{cid}[/retirer|/usages|/verification[/confirmer]]], preferences, consentements[/{objet}/retirer], divergences-compte/{champ}, identite[/historique]}`, `/dossier/personnes/noms-a-separer`, `/dossier/divergences-compte`, et `/dossier/moi/…` (la personne elle-même). Toutes dans la matrice d'isolation (`separation.rs`).
+
+### 23.4 Tests
+`tests_administratif_a2.rs` : 10 scénarios Postgres (aucune coordonnée perdue, commandes et règles, vérification, divergences et reprise, préférences, consentements, identité sensible, séparation, compte rattaché et adresse protégée, concordance E.164). Matrice d'isolation du domaine « élève / dossier » verte.
+
+### 23.5 Limites et points à décider
+- **Q-A28** : adopter une bibliothèque de numéros (`phonenumber`, licence à vérifier) ou garder la normalisation maison ?
+- La famille ne change pas son adresse postale (proposition au secrétariat : lot A7). Adresse structurée et foyer : lot A3 (l'adresse de contact reste ici du texte libre).
+- La fusion de personnes ne déplace pas les coordonnées de la personne absorbée (ADM-09, `TABLES_PERSONNE`, lot A9).
+- Pas d'écran Leptos (A12b), pas de commande ADM-06 (rebond) ni ADM-75, pas de RLS (A14, 277–278).
+- Les anciens tests dont le téléphone attendu était brut attendent désormais l'E.164 : comportement voulu.
+

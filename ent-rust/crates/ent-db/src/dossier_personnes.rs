@@ -664,6 +664,15 @@ pub use droits_dossier::*;
 mod protection;
 pub use protection::*;
 
+// Lot A2 : coordonnées datées, vérification par code, E.164 ; préférences, consentements,
+// divergences compte ↔ fiche, identité versionnée, séparation nom / prénom
+#[path = "dossier_coordonnees.rs"]
+mod coordonnees;
+pub use coordonnees::*;
+#[path = "dossier_contact.rs"]
+mod contact;
+pub use contact::*;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -1071,6 +1080,9 @@ impl PgEnt {
         actor: Uuid,
     ) -> Result<Uuid, EntDbError> {
         let id = Uuid::new_v4();
+        // Les coordonnées et la première version de l'identité sont tracées par la base
+        // (migrations 274 et 276) : elles portent ici l'auteur et la raison.
+        attribuer_acteur_tx(conn, actor, "personnel", "changement_declare").await?;
         sqlx::query(
             "INSERT INTO ent_personne (id, etablissement_id, nom, prenom, civilite, email,
                                        telephone, telephone_2, adresse, source)
@@ -1134,10 +1146,31 @@ impl PgEnt {
             return Err(EntDbError::ConflitDossier("personne fusionnée dans une autre fiche"));
         }
         let mut champs: Vec<&str> = Vec::new();
+        // L'identité passe par une version (correction) : la projection ne bouge jamais sans trace.
+        let identite = IdentiteSaisie {
+            nom: s.nom.clone(),
+            prenom: s.prenom.clone(),
+            civilite: s.civilite.clone(),
+        };
+        champs.extend(
+            appliquer_identite_tx(
+                &mut tx,
+                etab,
+                actor,
+                "personnel",
+                &avant,
+                &identite,
+                "correction",
+                false,
+                None,
+                "Modification de la fiche de la personne",
+            )
+            .await?,
+        );
+        // Coordonnées : la base ferme et ouvre les lignes datées (jamais d'écrasement) et trace
+        // l'auteur ; les valeurs n'apparaissent ni au journal ni dans l'événement.
+        let mut coord_changees = false;
         for (nom, a, b) in [
-            ("nom", Some(avant.nom.clone()), Some(s.nom.clone())),
-            ("prenom", avant.prenom.clone(), s.prenom.clone()),
-            ("civilite", avant.civilite.clone(), s.civilite.clone()),
             ("email", avant.email.clone(), s.email.clone()),
             ("telephone", avant.telephone.clone(), s.telephone.clone()),
             ("telephone_2", avant.telephone_2.clone(), s.telephone_2.clone()),
@@ -1145,19 +1178,18 @@ impl PgEnt {
         ] {
             if a != b {
                 champs.push(nom);
+                coord_changees = true;
             }
         }
-        if !champs.is_empty() {
+        if coord_changees {
+            attribuer_acteur_tx(&mut tx, actor, "personnel", "changement_declare").await?;
             sqlx::query(
-                "UPDATE ent_personne SET nom = $3, prenom = $4, civilite = $5, email = $6,
-                        telephone = $7, telephone_2 = $8, adresse = $9, updated_at = now()
+                "UPDATE ent_personne SET email = $3, telephone = $4, telephone_2 = $5, adresse = $6,
+                        updated_at = now()
                   WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(etab)
             .bind(personne_id)
-            .bind(&s.nom)
-            .bind(&s.prenom)
-            .bind(&s.civilite)
             .bind(&s.email)
             .bind(&s.telephone)
             .bind(&s.telephone_2)
@@ -1165,6 +1197,8 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        }
+        if coord_changees {
             // Charge utile minimale : noms des champs, jamais leurs valeurs.
             journal_tx(
                 &mut tx,

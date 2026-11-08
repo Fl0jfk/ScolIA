@@ -9,7 +9,7 @@ use crate::dossier_personnes::{ContactSaisie, InterdictionSaisie, LienResultat, 
 use ent_auth::Role;
 use uuid::Uuid;
 
-const TEL_B: &str = "0611223344";
+const TEL_B: &str = "+33611223344"; // E.164 : la fiche normalise (lot A2)
 const ADRESSE_B: &str = "8 impasse du Lilas, 31000 Toulouse";
 const EMAIL_B: &str = "secret-b@exemple.fr";
 
@@ -155,7 +155,7 @@ async fn groupes_de_champs_par_profil_sur_donnees_reelles() {
     let cpe = cast.cpe.user_id;
     let vue = ent.responsables_eleve_for_actor(etab, cpe, "cpe", dos.eleve).await.unwrap();
     let a = de(&vue, dos.pers_a);
-    assert_eq!(a.personne.telephone.as_deref(), Some("0600000001"));
+    assert_eq!(a.personne.telephone.as_deref(), Some("+33600000001"));
     assert!(a.personne.adresse.is_none() && a.foyer_id.is_none());
     assert!(a.autorite_parentale, "F3 ouvert pour la vie scolaire");
     assert!(!a.est_payeur && a.part_paiement.is_none(), "payeurs : suivent payeurs.definir");
@@ -178,7 +178,7 @@ async fn groupes_de_champs_par_profil_sur_donnees_reelles() {
     // Accueil : désignation et moyens de joindre seulement.
     let vue = ent.responsables_eleve_for_actor(etab, accueil, "accueil", dos.eleve).await.unwrap();
     let a = de(&vue, dos.pers_a);
-    assert_eq!(a.personne.telephone.as_deref(), Some("0600000001"));
+    assert_eq!(a.personne.telephone.as_deref(), Some("+33600000001"));
     assert!(a.personne.adresse.is_none() && !a.autorite_parentale && !a.est_payeur);
     assert_eq!(groupes_fermes(a), vec!["F2", "F3", "F4"]);
 

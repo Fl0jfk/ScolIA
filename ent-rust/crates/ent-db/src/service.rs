@@ -3561,6 +3561,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// n'est accepté qu'en build `labo` ou après `install_mail_dry_run` (tests),
     /// jamais en production : sinon un échec / une config absente produirait un
     /// faux « lien envoyé ».
+    /// Même règle pour un SMS (lot A2 : code de vérification d'un mobile).
+    pub(crate) fn sms_envoi_reussi(&self, receipt: &ent_sms::SmsReceipt) -> bool {
+        match receipt.status {
+            ent_sms::SmsSendStatus::Sent => true,
+            ent_sms::SmsSendStatus::DryRun => self.mail_dry_run_accepte,
+            ent_sms::SmsSendStatus::SkippedNoConfig | ent_sms::SmsSendStatus::Failed => false,
+        }
+    }
+
     pub(crate) fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
         match receipt.status {
             MailSendStatus::Sent => true,
