@@ -204,8 +204,13 @@ pub struct SectionFiche {
 }
 
 fn pluriel(n: u32, un: &str, plusieurs: &str) -> String {
+    pluriel_genre(n, un, plusieurs, false)
+}
+
+/// Comme `pluriel`, avec l'accord de « aucun / aucune » (note, sanction, option, bourse…).
+fn pluriel_genre(n: u32, un: &str, plusieurs: &str, feminin: bool) -> String {
     match n {
-        0 => format!("aucun {un}"),
+        0 => format!("{} {un}", if feminin { "aucune" } else { "aucun" }),
         1 => format!("1 {un}"),
         _ => format!("{n} {plusieurs}"),
     }
@@ -219,7 +224,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.notes {
         v.push(SectionFiche {
             titre: "Évaluations",
-            detail: pluriel(r.notes, "note", "notes"),
+            detail: pluriel_genre(r.notes, "note", "notes", true),
             lien: None,
         });
     }
@@ -228,7 +233,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
             titre: "Vie scolaire",
             detail: format!(
                 "{}, {}, {}",
-                pluriel(r.sanctions, "sanction", "sanctions"),
+                pluriel_genre(r.sanctions, "sanction", "sanctions", true),
                 pluriel(r.incidents, "incident", "incidents"),
                 pluriel(r.carnet, "mot du carnet", "mots du carnet")
             ),
@@ -249,7 +254,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.options {
         v.push(SectionFiche {
             titre: "Options",
-            detail: pluriel(r.options, "option", "options"),
+            detail: pluriel_genre(r.options, "option", "options", true),
             lien: None,
         });
     }
@@ -263,7 +268,7 @@ pub fn sections_accessibles(f: &FicheEleveDto, famille: bool) -> Vec<SectionFich
     if s.bourses {
         v.push(SectionFiche {
             titre: "Bourses",
-            detail: pluriel(r.bourses, "bourse", "bourses"),
+            detail: pluriel_genre(r.bourses, "bourse", "bourses", true),
             lien: None,
         });
     }
@@ -841,6 +846,13 @@ mod tests {
         assert_eq!(v[0].attente_id, Uuid::from_u128(2));
         assert!(message_guichet(true, "Léa").contains("confirmé"));
         assert!(message_guichet(false, "Léa").contains("déjà"));
+    }
+
+    #[test]
+    fn aucun_s_accorde_avec_le_nom() {
+        assert_eq!(pluriel_genre(0, "note", "notes", true), "aucune note");
+        assert_eq!(pluriel(0, "incident", "incidents"), "aucun incident");
+        assert_eq!(pluriel_genre(2, "option", "options", true), "2 options");
     }
 
     #[test]

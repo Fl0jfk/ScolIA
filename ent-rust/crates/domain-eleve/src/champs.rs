@@ -237,7 +237,8 @@ impl GroupesAutorises {
 
     fn article(&self, g: GroupeChamps) -> String {
         match g {
-            GroupeChamps::EtatCivil | GroupeChamps::Sensible => format!("l'{}", g.libelle()),
+            GroupeChamps::EtatCivil | GroupeChamps::Historique => format!("l'{}", g.libelle()),
+            GroupeChamps::Identifiants | GroupeChamps::Sensible => format!("les {}", g.libelle()),
             _ => format!("la {}", g.libelle()),
         }
     }
@@ -371,6 +372,15 @@ mod tests {
 
     fn profil(cfg: [PorteeGroupe; 6]) -> ProfilChamps {
         ProfilChamps::new(cfg)
+    }
+
+    #[test]
+    fn messages_de_masquage_bien_accordes() {
+        let g = GroupesAutorises::depuis_niveau(NiveauIdentite::Reduit);
+        let messages: Vec<String> = g.masques().into_iter().map(|m| m.message).collect();
+        assert!(messages.iter().any(|m| m.contains("n'ouvre pas les identifiants")), "{messages:?}");
+        assert!(messages.iter().any(|m| m.contains("n'ouvre pas les données sensibles")), "{messages:?}");
+        assert!(messages.iter().all(|m| !m.contains("l'données") && !m.contains("la identifiants") && !m.contains("la historique")), "{messages:?}");
     }
 
     #[test]
