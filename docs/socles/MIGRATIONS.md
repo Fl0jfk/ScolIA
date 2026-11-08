@@ -57,3 +57,8 @@ Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–
 |---|---|---|---|
 | 3800–3899 | socle 8 notifications et diffusion (conception : `08_NOTIFICATIONS.md` §19 et §27), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3800–3810 attribuées (paramètres, avis et destinataires, remises et résumés, préférences et appareils, diffusions, urgences, budget SMS et SMS entrants, retours fournisseurs, gels et liens, vues, reprise), 3811–3889 réserve, 3890–3899 retrait des anciennes tables (055, 057, 058 pour les journaux d'envoi, `ent_notification` de 102, 190, 191) après la durée d'archive | `ent-socle-notifications-conception` (conception seulement) | réservé |
 | 400–419 | socle 8, **repli** si Q-B2 n'est pas adoptée (400–410 attribuées, 419 retrait) | `ent-socle-notifications-conception` (conception seulement) | réservé |
+
+## Mise à jour du 2026-11-08 (correctifs de la recette 2)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 376–379 | correctifs de la recette personas 2 (375 est prise par la recette 1) | `ent-recette-2-correctifs` | réservée, **aucune migration écrite** : les correctifs RP2-02/03/04/05/10/11/12/14 n'ont demandé aucun changement de schéma (`MIGRATION_TAG` inchangé : `370_edt_creneau_groupe`) |

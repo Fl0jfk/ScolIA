@@ -188,14 +188,15 @@ Format : **RP2-nn** — type, gravité — constat. *Preuve* (requête → répo
 | Constat | Gravité | Statut | Fichier corrigé | Test |
 |---|---|---|---|---|
 | RP2-01 | élevée | **corrigé + test** | `ent-db/src/service.rs` (`get_dossier_for_actor`) | `recette_personas_2_dossier::rp2_01_…` |
-| RP2-04 | élevée | **test en échec** | — (décision Q-RP2-3) | `recette_personas_2_ouvertes::rp2_04_…` |
-| RP2-10 | élevée | **test en échec** | — | `rp2_10_…` |
-| RP2-11 | élevée | **test en échec** | — (décision Q-RP2-1) | `rp2_11_…` |
-| RP2-02 | moyenne | **test en échec** | — (décision Q-RP2-2) | `rp2_02_…` |
-| RP2-03 | moyenne | **test en échec** | — | `rp2_03_…` |
-| RP2-05 | moyenne | **test en échec** | — (décision Q-RP2-4) | `rp2_05_…` |
-| RP2-12 | moyenne | **test en échec** | — | `rp2_12_…` |
+| RP2-04 | élevée | **corrigé + test** (à confirmer) | `dossier_personnes.rs`, `dossier_protection.rs` | `recette_personas_2_ouvertes::rp2_04_…` |
+| RP2-10 | élevée | **corrigé + test** (à confirmer) | `eleve_ports.rs` | `rp2_10_…` |
+| RP2-11 | élevée | **corrigé + test** (à confirmer) | `ent-auth/actions.rs`, `inscriptions.rs` | `rp2_11_…` |
+| RP2-02 | moyenne | **corrigé + test** (à confirmer) | `domain-eleve/identite.rs` | `rp2_02_…` |
+| RP2-03 | moyenne | **corrigé + test** | `service.rs`, `dossier_personnes_ports.rs` | `rp2_03_…` |
+| RP2-05 | moyenne | **corrigé + test** (à confirmer) | `dossier_personnes.rs` | `rp2_05_…` |
+| RP2-12 | moyenne | **corrigé + test** | `scolarite.rs` | `rp2_12_…` |
 | RP2-13 | moyenne | **test en échec** | fusion des correctifs de la recette 1 | `rp2_13_…` |
+| RP2-14 | faible | **corrigé + test** | `dossier_droits.rs` | `rp2_14_…` |
 | autres | — | signalés | — | — |
 
 ---
@@ -245,6 +246,17 @@ En local, PostgreSQL 16, base de test jetable `ent_recette2_test`, sur le code f
 - **Q-RP2-3** (RP2-04) : la marque « ne pas solliciter », tant qu'elle n'est pas confirmée par la direction, doit-elle déjà bloquer le rattachement d'un compte, la fusion et la confirmation au guichet ? Proposition : oui, avec un écran de confirmation de la direction.
 - **Q-RP2-4** (RP2-05) : un élève peut-il n'avoir aucun payeur ?
 - **Q-RP2-5** (RP2-10) : à la validation, ouvrir directement la scolarisation à la date de rentrée et l'inscription annuelle « prévue » (proposition) ?
+
+**Décisions du pilote — appliquées, à confirmer par Florian (branche `ent-recette-2-correctifs`)**
+- **Q-RP2-5 / RP2-10 — appliqué, à confirmer** : à la validation, la scolarisation à la date de rentrée (ou aujourd'hui si l'année a commencé) et l'inscription annuelle « prévue » sont écrites dans le modèle du socle 2 (E4) ; l'affectation en classe reste une action ensuite. Idempotent, même transaction, journalisé. Limites : si l'année cible n'existe pas encore dans le référentiel, la ligne attend (`ent_eleve_inscription_a_traiter`, cause `annee_future`) jusqu'à la préparation de l'année ; le statut texte hérité reste « préinscrit » jusqu'à la date d'entrée (le statut E4 est « à venir »).
+- **Q-RP2-1 / RP2-11 — appliqué, à confirmer** : nouvelle action `inscriptions.valider` (secrétariat et direction) pour valider et lire les correspondances ; `inscriptions.decider` (admission) reste à la direction.
+- **Q-RP2-3 / RP2-04 — appliqué, à confirmer** : fusion, rattachement de compte et confirmation au guichet sont refusés (409 explicite, sans rien dire de l'élève) si une personne concernée est « ne pas solliciter », même à confirmer ; ils passent avec `confirmation_direction: true`, accepté de la direction seule (`responsables.protege.gerer`) et journalisé (`ne_pas_solliciter_operation_confirmee`). Le test RP2-04 a dû changer de prémisse : l'ancien chemin ne crée plus de doublon de Marc (RP2-03), la personne à fusionner vient d'un autre e-mail ; l'assertion (fusion refusée) est inchangée.
+- **RP2-03 — appliqué** : `POST /foyers/{id}/liens` réutilise la fiche du même e-mail (compte rattaché à la fiche existante) ; pour une personne « ne pas solliciter » il refuse (aucun compte, aucune activation) et renvoie vers l'ajout de responsable du dossier.
+- **Q-RP2-2 / RP2-02 — appliqué, à confirmer** : pour un changement d'état civil sensible, les versions antérieures sont scellées (G6 seul) ; le secrétariat lit l'identité courante sur la fiche, pas dans l'historique. Prénom d'usage et corrections ne scellent rien.
+- **Q-RP2-4 / RP2-05 — appliqué, à confirmer** : liste de payeurs vide refusée.
+- **RP2-12 — appliqué** : la clôture de scolarisation termine l'inscription annuelle en cours (date de fin = départ ; état « terminée » si la date est atteinte) ; historique et prévues intacts.
+- **RP2-14 — appliqué** : conflit déclaré par l'agent pour lui-même (professeur : élève de son périmètre) ou par la direction ; sinon refusé. Test ajouté.
+- RP2-13 non traité (intégration à part) ; `perimetre.rs` non modifié.
 - Restent ouvertes de la recette 1 : Q-RP1-2 (annuaire), Q-RP1-4 (élève majeur), Q-RP1-5 (suspension par le secrétariat).
 
 ## 7. Faits, hypothèses, limites

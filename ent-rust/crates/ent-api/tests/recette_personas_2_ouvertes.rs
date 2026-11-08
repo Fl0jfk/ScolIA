@@ -1,7 +1,7 @@
-//! Failles et manques ouverts de la recette 2 (`docs/recette/RECETTE_PERSONAS_2.md`) : chaque test
-//! décrit un problème non corrigé (décision produit ou chantier trop large) et échoue tant qu'il
-//! existe. Lancer avec `-- --ignored` : ils doivent échouer
-//! (`cargo test -p ent-api --features labo --test recette_personas_2_ouvertes -- --ignored`).
+//! Failles et manques de la recette 2 (`docs/recette/RECETTE_PERSONAS_2.md`). Les tests de
+//! RP2-02, 03, 04, 05, 10, 11, 12 et 14 ont été corrigés (branche `ent-recette-2-correctifs`) et
+//! tournent maintenant sans `#[ignore]` ; seul RP2-13 (correctifs de la recette 1, intégration à
+//! part) reste ignoré : `-- --ignored` doit l'échouer tant qu'il n'est pas corrigé.
 //!
 //! Le routeur réel (`ent_api::app`) est appelé en process, sur une base PostgreSQL locale de
 //! test ; un établissement de labo frais par scénario (`POST /labo/bootstrap`).
@@ -267,6 +267,22 @@ impl Scene {
         .expect("comptage des personnes");
         pool.close().await;
         n
+    }
+
+    /// Personne (non fusionnée) portant cet e-mail et qui a un compte.
+    async fn personne_avec_compte(&self, email: &str) -> Uuid {
+        let pool = self.pool().await;
+        let id: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND lower(email) = lower($2)
+               AND fusionnee_dans IS NULL AND user_id IS NOT NULL",
+        )
+        .bind(self.etab)
+        .bind(email)
+        .fetch_optional(&pool)
+        .await
+        .expect("recherche de la personne");
+        pool.close().await;
+        id.unwrap_or_else(|| panic!("aucune personne avec compte pour {email}"))
     }
 
     /// Dépose un petit PDF dans le tiroir administratif de l'élève ; renvoie l'id du document.
@@ -563,7 +579,6 @@ macro_rules! scene {
 
 // RP2-02 : le secrétariat (G5 sans G6) lit « Chang », l'ancien nom de naissance de Cho adoptée.
 #[test]
-#[ignore = "FAILLE OUVERTE RP2-02 : après une adoption, le secrétariat (G5 sans G6) lit l'ancien nom de naissance dans l'historique d'identité (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_02_adoption_ancien_nom_invisible_hors_g6() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -631,7 +646,6 @@ fn rp2_02_adoption_ancien_nom_invisible_hors_g6() {
 
 // RP2-03 : l'ancien chemin /foyers/{f}/liens crée une 2e personne pour un e-mail déjà connu.
 #[test]
-#[ignore = "FAILLE OUVERTE RP2-03 : l'ancien chemin /foyers/{f}/liens crée un doublon de personne (et un compte) pour un e-mail déjà connu, sans reporter « ne pas solliciter » (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_03_ancien_chemin_foyers_ne_cree_pas_de_doublon_de_personne() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -656,32 +670,17 @@ fn rp2_03_ancien_chemin_foyers_ne_cree_pas_de_doublon_de_personne() {
 
 // RP2-04 : fusion vers une personne « ne pas solliciter » : 201, le compte voit l'élève.
 #[test]
-#[ignore = "FAILLE OUVERTE RP2-04 : fusionner une personne (avec compte) vers une personne « ne pas solliciter » est accepté sans confirmation et révèle l'établissement à ce parent (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_04_fusion_vers_une_personne_a_ne_pas_solliciter_exige_une_confirmation() {
     lance(async {
         let s = scene!(Scene::nouvelle());
-        let (email, marc) = s.ajouter_marc(s.eleve("Harry")).await;
+        let (_email, marc) = s.ajouter_marc(s.eleve("Harry")).await;
         s.ne_pas_solliciter(marc).await;
-        let l = s.ancien_chemin_foyer(s.eleve("Hermione"), &email).await;
+        // Prémisse (corrigée avec RP2-03) : l'ancien chemin ne crée plus de doublon de Marc ; la
+        // personne avec compte à fusionner vers lui vient d'un autre e-mail (autre fiche, même père).
+        let autre = format!("marc.bis-{}@exemple.lab", Uuid::new_v4());
+        let l = s.ancien_chemin_foyer(s.eleve("Hermione"), &autre).await;
         assert_eq!(l.statut, StatusCode::CREATED, "ancien chemin : {}", l.texte);
-        // La personne créée par l'ancien chemin (avec compte) : celle qui n'est pas `marc`.
-        let pool = s.pool().await;
-        let source: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND lower(email) = lower($2) \
-             AND id <> $3 AND fusionnee_dans IS NULL AND user_id IS NOT NULL",
-        )
-        .bind(s.etab)
-        .bind(&email)
-        .bind(marc)
-        .fetch_optional(&pool)
-        .await
-        .expect("recherche de la personne doublon");
-        pool.close().await;
-        let Some(source) = source else {
-            // Plus de doublon avec compte : le problème amont est corrigé, rien à fusionner.
-            panic!("pas de personne doublon avec compte à fusionner (voir RP2-03)");
-        };
-        s.mot_de_passe_de_labo(&email).await;
+        let source = s.personne_avec_compte(&autre).await;
         let f = s
             .req(
                 "POST",
@@ -690,24 +689,134 @@ fn rp2_04_fusion_vers_une_personne_a_ne_pas_solliciter_exige_une_confirmation() 
                 Some(&json!({"source_id":source,"cible_id":marc,"motif":"doublon"})),
             )
             .await;
-        let jeton_marc = s.connecter(&email).await;
-        let enfants = s
-            .appel("GET", "/famille/enfants", Some(&jeton_marc), None)
-            .await;
         assert!(
             f.statut.is_client_error(),
-            "la fusion vers une personne « ne pas solliciter » est acceptée sans confirmation ({}) ; \
-             le compte de Marc voit alors dans GET /famille/enfants ({}) : {}",
+            "la fusion vers une personne « ne pas solliciter » est acceptée sans confirmation ({}) : {}",
             f.statut,
-            enfants.statut,
-            enfants.texte
+            f.texte
         );
+        assert!(
+            f.texte.contains("confirmation explicite de la direction"),
+            "l'erreur doit être explicite : {}",
+            f.texte
+        );
+    });
+}
+
+// RP2-04 (suite) : la direction qui voit la marque peut confirmer ; le secrétariat jamais ; journalisé.
+#[test]
+fn rp2_04_fusion_confirmee_par_la_direction_seule_et_journalisee() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let (_email, marc) = s.ajouter_marc(s.eleve("Harry")).await;
+        s.ne_pas_solliciter(marc).await;
+        let autre = format!("marc.bis-{}@exemple.lab", Uuid::new_v4());
+        let l = s.ancien_chemin_foyer(s.eleve("Hermione"), &autre).await;
+        assert_eq!(l.statut, StatusCode::CREATED, "ancien chemin : {}", l.texte);
+        let source = s.personne_avec_compte(&autre).await;
+        let corps = json!({"source_id":source,"cible_id":marc,"motif":"doublon",
+                           "confirmation_direction":true});
+        let adm = s
+            .req("POST", "/dossier/fusions", Some("Administratif"), Some(&corps))
+            .await;
+        assert!(
+            adm.statut.is_client_error(),
+            "le secrétariat ne confirme pas pour la direction : {} {}",
+            adm.statut,
+            adm.texte
+        );
+        let dir = s
+            .req("POST", "/dossier/fusions", Some("Direction"), Some(&corps))
+            .await;
+        assert_eq!(dir.statut, StatusCode::CREATED, "fusion confirmée : {}", dir.texte);
+        let pool = s.pool().await;
+        let n: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1
+               AND action = 'ne_pas_solliciter_operation_confirmee'",
+        )
+        .bind(s.etab)
+        .fetch_one(&pool)
+        .await
+        .expect("journal");
+        pool.close().await;
+        assert_eq!(n, 1, "la confirmation de la direction doit être journalisée");
+    });
+}
+
+// RP2-03 (suite) : l'ancien chemin réutilise la fiche existante (e-mail connu, sans « ne pas solliciter »).
+#[test]
+fn rp2_03_ancien_chemin_reutilise_la_fiche_existante() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let (email, _marc) = s.ajouter_marc(s.eleve("Harry")).await;
+        let l = s.ancien_chemin_foyer(s.eleve("Hermione"), &email).await;
+        assert_eq!(l.statut, StatusCode::CREATED, "ancien chemin : {}", l.texte);
+        assert_eq!(
+            s.personnes_avec_email(&email).await,
+            1,
+            "la fiche existante est réutilisée (pas de doublon)"
+        );
+    });
+}
+
+// RP2-14 : conflit d'intérêts réservé à l'agent pour lui-même (périmètre) ou à la direction.
+#[test]
+fn rp2_14_conflit_d_interets_reserve_a_l_agent_concerne_ou_a_la_direction() {
+    lance(async {
+        let s = scene!(Scene::nouvelle());
+        let harry = s.eleve("Harry");
+        let corps = json!({"nature":"autre"});
+        // Prof sans classe : Harry n'est pas dans son périmètre.
+        let r = s
+            .req(
+                "POST",
+                &format!("/dossier/eleves/{harry}/conflit-interet"),
+                Some("Prof 5"),
+                Some(&corps),
+            )
+            .await;
+        assert!(
+            r.statut.is_client_error(),
+            "un professeur hors périmètre déclare un conflit : {} {}",
+            r.statut,
+            r.texte
+        );
+        // Déclarer pour un autre agent : direction seule.
+        let autre = s.users[&s.cle("Compta")];
+        let r = s
+            .req(
+                "POST",
+                &format!("/dossier/eleves/{harry}/conflit-interet"),
+                Some("Administratif"),
+                Some(&json!({"nature":"autre","agent_user_id":autre})),
+            )
+            .await;
+        assert!(r.statut.is_client_error(), "{} {}", r.statut, r.texte);
+        // La direction le peut pour un agent.
+        let r = s
+            .req(
+                "POST",
+                &format!("/dossier/eleves/{harry}/conflit-interet"),
+                Some("Direction"),
+                Some(&json!({"nature":"autre","agent_user_id":autre})),
+            )
+            .await;
+        assert!(r.statut.is_success(), "{} {}", r.statut, r.texte);
+        // Le secrétariat pour lui-même : accepté (son périmètre est l'établissement).
+        let r = s
+            .req(
+                "POST",
+                &format!("/dossier/eleves/{harry}/conflit-interet"),
+                Some("Administratif"),
+                Some(&corps),
+            )
+            .await;
+        assert!(r.statut.is_success(), "{} {}", r.statut, r.texte);
     });
 }
 
 // RP2-05 : liste de payeurs vide acceptée, l'élève n'a plus aucun payeur.
 #[test]
-#[ignore = "FAILLE OUVERTE RP2-05 : la comptabilité peut remplacer les payeurs d'un élève par une liste vide (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_05_liste_de_payeurs_vide_refusee() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -731,7 +840,6 @@ fn rp2_05_liste_de_payeurs_vide_refusee() {
 
 // RP2-10 : la validation d'une admission écrit l'ancien modèle, la scolarité E4 reste vide.
 #[test]
-#[ignore = "MANQUE RP2-10 : l'admission validée n'apparaît pas dans GET /eleves/{id}/scolarite (la validation écrit ent_eleve_scolarite_annee, que le modèle E4 ne lit pas) (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_10_inscription_validee_visible_dans_la_scolarite() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -785,7 +893,6 @@ fn rp2_10_inscription_validee_visible_dans_la_scolarite() {
 
 // RP2-11 : INS-05 donne la validation à « ADF ou DIR » ; le secrétariat reçoit 403.
 #[test]
-#[ignore = "MANQUE RP2-11 : le secrétariat (Administratif) ne peut pas valider une inscription admise ni lire les correspondances, contrairement à INS-05 (docs/socles/03_INSCRIPTIONS.md)"]
 fn rp2_11_secretariat_valide_une_inscription() {
     lance(async {
         let s = scene!(Scene::nouvelle());
@@ -819,7 +926,6 @@ fn rp2_11_secretariat_valide_une_inscription() {
 
 // RP2-12 : la sortie de l'établissement ne termine pas l'inscription annuelle en cours.
 #[test]
-#[ignore = "MANQUE RP2-12 : après la clôture de la scolarisation (sortie), l'inscription annuelle de l'année courante reste « en_cours » (docs/recette/RECETTE_PERSONAS_2.md)"]
 fn rp2_12_sortie_termine_l_inscription_annuelle() {
     lance(async {
         let s = scene!(Scene::nouvelle());
