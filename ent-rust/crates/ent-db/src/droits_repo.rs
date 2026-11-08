@@ -8,14 +8,14 @@
 use std::collections::HashSet;
 
 use chrono::NaiveDate;
-use domain_eleve::{today_utc, DomainError};
+use domain_eleve::DomainError;
 use crate::droits_ctx::accorde;
 use ent_auth::{modele_par_defaut, Action, Portee, Role};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::pg_err::map_sqlx;
-use crate::service::{EntDbError, PgEnt};
+use crate::service::{EntDbError, PgEnt, RefusMetier};
 
 fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("droits_repo", err))
@@ -75,17 +75,22 @@ impl PgEnt {
         if !base.is_staff() {
             return Ok(droits); // garde-fou 1 : familles et élèves hors rôles libres
         }
+        // Bord de journée dans le fuseau de l'établissement (et non en UTC) : une attribution qui
+        // finit le 31 août s'éteint le soir du 31 août à l'heure locale. Les lignes closes
+        // (retrait, modification) ne donnent plus aucun droit, même dans leurs dates.
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
         let rows: Vec<(String, String, Vec<Uuid>)> = sqlx::query_as(
             "SELECT d.action, d.portee, d.cibles
                FROM ent_role_attribution a
                JOIN ent_role_droit d
                  ON d.role_id = a.role_id AND d.etablissement_id = a.etablissement_id
               WHERE a.etablissement_id = $1 AND a.user_id = $2
+                AND a.clos_le IS NULL
                 AND a.debut <= $3 AND (a.fin IS NULL OR a.fin >= $3)",
         )
         .bind(etablissement_id)
         .bind(user_id)
-        .bind(today_utc())
+        .bind(jour)
         .fetch_all(self.pool())
         .await
         .map_err(db)?;
@@ -102,7 +107,7 @@ impl PgEnt {
         // S2-5 (ADM-04) : délégations datées en cours. Lues à chaque requête : la date de
         // fin suffit à les éteindre, sans tâche de fond.
         droits.extend(
-            self.droits_delegues(etablissement_id, user_id, today_utc())
+            self.droits_delegues(etablissement_id, user_id, jour)
                 .await?,
         );
         Ok(droits)
@@ -135,7 +140,7 @@ impl PgEnt {
         let droits = self
             .droits_effectifs(etablissement_id, user_id, role_base)
             .await?;
-        let jour = today_utc();
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
         for d in droits.iter().filter(|d| accorde(d.action, action)) {
@@ -182,7 +187,7 @@ impl PgEnt {
         let droits = self
             .droits_effectifs(etablissement_id, user_id, role_base)
             .await?;
-        let jour = today_utc();
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
         let mut ens: HashSet<Uuid> = HashSet::new();
         let mut designes: Vec<Uuid> = Vec::new();
         let (mut classes, mut groupes) = (false, false);
@@ -323,7 +328,8 @@ impl PgEnt {
             .map_err(db)?;
             let membres: Vec<(Uuid,)> = sqlx::query_as(
                 "SELECT user_id FROM ent_role_attribution
-                  WHERE etablissement_id = $1 AND role_id = $2 ORDER BY created_at",
+                  WHERE etablissement_id = $1 AND role_id = $2 AND clos_le IS NULL
+                  GROUP BY user_id ORDER BY min(created_at)",
             )
             .bind(etablissement_id)
             .bind(id)
@@ -460,8 +466,9 @@ impl PgEnt {
         Ok(())
     }
 
-    /// Attribue un rôle à un **personnel** de l'établissement (jamais à une
-    /// famille ou un élève), avec date de fin facultative.
+    /// Attribue un rôle à un **personnel** de l'établissement (jamais à une famille ou un élève),
+    /// à compter d'aujourd'hui, avec date de fin facultative. Voir
+    /// [`Self::attribuer_role_periode_for_actor`].
     pub async fn attribuer_role_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -469,6 +476,35 @@ impl PgEnt {
         actor_role: &str,
         role_id: Uuid,
         user_id: Uuid,
+        fin: Option<NaiveDate>,
+    ) -> Result<(), EntDbError> {
+        self.attribuer_role_periode_for_actor(
+            etablissement_id,
+            actor_user_id,
+            actor_role,
+            role_id,
+            user_id,
+            None,
+            fin,
+        )
+        .await
+    }
+
+    /// Attribue un rôle sur une **période** : début éventuellement futur (préparer la rentrée), fin
+    /// facultative. Socle 6, lot P0 :
+    /// * une attribution est une ligne identifiée, **jamais écrasée** ;
+    /// * redonner un rôle déjà actif **sans nouveau début** modifie sa fin : l'ancienne ligne est
+    ///   closée (conservée dans l'historique) et une nouvelle la remplace, début inchangé ;
+    /// * toute autre période qui chevauche une attribution non close est refusée (409) ;
+    /// * le début ne peut pas être passé (jour de l'établissement) ni dépasser trois ans.
+    pub async fn attribuer_role_periode_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        actor_role: &str,
+        role_id: Uuid,
+        user_id: Uuid,
+        debut: Option<NaiveDate>,
         fin: Option<NaiveDate>,
     ) -> Result<(), EntDbError> {
         self.exiger_roles_gerer(etablissement_id, actor_user_id, actor_role)
@@ -486,38 +522,107 @@ impl PgEnt {
             Some(_) => return Err(DomainError::ValeurInvalide.into()), // garde-fou 1
             None => return Err(DomainError::NotFound.into()),
         }
-        if fin.is_some_and(|f| f < today_utc()) {
+        let aujourdhui = self.aujourdhui_etablissement(etablissement_id).await?;
+        let debut_explicite = debut;
+        let debut = debut.unwrap_or(aujourdhui);
+        if debut < aujourdhui
+            || debut > aujourdhui + chrono::Duration::days(365 * 3)
+            || fin.is_some_and(|f| f < debut)
+        {
             return Err(DomainError::ValeurInvalide.into());
         }
+
+        let mut tx = self.pool().begin().await.map_err(db)?;
+        // Une attribution non close dont les dates chevauchent la période demandée.
+        let existante: Option<(Uuid, NaiveDate)> = sqlx::query_as(
+            "SELECT id, debut FROM ent_role_attribution
+              WHERE etablissement_id = $1 AND role_id = $2 AND user_id = $3
+                AND clos_le IS NULL
+                AND daterange(debut, fin, '[]') && daterange($4, $5, '[]')
+              FOR UPDATE",
+        )
+        .bind(etablissement_id)
+        .bind(role_id)
+        .bind(user_id)
+        .bind(debut)
+        .bind(fin)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (debut_final, source, source_ref) = match existante {
+            None => (debut, "manuelle", None),
+            // Re-attribution « maintenant » d'un rôle déjà en cours : modification de la fin.
+            Some((id, debut_existant))
+                if debut_explicite.is_none() && debut_existant <= aujourdhui =>
+            {
+                sqlx::query(
+                    "UPDATE ent_role_attribution SET clos_le = now(), clos_par_user_id = $3
+                      WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etablissement_id)
+                .bind(id)
+                .bind(actor_user_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                (debut_existant, "modification", Some(id))
+            }
+            Some(_) => {
+                return Err(EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "Ce rôle est déjà attribué à cette personne sur tout ou partie de cette période.",
+                ));
+            }
+        };
+        let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_role_attribution
-                 (role_id, etablissement_id, user_id, debut, fin, attribue_par_user_id)
-             VALUES ($1, $2, $3, CURRENT_DATE, $4, $5)
-             ON CONFLICT (role_id, user_id) DO UPDATE
-                SET fin = EXCLUDED.fin, attribue_par_user_id = EXCLUDED.attribue_par_user_id",
+                 (id, role_id, etablissement_id, user_id, debut, fin, attribue_par_user_id,
+                  source, source_ref)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         )
+        .bind(id)
         .bind(role_id)
         .bind(etablissement_id)
         .bind(user_id)
+        .bind(debut_final)
         .bind(fin)
         .bind(actor_user_id)
-        .execute(self.pool())
+        .bind(source)
+        .bind(source_ref)
+        .execute(&mut *tx)
         .await
-        .map_err(db)?;
+        .map_err(|e| {
+            // 23P01 : la contrainte d'exclusion a refusé un chevauchement (course entre deux
+            // attributions simultanées) → même réponse qu'un chevauchement détecté plus haut.
+            if matches!(&e, sqlx::Error::Database(d) if d.code().as_deref() == Some("23P01")) {
+                EntDbError::Refus(
+                    RefusMetier::Conflit,
+                    "Ce rôle est déjà attribué à cette personne sur tout ou partie de cette période.",
+                )
+            } else {
+                db(e)
+            }
+        })?;
+        tx.commit().await.map_err(db)?;
         self.audit_compte(
             etablissement_id,
             actor_user_id,
             actor_role,
             "role_attribue",
             "Attribution d'un rôle",
-            json!({ "role_id": role_id.to_string(), "user_id": user_id.to_string(),
-                    "fin": fin.map(|d| d.to_string()) }),
+            json!({ "attribution_id": id.to_string(), "role_id": role_id.to_string(),
+                    "user_id": user_id.to_string(),
+                    "debut": debut_final.to_string(),
+                    "fin": fin.map(|d| d.to_string()), "source": source }),
         )
         .await;
         Ok(())
     }
 
-    /// Retire un rôle à une personne.
+    /// Retire un rôle à une personne. Les attributions non closes (en cours ou futures) sont
+    /// **closes**, pas effacées : l'historique répond à « qui avait ce rôle le 12 mars ? ». Les
+    /// droits cessent immédiatement.
     pub async fn retirer_role_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -532,12 +637,13 @@ impl PgEnt {
         self.exiger_couverture(etablissement_id, actor_user_id, actor_role, &role.droits)
             .await?;
         let res = sqlx::query(
-            "DELETE FROM ent_role_attribution
-              WHERE etablissement_id = $1 AND role_id = $2 AND user_id = $3",
+            "UPDATE ent_role_attribution SET clos_le = now(), clos_par_user_id = $4
+              WHERE etablissement_id = $1 AND role_id = $2 AND user_id = $3 AND clos_le IS NULL",
         )
         .bind(etablissement_id)
         .bind(role_id)
         .bind(user_id)
+        .bind(actor_user_id)
         .execute(self.pool())
         .await
         .map_err(db)?;
@@ -548,7 +654,8 @@ impl PgEnt {
                 actor_role,
                 "role_retire",
                 "Retrait d'un rôle",
-                json!({ "role_id": role_id.to_string(), "user_id": user_id.to_string() }),
+                json!({ "role_id": role_id.to_string(), "user_id": user_id.to_string(),
+                        "attributions_closes": res.rows_affected() }),
             )
             .await;
         }

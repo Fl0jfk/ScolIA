@@ -229,19 +229,22 @@ pub struct ProvisionnerPersonnel {
     pub role: String,
 }
 /// Issue d'une réinitialisation de mot de passe par un tiers habilité.
+///
+/// Socle 6, lot P0 : plus aucun mot de passe temporaire n'est produit ni renvoyé, quel que soit le
+/// profil de la cible. Un lien à usage unique est envoyé à l'adresse du compte.
 #[derive(Clone)]
 pub enum ReinitialisationMdp {
-    /// Parent / élève : un lien a été envoyé, aucun secret n'est renvoyé.
+    /// Un lien a été envoyé, aucun secret n'est renvoyé.
     LienEnvoye,
-    /// Personnel : mot de passe temporaire, affiché une seule fois.
-    MotDePasseTemporaire(String),
 }
 
 /// Famille d'opérations de gestion de compte par un tiers (hiérarchies distinctes).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum OperationCompte {
+pub(crate) enum OperationCompte {
     Email,
     Identifiants,
+    /// Fermer, suspendre, rouvrir un accès ou en programmer la fin (socle 6, lot P0).
+    Acces,
 }
 
 /// Empreinte SHA-256 tronquée d'une adresse (pseudonymisation pour le journal).
@@ -281,13 +284,14 @@ fn nettoyer_nom_passkey(name: Option<String>) -> Result<Option<String>, EntDbErr
 }
 
 
-/// Résultat d'un provisionnement staff : mot de passe temporaire (affiché une fois).
+/// Résultat d'un provisionnement staff. Aucun secret : la personne reçoit une invitation par
+/// e-mail (lien à usage unique) et choisit elle-même son mot de passe / enrôle sa passkey.
 #[derive(Clone)]
 pub struct PersonnelProvisionne {
     pub user_id: Uuid,
     pub email: String,
     pub role: String,
-    pub mot_de_passe_temporaire: String,
+    pub invitation_envoyee: bool,
 }
 
 /// Durée de vie d'un challenge passkey (minutes). Court : c'est une fenêtre
@@ -2681,7 +2685,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// L'identité (e-mail, mot de passe, passkeys) est **globale** : si la
     /// cible a une appartenance dans un autre établissement (tout rôle),
     /// l'acteur n'a aucun droit dessus (cloisonnement) → refus.
-    async fn cible_compte_autorisee(
+    pub(crate) async fn cible_compte_autorisee(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -2694,12 +2698,14 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             OperationCompte::Email => {
                 matches!(actor, Role::Admin | Role::Direction | Role::Administratif)
             }
-            OperationCompte::Identifiants => matches!(actor, Role::Admin | Role::Direction),
+            OperationCompte::Identifiants | OperationCompte::Acces => {
+                matches!(actor, Role::Admin | Role::Direction)
+            }
         };
         if !permis_acteur {
             return Err(EntDbError::Forbidden);
         }
-        if op == OperationCompte::Identifiants && target_user_id == actor_user_id {
+        if op != OperationCompte::Email && target_user_id == actor_user_id {
             return Err(EntDbError::Forbidden);
         }
         let memberships = self
@@ -2718,7 +2724,14 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         // Identité globale : dès que la cible appartient à un AUTRE
         // établissement (quel que soit son rôle), aucun tiers n'a de droit
         // dessus ; seul le propriétaire agit sur son compte.
-        if memberships.iter().any(|(etab, _)| *etab != etablissement_id) {
+        // Exception : l'état d'un accès ne concerne que SON établissement (fermer l'accès ici ne
+        // touche ni l'identité ni les autres établissements de la personne), et seulement un
+        // personnel (les familles et les élèves relèvent des socles 3 et 4).
+        if op == OperationCompte::Acces {
+            if !target.is_staff() {
+                return Err(EntDbError::Forbidden);
+            }
+        } else if memberships.iter().any(|(etab, _)| *etab != etablissement_id) {
             return Err(EntDbError::Forbidden);
         }
         let ok = match (op, actor) {
@@ -2733,7 +2746,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 matches!(target, Role::Parent | Role::Eleve)
             }
             (_, Role::Admin) => true,
-            (OperationCompte::Identifiants, Role::Direction) => {
+            (OperationCompte::Identifiants | OperationCompte::Acces, Role::Direction) => {
                 !matches!(target, Role::Admin | Role::Direction)
             }
             _ => false,
@@ -3241,12 +3254,19 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// session. La création libre étant fermée en prod, c'est le chemin
     /// d'ouverture de comptes staff — réservé à Direction / Admin. Seul un
     /// Admin peut créer un Admin / une Direction.
+    ///
+    /// Socle 6, lot P0 : **plus de mot de passe temporaire**. Le compte est créé avec un secret
+    /// aléatoire que personne ne connaît (ni renvoyé, ni journalisé), et la personne reçoit une
+    /// invitation par e-mail : un lien à usage unique (7 jours) pour choisir son mot de passe, puis
+    /// la politique « passkey obligatoire » (D-009) l'enrôle à la première connexion. Messagerie
+    /// non prête ou URL publique absente → `EnvoiImpossible` **avant** toute création de compte.
     pub async fn provisionner_personnel_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         actor_role: &str,
         cmd: ProvisionnerPersonnel,
+        public_base_url: &str,
     ) -> Result<PersonnelProvisionne, EntDbError> {
         let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
         if !matches!(actor, Role::Admin | Role::Direction) {
@@ -3259,13 +3279,18 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
             return Err(EntDbError::Forbidden);
         }
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
 
-        let mot_de_passe_temporaire = generate_temp_password();
+        // Secret aléatoire jamais divulgué : il ne sert qu'à satisfaire le schéma (colonne non
+        // nulle) ; la personne définit le sien par le lien d'invitation.
+        let secret_inconnu = generate_temp_password();
         let user = match self
             .auth
             .register(
                 &cmd.email,
-                &mot_de_passe_temporaire,
+                &secret_inconnu,
                 cmd.display_name.as_deref(),
                 etablissement_id,
                 target.as_str(),
@@ -3278,9 +3303,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 // conflit est légitime (409). Connue ailleurs : réponse
                 // **indiscernable d'un succès** (C1/D-013, pas d'oracle
                 // d'existence inter-établissements) ; aucun compte n'est
-                // créé ni modifié, le mot de passe renvoyé n'est attaché à
-                // rien. Le rattachement passera par une invitation
-                // acceptée par la personne (à concevoir, SOCLE1 C1).
+                // créé ni modifié et aucun message n'est envoyé. Le rattachement
+                // passera par une invitation acceptée par la personne (lot P2).
                 if self
                     .auth
                     .email_membre_de(etablissement_id, &cmd.email)
@@ -3289,7 +3313,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     return Err(AuthError::EmailTaken.into());
                 }
                 // Même coût CPU qu'une création (Argon2id).
-                let _ = ent_auth::hash_password(&mot_de_passe_temporaire);
+                let _ = ent_auth::hash_password(&secret_inconnu);
                 let email = ent_auth::normalize_email(&cmd.email)?;
                 let _ = self
                     .enregistrer_journal_interne(EnregistrerJournal {
@@ -3312,7 +3336,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     user_id: Uuid::new_v4(),
                     email,
                     role: target.as_str().to_string(),
-                    mot_de_passe_temporaire,
+                    invitation_envoyee: true,
                 });
             }
             Err(e) => return Err(e.into()),
@@ -3339,11 +3363,32 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             })
             .await;
 
+        // Invitation : lien à usage unique, 7 jours. Si l'envoi échoue malgré le contrôle
+        // préalable, le compte existe sans que personne n'en connaisse le secret : l'acteur
+        // renvoie l'invitation par la réinitialisation du mot de passe.
+        self.envoyer_lien_reinitialisation(
+            user.id,
+            public_base_url,
+            7 * 24 * 60,
+            "Invitation à rejoindre l'ENT",
+            "Un compte vient de vous être ouvert sur l'ENT de votre établissement.\nPour choisir votre mot de passe et activer votre accès, ouvrez ce lien (valable 7 jours)",
+        )
+        .await?;
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            actor_role,
+            "invitation_personnel_envoyee",
+            "Invitation par e-mail envoyée à un nouveau membre du personnel",
+            json!({ "cible_user_id": user.id.to_string(), "cible_role": target.as_str() }),
+        )
+        .await;
+
         Ok(PersonnelProvisionne {
             user_id: user.id,
             email: user.email,
             role: target.as_str().to_string(),
-            mot_de_passe_temporaire,
+            invitation_envoyee: true,
         })
     }
 
@@ -3351,11 +3396,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// (Direction / Admin, hiérarchie : la Direction ne touche ni un Admin ni
     /// une autre Direction ; jamais soi-même, voir `POST /auth/password`).
     ///
-    /// * cible **Parent / Élève** : aucun secret n'est produit ni renvoyé ; un
-    ///   lien de réinitialisation (jeton à usage unique) est envoyé à
-    ///   l'adresse du compte. Messagerie non prête → `EnvoiImpossible`.
-    /// * cible **personnel** : mot de passe temporaire renvoyé une seule fois,
-    ///   toutes les sessions de la cible sont révoquées.
+    /// Socle 6, lot P0 : **aucun secret n'est produit ni renvoyé**, pour aucun profil. Un lien de
+    /// réinitialisation à usage unique (30 minutes) est envoyé à l'adresse du compte. Pour un
+    /// personnel, les sessions de la cible sont en plus révoquées (mesure conservatoire). Messagerie
+    /// non prête → `EnvoiImpossible`.
     pub async fn reinitialiser_mot_de_passe_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -3374,47 +3418,30 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             )
             .await?;
 
-        if !target.is_staff() {
-            // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un
-            // tiers : on le dit à l'acteur plutôt que d'envoyer un lien inopérant.
-            if self.email_change.est_gele(target_user_id).await? {
-                return Err(EntDbError::Forbidden);
-            }
-            self.envoyer_lien_reinitialisation(
-                target_user_id,
-                public_base_url,
-                30,
-                "Réinitialisation de votre mot de passe ENT",
-                "Un membre de l'établissement a demandé la réinitialisation de votre mot de passe.\nPour en choisir un nouveau, ouvrez ce lien (valable 30 minutes)",
-            )
-            .await?;
-            self.audit_compte(
-                etablissement_id,
-                actor_user_id,
-                actor_role,
-                "lien_reinitialisation_envoye",
-                "Lien de réinitialisation envoyé à un responsable / élève",
-                json!({
-                    "cible_user_id": target_user_id.to_string(),
-                    "cible_role": target.as_str(),
-                }),
-            )
-            .await;
-            return Ok(ReinitialisationMdp::LienEnvoye);
+        // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un tiers : on
+        // le dit à l'acteur plutôt que d'envoyer un lien inopérant.
+        if self.email_change.est_gele(target_user_id).await? {
+            return Err(EntDbError::Forbidden);
         }
-
-        let mot_de_passe_temporaire = generate_temp_password();
-        self.auth
-            .set_password(target_user_id, &mot_de_passe_temporaire)
-            .await?;
-        let sessions = self.auth.revoke_all_for_user(target_user_id).await?;
-        self.auth.invalidate_pending_resets(target_user_id).await?;
+        let sessions = if target.is_staff() {
+            self.auth.revoke_all_for_user(target_user_id).await?
+        } else {
+            0
+        };
+        self.envoyer_lien_reinitialisation(
+            target_user_id,
+            public_base_url,
+            30,
+            "Réinitialisation de votre mot de passe ENT",
+            "Un membre de l'établissement a demandé la réinitialisation de votre mot de passe.\nPour en choisir un nouveau, ouvrez ce lien (valable 30 minutes)",
+        )
+        .await?;
         self.audit_compte(
             etablissement_id,
             actor_user_id,
             actor_role,
-            "mot_de_passe_reinitialise",
-            "Mot de passe d'un membre du personnel réinitialisé",
+            "lien_reinitialisation_envoye",
+            "Lien de réinitialisation envoyé",
             json!({
                 "cible_user_id": target_user_id.to_string(),
                 "cible_role": target.as_str(),
@@ -3422,9 +3449,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             }),
         )
         .await;
-        Ok(ReinitialisationMdp::MotDePasseTemporaire(
-            mot_de_passe_temporaire,
-        ))
+        Ok(ReinitialisationMdp::LienEnvoye)
     }
 
     /// Un reçu vaut « envoyé » seulement si le statut est `Sent` ; `DryRun`
@@ -19198,7 +19223,7 @@ impl std::fmt::Debug for PersonnelProvisionne {
             .field("user_id", &self.user_id)
             .field("role", &self.role)
             .field("email", &"[masqué]")
-            .field("mot_de_passe_temporaire", &"[masqué]")
+            .field("invitation_envoyee", &self.invitation_envoyee)
             .finish()
     }
 }

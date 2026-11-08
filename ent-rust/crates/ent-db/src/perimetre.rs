@@ -20,7 +20,6 @@
 //! d'établissement ; seuls les professeurs sont restreints ici.
 
 use chrono::NaiveDate;
-use domain_eleve::today_utc;
 use uuid::Uuid;
 
 use crate::pg_err::map_sqlx;
@@ -35,13 +34,19 @@ const FENETRE_REMPLACEMENT_JOURS: i32 = 14;
 
 impl PgEnt {
     /// Le professeur suit-il cet élève aujourd'hui ? (voir le module)
+    ///
+    /// « Aujourd'hui » est le jour **de l'établissement** (fuseau du paramètre d'établissement,
+    /// Europe/Paris par défaut ; `acces::aujourdhui_etablissement`), pas le jour UTC : un service ou
+    /// une attribution qui finit le 31 août reste actif jusqu'à minuit heure locale, et s'éteint
+    /// ensuite (socle 6 P0, `06_PERSONNELS.md` §2.2 n° 6 ; R-P2).
     pub async fn prof_suit_eleve(
         &self,
         etablissement_id: Uuid,
         prof_user_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<bool, EntDbError> {
-        self.prof_suit_eleve_le(etablissement_id, prof_user_id, eleve_id, today_utc())
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        self.prof_suit_eleve_le(etablissement_id, prof_user_id, eleve_id, jour)
             .await
     }
 

@@ -93,6 +93,8 @@ mod passkey_repo;
 mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
+pub mod acces;
+pub use acces::{AccesEtat, EtatAcces};
 mod droits_repo;
 mod droits_ctx;
 mod eleve_champs;
@@ -289,6 +291,8 @@ mod tests_dossier_personnes;
 mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]

@@ -15,16 +15,16 @@ use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
-const MDP: &str = "DevLocalPass1!";
+pub(crate) const MDP: &str = "DevLocalPass1!";
 
-fn url_locale() -> Option<String> {
+pub(crate) fn url_locale() -> Option<String> {
     std::env::var("ENT_DATABASE_URL")
         .ok()
         .filter(|u| !u.trim().is_empty())
 }
 
 /// État de test avec messagerie en dry-run (reçus consultables).
-async fn etat() -> Option<(AppState, Arc<PgEnt>)> {
+pub(crate) async fn etat() -> Option<(AppState, Arc<PgEnt>)> {
     let mut ent = PgEnt::connect(&url_locale()?).await.ok()?;
     ent.migrate().await.ok()?;
     ent.install_mail_dry_run();
@@ -33,7 +33,7 @@ async fn etat() -> Option<(AppState, Arc<PgEnt>)> {
     Some((s, ent))
 }
 
-async fn appel(
+pub(crate) async fn appel(
     app: &axum::Router,
     methode: &str,
     uri: &str,
@@ -57,13 +57,13 @@ async fn appel(
     (st, serde_json::from_slice(&bytes).unwrap_or(json!({})))
 }
 
-struct Compte {
-    jeton: String,
-    id: Uuid,
-    email: String,
+pub(crate) struct Compte {
+    pub(crate) jeton: String,
+    pub(crate) id: Uuid,
+    pub(crate) email: String,
 }
 
-async fn inscrire(app: &axum::Router, etab: Uuid, role: &str) -> Compte {
+pub(crate) async fn inscrire(app: &axum::Router, etab: Uuid, role: &str) -> Compte {
     let email = format!("l3-{role}-{}@ent.local", Uuid::new_v4().simple());
     let (st, _) = appel(
         app,
@@ -82,7 +82,7 @@ async fn inscrire(app: &axum::Router, etab: Uuid, role: &str) -> Compte {
     }
 }
 
-async fn connecter(app: &axum::Router, etab: Uuid, email: &str) -> (String, Uuid) {
+pub(crate) async fn connecter(app: &axum::Router, etab: Uuid, email: &str) -> (String, Uuid) {
     let (st, b) = appel(
         app,
         "POST",
@@ -98,7 +98,7 @@ async fn connecter(app: &axum::Router, etab: Uuid, email: &str) -> (String, Uuid
     )
 }
 
-async fn vivante(app: &axum::Router, jeton: &str) -> bool {
+pub(crate) async fn vivante(app: &axum::Router, jeton: &str) -> bool {
     appel(app, "GET", "/auth/me", Some(jeton), None).await.0 == StatusCode::OK
 }
 
@@ -118,7 +118,7 @@ async fn journal(etab: Uuid, action: &str) -> Vec<(Option<Uuid>, String)> {
 }
 
 /// Dernier jeton d'un lien `…/<chemin>?token=…` reçu par `a`.
-fn lien_email(ent: &PgEnt, a: &str, chemin: &str) -> Option<String> {
+pub(crate) fn lien_email(ent: &PgEnt, a: &str, chemin: &str) -> Option<String> {
     ent.mailer().dry_run_corps().into_iter().rev().filter(|(to, _, _)| to == a).find_map(
         |(_, _, corps)| {
             let i = corps.find(&format!("{chemin}?token="))? + chemin.len() + "?token=".len();
@@ -235,7 +235,7 @@ async fn l3_email_hierarchie_mot_de_passe_revocation_journal_notification() {
 }
 
 #[tokio::test]
-async fn l3_reinitialisation_parent_par_lien_sans_secret_et_personnel_par_mot_de_passe_temporaire() {
+async fn l3_reinitialisation_par_lien_sans_secret_pour_tous_les_profils() {
     let Some((state, ent)) = etat().await else {
         eprintln!("skip L3: ENT_DATABASE_URL");
         return;
@@ -268,11 +268,19 @@ async fn l3_reinitialisation_parent_par_lien_sans_secret_et_personnel_par_mot_de
     let (st, _) = appel(&app, "POST", &uri(dir.id), Some(&dir.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
 
-    // Personnel : comportement conservé (secret affiché une fois, sessions révoquées).
+    // Personnel (socle 6 P0) : plus de mot de passe temporaire — lien envoyé (202), aucun secret
+    // dans la réponse, sessions révoquées, ancien mot de passe valable tant que le lien n'est pas
+    // utilisé.
+    ent.mailer().clear_receipts();
     let (st, corps) = appel(&app, "POST", &uri(prof.id), Some(&dir.jeton), None).await;
-    assert_eq!(st, StatusCode::OK);
-    assert!(corps["mot_de_passe_temporaire"].as_str().unwrap().len() >= 10);
+    assert_eq!(st, StatusCode::ACCEPTED);
+    assert_eq!(corps["lien_envoye"], true);
+    assert!(corps.get("mot_de_passe_temporaire").is_none(), "aucun secret renvoyé : {corps}");
+    assert!(!corps.to_string().to_lowercase().contains("password"), "{corps}");
+    assert!(ent.mailer().receipts().iter().any(|r| r.to == prof.email
+        && r.subject.contains("Réinitialisation")));
     assert!(!vivante(&app, &prof.jeton).await);
+    connecter(&app, etab, &prof.email).await;
     // Direction ne touche pas un Admin.
     let (st, _) = appel(&app, "POST", &uri(admin.id), Some(&dir.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);

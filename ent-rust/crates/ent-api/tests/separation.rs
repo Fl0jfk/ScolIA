@@ -1379,25 +1379,32 @@ async fn construire_doubles(m: &Monde) -> Vec<Double> {
         (Psy, "psy"),
     ] {
         let email = format!("dbl-{}@example.test", Uuid::new_v4().simple());
-        let r = m
-            .appel(
-                "POST",
-                "/etablissement/personnel",
-                Some(m.jeton(Admin)),
-                Some(&json!({"email": email, "display_name": format!("Double {role}"), "role": role})),
-            )
-            .await;
-        assert_eq!(r.statut.as_u16(), 201, "provisionnement du double {role} : {}", r.texte);
-        let user_id = Uuid::parse_str(r.json["user_id"].as_str().unwrap()).unwrap();
-        let mdp = r.json["mot_de_passe_temporaire"].as_str().unwrap().to_string();
-        // Même personne, second établissement (rôle identique).
-        sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())")
-            .bind(user_id)
-            .bind(m.b.objets.etab)
-            .bind(role)
-            .execute(&pool)
-            .await
-            .expect("second rattachement");
+        // Socle 6 P0 : le provisionnement HTTP ne renvoie plus de mot de passe (invitation par
+        // e-mail, testée dans `ent-api`). Les comptes « doubles » sont donc créés directement,
+        // avec un mot de passe connu du test, puis rattachés aux deux établissements.
+        let user_id = Uuid::new_v4();
+        let mdp = format!("Double-{}-Aa9!", Uuid::new_v4().simple());
+        let hash = ent_auth::hash_password(&mdp).expect("hachage");
+        sqlx::query(
+            "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, now(), now())",
+        )
+        .bind(user_id)
+        .bind(&email)
+        .bind(&hash)
+        .bind(format!("Double {role}"))
+        .execute(&pool)
+        .await
+        .expect("compte double");
+        for etab in [m.a.objets.etab, m.b.objets.etab] {
+            sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())")
+                .bind(user_id)
+                .bind(etab)
+                .bind(role)
+                .execute(&pool)
+                .await
+                .expect("rattachement");
+        }
         let l = m
             .appel(
                 "POST",

@@ -202,6 +202,22 @@ pub fn router() -> Router<AppState> {
             "/etablissement/personnel/{id}/reset-mot-de-passe",
             post(reinitialiser_mot_de_passe),
         )
+        .route(
+            "/etablissement/personnel/{id}/acces/fermer",
+            post(acces_fermer),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/suspendre",
+            post(acces_suspendre),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/rouvrir",
+            post(acces_rouvrir),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/fin",
+            put(acces_programmer_fin),
+        )
         .route("/eleves/homonymes", post(rechercher_homonymes))
         .route("/eleves/sans-compte", get(list_eleves_sans_compte))
         .route(
@@ -832,7 +848,6 @@ struct PersonnelDto {
     email: String,
     role: String,
     label: String,
-    telephone: Option<String>,
 }
 
 /// Routes de labo (`POST /labo/bootstrap`) : compilées SEULEMENT avec la
@@ -1109,7 +1124,6 @@ fn personnel_dto(p: ent_db::StaffMember) -> PersonnelDto {
         email: p.email,
         role: p.role,
         label,
-        telephone: p.telephone,
     }
 }
 
@@ -1146,7 +1160,9 @@ struct PersonnelProvisionneDto {
     user_id: Uuid,
     email: String,
     role: String,
-    mot_de_passe_temporaire: String,
+    /// Toujours `true` : le compte est créé sans mot de passe utilisable et la personne reçoit un
+    /// lien d'invitation à usage unique par e-mail. Aucun secret n'est renvoyé (socle 6 P0).
+    invitation_envoyee: bool,
 }
 
 /// Provisionne un compte personnel (staff) dans l'établissement de la session.
@@ -1167,16 +1183,17 @@ async fn provisionner_personnel(
                 display_name: body.display_name,
                 role: body.role,
             },
+            &base_url_publique(),
         )
         .await
-        .map_err(map_auth)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_auth(e)))?;
     Ok((
         StatusCode::CREATED,
         Json(PersonnelProvisionneDto {
             user_id: p.user_id,
             email: p.email,
             role: p.role,
-            mot_de_passe_temporaire: p.mot_de_passe_temporaire,
+            invitation_envoyee: p.invitation_envoyee,
         }),
     ))
 }
@@ -1184,10 +1201,8 @@ async fn provisionner_personnel(
 #[derive(Serialize)]
 struct MotDePasseReinitialiseDto {
     user_id: Uuid,
-    /// Présent uniquement pour une cible du personnel ; jamais pour un parent / élève.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mot_de_passe_temporaire: Option<String>,
-    /// `true` : un lien de réinitialisation a été envoyé (aucun secret renvoyé).
+    /// `true` : un lien de réinitialisation à usage unique a été envoyé à l'adresse du compte.
+    /// Aucun secret n'est jamais renvoyé (socle 6 P0, fin du mot de passe temporaire).
     lien_envoye: bool,
 }
 
@@ -1223,15 +1238,15 @@ fn base_url_publique() -> String {
     }
 }
 
-/// Réinitialise le mot de passe d'un compte (Direction / Admin). Parent / élève :
-/// un lien est envoyé (202, aucun secret). Personnel : mot de passe temporaire
-/// affiché une seule fois (200).
+/// Réinitialise le mot de passe d'un compte (Direction / Admin) : un lien à usage unique est envoyé
+/// à l'adresse du compte (202). Aucun mot de passe n'est produit ni renvoyé, quel que soit le profil
+/// de la cible ; ses sessions sont révoquées pour un personnel.
 async fn reinitialiser_mot_de_passe(
     State(state): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<MotDePasseReinitialiseDto>), (StatusCode, String)> {
-    let issue = state
+    state
         .ent
         .reinitialiser_mot_de_passe_for_actor(
             session.etablissement_id,
@@ -1242,24 +1257,116 @@ async fn reinitialiser_mot_de_passe(
         )
         .await
         .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
-    Ok(match issue {
-        ent_db::ReinitialisationMdp::LienEnvoye => (
-            StatusCode::ACCEPTED,
-            Json(MotDePasseReinitialiseDto {
-                user_id: id,
-                mot_de_passe_temporaire: None,
-                lien_envoye: true,
-            }),
-        ),
-        ent_db::ReinitialisationMdp::MotDePasseTemporaire(mdp) => (
-            StatusCode::OK,
-            Json(MotDePasseReinitialiseDto {
-                user_id: id,
-                mot_de_passe_temporaire: Some(mdp),
-                lien_envoye: false,
-            }),
-        ),
-    })
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(MotDePasseReinitialiseDto {
+            user_id: id,
+            lien_envoye: true,
+        }),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct MotifAccesBody {
+    motif: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FinAccesBody {
+    /// Jour de fin (AAAA-MM-JJ), l'accès se ferme le soir de ce jour ; `null` retire la date.
+    date_fin: Option<chrono::NaiveDate>,
+}
+
+#[derive(Serialize)]
+struct AccesEtatDto {
+    user_id: Uuid,
+    etat: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date_fin: Option<chrono::NaiveDate>,
+}
+
+/// Ferme l'accès d'un membre du personnel (départ). Admin / Direction, jamais soi-même ; le
+/// dernier administrateur d'un établissement ne peut pas être fermé (409).
+async fn acces_fermer(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MotifAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_fermer_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &body.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Suspend l'accès d'un membre du personnel (mesure conservatoire, congé) ; réversible.
+async fn acces_suspendre(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MotifAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_suspendre_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &body.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Rouvre un accès suspendu ou fermé.
+async fn acces_rouvrir(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_rouvrir_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Programme (ou retire) la date de fin d'un accès.
+async fn acces_programmer_fin(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<FinAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let fin = state
+        .ent
+        .acces_programmer_fin_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            body.date_fin,
+        )
+        .await
+        .map_err(map_db)?;
+    let etat = state
+        .ent
+        .acces_etat(session.etablissement_id, id)
+        .await
+        .map_err(map_db)?
+        .map_or("ouvert", |a| a.etat.as_str());
+    Ok(Json(AccesEtatDto { user_id: id, etat, date_fin: fin }))
 }
 
 async fn get_personnel(
@@ -12680,8 +12787,8 @@ fn erreur_interne(err: &dyn std::fmt::Display) -> (StatusCode, String) {
 }
 
 // --- `Debug` masqué des corps / DTO portant secrets (voir `masque.rs`) ------
-debug_masque!(PersonnelProvisionneDto { user_id, role } masque { email, mot_de_passe_temporaire });
-debug_masque!(MotDePasseReinitialiseDto { user_id } masque { mot_de_passe_temporaire });
+debug_masque!(PersonnelProvisionneDto { user_id, role, invitation_envoyee } masque { email });
+debug_masque!(MotDePasseReinitialiseDto { user_id, lien_envoye } masque { });
 #[cfg(feature = "labo")]
 debug_masque!(RegisterBody { etablissement_id, role } masque { email, password });
 debug_masque!(LoginBody { etablissement_id } masque { email, password });
