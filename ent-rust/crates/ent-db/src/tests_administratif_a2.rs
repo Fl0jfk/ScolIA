@@ -9,7 +9,9 @@ use crate::dossier_personnes::{
     PreferencesPersonne, RaisonCoordonnee, SeparationNom,
 };
 use crate::seed::LaboCast;
+use crate::dossier_personnes::Auteur;
 use crate::service::RefusMetier;
+use domain_eleve::DomainError;
 use ent_auth::Role;
 use uuid::Uuid;
 
