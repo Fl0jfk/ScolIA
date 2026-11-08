@@ -2698,8 +2698,16 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             OperationCompte::Email => {
                 matches!(actor, Role::Admin | Role::Direction | Role::Administratif)
             }
+            // Socle 6 : l'ancien contrôle de profil (Admin, Direction) est l'action
+            // `personnels.acces.gerer` (même modèle par défaut) ; la hiérarchie ci-dessous reste.
             OperationCompte::Identifiants | OperationCompte::Acces => {
-                matches!(actor, Role::Admin | Role::Direction)
+                self.a_action_etablissement(
+                    etablissement_id,
+                    actor_user_id,
+                    actor_role,
+                    Action::PersonnelsAccesGerer,
+                )
+                .await?
             }
         };
         if !permis_acteur {
@@ -2746,7 +2754,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 matches!(target, Role::Parent | Role::Eleve)
             }
             (_, Role::Admin) => true,
-            (OperationCompte::Identifiants | OperationCompte::Acces, Role::Direction) => {
+            // Tout autre détenteur de l'action (Direction, ou rôle paramétré) : jamais sur un pair
+            // ni sur un niveau supérieur (anti-escalade).
+            (OperationCompte::Identifiants | OperationCompte::Acces, _) => {
                 !matches!(target, Role::Admin | Role::Direction)
             }
             _ => false,
@@ -3269,7 +3279,12 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         public_base_url: &str,
     ) -> Result<PersonnelProvisionne, EntDbError> {
         let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
-        if !matches!(actor, Role::Admin | Role::Direction) {
+        // Socle 6 : l'ancien contrôle de profil (Admin, Direction) est l'action `personnels.gerer`
+        // (même modèle par défaut, test d'oracle) : un rôle paramétré peut l'accorder à d'autres.
+        if !self
+            .a_action_etablissement(etablissement_id, actor_user_id, actor_role, Action::PersonnelsGerer)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let target = Role::parse(&cmd.role).ok_or(EntDbError::Forbidden)?;

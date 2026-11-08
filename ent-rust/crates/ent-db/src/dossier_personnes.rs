@@ -1882,6 +1882,24 @@ impl PgEnt {
         cible_id: Uuid,
         motif: &str,
     ) -> Result<FusionPersonne, EntDbError> {
+        self.fusionner_personnes_interne(etab, actor, role, source_id, cible_id, motif, false)
+            .await
+    }
+
+    /// Fusion de personnes. `agents_geres` : l'appelant (fusion d'agents, socle 6) fusionne lui-même
+    /// les deux agents ; sinon deux agents refusent la fusion et un seul (côté source) suit la
+    /// personne conservée.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn fusionner_personnes_interne(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        source_id: Uuid,
+        cible_id: Uuid,
+        motif: &str,
+        agents_geres: bool,
+    ) -> Result<FusionPersonne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesFusionner)
             .await?;
         let motif = motif.trim();
@@ -1919,6 +1937,42 @@ impl PgEnt {
                     "deux comptes différents : pas de fusion de comptes",
                 ));
             }
+        }
+        // Socle 6 : un agent suit sa personne. Deux agents → fusion des agents (commande dédiée) ;
+        // un seul, côté source → rattaché à la personne conservée (défusion : remis en place).
+        let agent_source: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2",
+        )
+        .bind(etab)
+        .bind(source.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let agent_cible: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2",
+        )
+        .bind(etab)
+        .bind(cible.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if agent_source.is_some() && agent_cible.is_some() && !agents_geres {
+            return Err(EntDbError::ConflitDossier(
+                "les deux fiches sont des agents : fusionner les agents depuis les personnels",
+            ));
+        }
+        let mut agent_deplace: Option<Uuid> = None;
+        if let (Some((a,)), None, false) = (agent_source, agent_cible, agents_geres) {
+            sqlx::query(
+                "UPDATE ent_agent SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(a)
+            .bind(cible.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            agent_deplace = Some(a);
         }
         let compte_transfere = source.user_id.filter(|_| cible.user_id.is_none());
         if let Some(u) = compte_transfere {
@@ -2019,6 +2073,8 @@ impl PgEnt {
             "liens_supprimes": liens_supprimes.iter().map(|(_, v)| v).collect::<Vec<_>>(),
             "contacts_deplaces": contacts_deplaces.iter().map(|(id,)| id).collect::<Vec<_>>(),
             "contacts_supprimes": contacts_supprimes.iter().map(|(v,)| v).collect::<Vec<_>>(),
+            "agent_deplace": agent_deplace,
+            "agents_fusionnes": agents_geres,
         });
         let fusion_id = Uuid::new_v4();
         sqlx::query(
@@ -2104,6 +2160,11 @@ impl PgEnt {
         if annule_le.is_some() {
             return Err(EntDbError::ConflitDossier("fusion déjà annulée"));
         }
+        if inst.get("agents_fusionnes").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(EntDbError::ConflitDossier(
+                "fusion liée à une fusion d'agents : non annulable depuis les personnes",
+            ));
+        }
         if Utc::now() - fusionne_le > Duration::days(DELAI_DEFUSION_JOURS) {
             return Err(EntDbError::ConflitDossier("délai d'annulation de la fusion dépassé"));
         }
@@ -2142,6 +2203,22 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        // Socle 6 : l'agent rattaché à la personne conservée à la fusion revient à la source.
+        if let Some(a) = inst
+            .get("agent_deplace")
+            .and_then(Value::as_str)
+            .and_then(|s| Uuid::parse_str(s).ok())
+        {
+            sqlx::query(
+                "UPDATE ent_agent SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(a)
+            .bind(source_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         if let Some(u) = inst
             .get("compte_transfere")
             .and_then(Value::as_str)

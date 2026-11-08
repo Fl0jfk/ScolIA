@@ -60,6 +60,13 @@ impl Role {
         !matches!(self, Self::Parent | Self::Eleve)
     }
 
+    /// Créer et gérer les agents, leurs engagements et l'accès de leur compte : l'ancien contrôle
+    /// de profil codé en dur de `provisionner_personnel` et de `cible_compte_autorisee` (socle 6).
+    /// Conservée comme **oracle** du modèle par défaut de `personnels.gerer` et `personnels.acces.gerer`.
+    pub fn can_gerer_personnels(self) -> bool {
+        matches!(self, Self::Admin | Self::Direction)
+    }
+
     pub fn can_manage_eleves(self) -> bool {
         matches!(
             self,
