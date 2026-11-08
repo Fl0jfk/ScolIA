@@ -632,7 +632,8 @@ impl PgEnt {
         .await?;
         let mut touchees: Vec<Uuid> = Vec::new();
         for (prop, champ_id, _) in &anciennes {
-            sqlx::query("UPDATE ent_eleve_proposition_champ SET decision = 'obsolete' WHERE id = $1")
+            sqlx::query("UPDATE ent_eleve_proposition_champ SET decision = 'obsolete' WHERE etablissement_id = $1 AND id = $2")
+                .bind(cmd.etablissement_id)
                 .bind(champ_id)
                 .execute(&mut **tx)
                 .await?;

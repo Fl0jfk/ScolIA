@@ -937,8 +937,9 @@ impl PgEnt {
         }
         // Les lignes déplacées, table par table.
         let lignes: Vec<(String, Value, String)> = sqlx::query_as(
-            "SELECT table_nom, cle, empreinte FROM ent_eleve_fusion_ligne WHERE fusion_id = $1 ORDER BY id",
+            "SELECT table_nom, cle, empreinte FROM ent_eleve_fusion_ligne WHERE etablissement_id = $1 AND fusion_id = $2 ORDER BY id",
         )
+        .bind(etab)
         .bind(fusion_id)
         .fetch_all(&mut *tx)
         .await?;
@@ -1027,8 +1028,9 @@ impl PgEnt {
         let touches: Vec<(Uuid, String)> = sqlx::query_as(
             "SELECT (x->>'id')::uuid, x->>'statut'
                FROM ent_eleve_fusion fu, jsonb_array_elements(fu.doublons_touches) x
-              WHERE fu.id = $1",
+              WHERE fu.etablissement_id = $1 AND fu.id = $2",
         )
+        .bind(etab)
         .bind(fusion_id)
         .fetch_all(&mut *tx)
         .await?;
