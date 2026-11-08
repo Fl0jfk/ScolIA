@@ -261,6 +261,11 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 /// Les familles de l'établissement A ont toutes une fiche de personne (reprise des liens).
 const FAMILLE_AVEC_FICHE: &[Acteur] = &[Parent, ParentAutreFoyer, ParentSansDrapeaux];
+/// Routes « soi » (`/dossier/moi/*`) : depuis le socle 6 (P1), un compte du personnel a lui aussi une
+/// fiche de personne (son agent) ; il lit la sienne, jamais celle d'un autre (aucun identifiant dans l'URL).
+const SOI_AVEC_FICHE: &[Acteur] = &[
+    Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, ParentAutreFoyer, ParentSansDrapeaux,
+];
 
 fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
@@ -467,11 +472,11 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]) },
             // « Soi » : la personne n'agit que sur sa propre fiche (aucun identifiant de personne
             // dans l'URL). Les écritures de ces cas sont invalides à dessein.
-            Spec { interdits: &["enc:v1:"], ..lire("moi-coordonnees", "/dossier/moi/coordonnees", FAMILLE_AVEC_FICHE, FAMILLE_AVEC_FICHE) },
-            lire("moi-coordonnees-historique", "/dossier/moi/coordonnees/historique", FAMILLE_AVEC_FICHE, FAMILLE_AVEC_FICHE),
-            lire("moi-preferences", "/dossier/moi/preferences", FAMILLE_AVEC_FICHE, FAMILLE_AVEC_FICHE),
-            lire("moi-consentements", "/dossier/moi/consentements", FAMILLE_AVEC_FICHE, FAMILLE_AVEC_FICHE),
-            lire("moi-divergences-compte", "/dossier/moi/divergences-compte", FAMILLE_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            Spec { interdits: &["enc:v1:"], ..lire("moi-coordonnees", "/dossier/moi/coordonnees", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE) },
+            lire("moi-coordonnees-historique", "/dossier/moi/coordonnees/historique", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-preferences", "/dossier/moi/preferences", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-consentements", "/dossier/moi/consentements", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-divergences-compte", "/dossier/moi/divergences-compte", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
             ecrire_sur_b("moi-coordonnee-ajout-invalide", "POST", "/dossier/moi/coordonnees",
                 Some(r#"{"type_":"telex","valeur":"1"}"#)),
             ecrire_sur_b("moi-coordonnee-autre-fiche", "PUT",

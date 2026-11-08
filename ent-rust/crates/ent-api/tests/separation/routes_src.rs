@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 16] = [
+pub const SOURCES: [&str; 17] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
@@ -37,10 +37,11 @@ pub const SOURCES: [&str; 16] = [
     include_str!("../../src/eleve_propositions.rs"),
     include_str!("../../src/eleve_fusion.rs"),
     include_str!("../../src/personnels.rs"),
+    include_str!("../../src/structure.rs"),
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 16] = [
+pub const NOMS_SOURCES: [&str; 17] = [
     "routes.rs",
     "cahier.rs",
     "dossier.rs",
@@ -57,6 +58,7 @@ pub const NOMS_SOURCES: [&str; 16] = [
     "eleve_propositions.rs",
     "eleve_fusion.rs",
     "personnels.rs",
+    "structure.rs",
 ];
 
 pub fn routes() -> Vec<RouteDecl> {
