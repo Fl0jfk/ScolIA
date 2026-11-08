@@ -863,7 +863,7 @@ async fn revue_securite_a2_promotion_motif_compte_et_correction_sensible() {
     // Plafond par personne : retirer puis rajouter une coordonnée ne remet pas le compteur à zéro.
     let (p3, u3) = personne_avec_compte(&ent, etab, "Plafond", &format!("pl.{}@exemple.fr", Uuid::new_v4().simple())).await;
     let mut refuse = false;
-    for i in 0..10 {
+    for i in 0..15 {
         let c = ent.ajouter_ma_coordonnee(etab, u3, &saisie_coord("email", &format!("rb{i}.{}@exemple.fr", Uuid::new_v4().simple()))).await.unwrap();
         if ent.demander_verification_ma_coordonnee(etab, u3, c.id).await.is_err() {
             refuse = true;
