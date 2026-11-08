@@ -71,7 +71,7 @@ pub fn normaliser_telephone(brut: &str) -> Option<String> {
         return ok.then_some(s);
     }
     if let Some(reste) = s.strip_prefix('+') {
-        let ok = (8..=15).contains(&reste.len()) && chiffres(reste) && !reste.starts_with('0');
+        let ok = (9..=15).contains(&reste.len()) && chiffres(reste) && !reste.starts_with('0');
         return ok.then_some(s);
     }
     if s.len() == 10 && chiffres(&s) && s.starts_with('0') && !s[1..].starts_with('0') {
