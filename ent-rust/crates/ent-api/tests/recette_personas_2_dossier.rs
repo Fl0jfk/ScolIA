@@ -2,6 +2,8 @@
 //! minimisation A1 (RP2-01). Routeur réel en process, base PostgreSQL locale de test, un
 //! établissement de labo frais par scénario.
 
+#![allow(dead_code)]
+
 use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 
