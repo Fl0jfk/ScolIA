@@ -96,4 +96,7 @@ Plage **290–294** utilisée par le lot E6 (socle 2 : recherche instantanée, d
 
 
 ## Mise à jour du 2026-11-08 (socle 5, lots S0 et S1)
-330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` reste `370_edt_creneau_groupe` : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
+330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` restait `370_edt_creneau_groupe` sur cette branche (375 est apparue à l'intégration du lot 9) : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
+
+## Mise à jour du 2026-11-08 (intégration du lot 9, `ent-integration-lot9`)
+Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon de numéro : 287–289 (E5), 290–294 (E6), 302–309 (I2), 330–331 (S0–S1), 375 `msg_fil_prive` (correctifs de la recette 1). `MIGRATION_TAG` = `375_msg_fil_prive` (plus haute migration du répertoire). Plages inutilisées à ce jour : 295 (fin de la plage E6), 332–339 (reste de S0–S1), 376–379 (réservée à la recette 2, **aucune migration écrite** : les correctifs RP2 n'ont pas eu besoin de schéma). 273–276 restent réservées au socle 4 A2 (non intégré).
