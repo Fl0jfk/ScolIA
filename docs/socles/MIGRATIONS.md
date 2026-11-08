@@ -116,3 +116,6 @@ Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon de numéro : 28
 
 ## Mise à jour du 2026-11-08 (socle 5, lot S2, `ent-socle-structure-s2`)
 Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, paramètres versionnés, journal de structure en ajout seul) et **337** (`337_structure_lieux` : sites enrichis, bâtiments, salles typées liées à leur site, lieux extérieurs, disponibilités, indisponibilités) consommées, insérées dans `migrate.rs` après 331 et avant 370 (ordre croissant). **333–336 et 338–339 restent réservées** (S3 calendrier, S7 périodes et grilles, S5 offre, S6 groupes). `MIGRATION_TAG` reste `375_msg_fil_prive` : 375 est la plus haute migration du répertoire. Sur la base `ent-integration-lot9`, aucun autre lot n'a pris 332 ni 337.
+
+## Mise à jour du 2026-11-08 (intégration du lot 10, `ent-integration-lot10`)
+Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
