@@ -507,8 +507,13 @@ impl Monde {
         let dir = jetons[&Acteur::Direction].clone();
         self.decouvrir(&mut o, &dir).await;
         let prof = jetons[&Acteur::Prof].clone();
-        let ens = liste(&self.appel("GET", "/referentiel/mes-enseignements", Some(&prof), None).await);
-        o.cours = ens.first().and_then(|v| v["service_id"].as_str()).and_then(|s| Uuid::parse_str(s).ok());
+        let ens = self.appel("GET", "/referentiel/mes-enseignements", Some(&prof), None).await;
+        o.cours = ens
+            .json
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|v| v["service_id"].as_str())
+            .and_then(|s| Uuid::parse_str(s).ok());
         self.ouvrir_appel(&mut o, &prof).await;
         Some(Etab {
             objets: o,
