@@ -1114,7 +1114,23 @@ impl PgEnt {
         session: &CtxSession,
     ) -> Result<PreparerArriveeDto, EntDbError> {
         let etab = session.etablissement_id;
+        // Casquette personnel seulement : la session « parent » d'un professeur-parent n'a aucun
+        // droit sur l'annuaire des collègues (aucune union de droits).
+        if session.casquette != "principale" {
+            return Err(EntDbError::Forbidden);
+        }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let profil: Option<(String,)> = sqlx::query_as(
+            "SELECT role FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
+        )
+        .bind(etab)
+        .bind(session.user_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if !profil.is_some_and(|(r,)| Role::parse(&r).is_some_and(|r| r.is_staff())) {
+            return Err(EntDbError::Forbidden);
+        }
         let (avant,): (bool,) = sqlx::query_as("SELECT ent_agent_avant_arrivee($1, $2)")
             .bind(session.user_id)
             .bind(etab)

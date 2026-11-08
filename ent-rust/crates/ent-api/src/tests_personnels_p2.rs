@@ -547,6 +547,11 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
     assert_eq!(reference[1].0, StatusCode::OK);
     assert_ne!(reference[4].0, StatusCode::OK, "pas l'enfant d'un autre");
     assert_eq!(reference[6].0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        appel(&app, "GET", "/personnels/moi/arrivee", Some(&cast.parent_lea.token), None).await.0,
+        StatusCode::FORBIDDEN,
+        "un parent pur ne lit pas « préparer mon arrivée »"
+    );
     // Absence de Harry : le parent peut la justifier (route famille).
     let p = pool().await;
     let absence: Option<(Uuid,)> = sqlx::query_as(
@@ -612,7 +617,7 @@ async fn identite_existante_rattachee_apres_confirmation_et_aucune_union_de_droi
         }
     }
     // Les routes du personnel lui sont fermées dans cette casquette.
-    for r in ["/personnels/annuaire", "/eleves/search?q=a"] {
+    for r in ["/personnels/annuaire", "/eleves/search?q=a", "/personnels/moi/arrivee"] {
         assert_eq!(appel(&app, "GET", r, Some(&jeton), None).await.0, StatusCode::FORBIDDEN, "{r}");
     }
     let (st, _) = appel(&app, "POST", "/personnels/agents", Some(&jeton), Some(json!({}))).await;
