@@ -150,8 +150,6 @@ pub enum Action {
     InscriptionsGerer,
     /// Décider d'une admission et valider une inscription ★ (S2-3, INS-04/05).
     InscriptionsDecider,
-    /// Valider une inscription admise (INS-05 : secrétariat ou direction ; RP2-11).
-    InscriptionsValider,
     /// Importer des élèves en lot et traiter les rejets (S2-3, IOP-01/04).
     ImportsAppliquer,
     /// Lire le cahier de textes, le travail à faire et la charge de travail
@@ -230,6 +228,9 @@ pub enum Action {
     DossierAdminParametrer,
     /// Ouvre F2 et F3 d'un élève hors portée, sur motif, avec alerte à la direction ; jamais F4.
     ResponsablesAccesUrgence,
+    /// Valider une inscription admise (INS-05 : secrétariat ou direction ; RP2-11). Placée en fin
+    /// de catalogue : la matrice historique (oracle A1) reste inchangée.
+    InscriptionsValider,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +316,6 @@ impl Action {
         Action::ElevesParametrer,
         Action::InscriptionsGerer,
         Action::InscriptionsDecider,
-        Action::InscriptionsValider,
         Action::ImportsAppliquer,
         Action::CahierLire,
         Action::CahierEcrire,
@@ -353,6 +353,7 @@ impl Action {
         Action::DossierAdminExporter,
         Action::DossierAdminParametrer,
         Action::ResponsablesAccesUrgence,
+        Action::InscriptionsValider,
     ];
 
     pub fn code(self) -> &'static str {
@@ -424,7 +425,6 @@ impl Action {
             Self::ElevesParametrer => "eleves.parametrer",
             Self::InscriptionsGerer => "inscriptions.gerer",
             Self::InscriptionsDecider => "inscriptions.decider",
-            Self::InscriptionsValider => "inscriptions.valider",
             Self::ImportsAppliquer => "imports.appliquer",
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
@@ -460,6 +460,7 @@ impl Action {
             Self::DossierAdminExporter => "dossier_admin.exporter",
             Self::DossierAdminParametrer => "dossier_admin.parametrer",
             Self::ResponsablesAccesUrgence => "responsables.acces_urgence",
+            Self::InscriptionsValider => "inscriptions.valider",
         }
     }
 
@@ -532,7 +533,6 @@ impl Action {
             Self::ElevesParametrer => "Paramétrer les champs et règles de l'élève",
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
             Self::InscriptionsDecider => "Décider des admissions",
-            Self::InscriptionsValider => "Valider les inscriptions admises par la direction",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
@@ -570,6 +570,7 @@ impl Action {
             Self::DossierAdminExporter => "Exports nominatifs du dossier administratif",
             Self::DossierAdminParametrer => "Paramétrer le dossier administratif",
             Self::ResponsablesAccesUrgence => "Bris de glace sur le dossier administratif",
+            Self::InscriptionsValider => "Valider les inscriptions admises par la direction",
         }
     }
 
