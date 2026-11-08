@@ -281,6 +281,8 @@ mod tests_d022;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022_bis;
 #[cfg(all(test, feature = "labo"))]
+mod tests_recette_personas;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0;

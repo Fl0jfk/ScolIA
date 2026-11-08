@@ -380,7 +380,7 @@ async fn types_punition(
 ) -> Res<Json<Vec<PunitionType>>> {
     session.require_staff()?;
     ent(&state)
-        .types_punition(session.etablissement_id)
+        .types_punition_ou_amorce(session.etablissement_id)
         .await
         .map(Json)
         .map_err(map_db)

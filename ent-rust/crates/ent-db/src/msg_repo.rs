@@ -15,12 +15,25 @@ impl PgMsgRepo {
     }
 
     pub async fn insert_fil(&self, fil: &MsgFil) -> Result<(), DomainError> {
+        self.insert_fil_portee(fil, None, None).await
+    }
+
+    /// Insère un fil avec sa portée de lecture côté famille (D-014, RP1-11) :
+    /// `prive_user_id` = fil privé entre ce responsable et l'établissement ;
+    /// `foyer_id` = fil réservé aux payeurs de ce foyer (relance de facture).
+    pub async fn insert_fil_portee(
+        &self,
+        fil: &MsgFil,
+        prive_user_id: Option<Uuid>,
+        foyer_id: Option<Uuid>,
+    ) -> Result<(), DomainError> {
         sqlx::query(
             r#"
             INSERT INTO ent_msg_fil (
                 id, etablissement_id, eleve_id, sujet, created_by_user_id,
-                created_at, last_message_at, archive, modele_id, priorite, dossier
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                created_at, last_message_at, archive, modele_id, priorite, dossier,
+                prive_user_id, foyer_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             "#,
         )
         .bind(fil.id)
@@ -34,10 +47,84 @@ impl PgMsgRepo {
         .bind(fil.modele_id)
         .bind(fil.priorite.as_str())
         .bind(fil.dossier.as_deref())
+        .bind(prive_user_id)
+        .bind(foyer_id)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx)?;
         Ok(())
+    }
+
+    /// Parmi `fil_ids`, ceux qu'un compte **famille** (responsable ou élève) peut lire
+    /// (D-014, RP1-11) : jamais le fil privé d'un autre responsable ; un fil de relance
+    /// (`foyer_id`) seulement pour les payeurs actifs de ce foyer, jamais pour un élève.
+    pub async fn fils_lisibles_famille(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        fil_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>, DomainError> {
+        if fil_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT f.id
+              FROM ent_msg_fil f
+             WHERE f.etablissement_id = $1 AND f.id = ANY($2)
+               AND (f.prive_user_id IS NULL OR f.prive_user_id = $3)
+               AND (f.foyer_id IS NULL
+                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_actif l
+                                WHERE l.etablissement_id = f.etablissement_id
+                                  AND l.eleve_id = f.eleve_id AND l.user_id = $3
+                                  AND l.foyer_id = f.foyer_id AND l.est_payeur))
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(fil_ids)
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Responsables à notifier pour ce fil : `None` = tous les liens actifs de l'élève ;
+    /// `Some(ids)` = seulement ceux-là (fil privé ou de foyer).
+    pub async fn destinataires_famille_fil(
+        &self,
+        etablissement_id: Uuid,
+        fil_id: Uuid,
+    ) -> Result<Option<Vec<Uuid>>, DomainError> {
+        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid)> = sqlx::query_as(
+            "SELECT prive_user_id, foyer_id, eleve_id FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        let Some((prive, foyer, eleve)) = row else {
+            return Ok(Some(Vec::new()));
+        };
+        if let Some(u) = prive {
+            return Ok(Some(vec![u]));
+        }
+        if let Some(fid) = foyer {
+            let ids: Vec<(Uuid,)> = sqlx::query_as(
+                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_actif
+                    WHERE etablissement_id = $1 AND eleve_id = $2 AND foyer_id = $3
+                      AND est_payeur AND user_id IS NOT NULL"#,
+            )
+            .bind(etablissement_id)
+            .bind(eleve)
+            .bind(fid)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
+        }
+        Ok(None)
     }
 
     pub async fn set_fil_archive(

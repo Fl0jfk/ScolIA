@@ -196,6 +196,26 @@ impl PgEnt {
     ) -> Result<Vec<PunitionType>, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
+        self.semer_types_punition_defaut(etablissement_id).await?;
+        self.types_punition(etablissement_id).await
+    }
+
+    /// Types de punition de l'établissement ; **amorcés automatiquement** s'il n'en a aucun
+    /// (RP1-30, D-023 : le premier jour, la vie scolaire ne dépend pas de la direction pour
+    /// pouvoir punir). Ne sème que la liste par défaut, idempotent.
+    pub async fn types_punition_ou_amorce(
+        &self,
+        etablissement_id: Uuid,
+    ) -> Result<Vec<PunitionType>, EntDbError> {
+        let types = self.types_punition(etablissement_id).await?;
+        if !types.is_empty() {
+            return Ok(types);
+        }
+        self.semer_types_punition_defaut(etablissement_id).await?;
+        self.types_punition(etablissement_id).await
+    }
+
+    async fn semer_types_punition_defaut(&self, etablissement_id: Uuid) -> Result<(), EntDbError> {
         for (code, libelle) in [
             ("excuse", "Excuse orale ou écrite"),
             ("devoir_supplementaire", "Devoir supplémentaire"),
@@ -214,7 +234,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        self.types_punition(etablissement_id).await
+        Ok(())
     }
 
     pub async fn types_punition(

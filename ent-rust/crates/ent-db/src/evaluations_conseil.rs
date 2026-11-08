@@ -496,6 +496,9 @@ impl PgEnt {
         // (`absences.lire`) ; sanctions : `suivi.eleve`. Sinon « non communiqué ».
         let voit_absences = self.eleves_autorises(etab, acteur, role, Action::AbsencesLire).await?;
         let voit_suivi = self.eleves_autorises(etab, acteur, role, Action::SuiviEleve).await?;
+        // D-022 (précision du 2026-11-07) : la portée au groupe vaut aussi au conseil. Un
+        // professeur qui n'a qu'un groupe de la classe ne voit que les élèves de ce groupe.
+        let voit_notes = self.eleves_autorises(etab, acteur, role, Action::NotesLire).await?;
         let dans = |s: &Option<std::collections::HashSet<Uuid>>, id: &Uuid| s.as_ref().is_none_or(|s| s.contains(id));
         let absences: HashMap<Uuid, (i64, i64)> =
             absences.into_iter().map(|(e, n, nj)| (e, (n, nj))).collect();
@@ -519,6 +522,9 @@ impl PgEnt {
         let (mut total_manquantes, mut generales_manquantes) = (0u32, 0u32);
         let mut eleves = Vec::with_capacity(calc_eleves.len());
         for (id, nom, prenom) in &calc_eleves {
+            if !dans(&voit_notes, id) {
+                continue;
+            }
             let manquantes: Vec<String> = calc
                 .matieres
                 .iter()

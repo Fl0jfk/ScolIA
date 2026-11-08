@@ -821,9 +821,13 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_read_all_eleves() {
         d.push(etab(DossierLire));
-        d.push(etab(SuiviEleve));
+        // RP1-07 : la comptabilité n'a aucun besoin de la vie scolaire ni du suivi
+        // (journal, alertes CPE, dispenses, conseils, sorties, internat, chronologie).
+        if role != Role::Compta {
+            d.push(etab(SuiviEleve));
+        }
     }
-    if role.can_read_all_eleves() || role.can_manage_eleves() {
+    if (role.can_read_all_eleves() || role.can_manage_eleves()) && role != Role::Compta {
         d.push(etab(JournalLire));
     }
     if matches!(
@@ -1515,17 +1519,17 @@ mod oracle_a1 {
             "sorties.gerer@etablissement",
             "suivi.eleve@etablissement",
         ]),
+        // RP1-07 (recette personas 1) : la comptabilité n'a ni `journal.lire` ni `suivi.eleve`
+        // (écart voulu avec la matrice historique figée par A1).
         ("compta", &[
             "bourses.gerer@etablissement",
             "dossier.lire@etablissement",
             "facturation.gerer@etablissement",
             "facturation.lire@etablissement",
-            "journal.lire@etablissement",
             "payeurs.definir@etablissement",
             "referentiel.lire@etablissement",
             "repas.gerer@etablissement",
             "repas.scanner@etablissement",
-            "suivi.eleve@etablissement",
         ]),
         ("prof", &[
             "absences.lire@mes_classes",

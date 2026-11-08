@@ -714,6 +714,159 @@ impl PgEnt {
         .map_err(db)
     }
 
+    /// Élèves membres d'un groupe à la date `jour` (hors élèves sortis), ordre alphabétique.
+    pub async fn referentiel_membres_groupe(
+        &self,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        self.groupe_de(etablissement_id, groupe_id).await?;
+        let ids: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT a.eleve_id FROM ent_affectation a
+               JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
+              WHERE a.etablissement_id = $1 AND a.groupe_id = $2
+                AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3)
+                AND (e.date_sortie IS NULL OR e.date_sortie > $3)",
+        )
+        .bind(etablissement_id)
+        .bind(groupe_id)
+        .bind(jour)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db)?;
+        let ids: Vec<Uuid> = ids.into_iter().map(|(i,)| i).collect();
+        Ok(self.eleves_par_ids(etablissement_id, &ids).await?)
+    }
+
+    async fn groupe_de(&self, etablissement_id: Uuid, groupe_id: Uuid) -> Result<Groupe, EntDbError> {
+        sqlx::query_as::<_, Groupe>(
+            "SELECT id, etablissement_id, annee_id, code, libelle, classe_id
+             FROM ent_groupe WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(groupe_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)
+    }
+
+    /// Ajoute un élève à un groupe (RP1-02) : droit de gestion du référentiel, **journalisé**.
+    pub async fn referentiel_ajouter_membre_groupe(
+        &self,
+        role: &str,
+        actor_user_id: Uuid,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        eleve_id: Uuid,
+        date_debut: Option<NaiveDate>,
+    ) -> Result<Affectation, EntDbError> {
+        let a = self
+            .referentiel_affecter_eleve_groupe(role, etablissement_id, groupe_id, eleve_id, date_debut)
+            .await?;
+        let g = self.groupe_de(etablissement_id, groupe_id).await?;
+        self.journaliser_groupe(
+            etablissement_id,
+            actor_user_id,
+            eleve_id,
+            "groupe_membre_ajoute",
+            format!("Élève ajouté au groupe {}", g.libelle),
+            &g,
+            a.date_debut,
+        )
+        .await;
+        Ok(a)
+    }
+
+    /// Retire un élève d'un groupe (RP1-02) : clôt l'affectation à `date_fin` (aujourd'hui par
+    /// défaut) ; une affectation qui n'a pas encore commencé est supprimée (correction).
+    /// Droit de gestion du référentiel, **journalisé**.
+    pub async fn referentiel_retirer_membre_groupe(
+        &self,
+        role: &str,
+        actor_user_id: Uuid,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        eleve_id: Uuid,
+        date_fin: Option<NaiveDate>,
+    ) -> Result<(), EntDbError> {
+        exiger_gestion(role)?;
+        let g = self.groupe_de(etablissement_id, groupe_id).await?;
+        self.exiger_annee_modifiable(etablissement_id, g.annee_id).await?;
+        let fin = date_fin.unwrap_or_else(today_utc);
+        let ouverte: Option<(Uuid, NaiveDate)> = sqlx::query_as(
+            "SELECT id, date_debut FROM ent_affectation
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND groupe_id = $3 AND date_fin IS NULL",
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(groupe_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        let (id, debut) = ouverte.ok_or_else(introuvable)?;
+        if fin < debut {
+            sqlx::query("DELETE FROM ent_affectation WHERE etablissement_id = $1 AND id = $2")
+                .bind(etablissement_id)
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(db)?;
+        } else {
+            sqlx::query(
+                "UPDATE ent_affectation SET date_fin = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etablissement_id)
+            .bind(id)
+            .bind(fin)
+            .execute(self.pool())
+            .await
+            .map_err(db)?;
+        }
+        self.journaliser_groupe(
+            etablissement_id,
+            actor_user_id,
+            eleve_id,
+            "groupe_membre_retire",
+            format!("Élève retiré du groupe {}", g.libelle),
+            &g,
+            fin,
+        )
+        .await;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn journaliser_groupe(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        eleve_id: Uuid,
+        action: &str,
+        libelle: String,
+        g: &Groupe,
+        date_effet: NaiveDate,
+    ) {
+        let r = self
+            .enregistrer_journal_interne(domain_eleve::EnregistrerJournal {
+                etablissement_id,
+                eleve_id: Some(eleve_id),
+                domaine: "referentiel".into(),
+                action: action.into(),
+                libelle,
+                payload: serde_json::json!({
+                    "groupe_id": g.id, "groupe_code": g.code, "date_effet": date_effet,
+                }),
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await;
+        if let Err(e) = r {
+            tracing::error!(error = %e, "échec d'écriture du journal d'appartenance à un groupe");
+        }
+    }
+
     async fn exiger_eleve(&self, etablissement_id: Uuid, eleve_id: Uuid) -> Result<(), EntDbError> {
         let ok: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")

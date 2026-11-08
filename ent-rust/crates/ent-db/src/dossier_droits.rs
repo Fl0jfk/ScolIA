@@ -312,11 +312,16 @@ impl PgEnt {
                         })
                         .collect()
                 }
+                // RP1-21 / RF-16 : un lien suspendu ou fermé n'est visible que d'un lecteur dont
+                // la vue ouvre F3 (statut et dates des liens) ; sinon liens actifs seulement.
                 None => tous
                     .into_iter()
-                    .map(|r| match &vue_conflit {
-                        Some((ids, v)) if ids.contains(&r.personne.id) => appliquer_vue(r, v),
-                        _ => appliquer_vue(r, &vue),
+                    .filter_map(|r| {
+                        let v = match &vue_conflit {
+                            Some((ids, v)) if ids.contains(&r.personne.id) => v,
+                            _ => &vue,
+                        };
+                        (r.actif || v.f3).then(|| appliquer_vue(r, v))
                     })
                     .collect(),
             };

@@ -1105,6 +1105,53 @@ impl PgEnt {
             source_id,
             actor_user_id,
             attachments,
+            None,
+        )
+        .await
+    }
+
+    /// Facture, quittance : seulement les **payeurs du foyer concerné** (D-014, RP1-11),
+    /// jamais les responsables d'un autre foyer du même élève.
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_payeurs_foyer_mail(
+        &self,
+        etablissement_id: Uuid,
+        foyer_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        subject: &str,
+        body_text: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        attachments: Vec<MailAttachment>,
+    ) -> Result<usize, EntDbError> {
+        if !self.mailer.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .mail_outbox
+            .count_by_source_kind(etablissement_id, source_id, kind)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        let emails = self
+            .foyers
+            .emails_payeurs_foyer(etablissement_id, foyer_id)
+            .await?;
+        self.envoyer_mail_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            subject,
+            body_text,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            attachments,
+            Some(emails),
         )
         .await
     }
@@ -1146,6 +1193,7 @@ impl PgEnt {
             source_id,
             actor_user_id,
             attachments,
+            None,
         )
         .await
     }
@@ -1163,11 +1211,16 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
         attachments: Vec<MailAttachment>,
+        destinataires: Option<Vec<String>>,
     ) -> Result<usize, EntDbError> {
-        let emails = self
-            .foyers
-            .emails_parents_eleve(etablissement_id, eleve_id)
-            .await?;
+        let emails = match destinataires {
+            Some(d) => d,
+            None => {
+                self.foyers
+                    .emails_parents_eleve(etablissement_id, eleve_id)
+                    .await?
+            }
+        };
         let mut n = 0usize;
         for to in emails {
             let receipt = match self
@@ -1483,12 +1536,85 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
     ) -> Result<usize, EntDbError> {
+        self.envoyer_push_parents_vers(
+            etablissement_id,
+            eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            None,
+        )
+        .await
+    }
+
+    /// Notification d'un fil de messagerie : un fil privé ou de foyer (D-014, RP1-11)
+    /// ne notifie que ses destinataires, jamais les autres responsables de l'élève.
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_parents_push_fil(
+        &self,
+        fil: &MsgFil,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
+        if !self.push.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .push_devices
+            .count_by_source_kind(fil.etablissement_id, source_id, kind)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        let seulement = self
+            .messages
+            .destinataires_famille_fil(fil.etablissement_id, fil.id)
+            .await?;
+        self.envoyer_push_parents_vers(
+            fil.etablissement_id,
+            fil.eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            seulement,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn envoyer_push_parents_vers(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        seulement: Option<Vec<Uuid>>,
+    ) -> Result<usize, EntDbError> {
         // Liens ACTIFS seulement (S2-1) : un responsable suspendu n'est plus notifié.
         let liens = self
             .foyers
             .list_liens_eleve_actifs(etablissement_id, eleve_id)
             .await?;
-        let user_ids: Vec<Uuid> = liens.iter().map(|l| l.user_id).collect();
+        let user_ids: Vec<Uuid> = liens
+            .iter()
+            .map(|l| l.user_id)
+            .filter(|u| seulement.as_ref().is_none_or(|s| s.contains(u)))
+            .collect();
         let devices = self
             .push_devices
             .list_active_for_users(etablissement_id, &user_ids)
@@ -4531,7 +4657,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 notes,
                 vs,
                 documents: true,
-                dispositifs: true,
+                // RP1-20 : un professeur lit les aménagements (S2-11), jamais le type de
+                // dispositif (PAP, PPS, PPRE, ULIS : donnée de santé / handicap).
+                dispositifs: parsed != Role::Prof,
                 repas: true,
                 bourses: false,
                 continuum: true,
@@ -5139,6 +5267,23 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         } else {
             Err(EntDbError::Forbidden)
         }
+    }
+
+    /// RP1-03 / RP1-07 (D-022) : élèves qu'un personnel peut **suivre** (`suivi_eleve`).
+    /// `None` = aucune restriction (rôles « établissement ») ; `Some(ids)` = seulement ceux-là
+    /// (professeur : ses classes et ses groupes ; comptabilité : aucun). Listes de classe,
+    /// effectif et trombinoscope s'y bornent. Non-personnel : `None` (leurs routes ont leur règle).
+    pub async fn eleves_suivis_restreints(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Option<std::collections::HashSet<Uuid>>, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(None);
+        }
+        self.eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await
     }
 
     /// RF-04 (d à g) : le périmètre « mes classes » appliqué à une CLASSE entière. Un
@@ -5984,7 +6129,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_comptes
                 .eleve_id_for_user(etablissement_id, actor_user_id)
                 .await?;
-            return Ok(linked == Some(eleve_id));
+            if linked != Some(eleve_id) {
+                return Ok(false);
+            }
+            // RF-22 : un élève mineur ne déclare pas sa propre absence (cf. B3).
+            return self
+                .eleve_est_majeur(etablissement_id, eleve_id, today_utc())
+                .await;
         }
         Ok(false)
     }
@@ -7863,9 +8014,32 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Ok((existing, lignes));
         }
 
-        let effectif = self
+        let mut effectif = self
             .effectif_appel(&creneau, jour, auteur_user_id, role)
             .await?;
+        // D-022 (recette personas 1, RP1-24) : l'appel d'un cours de groupe ne porte que sur
+        // les élèves affectés au groupe à la date, jamais sur toute la classe.
+        let groupe: Option<Uuid> = sqlx::query_scalar(
+            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(creneau.id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        if let Some(groupe_id) = groupe {
+            let membres: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT eleve_id FROM ent_affectation
+                  WHERE etablissement_id = $1 AND groupe_id = $2
+                    AND date_debut <= $3 AND (date_fin IS NULL OR date_fin >= $3)",
+            )
+            .bind(etablissement_id)
+            .bind(groupe_id)
+            .bind(jour)
+            .fetch_all(&self.pool)
+            .await?;
+            effectif.retain(|e| membres.contains(&e.id));
+        }
 
         let appel = Appel {
             id: Uuid::new_v4(),
@@ -9417,6 +9591,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get(etablissement_id, eleve_id)
                 .await?
                 .ok_or(DomainError::NotFound)?;
+            // RF-15 (D-017) : le droit « dossier.lire » et sa portée décident ;
+            // un professeur ne liste que les documents de ses élèves.
+            if !self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DossierLire, eleve_id)
+                .await?
+            {
+                return Err(EntDbError::Forbidden);
+            }
         } else if matches!(parsed, Role::Parent) {
             if self
                 .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
@@ -9445,9 +9627,29 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let accessible = self
                 .actor_can_read_document(etablissement_id, actor_user_id, role, &doc)
                 .await?;
+            // D-014 : le document famille d'un autre foyer n'apparaît même pas.
+            if !accessible
+                && parsed == Role::Parent
+                && doc.tiroir == DocTiroir::Famille
+                && !self
+                    .foyers
+                    .document_famille_lisible(
+                        etablissement_id,
+                        doc.eleve_id,
+                        doc.created_by_user_id,
+                        actor_user_id,
+                    )
+                    .await?
+            {
+                continue;
+            }
             if !accessible {
                 doc.storage_key = None;
                 doc.mime_type = None;
+                // RF-15 : le titre d'un document restreint/santé n'est pas révélé.
+                if doc.confidentialite != DocConfidentialite::Standard {
+                    doc.titre = "Document à accès restreint".to_string();
+                }
             }
             out.push((doc, accessible));
         }
@@ -9599,7 +9801,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let lien = self
                 .lien_parent_eleve(etablissement_id, actor_user_id, doc.eleve_id)
                 .await?;
-            return Ok(lien.is_some());
+            if lien.is_none() {
+                return Ok(false);
+            }
+            // D-014 (RP1-11) : seulement les documents de son propre foyer.
+            return Ok(self
+                .foyers
+                .document_famille_lisible(
+                    etablissement_id,
+                    doc.eleve_id,
+                    doc.created_by_user_id,
+                    actor_user_id,
+                )
+                .await?);
         }
         // Élève : docs famille standard sur soi.
         if parsed == Role::Eleve
@@ -12809,7 +13023,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(closed)
     }
 
-    async fn enregistrer_journal_interne(
+    pub(crate) async fn enregistrer_journal_interne(
         &self,
         cmd: EnregistrerJournal,
     ) -> Result<JournalEntree, EntDbError> {
@@ -12896,6 +13110,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     && !e.action.starts_with("conflit_interet")
                     && !e.action.starts_with("interdiction_")
             });
+        }
+        // RP1-20 : les traces de consultation sensible (« Consultation du PAI », « …dossier
+        // psychologue ») sont du journal d'audit : `audit.lire` seulement, pas le personnel
+        // qui lit simplement le journal de vie scolaire.
+        if parsed.is_staff()
+            && !self
+                .a_action_etablissement(etablissement_id, user_id, role, Action::AuditLire)
+                .await?
+        {
+            entrees.retain(|e| e.domaine != "consultation");
         }
         Ok(entrees)
     }
@@ -13328,6 +13552,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_id_for_user(cmd.etablissement_id, cmd.actor_user_id)
                 .await?;
             if linked != Some(current.eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
+            // Recette personas 1 (RP1-10) : un élève mineur ne signe pas à la place de ses
+            // responsables ; seul l'élève majeur signe lui-même.
+            if !self
+                .eleve_est_majeur(cmd.etablissement_id, current.eleve_id, today_utc())
+                .await?
+            {
                 return Err(EntDbError::Forbidden);
             }
         }
@@ -14287,6 +14519,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<String>, EntDbError> {
+        // RP1-04 : la photo d'un élève n'est lue que par le personnel qui le suit.
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id)
+            .await?;
         let eleve = self
             .get_eleve_for_actor(etablissement_id, user_id, role, eleve_id)
             .await?
@@ -15590,6 +15825,20 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .dispenses_vs
             .list_eleve(etablissement_id, eleve_id, actives_seulement)
             .await?)
+        .map(|mut l: Vec<DispenseVs>| {
+            // RP1-20 : le professeur et le reste du personnel non soignant voient la
+            // dispense (dates, motif général) mais pas le commentaire libre, qui porte
+            // le motif médical.
+            if parsed.is_staff() && !matches!(parsed, Role::Admin | Role::Direction | Role::Cpe | Role::Infirmerie | Role::Psy) {
+                for d in &mut l {
+                    d.commentaire.clear();
+                    if d.motif == domain_eleve::DispenseVsMotif::Medical {
+                        d.motif = domain_eleve::DispenseVsMotif::Autre;
+                    }
+                }
+            }
+            l
+        })
     }
 
     pub async fn list_dispenses_vs_jour_for_actor(
@@ -16994,8 +17243,36 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         fil: &MsgFil,
     ) -> Result<bool, EntDbError> {
-        self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
-            .await
+        if !self
+            .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
+            .await?
+        {
+            return Ok(false);
+        }
+        // D-014 (RP1-11) : un compte famille ne lit que les fils auxquels il participe.
+        if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve)) {
+            return Ok(self
+                .messages
+                .fils_lisibles_famille(etablissement_id, actor_user_id, &[fil.id])
+                .await?
+                .contains(&fil.id));
+        }
+        Ok(true)
+    }
+
+    /// Ne garde que les fils lisibles par un compte famille (D-014, RP1-11).
+    async fn filtrer_fils_famille(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        fils: Vec<MsgFil>,
+    ) -> Result<Vec<MsgFil>, EntDbError> {
+        let ids: Vec<Uuid> = fils.iter().map(|f| f.id).collect();
+        let ok = self
+            .messages
+            .fils_lisibles_famille(etablissement_id, user_id, &ids)
+            .await?;
+        Ok(fils.into_iter().filter(|f| ok.contains(&f.id)).collect())
     }
 
     pub async fn ouvrir_fil_for_actor(
@@ -17020,7 +17297,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?
             .ok_or(DomainError::NotFound)?;
         let (fil, msg) = plan_ouvrir_fil(cmd)?;
-        self.messages.insert_fil(&fil).await?;
+        // D-014 (RP1-11) : un fil ouvert par un responsable reste privé entre lui et
+        // l'établissement ; un fil ouvert par l'établissement reste visible de tous les
+        // responsables de l'élève.
+        let prive = (Role::parse(role) == Some(Role::Parent)).then_some(fil.created_by_user_id);
+        self.messages.insert_fil_portee(&fil, prive, None).await?;
         self.messages.insert_message(&msg).await?;
         self.events
             .publish(MetierEventDraft {
@@ -17037,9 +17318,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             })
             .await?;
         let _ = self
-            .notify_parents_push(
-                fil.etablissement_id,
-                fil.eleve_id,
+            .notify_parents_push_fil(
+                &fil,
                 "messagerie",
                 &fil.sujet,
                 "Nouveau message — ouvrez le portail famille.",
@@ -17088,9 +17368,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         // Push famille si staff répond (pas si le parent se répond à lui-même).
         let _ = self
-            .notify_parents_push(
-                fil.etablissement_id,
-                fil.eleve_id,
+            .notify_parents_push_fil(
+                &fil,
                 "messagerie_reponse",
                 &fil.sujet,
                 "Nouvelle réponse — ouvrez la messagerie.",
@@ -17164,12 +17443,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 if !lies.contains(&eid) {
                     return Err(EntDbError::Forbidden);
                 }
-                return Ok(self.messages.list_fils_eleve(etablissement_id, eid).await?);
+                let fils = self.messages.list_fils_eleve(etablissement_id, eid).await?;
+                return self
+                    .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                    .await;
             }
-            return Ok(self
+            let fils = self
                 .messages
                 .list_fils_eleves(etablissement_id, &lies)
-                .await?);
+                .await?;
+            return self
+                .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                .await;
         }
         if parsed == Role::Eleve {
             let linked = self
@@ -17182,10 +17467,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     return Err(EntDbError::Forbidden);
                 }
             }
-            return Ok(self
+            let fils = self
                 .messages
                 .list_fils_eleve(etablissement_id, linked)
-                .await?);
+                .await?;
+            return self
+                .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                .await;
         }
         Err(EntDbError::Forbidden)
     }
@@ -17869,8 +18157,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?
         {
             let _ = self
-                .notify_parents_mail(
+                .notify_payeurs_foyer_mail(
                     emise.etablissement_id,
+                    emise.foyer_id,
                     eleve_id,
                     "facture",
                     &format!("Facture {}", emise.numero),
@@ -18253,8 +18542,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             let pdf = domain_eleve::render_quittance_pdf(&quittance, &facture.numero);
             let _ = self
-                .notify_parents_mail(
+                .notify_payeurs_foyer_mail(
                     facture.etablissement_id,
+                    facture.foyer_id,
                     eleve_id,
                     "quittance",
                     &format!(
@@ -18942,7 +19232,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         premier_message: cand_corps(&cand),
                         actor_user_id,
                     })?;
-                    self.messages.insert_fil(&fil).await?;
+                    // D-014 (RP1-11) : la relance n'est lisible que des payeurs du foyer.
+                    self.messages
+                        .insert_fil_portee(&fil, None, Some(cand.foyer_id))
+                        .await?;
                     self.messages.insert_message(&msg).await?;
                     self.facturation
                         .update_rappel_fil(
