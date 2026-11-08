@@ -220,6 +220,25 @@ pub mod types {
     pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
     /// S2-1 (D-020) : personne (responsable, contact) distincte du compte.
     pub const PERSONNE_CREEE: &str = "personne.creee";
+    /// Socle 6 (personnels), lot P1 : agents et engagements. Charges utiles : identifiants, codes,
+    /// dates, noms de champs — jamais de nom, de coordonnée ni de motif détaillé.
+    pub const PERSONNEL_CREE: &str = "personnel.cree";
+    pub const PERSONNEL_ENGAGEMENT_AJOUTE: &str = "personnel.engagement_ajoute";
+    pub const PERSONNEL_ENGAGEMENT_MODIFIE: &str = "personnel.engagement_modifie";
+    pub const PERSONNEL_ENGAGEMENT_SUSPENDU: &str = "personnel.engagement_suspendu";
+    pub const PERSONNEL_ENGAGEMENT_REPRIS: &str = "personnel.engagement_repris";
+    pub const PERSONNEL_FONCTIONS_MODIFIEES: &str = "personnel.fonctions_modifiees";
+    pub const PERSONNEL_DISCIPLINES_MODIFIEES: &str = "personnel.disciplines_modifiees";
+    pub const PERSONNEL_QUALIFICATION_MODIFIEE: &str = "personnel.qualification_modifiee";
+    pub const PERSONNEL_PHOTO_MODIFIEE: &str = "personnel.photo_modifiee";
+    pub const PERSONNEL_IDENTITE_RESTREINTE: &str = "personnel.identite_restreinte";
+    pub const PERSONNEL_FUSIONNE: &str = "personnel.fusionne";
+    /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
+    /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
+    pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
+    pub const REFERENTIEL_ANNEE_CLOTUREE: &str = "referentiel.annee_cloturee";
+    pub const REFERENTIEL_CLASSE_ARCHIVEE: &str = "referentiel.classe_archivee";
+    pub const REFERENTIEL_GROUPE_FERME: &str = "referentiel.groupe_ferme";
     pub const PERSONNE_COORDONNEES_MODIFIEES: &str = "personne.coordonnees_modifiees";
     pub const PERSONNE_COMPTE_RATTACHE: &str = "personne.compte_rattache";
     pub const PERSONNE_FUSIONNEE: &str = "personne.fusionnee";
@@ -332,6 +351,8 @@ pub enum AggregateKind {
     /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
     Referentiel,
     Personne,
+    /// Agent d'un établissement et ses engagements (socle 6, lot P1).
+    Agent,
     /// Dossier d'admission / de réinscription et campagnes (S2-3).
     Admission,
     /// Lot d'import (S2-3, D23).

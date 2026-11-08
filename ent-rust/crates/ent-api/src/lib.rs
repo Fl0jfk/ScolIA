@@ -7,6 +7,7 @@ pub mod anti_abus;
 mod auth;
 pub mod client_ip;
 mod dossier;
+mod personnels;
 mod dto;
 pub mod http_garde;
 mod ical;
@@ -271,6 +272,10 @@ mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p1;
+#[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;
@@ -312,7 +317,48 @@ mod tests {
         let mut ent = PgEnt::connect(&url).await.ok()?;
         ent.migrate().await.ok()?;
         ent.install_brain_p0();
+        // Messagerie en dry-run : les invitations / liens envoyés sont consultables.
+        ent.install_mail_dry_run();
         Some(AppState::nouveau(ent))
+    }
+
+    /// Active un compte invité : lit le lien reçu par `email`, choisit un mot de passe par
+    /// `POST /auth/reset-password` et le renvoie (socle 6 P0 : plus de mot de passe temporaire).
+    async fn activer_par_lien(app: &axum::Router, ent: &PgEnt, email: &str) -> String {
+        let chemin = "/reset-mot-de-passe";
+        let token = ent
+            .mailer()
+            .dry_run_corps()
+            .into_iter()
+            .rev()
+            .filter(|(to, _, _)| to == email)
+            .find_map(|(_, _, corps)| {
+                let i = corps.find(&format!("{chemin}?token="))? + chemin.len() + "?token=".len();
+                Some(
+                    corps[i..]
+                        .chars()
+                        .take_while(|c| c.is_ascii_hexdigit())
+                        .collect::<String>(),
+                )
+            })
+            .expect("lien reçu par e-mail");
+        let mdp = format!("Invite-{}-Aa9!", Uuid::new_v4().simple());
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/auth/reset-password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"token": token, "new_password": mdp}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(res.status().is_success(), "activation par lien : {}", res.status());
+        mdp
     }
 
     async fn json_body(res: axum::response::Response) -> Value {
@@ -645,13 +691,14 @@ mod tests {
         let admin_email = format!("admin-{}@ent.local", Uuid::new_v4());
         let dir_email = format!("dir-{}@ent.local", Uuid::new_v4());
         let parent_email = format!("par-{}@ent.local", Uuid::new_v4());
+        let ent = state.ent.clone();
         let app = app(state);
 
         let admin = register_and_login_role(&app, etab, &admin_email, "admin").await;
         let dir = register_and_login_role(&app, etab, &dir_email, "direction").await;
         let parent = register_and_login_role(&app, etab, &parent_email, "parent").await;
 
-        // Admin provisionne un prof → 201 + mot de passe temporaire utilisable.
+        // Admin provisionne un prof → 201, invitation par e-mail (aucun mot de passe renvoyé).
         let prof_email = format!("prof-{}@ent.local", Uuid::new_v4());
         let res = app
             .clone()
@@ -665,10 +712,10 @@ mod tests {
         assert_eq!(res.status(), StatusCode::CREATED);
         let body = json_body(res).await;
         assert_eq!(body["role"], "prof");
-        let temp = body["mot_de_passe_temporaire"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        // Aucun secret dans la réponse : une invitation part par e-mail.
+        assert!(body.get("mot_de_passe_temporaire").is_none(), "secret renvoyé : {body}");
+        assert_eq!(body["invitation_envoyee"], true);
+        let temp = activer_par_lien(&app, &ent, &prof_email).await;
 
         let login = app
             .clone()
@@ -733,6 +780,7 @@ mod tests {
             return;
         };
         let etab = Uuid::new_v4();
+        let ent = state.ent.clone();
         let app = app(state);
         let (admin_token, admin_id) = register_login_full(
             &app,
@@ -763,12 +811,10 @@ mod tests {
         assert_eq!(res.status(), StatusCode::CREATED);
         let body = json_body(res).await;
         let prof_id = Uuid::parse_str(body["user_id"].as_str().unwrap()).unwrap();
-        let temp1 = body["mot_de_passe_temporaire"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        assert!(body.get("mot_de_passe_temporaire").is_none(), "secret renvoyé : {body}");
+        let temp1 = activer_par_lien(&app, &ent, &prof_email).await;
 
-        // Le prof se connecte avec le mot de passe temporaire.
+        // Le prof se connecte avec le mot de passe qu'il a choisi.
         let login = app
             .clone()
             .oneshot(login_request(etab, &prof_email, &temp1))
@@ -791,11 +837,12 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let temp2 = json_body(res).await["mot_de_passe_temporaire"]
-            .as_str()
-            .unwrap()
-            .to_string();
+        // Lien envoyé par e-mail (202) : aucun secret dans la réponse.
+        assert_eq!(res.status(), StatusCode::ACCEPTED);
+        let corps = json_body(res).await;
+        assert!(corps.get("mot_de_passe_temporaire").is_none(), "secret renvoyé : {corps}");
+        assert_eq!(corps["lien_envoye"], true);
+        let temp2 = activer_par_lien(&app, &ent, &prof_email).await;
         assert_ne!(temp1, temp2);
 
         let me = app

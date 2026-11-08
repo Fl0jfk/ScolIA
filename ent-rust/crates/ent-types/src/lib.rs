@@ -28,6 +28,7 @@ pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
 pub mod propositions;
+pub mod personnels;
 pub mod referentiel;
 pub mod referentiel_admin;
 pub mod sante;

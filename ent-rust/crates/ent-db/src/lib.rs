@@ -93,6 +93,14 @@ mod passkey_repo;
 mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
+pub mod acces;
+pub mod personnels;
+mod personnels_fiche;
+pub use acces::{AccesEtat, EtatAcces};
+pub use personnels::{
+    agent_du_compte_tx, annuaire_tx, nom_pour_lecteur, AgentActif, FiltreAnnuaire, NiveauAnnuaire,
+    ResultatCreationAgent,
+};
 mod droits_repo;
 mod droits_ctx;
 mod eleve_champs;
@@ -302,6 +310,10 @@ mod tests_dossier_personnes;
 mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
