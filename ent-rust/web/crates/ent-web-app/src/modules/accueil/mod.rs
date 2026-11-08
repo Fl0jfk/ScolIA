@@ -16,7 +16,7 @@ use crate::composants_metier::absences::{eleves_absents, nom_eleve, Compteurs, S
 use crate::composants_metier::seances::{
     libelle_moment, lien_appel, moment, prochaine, trier, Moment,
 };
-use crate::noyau::coquille::use_droits;
+use crate::noyau::coquille::{use_droits, use_droits_moteur};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::navigation;
 use crate::noyau::session;
@@ -38,6 +38,7 @@ fn tronquer(texte: &str, max: usize) -> String {
 #[component]
 pub fn PageAccueil() -> impl IntoView {
     let droits = use_droits();
+    let moteur = use_droits_moteur();
     let jour = aujourdhui();
     let creneaux =
         LocalResource::new(
@@ -80,6 +81,7 @@ pub fn PageAccueil() -> impl IntoView {
                     })
             }}
             {move || droits.get().trancher_justificatif.then(|| view! { <TuileVieScolaire/> })}
+            {move || moteur.get().a_etablissement("liens.suspendre").then(|| view! { <TuileProtections/> })}
             {move || droits.get().portail_famille.then(|| view! { <TuileAbsencesFamille/> })}
             <TuileMessages fils=fils/>
             <TuileAnnonces annonces=annonces/>
@@ -273,6 +275,40 @@ fn TuileAnnonces(annonces: LocalResource<Result<Vec<Annonce>, ApiError>>) -> imp
 
 /// Tuile du personnel de vie scolaire : absences du jour (issues des appels clos et des
 /// déclarations des familles), justificatifs à trancher.
+/// Direction : marques « ne pas solliciter » et adresses protégées à traiter (démo P1 n° 4).
+#[component]
+fn TuileProtections() -> impl IntoView {
+    let alertes = LocalResource::new(|| async { session::client().alertes_protection().await });
+    let action = ViewFn::from(|| view! { <a href=navigation::PROTECTIONS>"Traiter les protections"</a> });
+    view! {
+        <Tuile id="protections" titre="Protections à confirmer" largeur=Largeur::Six action=action>
+            {move || match alertes.get() {
+                None => view! { <Squelette lignes=3 libelle="Chargement des protections…"/> }.into_any(),
+                Some(Err(ApiError::Interdit(_))) => view! { <p class="texte-attenue">"Protections non disponibles pour votre profil."</p> }.into_any(),
+                Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| alertes.refetch())/> }.into_any(),
+                Some(Ok(a)) => {
+                    let nps = a.ne_pas_solliciter_a_confirmer;
+                    let adresses = a.adresses_a_traiter.len();
+                    view! {
+                        <p class="accueil-chiffre">
+                            <span class="accueil-chiffre__valeur">{nps.len()}</span>
+                            <span class="accueil-chiffre__libelle">{if nps.len() > 1 { "marques « ne pas solliciter » à confirmer" } else { "marque « ne pas solliciter » à confirmer" }}</span>
+                        </p>
+                        <p class="texte-attenue">{if adresses == 0 { "Aucune adresse protégée à traiter.".to_string() } else { format!("{adresses} adresse(s) protégée(s) à traiter.") }}</p>
+                        <ul class="ui-liste">
+                            {nps.into_iter().take(3).map(|p| view! {
+                                <li class="ui-liste__element"><span class="ui-liste__principal">
+                                    <span class="ui-liste__titre">{format!("{} {}", p.prenom.unwrap_or_default(), p.nom).trim().to_string()}</span>
+                                </span></li>
+                            }).collect_view()}
+                        </ul>
+                    }.into_any()
+                }
+            }}
+        </Tuile>
+    }
+}
+
 #[component]
 fn TuileVieScolaire() -> impl IntoView {
     let jour = aujourdhui();

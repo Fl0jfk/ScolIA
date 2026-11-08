@@ -275,6 +275,14 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
     // 6. Fiche 360° : le père « à ne pas solliciter » n'a reçu aucune invitation.
     let fiche = direction.fiche_dossier(eleve).await.expect("fiche");
     assert_eq!(fiche.nom, "Potter");
+    // N° 4 : la mention « ne pas solliciter » du père, à confirmer, est une alerte de la fiche
+    // (direction et secrétariat), sans référence ni adresse.
+    for qui in [&direction, &secretariat] {
+        let f = qui.fiche_dossier(eleve).await.expect("fiche du personnel");
+        assert_eq!(f.protections.len(), 1, "une seule mention : {:?}", f.protections);
+        assert!(!f.protections[0].confirmee);
+    }
+    assert!(prof.fiche_dossier(eleve).await.is_err(), "le professeur sans classe n'ouvre rien");
     assert!(!fiche.responsables.is_empty());
     let suivi = direction.dossier_inscription(d.id).await.unwrap();
     let inv2 = suivi
@@ -420,6 +428,15 @@ async fn la_famille_lit_la_scolarite_de_son_enfant() {
         .await
         .expect("mention posée");
     assert!(refuse(lily.scolarite_eleve(harry).await));
+    let vue_direction = direction.fiche_dossier(harry).await.expect("fiche");
+    assert_eq!(vue_direction.protections.len(), 1);
+    assert!(vue_direction.protections[0].confirmee);
+    // Jamais visible de la famille, même pour sa propre mention.
+    let vue_mere = lily.fiche_dossier(harry).await.expect("fiche de la mère");
+    assert!(vue_mere.protections.is_empty());
+    // Tableau de bord de la direction : les mentions à confirmer ; la famille n'y a pas accès.
+    assert!(direction.alertes_protection().await.is_ok());
+    assert!(refuse(lily.alertes_protection().await));
     direction
         .definir_ne_pas_solliciter(mere.personne.id, false, None)
         .await

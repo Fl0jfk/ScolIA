@@ -14,6 +14,46 @@ use uuid::Uuid;
 /// Codes d'action du catalogue serveur utilisés par la fiche.
 pub const ACTION_PERSONNES: &str = "personnes.gerer";
 pub const ACTION_PAYEURS: &str = "payeurs.definir";
+/// Texte de l'alerte « ne pas solliciter » d'une fiche (personnel).
+pub fn libelle_protection(p: &ent_web_api::ProtectionFicheDto) -> String {
+    if p.confirmee {
+        format!("{} : ne pas solliciter (confirmé par la direction)", p.designation)
+    } else {
+        format!("{} : ne pas solliciter (déclaré, à confirmer par la direction)", p.designation)
+    }
+}
+
+/// Libellé de chaque foyer. Deux foyers distincts de même libellé (parents séparés : « Foyer
+/// MARTIN » deux fois) sont distingués par le prénom de leurs responsables.
+pub fn libelles_foyers(
+    responsables: &[ent_web_api::ResponsableDto],
+) -> std::collections::HashMap<uuid::Uuid, String> {
+    use std::collections::HashMap;
+    let mut base: HashMap<uuid::Uuid, (String, Vec<String>)> = HashMap::new();
+    for r in responsables {
+        if let Some(id) = r.foyer_id {
+            let e = base
+                .entry(id)
+                .or_insert_with(|| (r.foyer_libelle.clone().unwrap_or_else(|| "Foyer".into()), Vec::new()));
+            let nom = r.personne.prenom.clone().filter(|p| !p.trim().is_empty()).unwrap_or_else(|| r.personne.nom.clone());
+            if !e.1.contains(&nom) {
+                e.1.push(nom);
+            }
+        }
+    }
+    let mut compte: HashMap<String, usize> = HashMap::new();
+    for (l, _) in base.values() {
+        *compte.entry(l.clone()).or_default() += 1;
+    }
+    base.into_iter()
+        .map(|(id, (l, noms))| {
+            let doublon = compte.get(&l).copied().unwrap_or(0) > 1;
+            let texte = if doublon && !noms.is_empty() { format!("{l} ({})", noms.join(", ")) } else { l };
+            (id, texte)
+        })
+        .collect()
+}
+
 pub const ACTION_SUSPENDRE: &str = "liens.suspendre";
 
 /// L'action est-elle proposée par le serveur pour cette fiche ?
@@ -532,6 +572,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn deux_foyers_de_meme_nom_se_distinguent() {
+        let mut mere = resp();
+        mere.foyer_id = Some(Uuid::from_u128(10));
+        mere.foyer_libelle = Some("Foyer MARTIN".into());
+        mere.personne = personne(Some("Inès"));
+        let mut pere = resp();
+        pere.foyer_id = Some(Uuid::from_u128(11));
+        pere.foyer_libelle = Some("Foyer MARTIN".into());
+        pere.personne = personne(Some("Marc"));
+        let l = libelles_foyers(&[mere.clone(), pere]);
+        assert_eq!(l[&Uuid::from_u128(10)], "Foyer MARTIN (Inès)");
+        assert_eq!(l[&Uuid::from_u128(11)], "Foyer MARTIN (Marc)");
+        // Un foyer unique garde son libellé.
+        assert_eq!(libelles_foyers(&[mere])[&Uuid::from_u128(10)], "Foyer MARTIN");
+    }
+
+    #[test]
+    fn alerte_ne_pas_solliciter_dit_l_etat() {
+        let mut p = ent_web_api::ProtectionFicheDto { personne_id: Uuid::from_u128(1), designation: "Marc Martin".into(), confirmee: false };
+        assert!(libelle_protection(&p).contains("à confirmer"));
+        p.confirmee = true;
+        assert!(libelle_protection(&p).contains("confirmé"));
+    }
+
     fn resp() -> ResponsableDto {
         ResponsableDto {
             lien_id: Uuid::from_u128(2),
@@ -694,6 +759,7 @@ mod tests {
             masques: vec![],
             masquages: vec![],
             interdictions: vec![],
+            protections: vec![],
         };
         assert!(sections_accessibles(&f, false).is_empty());
         f.sections.vs = true;

@@ -130,6 +130,7 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
     let sections = sections_accessibles(&fiche, famille);
     let alertes = fiche.alertes.clone();
     let interdictions = fiche.interdictions.clone();
+    let protections = fiche.protections.clone();
     let contacts = fiche.contacts.clone();
     let liste_responsables = fiche.responsables.clone();
     let date_entree = fiche.date_entree;
@@ -165,6 +166,13 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
         {(!alertes.is_empty()).then(|| view! {
             <Alerte niveau=Niveau::Avertissement titre="Points à vérifier">
                 <ul>{alertes.into_iter().map(|a| view! { <li>{a}</li> }).collect_view()}</ul>
+            </Alerte>
+        })}
+
+        {(!protections.is_empty()).then(|| view! {
+            <Alerte niveau=Niveau::Avertissement titre="À ne pas solliciter">
+                <ul>{protections.into_iter().map(|p| view! { <li>{modele::libelle_protection(&p)}</li> }).collect_view()}</ul>
+                <p>"Aucun envoi automatique (invitation, relance, message) n'est adressé à cette personne. Cette mention n'est jamais visible des familles."</p>
             </Alerte>
         })}
 
@@ -348,10 +356,11 @@ fn TableResponsables(
         return view! { <p class="texte-attenue">"Aucun responsable enregistré."</p> }.into_any();
     }
     let jour = aujourdhui();
+    let foyers = modele::libelles_foyers(&responsables);
     view! {
         <div class="ui-tableau-cadre">
             <div class="ui-tableau-defile">
-                <table class="ui-tableau">
+                <table class="ui-tableau ui-tableau--cartes">
                     <caption class="ui-sr">"Responsables de l'élève"</caption>
                     <thead>
                         <tr>
@@ -385,7 +394,7 @@ fn TableResponsables(
                             } else {
                                 droits.join(", ")
                             };
-                            let foyer = r.foyer_libelle.clone().map(|f| format!("Foyer : {f}"));
+                            let foyer = r.foyer_id.and_then(|id| foyers.get(&id).cloned()).or_else(|| r.foyer_libelle.clone()).map(|f| format!("Foyer : {f}"));
                             let payeur = r.est_payeur.then(|| format!("payeur {} %", r.part_paiement.unwrap_or(0)));
                             let coords = coordonnees(&r.personne);
                             let mut coords = if let Some(m) = message_masque(&r.masque, "F1") {
@@ -407,10 +416,10 @@ fn TableResponsables(
                                         {nom}
                                         <span class="ui-liste__detail">{format!(" ({compte})")}</span>
                                     </th>
-                                    <td>{lien}<br/><span class="texte-attenue">{garde}</span>{foyer.map(|f| view! { <br/><span class="texte-attenue">{f}</span> })}</td>
-                                    <td><Badge libelle=etat.libelle() ton=ton/></td>
-                                    <td>{droits}{payeur.map(|p| view! { <br/><span class="texte-attenue">{p}</span> })}</td>
-                                    <td>{coords}</td>
+                                    <td data-label="Lien">{lien}<br/><span class="texte-attenue">{garde}</span>{foyer.map(|f| view! { <br/><span class="texte-attenue">{f}</span> })}</td>
+                                    <td data-label="État"><Badge libelle=etat.libelle() ton=ton/></td>
+                                    <td data-label="Droits">{droits}{payeur.map(|p| view! { <br/><span class="texte-attenue">{p}</span> })}</td>
+                                    <td data-label="Coordonnées">{coords}</td>
                                     {suspendre.then(|| view! {
                                         <td>
                                             {if suspendu {
