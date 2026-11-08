@@ -658,6 +658,7 @@ async fn identite_versionnee_changement_sensible_scelle() {
     // Changement de prénom et de civilité : sensible, anciennes valeurs scellées.
     let p2 = ent.modifier_identite_for_actor(etab, d, r, p.id, &id("Identite", "Samia", Some("mme")), NatureIdentite::Changement, None, "prénom d'usage").await.unwrap();
     assert_eq!((p2.prenom.as_deref(), p2.civilite.as_deref()), (Some("Samia"), Some("mme")));
+    #[allow(clippy::type_complexity)]
     let brut: Vec<(Option<String>, Option<String>, bool, bool, Option<String>)> = sqlx::query_as(
         "SELECT prenom, civilite, masquee, sensible, valeurs_anterieures FROM ent_personne_version WHERE personne_id = $1 ORDER BY enregistre_le, id")
         .bind(p.id).fetch_all(ent.pool()).await.unwrap();

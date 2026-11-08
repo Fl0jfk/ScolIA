@@ -24,7 +24,7 @@ pub const ACCESSIBILITE: [&str; 3] = ["gros_caracteres", "pas_d_appel_vocal", "i
 
 /// Préférences de contact d'une personne. Un canal refusé n'est jamais utilisé pour elle ; la
 /// personne reste toujours joignable par un autre moyen (e-mail, SMS ou courrier).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct PreferencesPersonne {
     pub langue: Option<String>,
     pub canaux_refuses: Vec<String>,
@@ -34,20 +34,6 @@ pub struct PreferencesPersonne {
     pub joignable: Option<Value>,
     pub fuseau: Option<String>,
     pub maj_le: Option<DateTime<Utc>>,
-}
-
-impl Default for PreferencesPersonne {
-    fn default() -> Self {
-        Self {
-            langue: None,
-            canaux_refuses: Vec::new(),
-            courrier_papier: false,
-            accessibilite: Vec::new(),
-            joignable: None,
-            fuseau: None,
-            maj_le: None,
-        }
-    }
 }
 
 fn heure_valide(h: &str) -> Option<u32> {
@@ -750,6 +736,7 @@ impl PgEnt {
         .map_err(db)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn consentement_enregistrer(
         &self,
         etab: Uuid,
@@ -1205,6 +1192,7 @@ impl PgEnt {
         commit(tx).await
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn resoudre_divergence_for_actor(
         &self,
         etab: Uuid,
