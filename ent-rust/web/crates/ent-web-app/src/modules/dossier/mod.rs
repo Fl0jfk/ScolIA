@@ -29,6 +29,7 @@ use actions::{
     DialogueContact, DialoguePayeurs, DialogueResponsable, DialogueRetablir, DialogueSuspension,
 };
 use modele::{
+    libelle_annee, libelle_etat_inscription, libelle_motif_entree, resume_scolarite,
     coordonnees, droits_du_lien, etat_lien, filtrer_chronologie, libelle_domaine, libelle_garde,
     lien_action, message_masque, nom_personne, peut, sections_accessibles, EtatLien,
     ACTION_PAYEURS, ACTION_PERSONNES, ACTION_SUSPENDRE,
@@ -131,6 +132,27 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
     let interdictions = fiche.interdictions.clone();
     let contacts = fiche.contacts.clone();
     let liste_responsables = fiche.responsables.clone();
+    let date_entree = fiche.date_entree;
+    let mut identite = vec![
+        ("Nom", fiche.nom.to_uppercase()),
+        ("Prénom", fiche.prenom.clone()),
+    ];
+    if let Some(d) = fiche.date_naissance {
+        identite.push(("Né(e) le", d.format("%d/%m/%Y").to_string()));
+    }
+    if let Some(ine) = fiche.ine.clone().filter(|i| !i.trim().is_empty()) {
+        identite.push(("INE", ine));
+    }
+    if let Some(c) = fiche.classe.clone() {
+        identite.push(("Classe", c));
+    }
+    // Groupes de champs fermés pour ce lecteur : l'écran dit toujours pourquoi.
+    let masques_identite: Vec<String> = fiche
+        .masques
+        .iter()
+        .map(|m| m.message.clone())
+        .chain(fiche.masquages.iter().map(|m| m.message.clone()))
+        .collect();
 
     view! {
         <EnTetePage titre=titre surtitre=surtitre sous_titre=sous_titre>
@@ -164,6 +186,16 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
                 }).collect_view()}</ul>
             </Alerte>
         })}
+
+        <section class="classe-section" aria-labelledby="fiche-identite">
+            <h2 id="fiche-identite">"Identité"</h2>
+            <dl class="fiche-identite">
+                {identite.into_iter().map(|(t, v)| view! { <div class="fiche-identite__ligne"><dt>{t}</dt><dd>{v}</dd></div> }).collect_view()}
+            </dl>
+            {masques_identite.into_iter().map(|m| view! { <p class="texte-attenue">{m}</p> }).collect_view()}
+        </section>
+
+        <ScolariteEleve eleve_id=eleve_id date_entree=date_entree/>
 
         <section class="classe-section" aria-labelledby="fiche-responsables">
             <div class="fiche-section__tete">
@@ -247,6 +279,65 @@ fn ContenuFiche(fiche: FicheEleveDto, recharger: Callback<()>) -> impl IntoView 
 }
 
 #[component]
+fn ScolariteEleve(eleve_id: Uuid, date_entree: Option<chrono::NaiveDate>) -> impl IntoView {
+    let scolarite = LocalResource::new(move || async move {
+        let client = session::client();
+        let s = client.scolarite_eleve(eleve_id).await;
+        // Libellés d'années : facultatif (le référentiel peut ne pas être ouvert à ce lecteur).
+        let annees = match &s {
+            Ok(_) => client
+                .annees_statut()
+                .await
+                .map(|v| v.into_iter().map(|a| (a.id, a.libelle)).collect::<Vec<_>>())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        (s, annees)
+    });
+    view! {
+        <section class="classe-section" aria-labelledby="fiche-scolarite">
+            <h2 id="fiche-scolarite">"Scolarité"</h2>
+            {move || match scolarite.get() {
+                None => view! { <Squelette lignes=3 libelle="Chargement de la scolarité…"/> }.into_any(),
+                Some((Err(ApiError::Interdit(_)), _)) => view! {
+                    <p class="texte-attenue">"La scolarité de cet élève ne vous est pas ouverte."</p>
+                }.into_any(),
+                Some((Err(e), _)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| scolarite.refetch())/> }.into_any(),
+                Some((Ok(s), annees)) => {
+                    let entree = s.scolarisations.iter().map(|x| x.date_entree).max().or(date_entree);
+                    let resume = resume_scolarite(&s.statut, entree);
+                    view! {
+                        <p class="fiche-scolarite__resume">{resume}</p>
+                        {(!s.scolarisations.is_empty()).then(|| view! {
+                            <h3>"Scolarisations"</h3>
+                            <ul class="ui-liste">
+                                {s.scolarisations.iter().map(|x| {
+                                    let periode = match x.date_sortie {
+                                        Some(f) => format!("du {} au {}", x.date_entree.format("%d/%m/%Y"), f.format("%d/%m/%Y")),
+                                        None => format!("depuis le {}", x.date_entree.format("%d/%m/%Y")),
+                                    };
+                                    view! { <li class="ui-liste__element"><span class="ui-liste__principal">{format!("{periode} · {}", libelle_motif_entree(&x.motif_entree))}</span></li> }
+                                }).collect_view()}
+                            </ul>
+                        })}
+                        {(!s.inscriptions.is_empty()).then(|| view! {
+                            <h3>"Inscriptions annuelles"</h3>
+                            <ul class="ui-liste">
+                                {s.inscriptions.iter().map(|i| view! {
+                                    <li class="ui-liste__element"><span class="ui-liste__principal">
+                                        {format!("{} · {}", libelle_annee(i.annee_id, &annees), libelle_etat_inscription(&i.etat))}
+                                    </span></li>
+                                }).collect_view()}
+                            </ul>
+                        })}
+                    }.into_any()
+                }
+            }}
+        </section>
+    }
+}
+
+#[component]
 fn TableResponsables(
     responsables: Vec<ResponsableDto>,
     suspendre: bool,
@@ -294,6 +385,7 @@ fn TableResponsables(
                             } else {
                                 droits.join(", ")
                             };
+                            let foyer = r.foyer_libelle.clone().map(|f| format!("Foyer : {f}"));
                             let payeur = r.est_payeur.then(|| format!("payeur {} %", r.part_paiement.unwrap_or(0)));
                             let coords = coordonnees(&r.personne);
                             let mut coords = if let Some(m) = message_masque(&r.masque, "F1") {
@@ -315,7 +407,7 @@ fn TableResponsables(
                                         {nom}
                                         <span class="ui-liste__detail">{format!(" ({compte})")}</span>
                                     </th>
-                                    <td>{lien}<br/><span class="texte-attenue">{garde}</span></td>
+                                    <td>{lien}<br/><span class="texte-attenue">{garde}</span>{foyer.map(|f| view! { <br/><span class="texte-attenue">{f}</span> })}</td>
                                     <td><Badge libelle=etat.libelle() ton=ton/></td>
                                     <td>{droits}{payeur.map(|p| view! { <br/><span class="texte-attenue">{p}</span> })}</td>
                                     <td>{coords}</td>

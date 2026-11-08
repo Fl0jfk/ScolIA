@@ -3,8 +3,9 @@
 //! d'invitation dans l'adresse. Aucun appel réseau, aucune dépendance Leptos.
 
 use ent_web_api::types_inscriptions::{
-    DossierDto, EleveFormulaireDto, NiveauCampagneDto, PieceCampagneDto, PieceDossierDto,
-    PreinscriptionBody, ProfilDto, ResponsableFormulaireDto,
+    ChoixEleve, ChoixFoyer, ChoixPersonne, CorrespondancesDto, DossierDto, PersonneCandidateDto,
+    ResolutionResponsable, ResponsableCorrespondancesDto, ValidationBody, EleveFormulaireDto, NiveauCampagneDto, PieceCampagneDto, PieceDossierDto,
+    PreinscriptionBody, ProfilDto, ReserveResponsableDto, ResponsableFormulaireDto,
 };
 use ent_web_ui::TonEtat;
 use uuid::Uuid;
@@ -107,11 +108,18 @@ pub struct SaisieFormulaire {
     pub resp_telephone: String,
     pub resp_adresse: String,
     pub resp_lien: String,
+    /// Le déposant demande que son adresse soit protégée (jamais écrite en clair, ouverte à
+    /// la direction seule).
+    pub resp_adresse_protegee: bool,
     pub second: bool,
     pub second_nom: String,
     pub second_prenom: String,
     pub second_email: String,
+    pub second_lien: String,
     pub second_meme_foyer: bool,
+    /// Second parent à ne pas solliciter (décision de justice, mesure de protection…) : aucune
+    /// invitation ni relance ne lui est adressée ; la direction confirme la mention.
+    pub second_ne_pas_solliciter: bool,
     pub utiliser_mes_infos: bool,
     pub enregistrer_profil: bool,
 }
@@ -207,14 +215,23 @@ pub fn corps_preinscription(campagne_id: Uuid, s: &SaisieFormulaire) -> Preinscr
             lien: opt(&s.resp_lien),
             meme_foyer: true,
             autorite_parentale: true,
+            reserve: s.resp_adresse_protegee.then(|| ReserveResponsableDto {
+                adresse_a_proteger: true,
+                ..Default::default()
+            }),
             ..Default::default()
         },
         second_parent: s.second.then(|| ResponsableFormulaireDto {
             nom: s.second_nom.trim().into(),
             prenom: opt(&s.second_prenom),
             email: opt(&s.second_email),
+            lien: opt(&s.second_lien),
             meme_foyer: s.second_meme_foyer,
             autorite_parentale: true,
+            reserve: s.second_ne_pas_solliciter.then(|| ReserveResponsableDto {
+                ne_pas_solliciter: true,
+                ..Default::default()
+            }),
             ..Default::default()
         }),
     }
@@ -278,6 +295,173 @@ pub fn jeton_de_requete(requete: &str) -> Option<String> {
         .filter(|j| !j.is_empty() && j.len() <= 256 && j.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
+// ---------------------------------------------------------------------------
+// Validation : rapprochement humain (I0) des responsables et de l'élève
+// ---------------------------------------------------------------------------
+
+/// Valeurs des listes de choix du rapprochement.
+pub const CHOIX_NOUVEAU: &str = "nouveau";
+
+/// Libellé d'une personne candidate : jamais d'identifiant technique, e-mail déjà masqué par
+/// le serveur.
+pub fn libelle_candidat(c: &PersonneCandidateDto) -> String {
+    let nom = format!("{} {}", c.prenom.clone().unwrap_or_default(), c.nom)
+        .trim()
+        .to_string();
+    let raison = if c.raison == "email" {
+        "même adresse e-mail"
+    } else {
+        "même nom et prénom"
+    };
+    let mut morceaux = vec![nom];
+    if let Some(e) = c.email_masque.as_deref().filter(|e| !e.is_empty()) {
+        morceaux.push(e.to_string());
+    }
+    morceaux.push(raison.to_string());
+    if c.a_un_compte {
+        morceaux.push("a déjà un compte".to_string());
+    }
+    morceaux.join(" · ")
+}
+
+/// Choix d'une fiche pour un responsable : aucune par défaut (le choix est humain).
+pub fn options_personne(r: &ResponsableCorrespondancesDto) -> Vec<(String, String)> {
+    std::iter::once((String::new(), "— Choisir —".to_string()))
+        .chain(r.candidats.iter().map(|c| {
+            (
+                c.personne_id.to_string(),
+                format!("Rattacher à : {}", libelle_candidat(c)),
+            )
+        }))
+        .chain(std::iter::once((
+            CHOIX_NOUVEAU.to_string(),
+            "Créer une nouvelle fiche (ce n'est pas la même personne)".to_string(),
+        )))
+        .collect()
+}
+
+/// Foyers proposés pour la personne choisie ; vide si elle n'en a pas (nouveau foyer).
+pub fn options_foyer(c: &PersonneCandidateDto) -> Vec<(String, String)> {
+    std::iter::once((String::new(), "— Choisir —".to_string()))
+        .chain(
+            c.foyers
+                .iter()
+                .map(|f| (f.foyer_id.to_string(), format!("Foyer existant : {}", f.libelle))),
+        )
+        .chain(std::iter::once((
+            CHOIX_NOUVEAU.to_string(),
+            "Nouveau foyer".to_string(),
+        )))
+        .collect()
+}
+
+/// Ce que la personne a choisi à l'écran pour un responsable (valeurs des listes ci-dessus).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChoixSaisi {
+    pub personne: String,
+    pub foyer: String,
+}
+
+/// Construit le corps de validation depuis les choix saisis, ou dit ce qui manque (le serveur
+/// reste l'autorité : cette fonction évite seulement un aller-retour inutile).
+/// `responsables` : un `ChoixSaisi` par entrée de `corr.responsables`, dans le même ordre ;
+/// `eleve` : `""` (non choisi), `"nouveau"` ou l'identifiant de la fiche existante.
+pub fn construire_validation(
+    corr: &CorrespondancesDto,
+    responsables: &[ChoixSaisi],
+    eleve: &str,
+    confirme_responsables_existants: bool,
+) -> Result<ValidationBody, String> {
+    let mut resolutions = Vec::new();
+    for (r, saisi) in corr.responsables.iter().zip(responsables) {
+        if r.candidats.is_empty() {
+            continue;
+        }
+        let personne = match saisi.personne.as_str() {
+            "" => {
+                return Err(format!(
+                    "Responsable {} : choisissez la fiche existante ou « nouvelle fiche ».",
+                    r.rang
+                ))
+            }
+            CHOIX_NOUVEAU => ChoixPersonne::Nouvelle,
+            id => ChoixPersonne::Existante {
+                personne_id: id.parse().map_err(|_| "Fiche inconnue.".to_string())?,
+            },
+        };
+        let foyer = match &personne {
+            ChoixPersonne::Nouvelle => None,
+            ChoixPersonne::Existante { personne_id } => {
+                let a_des_foyers = r
+                    .candidats
+                    .iter()
+                    .find(|c| c.personne_id == *personne_id)
+                    .is_some_and(|c| !c.foyers.is_empty());
+                if !a_des_foyers {
+                    Some(ChoixFoyer::Nouveau)
+                } else {
+                    match saisi.foyer.as_str() {
+                        "" => {
+                            return Err(format!(
+                                "Responsable {} : choisissez un foyer existant ou « nouveau foyer ».",
+                                r.rang
+                            ))
+                        }
+                        CHOIX_NOUVEAU => Some(ChoixFoyer::Nouveau),
+                        id => Some(ChoixFoyer::Existant {
+                            foyer_id: id.parse().map_err(|_| "Foyer inconnu.".to_string())?,
+                        }),
+                    }
+                }
+            }
+        };
+        resolutions.push(ResolutionResponsable {
+            responsable_id: r.responsable_id,
+            personne,
+            foyer,
+        });
+    }
+    let eleve = if corr.eleves.is_empty() {
+        None
+    } else {
+        Some(match eleve {
+            "" => return Err("Élève : une fiche porte déjà ce nom ou cet INE, choisissez.".into()),
+            CHOIX_NOUVEAU => ChoixEleve::Nouveau,
+            id => {
+                let eleve_id = id.parse().map_err(|_| "Fiche élève inconnue.".to_string())?;
+                let lies = corr
+                    .eleves
+                    .iter()
+                    .find(|e| e.eleve_id == eleve_id)
+                    .map_or(0, |e| e.responsables_lies);
+                if lies > 0 && !confirme_responsables_existants {
+                    return Err(
+                        "Cette fiche a déjà des responsables : confirmez que le dossier peut leur être rattaché."
+                            .into(),
+                    );
+                }
+                ChoixEleve::Existant {
+                    eleve_id,
+                    confirme_responsables_existants,
+                }
+            }
+        })
+    };
+    Ok(ValidationBody {
+        responsables: resolutions,
+        eleve,
+        ..Default::default()
+    })
+}
+
+/// Statut d'une campagne (distinct du statut d'un dossier : « brouillon » y est un brouillon).
+pub fn libelle_statut_campagne(statut: &str) -> &'static str {
+    match statut {
+        "brouillon" => "Brouillon",
+        autre => libelle_statut(autre),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,6 +474,36 @@ mod tests {
         assert!(email_plausible("a@b.fr"));
         assert!(!email_plausible("a@b"));
         assert!(!email_plausible("@b.fr"));
+    }
+
+    #[test]
+    fn reserves_declarees_a_la_preinscription() {
+        let mut s = SaisieFormulaire {
+            eleve_nom: "Martin".into(),
+            eleve_prenom: "Rose".into(),
+            niveau: "4EME".into(),
+            resp_nom: "Martin".into(),
+            second: true,
+            second_nom: "Martin".into(),
+            second_prenom: "Marc".into(),
+            second_lien: "pere".into(),
+            second_meme_foyer: false,
+            second_email: "marc@exemple.fr".into(),
+            ..Default::default()
+        };
+        // Sans case cochée : aucune réserve n'est envoyée (le champ reste absent).
+        let b = corps_preinscription(Uuid::nil(), &s);
+        assert!(b.responsable.reserve.is_none());
+        assert!(b.second_parent.as_ref().unwrap().reserve.is_none());
+        assert_eq!(b.second_parent.as_ref().unwrap().lien.as_deref(), Some("pere"));
+        // Cases cochées : une seule réserve par personne, et seulement celle demandée.
+        s.resp_adresse_protegee = true;
+        s.second_ne_pas_solliciter = true;
+        let b = corps_preinscription(Uuid::nil(), &s);
+        let r1 = b.responsable.reserve.expect("réserve du déposant");
+        assert!(r1.adresse_a_proteger && !r1.ne_pas_solliciter);
+        let r2 = b.second_parent.unwrap().reserve.expect("réserve du second parent");
+        assert!(r2.ne_pas_solliciter && !r2.adresse_a_proteger);
     }
 
     #[test]
@@ -393,5 +607,100 @@ mod tests {
             },
         ];
         assert_eq!(pieces_a_fournir(&pieces).len(), 1);
+    }
+
+    fn candidat(nom: &str, foyers: usize) -> PersonneCandidateDto {
+        use ent_web_api::types_inscriptions::FoyerCandidatDto;
+        PersonneCandidateDto {
+            personne_id: Uuid::from_u128(7),
+            nom: nom.into(),
+            prenom: Some("Ines".into()),
+            email_masque: Some("i***@exemple.lab".into()),
+            raison: "email".into(),
+            a_un_compte: true,
+            foyers: (0..foyers)
+                .map(|i| FoyerCandidatDto {
+                    foyer_id: Uuid::from_u128(100 + i as u128),
+                    libelle: "Foyer Martin".into(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn validation_exige_un_choix_humain_par_responsable() {
+        let corr = CorrespondancesDto {
+            eleves: vec![],
+            responsables: vec![ResponsableCorrespondancesDto {
+                responsable_id: Uuid::from_u128(1),
+                rang: 1,
+                candidats: vec![candidat("Martin", 1)],
+            }],
+        };
+        // Rien choisi : refus local, jamais de rapprochement implicite.
+        let vide = [ChoixSaisi::default()];
+        assert!(construire_validation(&corr, &vide, "", false).is_err());
+        // Fiche existante avec foyer : le foyer doit aussi être choisi.
+        let sans_foyer = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: String::new() }];
+        assert!(construire_validation(&corr, &sans_foyer, "", false).is_err());
+        let complet = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: Uuid::from_u128(100).to_string() }];
+        let b = construire_validation(&corr, &complet, "", false).unwrap();
+        assert!(matches!(b.responsables[0].personne, ChoixPersonne::Existante { .. }));
+        assert!(matches!(b.responsables[0].foyer, Some(ChoixFoyer::Existant { .. })));
+        // « Nouvelle fiche » : pas de foyer à choisir.
+        let nouvelle = [ChoixSaisi { personne: CHOIX_NOUVEAU.into(), foyer: String::new() }];
+        let b = construire_validation(&corr, &nouvelle, "", false).unwrap();
+        assert!(matches!(b.responsables[0].personne, ChoixPersonne::Nouvelle));
+        assert!(b.responsables[0].foyer.is_none());
+        // Personne sans foyer : nouveau foyer d'office.
+        let corr0 = CorrespondancesDto {
+            eleves: vec![],
+            responsables: vec![ResponsableCorrespondancesDto {
+                responsable_id: Uuid::from_u128(1),
+                rang: 1,
+                candidats: vec![candidat("Martin", 0)],
+            }],
+        };
+        let choix = [ChoixSaisi { personne: Uuid::from_u128(7).to_string(), foyer: String::new() }];
+        let b = construire_validation(&corr0, &choix, "", false).unwrap();
+        assert!(matches!(b.responsables[0].foyer, Some(ChoixFoyer::Nouveau)));
+    }
+
+    #[test]
+    fn validation_ancien_eleve_demande_la_confirmation_des_responsables() {
+        use ent_web_api::types_inscriptions::EleveCandidatDto;
+        let eleve_id = Uuid::from_u128(9);
+        let corr = CorrespondancesDto {
+            eleves: vec![EleveCandidatDto {
+                eleve_id,
+                nom: "Martin".into(),
+                prenom: "Rose".into(),
+                date_naissance: None,
+                statut: "sorti".into(),
+                ine_identique: false,
+                responsables_lies: 2,
+            }],
+            responsables: vec![],
+        };
+        assert!(construire_validation(&corr, &[], "", false).is_err());
+        let id = eleve_id.to_string();
+        assert!(construire_validation(&corr, &[], &id, false).is_err());
+        let b = construire_validation(&corr, &[], &id, true).unwrap();
+        assert!(matches!(b.eleve, Some(ChoixEleve::Existant { confirme_responsables_existants: true, .. })));
+        let b = construire_validation(&corr, &[], CHOIX_NOUVEAU, false).unwrap();
+        assert!(matches!(b.eleve, Some(ChoixEleve::Nouveau)));
+        // Aucune correspondance : corps vide, rien à choisir.
+        let rien = CorrespondancesDto { eleves: vec![], responsables: vec![] };
+        let b = construire_validation(&rien, &[], "", false).unwrap();
+        assert!(b.responsables.is_empty() && b.eleve.is_none());
+    }
+
+    #[test]
+    fn libelles_de_rapprochement_sans_identifiant_technique() {
+        let l = libelle_candidat(&candidat("Martin", 1));
+        assert!(l.contains("Ines Martin") && l.contains("même adresse e-mail") && l.contains("a déjà un compte"));
+        assert!(!l.contains("0000"));
+        assert_eq!(libelle_statut_campagne("brouillon"), "Brouillon");
+        assert_eq!(libelle_statut_campagne("ouverte"), "Ouverte");
     }
 }

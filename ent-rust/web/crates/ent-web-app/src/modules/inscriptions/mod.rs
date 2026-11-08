@@ -13,17 +13,18 @@
 
 mod famille;
 pub mod modele;
+mod validation;
 
 pub use famille::{PageInvitation, PagePreinscription};
 
 use ent_web_api::types_inscriptions::{
     CampagneBody, CampagneDto, CommentaireBody, ConfirmationReinscriptionBody, DecisionBody,
-    DepartBody, DossierDto, PieceDecisionBody, StatutBody, ValidationBody,
+    DepartBody, DossierDto, PieceDecisionBody, StatutBody,
 };
 use ent_web_api::ApiError;
 use ent_web_ui::{
     use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, EnTetePage, EtatVide,
-    Niveau, Selection, Squelette, Taille, Variante, ZoneTexte,
+    Niveau, Selection, Squelette, Taille, TonEtat, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -33,7 +34,7 @@ use uuid::Uuid;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::{reconnexion, session};
 use modele::{
-    libelle_nature, libelle_regime, libelle_statut, niveaux_depuis_texte, peut,
+    libelle_nature, libelle_regime, libelle_statut, libelle_statut_campagne, niveaux_depuis_texte, peut,
     pieces_depuis_texte, ton_statut, REGIMES,
 };
 
@@ -118,7 +119,7 @@ fn ListeCampagnes(
                                 <th scope="row">{c.libelle.clone()}</th>
                                 <td>{libelle_nature(&c.nature)}</td>
                                 <td>{c.annee_cible.clone()}</td>
-                                <td><Badge libelle=libelle_statut(&c.statut) ton=ton_statut(&c.statut)/></td>
+                                <td><Badge libelle=libelle_statut_campagne(&c.statut) ton=ton_statut(&c.statut)/></td>
                                 <td>{total}</td>
                                 <td>
                                     <Bouton taille=Taille::Compacte variante=Variante::Secondaire on_click=Callback::new(move |_| choisie.set(Some(id)))>"Dossiers"</Bouton>
@@ -270,7 +271,6 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
     let commentaire = RwSignal::new(String::new());
     let visible = RwSignal::new(false);
     let decision = RwSignal::new("admis".to_string());
-    let classe = RwSignal::new(String::new());
     let executer = move |futur: std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<String, ApiError>>>,
     >| {
@@ -304,6 +304,24 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
         })
     };
     let actions = StoredValue::new(dossier.actions.clone());
+    let noms = StoredValue::new(
+        dossier
+            .responsables
+            .iter()
+            .map(|r| {
+                (
+                    r.rang,
+                    format!(
+                        "{} {}",
+                        r.formulaire.prenom.clone().unwrap_or_default(),
+                        r.formulaire.nom
+                    )
+                    .trim()
+                    .to_string(),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
     let a = move |code: &str| actions.with_value(|v| v.iter().any(|x| x == code));
     let titre = format!(
         "{} {} — {}",
@@ -321,15 +339,22 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
         {move || erreur.get().map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })}
         <h4>"Responsables"</h4>
         <ul class="liste">
-            {dossier.responsables.iter().map(|r| view! {
-                <li>{format!(
-                    "{} {} {}{}{}",
-                    r.formulaire.prenom.clone().unwrap_or_default(),
-                    r.formulaire.nom,
-                    r.formulaire.email.clone().map(|e| format!("· {e}")).unwrap_or_else(|| "· sans e-mail".into()),
-                    if r.formulaire.meme_foyer { "" } else { " · foyer distinct" },
-                    r.invitation.clone().map(|i| format!(" · invitation {i}")).unwrap_or_default(),
-                )}</li>
+            {dossier.responsables.iter().map(|r| {
+                let reserve = r.formulaire.reserve.clone().unwrap_or_default();
+                view! {
+                    <li>
+                        {format!(
+                            "{} {} {}{}{}",
+                            r.formulaire.prenom.clone().unwrap_or_default(),
+                            r.formulaire.nom,
+                            r.formulaire.email.clone().map(|e| format!("· {e}")).unwrap_or_else(|| "· sans e-mail".into()),
+                            if r.formulaire.meme_foyer { "" } else { " · foyer distinct" },
+                            r.invitation.clone().map(|i| format!(" · invitation {i}")).unwrap_or_default(),
+                        )}
+                        {reserve.ne_pas_solliciter.then(|| view! { " " <Badge libelle="À ne pas solliciter (à confirmer par la direction)" ton=TonEtat::Avertissement/> })}
+                        {reserve.adresse_a_proteger.then(|| view! { " " <Badge libelle="Adresse protégée" ton=TonEtat::Avertissement/> })}
+                    </li>
+                }
             }).collect_view()}
         </ul>
         <h4>"Pièces"</h4>
@@ -384,16 +409,7 @@ fn DetailDossier(dossier: DossierDto, recharger: Callback<()>) -> impl IntoView 
             </form>
         })}
         {a("valider").then(|| view! {
-            <form class="pile" on:submit=move |ev| {
-                ev.prevent_default();
-                let c = classe.get_untracked().trim().parse::<Uuid>().ok();
-                let b = ValidationBody { classe_id: c, regime: None, ..Default::default() };
-                executer(Box::pin(async move { session::client().valider_dossier(id, &b).await.map(|_| "Inscription validée : affectation, invitations et accueil suivent.".to_string()) }));
-            }>
-                <ChampTexte id="ins-classe" libelle="Classe cible (identifiant, facultatif)" valeur=classe
-                    aide="Sans classe, l'affectation se fera à la rentrée (montée de niveau)."/>
-                <Bouton variante=Variante::Primaire soumettre=true>"Valider l'inscription"</Bouton>
-            </form>
+            <validation::ValidationDossier id=id noms=noms.get_value() recharger=recharger/>
         })}
         {a("commenter").then(|| view! {
             <form class="pile" on:submit=move |ev| {

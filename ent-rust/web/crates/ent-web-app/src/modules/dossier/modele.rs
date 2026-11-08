@@ -442,6 +442,61 @@ pub fn message_guichet(lien_cree: bool, nom: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scolarité (statut dérivé, scolarisations, inscriptions annuelles)
+// ---------------------------------------------------------------------------
+
+/// Statut dérivé par le serveur (jamais saisi).
+pub fn libelle_statut_scolarite(statut: &str) -> &'static str {
+    match statut {
+        "a_venir" => "Inscrit, entre à la rentrée",
+        "scolarise" => "Scolarisé",
+        "sorti" => "Sorti de l'établissement",
+        "archive" => "Archivé",
+        _ => "Statut inconnu",
+    }
+}
+
+pub fn libelle_motif_entree(motif: &str) -> &'static str {
+    match motif {
+        "premiere_inscription" => "Première inscription",
+        "changement_etablissement" => "Arrivée d'un autre établissement",
+        "retour" => "Retour",
+        "passage_interne" => "Passage interne",
+        "reprise" => "Reprise de données",
+        _ => "Motif non précisé",
+    }
+}
+
+pub fn libelle_etat_inscription(etat: &str) -> &'static str {
+    match etat {
+        "prevue" => "Prévue",
+        "en_cours" => "En cours",
+        "terminee" => "Terminée",
+        "abandonnee" => "Abandonnée",
+        _ => "État inconnu",
+    }
+}
+
+/// « 2027-2028 » pour une année connue, sinon un libellé neutre (jamais d'identifiant).
+pub fn libelle_annee(annee_id: uuid::Uuid, annees: &[(uuid::Uuid, String)]) -> String {
+    annees
+        .iter()
+        .find(|(id, _)| *id == annee_id)
+        .map(|(_, l)| format!("Année {l}"))
+        .unwrap_or_else(|| "Année scolaire".to_string())
+}
+
+/// Phrase de tête : où en est l'élève, et à partir de quand.
+pub fn resume_scolarite(statut: &str, entree: Option<chrono::NaiveDate>) -> String {
+    let base = libelle_statut_scolarite(statut);
+    match (statut, entree) {
+        ("a_venir", Some(d)) => format!("{base} — scolarisation à partir du {}", d.format("%d/%m/%Y")),
+        (_, Some(d)) => format!("{base} — depuis le {}", d.format("%d/%m/%Y")),
+        _ => base.to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -706,5 +761,22 @@ mod tests {
         assert_eq!(v[0].attente_id, Uuid::from_u128(2));
         assert!(message_guichet(true, "Léa").contains("confirmé"));
         assert!(message_guichet(false, "Léa").contains("déjà"));
+    }
+
+    #[test]
+    fn scolarite_libelles_et_resume() {
+        use chrono::NaiveDate;
+        let d = NaiveDate::from_ymd_opt(2027, 9, 1);
+        assert_eq!(
+            resume_scolarite("a_venir", d),
+            "Inscrit, entre à la rentrée — scolarisation à partir du 01/09/2027"
+        );
+        assert_eq!(resume_scolarite("scolarise", d), "Scolarisé — depuis le 01/09/2027");
+        assert_eq!(resume_scolarite("sorti", None), "Sorti de l'établissement");
+        assert_eq!(libelle_etat_inscription("prevue"), "Prévue");
+        let a = uuid::Uuid::from_u128(1);
+        assert_eq!(libelle_annee(a, &[(a, "2027-2028".into())]), "Année 2027-2028");
+        assert_eq!(libelle_annee(a, &[]), "Année scolaire");
+        assert!(!libelle_motif_entree("premiere_inscription").contains("_"));
     }
 }

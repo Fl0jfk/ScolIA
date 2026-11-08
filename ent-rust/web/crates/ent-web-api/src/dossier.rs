@@ -2,6 +2,7 @@
 //! d'`ent-api`. Les droits, la minimisation et les règles (parts = 100 %, motif
 //! de suspension…) restent décidés par le serveur ; ce client transporte.
 
+use ent_types::scolarite::ScolariteDto;
 use ent_types::dossier::{
     AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto, ConfirmationGuichetBody,
     ConfirmationGuichetDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto,
@@ -61,6 +62,12 @@ impl ApiClient {
             None,
         )
         .await
+    }
+
+    /// `GET /eleves/{id}/scolarite` : statut dérivé, scolarisations et inscriptions annuelles.
+    pub async fn scolarite_eleve(&self, eleve_id: Uuid) -> Result<ScolariteDto, ApiError> {
+        self.appel(Methode::Get, &format!("/eleves/{eleve_id}/scolarite"), None)
+            .await
     }
 
     /// `POST /dossier/personnes` : nouvelle personne (avec ou sans e-mail).
