@@ -7618,6 +7618,12 @@ async fn explorer_param_salles(
     }
     r.geste("Rogue lit seuil_absences=4");
 
+    // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
+    sqlx::query("INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES (gen_random_uuid(), $1, 'principal', 'Site principal') ON CONFLICT DO NOTHING")
+        .bind(cast.etablissement_id)
+        .execute(ent.pool())
+        .await
+        .map_err(|e| e.to_string())?;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),
@@ -8004,6 +8010,12 @@ async fn explorer_edt_affectation_editions(
     let mcg = cast.profs.get(1).map(|p| p.user_id).unwrap_or(rogue);
     let admini = cast.administratifs[0].user_id;
 
+    // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
+    sqlx::query("INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES (gen_random_uuid(), $1, 'principal', 'Site principal') ON CONFLICT DO NOTHING")
+        .bind(cast.etablissement_id)
+        .execute(ent.pool())
+        .await
+        .map_err(|e| e.to_string())?;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),
@@ -8012,7 +8024,7 @@ async fn explorer_edt_affectation_editions(
                 code: "AFF-01".into(),
                 libelle: "Salle affectation lab".into(),
                 capacite: Some(30),
-                site: None,
+                site: Some("principal".into()),
                 actor_user_id: admini,
             },
         )

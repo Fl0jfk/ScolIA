@@ -78,6 +78,8 @@ mod quotient_repo;
 mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
+pub mod structure_etab;
+pub mod structure_lieux;
 mod referentiel_annee;
 mod referentiel_seances;
 pub mod edt_admin;
@@ -291,6 +293,8 @@ mod tests_d022_bis;
 mod tests_recette_personas;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
