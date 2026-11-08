@@ -34,9 +34,18 @@ CREATE INDEX IF NOT EXISTS ent_cours_membre_eleve_idx ON ent_cours_membre (etabl
 -- Cohérence : même établissement (cours, élève) ; pas deux périodes actives qui se chevauchent
 -- pour (cours, élève, nature) ; la période reste dans l'année du cours.
 CREATE OR REPLACE FUNCTION ent_trg_cours_membre() RETURNS trigger AS $$
-DECLARE a_debut DATE; a_fin DATE;
+DECLARE a_debut DATE; a_fin DATE; a_close TIMESTAMPTZ;
 BEGIN
-    SELECT y.date_debut, y.date_fin INTO a_debut, a_fin
+    -- Un membre ne se modifie pas : seule l'annulation (annulee_le NULL -> date) est permise.
+    IF TG_OP = 'UPDATE' THEN
+        IF (NEW.etablissement_id, NEW.cours_id, NEW.eleve_id, NEW.nature, NEW.motif_code, NEW.du, NEW.au)
+               IS DISTINCT FROM (OLD.etablissement_id, OLD.cours_id, OLD.eleve_id, OLD.nature, OLD.motif_code, OLD.du, OLD.au)
+           OR (OLD.annulee_le IS NOT NULL AND NEW.annulee_le IS DISTINCT FROM OLD.annulee_le)
+           OR (OLD.annulee_par IS NOT NULL AND NEW.annulee_par IS DISTINCT FROM OLD.annulee_par) THEN
+            RAISE EXCEPTION 'cours_membre_immuable' USING ERRCODE = '23514';
+        END IF;
+    END IF;
+    SELECT y.date_debut, y.date_fin, y.cloturee_le INTO a_debut, a_fin, a_close
       FROM ent_service_enseignement s
       JOIN ent_annee_scolaire y ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
      WHERE s.id = NEW.cours_id AND s.etablissement_id = NEW.etablissement_id;
@@ -46,9 +55,13 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM ent_eleve e WHERE e.id = NEW.eleve_id AND e.etablissement_id = NEW.etablissement_id) THEN
         RAISE EXCEPTION 'cours_membre_incoherent: eleve' USING ERRCODE = '23514';
     END IF;
+    IF a_close IS NOT NULL THEN
+        RAISE EXCEPTION 'cours_membre_annee_cloturee' USING ERRCODE = '23514';
+    END IF;
     IF NEW.du < a_debut OR NEW.du > a_fin OR (NEW.au IS NOT NULL AND NEW.au > a_fin) THEN
         RAISE EXCEPTION 'cours_membre_incoherent: hors annee' USING ERRCODE = '23514';
     END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended(NEW.cours_id::text, 0));
     IF NEW.annulee_le IS NULL AND EXISTS (
         SELECT 1 FROM ent_cours_membre m
          WHERE m.cours_id = NEW.cours_id AND m.eleve_id = NEW.eleve_id AND m.nature = NEW.nature

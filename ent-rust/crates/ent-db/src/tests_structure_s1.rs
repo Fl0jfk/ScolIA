@@ -99,6 +99,14 @@ async fn membre_inclus_suivi_par_le_professeur_du_cours_et_de_lui_seul() {
     assert!(!suit(&ent, etab, m.prof_all, x, t).await);
     let traces = ent.cours_membres(&a, m.s_all).await.unwrap();
     assert!(traces.iter().any(|t| t.id == inc.id && t.annulee));
+    // Immuable hors annulation : ni réactivation, ni changement de nature ou de dates.
+    for sql in [
+        "UPDATE ent_cours_membre SET annulee_le = NULL WHERE id = $1",
+        "UPDATE ent_cours_membre SET nature = 'exclusion' WHERE id = $1",
+        "UPDATE ent_cours_membre SET du = du + 1 WHERE id = $1",
+    ] {
+        assert!(sqlx::query(sql).bind(inc.id).execute(ent.pool()).await.is_err(), "{sql}");
+    }
     let del = sqlx::query("DELETE FROM ent_cours_membre WHERE id = $1").bind(inc.id).execute(ent.pool()).await;
     assert!(del.is_err(), "suppression physique refusée");
 }
