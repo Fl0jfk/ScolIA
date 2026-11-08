@@ -717,7 +717,12 @@ fn rp2_04_fusion_confirmee_par_la_direction_seule_et_journalisee() {
         let corps = json!({"source_id":source,"cible_id":marc,"motif":"doublon",
                            "confirmation_direction":true});
         let adm = s
-            .req("POST", "/dossier/fusions", Some("Administratif"), Some(&corps))
+            .req(
+                "POST",
+                "/dossier/fusions",
+                Some("Administratif"),
+                Some(&corps),
+            )
             .await;
         assert!(
             adm.statut.is_client_error(),
@@ -728,7 +733,12 @@ fn rp2_04_fusion_confirmee_par_la_direction_seule_et_journalisee() {
         let dir = s
             .req("POST", "/dossier/fusions", Some("Direction"), Some(&corps))
             .await;
-        assert_eq!(dir.statut, StatusCode::CREATED, "fusion confirmée : {}", dir.texte);
+        assert_eq!(
+            dir.statut,
+            StatusCode::CREATED,
+            "fusion confirmée : {}",
+            dir.texte
+        );
         let pool = s.pool().await;
         let n: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1
@@ -739,7 +749,10 @@ fn rp2_04_fusion_confirmee_par_la_direction_seule_et_journalisee() {
         .await
         .expect("journal");
         pool.close().await;
-        assert_eq!(n, 1, "la confirmation de la direction doit être journalisée");
+        assert_eq!(
+            n, 1,
+            "la confirmation de la direction doit être journalisée"
+        );
     });
 }
 
