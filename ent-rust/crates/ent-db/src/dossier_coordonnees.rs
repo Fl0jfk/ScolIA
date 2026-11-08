@@ -580,6 +580,18 @@ impl PgEnt {
                 if !ok {
                     return Err(EntDbError::Forbidden);
                 }
+                // Une personne d'un autre établissement est indiscernable d'une personne inconnue.
+                let (existe,): (bool,) = sqlx::query_as(
+                    "SELECT EXISTS (SELECT 1 FROM ent_personne WHERE etablissement_id = $1 AND id = $2)",
+                )
+                .bind(etab)
+                .bind(pid)
+                .fetch_one(self.pool())
+                .await
+                .map_err(db)?;
+                if !existe {
+                    return Err(EntDbError::Domain(DomainError::NotFound));
+                }
                 if ecriture {
                     self.exiger_pas_de_conflit_personne(etab, *actor, role, pid).await?;
                 }

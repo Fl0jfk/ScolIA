@@ -1284,6 +1284,17 @@ impl PgEnt {
         personne_id: Uuid,
     ) -> Result<Vec<VersionIdentite>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer).await?;
+        let (existe,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_personne WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db)?;
+        if !existe {
+            return Err(EntDbError::Domain(DomainError::NotFound));
+        }
         let protege = self
             .a_action_etablissement(etab, actor, role, Action::ResponsablesProtegeLire)
             .await?
