@@ -150,6 +150,8 @@ pub enum Action {
     InscriptionsGerer,
     /// Décider d'une admission et valider une inscription ★ (S2-3, INS-04/05).
     InscriptionsDecider,
+    /// Valider une inscription admise (INS-05 : secrétariat ou direction ; RP2-11).
+    InscriptionsValider,
     /// Importer des élèves en lot et traiter les rejets (S2-3, IOP-01/04).
     ImportsAppliquer,
     /// Lire le cahier de textes, le travail à faire et la charge de travail
@@ -244,7 +246,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 101] = [
+    pub const TOUTES: [Action; 102] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -313,6 +315,7 @@ impl Action {
         Action::ElevesParametrer,
         Action::InscriptionsGerer,
         Action::InscriptionsDecider,
+        Action::InscriptionsValider,
         Action::ImportsAppliquer,
         Action::CahierLire,
         Action::CahierEcrire,
@@ -421,6 +424,7 @@ impl Action {
             Self::ElevesParametrer => "eleves.parametrer",
             Self::InscriptionsGerer => "inscriptions.gerer",
             Self::InscriptionsDecider => "inscriptions.decider",
+            Self::InscriptionsValider => "inscriptions.valider",
             Self::ImportsAppliquer => "imports.appliquer",
             Self::CahierLire => "cahier.lire",
             Self::CahierEcrire => "cahier.ecrire",
@@ -527,7 +531,8 @@ impl Action {
             Self::ElevesExporter => "Exporter des listes nominatives d'élèves",
             Self::ElevesParametrer => "Paramétrer les champs et règles de l'élève",
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
-            Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
+            Self::InscriptionsDecider => "Décider des admissions",
+            Self::InscriptionsValider => "Valider les inscriptions admises par la direction",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
@@ -665,7 +670,10 @@ impl Action {
             | Self::DossierAdminParametrer
             | Self::ResponsablesAccesUrgence => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
-            Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
+            Self::InscriptionsGerer
+            | Self::InscriptionsDecider
+            | Self::InscriptionsValider
+            | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
             }
             // S2-7 : actions de direction sur toute une période ou toute une classe.
@@ -988,6 +996,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_manage_eleves() {
         d.push(etab(InscriptionsGerer));
+        d.push(etab(InscriptionsValider));
         d.push(etab(ImportsAppliquer));
     }
     if matches!(role, Role::Admin | Role::Direction) {
@@ -1120,6 +1129,9 @@ mod tests {
         assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
         assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Direction, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, InscriptionsValider), None);
         assert_eq!(a(Role::Cpe, InscriptionsGerer), None);
         assert_eq!(a(Role::Compta, ImportsAppliquer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
