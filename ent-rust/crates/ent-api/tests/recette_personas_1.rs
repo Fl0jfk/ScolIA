@@ -55,6 +55,9 @@ async fn routeur() -> Option<axum::Router> {
     static R: tokio::sync::OnceCell<Option<axum::Router>> = tokio::sync::OnceCell::const_new();
     R.get_or_init(|| async {
         garde_base()?;
+        // P0 : plus de mot de passe temporaire, le personnel est invité par e-mail : la messagerie
+        // doit être « prête » (dry-run, aucun envoi réel) pour que la création aboutisse.
+        std::env::set_var("ENT_MAIL_DRY_RUN", "1");
         let (state, _bind) = ent_api::boot_from_env()
             .await
             .unwrap_or_else(|e| panic!("démarrage ent-api : {e}"));
@@ -1003,7 +1006,21 @@ fn rp1_c06_profil_personnel_minimal() {
             )
             .await;
         assert_eq!(p.statut, StatusCode::CREATED, "création : {}", p.texte);
-        let mdp = p.json["mot_de_passe_temporaire"].as_str().expect("mot de passe").to_string();
+        assert!(p.json.get("mot_de_passe_temporaire").is_none(), "aucun secret renvoyé");
+        let user = uuid(&p.json["user_id"]);
+        // La personne définirait son mot de passe par le lien d'invitation (testé en P0) : ici,
+        // SQL de la base de test — elle reçoit le mot de passe de labo pour ouvrir une session.
+        let pool = s.pool().await;
+        sqlx::query(
+            "UPDATE ent_user SET password_hash = (SELECT password_hash FROM ent_user WHERE id = $2) WHERE id = $1",
+        )
+        .bind(user)
+        .bind(s.users["Direction"])
+        .execute(&pool)
+        .await
+        .expect("mot de passe de labo");
+        pool.close().await;
+        let mdp = s.mdp.clone();
         let l = s
             .appel(
                 "POST",
@@ -1014,7 +1031,6 @@ fn rp1_c06_profil_personnel_minimal() {
             .await;
         assert_eq!(l.statut, StatusCode::OK, "connexion : {}", l.texte);
         let jeton = l.json["token"].as_str().expect("jeton").to_string();
-        let user = uuid(&p.json["user_id"]);
 
         // Sans rôle : aucune donnée d'élève, aucun outil d'administration.
         for chemin in [

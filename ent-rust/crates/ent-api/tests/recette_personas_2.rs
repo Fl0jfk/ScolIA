@@ -697,7 +697,7 @@ fn rp2_t03_professeur_de_groupe_borne_sur_les_routes_des_socles_2_a_4() {
             assert_refus(&r, &format!("Prof 3 lit {c} (Harry)"));
         }
         let r = s
-            .req("GET", "/eleves/search?q=a", Some("Prof 3"), None)
+            .req("GET", "/eleves/search?q=4B", Some("Prof 3"), None)
             .await;
         assert_eq!(r.statut, StatusCode::OK, "recherche : {}", r.texte);
         assert!(
