@@ -16,7 +16,7 @@ use ent_types::inscriptions::*;
 use std::time::Duration;
 use uuid::Uuid;
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_base_de_test()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
@@ -26,7 +26,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-fn distributeur(ent: &PgEnt, etab: Uuid) -> Distributeur {
+pub(crate) fn distributeur(ent: &PgEnt, etab: Uuid) -> Distributeur {
     ent.distributeur(ConfigDistribution {
         taille_lot: 100,
         max_tentatives: 3,
@@ -37,15 +37,15 @@ fn distributeur(ent: &PgEnt, etab: Uuid) -> Distributeur {
     })
 }
 
-fn dir(c: &LaboCast) -> (Uuid, &'static str) {
+pub(crate) fn dir(c: &LaboCast) -> (Uuid, &'static str) {
     (c.direction.user_id, Role::Direction.as_str())
 }
 
-fn adm(c: &LaboCast) -> (Uuid, &'static str) {
+pub(crate) fn adm(c: &LaboCast) -> (Uuid, &'static str) {
     (c.administratif.user_id, Role::Administratif.as_str())
 }
 
-async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
+pub(crate) async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
         .fetch_one(ent.pool())
@@ -107,7 +107,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
     c
 }
 
-fn campagne(nature: &str, capacite: Option<i32>) -> CampagneBody {
+pub(crate) fn campagne(nature: &str, capacite: Option<i32>) -> CampagneBody {
     CampagneBody {
         nature: nature.into(),
         libelle: format!("Campagne {nature}"),
@@ -132,7 +132,7 @@ fn campagne(nature: &str, capacite: Option<i32>) -> CampagneBody {
     }
 }
 
-async fn campagne_ouverte(ent: &PgEnt, c: &LaboCast, nature: &str, capacite: Option<i32>) -> Uuid {
+pub(crate) async fn campagne_ouverte(ent: &PgEnt, c: &LaboCast, nature: &str, capacite: Option<i32>) -> Uuid {
     let (d, r) = dir(c);
     let camp = ent
         .creer_campagne_for_actor(c.etablissement_id, d, r, &campagne(nature, capacite))
@@ -145,7 +145,7 @@ async fn campagne_ouverte(ent: &PgEnt, c: &LaboCast, nature: &str, capacite: Opt
 }
 
 /// Dernier code reçu par `email` (messagerie dry-run).
-fn code_recu(ent: &PgEnt, email: &str) -> String {
+pub(crate) fn code_recu(ent: &PgEnt, email: &str) -> String {
     let (_, _, corps) = ent
         .mailer()
         .dry_run_corps()
@@ -170,7 +170,7 @@ fn jeton_invitation_recu(ent: &PgEnt, email: &str) -> String {
     corps[i..].split_whitespace().next().unwrap().to_string()
 }
 
-async fn verifier(ent: &PgEnt, etab: Uuid, email: &str) -> String {
+pub(crate) async fn verifier(ent: &PgEnt, etab: Uuid, email: &str) -> String {
     let d = ent.demarrer_preinscription(etab, email).await.unwrap();
     let code = code_recu(ent, email);
     ent.verifier_preinscription(etab, d.demande_id, &code)
@@ -179,7 +179,7 @@ async fn verifier(ent: &PgEnt, etab: Uuid, email: &str) -> String {
         .jeton
 }
 
-fn formulaire(
+pub(crate) fn formulaire(
     campagne_id: Uuid,
     prenom: &str,
     second: Option<ResponsableFormulaireDto>,
@@ -912,8 +912,9 @@ async fn reinscription_campagne() {
     )
     .await;
     assert_eq!(o.dossiers_prepares, actifs);
-    // Rouvrir ne duplique rien.
-    ent.fermer_campagne_for_actor(etab, d, dr, camp.id)
+    // Suspendre puis reprendre ne duplique rien (une campagne fermée, elle, ne se rouvre pas :
+    // lot I2, §2.2 n° 18 — voir `i2_campagne_etats`).
+    ent.changer_statut_campagne_for_actor(etab, d, dr, camp.id, "suspendue")
         .await
         .unwrap();
     let o2 = ent
@@ -1501,7 +1502,7 @@ async fn isolation_etablissements() {
 
 /// Dossier d'admission déposé avec `email_deposant` vérifié, instruit et admis.
 /// Renvoie (id du dossier, jeton famille).
-async fn dossier_admis(
+pub(crate) async fn dossier_admis(
     ent: &PgEnt,
     c: &LaboCast,
     camp: Uuid,
@@ -1558,7 +1559,7 @@ async fn dossier_admis(
     (dossier.id, jeton)
 }
 
-async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
+pub(crate) async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
     let (id,): (Uuid,) = sqlx::query_as(
         "SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = $2",
     )
@@ -1570,7 +1571,7 @@ async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
     id
 }
 
-fn second_parent(email: &str) -> ResponsableFormulaireDto {
+pub(crate) fn second_parent(email: &str) -> ResponsableFormulaireDto {
     ResponsableFormulaireDto {
         nom: "Ollivander".into(),
         prenom: Some("Garrick".into()),
@@ -1593,7 +1594,7 @@ async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     p
 }
 
-fn valider_corps(resp: Vec<ResolutionResponsable>, eleve: Option<ChoixEleve>) -> ValidationBody {
+pub(crate) fn valider_corps(resp: Vec<ResolutionResponsable>, eleve: Option<ChoixEleve>) -> ValidationBody {
     ValidationBody {
         responsables: resp,
         eleve,
@@ -2035,7 +2036,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
     );
 }
 
-fn courriels_vers(ent: &PgEnt, email: &str) -> usize {
+pub(crate) fn courriels_vers(ent: &PgEnt, email: &str) -> usize {
     ent.mailer()
         .dry_run_corps()
         .into_iter()

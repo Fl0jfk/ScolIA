@@ -1114,6 +1114,79 @@ pub(crate) async fn facturer_annee_eleve(
     Ok(Ok(r))
 }
 
+/// Commande de facturation appelée par l'annulation d'une validation erronée (INS-68, R-I11) :
+/// retire les lignes **annuelles brouillon** d'un élève pour une année. Les factures déjà émises
+/// ne sont jamais touchées : si une ligne annuelle figure sur une facture émise ou soldée, la
+/// commande refuse (`Err(raison)`) et ne retire rien. Les factures brouillon vidées sont
+/// supprimées ; les totaux des autres sont recalculés. Renvoie le nombre de lignes retirées.
+pub(crate) async fn annuler_lignes_annuelles_brouillon_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    annee: &str,
+    eleve_id: Uuid,
+) -> Result<Result<i64, String>, EntDbError> {
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+        .bind(etab.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let prefixe = format!("annuel:{annee}%");
+    let (emises,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_fac_ligne l JOIN ent_fac_facture f ON f.id = l.facture_id
+          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.source_cle LIKE $3
+            AND f.statut <> 'brouillon'",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(&prefixe)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if emises > 0 {
+        return Ok(Err(
+            "une facture a été émise pour cet élève : l'annulation n'est plus possible, utilisez le désistement"
+                .to_string(),
+        ));
+    }
+    let factures: Vec<Uuid> = sqlx::query_scalar(
+        "DELETE FROM ent_fac_ligne l USING ent_fac_facture f
+          WHERE f.id = l.facture_id AND f.statut = 'brouillon' AND l.etablissement_id = $1
+            AND l.eleve_id = $2 AND l.source_cle LIKE $3
+         RETURNING l.facture_id",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(&prefixe)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let retirees = i64::try_from(factures.len()).unwrap_or(i64::MAX);
+    if !factures.is_empty() {
+        sqlx::query(
+            "UPDATE ent_fac_facture f SET total_centimes = COALESCE(
+                 (SELECT sum(l.quantite::bigint * l.montant_unitaire_centimes)
+                    FROM ent_fac_ligne l WHERE l.facture_id = f.id), 0)
+              WHERE f.etablissement_id = $1 AND f.id = ANY($2) AND f.statut = 'brouillon'",
+        )
+        .bind(etab)
+        .bind(&factures)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "DELETE FROM ent_fac_facture f
+              WHERE f.etablissement_id = $1 AND f.id = ANY($2) AND f.statut = 'brouillon'
+                AND NOT EXISTS (SELECT 1 FROM ent_fac_ligne l WHERE l.facture_id = f.id)",
+        )
+        .bind(etab)
+        .bind(&factures)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
+    Ok(Ok(retirees))
+}
+
 /// Changement de régime à `date` : avoir sur les catégories qui ne sont plus
 /// dues (réductions associées comprises), lignes nouvelles pour celles qui le
 /// deviennent (à partir du mois suivant).

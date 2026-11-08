@@ -528,3 +528,80 @@ pub async fn classe_de_l_annee_courante_tx(
     .map_err(db)?;
     Ok(oui)
 }
+
+/// ELV-02 (commande inverse d'ELV-01, appelée par l'annulation d'une validation erronée, INS-68) :
+/// annule la fiche créée **par erreur**. Refusée si la fiche a déjà une vie (classe, scolarisation,
+/// sortie). Rien n'est effacé : la fiche passe à `archive` (statut dérivé), la trace reste au journal ; la trace reste au journal et par l'événement `eleve.creation_annulee`
+/// (sans donnée personnelle). Renvoie `false` si la fiche n'existe pas ou n'est plus annulable.
+pub async fn annuler_creation_eleve_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    dossier_id: Uuid,
+    actor: Uuid,
+) -> Result<bool, EntDbError> {
+    // La fiche créée par la validation n'a ni scolarisation (l'entrée n'a pas eu lieu), ni classe :
+    // elle est marquée `archive` dans le statut dérivé ; le statut hérité (`status`) n'est pas
+    // touché, ce qui évite d'ouvrir une scolarisation par le pont de l'ancien chemin.
+    let r = sqlx::query(
+        "UPDATE ent_eleve SET statut = 'archive', updated_at = now()
+          WHERE etablissement_id = $1 AND id = $2 AND status = 'preinscrit' AND classe_id IS NULL
+            AND date_sortie IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ent_eleve_scolarisation s
+                             WHERE s.etablissement_id = $1 AND s.eleve_id = $2)",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    if r.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
+                                         payload, visible_famille, actor_user_id, created_at)
+         VALUES ($1,$2,$3,'administratif','creation_annulee','Création de la fiche annulée',$4,false,$5, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(json!({ "eleve_id": eleve_id, "dossier_id": dossier_id }))
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    conn.publier(MetierEventDraft {
+        etablissement_id: etab,
+        type_name: types::ELEVE_CREATION_ANNULEE.into(),
+        aggregate: AggregateKind::Eleve,
+        aggregate_id: eleve_id,
+        eleve_id: Some(eleve_id),
+        payload: json!({ "eleve_id": eleve_id, "dossier_id": dossier_id }),
+        actor_user_id: Some(actor.to_string()),
+    })
+    .await?;
+    Ok(true)
+}
+
+/// Commande inverse d'ELV-09 : retire l'inscription annuelle **prévue** (ligne `projetee`) créée par
+/// un dossier. Une inscription courante, historique ou confirmée par la famille n'est jamais
+/// retirée. Renvoie `true` si une ligne a été retirée.
+pub async fn retirer_inscription_annuelle_prevue_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    dossier_id: Uuid,
+) -> Result<bool, EntDbError> {
+    let r = sqlx::query(
+        "DELETE FROM ent_eleve_scolarite_annee
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND source_ref = $3 AND statut = 'projetee'",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(r.rows_affected() > 0)
+}

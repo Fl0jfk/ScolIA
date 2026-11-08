@@ -605,3 +605,159 @@ async fn jeton_famille_isole_entre_etablissements_http() {
     assert_eq!(st, StatusCode::UNAUTHORIZED, "{corps}");
     assert!(!corps.contains(&email));
 }
+
+/// Lot I2 : toutes les nouvelles routes — droits (403 hors rôles), jeton absent (401), isolation
+/// entre établissements (jamais de 2xx avec un identifiant de l'autre établissement), parcours de
+/// la démarche (fratrie) et compteur de places par HTTP.
+#[tokio::test]
+async fn i2_routes_http_droits_isolation_et_parcours() {
+    let Some(state) = etat().await else {
+        eprintln!("skip S2-3 HTTP: ENT_DATABASE_URL");
+        return;
+    };
+    let ent = state.ent.clone();
+    let a = ent.seed_labo_cast().await.expect("cast A");
+    let b = ent.seed_labo_cast().await.expect("cast B");
+    let app = app(state);
+    let (dir_a, dir_b) = (bearer(&a.direction.token), bearer(&b.direction.token));
+    let (prof_a, adm_a) = (bearer(&a.prof.token), bearer(&a.administratif.token));
+    let parent_a = bearer(&a.parent_lea.token);
+
+    // Campagne et offres.
+    let (st, corps) = appel(&app, "POST", "/inscriptions/campagnes", &[("authorization", &dir_a)], Some(json!({
+        "nature": "admission", "libelle": "Rentrée I2", "annee_cible": "2027-2028",
+        "regles": { "accord_responsables": "un_seul", "decision_requise": true, "motif_communique": "facultatif",
+                    "delai_annulation_validation_h": 72, "page_publique": false, "au_fil_de_l_eau": false }
+    }))).await;
+    assert_eq!(st, StatusCode::CREATED, "{corps}");
+    let camp: CampagneDto = serde_json::from_str(&corps).unwrap();
+    let offre_corps = json!({ "niveau_code": "6EME", "libelle_public": "6ᵉ", "capacite": 1 });
+    let url_offres = format!("/inscriptions/campagnes/{}/offres", camp.id);
+    for (jeton, attendu) in [(&prof_a, StatusCode::FORBIDDEN), (&parent_a, StatusCode::FORBIDDEN), (&dir_b, StatusCode::NOT_FOUND)] {
+        let (st, _) = appel(&app, "POST", &url_offres, &[("authorization", jeton)], Some(offre_corps.clone())).await;
+        assert!(st == attendu || st == StatusCode::FORBIDDEN, "création d'offre : {st}");
+    }
+    let (st, _) = appel(&app, "POST", &url_offres, &[], Some(offre_corps.clone())).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    let (st, corps) = appel(&app, "POST", &url_offres, &[("authorization", &adm_a)], Some(offre_corps.clone())).await;
+    assert_eq!(st, StatusCode::CREATED, "{corps}");
+    let offre: ent_types::inscriptions::OffreOccupationDto = serde_json::from_str(&corps).unwrap();
+    assert_eq!((offre.capacite, offre.disponibles), (Some(1), Some(1)));
+    // Doublon de clé : 409.
+    let (st, _) = appel(&app, "POST", &url_offres, &[("authorization", &adm_a)], Some(offre_corps.clone())).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    // Lecture : personnel de A seulement.
+    let (st, corps) = appel(&app, "GET", &url_offres, &[("authorization", &dir_a)], None).await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+    assert!(corps.contains("\"disponibles\":1"));
+    for jeton in [&dir_b, &prof_a, &parent_a] {
+        let (st, corps) = appel(&app, "GET", &url_offres, &[("authorization", jeton)], None).await;
+        assert!(!st.is_success(), "lecture des offres : {st} {corps}");
+    }
+    // Modification / archivage d'une offre de A par B ou par un rôle sans droit : jamais 2xx.
+    let url_offre = format!("/inscriptions/offres/{}", offre.id);
+    for jeton in [&dir_b, &prof_a, &parent_a] {
+        for (m, c) in [("PUT", Some(offre_corps.clone())), ("DELETE", None)] {
+            let (st, _) = appel(&app, m, &url_offre, &[("authorization", jeton)], c).await;
+            assert!(!st.is_success(), "{m} offre : {st}");
+        }
+    }
+    // Ouverture, puis dépôt d'une démarche (fratrie) par la famille.
+    let (st, _) = appel(&app, "POST", &format!("/inscriptions/campagnes/{}/ouvrir", camp.id), &[("authorization", &dir_a)], None).await;
+    assert_eq!(st, StatusCode::OK);
+    let email = format!("i2-{}@exemple.test", Uuid::new_v4().simple());
+    let (st, corps) = appel(&app, "POST", "/preinscription/demarrer", &[], Some(json!({ "email": email, "etablissement_id": a.etablissement_id }))).await;
+    assert_eq!(st, StatusCode::ACCEPTED);
+    let demande: DemarrerDto = serde_json::from_str(&corps).unwrap();
+    let code = code_recu(&ent, &email);
+    let (st, corps) = appel(&app, "POST", "/preinscription/verifier", &[], Some(json!({ "demande_id": demande.demande_id, "code": code }))).await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+    let j: JetonPreinscriptionDto = serde_json::from_str(&corps).unwrap();
+    let h = [("x-preinscription", j.jeton.as_str())];
+    let dem_corps = json!({
+        "campagne_id": camp.id,
+        "enfants": [
+            { "eleve": { "nom": "Granger", "prenom": "Hermione", "niveau_demande": "6EME" }, "voeux": [offre.id] },
+            { "eleve": { "nom": "Granger", "prenom": "Crookshanks", "niveau_demande": "6EME" } }
+        ],
+        "responsable": { "nom": "Granger", "prenom": "Jean" }
+    });
+    let (st, _) = appel(&app, "POST", "/preinscription/demarches", &[], Some(dem_corps.clone())).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED, "sans jeton");
+    let (st, corps) = appel(&app, "POST", "/preinscription/demarches", &h, Some(dem_corps)).await;
+    assert_eq!(st, StatusCode::CREATED, "{corps}");
+    let dem: ent_types::inscriptions::DemarcheDto = serde_json::from_str(&corps).unwrap();
+    assert_eq!(dem.dossiers.len(), 2);
+    assert!(dem.dossiers.iter().all(|d| d.reference.starts_with("ADM-2027-")));
+    let (st, _) = appel(&app, "GET", &format!("/preinscription/demarches/{}", dem.id), &h, None).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _) = appel(&app, "GET", &format!("/preinscription/demarches/{}", dem.id), &[], None).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    let (st, _) = appel(&app, "GET", &format!("/preinscription/demarches/{}", Uuid::new_v4()), &h, None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+
+    // Décision par HTTP (offre à une place), puis dépassement sans confirmation : 409.
+    let d0 = dem.dossiers[0].id;
+    let d1 = dem.dossiers[1].id;
+    let (st, corps) = appel(&app, "POST", &format!("/inscriptions/dossiers/{d0}/decision"), &[("authorization", &dir_a)],
+        Some(json!({ "decision": "admis", "offre_id": offre.id }))).await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+    let (st, _) = appel(&app, "POST", &format!("/inscriptions/dossiers/{d1}/decision"), &[("authorization", &dir_a)],
+        Some(json!({ "decision": "admis", "offre_id": offre.id }))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "offre pleine");
+    let (_, corps) = appel(&app, "GET", &url_offres, &[("authorization", &dir_a)], None).await;
+    assert!(corps.contains("\"proposees\":1") && corps.contains("\"disponibles\":0"), "{corps}");
+
+    // Transition, blocage, annulation de validation, ne pas solliciter, prolongation, fermetures.
+    let id_b = |chemin: &str| format!("/inscriptions/dossiers/{d0}/{chemin}");
+    let corps_t = json!({ "action": "sans_suite", "motif": "Délai dépassé" });
+    let corps_blocage = json!({ "bloquer": true, "motif": "Désaccord déclaré" });
+    let corps_annul = json!({ "motif": "Erreur de saisie" });
+    let corps_nps = json!({ "rang": 2, "motif": "Ordonnance de protection" });
+    for (m, chemin, c) in [
+        ("POST", id_b("transition"), corps_t.clone()),
+        ("POST", id_b("blocage"), corps_blocage.clone()),
+        ("POST", id_b("annuler-validation"), corps_annul.clone()),
+        ("POST", id_b("ne-pas-solliciter"), corps_nps.clone()),
+        ("POST", format!("/inscriptions/campagnes/{}/prolonger", camp.id),
+            json!({ "objet": "cloture", "nouvelle_date": "2099-01-01", "motif_public": "Intempéries" })),
+        ("POST", format!("/inscriptions/campagnes/{}/statut", camp.id), json!({ "statut": "suspendue" })),
+        ("POST", "/inscriptions/fermetures".to_string(),
+            json!({ "date_debut": "2099-07-01", "date_fin": "2099-08-20", "motif_public": "Vacances" })),
+    ] {
+        // Sans session : 401. Famille, professeur : refusés. Autre établissement : jamais de 2xx.
+        let (st, _) = appel(&app, m, &chemin, &[], Some(c.clone())).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{chemin}");
+        // La création d'une fermeture n'a pas d'identifiant de A : la direction de B agit chez B.
+        let intrus: Vec<&String> = if chemin == "/inscriptions/fermetures" {
+            vec![&prof_a, &parent_a]
+        } else {
+            vec![&prof_a, &parent_a, &dir_b]
+        };
+        for jeton in intrus {
+            let (st, corps) = appel(&app, m, &chemin, &[("authorization", jeton)], Some(c.clone())).await;
+            assert!(!st.is_success(), "{chemin} : {st} {corps}");
+        }
+    }
+    let (st, _) = appel(&app, "GET", "/inscriptions/fermetures", &[("authorization", &parent_a)], None).await;
+    assert!(!st.is_success());
+    let (st, _) = appel(&app, "GET", "/inscriptions/fermetures", &[("authorization", &dir_b)], None).await;
+    assert_eq!(st, StatusCode::OK, "B lit ses propres fermetures (aucune)");
+    // Le personnel de A : blocage (secrétariat), transition de classement.
+    let (st, corps) = appel(&app, "POST", &id_b("blocage"), &[("authorization", &adm_a)], Some(corps_blocage)).await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+    let (st, _) = appel(&app, "POST", &id_b("transition"), &[("authorization", &adm_a)], Some(corps_t)).await;
+    assert_eq!(st, StatusCode::CONFLICT, "bloqué : aucune transition d'étape");
+    // « Ne pas solliciter » : le rang 1 (déposant) n'est pas marquable → 400 ; direction seulement.
+    let (st, _) = appel(&app, "POST", &id_b("ne-pas-solliciter"), &[("authorization", &adm_a)], Some(corps_nps.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &id_b("ne-pas-solliciter"), &[("authorization", &dir_a)], Some(json!({ "rang": 1, "motif": "Ordonnance" }))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    // Retrait par la famille d'un dossier bloqué : refusé ; d'un autre déposant : introuvable.
+    let (st, _) = appel(&app, "POST", &format!("/preinscription/dossiers/{d0}/retirer"), &h, None).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    let (st, corps) = appel(&app, "POST", &format!("/preinscription/dossiers/{d1}/retirer"), &h, None).await;
+    assert_eq!(st, StatusCode::OK, "{corps}");
+    let (st, _) = appel(&app, "POST", &format!("/preinscription/dossiers/{d1}/retirer"), &[("x-preinscription", "forge")], None).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+}

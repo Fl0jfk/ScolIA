@@ -105,6 +105,8 @@ pub mod scolarite;
 pub mod dossier_personnes;
 pub mod eleve_ports;
 pub mod inscriptions;
+pub mod inscriptions_etats;
+pub mod inscriptions_modele;
 pub mod inscriptions_reactions;
 pub mod imports;
 // Finances reliées (socle 2, lot S2-9).
@@ -298,6 +300,8 @@ mod tests_administratif_a1;
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
