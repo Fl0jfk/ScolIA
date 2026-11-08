@@ -217,6 +217,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_eleve_identite", "Identité"),
         ("ent_eleve_identifiant", "Identité"),
         ("ent_eleve_proposition", "Identité"),
+        ("ent_eleve_confidentialite", "Identité"),
         ("ent_eleve_lien", "Responsables et contacts"),
         ("ent_eleve_contact", "Responsables et contacts"),
         ("ent_eleve_interdiction", "Responsables et contacts"),
@@ -302,7 +303,9 @@ mod tests {
     #[test]
     fn domaines_lisibles_et_proteges() {
         assert_eq!(domaine_fusion("ent_note"), "Évaluations");
-        assert_eq!(domaine_fusion("ent_eleve_inscription"), "Inscriptions");
+        assert_eq!(domaine_fusion("ent_eleve_inscription"), "Scolarité");
+        // Les tables d'admission (campagnes, voeux) sont « Inscriptions » ; l'inscription annuelle de l'élève fait partie de sa scolarité.
+        assert_eq!(domaine_fusion("ent_voeu"), "Inscriptions");
         assert!(domaine_protege("ent_psy_entretien"));
         assert!(domaine_protege("ent_pai_signature"));
         assert!(domaine_protege("ent_fiche_sante"));
