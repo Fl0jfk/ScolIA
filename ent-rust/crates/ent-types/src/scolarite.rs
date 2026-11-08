@@ -181,6 +181,9 @@ pub struct InscriptionDto {
     pub redoublement: Option<bool>,
     pub decision_passage: Option<String>,
     pub source: String,
+    /// Libellé de l'année, fourni aux familles (le référentiel des années ne leur est pas ouvert).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub annee_libelle: Option<String>,
 }
 
 /// `GET /eleves/{id}/scolarite` : statut DÉRIVÉ (jamais saisi) et historique.

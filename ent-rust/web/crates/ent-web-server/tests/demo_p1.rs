@@ -401,6 +401,8 @@ async fn la_famille_lit_la_scolarite_de_son_enfant() {
         assert!(s.origine.uai.is_none() && s.origine.libelle.is_none());
     }
     assert!(famille_vue.inscriptions.iter().all(|i| i.decision_passage.is_none()));
+    // Le libellé de l'année est fourni (le référentiel des années n'est pas ouvert aux familles).
+    assert!(famille_vue.inscriptions.iter().all(|i| i.annee_libelle.is_some()));
 
     // L'INE vient de la fiche (groupe G3, ouvert aux familles pour leur enfant).
     let ine_famille = lily.fiche_dossier(harry).await.expect("fiche famille").ine;

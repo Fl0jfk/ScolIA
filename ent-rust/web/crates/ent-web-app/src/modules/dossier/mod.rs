@@ -293,6 +293,7 @@ fn ScolariteEleve(eleve_id: Uuid, date_entree: Option<chrono::NaiveDate>) -> imp
         let s = client.scolarite_eleve(eleve_id).await;
         // Libellés d'années : facultatif (le référentiel peut ne pas être ouvert à ce lecteur).
         let annees = match &s {
+            Ok(v) if v.inscriptions.iter().all(|i| i.annee_libelle.is_some()) => Vec::new(),
             Ok(_) => client
                 .annees_statut()
                 .await
@@ -333,7 +334,7 @@ fn ScolariteEleve(eleve_id: Uuid, date_entree: Option<chrono::NaiveDate>) -> imp
                             <ul class="ui-liste">
                                 {s.inscriptions.iter().map(|i| view! {
                                     <li class="ui-liste__element"><span class="ui-liste__principal">
-                                        {format!("{} · {}", libelle_annee(i.annee_id, &annees), libelle_etat_inscription(&i.etat))}
+                                        {format!("{} · {}", i.annee_libelle.as_ref().map(|l| format!("Année {l}")).unwrap_or_else(|| libelle_annee(i.annee_id, &annees)), libelle_etat_inscription(&i.etat))}
                                     </span></li>
                                 }).collect_view()}
                             </ul>

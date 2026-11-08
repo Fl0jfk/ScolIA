@@ -3416,6 +3416,7 @@ fn inscription_dto(i: &ent_db::scolarite::InscriptionEleve) -> ent_types::scolar
         redoublement: i.redoublement,
         decision_passage: i.decision_passage.clone(),
         source: i.source.clone(),
+        annee_libelle: None,
     }
 }
 
@@ -3439,8 +3440,9 @@ async fn scolarite_eleve(
 ) -> Result<Json<ent_types::scolarite::ScolariteDto>, (StatusCode, String)> {
     // Responsable légal (démo P1 n° 3) : lecture minimisée de la scolarité de SON enfant ;
     // les droits sont revérifiés dans le dépôt (lien actif, pas de « ne pas solliciter »).
+    let mut annees: Vec<(Uuid, String)> = Vec::new();
     let (statut, scol, insc) = if session.role_parsed() == Some(ent_auth::Role::Parent) {
-        state
+        let (statut, scol, insc, a) = state
             .ent
             .scolarite_pour_famille(session.etablissement_id, session.user_id, id)
             .await
@@ -3449,7 +3451,9 @@ async fn scolarite_eleve(
                     (StatusCode::FORBIDDEN, "la scolarité de cet élève ne vous est pas ouverte".to_string())
                 }
                 autre => map_db(autre),
-            })?
+            })?;
+        annees = a;
+        (statut, scol, insc)
     } else {
         session.require_staff()?;
         session
@@ -3464,7 +3468,14 @@ async fn scolarite_eleve(
     Ok(Json(ent_types::scolarite::ScolariteDto {
         statut,
         scolarisations: scol.iter().map(scolarisation_dto).collect(),
-        inscriptions: insc.iter().map(inscription_dto).collect(),
+        inscriptions: insc
+            .iter()
+            .map(|i| {
+                let mut d = inscription_dto(i);
+                d.annee_libelle = annees.iter().find(|(id, _)| *id == i.annee_id).map(|(_, l)| l.clone());
+                d
+            })
+            .collect(),
     }))
 }
 

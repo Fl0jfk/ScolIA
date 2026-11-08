@@ -1656,7 +1656,7 @@ impl PgEnt {
         etab: Uuid,
         parent: Uuid,
         eleve: Uuid,
-    ) -> Result<(String, Vec<ScolarisationEleve>, Vec<InscriptionEleve>), EntDbError> {
+    ) -> Result<(String, Vec<ScolarisationEleve>, Vec<InscriptionEleve>, Vec<(Uuid, String)>), EntDbError> {
         let mut conn = self.pool().acquire().await?;
         let lien: Option<(Uuid,)> = sqlx::query_as(
             "SELECT personne_id FROM ent_eleve_lien_actif
@@ -1706,7 +1706,15 @@ impl PgEnt {
         for i in &mut insc {
             i.decision_passage = None;
         }
-        Ok((statut, scol, insc))
+        let ids: Vec<Uuid> = insc.iter().map(|i| i.annee_id).collect();
+        let annees: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, libelle FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = ANY($2)",
+        )
+        .bind(etab)
+        .bind(&ids)
+        .fetch_all(&mut *conn)
+        .await?;
+        Ok((statut, scol, insc, annees))
     }
 
     /// Statut dérivé d'un élève à un jour (usage interne : autres domaines, socle 3).
