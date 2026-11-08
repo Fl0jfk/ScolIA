@@ -117,11 +117,13 @@ async fn exclusion_retire_l_eleve_du_public_a_partir_de_sa_date() {
     let t = today_utc();
     let (parti, reste) = (m.all[0], m.all[1]);
     assert!(suit(&ent, etab, m.prof_all, parti, t).await);
-    ent.cours_membre_ajouter(&a, m.s_all, parti, "exclusion", "echange", t, None).await.unwrap();
-    assert!(!suit(&ent, etab, m.prof_all, parti, t).await, "exclu à partir d'aujourd'hui");
-    assert!(suit(&ent, etab, m.prof_all, parti, t - Duration::days(1)).await, "visible avant : bulletin honnête");
-    assert!(suit(&ent, etab, m.prof_all, reste, t).await, "les autres membres restent");
-    let l = ent.mes_enseignements_for_actor(etab, m.prof_all, Role::Prof.as_str(), t).await.unwrap();
+    let depart = t + Duration::days(3);
+    ent.cours_membre_ajouter(&a, m.s_all, parti, "exclusion", "echange", depart, None).await.unwrap();
+    assert!(!suit(&ent, etab, m.prof_all, parti, depart).await, "exclu à partir de la date");
+    assert!(suit(&ent, etab, m.prof_all, parti, depart - Duration::days(1)).await, "visible avant : bulletin honnête");
+    assert!(suit(&ent, etab, m.prof_all, reste, depart).await, "les autres membres restent");
+    assert!(suit(&ent, etab, m.prof_all, parti, t).await, "pas encore exclu aujourd'hui");
+    let l = ent.mes_enseignements_for_actor(etab, m.prof_all, Role::Prof.as_str(), depart).await.unwrap();
     assert_eq!(l.iter().find(|e| e.service_id == m.s_all).unwrap().effectif, 1);
 
     // Cours de classe entière (professeur principal) : même règle.
@@ -177,7 +179,7 @@ async fn membres_garde_fous_de_saisie() {
     assert!(matches!(ent.cours_membres(&prof, m.s_all).await, Err(EntDbError::Forbidden)));
     // Événements publiés, sans motif.
     let (n,): (i64,) = sqlx::query_as(
-        "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type_name = 'referentiel.cours_membre_ajoute'
+        "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'referentiel.cours_membre_ajoute'
             AND payload::text NOT LIKE '%ulis%' AND payload::text NOT LIKE '%echange%'",
     )
     .bind(etab).fetch_one(ent.pool()).await.unwrap();
