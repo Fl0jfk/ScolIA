@@ -826,6 +826,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::finances::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
+    // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
+    let r = r.merge(crate::personnels::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
