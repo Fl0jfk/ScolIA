@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 5 — lots S0 et S1 (2026-11-08, branche `ent-socle-structure-s0-s1`, base `ent-integration-lot8b` 540d319)
+Correctifs de l'existant (S0) et objet unique « cours » avec règle de visibilité unique (S1) ; détail et limites : `docs/socles/05_STRUCTURE.md` §21. Migrations 330 et 331 (registre : `docs/socles/MIGRATIONS.md`), `MIGRATION_TAG` inchangé. **Niveau : implémenté + testé en local ; non validé CI ni Florian.** À valider par Florian : le cours = ligne de service enrichie (Q-S20) ; triggers de cohérence plutôt que clés composées ; ouverture d'année refusée sans `forcer` quand des périodes de notes sont ouvertes (écran à adapter).
+
 ## Intégration du lot 8 bis (2026-11-07, branche `ent-integration-lot8b`, base `ENT` d1326cd = lot 7 validé par la CI GitHub)
 Fusions git réelles (`--no-ff`), dans l'ordre : `ent-socle-eleve-e3-e4` (socle 2, E0 à E4 ; migrations 240, 280–286), `ent-socle-administratif-a1` (socle 4, A0, A0 bis, A1 ; 260–272), `ent-socle-inscriptions-i1` (socle 3, I1 ; 300–301), `ent-d022-bis-enseignements` (D-022 et D-022 bis, déjà porteuse de `ent-d022-portee-groupes` : intégrée une seule fois ; 370). Non fusionnées, pour un lot suivant : `ent-recette-personas-1`, `ent-socle1-revue-faibles`, `ent-mobile-app`. `MIGRATION_TAG` = `370_edt_creneau_groupe` ; liste de `migrate.rs` en ordre croissant, égale au répertoire `migrations/`, aucune collision.
 - **Conflits et résolutions** :
