@@ -313,6 +313,35 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
             lire("parametrage-eleve", "/eleves/parametrage", &[Admin], &[]),
             // Les écritures de paramétrage n'ont aucun identifiant d'un autre établissement :
             // elles agissent sur l'établissement de la session (testées à part, `eleve_propositions`).
+            // Socle 2 (E6) : doublons et fusion de fiches. Les listes sont réservées à
+            // `eleves.identite.modifier` / `eleves.fusionner` (Admin, Direction, Administratif
+            // pour les doublons ; Admin, Direction pour les fusions) ; toute écriture qui désigne
+            // un élève d'un autre établissement échoue sans rien révéler.
+            lire("doublons-liste", "/eleves/doublons", &[Admin, Direction, Administratif], &[]),
+            lire("fusions-liste", "/eleves/fusions", &[Admin, Direction], &[]),
+            Spec {
+                nom: "doublons-detecter",
+                methode: "POST",
+                chemin: "/eleves/doublons/detecter",
+                corps: None,
+                liee: &[Admin, Direction, Administratif],
+                non_liee: &[],
+                non_liee_vide: &[],
+                b: Attendu::EchecQuelconque,
+                seulement_b: false,
+                interdits: &[],
+                tolere: &[],
+            },
+            ecrire_sur_b("fusion-apercu-sur-B", "POST", "/eleves/fusions/apercu",
+                Some(r#"{"absorbe_id":"{eleve}","conserve_id":"00000000-0000-0000-0000-000000000001"}"#)),
+            ecrire_sur_b("fusion-sur-B", "POST", "/eleves/fusions",
+                Some(r#"{"absorbe_id":"{eleve}","conserve_id":"00000000-0000-0000-0000-000000000001","motif_code":"doublon_saisie"}"#)),
+            ecrire_sur_b("fusion-sur-B-sens-inverse", "POST", "/eleves/fusions",
+                Some(r#"{"absorbe_id":"00000000-0000-0000-0000-000000000001","conserve_id":"{eleve}","motif_code":"doublon_saisie"}"#)),
+            ecrire_sur_b("defusion-sur-B", "POST",
+                "/eleves/fusions/00000000-0000-0000-0000-000000000001/annuler", None),
+            ecrire_sur_b("non-doublon-sur-B", "POST", "/eleves/doublons/non-doublon",
+                Some(r#"{"eleve_a":"{eleve}","eleve_b":"00000000-0000-0000-0000-000000000001","motif_code":"jumeaux"}"#)),
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
             // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
             lire("scolarite", "/eleves/{eleve}/scolarite",

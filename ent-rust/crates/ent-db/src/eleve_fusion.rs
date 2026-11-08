@@ -421,7 +421,7 @@ async fn deplacer_table(
     }
     // Conflit quelque part dans la table : ligne par ligne.
     let cles: Vec<Value> = sqlx::query_scalar(&format!(
-        "SELECT {obj} FROM {table} t WHERE t.etablissement_id = $1 AND t.eleve_id = $2 ORDER BY 1::text",
+        "SELECT {obj} FROM {table} t WHERE t.etablissement_id = $1 AND t.eleve_id = $2 ORDER BY ({obj})::text",
         obj = objet_cle(t),
         table = t.table
     ))

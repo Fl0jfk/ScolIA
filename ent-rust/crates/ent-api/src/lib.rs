@@ -23,6 +23,7 @@ mod vie_scolaire;
 mod evaluations;
 mod communication_s28;
 mod eleve_propositions;
+mod eleve_fusion;
 mod sante;
 pub mod tenant;
 mod ui;

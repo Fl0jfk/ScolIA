@@ -5890,6 +5890,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         };
         if parsed.is_staff() {
+            // E6 (§7.10) : une fiche absorbée par une fusion redirige vers la fiche conservée ;
+            // les droits sont évalués sur la fiche qui répond.
+            let eleve_id = self.eleve_effectif(etablissement_id, eleve_id).await?;
             // E1 : l'annuaire (désignation) est une action du catalogue, avec sa portée.
             if !self
                 .autoriser_eleve(

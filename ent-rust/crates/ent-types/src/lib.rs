@@ -23,6 +23,7 @@ pub mod edt;
 pub mod edt_s2;
 pub mod evaluations;
 pub mod finances;
+pub mod fusion;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
