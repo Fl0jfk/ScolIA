@@ -3,6 +3,25 @@ use domain_eleve::{DomainError, Eleve, EleveStatus};
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
+/// Paramètres de [`PgEleveRepo::rechercher`] : tout ce que l'appelant a le droit de voir.
+pub(crate) struct ParamsRecherche<'a> {
+    pub etablissement_id: Uuid,
+    pub q: &'a str,
+    pub limit: i64,
+    /// Portée de l'annuaire (G0) : `None` = tout l'établissement.
+    pub designation: Option<&'a [Uuid]>,
+    /// État civil (G2) ouvert partout : le nom de naissance et les prénoms sont interrogeables.
+    pub civil: bool,
+    /// Scolarité (G1) ouverte partout : le début du numéro d'élève est interrogeable.
+    pub numero: bool,
+    /// Identifiants (G3) ouverts partout : INE et badge (valeur complète) interrogeables.
+    pub identifiants: bool,
+    /// G6 ouvert partout : les élèves en confidentialité renforcée sont visibles.
+    pub proteges_tous: bool,
+    /// Élèves protégés visibles par lien direct (portée restreinte) ou par G6 restreint.
+    pub proteges_ids: &'a [Uuid],
+}
+
 pub struct PgEleveRepo {
     pool: PgPool,
 }
@@ -120,6 +139,7 @@ impl PgEleveRepo {
                    date_entree, date_sortie, motif_sortie
             FROM ent_eleve
             WHERE etablissement_id = $1
+              AND fusionne_dans IS NULL
               AND (
                 lower(nom) LIKE $2 ESCAPE '\'
                 OR lower(prenom) LIKE $2 ESCAPE '\'
@@ -138,6 +158,134 @@ impl PgEleveRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
+    }
+
+    /// Recherche instantanée (ELV-20, lot E6) : tolérante aux accents, à la casse, aux traits
+    /// d'union et aux fautes (index trigramme sur `cle_recherche`, `unaccent`).
+    ///
+    /// **Aucune donnée n'est lue hors des droits de l'appelant** : la portée de l'annuaire, les
+    /// groupes interrogeables (état civil G2, numéro G1, identifiants G3) et la visibilité des
+    /// élèves protégés sont tous des conditions SQL — le tri et la limite s'appliquent donc
+    /// APRÈS le filtrage (un professeur qui a 30 élèves n'en voit pas 20 de moins parce que 50
+    /// autres élèves de l'établissement portent le même prénom).
+    ///
+    /// Chaque mot de la requête doit retrouver l'élève (nom, prénom, classe ; nom de naissance
+    /// et prénoms d'état civil seulement avec G2 partout). Un identifiant complet (INE, badge)
+    /// ou un début de numéro d'élève retrouve l'élève seulement avec les droits correspondants :
+    /// jamais de recherche par préfixe d'INE (pas d'énumération).
+    pub(crate) async fn rechercher(
+        conn: &mut PgConnection,
+        p: &ParamsRecherche<'_>,
+    ) -> Result<Vec<Eleve>, sqlx::Error> {
+        if p.q.contains('\0') {
+            return Err(sqlx::Error::Protocol("octet NUL dans la requête".into()));
+        }
+        // Normalisation par la MÊME fonction SQL que la clé stockée (aucune dérive possible).
+        let (cle,): (String,) = sqlx::query_as("SELECT ent_cle_recherche($1)")
+            .bind(p.q.chars().take(200).collect::<String>())
+            .fetch_one(&mut *conn)
+            .await?;
+        let tokens: Vec<String> = cle
+            .split_whitespace()
+            .take(5)
+            .map(|t| t.chars().take(40).collect())
+            .collect();
+        // Seuil de similarité des mots (fautes de frappe), local à la transaction.
+        sqlx::query("SELECT set_config('pg_trgm.word_similarity_threshold', '0.5', true)")
+            .execute(&mut *conn)
+            .await?;
+
+        let brut: String = p.q.trim().chars().take(40).collect();
+        let ident: String = brut
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_uppercase();
+        let ident_ok = p.identifiants && ident.chars().count() >= 4;
+        let numero: String = brut.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+        let numero_ok = p.numero && numero.chars().count() >= 4 && numero.chars().any(|c| c.is_ascii_digit());
+
+        let mut conds: Vec<String> = Vec::new();
+        let mut scores: Vec<String> = Vec::new();
+        for (i, t) in tokens.iter().enumerate() {
+            let n = 10 + i; // $10, $11… = jetons
+            let long = t.chars().count() >= 3;
+            let sim = t.chars().count() >= 4;
+            let mut c = String::from("(");
+            if long {
+                c += &format!("e.cle_recherche LIKE '%' || ${n} || '%'");
+            } else {
+                c += &format!("(' ' || e.cle_recherche) LIKE '% ' || ${n} || '%'");
+            }
+            if sim {
+                c += &format!(" OR ${n} <% e.cle_recherche");
+            }
+            c += &format!(" OR lower(coalesce(e.classe, '')) LIKE ${n} || '%'");
+            if p.civil {
+                if long {
+                    c += &format!(" OR e.cle_recherche_civil LIKE '%' || ${n} || '%'");
+                } else {
+                    c += &format!(" OR (' ' || e.cle_recherche_civil) LIKE '% ' || ${n} || '%'");
+                }
+                if sim {
+                    c += &format!(" OR ${n} <% e.cle_recherche_civil");
+                }
+            }
+            c += ")";
+            conds.push(c);
+            scores.push(format!(
+                "GREATEST(CASE WHEN (' ' || e.cle_recherche) LIKE '% ' || ${n} || '%' THEN 1.0 ELSE 0.0 END, \
+                          word_similarity(${n}, e.cle_recherche))"
+            ));
+        }
+        let noms = if conds.is_empty() { "TRUE".to_string() } else { conds.join(" AND ") };
+        // Requête vide : pas de classement par pertinence (un ORDER BY constant est refusé).
+        let ordre = if scores.is_empty() {
+            "e.nom, e.prenom, e.id".to_string()
+        } else {
+            format!("({}) DESC, e.nom, e.prenom, e.id", scores.join(" + "))
+        };
+        // Requête vide : annuaire alphabétique (comportement historique). Requête non vide :
+        // les mots, OU un identifiant complet / un début de numéro (si les droits l'ouvrent).
+        let critere = if tokens.is_empty() {
+            "TRUE".to_string()
+        } else {
+            format!(
+                "(({noms}) OR ($5 AND (upper(e.ine) = $6 OR upper(e.numero_badge) = $6)) \
+                   OR ($7 AND e.numero ILIKE $8 || '%'))"
+            )
+        };
+        let sql = format!(
+            "WITH j AS (SELECT ent_jour_etablissement($1) AS jour)
+             SELECT e.id, e.etablissement_id, e.nom, e.prenom, e.ine, e.sexe, e.date_naissance,
+                    e.numero_badge, e.redoublant, e.photo_key, e.status, e.classe, e.regime, e.mef,
+                    e.site, e.date_entree, e.date_sortie, e.motif_sortie
+               FROM ent_eleve e CROSS JOIN j
+              WHERE e.etablissement_id = $1
+                AND e.fusionne_dans IS NULL
+                AND ($2::uuid[] IS NULL OR e.id = ANY($2))
+                AND ($3 OR e.id = ANY($4) OR NOT EXISTS (
+                      SELECT 1 FROM ent_eleve_confidentialite c
+                       WHERE c.etablissement_id = e.etablissement_id AND c.eleve_id = e.id
+                         AND c.leve_le IS NULL AND c.du <= j.jour AND (c.au IS NULL OR c.au > j.jour)))
+                AND {critere}
+              ORDER BY {ordre}
+              LIMIT $9"
+        );
+        let mut q = sqlx::query_as::<_, EleveRow>(&sql)
+            .bind(p.etablissement_id)
+            .bind(p.designation.map(<[Uuid]>::to_vec))
+            .bind(p.proteges_tous)
+            .bind(p.proteges_ids.to_vec())
+            .bind(ident_ok)
+            .bind(ident)
+            .bind(numero_ok)
+            .bind(numero)
+            .bind(p.limit.clamp(1, 2000));
+        for t in &tokens {
+            q = q.bind(t.clone());
+        }
+        Ok(q.fetch_all(&mut *conn).await?.into_iter().map(EleveRow::into_eleve).collect())
     }
 
     /// Élèves d'un établissement par identifiants (ordre alphabétique).

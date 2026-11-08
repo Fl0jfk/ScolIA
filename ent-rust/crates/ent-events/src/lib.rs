@@ -23,6 +23,12 @@ pub mod types {
     pub const ELEVE_PROPOSITION_DECIDEE: &str = "eleve.proposition_decidee";
     /// Paramétrage des champs de l'élève modifié (ELV-26) : noms de champs, jamais de valeur.
     pub const PARAMETRAGE_ELEVE_MODIFIE: &str = "parametrage.eleve_modifie";
+    /// Fusion de deux fiches d'élèves et son annulation (ELV-23, ELV-24) : identifiants des deux
+    /// fiches et de la fusion, jamais une valeur d'identité.
+    pub const ELEVE_FUSIONNE: &str = "eleve.fusionne";
+    pub const ELEVE_DEFUSIONNE: &str = "eleve.defusionne";
+    /// Deux fiches déclarées distinctes (ELV-33) : identifiants et motif codé.
+    pub const ELEVE_NON_DOUBLON_DECLARE: &str = "eleve.non_doublon_declare";
     /// Réintégration d'un ancien élève sur sa fiche (ELV-12).
     pub const ELEVE_REINTEGRE: &str = "eleve.reintegre";
     /// Passage à la majorité (ELV-14, tâche nocturne) et sa veille de 30 jours (ELV-39).

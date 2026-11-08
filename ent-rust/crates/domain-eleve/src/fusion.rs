@@ -158,6 +158,98 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_vs_commission_dossier", &["id"]),
 ];
 
+/// Domaine métier d'une table, pour l'aperçu (libellé que le lecteur comprend, pas le nom
+/// technique) ; les domaines protégés sont regroupés pour ne rien révéler de plus que ce que
+/// l'acteur a le droit de savoir (voir [`domaine_protege`]).
+pub fn domaine_fusion(table: &str) -> &'static str {
+    const REGLES: &[(&str, &str)] = &[
+        ("ent_psy_", "Suivi et santé (protégé)"),
+        ("ent_fiche_sante", "Suivi et santé (protégé)"),
+        ("ent_pai", "Suivi et santé (protégé)"),
+        ("ent_infirmerie", "Suivi et santé (protégé)"),
+        ("ent_amenagement", "Suivi et santé (protégé)"),
+        ("ent_aesh", "Suivi et santé (protégé)"),
+        ("ent_eleve_dispositif", "Suivi et santé (protégé)"),
+        ("ent_absence", "Absences et retards"),
+        ("ent_appel", "Absences et retards"),
+        ("ent_retard", "Absences et retards"),
+        ("ent_signalement_assiduite", "Absences et retards"),
+        ("ent_alerte_cpe", "Absences et retards"),
+        ("ent_sortie", "Sorties"),
+        ("ent_note", "Évaluations"),
+        ("ent_competence", "Évaluations"),
+        ("ent_bulletin", "Évaluations"),
+        ("ent_bilan", "Évaluations"),
+        ("ent_orientation", "Évaluations"),
+        ("ent_conseil", "Évaluations"),
+        ("ent_travail", "Travail à faire"),
+        ("ent_sanction", "Discipline"),
+        ("ent_punition", "Discipline"),
+        ("ent_incident", "Discipline"),
+        ("ent_procedure", "Discipline"),
+        ("ent_dispense_vs", "Discipline"),
+        ("ent_carnet", "Carnet de liaison"),
+        ("ent_vs_", "Vie scolaire"),
+        ("ent_fac_", "Finances et restauration"),
+        ("ent_fin_", "Finances et restauration"),
+        ("ent_eleve_bourse", "Finances et restauration"),
+        ("ent_eleve_grille_repas", "Finances et restauration"),
+        ("ent_eleve_dispense_repas", "Finances et restauration"),
+        ("ent_repas", "Finances et restauration"),
+        ("ent_internat", "Internat"),
+        ("ent_msg", "Messages et notifications"),
+        ("ent_notification", "Messages et notifications"),
+        ("ent_mail", "Messages et notifications"),
+        ("ent_push", "Messages et notifications"),
+        ("ent_sms", "Messages et notifications"),
+        ("ent_campagne", "Messages et notifications"),
+        ("ent_formulaire", "Messages et notifications"),
+        ("ent_creneau_rdv", "Rencontres"),
+        ("ent_equipe_reunion", "Rencontres"),
+        ("ent_inscription", "Inscriptions"),
+        ("ent_voeu", "Inscriptions"),
+        ("ent_lien_attente", "Inscriptions"),
+        ("ent_import", "Inscriptions"),
+        ("ent_convention_stage", "Stages"),
+        ("ent_doc_a_signer", "Documents"),
+        ("ent_eleve_document", "Documents"),
+        ("ent_eleve_identite", "Identité"),
+        ("ent_eleve_identifiant", "Identité"),
+        ("ent_eleve_proposition", "Identité"),
+        ("ent_eleve_lien", "Responsables et contacts"),
+        ("ent_eleve_contact", "Responsables et contacts"),
+        ("ent_eleve_interdiction", "Responsables et contacts"),
+        ("ent_personne", "Responsables et contacts"),
+        ("ent_conflit_interet", "Responsables et contacts"),
+        ("ent_eleve_scolar", "Scolarité"),
+        ("ent_eleve_inscription", "Scolarité"),
+        ("ent_eleve_option", "Scolarité"),
+        ("ent_eleve_periode", "Scolarité"),
+        ("ent_eleve_mobilite", "Scolarité"),
+        ("ent_eleve_modalite", "Scolarité"),
+        ("ent_eleve_capacite", "Scolarité"),
+        ("ent_eleve_majorite", "Scolarité"),
+        ("ent_affectation", "Scolarité"),
+        ("ent_eleve_compte", "Compte de l'élève"),
+        ("ent_eleve_invitation", "Compte de l'élève"),
+        ("ent_info_comp", "Informations complémentaires"),
+        ("ent_eleve_orphelin", "Journal et événements"),
+        ("ent_journal", "Journal et événements"),
+        ("ent_metier_event", "Journal et événements"),
+        ("ent_contrainte", "Emploi du temps"),
+    ];
+    REGLES
+        .iter()
+        .find(|(prefixe, _)| table.starts_with(prefixe))
+        .map(|(_, d)| *d)
+        .unwrap_or("Autres données")
+}
+
+/// Domaine dont le détail ne se montre pas (santé, suivi) : l'aperçu n'en donne qu'un total.
+pub fn domaine_protege(table: &str) -> bool {
+    domaine_fusion(table) == "Suivi et santé (protégé)"
+}
+
 /// La déclaration d'une table du registre.
 pub fn table_eleve(nom: &str) -> Option<&'static TableEleve> {
     TABLES_ELEVE.iter().find(|t| t.table == nom)
@@ -204,6 +296,19 @@ mod tests {
         for t in ["ent_note", "ent_absence", "ent_eleve_inscription", "ent_eleve_identifiant"] {
             assert_eq!(table_eleve(t).unwrap().strategie, Strategie::Deplacer, "{t}");
         }
+    }
+
+    #[test]
+    fn domaines_lisibles_et_proteges() {
+        assert_eq!(domaine_fusion("ent_note"), "Évaluations");
+        assert_eq!(domaine_fusion("ent_eleve_inscription"), "Inscriptions");
+        assert!(domaine_protege("ent_psy_entretien"));
+        assert!(domaine_protege("ent_pai_signature"));
+        assert!(domaine_protege("ent_fiche_sante"));
+        assert!(!domaine_protege("ent_absence"));
+        // Toute table du registre a un domaine nommé (pas de « Autres données » par oubli).
+        let sans: Vec<_> = TABLES_ELEVE.iter().filter(|t| domaine_fusion(t.table) == "Autres données").map(|t| t.table).collect();
+        assert!(sans.is_empty(), "tables sans domaine : {sans:?}");
     }
 
     #[test]

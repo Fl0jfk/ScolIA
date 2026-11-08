@@ -230,7 +230,7 @@ pub use doublon::{
     RaisonDoublon, ScoreDoublon, SEUIL_DOUBLON,
 };
 pub use fusion::{
-    table_eleve, tables_a_deplacer, Strategie as StrategieFusion, TableEleve, DELAI_DEFUSION_JOURS,
+    domaine_fusion, domaine_protege, table_eleve, tables_a_deplacer, Strategie as StrategieFusion, TableEleve, DELAI_DEFUSION_JOURS,
     TABLES_ELEVE,
 };
 pub use homonyme::{
