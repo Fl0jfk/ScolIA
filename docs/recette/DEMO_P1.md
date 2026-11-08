@@ -19,6 +19,12 @@
 | D5 | **Aucune invitation après validation** : le serveur web ne démarrait pas la distribution de l'outbox que lance le `main` d'`ent-api`. | `routeur_complet_avec_taches()` (binaire seulement ; désactivable `ENT_OUTBOX_DISTRIBUTEUR=0`). | Capture 14 (invitation reçue puis acceptée). |
 | D6 | La fiche n'affichait ni **identité**, ni **scolarité**, ni **foyer** ; le lien s'affichait en code brut (`pere`). | Sections « Identité » (avec masquages expliqués) et « Scolarité » (statut dérivé, scolarisations, inscriptions annuelles avec l'année), foyer et libellé du lien dans le tableau. | Captures 15–17. |
 | D7 | Réserves déclarées invisibles à l'instruction ; campagne en brouillon affichée « À confirmer ». | Pastilles « À ne pas solliciter (à confirmer par la direction) » et « Adresse protégée » ; état « Brouillon » pour les campagnes. | Capture 06. |
+| D8 | **La famille ne lisait pas la scolarité de son enfant** (« ne vous est pas ouverte »), ni l'INE (RP2-22). | `GET /eleves/{id}/scolarite` accepte le responsable légal : lien **actif** et personne **non** « ne pas solliciter », sinon 403. Minimisation A1 : statut, dates et motif d'entrée, état des inscriptions annuelles ; jamais motif de sortie, exeat, établissements d'origine/destination, décision de passage. L'INE reste lu par la fiche (groupe G3 ouvert aux familles) ; `/identifiants` reste réservé au personnel. | Test `la_famille_lit_la_scolarite_de_son_enfant` (mère autorisée, autre famille, élève, « ne pas solliciter », lien suspendu puis rétabli). |
+| D9 | **La mention « ne pas solliciter » n'apparaissait pas sur la fiche** ni au tableau de bord. | Fiche du personnel qui lit les responsables : alerte « À ne pas solliciter » (déclaré, à confirmer / confirmé), sans référence ni adresse, **jamais** pour une famille. Accueil de la direction : tuile « Protections à confirmer » (droit `liens.suspendre`). | Test `admission_jusqu_a_la_fiche_et_cloisonnement` (direction et secrétariat voient la mention, à confirmer) et `la_famille_lit_la_scolarite…` (la mère ne voit rien, l'alerte-protection lui est refusée). |
+| D10 | Deux foyers « Foyer MARTIN » indiscernables. | Libellé suivi du prénom des responsables quand deux foyers portent le même nom : « Foyer MARTIN (Inès) / (Marc) ». | Test unitaire `deux_foyers_de_meme_nom_se_distinguent`. |
+| D11 | Messages mal accordés : « n'ouvre pas la identifiants », « l'données sensibles », « aucun note / option ». | Article choisi par groupe (`domain-eleve/champs.rs`), « aucune » pour le féminin. | Tests `messages_de_masquage_bien_accordes`, `aucun_s_accorde_avec_le_nom`. |
+| D12 | « Ouvrir / Fermer la campagne » sans confirmation ; « Accepter / Refuser » toujours affichés après décision. | Fenêtre de confirmation (dit l'effet pour les familles) ; plus de boutons une fois la pièce acceptée ou refusée (l'état reste affiché). | Test unitaire `pas_de_boutons_apres_decision_de_la_piece` ; rejeu navigateur (captures 02a, 07). |
+| D13 | Tableau des responsables : défilement horizontal à 375 px. | Cartes sous 600 px (`ui-tableau--cartes`, étiquettes `data-label`). | Captures 15b, 17b. |
 
 ---
 
@@ -63,14 +69,14 @@ Légende : ✅ joué et conforme · ⚠️ joué avec réserve (voir §4).
 
 1. **Propositions de la famille / du terrain** (étape 5) : route E5 inexistante.
 2. **Pièces : pas de vrai dépôt de fichier** (le nom est déclaré) ; pas de visionneuse pour l'instruction.
-3. **La famille ne voit pas sa « Scolarité »** (route refusée aux responsables : « ne vous est pas ouverte ») ni l'INE (RP2-22) ; la mère doit pouvoir lire la rentrée de son enfant.
-4. **La fiche du personnel n'affiche pas la mention « ne pas solliciter » du père** (visible seulement à l'instruction et à l'écran « Protections ») : prévoir une alerte sur la fiche et sur le tableau de bord de la direction.
-5. **Deux foyers de même libellé** (« Foyer MARTIN » pour la mère et le père séparé) : désambiguïser (foyer de la mère / du père).
+3. ~~La famille ne voit pas sa scolarité ni l'INE~~ **Fait** (D8) : la mère lit statut, rentrée et inscription annuelle ; l'INE vient de la fiche. Reste : le libellé d'année utilise le référentiel, qui peut ne pas être ouvert aux familles (alors « Année » sans libellé) — à vérifier à l'écran.
+4. ~~Alerte « ne pas solliciter » sur la fiche et au tableau de bord~~ **Fait** (D9).
+5. ~~Foyers de même libellé~~ **Fait** (D10).
 6. **Messagerie absente en labo** : codes, invitations et mot de passe simulés ; le message « un lien pour choisir votre mot de passe vous a été envoyé » est inexact en labo (RP2-21).
 7. **Année cible à préparer à la main** avant la validation pour voir la scolarisation (sinon elle attend) ; l'affectation en classe se fait ensuite (socle 5).
-8. **Tableau des responsables à 375 px** : défile horizontalement (lisible, pas encore en cartes) ; les captures « fullPage » montrent la barre de navigation mobile au milieu de la page (artefact de capture).
-9. **Gabarit des messages du serveur** : « n'ouvre pas l'données sensibles », « la identifiants » (accords à corriger côté `ent-api`) ; « aucun note / aucun option » dans les sections du dossier.
-10. **Pièces acceptées** : les boutons « Accepter / Refuser » restent affichés ; confirmation avant « Ouvrir / Fermer la campagne » et « Valider » à ajouter (INS : sensibles à confirmer) — la validation a désormais sa case de vérification.
+8. ~~Tableau des responsables à 375 px~~ **Fait** (D13). Les captures « fullPage » montrent toujours la barre de navigation mobile au milieu de la page (artefact de capture).
+9. ~~Accords des messages~~ **Fait** (D11).
+10. ~~Confirmation ouverture/fermeture, boutons de pièce~~ **Fait** (D12). La validation a sa case de vérification.
 11. **Rien d'accessible validé au lecteur d'écran** (clavier et 375 px regardés, pas axe-core ni lecteur d'écran) : les écrans ne sont donc pas déclarés « accessibles ».
 12. Restent ouverts de la recette 2 (hors écrans) : RP2-13 (correctifs de la recette 1 à fusionner), RP2-18, 19, 20, 24 (la mère doit-elle reconfirmer le lien ? ici le lien était actif directement).
 

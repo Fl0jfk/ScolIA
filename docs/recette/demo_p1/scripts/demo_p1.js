@@ -36,7 +36,9 @@ async function dossierOuvert(p) {
   await p.getByLabel('Pièces demandées').fill("livret ; Livret scolaire\ncni ; Pièce d'identité du responsable\nvaccins ; Carnet de vaccination ; facultative");
   await shot(p, '01-secretariat-nouvelle-campagne');
   await p.getByRole('button', { name: 'Créer la campagne' }).click(); await p.waitForTimeout(1500);
-  await p.getByRole('button', { name: 'Ouvrir' }).click(); await p.waitForTimeout(1500);
+  await p.getByRole('button', { name: 'Ouvrir', exact: true }).click(); await p.waitForTimeout(800);
+  await shot(p, '02a-secretariat-confirmation-ouverture'); // n° 10 : confirmation avant d'ouvrir
+  await p.getByRole('button', { name: 'Ouvrir la campagne' }).click(); await p.waitForTimeout(1500);
   await shot(p, '02-secretariat-campagne-ouverte'); await b.close();
 
   // ---- 2. Famille : préinscription -----------------------------------------------------------
@@ -72,8 +74,9 @@ async function dossierOuvert(p) {
   // ---- 3. Instruction, décision, validation ----------------------------------------------------
   ({ b, p } = await ouvrir()); await connecter(p, persona('administratif')); await dossierOuvert(p);
   await shot(p, '06-secretariat-instruction-reserves');
+  // n° 10 : après décision, les boutons de la pièce disparaissent ; la suivante devient la première.
   await p.getByRole('button', { name: 'Accepter' }).nth(0).click(); await p.waitForTimeout(1200);
-  await p.getByRole('button', { name: 'Accepter' }).nth(1).click(); await p.waitForTimeout(1200);
+  await p.getByRole('button', { name: 'Accepter' }).nth(0).click(); await p.waitForTimeout(1200);
   await p.getByRole('button', { name: 'Passer en instruction' }).click().catch(() => {}); await p.waitForTimeout(1200);
   await shot(p, '07-secretariat-pieces-acceptees'); await b.close();
 
@@ -86,6 +89,8 @@ async function dossierOuvert(p) {
   await shot(p, '09-direction-preparer-annee');
   await p.getByRole('button', { name: 'Préparer', exact: true }).click(); await p.waitForTimeout(2500);
   await shot(p, '10-direction-annee-preparee');
+  await p.goto(`${BASE}/web`, { waitUntil: 'networkidle' }); await p.waitForTimeout(3000);
+  await shot(p, '11a-direction-accueil-protections-a-confirmer'); // n° 4 : tableau de bord
   await p.goto(`${BASE}/web/direction/protections`, { waitUntil: 'networkidle' }); await p.waitForTimeout(2500);
   await shot(p, '11-direction-protections'); await b.close();
 
@@ -113,9 +118,10 @@ async function dossierOuvert(p) {
     await shot(o.p, nom); await o.b.close();
   };
   await fiche(MERE, rose, '15-mere-fiche-rose-pere-masque');
-  await fiche(MERE, rose, '15b-mere-fiche-rose-375px', true);
+  await fiche(MERE, rose, '15b-mere-fiche-rose-375px', true); // n° 3 (scolarité, INE) et n° 8 (cartes)
   await fiche(persona('direction'), rose, '16-direction-fiche-rose');
   await fiche(persona('administratif'), rose, '17-secretariat-fiche-rose');
+  await fiche(persona('administratif'), rose, '17b-secretariat-fiche-rose-375px', true);
   const prof5 = l.personnel.find(x => x.label === 'Prof 5').email;
   await fiche(prof5, rose, '18-prof-sans-classe-fiche-rose-refusee');
 
