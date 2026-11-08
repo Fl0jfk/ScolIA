@@ -55,6 +55,38 @@ impl PgEnt {
             .any(|r| Role::parse(r) == Some(parsed)))
     }
 
+    /// Passkey obligatoire pour **ce compte** dans cet établissement : la politique de
+    /// l'établissement pour le rôle, OU l'invitation qui a ouvert sa casquette personnel (socle 6,
+    /// P2 : D-009, « passkey obligatoire en première vague pour tous les comptes du personnel
+    /// invités »). Une session de casquette parent n'est pas concernée.
+    pub async fn passkey_obligatoire_compte(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<bool, EntDbError> {
+        if self.passkey_obligatoire(etablissement_id, role).await? {
+            return Ok(true);
+        }
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(false);
+        }
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id)
+            .await
+            .map_err(db)?;
+        let (requise,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_membership_casquette
+              WHERE user_id = $1 AND etablissement_id = $2 AND casquette = 'personnel'
+                AND passkey_requise AND etat = 'ouvert')",
+        )
+        .bind(user_id)
+        .bind(etablissement_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(requise)
+    }
+
     /// Fixe la politique : Admin ou Direction seulement ; rôles inconnus refusés.
     /// Journalisé (acteur réel).
     pub async fn definir_politique_securite_for_actor(

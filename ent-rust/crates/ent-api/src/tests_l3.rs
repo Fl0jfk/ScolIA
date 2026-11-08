@@ -348,7 +348,7 @@ async fn l3_reset_passkeys_hierarchie_acteur_reel_et_revocation() {
     assert_eq!(st, StatusCode::OK, "admin → direction");
 }
 
-async fn enroler(
+pub(crate) async fn enroler(
     app: &axum::Router,
     jeton: &str,
     mot_de_passe: Option<&str>,

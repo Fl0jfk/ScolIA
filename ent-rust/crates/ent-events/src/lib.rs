@@ -221,6 +221,13 @@ pub mod types {
     pub const PERSONNEL_PHOTO_MODIFIEE: &str = "personnel.photo_modifiee";
     pub const PERSONNEL_IDENTITE_RESTREINTE: &str = "personnel.identite_restreinte";
     pub const PERSONNEL_FUSIONNE: &str = "personnel.fusionne";
+    /// Socle 6, lot P2 : invitations, rattachement d'identité, arrivée, casquettes. Charges
+    /// utiles : identifiants et codes — jamais de jeton, d'adresse ni de nom.
+    pub const PERSONNEL_INVITE: &str = "personnel.invite";
+    pub const PERSONNEL_INVITATIONS_LOT: &str = "personnel.invitations_lot";
+    pub const PERSONNEL_ACCES_RATTACHE: &str = "personnel.acces_rattache";
+    pub const PERSONNEL_ARRIVE: &str = "personnel.arrive";
+    pub const SESSION_CASQUETTE_CHANGEE: &str = "session.casquette_changee";
     /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
     /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
     pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
