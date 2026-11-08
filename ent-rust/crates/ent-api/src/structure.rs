@@ -14,8 +14,9 @@ use ent_db::structure_etab::{
     ApercuPrereglage, JournalLigne, ParametreVue, Prereglage, Profil, ProfilSaisie,
 };
 use ent_db::structure_lieux::{
-    Batiment, Cible, Disponibilite, DisponibiliteSaisie, FiltreSalles, Indisponibilite, Lieu, LieuSaisie,
-    RapportImportSalles, RapportIndisponibilite, SalleDetail, SalleSaisie, SiteDetail, SiteModif,
+    Batiment, Cible, Disponibilite, DisponibiliteSaisie, FiltreSalles, Indisponibilite, Lieu,
+    LieuSaisie, RapportImportSalles, RapportIndisponibilite, SalleDetail, SalleSaisie, SiteDetail,
+    SiteModif,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -33,8 +34,14 @@ pub fn routes() -> Router<AppState> {
         .route("/structure/profil", get(profil).put(profil_definir))
         .route("/structure/fuseau", put(fuseau_definir))
         .route("/structure/prereglages", get(prereglages))
-        .route("/structure/prereglages/{code}/apercu", post(prereglage_apercu))
-        .route("/structure/prereglages/{code}/appliquer", post(prereglage_appliquer))
+        .route(
+            "/structure/prereglages/{code}/apercu",
+            post(prereglage_apercu),
+        )
+        .route(
+            "/structure/prereglages/{code}/appliquer",
+            post(prereglage_appliquer),
+        )
         .route("/structure/parametres", get(parametres))
         .route("/structure/parametres/{cle}", put(parametre_definir))
         .route("/structure/journal", get(journal))
@@ -52,19 +59,42 @@ pub fn routes() -> Router<AppState> {
         .route("/structure/salles/{id}", put(salle_modifier))
         .route("/structure/salles/{id}/fermer", post(salle_fermer))
         .route("/structure/salles/{id}/rattacher", post(salle_rattacher))
-        .route("/structure/salles/{id}/disponibilites", get(dispo_salle).post(dispo_salle_ajouter))
-        .route("/structure/lieux/{id}/disponibilites", get(dispo_lieu).post(dispo_lieu_ajouter))
-        .route("/structure/disponibilites/{id}/annuler", post(dispo_annuler))
-        .route("/structure/salles/{id}/indisponibilites", get(indispo_salle).post(indispo_salle_declarer))
-        .route("/structure/lieux/{id}/indisponibilites", get(indispo_lieu).post(indispo_lieu_declarer))
+        .route(
+            "/structure/salles/{id}/disponibilites",
+            get(dispo_salle).post(dispo_salle_ajouter),
+        )
+        .route(
+            "/structure/lieux/{id}/disponibilites",
+            get(dispo_lieu).post(dispo_lieu_ajouter),
+        )
+        .route(
+            "/structure/disponibilites/{id}/annuler",
+            post(dispo_annuler),
+        )
+        .route(
+            "/structure/salles/{id}/indisponibilites",
+            get(indispo_salle).post(indispo_salle_declarer),
+        )
+        .route(
+            "/structure/lieux/{id}/indisponibilites",
+            get(indispo_lieu).post(indispo_lieu_declarer),
+        )
         .route("/structure/indisponibilites/lot", post(indispo_lot))
-        .route("/structure/indisponibilites/{id}/annuler", post(indispo_annuler))
+        .route(
+            "/structure/indisponibilites/{id}/annuler",
+            post(indispo_annuler),
+        )
 }
 
 // ───── Profil, fuseau, préréglages, paramètres, journal ─────
 
 async fn profil(State(s): State<AppState>, session: EntSession) -> Res<Json<Option<Profil>>> {
-    Ok(Json(s.ent.structure_profil(&acteur(&session)).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_profil(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn profil_definir(
@@ -72,7 +102,12 @@ async fn profil_definir(
     session: EntSession,
     Json(b): Json<ProfilSaisie>,
 ) -> Res<Json<Profil>> {
-    Ok(Json(s.ent.structure_profil_definir(&acteur(&session), b).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_profil_definir(&acteur(&session), b)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -105,7 +140,12 @@ async fn prereglage_apercu(
     session: EntSession,
     Path(code): Path<String>,
 ) -> Res<Json<ApercuPrereglage>> {
-    Ok(Json(s.ent.structure_prereglage_appliquer(&acteur(&session), &code, true).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_prereglage_appliquer(&acteur(&session), &code, true)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn prereglage_appliquer(
@@ -113,11 +153,24 @@ async fn prereglage_appliquer(
     session: EntSession,
     Path(code): Path<String>,
 ) -> Res<Json<ApercuPrereglage>> {
-    Ok(Json(s.ent.structure_prereglage_appliquer(&acteur(&session), &code, false).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_prereglage_appliquer(&acteur(&session), &code, false)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
-async fn parametres(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<ParametreVue>>> {
-    Ok(Json(s.ent.structure_parametres(&acteur(&session)).await.map_err(map_db)?))
+async fn parametres(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<ParametreVue>>> {
+    Ok(Json(
+        s.ent
+            .structure_parametres(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -155,7 +208,12 @@ async fn journal(
 ) -> Res<Json<Vec<JournalLigne>>> {
     Ok(Json(
         s.ent
-            .structure_journal(&acteur(&session), &q.objet, q.objet_ref.as_deref(), q.limite.unwrap_or(100))
+            .structure_journal(
+                &acteur(&session),
+                &q.objet,
+                q.objet_ref.as_deref(),
+                q.limite.unwrap_or(100),
+            )
             .await
             .map_err(map_db)?,
     ))
@@ -164,7 +222,12 @@ async fn journal(
 // ───── Sites ─────
 
 async fn sites(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<SiteDetail>>> {
-    Ok(Json(s.ent.structure_sites(&acteur(&session)).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_sites(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn site_modifier(
@@ -173,7 +236,12 @@ async fn site_modifier(
     Path(id): Path<Uuid>,
     Json(b): Json<SiteModif>,
 ) -> Res<Json<SiteDetail>> {
-    Ok(Json(s.ent.structure_site_modifier(&acteur(&session), id, b).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_site_modifier(&acteur(&session), id, b)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,11 +255,25 @@ async fn site_fermer(
     Path(id): Path<Uuid>,
     Json(b): Json<FermerBody>,
 ) -> Res<Json<SiteDetail>> {
-    Ok(Json(s.ent.structure_site_fermer(&acteur(&session), id, b.ferme_le).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_site_fermer(&acteur(&session), id, b.ferme_le)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
-async fn site_rouvrir(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<SiteDetail>> {
-    Ok(Json(s.ent.structure_site_rouvrir(&acteur(&session), id).await.map_err(map_db)?))
+async fn site_rouvrir(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<SiteDetail>> {
+    Ok(Json(
+        s.ent
+            .structure_site_rouvrir(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 // ───── Bâtiments ─────
@@ -206,7 +288,12 @@ async fn batiments(
     session: EntSession,
     Query(q): Query<BatimentsQuery>,
 ) -> Res<Json<Vec<Batiment>>> {
-    Ok(Json(s.ent.structure_batiments(&acteur(&session), q.site_id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_batiments(&acteur(&session), q.site_id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -235,13 +322,23 @@ async fn batiment_fermer(
     Path(id): Path<Uuid>,
     Json(b): Json<FermerBody>,
 ) -> Res<Json<Batiment>> {
-    Ok(Json(s.ent.structure_batiment_fermer(&acteur(&session), id, b.ferme_le).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_batiment_fermer(&acteur(&session), id, b.ferme_le)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 // ───── Lieux extérieurs ─────
 
 async fn lieux(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<Lieu>>> {
-    Ok(Json(s.ent.structure_lieux(&acteur(&session)).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_lieux(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn lieu_creer(
@@ -249,7 +346,11 @@ async fn lieu_creer(
     session: EntSession,
     Json(b): Json<LieuSaisie>,
 ) -> Res<(StatusCode, Json<Lieu>)> {
-    let l = s.ent.structure_lieu_creer(&acteur(&session), b).await.map_err(map_db)?;
+    let l = s
+        .ent
+        .structure_lieu_creer(&acteur(&session), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(l)))
 }
 
@@ -259,7 +360,12 @@ async fn lieu_modifier(
     Path(id): Path<Uuid>,
     Json(b): Json<LieuSaisie>,
 ) -> Res<Json<Lieu>> {
-    Ok(Json(s.ent.structure_lieu_modifier(&acteur(&session), id, b).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_lieu_modifier(&acteur(&session), id, b)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn lieu_fermer(
@@ -268,7 +374,12 @@ async fn lieu_fermer(
     Path(id): Path<Uuid>,
     Json(b): Json<FermerBody>,
 ) -> Res<Json<Lieu>> {
-    Ok(Json(s.ent.structure_lieu_fermer(&acteur(&session), id, b.ferme_le).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_lieu_fermer(&acteur(&session), id, b.ferme_le)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 // ───── Salles ─────
@@ -278,7 +389,12 @@ async fn salles(
     session: EntSession,
     Query(f): Query<FiltreSalles>,
 ) -> Res<Json<Vec<SalleDetail>>> {
-    Ok(Json(s.ent.structure_salles(&acteur(&session), &f).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_salles(&acteur(&session), &f)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn salle_creer(
@@ -286,7 +402,11 @@ async fn salle_creer(
     session: EntSession,
     Json(b): Json<SalleSaisie>,
 ) -> Res<(StatusCode, Json<SalleDetail>)> {
-    let r = s.ent.structure_salle_creer(&acteur(&session), b).await.map_err(map_db)?;
+    let r = s
+        .ent
+        .structure_salle_creer(&acteur(&session), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(r)))
 }
 
@@ -296,7 +416,12 @@ async fn salle_modifier(
     Path(id): Path<Uuid>,
     Json(b): Json<SalleSaisie>,
 ) -> Res<Json<SalleDetail>> {
-    Ok(Json(s.ent.structure_salle_modifier(&acteur(&session), id, b).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_salle_modifier(&acteur(&session), id, b)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn salle_fermer(
@@ -305,7 +430,12 @@ async fn salle_fermer(
     Path(id): Path<Uuid>,
     Json(b): Json<FermerBody>,
 ) -> Res<Json<SalleDetail>> {
-    Ok(Json(s.ent.structure_salle_fermer(&acteur(&session), id, b.ferme_le).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_salle_fermer(&acteur(&session), id, b.ferme_le)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,7 +449,12 @@ async fn salle_rattacher(
     Path(id): Path<Uuid>,
     Json(b): Json<RattacherBody>,
 ) -> Res<Json<SalleDetail>> {
-    Ok(Json(s.ent.structure_salle_rattacher(&acteur(&session), id, b.site_id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_salle_rattacher(&acteur(&session), id, b.site_id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -339,17 +474,40 @@ async fn salles_importer(
     session: EntSession,
     Json(b): Json<ImportBody>,
 ) -> Res<Json<RapportImportSalles>> {
-    Ok(Json(s.ent.structure_salles_importer(&acteur(&session), &b.csv, b.apercu).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .structure_salles_importer(&acteur(&session), &b.csv, b.apercu)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 // ───── Disponibilités et indisponibilités ─────
 
-async fn dispo_salle(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<Disponibilite>>> {
-    Ok(Json(s.ent.structure_disponibilites(&acteur(&session), Cible::Salle(id)).await.map_err(map_db)?))
+async fn dispo_salle(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<Disponibilite>>> {
+    Ok(Json(
+        s.ent
+            .structure_disponibilites(&acteur(&session), Cible::Salle(id))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
-async fn dispo_lieu(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<Disponibilite>>> {
-    Ok(Json(s.ent.structure_disponibilites(&acteur(&session), Cible::Lieu(id)).await.map_err(map_db)?))
+async fn dispo_lieu(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<Disponibilite>>> {
+    Ok(Json(
+        s.ent
+            .structure_disponibilites(&acteur(&session), Cible::Lieu(id))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn dispo_salle_ajouter(
@@ -358,7 +516,11 @@ async fn dispo_salle_ajouter(
     Path(id): Path<Uuid>,
     Json(b): Json<DisponibiliteSaisie>,
 ) -> Res<(StatusCode, Json<Disponibilite>)> {
-    let d = s.ent.structure_disponibilite_ajouter(&acteur(&session), Cible::Salle(id), b).await.map_err(map_db)?;
+    let d = s
+        .ent
+        .structure_disponibilite_ajouter(&acteur(&session), Cible::Salle(id), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(d)))
 }
 
@@ -368,12 +530,23 @@ async fn dispo_lieu_ajouter(
     Path(id): Path<Uuid>,
     Json(b): Json<DisponibiliteSaisie>,
 ) -> Res<(StatusCode, Json<Disponibilite>)> {
-    let d = s.ent.structure_disponibilite_ajouter(&acteur(&session), Cible::Lieu(id), b).await.map_err(map_db)?;
+    let d = s
+        .ent
+        .structure_disponibilite_ajouter(&acteur(&session), Cible::Lieu(id), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(d)))
 }
 
-async fn dispo_annuler(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
-    s.ent.structure_disponibilite_annuler(&acteur(&session), id).await.map_err(map_db)?;
+async fn dispo_annuler(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    s.ent
+        .structure_disponibilite_annuler(&acteur(&session), id)
+        .await
+        .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -390,7 +563,11 @@ async fn indispo_salle(
 ) -> Res<Json<Vec<Indisponibilite>>> {
     Ok(Json(
         s.ent
-            .structure_indisponibilites(&acteur(&session), Cible::Salle(id), q.depuis.unwrap_or_else(Utc::now))
+            .structure_indisponibilites(
+                &acteur(&session),
+                Cible::Salle(id),
+                q.depuis.unwrap_or_else(Utc::now),
+            )
             .await
             .map_err(map_db)?,
     ))
@@ -404,7 +581,11 @@ async fn indispo_lieu(
 ) -> Res<Json<Vec<Indisponibilite>>> {
     Ok(Json(
         s.ent
-            .structure_indisponibilites(&acteur(&session), Cible::Lieu(id), q.depuis.unwrap_or_else(Utc::now))
+            .structure_indisponibilites(
+                &acteur(&session),
+                Cible::Lieu(id),
+                q.depuis.unwrap_or_else(Utc::now),
+            )
             .await
             .map_err(map_db)?,
     ))
@@ -426,7 +607,14 @@ async fn indispo_salle_declarer(
 ) -> Res<(StatusCode, Json<RapportIndisponibilite>)> {
     let r = s
         .ent
-        .structure_indisponibilite_declarer(&acteur(&session), Cible::Salle(id), b.du, b.au, &b.motif_code, b.motif.as_deref())
+        .structure_indisponibilite_declarer(
+            &acteur(&session),
+            Cible::Salle(id),
+            b.du,
+            b.au,
+            &b.motif_code,
+            b.motif.as_deref(),
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(r)))
@@ -440,7 +628,14 @@ async fn indispo_lieu_declarer(
 ) -> Res<(StatusCode, Json<RapportIndisponibilite>)> {
     let r = s
         .ent
-        .structure_indisponibilite_declarer(&acteur(&session), Cible::Lieu(id), b.du, b.au, &b.motif_code, b.motif.as_deref())
+        .structure_indisponibilite_declarer(
+            &acteur(&session),
+            Cible::Lieu(id),
+            b.du,
+            b.au,
+            &b.motif_code,
+            b.motif.as_deref(),
+        )
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(r)))
@@ -490,6 +685,10 @@ async fn indispo_annuler(
     body: Option<Json<AnnulerBody>>,
 ) -> Res<Json<Value>> {
     let tout = body.map(|b| b.0.tout_le_lot).unwrap_or(false);
-    let n = s.ent.structure_indisponibilite_annuler(&acteur(&session), id, tout).await.map_err(map_db)?;
+    let n = s
+        .ent
+        .structure_indisponibilite_annuler(&acteur(&session), id, tout)
+        .await
+        .map_err(map_db)?;
     Ok(Json(serde_json::json!({ "annulees": n })))
 }

@@ -7619,11 +7619,20 @@ async fn explorer_param_salles(
     r.geste("Rogue lit seuil_absences=4");
 
     // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
-    sqlx::query("INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES (gen_random_uuid(), $1, 'principal', 'Site principal') ON CONFLICT DO NOTHING")
-        .bind(cast.etablissement_id)
-        .execute(ent.pool())
-        .await
-        .map_err(|e| e.to_string())?;
+    // Déjà présent d'un scénario précédent : le conflit est attendu et ignoré.
+    let _ = ent
+        .ref_creer_site(
+            &ent_db::Acteur {
+                etablissement_id: cast.etablissement_id,
+                user_id: cast.administratif.user_id,
+                role: Role::Administratif.as_str(),
+            },
+            "principal",
+            "Site principal",
+            None,
+            None,
+        )
+        .await;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),
@@ -8011,11 +8020,20 @@ async fn explorer_edt_affectation_editions(
     let admini = cast.administratifs[0].user_id;
 
     // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
-    sqlx::query("INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES (gen_random_uuid(), $1, 'principal', 'Site principal') ON CONFLICT DO NOTHING")
-        .bind(cast.etablissement_id)
-        .execute(ent.pool())
-        .await
-        .map_err(|e| e.to_string())?;
+    // Déjà présent d'un scénario précédent : le conflit est attendu et ignoré.
+    let _ = ent
+        .ref_creer_site(
+            &ent_db::Acteur {
+                etablissement_id: cast.etablissement_id,
+                user_id: cast.administratif.user_id,
+                role: Role::Administratif.as_str(),
+            },
+            "principal",
+            "Site principal",
+            None,
+            None,
+        )
+        .await;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),

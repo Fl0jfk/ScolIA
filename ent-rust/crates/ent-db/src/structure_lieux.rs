@@ -38,7 +38,14 @@ pub const TYPES_SALLE: [&str; 11] = [
     "exterieur",
     "autre",
 ];
-pub const MOTIFS_INDISPO: [&str; 6] = ["travaux", "evenement", "examen", "requisition", "securite", "autre"];
+pub const MOTIFS_INDISPO: [&str; 6] = [
+    "travaux",
+    "evenement",
+    "examen",
+    "requisition",
+    "securite",
+    "autre",
+];
 const MODES_TRAJET: [&str; 4] = ["pied", "car", "transport_commun", "autre"];
 
 /// Lignes maximales et taille maximale d'un import de salles (borne d'abus).
@@ -46,7 +53,9 @@ pub const IMPORT_LIGNES_MAX: usize = 2000;
 pub const IMPORT_OCTETS_MAX: usize = 512 * 1024;
 
 async fn tx(e: &PgEnt, a: &Acteur<'_>) -> Result<TenantTx<'static>, EntDbError> {
-    TenantTx::begin(e.pool(), a.etablissement_id).await.map_err(db)
+    TenantTx::begin(e.pool(), a.etablissement_id)
+        .await
+        .map_err(db)
 }
 
 // ───────────────────────── Sites (STR-05) ─────────────────────────
@@ -95,14 +104,20 @@ async fn fuseau_connu(conn: &mut PgConnection, f: &str) -> bool {
         .is_ok()
 }
 
-async fn lire_site(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<SiteDetail, EntDbError> {
-    sqlx::query_as::<_, SiteDetail>(&format!("{SQL_SITE} WHERE s.etablissement_id = $1 AND s.id = $2"))
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(conn)
-        .await
-        .map_err(db)?
-        .ok_or_else(introuvable)
+async fn lire_site(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<SiteDetail, EntDbError> {
+    sqlx::query_as::<_, SiteDetail>(&format!(
+        "{SQL_SITE} WHERE s.etablissement_id = $1 AND s.id = $2"
+    ))
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?
+    .ok_or_else(introuvable)
 }
 
 fn json_site(s: &SiteDetail) -> Value {
@@ -114,11 +129,13 @@ impl PgEnt {
     pub async fn structure_sites(&self, a: &Acteur<'_>) -> Result<Vec<SiteDetail>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
-        let rows = sqlx::query_as::<_, SiteDetail>(&format!("{SQL_SITE} WHERE s.etablissement_id = $1 ORDER BY s.code"))
-            .bind(a.etablissement_id)
-            .fetch_all(&mut *t)
-            .await
-            .map_err(db)?;
+        let rows = sqlx::query_as::<_, SiteDetail>(&format!(
+            "{SQL_SITE} WHERE s.etablissement_id = $1 ORDER BY s.code"
+        ))
+        .bind(a.etablissement_id)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
         t.commit().await.map_err(db)?;
         Ok(rows)
     }
@@ -132,13 +149,21 @@ impl PgEnt {
     ) -> Result<SiteDetail, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let libelle = m.libelle.as_deref().map(|l| requis(l, 120)).transpose()?;
-        let adresse = m.adresse.as_deref().map(|v| net(Some(v), 400)).transpose()?;
+        let adresse = m
+            .adresse
+            .as_deref()
+            .map(|v| net(Some(v), 400))
+            .transpose()?;
         let uai = m
             .uai
             .as_deref()
             .map(|v| net(Some(v), 8).map(|o| o.map(|u| u.to_ascii_uppercase())))
             .transpose()?;
-        if uai.as_ref().and_then(|o| o.as_deref()).is_some_and(|u| !uai_valide(u)) {
+        if uai
+            .as_ref()
+            .and_then(|o| o.as_deref())
+            .is_some_and(|u| !uai_valide(u))
+        {
             return Err(invalide());
         }
         let degres = match &m.degres {
@@ -146,15 +171,29 @@ impl PgEnt {
                 if d.iter().any(|x| !DEGRES.contains(&x.as_str())) {
                     return Err(invalide());
                 }
-                Some(d.iter().cloned().collect::<HashSet<_>>().into_iter().collect::<Vec<_>>())
+                Some(
+                    d.iter()
+                        .cloned()
+                        .collect::<HashSet<_>>()
+                        .into_iter()
+                        .collect::<Vec<_>>(),
+                )
             }
             None => None,
         };
         let couleur = m.couleur.as_deref().map(|v| net(Some(v), 7)).transpose()?;
-        if couleur.as_ref().and_then(|o| o.as_deref()).is_some_and(|c| !couleur_valide(c)) {
+        if couleur
+            .as_ref()
+            .and_then(|o| o.as_deref())
+            .is_some_and(|c| !couleur_valide(c))
+        {
             return Err(invalide());
         }
-        let fuseau = m.fuseau_horaire.as_deref().map(|v| net(Some(v), 64)).transpose()?;
+        let fuseau = m
+            .fuseau_horaire
+            .as_deref()
+            .map(|v| net(Some(v), 64))
+            .transpose()?;
         let mut t = tx(self, a).await?;
         if let Some(Some(f)) = &fuseau {
             if !fuseau_connu(&mut t, f).await {
@@ -188,9 +227,24 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let apres = lire_site(&mut t, a.etablissement_id, site_id).await?;
-        journaliser(&mut t, a, "site", &site_id.to_string(), "modifie", Some(json_site(&avant)), Some(json_site(&apres)))
-            .await?;
-        let ev = publier(&mut t, a, "referentiel.site_modifie", site_id, json!({ "code": apres.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "site",
+            &site_id.to_string(),
+            "modifie",
+            Some(json_site(&avant)),
+            Some(json_site(&apres)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.site_modifie",
+            site_id,
+            json!({ "code": apres.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
@@ -236,16 +290,35 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let apres = lire_site(&mut t, a.etablissement_id, site_id).await?;
-        journaliser(&mut t, a, "site", &site_id.to_string(), "ferme", Some(json_site(&avant)), Some(json_site(&apres)))
-            .await?;
-        let ev = publier(&mut t, a, "referentiel.site_ferme", site_id, json!({ "code": apres.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "site",
+            &site_id.to_string(),
+            "ferme",
+            Some(json_site(&avant)),
+            Some(json_site(&apres)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.site_ferme",
+            site_id,
+            json!({ "code": apres.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
     }
 
     /// Rouvre un site fermé (correction d'une fermeture saisie par erreur).
-    pub async fn structure_site_rouvrir(&self, a: &Acteur<'_>, site_id: Uuid) -> Result<SiteDetail, EntDbError> {
+    pub async fn structure_site_rouvrir(
+        &self,
+        a: &Acteur<'_>,
+        site_id: Uuid,
+    ) -> Result<SiteDetail, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let mut t = tx(self, a).await?;
         let avant = lire_site(&mut t, a.etablissement_id, site_id).await?;
@@ -259,8 +332,16 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let apres = lire_site(&mut t, a.etablissement_id, site_id).await?;
-        journaliser(&mut t, a, "site", &site_id.to_string(), "rouvert", Some(json_site(&avant)), Some(json_site(&apres)))
-            .await?;
+        journaliser(
+            &mut t,
+            a,
+            "site",
+            &site_id.to_string(),
+            "rouvert",
+            Some(json_site(&avant)),
+            Some(json_site(&apres)),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         Ok(apres)
     }
@@ -278,7 +359,11 @@ pub struct Batiment {
 }
 
 impl PgEnt {
-    pub async fn structure_batiments(&self, a: &Acteur<'_>, site_id: Option<Uuid>) -> Result<Vec<Batiment>, EntDbError> {
+    pub async fn structure_batiments(
+        &self,
+        a: &Acteur<'_>,
+        site_id: Option<Uuid>,
+    ) -> Result<Vec<Batiment>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
         let rows = sqlx::query_as::<_, Batiment>(
@@ -302,7 +387,10 @@ impl PgEnt {
         libelle: &str,
     ) -> Result<Batiment, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let (code, libelle) = (requis(code, 40)?.to_ascii_uppercase(), requis(libelle, 120)?);
+        let (code, libelle) = (
+            requis(code, 40)?.to_ascii_uppercase(),
+            requis(libelle, 120)?,
+        );
         let mut t = tx(self, a).await?;
         let site = lire_site(&mut t, a.etablissement_id, site_id).await?;
         if site.ferme_le.is_some() {
@@ -321,9 +409,24 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, "batiment", &b.id.to_string(), "cree", None, Some(json!({ "site": site.code, "code": b.code })))
-            .await?;
-        let ev = publier(&mut t, a, "referentiel.batiment_cree", b.id, json!({ "code": b.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "batiment",
+            &b.id.to_string(),
+            "cree",
+            None,
+            Some(json!({ "site": site.code, "code": b.code })),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.batiment_cree",
+            b.id,
+            json!({ "code": b.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(b)
@@ -360,8 +463,24 @@ impl PgEnt {
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
-        journaliser(&mut t, a, "batiment", &id.to_string(), "ferme", None, Some(json!({ "ferme_le": b.ferme_le }))).await?;
-        let ev = publier(&mut t, a, "referentiel.batiment_ferme", id, json!({ "code": b.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "batiment",
+            &id.to_string(),
+            "ferme",
+            None,
+            Some(json!({ "ferme_le": b.ferme_le })),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.batiment_ferme",
+            id,
+            json!({ "code": b.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(b)
@@ -383,7 +502,8 @@ pub struct Lieu {
     pub ferme_le: Option<NaiveDate>,
 }
 
-const SQL_LIEU: &str = "SELECT id, code, libelle, adresse, proprietaire, convention_document_id, trajet_minutes,
+const SQL_LIEU: &str =
+    "SELECT id, code, libelle, adresse, proprietaire, convention_document_id, trajet_minutes,
         mode_trajet, ferme_le FROM ent_lieu";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -402,7 +522,15 @@ fn json_lieu(l: &Lieu) -> Value {
             "trajet_minutes": l.trajet_minutes, "mode_trajet": l.mode_trajet, "ferme_le": l.ferme_le })
 }
 
-fn valider_lieu(s: &LieuSaisie) -> Result<(String, String, Option<String>, Option<String>, Option<String>), EntDbError> {
+type LieuValide = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn valider_lieu(s: &LieuSaisie) -> Result<LieuValide, EntDbError> {
     if s.trajet_minutes.is_some_and(|m| !(0..=240).contains(&m)) {
         return Err(invalide());
     }
@@ -423,26 +551,32 @@ impl PgEnt {
     pub async fn structure_lieux(&self, a: &Acteur<'_>) -> Result<Vec<Lieu>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
-        let rows = sqlx::query_as::<_, Lieu>(&format!("{SQL_LIEU} WHERE etablissement_id = $1 ORDER BY code"))
-            .bind(a.etablissement_id)
-            .fetch_all(&mut *t)
-            .await
-            .map_err(db)?;
+        let rows = sqlx::query_as::<_, Lieu>(&format!(
+            "{SQL_LIEU} WHERE etablissement_id = $1 ORDER BY code"
+        ))
+        .bind(a.etablissement_id)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
         t.commit().await.map_err(db)?;
         Ok(rows)
     }
 
-    pub async fn structure_lieu_creer(&self, a: &Acteur<'_>, s: LieuSaisie) -> Result<Lieu, EntDbError> {
+    pub async fn structure_lieu_creer(
+        &self,
+        a: &Acteur<'_>,
+        s: LieuSaisie,
+    ) -> Result<Lieu, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let (code, libelle, adresse, proprio, mode) = valider_lieu(&s)?;
         let mut t = tx(self, a).await?;
-        let l = sqlx::query_as::<_, Lieu>(&format!(
+        let l = sqlx::query_as::<_, Lieu>(
             "INSERT INTO ent_lieu (id, etablissement_id, code, libelle, adresse, proprietaire,
                     convention_document_id, trajet_minutes, mode_trajet, created_by)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
              RETURNING id, code, libelle, adresse, proprietaire, convention_document_id, trajet_minutes,
-                       mode_trajet, ferme_le"
-        ))
+                       mode_trajet, ferme_le",
+        )
         .bind(Uuid::new_v4())
         .bind(a.etablissement_id)
         .bind(&code)
@@ -456,25 +590,48 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, "lieu", &l.id.to_string(), "cree", None, Some(json_lieu(&l))).await?;
-        let ev = publier(&mut t, a, "referentiel.lieu_cree", l.id, json!({ "code": l.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "lieu",
+            &l.id.to_string(),
+            "cree",
+            None,
+            Some(json_lieu(&l)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.lieu_cree",
+            l.id,
+            json!({ "code": l.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(l)
     }
 
     /// Remplace les champs d'un lieu (le code ne change pas : il identifie le lieu dans les imports).
-    pub async fn structure_lieu_modifier(&self, a: &Acteur<'_>, id: Uuid, s: LieuSaisie) -> Result<Lieu, EntDbError> {
+    pub async fn structure_lieu_modifier(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        s: LieuSaisie,
+    ) -> Result<Lieu, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let (code, libelle, adresse, proprio, mode) = valider_lieu(&s)?;
         let mut t = tx(self, a).await?;
-        let avant = sqlx::query_as::<_, Lieu>(&format!("{SQL_LIEU} WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"))
-            .bind(a.etablissement_id)
-            .bind(id)
-            .fetch_optional(&mut *t)
-            .await
-            .map_err(db)?
-            .ok_or_else(introuvable)?;
+        let avant = sqlx::query_as::<_, Lieu>(&format!(
+            "{SQL_LIEU} WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+        ))
+        .bind(a.etablissement_id)
+        .bind(id)
+        .fetch_optional(&mut *t)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
         if avant.code != code {
             return Err(invalide());
         }
@@ -496,15 +653,36 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, "lieu", &id.to_string(), "modifie", Some(json_lieu(&avant)), Some(json_lieu(&l))).await?;
-        let ev = publier(&mut t, a, "referentiel.lieu_modifie", id, json!({ "code": l.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "lieu",
+            &id.to_string(),
+            "modifie",
+            Some(json_lieu(&avant)),
+            Some(json_lieu(&l)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.lieu_modifie",
+            id,
+            json!({ "code": l.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(l)
     }
 
     /// Ferme un lieu ; refusé s'il reste des salles ouvertes qui en dépendent.
-    pub async fn structure_lieu_fermer(&self, a: &Acteur<'_>, id: Uuid, ferme_le: NaiveDate) -> Result<Lieu, EntDbError> {
+    pub async fn structure_lieu_fermer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        ferme_le: NaiveDate,
+    ) -> Result<Lieu, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let mut t = tx(self, a).await?;
         let ouvertes: i64 = sqlx::query_scalar(
@@ -530,8 +708,24 @@ impl PgEnt {
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
-        journaliser(&mut t, a, "lieu", &id.to_string(), "ferme", None, Some(json!({ "ferme_le": l.ferme_le }))).await?;
-        let ev = publier(&mut t, a, "referentiel.lieu_ferme", id, json!({ "code": l.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "lieu",
+            &id.to_string(),
+            "ferme",
+            None,
+            Some(json!({ "ferme_le": l.ferme_le })),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.lieu_ferme",
+            id,
+            json!({ "code": l.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(l)
@@ -605,7 +799,9 @@ struct SalleValide {
 
 fn valider_salle(s: &SalleSaisie) -> Result<SalleValide, EntDbError> {
     let type_salle = s.type_salle.trim().to_string();
-    if !TYPES_SALLE.contains(&type_salle.as_str()) || s.capacite.is_some_and(|c| !(0..=500).contains(&c)) {
+    if !TYPES_SALLE.contains(&type_salle.as_str())
+        || s.capacite.is_some_and(|c| !(0..=500).contains(&c))
+    {
         return Err(invalide());
     }
     // Un lieu extérieur n'accueille que des salles « exterieur ».
@@ -639,14 +835,20 @@ fn json_salle(s: &SalleDetail) -> Value {
             "ferme_le": s.ferme_le })
 }
 
-async fn lire_salle(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<SalleDetail, EntDbError> {
-    sqlx::query_as::<_, SalleDetail>(&format!("{SQL_SALLE} WHERE r.etablissement_id = $1 AND r.id = $2"))
-        .bind(etab)
-        .bind(id)
-        .fetch_optional(conn)
-        .await
-        .map_err(db)?
-        .ok_or_else(introuvable)
+async fn lire_salle(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<SalleDetail, EntDbError> {
+    sqlx::query_as::<_, SalleDetail>(&format!(
+        "{SQL_SALLE} WHERE r.etablissement_id = $1 AND r.id = $2"
+    ))
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?
+    .ok_or_else(introuvable)
 }
 
 /// Le site existe dans l'établissement et est ouvert ; le bâtiment est de ce site et ouvert ; le
@@ -687,13 +889,14 @@ async fn verifier_rattachements(
         }
     }
     if let Some(l) = lieu_id {
-        let r: Option<Option<NaiveDate>> =
-            sqlx::query_scalar("SELECT ferme_le FROM ent_lieu WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(l)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(db)?;
+        let r: Option<Option<NaiveDate>> = sqlx::query_scalar(
+            "SELECT ferme_le FROM ent_lieu WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(l)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
         match r {
             None => return Err(introuvable()),
             Some(Some(_)) => return Err(conflit()),
@@ -711,7 +914,11 @@ pub struct FiltreSalles {
 }
 
 impl PgEnt {
-    pub async fn structure_salles(&self, a: &Acteur<'_>, f: &FiltreSalles) -> Result<Vec<SalleDetail>, EntDbError> {
+    pub async fn structure_salles(
+        &self,
+        a: &Acteur<'_>,
+        f: &FiltreSalles,
+    ) -> Result<Vec<SalleDetail>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
         let rows = sqlx::query_as::<_, SalleDetail>(&format!(
@@ -729,17 +936,32 @@ impl PgEnt {
     }
 
     /// STR-07 : crée une salle typée, liée à un site existant de l'établissement.
-    pub async fn structure_salle_creer(&self, a: &Acteur<'_>, s: SalleSaisie) -> Result<SalleDetail, EntDbError> {
+    pub async fn structure_salle_creer(
+        &self,
+        a: &Acteur<'_>,
+        s: SalleSaisie,
+    ) -> Result<SalleDetail, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let v = valider_salle(&s)?;
         let mut t = tx(self, a).await?;
-        verifier_rattachements(&mut t, a.etablissement_id, s.site_id, s.batiment_id, s.lieu_id).await?;
+        verifier_rattachements(
+            &mut t,
+            a.etablissement_id,
+            s.site_id,
+            s.batiment_id,
+            s.lieu_id,
+        )
+        .await?;
         let reservable = match s.reservable {
             Some(r) => r,
-            None => structure::parametre(&mut t, a.etablissement_id, "structure.salles_reservables_par_defaut")
-                .await?
-                .as_bool()
-                .unwrap_or(false),
+            None => structure::parametre(
+                &mut t,
+                a.etablissement_id,
+                "structure.salles_reservables_par_defaut",
+            )
+            .await?
+            .as_bool()
+            .unwrap_or(false),
         };
         let id = Uuid::new_v4();
         sqlx::query(
@@ -768,9 +990,24 @@ impl PgEnt {
             e => db(e),
         })?;
         let apres = lire_salle(&mut t, a.etablissement_id, id).await?;
-        journaliser(&mut t, a, "salle", &id.to_string(), "cree", None, Some(json_salle(&apres))).await?;
-        let ev = publier(&mut t, a, "referentiel.salle_creee", id, json!({ "code": apres.code, "type": apres.type_salle }))
-            .await?;
+        journaliser(
+            &mut t,
+            a,
+            "salle",
+            &id.to_string(),
+            "cree",
+            None,
+            Some(json_salle(&apres)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.salle_creee",
+            id,
+            json!({ "code": apres.code, "type": apres.type_salle }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
@@ -793,8 +1030,18 @@ impl PgEnt {
         }
         // Ne revérifie l'ouverture que des rattachements qui changent : une salle peut garder
         // un site/bâtiment fermé depuis (elle est alors elle-même à fermer).
-        if avant.site_id != Some(s.site_id) || avant.batiment_id != s.batiment_id || avant.lieu_id != s.lieu_id {
-            verifier_rattachements(&mut t, a.etablissement_id, s.site_id, s.batiment_id, s.lieu_id).await?;
+        if avant.site_id != Some(s.site_id)
+            || avant.batiment_id != s.batiment_id
+            || avant.lieu_id != s.lieu_id
+        {
+            verifier_rattachements(
+                &mut t,
+                a.etablissement_id,
+                s.site_id,
+                s.batiment_id,
+                s.lieu_id,
+            )
+            .await?;
         }
         sqlx::query(
             "UPDATE ent_salle SET libelle = $3, capacite = $4, site_id = $5, batiment_id = $6, lieu_id = $7,
@@ -818,9 +1065,24 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let apres = lire_salle(&mut t, a.etablissement_id, id).await?;
-        journaliser(&mut t, a, "salle", &id.to_string(), "modifie", Some(json_salle(&avant)), Some(json_salle(&apres)))
-            .await?;
-        let ev = publier(&mut t, a, "referentiel.salle_modifiee", id, json!({ "code": apres.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "salle",
+            &id.to_string(),
+            "modifie",
+            Some(json_salle(&avant)),
+            Some(json_salle(&apres)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.salle_modifiee",
+            id,
+            json!({ "code": apres.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
@@ -859,9 +1121,24 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let apres = lire_salle(&mut t, a.etablissement_id, id).await?;
-        journaliser(&mut t, a, "salle", &id.to_string(), "ferme", Some(json_salle(&avant)), Some(json_salle(&apres)))
-            .await?;
-        let ev = publier(&mut t, a, "referentiel.salle_fermee", id, json!({ "code": apres.code })).await?;
+        journaliser(
+            &mut t,
+            a,
+            "salle",
+            &id.to_string(),
+            "ferme",
+            Some(json_salle(&avant)),
+            Some(json_salle(&apres)),
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "referentiel.salle_fermee",
+            id,
+            json!({ "code": apres.code }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
@@ -889,8 +1166,16 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let apres = lire_salle(&mut t, a.etablissement_id, id).await?;
-        journaliser(&mut t, a, "salle", &id.to_string(), "rattachee", Some(json_salle(&avant)), Some(json_salle(&apres)))
-            .await?;
+        journaliser(
+            &mut t,
+            a,
+            "salle",
+            &id.to_string(),
+            "rattachee",
+            Some(json_salle(&avant)),
+            Some(json_salle(&apres)),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         Ok(apres)
     }
@@ -920,12 +1205,14 @@ async fn cible_existe(conn: &mut PgConnection, etab: Uuid, c: Cible) -> Result<(
         Cible::Salle(i) => ("ent_salle", i),
         Cible::Lieu(i) => ("ent_lieu", i),
     };
-    let ok: bool = sqlx::query_scalar(&format!("SELECT EXISTS (SELECT 1 FROM {table} WHERE etablissement_id = $1 AND id = $2)"))
-        .bind(etab)
-        .bind(id)
-        .fetch_one(conn)
-        .await
-        .map_err(db)?;
+    let ok: bool = sqlx::query_scalar(&format!(
+        "SELECT EXISTS (SELECT 1 FROM {table} WHERE etablissement_id = $1 AND id = $2)"
+    ))
+    .bind(etab)
+    .bind(id)
+    .fetch_one(conn)
+    .await
+    .map_err(db)?;
     if ok {
         Ok(())
     } else {
@@ -970,7 +1257,8 @@ pub struct Indisponibilite {
     pub annulee_le: Option<DateTime<Utc>>,
 }
 
-const SQL_INDISPO: &str = "SELECT id, salle_id, lieu_id, du, au, motif_code, motif, lot_id, evenement_ref, annulee_le
+const SQL_INDISPO: &str =
+    "SELECT id, salle_id, lieu_id, du, au, motif_code, motif, lot_id, evenement_ref, annulee_le
     FROM ent_salle_indisponibilite";
 
 /// Résultat d'une indisponibilité déclarée : l'enregistrement et les séances à revoir.
@@ -991,7 +1279,11 @@ fn motif_valide(code: &str, motif: Option<&str>) -> Result<Option<String>, EntDb
 }
 
 impl PgEnt {
-    pub async fn structure_disponibilites(&self, a: &Acteur<'_>, c: Cible) -> Result<Vec<Disponibilite>, EntDbError> {
+    pub async fn structure_disponibilites(
+        &self,
+        a: &Acteur<'_>,
+        c: Cible,
+    ) -> Result<Vec<Disponibilite>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let (salle, lieu) = c.colonnes();
         let mut t = tx(self, a).await?;
@@ -1064,7 +1356,11 @@ impl PgEnt {
         Ok(d)
     }
 
-    pub async fn structure_disponibilite_annuler(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
+    pub async fn structure_disponibilite_annuler(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let mut t = tx(self, a).await?;
         let n = sqlx::query(
@@ -1080,7 +1376,16 @@ impl PgEnt {
         if n == 0 {
             return Err(introuvable());
         }
-        journaliser(&mut t, a, "disponibilite", &id.to_string(), "annule", None, None).await?;
+        journaliser(
+            &mut t,
+            a,
+            "disponibilite",
+            &id.to_string(),
+            "annule",
+            None,
+            None,
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         Ok(())
     }
@@ -1124,7 +1429,8 @@ impl PgEnt {
             Cible::Salle(i) => (vec![i], None),
             Cible::Lieu(i) => (vec![], Some(i)),
         };
-        self.indisponibilite_commune(a, ids.0, ids.1, du, au, motif_code, motif, None, false).await
+        self.indisponibilite_commune(a, ids.0, ids.1, du, au, motif_code, motif, None, false)
+            .await
     }
 
     /// STR-110 : rend plusieurs salles indisponibles en un geste (examens, réquisition), liées
@@ -1141,7 +1447,18 @@ impl PgEnt {
         motif: Option<&str>,
         evenement_ref: Option<Uuid>,
     ) -> Result<RapportIndisponibilite, EntDbError> {
-        self.indisponibilite_commune(a, salles, None, du, au, motif_code, motif, evenement_ref, true).await
+        self.indisponibilite_commune(
+            a,
+            salles,
+            None,
+            du,
+            au,
+            motif_code,
+            motif,
+            evenement_ref,
+            true,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1206,7 +1523,8 @@ impl PgEnt {
             .await?;
             crees.push(i);
         }
-        let creneaux_touches = creneaux_touches(&mut t, a.etablissement_id, &distinctes, du, au).await?;
+        let creneaux_touches =
+            creneaux_touches(&mut t, a.etablissement_id, &distinctes, du, au).await?;
         // Aucun motif libre dans l'événement : il peut décrire une situation sensible.
         let ev = publier(
             &mut t,
@@ -1218,7 +1536,11 @@ impl PgEnt {
         .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
-        Ok(RapportIndisponibilite { lot_id, indisponibilites: crees, creneaux_touches })
+        Ok(RapportIndisponibilite {
+            lot_id,
+            indisponibilites: crees,
+            creneaux_touches,
+        })
     }
 
     /// Annule une indisponibilité (jamais supprimée) ; si elle appartient à un lot, `tout_le_lot`
@@ -1239,7 +1561,9 @@ impl PgEnt {
         .fetch_optional(&mut *t)
         .await
         .map_err(db)?;
-        let Some(lot) = lot else { return Err(introuvable()) };
+        let Some(lot) = lot else {
+            return Err(introuvable());
+        };
         let lot = if tout_le_lot { lot } else { None };
         let n = sqlx::query(
             "UPDATE ent_salle_indisponibilite SET annulee_le = COALESCE(annulee_le, now()),
@@ -1254,7 +1578,16 @@ impl PgEnt {
         .await
         .map_err(db)?
         .rows_affected();
-        journaliser(&mut t, a, "indisponibilite", &id.to_string(), "annulee", None, Some(json!({ "nombre": n }))).await?;
+        journaliser(
+            &mut t,
+            a,
+            "indisponibilite",
+            &id.to_string(),
+            "annulee",
+            None,
+            Some(json!({ "nombre": n })),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         Ok(n)
     }
@@ -1323,14 +1656,15 @@ pub mod structure_disponibilite {
         let (jour, h0, h1) = (d0.date(), d0.time(), d1.time());
         let mut cibles = vec![cible];
         if let Cible::Salle(s) = cible {
-            let lieu: Option<Uuid> =
-                sqlx::query_scalar("SELECT lieu_id FROM ent_salle WHERE etablissement_id = $1 AND id = $2")
-                    .bind(etab)
-                    .bind(s)
-                    .fetch_optional(&mut *conn)
-                    .await
-                    .map_err(db)?
-                    .ok_or_else(introuvable)?;
+            let lieu: Option<Uuid> = sqlx::query_scalar(
+                "SELECT lieu_id FROM ent_salle WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(s)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(db)?
+            .ok_or_else(introuvable)?;
             if let Some(l) = lieu {
                 cibles.push(Cible::Lieu(l));
             }
@@ -1355,7 +1689,11 @@ pub mod structure_disponibilite {
         h1: NaiveTime,
     ) -> Result<bool, EntDbError> {
         let (salle, lieu) = c.colonnes();
-        let table = if salle.is_some() { "ent_salle" } else { "ent_lieu" };
+        let table = if salle.is_some() {
+            "ent_salle"
+        } else {
+            "ent_lieu"
+        };
         let id = salle.or(lieu).ok_or_else(invalide)?;
         let ferme: Option<Option<NaiveDate>> = sqlx::query_scalar(&format!(
             "SELECT ferme_le FROM {table} WHERE etablissement_id = $1 AND id = $2"
@@ -1450,7 +1788,9 @@ pub struct RapportImportSalles {
 fn parser_csv(texte: &str) -> Result<Vec<(usize, Vec<String>)>, EntDbError> {
     let texte = texte.strip_prefix('\u{feff}').unwrap_or(texte);
     let premiere = texte.lines().next().unwrap_or("");
-    let sep = if premiere.matches(';').count() >= premiere.matches(',').count() && premiere.contains(';') {
+    let sep = if premiere.matches(';').count() >= premiere.matches(',').count()
+        && premiere.contains(';')
+    {
         ';'
     } else {
         ','
@@ -1536,9 +1876,13 @@ impl PgEnt {
         let mut lignes = parser_csv(csv)?.into_iter();
         let (_, entete) = lignes.next().ok_or_else(invalide)?;
         let entete: Vec<String> = entete.iter().map(|c| c.trim().to_lowercase()).collect();
-        if entete.iter().any(|c| !COLONNES_IMPORT.contains(&c.as_str()))
+        if entete
+            .iter()
+            .any(|c| !COLONNES_IMPORT.contains(&c.as_str()))
             || entete.iter().collect::<HashSet<_>>().len() != entete.len()
-            || ["code", "libelle", "site"].iter().any(|c| !entete.iter().any(|e| e == c))
+            || ["code", "libelle", "site"]
+                .iter()
+                .any(|c| !entete.iter().any(|e| e == c))
         {
             return Err(invalide());
         }
@@ -1549,18 +1893,20 @@ impl PgEnt {
 
         let mut t = tx(self, a).await?;
         let etab = a.etablissement_id;
-        let sites: Vec<(Uuid, String, String, Option<NaiveDate>)> =
-            sqlx::query_as("SELECT id, code, libelle, ferme_le FROM ent_site WHERE etablissement_id = $1")
-                .bind(etab)
-                .fetch_all(&mut *t)
-                .await
-                .map_err(db)?;
-        let batiments: Vec<(Uuid, Uuid, String, Option<NaiveDate>)> =
-            sqlx::query_as("SELECT id, site_id, code, ferme_le FROM ent_batiment WHERE etablissement_id = $1")
-                .bind(etab)
-                .fetch_all(&mut *t)
-                .await
-                .map_err(db)?;
+        let sites: Vec<(Uuid, String, String, Option<NaiveDate>)> = sqlx::query_as(
+            "SELECT id, code, libelle, ferme_le FROM ent_site WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
+        let batiments: Vec<(Uuid, Uuid, String, Option<NaiveDate>)> = sqlx::query_as(
+            "SELECT id, site_id, code, ferme_le FROM ent_batiment WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_all(&mut *t)
+        .await
+        .map_err(db)?;
         let lieux: Vec<(Uuid, String, Option<NaiveDate>)> =
             sqlx::query_as("SELECT id, code, ferme_le FROM ent_lieu WHERE etablissement_id = $1")
                 .bind(etab)
@@ -1576,20 +1922,35 @@ impl PgEnt {
                 .into_iter()
                 .map(|s| (s.code.to_uppercase(), s))
                 .collect();
-        let reservable_defaut = structure::parametre(&mut t, etab, "structure.salles_reservables_par_defaut")
-            .await?
-            .as_bool()
-            .unwrap_or(false);
+        let reservable_defaut =
+            structure::parametre(&mut t, etab, "structure.salles_reservables_par_defaut")
+                .await?
+                .as_bool()
+                .unwrap_or(false);
 
-        let mut rapport =
-            RapportImportSalles { apercu, lignes: corps.len(), creees: 0, modifiees: 0, inchangees: 0, rejets: vec![] };
+        let mut rapport = RapportImportSalles {
+            apercu,
+            lignes: corps.len(),
+            creees: 0,
+            modifiees: 0,
+            inchangees: 0,
+            rejets: vec![],
+        };
         let mut vus: HashSet<String> = HashSet::new();
         for (num, cellules) in corps {
             let cell = |nom: &str| -> String {
-                entete.iter().position(|e| e == nom).and_then(|i| cellules.get(i)).map_or(String::new(), |c| c.trim().to_string())
+                entete
+                    .iter()
+                    .position(|e| e == nom)
+                    .and_then(|i| cellules.get(i))
+                    .map_or(String::new(), |c| c.trim().to_string())
             };
             let code = cell("code").to_uppercase();
-            let rejet = |raison: &str| RejetImport { ligne: num, code: (!code.is_empty()).then(|| code.clone()), raison: raison.into() };
+            let rejet = |raison: &str| RejetImport {
+                ligne: num,
+                code: (!code.is_empty()).then(|| code.clone()),
+                raison: raison.into(),
+            };
             if cellules.len() > entete.len() {
                 rapport.rejets.push(rejet("trop de colonnes"));
                 continue;
@@ -1599,23 +1960,34 @@ impl PgEnt {
                 continue;
             }
             if code.is_empty() || code.chars().count() > 32 {
-                rapport.rejets.push(rejet("code absent ou trop long (32 au plus)"));
+                rapport
+                    .rejets
+                    .push(rejet("code absent ou trop long (32 au plus)"));
                 continue;
             }
             if !vus.insert(code.clone()) {
-                rapport.rejets.push(rejet("code déjà présent plus haut dans le fichier"));
+                rapport
+                    .rejets
+                    .push(rejet("code déjà présent plus haut dans le fichier"));
                 continue;
             }
             let existante = existantes.get(&code);
             let libelle = cell("libelle");
             if libelle.chars().count() > 120 || (libelle.is_empty() && existante.is_none()) {
-                rapport.rejets.push(rejet("libellé absent ou trop long (120 au plus)"));
+                rapport
+                    .rejets
+                    .push(rejet("libellé absent ou trop long (120 au plus)"));
                 continue;
             }
             let site_txt = cell("site").to_lowercase();
-            let site = sites.iter().find(|s| s.1.to_lowercase() == site_txt).or_else(|| sites.iter().find(|s| s.2.to_lowercase() == site_txt));
+            let site = sites
+                .iter()
+                .find(|s| s.1.to_lowercase() == site_txt)
+                .or_else(|| sites.iter().find(|s| s.2.to_lowercase() == site_txt));
             let Some(site) = site else {
-                rapport.rejets.push(rejet("site inconnu (les sites ne sont jamais créés par un import)"));
+                rapport.rejets.push(rejet(
+                    "site inconnu (les sites ne sont jamais créés par un import)",
+                ));
                 continue;
             };
             if site.3.is_some() {
@@ -1626,7 +1998,10 @@ impl PgEnt {
             let batiment_id = if bat_txt.is_empty() {
                 None
             } else {
-                match batiments.iter().find(|b| b.1 == site.0 && b.2.to_uppercase() == bat_txt) {
+                match batiments
+                    .iter()
+                    .find(|b| b.1 == site.0 && b.2.to_uppercase() == bat_txt)
+                {
                     Some(b) if b.3.is_none() => Some(b.0),
                     Some(_) => {
                         rapport.rejets.push(rejet("bâtiment fermé"));
@@ -1669,7 +2044,10 @@ impl PgEnt {
                     }
                 },
             };
-            let (Ok(pmr), Ok(reservable)) = (oui_non(&cell("accessible_pmr")), oui_non(&cell("reservable"))) else {
+            let (Ok(pmr), Ok(reservable)) = (
+                oui_non(&cell("accessible_pmr")),
+                oui_non(&cell("reservable")),
+            ) else {
                 rapport.rejets.push(rejet("valeur oui/non attendue"));
                 continue;
             };
@@ -1678,7 +2056,11 @@ impl PgEnt {
                 None
             } else {
                 let mut v: Vec<String> = Vec::new();
-                for e in equip_txt.split('|').map(str::trim).filter(|e| !e.is_empty()) {
+                for e in equip_txt
+                    .split('|')
+                    .map(str::trim)
+                    .filter(|e| !e.is_empty())
+                {
                     if e.chars().count() > 60 {
                         v.clear();
                         break;
@@ -1688,7 +2070,9 @@ impl PgEnt {
                     }
                 }
                 if v.is_empty() || v.len() > 40 {
-                    rapport.rejets.push(rejet("équipements invalides (60 caractères et 40 éléments au plus)"));
+                    rapport.rejets.push(rejet(
+                        "équipements invalides (60 caractères et 40 éléments au plus)",
+                    ));
                     continue;
                 }
                 Some(v)
@@ -1704,7 +2088,9 @@ impl PgEnt {
                 type_txt
             };
             if lieu_id.is_some() && type_final != "exterieur" {
-                rapport.rejets.push(rejet("une salle de lieu extérieur est de type « exterieur »"));
+                rapport.rejets.push(rejet(
+                    "une salle de lieu extérieur est de type « exterieur »",
+                ));
                 continue;
             }
             match existante {
@@ -1735,13 +2121,23 @@ impl PgEnt {
                 }
                 Some(ex) => {
                     if ex.ferme_le.is_some() {
-                        rapport.rejets.push(rejet("salle fermée : rouvrez-la avant de la modifier"));
+                        rapport
+                            .rejets
+                            .push(rejet("salle fermée : rouvrez-la avant de la modifier"));
                         continue;
                     }
                     let nouveau_site = site.0;
-                    let nouveau_bat = batiment_id.or(if ex.site_id == Some(nouveau_site) { ex.batiment_id } else { None });
+                    let nouveau_bat = batiment_id.or(if ex.site_id == Some(nouveau_site) {
+                        ex.batiment_id
+                    } else {
+                        None
+                    });
                     let nouveau_lieu = lieu_id.or(ex.lieu_id);
-                    let nouveau_libelle = if libelle.is_empty() { ex.libelle.clone() } else { libelle };
+                    let nouveau_libelle = if libelle.is_empty() {
+                        ex.libelle.clone()
+                    } else {
+                        libelle
+                    };
                     let nouvelle_capacite = capacite.or(ex.capacite);
                     let nouvel_etage = etage.or(ex.etage.clone());
                     let nouveaux_equip = equipements.unwrap_or_else(|| ex.equipements.clone());
@@ -1798,8 +2194,10 @@ impl PgEnt {
                 "lot",
                 "importe",
                 None,
-                Some(json!({ "creees": rapport.creees, "modifiees": rapport.modifiees,
-                             "inchangees": rapport.inchangees, "rejets": rapport.rejets.len() })),
+                Some(
+                    json!({ "creees": rapport.creees, "modifiees": rapport.modifiees,
+                             "inchangees": rapport.inchangees, "rejets": rapport.rejets.len() }),
+                ),
             )
             .await?;
             Some(
@@ -1829,7 +2227,10 @@ mod tests {
 
     #[test]
     fn csv_point_virgule_guillemets_et_lignes_vides() {
-        let l = parser_csv("\u{feff}code;libelle;site\r\nA1;\"Salle; 1\";P\n\nB2;\"Dit \"\"x\"\"\";P\n").unwrap();
+        let l = parser_csv(
+            "\u{feff}code;libelle;site\r\nA1;\"Salle; 1\";P\n\nB2;\"Dit \"\"x\"\"\";P\n",
+        )
+        .unwrap();
         assert_eq!(l.len(), 3);
         assert_eq!(l[1].1, vec!["A1", "Salle; 1", "P"]);
         assert_eq!(l[2].0, 4, "numéro de ligne du fichier");
@@ -1838,7 +2239,10 @@ mod tests {
 
     #[test]
     fn csv_virgule_et_guillemet_non_ferme() {
-        assert_eq!(parser_csv("code,libelle,site\nA,B,C").unwrap()[1].1, vec!["A", "B", "C"]);
+        assert_eq!(
+            parser_csv("code,libelle,site\nA,B,C").unwrap()[1].1,
+            vec!["A", "B", "C"]
+        );
         assert!(parser_csv("code;libelle\n\"A;B").is_err());
     }
 

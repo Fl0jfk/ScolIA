@@ -45,12 +45,13 @@ pub mod structure {
 
     /// Fuseau IANA de l'établissement (`Europe/Paris` s'il n'a rien réglé). Lecture seule.
     pub async fn fuseau(conn: &mut PgConnection, etab: Uuid) -> Result<String, EntDbError> {
-        let f: Option<String> =
-            sqlx::query_scalar("SELECT fuseau FROM ent_etablissement_parametre WHERE etablissement_id = $1")
-                .bind(etab)
-                .fetch_optional(conn)
-                .await
-                .map_err(db)?;
+        let f: Option<String> = sqlx::query_scalar(
+            "SELECT fuseau FROM ent_etablissement_parametre WHERE etablissement_id = $1",
+        )
+        .bind(etab)
+        .fetch_optional(conn)
+        .await
+        .map_err(db)?;
         Ok(f.unwrap_or_else(|| FUSEAU_DEFAUT.to_string()))
     }
 
@@ -82,7 +83,11 @@ pub mod structure {
     }
 
     /// Valeur effective d'un paramètre (défaut du registre si jamais modifié). Clé inconnue : erreur.
-    pub async fn parametre(conn: &mut PgConnection, etab: Uuid, cle: &str) -> Result<Value, EntDbError> {
+    pub async fn parametre(
+        conn: &mut PgConnection,
+        etab: Uuid,
+        cle: &str,
+    ) -> Result<Value, EntDbError> {
         let def = super::definition(cle).ok_or_else(invalide)?;
         let v: Option<Value> = sqlx::query_scalar(
             "SELECT valeur FROM ent_parametre WHERE etablissement_id = $1 AND cle = $2",
@@ -242,7 +247,8 @@ pub fn jours_ouvres_valides(v: &Value) -> bool {
             && dj.as_array().is_some_and(|a| {
                 !a.is_empty()
                     && a.len() <= 2
-                    && a.iter().all(|x| x.as_str().is_some_and(|s| DEMI_JOURNEES.contains(&s)))
+                    && a.iter()
+                        .all(|x| x.as_str().is_some_and(|s| DEMI_JOURNEES.contains(&s)))
                     && (a.len() == 1 || a[0] != a[1])
             })
     })
@@ -300,14 +306,19 @@ fn valider_profil(s: &ProfilSaisie) -> Result<ProfilValide, EntDbError> {
         return Err(invalide());
     }
     let departement_code = net(s.departement_code.as_deref(), 3)?.map(|d| d.to_ascii_uppercase());
-    if departement_code
-        .as_deref()
-        .is_some_and(|d| d.len() < 2 || !d.bytes().all(|c| c.is_ascii_digit() || c == b'A' || c == b'B'))
-    {
+    if departement_code.as_deref().is_some_and(|d| {
+        d.len() < 2
+            || !d
+                .bytes()
+                .all(|c| c.is_ascii_digit() || c == b'A' || c == b'B')
+    }) {
         return Err(invalide());
     }
     let regime_local = net(s.regime_local.as_deref(), 20)?;
-    if regime_local.as_deref().is_some_and(|r| r != "alsace_moselle") {
+    if regime_local
+        .as_deref()
+        .is_some_and(|r| r != "alsace_moselle")
+    {
         return Err(invalide());
     }
     Ok(ProfilValide {
@@ -342,12 +353,20 @@ fn json_profil(p: &Profil) -> Value {
     })
 }
 
-async fn lire_profil(conn: &mut PgConnection, etab: Uuid, verrou: bool) -> Result<Option<Profil>, EntDbError> {
+async fn lire_profil(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    verrou: bool,
+) -> Result<Option<Profil>, EntDbError> {
     let sql = format!(
         "SELECT {COLONNES_PROFIL} FROM ent_etablissement_profil p WHERE p.etablissement_id = $1{}",
         if verrou { " FOR UPDATE" } else { "" }
     );
-    sqlx::query_as::<_, Profil>(&sql).bind(etab).fetch_optional(conn).await.map_err(db)
+    sqlx::query_as::<_, Profil>(&sql)
+        .bind(etab)
+        .fetch_optional(conn)
+        .await
+        .map_err(db)
 }
 
 /// Une ligne de journal, telle que l'écran « historique » la lira.
@@ -367,14 +386,20 @@ impl PgEnt {
     /// Profil de l'établissement. `None` tant que personne ne l'a renseigné : **rien n'est créé**.
     pub async fn structure_profil(&self, a: &Acteur<'_>) -> Result<Option<Profil>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let p = lire_profil(&mut tx, a.etablissement_id, false).await?;
         tx.commit().await.map_err(db)?;
         Ok(p)
     }
 
     /// STR-01 / STR-03 : renseigne (ou remplace) le profil. Crée la ligne à la première saisie.
-    pub async fn structure_profil_definir(&self, a: &Acteur<'_>, s: ProfilSaisie) -> Result<Profil, EntDbError> {
+    pub async fn structure_profil_definir(
+        &self,
+        a: &Acteur<'_>,
+        s: ProfilSaisie,
+    ) -> Result<Profil, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let v = valider_profil(&s)?;
         if let Some(j) = &s.jours_ouvres {
@@ -382,7 +407,9 @@ impl PgEnt {
                 return Err(invalide());
             }
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let avant = lire_profil(&mut tx, a.etablissement_id, true).await?;
         if let (Some(att), Some(p)) = (s.version_attendue, &avant) {
             if att != p.version {
@@ -432,7 +459,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let apres = lire_profil(&mut tx, a.etablissement_id, false).await?.ok_or_else(introuvable)?;
+        let apres = lire_profil(&mut tx, a.etablissement_id, false)
+            .await?
+            .ok_or_else(introuvable)?;
         journaliser(
             &mut tx,
             a,
@@ -444,8 +473,14 @@ impl PgEnt {
         )
         .await?;
         // L'événement ne porte que la version : les consommateurs relisent le profil.
-        let ev = publier(&mut tx, a, "referentiel.profil_modifie", a.etablissement_id, json!({ "version": apres.version }))
-            .await?;
+        let ev = publier(
+            &mut tx,
+            a,
+            "referentiel.profil_modifie",
+            a.etablissement_id,
+            json!({ "version": apres.version }),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(apres)
@@ -467,7 +502,9 @@ impl PgEnt {
             .fetch_one(self.pool())
             .await
             .map_err(|_| invalide())?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let actuel = structure::fuseau(&mut tx, a.etablissement_id).await?;
         if actuel == fuseau {
             tx.commit().await.map_err(db)?;
@@ -505,8 +542,14 @@ impl PgEnt {
             Some(json!({ "fuseau": fuseau, "annee_en_cours": en_cours })),
         )
         .await?;
-        let ev = publier(&mut tx, a, "referentiel.profil_modifie", a.etablissement_id, json!({ "fuseau": fuseau }))
-            .await?;
+        let ev = publier(
+            &mut tx,
+            a,
+            "referentiel.profil_modifie",
+            a.etablissement_id,
+            json!({ "fuseau": fuseau }),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(fuseau)
@@ -521,7 +564,9 @@ impl PgEnt {
         limite: i64,
     ) -> Result<Vec<JournalLigne>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let rows = sqlx::query_as::<_, JournalLigne>(
             "SELECT id, objet, objet_ref, action, avant, apres, par, le FROM ent_structure_journal
               WHERE etablissement_id = $1 AND objet = $2 AND ($3::text IS NULL OR objet_ref = $3)
@@ -610,9 +655,13 @@ pub(crate) fn definition(cle: &str) -> Option<DefinitionParam> {
 
 fn valider_valeur(def: &DefinitionParam, v: &Value) -> Result<(), EntDbError> {
     let ok = match def.type_param {
-        TypeParam::Entier => v.as_i64().is_some_and(|n| def.min.is_none_or(|m| n >= m) && def.max.is_none_or(|m| n <= m)),
+        TypeParam::Entier => v
+            .as_i64()
+            .is_some_and(|n| def.min.is_none_or(|m| n >= m) && def.max.is_none_or(|m| n <= m)),
         TypeParam::Booleen => v.is_boolean(),
-        TypeParam::Heure => v.as_str().is_some_and(|s| chrono::NaiveTime::parse_from_str(s, "%H:%M").is_ok()),
+        TypeParam::Heure => v
+            .as_str()
+            .is_some_and(|s| chrono::NaiveTime::parse_from_str(s, "%H:%M").is_ok()),
     };
     if ok {
         Ok(())
@@ -635,10 +684,16 @@ pub struct ParametreVue {
 
 impl PgEnt {
     /// Tous les paramètres connus avec leur valeur effective. N'écrit rien.
-    pub async fn structure_parametres(&self, a: &Acteur<'_>) -> Result<Vec<ParametreVue>, EntDbError> {
+    pub async fn structure_parametres(
+        &self,
+        a: &Acteur<'_>,
+    ) -> Result<Vec<ParametreVue>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let lignes: Vec<(String, Value, i32, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        type Ligne = (String, Value, i32, Option<Uuid>, DateTime<Utc>);
+        let lignes: Vec<Ligne> = sqlx::query_as(
             "SELECT cle, valeur, version, modifie_par, modifie_le FROM ent_parametre WHERE etablissement_id = $1",
         )
         .bind(a.etablissement_id)
@@ -681,7 +736,9 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let def = definition(cle).ok_or_else(invalide)?;
         valider_valeur(&def, &valeur)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let avant: Option<(Value, i32)> = sqlx::query_as(
             "SELECT valeur, version FROM ent_parametre WHERE etablissement_id = $1 AND cle = $2 FOR UPDATE",
         )
@@ -759,7 +816,14 @@ fn semaine(mercredi_matin_seulement: bool, samedi_matin: bool) -> Value {
     let mut o = serde_json::Map::new();
     o.insert("lun".into(), plein.clone());
     o.insert("mar".into(), plein.clone());
-    o.insert("mer".into(), if mercredi_matin_seulement { json!(["matin"]) } else { plein.clone() });
+    o.insert(
+        "mer".into(),
+        if mercredi_matin_seulement {
+            json!(["matin"])
+        } else {
+            plein.clone()
+        },
+    );
     o.insert("jeu".into(), plein.clone());
     o.insert("ven".into(), plein);
     if samedi_matin {
@@ -856,9 +920,16 @@ impl PgEnt {
         apercu: bool,
     ) -> Result<ApercuPrereglage, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let pr = prereglages().into_iter().find(|p| p.code == code).ok_or_else(introuvable)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let profil = lire_profil(&mut tx, a.etablissement_id, true).await?.ok_or_else(conflit)?;
+        let pr = prereglages()
+            .into_iter()
+            .find(|p| p.code == code)
+            .ok_or_else(introuvable)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let profil = lire_profil(&mut tx, a.etablissement_id, true)
+            .await?
+            .ok_or_else(conflit)?;
         if profil.profil_preregle.is_some() {
             return Err(conflit());
         }
@@ -868,15 +939,20 @@ impl PgEnt {
                 .fetch_all(&mut *tx)
                 .await
                 .map_err(db)?;
-        let (a_poser, conserves): (Vec<_>, Vec<_>) =
-            pr.parametres.iter().partition(|(c, _)| !existants.iter().any(|e| e == c));
+        let (a_poser, conserves): (Vec<_>, Vec<_>) = pr
+            .parametres
+            .iter()
+            .partition(|(c, _)| !existants.iter().any(|e| e == c));
         let rapport = ApercuPrereglage {
             code: pr.code.to_string(),
             applique: !apercu,
             champs: json!({
                 "secteur": pr.secteur, "degres": pr.degres, "types": pr.types, "jours_ouvres": pr.jours_ouvres
             }),
-            parametres: a_poser.iter().map(|(c, v)| (c.to_string(), v.clone())).collect(),
+            parametres: a_poser
+                .iter()
+                .map(|(c, v)| (c.to_string(), v.clone()))
+                .collect(),
             parametres_conserves: conserves.iter().map(|(c, _)| c.to_string()).collect(),
         };
         if apercu {
@@ -953,7 +1029,9 @@ mod tests {
 
     #[test]
     fn semaine_type_validee() {
-        assert!(jours_ouvres_valides(&json!({"lun": ["matin", "apres_midi"], "mer": ["matin"]})));
+        assert!(jours_ouvres_valides(
+            &json!({"lun": ["matin", "apres_midi"], "mer": ["matin"]})
+        ));
         assert!(!jours_ouvres_valides(&json!({})));
         assert!(!jours_ouvres_valides(&json!({"lun": []})));
         assert!(!jours_ouvres_valides(&json!({"xxx": ["matin"]})));
