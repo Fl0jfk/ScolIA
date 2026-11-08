@@ -290,7 +290,8 @@ impl PgEnt {
         self.exiger_gestion_doublons(etab, acteur, role).await?;
         let profil = self.profil_champs(etab, acteur, role).await?;
         let voit_proteges = profil.ouvert_partout(GroupeChamps::Sensible);
-        let lignes: Vec<(Uuid, Uuid, Uuid, i16, Vec<String>, DateTime<Utc>)> = sqlx::query_as(
+        type LigneDoublon = (Uuid, Uuid, Uuid, i16, Vec<String>, DateTime<Utc>);
+        let lignes: Vec<LigneDoublon> = sqlx::query_as(
             "WITH j AS (SELECT ent_jour_etablissement($1) AS jour)
              SELECT d.id, d.eleve_a, d.eleve_b, d.score, d.raisons, d.detecte_le
                FROM ent_eleve_doublon d CROSS JOIN j

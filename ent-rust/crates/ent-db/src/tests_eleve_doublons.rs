@@ -64,7 +64,7 @@ async fn liste(ent: &PgEnt, cast: &LaboCast, role: Role, etab: Uuid) -> Result<V
     ent.doublons_pour_acteur(role.as_str(), etab, user, 200).await
 }
 
-fn paire<'a>(l: &'a [crate::eleve_doublons::DoublonVue], x: Uuid, y: Uuid) -> Option<&'a crate::eleve_doublons::DoublonVue> {
+fn paire(l: &[crate::eleve_doublons::DoublonVue], x: Uuid, y: Uuid) -> Option<&crate::eleve_doublons::DoublonVue> {
     l.iter().find(|d| {
         (d.a.eleve.id == x && d.b.eleve.id == y) || (d.a.eleve.id == y && d.b.eleve.id == x)
     })
