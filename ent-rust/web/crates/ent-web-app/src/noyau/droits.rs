@@ -17,6 +17,8 @@ pub enum Role {
     Prof,
     Infirmerie,
     Psy,
+    /// Accueil (socle 4, lot A1) : désigne, joint, remet.
+    Accueil,
     Parent,
     Eleve,
 }
@@ -32,6 +34,7 @@ impl Role {
             "prof" | "enseignant" => Some(Role::Prof),
             "infirmerie" | "infirmiere" | "infirmier" => Some(Role::Infirmerie),
             "psy" | "psychologue" => Some(Role::Psy),
+            "accueil" => Some(Role::Accueil),
             "parent" => Some(Role::Parent),
             "eleve" => Some(Role::Eleve),
             _ => None,
@@ -48,6 +51,7 @@ impl Role {
             Role::Prof => "Enseignant",
             Role::Infirmerie => "Infirmerie",
             Role::Psy => "Psychologue",
+            Role::Accueil => "Accueil",
             Role::Parent => "Famille",
             Role::Eleve => "Élève",
         }

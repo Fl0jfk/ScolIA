@@ -3,7 +3,9 @@
 use chrono::NaiveDate;
 use uuid::Uuid;
 
-use crate::{ApiClient, ApiError, ClasseApi, ClasseDetailApi, Methode, RapportAmorcageApi};
+use crate::{
+    ApiClient, ApiError, ClasseApi, ClasseDetailApi, EnseignementApi, Methode, RapportAmorcageApi,
+};
 
 impl ApiClient {
     /// `GET /referentiel/classes` : classes de l'année courante avec effectif au `jour`.
@@ -21,6 +23,20 @@ impl ApiClient {
         self.appel(
             Methode::Get,
             &format!("/referentiel/mes-classes?jour={jour}"),
+            None,
+        )
+        .await
+    }
+
+    /// `GET /referentiel/mes-enseignements` : liste unique des enseignements du professeur
+    /// (classes entières et groupes, matière, effectif borné à sa portée — D-022).
+    pub async fn mes_enseignements(
+        &self,
+        jour: NaiveDate,
+    ) -> Result<Vec<EnseignementApi>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/referentiel/mes-enseignements?jour={jour}"),
             None,
         )
         .await

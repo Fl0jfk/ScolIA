@@ -127,6 +127,32 @@ pub struct ResponsableFormulaireDto {
     pub meme_foyer: bool,
     #[serde(default = "vrai")]
     pub autorite_parentale: bool,
+    /// Champs réservés du contrat `DeclarationResponsables` v1 (socle 4, lot A0 bis). Jamais
+    /// rendus à la famille.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reserve: Option<ReserveResponsableDto>,
+}
+
+/// Champs réservés d'un responsable déclaré (tous facultatifs). Une adresse à protéger n'est
+/// pas enregistrée en clair ; « ne pas solliciter » bloque toute invitation, demande d'accord
+/// et relance vers cette personne.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReserveResponsableDto {
+    #[serde(default)]
+    pub adresse_a_proteger: bool,
+    #[serde(default)]
+    pub ne_pas_solliciter: bool,
+    /// Référence de la pièce de protection ; entrée seulement (jamais renvoyée).
+    #[serde(default, skip_serializing)]
+    pub ne_pas_solliciter_ref: Option<String>,
+    #[serde(default)]
+    pub langue: Option<String>,
+    #[serde(default)]
+    pub besoin_interprete: bool,
+    #[serde(default)]
+    pub organisme: Option<String>,
+    #[serde(default)]
+    pub nature_code: Option<String>,
 }
 
 fn vrai() -> bool {
@@ -233,10 +259,18 @@ pub struct DecisionBody {
 /// Corps de `POST /inscriptions/dossiers/{id}/valider` (INS-05).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationBody {
+    /// Classe choisie dans la liste : **arrivée en cours d'année seulement** (classe de l'année
+    /// courante). Avant la rentrée, la validation n'affecte personne (socle 5).
     #[serde(default)]
     pub classe_id: Option<Uuid>,
     #[serde(default)]
     pub regime: Option<String>,
+    /// Niveau de l'inscription annuelle prévue (à défaut : le niveau demandé du dossier).
+    #[serde(default)]
+    pub niveau: Option<String>,
+    /// Parcours (option, section, filière) de l'inscription annuelle prévue.
+    #[serde(default)]
+    pub parcours: Option<String>,
     /// Choix humains de rapprochement (I0, §2.2 pts 1-3). Obligatoire pour tout
     /// responsable ayant des correspondances possibles (`GET …/correspondances`).
     #[serde(default)]
@@ -347,6 +381,12 @@ pub struct ValidationDto {
     pub dossier_id: Uuid,
     pub eleve_id: Uuid,
     pub evenement_id: Uuid,
+    /// Inscription annuelle **prévue** créée par la validation (socle 2).
+    #[serde(default)]
+    pub inscription_annuelle_id: Option<Uuid>,
+    /// `true` seulement pour une arrivée en cours d'année avec une classe choisie.
+    #[serde(default)]
+    pub affecte_en_classe: bool,
 }
 
 // ---------------------------------------------------------------------------

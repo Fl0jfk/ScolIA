@@ -237,62 +237,17 @@ async fn affecter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
             .and_then(|v| v.as_str())
             .and_then(|s| Uuid::parse_str(s).ok()),
     ) else {
-        return Ok(()); // pas de classe cible : affectation faite plus tard (REF-11)
-    };
-    // Classe et élève relus dans l'établissement de l'événement.
-    let classe: Option<(Uuid, bool, chrono::NaiveDate)> = sqlx::query_as(
-        "SELECT c.annee_id, a.courante, a.date_debut FROM ent_classe c
-           JOIN ent_annee_scolaire a ON a.id = c.annee_id AND a.etablissement_id = c.etablissement_id
-          WHERE c.etablissement_id = $1 AND c.id = $2",
-    )
-    .bind(etab)
-    .bind(classe_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(sql)?;
-    let Some((annee_id, courante, debut_annee)) = classe else {
+        // Pas de classe : cas général avant la rentrée (inscription annuelle prévue seulement) ;
+        // la constitution des classes relève du socle 5.
         return Ok(());
     };
-    let eleve: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
-            .bind(etab)
-            .bind(eleve_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(sql)?;
-    if eleve.is_none() {
-        return Ok(());
-    }
-    let debut = std::cmp::max(debut_annee, Utc::now().date_naive());
-    sqlx::query(
-        "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut, source)
-         VALUES ($1,$2,$3,$4,$5,$6,'saisie')
-         ON CONFLICT (etablissement_id, eleve_id, annee_id)
-            WHERE classe_id IS NOT NULL AND date_fin IS NULL DO NOTHING",
-    )
-    .bind(Uuid::new_v4())
-    .bind(etab)
-    .bind(annee_id)
-    .bind(eleve_id)
-    .bind(classe_id)
-    .bind(debut)
-    .execute(&mut *tx)
-    .await
-    .map_err(sql)?;
-    if courante {
-        // Classe courante de l'élève (le déclencheur `classe_id` aligne le texte).
-        sqlx::query(
-            "UPDATE ent_eleve SET classe_id = $3, status = 'actif', updated_at = now()
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(eleve_id)
-        .bind(classe_id)
-        .execute(&mut *tx)
+    // Arrivée en cours d'année : l'événement ne porte `classe_id` que pour une classe de l'année
+    // courante. L'écriture passe par la commande du référentiel, jamais par du SQL ici ; elle est
+    // idempotente (rejeu de l'événement sans effet).
+    crate::eleve_ports::affecter_arrivee_en_cours_d_annee_tx(tx, etab, eleve_id, classe_id, "saisie")
         .await
-        .map_err(sql)?;
-    }
-    Ok(())
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 impl Consommateur for Affectation {
@@ -332,10 +287,18 @@ async fn inviter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
            JOIN ent_inscription_dossier d ON d.id = r.dossier_id AND d.etablissement_id = r.etablissement_id
            JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
            LEFT JOIN ent_user u ON u.id = p.user_id
-           LEFT JOIN ent_inscription_lien_attente la
-                  ON la.dossier_id = r.dossier_id AND la.responsable_id = r.id AND la.statut = 'en_attente'
+           LEFT JOIN ent_lien_attente la
+                  ON la.etablissement_id = r.etablissement_id AND la.source = 'inscription'
+                 AND la.source_ref = r.id AND la.statut = 'en_attente'
           WHERE r.etablissement_id = $1 AND r.dossier_id = $2 AND d.statut = 'validee'
             AND ((r.email IS NOT NULL AND p.user_id IS NULL) OR la.id IS NOT NULL)
+            -- A0-c : AUCUNE invitation ni demande d'accord vers une personne « ne pas solliciter »
+            -- (déclarée sur le dossier ou posée sur la fiche) : l'invitation révélerait l'élève
+            -- et l'établissement à la personne dont la famille est protégée.
+            AND NOT r.ne_pas_solliciter
+            AND NOT EXISTS (SELECT 1 FROM ent_personne_reserve nps
+                             WHERE nps.etablissement_id = r.etablissement_id
+                               AND nps.personne_id = r.personne_id AND nps.ne_pas_solliciter)
           ORDER BY r.rang",
     )
     .bind(etab)

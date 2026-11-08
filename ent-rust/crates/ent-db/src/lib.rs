@@ -12,6 +12,7 @@ mod vie_scolaire;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
 pub mod evaluations;
 mod evaluations_bulletin;
+mod enseignements;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -93,7 +94,12 @@ mod recuperation_repo;
 mod perimetre;
 mod droits_repo;
 mod droits_ctx;
+mod eleve_champs;
+pub mod identifiants;
+pub mod identite;
+pub mod scolarite;
 pub mod dossier_personnes;
+pub mod eleve_ports;
 pub mod inscriptions;
 pub mod inscriptions_reactions;
 pub mod imports;
@@ -151,7 +157,10 @@ pub use auth_repo::{
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
-pub use domain_eleve::{DeclarerRetard, NiveauIdentite, Retard};
+pub use domain_eleve::{
+    DeclarerRetard, GroupeChamps, GroupesAutorises, MasqueChamps, NiveauIdentite, ProfilChamps,
+    Retard,
+};
 pub use domain_eleve::{
     CompetenceItem, CreerCompetenceItem, EvaluerCompetence, EvaluationCompetence, NiveauMaitrise,
 };
@@ -184,6 +193,7 @@ pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_ctx::DroitsActeur;
 pub use droits_repo::{Droit, RoleEtab, RoleSaisie};
+pub use eleve_champs::EleveVue;
 pub use ref_commun::Acteur;
 pub use referentiel_annee::{AnneeDetail, RapportLot, RapportOuverture, RapportReconduction};
 pub use referentiel_classe_id::{ComparaisonClasse, TABLES_CLASSE};
@@ -210,8 +220,11 @@ pub use delegation::{
     droits_du_catalogue, Delegation, DelegationSaisie, DroitDelegue, DELEGATION_DUREE_MAX_JOURS,
 };
 pub use dossier_personnes::{
+    AjoutResponsable, LienEnAttente, LienResultat,
     ActionFiche, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
+    AdresseParquee, AlertesProtection, LienEnAttenteEleve, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
+    ConflitInteretVu, InterdictionSaisie, InterdictionVue, LectureDossierAdmin, NatureConflit as NatureConflitInteret,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -264,7 +277,17 @@ mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
+mod tests_d022;
+#[cfg(all(test, feature = "labo"))]
+mod tests_d022_bis;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a0bis;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
@@ -275,6 +298,14 @@ mod tests_cahier;
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sante;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_socle;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_identite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_identifiants;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_scolarite;
 
 #[cfg(test)]
 mod integration_tests {

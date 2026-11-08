@@ -2,10 +2,16 @@
 //!
 //! Règle unique « un professeur ne voit que ses élèves » : un professeur **suit**
 //! un élève s'il lui enseigne aujourd'hui. Sources, dans l'ordre :
-//! 1. référentiel scolaire (`enseigne_a` : service d'enseignement ∩ affectation) ;
+//! 1. référentiel scolaire (`enseigne_a` : service d'enseignement ∩ affectation). Un
+//!    service porte sur une **classe** (professeur principal, enseignement de la classe
+//!    entière) ou sur un **groupe** : dans une classe mixte (LV2 allemand / espagnol), le
+//!    professeur d'allemand ne suit que le groupe allemand (D-022). Matières, groupes et
+//!    services sont du paramétrage libre de l'établissement : aucune liste dans le code ;
 //! 2. emploi du temps historique (créneau du professeur sur la classe texte de l'élève),
-//!    tant que le référentiel n'est pas la source unique des classes ;
-//! 3. remplacement récent ou prochain (±14 jours) sur un créneau de la classe.
+//!    **uniquement pour les élèves que le référentiel ne couvre pas encore** : la classe
+//!    texte ignore les groupes et ne doit jamais élargir la portée (D-022) ;
+//! 3. remplacement récent ou prochain (±14 jours) sur un créneau de la classe : le
+//!    remplaçant suit les élèves du **titulaire** remplacé (groupes inclus).
 //!
 //! Défaut sûr : élève inconnu, sorti, ou d'un autre établissement → `false`.
 //! Les autres personnels (direction, administratif, CPE…) gardent leur périmètre
@@ -59,13 +65,47 @@ impl PgEnt {
                    ON c.etablissement_id = e.etablissement_id AND c.classe = e.classe
                 WHERE e.etablissement_id = $1 AND e.id = $3
                   AND (e.date_sortie IS NULL OR e.date_sortie > $4)
-                  AND (c.prof_user_id = $2
-                       OR EXISTS (
+                  AND (c.groupe_id IS NULL OR EXISTS (
+                          SELECT 1 FROM ent_affectation ga
+                           WHERE ga.etablissement_id = e.etablissement_id
+                             AND ga.groupe_id = c.groupe_id AND ga.eleve_id = e.id
+                             AND ga.date_debut <= $4
+                             AND (ga.date_fin IS NULL OR ga.date_fin >= $4)))
+                  AND ((NOT EXISTS (
+                          SELECT 1 FROM ent_affectation fa
+                            JOIN ent_annee_scolaire fy
+                              ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
+                           WHERE fa.etablissement_id = e.etablissement_id AND fa.eleve_id = e.id
+                             AND fa.classe_id IS NOT NULL
+                             AND fy.date_debut <= $4 AND fy.date_fin >= $4
+                             AND fa.date_debut <= $4
+                             AND (fa.date_fin IS NULL OR fa.date_fin >= $4))
+                        AND c.prof_user_id = $2)
+                       OR (EXISTS (
                           SELECT 1 FROM ent_edt_exception x
                            WHERE x.etablissement_id = c.etablissement_id
                              AND x.creneau_id = c.id
                              AND x.remplacant_user_id = $2
-                             AND x.jour BETWEEN $4 - $5 AND $4 + $5)))",
+                             AND x.jour BETWEEN $4 - $5 AND $4 + $5)
+                           AND (NOT EXISTS (
+                          SELECT 1 FROM ent_affectation fa
+                            JOIN ent_annee_scolaire fy
+                              ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
+                           WHERE fa.etablissement_id = e.etablissement_id AND fa.eleve_id = e.id
+                             AND fa.classe_id IS NOT NULL
+                             AND fy.date_debut <= $4 AND fy.date_fin >= $4
+                             AND fa.date_debut <= $4
+                             AND (fa.date_fin IS NULL OR fa.date_fin >= $4))
+                                OR EXISTS (
+                          SELECT 1 FROM ent_service_enseignement ts
+                            JOIN ent_affectation ta
+                              ON ta.etablissement_id = ts.etablissement_id AND ta.annee_id = ts.annee_id
+                             AND ((ts.classe_id IS NOT NULL AND ta.classe_id = ts.classe_id)
+                               OR (ts.groupe_id IS NOT NULL AND ta.groupe_id = ts.groupe_id))
+                           WHERE ts.etablissement_id = e.etablissement_id
+                             AND ts.prof_user_id = c.prof_user_id AND ta.eleve_id = e.id
+                             AND ta.date_debut <= $4
+                             AND (ta.date_fin IS NULL OR ta.date_fin >= $4))))))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)
@@ -130,13 +170,47 @@ impl PgEnt {
                  ON c.etablissement_id = e.etablissement_id AND c.classe = e.classe
               WHERE e.etablissement_id = $1
                 AND (e.date_sortie IS NULL OR e.date_sortie > $3)
-                AND (c.prof_user_id = $2
-                     OR EXISTS (
+                AND (c.groupe_id IS NULL OR EXISTS (
+                          SELECT 1 FROM ent_affectation ga
+                           WHERE ga.etablissement_id = e.etablissement_id
+                             AND ga.groupe_id = c.groupe_id AND ga.eleve_id = e.id
+                             AND ga.date_debut <= $3
+                             AND (ga.date_fin IS NULL OR ga.date_fin >= $3)))
+                AND ((NOT EXISTS (
+                          SELECT 1 FROM ent_affectation fa
+                            JOIN ent_annee_scolaire fy
+                              ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
+                           WHERE fa.etablissement_id = e.etablissement_id AND fa.eleve_id = e.id
+                             AND fa.classe_id IS NOT NULL
+                             AND fy.date_debut <= $3 AND fy.date_fin >= $3
+                             AND fa.date_debut <= $3
+                             AND (fa.date_fin IS NULL OR fa.date_fin >= $3))
+                      AND c.prof_user_id = $2)
+                     OR (EXISTS (
                         SELECT 1 FROM ent_edt_exception x
                          WHERE x.etablissement_id = c.etablissement_id
                            AND x.creneau_id = c.id
                            AND x.remplacant_user_id = $2
-                           AND x.jour BETWEEN $3 - $4 AND $3 + $4))",
+                           AND x.jour BETWEEN $3 - $4 AND $3 + $4)
+                         AND (NOT EXISTS (
+                          SELECT 1 FROM ent_affectation fa
+                            JOIN ent_annee_scolaire fy
+                              ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
+                           WHERE fa.etablissement_id = e.etablissement_id AND fa.eleve_id = e.id
+                             AND fa.classe_id IS NOT NULL
+                             AND fy.date_debut <= $3 AND fy.date_fin >= $3
+                             AND fa.date_debut <= $3
+                             AND (fa.date_fin IS NULL OR fa.date_fin >= $3))
+                              OR EXISTS (
+                          SELECT 1 FROM ent_service_enseignement ts
+                            JOIN ent_affectation ta
+                              ON ta.etablissement_id = ts.etablissement_id AND ta.annee_id = ts.annee_id
+                             AND ((ts.classe_id IS NOT NULL AND ta.classe_id = ts.classe_id)
+                               OR (ts.groupe_id IS NOT NULL AND ta.groupe_id = ts.groupe_id))
+                           WHERE ts.etablissement_id = e.etablissement_id
+                             AND ts.prof_user_id = c.prof_user_id AND ta.eleve_id = e.id
+                             AND ta.date_debut <= $3
+                             AND (ta.date_fin IS NULL OR ta.date_fin >= $3)))))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)

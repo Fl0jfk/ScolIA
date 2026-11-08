@@ -261,12 +261,117 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
-            lire("eleve", "/eleves/{eleve}", TOUS, STAFF),
-            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF),
+            // D-022 : un professeur ne lit que la fiche des élèves de ses classes et groupes.
+            lire("eleve", "/eleves/{eleve}", TOUS, STAFF_HORS_PROF),
+            lire("dossier", "/eleves/{eleve}/dossier", TOUS, STAFF_HORS_PROF),
+            // Socle 2 (E2) : historique d'identité réservé à `eleves.historique.lire`
+            // (Admin, Direction, Administratif) ; jamais la famille ni le professeur.
+            lire("historique-identite", "/eleves/{eleve}/identite/historique",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("identite-correction-sur-B", "POST", "/eleves/{eleve}/identite/corrections",
+                Some(r#"{"champs":{"nom_naissance":"Separation"},"motif":"separation"}"#)),
+            ecrire_sur_b("identite-changement-sur-B", "POST", "/eleves/{eleve}/identite/changements",
+                Some(r#"{"champs":{"nom_naissance":"Separation"},"effet_du":"{jour}","motif":"separation","piece_document_id":"00000000-0000-0000-0000-000000000001"}"#)),
+            ecrire_sur_b("identite-usage-sur-B", "POST", "/eleves/{eleve}/identite/usages",
+                Some(r#"{"prenom_usage":"Separation"}"#)),
+            // Socle 2 (E3) : identifiants (G3) réservés à `eleves.identifiants.lire`
+            // (Admin, Direction, Administratif) ; jamais la famille ni le professeur.
+            lire("identifiants", "/eleves/{eleve}/identifiants",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("identifiant-ajout-sur-B", "POST", "/eleves/{eleve}/identifiants",
+                Some(r#"{"systeme":"INE","valeur":"SEPARATION1A"}"#)),
+            ecrire_sur_b("identifiant-confirmation-sur-B", "POST",
+                "/eleves/{eleve}/identifiants/00000000-0000-0000-0000-000000000001/confirmer",
+                Some(r#"{"source":"separation"}"#)),
+            ecrire_sur_b("identifiant-contestation-sur-B", "POST",
+                "/eleves/{eleve}/identifiants/00000000-0000-0000-0000-000000000001/contester",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("identifiant-revocation-sur-B", "POST",
+                "/eleves/{eleve}/identifiants/00000000-0000-0000-0000-000000000001/revoquer",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("badge-perdu-sur-B", "POST", "/eleves/{eleve}/badge/perdu",
+                Some(r#"{"nouveau_badge":"SEPARATION-BADGE"}"#)),
+            // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
+            // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
+            lire("scolarite", "/eleves/{eleve}/scolarite",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("scolarisation-ouverture-sur-B", "POST", "/eleves/{eleve}/scolarisations",
+                Some(r#"{"date_entree":"{jour}","motif":"reprise"}"#)),
+            ecrire_sur_b("scolarisation-reintegration-sur-B", "POST", "/eleves/{eleve}/scolarisations/reintegrer",
+                Some(r#"{"date_entree":"{jour}"}"#)),
+            ecrire_sur_b("scolarisation-cloture-sur-B", "POST", "/eleves/{eleve}/scolarisations/cloturer",
+                Some(r#"{"date_sortie":"{jour}","motif":"demenagement"}"#)),
+            ecrire_sur_b("deces-sur-B", "POST", "/eleves/{eleve}/deces", Some(r#"{"date":"{jour}"}"#)),
+            ecrire_sur_b("inscription-annuelle-sur-B", "PUT",
+                "/eleves/{eleve}/inscriptions/00000000-0000-0000-0000-000000000001",
+                Some(r#"{"etat":"prevue"}"#)),
+            ecrire_sur_b("classe-sur-B", "POST", "/eleves/{eleve}/scolarite/classe",
+                Some(r#"{"classe_id":"00000000-0000-0000-0000-000000000001","date_effet":"{jour}"}"#)),
+            ecrire_sur_b("options-sur-B", "POST", "/eleves/{eleve}/scolarite/options",
+                Some(r#"{"annee_id":"00000000-0000-0000-0000-000000000001","ajouter":["00000000-0000-0000-0000-000000000002"],"date_effet":"{jour}"}"#)),
+            ecrire_sur_b("regime-sur-B", "POST", "/eleves/{eleve}/scolarite/regime",
+                Some(r#"{"valeur":"externe","date_effet":"{jour}"}"#)),
+            ecrire_sur_b("site-sur-B", "POST", "/eleves/{eleve}/scolarite/site",
+                Some(r#"{"valeur":"annexe","date_effet":"{jour}"}"#)),
+            ecrire_sur_b("capacite-sur-B", "POST", "/eleves/{eleve}/capacites",
+                Some(r#"{"nature":"emancipation","du":"{jour}","piece_document_id":"00000000-0000-0000-0000-000000000001"}"#)),
+            ecrire_sur_b("capacite-levee-sur-B", "POST",
+                "/eleves/{eleve}/capacites/00000000-0000-0000-0000-000000000001/lever", Some("{}")),
+            ecrire_sur_b("mobilite-sur-B", "POST", "/eleves/{eleve}/mobilites",
+                Some(r#"{"type_":"etranger","du":"{jour}"}"#)),
+            ecrire_sur_b("mobilite-fermeture-sur-B", "POST",
+                "/eleves/{eleve}/mobilites/00000000-0000-0000-0000-000000000001/fermer", Some(r#"{"au":"{jour}"}"#)),
+            ecrire_sur_b("modalite-sur-B", "POST", "/eleves/{eleve}/modalites",
+                Some(r#"{"code":"ulis","du":"{jour}"}"#)),
+            ecrire_sur_b("modalite-fin-sur-B", "POST",
+                "/eleves/{eleve}/modalites/00000000-0000-0000-0000-000000000001/terminer", Some(r#"{"au":"{jour}"}"#)),
             lire("carnet", "/eleves/{eleve}/carnet",
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve], GESTION_HORS_PROF),
             Spec { non_liee_vide: FAMILLE, ..lire("incidents", "/eleves/{eleve}/incidents", TOUS, STAFF) },
             Spec { non_liee_vide: FAMILLE, ..lire("sanctions", "/eleves/{eleve}/sanctions", TOUS, STAFF) },
+            // Socle 4 (lot A0) : ajout d'un responsable (commande unique), lien vers une personne
+            // existante, liens en attente de confirmation. Jamais d'écriture sur l'élève d'un autre
+            // établissement ; la liste « mes liens en attente » ne contient que ceux de l'appelant.
+            ecrire_sur_b("ajout-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables/ajout",
+                Some(r#"{"nouvelle_personne":{"nom":"Separation"},"lien":{"lien":"pere"}}"#)),
+            ecrire_sur_b("lier-responsable-B", "POST", "/dossier/eleves/{eleve}/responsables",
+                Some(r#"{"personne_id":"00000000-0000-0000-0000-000000000001","lien":"pere"}"#)),
+            ecrire_sur_b("repondre-lien-attente-B", "POST",
+                "/dossier/mes-liens-en-attente/00000000-0000-0000-0000-000000000001/reponse",
+                Some(r#"{"accepter":true}"#)),
+            lire("mes-liens-en-attente", "/dossier/mes-liens-en-attente", TOUS, TOUS),
+            // Socle 4 (lot A0 bis) : confirmation au guichet (personnes.gerer), alertes de
+            // protection et « ne pas solliciter » (direction). Aucune de ces routes ne s'applique
+            // à une ressource d'un autre établissement ; les alertes ne listent que celles de
+            // l'établissement de l'appelant, et jamais une adresse.
+            lire("liens-en-attente-eleve", "/dossier/eleves/{eleve}/liens-en-attente",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+            ecrire_sur_b("confirmer-guichet-B", "POST",
+                "/dossier/liens-en-attente/00000000-0000-0000-0000-000000000001/confirmer-guichet",
+                Some(r#"{"piece":"carte_identite"}"#)),
+            ecrire_sur_b("ne-pas-solliciter-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/ne-pas-solliciter",
+                Some(r#"{"actif":true}"#)),
+            ecrire_sur_b("ouvrir-adresse-protegee-B", "POST",
+                "/dossier/adresses-protegees/00000000-0000-0000-0000-000000000001/ouvrir", None),
+            Spec { interdits: &["adresse\":"], ..lire("alertes-protection", "/dossier/alertes-protection",
+                &[Admin, Direction], &[Admin, Direction]) },
+            // Socle 4 (lot A1) : interdictions de remise (consigne : `remise.lire`, jamais pour une
+            // famille), conflits d'intérêts (direction). Aucune écriture sur l'établissement B ;
+            // un motif d'interdiction n'apparaît jamais dans un cas hors direction.
+            Spec { interdits: &["motif_scelle", "enc:v1:"], ..lire("interdictions", "/dossier/eleves/{eleve}/interdictions",
+                &[Admin, Direction, Administratif, Cpe, Prof, Infirmiere],
+                &[Admin, Direction, Administratif, Cpe, Infirmiere]) },
+            ecrire_sur_b("poser-interdiction-B", "POST", "/dossier/eleves/{eleve}/interdictions",
+                Some(r#"{"personne_libelle":"Separation","objet":["remise"],"fondement":"decision_etablissement","consigne":"Ne pas remettre"}"#)),
+            ecrire_sur_b("lever-interdiction-B", "POST",
+                "/dossier/interdictions/00000000-0000-0000-0000-000000000001/lever",
+                Some(r#"{"motif":"separation"}"#)),
+            ecrire_sur_b("declarer-conflit-interet-B", "POST", "/dossier/eleves/{eleve}/conflit-interet",
+                Some(r#"{"nature":"proche"}"#)),
+            ecrire_sur_b("lever-conflit-interet-B", "POST",
+                "/dossier/conflits-interet/00000000-0000-0000-0000-000000000001/lever", None),
+            lire("conflits-interet", "/dossier/conflits-interet", &[Admin, Direction], &[Admin, Direction]),
     ]
 }
 
@@ -452,6 +557,9 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
             lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
             lire("mes-creneaux", "/edt/mes-creneaux", &[Admin, Direction, Administratif, Cpe, Prof, Eleve], &[]),
+            // D-022 bis : liste unique des enseignements du personnel, jamais des familles.
+            lire("mes-enseignements", "/referentiel/mes-enseignements",
+                &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy], &[]),
     ]
 }
 
@@ -605,6 +713,7 @@ fn invariant_etablissement_id_client_est_ignore() {
         "/annonces".to_string(),
         "/eleves/search?q=Potter".to_string(),
         "/edt/mes-creneaux".to_string(),
+        "/referentiel/mes-enseignements".to_string(),
         format!("/eleves/{harry}/documents"),
         format!("/eleves/{harry}/notes"),
         format!("/eleves/{harry}/dossier"),
@@ -684,6 +793,7 @@ fn invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes() {
         for chemin in [
             "/messages/fils", "/facturation/factures", "/foyers", "/matieres", "/audit/journal",
             "/personnel/search?q=a", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
+            "/referentiel/mes-enseignements",
             "/infirmerie/passages", "/psy/entretiens", "/documents/grants/pending",
         ] {
             for a in Acteur::TOUS {

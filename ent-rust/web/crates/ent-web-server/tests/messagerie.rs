@@ -329,7 +329,10 @@ async fn cloisonnement_et_roles() {
         assert!(refus(&eleve_api.archiver_fil(fil).await));
         assert!(refus(&eleve_api.modeles_messages().await));
         assert!(refus(&eleve_api.messagerie_chercher_eleves("POTTER").await));
-        let ron = eleve(&prof, "WEASLEY", "Ron").await;
+        // D-022 : un professeur ne retrouve plus un élève hors de ses groupes ; la direction
+        // fournit l'identifiant d'un élève qui n'est pas celui du compte testé.
+        let direction = staff(&base, &l, "direction").await;
+        let ron = eleve(&direction, "WEASLEY", "Ron").await;
         assert!(refus(
             &eleve_api
                 .ouvrir_fil_messages(ron.id, "Autre élève", "Bonjour")

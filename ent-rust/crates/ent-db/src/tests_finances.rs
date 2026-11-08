@@ -1327,9 +1327,11 @@ async fn droits_et_isolation() {
         )
         .await
         .is_err());
-    // Événement forgé dans B citant l'élève de A : aucune ligne.
+    // Événement forgé dans B citant l'élève de A : aucune ligne. Depuis la clé composée d'E0
+    // (migration 240), la base refuse déjà la publication elle-même.
     let mut tx = ent.pool().begin().await.unwrap();
-    tx.publier(MetierEventDraft {
+    let forge = tx
+        .publier(MetierEventDraft {
         etablissement_id: c2.etablissement_id,
         type_name: types::INSCRIPTION_VALIDEE.into(),
         aggregate: AggregateKind::Eleve,
@@ -1338,9 +1340,9 @@ async fn droits_et_isolation() {
         payload: json!({ "eleve_id": e, "annee_cible": ANNEE }),
         actor_user_id: None,
     })
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
+    .await;
+    assert!(forge.is_err(), "événement inter-établissements accepté");
+    drop(tx);
     distributeur(&ent, c2.etablissement_id)
         .distribuer_tout()
         .await

@@ -42,6 +42,7 @@ pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
     FilMessages, LibelleEleve, MessageFil, ModeleMessage, PieceMessage,
 };
+pub use dossier::ResultatLien;
 pub use droits_moteur::DroitEffectif;
 pub use edt_s2::{
     chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
@@ -78,8 +79,11 @@ pub use ent_types::auth::{
 };
 pub use ent_types::cahier as cahier_types;
 pub use ent_types::dossier::{
-    ActionFicheDto, ContactBody, ContactUrgenceDto, EntreeChronologieDto, FicheEleveDto, LienBody,
-    PersonneBody, PersonneDto, ResponsableDto, ResumeSectionsDto, SectionsDto,
+    ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody,
+    AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,
+    EntreeChronologieDto, FicheEleveDto, InterdictionDto, LienBody, LienEnAttenteDto,
+    LienEnAttenteEleveDto, MasquageDto, MonLienEnAttenteDto, PersonneBody, PersonneDto,
+    ProtectionADeclarerDto, ReponseLienBody, ResponsableDto, ResumeSectionsDto, SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
 /// Types des finances (S2-9), partagés avec `ent-api`.
@@ -88,7 +92,8 @@ pub use ent_types::finances as types_finances;
 pub use ent_types::inscriptions as types_inscriptions;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
-    RapportAmorcageDto as RapportAmorcageApi, ServiceDto as ServiceApi,
+    EnseignementDto as EnseignementApi, RapportAmorcageDto as RapportAmorcageApi,
+    ServiceDto as ServiceApi,
 };
 pub use ent_types::vie_scolaire::{
     AbsenceDto as Absence, AbsenceMotifDto as MotifAbsence, EleveFicheDto as FicheEleve,

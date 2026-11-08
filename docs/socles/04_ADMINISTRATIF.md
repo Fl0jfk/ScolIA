@@ -10,7 +10,7 @@
 
 **[personas] Passe « personas » du 2026-11-06.** Ajouts marqués **[personas]** : cas C28 à C47 (§4), actions ADM-71 à ADM-102 (§9), règles R-A1 à R-A43 (§17 bis), questions Q-A21 à Q-A27 (§18). Origine de chaque ajout : `docs/socles/PERSONAS_02-04.md`. **Quatre ajouts changent le lot A0 en cours** : fuseau de l'établissement au lieu d'Europe/Paris en dur (R-A38) ; champs réservés du contrat `DeclarationResponsables`, dont l'adresse à protéger jamais écrite en clair (R-A39) ; aucune invitation vers une personne « à ne pas solliciter » (R-A39) ; confirmation du lien au guichet ou en un geste depuis un compte existant (ADM-82, R-A40). Voir `PERSONAS_02-04.md` §0.
 
-Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Les situations familiales réelles · §5 Frontières · §6 Concepts · §7 Historique · §8 Modèle de données cible · §9 Actions métier · §10 Logiciel ou paramétrage · §11 Échanges avec l'extérieur · §12 Sécurité et données sensibles · §13 Droits · §14 Événements · §15 Écrans clés · §16 Plan de migration · §17 Lots de code · §18 Questions à trancher · §19 Récapitulatif.
+Sommaire : §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs et ce qu'ils vivent · §4 Les situations familiales réelles · §5 Frontières · §6 Concepts · §7 Historique · §8 Modèle de données cible · §9 Actions métier · §10 Logiciel ou paramétrage · §11 Échanges avec l'extérieur · §12 Sécurité et données sensibles · §13 Droits · §14 Événements · §15 Écrans clés · §16 Plan de migration · §17 Lots de code · §18 Questions à trancher · §19 Récapitulatif · §20 État du lot A0 · §21 État du lot A0 bis.
 
 ---
 
@@ -1189,3 +1189,119 @@ Origine, personas et gravité : `docs/socles/PERSONAS_02-04.md`. Le lot qui port
 - `SOCLE2_DOMAINES.md` §6.2 annonçait « coordonnées sur la personne » comme choix ; ce document les sort de la personne (historique, multiples) — §8.4, avec projection de compatibilité.
 - Next.js adresse la messagerie au **foyer**, contre D-014 (« comptes parents uniquement, chaque parent a son espace ») — non repris (§2.4).
 - `02_ELEVE.md` §7.1 prévoyait les migrations 140–149 puis `03_INSCRIPTIONS.md` 160–169 / 200–219 ; le registre `MIGRATIONS.md` fait foi (socle 4 : 260–279), et les trois socles touchent les mêmes tables pour les clés composées et la RLS — Q-A20.
+
+
+---
+
+## 20. État du lot A0 (2026-11-06, branche `ent-socle-administratif-a0`)
+
+**Implémenté et testé en local (PostgreSQL local) ; non validé par Florian, non prêt pilote.** Base : `ent-socle-inscriptions-i0` + `ent-mc0hoe`.
+
+| Élément du tableau §16 / §17 | État | Où |
+|---|---|---|
+| Migration 260 : fuseau | fait : fonction `ent_aujourdhui()` (Europe/Paris), vue `ent_eleve_lien_actif` recalculée | `migrations/260_administratif_a0.sql` |
+| Migration 260 : clés composées | fait : `UNIQUE (etablissement_id, id)` sur personnes, foyers, liens ; clés composées lien→personne, contact→personne, fusion→personnes, `NOT VALID` puis validées **seulement s'il n'y a aucun orphelin** (vue de contrôle `ent_dossier_orphelins_v`). Pas de clé composée lien→foyer (la clé existante est en `SET NULL`) | idem |
+| Port `correspondances` | fait (`correspondances_tx`) : lecture, e-mail masqué, jamais de rapprochement ; l'e-mail n'est **pas vérifié** (candidat seulement) | `ent-db/src/dossier_personnes_ports.rs` |
+| Port `integrer_declaration` | fait (`integrer_declaration_tx`, dans la transaction de l'appelant) : sans choix humain, une déclaration qui a des correspondances est refusée ; foyer existant à confirmer ; une même personne ne sert pas deux responsables | idem |
+| Lien vers une personne avec compte = invitation | fait : table `ent_lien_attente` (socle 4, reprend les lignes de `ent_inscription_lien_attente`) ; `confirmer_liens_attente_tx` / `refuser_liens_attente_tx` ; pour la saisie directe, `GET /dossier/mes-liens-en-attente` et `POST …/{id}/reponse` (seule la personne concernée décide) | idem + `ent-api/src/dossier.rs` |
+| Commande unique `ajouter_responsable` | fait (`ajouter_responsable_for_actor`, route `POST /dossier/eleves/{id}/responsables/ajout`, une transaction) ; l'écran Leptos l'appelle en une requête ; `lier_personne_for_actor` applique la même règle d'invitation | idem + `web/crates/ent-web-app/src/modules/dossier/actions.rs` |
+| Envois aux familles | fait : `emails_parents_eleve` / `telephones_parents_eleve` lisent la **fiche de la personne** (compte en simple repli) et ses préférences (`ent_personne_preference`, sous-ensemble de la table de §8.4 : `canal_email`, `canal_sms`, `courrier_papier`) ; un parent sans compte reçoit ses messages | `ent-db/src/foyer_repo.rs` |
+| Inscriptions via les ports | fait pour personnes, foyers, liens, confirmation et refus d'invitation | `ent-db/src/inscriptions.rs` |
+
+**Critères de fin** : « second parent non vérifié ne reçoit aucun accès » ✔ (`second_parent_non_verifie_ne_recoit_aucun_acces`) ; fratrie validée en deux fois = un seul foyer ✔ (`fratrie_validee_en_deux_fois_un_seul_foyer`) ; bord de journée ✔ (`jour_metier_europe_paris_bord_de_journee`) ; parent sans compte destinataire ✔ ; ajout atomique ✔ ; clés composées sans orphelin ✔.
+
+**Reste, noté pour les lots suivants**
+- **I1** : `accepter_invitation` écrit encore `ent_personne.user_id` directement (rattachement du compte) ; `imports.rs` (socle 9) insère encore dans `ent_eleve_lien` ; l'ancienne table `ent_inscription_lien_attente` n'est plus écrite (à supprimer après validation) ; l'écran de rapprochement du frontend reste à faire.
+- **A2** : vérification de l'e-mail par code (aujourd'hui une adresse saisie dans un dossier validé devient destinataire sans preuve de possession) ; préférences modifiables par la personne ; normalisation E.164.
+- **Interprétation** de « aucun envoi sans confirmation humaine pour un envoi manuel » : le lot n'ajoute aucun envoi ; ajouter un responsable ou une invitation `saisie` n'envoie rien (testé : la boîte d'envoi ne bouge pas). Les envois automatiques existants (suites d'un geste humain) sont inchangés.
+- Pas d'écran pour « mes liens en attente » (routes et client web faits, UI à faire) ni de notification à la personne invitée par saisie directe.
+- RLS sur `ent_lien_attente` et `ent_personne_preference` : lot A14 (comme les autres tables du socle).
+- Une fusion de personnes ne déplace pas les liens en attente de la personne absorbée (ils ne s'activent pas : aucune fuite, mais à traiter en A9).
+
+**Revue de sécurité du lot (skill `security-review` + relecture indépendante `review-sonnet`)**
+- Corrigés : (H1) quatre lectures du cahier de textes (`cahier.rs` ×3, `cahier_reactions.rs`) lisaient la table brute `ent_eleve_lien` et ignoraient suspension, dates et fusion : elles lisent maintenant la vue `ent_eleve_lien_actif` (point unique) ; (M3) une demande de lien déjà en attente est remplacée par la plus récente (même origine) ou refusée nettement (origine différente) au lieu d'être reprise silencieusement avec des droits périmés.
+- **Non corrigés, à décider** (hors périmètre A0 ou choix de conception) :
+  - (H2) `rattacher_compte` par le personnel et la fusion de personnes donnent à un compte les liens **déjà actifs** d'une fiche sans confirmation de la personne : à traiter avec les lots A4/A9 (les passer par l'attente) ; **question pour Florian**.
+  - (M1) un e-mail ou un téléphone saisi dans un dossier validé devient destinataire sans preuve de possession (et l'e-mail de la fiche prime sur celui du compte) : vérification par code au lot A2 ; les envois ne tiennent pas compte des droits fins du lien (comme avant).
+  - (M2) le refus d'invitation par jeton suspend le lien sans journal (aucun compte authentifié pour le signer ; le motif et la date sont sur le lien).
+  - (B1) pas d'annulation ni d'expiration des attentes ; (B2) clés étrangères simples sur `ent_lien_attente` et `ent_personne_preference` (clés composées au lot A14 avec la RLS) ; (B3) `accepter_invitation` ne contrôle pas le rôle du compte existant ; (B6) numéros SMS non normalisés (doublons possibles) ; (B7) la vue `ent_eleve_lien_actif` est recréée à chaque démarrage (comme avant), sans reprise des droits d'accès éventuels.
+
+## 21. État du lot A0 bis (2026-11-06, branche `ent-socle-administratif-a0-bis`)
+
+**Implémenté et testé en local ; non validé par Florian, non prêt pilote.** Base : lot A0 + `origin/ENT`. Migrations **265 à 269** ; `MIGRATION_TAG` = `269_inscription_responsable_reserve`. Origine : `PERSONAS_02-04.md` §0 (A0-a à A0-d). Tests : `ent-db/src/tests_administratif_a0bis.rs` (6) et `tests_inscriptions.rs` (4 ajoutés).
+
+| Changement | État | Où / test |
+|---|---|---|
+| **A0-a** fuseau de l'établissement | fait : table `ent_etablissement_parametre` (fuseau IANA validé, Europe/Paris par défaut), fonction `ent_aujourdhui_etab(etab, instant)`, vue `ent_eleve_lien_actif` recalculée ; `PgEnt::fuseau_etablissement` / `definir_fuseau_etablissement_for_actor` (droit `referentiel.gerer` ; pas d'écran : socle 5, STR-03) | migration 265 ; `fuseau_etablissement_bord_de_journee_deux_fuseaux` (Paris / La Réunion, Kiritimati / Pago Pago sur la vue) |
+| **A0-b** contrat `DeclarationResponsables` v1 | fait : `DeclarationResponsable.reserve: ReserveDeclaree` (`adresse_a_proteger`, `ne_pas_solliciter` + référence scellée, `langue`, `besoin_interprete`, `organisme`, `nature_code`), validée avant toute écriture, stockée dans `ent_personne_reserve` (aucun champ perdu). Une adresse à protéger **n'est jamais écrite** dans `ent_personne.adresse` ni dans le dossier d'inscription : parquée scellée (AES-256-GCM, `champs_chiffres`) dans `ent_adresse_protegee`, alerte pour la direction (`GET /dossier/alertes-protection`), ouverture journalisée (`POST /dossier/adresses-protegees/{id}/ouvrir`, `no-store`). Côté formulaire : `ResponsableFormulaireDto.reserve` (jamais rendu à la famille), colonnes migration 269 | migrations 266, 267, 269 ; `declaration_adresse_a_proteger_jamais_en_clair`, `adresse_protegee_d_une_personne_existante_et_reserve_fusionnee`, `second_parent_ne_pas_solliciter_aucune_invitation` |
+| **A0-c** « ne pas solliciter » | fait : règle unique `personne_ne_pas_solliciter_tx` ; aucune invitation / demande d'accord du second parent (`inviter`), aucune relance (`relancer_for_actor` refuse), aucun envoi automatique aux familles (`emails_parents_eleve`, `telephones_parents_eleve`), la personne ne voit ni ne confirme en ligne ses liens en attente (ils révéleraient l'élève). Posé par la famille (déclaration, « à confirmer ») ou par la direction (`POST /dossier/personnes/{id}/ne-pas-solliciter`), levé par la direction seule | `ne_pas_solliciter_aucune_sollicitation_ni_envoi`, `ne_pas_solliciter_pose_avant_l_envoi_bloque_l_invitation`, `relance_refusee_vers_une_personne_ne_pas_solliciter` |
+| **A0-d** deux voies de confirmation | fait : (1) la personne connectée confirme en un geste (`mes-liens-en-attente` couvre maintenant les demandes d'inscription) ; (2) le secrétariat confirme au guichet (`POST /dossier/liens-en-attente/{id}/confirmer-guichet`, droit `personnes.gerer`, liste `GET /dossier/eleves/{id}/liens-en-attente`). Voie, **type** de pièce (liste fermée) et auteur tracés sur la demande et au journal ; ni copie ni numéro (contrainte SQL : pièce ⇔ guichet) | migration 268 ; `professeur_parent_confirme_son_lien_en_un_geste`, `parent_connecte_confirme_le_lien_d_inscription_en_un_geste`, `confirmation_au_guichet_piece_et_auteur_traces` |
+
+Toutes les nouvelles routes sont dans la matrice d'isolation (`separation.rs`, domaine « élève / dossier »).
+
+**Interprétations à valider** : (a) la référence de « ne pas solliciter » est un texte libre scellé (≤ 200 car.), non un identifiant de pièce du socle 3 ; (b) une déclaration de la famille pose « ne pas solliciter » **immédiatement** (par prudence pour l'enfant) et crée une alerte « à confirmer » pour la direction, qui peut le lever ; (c) l'ouverture d'une adresse parquée la marque « traitée » (le lot A3 la reprendra comme adresse protégée) ; (d) les droits réutilisent `liens.suspendre` (direction) pour les protections et `personnes.gerer` (secrétariat) pour le guichet : pas de nouvelle action.
+
+**Revue de sécurité (skill `security-review`)**
+- Corrigé : la levée de « ne pas solliciter » par la direction laissait le marqueur copié sur le dossier d'inscription, qui bloquait encore invitations et relances (test ajouté).
+- **Non corrigés, à décider** : (M) les notifications dans l'application (`reactions.rs`, `cahier_reactions.rs`) visent encore un parent protégé qui a un compte et un lien actif — elles ne sont pas des sollicitations sortantes, mais révèlent de l'activité ; (L) la confirmation au guichet n'exige pas de second contrôle (tracée et auditée seulement) ; (L) un parent mal intentionné peut déclarer l'autre « ne pas solliciter » pour supprimer ses invitations : atténué par l'alerte direction et le guichet, jamais par un blocage d'accès ; (L) pas de RLS sur les trois nouvelles tables (lot A14, comme le reste du socle) ; (L) une adresse protégée déjà présente en clair dans une fiche existante n'est pas rétroactivement scellée (lot A3).
+- Écrans Leptos : voir `PROJECT_STATUS.md`.
+
+
+## 22. État du lot A1 « droits et minimisation » (2026-11-07, branche `ent-socle-administratif-a1`)
+
+**Implémenté et testé en local (PostgreSQL local) ; non validé par Florian, non prêt pilote.** Base : lots A0 et A0 bis. Migrations **270 à 272** (273–274 réservées au lot A14, RLS) ; `MIGRATION_TAG` = `272_contact_declarant`. Le lot E1 du socle 2 (même mécanisme) n'étant **pas encore dans le code**, A1 pose le mécanisme générique (vue de groupes pure + point d'application unique) ; E1 devra le **réutiliser**, pas le redéfinir (`ent_auth::minimisation`, §22.2).
+
+### 22.1 Catalogue (§13) et modèles par défaut
+
+15 actions ajoutées à `ent_auth::Action` (53 → 68) : `responsables.lire`, `.adresses.lire`, `.juridique.lire`, `.protege.lire`, `.protege.gerer`, `liens.juridique.gerer`, `remise.lire`, `.gerer`, `.interdire`, `personnes.identifiants.gerer`, `dossier_admin.propositions.traiter`, `fiche_rentree.gerer`, `dossier_admin.exporter`, `dossier_admin.parametrer`, `responsables.acces_urgence`. Portées : les quatre lectures (`responsables.lire`, `.adresses.lire`, `.juridique.lire`, `remise.lire`) acceptent les quatre portées ; toutes les autres : établissement seulement. Inclusions explicites uniquement (`personnes.gerer` ⊃ F0–F2, `liens.juridique.gerer` ⊃ F3, `remise.gerer` ⊃ `remise.lire`, `responsables.protege.gerer` ⊃ F4) ; le moteur de droits (`autoriser_eleve`, `eleves_autorises`, `a_action_etablissement`) les applique désormais (jusqu'ici seule `peut_etablissement` le faisait).
+
+**Matrice historique identique** : test `matrice_historique_inchangee_par_a1` (`ent-auth/src/actions.rs`) — profils × 53 actions d'avant A1 figés, plus `r2_*` existants. Aucun droit historique n'a changé ; seules les 15 actions nouvelles sont ajoutées aux modèles.
+
+**Nouveau profil de base `accueil`** (`Role::Accueil`, « Accueil (modèle nouveau) » du §13.2) : `responsables.lire`, `remise.lire`, `absences.declarer`, `referentiel.lire` — rien d'autre. C'est le « rôle Accueil de démonstration » ; aucun écran de gestion de rôle ne le propose encore (écrans d'administration des rôles : R2).
+
+| Profil | F0 F1 | F2 | F3 | F4 | R | Payeurs |
+|---|---|---|---|---|---|---|
+| Admin, Direction | ✔ | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Administratif | ✔ | ✔ | ✔ | — | ✔ | ✔ |
+| CPE | ✔ | — | ✔ | — | ✔ | — |
+| Comptabilité | ✔ | ✔ | — | — | — | ✔ |
+| Professeur (mes classes) | ✔ | — | — | — | ✔ | — |
+| Infirmerie, Accueil | ✔ | — | — | — | ✔ | — |
+| Psychologue | — | — | — | — | — | — |
+| Titulaire (famille) | soi : ✔ ; autres : F0 seulement | soi | soi | — | ses contacts | soi |
+
+Oracle : `minimisation::tests::oracle_profils_par_groupe` (profil × groupe, depuis `modele_par_defaut`).
+
+**Écarts voulus avec le comportement d'avant A1** (avant : toute personne ayant la section « famille » lisait *tous* les champs d'un responsable) — **à valider par Florian** : (1) le professeur ne lit plus que F0, F1 et R de ses élèves ; (2) la vie scolaire perd adresses et payeurs ; (3) la comptabilité perd la situation juridique (F3) et les contacts d'urgence, garde adresses et payeurs ; (4) le secrétariat (Administratif) perd F4 (motif et référence d'une suspension de lien, aujourd'hui lisibles en clair) ; (5) l'infirmerie **gagne** F0, F1 et R (contacts d'urgence : avant, rien) ; (6) une famille ne voit plus de l'autre responsable que la désignation (avant : aussi autorité, garde, dates, droits du lien) et ne voit que les contacts qu'elle a déclarés ou saisis par l'établissement (avant : tous). Tous suivent le §13.2 et le §12.2 de la conception.
+
+### 22.2 Mécanisme : un seul point
+
+- **Fonction pure** `ent_auth::minimisation` : `vue_personnel(droits, conflit)` et `vue_titulaire(est_moi)` → `VueGroupes` (F0–F4, R, payeurs, indicateur de conflit, liste des groupes fermés **avec leur raison**). Aucune autre règle de minimisation.
+- **Service** `ent-db/src/dossier_droits.rs` : `vue_groupes_eleve` (droits par élève, portées résolues par le moteur ; conflit d'intérêts), `lecture_dossier_admin` (responsables, contacts, interdictions filtrés d'après la vue). `responsables_eleve_for_actor`, `contacts_eleve_for_actor` et `fiche_eleve_for_actor` n'ont plus de filtre propre : elles appellent ce point.
+- **Raisons de masquage** : `Responsable.masque` (par personne) et `FicheEleve.masquages` (par groupe) → DTO `MasquageDto` (`groupe`, `libelle`, `raison` = `droit_manquant` | `conflit_interet` | `autre_responsable` | `reserve_etablissement`, `message`, `action_a_demander`). Les valeurs masquées sont neutres (vide / faux) : un champ vide n'est jamais ambigu. L'écran fiche élève (Leptos) affiche le message à la place de la valeur et un bandeau « Interdictions en cours ».
+- Bris de glace `responsables.acces_urgence` : **action au catalogue seulement** (modèle : Direction) ; le mécanisme temporaire (motif, durée, alerte, revue à 72 h) relève de `02_ELEVE.md` R-E11 / lot E7 et n'est pas implémenté.
+
+### 22.3 Règles [personas] du lot
+
+| Règle | Implémentation | Test |
+|---|---|---|
+| **R-A18 conflit d'intérêts** | Détection : l'agent a une fiche personne liée à l'élève (lien, même ancien ou suspendu ; payeur ; contact d'urgence) ou une **déclaration** (`ent_conflit_interet` : par l'agent pour lui-même, ou par la direction pour un autre agent ; natures `ex_conjoint`, `ancien_foyer`, `proche`, `autre` ; seule la direction lève, jamais l'agent). Effet : F2, F3, F4 et payeurs **fermés quels que soient ses droits** (raison `conflit_interet`) ; F0, F1, R ouverts avec **trace d'accès sensible** (journal `conflit_interet`, tableau `GET /dossier/conflits-interet` pour la direction) ; toute écriture sur ce dossier (liens, payeurs, contacts, personnes, interdictions, « ne pas solliciter ») refusée : « doit être faite par un collègue » ; la recherche et la lecture directe d'une personne ferment l'adresse ; la fusion, la confirmation au guichet, les préférences d'envoi et l'ouverture d'une adresse protégée sont aussi refusées ; une personne liée à un **autre** élève avec lequel l'agent est en conflit (l'ex-conjoint, responsable d'un demi-frère) reste fermée partout. Sa casquette de parent (session famille) est inchangée | `conflit_d_interet_agent_parent_de_l_eleve`, `conflit_d_interet_personne_liee_a_un_autre_eleve_et_fusion`, `les_ecritures_renvoient_la_vue_minimisee`, `conflit_d_interet_declare_ex_conjoint`, `conflit_d_interet_contact_d_urgence`, `interdiction_sur_son_propre_dossier_par_un_collegue` |
+| **Droit d'accès d'un parent sans les données de l'autre** | `vue_titulaire` : ses données en entier (hors F4), de l'autre responsable la désignation et la nature du lien ; contacts : ses propres déclarations + saisies de l'établissement (`ent_eleve_contact_urgence.declare_par_personne_id`, migration 272) ; jamais d'interdiction, jamais F4. Aucune donnée de l'autre dans la réponse de la fiche (test sur la représentation complète) | `droit_d_acces_d_un_parent_sans_les_donnees_de_l_autre` |
+| **Interdiction de remise visible de l'accueil et de la vie scolaire** | Table `ent_eleve_interdiction` (sous-ensemble de §8.8) ; consigne et personne visée avec `remise.lire` (accueil, vie scolaire, infirmerie, secrétariat, direction ; prof : ses élèves) ; fondement avec F3 ; **motif scellé** (AES-256-GCM) lisible avec F4 seulement, consultation tracée ; invisible de la **personne visée** (même agent d'accueil) et de toute famille ; pose et levée par `remise.interdire` (Admin, Direction), levée motivée, jamais de suppression ; `demande_titulaire` enregistrée **non bloquante** ; période (future ou échue = inactive) ; motif jamais en clair en base ni au journal ni dans un événement (aucun événement publié) | `interdiction_de_remise_visible_accueil_et_vie_scolaire`, `interdiction_validation_et_periode` |
+
+Routes ajoutées (toutes dans la matrice d'isolation `separation.rs`, domaine « élève / dossier ») : `GET|POST /dossier/eleves/{id}/interdictions`, `POST /dossier/interdictions/{id}/lever`, `POST /dossier/eleves/{id}/conflit-interet`, `GET /dossier/conflits-interet`, `POST /dossier/conflits-interet/{id}/lever`.
+
+### 22.4 Limites et points à décider
+
+- **Non fait dans A1** : propagation d'une interdiction aux postes et caches mobiles en moins d'une minute (R-A10), rappel à 48 h et pièce justificative (R-A9), alerte de cohérence autorisé + interdit (§8.8), fiche de secours (R-A11) — lot A5, qui reprend la table `ent_eleve_interdiction` posée ici. Détection du conflit par « ancien membre de foyer » : par déclaration seulement (tables de foyers au lot A3). Rapprochement automatique personne ↔ agent (`06_PERSONNELS.md`) : ici, par le compte de la fiche personne (`ent_personne.user_id`). Lecture de F3 *sur la fiche personne* (`get_personne`) : toujours soumise à `personnes.gerer` seul. Extrait RGPD d'un parent (R-A31, ADM-69) : lot A14 — A1 fournit la règle de vue (`vue_titulaire`), pas l'export. Les lectures hors fiche qui exposent des coordonnées de responsables (destinataires, A11 ; documents, socle 7) ne passent pas encore par la vue.
+- **Notifications à la direction** : l'alerte de conflit est un tableau (accès tracés sur 30 jours + déclarations) ; pas de notification poussée.
+- **Questions pour Florian** : (a) valider les six écarts de §22.1 ; (b) l'infirmerie doit-elle vraiment lire F0/F1/R (conception : oui ; avant : non) ? (c) un agent en conflit d'intérêts qui est **direction** : les écritures sur son dossier passent par une autre personne de la direction — acceptable dans un établissement à direction unique (le chef d'établissement parent d'élève) ? ; (d) le bris de glace doit-il exister avant E7 ?
+
+### 22.5 Revue de sécurité du lot (skill `security-review` + relecture indépendante `review-sonnet`)
+
+**Corrigés** (tests ajoutés) : (H) l'ex-conjoint restait lisible via un **autre élève** dont il est responsable ; (H) la fusion et la défusion de personnes n'avaient pas de garde de conflit (écriture, puis évasion de la détection) ; (H) l'ouverture d'une adresse protégée n'avait pas de garde de conflit ; (M) confirmation au guichet et préférences d'envoi sans garde ; (M) les **réponses des écritures** (payeurs, modification, suspension, rétablissement) renvoyaient les responsables non minimisés (motif de suspension à la comptabilité ou au secrétariat) : elles passent maintenant par la même vue ; (M) la lecture d'un motif protégé (interdiction, motif de suspension) est tracée même par la fiche ; (M) le journal par élève ne montre plus les entrées de conflit d'intérêts ni d'interdiction hors `responsables.protege.lire` ; (M) l'interdiction visant une personne **fusionnée** restait lisible de son compte (la requête suit `fusionnee_dans`) ; (M) un titulaire ne reçoit plus le commentaire interne d'un contact qu'il n'a pas déclaré, ni les coordonnées d'un contact qui est l'autre responsable.
+
+**Non corrigés, à décider** :
+- (M) **Un agent qui est aussi parent a deux comptes** (clé `ent_membership` = un rôle par établissement, `rattacher_compte` refuse un compte non parent) : la détection automatique par lien ne se déclenche donc que si le compte professionnel est rattaché à la fiche personne ; dans le cas courant (deux comptes), **seule la déclaration** (agent ou direction) protège. Le test simule le compte unique. Piste : rapprochement à l'embauche (socle 6), déclaration obligatoire, ou casquettes multiples par compte (`06_PERSONNELS.md`). **Question pour Florian.**
+- (M) un parent peut proposer un contact avec `peut_recuperer = true` sans `peut_autoriser_sorties` : le statut « proposé » doit empêcher toute remise (lot A5, qui reprend le contact vers `ent_eleve_remise`).
+- (L) `get_personne` d'une fiche **déjà fusionnée** par un collègue n'ajoute pas l'adresse de la cible ; la lecture d'une liste de liens en attente n'est pas tracée ; la trace de conflit est « au mieux » (une erreur d'écriture n'empêche pas la lecture) et non dédupliquée ; tri des responsables par autorité (laisse deviner l'autorité de l'autre) et champs `a_compte`/`actif` visibles de l'autre responsable ; clés étrangères non composées sur les trois nouvelles tables (lot A14, RLS) ; tout agent peut déclarer un conflit sur n'importe quel élève de l'établissement (oracle d'existence, bruit dans le tableau).

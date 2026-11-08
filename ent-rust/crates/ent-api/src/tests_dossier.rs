@@ -161,3 +161,85 @@ async fn dossier_routes_droits_minimisation_suspension_isolation() {
     let (st, _) = appel(&app, "POST", &format!("/dossier/fusions/{id}/annuler"), &autre.direction.token, None).await;
     assert_eq!(st, StatusCode::NOT_FOUND, "fusion d'un autre établissement");
 }
+
+/// Lot A1 (HTTP) : interdictions (consigne pour la vie scolaire, motif pour la direction,
+/// refus aux familles et à la comptabilité), raisons de masquage de la fiche, tableau des
+/// conflits d'intérêts réservé à la direction.
+#[tokio::test]
+async fn a1_http_interdictions_masquages_et_conflits() {
+    let Some(state) = etat().await else {
+        eprintln!("skip A1 HTTP: ENT_DATABASE_URL");
+        return;
+    };
+    let cast = state.ent.seed_labo_cast().await.expect("cast");
+    let app = app(state);
+    let eleve = cast.eleve_lea_id;
+    let dir = cast.direction.token.as_str();
+    let cpe = cast.cpe.token.as_str();
+    let parent = cast.parent_lea.token.as_str();
+    let compta = cast.compta.token.as_str();
+    let uri = format!("/dossier/eleves/{eleve}/interdictions");
+    let motif = "Motif très sensible A1 HTTP";
+
+    // Corps invalide → 400 ; pose refusée à la vie scolaire (pas de `remise.interdire`) → 403.
+    let corps = json!({ "personne_libelle": "M. Inconnu A1", "objet": ["remise"],
+        "fondement": "ordonnance_protection", "motif": motif,
+        "consigne": "Ne pas remettre ; prévenir la direction" });
+    let (st, _) = appel(&app, "POST", &uri, dir, Some(json!({ "objet": [], "fondement": "x", "consigne": "y" }))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, _) = appel(&app, "POST", &uri, cpe, Some(corps.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, txt) = appel(&app, "POST", &uri, dir, Some(corps)).await;
+    assert_eq!(st, StatusCode::CREATED, "{txt}");
+    let id: Uuid = serde_json::from_str(&txt).unwrap();
+
+    // Vie scolaire : consigne et fondement (F3), pas le motif. Direction : motif.
+    let (st, txt) = appel(&app, "GET", &uri, cpe, None).await;
+    assert_eq!(st, StatusCode::OK, "{txt}");
+    assert!(txt.contains("Ne pas remettre") && txt.contains("ordonnance_protection"));
+    assert!(!txt.contains(motif) && !txt.contains("enc:v1:"));
+    let (st, txt) = appel(&app, "GET", &uri, dir, None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(txt.contains(motif));
+    // Familles, comptabilité : refusé.
+    for jeton in [parent, compta] {
+        let (st, _) = appel(&app, "GET", &uri, jeton, None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // La fiche porte l'interdiction à la vie scolaire (pas à la famille) et les raisons de masquage.
+    let (st, txt) = appel(&app, "GET", &format!("/dossier/eleves/{eleve}/fiche"), cpe, None).await;
+    assert_eq!(st, StatusCode::OK, "{txt}");
+    let fiche: FicheEleveDto = serde_json::from_str(&txt).unwrap();
+    assert_eq!(fiche.interdictions.len(), 1);
+    assert!(fiche.interdictions[0].motif.is_none());
+    let f2 = fiche.masquages.iter().find(|m| m.groupe == "F2").expect("F2 expliqué");
+    assert_eq!(f2.raison, "droit_manquant");
+    assert_eq!(f2.action_a_demander.as_deref(), Some("responsables.adresses.lire"));
+    let (st, txt) = appel(&app, "GET", &format!("/dossier/eleves/{eleve}/fiche"), parent, None).await;
+    assert_eq!(st, StatusCode::OK, "{txt}");
+    let fiche: FicheEleveDto = serde_json::from_str(&txt).unwrap();
+    assert!(fiche.interdictions.is_empty());
+    assert!(!txt.contains(motif) && !txt.contains("M. Inconnu A1"));
+
+    // Conflits d'intérêts : tableau pour la direction seule ; déclaration d'une nature inconnue → 400.
+    let (st, _) = appel(&app, "GET", "/dossier/conflits-interet", dir, None).await;
+    assert_eq!(st, StatusCode::OK);
+    for jeton in [cpe, parent] {
+        let (st, _) = appel(&app, "GET", "/dossier/conflits-interet", jeton, None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let (st, _) = appel(&app, "POST", &format!("/dossier/eleves/{eleve}/conflit-interet"), cpe,
+        Some(json!({ "nature": "invente" }))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // Levée : refusée à la vie scolaire, motif obligatoire, puis disparition.
+    let lever = format!("/dossier/interdictions/{id}/lever");
+    let (st, _) = appel(&app, "POST", &lever, cpe, Some(json!({ "motif": "x" }))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &lever, dir, Some(json!({ "motif": " " }))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, _) = appel(&app, "POST", &lever, dir, Some(json!({ "motif": "Décision d'appel" }))).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (_, txt) = appel(&app, "GET", &uri, cpe, None).await;
+    assert!(!txt.contains("Ne pas remettre"), "interdiction levée encore visible : {txt}");
+}

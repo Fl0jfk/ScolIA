@@ -10,9 +10,13 @@
 mod absence;
 mod annonce;
 mod carnet;
+mod champs;
 mod continuum;
 mod document;
 mod dossier;
+mod identifiant;
+mod scolarite;
+mod identite;
 mod invitation;
 mod fiche_sante;
 mod fiche_sante_pdf;
@@ -84,9 +88,31 @@ pub use document::{
     DispositifKind, DocConfidentialite, DocTiroir, DocumentGrant, EleveDispositif, EleveDocument,
     GrantStatus,
 };
+pub use champs::{
+    EtatGroupe, GroupeChamps, GroupesAutorises, MasqueChamps, PorteeGroupe, ProfilChamps,
+    RaisonMasquage,
+};
 pub use dossier::{
     age_ans_au, assert_parts_paiement, plan_ajouter_option, plan_update_identite, AjouterOption,
     DossierEleve, DossierSections, EleveOption, LienDossier, OptionNature, UpdateIdentite,
+};
+pub use scolarite::{
+    date_changement_autorisee, date_majorite, est_majeur_le, planifier_cloture as planifier_cloture_scolarisation,
+    planifier_ouverture as planifier_ouverture_scolarisation, prochaine_date_autorisee, se_chevauchent,
+    statut_derive, CloturePlanifiee, CodeModalite, DatesChangement, DemandeCloture, DemandeOuverture,
+    Etablissement as EtablissementScolarite, ErreurScolarite, EtatInscription, MotifDerogationRegime, MotifEntree,
+    MotifSortie, NatureCapacite, OuverturePlanifiee, Periode as PeriodeScolarisation, StatutApprenant,
+    StatutEleve, TypeEtablissement, TypeMobilite,
+};
+pub use identifiant::{
+    motif_valide as motif_identifiant_valide, normaliser_valeur as normaliser_identifiant,
+    transition_permise as transition_identifiant_permise, utilisable_pour_export as identifiant_utilisable_pour_export,
+    ErreurIdentifiant, ProvenanceIdentifiant, StatutIdentifiant, SystemeIdentifiant,
+};
+pub use identite::{
+    filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,
+    source_valide as source_identite_valide, ChampIdentite, DemandeVersion, ErreurIdentite,
+    IdentiteVersion, ModifIdentite, NatureVersion, VersionPlanifiee,
 };
 pub use invitation::{
     email_compte_eleve_defaut, generer_mot_de_passe_temporaire, plan_inviter_compte_eleve,
@@ -392,23 +418,10 @@ impl NiveauIdentite {
 }
 
 impl Eleve {
-    /// Retire les champs d'identité non autorisés pour `niveau`.
+    /// Retire les champs d'identité non autorisés pour `niveau` (compatibilité :
+    /// le niveau est exprimé en groupes, point unique `minimise_groupes`, E1).
     pub fn minimise(&mut self, niveau: NiveauIdentite) {
-        if niveau == NiveauIdentite::Complet {
-            return;
-        }
-        self.ine = None;
-        self.numero_badge = None;
-        self.regime = None;
-        self.mef = None;
-        self.motif_sortie = None;
-        self.redoublant = false;
-        self.date_entree = None;
-        self.date_sortie = None;
-        if niveau == NiveauIdentite::Reduit {
-            self.sexe = None;
-            self.date_naissance = None;
-        }
+        self.minimise_groupes(&GroupesAutorises::depuis_niveau(niveau));
     }
 }
 
@@ -846,9 +859,8 @@ pub fn plan_create(cmd: CreateEleve) -> Result<PlannedMutation, DomainError> {
         aggregate: AggregateKind::Eleve,
         aggregate_id: eleve.id,
         eleve_id: Some(eleve.id),
+        // E0 : jamais d'état civil dans un événement (minimisation).
         payload: json!({
-            "nom": eleve.nom,
-            "prenom": eleve.prenom,
             "classe": eleve.classe,
             "mef": eleve.mef,
             "status": eleve.status.as_str(),

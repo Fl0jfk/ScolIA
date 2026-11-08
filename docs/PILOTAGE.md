@@ -32,13 +32,13 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 
 ## 4. File d'intégration et état (à tenir à jour)
 
-État au 2026-11-08, 7 h 40 UTC :
-- **Sur `ENT`** : socle 1, lot 6, lot 7 (évaluations, finances, communication, santé désactivée par défaut, emploi du temps).
-- **Lot 8 bis** (`ent-integration-lot8b`) : socles 2 à 4 (E0–E4, A0–A1, I1, D-022 bis). Première CI rouge (tests labo) ; correctifs poussés (`540d319`), CI GitHub relancée le 2026-11-08 vers 7 h 30. Si verte : contrôle du pilote puis push sur `ENT`.
-- **Lot 9** (après le lot 8 bis, une branche à la fois depuis la tête d'ENT) : correctifs recette 1 (`ent-recette-personas-1`, `ent-recette-1-correctifs` ; `perimetre.rs` à réconcilier avec D-022 bis) → correctifs recette 2 (`ent-recette-2-correctifs`) → E5, E6, A2, I2, S0–S1 → `ent-socle1-revue-faibles`, `ent-mobile-app` (bases très en retard).
-- **Recette 2** (`docs/recette/RECETTE_PERSONAS_2.md`) : **P1 pas encore atteint** ; manques P1 : RP2-10 (inscription validée invisible de la scolarité), RP2-11 (secrétariat ne valide pas), RP2-04 (« ne pas solliciter » contourné par fusion/guichet), RP2-13 (correctifs recette 1 non fusionnés), écrans non joués. Correctifs en cours (session Sonnet), décisions du pilote provisoires à confirmer par Florian (Q-RP2-1 à 5).
-- **En cours** : A2, E6, I2, S0–S1 (code, Sonnet), personas socle 9 (Opus).
-- **Conceptions terminées non codées** : socles 5 à 9 (07 à 09 en attente de Q-B2 pour les numéros de migration).
+<<<<<<< HEAD
+État au 2026-11-08, 13 h 40 UTC :
+- **Sur `ENT`** : socle 1, lots 6 et 7, **lot 8 bis (socles 2 à 4 : E0–E4, A0–A1, I1, D-022 bis)**, poussé le 2026-11-08 à `b16c7cb` après CI verte (run 42468258695 ; audits et frontend relancés après un échec d'installation d'outils, sans changement de code).
+- **Lot 9** (`ent-integration-lot9`, intégrateur unique) : correctifs recettes 1 et 2, E5–E6, I2, S0–S1 ; en cours.
+- **Après le lot 9** : A2 (`ent-socle-administratif-a2`), P0 (`ent-socle-personnels-p0`), démo P1 (`ent-demo-p1-ecrans`), P1 (`ent-socle-personnels-p1`, en cours), puis `ent-socle1-revue-faibles`, `ent-mobile-app`.
+- **Démo P1** (`docs/recette/DEMO_P1.md` sur `ent-demo-p1-ecrans`) : parcours joué dans un navigateur, 7 défauts d'écran corrigés (dont une fiche élève qui se figeait) ; manques : propositions de la famille (E5, dans le lot 9), vrai dépôt de pièces, scolarité visible par la famille, alerte « ne pas solliciter » sur la fiche.
+- **Conceptions terminées non codées** : socles 7 à 9 (numéros de migration en attente de Q-B2).
 
 ## 5. Transmission à un futur pilote
 Un pilote qui reprend : lire ce document, `CLAUDE.md`, `docs/DECISIONS.md` (les décisions de Florian font foi), `docs/ROADMAP.md` (jalons de preuve), `docs/SOCLES.md` (carte), `docs/socles/` (conceptions), `docs/PROJECT_STATUS.md` (état technique), `docs/DECISIONS_AND_FAILURES.md` (erreurs à ne pas refaire) ; lister les sessions et les branches ; reprendre la file du §4. Les conceptions et les décisions sont indépendantes du modèle : un modèle plus récent peut les approfondir sans les refaire.
