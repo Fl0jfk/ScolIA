@@ -435,6 +435,7 @@ impl PgAuthRepo {
             WHERE user_id = $1 AND etablissement_id = $2
               AND etat = 'ouvert'
               AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab(etablissement_id))
+              AND NOT ent_agent_acces_suspendu(user_id, etablissement_id)
             "#,
         )
         .bind(user_id)
@@ -866,6 +867,7 @@ impl PgAuthRepo {
                  -- jetons déjà ouverts, sans attendre leur révocation explicite.
                  AND m.etat = 'ouvert'
                  AND (m.date_fin IS NULL OR m.date_fin >= ent_aujourdhui_etab(m.etablissement_id))
+                 AND NOT ent_agent_acces_suspendu(m.user_id, m.etablissement_id)
                 WHERE s.token_hash = $1
                   AND s.revoked_at IS NULL
                   AND s.expires_at > $2
@@ -994,6 +996,7 @@ impl PgAuthRepo {
             WHERE etablissement_id = $1 AND user_id = $2
               AND etat = 'ouvert'
               AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab(etablissement_id))
+              AND NOT ent_agent_acces_suspendu(user_id, etablissement_id)
             LIMIT 1
             "#,
         )
@@ -1463,6 +1466,7 @@ impl PgAuthRepo {
             WHERE m.role NOT IN ('parent', 'eleve')
               AND m.etat = 'ouvert'
               AND (m.date_fin IS NULL OR m.date_fin >= ent_aujourdhui_etab(m.etablissement_id))
+              AND NOT ent_agent_acces_suspendu(m.user_id, m.etablissement_id)
               AND (
                 u.email ILIKE $2
                 OR COALESCE(u.display_name, '') ILIKE $2
