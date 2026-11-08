@@ -97,6 +97,8 @@ pub fn normaliser_email(brut: &str) -> Result<String, EntDbError> {
     let e = brut.trim().to_lowercase();
     let ok = !e.is_empty()
         && e.len() <= 254
+        && !e.chars().any(|c| ",;<>\"()\\[]".contains(c))
+        && e.is_ascii()
         && e.split_once('@')
             .map(|(a, d)| {
                 !a.is_empty() && d.contains('.') && !d.starts_with('.') && !d.ends_with('.') && !d.contains('@')
@@ -486,6 +488,8 @@ async fn promouvoir_suivant_tx(
                          AND ent_coord_groupe(type) = ent_coord_groupe($2)
                          AND 'notifications' = ANY (usages)
                          AND delivrabilite NOT IN ('rebond_definitif', 'non_attribue', 'desinscrit')
+                         AND (verifiee_le IS NOT NULL OR source <> 'famille'
+                              OR type NOT IN ('email', 'mobile'))
                        ORDER BY du ASC, id ASC LIMIT 1)",
     )
     .bind(personne_id)
@@ -896,6 +900,11 @@ impl PgEnt {
             .await?
             .filter(|c| c.au.is_none())
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
+        if c.source == "compte" && c.usages.iter().any(|u| u == "connexion") {
+            return Err(refus_conflit(
+                "cette coordonnée est celle du compte : elle ne se retire pas de la fiche",
+            ));
+        }
         attribuer_tx(&mut tx, auteur, raison.code()).await?;
         sqlx::query("UPDATE ent_personne_coordonnee SET au = GREATEST(now(), du), principal = false WHERE id = $1")
             .bind(c.id)
@@ -1028,7 +1037,8 @@ impl PgEnt {
                 type_: r.type_,
                 nature: r.nature,
                 raison: r.raison,
-                motif: r.motif,
+                // Le motif saisi par le personnel reste interne : une famille ne le lit pas.
+                motif: if famille && r.via == "personnel" { None } else { r.motif },
                 via: r.via,
                 par_nom: if famille { None } else { r.par_nom },
                 quand: r.quand,
@@ -1078,6 +1088,19 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // Plafond par personne : retirer puis rajouter la coordonnée ne remet pas le compteur à zéro.
+        let (par_personne,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_coordonnee_verification
+              WHERE etablissement_id = $1 AND personne_id = $2 AND envoye_le > now() - interval '1 hour'",
+        )
+        .bind(etab)
+        .bind(pid)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if par_personne >= 2 * VERIFICATION_DEMANDES_PAR_HEURE {
+            return Err(refus_conflit("trop de codes demandés, réessayer plus tard"));
+        }
         if recentes >= VERIFICATION_DEMANDES_PAR_HEURE {
             return Err(refus_conflit("trop de codes demandés, réessayer plus tard"));
         }
@@ -1522,6 +1545,10 @@ mod tests {
         assert_eq!(normaliser_valeur("email", " Jean.Dupont@Exemple.FR ").unwrap().1, "jean.dupont@exemple.fr");
         assert!(normaliser_valeur("email", "pas-un-email").is_err());
         assert!(normaliser_valeur("email", "a@b@c.fr").is_err());
+        assert!(normaliser_valeur("email", "a@x.fr,v@y.fr").is_err());
+        assert!(normaliser_valeur("email", "<a@x.fr>").is_err());
+        assert!(normaliser_valeur("email", "a@x.fr,v@y.fr").is_err());
+        assert!(normaliser_valeur("email", "<a@x.fr>").is_err());
         assert_eq!(normaliser_valeur("mobile", "07 12 34 56 78").unwrap().1, "+33712345678");
         assert!(normaliser_valeur("mobile", "01 02 03 04 05").is_err(), "un fixe n'est pas un mobile");
         assert!(normaliser_valeur("fixe", "06 12 34 56 78").is_err(), "un mobile n'est pas un fixe");

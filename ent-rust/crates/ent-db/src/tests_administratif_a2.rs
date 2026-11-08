@@ -809,3 +809,68 @@ async fn normalisation_e164_concorde_avec_sql() {
         assert_eq!(crate::dossier_personnes::normaliser_telephone(brut), sql, "« {brut} »");
     }
 }
+
+/// Revue de sécurité du lot : une coordonnée non vérifiée de la famille n'est jamais promue
+/// principale automatiquement, la coordonnée du compte ne se retire pas, le motif du personnel
+/// reste interne, un e-mail multi-destinataires est refusé, les anciennes valeurs d'un prénom
+/// renseigné sont scellées même en « correction ».
+#[tokio::test]
+async fn revue_securite_a2_promotion_motif_compte_et_correction_sensible() {
+    let Some((ent, cast)) = labo_mail().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = cast.etablissement_id;
+    let (d, r) = dir(&cast);
+    let email_compte = format!("revue.{}@exemple.fr", Uuid::new_v4().simple());
+    let (pid, user) = personne_avec_compte(&ent, etab, "Revue", &email_compte).await;
+    // Le principal (compte) est retiré par le personnel ; la coordonnée non vérifiée de la famille
+    // ne prend pas sa place.
+    let c = ent.coordonnees_personne_for_actor(etab, d, r, pid, false).await.unwrap();
+    let compte = c.coordonnees.iter().find(|c| c.valeur == email_compte).unwrap().clone();
+    assert!(refus_de(
+        ent.retirer_coordonnee_for_actor(etab, d, r, pid, compte.id, RaisonCoordonnee::Autre, &None).await,
+        RefusMetier::Conflit
+    ), "la coordonnée du compte ne se retire pas de la fiche");
+    let mut s = saisie_coord("email", &format!("pro.{}@exemple.fr", Uuid::new_v4().simple()));
+    s.principal = true;
+    let pro = ent.ajouter_coordonnee_for_actor(etab, d, r, pid, &s).await.unwrap();
+    let famille = ent.ajouter_ma_coordonnee(etab, user, &saisie_coord("email", &format!("fam.{}@exemple.fr", Uuid::new_v4().simple()))).await.unwrap();
+    assert!(!famille.principal);
+    ent.retirer_coordonnee_for_actor(etab, d, r, pid, pro.id, RaisonCoordonnee::Autre, &Some("motif interne sensible".into())).await.unwrap();
+    let l = ent.mes_coordonnees(etab, user).await.unwrap().coordonnees;
+    assert!(!l.iter().find(|c| c.id == famille.id).unwrap().principal, "non vérifiée : jamais promue");
+    assert!(l.iter().find(|c| c.id == compte.id).unwrap().principal, "la plus ancienne éligible, vérifiée");
+    // Le motif du personnel reste interne.
+    let h = ent.mon_historique_coordonnees(etab, user).await.unwrap();
+    assert!(h.iter().all(|x| x.motif.is_none() || x.via != "personnel"));
+    let hp = ent.historique_coordonnees_for_actor(etab, d, r, pid).await.unwrap();
+    assert!(hp.iter().any(|x| x.motif.as_deref() == Some("motif interne sensible")));
+    // E-mails à plusieurs destinataires ou avec nom affiché : refusés.
+    for mauvais in ["a@x.fr,b@y.fr", "<a@x.fr>", "a@x.fr;b@y.fr", "\"a\"@x.fr"] {
+        assert!(ent.ajouter_coordonnee_for_actor(etab, d, r, pid, &saisie_coord("email", mauvais)).await.is_err(), "{mauvais}");
+    }
+    // Un prénom déjà renseigné modifié en « correction » est scellé lui aussi.
+    let mut s = saisie("Revue2", None, None);
+    s.prenom = Some("Ancien".into());
+    let p = ent.creer_personne_for_actor(etab, d, r, &s).await.unwrap();
+    ent.modifier_identite_for_actor(etab, d, r, p.id,
+        &IdentiteSaisie { nom: "Revue2".into(), prenom: Some("Nouveau".into()), civilite: None },
+        NatureIdentite::Correction, None, "correction d'un prénom").await.unwrap();
+    let clair: Vec<(Option<String>,)> = sqlx::query_as("SELECT prenom FROM ent_personne_version WHERE personne_id = $1 AND prenom = 'Ancien'")
+        .bind(p.id).fetch_all(ent.pool()).await.unwrap();
+    assert!(clair.is_empty(), "l'ancien prénom n'est plus en clair");
+    // Plafond par personne : retirer puis rajouter une coordonnée ne remet pas le compteur à zéro.
+    let (p3, u3) = personne_avec_compte(&ent, etab, "Plafond", &format!("pl.{}@exemple.fr", Uuid::new_v4().simple())).await;
+    let mut refuse = false;
+    for i in 0..10 {
+        let c = ent.ajouter_ma_coordonnee(etab, u3, &saisie_coord("email", &format!("rb{i}.{}@exemple.fr", Uuid::new_v4().simple()))).await.unwrap();
+        if ent.demander_verification_ma_coordonnee(etab, u3, c.id).await.is_err() {
+            refuse = true;
+            break;
+        }
+        ent.retirer_ma_coordonnee(etab, u3, c.id, &None).await.unwrap();
+    }
+    assert!(refuse, "le plafond par personne doit s'appliquer");
+    let _ = p3;
+}

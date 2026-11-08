@@ -359,7 +359,12 @@ pub(crate) async fn appliquer_identite_tx(
     if effet > aujourdhui {
         return Err(invalide("la date d'effet ne peut pas être dans le futur"));
     }
-    let sensible = sensible_si_changement && (champs.contains(&"prenom") || champs.contains(&"civilite"));
+    // Sensible : un changement de prénom ou de civilité, et toute modification d'un prénom ou d'une
+    // civilité déjà renseignés, même saisie comme « correction » (jamais lisible sans F4).
+    let ancien_renseigne = (champs.contains(&"prenom") && avant.prenom.is_some())
+        || (champs.contains(&"civilite") && avant.civilite.is_some());
+    let sensible = (champs.contains(&"prenom") || champs.contains(&"civilite"))
+        && (sensible_si_changement || ancien_renseigne);
     sqlx::query("SELECT set_config('ent.identite_ecrite', 'on', true)")
         .execute(&mut *conn)
         .await
@@ -499,6 +504,22 @@ fn identite_normalisee(s: &IdentiteSaisie) -> Result<IdentiteSaisie, EntDbError>
 impl PgEnt {
     // -- Préférences ----------------------------------------------------------
 
+    /// R-A18 : préférences, consentements, identité et divergences ne sont pas du groupe F0/F1 ;
+    /// un agent en conflit d'intérêts ne les lit pas.
+    async fn exiger_hors_conflit_lecture(
+        &self,
+        etab: Uuid,
+        auteur: &Auteur<'_>,
+        pid: Uuid,
+    ) -> Result<(), EntDbError> {
+        if let Auteur::Personnel { actor, role } = auteur {
+            if self.personnes_en_conflit(etab, *actor, role, &[pid]).await?.contains(&pid) {
+                return Err(EntDbError::Forbidden);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn preferences_lire(
         &self,
         etab: Uuid,
@@ -506,6 +527,7 @@ impl PgEnt {
         personne_id: Option<Uuid>,
     ) -> Result<PreferencesPersonne, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, false).await?;
+        self.exiger_hors_conflit_lecture(etab, auteur, pid).await?;
         #[derive(sqlx::FromRow)]
         struct Row {
             langue: Option<String>,
@@ -723,6 +745,7 @@ impl PgEnt {
         personne_id: Option<Uuid>,
     ) -> Result<Vec<Consentement>, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, false).await?;
+        self.exiger_hors_conflit_lecture(etab, auteur, pid).await?;
         sqlx::query_as::<_, Consentement>(
             "SELECT id, objet, reponse, texte_version, canal, piece_reference, du, retire_le
                FROM ent_personne_consentement
@@ -1035,7 +1058,10 @@ impl PgEnt {
         role: &str,
     ) -> Result<Vec<DivergenceCompte>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer).await?;
-        self.divergences_lire(etab, None).await
+        let tout = self.divergences_lire(etab, None).await?;
+        let ids: Vec<Uuid> = tout.iter().map(|d| d.personne_id).collect();
+        let conflits = self.personnes_en_conflit(etab, actor, role, &ids).await?;
+        Ok(tout.into_iter().filter(|d| !conflits.contains(&d.personne_id)).collect())
     }
 
     pub async fn mes_divergences_compte(&self, etab: Uuid, user: Uuid) -> Result<Vec<DivergenceCompte>, EntDbError> {
@@ -1283,6 +1309,7 @@ impl PgEnt {
         if !existe {
             return Err(EntDbError::Domain(DomainError::NotFound));
         }
+        self.exiger_hors_conflit_lecture(etab, &Auteur::Personnel { actor, role }, personne_id).await?;
         let protege = self
             .a_action_etablissement(etab, actor, role, Action::ResponsablesProtegeLire)
             .await?
