@@ -85,6 +85,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_eleve_confidentialite", &["id"]),
     d("ent_eleve_contact_urgence", &["id"]),
     d("ent_eleve_dispense_repas", &["id"]),
+    d("ent_eleve_enseignement", &["id"]),
+    r("ent_eleve_enseignement_a_traiter", &["id"], "diagnostic de la reprise des options en enseignements suivis"),
     d("ent_eleve_dispositif", &["id"]),
     d("ent_eleve_document", &["id"]),
     d("ent_eleve_grille_repas", &["id"]),
