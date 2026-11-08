@@ -481,10 +481,12 @@ async fn expediteur_limite_a_son_etablissement() {
     assert_eq!(b.reclames, 0);
     assert_eq!(nb_envois(&ent, etab, cast.parent_lea.user_id, "email", "en_attente").await, 1);
     // Un destinataire sans lien avec l'élève d'un autre établissement ne reçoit rien :
-    // (événement forgé dans un autre établissement citant l'élève de celui-ci)
+    // (événement forgé dans un autre établissement citant l'élève de celui-ci). Depuis la clé
+    // composée d'E0 (migration 240), la base refuse déjà la publication elle-même.
     let autre = Uuid::new_v4();
     let mut tx = ent.pool().begin().await.unwrap();
-    tx.publier(MetierEventDraft {
+    let forge = tx
+        .publier(MetierEventDraft {
         etablissement_id: autre,
         type_name: types::RETARD_DECLARE.to_string(),
         aggregate: AggregateKind::Eleve,
@@ -493,9 +495,9 @@ async fn expediteur_limite_a_son_etablissement() {
         payload: json!({ "jour": "2026-11-06" }),
         actor_user_id: None,
     })
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
+    .await;
+    assert!(forge.is_err(), "événement inter-établissements accepté");
+    drop(tx);
     ent.distributeur(config_distribution(autre)).distribuer_tout().await.unwrap();
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_notification_envoi WHERE etablissement_id = $1")
         .bind(autre)
@@ -504,6 +506,20 @@ async fn expediteur_limite_a_son_etablissement() {
         .unwrap();
     assert_eq!(n, 0);
     reset(&ent, etab).await;
+}
+
+/// Fixture : pose la date de naissance par le canal de projection de la garde E2
+/// (`ent.identite_projection`), seule écriture directe admise de l'identité.
+async fn fixer_date_naissance(ent: &PgEnt, etab: Uuid, eleve: Uuid, valeur_sql: &str) {
+    let mut tx = ent.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.identite_projection', 'on', true)").execute(&mut *tx).await.unwrap();
+    sqlx::query(&format!("UPDATE ent_eleve SET date_naissance = {valeur_sql} WHERE etablissement_id = $1 AND id = $2"))
+        .bind(etab)
+        .bind(eleve)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
 }
 
 // ─── 5. Campagnes ────────────────────────────────────────────────────────────
@@ -1003,12 +1019,7 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
     ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "refuse")).await.unwrap();
     assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     // L'élève devient majeur : les responsables ne signent plus, leur refus ne compte plus.
-    sqlx::query("UPDATE ent_eleve SET date_naissance = current_date - INTERVAL '19 years' WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(harry)
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    fixer_date_naissance(&ent, etab, harry, "current_date - INTERVAL '19 years'").await;
     assert!(ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "accepte")).await.is_err());
     assert!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().is_empty(), "parents sans effet sur un majeur");
     // Son compte élève signe pour lui-même.
@@ -1022,12 +1033,7 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
         ent.repondre_formulaire(etab, eleve_user, f.id, reponse(harry, "refuse")).await.unwrap();
         assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     }
-    sqlx::query("UPDATE ent_eleve SET date_naissance = NULL WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(harry)
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    fixer_date_naissance(&ent, etab, harry, "NULL").await;
     // Sondage : pas d'objet, pas de retrait ; résultat agrégé.
     let s = ent
         .creer_formulaire(

@@ -675,10 +675,12 @@ async fn isolation_entre_etablissements() {
     assert!(nf(ent.bulletin_detail_for_actor(b, dir_b, "direction", id).await.map(|_| ())));
     assert!(nf(ent.bulletin_pdf_for_actor(b, dir_b, "direction", id).await.map(|_| ())));
     assert!(ent.bulletins_eleve_for_actor(b, dir_b, "direction", m.eleves[0]).await.map(|v| v.is_empty()).unwrap_or(true));
-    // Un événement forgé dans B citant le bulletin de A ne notifie personne.
+    // Un événement forgé dans B citant un élève de A ne notifie personne : depuis la clé
+    // composée d'E0 (migration 240), la base refuse déjà la publication elle-même.
     let mut tx = ent.pool().begin().await.unwrap();
     use crate::outbox::Publier;
-    tx.publier(ent_events::MetierEventDraft {
+    let forge = tx
+        .publier(ent_events::MetierEventDraft {
         etablissement_id: b,
         type_name: ent_events::types::NOTE_BULLETIN_PUBLIE.to_string(),
         aggregate: ent_events::AggregateKind::Eleve,
@@ -687,9 +689,9 @@ async fn isolation_entre_etablissements() {
         payload: serde_json::json!({ "bulletin_id": id }),
         actor_user_id: None,
     })
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
+    .await;
+    assert!(forge.is_err(), "événement inter-établissements accepté");
+    drop(tx);
     distribuer(&ent, b).await;
     assert_eq!(notifs(&ent, b, autre.parent_lea.user_id, "bulletin_publie").await, 0);
     assert_eq!(notifs(&ent, m.etab, cast.parent_lea.user_id, "bulletin_publie").await, 0);
