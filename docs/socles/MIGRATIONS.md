@@ -44,6 +44,7 @@ Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTI
 | 280 | socle 2 E2 | `ent-socle-eleve-e2` | fait |
 | 281–289 | socle 2 E3–E4 | `ent-socle-eleve-e3-e4` | en cours |
 | 300–304 | socle 3 I1 | `ent-socle-inscriptions-i1` | en cours |
+| 330–331 | socle 5 S0 (garde-fous d'état et de cohérence, archive des affectations) et S1 (cours : membres individuels, `ent_public_cours_jour`) ; 332–339 restent réservées au socle 5 (S2 et suivants) | `ent-socle-structure-s0-s1` | fait (S0 et S1) |
 | 370 | D-022 (créneau rattaché à un groupe) — **pris sans réservation, empiète sur la plage du socle 6 (350–369) : 370–374 sont désormais réservés à D-022 et D-022 bis, et le socle 6 reste 350–369** | `ent-d022-portee-groupes`, `ent-d022-bis-enseignements` | fait / en cours |
 | 3700–3799 | socle 7 documents, pièces et signatures (conception : `07_DOCUMENTS.md` §23), **si la règle « 3000 + 100 × socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée** ; 3700–3712 attribuées, 3713–3789 réserve, 3790–3799 retrait des anciennes tables. La consigne de la session indiquait 4000–4099, qui reviendrait au socle 10 (Q-D1) | `ent-socle-documents-conception` (conception seulement) | réservé |
 | 380–399 | socle 7, **repli** si Q-B2 n'est pas adoptée (380–392 attribuées, 399 retrait) | `ent-socle-documents-conception` (conception seulement) | réservé |
@@ -58,3 +59,6 @@ Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–
 |---|---|---|---|
 | 3800–3899 | socle 8 notifications et diffusion (conception : `08_NOTIFICATIONS.md` §19 et §27), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3800–3810 attribuées (paramètres, avis et destinataires, remises et résumés, préférences et appareils, diffusions, urgences, budget SMS et SMS entrants, retours fournisseurs, gels et liens, vues, reprise), 3811–3889 réserve, 3890–3899 retrait des anciennes tables (055, 057, 058 pour les journaux d'envoi, `ent_notification` de 102, 190, 191) après la durée d'archive | `ent-socle-notifications-conception` (conception seulement) | réservé |
 | 400–419 | socle 8, **repli** si Q-B2 n'est pas adoptée (400–410 attribuées, 419 retrait) | `ent-socle-notifications-conception` (conception seulement) | réservé |
+
+## Mise à jour du 2026-11-08 (socle 5, lots S0 et S1)
+330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` reste `370_edt_creneau_groupe` : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
