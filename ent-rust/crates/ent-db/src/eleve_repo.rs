@@ -190,6 +190,11 @@ impl PgEleveRepo {
             .take(5)
             .map(|t| t.chars().take(40).collect())
             .collect();
+        // Une saisie faite seulement de ponctuation (« % », « _ », « \\ ») ne cherche rien : elle ne
+        // doit pas dégénérer en annuaire complet (seule la requête vide liste).
+        if tokens.is_empty() && !p.q.trim().is_empty() {
+            return Ok(Vec::new());
+        }
         // Seuil de similarité des mots (fautes de frappe), local à la transaction.
         sqlx::query("SELECT set_config('pg_trgm.word_similarity_threshold', '0.5', true)")
             .execute(&mut *conn)
