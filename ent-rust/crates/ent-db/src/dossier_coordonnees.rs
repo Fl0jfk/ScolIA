@@ -785,7 +785,7 @@ impl PgEnt {
             .await?
             .filter(|c| c.au.is_none())
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        if ancienne.usages.iter().any(|u| u == "connexion") && ancienne.source == "compte" {
+        if ancienne.usages.iter().any(|u| u == "connexion") {
             return Err(refus_conflit(
                 "cette coordonnée est celle du compte : elle change par le compte lui-même",
             ));
@@ -900,7 +900,7 @@ impl PgEnt {
             .await?
             .filter(|c| c.au.is_none())
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        if c.source == "compte" && c.usages.iter().any(|u| u == "connexion") {
+        if c.usages.iter().any(|u| u == "connexion") {
             return Err(refus_conflit(
                 "cette coordonnée est celle du compte : elle ne se retire pas de la fiche",
             ));
@@ -1098,7 +1098,7 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
-        if par_personne >= 2 * VERIFICATION_DEMANDES_PAR_HEURE {
+        if par_personne >= 4 * VERIFICATION_DEMANDES_PAR_HEURE {
             return Err(refus_conflit("trop de codes demandés, réessayer plus tard"));
         }
         if recentes >= VERIFICATION_DEMANDES_PAR_HEURE {

@@ -1401,6 +1401,9 @@ impl PgEnt {
         canal_sms: bool,
         courrier_papier: bool,
     ) -> Result<(), EntDbError> {
+        self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
+            .await?;
+        self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let mut p = self
             .preferences_personne_for_actor(etab, actor, role, personne_id)
             .await?;
