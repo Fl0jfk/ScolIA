@@ -228,6 +228,9 @@ pub enum Action {
     DossierAdminParametrer,
     /// Ouvre F2 et F3 d'un élève hors portée, sur motif, avec alerte à la direction ; jamais F4.
     ResponsablesAccesUrgence,
+    /// Valider une inscription admise (INS-05 : secrétariat ou direction ; RP2-11). Placée en fin
+    /// de catalogue : la matrice historique (oracle A1) reste inchangée.
+    InscriptionsValider,
 }
 
 /// Sur quoi une action s'applique.
@@ -244,7 +247,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 101] = [
+    pub const TOUTES: [Action; 102] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -350,6 +353,7 @@ impl Action {
         Action::DossierAdminExporter,
         Action::DossierAdminParametrer,
         Action::ResponsablesAccesUrgence,
+        Action::InscriptionsValider,
     ];
 
     pub fn code(self) -> &'static str {
@@ -456,6 +460,7 @@ impl Action {
             Self::DossierAdminExporter => "dossier_admin.exporter",
             Self::DossierAdminParametrer => "dossier_admin.parametrer",
             Self::ResponsablesAccesUrgence => "responsables.acces_urgence",
+            Self::InscriptionsValider => "inscriptions.valider",
         }
     }
 
@@ -527,7 +532,7 @@ impl Action {
             Self::ElevesExporter => "Exporter des listes nominatives d'élèves",
             Self::ElevesParametrer => "Paramétrer les champs et règles de l'élève",
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
-            Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
+            Self::InscriptionsDecider => "Décider des admissions",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
@@ -565,6 +570,7 @@ impl Action {
             Self::DossierAdminExporter => "Exports nominatifs du dossier administratif",
             Self::DossierAdminParametrer => "Paramétrer le dossier administratif",
             Self::ResponsablesAccesUrgence => "Bris de glace sur le dossier administratif",
+            Self::InscriptionsValider => "Valider les inscriptions admises par la direction",
         }
     }
 
@@ -665,7 +671,10 @@ impl Action {
             | Self::DossierAdminParametrer
             | Self::ResponsablesAccesUrgence => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
-            Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
+            Self::InscriptionsGerer
+            | Self::InscriptionsDecider
+            | Self::InscriptionsValider
+            | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
             }
             // S2-7 : actions de direction sur toute une période ou toute une classe.
@@ -992,6 +1001,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_manage_eleves() {
         d.push(etab(InscriptionsGerer));
+        d.push(etab(InscriptionsValider));
         d.push(etab(ImportsAppliquer));
     }
     if matches!(role, Role::Admin | Role::Direction) {
@@ -1124,6 +1134,9 @@ mod tests {
         assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
         assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Direction, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, InscriptionsValider), None);
         assert_eq!(a(Role::Cpe, InscriptionsGerer), None);
         assert_eq!(a(Role::Compta, ImportsAppliquer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());

@@ -252,6 +252,9 @@ pub async fn enregistrer_inscription_annuelle_tx(
     if !ok {
         return Err(EntDbError::Domain(DomainError::ReferenceInconnue));
     }
+    // RP2-10 : la scolarisation à la date de rentrée existe avant l'inscription annuelle, pour
+    // que le pont vers `ent_eleve_inscription` (modèle du socle 2, E4) puisse écrire la prévue.
+    assurer_scolarisation_prevue_tx(conn, etab, i.eleve_id, &annee, i.source, i.source_ref, actor).await?;
     let existante: Option<(Uuid, String)> = sqlx::query_as(
         "SELECT id, statut FROM ent_eleve_scolarite_annee
           WHERE etablissement_id = $1 AND eleve_id = $2 AND annee_scolaire = $3 FOR UPDATE",
@@ -329,6 +332,96 @@ pub async fn enregistrer_inscription_annuelle_tx(
     .await
     .map_err(db)?;
     Ok(id)
+}
+
+/// RP2-10 — ouvre, si l'élève n'en a pas, la scolarisation qui commence à la rentrée de l'année
+/// visée (ou aujourd'hui si l'année a déjà commencé). Idempotent, dans la transaction de
+/// l'appelant, journalisé. Sans effet si l'année n'existe pas encore dans le référentiel (la
+/// ligne attend alors dans `ent_eleve_inscription_a_traiter`, reprise à la préparation de l'année)
+/// ou si l'élève est déjà scolarisé (ou le sera) à cette date. Motif « retour » pour un ancien élève.
+async fn assurer_scolarisation_prevue_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    annee_libelle: &str,
+    source: SourceInscription,
+    source_ref: Option<Uuid>,
+    actor: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    let annee: Option<(NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND libelle = $2",
+    )
+    .bind(etab)
+    .bind(annee_libelle)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some((debut, fin)) = annee else {
+        return Ok(None);
+    };
+    let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_jour_etablissement($1)")
+        .bind(etab)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    let entree = std::cmp::max(debut, jour);
+    if entree >= fin {
+        return Ok(None);
+    }
+    // L'élève est-il déjà scolarisé (ou le sera-t-il) à partir de cette date ?
+    let (couvert, anterieure): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM ent_eleve_scolarisation
+                         WHERE etablissement_id = $1 AND eleve_id = $2
+                           AND (date_sortie IS NULL OR date_sortie > $3)),
+                EXISTS (SELECT 1 FROM ent_eleve_scolarisation
+                         WHERE etablissement_id = $1 AND eleve_id = $2 AND date_entree < $3)",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(entree)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if couvert {
+        return Ok(None);
+    }
+    sqlx::query("SELECT set_config('ent.acteur_id', $1, true)")
+        .bind(actor.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let id = Uuid::new_v4();
+    let motif = if anterieure { "retour" } else { "premiere_inscription" };
+    sqlx::query(
+        "INSERT INTO ent_eleve_scolarisation (id, etablissement_id, eleve_id, date_entree, motif_entree,
+                                              source, source_ref, decide_par)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(id)
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(entree)
+    .bind(motif)
+    .bind(source.code())
+    .bind(source_ref)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    sqlx::query(
+        "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
+                                         payload, visible_famille, actor_user_id, created_at)
+         VALUES ($1,$2,$3,'administratif','scolarisation_ouverte','Scolarisation ouverte',$4,true,$5, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(json!({ "scolarisation_id": id, "motif": motif, "source": source.code(), "source_ref": source_ref }))
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(Some(id))
 }
 
 /// Affectation initiale en classe — **réservée à l'arrivée en cours d'année** (§7.3 et M10 :

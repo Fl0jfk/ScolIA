@@ -19,7 +19,7 @@
 //! * **Réinscription** : dossiers préparés à l'ouverture de la campagne, confirmés
 //!   (ou départ annoncé) par les responsables, validés par l'administration.
 //!
-//! Droits : moteur D-017 (`inscriptions.gerer`, `inscriptions.decider`) ; familles
+//! Droits : moteur D-017 (`inscriptions.gerer`, `inscriptions.decider`, `inscriptions.valider`) ; familles
 //! par le jeton de préinscription (e-mail vérifié) ou par le lien actif (S2-1).
 //! Toute requête est bornée à l'établissement ; une référence d'un autre
 //! établissement répond « introuvable ».
@@ -329,7 +329,13 @@ pub fn decision_admise(de: &str) -> bool {
 }
 
 /// Actions proposées au personnel pour un dossier (le serveur revérifie tout).
-pub fn actions_personnel(nature: &str, statut: &str, gerer: bool, decider: bool) -> Vec<String> {
+pub fn actions_personnel(
+    nature: &str,
+    statut: &str,
+    gerer: bool,
+    decider: bool,
+    valider: bool,
+) -> Vec<String> {
     let mut a = Vec::new();
     let ouvert = !matches!(statut, "validee" | "refuse" | "desistement" | "brouillon");
     if gerer && ouvert {
@@ -342,10 +348,10 @@ pub fn actions_personnel(nature: &str, statut: &str, gerer: bool, decider: bool)
             }
         }
     }
-    if decider {
-        if nature == "admission" && decision_admise(statut) {
-            a.push("decider".into());
-        }
+    if decider && nature == "admission" && decision_admise(statut) {
+        a.push("decider".into());
+    }
+    if valider {
         let validable = match nature {
             "admission" => statut == "admis",
             _ => matches!(statut, "deposee" | "en_instruction"),
@@ -662,17 +668,20 @@ impl PgEnt {
         etab: Uuid,
         actor: Uuid,
         role: &str,
-    ) -> Result<(bool, bool), EntDbError> {
+    ) -> Result<(bool, bool, bool), EntDbError> {
         let g = self
             .ins_peut(etab, actor, role, Action::InscriptionsGerer)
             .await?;
         let d = self
             .ins_peut(etab, actor, role, Action::InscriptionsDecider)
             .await?;
-        if !g && !d {
+        let v = self
+            .ins_peut(etab, actor, role, Action::InscriptionsValider)
+            .await?;
+        if !g && !d && !v {
             return Err(EntDbError::Forbidden);
         }
-        Ok((g, d))
+        Ok((g, d, v))
     }
 
     // -- Campagnes -----------------------------------------------------------
@@ -1410,9 +1419,9 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<DossierDto, EntDbError> {
-        let (g, dec) = self.ins_personnel(etab, actor, role).await?;
+        let (g, dec, val) = self.ins_personnel(etab, actor, role).await?;
         let d = self.dossier_row(etab, id).await?;
-        let actions = actions_personnel(&d.nature, &d.statut, g, dec);
+        let actions = actions_personnel(&d.nature, &d.statut, g, dec, val);
         self.dossier_dto(etab, d, false, actions).await
     }
 
@@ -1807,7 +1816,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &ValidationBody,
     ) -> Result<ValidationDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+        self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
         let regime = regime_valide(&b.regime)?;
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -2078,7 +2087,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .collect())
     }
 
-    /// Correspondances possibles d'un dossier (écran de validation) — droit `decider`.
+    /// Correspondances possibles d'un dossier (écran de validation) — droit `valider`.
     pub async fn correspondances_for_actor(
         &self,
         etab: Uuid,
@@ -2086,7 +2095,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         role: &str,
         id: Uuid,
     ) -> Result<CorrespondancesDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+        self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
@@ -3840,14 +3849,14 @@ mod tests_unitaires {
         assert!(transition_instruction_admise("deposee", "en_instruction"));
         assert!(!transition_instruction_admise("validee", "en_instruction"));
         assert!(!transition_instruction_admise("deposee", "validee"));
-        let a = actions_personnel("admission", "admis", true, false);
+        let a = actions_personnel("admission", "admis", true, false, false);
         assert!(
             !a.contains(&"valider".to_string()),
-            "valider exige inscriptions.decider"
+            "valider exige inscriptions.valider"
         );
-        let a = actions_personnel("admission", "admis", false, true);
+        let a = actions_personnel("admission", "admis", false, false, true);
         assert!(a.contains(&"valider".to_string()));
-        let a = actions_personnel("reinscription", "deposee", true, true);
+        let a = actions_personnel("reinscription", "deposee", true, true, true);
         assert!(a.contains(&"valider".to_string()) && !a.contains(&"decider".to_string()));
     }
 

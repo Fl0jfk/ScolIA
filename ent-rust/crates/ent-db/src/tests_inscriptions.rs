@@ -840,7 +840,10 @@ async fn decision_capacite_et_droits() {
         .unwrap();
     assert_eq!(liste.len(), 2);
     let vu = ent.dossier_for_actor(etab, a, ar, d1.id).await.unwrap();
-    assert!(!vu.actions.contains(&"valider".to_string()));
+    // RP2-11 (INS-05 : ADF ou DIR) : le secrétariat voit « valider » sur un dossier admis ;
+    // la décision (`decider`) reste à la direction.
+    assert!(vu.actions.contains(&"valider".to_string()));
+    assert!(!vu.actions.contains(&"decider".to_string()));
     // Rôle paramétré (D-017) : la direction accorde `inscriptions.decider` au CPE.
     let role = ent
         .creer_role_for_actor(

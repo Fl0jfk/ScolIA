@@ -1218,7 +1218,69 @@ pub(super) async fn lier_dans_tx(
     .await
 }
 
+/// Personne déjà connue de l'établissement pour un e-mail (RP2-03).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PersonneParEmail {
+    pub id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub ne_pas_solliciter: bool,
+}
+
 impl PgEnt {
+    /// RP2-03 : la personne (non fusionnée) de l'établissement portant cet e-mail — celle qui a un
+    /// compte d'abord. Permet à l'ancien chemin de réutiliser la fiche au lieu d'en créer une
+    /// seconde.
+    pub(crate) async fn personne_par_email(
+        &self,
+        etab: Uuid,
+        email: &str,
+    ) -> Result<Option<PersonneParEmail>, EntDbError> {
+        let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "SELECT id, user_id FROM ent_personne
+              WHERE etablissement_id = $1 AND lower(email) = lower($2)
+                AND fusionnee_dans IS NULL AND eleve_id IS NULL
+              ORDER BY (user_id IS NOT NULL) DESC, created_at LIMIT 1",
+        )
+        .bind(etab)
+        .bind(email.trim())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        let Some((id, user_id)) = row else {
+            return Ok(None);
+        };
+        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let ne_pas_solliciter = personne_ne_pas_solliciter_tx(&mut conn, etab, id).await?;
+        Ok(Some(PersonneParEmail {
+            id,
+            user_id,
+            ne_pas_solliciter,
+        }))
+    }
+
+    /// RP2-03 : rattache à une fiche existante sans compte le compte que l'ancien chemin vient de
+    /// trouver ou créer (aucune seconde fiche). Sans effet si la fiche a déjà ce compte.
+    pub(crate) async fn rattacher_compte_a_la_fiche(
+        &self,
+        etab: Uuid,
+        personne_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        sqlx::query(
+            "UPDATE ent_personne SET user_id = $3, updated_at = now()
+              WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM ent_personne q
+                                 WHERE q.etablissement_id = $1 AND q.user_id = $3)",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .bind(user_id)
+        .execute(self.pool())
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
     /// DOS-05 / ADM-08 : lier une personne existante à un élève. Une personne avec compte reçoit
     /// une invitation (lien en attente) ; sinon le lien est créé.
     pub async fn lier_personne_for_actor(

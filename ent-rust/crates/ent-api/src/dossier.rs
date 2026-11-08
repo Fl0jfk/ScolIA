@@ -464,12 +464,13 @@ async fn rattacher_compte(
 ) -> Res<Json<PersonneDto>> {
     let p = state
         .ent
-        .rattacher_compte_for_actor(
+        .rattacher_compte_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             b.user_id,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;
@@ -596,12 +597,13 @@ async fn confirmer_guichet(
         .ok_or((StatusCode::BAD_REQUEST, "type de pièce inconnu".to_string()))?;
     let lien_id = state
         .ent
-        .confirmer_lien_guichet_for_actor(
+        .confirmer_lien_guichet_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             piece,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;
@@ -858,13 +860,14 @@ async fn fusionner(
 ) -> Res<(StatusCode, Json<FusionDto>)> {
     let f = state
         .ent
-        .fusionner_personnes_for_actor(
+        .fusionner_personnes_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             b.source_id,
             b.cible_id,
             &b.motif,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;

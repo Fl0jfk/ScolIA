@@ -664,6 +664,24 @@ impl PgEnt {
         .bind(veille)
         .execute(&mut **tx)
         .await?;
+        // RP2-12 : l'inscription annuelle en cours prend fin à la date de départ (l'historique,
+        // les années passées et les prévues ne sont pas touchées). Sortie future : la date de fin
+        // est posée, l'état « terminée » vient avec la date.
+        sqlx::query(
+            "UPDATE ent_eleve_inscription
+                SET date_fin = greatest($4, coalesce(date_debut, $4)),
+                    etat = CASE WHEN $4 <= $5 THEN 'terminee' ELSE etat END,
+                    modifie_le = now()
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND scolarisation_id = $3
+                AND etat = 'en_cours'",
+        )
+        .bind(etab)
+        .bind(eleve)
+        .bind(courante.id)
+        .bind(plan.date_sortie)
+        .bind(jour)
+        .execute(&mut **tx)
+        .await?;
         let (statut, statut_change) = publier_changement_statut(tx, etab, eleve, &avant, cmd.acteur).await?;
         evenement(
             tx,

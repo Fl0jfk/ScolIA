@@ -4437,9 +4437,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             Vec::new()
         };
         let liens = if sections.famille {
-            self.foyers
+            let brut = self
+                .foyers
                 .list_liens_dossier(etablissement_id, eleve_id)
-                .await?
+                .await?;
+            // RP2-01 : même vue A1 que `GET /dossier/eleves/{id}/responsables` (aucune seconde règle).
+            let admin = self
+                .lecture_dossier_admin(etablissement_id, actor_user_id, role, eleve_id)
+                .await?;
+            crate::dossier_personnes::minimiser_liens_dossier(brut, &admin.responsables)
         } else {
             Vec::new()
         };
@@ -5686,12 +5692,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         };
         let _ = eleve;
 
+        // RP2-03 : une personne déjà connue pour cet e-mail est réutilisée (jamais de seconde fiche)
+        // et sa marque « ne pas solliciter » est respectée : ni compte ouvert, ni activation.
+        let existante = self.personne_par_email(etablissement_id, email).await?;
+        if existante.is_some_and(|p| p.ne_pas_solliciter) {
+            return Err(EntDbError::ConflitDossier(
+                "cette personne ne doit pas être sollicitée : aucun compte n'est ouvert par ce chemin ; \
+                 utiliser l'ajout de responsable du dossier (lien sans compte)",
+            ));
+        }
         let mut compte_cree = false;
         let user_id = if let Some(uid) = self
             .auth
             .find_member_id_by_email(etablissement_id, email)
             .await?
         {
+            uid
+        } else if let Some(uid) = existante.and_then(|p| p.user_id) {
             uid
         } else {
             // Jamais de mot de passe choisi par un tiers : le compte reçoit un
@@ -5716,6 +5733,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             if !t.is_empty() {
                 self.set_user_telephone(user_id, t).await?;
             }
+        }
+        if let Some(p) = existante.filter(|p| p.user_id.is_none()) {
+            self.rattacher_compte_a_la_fiche(etablissement_id, p.id, user_id)
+                .await?;
         }
 
         let saved = self
