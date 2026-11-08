@@ -1,7 +1,7 @@
 # Socle 9 — Interopérabilité nationale et identité fédérée
 
 - **Date :** 2026-11-08 — **Auteur :** session de conception (Opus), branche `ent-socle-interop-conception` (partie de `ent-mc0hoe`, documentation ; code lu sur `ent-integration-lot8b`, état le plus récent).
-- **Statut :** **conception, non décidée.** Relecture indépendante intégrée (§30 : 6 objections hautes, 10 moyennes, 2 basses, toutes traitées). Aucun code modifié. Aucune base, aucun secret, aucun service de production consulté ; l'application Next.js n'a pas été ouverte (seuls les noms de fichiers déjà cités par `02_ELEVE.md` et `04_ADMINISTRATIF.md` sont repris, **aucune copie de code**).
+- **Statut :** **conception, non décidée.** Relecture indépendante intégrée (§30 : 6 objections hautes, 10 moyennes, 2 basses, toutes traitées). **[ajout personas]** Passe personas du 2026-11-08 (`PERSONAS_09.md`, 16 personas, 92 manques M-405 à M-496, 7 bloquants regroupés en 4 points) intégrée sans suppression : ajouts marqués « [ajout personas] » aux §0, §6.12, §9.12, §10.6, §12, §13, §18.3, §25.4, §26, §27, §28. Aucun code modifié. Aucune base, aucun secret, aucun service de production consulté ; l'application Next.js n'a pas été ouverte (seuls les noms de fichiers déjà cités par `02_ELEVE.md` et `04_ADMINISTRATIF.md` sont repris, **aucune copie de code**).
 - **À lire avec :** `CLAUDE.md` ; `docs/VISION.md` ; `docs/DECISIONS.md` (D-009, D-012, D-013, D-017, D-019 à D-028) ; `docs/SOCLES.md` (socle 9, et 2 à 8, 10, 22, 23, 25, 37, 38, 48, 50) ; `docs/MATRICE_CHARLEMAGNE.md` (ELE-01, ELE-22, INS-16, EDT-04, NOT-09/10/16, ORI-02, PER-18, CPT-07, PIL-09, PIL-20, T-26, T-28) ; `docs/INTEROPERABILITE_NATIONALE.md` (étude du 2026-11-05, **reprise et prolongée ici, pas remplacée** : ses sources et son §16 restent la référence documentaire) ; `docs/socles/02_ELEVE.md` (§7.3 identifiants, §7.8 propositions, §8, lot E5) ; `03_INSCRIPTIONS.md` (§5, élèves affectés) ; `04_ADMINISTRATIF.md` (§5.3 ports, §8.10–8.11) ; `05_STRUCTURE.md` (§9.4 nomenclatures, §17 échanges) ; `06_PERSONNELS.md` (§8.11, PRS-110/111) ; `07_DOCUMENTS.md` (stockage, analyse, conservation) ; `08_NOTIFICATIONS.md` (le socle 9 ne prévient personne lui-même) ; `IA_COEUR.md` ; `ARCHITECTURE_BRIQUES.md` (branche `ent-architecture-briques`).
 - **Plan :** même plan que `02` à `08` : §0 En bref · §1 Thèse · §2 Évaluation franche de l'existant · §3 Acteurs · §4 L'année des échanges · §5 Frontières et briques · §6 Le moteur d'échanges · §7 Concepts · §8 Cycles de vie · §9 Catalogue des flux · §10 Identité fédérée · §11 GAR · §12 Cas limites · §13 Actions métier · §14 Logiciel ou paramétrage · §15 Modèle de données · §16 Sécurité · §17 RGPD et conservation · §18 Droits · §19 Événements · §20 Contrat IA · §21 Écrans · §22 Mobile · §23 Tests · §24 Plan de migration · §25 Lots de code · §26 Démarches hors code · §27 Questions · §28 Faits, hypothèses, contradictions · §29 Sources · §30 Relecture indépendante.
 - **Plage de migrations : 3900–3999** (règle « 3000 + 100 × numéro de socle », Q-B2 d'`ARCHITECTURE_BRIQUES.md`) ; **repli 420–439** si Q-B2 n'est pas adoptée. Inscrite dans `docs/socles/MIGRATIONS.md`.
@@ -22,6 +22,7 @@
 8. **Identité fédérée.** ÉduConnect (élèves, responsables) et guichet Agents (personnels) seraient **exigés pour les collèges et lycées publics** par l'arrêté du cadre de référence de 2026 (exigence n° 6, GAR exigence n° 15 [S, extraits ; **texte intégral NV**, D-1]) et facultatifs dans le privé sous contrat [S]. Règles : un **guichet central** `connexion.scolia.fr` (un seul fournisseur de service déclaré, compatible avec un sous-domaine par établissement, D-012) qui remet un ticket à usage unique au sous-domaine choisi ; **rattachement par clé de jointure** issue d'un import officiel, ou par **code de rattachement** remis par l'établissement — **jamais par e-mail ni par nom** ; **aucune création de personne** à la connexion ; la fédération **authentifie**, elle n'**autorise** rien (droits D-017 inchangés). ScolIA devient aussi **fournisseur d'identité** pour le GAR (OIDC de préférence si le contrat 8.2 l'admet [S, titre]), avec des identifiants **opaques par service**, jamais l'INE.
 9. **Faisable dès maintenant, sans convention ni agrément.** Le **parcours minimal vendable** (lots X0–X7 ; SIECLE et STS-web conditionnés à des fichiers réels anonymisés fournis par un pilote, D-14) permet à un établissement public ou privé de **déposer lui-même** ses exports SIECLE et STS-web, ses tableurs et ses anciens fichiers, de les réconcilier sans risque, de charger les nomenclatures et le COG, et de **pré-contrôler** ses exports. Tout ce qui exige une convention, un agrément ou une spécification en diffusion restreinte (AAF, ÉduConnect, Agents, GAR, remontée BEE, LSU/LSL/Parcoursup officiels, ONDE) est un **lot bloqué** qui ne démarre qu'à réception du document (§26) : **le chemin critique de ce socle n'est pas le code, ce sont les démarches**, à lancer maintenant.
 10. **Le plan.** 22 lots principaux (X0 correctifs immédiats → X19 conformité, X2 scindé en X2a–c), 8 lots annexes, 57 fiches de flux, 118 actions `ITP-xx`, 15 droits, 21 événements émis, 16 démarches hors code, 32 questions. Migrations **3900–3999** (3900–3914 attribuées). Cinq décisions à prendre en premier : Q-X1 (passkey et fédération nationale), Q-X2 (où vit la fédération), Q-X3 (guichet central), Q-X8 (mémoire de la source), Q-X14 (remontée BEE pour le privé).
+11. **[ajout personas] Ce que la passe personas change.** (A) La **première année** d'un lycée privé qui quitte Charlemagne n'a pas de chemin : LSU, LSL et Parcoursup passent aussi par un logiciel validé et Parcoursup exige les bulletins de **N-1** → stratégie de bascule par module (Q-X34), profil de cohabitation et **journal « à reporter dans le logiciel agréé »** (FX-107, R-X24), reprise structurée de N-1 (FX-106). (B) Le **rattachement de rentrée** ne peut pas exiger 1 300 validations à la main : confirmation automatique sur chaîne officielle complète, humaine sur discordance, et **aucune nouvelle jointure** après une révocation pour protection (Q-X35, R-X19). (C) Dans le public, ScolIA sera souvent un **service raccordé à l'ENT de la collectivité**, pas l'ENT (Q-X33, FX-99, lot X8 bis). (D) Les **mandats SEPA** et les soldes doivent être repris avant la première remise (FX-76). Puis : garde-fou de volume conscient de la bascule (R-X20), dépôt manuel déclaré et export périmé (R-X21), attestation et journal scellé (R-X22), révocation générale et coupe-circuit (R-X25), aperçu « ce qui part pour la première fois » (R-X17), élèves protégés exclus des flux tiers (R-X18). Cinq décisions s'ajoutent en tête : **Q-X34, Q-X35, Q-X33**, puis Q-X37 (ensemble scolaire = un tenant) et Q-X38 (export de structure par un professeur, D-022).
 
 ---
 
@@ -393,6 +394,18 @@ pub trait PortPropositions {
 | R-X14 | Lier un nouveau moyen de connexion exige une assurance forte ou un code, jamais une concordance d'e-mail. |
 | R-X15 | Une **adresse protégée** n'est jamais exportée en clair ; elle n'entre dans une proposition que scellée. |
 | R-X16 | Le **NUMEN** n'est ni lu ni stocké ; les champs non déclarés par un connecteur ne sont pas chargés. |
+| R-X17 | **[ajout personas]** Un flux sortant qui **s'élargit** (nouvelle version de connecteur, nouveau champ déclaré, nouveau périmètre d'un partenaire) n'envoie rien avant une reconfirmation ★ de l'administrateur ; l'aperçu montre « ce qui part pour la première fois ». |
+| R-X18 | **[ajout personas]** Un élève à confidentialité renforcée ou à identité protégée (socle 2) est **exclu par défaut** des annuaires sortants (FX-90–93, 97) et des partenaires (FX-95) ; l'inclusion est une décision de la direction, personne par personne, journalisée ; le GAR reçoit l'identifiant de service et le nom d'usage seulement si la déclaration du flux l'exige. |
+| R-X19 | **[ajout personas]** Un rattachement **révoqué pour un motif de protection** (interdiction, autorité retirée, mesure judiciaire) bloque toute nouvelle jointure de la même personne dans l'établissement jusqu'à levée ★ par la direction ; les listes de confirmation, unitaires ou en masse, **excluent** les personnes dont un lien est suspendu ou sous mesure. |
+| R-X20 | **[ajout personas]** Le garde-fou de volume est **conscient de la bascule** : les départs attendus (élèves du dernier niveau, départs déclarés, non-réinscrits du socle 3, élèves sortis) ne comptent pas dans le seuil ; seules les disparitions inattendues le déclenchent. |
+| R-X21 | **[ajout personas]** Un export déposé **à la main** se clôt par une **déclaration de dépôt** (date, compte rendu joint) ; un export généré non déclaré déposé est relancé (S-79) ; avant la déclaration, si les données ont changé depuis l'instantané, l'export est marqué **périmé** avec l'écart. |
+| R-X22 | **[ajout personas]** Chaque remontée nationale produit une **attestation** (PDF signé par le socle 7 : empreinte, nombre de personnes, destinataire, dates, accusé) et une entrée dans un **journal scellé** (chaîne d'empreintes horodatées), conservée selon le flux (§17). |
+| R-X23 | **[ajout personas]** Une **reprise** depuis un ancien logiciel suit un **catalogue validé ★ par la direction** (repris / archivé en PDF / abandonné) et les règles de conservation : rien n'est repris au-delà de sa durée (sanctions effacées [NV], santé hors PAI en cours, anciens responsables) ; tout passe en propositions. |
+| R-X24 | **[ajout personas]** **Cohabitation** : tant qu'un logiciel agréé reste en place pour une remontée, le profil `prive_contrat_cohabitation` fait de ScolIA la source de saisie, du logiciel agréé la source de remontée et de SIECLE la source de retour ; chaque mouvement concerné crée une ligne du **journal à reporter**, rappelée jusqu'à son pointage. |
+| R-X25 | **[ajout personas]** **Révocation générale** d'une personne en un geste ★ : sessions web et mobiles, rattachements, abonnements iCal, comptes tiers suspendus, nouvelles assertions de l'IdP refusées ; effet en moins d'une minute ; journal et avis de sécurité. |
+| R-X26 | **[ajout personas]** Toute **échéance d'expiration** (certificat, clé de l'IdP, secret de canal, convention) est déclarée et surveillée : alertes J-30 et J-7 à l'administrateur et à l'opérateur (sans contenu). |
+| R-X27 | **[ajout personas]** Un professeur n'importe jamais par `echanges.importer` ; l'import de ses propres notes passe par le socle propriétaire (21), à sa portée (D-022), sur le même lecteur de tableur. |
+| R-X28 | **[ajout personas]** Un partenaire **révoqué** reçoit une demande de purge signée ; l'attestation de purge est attendue et relancée ; aucun envoi ne repart. |
 
 ---
 
@@ -574,6 +587,33 @@ Chaque ligne répond aux questions de la mission : **qui** l'utilise et **quand*
 
 **Tout le parcours minimal vendable** : tableurs (FX-103), exports SIECLE et STS-web déposés par l'établissement (FX-02, FX-03), élèves affectés en tableur (FX-05), référentiels ouverts (FX-51, 53, 54, 55 ; FX-50 et 52 après licence), comptes rendus déposés à la main (FX-08), pré-contrôles et **aides à la saisie** dans LSU, LSL, Parcoursup (exports de travail lisibles, jamais de faux format), SEPA et relevés (FX-70, 71), abonnements iCal (FX-85), annuaires sortants OneRoster/SDS/Apple (FX-90–93), reprise d'anciens logiciels (FX-102), réversibilité (FX-104). **Ce qui ne l'est pas** : AAF, ÉduConnect, Agents, GAR, remontée BEE, ONDE, LSU/LSL/Parcoursup officiels, STS-web en écriture, Notanet, Cyclades.
 
+### 9.12 Flux ajoutés par la passe personas **[ajout personas]**
+
+Même grille que les fiches précédentes, condensée ; même règle : un format [NV] ne se code pas.
+
+| N° | Flux | Sens | Qui, quand | Format | Faisable | Prop. / Lot |
+|---|---|---|---|---|---|---|
+| **FX-09** | **Résultats aux examens** (DNB, baccalauréat, CAP) rapatriés dans le dossier | E | secrétariat ; juillet | extraction Cyclades ou publication des résultats **NV** | tableur en attendant | 38 / X3 |
+| **FX-41** | **États de service et heures supplémentaires des maîtres** (privé sous contrat), missions | S | direction ; mensuel | application et format **NV** | état de travail signé (socle 7) | 6, 49 / X7 |
+| **FX-42** | **Enquête annuelle sur les apprentis** (SIFA [H]) | S | unité de formation d'apprentis ; annuelle | **NV** | export de travail | 44 / X7 |
+| **FX-43** | **Plateforme des stages de seconde** [H] | E/S | chef de travaux, professeurs principaux ; juin | **NV** | — | 44 |
+| **FX-56** | **Référentiel des entreprises** (base Sirene téléchargée [H : Licence Ouverte, à vérifier D-12]) | E (global) | conventions de stage | fichiers de stock ; **jamais d'interrogation en ligne portant une donnée d'élève** ; entrepreneurs individuels = personnes (minimisation) ; la taxe d'apprentissage (plateforme nationale [H]) n'appelle qu'une UAI et des coordonnées d'établissement à jour | oui après licence | 44 / X4 |
+| **FX-66** | **Licences sportives** UGSEL (enseignement catholique) et UNSS ; outil national Pix pour un établissement sans GAR [H] | S | secrétariat, professeur d'EPS (lecture de la liste seulement), documentaliste ; rentrée | CSV des plateformes **NV** ; export de travail tracé, champs minimaux | oui (export de travail) | 9 / X7 |
+| **FX-67** | **Assurance scolaire collective** (effectifs ou liste) | S | secrétariat ; rentrée | **NV** | oui (export de travail, agrégé si possible) | 9 / X7 |
+| **FX-75** | **Relevés CFONB 120** (en plus de camt) ; **canal EBICS** plus tard | E | comptable ; quotidien ou mensuel | format interbancaire français [H, très répandu] | oui | 25 / X18 |
+| **FX-76** | **Reprise des mandats SEPA** (RUM, date de signature, séquence, identifiant créancier) et des échéanciers | E (une fois) | comptable ; avant la première remise | depuis l'ancien logiciel (FX-102) ; règles de reprise **NV** (D-20) | oui, **bloquant pour le privé** | 25 / X18, socle 28 |
+| **FX-77** | **Déclaration sociale nominative** et comptes rendus | S + R | paie (socle 49) | **NV** ; même cycle que §6.10 (pré-contrôle, dépôt, retour) | au socle 49 | 49 / X7 |
+| **FX-78** | **Facturation électronique** (réforme 2026–2027) et Chorus Pro (factures à une collectivité) | S | comptable | **NV** ; assujettissement d'un OGEC **NV** (Q-X42) | après vérification | 48 |
+| **FX-88** | **Restauration et badges** : export des ayants droit, import des passages (logiciel de cantine) | E/S | gestion, vie scolaire ; quotidien | CSV des logiciels du marché **NV** ; tableur documenté d'abord | oui (tableur) ; module « Passage » de Charlemagne | 40 / X3 |
+| **FX-97** | **Annuaire local** de l'établissement (annuaire Windows, serveur pédagogique) | S | informaticien | CSV, LDIF ; jamais de mot de passe | oui | 9 / X17 |
+| **FX-98** | **Reprise d'un annuaire existant** (export Google ou Microsoft) pour rapprocher les comptes avant provisionnement | E (une fois) | informaticien | CSV des consoles [H] | oui | 9 / X17 |
+| **FX-99** | **SSO entrant depuis l'ENT de la collectivité** (ScolIA service de vie scolaire raccordé) | E (identité) | public ; quotidien | CAS, SAML ou OIDC selon l'ENT **NV** ; mêmes règles que §10 (aucune création, rattachement par jointure ou code, tests négatifs) | après D-17 | 1, 9 / **X8 bis** |
+| **FX-106** | **Reprise structurée de l'historique scolaire de N-1** (moyennes et appréciations par période et par matière ; soldes d'ouverture) | E (une fois) | secrétariat, comptable ; avant la rentrée | depuis l'ancien logiciel ; **obligatoire pour un lycée** (LSL et Parcoursup de terminale) | oui (tableur, mappage) | 21, 23, 25, 37 / X3, socle 28 |
+| **FX-107** | **Journal « à reporter dans le logiciel agréé »** (cohabitation) | S (liste de travail) | secrétariat ; au fil des mouvements | liste ScolIA, pointage ; export lisible pour la saisie | oui | 9 / **X7 bis** |
+| **FX-108** | **Photos du photographe scolaire** (lot de fichiers + table de correspondance) | E | secrétariat ; rentrée | ZIP + CSV ; noms de fichiers jamais exécutés ni utilisés comme chemins | oui | 2 / X3 |
+
+Notes sur les fiches existantes : **FX-34** couvre aussi le livret de la voie professionnelle [NV] ; **FX-38** pré-contrôle les durées de PFMP et positionnements [NV] ; **FX-04** reçoit une aide à la saisie dans ONDE tant qu'il est bloqué ; **FX-95** exige un bac à sable à données fictives, une documentation versionnée, une politique de dépréciation (6 mois) et le journal des lectures (ITP-147), et couvre le logiciel du CDI ; **FX-102** suit le catalogue de reprise (R-X23) et la démarche D-19.
+
 ---
 
 ## 10. Identité fédérée
@@ -634,6 +674,8 @@ Existant `ent-oidc` [F]. À changer (X8) : rattachement **par identifiant d'annu
 | R-X12 | **Code de rattachement** : 10 caractères sans ambiguïté (pas de 0/O, 1/l), usage unique, 30 jours, lié à une personne et un établissement, empreinte seule en base ; remis par courrier, en main propre, par lien nominatif (socle 7) ou affiché au guichet ; 5 essais par identité et par heure, puis attente ; journalisé. Lot de codes imprimables pour la rentrée (une feuille par famille, cachetée par foyer, D-014 : **un code par parent**, jamais un par famille). |
 | R-X13 | Un rattachement est **suspendu** quand le lien qui le fonde est suspendu (interdiction, autorité retirée, départ de l'agent, élève sorti) — relu à chaque connexion **et** les sessions ouvertes de la personne dans cet établissement sont révoquées au moment de la suspension (D-011). |
 | R-X14 | Lier un deuxième moyen (ÉduConnect à un compte qui a déjà une passkey) exige d'être connecté avec assurance forte, ou un code ; jamais par simple concordance d'e-mail. |
+
+**[ajout personas] Rentrée et chaîne officielle (Q-X35, contradiction C12).** Le second élément exigé au §10.2 (obj. 2) donne, à la rentrée d'un collège public, 1 300 validations à la main ; elles seront faites en masse sans lecture. Proposition : quand la jointure vient de la **chaîne officielle complète** (import AAF ou BEE confirmé de cet établissement **et** attribut signé du fournisseur, qui a lui-même vérifié la personne) et que le lien du socle 4 est actif sans mesure, le rattachement est **confirmé automatiquement** ; la validation humaine est réservée aux discordances (attribut absent, lien suspendu, homonymie, personne récemment révoquée, R-X19). Rien n'est affiché avant preuve (obj. 2 inchangée).
 
 ### 10.7 Passkey (D-009) et connexion fédérée — **dérogation à D-009 proposée, à faire valider** (Q-X1)
 
@@ -718,6 +760,25 @@ Parent avec deux enfants dans deux établissements ScolIA (CX-20) ; parent sépa
 | CX-44 | Fichier ZIP piégé (bombe, chemin `../`) | rejet à l'analyse, quarantaine, alerte sécurité sans contenu |
 | CX-45 | Export Parcoursup fait, puis une note corrigée après le conseil | export **nouveau** (l'ancien est figé) ; écart montré entre les deux ; nouvelle remontée si la fenêtre est ouverte |
 | CX-46 | Établissement qui quitte ScolIA | paquet de réversibilité (FX-104) ; correspondances et identifiants de service exportés pour la reprise par le nouveau titulaire, selon la liste des données éligibles [S, SDET] |
+| CX-47 | **[ajout personas]** Élève arrivant refusé par BEE : « encore inscrit dans un autre établissement » | tâche avec l'UAI, le nom et les coordonnées publiques (annuaire des UAI) de l'établissement d'origine, modèle de message ; aucune information sur l'élève n'est cherchée ailleurs (D-013) |
+| CX-48 | **[ajout personas]** Même responsable saisi deux fois dans l'ancien logiciel (une fiche par enfant, orthographes différentes) | proposition groupée « même personne probable » au socle 4 (fusion), jamais automatique |
+| CX-49 | **[ajout personas]** Élève sorti l'an dernier qui revient | candidats incluant les sortis ; réouverture d'une scolarisation proposée, pas de nouvel élève |
+| CX-50 | **[ajout personas]** Jumeaux (même date de naissance, mêmes responsables) | un prénom différent exclut la proposition « même élève » |
+| CX-51 | **[ajout personas]** Plateforme nationale indisponible la veille de l'échéance | tentatives horodatées enregistrées (ITP-128), modèle de message à la DSDEN, alerte direction ; l'export reste prêt |
+| CX-52 | **[ajout personas]** Bascule de juillet : 30 % de départs, élèves de N+1 sans division | départs attendus hors seuil (R-X20) ; propositions sans division, jamais de rejet |
+| CX-53 | **[ajout personas]** Élève affecté présent dans SIECLE et dossier `affecte` au socle 3 | rapprochement avec le dossier par le port de correspondance du socle 3 ; pas de nouvel élève |
+| CX-54 | **[ajout personas]** Nouveau conjoint déclaré responsable dans SIECLE avec un code de parenté vague | aucun lien d'autorité déduit ; proposition au socle 4 avec le code source affiché |
+| CX-55 | **[ajout personas]** Parent sous interdiction, encore responsable dans SIECLE, qui se reconnecte par ÉduConnect | R-X19 : aucune nouvelle jointure ; message neutre ; journal ; alerte à la direction |
+| CX-56 | **[ajout personas]** Élève qui change de prénom d'usage | GAR et annuaires reçoivent l'usage ; compte tiers renommé, identifiant de service inchangé ; exports nationaux à l'état civil (Q-X29) |
+| CX-57 | **[ajout personas]** Élève à identité protégée et annuaire Google partagé du domaine | exclu par défaut (R-X18) ; inclusion décidée par la direction |
+| CX-58 | **[ajout personas]** Remontée par webservice coupée après 300 élèves sur 600 | état `depose_partiellement` ; renvoi idempotent du reste (ITP-141) |
+| CX-59 | **[ajout personas]** Fichier généré lundi, note corrigée mardi, ancien fichier déposé à la main mercredi | export **périmé** signalé à la déclaration de dépôt (R-X21), écart montré, nouvel export proposé |
+| CX-60 | **[ajout personas]** Reprise : sanction de 2023 qui aurait dû être effacée [NV] | non reprise (R-X23), comptée dans le rapport « abandonné » |
+| CX-61 | **[ajout personas]** Mandat SEPA repris sans date de signature | rejet de reprise lisible ; mandat à faire signer avant la première remise ; aucun prélèvement sur ce mandat |
+| CX-62 | **[ajout personas]** Certificat du canal ou clé de l'IdP qui expire pendant les vacances | alertes J-30 et J-7 (R-X26) ; rotation planifiée |
+| CX-63 | **[ajout personas]** Partenaire révoqué qui continue d'appeler l'API | refus, journal, alerte ; demande de purge relancée (R-X28) |
+| CX-64 | **[ajout personas]** Compte d'un personnel compromis | révocation générale (R-X25), puis nouveau moyen de connexion par code ou passkey au guichet |
+| CX-65 | **[ajout personas]** Compte rendu national reçu en PDF sans identifiant d'enregistrement | rattachement assisté rejet → enregistrement exporté (ITP-140), par l'instantané |
 
 ---
 
@@ -903,7 +964,50 @@ Abréviations : **SEC** secrétariat (scolarité, direction), **DIR** chef d'ét
 | ITP-117 | Exécuter l'**anonymiseur local** sur des exports réels (pilote → jeu d'or) | ADM (dans l'établissement) | outil livré ; sortie vérifiée par un humain de l'établissement avant envoi | — |
 | ITP-118 | Demander à l'assistant d'expliquer un rejet ou de proposer un mappage de colonnes | SEC | IA sans écriture (§20) | — |
 
+### 13.13 Actions ajoutées par la passe personas **[ajout personas]**
+
+| N° | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| ITP-119 | Tenir le **journal à reporter dans le logiciel agréé** (cohabitation) : voir, pointer, exporter la liste de saisie | SEC · `echanges.lire` | R-X24 ; rappel jusqu'au pointage, sorties en tête | — |
+| ITP-120 | **Concordance ScolIA ↔ BEE à une date** avant le constat (à partir d'un export BEE déposé) | SEC, DIR · `echanges.lire` | lecture ; écarts listés, rien n'est appliqué | — |
+| ITP-121 | Traiter « **élève encore inscrit ailleurs** » | SEC | CX-47 | — |
+| ITP-122 | **Assistant de reprise** : catalogue repris / archivé / abandonné, validation | DIR ★ · `echanges.reprise` | R-X23 ; rapport signé | `echanges.reprise_validee` |
+| ITP-123 | Voir un **rejet national traduit** (catalogue de codes tenu par ScolIA : cause, écran de correction, nature données / format / plateforme) | SEC · `echanges.lire` | catalogue logiciel, enrichi par l'opérateur sans donnée personnelle | — |
+| ITP-124 | **Déclarer le dépôt** manuel d'un export (date, compte rendu joint) | SEC · `echanges.exporter` | R-X21 ; export périmé signalé | `echanges.export_depose` |
+| ITP-125 | Produire des **effectifs à une date passée**, figés | DIR, SEC · `echanges.exporter` | identité et scolarité versionnées (socle 2) | `echanges.export_genere` |
+| ITP-126 | Produire l'**attestation de remontée** | DIR | R-X22 | — |
+| ITP-127 | **Contrôle de sincérité** avant constat (inscrits sans présence relevée, départs annoncés non saisis, doubles UAI) | DIR · `echanges.lire` | lecture du socle 12 | — |
+| ITP-128 | Enregistrer une **tentative de dépôt échouée** (horodatage, capture), message à la DSDEN | SEC | CX-51 | — |
+| ITP-129 | Imprimer la **notice ÉduConnect** (et le code s'il y a lieu) par famille non activée ; suivre les relances | SEC, CPE · `federation.rattacher` | un document par parent (D-014) | — |
+| ITP-130 | Suivre une **rectification** jusqu'à la source (état visible par la famille) | SEC ; FAM (lecture) | écart persistant relié à la demande | — |
+| ITP-131 | Voir « **à qui mes données ont été transmises** » (titulaire pour son enfant, élève majeur pour lui-même), sans valeurs | FAM, ELV majeur · `echanges.mes_traces` | droits du lien (socle 4) relus | — |
+| ITP-132 | Demander son **paquet de portabilité** ou **s'opposer** à un service tiers (titulaire, élève majeur) | FAM, ELV | crée une tâche (socle 27, ITP-58, ITP-92) | — |
+| ITP-133 | **Vérifier avant remontée** ce qui partira vers Parcoursup ou le LSL (ses données seulement) | ELV (terminale) | lecture de l'instantané en préparation | — |
+| ITP-134 | **Essayer un fournisseur SSO** sur une session d'essai avant activation | ADM · `federation.gerer` | aucune copie de données (Q-X32) ; un administrateur garde une passkey locale | — |
+| ITP-135 | **Révocation générale** d'une personne | DIR, ADM ★ · `federation.gerer` | R-X25 | `federation.revocation_generale` |
+| ITP-136 | **Coupe-circuit** d'un fournisseur fédéré ou d'un service tiers | ADM ★ ; OPS pour un fournisseur national | message clair aux personnes ; passkey proposée | `federation.fournisseur_modifie` |
+| ITP-137 | Exporter la **configuration des connecteurs** (sans secrets) et le journal des flux pour un audit | ADM | — | — |
+| ITP-138 | Préparer une **notification d'incident** (périmètre tiré des traces et du journal) | DIR, DPO | délais **NV** | — |
+| ITP-139 | Générer les **fiches du registre des traitements** depuis les flux actifs | DPO, DIR | lecture | — |
+| ITP-140 | **Rattacher à la main un rejet non structuré** à un enregistrement exporté | SEC | CX-65 | — |
+| ITP-141 | **Reprendre un dépôt interrompu** (webservice) | SEC / SYS | idempotent, CX-58 | `echanges.export_depose` |
+| ITP-142 | Reprendre la **correspondance des groupes de N-1** pour N | EDT | propositions | `echanges.correspondance_confirmee` |
+| ITP-143 | **Rapprocher un annuaire existant** avant provisionnement | ADM · `annuaires.gerer` | FX-98 ; aucun compte créé avant | — |
+| ITP-144 | Exporter l'**annuaire local** | ADM · `annuaires.gerer` | FX-97 | `echanges.export_genere` |
+| ITP-145 | Voir et traiter les **expirations** (certificats, clés, conventions) | ADM | R-X26 | — |
+| ITP-146 | Demander la **purge** à un partenaire révoqué ; suivre l'attestation | ADM | R-X28 | — |
+| ITP-147 | Voir le **journal des lectures** d'un partenaire | ADM, DPO | — | — |
+| ITP-148 | Importer les **photos** du photographe scolaire | SEC · `echanges.importer` | FX-108 ; propositions au socle 2 | — |
+| ITP-149 | Importer les **passages de restauration** ; exporter les ayants droit | gestion · `echanges.importer` | FX-88 | — |
+| ITP-150 | Exporter les **licenciables** (UGSEL, UNSS) et la liste pour l'**assurance scolaire** | SEC · `echanges.exporter` | champs minimaux, trace d'export | `echanges.export_genere` |
+| ITP-151 | Marquer un écart « **corrigé à la source, en attente du prochain import** » | SEC | se clôt seul à la convergence | — |
+| ITP-152 | Tenir le **calendrier national** à couche académique (opérateur) ; signaler un écart de date (établissement) | OPS ; SEC | référentiel global sans donnée personnelle | `referentiels.version_publiee` |
+| ITP-153 | Reprendre les **mandats SEPA**, les échéanciers et les **soldes d'ouverture** | CPT ★ · `echanges.reprise` | FX-76, FX-106 ; propositions au socle 25 | — |
+| ITP-154 | Exporter les **états de service et heures** des maîtres pour le rectorat [NV] | DIR · `echanges.exporter` | FX-41 | `echanges.export_genere` |
+
 **Couverture Charlemagne (D-024).** ELE-01, ELE-22, INS-16, EDT-04, NOT-09/10/16, ORI-02, PER-18, CPT-07, PIL-09, PIL-20, T-26, T-28 sont couverts par ITP-01–30, 47–62, 69–96 ; ce que Charlemagne fait par son agrément (remontée BEE, LSU, LSL) reste **bloqué par les démarches**, pas par la conception. Réglages candidats à l'allègement (D-023), **signalés, non supprimés** : choix manuel de l'encodage (la détection suffit), seuils de volume au-delà des bornes, plus de deux politiques de disparition, configuration fine des attributs transmis au GAR (imposés par le contrat).
+
+**[ajout personas] Réglages signalés S-68 à S-79** (`PERSONAS_09.md` §9, rien supprimé) : règles d'application au niveau du champ (S-68 : par famille de champs par défaut) ; `version_preferee` (S-69) ; seuils de volume réglables (S-70 : fixes et conscients de la bascule) ; politique de disparition (S-71) ; fenêtre des imports automatiques (S-72) ; contenu des abonnements iCal (S-73) ; échéances saisies par l'établissement (S-74 : couche académique tenue par l'opérateur) ; encodage et choix du connecteur (S-75) ; attributs GAR (S-76) ; profil modifiable par l'administrateur (S-77) ; rattachement par e-mail professionnel (S-78) ; délai de relance des dépôts (S-79). **Couverture Charlemagne après la passe** : voir `PERSONAS_09.md` §4 ; l'équivalence de la **première année** dépend de Q-X34.
 
 ---
 
@@ -1158,6 +1262,15 @@ Tout est par établissement (RLS) sauf : référentiels globaux (lecture seule, 
 | `calendriers.gerer` | établissement | Administrateur, Secrétariat | ITP-101–104 | — |
 | `referentiels.gerer` | plateforme (hors établissement) | opérateur ScolIA | ITP-63, 115, 116 | — |
 
+**18.3 [ajout personas] Actions complémentaires [R]**
+
+| Action | Portées | Modèles par défaut | Couvre |
+|---|---|---|---|
+| `echanges.exporter_structure` | établissement | Responsable EDT (même professeur), Direction | ITP-62 limité à la structure, aux cours et aux services, **sans donnée nominative d'élève** ; ne porte pas le marqueur `export` (D-022 reste entière pour les exports officiels, Q-X38) |
+| `echanges.reprise` ★ | établissement | Direction ; Comptabilité (ses flux) | ITP-122, ITP-153 |
+| `echanges.mes_traces` | moi-même (et enfant par le lien du socle 4) | familles, élèves majeurs | ITP-131 |
+| révocation générale | — | — | ITP-135 sous `federation.gerer` ★ (pas d'action nouvelle) |
+
 La portée « moi-même » manque encore au code (`ARCHITECTURE_BRIQUES.md` Q-B16) : `calendriers.abonner` en dépend.
 
 ---
@@ -1181,6 +1294,7 @@ Charge utile minimisée : identifiants, compteurs, codes ; **jamais** de valeur 
 | `referentiels.version_publiee` | nouvelle version d'un référentiel global | socle 5 (contrôles, adoption du calendrier) |
 | `federation.fournisseur_modifie`, `federation.rattachement_cree`, `federation.rattachement_revoque`, `federation.cle_rotation` | identité | journal de sécurité ; socle 8 (« un nouveau moyen de connexion a été lié à votre compte » : avis de sécurité non désactivable, `08_NOTIFICATIONS.md`) |
 | `gar.active`, `gar.responsables_modifies` | GAR | journal |
+| `echanges.reprise_validee`, `federation.revocation_generale` | **[ajout personas]** catalogue de reprise validé ; révocation générale d'une personne | journal ; journal de sécurité, socle 8 (avis de sécurité à la personne) |
 | `annuaires.service_active`, `annuaires.provisionnement_applique`, `annuaires.partenaire_cree` | services tiers | journal, notice publique des flux (socle 27) |
 
 ### 19.2 Consommés
@@ -1316,6 +1430,17 @@ X19 en continu, dès que le texte intégral de l'arrêté est lu.
 
 IOP-L0 → X4 (+ identifiants : socles 2, 4, 6 déjà conçus) ; IOP-L1 → X1, X2 ; IOP-L2 → X13 ; IOP-L3 → X5, X6 ; IOP-L4 → X14 ; IOP-L5 → X8, X9, X10 ; IOP-L6 → X11 ; IOP-L7 → X12 ; IOP-L8 → X12 ; IOP-L9 → socle 22 sur X7 ; IOP-L10 → socles 23, 37 sur X7 ; IOP-L11 → X19 ; IOP-L12 → veille (§26).
 
+### 25.4 [ajout personas] Répartition des ajouts dans les lots
+
+- **X1** : surveillance des expirations (R-X26) ; essais de connexion (ITP-134) ; catalogue des rejets connus (ITP-123).
+- **X2a** : candidats incluant les sortis, jumeaux, affectés du socle 3 (CX-49, 50, 53). **X2c** : garde-fou conscient de la bascule (R-X20).
+- **X3** : photos (FX-108), restauration en tableur (FX-88), résultats (FX-09), **reprise structurée de N-1** (FX-106) avec le socle 28.
+- **X7** : dépôt déclaré, export périmé, attestation, journal scellé, effectifs datés, contrôle de sincérité, concordance BEE, rejets non structurés, reprise d'un dépôt, calendrier national (R-X21, R-X22 ; ITP-120, 124–128, 140, 141, 152) ; exports de travail FX-41, 42, 66, 67.
+- **X7 bis (nouveau) Cohabitation** : profil `prive_contrat_cohabitation`, journal à reporter, sorties à remonter (R-X24, FX-107, ITP-119, 121) ; **dépend de X7 ; à livrer avant le premier pilote privé** si Q-X34 retient la cohabitation.
+- **X8** : règle de rentrée (Q-X35), R-X19, révocation générale, coupe-circuit (R-X25 ; ITP-135, 136). **X8 bis (nouveau) SSO entrant depuis l'ENT de la collectivité** (FX-99) : après D-17 ; mêmes tests négatifs que X8.
+- **X17** : annuaires existants et local (FX-97, 98), exclusions par défaut (R-X18), reconfirmation sur élargissement (R-X17). **X18** : CFONB 120, mandats et échéanciers (FX-75, 76) avec le socle 25. **X19 bis** : bac à sable, dépréciation, journal des lectures, purge (R-X28, ITP-146, 147).
+- **Qualification** : un environnement ScolIA à données fictives ouvert aux DSI et aux partenaires (M-478, M-479). **Recette personas** (§23) : ajouter la bascule de juillet, la rentrée ÉduConnect avec un parent révoqué, la révocation générale, l'export périmé, la reprise qui contient une sanction effacée.
+
 ---
 
 ## 26. Démarches hors code (chemin critique)
@@ -1338,6 +1463,10 @@ IOP-L0 → X4 (+ identifiants : socles 2, 4, 6 déjà conçus) ; IOP-L1 → X1, 
 | **D-14** | **Jeux d'or** : obtenir d'un établissement pilote des exports SIECLE et STS-web **anonymisés chez lui** par un outil livré par ScolIA (ITP-117), vérifiés par une personne de l'établissement avant envoi ; aucune donnée réelle ne quitte l'établissement | établissement pilote | fichiers anonymisés, convention | X5, X6, X16 | semaines | Florian |
 | **D-15** | **Contrats et RGPD** : modèle de contrat de sous-traitance, AIPD de l'ENT (fédération, GAR, provisionnement), notice publique des flux, statut de RU-003 | DPO | validation | §17 | semaines | Florian + DPO |
 | **D-16** | **Hébergement des clés** (IdP, HMAC, coffre de secrets) chez l'hébergeur | Scaleway | service de gestion de clés [H] | X8, X11 | semaines | technique |
+| **D-17** | **[ajout personas] Positionnement dans le public** : raccordement d'un service de vie scolaire à l'ENT d'une collectivité (protocole, fiche de raccordement) ; accès d'un tel service à l'AAF | collectivités (départements, régions), DSI académiques, DNE | position, contrat de raccordement | Q-X33, X8 bis, X13 | mois | Florian |
+| **D-18** | **[ajout personas] Dossier technique de raccordement** (architecture, hébergement, AIPD, adresses réseau sortantes publiées, contacts, procédure d'incident) | — (à rédiger) | dossier type réutilisable | D-4 à D-7, canaux bancaires | semaines | technique |
+| **D-19** | **[ajout personas] Export complet chez l'ancien éditeur** : le client demande lui-même à son éditeur (portabilité, réversibilité contractuelle) l'export de ses données dans un format structuré | établissement pilote → son éditeur | export complet et sa description | FX-102, FX-106, X3, socle 28 | semaines | établissement pilote |
+| **D-20** | **[ajout personas] Banque** : formats de relevés (CFONB, camt), reprise des mandats sans changement de RUM, canal | banque de l'OGEC pilote | règles écrites | FX-75, FX-76, X18 | semaines | comptable pilote |
 
 ---
 
@@ -1377,6 +1506,18 @@ IOP-L0 → X4 (+ identifiants : socles 2, 4, 6 déjà conçus) ; IOP-L1 → X1, 
 | **Q-X30** | Plage de repli si Q-B2 n'est pas adoptée ? | **420–439**. |
 | **Q-X31** | Une division ou un groupe sans code national bloque-t-il l'import ? | **Non** à l'import (proposition), **oui** au pré-contrôle des exports qui l'exigent. |
 | **Q-X32** | Faut-il un « mode essai » (appliquer sur une copie) ? | **Non** : la prévisualisation est l'analyse réelle et l'annulation existe ; une copie de base multiplierait les données personnelles. |
+| **Q-X33** | **[ajout personas]** Dans le public, ScolIA est-il l'ENT, ou un service de vie scolaire raccordé à l'ENT de la collectivité ? | **Les deux** : ScolIA = ENT dans le privé et là où aucune collectivité n'impose d'ENT ; ailleurs, service raccordé (FX-99, X8 bis), GAR et médiacentre laissés au projet ENT. Démarche D-17 avant X11–X13 pour le public. |
+| **Q-X34** | **[ajout personas]** Première année d'un lycée privé qui quitte Charlemagne : quels modules basculent, comment sont produits BEE, LSU, LSL, Parcoursup tant que les validations manquent ? | **Bascule par module** : ScolIA pour l'élève, l'administratif, la vie scolaire, les inscriptions, les finances dès l'an 1 ; cohabitation outillée (X7 bis) pour BEE ; pour LSU, LSL, Parcoursup : soit les notes restent dans le logiciel agréé l'an 1, soit saisie dans les applications nationales aidée par ScolIA — **à trancher avec Florian au cas par cas du pilote** ; reprise de N-1 (FX-106) dans tous les cas pour un lycée. |
+| **Q-X35** | **[ajout personas]** Rattachement de rentrée : confirmation automatique sur chaîne officielle complète ? | **Oui** (§10.6, note) ; humain sur discordance ; R-X19 pour les personnes révoquées. |
+| **Q-X36** | **[ajout personas]** Reprise de N-1 : jusqu'où ? | Lycée : évaluations de N-1 structurées (obligatoire) ; collège : bulletins de N-1 en PDF, positionnements de cycle si disponibles ; au-delà : archives PDF consultables ; rien au-delà des durées de conservation (R-X23). |
+| **Q-X37** | **[ajout personas]** Un ensemble scolaire (école, collège, lycée, plusieurs UAI) = un seul établissement ScolIA ? | **Oui par défaut** (continuité, D-013 respectée) ; plusieurs tenants seulement si les entités juridiques l'exigent. |
+| **Q-X38** | **[ajout personas]** Un professeur responsable de l'EDT peut-il exporter la structure (D-022) ? | **Oui** par `echanges.exporter_structure`, sans donnée nominative d'élève ; les exports officiels restent interdits aux professeurs. **À confirmer par Florian (lecture de D-022).** |
+| **Q-X39** | **[ajout personas]** Relevés CFONB 120 en plus de camt ? | **Oui** (FX-75). |
+| **Q-X40** | **[ajout personas]** Export vers l'annuaire local (annuaire Windows, serveur pédagogique) ? | **Oui**, fichier sans mot de passe (FX-97) ; synchronisation directe plus tard. |
+| **Q-X41** | **[ajout personas]** FranceConnect en direct pour les familles d'un établissement privé sans ÉduConnect ? | **Éligibilité NV** ; en attendant : passkey et code de rattachement ; ne rien construire. |
+| **Q-X42** | **[ajout personas]** Facturation électronique et Chorus Pro pour l'OGEC ? | Vérifier l'assujettissement avant le socle 48 ; prévoir la sortie au format exigé dans le moteur d'export. |
+| **Q-X43** | **[ajout personas]** Contenu du dossier de transfert (FX-100) au regard de D-027 (B) ? | Bulletins, livret et certificat de radiation ; **aucun dispositif ni information sensible par défaut** : ils passent par la famille ou la notification officielle. |
+| **Q-X44** | **[ajout personas]** Qui tient le calendrier des campagnes nationales ? | **L'opérateur**, référentiel global à couche académique ; l'établissement signale un écart, il ne ressaisit pas (S-74). |
 
 ---
 
@@ -1400,6 +1541,14 @@ IOP-L0 → X4 (+ identifiants : socles 2, 4, 6 déjà conçus) ; IOP-L1 → X1, 
 - **C7** Licence de FET : GPL-2.0 ou AGPL-3.0 selon les sources ; sans effet ici (lecture du format, aucune reprise de code).
 - **C8** `03_INSCRIPTIONS.md` donne au socle 3 l'action `imports.appliquer` ; elle est remplacée par les droits `echanges.*` (§18), le socle 3 gardant `inscriptions.gerer` pour transformer des affectés en dossiers.
 - **C9** Le CLAUDE.md demande Haiku pour la recherche : fait, mais **aucune** page officielle n'était joignable ; tout le §9 garde ses marques jusqu'à la passe de vérification (D-13).
+- **[ajout personas] C10** `SOCLES.md` §9 dit encore « parcours minimal vendable X0–X7 sans aucun accès officiel » ; §0.9 et §25.2 ont été corrigés (jeux d'or réels pour X5–X6). Note ajoutée dans `SOCLES.md`.
+- **[ajout personas] C11** §9.10 « privé sous contrat : ScolIA fait foi » contre Q-X14 (le logiciel agréé remonte pendant la cohabitation) → profil `prive_contrat_cohabitation` (R-X24), Q-X34.
+- **[ajout personas] C12** §10.2 (second élément obligatoire, obj. 2) contre R-X11 (a) (jointure = preuve forte) → Q-X35.
+- **[ajout personas] C13** ITP-62 sous `echanges.exporter` (marqueur `export`) contre un professeur responsable de l'EDT (**D-022**) → `echanges.exporter_structure`, Q-X38.
+- **[ajout personas] C14** Hypothèse implicite « ScolIA = projet ENT » (§11, X11, exigences n° 6 et 15) contre la pratique des ENT de collectivité [H] → Q-X33.
+- **[ajout personas] C15** FX-100 muet sur son contenu ; **D-027** (B) → Q-X43.
+- **[ajout personas] C16** Q-X32 (pas de mode essai) et l'essai d'un SSO : compatibles (ITP-134 n'essaie qu'une connexion).
+- **[ajout personas] C17** Q-X11 (5 % de disparitions) contre la bascule de juillet (25 à 35 % de départs normaux) → R-X20.
 
 ---
 
