@@ -24,6 +24,21 @@ use crate::personnels::{
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
+/// id, code, libellé, famille, profil proposé, établissement (NULL = fournie).
+type LigneCatalogue = (Uuid, String, String, String, Option<String>, Option<Uuid>);
+/// id, code, libellé, famille, principale, début, fin.
+type LigneFonction = (
+    Uuid,
+    String,
+    String,
+    String,
+    bool,
+    NaiveDate,
+    Option<NaiveDate>,
+);
+/// id, rang, nom, prénom, lien, téléphone.
+type LigneContact = (Uuid, i16, String, Option<String>, Option<String>, String);
+
 fn telephone_valide(t: &str) -> bool {
     let t = t.trim();
     (6..=40).contains(&t.chars().count())
@@ -201,7 +216,7 @@ impl PgEnt {
         self.exiger_personnels(etab, actor, role, Action::PersonnelsAnnuaire)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let lignes: Vec<(Uuid, String, String, String, Option<String>, Option<Uuid>)> = sqlx::query_as(
+        let lignes: Vec<LigneCatalogue> = sqlx::query_as(
             "SELECT id, code, libelle, famille, profil_propose, etablissement_id FROM ent_fonction
               WHERE (etablissement_id = $1 OR etablissement_id IS NULL) AND archivee_le IS NULL
               ORDER BY famille, libelle",
@@ -1241,15 +1256,7 @@ async fn fonctions_tx(
     etab: Uuid,
     agent_id: Uuid,
 ) -> Result<Vec<AgentFonctionDto>, EntDbError> {
-    let lignes: Vec<(
-        Uuid,
-        String,
-        String,
-        String,
-        bool,
-        NaiveDate,
-        Option<NaiveDate>,
-    )> = sqlx::query_as(
+    let lignes: Vec<LigneFonction> = sqlx::query_as(
         "SELECT af.id, f.code, f.libelle, f.famille, af.principale, af.du, af.au
            FROM ent_agent_fonction af JOIN ent_fonction f ON f.id = af.fonction_id
           WHERE af.etablissement_id = $1 AND af.agent_id = $2 AND af.annule_le IS NULL
@@ -1282,7 +1289,7 @@ async fn contacts_tx(
     agent_id: Uuid,
     jour: NaiveDate,
 ) -> Result<Vec<ContactUrgenceAgentDto>, EntDbError> {
-    let lignes: Vec<(Uuid, i16, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+    let lignes: Vec<LigneContact> = sqlx::query_as(
         "SELECT id, ordre, nom, prenom, lien, telephone FROM ent_agent_contact_urgence
           WHERE etablissement_id = $1 AND agent_id = $2 AND du <= $3 AND (au IS NULL OR au >= $3)
           ORDER BY ordre",

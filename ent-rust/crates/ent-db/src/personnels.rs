@@ -162,6 +162,18 @@ pub const SYSTEMES_IDENTIFIANT: &[&str] = &[
 /// Pause de notifications : au plus un an (au-delà, l'agent suspend son accès, PRS-37).
 pub(crate) const PAUSE_MAX_JOURS: i64 = 366;
 
+/// nom, prénom, civilité, e-mail, téléphone, 2ᵉ téléphone, adresse, fiche absorbante.
+type LignePersonne = (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Uuid>,
+);
+
 // ---------------------------------------------------------------------------------------------
 // Erreurs
 // ---------------------------------------------------------------------------------------------
@@ -412,7 +424,7 @@ pub(crate) async fn engagements_agent_tx(
         .map_err(db)?;
         let suspendu = susp
             .iter()
-            .any(|(_, du, au, _, _, _)| *du <= jour && au.map_or(true, |a| a >= jour));
+            .any(|(_, du, au, _, _, _)| *du <= jour && au.is_none_or(|a| a >= jour));
         let (meme,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (
                 SELECT 1 FROM ent_agent_engagement o
@@ -520,7 +532,7 @@ pub async fn agent_du_compte_tx(
     let courants: Vec<EngagementDto> = engagements_agent_tx(conn, etab, agent_id, jour, false)
         .await?
         .into_iter()
-        .filter(|e| e.du <= jour && e.au.map_or(true, |a| a >= jour))
+        .filter(|e| e.du <= jour && e.au.is_none_or(|a| a >= jour))
         .collect();
     if courants.is_empty() {
         return Ok(None);
@@ -1115,16 +1127,7 @@ impl PgEnt {
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let avant: Option<(
-            String,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<String>,
-            Option<Uuid>,
-        )> = sqlx::query_as(
+        let avant: Option<LignePersonne> = sqlx::query_as(
             "SELECT nom, prenom, civilite, email, telephone, telephone_2, adresse, fusionnee_dans
                    FROM ent_personne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -1650,7 +1653,7 @@ impl PgEnt {
         if body.du < eng.du
             || eng
                 .au
-                .is_some_and(|fin| body.du > fin || body.au.map_or(true, |a| a > fin))
+                .is_some_and(|fin| body.du > fin || body.au.is_none_or(|a| a > fin))
         {
             return Err(invalide(
                 "La suspension doit tenir dans la période de l'engagement.",
