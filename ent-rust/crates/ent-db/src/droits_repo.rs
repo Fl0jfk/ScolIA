@@ -497,6 +497,7 @@ impl PgEnt {
     ///   closée (conservée dans l'historique) et une nouvelle la remplace, début inchangé ;
     /// * toute autre période qui chevauche une attribution non close est refusée (409) ;
     /// * le début ne peut pas être passé (jour de l'établissement) ni dépasser trois ans.
+    #[allow(clippy::too_many_arguments)]
     pub async fn attribuer_role_periode_for_actor(
         &self,
         etablissement_id: Uuid,

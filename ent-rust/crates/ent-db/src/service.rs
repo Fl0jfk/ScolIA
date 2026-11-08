@@ -3279,6 +3279,14 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
             return Err(EntDbError::Forbidden);
         }
+        // Conflit dans CET établissement : explicite (409), même messagerie à l'arrêt.
+        if self
+            .auth
+            .email_membre_de(etablissement_id, &cmd.email)
+            .await?
+        {
+            return Err(AuthError::EmailTaken.into());
+        }
         if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
             return Err(EntDbError::EnvoiImpossible);
         }

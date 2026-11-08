@@ -7,7 +7,7 @@
 //! * l'annuaire du personnel n'expose pas de téléphone ;
 //! * isolation : un autre établissement ne peut pas fermer l'accès d'une personne.
 
-use super::tests_l3::{appel, connecter, etat, inscrire, lien_email, vivante, MDP};
+use super::tests_l3::{appel, etat, inscrire, lien_email, vivante, MDP};
 use super::*;
 use axum::http::StatusCode;
 use serde_json::{json, Value};
