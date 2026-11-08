@@ -225,6 +225,11 @@ pub use dossier_personnes::{
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
     AdresseParquee, AlertesProtection, LienEnAttenteEleve, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
     ConflitInteretVu, InterdictionSaisie, InterdictionVue, LectureDossierAdmin, NatureConflit as NatureConflitInteret,
+    AncienneIdentite, ChoixDivergence, Consentement, CoordonneeSaisie, Coordonnee, CoordonneesPersonne,
+    DivergenceCompte, HistoriqueCoordonnee, IdentiteSaisie, NatureIdentite, NatureRemplacement,
+    PreferencesPersonne, PropositionSeparation, RaisonCoordonnee, SeparationNom, VerificationEnvoyee,
+    VersionIdentite, CONSENTEMENTS, classer_telephone, masque_courriel, masque_telephone,
+    normaliser_telephone, valider_joignable,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -288,6 +293,8 @@ mod tests_administratif_a0;
 mod tests_administratif_a0bis;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]

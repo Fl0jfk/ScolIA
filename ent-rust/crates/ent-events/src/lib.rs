@@ -212,6 +212,11 @@ pub mod types {
     pub const PERSONNE_COMPTE_RATTACHE: &str = "personne.compte_rattache";
     pub const PERSONNE_FUSIONNEE: &str = "personne.fusionnee";
     pub const PERSONNE_DEFUSIONNEE: &str = "personne.defusionnee";
+    /// Socle 4, lot A2 : identité, préférences et consentements d'une personne (charges utiles :
+    /// identifiants, codes, noms de champs ; jamais de valeur).
+    pub const PERSONNE_IDENTITE_MODIFIEE: &str = "personne.identite_modifiee";
+    pub const PERSONNE_PREFERENCES_MODIFIEES: &str = "personne.preferences_modifiees";
+    pub const PERSONNE_CONSENTEMENT_MODIFIE: &str = "personne.consentement_modifie";
     /// S2-1 (B7) : lien de responsabilité suspendu / rétabli (décision de justice).
     pub const LIEN_SUSPENDU: &str = "lien.suspendu";
     pub const LIEN_RETABLI: &str = "lien.retabli";
