@@ -1,6 +1,6 @@
 # Démo P1 — le parcours joué dans un navigateur
 
-**Date :** 2026-11-08 — **Branche :** `ent-demo-p1-ecrans` (base `ent-recette-2-correctifs`) — **Statut :** écrans corrigés et joués, **à relire par Florian**.
+**Date :** 2026-11-08 — **Branche :** `ent-demo-p1-ecrans` (base `ent-recette-2-correctifs`) — **Statut :** écrans corrigés et rejoués (2026-11-08, 2ᵉ passe : points 3, 4, 5, 8, 9, 10 du §4), **à relire par Florian**.
 **Ce que c'est :** la recette 2 avait tout joué par l'API ; ici le même parcours est joué **à l'écran** (Chromium via Playwright, `deviceScaleFactor` 2, bureau 1280 px et mobile 375 px), sur le serveur Leptos réel (`ent-web-server`, compilé avec `--bin-features labo`), base PostgreSQL locale `ent_ci_test_a`, `ENT_ENV=lab ENT_ALLOW_LABO=1`, données de labo fictives. Aucune base ni secret de production ; Next.js non touché ; aucune migration.
 **Rejouer :** `docs/recette/demo_p1/scripts/` (`reset_labo.sh` puis `NODE_PATH=$(npm root -g) node demo_p1.js`). Les captures citées ci-dessous sont dans `docs/recette/demo_p1/`.
 
@@ -41,13 +41,14 @@ Légende : ✅ joué et conforme · ⚠️ joué avec réserve (voir §4).
 ### Étape 3 — Instruire, admettre, valider ✅
 - Secrétariat : instruction (`06`, les deux réserves sont visibles, jamais l'adresse), pièces acceptées, passage en instruction (`07`).
 - Direction : décision « admis » (`08`) ; le secrétariat n'a pas ce bouton. La direction **prépare l'année 2027-2028** (`/web/referentiel/annees`, `09`, `10`) : sans elle, la scolarisation de l'élève attend la préparation (limite connue de RP2-10).
-- Direction : écran « Protections » : la mention « ne pas solliciter » de Marc attend sa confirmation, l'adresse d'Inès est protégée (`11`).
+- Direction : écran « Protections » avant validation : rien à traiter, car la personne n'existe pas encore (`11`). **Après la validation**, la tuile « Protections à confirmer » de l'accueil de la direction (`13b`) et l'écran (`13c`) listent Marc (« ne pas solliciter » à confirmer) et l'adresse protégée d'Inès.
+- Secrétariat : « Ouvrir » la campagne demande confirmation (`02a`) ; une fois une pièce acceptée ou refusée, ses boutons disparaissent (`07`).
 - **Secrétariat valide** (RP2-11) : rapprochement, case de vérification, validation (`12`, `13`). Marc ne reçoit **aucune invitation** ; la mère reçoit la sienne, l'accepte (`14`).
 - L'élève apparaît à la scolarité : **« Inscrit, entre à la rentrée — scolarisation à partir du 01/09/2027 · Première inscription · Année 2027-2028 · Prévue »** (`16`, `17`).
 
 ### Étape 4 — Fiche 360° et cloisonnement ✅
-- **Direction** (`16`) et **secrétariat** (`17`) : identité, scolarité, responsables avec foyer, droits et payeur (100 % Inès), contacts, sections du dossier, actions possibles, chronologie ; le secrétariat voit les groupes de champs fermés expliqués.
-- **Mère** (`15`, `15b` à 375 px) : voit l'élève et ses propres coordonnées ; le père « séparé » n'apparaît que par sa désignation, **coordonnées, adresse et droits remplacés par « Cette information concerne un autre responsable »** ; historique d'identité et données sensibles réservés au personnel.
+- **Direction** (`16`) et **secrétariat** (`17`, `17b` à 375 px en cartes) : alerte « À ne pas solliciter » sur Marc, foyers « Foyer MARTIN (Inès) / (Marc) », identité, scolarité, responsables avec foyer, droits et payeur (100 % Inès), contacts, sections du dossier, actions possibles, chronologie ; le secrétariat voit les groupes de champs fermés expliqués.
+- **Mère** (`15`, `15b` à 375 px) : lit la **Scolarité** de Rose (« Inscrit, entre à la rentrée… Année 2027-2028 · Prévue »), sans l'alerte « ne pas solliciter » ; voit l'élève et ses propres coordonnées ; le père « séparé » n'apparaît que par sa désignation, **coordonnées, adresse et droits remplacés par « Cette information concerne un autre responsable »** ; historique d'identité et données sensibles réservés au personnel.
 - **Professeur sans classe** : « Dossier inaccessible » (`18`).
 - **Professeur d'un seul groupe** (« 4B LV2 allemand », Prof 3) : voit Harry (`19`), **pas Ginny** (`20`).
 - Tests contre le vrai backend : `ent-web-server/tests/demo_p1.rs` (3 tests) : parcours complet (famille → validation par le secrétariat → scolarité `a_venir` + inscription `prevue` → père protégé sans invitation → autre famille et professeur refusés), pages rendues, professeur de groupe.
@@ -62,7 +63,10 @@ Légende : ✅ joué et conforme · ⚠️ joué avec réserve (voir §4).
 - `cargo clippy --locked` : `ent-web-ui`, `ent-web-api`, `ent-web-app` (`--features ent-web-app/ssr --all-targets -D warnings`), `ent-web-app` pour `wasm32` (`--features hydrate -D warnings`), `ent-web-server --features labo --all-targets -D warnings` : **sans erreur**.
 - `cargo test --locked -p ent-web-ui -p ent-web-api -p ent-web-app --features ent-web-app/ssr` : **26 + 308 + 14 réussis**.
 - `cargo test --locked -p ent-web-server --features labo -- --test-threads=1` : **non lancé en entier** (chaque binaire de test pèse 3,5 Go, le conteneur a ≈ 38 Go) ; lancés un à un et **verts** : `demo_p1` (3), `inscriptions` (2), `dossier` (2). Les 18 autres fichiers sont à rejouer par la CI GitHub.
-- Formatage : `cargo fmt --manifest-path ent-rust/web/Cargo.toml -p ent-web-app -p ent-web-server -p ent-web-api --check` : OK (jamais `--all`).
+- Formatage : `cargo fmt -p ent-web-ui -p ent-web-api -p ent-web-app -p ent-web-server` appliqué puis vérifié (jamais `--all`) ; backend non reformaté.
+- **2ᵉ passe** : clippy `-D warnings` sans erreur sur `ent-web-ui`, `ent-web-api`, `ent-web-app` (SSR, `--all-targets`, et wasm `--features hydrate`) ; tests 26 + 312 + 14 verts ; `demo_p1` : **4 tests verts** (dont `la_famille_lit_la_scolarite_de_son_enfant`) ; `ent-api` `recette_personas_2` (6) et `separation` (41) verts avec la matrice `scolarite` mise à jour (un parent lit la scolarité de son enfant lié, refusé pour tout autre élève ou établissement) ; tests unitaires `domain-eleve` verts. Clippy du backend (`ent-api`, `ent-db`…) signale des erreurs **déjà présentes** dans des fichiers non touchés (`domain-eleve/scolarite.rs`, `ent-mail`…) : aucune dans les lignes modifiées ; non corrigé ici. `--features ent-api/labo,ent-lab/labo` n'existe pas (la fonctionnalité d'`ent-api` est `labo`).
+- Navigateur : parcours rejoué depuis une base vide après `cargo leptos build --bin-features labo` (outils installés pour l'occasion : `cargo-leptos` 0.3.11, `wasm-bindgen-cli` 0.2.130, cible `wasm32`) ; erreurs de console limitées à des 403/404 attendus (accès refusés des professeurs, sections fermées).
+- Décision à valider : un responsable **sans** droit « voir les notes / la vie scolaire » mais au lien actif lit tout de même la scolarité (statut administratif, comme la fiche) ; un responsable portant « ne pas solliciter » est refusé.
 - Navigateur : parcours complet rejoué **depuis une base vide** par `demo_p1.js` (aucune erreur de console hors 401/403 attendus).
 
 ## 4. Ce qui manque encore pour une démo complète

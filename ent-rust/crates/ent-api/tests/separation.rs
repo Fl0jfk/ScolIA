@@ -293,8 +293,11 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 Some(r#"{"nouveau_badge":"SEPARATION-BADGE"}"#)),
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
             // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
+            // Démo P1 n° 3 : le responsable légal (lien actif) lit la scolarité de SON enfant,
+            // minimisée ; jamais celle d'un autre élève (liste « non liée » inchangée).
             lire("scolarite", "/eleves/{eleve}/scolarite",
-                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+                &[Admin, Direction, Administratif, Parent, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif]),
             ecrire_sur_b("scolarisation-ouverture-sur-B", "POST", "/eleves/{eleve}/scolarisations",
                 Some(r#"{"date_entree":"{jour}","motif":"reprise"}"#)),
             ecrire_sur_b("scolarisation-reintegration-sur-B", "POST", "/eleves/{eleve}/scolarisations/reintegrer",

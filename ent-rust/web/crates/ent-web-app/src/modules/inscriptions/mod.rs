@@ -23,8 +23,8 @@ use ent_web_api::types_inscriptions::{
 };
 use ent_web_api::ApiError;
 use ent_web_ui::{
-    use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Dialogue, EnTetePage, EtatVide,
-    Niveau, Selection, Squelette, Taille, TonEtat, Variante, ZoneTexte,
+    use_notifications, AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Dialogue, EnTetePage,
+    EtatVide, Niveau, Selection, Squelette, Taille, TonEtat, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -34,9 +34,8 @@ use uuid::Uuid;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::{reconnexion, session};
 use modele::{
-    piece_a_decider,
     libelle_nature, libelle_regime, libelle_statut, libelle_statut_campagne, niveaux_depuis_texte,
-    peut, pieces_depuis_texte, ton_statut, REGIMES,
+    peut, piece_a_decider, pieces_depuis_texte, ton_statut, REGIMES,
 };
 
 /// Message d'échec d'une écriture ; une session perdue ouvre la reconnexion.
@@ -89,18 +88,33 @@ fn ListeCampagnes(
     let confirmer = RwSignal::new(false);
     let cible = RwSignal::new(None::<(Uuid, bool, String)>);
     let appliquer = Callback::new(move |_| {
-        let Some((id, ouverte, _)) = cible.get_untracked() else { return };
+        let Some((id, ouverte, _)) = cible.get_untracked() else {
+            return;
+        };
         confirmer.set(false);
         spawn_local(async move {
             let client = session::client();
             let r = if ouverte {
-                client.fermer_campagne(id).await.map(|_| "Campagne fermée.".to_string())
+                client
+                    .fermer_campagne(id)
+                    .await
+                    .map(|_| "Campagne fermée.".to_string())
             } else {
-                client.ouvrir_campagne(id).await.map(|o| format!("Campagne ouverte ({} dossiers préparés).", o.dossiers_prepares))
+                client.ouvrir_campagne(id).await.map(|o| {
+                    format!(
+                        "Campagne ouverte ({} dossiers préparés).",
+                        o.dossiers_prepares
+                    )
+                })
             };
             match r {
-                Ok(m) => { notifications.succes(m); recharger.run(()); }
-                Err(e) => { notifications.info(message_echec(e)); }
+                Ok(m) => {
+                    notifications.succes(m);
+                    recharger.run(());
+                }
+                Err(e) => {
+                    notifications.info(message_echec(e));
+                }
             }
         })
     });

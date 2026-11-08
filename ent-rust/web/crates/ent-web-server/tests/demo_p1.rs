@@ -279,10 +279,18 @@ async fn admission_jusqu_a_la_fiche_et_cloisonnement() {
     // (direction et secrétariat), sans référence ni adresse.
     for qui in [&direction, &secretariat] {
         let f = qui.fiche_dossier(eleve).await.expect("fiche du personnel");
-        assert_eq!(f.protections.len(), 1, "une seule mention : {:?}", f.protections);
+        assert_eq!(
+            f.protections.len(),
+            1,
+            "une seule mention : {:?}",
+            f.protections
+        );
         assert!(!f.protections[0].confirmee);
     }
-    assert!(prof.fiche_dossier(eleve).await.is_err(), "le professeur sans classe n'ouvre rien");
+    assert!(
+        prof.fiche_dossier(eleve).await.is_err(),
+        "le professeur sans classe n'ouvre rien"
+    );
     assert!(!fiche.responsables.is_empty());
     let suivi = direction.dossier_inscription(d.id).await.unwrap();
     let inv2 = suivi
@@ -391,18 +399,30 @@ async fn la_famille_lit_la_scolarite_de_son_enfant() {
 
     // Contrôle positif : le personnel lit, la mère aussi (même statut), sans le réservé au personnel.
     let personnel_vu = direction.scolarite_eleve(harry).await.expect("direction");
-    let famille_vue = lily.scolarite_eleve(harry).await.expect("la mère lit la scolarité");
+    let famille_vue = lily
+        .scolarite_eleve(harry)
+        .await
+        .expect("la mère lit la scolarité");
     assert_eq!(famille_vue.statut, personnel_vu.statut);
-    assert_eq!(famille_vue.scolarisations.len(), personnel_vu.scolarisations.len());
+    assert_eq!(
+        famille_vue.scolarisations.len(),
+        personnel_vu.scolarisations.len()
+    );
     for s in &famille_vue.scolarisations {
         assert!(s.motif_sortie.is_none() && s.motif_sortie_libre.is_none());
         assert!(s.exeat_document_id.is_none());
         assert!(s.destination.uai.is_none() && s.destination.libelle.is_none());
         assert!(s.origine.uai.is_none() && s.origine.libelle.is_none());
     }
-    assert!(famille_vue.inscriptions.iter().all(|i| i.decision_passage.is_none()));
+    assert!(famille_vue
+        .inscriptions
+        .iter()
+        .all(|i| i.decision_passage.is_none()));
     // Le libellé de l'année est fourni (le référentiel des années n'est pas ouvert aux familles).
-    assert!(famille_vue.inscriptions.iter().all(|i| i.annee_libelle.is_some()));
+    assert!(famille_vue
+        .inscriptions
+        .iter()
+        .all(|i| i.annee_libelle.is_some()));
 
     // L'INE vient de la fiche (groupe G3, ouvert aux familles pour leur enfant).
     let ine_famille = lily.fiche_dossier(harry).await.expect("fiche famille").ine;
@@ -411,7 +431,11 @@ async fn la_famille_lit_la_scolarite_de_son_enfant() {
 
     // Autre famille, élève : refus.
     assert!(refuse(narcissa.scolarite_eleve(harry).await));
-    if let Some(p) = l.personas.iter().find(|p| p.role == "eleve" && p.label.contains("Harry")) {
+    if let Some(p) = l
+        .personas
+        .iter()
+        .find(|p| p.role == "eleve" && p.label.contains("Harry"))
+    {
         let eleve = client_de(&base, &l, &p.email).await;
         assert!(refuse(eleve.scolarite_eleve(harry).await));
     }
@@ -450,5 +474,8 @@ async fn la_famille_lit_la_scolarite_de_son_enfant() {
         .await
         .expect("suspension");
     assert!(refuse(lily.scolarite_eleve(harry).await));
-    direction.retablir_lien(mere.lien_id).await.expect("rétablissement");
+    direction
+        .retablir_lien(mere.lien_id)
+        .await
+        .expect("rétablissement");
 }

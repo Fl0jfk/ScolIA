@@ -17,9 +17,15 @@ pub const ACTION_PAYEURS: &str = "payeurs.definir";
 /// Texte de l'alerte « ne pas solliciter » d'une fiche (personnel).
 pub fn libelle_protection(p: &ent_web_api::ProtectionFicheDto) -> String {
     if p.confirmee {
-        format!("{} : ne pas solliciter (confirmé par la direction)", p.designation)
+        format!(
+            "{} : ne pas solliciter (confirmé par la direction)",
+            p.designation
+        )
     } else {
-        format!("{} : ne pas solliciter (déclaré, à confirmer par la direction)", p.designation)
+        format!(
+            "{} : ne pas solliciter (déclaré, à confirmer par la direction)",
+            p.designation
+        )
     }
 }
 
@@ -32,10 +38,18 @@ pub fn libelles_foyers(
     let mut base: HashMap<uuid::Uuid, (String, Vec<String>)> = HashMap::new();
     for r in responsables {
         if let Some(id) = r.foyer_id {
-            let e = base
-                .entry(id)
-                .or_insert_with(|| (r.foyer_libelle.clone().unwrap_or_else(|| "Foyer".into()), Vec::new()));
-            let nom = r.personne.prenom.clone().filter(|p| !p.trim().is_empty()).unwrap_or_else(|| r.personne.nom.clone());
+            let e = base.entry(id).or_insert_with(|| {
+                (
+                    r.foyer_libelle.clone().unwrap_or_else(|| "Foyer".into()),
+                    Vec::new(),
+                )
+            });
+            let nom = r
+                .personne
+                .prenom
+                .clone()
+                .filter(|p| !p.trim().is_empty())
+                .unwrap_or_else(|| r.personne.nom.clone());
             if !e.1.contains(&nom) {
                 e.1.push(nom);
             }
@@ -48,7 +62,11 @@ pub fn libelles_foyers(
     base.into_iter()
         .map(|(id, (l, noms))| {
             let doublon = compte.get(&l).copied().unwrap_or(0) > 1;
-            let texte = if doublon && !noms.is_empty() { format!("{l} ({})", noms.join(", ")) } else { l };
+            let texte = if doublon && !noms.is_empty() {
+                format!("{l} ({})", noms.join(", "))
+            } else {
+                l
+            };
             (id, texte)
         })
         .collect()
@@ -591,12 +609,19 @@ mod tests {
         assert_eq!(l[&Uuid::from_u128(10)], "Foyer MARTIN (Inès)");
         assert_eq!(l[&Uuid::from_u128(11)], "Foyer MARTIN (Marc)");
         // Un foyer unique garde son libellé.
-        assert_eq!(libelles_foyers(&[mere])[&Uuid::from_u128(10)], "Foyer MARTIN");
+        assert_eq!(
+            libelles_foyers(&[mere])[&Uuid::from_u128(10)],
+            "Foyer MARTIN"
+        );
     }
 
     #[test]
     fn alerte_ne_pas_solliciter_dit_l_etat() {
-        let mut p = ent_web_api::ProtectionFicheDto { personne_id: Uuid::from_u128(1), designation: "Marc Martin".into(), confirmee: false };
+        let mut p = ent_web_api::ProtectionFicheDto {
+            personne_id: Uuid::from_u128(1),
+            designation: "Marc Martin".into(),
+            confirmee: false,
+        };
         assert!(libelle_protection(&p).contains("à confirmer"));
         p.confirmee = true;
         assert!(libelle_protection(&p).contains("confirmé"));

@@ -89,8 +89,6 @@ async function dossierOuvert(p) {
   await shot(p, '09-direction-preparer-annee');
   await p.getByRole('button', { name: 'Préparer', exact: true }).click(); await p.waitForTimeout(2500);
   await shot(p, '10-direction-annee-preparee');
-  await p.goto(`${BASE}/web`, { waitUntil: 'networkidle' }); await p.waitForTimeout(3000);
-  await shot(p, '11a-direction-accueil-protections-a-confirmer'); // n° 4 : tableau de bord
   await p.goto(`${BASE}/web/direction/protections`, { waitUntil: 'networkidle' }); await p.waitForTimeout(2500);
   await shot(p, '11-direction-protections'); await b.close();
 
@@ -99,6 +97,12 @@ async function dossierOuvert(p) {
   await p.locator('#ins-val-verifie').check();
   await p.getByRole('button', { name: "Valider l'inscription" }).click(); await p.waitForTimeout(2500);
   await shot(p, '13-secretariat-inscription-validee'); await b.close();
+  // n° 4 : la personne (Marc) existe depuis la validation ; sa mention « ne pas solliciter » est à confirmer.
+  ({ b, p } = await ouvrir()); await connecter(p, persona('direction'));
+  await p.goto(`${BASE}/web`, { waitUntil: 'networkidle' }); await p.waitForTimeout(3000);
+  await shot(p, '13b-direction-accueil-protections-a-confirmer');
+  await p.goto(`${BASE}/web/direction/protections`, { waitUntil: 'networkidle' }); await p.waitForTimeout(2500);
+  await shot(p, '13c-direction-protections-apres-validation'); await b.close();
 
   // ---- 4. Mère : invitation, fiche ---------------------------------------------------------------
   await new Promise(r => setTimeout(r, 12000)); // tâches de fond : invitation de la mère

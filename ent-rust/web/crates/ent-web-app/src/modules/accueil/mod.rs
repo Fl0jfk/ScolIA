@@ -279,7 +279,8 @@ fn TuileAnnonces(annonces: LocalResource<Result<Vec<Annonce>, ApiError>>) -> imp
 #[component]
 fn TuileProtections() -> impl IntoView {
     let alertes = LocalResource::new(|| async { session::client().alertes_protection().await });
-    let action = ViewFn::from(|| view! { <a href=navigation::PROTECTIONS>"Traiter les protections"</a> });
+    let action =
+        ViewFn::from(|| view! { <a href=navigation::PROTECTIONS>"Traiter les protections"</a> });
     view! {
         <Tuile id="protections" titre="Protections à confirmer" largeur=Largeur::Six action=action>
             {move || match alertes.get() {
