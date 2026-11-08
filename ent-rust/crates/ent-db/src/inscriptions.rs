@@ -1228,7 +1228,7 @@ impl PgEnt {
                     (id, etablissement_id, campagne_id, nature, statut, eleve_id, eleve_nom,
                      eleve_prenom, eleve_date_naissance, eleve_sexe, eleve_ine)
                  VALUES ($1,$2,$3,'reinscription','brouillon',$4,$5,$6,$7,$8,$9)
-                 ON CONFLICT (campagne_id, eleve_id) WHERE eleve_id IS NOT NULL DO NOTHING",
+                 ON CONFLICT (campagne_id, eleve_id) WHERE eleve_id IS NOT NULL AND etat <> 'annule' DO NOTHING",
             )
             .bind(dossier_id)
             .bind(etab)

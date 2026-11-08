@@ -437,9 +437,8 @@ pub async fn classe_de_l_annee_courante_tx(
 }
 
 /// ELV-02 (commande inverse d'ELV-01, appelée par l'annulation d'une validation erronée, INS-68) :
-/// archive la fiche créée **par erreur**. Refusée si la fiche a déjà une vie (classe, statut autre
-/// que « préinscrit »). Rien n'est effacé : la fiche passe à `archive`, hors des listes actives et
-/// de la facturation ; la trace reste au journal et par l'événement `eleve.creation_annulee`
+/// annule la fiche créée **par erreur**. Refusée si la fiche a déjà une vie (classe, scolarisation,
+/// sortie). Rien n'est effacé : la fiche passe à `archive` (statut dérivé), la trace reste au journal ; la trace reste au journal et par l'événement `eleve.creation_annulee`
 /// (sans donnée personnelle). Renvoie `false` si la fiche n'existe pas ou n'est plus annulable.
 pub async fn annuler_creation_eleve_tx(
     conn: &mut PgConnection,
@@ -448,9 +447,15 @@ pub async fn annuler_creation_eleve_tx(
     dossier_id: Uuid,
     actor: Uuid,
 ) -> Result<bool, EntDbError> {
+    // La fiche créée par la validation n'a ni scolarisation (l'entrée n'a pas eu lieu), ni classe :
+    // elle est marquée `archive` dans le statut dérivé ; le statut hérité (`status`) n'est pas
+    // touché, ce qui évite d'ouvrir une scolarisation par le pont de l'ancien chemin.
     let r = sqlx::query(
-        "UPDATE ent_eleve SET status = 'archive', updated_at = now()
-          WHERE etablissement_id = $1 AND id = $2 AND status = 'preinscrit' AND classe_id IS NULL",
+        "UPDATE ent_eleve SET statut = 'archive', updated_at = now()
+          WHERE etablissement_id = $1 AND id = $2 AND status = 'preinscrit' AND classe_id IS NULL
+            AND date_sortie IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ent_eleve_scolarisation s
+                             WHERE s.etablissement_id = $1 AND s.eleve_id = $2)",
     )
     .bind(etab)
     .bind(eleve_id)

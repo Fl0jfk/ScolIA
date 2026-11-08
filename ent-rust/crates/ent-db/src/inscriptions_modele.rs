@@ -1492,6 +1492,26 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // D'abord l'état (les contraintes du dossier lient « validée » à l'élève et à la date),
+        // ensuite la levée des traces de la validation.
+        let vers = inscriptions_etats::etat_apres_annulation_de_validation(&d.nature);
+        let n = transitionner_tx(&mut tx, etab, &d, vers, Cause::AnnulationValidation, Some(motif), Some(actor))
+            .await?;
+        sqlx::query(
+            "UPDATE ent_inscription_dossier
+                SET validation_annulee_le = now(), validation_annulee_par = $3, validation_annulee_motif = $4,
+                    valide_le = NULL, valide_par = NULL, inscription_annuelle_id = NULL,
+                    eleve_id = CASE WHEN $5 THEN NULL ELSE eleve_id END
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(actor)
+        .bind(motif)
+        .bind(fiche_creee)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         let eleve_archive = if fiche_creee {
             let ok = eleve_ports::annuler_creation_eleve_tx(&mut tx, etab, eleve_id, id, actor).await?;
             if !ok {
@@ -1550,36 +1570,6 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let vers = inscriptions_etats::etat_apres_annulation_de_validation(&d.nature);
-        verifier_retour(&d, vers)?;
-        sqlx::query(
-            "UPDATE ent_inscription_dossier
-                SET validation_annulee_le = now(), validation_annulee_par = $3, validation_annulee_motif = $4,
-                    valide_le = NULL, valide_par = NULL, inscription_annuelle_id = NULL
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(id)
-        .bind(actor)
-        .bind(motif)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        // `eleve_id` reste au dossier si la fiche préexistait (réinscription) ; sinon il est retiré
-        // pour qu'une nouvelle validation crée ou rapproche la bonne fiche.
-        if fiche_creee {
-            sqlx::query(
-                "UPDATE ent_inscription_dossier SET eleve_id = NULL
-                  WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        }
-        let n = transitionner_tx(&mut tx, etab, &d, vers, Cause::AnnulationValidation, Some(motif), Some(actor))
-            .await?;
         publier(
             &mut tx,
             etab,
@@ -2303,7 +2293,14 @@ impl PgEnt {
         .await
         .map_err(db)?;
         ok.ok_or_else(introuvable)?;
-        self.demarche_dto(etab, id).await
+        // Vue famille : jamais la marque « à ne pas solliciter » (le déposant pourrait être la
+        // personne dont l'autre responsable est protégé) ni l'identifiant de la personne créée.
+        let mut d = self.demarche_dto(etab, id).await?;
+        for x in &mut d.declarations {
+            x.ne_pas_solliciter = false;
+            x.personne_id = None;
+        }
+        Ok(d)
     }
 
     pub(crate) async fn demarche_dto(&self, etab: Uuid, id: Uuid) -> Result<DemarcheDto, EntDbError> {
@@ -2476,11 +2473,6 @@ impl PgEnt {
         .map_err(db)?;
         Ok(())
     }
-}
-
-fn verifier_retour(d: &DossierRow, vers: &str) -> Result<(), EntDbError> {
-    inscriptions_etats::verifier_transition(&d.nature, &d.etat, vers, Cause::AnnulationValidation)
-        .map_err(conflit)
 }
 
 /// Valeur JSON des références de lecture (utilisée par les tests).

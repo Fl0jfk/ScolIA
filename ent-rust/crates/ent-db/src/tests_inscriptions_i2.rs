@@ -47,12 +47,13 @@ async fn dossier_en_etat(
     .await
     .unwrap();
     let id = Uuid::new_v4();
-    let valide = etat == "validee";
+    // Élève et date de validation toujours posés : la transition vers « validée » (réservée à la
+    // validation, qui les écrit) ne doit pas buter sur les contraintes du dossier.
     sqlx::query(
         "INSERT INTO ent_inscription_dossier
             (id, etablissement_id, campagne_id, nature, etat, etat_avant_blocage, eleve_nom, eleve_prenom,
              eleve_id, valide_le)
-         VALUES ($1,$2,$3,$4,$5,$6,'Test','Etat',$7, CASE WHEN $8 THEN now() END)",
+         VALUES ($1,$2,$3,$4,$5,$6,'Test','Etat',$7, now())",
     )
     .bind(id)
     .bind(etab)
@@ -60,8 +61,7 @@ async fn dossier_en_etat(
     .bind(nature)
     .bind(etat)
     .bind(avant_blocage)
-    .bind(valide.then_some(c.eleve_lea_id))
-    .bind(valide)
+    .bind(c.eleve_lea_id)
     .execute(ent.pool())
     .await
     .unwrap();
@@ -186,7 +186,11 @@ async fn i2_campagne_etats() {
             let camp = ent
                 .creer_campagne_for_actor(etab, d, dr, &CampagneBody {
                     libelle: format!("{de}-{vers}"),
-                    annee_cible: format!("{}-{}", 2040 + etats.iter().position(|x| *x == de).unwrap(), 2041 + etats.iter().position(|x| *x == de).unwrap()),
+                    annee_cible: {
+                        let n = 2100 + etats.iter().position(|x| *x == de).unwrap() * 10
+                            + etats.iter().position(|x| *x == vers).unwrap();
+                        format!("{n}-{}", n + 1)
+                    },
                     ..campagne("admission", None)
                 })
                 .await
@@ -631,8 +635,11 @@ async fn i2_fratrie_une_demarche_plusieurs_dossiers() {
     .map(|v: Vec<(i64,)>| v[0])
     .unwrap();
     assert_eq!(nv, 2);
-    // Seul le déposant vérifié lit la démarche.
-    ent.demarche_famille(etab, &jeton, dem.id).await.unwrap();
+    // Seul le déposant vérifié lit la démarche ; la marque « ne pas solliciter » ne lui est jamais rendue.
+    sqlx::query("UPDATE ent_inscription_declaration_responsable SET ne_pas_solliciter = true WHERE demarche_id = $1 AND ordre = 2")
+        .bind(dem.id).execute(ent.pool()).await.unwrap();
+    let vue = ent.demarche_famille(etab, &jeton, dem.id).await.unwrap();
+    assert!(vue.declarations.iter().all(|x| !x.ne_pas_solliciter && x.personne_id.is_none()));
     let autre = verifier(&ent, etab, &email("autre")).await;
     assert!(ent.demarche_famille(etab, &autre, dem.id).await.is_err());
     // Un vœu d'une autre campagne ou d'une offre inconnue est refusé ; six enfants au plus ; aucun enfant.
@@ -680,14 +687,9 @@ async fn i2_compteur_de_places_juste() {
             r
         }
     };
-    let dispo = |ent: &PgEnt| {
-        let pool = ent.pool().clone();
-        async move {
-            let o = ent.offres_for_actor(etab, d, dr, camp).await.unwrap();
-            let _ = pool;
-            o[0].disponibles
-        }
-    };
+    async fn dispo(ent: &PgEnt, etab: Uuid, d: Uuid, dr: &str, camp: Uuid) -> Option<i64> {
+        ent.offres_for_actor(etab, d, dr, camp).await.unwrap()[0].disponibles
+    }
     let mut dossiers = Vec::new();
     let mut jetons = Vec::new();
     for prenom in ["Un", "Deux", "Trois", "Quatre"] {
@@ -698,7 +700,7 @@ async fn i2_compteur_de_places_juste() {
         jetons.push(j);
     }
     assert_eq!(places(&ent).await, (0, 0, 0, 0, 0, 4), "quatre candidatures, aucune place consommée");
-    assert_eq!(dispo(&ent).await, Some(2));
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(2));
     let decider = |id: Uuid, decision: &str, depassement: bool| {
         let ent_ref = &ent;
         let decision = decision.to_string();
@@ -716,7 +718,7 @@ async fn i2_compteur_de_places_juste() {
     decider(dossiers[0], "admis", false).await.unwrap();
     assert_eq!(places(&ent).await, (1, 0, 0, 0, 0, 3), "un admis = une place proposée");
     decider(dossiers[1], "admis", false).await.unwrap();
-    assert_eq!(dispo(&ent).await, Some(0));
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(0));
     // Offre pleine : refusée sans confirmation, jamais en silence.
     assert!(matches!(decider(dossiers[2], "admis", false).await, Err(EntDbError::ConflitDossier(_))));
     // La liste d'attente ne consomme rien et reçoit un rang.
@@ -730,7 +732,7 @@ async fn i2_compteur_de_places_juste() {
     assert_eq!(rang, Some(1));
     // Dépassement assumé : confirmé, tracé, compté (disponibles négatif).
     decider(dossiers[3], "admis", true).await.unwrap();
-    assert_eq!(dispo(&ent).await, Some(-1));
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(-1));
     let (depasse,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = $1 AND depassement_capacite",
     )
@@ -742,8 +744,13 @@ async fn i2_compteur_de_places_juste() {
     // Désistement de la famille d'un admis : la place revient.
     ent.desister_famille(etab, &jetons[0], dossiers[0]).await.unwrap();
     assert_eq!(places(&ent).await, (2, 0, 0, 1, 0, 0));
-    assert_eq!(dispo(&ent).await, Some(0));
-    // Validation : la place passe de « proposée » à « validée ».
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(0));
+    // Validation : la place passe de « proposée » à « validée » (pièces obligatoires acceptées).
+    sqlx::query("UPDATE ent_inscription_piece SET statut = 'acceptee' WHERE dossier_id = $1")
+        .bind(dossiers[1])
+        .execute(ent.pool())
+        .await
+        .unwrap();
     ent.valider_inscription_for_actor(etab, d, dr, dossiers[1], &ValidationBody {
         niveau: Some("6EME".into()),
         ..Default::default()
@@ -751,7 +758,7 @@ async fn i2_compteur_de_places_juste() {
     .await
     .unwrap_or_else(|e| panic!("validation : {e}"));
     assert_eq!(places(&ent).await, (1, 0, 1, 1, 0, 0));
-    assert_eq!(dispo(&ent).await, Some(0));
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(0));
 
     // Réinscrits : la place est gardée sur l'offre jumelle d'une campagne de réinscription.
     let rein = ent
@@ -789,7 +796,7 @@ async fn i2_compteur_de_places_juste() {
     let (reserve,): (i64,) = sqlx::query_as("SELECT reserve_reinscription FROM ent_inscription_offre_occupation WHERE offre_id = $1")
         .bind(offre_adm).fetch_one(ent.pool()).await.unwrap();
     assert_eq!(reserve, 3);
-    assert_eq!(dispo(&ent).await, Some(-3), "2 − 3 réservées − 1 proposée − 1 validée");
+    assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(-3), "2 − 3 réservées − 1 proposée − 1 validée");
 }
 
 /// Deux admissions simultanées sur la dernière place : une seule passe (verrou de l'offre).
@@ -807,9 +814,10 @@ async fn i2_derniere_place_une_seule_admission() {
         let j = verifier(&ent, etab, &email("derniere")).await;
         ids.push(ent.deposer_preinscription(etab, &j, &formulaire(camp, prenom, None)).await.unwrap().id);
     }
+    let admis = DecisionBody { decision: "admis".into(), motif: None };
     let (a, b) = tokio::join!(
-        ent.decider_for_actor(etab, d, dr, ids[0], &DecisionBody { decision: "admis".into(), motif: None }),
-        ent.decider_for_actor(etab, d, dr, ids[1], &DecisionBody { decision: "admis".into(), motif: None }),
+        ent.decider_for_actor(etab, d, dr, ids[0], &admis),
+        ent.decider_for_actor(etab, d, dr, ids[1], &admis),
     );
     assert_eq!([a.is_ok(), b.is_ok()].iter().filter(|x| **x).count(), 1, "une seule admission passe");
     let (n,): (i64,) = sqlx::query_as("SELECT proposees FROM ent_inscription_offre_occupation WHERE campagne_id = $1")
@@ -1104,8 +1112,12 @@ async fn i2_annuler_une_validation_erronee() {
     let r = ent.annuler_validation_for_actor(etab, d, dr, dossier, &corps).await.unwrap();
     assert_eq!(r.etat, "confirme");
     assert!(r.eleve_archive && r.inscription_annuelle_retiree);
-    let (status,): (String,) = sqlx::query_as("SELECT status FROM ent_eleve WHERE id = $1").bind(v.eleve_id).fetch_one(ent.pool()).await.unwrap();
-    assert_eq!(status, "archive", "la fiche créée par erreur est archivée, pas effacée");
+    let (statut, trace): (String, i64) = sqlx::query_as(
+        "SELECT statut, (SELECT count(*) FROM ent_journal_modif j WHERE j.eleve_id = ent_eleve.id AND j.action = 'creation_annulee')
+           FROM ent_eleve WHERE id = $1",
+    ).bind(v.eleve_id).fetch_one(ent.pool()).await.unwrap();
+    assert_eq!(statut, "archive", "la fiche créée par erreur est archivée, pas effacée");
+    assert_eq!(trace, 1, "la création annulée laisse sa trace au journal");
     let (prevues,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_scolarite_annee WHERE eleve_id = $1 AND source_ref = $2")
         .bind(v.eleve_id).bind(dossier).fetch_one(ent.pool()).await.unwrap();
     assert_eq!(prevues, 0);
@@ -1117,9 +1129,29 @@ async fn i2_annuler_une_validation_erronee() {
     assert_eq!(events, 1);
     let dto = ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap();
     assert_eq!((dto.etat.as_str(), dto.eleve_id, dto.valide_le), ("confirme", None, None));
-    // Une nouvelle validation, correcte cette fois, est possible.
-    let v2 = ent
+    // Une nouvelle validation, correcte cette fois, est possible. La fiche archivée est un homonyme :
+    // le choix humain (jamais implicite) est de créer une nouvelle fiche.
+    assert!(ent
         .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody { niveau: Some("6EME".into()), ..Default::default() })
+        .await
+        .is_err(), "l'homonyme exige un choix humain explicite");
+    // Les personnes créées par la première validation existent encore : le rapprochement reste un
+    // choix humain (ici, de nouvelles fiches).
+    let mut resolutions = Vec::new();
+    for rang in [1, 2] {
+        resolutions.push(ResolutionResponsable {
+            responsable_id: super::tests_inscriptions::resp_id(&ent, dossier, rang).await,
+            personne: ChoixPersonne::Nouvelle,
+            foyer: None,
+        });
+    }
+    let v2 = ent
+        .valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody {
+            niveau: Some("6EME".into()),
+            eleve: Some(ChoixEleve::Nouveau),
+            responsables: resolutions,
+            ..Default::default()
+        })
         .await
         .unwrap();
     assert_ne!(v2.eleve_id, v.eleve_id, "une nouvelle fiche, la précédente reste archivée");

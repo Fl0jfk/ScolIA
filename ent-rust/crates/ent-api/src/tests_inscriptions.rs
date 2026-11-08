@@ -728,7 +728,13 @@ async fn i2_routes_http_droits_isolation_et_parcours() {
         // Sans session : 401. Famille, professeur : refusés. Autre établissement : jamais de 2xx.
         let (st, _) = appel(&app, m, &chemin, &[], Some(c.clone())).await;
         assert_eq!(st, StatusCode::UNAUTHORIZED, "{chemin}");
-        for jeton in [&prof_a, &parent_a, &dir_b] {
+        // La création d'une fermeture n'a pas d'identifiant de A : la direction de B agit chez B.
+        let intrus: Vec<&String> = if chemin == "/inscriptions/fermetures" {
+            vec![&prof_a, &parent_a]
+        } else {
+            vec![&prof_a, &parent_a, &dir_b]
+        };
+        for jeton in intrus {
             let (st, corps) = appel(&app, m, &chemin, &[("authorization", jeton)], Some(c.clone())).await;
             assert!(!st.is_success(), "{chemin} : {st} {corps}");
         }
