@@ -174,8 +174,8 @@ async fn acces_ferme_refuse_connexion_session_et_jeton_sans_toucher_aux_autres_e
     .unwrap();
     assert_eq!(appareils, 0, "appareils de notification de A supprimés");
     // Aucune session ne peut être rouverte par un autre chemin que la connexion.
-    assert!(!ent.is_member(a, prof).await.unwrap());
-    assert!(ent.is_member(b, prof).await.unwrap());
+    assert!(!ent.auth_repo().is_member(a, prof).await.unwrap());
+    assert!(ent.auth_repo().is_member(b, prof).await.unwrap());
 
     // Suspendre un accès fermé : conflit ; rouvrir puis suspendre : ok, réversible.
     assert!(matches!(
@@ -420,8 +420,8 @@ async fn bord_de_journee_deux_fuseaux_acces_et_attribution_echus_a_l_heure_local
         connexion(&ent, kiri, p_kiri).await.is_err(),
         "Kiritimati : échu"
     );
-    assert!(ent.is_member(pago, p_pago).await.unwrap());
-    assert!(!ent.is_member(kiri, p_kiri).await.unwrap());
+    assert!(ent.auth_repo().is_member(pago, p_pago).await.unwrap());
+    assert!(!ent.auth_repo().is_member(kiri, p_kiri).await.unwrap());
 
     // Une session ouverte avant l'échéance est invalidée au changement de jour local : on avance la
     // fin d'hier (jour local) et la session existante est refusée sans révocation explicite.
