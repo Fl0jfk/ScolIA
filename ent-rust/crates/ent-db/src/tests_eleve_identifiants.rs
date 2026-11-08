@@ -267,17 +267,53 @@ async fn remplacement_et_protection_de_l_identifiant_confirme() {
     let hist = ent.identifiants_pour_acteur(etab, admin, role, e.id).await.unwrap();
     assert_eq!(hist.len(), 2, "l'ancien identifiant reste lisible");
     assert!(hist.iter().any(|i| i.id == r1.identifiant.id && i.statut == "revoque" && i.valide_au.is_some()));
-    // Confirmé par un flux officiel (chemin système) : un INE déclaré ne le remplace pas.
+    // Flux officiel (lot E5) : il n'écrit jamais directement. Le chemin système refuse la
+    // provenance officielle ; l'import dépose une proposition, ici décidée par une personne.
     let v3 = ine();
-    let officiel = ent
+    let direct = ent
         .ajouter_identifiant_systeme(AjoutIdentifiant {
             provenance: ProvenanceIdentifiant::ImportAaf,
             ..ajout(etab, e.id, SystemeIdentifiant::Ine, &v3, admin)
         })
+        .await;
+    assert!(matches!(direct, Err(EntDbError::SaisieInvalide(_))), "{direct:?}");
+    let depot = ent
+        .deposer_proposition_systeme(crate::propositions::DepotProposition {
+            etablissement_id: etab,
+            eleve_id: e.id,
+            cible: domain_eleve::CibleProposition::Identifiant,
+            source: domain_eleve::SourceProposition::Import,
+            origine: Some(domain_eleve::OrigineProposition::Aaf),
+            source_ref: Some(Uuid::new_v4()),
+            champs: vec![("ine".into(), serde_json::json!(v3))],
+            piece_document_id: None,
+            commentaire: None,
+            expire_le: None,
+            depose_par: None,
+        })
         .await
         .unwrap();
-    assert_eq!(officiel.identifiant.statut, "confirme");
-    assert_eq!(officiel.remplace, Some(r2.identifiant.id));
+    let pid = depot.en_attente.expect("aucune règle automatique : en attente").entete.id;
+    ent.decider_proposition(
+        role,
+        crate::propositions::DecisionProposition {
+            proposition_id: pid,
+            etablissement_id: etab,
+            acteur: admin,
+            champs_acceptes: vec!["ine".into()],
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let hist = ent.identifiants_pour_acteur(etab, admin, role, e.id).await.unwrap();
+    let officiel = hist.iter().find(|i| i.valeur == v3).expect("INE officiel enregistré").clone();
+    assert_eq!(officiel.statut, "confirme");
+    assert_eq!(officiel.provenance, "import_aaf");
+    assert!(
+        hist.iter().any(|i| i.id == r2.identifiant.id && i.statut == "revoque"),
+        "le déclaré est remplacé par le confirmé"
+    );
     let refuse = ent
         .ajouter_identifiant(role, ajout(etab, e.id, SystemeIdentifiant::Ine, &ine(), admin))
         .await;
@@ -292,16 +328,16 @@ async fn remplacement_et_protection_de_l_identifiant_confirme() {
     assert!(matches!(faux_officiel, Err(EntDbError::SaisieInvalide(_))), "{faux_officiel:?}");
     // Transition impossible et motif obligatoire.
     let sans_motif = ent
-        .contester_identifiant(role, etab, e.id, officiel.identifiant.id, admin, None)
+        .contester_identifiant(role, etab, e.id, officiel.id, admin, None)
         .await;
     assert!(matches!(sans_motif, Err(EntDbError::SaisieInvalide(_))));
     let c = ent
-        .contester_identifiant(role, etab, e.id, officiel.identifiant.id, admin, Some("INE différent du livret"))
+        .contester_identifiant(role, etab, e.id, officiel.id, admin, Some("INE différent du livret"))
         .await
         .unwrap();
     assert_eq!(c.statut, "conteste");
     let deux_fois = ent
-        .contester_identifiant(role, etab, e.id, officiel.identifiant.id, admin, Some("encore"))
+        .contester_identifiant(role, etab, e.id, officiel.id, admin, Some("encore"))
         .await;
     assert!(matches!(deux_fois, Err(EntDbError::ConflitDossier(_))));
 }

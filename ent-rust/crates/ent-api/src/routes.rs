@@ -804,6 +804,10 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::edt_s2::routes());
     // Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
     let r = r.merge(crate::evaluations::routes());
+    // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).
+    let r = r.merge(crate::eleve_propositions::routes());
+    // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).
+    let r = r.merge(crate::eleve_fusion::routes());
     // Communication complète (S2-8, module séparé : `communication_s28.rs`).
     let r = r.merge(crate::communication_s28::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).

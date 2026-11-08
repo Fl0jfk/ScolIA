@@ -118,7 +118,7 @@ pub struct PgIdentiteRepo;
 impl PgIdentiteRepo {
     /// Verrouille la ligne d'élève (sérialise les commandes concurrentes) ; `false` si
     /// l'élève n'existe pas dans cet établissement.
-    async fn verrouiller_eleve(
+    pub(crate) async fn verrouiller_eleve(
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
@@ -153,7 +153,7 @@ impl PgIdentiteRepo {
     }
 
     /// Version en vigueur (non remplacée, effective) à une date.
-    async fn en_vigueur_a(
+    pub(crate) async fn en_vigueur_a(
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
@@ -174,7 +174,7 @@ impl PgIdentiteRepo {
     }
 
     /// Plus ancienne version en vigueur (base d'un changement antérieur à toute version).
-    async fn plus_ancienne(
+    pub(crate) async fn plus_ancienne(
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
@@ -192,7 +192,7 @@ impl PgIdentiteRepo {
             .map(VersionRow::en_version))
     }
 
-    async fn dates_en_vigueur(
+    pub(crate) async fn dates_en_vigueur(
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
@@ -299,7 +299,7 @@ impl PgIdentiteRepo {
 
     /// La pièce est-elle un document administratif ou familial de CET élève dans CET
     /// établissement ? (jamais un document de santé)
-    async fn piece_de_l_eleve(
+    pub(crate) async fn piece_de_l_eleve(
         conn: &mut PgConnection,
         etab: Uuid,
         eleve: Uuid,
@@ -450,6 +450,7 @@ impl PgEnt {
             aujourdhui(),
         )
         .map_err(erreur)?;
+        Self::exiger_libres(&mut tx, etab, &plan).await?;
         self.finaliser_identite(tx, plan, Some(cmd.acteur)).await
     }
 
@@ -482,6 +483,7 @@ impl PgEnt {
             aujourdhui(),
         )
         .map_err(erreur)?;
+        Self::exiger_libres(&mut tx, etab, &plan).await?;
         self.finaliser_identite(tx, plan, Some(cmd.acteur)).await
     }
 
@@ -519,7 +521,25 @@ impl PgEnt {
             aujourdhui(),
         )
         .map_err(erreur)?;
+        Self::exiger_libres(&mut tx, etab, &plan).await?;
         self.finaliser_identite(tx, plan, Some(cmd.acteur)).await
+    }
+
+    /// Lot E5 : une commande DIRECTE ne modifie pas un champ verrouillé ni un champ dont la
+    /// modification locale est « par proposition » ou « interdite » (source externe qui fait
+    /// foi). Les champs sans réglage restent libres : aucun changement de comportement tant que
+    /// l'établissement n'a rien réglé.
+    async fn exiger_libres(
+        tx: &mut TenantTx<'static>,
+        etab: Uuid,
+        plan: &domain_eleve::VersionPlanifiee,
+    ) -> Result<(), EntDbError> {
+        let codes: Vec<&str> = plan
+            .champs
+            .iter()
+            .filter_map(|c| domain_eleve::champ_catalogue_de(*c))
+            .collect();
+        Self::exiger_champs_modifiables(tx, etab, &codes).await
     }
 
     /// Ouvre la transaction d'une commande et verrouille l'élève (sérialise les commandes
@@ -727,6 +747,7 @@ impl PgEnt {
             aujourdhui(),
         )
         .map_err(erreur)?;
+        Self::exiger_libres(tx, etab, &plan).await?;
         Ok(Some(Self::ecrire_version(tx, plan, acteur).await?))
     }
 }
