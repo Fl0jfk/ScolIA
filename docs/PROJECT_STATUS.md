@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 5 — lot S2 « profil, paramètres, lieux » (2026-11-08, branche `ent-socle-structure-s2`, base `ent-integration-lot9`)
+Profil de l'établissement, fuseau (source unique `ent_etablissement_parametre`), préréglages, paramètres versionnés et journalisés, sites / bâtiments / salles typées liées à leur site par clé composite, lieux extérieurs, disponibilités et indisponibilités (en lot), import de salles en CSV avec aperçu et rejets ; routes `/structure/*` ; port `structure::fuseau` pour le socle 6. Migrations **332** et **337** (registre : `docs/socles/MIGRATIONS.md`), `MIGRATION_TAG` inchangé (`375_msg_fil_prive`). Détail, critères de fin et limites : `docs/socles/05_STRUCTURE.md` §22. **Niveau : implémenté + testé en local (11 tests Postgres `tests_structure_s2`, 1 test HTTP `tests_structure`, tests unitaires, RLS : 82 tables) ; non validé par la CI GitHub ni par Florian ; pas d'écran ; pas de revue de sécurité indépendante.** Point de vigilance à l'intégration : l'ancienne route `POST /salles` exige désormais un site existant (labo et `tests_edt_s2` adaptés).
+
 ## Intégration du lot 9 (2026-11-08, branche `ent-integration-lot9`, base `ent-integration-lot8b` + son dernier commit)
 Fusions `--no-ff`, une à la fois, dans cet ordre : `ent-recette-1-correctifs` (**contient** `ent-recette-personas-1`, dont elle descend : une seule fusion, pour ne pas résoudre deux fois les mêmes conflits), `ent-recette-2-correctifs` (contient `ent-recette-personas-2`), `ent-socle-eleve-e6` (contient E5), `ent-socle-inscriptions-i2`, `ent-socle-structure-s0-s1`. Non fusionnées, comme demandé : `ent-socle-administratif-a2`, `ent-socle1-revue-faibles`, `ent-mobile-app`. `MIGRATION_TAG` = `375_msg_fil_prive`.
 - **Conflits résolus (code)** :
