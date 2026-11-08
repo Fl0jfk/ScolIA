@@ -792,6 +792,8 @@ pub fn router() -> Router<AppState> {
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
     let r = r.merge(crate::referentiel_s2::routes());
+    // Socle 5, lot S2 : profil, paramètres, sites, salles, lieux (`structure.rs`).
+    let r = r.merge(crate::structure::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).

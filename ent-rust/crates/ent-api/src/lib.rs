@@ -16,6 +16,7 @@ pub mod obs;
 mod referentiel;
 mod cahier;
 mod referentiel_s2;
+mod structure;
 mod edt_s2;
 mod roles;
 mod routes;
@@ -290,6 +291,8 @@ mod tests_edt_s2;
 mod tests_sante_module;
 #[cfg(all(test, feature = "labo"))]
 mod tests_finances;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
