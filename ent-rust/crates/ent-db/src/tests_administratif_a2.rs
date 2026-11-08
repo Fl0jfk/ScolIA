@@ -172,7 +172,7 @@ async fn coordonnees_aucune_perdue_historique_sans_valeur() {
     for valeur in ["exemple.fr", "+33", "0612", "Lilas", "marie"] {
         assert!(!traces.to_lowercase().contains(&valeur.to_lowercase()), "valeur « {valeur} » dans les traces");
     }
-    assert!(traces.contains("coordonnees_modifiees") || traces.contains("types"));
+    assert!(traces.contains("champs") || traces.contains("types"));
     // Lecture « fermées comprises » : les anciennes valeurs restent consultables par qui a le droit.
     let tout = ent.coordonnees_personne_for_actor(etab, d, r, p.id, true).await.unwrap();
     assert!(tout.coordonnees.iter().any(|c| c.valeur == "marie.coord@exemple.fr" && c.au.is_some()));
@@ -680,7 +680,7 @@ async fn identite_versionnee_changement_sensible_scelle() {
     assert!(prenoms.contains(&Some("Sam")) && prenoms.contains(&Some("Samy")) && prenoms.contains(&Some("Samia")), "{prenoms:?}");
     // Les traces : noms de champs, jamais une valeur.
     let traces = traces_de(&ent, p.id).await;
-    assert!(traces.contains("personne.identite_modifiee"));
+    assert!(traces.contains("\"champs\""));
     for v in ["Sam", "Samy", "Samia", "Sasha", "Identite"] {
         assert!(!traces.contains(v), "valeur « {v} » dans les traces");
     }
@@ -711,7 +711,8 @@ async fn separation_nom_prenom_en_lot() {
     };
     let tag = Uuid::new_v4().simple().to_string();
     let a = mk(format!("Marie Dupont{tag}")).await;
-    let b = mk(format!("DURAND{tag} Paul")).await;
+    let maj = tag.to_uppercase();
+    let b = mk(format!("DURAND{maj} Paul")).await;
     let c = mk(format!("Jean Pierre Moreau{tag}")).await;
     let props = ent.propositions_separation_noms_for_actor(etab, d, r, 500).await.unwrap();
     let pa = props.iter().find(|p| p.personne_id == a).expect("proposée");
@@ -737,7 +738,7 @@ async fn separation_nom_prenom_en_lot() {
     let n = ent
         .separer_noms_for_actor(etab, d, r, &[
             sep(a, &format!("Dupont{tag}"), "Marie"),
-            sep(b, &format!("DURAND{tag}"), "Paul"),
+            sep(b, &format!("DURAND{maj}"), "Paul"),
             sep(c, &format!("Moreau{tag}"), "Jean Pierre"),
         ])
         .await

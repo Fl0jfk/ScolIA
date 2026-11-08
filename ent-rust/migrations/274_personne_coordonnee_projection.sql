@@ -77,6 +77,9 @@ $$;
 CREATE OR REPLACE FUNCTION ent_coord_trigger_projection() RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
 BEGIN
+    IF current_setting('ent.coord_projection', true) = 'on' THEN
+        RETURN NULL;
+    END IF;
     IF TG_OP = 'DELETE' THEN
         PERFORM ent_coord_projeter(OLD.etablissement_id, OLD.personne_id);
     ELSE
@@ -297,6 +300,7 @@ BEGIN
     IF EXISTS (SELECT 1 FROM ent_coord_reprise_marque WHERE cle = '273_reprise') THEN
         RETURN;
     END IF;
+    PERFORM set_config('ent.coord_projection', 'on', true);
     INSERT INTO ent_personne_coordonnee
         (id, etablissement_id, personne_id, type, valeur, usages, principal, source)
     SELECT gen_random_uuid(), p.etablissement_id, p.id, 'email', lower(btrim(p.email)),
@@ -339,6 +343,7 @@ BEGIN
            CASE WHEN c.source = 'compte' THEN 'compte_rattache' ELSE 'reprise' END, 'systeme'
       FROM ent_personne_coordonnee c
      WHERE NOT EXISTS (SELECT 1 FROM ent_personne_coordonnee_histo h WHERE h.coordonnee_id = c.id);
+    PERFORM set_config('ent.coord_projection', 'off', true);
     PERFORM ent_coord_projeter(p.etablissement_id, p.id)
        FROM ent_personne p
       WHERE EXISTS (SELECT 1 FROM ent_personne_coordonnee c WHERE c.personne_id = p.id);
