@@ -1,6 +1,6 @@
 # Point quotidien ScolIA
 
-Un point par jour, le plus récent en haut. Toujours les mêmes rubriques : **sur ENT** (validé par la CI GitHub), **prêt mais pas encore sur ENT**, **en cours**, **conçu mais pas codé**, **pas commencé**, **décisions attendues de Florian**, **ce qui a coincé**.
+Un point par jour, le plus récent en haut. Toujours les mêmes rubriques : **sur ENT** (validé par la CI GitHub), **prêt mais pas encore sur ENT**, **en cours**, **conçu mais pas codé**, **pas commencé**, **décisions attendues de Florian**, **à fournir par Florian plus tard** (rappel de `A_FOURNIR_PAR_FLORIAN.md`), **ce qui a coincé**.
 
 Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe personas sur la conception, Co = code, R = recette personas sur le logiciel, F = relecture de Florian.
 
