@@ -195,6 +195,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(e)
             .execute(&mut *tx)
@@ -225,8 +226,12 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let periodes: Vec<(String, String, String, NaiveDate, NaiveDate)> = sqlx::query_as(
-            "SELECT code, libelle, kind, date_debut, date_fin FROM ent_periode
-              WHERE etablissement_id = $1 AND annee_id = $2 AND niveau_id IS NULL",
+            "SELECT p.code, p.libelle, p.kind, p.date_debut, p.date_fin FROM ent_periode p
+              WHERE p.etablissement_id = $1 AND p.annee_id = $2
+                AND p.periodisation_id IN (
+                    SELECT c.periodisation_id FROM ent_periodisation_cible c
+                     WHERE c.etablissement_id = $1 AND c.annee_id = $2
+                       AND c.usage = 'evaluation' AND c.defaut)",
         )
         .bind(e)
         .bind(annee_id)
@@ -418,6 +423,7 @@ impl PgEnt {
         }
         let decalage = cible.date_debut.year() - source.date_debut.year();
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let mut r = RapportReconduction {
             annee_cible_id: cible_id,
             ..Default::default()
@@ -458,7 +464,11 @@ impl PgEnt {
         let periodes: Vec<(Option<Uuid>, String, String, String, i16, NaiveDate, NaiveDate)> =
             sqlx::query_as(
                 "SELECT niveau_id, code, libelle, kind, ordre, date_debut, date_fin FROM ent_periode
-                  WHERE etablissement_id = $1 AND annee_id = $2",
+                  WHERE etablissement_id = $1 AND annee_id = $2
+                    AND (niveau_id IS NOT NULL OR periodisation_id IN (
+                        SELECT c.periodisation_id FROM ent_periodisation_cible c
+                         WHERE c.etablissement_id = $1 AND c.annee_id = $2
+                           AND c.usage = 'evaluation' AND c.defaut))",
             )
             .bind(e)
             .bind(source_id)

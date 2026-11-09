@@ -198,6 +198,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/332_structure_profil_parametres.sql"),
     include_str!("../../../migrations/333_structure_calendrier.sql"),
     include_str!("../../../migrations/334_structure_fermeture.sql"),
+    include_str!("../../../migrations/335_structure_periodes.sql"),
+    include_str!("../../../migrations/336_structure_grilles.sql"),
     include_str!("../../../migrations/337_structure_lieux.sql"),
     include_str!("../../../migrations/338_structure_offre.sql"),
     include_str!("../../../migrations/340_eleve_enseignement.sql"),

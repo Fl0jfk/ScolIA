@@ -367,6 +367,7 @@ ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journa
 ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
      'indisponibilite', 'import_salles', 'prereglage',
+     'periodisation', 'periode', 'grille',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
      'enseignements_suivis', 'enseignement_suivi',
      -- Lot S3 (migration 333) : 338 s'appliquant après 333, la liste finale doit contenir les

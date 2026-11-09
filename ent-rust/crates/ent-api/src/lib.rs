@@ -20,6 +20,7 @@ mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
 mod structure_offre;
+mod structure_periodes;
 mod edt_s2;
 mod roles;
 mod routes;

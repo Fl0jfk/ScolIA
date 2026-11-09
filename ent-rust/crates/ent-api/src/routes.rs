@@ -814,6 +814,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::structure_offre::routes());
     // Socle 5, lot S3 : calendrier, semaines A/B, fermetures exceptionnelles (`structure_calendrier.rs`).
     let r = r.merge(crate::structure_calendrier::routes());
+    // Socle 5, lot S7 : périodisations et grille horaire versionnée (`structure_periodes.rs`).
+    let r = r.merge(crate::structure_periodes::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
