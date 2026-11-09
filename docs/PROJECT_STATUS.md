@@ -9,6 +9,7 @@ Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS
 | | Avant (run séquentiel 42569240935, lot 10) | Après (run 42599566263) |
 |---|---|---|
 | Job backend | **3 h 51** (05:47 → 09:38), un seul fil, une seule base | **39 min** (10:15 → 10:54), dont 5 min de compilation ; tranches de 8 à 25 min (run 42594621663, mesure complète) |
+| Run complet (tous les jobs) | ≈ 3 h 51 (le backend est le chemin critique) | **49 min 20 s** (10:15 → 11:04) : le chemin critique est désormais le job frontend (49 min, cache WebAssembly froid sur cette branche ; 29 min avec cache chaud dans le run 42569240935) |
 | Un échec relance | tout (3 h 51) | une tranche (relance des jobs en échec) |
 
 Les tranches durent de 8 à 25 min parce que le coût d'un test `ent-db` varie (≈ 15 à 40 s, chacun rejoue les migrations) et que la partition par rang ne connaît pas ces coûts ; la limite de 20 jobs simultanés de GitHub met aussi la dernière tranche en file. Pistes si besoin : plus de tranches (plafonné par cette limite) ou partition pondérée par les durées de ce tableau.
