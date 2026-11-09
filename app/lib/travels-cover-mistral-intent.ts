@@ -5,6 +5,8 @@ import { isSchoolSafeCoverText } from "@/app/lib/travels-image-catalog-helpers";
 export type TravelCoverMistralIntent = {
   /** Requêtes image ordonnées (sens métier, adaptées école). */
   queries: string[];
+  /** Sous-ensemble de `queries` qui nomme un lieu précis (cherché d'abord sur Wikipedia). */
+  placeQueries: string[];
   subject: "place" | "activity" | "both";
   /** Court résumé pour les logs. */
   rationale?: string;
@@ -82,10 +84,14 @@ export async function proposeTravelCoverSearchQueries(opts: {
               `« quadcopter hobby », « Houlgate plage » (PAS « concours », PAS drone militaire).\n` +
               `- « Surf » à Lacanau → « surf océan », « Lacanau plage ».\n` +
               `- « Visite château » à Chambord → « Château de Chambord ».\n\n` +
-              `Propose 3 à 5 requêtes courtes (2 à 6 mots), FR ou EN selon ce qui marche mieux sur Wikimedia/Unsplash.\n` +
-              `Ordre : du plus pertinent au plus large.\n` +
+              `Sépare deux listes :\n` +
+              `- place_queries : le NOM EXACT du lieu réel, tel qu'il s'écrit sur Wikipedia ` +
+              `(« Tour Eiffel », « Château de Chambord », « Mont-Saint-Michel », « Lacanau »). ` +
+              `Pas de mots en plus (« visite », « élèves », « sortie »). Liste vide si aucun lieu précis.\n` +
+              `- activity_queries : 2 à 6 mots qui décrivent l'activité en photo (« surf océan », « ski enfants piste »).\n` +
+              `En tout 3 à 5 requêtes, de la plus précise à la plus large.\n` +
               `Réponds UNIQUEMENT en JSON valide :\n` +
-              `{"subject":"place"|"activity"|"both","queries":["...","..."],"rationale":"une phrase"}`,
+              `{"subject":"place"|"activity"|"both","place_queries":["..."],"activity_queries":["..."],"rationale":"une phrase"}`,
           },
           {
             role: "user",
@@ -113,18 +119,31 @@ export async function proposeTravelCoverSearchQueries(opts: {
       return null;
     }
 
-    const queriesRaw = Array.isArray(parsed.queries) ? parsed.queries : [];
-    const queries = queriesRaw
-      .map(sanitizeQuery)
-      .filter((q): q is string => Boolean(q))
+    const clean = (list: unknown): string[] =>
+      (Array.isArray(list) ? list : [])
+        .map(sanitizeQuery)
+        .filter((q): q is string => Boolean(q));
+
+    const subjectRaw = String(parsed.subject || "both").toLowerCase();
+    const subject: TravelCoverMistralIntent["subject"] =
+      subjectRaw === "place" || subjectRaw === "activity" ? subjectRaw : "both";
+
+    const placeList = clean(parsed.place_queries);
+    const activityList = clean(parsed.activity_queries);
+    // Ancien format (une seule liste) toléré.
+    const legacyList = clean(parsed.queries);
+    const ordered =
+      subject === "activity"
+        ? [...activityList, ...placeList, ...legacyList]
+        : [...placeList, ...activityList, ...legacyList];
+    const queries = ordered
       .filter((q, i, arr) => arr.findIndex((x) => x.toLowerCase() === q.toLowerCase()) === i)
       .slice(0, 6);
 
     if (queries.length === 0) return null;
 
-    const subjectRaw = String(parsed.subject || "both").toLowerCase();
-    const subject: TravelCoverMistralIntent["subject"] =
-      subjectRaw === "place" || subjectRaw === "activity" ? subjectRaw : "both";
+    const placeSet = new Set(placeList.map((q) => q.toLowerCase()));
+    const placeQueries = queries.filter((q) => placeSet.has(q.toLowerCase()));
 
     const rationale = String(parsed.rationale || "")
       .trim()
@@ -135,10 +154,11 @@ export async function proposeTravelCoverSearchQueries(opts: {
       destination,
       subject,
       queries,
+      placeQueries,
       rationale,
     });
 
-    return { queries, subject, rationale: rationale || undefined };
+    return { queries, placeQueries, subject, rationale: rationale || undefined };
   } catch (err) {
     console.error("[travels-cover-mistral] failed", err);
     return null;

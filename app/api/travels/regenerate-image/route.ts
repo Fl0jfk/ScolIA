@@ -48,7 +48,7 @@ export async function POST(req: Request) {
       return NextResponse.json(
         {
           error:
-            "Image trouvée mais impossible de l’héberger sur le CDN public (S3). Réessayez ou contactez un admin technique.",
+            "Aucune autre photo adaptée trouvée pour ce séjour. Précisez le lieu (ex. « Château de Chambord ») puis réessayez.",
         },
         { status: 422 },
       );

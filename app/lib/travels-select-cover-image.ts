@@ -156,6 +156,18 @@ export async function selectTravelCoverImage(opts: {
     ? await proposeTravelCoverSearchQueries({ title, destination })
     : null;
 
+  // « Régénérer » : l'image actuelle est une copie sur notre CDN, son URL ne correspond
+  // jamais au résultat web. On exclut donc aussi sa page d'origine (Wikipedia, Unsplash…).
+  const previous = catalog.find(
+    (img) =>
+      (opts.excludeImageUrl &&
+        normalizePublicImageUrl(img.url) === normalizePublicImageUrl(opts.excludeImageUrl)) ||
+      (excludeId && normalizeId(img.id) === normalizeId(excludeId)),
+  );
+  const excludeSourcePageUrls = [previous?.sourcePageUrl, previous?.attributionUrl].filter(
+    (u): u is string => Boolean(u),
+  );
+
   const tryWebEnrichment = async (
     preferredQueries?: string[],
   ): Promise<TravelCatalogImage | null> => {
@@ -165,7 +177,9 @@ export async function selectTravelCoverImage(opts: {
         title,
         destination,
         preferredQueries,
+        preferredPlaceQueries: intent?.placeQueries,
         excludeImageUrls: opts.excludeImageUrl ? [opts.excludeImageUrl] : [],
+        excludeSourcePageUrls,
       });
       if (!enriched?.url) return null;
       if (
