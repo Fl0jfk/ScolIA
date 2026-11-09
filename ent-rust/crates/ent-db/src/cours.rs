@@ -1,8 +1,11 @@
-//! L'objet unique « cours » du socle 5 (lot S1) et sa règle de visibilité unique.
+//! Public d'un cours et membres individuels (socle 5, lots S1 et S4).
 //!
-//! Un **cours** = une ligne de `ent_service_enseignement` (public = classe entière OU groupe,
-//! matière, professeur ; D-022 bis, Q-S20). Son **public à la date d** est calculé par **une
-//! seule** fonction SQL, `ent_public_cours_jour` (migration 331) :
+//! Depuis le lot S4 (migration 341) un **cours** est un objet à part, `ent_cours` : ce qui est
+//! enseigné (matière) à qui (classe entière OU groupe), pour une année. Le **service**
+//! (`ent_service_enseignement`, qui l'enseigne) pointe vers lui par `cours_id` ; un cours sans
+//! service est un poste vacant. Les identifiants que l'API acceptait au lot S1 (ceux des lignes de
+//! service) restent acceptés : [`resoudre_cours`] les ramène au cours. Son **public à la date d**
+//! est calculé par **une seule** fonction SQL, `ent_public_cours_jour` :
 //! `public = (classe ou groupe à d) ∪ inclusions actives − exclusions actives`, hors élèves
 //! sortis. `perimetre.rs`, `eleves_autorises` et la liste « mes enseignements » s'y appuient :
 //! aucune autre jointure service ↔ affectation ne doit exister ailleurs.
@@ -22,8 +25,34 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use sqlx::PgConnection;
+
 use crate::ref_commun::{db, introuvable, invalide, publier_ref, Acteur};
 use crate::service::{EntDbError, PgEnt};
+use crate::structure_etab::journaliser;
+
+/// Ramène un identifiant reçu de l'extérieur au cours : soit déjà un cours de l'établissement,
+/// soit une ligne de service (compatibilité du lot S1) → son cours. Inconnu, d'un autre
+/// établissement, ou service sans cours → introuvable (aucun oracle).
+pub(crate) async fn resoudre_cours(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<Uuid, EntDbError> {
+    let r: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM ent_cours WHERE etablissement_id = $1 AND id = $2
+         UNION ALL
+         SELECT cours_id FROM ent_service_enseignement
+          WHERE etablissement_id = $1 AND id = $2 AND cours_id IS NOT NULL
+         LIMIT 1",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)?;
+    r.ok_or_else(introuvable)
+}
 
 /// Nature d'un membre individuel.
 pub const NATURES_MEMBRE: [&str; 2] = ["inclusion", "exclusion"];
@@ -68,15 +97,20 @@ impl PgEnt {
         prof: Option<Uuid>,
         eleve: Option<Uuid>,
     ) -> Result<Vec<(Uuid, Uuid)>, EntDbError> {
-        sqlx::query_as("SELECT cours_id, eleve_id FROM ent_public_cours_jour($1, $2, $3, $4, $5)")
-            .bind(etab)
-            .bind(jour)
-            .bind(cours)
-            .bind(prof)
-            .bind(eleve)
-            .fetch_all(self.pool())
-            .await
-            .map_err(db)
+        // `cours` peut être un cours ou (compatibilité du lot S1) une ligne de service.
+        sqlx::query_as(
+            "SELECT cours_id, eleve_id FROM ent_public_cours_jour($1, $2,
+                COALESCE((SELECT s.cours_id FROM ent_service_enseignement s
+                           WHERE s.etablissement_id = $1 AND s.id = $3), $3), $4, $5)",
+        )
+        .bind(etab)
+        .bind(jour)
+        .bind(cours)
+        .bind(prof)
+        .bind(eleve)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db)
     }
 
     /// Public d'un cours **visible par l'acteur** : réservé à la gestion de la structure ou au
@@ -88,18 +122,22 @@ impl PgEnt {
         cours_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<Uuid>, EntDbError> {
-        let prof: Option<Uuid> = sqlx::query_scalar(
-            "SELECT prof_user_id FROM ent_service_enseignement WHERE etablissement_id = $1 AND id = $2",
+        let cours_id = {
+            let mut c = self.pool().acquire().await.map_err(db)?;
+            resoudre_cours(&mut c, a.etablissement_id, cours_id).await?
+        };
+        // Professeur du cours = titulaire d'un service sur ce cours (co-interventions comprises).
+        let est_prof: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_service_enseignement
+                             WHERE etablissement_id = $1 AND cours_id = $2 AND prof_user_id = $3)",
         )
         .bind(a.etablissement_id)
         .bind(cours_id)
-        .fetch_optional(self.pool())
+        .bind(a.user_id)
+        .fetch_one(self.pool())
         .await
         .map_err(db)?;
-        let Some(prof) = prof else {
-            return Err(introuvable());
-        };
-        if prof != a.user_id {
+        if !est_prof {
             self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         } else if !ent_auth::Role::parse(a.role).is_some_and(|r| r.is_staff()) {
             return Err(EntDbError::Forbidden);
@@ -128,6 +166,10 @@ impl PgEnt {
         cours_id: Uuid,
     ) -> Result<Vec<CoursMembre>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
+        let cours_id = {
+            let mut c = self.pool().acquire().await.map_err(db)?;
+            resoudre_cours(&mut c, a.etablissement_id, cours_id).await?
+        };
         sqlx::query_as(&format!(
             "SELECT {COLONNES_MEMBRE} FROM ent_cours_membre
               WHERE etablissement_id = $1 AND cours_id = $2 ORDER BY du, created_at"
@@ -160,6 +202,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
+        let cours_id = resoudre_cours(&mut tx, a.etablissement_id, cours_id).await?;
         let m: CoursMembre = sqlx::query_as(&format!(
             "INSERT INTO ent_cours_membre
                 (id, etablissement_id, cours_id, eleve_id, nature, motif_code, du, au, cree_par)
@@ -178,6 +221,20 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        // Journal : qui, quoi, quand, sans le motif (donnée sensible : il reste dans la ligne).
+        journaliser(
+            &mut tx,
+            a,
+            "cours_membre",
+            &m.id.to_string(),
+            "cree",
+            None,
+            Some(
+                json!({ "cours_id": m.cours_id, "eleve_id": m.eleve_id, "nature": m.nature,
+                         "du": m.du, "au": m.au }),
+            ),
+        )
+        .await?;
         // Ni motif ni identité dans l'événement : données sensibles (D-027).
         let ev = publier_ref(
             &mut tx,
@@ -214,6 +271,16 @@ impl PgEnt {
         let Some(cours) = cours else {
             return Err(introuvable());
         };
+        journaliser(
+            &mut tx,
+            a,
+            "cours_membre",
+            &membre_id.to_string(),
+            "annule",
+            None,
+            Some(json!({ "cours_id": cours })),
+        )
+        .await?;
         let ev = publier_ref(
             &mut tx,
             a,

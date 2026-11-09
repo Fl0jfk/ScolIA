@@ -362,10 +362,12 @@ BEGIN
 END $$;
 
 -- ───────────────────────── Journal de structure : nouveaux objets ─────────────────────────
--- Le journal (332) est en liste fermée : on y ajoute les objets du lot S5.
+-- Le journal (332) est en liste fermée : on y ajoute les objets du lot S5. NOT VALID : les
+-- migrations sont rejouées à chaque démarrage et un lot suivant (341…) y ajoute ses objets ; sans
+-- cela, la liste étroite de ce lot serait contrôlée contre des lignes déjà écrites par ce lot suivant.
 ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
 ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
      'indisponibilite', 'import_salles', 'prereglage',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
-     'enseignements_suivis', 'enseignement_suivi'));
+     'enseignements_suivis', 'enseignement_suivi')) NOT VALID;
