@@ -336,3 +336,8 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Démarches à anticiper** (hors code) : inscription éditeur (Pléiade) pour les spécifications SIECLE, ONDE, LSU, LSL ; raccordement ÉduConnect ; pour le GAR, demande portée par une collectivité ou une académie via la DANé (Q-X45 pour le privé isolé).
 - Le privé sous contrat reste la cible du premier pilote (établissement de Florian) ; l'arrêté ne s'impose pas à lui mais les mêmes briques serviront.
 
+## D-030 — ScolIA construit lui-même l'emploi du temps, avec l'IA (Florian, 2026-11-09)
+- ScolIA gère **son propre** emploi du temps, sans logiciel d'EDT externe : saisie à la main, **génération automatique**, modifications en cours d'année (remplacements, salles, sorties, fermetures).
+- **Aide à la création par l'IA** : l'objectif est le plus intelligent et le plus automatisé possible. Prise en compte des **vœux et contraintes des enseignants**, des **choix des élèves** (options, groupes, enseignements suivis du socle 5), des salles, de la grille, du calendrier ; propositions expliquées, scénarios comparés, la personne valide (l'IA n'a jamais plus de droits que l'utilisateur, CLAUDE.md).
+- L'import des logiciels d'EDT du marché (EDT, UnDeuxTEMPS, aSc) et l'export Charlemagne ne servent qu'à la reprise et aux futurs clients ; ils passent **après** les lots de saisie, de génération et d'IA (socle 10, `10_EMPLOI_DU_TEMPS.md`).
+
