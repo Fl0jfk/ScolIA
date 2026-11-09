@@ -6,6 +6,8 @@ import {
   STAGE_CANCEL_CONFIRM_WORD,
   STAGE_CONVENTION_STATUS_LABELS,
   STAGE_OFFER_KIND_LABELS,
+  STAGE_REFUSAL_DUPLICATE_REASON,
+  STAGE_REFUSAL_REASON_MAX,
   formatCompanyAddress,
   isOfflinePaperConvention,
   stageCompanyRhDisplayName,
@@ -64,6 +66,7 @@ export default function StageConventionDetail({
   onAdminEditing,
   onConventionChange,
   onAdminReview,
+  onAdminRefuse,
   onAdminSave,
   onResendSignatures,
   onResendSignature,
@@ -92,6 +95,8 @@ export default function StageConventionDetail({
   onAdminEditing: (v: boolean) => void;
   onConventionChange: (next: StageConvention) => void;
   onAdminReview: (approved: boolean) => void;
+  /** Refus définitif avec motif (doublon…) : le dossier est clos. */
+  onAdminRefuse?: (reason: string) => void;
   onAdminSave: () => void;
   onResendSignatures: () => void;
   onResendSignature: (signatureId: string) => void;
@@ -611,13 +616,23 @@ export default function StageConventionDetail({
             />
           )}
           <label className="block text-xs max-w-xl">
-            Motif (si renvoi)
+            Motif (demande de modification : facultatif · refus : obligatoire)
             <textarea
               className="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm min-h-[64px]"
               value={adminReviewNote}
+              maxLength={STAGE_REFUSAL_REASON_MAX}
               onChange={(e) => onAdminReviewNote(e.target.value)}
             />
           </label>
+          {onAdminRefuse ? (
+            <button
+              type="button"
+              onClick={() => onAdminReviewNote(STAGE_REFUSAL_DUPLICATE_REASON)}
+              className="rounded-full border border-rose-300 bg-white px-3 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-50"
+            >
+              Motif : doublon — ce stage existe déjà
+            </button>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -630,9 +645,33 @@ export default function StageConventionDetail({
               type="button"
               onClick={() => onAdminReview(false)}
               className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
+              title="Renvoie le dossier à la famille pour qu'elle le corrige"
             >
-              Renvoyer pour correction
+              Demander une modification
             </button>
+            {onAdminRefuse ? (
+              <button
+                type="button"
+                disabled={busy || !adminReviewNote.trim()}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "Refuser définitivement cette demande ?\n\nLe dossier sera clos (rien à corriger) et la famille recevra le motif par e-mail.",
+                    )
+                  ) {
+                    onAdminRefuse(adminReviewNote);
+                  }
+                }}
+                className="rounded-lg bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                title={
+                  adminReviewNote.trim()
+                    ? "Refus définitif : le dossier est clos"
+                    : "Indiquez d'abord un motif"
+                }
+              >
+                Refuser définitivement
+              </button>
+            ) : null}
           </div>
         </div>
       )}

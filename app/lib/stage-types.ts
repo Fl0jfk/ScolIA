@@ -355,6 +355,8 @@ export type StageConvention = {
     byName: string;
     approved: boolean;
     note?: string;
+    /** Refus définitif (doublon, stage non recevable…) : dossier clos, rien à corriger. */
+    refused?: boolean;
   };
   signatures: StageSignature[];
   createdAt: string;
@@ -471,7 +473,7 @@ export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, strin
   draft: "Brouillon préconvention",
   preconvention_submitted: "Préconvention déposée",
   admin_review: "En validation administrative",
-  admin_rejected: "À corriger (administratif)",
+  admin_rejected: "Modification demandée",
   convention_deposited: "Convention déposée (PDF)",
   convention_ready: "Convention prête",
   signatures_pending: "Signatures en cours",
@@ -482,6 +484,13 @@ export const STAGE_CONVENTION_STATUS_LABELS: Record<StageConventionStatus, strin
 
 /** Confirmation obligatoire pour supprimer un stage (admin). */
 export const STAGE_CANCEL_CONFIRM_WORD = "supprimer";
+
+/** Motif prérempli pour refuser un stage déposé deux fois. */
+export const STAGE_REFUSAL_DUPLICATE_REASON =
+  "Doublon : ce stage a déjà été déposé (même entreprise, mêmes dates). La demande d'origine continue d'être traitée normalement.";
+
+/** Longueur maximale d'un motif de refus. */
+export const STAGE_REFUSAL_REASON_MAX = 1000;
 
 /** Message affiché sur les liens publics après annulation. */
 export const STAGE_CANCELLED_PUBLIC_MESSAGE =

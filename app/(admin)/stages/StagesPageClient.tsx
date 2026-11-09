@@ -340,8 +340,8 @@ function StagesContent() {
             ? "Dépôt validé — e-mails de signature envoyés à l'élève, l'entreprise, le prof référent et la direction."
             : "Convention validée — e-mails de signature envoyés aux signataires (si SMTP configuré)."
           : detail.convention.status === "convention_deposited"
-            ? "Dépôt refusé."
-            : "Renvoyé pour correction — e-mails envoyés aux responsables légaux si possible.",
+            ? "Modification demandée — la famille doit déposer un document corrigé."
+            : "Modification demandée — e-mails envoyés aux responsables légaux si possible.",
       );
       await load();
     } catch (e: unknown) {
@@ -352,7 +352,7 @@ function StagesContent() {
   }
 
   /** Valider / refuser depuis le tableau de bord sans ouvrir le suivi classe. */
-  async function boardQuickReview(card: StagesHubBoardCard, approved: boolean) {
+  async function boardQuickReview(card: StagesHubBoardCard, approved: boolean, note?: string) {
     const kind = resolveBoardQuickReviewKind(card);
     const student =
       card.studentName ||
@@ -426,7 +426,7 @@ function StagesContent() {
       const res = await fetch(`/api/stages/conventions/${card.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, approved }),
+        body: JSON.stringify({ action, approved, note: note?.trim() || undefined }),
       });
       const data = (await res.json()) as { error?: string; message?: string };
       if (!res.ok) throw new Error(data?.error || "Erreur");
@@ -451,8 +451,8 @@ function StagesContent() {
               ? "Dépôt validé — e-mails de signature envoyés."
               : "Convention validée — signatures lancées."
             : card.status === "convention_deposited"
-              ? "Dépôt refusé."
-              : "Renvoyé pour correction.",
+              ? "Modification demandée — la famille doit déposer un document corrigé."
+              : "Modification demandée — le dossier est renvoyé à la famille.",
         );
       }
       setClasseRefreshToken((n) => n + 1);
@@ -461,6 +461,35 @@ function StagesContent() {
       setError(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBoardQuickReviewBusyId(null);
+    }
+  }
+
+  /** Refus définitif avec motif (doublon…) : le dossier est clos, la famille est prévenue. */
+  async function refuseStage(conventionId: string, reason: string, fromDetail: boolean) {
+    if (!reason.trim()) return;
+    if (fromDetail) setBusy(true);
+    else setBoardQuickReviewBusyId(conventionId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${conventionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "admin_refuse", reason: reason.trim() }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(data?.error || "Erreur");
+      if (fromDetail) {
+        closeDetail();
+        setAdminReviewNote("");
+      }
+      setMsg("Demande refusée — dossier clos, motif envoyé à la famille par e-mail.");
+      setClasseRefreshToken((n) => n + 1);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      if (fromDetail) setBusy(false);
+      else setBoardQuickReviewBusyId(null);
     }
   }
 
@@ -1115,6 +1144,7 @@ function StagesContent() {
                 onAdminEditing={setAdminEditing}
                 onConventionChange={(next) => setDetail({ ...detail, convention: next })}
                 onAdminReview={(approved) => void adminReview(approved)}
+                onAdminRefuse={(reason) => void refuseStage(detail.convention.id, reason, true)}
                 onAdminSave={() => void adminSavePreconvention()}
                 onResendSignatures={() => void resendSignatures()}
                 onResendSignature={(id) => void resendSignature(id)}
@@ -1149,7 +1179,8 @@ function StagesContent() {
           permissions={permissions}
           onLoadDetail={(id) => void loadDetail(id)}
           onOpenSignaturesPanel={(card) => void openSignaturesPanel(card)}
-          onQuickReview={(card, approved) => void boardQuickReview(card, approved)}
+          onQuickReview={(card, approved, note) => void boardQuickReview(card, approved, note)}
+          onQuickRefuse={(card, reason) => void refuseStage(card.id, reason, false)}
           quickReviewBusyId={boardQuickReviewBusyId}
           onCreateOffline={
             permissions?.canReviewPreconvention

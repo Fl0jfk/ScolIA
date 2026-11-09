@@ -1,7 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { STAGE_CONVENTION_STATUS_LABELS } from "@/app/lib/stage-types";
+import {
+  STAGE_CONVENTION_STATUS_LABELS,
+  STAGE_REFUSAL_DUPLICATE_REASON,
+  STAGE_REFUSAL_REASON_MAX,
+} from "@/app/lib/stage-types";
 import type {
   StagesHubBoard,
   StagesHubBoardCard,
@@ -203,6 +207,78 @@ function BoardAvatar({ name, photoUrl }: { name: string; photoUrl?: string | nul
   );
 }
 
+/** Volet sous une ligne : motif d'une demande de modification ou d'un refus définitif. */
+function QuickDecisionPanel({
+  mode,
+  note,
+  busy,
+  onNote,
+  onCancel,
+  onConfirm,
+}: {
+  mode: "modify" | "refuse";
+  note: string;
+  busy: boolean;
+  onNote: (v: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const refuse = mode === "refuse";
+  const missing = refuse && !note.trim();
+  return (
+    <div
+      className={`basis-full rounded-xl border p-3 ${
+        refuse ? "border-rose-200 bg-rose-50/70" : "border-amber-200 bg-amber-50/70"
+      }`}
+    >
+      <p className={`text-xs font-bold ${refuse ? "text-rose-900" : "text-amber-900"}`}>
+        {refuse
+          ? "Refus définitif — le dossier sera clos et la famille recevra le motif par e-mail."
+          : "Demande de modification — le dossier repart à la famille pour correction."}
+      </p>
+      {refuse ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onNote(STAGE_REFUSAL_DUPLICATE_REASON)}
+            className="rounded-full border border-rose-300 bg-white px-3 py-1 text-[11px] font-bold text-rose-800 hover:bg-rose-100"
+          >
+            Doublon — ce stage existe déjà
+          </button>
+        </div>
+      ) : null}
+      <label className="mt-2 block text-[11px] font-medium text-stone-700">
+        {refuse ? "Motif (obligatoire)" : "Ce qu'il faut modifier (facultatif)"}
+        <textarea
+          className="mt-1 w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm min-h-[56px]"
+          value={note}
+          maxLength={STAGE_REFUSAL_REASON_MAX}
+          onChange={(e) => onNote(e.target.value)}
+        />
+      </label>
+      <div className="mt-2 flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700"
+        >
+          Annuler
+        </button>
+        <button
+          type="button"
+          disabled={busy || missing}
+          onClick={onConfirm}
+          className={`rounded-lg px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50 ${
+            refuse ? "bg-rose-700 hover:bg-rose-800" : "bg-amber-600 hover:bg-amber-700"
+          }`}
+        >
+          {refuse ? "Refuser définitivement" : "Envoyer la demande de modification"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SecteurDivider({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 py-2 first:pt-0">
@@ -226,6 +302,7 @@ function BoardList({
   canQuickReview,
   quickReviewBusyId,
   onQuickReview,
+  onQuickRefuse,
 }: {
   title: string;
   empty: string;
@@ -238,8 +315,16 @@ function BoardList({
   layout?: "list" | "grid";
   canQuickReview?: boolean;
   quickReviewBusyId?: string | null;
-  onQuickReview?: (card: StagesHubBoardCard, approved: boolean) => void;
+  onQuickReview?: (card: StagesHubBoardCard, approved: boolean, note?: string) => void;
+  onQuickRefuse?: (card: StagesHubBoardCard, reason: string) => void;
 }) {
+  /** Ligne dont le volet « demande de modification » ou « refus » est ouvert. */
+  const [decision, setDecision] = useState<{ id: string; mode: "modify" | "refuse" } | null>(null);
+  const [decisionNote, setDecisionNote] = useState("");
+  const openDecision = (id: string, mode: "modify" | "refuse") => {
+    setDecision({ id, mode });
+    setDecisionNote("");
+  };
   const shell =
     tone === "amber"
       ? "border-amber-200 bg-amber-50/50"
@@ -379,16 +464,60 @@ function BoardList({
                             >
                               {busy ? "…" : outside ? `${approveLabel} (hors période)` : approveLabel}
                             </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => onQuickReview(c, false)}
-                              className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
-                            >
-                              Refuser
-                            </button>
+                            {reviewKind === "deposit" ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => openDecision(c.id, "modify")}
+                                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                                  title="Renvoie le dossier à la famille pour qu'elle le corrige"
+                                >
+                                  Demander une modification
+                                </button>
+                                {onQuickRefuse ? (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => openDecision(c.id, "refuse")}
+                                    className="rounded-lg border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+                                    title="Refus définitif avec motif (ex. doublon) : le dossier est clos"
+                                  >
+                                    Refuser
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => onQuickReview(c, false)}
+                                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-bold text-amber-900 hover:bg-amber-50 disabled:opacity-50"
+                              >
+                                Refuser
+                              </button>
+                            )}
                           </div>
                         </div>
+                      ) : null}
+                      {decision?.id === c.id && onQuickReview ? (
+                        <QuickDecisionPanel
+                          mode={decision.mode}
+                          note={decisionNote}
+                          busy={busy}
+                          onNote={setDecisionNote}
+                          onCancel={() => setDecision(null)}
+                          onConfirm={() => {
+                            const note = decisionNote.trim();
+                            if (decision.mode === "refuse") {
+                              if (!note || !onQuickRefuse) return;
+                              onQuickRefuse(c, note);
+                            } else {
+                              onQuickReview(c, false, note || undefined);
+                            }
+                            setDecision(null);
+                          }}
+                        />
                       ) : null}
                     </li>
                   );
@@ -408,6 +537,7 @@ export default function StagesBoardPanel({
   onLoadDetail,
   onOpenSignaturesPanel,
   onQuickReview,
+  onQuickRefuse,
   quickReviewBusyId,
   onCreateOffline,
   onCreatePlatform,
@@ -419,8 +549,10 @@ export default function StagesBoardPanel({
   onLoadDetail: (id: string) => void;
   /** Clic sur une ligne « Signatures en cours » — volet léger (pas le suivi classe). */
   onOpenSignaturesPanel?: (card: StagesHubBoardCard) => void;
-  /** Validation / refus depuis la file dépôts, sans ouvrir le suivi classe. */
-  onQuickReview?: (card: StagesHubBoardCard, approved: boolean) => void;
+  /** Validation / demande de modification depuis la file dépôts, sans ouvrir le suivi classe. */
+  onQuickReview?: (card: StagesHubBoardCard, approved: boolean, note?: string) => void;
+  /** Refus définitif avec motif (doublon…) : le dossier est clos. */
+  onQuickRefuse?: (card: StagesHubBoardCard, reason: string) => void;
   quickReviewBusyId?: string | null;
   onCreateOffline?: () => void;
   onCreatePlatform?: () => void;
@@ -649,6 +781,7 @@ export default function StagesBoardPanel({
             canQuickReview={canQuickReview}
             quickReviewBusyId={quickReviewBusyId}
             onQuickReview={onQuickReview}
+            onQuickRefuse={onQuickRefuse}
             statusOverride={(c) =>
               c.scheduleChangePending
                 ? "Avenant à valider"

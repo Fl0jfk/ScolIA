@@ -7,6 +7,7 @@ import {
   canRequestTutorEmailChange,
   isStageConventionCancelled,
   STAGE_CANCELLED_PUBLIC_MESSAGE,
+  stageCancelledPublicMessage,
 } from "@/app/lib/stage-workflow";
 import { saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent } from "@/app/lib/stage-referents-config";
@@ -61,11 +62,13 @@ export async function GET(req: Request) {
     const convention = await resolveConventionByStudentToken(token);
     if (!convention) return NextResponse.json({ error: "Lien invalide." }, { status: 404 });
     if (isStageConventionCancelled(convention)) {
+      // Lien famille : le motif d'un refus définitif est affiché (déjà envoyé par e-mail).
+      const message = stageCancelledPublicMessage(convention);
       return NextResponse.json(
         {
           cancelled: true,
-          error: STAGE_CANCELLED_PUBLIC_MESSAGE,
-          message: STAGE_CANCELLED_PUBLIC_MESSAGE,
+          error: message,
+          message,
         },
         { status: 410 },
       );

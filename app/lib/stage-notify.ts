@@ -273,6 +273,57 @@ export async function notifyStageDepositAdminRejected(convention: StageConventio
   return { sent: true, recipients };
 }
 
+/** Refus définitif d'un dépôt (doublon, non recevable…) : rien à corriger, motif communiqué. */
+export async function notifyStageAdminRefused(convention: StageConvention, reason: string) {
+  const m = await mailer();
+  if (!m) return { sent: false, reason: "smtp" as const };
+
+  // Famille uniquement (fiche élève comprise pour les dépôts PDF) : l'entreprise n'est pas prévenue.
+  const companyEmails = new Set(
+    uniqueContactEmails(convention.company?.tutorEmail, convention.company?.rhEmail),
+  );
+  const depositRecipients = (
+    await resolveDepositFinalRecipients(convention).catch(() => [] as string[])
+  ).filter((e) => !companyEmails.has(e.trim().toLowerCase()));
+  const recipients = uniqueContactEmails(
+    convention.student.email,
+    convention.parentSignerEmail,
+    convention.parent2SignerEmail,
+    convention.student.parent1Email,
+    convention.student.parent2Email,
+    convention.student.parentEmail,
+    ...depositRecipients,
+  );
+  if (!recipients.length) return { sent: false, reason: "no_recipients" as const };
+
+  const bundle = await loadAppConfig();
+  const school = bundle.identity.shortName || bundle.identity.name;
+  const company = convention.company?.name?.trim();
+
+  const text = [
+    "Bonjour,",
+    "",
+    `La demande de stage de ${studentLabel(convention)}${company ? ` (${company})` : ""} a été refusée par l'établissement.`,
+    `Motif : ${reason}`,
+    "",
+    "Cette demande est close : vous n'avez rien à corriger ni à renvoyer pour celle-ci.",
+    "En cas de question, contactez le secrétariat de l'établissement.",
+    "",
+    "Cordialement,",
+    school,
+  ].join("\n");
+
+  for (const to of recipients) {
+    await m.transporter.sendMail({
+      from: `"Stages ${school}" <${m.smtp.user}>`,
+      to,
+      subject: `[Stages] Demande de stage refusée — ${studentLabel(convention)}`,
+      text,
+    });
+  }
+  return { sent: true, recipients };
+}
+
 export async function notifyStageAdminRejected(convention: StageConvention, note?: string) {
   const m = await mailer();
   if (!m) return { sent: false, reason: "smtp" as const };
@@ -294,7 +345,7 @@ export async function notifyStageAdminRejected(convention: StageConvention, note
   const text = [
     "Bonjour,",
     "",
-    `La préconvention de stage de ${studentLabel(convention)} doit être corrigée.`,
+    `Une modification est demandée sur la préconvention de stage de ${studentLabel(convention)}.`,
     note ? `Motif : ${note}` : null,
     link ? `Lien pour modifier : ${link}` : null,
     "",
@@ -308,7 +359,7 @@ export async function notifyStageAdminRejected(convention: StageConvention, note
     await m.transporter.sendMail({
       from: `"Stages ${school}" <${m.smtp.user}>`,
       to,
-      subject: `[Stages] Préconvention à corriger — ${studentLabel(convention)}`,
+      subject: `[Stages] Modification demandée — ${studentLabel(convention)}`,
       text,
     });
   }

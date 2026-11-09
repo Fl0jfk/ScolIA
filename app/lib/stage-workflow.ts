@@ -31,6 +31,7 @@ import {
   STAGE_SIGNER_ROLE_LABELS,
   STAGE_CANCEL_CONFIRM_WORD,
   STAGE_CANCELLED_PUBLIC_MESSAGE,
+  STAGE_REFUSAL_REASON_MAX,
   canStageSignerUsePaperUpload,
   conventionAllSignaturesValidated,
   currentStageSchoolYear,
@@ -55,6 +56,7 @@ import {
   notifyAllStageSignatureRequests,
   notifyParentEmailVerification,
   notifyParentTutorEmailFailed,
+  notifyStageAdminRefused,
   notifyStageAdminRejected,
   notifyStageAmendmentProposed,
   notifyStageDiscussionMessage,
@@ -2895,9 +2897,98 @@ export async function cancelStageConvention(params: {
   }
 
   const now = new Date().toISOString();
-  // Les jetons restent consultables pour afficher « stage annulé » sur les anciens liens,
-  // mais les signatures sont neutralisées (plus de signToken côté convention).
-  const signatures = convention.signatures.map((sig) => ({
+  let next: StageConvention = {
+    ...convention,
+    status: "cancelled",
+    signatures: neutralizeSignaturesForCancel(convention.signatures),
+    scheduleChangeRequest: undefined,
+    tutorEmailChangeRequest: undefined,
+    updatedAt: now,
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    "ANNULEE",
+    params.note?.trim() || "Stage supprimé par l'administratif — liens de signature invalidés.",
+  );
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
+}
+
+/** Statuts d'un dépôt encore en attente de décision de l'administration. */
+const STAGE_REFUSABLE_STATUSES: StageConvention["status"][] = [
+  "preconvention_submitted",
+  "admin_review",
+  "admin_rejected",
+  "convention_deposited",
+];
+
+/**
+ * Refus définitif d'un dépôt (doublon, stage non recevable…) avec motif obligatoire.
+ * Contrairement à « Demander une modification », le dossier est clos : rien n'est
+ * renvoyé à corriger, les liens sont invalidés et la famille reçoit le motif.
+ */
+export async function refuseStageConvention(params: {
+  conventionId: string;
+  by: string;
+  byName: string;
+  reason: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const reason = params.reason.trim();
+  if (!reason) return { ok: false, error: "Le motif du refus est obligatoire." };
+  if (reason.length > STAGE_REFUSAL_REASON_MAX) {
+    return { ok: false, error: `Motif trop long (${STAGE_REFUSAL_REASON_MAX} caractères maximum).` };
+  }
+
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (!STAGE_REFUSABLE_STATUSES.includes(convention.status)) {
+    return {
+      ok: false,
+      error:
+        "Seul un dépôt en attente de validation peut être refusé. Pour un stage déjà lancé, utilisez « Supprimer le stage ».",
+    };
+  }
+
+  const now = new Date().toISOString();
+  let next: StageConvention = {
+    ...convention,
+    status: "cancelled",
+    signatures: neutralizeSignaturesForCancel(convention.signatures),
+    scheduleChangeRequest: undefined,
+    tutorEmailChangeRequest: undefined,
+    updatedAt: now,
+    adminReview: {
+      at: now,
+      by: params.by,
+      byName: params.byName,
+      approved: false,
+      note: reason,
+      refused: true,
+    },
+  };
+  next = pushHistory(next, params.byName, "ADMIN_REFUS", reason);
+  await saveStageConvention(next);
+  void notifyStageAdminRefused(next, reason).catch((e) =>
+    console.error("[stages] notify refus:", e),
+  );
+  return { ok: true, convention: next };
+}
+
+/** Message des anciens liens publics : motif du refus s'il y en a un. */
+export function stageCancelledPublicMessage(convention: StageConvention): string {
+  if (convention.status === "cancelled" && convention.adminReview?.refused && convention.adminReview.note) {
+    return `Cette demande de stage a été refusée par l'établissement. Motif : ${convention.adminReview.note}`;
+  }
+  return STAGE_CANCELLED_PUBLIC_MESSAGE;
+}
+
+/**
+ * Les jetons restent consultables pour afficher « stage annulé » sur les anciens liens,
+ * mais les signatures sont neutralisées (plus de signToken côté convention).
+ */
+function neutralizeSignaturesForCancel(list: StageConvention["signatures"]): StageConvention["signatures"] {
+  return list.map((sig) => ({
     ...sig,
     status: "en_attente" as const,
     signedAt: undefined,
@@ -2916,23 +3007,6 @@ export async function cancelStageConvention(params: {
     signSecureCode: undefined,
     signSentAt: undefined,
   }));
-
-  let next: StageConvention = {
-    ...convention,
-    status: "cancelled",
-    signatures,
-    scheduleChangeRequest: undefined,
-    tutorEmailChangeRequest: undefined,
-    updatedAt: now,
-  };
-  next = pushHistory(
-    next,
-    params.byName,
-    "ANNULEE",
-    params.note?.trim() || "Stage supprimé par l'administratif — liens de signature invalidés.",
-  );
-  await saveStageConvention(next);
-  return { ok: true, convention: next };
 }
 
 export function normalizeConventionInput(raw: unknown, base?: StageConvention): StageConvention {

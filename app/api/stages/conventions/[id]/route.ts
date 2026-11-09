@@ -637,6 +637,21 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       });
     }
 
+    if (action === "admin_refuse") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const { refuseStageConvention } = await import("@/app/lib/stage-workflow");
+      const result = await refuseStageConvention({
+        conventionId: id,
+        by: gate.ctx.userId,
+        byName: displayName(user),
+        reason: String(body.reason ?? ""),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
+    }
+
     if (action === "cancel") {
       if (!canReviewPreconvention(roles)) {
         return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
