@@ -23,7 +23,26 @@ pub struct EntSession {
     pub assurance: ent_db::AssuranceSession,
     /// Complète, ou limitée à l'enrôlement d'une passkey (D-009).
     pub portee: ent_db::PorteeSession,
+    /// Casquette active (socle 6, P2) : `principale` ou `parent`. `role` est celui de la casquette.
+    pub casquette: String,
 }
+
+/// Routes ouvertes à une session « arrivée » (PRS-25) : l'agent prépare son arrivée avant la date
+/// de début de son engagement. Aucune donnée d'élève : savoir qui l'on est, ses passkeys, ses
+/// casquettes, son accueil, l'annuaire des collègues (jamais de téléphone) et ses propres choix.
+pub const ROUTES_ARRIVEE: &[&str] = &[
+    "/auth/me",
+    "/auth/logout",
+    "/auth/passkeys",
+    "/auth/passkey/register/start",
+    "/auth/passkey/register/finish",
+    "/auth/casquettes",
+    "/auth/casquette",
+    "/personnels/annuaire",
+];
+
+/// Préfixe des routes « mon espace » d'un agent (contact d'urgence, photo, pause, arrivée).
+pub const PREFIXE_ARRIVEE_MOI: &str = "/personnels/moi/";
 
 /// Routes ouvertes à une session « enrôlement seulement » (passkey obligatoire,
 /// pas encore enrôlée) : de quoi savoir qui l'on est, enrôler, se déconnecter.
@@ -37,6 +56,9 @@ pub const ROUTES_ENROLEMENT: &[&str] = &[
 
 /// Message stable (le client l'utilise pour afficher l'écran d'enrôlement).
 pub const ENROLEMENT_REQUIS: &str = "passkey_enrolement_requis";
+
+/// Message stable : l'engagement de l'agent n'a pas encore commencé (accès réduit).
+pub const ARRIVEE_PAS_COMMENCEE: &str = "arrivee_pas_commencee";
 
 impl EntSession {
     pub fn role_parsed(&self) -> Option<Role> {
@@ -256,6 +278,13 @@ impl FromRequestParts<AppState> for EntSession {
         {
             return Err((StatusCode::FORBIDDEN, ENROLEMENT_REQUIS.into()));
         }
+        // Socle 6 (P2, PRS-25) : avant la date d'arrivée, accès réduit à « préparer mon arrivée ».
+        if info.portee == ent_db::PorteeSession::Arrivee
+            && !ROUTES_ARRIVEE.contains(&parts.uri.path())
+            && !parts.uri.path().starts_with(PREFIXE_ARRIVEE_MOI)
+        {
+            return Err((StatusCode::FORBIDDEN, ARRIVEE_PAS_COMMENCEE.into()));
+        }
 
         Ok(Self {
             session_id: info.session_id,
@@ -267,6 +296,7 @@ impl FromRequestParts<AppState> for EntSession {
             client: info.client,
             assurance: info.assurance,
             portee: info.portee,
+            casquette: info.casquette,
         })
     }
 }

@@ -104,8 +104,10 @@ mod recuperation_repo;
 mod perimetre;
 pub mod acces;
 pub mod personnels;
+pub mod personnels_acces;
 mod personnels_fiche;
 pub use acces::{AccesEtat, EtatAcces};
+pub use personnels_acces::{CtxSession, ErreurAcceptation, InvitationEmise};
 pub use personnels::{
     agent_du_compte_tx, annuaire_tx, nom_pour_lecteur, AgentActif, FiltreAnnuaire, NiveauAnnuaire,
     ResultatCreationAgent,
@@ -333,6 +335,8 @@ mod tests_administratif_a0bis;
 mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
