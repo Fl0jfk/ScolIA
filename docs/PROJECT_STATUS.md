@@ -3,6 +3,29 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## CI GitHub du backend en parallèle (2026-11-09, branche `ent-ci-parallele`, base `ent-integration-lot10` ce82cae4)
+**Fait** : seul `.github/workflows/ent-rust.yml` (job `backend` remplacé, jobs formatage / audits / frontend inchangés) et la documentation sont modifiés ; aucun code, aucune dépendance, aucune base de production, aucun secret ; Next.js intact. **Mesuré** (runs 42588864473, 42594621663, 42599566263) :
+
+| | Avant (run séquentiel 42569240935, lot 10) | Après (run 42599566263) |
+|---|---|---|
+| Job backend | **3 h 51** (05:47 → 09:38), un seul fil, une seule base | **39 min** (10:15 → 10:54), dont 5 min de compilation ; tranches de 8 à 25 min (run 42594621663, mesure complète) |
+| Un échec relance | tout (3 h 51) | une tranche (relance des jobs en échec) |
+
+Les tranches durent de 8 à 25 min parce que le coût d'un test `ent-db` varie (≈ 15 à 40 s, chacun rejoue les migrations) et que la partition par rang ne connaît pas ces coûts ; la limite de 20 jobs simultanés de GitHub met aussi la dernière tranche en file. Pistes si besoin : plus de tranches (plafonné par cette limite) ou partition pondérée par les durées de ce tableau.
+
+**Aucun test ne disparaît** (vérifié par le job final, tableau par binaire dans le résumé du run) :
+- Avec labo : **1 137 tests listés, 1 137 exécutés, 0 manquant, 0 en double.** Avant, la même suite s'arrêtait à l'échec d'`ent-db` (lib) : 1 032 tests avaient tourné (domain-eleve 237, ent-api 108 + intégration fichiers_depot 7, fichiers_liens 9, recette_personas_1 14, _2 6, _2_dossier 1, _2_ouvertes 11, rf16 1, referentiel 4, separation 43, span_requete 1, tenant_hote 8, ent-auth 42, ent-bank 1, ent-brain 6, ent-db 533) ; les 105 autres (ent-db intégration 5, ent-events 2, ent-mail 3, ent-object 40, ent-obs 11, ent-oidc 24, ent-push 1, ent-sms 7, ent-types 12) **n'avaient jamais été atteints** depuis que cet échec existe. 1 032 + 105 = 1 137.
+- Sans labo (`-p ent-api -p ent-db`) : **193 listés, 193 exécutés, 193 verts** (identique à l'avant : 25 + 7 + 1 + 8 + 147 + 3 + 2) ; ce job dure ≈ 2 min 30 s (sans compilation, qui est faite une seule fois par `backend-archive`).
+- Inchangés : clippy avec et sans labo, `ent-types -D warnings`, compilation de production sans labo, séparation L4 (`backend-lint`, 5 min).
+
+**Deux tests rouges, identiques avant et après (donc pas dus à la parallélisation) — non corrigés ici car la consigne limitait la session au workflow et à la doc ; à traiter par l'intégrateur du lot 10** :
+1. `ent-db tests_administratif_a2::normalisation_e164_concorde_avec_sql` : pour `00 12 34 56 78`, `normaliser_telephone` (Rust) renvoie `None` (seuil de 9 chiffres ajouté à l'intégration du lot 10, voir ci-dessous) alors que la fonction SQL `ent_tel_e164` (migration 273) renvoie `+12345678`. Il faut aligner la SQL (nouvelle migration) ou revenir sur le seuil : **décision à faire valider** (le seuil est déjà signalé « à valider »).
+2. `ent-db tests_eleve_fusion::garde_du_registre_tables_eleve` : `ent_affectation_supprimee` et `ent_cours_membre` portent `eleve_id` sans être déclarées dans `TABLES_ELEVE` (`domain-eleve/src/fusion.rs`) ; choisir `Deplacer` ou `Reste` avec la raison (aussi rouge dans le run du lot 9).
+
+**Hors périmètre, constaté** : le job « Audits des dépendances » est devenu rouge à 10:16 (alors qu'il était vert à 09:36) : `cargo audit` signale RUSTSEC-2026-0459 (`libsqlite3-sys` 0.30.1, correctif ≥ 0.39.0, gravité moyenne, publié le 2026-10-30). À traiter dans `Cargo.lock` / les dépendances ; non touché.
+
+**Niveau** : workflow implémenté, testé en CI sur la branche `ent-ci-parallele` (jamais poussé sur `ENT`, `main`, `dev`) ; **non validé vert** à cause des deux tests et de l'avis ci-dessus.
+
 ## Intégration du lot 10 (2026-11-08, branche `ent-integration-lot10`, base `ent-integration-lot9` 9a5ca6fb)
 Fusions `--no-ff`, une à la fois : `ent-socle-administratif-a2` (socle 4, 273–276), `ent-socle-personnels-p1` (contient P0 ; socle 6, 350–353, 361), `ent-socle-structure-s2` (socle 5, 332, 337), `ent-demo-p1-ecrans` (écrans de la démo P1, `ent-web-server/tests/demo_p1.rs`, `docs/recette/DEMO_P1.md`). Aucune fonctionnalité ajoutée. `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute ; liste de `migrate.rs` en ordre croissant, aucun doublon).
 - **Conflits résolus** : A2 (docs seulement) ; P1 : `routes_src.rs` (inventaire de séparation : 15 → 16 sources), `actions.rs` (`TOUTES` = 102 + 6 = 108), `ent-types/lib.rs`, `tests_rls.rs` (+9 tables), `dossier_personnes.rs` (**fusion de personnes** : `fusionner_personnes_confirme` de RP2-04 (confirmation de la direction pour « ne pas solliciter ») conservée et appelle `fusionner_personnes_interne(.., confirmation_direction, agents_geres)` du socle 6 ; la fusion d'agents passe `confirmation_direction = false` : **à faire relire**) ; S2 : `migrate.rs` (332, 337 avant 350), `tests_rls.rs` (+7, total 22+17+6+2+15+2+5+6+9+7) ; démo : docs seulement.
