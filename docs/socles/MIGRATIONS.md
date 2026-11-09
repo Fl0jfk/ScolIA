@@ -136,3 +136,11 @@ Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, p
 Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
 
 Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune migration ajoutée ; `MIGRATION_TAG` = `375_msg_fil_prive` reste la plus haute, aucun numéro en double (vérifié).
+
+## Réservation du 2026-11-09 (conception du socle 21, rattrapage)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 5100–5199 | socle 21 évaluations et notes (conception : `21_EVALUATIONS.md` §23.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 5100–5107 attribuées (V0 correctifs urgents : RLS permissive, unicité des résultats, neutralisation de `absent_compte_zero`, libellés des mentions — touche aussi les tables actuelles du conseil, du bulletin et des compétences ; réglages et coefficients ; évaluations ; résultats et historique ; états de période et instantanés ; appréciations ; demandes et consultations ; reprise et vues de compatibilité), 5108–5189 réserve, 5190–5199 RLS stricte et retrait des anciennes tables (`ent_devoir`, `ent_note`, `ent_note_periode`, `ent_note_appreciation`, `ent_eva_regle`, `ent_eva_coef_matiere`) après la durée d'archive | `ent-socle-evaluations-conception` (conception seulement) | réservé |
+| 460–479 | socle 21, **repli** si Q-B2 n'est pas adoptée (460–467 dans le même ordre, 468–477 réserve, 478–479 RLS stricte et retraits) ; vérifié libre sur toutes les branches distantes le 2026-11-09 (plus haute migration trouvée : 377) | `ent-socle-evaluations-conception` (conception seulement) | réservé |
+
+Note : le lot V0 (correctifs urgents, 5100 / 460) peut partir avant toute décision sur Q-B2 ; il prend alors **460**. Les socles 22 et 23 recevront leur plage (5200–5299, 5300–5399, ou un repli) à leur propre conception.

@@ -292,12 +292,14 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Dépend de** : 6, 10, 20.
 - **Existant [F]** : 008, 022, 056 ; `domain-eleve/src/notes.rs` ; notes dans `ent-mobile`.
 - **Faire mieux** : règles de moyenne lisibles par la famille ; aucune note publiée par erreur.
+- **Conception** (2026-11-09, rattrapage, non décidée) : `docs/socles/21_EVALUATIONS.md` — moteur de calcul existant gardé (exact) ; **15 défauts** de l'existant dont des fuites (bulletin lisible par un parent sans droit aux notes, appréciations visibles avant le conseil), réouverture de période par l'administratif sans trace, notes écrasées et supprimées, aucune RLS, `absent_compte_zero` contraire à la règle nationale (mémento eduscol 2025 [V] : un absent n'est jamais un zéro) → **lot V0 de correctifs** avant tout ; évaluation sur le cours et la période du socle 5, public à la date, saisir / publier / arrêter / figer, instantané d'arrêt, fenêtre du conseil (D-022), IA sans note ni décision ; 133 actions EVA-100 à EVA-232, 64 cas limites, lots V0 à V13 ; contient aussi ce que les socles 22 et 23 attendent du 21 (§6). Plage de migrations 5100–5199 (Q-B2) ou 460–479.
 
 #### 22. Compétences et livrets
 - **Contient** : référentiels (socle commun à 8 composantes, référentiels disciplinaires et professionnels) ; évaluation et positionnement ; bilans périodiques et de fin de cycle ; **LSU au format officiel** [H] ; attestations.
 - **Dépend de** : 21, 9 (traces d'export).
 - **Existant [F]** : 088 ; `lsun_export.rs` (CSV, pas le format officiel).
 - **Place** : condition de vente au collège.
+- **Attentes posées par la conception du socle 21** (2026-11-09) : `21_EVALUATIONS.md` §6.1 — évaluations par positionnement (6ᵉ–4ᵉ sans note admis par l'arrêté du 31/12/2015 [V]), fusion des deux modèles de compétences existants, LSU depuis les moyennes annuelles du port du 21, « en attente » et « dispensé » (EPS, LV2) ; fuite des compétences avant publication corrigée par le lot V0 du 21.
 
 #### 23. Bulletins, conseils de classe et passage
 - **Contient** : appréciations par matière et générale ; **préparation automatique du conseil** (moyennes, assiduité, discipline, appréciations manquantes) ; tenue du conseil en séance (tablette) ; mentions, avis ; **décisions de passage, redoublement, orientation** ; bulletin figé et versionné, publication ; LSL [H] ; recours.
@@ -305,6 +307,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Apporte** : les décisions qui pilotent la montée (5), l'orientation (37), les aménagements (35).
 - **Existant [F]** : 071, 056 ; `bulletin_pdf.rs`, `lsl_export.rs` ; montée en lot (S2-2).
 - **Faire mieux** : conseil préparé en un clic (A7).
+- **Attentes posées par la conception du socle 21** (2026-11-09) : `21_EVALUATIONS.md` §6.2 — instantané d'arrêt comme entrée unique du conseil et du bulletin ; décisions historisées et verrou à la tenue ; mentions = données de l'établissement, **jamais « avertissement »** (sanction du chef d'établissement, R. 511-13 [V]) ; redoublement décidé par la direction après avis du conseil (D. 331-62 [V]) ; 4 modèles de bulletin (collège, lycée GT, lycée pro, sans note) rendus par le socle 7 ; correctifs urgents des routes historiques de conseil et de bulletin pris par le lot V0 du 21.
 
 ### Étage F — L'argent des familles
 
