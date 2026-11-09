@@ -1596,3 +1596,8 @@ Relecture par un agent distinct (lecture seule), centrée sur la sécurité, la 
 | 18 | moyenne | X2 trop gros ; critères non vérifiables en CI | X2a, X2b, X2c ; critères CI et recette externe séparés |
 
 Non traité ici : la relecture n'a pas couvert intégralement §9, §12, §13, §20–§23, §27–§29 ; un contrôle automatique de cohérence des identifiants (FX, ITP, R-X, X) est recommandé au lot X1 (script de documentation).
+
+## Ajout du 2026-11-09 — OMOGEN (information de Florian, vérifiée en extrait)
+- **OMOGEN** est le canal du **ministère** (pas de Charlemagne) par lequel le logiciel d'un éditeur échange directement avec SIECLE / BEE, sans export et réimport manuels du XML : l'interface « **Import du privé** » permet aux établissements privés sous contrat utilisant un logiciel d'éditeur de remonter les dossiers des élèves dans la BEE ; les anciens flux SiecleSynchro et NetSynchro convergent vers « OMOGEN Fichier » (élèves, liens élèves-groupes). [S] eduscol 4920 « Interfaces entre les applications nationales et les solutions numériques tierces pour l'éducation » (https://eduscol.education.gouv.fr/4920/interfaces-entre-les-applications-nationales-et-les-solutions-numeriques-tierces-pour-l-education) ; documentation académique de Nice, mises à jour SIECLE 24.2–24.4 (https://diff.ac-nice.fr/telechargement/administratif/Documentations_version/), lues en extrait de recherche.
+- **Conséquence** : c'est ce que ScolIA doit faire pour le pilote (Florian utilise aujourd'hui OMOGEN via Charlemagne). L'accès passe par l'inscription éditeur (F-06, reportée vers mai 2027). En attendant : lecture et écriture des XML d'après des exemples anonymisés (F-07), puis branchement OMOGEN après accréditation.
+
