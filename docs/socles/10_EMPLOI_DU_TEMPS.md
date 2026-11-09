@@ -549,6 +549,8 @@ Saisies par l'ADJ/DIR : plages interdites (mercredi après-midi, samedi), pause 
 
 ## 13. Échanges : logiciels d'EDT, STS-web, agendas, impression
 
+> **Fait (Florian, 2026-11-09)** : l'établissement pilote construit aujourd'hui son emploi du temps **dans Charlemagne** (module emploi du temps), sans logiciel d'EDT séparé. Conséquence : au pilote, la reprise de l'EDT se fait depuis Charlemagne (même canal que la reprise des autres données, socle 28 et socle 9), et la priorité est que ScolIA **construise et modifie l'EDT lui-même** (lots de saisie et de génération), l'import EDT/UnDeuxTEMPS/aSc restant pour les futurs établissements. Format d'export Charlemagne à obtenir sur un jeu réel anonymisé ([NV]).
+
 Le socle 9 possède le **moteur d'échanges** (réception, détection, correspondances, propositions, différences, traces) et les **connecteurs** (`09_INTEROP.md` §6, §9.7, lots X3, X15, X16) ; le socle 10 fournit le **contenu** (ce qu'un import d'EDT propose, ce qu'un export d'EDT contient) et **applique** les propositions par ses commandes. [R]
 
 ### 13.1 Trois situations d'établissement [R]
