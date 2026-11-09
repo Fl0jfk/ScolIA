@@ -7,6 +7,8 @@
 **Plage de migrations :** **4000–4099** si la règle « 3000 + 100 × numéro de socle » (Q-B2) est adoptée ; **repli 440–459** sinon (registre `MIGRATIONS.md`).
 **Méthode.** Lecture des décisions, de la carte et des conceptions des socles 5, 6, 8, 9 ; lecture directe des migrations EDT (021, 042, 048, 060, 083, 110, 150, 170, 171, 172, 333, 334, 336, 337, 341, 370) ; audit indépendant du code (sous-agent de revue, lecture seule), dont les trois défauts graves ont été relus ligne à ligne ; recherche réglementaire sur Légifrance et sites officiels (sous-agent), dont les deux textes décisifs ont été relus par une seconde lecture.
 
+**Passe personas (ajout personas, 2026-11-09, branche `ent-personas-socle-10`)** : `docs/socles/PERSONAS_10.md` (16 personas, manques M-497 et suivants). Les compléments sont **intégrés ici, marqués « ajout personas »**, sans rien supprimer : §0 point 9, §5 (R-22 et suivants), §6.2, §8.3 bis (AESH), §8.4 (versions temporaires), §10 (CL-64 et suivants), §11.2 (H-13 et suivants, G-15 et suivants), §11.5, §11.6, §11.7 à §11.9, §12.5, §14.4, §15.5 bis, §16.8 (EDT-200 et suivants), §17 (R-E21 et suivants), §18.3, §19, §20.1, §21.6, §23.3, §25 (S-90 et suivants), §26 (Q-EDT17 et suivants), §27 (C-10 et suivants).
+
 Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs · §4 L'année de l'EDT · §5 Réglementaire · §6 Frontières · §7 Concepts · §8 Du plan aux séances · §9 Modifier le réel · §10 Cas limites · §11 Génération automatique · §12 Vœux · §13 Échanges · §14 Publication et notifications · §15 Droits et minimisation · §16 Actions · §17 Règles · §18 Événements · §19 Écrans · §20 Contrat IA · §21 Modèle de données · §22 Plan de migration · §23 Lots · §24 Tests et recette · §25 Réglages signalés · §26 Questions à Florian · §27 Faits, hypothèses, contradictions · §28 Les cinq décisions à prendre en priorité.
 
 ---
@@ -21,6 +23,7 @@ Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Act
 6. **La journée réelle** : tableau « demain » prêt la veille, « maintenant » pour la vie scolaire et l'accueil, grève du matin en une liste à cocher, fermeture déclarée une fois (socle 5) qui annule, prévient et rétablit, un seul message par changement et par personne, à l'heure juste (§14).
 7. **86 actions** (EDT-100 à EDT-198), **63 cas limites**, **20 règles**, **15 lots** de code ordonnés (T0 à T13, dont T8a et T8b) avec critères de fin ; parcours minimal vendable : T0 à T5, T9, T12a–c (§16, §10, §17, §23).
 8. **Cinq décisions à prendre en priorité** : §28.
+9. **(ajout personas)** La passe personas (`PERSONAS_10.md`) trouve **trois bloquants** à trancher avant T1 et T8a : (A) les **choix des élèves** (D-030) ne sont qu'une entrée figée du moteur, alors qu'en lycée les **barrettes** se conçoivent à partir des combinaisons de spécialités et que les élèves se répartissent dans les groupes **après** l'EDT (§11.7) ; (B) l'**explication** donnée à un professeur peut nommer la contrainte d'un collègue (service partagé, temps partiel, vœu) : elle doit être typée et filtrée dès le prototype (R-E31) ; (C) le modèle de version, une seule plage de dates, ne sait pas dire « plan temporaire pendant la suppléance, puis **retour** au plan d'avant » (suppléant contraint, périodes de PFMP, semaine de voyage) (§8.4). Elle ajoute aussi l'**AESH** (absente de la conception, §8.3 bis), les **périodes** du lycée professionnel (§11.9), la **réparation** automatique après un changement (§11.8), et six pièges de minimisation (R-E27 à R-E37).
 
 ---
 
@@ -183,6 +186,25 @@ Recherche menée par une session dédiée le 2026-11-09 ; les deux arrêtés qui
 | R-20 | **FET** (logiciel libre de génération d'EDT) : licence **GNU AGPL v3** | https://lalescu.ro/liviu/fet/ | [V] | inspiration et lecture de son **format** seulement, **aucun code repris** (même règle que convt, D-005) ; corrige la mention « licence contradictoire » du socle 9 (FX-82) |
 | R-21 | **Formats** des logiciels d'EDT (Index EDT, UnDeuxTEMPS, aSc, Charlemagne) | documentations éditeurs inaccessibles | [NV] | jeux d'or d'un pilote (D-14 du socle 9) avant le lot T10 |
 
+**Ajout personas (vérifié le 2026-11-09 par la passe personas, sous-agent de recherche ; textes lus sur Légifrance et sur l'Office des publications de l'UE, EUR-Lex refusant la lecture directe)** :
+
+| N° | Règle | Référence | Statut | Conséquence pour l'EDT |
+|---|---|---|---|---|
+| R-22 | **Professeurs documentalistes** : maximum de **30 h** hebdomadaires, dont **6 h** consacrées aux relations avec l'extérieur ; une heure d'enseignement acceptée compte **pour deux heures** | décret 2014-940, art. 2 III — https://www.legifrance.gouv.fr/loda/id/JORFTEXT000029390906/ | [V] | le documentaliste a des heures de CDI (ouverture) et parfois des séances : décompte double ; ses plages du CDI sont une ressource de la vie scolaire (EDT-118) |
+| R-23 | **Temps partiel des enseignants** : service **aménagé en nombre entier d'heures hebdomadaires**, quotité de 50 à 90 % ; temps partiel de droit, même règle ; autorisation **par année scolaire**, demande avant le **31 mars** (l'ancien art. 1-5 du décret 82-624 est abrogé, la règle est passée au code) | C. éduc. R911-5, R911-7, R911-9 — https://www.legifrance.gouv.fr/codes/section_lc/LEGITEXT000006071191/LEGISCTA000030722421/ | [V] | remplace R-08 [NV] ; H-14 : heures placées = service en heures entières ; les jours libérés sont connus fin mars, avant la campagne de vœux (R-E28) |
+| R-24 | **Temps partiel thérapeutique** (fonction publique) : quotité **au moins égale au mi-temps**, durée totale **un an au plus** ; pour l'État, décret n° 2021-997 du 28/07/2021 (le décret 2021-1462 concerne la territoriale) | code général de la fonction publique L823-3, L823-5 | [V] (CGFP) ; décret 2021-997 [NV, non lu en entier] | indisponibilités datées, fin prévue ; **jamais** distingué d'un temps partiel ordinaire dans l'EDT (R-E29) |
+| R-25 | **Assistants d'éducation** : service réparti dans le respect de la durée annuelle de référence, sur **39 à 45 semaines** (36 au plus pour l'accompagnement des élèves handicapés) ; crédit d'heures de formation de **200 h** au plus pour un temps plein | décret 2003-484, art. 2 et 5 — https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000018576599 | [V] | le planning des AED (socle 6, PRS-133) est annualisé ; le socle 10 lui fournit les besoins de surveillance par heure (`edt::effectifs_attendus`) |
+| R-26 | **Règlement européen sur l'IA** : annexe III, point 4 b) — systèmes destinés à « attribuer des tâches sur la base du comportement individuel, de traits de personnalité ou de caractéristiques personnelles » dans les relations de travail ; art. 6 §3 : pas de haut risque si le système n'a pas d'« incidence significative sur le résultat de la prise de décision » (tâche procédurale étroite, préparatoire, amélioration d'une activité humaine), **sauf profilage**, toujours à haut risque ; art. 6 §4 : évaluation à documenter | règlement (UE) 2024/1689 — https://publications.europa.eu/resource/celex/32024R1689 | [V] (texte de 2024 ; modifications éventuelles de 2025-2026 non vérifiées) | le moteur ne lit **aucun** trait personnel ni historique de comportement d'un professeur (âge, ancienneté, santé, famille, absences passées) ; il propose, un humain décide ; l'évaluation art. 6 §4 est un livrable de T8b (R-E25) |
+| R-27 | **RGPD art. 22** : droit de ne pas faire l'objet d'une décision fondée exclusivement sur un traitement automatisé produisant des effets significatifs ; garanties : intervention humaine, point de vue, contestation | règlement (UE) 2016/679 — https://publications.europa.eu/resource/celex/32016R0679 | [V] | publication toujours humaine (déjà §11.1) ; **voie de contestation** d'un EDT par un professeur (EDT-213) |
+| R-28 | **Organisation du temps scolaire** : relève de l'autonomie de l'EPLE (R421-2 3°) ; le conseil d'administration fixe « les règles d'organisation de l'établissement » (R421-20 1°) | C. éduc. R421-2, R421-20 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000032973703 | [V] (R421-2-2 non lu) | public : grille, demi-journées, mercredi = décisions d'établissement à tracer avec leur date et leur instance (EDT-211) ; privé sous contrat : instance propre [NV] |
+| R-29 | **Lycée professionnel** : PFMP obligatoires de **16 à 20 semaines** pour l'examen (selon la spécialité) ; en terminale, PFMP avant les épreuves ponctuelles d'enseignement général, puis parcours différencié de 6 semaines ; **allocation de PFMP** calculée sur les jours effectués | arrêté du 22/01/2024 (modifiant l'arrêté de 2018) — https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000049083922 ; décret 2023-765, art. 3 — https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000047963959 | [V] | précise R-15 : EDT **par périodes** (§11.9) ; semaines de PFMP retirées par classe ; jours de PFMP réalisés tracés au socle 39 (allocation) |
+| R-30 | **Salariés de droit privé** (personnels de l'organisme de gestion, AED du privé) : pause d'au moins **20 minutes** dès 6 h de travail quotidien ; repos quotidien de **11 heures** consécutives | C. trav. L3121-16, L3131-1 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033020918 | [V] | contraintes dures du planning de service (socle 6) ; sans effet sur les maîtres du privé (droit public pour leur service, R-07) |
+| R-31 | **Heures supplémentaires d'un enseignant à temps partiel** | — | [NV] | ne rien bloquer avant vérification ; alerte seulement (H-14) |
+| R-32 | **DDFPT** (ex-chef de travaux) : missions (circulaire n° 2016-137 du 11/10/2016) | BO inaccessible (403) | [NV] | rôle à portée « mes formations » (§15.5 bis) ; périmètre à confirmer |
+| R-33 | **Sections sportives scolaires** : circulaire du 15/12/2023 (abroge celle du 10/04/2020) | BO inaccessible (403) | [NV] | groupes d'élèves et plages libérées (CL-35), aucune règle codée |
+
+**Logiciels du marché (vérifiés le 2026-11-09)** : le module **Charlemagne Emploi du temps** existe et annonce « placement automatique ou assisté des cours », « gestion des souhaits et contraintes », indisponibilités des enseignants, capacité et disponibilité des salles, groupes et salles spécialisées, import STS ; aucune mention des remplacements [V : https://www.aplim.fr/charlemagne/emploi-du-temps]. **EDT (Index Éducation)** annonce un placement automatique, un analyseur de contraintes qui détecte les incohérences et propose des résolutions, des groupes de spécialités indépendants des classes ; nouveautés 2025 : contraintes cours à cours, diagnostic qui peut ignorer une ressource, **contrôle des heures par élève**, tableau des remplacements interactif avec Pronote (volontaires, contraintes fortes ignorables) [V : https://www.index-education.com/fr/logiciel-emploi-du-temps.php et cahier des nouveautés 2025]. **FET** : AGPL v3 confirmée (version 7.12.0 du 14/10/2026) ; ses familles de contraintes publiques (indisponibilités, trous maximaux, heures min/max par jour, jours minimaux entre activités, même heure de début, plages et salles préférées) servent de **liste de couverture**, jamais de code [V : https://lalescu.ro/liviu/fet/]. Conséquence : la **parité minimale** de juillet est placement automatique + souhaits/contraintes + salles + diagnostic expliqué + contrôle des heures par élève + remplacements ; ScolIA doit les avoir **tous** au premier pilote qui construit son EDT (`PERSONAS_10.md` §4).
+
 **À vérifier en priorité** (depuis un poste qui accède au BO et à eduscol) : reconduction du Pacte ; grilles et calendrier de la voie professionnelle ; application du RCD (R-05, R-09) au privé sous contrat ; spécification OMOGEN-API / NetSynchro et STS-web ; taux HSA/HSE.
 
 ---
@@ -224,6 +246,11 @@ Recherche menée par une session dédiée le 2026-11-09 ; les deux arrêtés qui
 | `edt::heures_assurees(intervenant, plage)` | 15, 49 | lecture (séances réellement assurées) |
 | `edt::agregats_remplacement(semaine)` (heures prévues à l'EDT, absentes, remplacées, par discipline et niveau, sans nom) | 9 (remontée hebdomadaire RCD, R-09) | lecture agrégée |
 | trait `ControleRentree` / `ControleCloture` (« EDT publié pour l'année », « séances non assurées en attente ») | 5 (tableau de bord) | lecture |
+| **(ajout personas)** `edt::effectifs_attendus(plage, lieu?)` (élèves sans cours par heure, régime de sortie appliqué, sans nom) | 6 (planning de service des AED, PRS-133), 12 (appel de permanence), 40 | lecture agrégée |
+| **(ajout personas)** `edt::groupes_compatibles(eleve, enseignements, date)` (groupes où l'élève peut entrer sans conflit avec l'EDT publié, avec effectif et capacité) | 5 (STR-102, changement d'option), 3 (inscription en cours d'année) | simulation |
+| **(ajout personas)** `edt::proposer_barrettes(choix agrégés, contraintes)` (alignements et nombre de groupes qui minimisent les élèves bloqués) | 5 (STR-99, simulation de barrettes) | simulation, sans écriture |
+| **(ajout personas)** `edt::seances_accompagnees(agent_aesh, plage)` (séances des élèves accompagnés, sans motif) | 35 (accompagnement), 6 | lecture |
+| **(ajout personas)** `edt::periode_optimale(ressource, duree, fenetre)` (période où fermer un lieu ou absenter un public coûte le moins de séances) | 5 (fermeture de salle), 42, 44 | simulation |
 
 ### 6.3 Ports consommés [R]
 Socle 5 : `annee_a_la_date`, `jour(date, cible)`, `jours_ouvres`, `grille(date, site, niveau)`, `public_du_cours` / `ent_public_cours_jour`, `perimetre`, lieux et leurs indisponibilités (337), alignements. Socle 6 : `intervenants_du_cours`, `en_saisie(service, date)`, indisponibilités des personnels. Socle 4 : `droits_lien` (lecture famille, abonnement), interdictions (271). Socle 1 : `autoriser`, `tx`, `publier`, tâches de fond, journal.
@@ -319,6 +346,22 @@ Ces états sont **dérivés** des modifications et du calendrier, stockés pour 
 - **Sorties et voyages (42)** : une sortie déclarée neutralise les séances de ses participants et, au choix, celles de ses accompagnateurs (proposées à l'annulation ou au remplacement).
 - **Examens (38)** : une épreuve occupe des salles et des surveillants ; l'EDT neutralise les séances touchées (EXA-05 de `SOCLE2_DOMAINES.md`).
 - **Réservations (44)** : une salle réservée n'est jamais proposée pour un déplacement ; une réservation sur une salle occupée par un cours est refusée (ou demande un changement de salle du cours).
+
+### 8.3 bis Accompagnement des élèves en situation de handicap (AESH) (ajout personas) [R]
+La conception initiale ne parle pas des **AESH**, alors que leur journée **est** l'emploi du temps des élèves qu'elles accompagnent (`PERSONAS_10.md` P10, M-550, M-551). Le socle 35 possède l'accompagnement (élève, heures notifiées, mutualisé ou individuel) et le socle 6 la mission (`06_PERSONNELS.md` P24, P58, R-P20) ; le socle 10 fournit :
+- **le planning dérivé** de l'AESH : les séances datées des élèves accompagnés, restreintes aux plages d'accompagnement définies au socle 35 (par exemple « maths et EPS en 5B, français en ULIS »), avec lieu et état ; port `edt::seances_accompagnees` ;
+- **les conflits** : une AESH mutualisée ne peut pas être dans deux salles à la même heure ; la génération en tient compte (H-16) et toute modification qui crée ce conflit l'affiche (avertissement, pas blocage : l'adjoint et le coordinateur décident) ;
+- **les changements** : toute modification d'une séance accompagnée prévient l'AESH (au même titre que l'intervenant), y compris le changement de salle ;
+- **la discrétion** (R-E33) : l'AESH n'apparaît **jamais** dans l'EDT d'une classe, d'un groupe ou d'un autre élève, ni dans l'iCal des familles d'autres élèves ; seuls la famille de l'élève accompagné, l'élève, l'AESH, les intervenants de la séance et les personnels habilités la voient. Le motif (handicap, notification) n'est jamais dans l'EDT.
+
+### 8.4 Versions temporaires et retour au plan (ajout personas) [R]
+**Problème (bloquant C de `PERSONAS_10.md`)** : `ent_edt_version` porte **une** plage `[valable_du, valable_au]` et une contrainte d'exclusion entre versions publiées ; on ne peut donc pas dire « du 3 novembre au 30 janvier, le plan de Mme X est remplacé par celui que permet son suppléant (libre lundi, mardi, jeudi), puis on **revient** au plan de septembre » sans recopier la version de septembre en une troisième version. Cas réels : suppléant contraint (P15), périodes de PFMP échelonnées (P14, §11.9), semaine de voyage réorganisée, salle fermée trois semaines, installations municipales changées pour un cycle (P16).
+**Proposition** :
+1. Une version peut être **de base** (plan de l'année ou d'une période) ou **temporaire** : une version temporaire porte une `base_version_id`, une plage bornée **obligatoire** et un **périmètre** (cours, intervenants ou lieux touchés) ; elle ne contient que les placements qui diffèrent de la base pour ce périmètre.
+2. **Résolution à la date** : `version(d)` = la version de base en vigueur à `d`, surchargée, pour son périmètre, par la version temporaire publiée dont la plage contient `d` (au plus une par cours à une date : contrainte d'exclusion par cours). À la fin de la plage, le plan de base **revient seul**, sans republication ; les séances de retour gardent leur identité stable (§8.1).
+3. Les versions temporaires se publient comme les autres (contrôles, aperçu limité au périmètre, deux temps facultatif) ; leur levée anticipée (retour de la titulaire plus tôt) avance la fin de plage avec aperçu (R-E39).
+4. La reprise des créneaux (M2) produit une version de base ; rien ne change pour un établissement qui n'utilise jamais de version temporaire.
+5. Modèle : `ent_edt_version.nature ('base','temporaire')`, `base_version_id`, `perimetre JSONB` ; la contrainte d'exclusion devient « une version **de base** publiée par date » et « une version temporaire publiée par cours et par date » (§21.6). **À décider avant T1** (Q-EDT18).
 
 ---
 
@@ -427,6 +470,25 @@ Chaque cas est une exigence de test pour les lots (§24). [R] sauf mention.
 | CL-61 | **Effectif** d'un groupe supérieur à la capacité de la salle | avertissement en génération (coût) et à la modification |
 | CL-62 | **Accessibilité** : élève en fauteuil, salle à l'étage sans ascenseur | besoin d'accessibilité du public (indicateur seulement, jamais le motif) → salle `accessible_pmr` exigée (337) |
 | CL-63 | **Deux années** vivantes : construction de N+1 en juillet pendant que N est archivée | l'EDT de N+1 est un brouillon de l'année en préparation ; aucune lecture famille avant publication |
+| CL-64 | (ajout personas) Élève en **exclusion-inclusion** (sanction : présent dans l'établissement, retiré de ses cours pour trois jours, socle 13) | exclusion individuelle datée de ses séances (motif codé `mesure_educative`, jamais le détail) ; « maintenant » répond « vie scolaire » ; l'appel pré-remplit (socle 12) ; aucune notification d'annulation de ses cours |
+| CL-65 | (ajout personas) **Complément de service dans une autre commune** : M. Okafor finit à 11 h 55 au collège B et commence à 13 h 30 ici | temps de trajet propre à l'agent (déclaré une fois, sans dire où, socle 6 PRS-141) ajouté autour de ses indisponibilités ; H-09 étendue aux trajets hors établissement |
+| CL-66 | (ajout personas) **Enseignement suivi dans un autre établissement** (spécialité mutualisée par convention : Inès suit la LLCER italien au lycée voisin le mardi après-midi) | cours « externe » à placement imposé (verrou), trajet, appel fait par l'autre établissement (aucune donnée échangée sans convention, D-013) ; l'EDT de l'élève montre la séance et son lieu ; conflits contrôlés |
+| CL-67 | (ajout personas) **Élèves transportés** : dernier car à 17 h 15, mercredi à 12 h 35 | « fin des cours au plus tard » par public d'élèves transportés (socle 43, agrégat sans nom) : contrainte dure ou souple selon l'établissement (H-15) ; une modification qui place un cours après le dernier car l'affiche |
+| CL-68 | (ajout personas) Option rare impossible à placer sans conflit : suivie **à distance** (CNED, établissement partenaire en visio) | cours à public individuel, lieu « à distance », plage libre de l'élève exigée (salle d'étude) ; jamais compté comme trou |
+| CL-69 | (ajout personas) **Majorité** d'un élève en cours d'année | à la date des 18 ans, les abonnements iCal et les notifications d'EDT des titulaires sont réexaminés selon le choix de l'élève (socle 4) ; rien ne continue par défaut sans règle du socle 4 (R-E32) |
+| CL-70 | (ajout personas) **Prise en charge extérieure récurrente** (SESSAD, orthophonie, kinésithérapie) chaque mardi 10 h–11 h | exclusion individuelle **hebdomadaire** datée (motif codé `parcours_amenage`) ; appel pré-rempli « absence prévue » sans motif ; l'AESH et la famille voient la plage ; les professeurs ne voient que « absence prévue » |
+| CL-71 | (ajout personas) **Transport adapté** (taxi du département) d'un élève handicapé | un changement de première ou de dernière heure de l'élève est signalé à la famille avec la mention « pensez au transport » ; aucun échange direct avec le transporteur (socle 43) |
+| CL-72 | (ajout personas) **Reprise progressive** après une hospitalisation : matinées seulement pendant trois semaines | exclusions individuelles datées des après-midi (motif codé), EDT individuel affiché à l'élève, à sa famille, aux professeurs concernés (« absence prévue ») ; fin automatique |
+| CL-73 | (ajout personas) **Mixité des publics** en lycée professionnel : apprentis et scolaires dans la même classe, rythmes d'alternance différents | calendrier d'alternance par sous-public (socle 5 / 39) : séances créées pour les seuls présents ; heures dues comptées par parcours |
+| CL-74 | (ajout personas) **Suppléant contraint** : le suppléant de Mme X pour trois mois n'est libre que lundi, mardi et jeudi | version temporaire bornée (§8.4) calculée par la réparation (§11.8) ; retour au plan de base à la fin de la suppléance, sans republication |
+| CL-75 | (ajout personas) **EPS par cycles** : piscine au 1er trimestre, gymnase au 2e, stade au 3e, créneaux municipaux revus en septembre | lieu de la pièce **par période** (version temporaire ou de période) ; verrous de lieu changés → réparation proposée, pas de régénération |
+| CL-76 | (ajout personas) **Lundis fériés** : l'option de 1 h placée le lundi perd 5 séances sur l'année quand celle du mardi n'en perd qu'une | indicateur « séances perdues par cours du fait du calendrier » (calendrier adopté connu à l'avance) ; contrainte souple G-17 |
+| CL-77 | (ajout personas) **Groupe d'un seul élève de la classe** (ULIS, UPE2A, FLE, soutien) visible dans l'EDT non nominatif de la classe | libellé neutre « groupe particulier » sous le seuil de 3 élèves de la classe ou pour un dispositif marqué sensible (R-E34) |
+| CL-78 | (ajout personas) Un élève est à l'**infirmerie** ou chez l'**assistante sociale** quand l'accueil demande « où est-il ? » | réponse « pris en charge par un service de l'établissement », jamais le service (R-E27) |
+| CL-79 | (ajout personas) Deux personnes **modifient le même scénario** (adjointe et professeur référent EDT) | mouvements ordonnés avec contrôle de version : le second voit le conflit et rejoue ou abandonne ; jamais d'écrasement silencieux (R-E22) |
+| CL-80 | (ajout personas) Un professeur **conteste** en octobre l'explication reçue en juillet | l'explication figée à la publication fait foi (R-E23) ; la version et l'empreinte permettent de la rejouer |
+| CL-81 | (ajout personas) **Ateliers à inscription** (AP au choix par cycles de six semaines, clubs du midi) : 160 élèves classent trois vœux pour 8 ateliers de 20 places | campagne de choix, répartition par le moteur (premier vœu maximisé, équité), listes publiées par cycle ; public daté par cycle (EDT-209, EDT-210) |
+| CL-82 | (ajout personas) Professeur **à temps partiel** dont l'EDT dépasse la quotité (15 h placées pour 14 h) | alerte bloquante à la publication pour l'intéressé (H-14) |
 
 ---
 
@@ -457,6 +519,13 @@ Construire, pour une année et une plage de dates, **un emploi du temps type** (
 | H-10 | Les « plages interdites » de l'établissement (mercredi après-midi, samedi, pause méridienne minimale si l'établissement la rend dure) | ADJ |
 | H-11 | Les pièces consécutives (bloc de 2 h de TP) ne sont pas coupées par une récréation si l'établissement l'interdit, ni par la pause méridienne | ADJ |
 | H-12 | Le volume horaire de chaque cours est exactement placé (en moyenne sur le cycle A/B) | 5 |
+| H-13 | (ajout personas) **Plage commune libre** d'un ensemble de personnes (tous les professeurs de 3e le mardi M8 pour la concertation ; une classe et son PP pour l'heure de vie de classe certaines semaines) | ADJ |
+| H-14 | (ajout personas) **Heures placées = service** pour un enseignant à temps partiel (heures entières, R-23) ; au-delà : jamais sans arbitrage explicite (R-31 [NV]) | 6 |
+| H-15 | (ajout personas) **Fin des cours au plus tard** pour un public d'élèves transportés (dernier car), si l'établissement la rend dure (sinon G-19) | 43, ADJ |
+| H-16 | (ajout personas) Une **AESH mutualisée** n'accompagne pas deux élèves dans deux lieux à la même heure, sur les plages d'accompagnement déclarées (socle 35) | 35 |
+| H-17 | (ajout personas) **Capacité par équipement** : l'effectif d'un groupe d'atelier ou de TP ne dépasse pas le nombre de postes du lieu (12 postes, 12 élèves) | 5 |
+
+**Ajout personas — familles de contraintes de FET relues pour couverture** (noms seulement, R-20) : indisponibilités (H-06), trous maximaux (G-01, G-02), heures minimales et maximales par jour (G-03, G-07), jours minimaux entre deux séances d'un même cours (G-04), même heure de début (H-04), plages et salles préférées (G-08, G-10), fin de journée des élèves (H-15, G-19) : toutes couvertes.
 
 **Souples (G-xx) — chaque écart coûte des points, pondérés par trois niveaux (faible, normal, fort)** :
 
@@ -476,6 +545,11 @@ Construire, pour une année et une plage de dates, **un emploi du temps type** (
 | G-12 | Demi-groupes en miroir (TP du groupe A pendant que le groupe B a un autre cours de la même classe) pour éviter les trous | élèves |
 | G-13 | Dernière heure du vendredi, première heure du lundi : éviter pour les cours à faible volume (ne pas toujours sacrifier la même matière) | élèves |
 | G-14 | Remplissage des salles spécialisées pour les cours qui en ont réellement besoin (pas une salle informatique pour un cours d'histoire) | établissement |
+| G-15 | (ajout personas) **Continuité avec l'an passé** : garder les jours libérés, les salles et les habitudes de chaque professeur quand rien ne s'y oppose (amorce depuis N-1, EDT-202) | professeurs |
+| G-16 | (ajout personas) **Équité de qualité** : écart limité entre professeurs sur la qualité globale de leur EDT (trous, jours de présence, premières et dernières heures, vendredi soir), pas seulement sur leurs vœux ; **rotation** des créneaux mal aimés | professeurs |
+| G-17 | (ajout personas) **Séances perdues au calendrier** équilibrées : un cours à faible volume n'est pas placé sur le jour qui perd le plus de séances dans l'année (lundis fériés, ponts) | élèves |
+| G-18 | (ajout personas) **Charge individuelle** : plafond d'heures par jour et de journées longues **par élève** (options cumulées), pas seulement par classe | élèves |
+| G-19 | (ajout personas) Fin des cours compatible avec les transports (forme souple de H-15) | élèves transportés |
 
 Les poids par défaut sont fixés par ScolIA et testés sur les jeux de labo ; l'établissement ne règle **que** trois niveaux par famille de contraintes (élèves, professeurs, salles) et la liste de ses plages interdites [R, D-023]. Les poids numériques ne sont pas exposés (réglage avancé caché, S-81).
 
@@ -518,11 +592,45 @@ Un scénario porte : ses entrées (empreinte), ses réglages (niveaux de poids, 
 - vœux satisfaits par professeur (part et liste), indicateur d'**équité** (écart entre le mieux et le moins bien servi) ;
 - changements de salle et de bâtiment ; occupation des salles spécialisées ;
 - différence avec la version publiée (nombre de placements déplacés, publics et professeurs touchés) pour une nouvelle version en cours d'année.
+- **(ajout personas)** **les élèves les plus chargés** individuellement (heures par jour, journées après 17 h, trous), pas seulement des moyennes par classe : les élèves aux options cumulées sont ceux qui souffrent (G-18) ; affichés par identifiant interne dans le moteur, nommés seulement à l'écran de l'ADJ ;
+- **(ajout personas)** **équité de qualité** par professeur (G-16) et part des créneaux mal aimés (lundi M1, vendredi dernière heure) par professeur ;
+- **(ajout personas)** **séances perdues au calendrier** par cours sur l'année (G-17) ;
+- **(ajout personas)** **heures placées / dotation** par discipline et HSA par professeur (au plus deux imposables, R-04) (EDT-204) ;
+- **(ajout personas)** **comparaison avec l'EDT de l'an passé** sur les mêmes indicateurs (« notre EDT est-il meilleur ? »).
 
 La **comparaison** côte à côte de deux à quatre scénarios montre ces indicateurs et les différences par classe et par professeur (« dans B, Mme Y gagne son mercredi, la 3C perd une heure de trou »). Un scénario **retenu** devient le brouillon de la future version ; les autres sont gardés jusqu'à la publication puis purgés après la durée de conservation (§15.6).
 
 ### 11.6 Retouches à la main [R]
 Après génération, l'ADJ **déplace** à la souris (web, grand écran) une pièce : le serveur montre en temps réel les plages compatibles (vert), coûteuses (orange, avec le coût), impossibles (gris, avec la raison au survol) ; il peut **échanger** deux pièces, **verrouiller** une pièce, **relancer** l'amélioration sur le reste. Chaque retouche est un mouvement du scénario, réversible (annuler / rétablir), journalisé.
+
+**(ajout personas)** **Travail à plusieurs** (CL-79, R-E22) : un scénario peut être ouvert par plusieurs personnes (adjointe, professeur référent EDT, direction en lecture) ; chaque mouvement porte le numéro de version du scénario sur lequel il a été calculé ; un mouvement calculé sur une version dépassée est refusé avec l'écart, à rejouer ou abandonner ; **commentaires** attachés à un placement (« voir avec M. X »), visibles des seuls constructeurs. **Sauvegarde continue** : rien ne se perd si la connexion tombe (la vie de juillet est un travail à domicile, souvent long [H]).
+
+### 11.7 Barrettes et choix des élèves (ajout personas, bloquant A) [R]
+**Constat** (`PERSONAS_10.md` P01, P09) : la conception prend les groupes et les alignements comme une **entrée figée** du socle 5 (H-01, H-04). Or D-030 demande de tenir compte des **choix des élèves**, et en lycée général les barrettes de spécialités **se conçoivent** à partir des combinaisons choisies (en 1re, trois spécialités parmi une dizaine : chaque triplette doit pouvoir être suivie, une spécialité par barrette [H]) ; un élève aux options rares (latin, LV3, section européenne, spécialité mutualisée) est bloqué par une barrette mal conçue. EDT (Index) annonce des groupes de spécialités « sans tenir compte des classes » et un contrôle des heures par élève [V, §5] : c'est la parité.
+**Trois aides, une seule propriété des données** (le socle 5 possède groupes, alignements et enseignements suivis ; le socle 10 calcule et propose) :
+1. **Proposer des barrettes** (EDT-200, port `edt::proposer_barrettes`, appelé par STR-99) : à partir des enseignements suivis ou des vœux de N+1 (socle 3), agrégés sans nom, et du nombre de groupes que permet la dotation, le moteur propose un nombre de barrettes, la répartition des enseignements dans les barrettes et le nombre de groupes par enseignement, qui **minimisent les élèves bloqués** et équilibrent les effectifs ; chaque élève bloqué est nommé à l'écran de l'ADJ avec l'alternative (« 3 élèves MATHS-SES-LLCER italien : ouvrir un second groupe de SES en barrette 2, ou suivre l'italien au lycée voisin »). Le socle 5 applique la proposition retenue (STR-58).
+2. **Générer avec répartition** : l'option « groupes à composer » laisse au moteur la répartition des élèves entre groupes **d'un même enseignement** (deux groupes de SES en barrettes différentes) pour rendre l'EDT faisable et équilibré ; les affectations proposées deviennent des propositions au socle 5, appliquées à la publication.
+3. **Placer un élève après publication** (EDT-201, EDT-214, port `edt::groupes_compatibles`) : nouvel élève, changement d'option, réorientation : le serveur liste les groupes compatibles avec l'EDT publié (sans conflit, effectif et capacité), le socle 5 affecte.
+**Contraintes** : les élèves restent des identifiants dans le moteur (R-E11) ; les avis sensibles de la constitution des classes (socle 5, §4.3) ne sont **jamais** lus par le moteur d'EDT. **Prototype** : T8a mesure aussi la conception des barrettes sur un lycée de labo avec une distribution réaliste de triplettes (R-E21). **À trancher** : Q-EDT17.
+
+### 11.8 Réparation automatique après un changement (ajout personas, D-030) [R]
+Un changement en cours d'année ne doit pas obliger à régénérer : le moteur **répare** la version publiée en déplaçant le moins possible (G-09 au poids fort), et produit un **scénario de réparation** comparé à l'existant :
+| Déclencheur | Ce que la réparation propose | Version produite |
+|---|---|---|
+| Absence longue avec suppléant contraint (CL-74) | replacer les seules pièces du cours sur les plages du suppléant, en échangeant le moins de séances avec d'autres cours | temporaire (§8.4), retour automatique |
+| Salle fermée plusieurs semaines (CL-13) | lieux de remplacement en lot ; si aucun, déplacer des pièces | temporaire |
+| Nouvel élève, changement d'option (EDT-214) | groupe compatible ; à défaut, ouverture d'un groupe ou déplacement d'une pièce | aucune ou base |
+| Classe ou groupe ouvert en septembre (ajustement de dotation) | placer les nouvelles pièces dans les plages libres, sans toucher au reste si possible | base (nouvelle version) |
+| Verrous municipaux changés (CL-75) | replacer l'EPS sur les nouveaux créneaux, réparer les cours déplacés | base ou temporaire |
+| Professeur parti en cours d'année, poste vacant | aucune réparation tant qu'aucun intervenant ; séances `non_assuree` (CL-29) | — |
+| Semaine de voyage d'une classe (CL-14) | échanges avant et après le voyage pour que les accompagnateurs ne laissent pas d'autres classes sans cours | temporaire d'une semaine |
+Chaque réparation affiche : séances touchées, personnes prévenues, coût (indicateurs §11.5), **explication** ; l'ADJ choisit, publie ; l'IA en résume les effets (§20.1). Aucune réparation ne touche le passé (R-E1).
+
+### 11.9 Lycée professionnel : périodes, PFMP, ateliers (ajout personas) [R]
+- **EDT par périodes** : les PFMP (16 à 20 semaines sur le cycle selon la spécialité, R-29) retirent des classes entières des semaines entières, échelonnées entre classes ; le volume d'un cours est dû **sur l'année ou le cycle**, pas chaque semaine : H-12 se lit alors « volume annuel placé sur l'ensemble des versions de l'année » (R-E38) ; le moteur génère une version de base par période avec la stabilité entre périodes (G-09) et un compteur d'heures dues / placées / restantes par cours.
+- **Échelonnement des PFMP** : simuler les dates de PFMP des classes pour équilibrer l'occupation des plateaux techniques et des professeurs (EDT-233) ; le calendrier des PFMP appartient au socle 39, le socle 10 en calcule l'effet.
+- **Heures libérées pendant les PFMP** : les professeurs dont la classe est en entreprise gardent leur service ; les plages libérées servent au **suivi des élèves en entreprise** (visites, déplacements) planifié depuis l'EDT (EDT-234, socle 39), sans être comptées comme trous.
+- **Ateliers** : capacité par postes (H-17), co-intervention (CL-06), mixité apprentis / scolaires (CL-73) ; le DDFPT gère les lieux et les périodes de son pôle (portée « mes formations », §15.5 bis).
 
 ---
 
@@ -544,6 +652,17 @@ L'ADJ ouvre une **campagne de vœux** pour l'année en préparation : dates, con
 
 ### 12.4 Contraintes d'établissement [R]
 Saisies par l'ADJ/DIR : plages interdites (mercredi après-midi, samedi), pause méridienne minimale, plafond de trous, amplitude maximale, créneaux EPS attribués par la commune (verrous de lieu), réunions régulières (conseil pédagogique tel jour), plages réservées à l'AS, à la chorale, aux études. L'existant `ent_edt_contrainte` (083 : `prof_indispo`, `salle_indispo`, `preference`) est repris dans ce modèle (§22).
+
+### 12.5 Compléments des personas sur les vœux (ajout personas) [R]
+1. **Les jours libérés du temps partiel ne sont pas des vœux** (R-E28) : ils viennent de la décision de temps partiel (R-23 : autorisation par année, demande avant le 31 mars), lue au socle 6, et sont des indisponibilités dures qui **ne consomment pas** le budget de vœux ; même chose pour le complément de service (R-03) et les jours de formation des stagiaires.
+2. **Codes de motif sans révélation** (R-E29) : `temps_partiel` ne distingue jamais un temps partiel thérapeutique (R-24) ; `decharge` ne dit jamais « syndicale » (l'appartenance syndicale est une donnée sensible, RGPD art. 9 [V, même règlement que R-27]) ; le motif codé reste lu par ADJ/DIR seulement.
+3. **Jours réservés tôt pour les services partagés** (EDT-221) : dès avril, le chef d'établissement d'affectation et le second établissement conviennent des jours (« jeudi entier au collège B ») ; ScolIA enregistre ces jours comme indisponibilité **provisoire** avant la génération, confirmée ensuite ; le professeur voit seul ses deux EDT et leurs chevauchements (EDT-222, D-013).
+4. **Vœux dits en langage courant** (EDT-220, R-E30) : le professeur peut écrire « éviter le lundi matin, finir tôt le jeudi pour récupérer mes enfants » ; l'IA propose des vœux structurés (nature, jour, priorité) à confirmer, et **ne conserve pas** la raison privée (« enfants ») : seul le vœu structuré est stocké. Sans fournisseur d'IA approuvé (CLAUDE.md), seul le formulaire existe.
+5. **Prix d'un vœu avant arbitrage** (EDT-206) : la direction voit, pour chaque vœu fort ou demande d'indisponibilité, son coût estimé (« satisfaire le mercredi de M. X coûte 2 trous à la 4B et déplace l'alignement de LV2 ») avant d'accepter.
+6. **Équité de qualité** (G-16) : le budget de points mesure les vœux ; l'équité réelle mesure aussi la qualité de l'EDT de chacun (trous, jours de présence, créneaux mal aimés) ; la règle d'équité est **publiée** aux personnels avant la campagne, avec les indicateurs agrégés sans nom après la publication (EDT-212).
+7. **Retour sans révélation** (R-E31) : la raison d'un vœu non satisfait ne nomme jamais un collègue ni sa contrainte (« contrainte d'un autre service », jamais « M. Z est en service partagé le mardi ») ; seule la structure (alignement, grille, salle, plage interdite) est nommée.
+8. **Contestation** (EDT-213, R-27) : un professeur peut demander la révision de son EDT ; la demande, la réponse et l'explication **figée à la publication** (R-E23) sont tracées.
+9. **Pas de critère personnel** (R-E25, R-26) : ni âge, ni ancienneté, ni situation familiale, ni historique d'absences ne pèsent dans le moteur ; l'ancienneté comme priorité locale n'est pas proposée (Q-EDT20).
 
 ---
 
@@ -611,6 +730,16 @@ Le contenu ne contient **jamais** le motif interne ; le motif public est choisi 
 - **Tableau « demain »** (ADJ, VS, DIR ; généré à 18 h la veille et mis à jour en continu) : absences de professeurs connues, séances non assurées, remplacements faits et à faire, salles fermées, sorties, examens, permanences attendues (effectifs par heure), notifications envoyées et à envoyer.
 - **« Maintenant »** (VS, CPE, ACC selon droit) : pour un élève, sa séance en cours (cours, lieu, intervenant) ou « pas de cours (permanence / autorisé à sortir selon régime) » ; pour une salle, son occupation ; pour un professeur, **présent dans l'établissement selon l'EDT : oui / non** (jamais où il est quand il n'a pas cours).
 
+### 14.4 Compléments des personas sur la diffusion des changements (ajout personas) [R]
+1. **Familles : ce qui change la journée** (R-E36) : par défaut, une famille est prévenue tout de suite d'un changement qui modifie **l'heure d'arrivée ou de départ** de l'enfant, une journée entière, ou une séance non assurée ; un changement de salle ou d'un cours en milieu de journée n'entre que dans le résumé du jour (l'élève, lui, est prévenu de tout). Moins de messages, plus d'attention.
+2. **Absence longue** (EDT-228, R-E35) : au lieu de « cours non assuré » répété pendant trois semaines, l'EDT de l'élève affiche l'état du remplacement, sans motif : « remplacement en recherche », puis « remplacé par M. Y à partir du 18 novembre » ; un seul message par étape.
+3. **Écran du hall** (EDT-217, R-E26) : un affichage des changements du jour (classe, matière, horaire, état, nouvelle salle), **sans nom de professeur ni motif** (R-11 ne prévoit aucune absence dans le traitement), sur un lien à jeton d'affichage révocable, sans données d'élève.
+4. **Accusé de l'intervenant** (EDT-238) : un remplaçant ou un professeur dont la salle change moins de 24 h avant voit le changement à confirmer ; sans accusé une heure avant la séance, la vie scolaire est alertée (« M. Y n'a pas vu son remplacement de 10 h »).
+5. **Le PP est informé** des séances annulées ou non assurées de sa classe, même s'il n'y enseigne pas (il répond aux familles), dans son résumé du jour.
+6. **AESH** prévenue de toute modification d'une séance accompagnée (§8.3 bis).
+7. **iCal ≠ alerte** : les agendas abonnés se rafraîchissent avec retard (plusieurs heures selon le client [H]) ; un changement de moins de 24 h passe **toujours** par une notification, jamais par l'iCal seul.
+8. **Date de diffusion annoncée** : la date à laquelle les familles verront l'EDT de l'année est affichée dès la publication aux personnels (« EDT disponible le 28 août »), pour réduire les appels au secrétariat.
+
 ---
 
 ## 15. Droits et minimisation
@@ -669,6 +798,24 @@ Pour chaque route EDT : un autre établissement (refus) ; un professeur hors de 
 - **Personnes concernées** : élèves (EDT nominatif = déduit de leur scolarité), personnels (EDT, vœux, indisponibilités), familles (abonnements).
 - **Finalité** : organisation des enseignements et de la vie scolaire ; information des familles ; décompte des heures effectuées.
 - **Minimisation** : le moteur de génération ne lit que des identifiants et des effectifs ; les vœux ne demandent aucun motif ; aucun suivi de localisation continue.
+
+### 15.5 bis Pièges de droits trouvés par les personas (ajout personas) [R]
+| Piège | Où | Correction |
+|---|---|---|
+| L'**explication** donnée à un professeur nomme la contrainte d'un collègue | §11.4 point 2, §12.3 | explications typées par source et par visibilité dès T8a ; filtre serveur (R-E31) |
+| **Présence oui/non** d'un personnel, ouverte à tout le personnel et à l'accueil, révèle des absences répétées (et parfois une maladie) | §14.3, EDT-110, D19 | lecture unitaire, à l'instant, sans historique ni liste, libellé « disponible / non disponible », jamais « absent » ; journalisée pour l'accueil (R-E37) |
+| **Localisation** qui révèle l'infirmerie, l'assistante sociale, la psychologue | EDT-109 | « pris en charge par un service de l'établissement » (R-E27) ; les rendez-vous de santé et sociaux ne sont jamais des séances |
+| **AED** avec les droits de la vie scolaire sur l'EDT nominatif de tout élève | §15.2 | l'AED reçoit `edt.localiser` et la permanence, pas `edt.lire_eleve` établissement ; le CPE garde la lecture complète ; relevé des lectures atypiques pour le CPE (EDT-218) |
+| **Groupe révélateur** (ULIS, UPE2A, FLE, PAP) ou groupe d'un seul élève visible dans l'EDT non nominatif de la classe | Q-EDT15, §15.2 | libellé neutre sous 3 élèves de la classe ou pour un dispositif marqué sensible (R-E34) |
+| **AESH** visible dans l'EDT de la classe | §8.3 bis | jamais (R-E33) |
+| Codes `decharge` (syndicale), `temps_partiel` (thérapeutique) | §12.2 | codes non révélateurs (R-E29) |
+| **Majorité** : les titulaires continuent de recevoir l'EDT | §13.4 | relecture à la date des 18 ans selon le socle 4 (R-E32) |
+| **Assistant EDT** (professeur avec décharge qui aide l'adjoint) avec `edt.construire` lit les commentaires des vœux | §15.1 | action `edt.construire` sans `edt.voeux_lire` : vœux structurés visibles, commentaires et motifs codés masqués |
+| **DDFPT** qui doit gérer les ateliers et les périodes de son pôle sans tout l'EDT | §15.1 | `edt.contraintes_gerer` et `edt.modifier_seance` à portée **« mes formations »** (lieux et cours du pôle) |
+| **Préparatrice de laboratoire** qui a besoin du planning des TP | EDT-231 | lecture par **lieu** (salles de TP de son périmètre) avec matériel demandé, sans liste d'élèves |
+| **Écran du hall** lisible de tous | EDT-217 | ni nom, ni motif, ni élève ; jeton d'affichage (R-E26) |
+
+**Catalogue d'actions complété** (ajout personas) : `edt.afficher` (jeton d'affichage du hall : établissement ; DIR, ADJ), `edt.reparer` (scénarios de réparation : établissement ; ADJ, DIR ; inclus dans `edt.construire`), `edt.choix_eleves` (campagnes d'ateliers à inscription : établissement ; ADJ, CPE, PP en lecture de sa classe ; ELV et FAM en saisie pour soi). Portées nouvelles : « mes formations » (DDFPT), « mes lieux » (préparatrice, agents). Le modèle « Assistant d'éducation » perd `edt.lire_eleve` établissement au profit de `edt.localiser` et de la permanence.
 
 ### 15.6 Conservation [R, NV pour les durées]
 Version publiée et séances : année + durée d'archive de la vie scolaire (les séances justifient l'appel et les heures payées) ; scénarios non retenus : purgés 30 jours après la publication de la version ; vœux nominatifs : fin de l'année suivante (équité pluriannuelle) puis agrégés ; journaux de localisation : 1 an [NV] ; jetons iCal : révoqués à la sortie, purgés après 3 mois. Durées à valider avec le DPO (catégories du socle 7).
@@ -795,6 +942,53 @@ Les identifiants `EDT-01` à `EDT-08` de `SOCLE2_DOMAINES.md` §D4 et `EDT-01` �
 
 **Total : 86 actions** (EDT-100 à EDT-198, numéros non contigus pour laisser de la place par famille ; ordre d'affichage par sens, pas par numéro).
 
+### 16.8 Actions ajoutées par la passe personas (ajout personas)
+Source : `PERSONAS_10.md` (manque d'origine dans la colonne « Réf. »).
+
+| ID | Action | Acteur | Règles clés | Réf. |
+|---|---|---|---|---|
+| EDT-200 | **Proposer des barrettes** à partir des choix des élèves (combinaisons, groupes possibles, élèves bloqués nommés avec alternative) | ADJ, DIR | §11.7 ; sans écriture ; appliqué par le socle 5 (STR-58, STR-99) | M-497 |
+| EDT-201 | **Générer avec répartition** des élèves entre les groupes d'un même enseignement | ADJ | §11.7 point 2 ; affectations proposées au socle 5 | M-498 |
+| EDT-202 | **Amorcer un scénario depuis l'EDT de l'an passé** (jours libérés, salles, créneaux EPS, habitudes) en contraintes souples | ADJ | G-15 ; aucune reprise des vœux de N-1 sans reconduction (EDT-197) | M-499 |
+| EDT-203 | **Partager un scénario** : lecture pour la direction, édition à plusieurs, commentaires de placement | ADJ, DIR, assistant EDT | R-E22 ; sauvegarde continue | M-500, M-501 |
+| EDT-204 | Contrôler **heures placées / dotation** par discipline et **HSA** par professeur | ADJ, DIR | R-04 ; socle 6 | M-502 |
+| EDT-205 | **Simuler une autre grille** (durée de séance, récréations, pause méridienne) sur un scénario | ADJ, DIR | sans écriture ; pièces qui ne tiennent plus listées | M-503 |
+| EDT-206 | Voir le **prix d'un vœu** ou d'une contrainte avant de l'arbitrer | DIR, ADJ | §12.5 point 5 | M-505 |
+| EDT-207 | **Réparer** la version publiée après un changement (scénario de réparation comparé, version temporaire ou nouvelle base) | ADJ | §11.8 ; G-09 fort ; aperçu des personnes prévenues | M-507, M-571 |
+| EDT-208 | **Planifier les conseils de classe** (calendrier de tous les conseils, présence maximale des professeurs, salles) | ADJ, DIR ; port pour 23 | plages communes ; présences calculées (matrice EDT-17) | M-510 |
+| EDT-209 | Ouvrir une **campagne d'ateliers à inscription** (sessions, capacités, cycles, publics admis) | ADJ, CPE | matrice EDT-15 (T-15) ; CL-81 | M-511 |
+| EDT-210 | **Classer ses choix** d'ateliers ; répartition par le moteur ; listes publiées par cycle | ELV, FAM (mineur, selon droit du lien) ; SYS | premier vœu maximisé, équité ; publics datés par cycle | M-511 |
+| EDT-211 | Tracer les **décisions d'organisation du temps** (grille, demi-journées, mercredi) avec date et instance | DIR | R-28 | M-514 |
+| EDT-212 | **Publier la règle d'équité** des vœux avant la campagne, puis les indicateurs agrégés sans nom | DIR | §12.5 point 6 | M-515 |
+| EDT-213 | **Demander la révision** de son EDT ; répondre avec l'explication figée | PRF ; DIR, ADJ | R-27, R-E23 | M-517 |
+| EDT-214 | Trouver les **groupes compatibles** pour un élève (arrivée, changement d'option, réorientation) | SEC, ADJ | port `groupes_compatibles` ; le socle 5 affecte | M-521, M-522 |
+| EDT-215 | Imprimer le **lot de rentrée** : EDT de chaque élève d'une classe, avec ses groupes | SEC | trames du socle 7 ; familles sans internet | M-523 |
+| EDT-216 | **Saisie accélérée** d'un EDT existant en cours d'année (reprise du pilote depuis Charlemagne, par fichier ou à la main) | ADJ, SEC | version de base « reprise » ; contrôles du §14.1 ; Q-EDT19 | M-525 |
+| EDT-217 | **Écran du hall** : changements du jour, sans nom ni motif | DIR, ADJ (jeton) | R-E26 | M-527 |
+| EDT-218 | Voir le **relevé des lectures de localisation** atypiques (même élève lu souvent, lectures sans usage) | CPE, DIR | R-E16 ; mensuel | M-530 |
+| EDT-219 | Liste des **élèves attendus en permanence** par heure, pour l'appel de permanence | VS, AED | port `effectifs_attendus` ; appel au socle 12 | M-531 |
+| EDT-220 | Exprimer ses **vœux en langage courant** (proposition structurée par l'IA, à confirmer) | PRF | R-E30 | M-537 |
+| EDT-221 | **Réserver les jours** d'un service partagé avant la génération (provisoire, puis confirmé) | ADJ, DIR ; PRF | §12.5 point 3 | M-539 |
+| EDT-222 | Voir **ses EDT de deux établissements** et leurs chevauchements ; importer l'agenda d'un établissement hors ScolIA comme indisponibilités (plages occupées seulement) | PRF (moi seul) | D-013 ; PRS-141 | M-540 |
+| EDT-223 | Déclarer un **temps de trajet** personnel autour de ses indisponibilités (sans lieu) | PRF | CL-65 | M-541 |
+| EDT-224 | Voir la **charge de la semaine** d'une classe ou d'un élève (heures, évaluations prévues, sorties, journées longues) | PP, ADJ, CPE ; ELV, FAM pour soi | lecture des socles 20, 21, 42 | M-543, M-547 |
+| EDT-225 | Déclarer un **cours externe** (autre établissement par convention, à distance) à placement imposé | ADJ | CL-66, CL-68 | M-545, M-548 |
+| EDT-226 | Voir le **planning d'une AESH** dérivé des élèves accompagnés ; conflits | AESH (soi), coordinateur, ADJ | §8.3 bis ; R-E33 | M-550 |
+| EDT-227 | Déclarer une **prise en charge extérieure récurrente** d'un élève (exclusion hebdomadaire datée) | SEC, CPE, référent ULIS | CL-70 ; motif codé | M-552 |
+| EDT-228 | Afficher l'**état du remplacement** d'une absence longue (en recherche, remplacé à partir du…) | SYS (depuis 15) | R-E35 | M-556 |
+| EDT-229 | Mettre en avant la **fin de journée réelle** de l'enfant (et sa sortie autorisée selon le régime) | FAM, ELV | lecture ; socle 14 | M-557 |
+| EDT-230 | Trouver la **meilleure période** pour fermer un lieu (travaux) ou absenter un public | AGT (demande), ADJ | port `periode_optimale` | M-561 |
+| EDT-231 | **Planning des TP** d'un laboratoire avec le matériel demandé | préparateur, PRF | portée « mes lieux » ; sans élève | M-562 |
+| EDT-232 | Gérer l'**EDT par périodes** et le compteur d'heures annuelles dues / placées / restantes | ADJ, DDFPT | §11.9 ; R-E38 | M-564 |
+| EDT-233 | **Simuler l'échelonnement des PFMP** (occupation des ateliers et des professeurs) | DDFPT, ADJ | socle 39 possède le calendrier | M-565 |
+| EDT-234 | Planifier les **visites de suivi** en entreprise sur les plages libérées par les PFMP | PRF, DDFPT | socle 39 ; jamais comptées comme trous | M-566 |
+| EDT-235 | Changer le **lieu d'une pièce par période** (cycles d'EPS, installations municipales) | ADJ | CL-75 | M-573 |
+| EDT-236 | **Résumé « demain » par l'IA** avec propositions de réparation à valider | ADJ, VS | §20.1 ; confirmation | M-574 |
+| EDT-237 | **Anomalies** d'un scénario ou d'une version signalées (même matière toujours en dernière heure, journée de 9 h d'un élève) | ADJ, DIR | §20.1 | M-575 |
+| EDT-238 | **Accuser réception** d'un changement de moins de 24 h (intervenant, remplaçant) ; alerte si non vu | PRF ; SYS → VS | §14.4 point 4 | M-578 |
+
+**Total avec la passe personas : 125 actions** (86 + 39).
+
 ---
 
 ## 17. Règles transverses (R-E1 et suivantes) [R]
@@ -821,6 +1015,25 @@ Les identifiants `EDT-01` à `EDT-08` de `SOCLE2_DOMAINES.md` §D4 et `EDT-01` �
 | R-E18 | Les vœux sont personnels : un professeur ne voit que les siens, jamais ceux d'un collègue. |
 | R-E19 | Les heures effectuées (paie, remplacements) se calculent sur les séances réellement assurées, jamais sur le plan. |
 | R-E20 | Aucune date ou heure en dur « Europe/Paris » dans le code du socle (test de garde par recherche). |
+| R-E21 | (ajout personas) Le moteur peut **proposer** barrettes et répartitions à partir des choix agrégés des élèves ; il n'écrit jamais un groupe ni une affectation : le socle 5 applique (§11.7). |
+| R-E22 | (ajout personas) Un mouvement de scénario calculé sur une version dépassée du scénario est refusé avec l'écart ; jamais d'écrasement silencieux. |
+| R-E23 | (ajout personas) L'**explication** de chaque placement et de chaque vœu est **figée à la publication** (avec l'empreinte et la graine) et fait foi en cas de contestation. |
+| R-E24 | (ajout personas) Au plus deux calculs de génération ou de réparation en même temps par établissement ; un nouveau calcul identique (même empreinte) réutilise le précédent. |
+| R-E25 | (ajout personas) Le moteur ne lit **aucun trait personnel** ni historique de comportement d'un personnel (âge, ancienneté, santé, famille, absences passées) ; l'évaluation de l'art. 6 §4 du règlement sur l'IA est un livrable (R-26). |
+| R-E26 | (ajout personas) L'**écran du hall** n'affiche ni nom de personnel, ni motif, ni élève ; son jeton est révocable et limité à l'affichage. |
+| R-E27 | (ajout personas) La **localisation** d'un élève ne révèle jamais un service de santé, social ou psychologique : « pris en charge par un service de l'établissement ». |
+| R-E28 | (ajout personas) Les jours libérés d'un **temps partiel**, d'un complément de service ou d'une formation statutaire sont des indisponibilités dures venues du socle 6, hors budget de vœux. |
+| R-E29 | (ajout personas) Les **codes de motif** ne révèlent ni un temps partiel thérapeutique ni une décharge syndicale. |
+| R-E30 | (ajout personas) Un vœu dit en langage courant n'est conservé que sous forme **structurée** et confirmée ; le texte libre n'est pas stocké ; sans fournisseur d'IA approuvé, seul le formulaire existe. |
+| R-E31 | (ajout personas) L'explication montrée à un professeur (écran, IA, retour de vœux) ne nomme **jamais** un autre personnel ni sa contrainte ; seules les contraintes de structure sont nommées. |
+| R-E32 | (ajout personas) À la **majorité** d'un élève, abonnements et notifications d'EDT des titulaires sont relus selon le socle 4. |
+| R-E33 | (ajout personas) Une **AESH** n'apparaît dans aucun EDT de classe, de groupe ou d'un autre élève. |
+| R-E34 | (ajout personas) Dans un EDT **non nominatif**, un groupe de moins de 3 élèves de la classe ou un dispositif marqué sensible s'affiche « groupe particulier ». |
+| R-E35 | (ajout personas) Une absence longue s'affiche aux élèves et aux familles par l'**état du remplacement**, jamais par un motif ni le mot « absent ». |
+| R-E36 | (ajout personas) Une famille est prévenue tout de suite des changements qui modifient l'arrivée, le départ, une journée entière ou une séance non assurée ; le reste va au résumé du jour. |
+| R-E37 | (ajout personas) La **présence** d'un personnel se lit à l'unité, à l'instant, sans historique ni liste, en « disponible / non disponible » ; journalisée pour l'accueil. |
+| R-E38 | (ajout personas) Dans un EDT par périodes, le **volume dû** d'un cours se contrôle sur l'année (ou le cycle), sur l'ensemble des versions. |
+| R-E39 | (ajout personas) À la fin d'une **version temporaire**, le plan de base revient sans republication ; une levée anticipée passe par un aperçu et prévient les seules personnes touchées. |
 
 ---
 
@@ -862,6 +1075,10 @@ Les noms existants (`edt.seances_generees`, `edt.creneau_modifie`, `edt.exceptio
 | `eleve.scolarisation_close` | 2 | abonnements iCal de l'élève et de sa famille coupés |
 | `lien.droit_modifie` / `interdiction.creee` | 4 | abonnements iCal de la personne relus (coupés si besoin) |
 
+### 18.3 Événements ajoutés par la passe personas (ajout personas)
+**Émis** : `edt.version_temporaire_publiee` / `_levee` (version, périmètre, plage ; 8, 12, 20) ; `edt.reparation_proposee` (scénario, déclencheur ; 8 vers ADJ) ; `edt.barrettes_proposees` (proposition, élèves bloqués en nombre ; 5) ; `edt.choix_campagne_ouverte` / `_close`, `edt.choix_repartis` (campagne d'ateliers ; 8, 5, 12) ; `edt.revision_demandee` / `_traitee` (8) ; `edt.changement_non_accuse` (séance, intervenant ; 8 vers VS) ; `edt.remplacement_etat` (absence longue : en recherche, remplacé à partir du ; 8).
+**Consommés** : `accompagnement.*` (35 : plages d'accompagnement d'une AESH) ; `eleve.majorite_atteinte` (2, 4 : R-E32) ; `pfmp.periode_planifiee` / `_modifiee` (39 : séances retirées, §11.9) ; `transport.inscriptions_modifiees` (43 : publics transportés, H-15) ; `personnel.temps_partiel_decide` (6 : R-E28) ; `absence_personnel.remplacement_*` (15 : R-E35).
+
 ---
 
 ## 19. Écrans clés
@@ -879,6 +1096,8 @@ Les noms existants (`edt.seances_generees`, `edt.creneau_modifie`, `edt.exceptio
 10. **Échanges** : export de structure, import en proposition avec correspondances et différences (écran du socle 9 avec contenu du socle 10).
 
 **Mobile (socle 11, D-003)** [R] : « aujourd'hui » et « semaine » (tous), changements poussés, détail de séance, appel depuis la séance (socle 12), demande de changement de salle (PRF), « où est X » (VS, ACC), « demain » en lecture (ADJ). L'atelier de construction, les vœux détaillés et la publication restent sur le web.
+
+**(ajout personas)** **Écrans ajoutés** : atelier à plusieurs avec commentaires (EDT-203), barrettes et élèves bloqués (EDT-200), réparation comparée (EDT-207), planning d'AESH (EDT-226), écran du hall (EDT-217, page sans session, jeton d'affichage), vœux en langage courant (EDT-220), charge de la semaine (EDT-224), planning des TP (EDT-231). **Accessibilité** (M-558) : la couleur d'une matière n'est jamais la seule information (libellé court et motif), contrastes vérifiés pour les daltonismes courants, grille lisible au lecteur d'écran (en-têtes de jour et d'heure, séance annoncée « mardi, 10 h, mathématiques, salle 12, modifiée »), vue liste équivalente à la grille.
 
 **Remplace** dans `ui.rs` (F-001) et dans les modules Leptos actuels (`edt`, `edt_semaine`, `changements_edt`, `remplacements`) : voir §2 pour ce qui est gardé.
 
@@ -902,6 +1121,22 @@ Les noms existants (`edt.seances_generees`, `edt.creneau_modifie`, `edt.exceptio
 | `edt.resumer_scenarios` | lecture | `edt.construire` | faible | — | « Résume les différences entre A et B » |
 
 L'IA ne lit **jamais** les vœux d'un autre professeur pour un professeur, ni la localisation d'un élève (`edt.localiser` non exposée à l'IA en première version [R]). Jeu d'évaluation du socle : 30 questions types (familles, élèves, professeurs, ADJ) avec réponses attendues calculées depuis les données de labo.
+
+### 20.1 Ce que l'IA ajoute, selon les personas (ajout personas, D-030) [R]
+Le moteur place (déterministe) ; l'IA **aide autour**, avec les droits de l'utilisateur, à partir des sorties du moteur :
+
+| Capacité | Type | Droit | Confirmation | Exemple |
+|---|---|---|---|---|
+| `edt.formuler_voeux` | simulation | soi (`edt.voeux_saisir`) | le professeur confirme chaque vœu structuré | « Je voudrais finir tôt le jeudi » → « pas de dernière heure le jeudi, priorité 3 » (R-E30) |
+| `edt.prix_voeu` | lecture | `edt.voeux_arbitrer` | — | « Que coûte le mercredi libre de M. X ? » |
+| `edt.reparer` | simulation | `edt.construire` | l'ADJ publie | « Mme X absente trois mois, suppléant libre lundi, mardi, jeudi : propose » |
+| `edt.resumer_demain` | lecture | `edt.modifier_seance` ou VS | — | « Qu'est-ce qui manque demain et que me proposes-tu ? » |
+| `edt.anomalies` | lecture | `edt.construire` | — | « Y a-t-il des choses bizarres dans le scénario B ? » |
+| `edt.rediger_message_lot` | rédaction | `edt.annuler_masse` | **confirmation humaine** de l'envoi | message aux familles un matin de neige, motif public seulement |
+| `edt.charge_semaine` | lecture | `edt.lire_eleve` (soi, lien, PP) | — | « Ma semaine est-elle chargée ? » (élève) |
+| `edt.expliquer_barrettes` | lecture | `edt.construire` | — | « Pourquoi ces 4 élèves sont-ils bloqués ? » |
+
+Garde-fous ajoutés : le filtre d'explication (R-E31) s'applique aux réponses de l'IA ; l'IA ne reçoit jamais le texte libre d'un vœu une fois structuré ni les commentaires de vœux pour un autre que ADJ/DIR ; les noms d'élèves ne sont envoyés au fournisseur que si l'utilisateur les voit déjà et si le fournisseur est approuvé (CLAUDE.md, Mistral à l'étude) ; le jeu d'évaluation passe à 45 questions (réparation, barrettes, vœux en langage courant, pièges de révélation : « qui bloque mon lundi ? » posée par un professeur).
 
 ---
 
@@ -1019,6 +1254,27 @@ ent_edt_localisation_journal                             -- lectures « où est 
 ### 21.4 Paramètres (table `ent_parametre` du socle 5, 332) [R]
 `edt.heure_message_veille` (défaut 18:30) ; `edt.publication_deux_temps` (défaut oui, délai 2 jours ouvrés) ; `edt.auto_acceptation` (défaut : changements de salle sans conflit = oui, échanges = non) ; `edt.nom_intervenant_familles` (Q-EDT8) ; `edt.distance_active` (Q-EDT9). Cinq réglages, pas davantage.
 
+### 21.6 Compléments de modèle de la passe personas (ajout personas) [R]
+```
+ent_edt_version  + nature ('base','temporaire'), base_version_id NULL, perimetre JSONB NULL, periode_libelle NULL
+  -- contrainte d'exclusion : une version 'base' publiée par date ; une 'temporaire' publiée par cours et par date (§8.4)
+ent_edt_placement.explication JSONB                      -- typée : [{source: 'structure'|'grille'|'lieu'|'plage_interdite'|'personnel'|'voeu',
+                                                         --          visibilite: 'tous'|'concerne'|'construction', ...}] (R-E31)
+ent_edt_explication_figee                                -- R-E23, ajout seul
+  version_id, cible ('placement','voeu','non_place'), cible_id, explication JSONB, empreinte, graine, le
+ent_edt_choix_campagne / ent_edt_choix_session / ent_edt_choix   -- ateliers à inscription (EDT-209, 210)
+  campagne : id, etablissement_id, annee_id, libelle, cycles daterange[], publics, ouverte_le, close_le, etat
+  session  : id, campagne_id, cours_id (socle 5, public d'inscrits), capacite, placement_id NULL
+  choix    : campagne_id, eleve_id, rang SMALLINT, session_id, saisi_par, le ; affectation_session_id NULL
+ent_edt_revision      id, etablissement_id, agent_id, version_id, demande TEXT (≤ 1 000), reponse, etat, traite_par, le
+ent_edt_accuse        etablissement_id, seance_id, agent_id, modification_id, vu_le        -- EDT-238
+ent_edt_affichage_jeton  id, etablissement_id, empreinte, site_id NULL, cree_par, revoque_le  -- EDT-217
+ent_edt_trajet_agent  etablissement_id, agent_id, minutes SMALLINT                       -- CL-65, sans lieu
+ent_edt_cours_externe etablissement_id, cours_id, nature ('convention','distance'), libelle_partenaire, trajet_minutes
+ent_edt_decision_organisation  id, etablissement_id, annee_id, objet, instance, date_decision, document_id NULL  -- EDT-211
+```
+Migrations : dans la réserve **4012–4020** (repli 452–457, en regroupant). La colonne `ent_edt_voeu.motif_code` garde ses cinq valeurs, avec la règle R-E29 dans la documentation de chaque valeur.
+
 ### 21.5 Ce qui est repris ou retiré
 | Existant | Devient | Quand |
 |---|---|---|
@@ -1076,6 +1332,22 @@ Chaque lot livre : migrations dans la plage (§23.2), dépôt, service en transa
 
 **Ordre recommandé** : **T0** tout de suite (sécurité) → T1 → T2 → T3 → (T4, T5) → T6 → T7 → T8a → T8b ; T9, T10, T13 en parallèle après T5 ; T12 au fil de l'eau ; T11 en dernier. **Parcours minimal vendable** (« la journée de l'établissement ») : T0 à T5 + T9 + T12a–c. **Génération** (argument de juillet, D-025) : T6, T7, T8a, T8b, T12d–e.
 
+### 23.3 Place des ajouts de la passe personas dans les lots (ajout personas)
+- **T0** : R-E27 (localisation), R-E37 (présence), modèle AED (§15.5 bis), R-E34 (groupes révélateurs) — mêmes routes que D2, D19.
+- **T1** : versions **de base / temporaires** (§8.4, Q-EDT18) dans le schéma dès la première migration ; EDT-216 (saisie accélérée) si Q-EDT19 le demande.
+- **T2** : résolution `version(d)` avec surcharge temporaire ; retour automatique (R-E39) ; AESH (§8.3 bis, port `seances_accompagnees`) avec le socle 35.
+- **T3** : EDT-227 (prise en charge récurrente), EDT-225 (cours externe), EDT-235 (lieu par période).
+- **T4** : R-E35, R-E36, EDT-217 (écran du hall), EDT-218, EDT-219, EDT-228, EDT-229, EDT-238 ; port `effectifs_attendus`.
+- **T5** : publication des versions temporaires ; EDT-211, EDT-212.
+- **T6** : R-E28, R-E29, R-E30 (sans IA d'abord), EDT-221, EDT-222, EDT-223 ; H-13, H-14.
+- **T7** : diagnostic étendu aux barrettes (élèves bloqués) et à l'AESH.
+- **T8a** : explications **typées** (R-E31) ; barrettes sur un lycée de labo à triplettes réalistes ; charge par élève (G-18) ; évaluation art. 6 §4 du règlement sur l'IA (R-E25) ébauchée.
+- **T8b** : EDT-200 à 207 ; R-E22 à R-E24 ; G-15 à G-19.
+- **Nouveau T14 Ateliers à inscription** (EDT-209, 210 ; CL-81 ; matrice EDT-15) : après T8b ; effort M.
+- **Nouveau T15 Lycée professionnel** (§11.9 ; EDT-232 à 234 ; CL-73 ; R-E38) : après T8b, avec le socle 39 ; effort M ; priorité selon Q-EDT24.
+- **Nouveau T16 Réparation** (§11.8 ; EDT-207, EDT-236) : après T8b ; effort M ; c'est l'argument de l'année (D-030), pas seulement de juillet.
+- **T12** : écrans des ajouts (atelier à plusieurs, réparation, barrettes, planning AESH, écran du hall, vœux en langage courant).
+
 ### 23.2 Migrations (registre `MIGRATIONS.md`)
 **Plage 4000–4099** si la règle « 3000 + 100 × socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée ; **repli 440–459** sinon.
 
@@ -1129,6 +1401,16 @@ Numérotation à la suite des passes précédentes (S-79 au socle 9). Signalés,
 | S-87 | Durée de conservation des scénarios | Personne ne la changera | fixe (30 jours après publication) |
 | S-88 | Plafond de vœux par professeur | Utile pour l'équité | garder, défaut 5 |
 | S-89 | Cours à distance (Q-EDT9) | Fonction de crise, peu utilisée | désactivée par défaut |
+| S-90 | (ajout personas) Vœux : 9 natures × priorité 1 à 5 × budget × plafond | quatre dimensions pour dire « je préfère » | « 3 vœux importants + 2 souhaits », budget implicite |
+| S-91 | (ajout personas) Chaque contrainte d'établissement porte **dure/souple** et **niveau** | deux boutons par ligne | défaut par nature ; changement rare, replié |
+| S-92 | (ajout personas) Modes de publication accumulés (deux temps, diffusion avancée ou retardée, provisoire, individuelle, temporaire) | cinq notions pour « publier » | un seul écran « publier » qui pose les questions utiles |
+| S-93 | (ajout personas) Seuil des groupes révélateurs (R-E34) | sans enjeu local | fixe : 3 |
+| S-94 | (ajout personas) Contenu de l'écran du hall | tentation d'un éditeur | fixe (classe, matière, horaire, état, salle) |
+| S-95 | (ajout personas) Fin des cours des élèves transportés dure ou souple (H-15 / G-19) | réglage réel mais technique | défaut souple fort ; dure sur demande |
+| S-96 | (ajout personas) Délai d'alerte d'un changement non accusé | sans enjeu local | fixe : 1 h avant la séance |
+| S-97 | (ajout personas) Règle d'équité paramétrable (max-min, budget, pluriannuel, ancienneté) | source de conflit social si chacun la règle | une seule règle, publiée (EDT-212) |
+| S-98 | (ajout personas) Changements en milieu de journée notifiés aux familles | ne doit pas devenir une case par famille | règle fixe R-E36 ; préférences du socle 8 inchangées |
+| S-99 | (ajout personas) Rôle « assistant EDT » | un rôle de plus | modèle de rôle fourni, pas un réglage |
 
 ---
 
@@ -1152,6 +1434,15 @@ Numérotation à la suite des passes précédentes (S-79 au socle 9). Signalés,
 | **Q-EDT14** | **L'accueil** peut-il savoir où est un élève **maintenant** (pour une remise ou une urgence) ? | **Oui**, par une lecture unitaire journalisée (`edt.localiser`), jamais une liste ; refus systématique pour un élève sous mesure de protection hors personnels habilités. |
 | **Q-EDT15** | Un professeur voit-il l'EDT **non nominatif** d'une classe où il n'a qu'un groupe (tous les cours de la classe, sans liste d'élèves) ? | **Oui** : c'est une donnée d'organisation (devoirs, réunions, sorties) ; D-022 s'applique à l'EDT **nominatif** d'un élève (ses groupes, ses inclusions), qui reste limité aux élèves de ses cours. À confirmer, car D-022 dit « toute donnée élève ». |
 | **Q-EDT16** | Heure par défaut du **message de la veille** (changements du lendemain) ? | **18 h 30**, rappel le matin à 7 h pour les changements de la première heure. |
+| **Q-EDT17** | (ajout personas, **bloquant A**) Le moteur d'EDT **propose-t-il les barrettes** et la répartition des élèves dans les groupes à partir de leurs choix (D-030), le socle 5 restant propriétaire des groupes ? | **Oui** (§11.7, R-E21) : sans cela, ScolIA n'atteint pas la parité d'EDT (groupes de spécialités indépendants des classes, contrôle des heures par élève [V]) ; prototype T8a mesuré sur un lycée à triplettes. |
+| **Q-EDT18** | (ajout personas, **bloquant C**) Versions **de base et temporaires** (suppléant contraint, périodes, semaine de voyage), décidées avant T1 ? | **Oui** (§8.4) : coût faible dans le schéma initial, très élevé après. |
+| **Q-EDT19** | (ajout personas) Le pilote démarre-t-il avec un EDT **construit dans ScolIA** pour une rentrée, ou **en cours d'année** avec l'EDT de Charlemagne ? | Si en cours d'année : saisie accélérée (EDT-216) depuis un export Charlemagne ou à la main, **avant** les lots de génération, seule exception à l'ordre de D-030 ; sinon rien à changer. |
+| **Q-EDT20** | (ajout personas) L'**ancienneté** peut-elle peser dans l'équité des vœux (pratique locale [H]) ? | **Non** : critère personnel (R-E25, R-26) et source de conflit ; une seule règle publiée (S-97). |
+| **Q-EDT21** | (ajout personas) Familles : prévenues tout de suite **seulement** des changements d'arrivée, de départ, de journée entière ou de cours non assuré (R-E36) ? | **Oui** par défaut ; l'élève reçoit tout. |
+| **Q-EDT22** | (ajout personas) **Écran du hall** sans nom de professeur ? | **Oui** (R-E26) : R-11 ne prévoit pas d'absence dans le traitement ; la classe et la matière suffisent. |
+| **Q-EDT23** | (ajout personas) L'**AED** perd la lecture de l'EDT nominatif de tout élève au profit de la localisation journalisée et de la permanence ? | **Oui** (§15.5 bis) ; le CPE garde la lecture complète. |
+| **Q-EDT24** | (ajout personas) Le **lycée professionnel** (périodes, PFMP, ateliers) fait-il partie du premier pilote ? | Décide de la priorité de T15 ; la conception le prévoit dans tous les cas. |
+| **Q-EDT25** | (ajout personas) **Ateliers à inscription** (matrice EDT-15, trou T-15) dès la première version ? | **Oui**, lot T14 après T8b : même moteur de répartition que les barrettes. |
 
 ---
 
@@ -1173,6 +1464,15 @@ Numérotation à la suite des passes précédentes (S-79 au socle 9). Signalés,
 - **C-7** Migrations 170 et 370 ajoutent la même colonne `ent_edt_creneau.groupe_id` et le même index (inoffensif grâce à `IF NOT EXISTS`, mais trompeur dans le registre).
 - **C-8** Q-B15 (`ARCHITECTURE_BRIQUES.md`) met la séance au noyau ; `05_STRUCTURE.md` (Q-S11) envoie sa génération au socle 10. Les deux sont compatibles : tables au noyau, génération et commandes au socle 10 (Q-EDT2).
 - **C-9** `SOCLE2_DOMAINES.md` §D4 et `MATRICE_CHARLEMAGNE.md` §3.6 utilisent tous deux des identifiants `EDT-01`… avec des sens différents ; les actions de ce socle commencent à EDT-100 pour n'en écraser aucun.
+- **C-10** (ajout personas) §15.2 donne à « CPE, VS » l'EDT des classes et des élèves ; la minimisation demande de séparer CPE (lecture complète) et AED (localisation journalisée, permanence) (§15.5 bis, Q-EDT23).
+- **C-11** (ajout personas) §14.3 et D19 ouvrent la **présence oui/non** des collègues à tout le personnel ; R-11 exclut toute absence du traitement d'EDT : lecture unitaire « disponible / non disponible » (R-E37).
+- **C-12** (ajout personas) §21.2 (`EXCLUDE … daterange` sur les versions publiées) empêche le retour au plan après une version temporaire (§8.4, Q-EDT18).
+- **C-13** (ajout personas) H-12 (volume hebdomadaire) contredit le lycée professionnel, où le volume est dû sur l'année ou le cycle (R-29, R-E38).
+- **C-14** (ajout personas) §12.2 traite le temps partiel comme une indisponibilité saisie avec les vœux ; R-23 en fait une décision administrative annuelle, connue fin mars : elle vient du socle 6 (R-E28).
+- **C-15** (ajout personas) La ligne **EDT-15** de la matrice (enseignements transversaux, trou T-15) n'était traitée par aucune action : EDT-209, EDT-210, lot T14.
+- **C-16** (ajout personas) R-08 [NV] (décret 82-624) est remplacée par R-23 [V] : la règle des heures entières est aujourd'hui au code de l'éducation (R911-7).
+- **C-17** (ajout personas) D-030 place les imports **après** saisie et génération ; un pilote qui démarre en cours d'année a besoin de son EDT Charlemagne **avant** (Q-EDT19).
+- **C-18** (ajout personas) L'AESH, présente aux socles 5 (STR-102) et 6 (P24, P58, R-P20), était absente du socle 10 (§8.3 bis).
 
 ---
 
