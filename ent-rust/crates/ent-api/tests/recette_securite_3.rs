@@ -564,6 +564,86 @@ fn rs3_01_parent_non_payeur_sans_acces_a_la_facturation() {
     });
 }
 
+// ───────────────────────── EDT : référence croisée inter-établissements (RS3-04) ─────────────────────────
+
+/// **RS3-04 (faible, FAILLE OUVERTE).** `POST /edt/annulations` accepte un
+/// `absence_rh_id` du **corps** sans vérifier qu'il appartient à l'établissement
+/// de la session : une exception d'EDT de A peut pointer vers une absence RH de
+/// B (référence croisée). Impact limité (oracle d'existence d'UUID + blocage de
+/// la suppression côté B par la clé étrangère), pas de fuite de données — mais
+/// c'est un défaut de cloisonnement à fermer (borner `absence_rh_id` par
+/// l'établissement, comme `edt_organiser_remplacement`).
+///
+/// Test `#[ignore]` : il **échoue tant que la faille existe** (il attend un refus,
+/// or la route renvoie 201). Lancer avec `--ignored`.
+#[test]
+#[ignore = "FAILLE OUVERTE RS3-04 : POST /edt/annulations ne borne pas absence_rh_id par l'établissement (référence croisée A→B)"]
+fn rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        // 1. Déclarer une absence RH dans B (Direction de B, sur le Prof de B).
+        let prof_b = *m.b.user_ids.get(&Prof).expect("prof de B");
+        let debut = chrono::Utc::now().date_naive() + chrono::Duration::weeks(30);
+        let decl = m
+            .appel(
+                "POST",
+                "/rh/absences",
+                Some(m.b.jetons[&Direction].as_str()),
+                Some(&json!({
+                    "user_id": prof_b,
+                    "debut": debut.to_string(),
+                    "fin": (debut + chrono::Duration::days(1)).to_string(),
+                    "motif": "RS3-04"
+                })),
+            )
+            .await;
+        assert!(decl.statut.is_success(), "déclaration absence RH dans B : {} {}", decl.statut, decl.texte);
+        let absence_b = uuid_de(&decl.json["id"]);
+
+        // 2. Trouver un créneau de A (jeton du Prof de A).
+        let prof_a = m.jeton(Prof).to_string();
+        let base = chrono::Utc::now().date_naive() + chrono::Duration::weeks(40);
+        let mut creneau_a = None;
+        let mut jour_a = base;
+        for d in 0..7 {
+            let jour = base + chrono::Duration::days(d);
+            let r = m.appel("GET", &format!("/edt/mes-creneaux?jour={jour}"), Some(&prof_a), None).await;
+            if let Some(c) = r.json.as_array().and_then(|a| a.first()).cloned() {
+                let cid = if c["creneau_id"].is_null() { c["id"].clone() } else { c["creneau_id"].clone() };
+                if cid.is_string() {
+                    creneau_a = Some(uuid_de(&cid));
+                    jour_a = jour;
+                    break;
+                }
+            }
+        }
+        let Some(creneau_a) = creneau_a else {
+            eprintln!("SKIP RS3-04 : aucun créneau d'EDT pour le Prof de A");
+            return;
+        };
+
+        // 3. Dans A : annuler un créneau de A en référençant l'absence RH de B.
+        let rep = m
+            .appel(
+                "POST",
+                "/edt/annulations",
+                Some(m.jeton(Direction)),
+                Some(&json!({
+                    "creneau_id": creneau_a,
+                    "jour": jour_a.to_string(),
+                    "absence_rh_id": absence_b
+                })),
+            )
+            .await;
+        assert!(
+            rep.est_refus() || rep.statut.as_u16() == 400 || rep.statut.as_u16() == 409,
+            "RS3-04 : l'annulation d'un créneau de A avec une absence RH de B doit être refusée \
+             (obtenu {} ; la référence croisée A→B est acceptée)",
+            rep.statut.as_u16()
+        );
+    });
+}
+
 // ───────────────────────── Invariant : inventaire à jour ─────────────────────────
 
 /// Garde-fou : l'inventaire des routes de `routes_src` couvre toujours tous les
