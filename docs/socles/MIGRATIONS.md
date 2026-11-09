@@ -77,3 +77,11 @@ Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG`
 
 ## Mise à jour du 2026-11-07 (intégration du lot 8 bis)
 Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–272 (A1 : 273–274 restent réservées) ; 280–286 (E2, E3, E4) ; 300–301 (I1) ; 370 (D-022). Liste de `migrate.rs` = répertoire `migrations/`, ordre croissant, aucune collision ; `MIGRATION_TAG` = `370_edt_creneau_groupe`. D-022 bis n'a pas ajouté de migration au-delà de 370 (371–374 restent réservées).
+
+## Réservation du 2026-11-09 (conception du socle 10, rattrapage)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 4000–4099 | socle 10 emploi du temps (conception : `10_EMPLOI_DU_TEMPS.md` §23.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 4000–4011 attribuées (T0 correctifs et RLS permissive ; T1 versions, besoins, pièces, placements ; T2 séance enrichie et ses lieux, intervenants, fusions — **4003–4004 sont des tables du noyau** (Q-B15), à renuméroter dans 1200–1399 si Q-B2 les y range, comme la 3910 du socle 9 ; T3 modifications et lots ; T4 journal de localisation ; T5 publication ; T6 contraintes et vœux ; T8b scénarios ; T13 demandes), 4012–4089 réserve, 4090–4099 RLS stricte et retrait des anciennes tables (`ent_edt_exception`, `ent_edt_deplacement`, `ent_edt_annulation_masse`, `ent_edt_calendrier_ab`, `ent_edt_contrainte`) après la durée d'archive | `ent-socle-edt-conception` (conception seulement) | réservé |
+| 440–459 | socle 10, **repli** si Q-B2 n'est pas adoptée (440–451 attribuées dans le même ordre, 452–457 réserve, 458–459 RLS et retraits) ; vérifié libre sur toutes les branches distantes le 2026-11-09 | `ent-socle-edt-conception` (conception seulement) | réservé |
+
+Note : le lot T0 (correctifs urgents, 4000 / 440) peut partir avant toute décision sur Q-B2 ; il prend alors **440** et la suite du socle garde la même correspondance.

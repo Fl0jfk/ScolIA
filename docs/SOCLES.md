@@ -195,12 +195,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 
 #### 10. Emploi du temps
 - **Contient** : créneaux, semaines A/B, **séances datées** matérialisées ; exceptions (annulation, déplacement, changement de salle) ; imports depuis les logiciels d'emploi du temps ; contraintes ; consultation par professeur, classe, élève, salle ; iCal ; **annulation en masse** (grève, intempéries) avec effets automatiques ; changements annoncés aux familles.
-- **Ne contient pas** : la fabrication automatique de l'emploi du temps (solveur, §7) ; les remplacements (→ 15) ; les réservations (→ 44).
+- **Ne contient pas** : ~~la fabrication automatique de l'emploi du temps (solveur, §7)~~ (D-025 : dans le périmètre ; la conception du 2026-11-09 la place **dans ce socle**, lots T6 à T8b, Q-EDT1 à valider) ; l'absence d'un personnel, la décision de remplacer et la recherche du remplaçant (→ 15 ; le socle 10 garde la modification de séance) ; les réservations (→ 44).
 - **Dépend de** : 5, 6.
 - **Apporte** : la séance datée, support de l'appel, du cahier de textes, des remplacements, des examens, des sorties.
 - **Existant [F]** : 021, 042, 048, 060, 083 ; séances datées (110) ; `ent-api/src/ical.rs` ; module Leptos `edt`.
 - **Place** : première brique de la journée ; tout ce qui suit se rattache à une séance.
 - **Faire mieux** : réaction en deux minutes à une fermeture (familles, cantine, études prévenues ensemble, A14).
+- **Conception** (2026-11-09, rattrapage, non décidée) : `docs/socles/10_EMPLOI_DU_TEMPS.md` — plan versionné / séance datée stable / modification ; génération automatique déterministe et explicable (D-025) ; 86 actions EDT-100 à EDT-198, 63 cas limites, lots T0 à T13 ; **lot T0 de correctifs urgents** sur l'existant (cahier de textes effacé à la régénération, EDT nominatif ouvert à tout professeur contre D-022, motifs d'absence visibles des professeurs, aucune RLS). Remontée hebdomadaire du remplacement de courte durée (arrêté du 14/08/2023) à prévoir avec les socles 9 et 15. Plage de migrations 4000–4099 (Q-B2) ou 440–459.
 
 #### 11. Applications mobiles (coquille commune)
 - **Contient** : une appli iOS (SwiftUI) et une Android (Compose) pour tous les rôles (D-003) : connexion par passkey native, session longue révocable, déverrouillage biométrique, rattachement à l'établissement par lien ou QR code, plusieurs établissements et plusieurs enfants, push, hors ligne (lecture, puis saisie de l'appel), associations de domaine `scolia.fr`, publication dans les stores, parité stricte des droits avec l'API.
@@ -550,7 +551,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 
 ## 7. Hors carte (candidats, à décider)
 
-- **Fabrication automatique de l'emploi du temps** (solveur) : produit à part chez les concurrents [H] ; gros chantier algorithmique ; socle 52 possible.
+- ~~**Fabrication automatique de l'emploi du temps** (solveur) : produit à part chez les concurrents [H] ; gros chantier algorithmique ; socle 52 possible.~~ Dans le périmètre (D-025) ; proposée **dans le socle 10** par sa conception (2026-11-09, Q-EDT1).
 - **Ensembles scolaires et réseaux** (plusieurs établissements, facturation de fratrie commune) : contredit l'absence de visibilité entre établissements (D-013) ; seulement comme « groupe » explicite et consenti (Q13).
 - **Boutique et billetterie** (photos de classe, fournitures, événements) : faible priorité.
 
@@ -565,7 +566,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | Q-C | **Comptabilité générale** (socle 48) complète pour le privé, ou export vers le logiciel comptable existant ? (même mention « DROP ») | Même réponse que Q-B. |
 | Q-D | Position de l'IA (socle 30) : après le pilote, ou remontée juste après la messagerie (16) ? | Après le pilote, points d'accroche posés dès le socle 2. **Mise à jour 2026-11-06 (D-024)** : le **cœur IA** (§1 bis) se construit en parallèle du socle 2 ; la conversation (30) garde sa place ; questions détaillées Q-IA1 à Q-IA14 dans `docs/socles/IA_COEUR.md` §18. |
 | Q-E | Premier degré (50) et post-bac (51) : dans la sortie visée fin 2027 (D-007) ou après ? | Après, sauf client pilote qui les exige (cf. Q8 de `SOCLE2_DOMAINES.md`). |
-| Q-F | Solveur d'emploi du temps : socle 52 ? | À étudier après J5. |
+| Q-F | Solveur d'emploi du temps : socle 52 ? | À étudier après J5. **Mise à jour** : D-025 l'inclut ; `10_EMPLOI_DU_TEMPS.md` propose de le construire dans le socle 10 (Q-EDT1), après le parcours minimal et un prototype mesuré. |
 | Q-G | Hébergement certifié pour la santé (Q7) : à faire trancher par le DPO **avant** le socle 34. | Oui. |
 
 ---
@@ -590,7 +591,7 @@ Ajout du 2026-11-06 (branche `ent-matrice-charlemagne`). Source : `docs/MATRICE_
 | Trou | Objet | Où l'ajouter [R] |
 |---|---|---|
 | T-01, T-02 | Guichet de demandes internes et familles (routage, prise en charge, délégation) ; demandes de reprographie et d'heures supplémentaires | **Nouveau socle N1** « Demandes et flux de travail » (à défaut : 29 + 31) |
-| T-03 | Construction de l'emploi du temps (génération avec contraintes) : module Emploi du temps de Charlemagne | Socle 10 (lot) ou **nouveau socle N2** ; à décider avec Q-F, **avant** J5 vu D-024 |
+| T-03 | Construction de l'emploi du temps (génération avec contraintes) : module Emploi du temps de Charlemagne | Socle 10 (lot) ou **nouveau socle N2** ; à décider avec Q-F, **avant** J5 vu D-024. **Proposition du 2026-11-09** : socle 10, lots T6–T8b (`10_EMPLOI_DU_TEMPS.md` §11, Q-EDT1) |
 | T-04, T-05 | Paie et comptabilité d'organisme : modules Paie et Comptabilité de Charlemagne | Socles 49 et 48 conservés ; Q-B et Q-C à trancher plus tôt (la checklist les classait « DROP ») |
 | T-06 | Santé et sécurité au travail (registre, médecine du travail, habilitations obligatoires) | Socle 49 (sous-domaine) |
 | T-07, T-08, T-09 | Accueil d'un nouvel agent, climat social anonyme, planning de service du personnel non enseignant | Socle 6 (+ 7, 15, 47) |
