@@ -292,15 +292,20 @@ jobs:
               listes = lire(f"{racine}/inventaire/liste-{variante}.txt")
               ignores = set(lire(f"{racine}/inventaire/ignores-{variante}.txt"))
               attendus = set(listes) - ignores
-              motif = re.compile(r"^\s*(PASS|FAIL|FLAKY \d+/\d+|TIMEOUT|SIG\w+|LEAK|EXECFAIL)\s+\[[^\]]*\]\s+(\S+)\s+(\S+)\s*$")
+              motif = re.compile(r"^\s*(PASS|FAIL|FLAKY \d+/\d+|TIMEOUT|SIG\w+|LEAK|EXECFAIL)\s+\[[^\]]*\]\s+(?:\(\s*\d+/\d+\)\s+)?(\S+)\s+(\S+)\s*$")
               vus = collections.Counter()
               echecs = []
               fichiers = sorted(glob.glob(f"{racine}/execution-{variante}*/*.log"))
               for fic in fichiers:
+                  # nextest répète les échecs dans son récapitulatif final : un test = une fois par journal.
+                  deja = set()
                   for l in lire(fic):
                       m = motif.match(l)
                       if m:
                           cle = f"{m.group(2)} {m.group(3)}"
+                          if cle in deja:
+                              continue
+                          deja.add(cle)
                           vus[cle] += 1
                           if not m.group(1).startswith(("PASS", "FLAKY")):
                               echecs.append(cle)
