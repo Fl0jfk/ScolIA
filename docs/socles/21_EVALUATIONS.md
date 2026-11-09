@@ -22,6 +22,7 @@ Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Act
 7. **L'IA aide sans décider** : premières versions d'appréciations **à partir des seules données du professeur**, relues et validées une à une ; contrôle de cohérence (appréciation « excellent » avec 6/20, copier-coller) ; **alertes déterministes et expliquées** d'élèves en difficulté pour le PP et la CPE (jamais un « score de risque », jamais visibles des familles) ; préparation du conseil. Un système d'IA qui **évalue les acquis** est classé **à haut risque** par le règlement européen sur l'IA (annexe III, point 3 [NV sur le texte consolidé et le calendrier]) : ScolIA ne produit **jamais une note ni une décision** par l'IA (§13, Q-EV8).
 8. **133 actions** (EVA-100 à EVA-232), **64 cas limites**, **28 règles**, **14 lots** de code (V0 à V13) avec critères de fin ; **parcours minimal vendable** : V0 à V8 ; les formats officiels LSU et LSL restent **bloqués par la démarche éditeur** (D-2 du socle 9), pas par le code (§17, §11, §18, §23).
 9. **Cinq décisions à prendre en priorité** : §28.
+10. **[ajout personas] Ce que la passe personas change** (`PERSONAS_21.md`, 16 personas, 90 manques M-579 à M-668). Trois **bloquants**, tranchés selon leur recommandation (D-031) : **(A)** la période et le verrou se résolvent **par élève** et non par évaluation — un groupe de spécialité réunit six classes aux dates d'arrêt différentes, une option multi-niveaux mêle trimestres et semestres (R-V29, §9.4, à poser dans le schéma de V1) ; **(B)** l'an 1 du lycée pilote (D-032 : notes et bulletins dans Charlemagne) est **outillé** : export de l'assiduité pour le bulletin Charlemagne, dépôt des bulletins Charlemagne dans ScolIA et **distribution par ScolIA seule** selon les droits des liens (lot V14, juste après V0) ; **(C)** une matière **suivie hors de l'établissement** (CNED, autre lycée, conservatoire) reçoit une **moyenne externe** qui vaut moyenne de matière (R-V38 ; sinon la 3ᵉ ne peut pas être close). Puis : appréciations ouvertes par `recevoir_bulletins` (R-V34), parent sans exercice destinataire par défaut des bulletins et décisions (R-V43), aucune activité d'un parent visible de l'autre (R-V46), guichet qui relit les droits (R-V39), assiduité bornée, aucune sanction ni rétention pour impayé au bulletin (R-V31 à R-V33), prénom d'usage (R-V36), rubrique « accompagnements » jamais vers un tiers (R-V37), exclusions écrites de l'IA (R-V40) ; 48 actions (EVA-233 à EVA-280), 29 cas limites (CE-65 à CE-93), lots V14 à V16.
 
 ---
 
@@ -200,6 +201,21 @@ Recherche par sous-agent sur Légifrance et eduscol ; les pages HTML d'education
 | R-22 | Règlement européen sur l'IA : systèmes destinés à **évaluer les acquis d'apprentissage**, y compris pour orienter l'apprentissage, = **haut risque** (annexe III, point 3 b) ; obligations reportées (accord du 7 mai 2026 : 2 décembre 2027 ; règlement 2026/1744 du 24/07/2026) | https://artificialintelligenceact.eu/annex/3/ (non officiel) ; EUR-Lex non lisible | **[NV]** | §13 : l'IA ne note pas, ne décide pas ; aide à la rédaction classée « tâche préparatoire » à documenter (art. 6.3) ; étude juridique avant mise en service (Q-EV8) |
 | R-23 | RGPD art. 22 (décision fondée exclusivement sur un traitement automatisé) | non lu | [NV] | aucune décision automatique (R-V20) |
 | R-24 | Contestation d'une note : aucune règle trouvée (mesure d'ordre intérieur [NV]) ; les décisions d'orientation et de redoublement ont, elles, des voies d'appel [V] | — | [NV] | demande de révision d'une note = demande tracée au professeur (EVA-166), pas un recours juridique |
+| R-25 | **[ajout personas]** « Le parent qui n'a pas l'exercice de l'autorité parentale conserve le droit et le devoir de surveiller l'entretien et l'éducation de l'enfant. Il doit être informé des choix importants relatifs à la vie de ce dernier. » | C. civ. 373-2-1, al. 5 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000022469781 | **[V]** (sous-agent, 2026-11-09) | R-V43 : bulletins et décisions d'orientation **par défaut** au parent sans exercice ; notes au fil de l'eau non par défaut |
+| R-26 | **[ajout personas]** Retrait total de l'autorité parentale par la juridiction pénale (crime ou agression sexuelle incestueuse sur l'enfant, crime sur l'autre parent) ; l'enfant peut être confié à un tiers ou à l'ASE | C. civ. 378 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000049294106 ; 380 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000049294114 | [V] | aucun document ni avis (socle 4) ; le guichet le voit (R-V39) ; le tiers ou le service gardien reçoit ce qu'aurait reçu le parent |
+| R-27 | **[ajout personas]** « Lorsque deux adresses sont indiquées, les informations communiquées par courrier le sont aux deux adresses » ; le tiers à qui l'autorité est confiée a les mêmes droits | Circulaire 2006-137, § I.1 — BO n° 31 du 31/08/2006 (page officielle refusée, texte du BO lu sur une copie : https://33.snuipp.fr/IMG/pdf/Role_parents_circulaire_2006-137-1.pdf) | **[V*]** (texte officiel lu par un relais) ; complète R-09 | exemplaire nominatif à chaque adresse (inchangé) ; le lot d'impression regroupe par adresse, jamais deux parents séparés dans une enveloppe (EVA-248) |
+| R-28 | **[ajout personas]** Majorité à 18 ans accomplis (C. civ. 414) ; orientation : « les parents ou l'élève majeur » formulent les demandes (D. 331-32) ; **aucun texte trouvé** sur l'information des parents d'un élève majeur | C. civ. 414 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006427400/ ; D. 331-32 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000045047667 | [V] pour 414 et D. 331-32 ; [NV] pour l'information des parents (confirme R-10) | inchangé (socle 4, Q-A7) ; destinataires calculés à la date de publication (R-V47) |
+| R-29 | **[ajout personas]** Baccalauréat général : « un coefficient 40 est affecté à l'évaluation chiffrée annuelle » ; un candidat qui « ne dispose pas d'une évaluation chiffrée annuelle » se voit proposer une **évaluation de remplacement** ; l'absence injustifiée à celle-ci est « sanctionnée par la note zéro » | Arrêté du 16/07/2018 modifié, art. 2 — https://www.legifrance.gouv.fr/loda/id/JORFTEXT000037202834 ; arrêté sur les modalités du contrôle continu, art. 12 — https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000043871640 | [V] (sous-agent) | R-V45 : contrôle des moyennes annuelles des enseignements du baccalauréat avant l'arrêt de la dernière période de 1ʳᵉ et de terminale ; EVA-172 vaut aussi au lycée |
+| R-30 | **[ajout personas]** « Les évaluations non rendues par un élève doivent être signalées comme telles dans le bulletin » (lycée GT) ; le mémento 3ᵉ recommande de ne pas noter les devoirs à la maison quand l'usage de l'IA par l'élève est incontrôlable | Guide eduscol de l'évaluation au lycée GT — URL de R-15 ; mémento 3ᵉ — URL de R-01 | [V] (sous-agent) | Q-EV1 confirmée (non rendu non compté) **et** nombre de non-rendus de la période **imprimé** au bulletin par matière (instantané, socle 23) ; la nature « DM » porte un rappel au professeur (§8.9) |
+| R-31 | **[ajout personas]** Fiche Avenir : appréciation du professeur principal (méthode, autonomie, engagement), avis du chef d'établissement sur chaque vœu, appréciations disciplinaires « récupérées automatiquement par Parcoursup via le lycée » | https://www.parcoursup.gouv.fr/sites/default/files/database/documents/2026-03/la-fiche-avenir-dans-la-proc-dure-parcoursup-1146.pdf | [V] ; page « remontée des notes » [NV] | socle 37 : fiche Avenir depuis les appréciations du 21 ; **jamais** la rubrique « accompagnements » (R-V37) |
+| R-32 | **[ajout personas]** Livret scolaire du lycée : avis de l'équipe pédagogique pour l'examen « très favorable », « favorable » ou « doit faire ses preuves » ; engagements | Arrêté du 4 mars 2020 modifié — https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000041814643 ; libellés lus sur les modèles STAV et bac pro d'eduscol | [V] pour la référence, [V*] pour les libellés ; annexes GT et version consolidée **[NV]** | socle 23 : trois libellés fixes (non paramétrables) ; explication à l'élève (M-637) |
+| R-33 | **[ajout personas]** Règlement IA, annexe III point 3 : (a) admission, (b) **évaluer les acquis d'apprentissage**, (c) niveau d'éducation approprié, (d) **surveiller et détecter les comportements interdits des élèves pendant les tests** ; art. 6 § 3 : pas à haut risque pour une « tâche préparatoire à une évaluation », **mais toujours à haut risque en cas de profilage** ; obligations « haut risque » à partir du 2 décembre 2027 (page de la Commission) | https://ai-act-service-desk.ec.europa.eu/en/ai-act/annex-3 ; https://ai-act-service-desk.ec.europa.eu/en/ai-act/article-6 ; https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai | [V*] (version consolidée publiée par la Commission ; JOUE et art. 113 modifié [NV]) | R-V40 : ni correction de copies, ni détection de fraude, ni formation de groupes d'élèves par l'IA ; les alertes du §13.3 restent des **règles fixées par des personnes** (pas un système d'IA), mais elles évaluent des personnes : AIPD et contrôle RGPD art. 22 (§13.8) |
+| R-34 | **[ajout personas]** Le conseil de classe « est chargé du suivi des élèves », se réunit au moins trois fois par an, donne en terminale son avis sur les vœux ; le conseil examine les demandes et **émet des propositions** d'orientation, « l'avis de l'élève mineur est recueilli » | R. 421-51 (URL de R-07) ; D. 331-32 (URL de R-28) | [V] ; présidence par un **représentant** du chef d'établissement, **discrétion** des délégués (D. 111-11 cité ailleurs) et privé sous contrat **[NV]** | délégation de présidence (EVA-256) avec mention [NV] à lever ; rappel de discrétion à l'ouverture de la vue séance (§14.6) |
+| R-35 | **[ajout personas]** Archives des EPLE : « dossiers scolaires » (dont les bulletins trimestriels ; le livret y est classé) : **durée d'utilité administrative 10 ou 50 ans**, puis tri ; registres d'appel : 10 ans | Instruction DPACI/RES/2005/003, BO n° 24 du 16/06/2005, annexe — https://www.education.gouv.fr/bo/BoAnnexes/2005/24/24.pdf | [V] ; procès-verbaux de conseils de classe et registres de notes **[NV]** | registre annuel des bulletins (EVA-254) gardé **50 ans par défaut** (10 ans si l'établissement tient un registre matricule complet), au socle 7 ; complète R-20 et Q-EV14 |
+| R-36 | **[ajout personas]** Prénom d'usage d'un élève (identité de genre) dans les documents internes, avec l'accord des représentants légaux pour un mineur ; état civil dans les documents officiels | Circulaire du 29/09/2021 « Pour une meilleure prise en compte des questions relatives à l'identité de genre en milieu scolaire » [NV : non relue ici] | **[NV]** | R-V36 : prénom d'usage sur bulletin, relevé, appréciations, IA ; état civil sur LSU, LSL, Parcoursup, documents à un tiers ; **à relire avant V15** |
+| R-37 | **[ajout personas]** Droit d'accès (RGPD art. 15) ; CNIL : « l'accès aux notes, qui sont des données personnelles, est en effet strictement personnel » ; l'ENT garantit que chacun n'accède qu'aux informations le concernant | https://www.cnil.fr/fr/reglement-europeen-protection-donnees/chapitre3 ; guide CNIL de l'enseignement — https://linc.cnil.fr/sites/default/files/typo/document/CNIL_Guide_enseignement.pdf | [V*] (copie CNIL du RGPD ; guide ancien) | EVA-273 (export de toutes les données d'évaluation d'un élève pour le DPO) ; R-V41 (la note privée est communicable) |
+| R-38 | **[ajout personas]** Bilan périodique du cycle 4 (annexe III de l'arrêté du 31/12/2015, à partir de la rentrée 2025) : en 5ᵉ et 4ᵉ « la note de l'élève ou tout autre positionnement », en 3ᵉ « la note de l'élève » ; vie scolaire : assiduité, ponctualité, **demi-journées justifiées ou non** ; accompagnements PAP, PAI, PPRE, PPS, ULIS, UPE2A, SEGPA. **L'annexe III ne fixe pas d'échelle à quatre niveaux** | https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000032615791 | [V] (sous-agent) | confirme R-06 ; l'échelle à quatre niveaux relève du **bilan de fin de cycle** (socle 22), pas du bilan périodique : C13 (§27) |
+| R-39 | **[ajout personas]** CNED : enseignement pour les élèves « ne pouvant être scolarisés totalement ou partiellement » en établissement ; inscription décidée par le directeur général du CNED (avis du DASEN pour l'instruction obligatoire) | R. 426-2 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000020320175 ; R. 426-2-1 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000025164621/ | [V] partiel ; **qui évalue et qui fait le bulletin en scolarité partagée : [NV]** | R-V38 : moyenne externe transcrite, décision de la direction de la compter, source imprimée ; **ne rien coder qui suppose une règle nationale** sur ce point |
 
 **Non vérifié et interdit de coder dessus** : XSD LSU 2ᵈ degré et LSL (espace éditeurs Pléiade, D-2 du socle 9) ; composition du conseil de classe dans le privé sous contrat ; durée de conservation des notes détaillées ; règle de l'élève majeur ; texte consolidé et calendrier du règlement IA.
 
@@ -224,6 +240,13 @@ Le socle 21 est conçu pour que 22 et 23 n'aient **rien à recalculer** ni à re
 - **Passage, redoublement, orientation** : décisions de la **direction** après avis du conseil (R-13, R-14), délais d'appel calculés, avec le socle 37.
 - **Appréciation annuelle** (LSL) et **avis pour l'examen** (LSL) : au socle 23 ; le 21 fournit les moyennes annuelles.
 - **Fiches de dialogue** (T-11, en production sous Next.js chez Florian : `rapport-fiches-dialogue-personas-v2.md`) : au socle 23 avec le 19 ; à ne pas perdre.
+
+### 6.3 [ajout personas] Attentes nouvelles posées aux socles 23, 37 et 19 (`PERSONAS_21.md`)
+- **Conseil** : présidence **déléguée** pour un conseil ou une série (EVA-256, R-07) ; **procès-verbal** et liste des présents archivés (EVA-258) ; **synthèse anonyme** de la classe validée par le président pour le compte rendu des délégués des parents (EVA-257) ; geste « délégués sortis » tracé (CE-87) ; **plusieurs mentions** pour un élève ; **note au président** d'un professeur absent pour ses élèves (M-592) ; dossier « ce qui a changé depuis le dernier conseil » (§13.4).
+- **Bulletins** : **publication programmée** par classe ou niveau, « remis en main propre le …, en ligne le … » (EVA-247) ; **contrôle avant publication** (EVA-246) ; **lot d'impression** par adresse (EVA-248) ; renvoi papier de la seule v2 (EVA-249) ; **duplicata, archives, registre annuel** (EVA-251 à 254) ; **moyenne du groupe** pour un enseignement multi-classes (R-V30) ; **assiduité bornée** (R-V31) ; **aucune sanction** (R-V32) ; **aucune rétention** pour impayé (R-V33) ; **prénom d'usage** (R-V36) ; statut scolaire ou apprenti ; **diplômes de mentions** (trames prêtes, D-023) ; appréciation du **coordonnateur du dispositif** (ULIS, §12.3) ; glossaire des mentions et statuts accessible depuis le bulletin (M-640) ; destinataires calculés **à la date de publication** (R-V47).
+- **Livret et examen** : explication de l'« avis pour l'examen » du LSL à l'élève, demande d'explication tracée (M-637).
+- **Socle 37 (Parcoursup)** : fiche Avenir alimentée par les appréciations annuelles ; assemblage des appréciations de sous-matières ; **jamais** la rubrique « accompagnements » (R-V37).
+- **Socle 19 (rendez-vous)** : proposer des créneaux à une famille depuis la fiche du conseil (M-600).
 
 ## 7. Concepts et vocabulaire
 
@@ -316,6 +339,12 @@ Le moteur existant connaît `note`, `absent`, `dispense`, `non_note` [F `180:6-2
 Élève Léa, 4B, trimestre 1, mathématiques (coef de matière 3) : DS 1 = 14/20 coef 2 ; interro = 7/10 coef 1 ; DM = non rendu ; DS 2 = absent justifié, rattrapé 11/20 coef 2 ; évaluation diagnostique « ne compte pas » 4/20.
 Moyenne de cours = (14×2 + 14×1 + 11×2) / (2+1+2) = 64/5 = **12,80**. L'explication montrée à la famille liste les cinq lignes et dit pour chacune « comptée », « non rendue, non comptée », « ne compte pas (diagnostique) ».
 
+### 8.9 [ajout personas] Barème détaillé et moyennes particulières (`PERSONAS_21.md` M-579, M-583, M-589, M-652)
+- **Barème détaillé** (facultatif, par évaluation) : liste d'exercices ou de critères, chacun avec son maximum ; la note est la **somme** des points, le barème la somme des maximums ; le moteur ne change pas (il lit la note). Le professeur voit la **réussite par exercice** (moyenne et répartition, ses cours seulement) ; l'élève voit son détail si le professeur le choisit (EVA-262 à 264).
+- **Exercice annulé** (énoncé faux) : le barème est réduit de son maximum ; ScolIA **propose** de ramener les notes sur le barème réduit, le professeur valide, l'historique garde l'ancienne valeur (CE-83).
+- **Moyenne du groupe** : pour un enseignement en groupe dont le public vient de plusieurs classes, la statistique de comparaison au bulletin est celle **du groupe** (élèves notés du cours, seuil de 5, §8.7), libellée « moyenne du groupe » ; pour un enseignement en classe entière, celle de la classe (R-V30).
+- **Moyenne externe** : pour un enseignement suivi hors de l'établissement (CNED, autre établissement, conservatoire), la moyenne de période transcrite par le secrétariat **est** la moyenne de matière de l'élève quand la direction l'a déclaré ; elle entre dans la moyenne générale selon le coefficient de la matière, dans la moyenne annuelle selon la méthode de l'établissement (§8.5), et porte sa source (R-V38).
+
 ## 9. La vie d'une période d'évaluation
 
 ### 9.1 États [R]
@@ -368,6 +397,15 @@ ouverte ──(date d'arrêt atteinte, ou geste direction)──▶ notes_arrete
 | Après la clôture de l'année | direction ★, rare | idem, avec une confirmation renforcée | idem ; réouverture d'une année close refusée par le socle 5 : la correction ne rouvre pas l'année, elle produit seulement les nouvelles versions |
 
 Le journal de correction existant (`ent_note_correction` [F `180:66-77`]) est **gardé** et généralisé à l'historique complet (V1).
+
+### 9.4 [ajout personas] La période se résout par élève (bloquant A de `PERSONAS_21.md`, appliqué par défaut, D-031)
+Un cours peut réunir des élèves de plusieurs classes qui n'ont **ni la même date d'arrêt** (CE-41) **ni la même périodisation** (option multi-niveaux : trimestres et semestres). La règle « une évaluation, une période » (R-V1, `eva_evaluation.periode_id`) ne tient pas. Règle de remplacement (R-V29) :
+1. L'évaluation porte une **date**. Pour chaque élève de son public, la **période** est celle de la périodisation de **la classe de rattachement de l'élève à cette date** (socle 5), et l'**état** est celui de cette classe pour cette période (`eva_periode_etat`).
+2. La grille verrouille **cellule par cellule** : dans le même devoir du 1ᵉʳ décembre, les élèves de la 1ʳᵉ A (arrêtée le 28 novembre) sont en lecture seule, ceux de la 1ʳᵉ D (arrêt le 5 décembre) restent saisissables ; l'écran dit pourquoi (« notes arrêtées pour la 1ʳᵉ A le 28/11 ») et propose la demande de rattrapage ou de correction (EVA-183, EVA-189).
+3. **Publication à l'arrêt** (R-V9), **instantané**, **rappels** (J-7, J-2) et **clôture des appréciations** se font **par classe** ; un professeur de groupe reçoit un rappel par classe (EVA-239).
+4. La colonne `periode_id` de l'évaluation devient une **période indicative** (celle de la classe majoritaire, pour trier l'écran du professeur) ; **aucun contrôle** ne la lit. Un port `evaluations::periode_eleve(tx, evaluation, eleve)` (et sa version ensembliste) est la seule source.
+5. Une évaluation dont **aucun** élève n'est dans une période ouverte est refusée à la création ; une évaluation dont une partie seulement l'est est acceptée, les autres élèves étant marqués « hors période ouverte » (et non `non_concerne`).
+6. Moyenne de cours et de matière : calculées **par élève sur sa période** ; les statistiques d'une évaluation multi-classes restent celles de l'évaluation (tous élèves notés) ; la moyenne de comparaison au bulletin est celle du groupe (R-V30).
 
 ---
 
@@ -470,6 +508,39 @@ Le journal de correction existant (`ent_note_correction` [F `180:66-77`]) est **
 | CE-63 | 3ᵉ : une matière obligatoire **sans moyenne annuelle** à la clôture | Blocage de la clôture de la dernière période (R-03) : liste des élèves, proposition d'évaluation de remplacement |
 | CE-64 | **Harmonisation académique** du DNB qui modifie des moyennes | Hors du 21 : l'harmonisation est au socle 38 ; les moyennes de l'établissement ne sont pas réécrites [V mémento] |
 
+### 11.5 [ajout personas] Cas limites ajoutés par la passe (`PERSONAS_21.md`)
+| Id | Situation | Ce que fait ScolIA [R] |
+|---|---|---|
+| CE-65 | Groupe de spécialité de **six classes**, arrêts du 28 novembre au 9 décembre ; devoir du 1ᵉʳ décembre | Période et verrou **par élève** (§9.4, R-V29) : cellules de la 1ʳᵉ A verrouillées, autres saisissables ; un rappel par classe |
+| CE-66 | Option **multi-niveaux** (DGEMC 1ʳᵉ–terminale, latin 2ᵈᵉ–1ʳᵉ) : trimestres pour les uns, semestres pour les autres | Chaque élève a sa période ; l'évaluation du 10 janvier est au T2 pour un 2ᵈᵉ, au S1 pour un 1ʳᵉ ; la grille affiche les deux |
+| CE-67 | **LV2 au CNED** en 3ᵉ ; résultats envoyés au fil de l'eau, hors trimestres | Enseignement suivi à l'extérieur déclaré (EVA-240) ; chaque relevé rattaché à la période de l'établissement **par sa date** ; moyenne de période externe saisie (EVA-241), qui vaut moyenne de matière (R-V38) ; relance avant l'arrêt (EVA-242) ; moyenne annuelle chiffrée exigée comme pour toute matière obligatoire (R-V22) |
+| CE-68 | **Spécialité suivie dans un autre lycée**, lui aussi sous ScolIA (convention) | **Rien ne passe automatiquement** entre les deux établissements (D-013) ; le lycée d'accueil remet un relevé (document ou export) ; le lycée de l'élève saisit la moyenne externe ; aucun professeur d'un établissement ne voit l'autre |
+| CE-69 | **Horaires aménagés musique** : formation musicale évaluée par le conservatoire | Appréciation externe transcrite avec sa source ; moyenne seulement si le conservatoire en donne une et que la direction la compte |
+| CE-70 | Élève **sportif de haut niveau** ou en soins réguliers : nombreuses absences justifiées aux évaluations | L'alerte « absences répétées aux évaluations » (CE-27) ne se déclenche pas quand la justification relève d'un aménagement de scolarité (socle 35), sans en afficher la nature |
+| CE-71 | Professeure **sur deux établissements** : sa banque de phrases du collège A proposée au collège B | Refus : banque, style et exemples sont rangés par (personne, établissement) (R-V35) ; copie vers l'autre établissement par **son** geste, sans noms (EVA-243) |
+| CE-72 | Parent **sans exercice** de l'autorité parentale demande bulletin et décision d'orientation | Reçus par défaut (R-V43, C. civ. 373-2-1 [V R-25]) ; notes au fil de l'eau non, sauf décision de la direction ; jamais en cas de retrait ou de décision de justice contraire |
+| CE-73 | Père sous **ordonnance de protection**, l'école de l'enfant lui est cachée | Aucun document ni avis qui révèle l'établissement : ni bulletin papier, ni duplicata, ni réponse à une demande, ni courriel ; liste « à prévenir autrement » de la direction (socle 8, Q-N9) |
+| CE-74 | Parent **privé d'accès** qui téléphone au secrétariat pour « un double du bulletin » | Au moment de produire le document, ScolIA relit les droits du lien et affiche un bandeau « ne rien remettre à cette personne » avec la conduite à tenir, sans le motif détaillé (R-V39, EVA-244) |
+| CE-75 | Élève avec **prénom d'usage** accepté par l'établissement | Bulletin, relevé, appréciations et propositions IA au prénom d'usage (et pronom décidé) ; LSU, LSL, Parcoursup, certificats à un tiers à l'état civil (R-V36) ; le contrôle d'appréciation signale l'ancien prénom |
+| CE-76 | Élève **majeur le 10 décembre**, bulletin du 1ᵉʳ semestre publié le 25 janvier ; il n'a pas encore fait son choix | Destinataires calculés **à la publication** (R-V47) : lui en premier ; ses parents selon le défaut du socle 4 (maintien jusqu'à sa réponse), message à l'élève ; courrier à **son** adresse s'il a un foyer propre |
+| CE-77 | La comptabilité demande de **retenir le bulletin** d'une famille en impayé | Refus : aucun lien entre facturation et publication (R-V33) ; la demande est tracée et la direction informée |
+| CE-78 | Bulletins de 2ᵈᵉ **remis en main propre** le 15 décembre, en ligne le soir ; une famille absente | Publication en ligne à l'heure prévue pour tous (EVA-247) ; l'exemplaire non remis reste disponible au coffre, aucun courrier supplémentaire sauf famille sans compte |
+| CE-79 | **Ancienne élève** (partie il y a huit ans) demande ses bulletins pour un concours | Recherche dans les archives (nom, naissance, INE, année) ; duplicata daté, mention « duplicata délivré le … » ; identité vérifiée selon le socle 7 ; envoi à l'intéressée seulement (EVA-251, EVA-252) |
+| CE-80 | Élève **redoublant** ou **nouveau** | Le PP, la direction et la CPE voient le dernier bulletin de l'an passé (EVA-158) ; les professeurs non ; aucune note de l'an passé ne compte ; aucune mention de comportement reprise |
+| CE-81 | **Rattrapage collectif** : un élève absent aussi au rattrapage | Le résultat reste `absent` avec la nouvelle date manquée ; deuxième convocation proposée ; en fin d'année, évaluation de remplacement (R-01, R-29) |
+| CE-82 | **QCM corrigé automatiquement** dont le corrigé était faux | Le professeur corrige le corrigé (socle 20) ; ScolIA **propose** les nouveaux scores ; rien ne change sans sa validation ; historique gardé |
+| CE-83 | **Exercice annulé** dans un barème détaillé (énoncé faux) | Barème réduit, notes ramenées sur le nouveau barème proposées, validées par le professeur (§8.9) |
+| CE-84 | **AESH mutualisée** : deux élèves accompagnés évalués jeudi à 10 h dans deux salles | Alerte à l'AESH, aux deux professeurs et au référent la veille au plus tard ; proposition de décaler pour l'un (EVA-268) |
+| CE-85 | **Sujet adapté oublié** pour un élève à PAP | La veille, rappel au professeur : « 1 élève a un sujet agrandi prévu, aucun sujet adapté joint » ; jamais visible des autres élèves |
+| CE-86 | Conseil **présidé par délégation** ; la présidente tombe malade le jour même | La direction change la délégation en un geste (EVA-256) ; le PV porte le nom du président effectif |
+| CE-87 | Le conseil discute du cas d'un **délégué** | Geste « délégués sortis » : vue complète le temps du cas, retour à la vue séance, tracé au PV |
+| CE-88 | Élève qui part vers un **autre établissement ScolIA** | Dossier de transfert (EVA-255) : bulletins de l'année et relevé de la période en cours, tout publié et figé au jour du départ (R-V42) ; remis par le secrétariat ; l'établissement d'arrivée saisit des résultats externes (CE-02) ; aucun accès direct (D-013) |
+| CE-89 | **Cohabitation** : bulletin Charlemagne non rapproché (INE absent, homonyme) | Reste dans la file « à rapprocher » ; **jamais distribué** ; rapprochement par la secrétaire avec aperçu (EVA-234) |
+| CE-90 | **Cohabitation** : Charlemagne ou son portail diffuse aussi les bulletins | Double envoi, et envoi selon des droits périmés ; recommandation : diffusion **par ScolIA seule**, celle du portail désactivée pour les bulletins [H : à confirmer avec le paramétrage de Charlemagne] |
+| CE-91 | Terminale : **moyenne annuelle manquante** d'un enseignement du baccalauréat (élève malade au 2ᵈ semestre) | Contrôle R-V45 avant l'arrêt : élève et enseignement listés ; évaluation de remplacement proposée (R-29) |
+| CE-92 | L'établissement demande une **note de vie scolaire** comptée dans la moyenne | Non proposée (S-127) ; l'appréciation de vie scolaire et l'assiduité restent |
+| CE-93 | Une appréciation cite une **sanction effacée** (« après son exclusion de l'an passé… ») | Avertissement à l'auteur avant validation (comme R-V18) ; aucune sanction au bulletin (R-V32) |
+
 ## 12. Appréciations
 
 ### 12.1 Types [R]
@@ -489,6 +560,13 @@ Le journal de correction existant (`ent_note_correction` [F `180:66-77`]) est **
 - **Banque de phrases du professeur** (ses propres formulations, réutilisables) : oui ; banque commune imposée : non (D-023, S-116).
 - **Contrôles** (non bloquants) : appréciation vide, identique pour plus de 5 élèves, contradiction avec la moyenne (« excellent travail » sous 8), prénom d'un autre élève dans le texte, mots interdits par l'établissement (liste courte, S-117), diagnostic médical apparent (« dyslexique », « TDAH ») → avertissement « information de santé, à retirer » (R-V18).
 - **Après publication** : correction ★ (§9.3).
+
+### 12.3 [ajout personas] Compléments (`PERSONAS_21.md` M-585, M-586, M-598, M-640, M-651)
+- **Appréciation du dispositif** (type `dispositif`) : rédigée par le coordonnateur ULIS, SEGPA ou UPE2A pour les élèves du dispositif ; imprimée au bulletin de la **classe de référence** (CE-16) ; jamais sur un document à un tiers (R-V37).
+- **Appréciation générale et du conseil** : un seul texte par défaut (S-121).
+- **Saisie** : filtre par groupe (et non seulement par classe), **dictée vocale** sur mobile (V9), éléments des séances du professeur (oublis, travaux non faits, socles 12 et 20) affichés à côté de l'appréciation, pour ses cours seulement.
+- **Contrôles** ajoutés à ceux du §12.2 : ancien prénom d'un élève qui a un prénom d'usage (R-V36) ; mention d'une sanction ou d'un fait disciplinaire ancien (CE-93) ; prénom d'un autre élève (déjà prévu).
+- **Glossaire** : les libellés imprimés (mentions, « en attente », « dispensé », « moyenne du groupe ») ont une définition courte accessible depuis le bulletin en ligne et le relevé.
 
 ---
 
@@ -536,6 +614,20 @@ Contrôles du §12.2 (déterministes) + relecture IA facultative de l'ensemble d
 
 ### 13.7 Cadre juridique de l'IA [NV, Q-EV8]
 Le règlement européen sur l'IA classe à haut risque les systèmes **destinés à évaluer les acquis d'apprentissage** (annexe III, 3 b) [NV sur le texte consolidé, report annoncé au 2 décembre 2027]. Lecture prudente [R] : (1) ScolIA n'utilise **aucun modèle pour évaluer** ; (2) l'aide à la rédaction d'appréciations relève d'une **tâche préparatoire** à une évaluation faite par le professeur (art. 6.3, à faire confirmer par un juriste) ; (3) les alertes du §13.3 sont des **règles** fixées par l'établissement, pas un système d'IA ; (4) une évaluation d'impact (AIPD) est faite pour les capacités C2 ; (5) fournisseur souverain (Mistral prioritaire, CLAUDE.md), aucune donnée réutilisée pour l'entraînement, pseudonymisation. **Aucune capacité IA de ce socle n'est mise en service sans l'étude juridique** (lot V11 conditionnel).
+
+### 13.8 [ajout personas] Ce que l'IA ne fait pas, et ce qu'elle ajoute (`PERSONAS_21.md` M-584, M-610, M-659 à M-662)
+**Exclusions écrites (R-V40)** — à afficher au professeur qui le demande, avec la raison :
+- **pas de correction de copies** ni de proposition de note (annexe III point 3 b [V* R-33] ; D-032) ;
+- **pas de détection de fraude ni de plagiat** (point 3 d : surveiller et détecter les comportements interdits pendant les tests) ;
+- **pas de formation de groupes d'élèves** (remédiation, niveau, besoin) ni d'« orientation du processus d'apprentissage » individuelle (point 3 b) ;
+- **pas de proposition de mention, d'avis ou de décision** (R-V20).
+**Style et exemples (R-V35)** : les appréciations passées ne servent d'exemples de style que si le professeur l'a choisi, **pseudonymisées** (prénoms et noms retirés), et seulement dans l'établissement où elles ont été écrites.
+**Profilage** : les alertes du §13.3 sont des règles écrites par des personnes, pas un système d'IA ; elles évaluent néanmoins des personnes (profilage au sens du RGPD [V* R-33]) : AIPD, explication de chaque alerte, aucune conséquence automatique (RGPD art. 22, R-23), jamais un modèle qui les remplace sans l'étude juridique.
+**Ajouts différenciants** (lot V11, après l'étude juridique pour ce qui utilise un modèle de langage) :
+- **Relecture des bulletins** avant publication pour le secrétariat et la direction (EVA-275) : prénom ou pronom incohérent avec le prénom d'usage, appréciation qui cite un autre élève, texte tronqué, ton ; **liste de remarques**, jamais une modification.
+- **« Ce qui a changé depuis le dernier conseil »** (déterministe, sans modèle) dans le dossier de chaque élève : évolution des moyennes, nouvelles alertes, appréciations du conseil précédent (§13.4).
+- **Synthèse agrégée d'une évaluation** pour son professeur (exercices les moins réussis, à partir du barème détaillé §8.9), **sans classement ni liste d'élèves** : utile, mais elle touche l'évaluation des acquis ; **sous l'étude juridique** (Q-EV8 c).
+- **Résumé hebdomadaire des familles** (EVA-278) : faits déterministes ; reformulation et traduction par l'IA facultatives (§13.5).
 
 ---
 
@@ -589,6 +681,23 @@ Projetée en présence des délégués : nom, moyennes, appréciations, proposit
 - Événements **sans note ni texte** (déjà tenu pour la grille [F], à tenir aussi pour l'historique, D1).
 - Matrice de séparation (tests) : professeur d'un autre groupe de la même classe, PP d'une autre classe, remplaçant avant sa date, professeur parti, parent sans `voir_notes`, parent sans `recevoir_bulletins`, parent interdit de communication, élève majeur ayant retiré l'accès, AESH, établissement B, appli mobile, capacité IA.
 
+### 14.6 [ajout personas] Pièges de droits et de minimisation (`PERSONAS_21.md`)
+1. **Les appréciations et les décisions suivent `recevoir_bulletins`**, pas `voir_notes` (R-V34) : un parent qui voit les notes au fil de l'eau sans recevoir les bulletins ne lit pas les appréciations.
+2. **Parent sans exercice** de l'autorité parentale : bulletins et décisions d'orientation par défaut, notes non (R-V43) ; **retrait** ou décision de justice : rien (R-26).
+3. **Aucune activité d'un parent visible de l'autre** (lecture, accusé, demande de révision, réponse) (R-V46) ; le personnel voit, par parent, ce qui est utile au suivi (accusé de lecture).
+4. **Le guichet relit les droits** : toute production manuelle (relevé, duplicata, dossier de transfert, réponse à une demande) relit les droits du lien à l'instant et affiche les restrictions (R-V39).
+5. **Établissement caché** (ordonnance de protection) : aucun document qui porte l'en-tête de l'établissement n'est envoyé à la personne visée (CE-73).
+6. **Banque de phrases, style, exemples IA** : rangés par (personne, établissement) (R-V35) — corrige `eva_banque_phrase user_id` (§21, C9).
+7. **Vue « séance » du conseil** : jamais d'aménagement, de PAP, de PPS ni de dispositif, même sous forme de pictogramme (Pronote 2026 affiche une mini-fiche d'aménagements en mode conseil [V]) ; rappel de discrétion à l'ouverture (R-34 [NV sur la discrétion]) ; geste « délégués sortis » (CE-87).
+8. **Mode conseil de groupe** (professeur de spécialité) : il navigue d'un élève à l'autre de **son** groupe, chaque élève n'étant visible que pendant la fenêtre du conseil **de sa classe** (§14.3) ; hors de ces fenêtres, ses seuls cours.
+9. **Rubrique « accompagnements »** : jamais vers un tiers, Parcoursup compris (R-V37).
+10. **Statistiques par professeur** et comparaisons d'évaluations communes : direction seulement, jamais de classement, consultations journalisées ; un professeur voit ses groupes et la moyenne anonyme des autres (R-V44).
+11. **AESH** : accès au calendrier et aux aménagements de l'élève **pour la durée de l'accompagnement** ; sujet visible seulement si le professeur le partage (EVA-267) ; fin d'accompagnement = fin d'accès le jour même.
+12. **Ancien élève** : accès en lecture à son coffre de bulletins pendant un an après son départ (Q-EV22), puis sur demande au secrétariat (duplicata).
+13. **Redoublant, nouvel élève** : le bulletin de l'an passé est visible du PP, de la direction et de la CPE, pas des professeurs (CE-80).
+14. **Note privée** du professeur : communicable au titre du droit d'accès (R-37), l'écran le dit (R-V41).
+15. **Finances** : aucun lien entre une dette et la publication d'un document d'évaluation (R-V33).
+
 ---
 
 ## 15. Notifications (socle 8)
@@ -626,6 +735,16 @@ Pas d'avis « moyenne en baisse » aux familles (S-120, signalé).
 Règles : tout export passe par le moteur du socle 9 (pré-contrôle, instantané, trace, retour) ; « en attente » non résolu en fin de 3ᵉ = **erreur bloquante** du pré-contrôle (R-03) ; un export n'est jamais produit depuis des données non arrêtées ; **un professeur n'exporte jamais** (D-022).
 
 **Cohabitation de la première année (Q-X34 du socle 9, Q-EV11)** : si l'établissement pilote garde son logiciel agréé pour LSL et Parcoursup l'an 1, ScolIA ne peut pas lui transmettre les notes automatiquement [H : pas d'import connu dans Charlemagne] : double saisie. C'est la décision la plus lourde du socle (§28).
+
+**[ajout personas] Cohabitation outillée de l'an 1 (bloquant B de `PERSONAS_21.md`, appliqué par défaut, D-031 ; D-032 a gardé notes et bulletins dans Charlemagne).** Ce n'est plus seulement « double saisie » : ScolIA tient l'appel, les justifications et les **droits fins des familles** ; Charlemagne tient notes et bulletins. Les échanges se font dans les deux sens, par le secrétariat, sous la forme du **journal à reporter** du socle 9 (R-X24, FX-107) :
+
+| Flux | Sens | Contenu | Format | Lot |
+|---|---|---|---|---|
+| Assiduité de la période | ScolIA → Charlemagne | par élève : demi-journées d'absence justifiées et non justifiées, retards, bornes de la période (R-V31) | tableur lisible pour la saisie ; format d'import de Charlemagne s'il existe **[NV : à lire sur l'exemple F-07]** | V14 (EVA-233) |
+| Bulletins PDF | Charlemagne → ScolIA | un PDF par élève (ou par classe, découpé) | dépôt en lot, rapprochement INE → nom + date de naissance, file « à rapprocher » (CE-89) | V14 (EVA-234) |
+| Distribution des bulletins | ScolIA → familles | exemplaire de chaque lien `recevoir_bulletins`, coffre ou courrier, élève majeur, exclusions | moteur du socle 7 (le PDF de Charlemagne est rangé tel quel, un exemplaire par destinataire) | V14 (EVA-235) |
+| Moyennes et appréciations de période | Charlemagne → ScolIA | moyennes de matière par élève, appréciations | export tableur de Charlemagne [H], en **résultats externes de période**, lecture seule | V14 (EVA-236) |
+Règles : les bulletins de Charlemagne **ne sont jamais distribués par ScolIA sans rapprochement certain** ; la diffusion par le portail de l'éditeur est désactivée pour les bulletins (CE-90) ; les moyennes importées servent à l'historique, aux alertes du §13.3 et à la reprise de l'an 2 (FX-106), jamais à un document officiel ; aucune saisie de note dans ScolIA pour ce lycée l'an 1.
 
 ## 17. Actions métier (EVA-100 et suivantes)
 
@@ -835,6 +954,106 @@ Notation des acteurs : PRF professeur, PP professeur principal, DIR direction, A
 | EVA-231 | Voir qui a consulté le dossier de conseil ou un bulletin | DIR | R-21 | — |
 | EVA-232 | Recalculer et comparer (contrôle d'intégrité) les moyennes d'un instantané | DIR, SYS | empreinte | — |
 
+### 17.15 [ajout personas] Actions ajoutées par la passe (`PERSONAS_21.md`, M-579 à M-668)
+
+**Cohabitation de l'an 1 (bloquant B, lot V14)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-233 | Exporter l'assiduité d'une période par élève (demi-journées justifiées, non justifiées, retards, bornes) pour le logiciel de notes tiers | ADF · `echanges.exporter` | R-V31 ; journal à reporter (R-X24) ; échappement des cellules | `export.realise` |
+| EVA-234 | Déposer en lot les bulletins PDF du logiciel tiers et les rapprocher des élèves | ADF · `echanges.importer` | INE, puis nom et date de naissance ; non rapprochés en file (CE-89) ; aperçu | `echanges.lot_applique` |
+| EVA-235 | Distribuer les bulletins déposés selon les droits des liens | ADF, DIR · `bulletins.publier` ★ | `recevoir_bulletins` à la date de publication (R-V47) ; contrôle avant publication (EVA-246) ; lot d'impression (EVA-248) | `bulletins.publies` |
+| EVA-236 | Importer en lecture les moyennes et appréciations de période du logiciel tiers | ADF · `echanges.importer` | résultats externes de période ; jamais sur un document officiel | `echanges.lot_applique` |
+| EVA-237 | Afficher aux familles et aux élèves où consulter les notes pendant la cohabitation | DIR · `evaluations.parametrer` | lien vers le portail de l'éditeur, texte encadré | — |
+
+**Période par élève (bloquant A, lot V1)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-238 | Voir, dans la grille d'un cours multi-classes, la période et l'état de chaque élève (cellule verrouillée et raison) | PRF · `evaluations.saisir` | R-V29, §9.4 | — |
+| EVA-239 | Recevoir rappels d'arrêt et de clôture des appréciations par classe pour un cours multi-classes | SYS → PRF | un rappel par classe ; regroupé au résumé | `evaluations.rappel_saisie` |
+
+**Enseignements suivis à l'extérieur (bloquant C, lots V1 et V16)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-240 | Déclarer qu'un élève suit une matière hors de l'établissement (organisme, dates, référent, compté ou non dans la moyenne générale) | ADF, DIR · `evaluations.resultats_externes` | port du socle 5 (offre) ; R-V38 ; [NV R-39] | `evaluations.enseignement_externe_declare` |
+| EVA-241 | Saisir la moyenne de période externe et l'appréciation transcrite, avec la pièce | ADF · idem | rattachée à la période par sa date (CE-67) ; vaut moyenne de matière (R-V38) | `evaluations.resultat_externe_saisi` |
+| EVA-242 | Relancer l'organisme externe avant l'arrêt (tâche et message préparé) | ADF | J-15 avant l'arrêt de la classe | — |
+
+**Droits, guichet, identité**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-243 | Copier sa banque de phrases vers un autre de ses établissements | PRF (soi) | geste de la personne ; noms d'élèves retirés ; R-V35 | — |
+| EVA-244 | Voir, au moment de produire un document à la main, les restrictions du lien du demandeur | SYS → ADF | R-V39 ; bandeau sans motif détaillé ; conduite à tenir | `documents.restriction_affichee` |
+| EVA-245 | Appliquer le prénom d'usage aux documents internes et l'état civil aux exports | SYS | décision du socle 2 ; R-V36 ; [NV R-36] | — |
+
+**Bulletins et secrétariat (lot V15, avec le socle 23)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-246 | Lancer le contrôle avant publication d'un lot de bulletins (bloquants, avertissements) | ADF, DIR · `bulletins.publier` | bloquants : destinataire interdit, bulletin sans moyenne ni « en attente », destinataire sans canal ; avertissements : appréciation vide, texte tronqué, prénom d'un autre élève | `bulletins.controle_realise` |
+| EVA-247 | Programmer la publication des bulletins par classe ou par niveau ; « remis en main propre le …, en ligne le … » | DIR · idem ★ | heure locale ; destinataires recalculés à l'heure (R-V47) ; CE-78 | `bulletins.publication_programmee` |
+| EVA-248 | Produire le lot d'impression : tri par adresse, fratries d'un même destinataire dans une enveloppe, exclusions appliquées, nombre d'envois et de pages | ADF · idem | jamais deux parents séparés dans une enveloppe (R-27) ; S-131 | `documents.lot_imprime` |
+| EVA-249 | Réimprimer et renvoyer la seule version 2 aux destinataires papier de la v1 | ADF · idem | mention « bulletin rectifié » | idem |
+| EVA-250 | Produire les relevés de notes en lot (classe, date) pour une rencontre parents-professeurs | ADF, PP · `evaluations.lire` (classe) | publiés seulement ; mention « relevé provisoire au … » ; droits du lien | `documents.lot_produit` |
+| EVA-251 | Produire un duplicata de bulletin (toute année) | ADF · `bulletins.lire` | mention « duplicata délivré le … » ; R-V39 ; identité du demandeur (socle 7) | `bulletins.duplicata` |
+| EVA-252 | Rechercher dans les archives des bulletins (nom, naissance, INE, année) | ADF · idem | journalisé (R-V26) | — |
+| EVA-253 | Ancien élève : consulter son coffre de bulletins pendant un an après son départ | ELV ancien | Q-EV22 ; lecture seule | — |
+| EVA-254 | Constituer le registre annuel (PDF/A de tous les bulletins par classe, exemplaire établissement) et verser les PV de conseils | ADF, SYS | DUA 50 ans par défaut (R-35) ; socle 7 | `bulletins.registre_constitue` |
+| EVA-255 | Constituer le dossier de transfert d'un élève qui part | ADF · `evaluations.lire` | tout publié et figé au jour du départ (R-V42) ; R-V37 ; R-V39 | `evaluations.dossier_transfert` |
+
+**Conseil (attentes au socle 23)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-256 | Déléguer la présidence d'un conseil ou d'une série de conseils | DIR · `conseils.deleguer` ★ | à un adjoint ou un PP ; changeable le jour même (CE-86) ; [NV R-34 sur le « représentant »] | `conseils.presidence_deleguee` |
+| EVA-257 | Produire la synthèse anonyme de la classe pour le compte rendu des délégués des parents | PP, président | aucune donnée individuelle ; validée par le président | `conseils.synthese_validee` |
+| EVA-258 | Émarger les présents et produire le procès-verbal du conseil | président, secrétaire de séance | archivé (R-35 [NV sur la durée]) ; « délégués sortis » tracé | `conseils.pv_produit` |
+
+**Rattrapages collectifs (lot V4)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-259 | Organiser une séance de rattrapage collective (date, salle, surveillant, liste des élèves à rattraper toutes matières) | CPE, ADF · `evaluations.rattrapages_organiser` | élèves `absent`/`non_rendu` avec rattrapage prévu ; aménagements (tiers-temps) pris en compte ; socle 38 pour les salles | `evaluations.seance_rattrapage_creee` |
+| EVA-260 | Déposer le sujet de rattrapage et recevoir les copies | PRF · `evaluations.saisir` | sujet visible du surveillant le jour même seulement | — |
+| EVA-261 | Signaler au professeur qu'un élève a composé (ou manqué) au rattrapage | SYS, surveillant | statut « composé, à corriger » ; absent : CE-81 | `evaluations.rattrapage_effectue` |
+
+**Évaluations détaillées (lot V3)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-262 | Définir un barème détaillé par exercice ou critère | PRF · `evaluations.saisir` | §8.9 ; note = somme | `evaluations.modifiee` |
+| EVA-263 | Voir la réussite par exercice de l'évaluation | PRF | ses cours ; sans classement | — |
+| EVA-264 | Montrer à l'élève le détail par exercice | PRF | choix du professeur, publié avec la note | — |
+| EVA-265 | Verser les scores d'un QCM corrigé automatiquement comme résultats proposés | PRF | socle 20 ; validation du professeur ; CE-82 | `evaluations.resultats_saisis` |
+
+**Aménagements et AESH (lot V4)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-266 | Voir, à la création d'une évaluation, le résumé des aménagements de son public et joindre un sujet adapté | PRF | libellés fonctionnels, sans diagnostic (port 35) ; rappel la veille (CE-85) | — |
+| EVA-267 | Partager le sujet (adapté) avec l'AESH de l'élève avant l'évaluation | PRF | choix du professeur ; durée de l'accompagnement | — |
+| EVA-268 | Alerter l'AESH et les professeurs de deux évaluations simultanées d'élèves accompagnés | SYS | CE-84 | `evaluations.conflit_accompagnement` |
+
+**Élèves et familles (lot V7)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-269 | Voir la date prévue du conseil et de la publication du bulletin | ELV, PAR | socle 23 ; « date prévue » | — |
+| EVA-270 | Simuler sa moyenne (« si j'ai 12 au prochain devoir ») | ELV seulement | calcul local par le moteur, rien n'est enregistré ; S-130 | — |
+| EVA-271 | Voir la copie corrigée reliée au résultat | ELV ; PAR `voir_notes` | socle 20 ; publiée avec la note | — |
+| EVA-272 | Lire le glossaire des mentions, statuts et statistiques | ELV, PAR | §12.3 | — |
+| EVA-273 | Exporter toutes les données d'évaluation d'un élève pour une demande d'accès | DIR, DPO | RGPD art. 15 (R-37) ; notes privées comprises (R-V41) ; journalisé | `evaluations.acces_exporte` |
+| EVA-274 | Voir côte à côte, dans l'appli, ses établissements (professeur sur deux établissements, famille à deux enfants) | PRF, PAR, ELV | **agrégation dans l'appli seulement**, deux sessions, aucun croisement serveur (D-013) ; établissement toujours affiché | — |
+
+**Vie scolaire et IA (lots V8, V11)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-275 | Relire par l'IA un lot de bulletins avant publication (remarques) | ADF, DIR | §13.8 ; jamais de modification ; après l'étude juridique | `ia.remarques_bulletins` |
+| EVA-276 | Voir dans le dossier du conseil « ce qui a changé depuis le dernier conseil » | PP, DIR, professeurs (fenêtre) | déterministe (§13.8) | — |
+| EVA-277 | Transmettre un signalement de décrochage à la cellule de veille | CPE, PP, DIR · `evaluations.suivre_classe` | faits expliqués ; décision humaine ; socles 12, 35 | `evaluations.signalement_decrochage` |
+| EVA-278 | Recevoir un résumé hebdomadaire (tous ses enfants d'un même établissement) | PAR | socle 8 ; faits déterministes ; reformulation et traduction IA facultatives | — |
+
+**Direction (lots V8, V10)**
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| EVA-279 | Voir l'harmonisation entre classes d'un niveau (écarts par matière), sans classement des professeurs | DIR · `evaluations.piloter` | R-V44 ; journalisé | — |
+| EVA-280 | Contrôle des moyennes annuelles des enseignements du baccalauréat (1ʳᵉ, terminale) avant l'arrêt de la dernière période | SYS, DIR | R-V45, R-29 ; CE-91 | `evaluations.controle_bac` |
+
+Actions précisées sans nouveau numéro : **EVA-125** dupliquer **plusieurs** évaluations en une opération (M-667) ; **EVA-152** mode conseil de groupe (§14.6 point 8) ; **EVA-158** bulletin de l'an passé visible du PP, de la direction et de la CPE seulement (CE-80) ; **EVA-171** « en attente » appliqué en masse à une classe et une matière (M-608) ; **EVA-195** dictée vocale (V9).
+
 ## 18. Règles transverses (R-V1 et suivantes) [R]
 
 | Id | Règle |
@@ -867,6 +1086,25 @@ Notation des acteurs : PRF professeur, PP professeur principal, DIR direction, A
 | R-V26 | Les consultations de dossiers de conseil et de bulletins par le personnel sont journalisées. |
 | R-V27 | La saisie hors ligne est refusée si la période a été arrêtée entre-temps ; jamais d'écrasement silencieux. |
 | R-V28 | Le bulletin est celui de la classe de rattachement de l'élève à la date d'arrêt ; les notes d'une ancienne classe y figurent avec leur origine. |
+| R-V29 | **[ajout personas]** La **période et l'état** d'un résultat se résolvent **par élève** : classe de rattachement à la date de l'évaluation → périodisation → période → état de cette classe ; une même évaluation peut être ouverte pour certains élèves et arrêtée pour d'autres (§9.4). Précise R-V1. |
+| R-V30 | **[ajout personas]** Pour un enseignement en groupe multi-classes, la statistique de comparaison au bulletin est la **moyenne du groupe** (élèves notés du cours, seuil de 5), libellée comme telle. |
+| R-V31 | **[ajout personas]** L'**assiduité** au bulletin compte du premier jour de la période à la **date d'arrêt effective** de la classe ; les bornes sont imprimées ; demi-journées justifiées et non justifiées distinguées (R-38). |
+| R-V32 | **[ajout personas]** **Aucune sanction disciplinaire** n'est imprimée sur un bulletin ni portée dans l'instantané destiné aux familles ; la vie scolaire au bulletin = assiduité, ponctualité, appréciation de la CPE. |
+| R-V33 | **[ajout personas]** **Aucune rétention** d'un bulletin, d'un relevé ou d'un duplicata pour un motif financier ; les socles 24 et 25 n'ont aucun accès à la publication des documents d'évaluation. |
+| R-V34 | **[ajout personas]** Les **appréciations** et les **décisions** du conseil suivent le droit `recevoir_bulletins` du lien, pas `voir_notes`. |
+| R-V35 | **[ajout personas]** Banque de phrases, préférences de style et exemples de l'IA sont rangés par **(personne, établissement)** ; aucun texte d'un établissement n'est lu dans un autre sans geste de la personne ; les exemples sont pseudonymisés (D-013). |
+| R-V36 | **[ajout personas]** Les documents internes (bulletin, relevé, appréciations, propositions IA) portent le **prénom d'usage** décidé par l'établissement (socle 2) ; les exports officiels et documents à un tiers portent l'état civil [NV R-36]. |
+| R-V37 | **[ajout personas]** La rubrique « accompagnements » (PAP, PPS, PPRE, ULIS, UPE2A, SEGPA) n'est **jamais** transmise à un tiers (Parcoursup, dossier d'admission, relevé de transfert) ; seulement à la famille et au LSU officiel. |
+| R-V38 | **[ajout personas]** Une **moyenne externe** (enseignement suivi hors de l'établissement, déclaré par la direction) vaut moyenne de matière ; sa source est imprimée ; elle est soumise aux mêmes contrôles (R-V22, R-V45). |
+| R-V39 | **[ajout personas]** Toute **production manuelle** d'un document d'évaluation (relevé, duplicata, dossier de transfert, réponse à une demande) relit les droits du lien à l'instant et affiche les restrictions à l'agent. |
+| R-V40 | **[ajout personas]** L'IA ne corrige aucune copie, ne propose aucune note, ne détecte pas la fraude, ne forme aucun groupe d'élèves et ne propose ni mention, ni avis, ni décision (annexe III point 3 b et d [V* R-33]). |
+| R-V41 | **[ajout personas]** Une **note privée** du professeur est une donnée de l'élève, communicable au titre du droit d'accès ; l'écran de saisie le dit. |
+| R-V42 | **[ajout personas]** Au **départ** d'un élève, toutes ses évaluations de la période sont publiées et figées pour lui ; le dossier de transfert est produit depuis cet état. |
+| R-V43 | **[ajout personas]** Un parent **sans exercice** de l'autorité parentale reçoit par défaut les **bulletins** et les **décisions d'orientation** (C. civ. 373-2-1 [V R-25]) mais pas les notes au fil de l'eau ; rien en cas de **retrait** (R-26) ou de décision de justice contraire ; la direction peut élargir ou restreindre, motif tracé. |
+| R-V44 | **[ajout personas]** Les statistiques **par professeur** et les comparaisons entre groupes d'une évaluation commune sont réservées à la direction ; un professeur voit ses groupes et la moyenne **anonyme** des autres ; jamais de classement ; consultations journalisées. |
+| R-V45 | **[ajout personas]** Au lycée, les **moyennes annuelles** des enseignements du baccalauréat sont contrôlées avant l'arrêt de la dernière période de 1ʳᵉ et de terminale, comme en 3ᵉ (R-V22) ; une moyenne manquante appelle l'évaluation de remplacement (R-29). |
+| R-V46 | **[ajout personas]** Un parent ne voit **jamais l'activité de l'autre parent** (lecture, accusé, demande de révision, réponse reçue). |
+| R-V47 | **[ajout personas]** Les **destinataires** d'un bulletin (et d'un avis de décision) sont calculés **à la publication**, pas à la génération : majorité, nouveau lien, droit retiré entre-temps sont pris en compte. |
 
 ---
 
@@ -950,6 +1188,27 @@ eva_consultation                -- journal des consultations (R-V26), ajout seul
 ```
 Toutes les tables : `etablissement_id` non nul, clés étrangères composées, **RLS forcée** dès la création. Les tables du conseil, des bulletins et des exports (071, 181, 182) restent celles du socle 23, corrigées par V0 puis par la conception du 23. Les compétences (088, `ent_bilan_cycle`) sont au socle 22.
 
+### 21.1 [ajout personas] Compléments de modèle (`PERSONAS_21.md`)
+```
+eva_evaluation.periode_id        -- devient « période indicative » (tri de l'écran) ; aucun contrôle ne la lit (§9.4)
+evaluations::periode_eleve()     -- port : (évaluation, élève) → (classe à la date, période, état) ; version ensembliste pour la grille
+eva_bareme_item                  evaluation_id, ordre, libelle, maximum NUMERIC(7,3), annule BOOLEAN   -- §8.9
+eva_resultat_item                resultat_id, item_id, valeur NUMERIC(7,3)                             -- somme = eva_resultat.valeur
+eva_enseignement_externe         id, etablissement_id, eleve_id, matiere_id, organisme ('cned','etablissement','conservatoire','etranger','autre'),
+                                 organisme_libelle, du, au NULL, referent NULL, compte_moyenne_generale BOOLEAN, declare_par
+eva_moyenne_externe              id, etablissement_id, enseignement_externe_id, periode_id, valeur NULL, bareme, appreciation_transcrite NULL,
+                                 statut ('moyenne','en_attente','dispense'), document_id NULL (7), saisi_par   -- R-V38
+eva_banque_phrase                -- clé (user_id, etablissement_id) au lieu de user_id seul (R-V35, C9)
+eva_style_exemple                user_id, etablissement_id, texte_pseudonymise, consenti_le                   -- §13.8
+eva_import_tiers                 id, etablissement_id, source ('charlemagne', …), nature ('bulletins_pdf','moyennes'), periode_id,
+                                 depose_par, depose_le, etat ; eva_import_tiers_ligne (rapprochement eleve_id NULL, motif)   -- V14
+eva_rattrapage_seance            id, etablissement_id, date, debut, fin, salle_id NULL, surveillant_id NULL
+eva_rattrapage_inscription       seance_id, resultat_id, statut ('convoque','compose','absent'), sujet_document_id NULL       -- V4
+eva_sujet_partage                evaluation_id, eleve_id (accompagné), aesh_user_id, du, au                    -- EVA-267
+eva_appreciation.type            + 'dispositif' (§12.3)
+```
+Côté socle 23 (attentes, tables à concevoir là-bas) : publication programmée et remise en main propre par classe ou niveau ; délégation de présidence ; PV et présents ; registre annuel ; duplicatas. Côté socle 7 : lot d'impression par adresse. Les compléments entrent dans la réserve **5108–5189** (repli **468–477**).
+
 ---
 
 ## 22. Plan de migration depuis l'existant (sans casser l'appel, le mobile ni le labo)
@@ -991,6 +1250,18 @@ Toutes les tables : `etablissement_id` non nul, clés étrangères composées, *
 Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du réglage, mentions) ; **5101** réglages et coefficients ; **5102** natures, évaluations, évaluations communes, restrictions ; **5103** résultats, historique, résultats externes, statuts de moyenne ; **5104** états de période, transitions, rattrapages autorisés, instantanés ; **5105** appréciations, historique, banque de phrases ; **5106** demandes de correction et de révision, consultations ; **5107** reprise de l'existant et vues de compatibilité ; 5108–5189 réserve (V2 à V11) ; **5190–5199** RLS stricte et retrait des anciennes tables (`ent_devoir`, `ent_note`, `ent_note_periode`, `ent_note_appreciation`, `ent_eva_regle`, `ent_eva_coef_matiere`) après la durée d'archive.
 **Repli** si Q-B2 n'est pas adoptée : **460–479** (460–467 dans le même ordre, 468–477 réserve, 478–479 RLS stricte et retraits). Le lot V0 peut partir avant toute décision sur Q-B2 : il prend alors **460**.
 
+### 23.3 [ajout personas] Lots ajoutés et compléments (`PERSONAS_21.md`)
+| Lot | Contenu | Dépend de | Critères de fin |
+|---|---|---|---|
+| **V1** (complément) | période **par élève** (§9.4, R-V29) : port `periode_eleve`, période indicative ; tables `eva_enseignement_externe`, `eva_moyenne_externe` ; clé `(user_id, etablissement_id)` de la banque de phrases | — | tests : groupe de six classes aux arrêts différents (CE-65) ; option trimestres + semestres (CE-66) ; aucune requête de contrôle ne lit `eva_evaluation.periode_id` |
+| **V3** (complément) | barème détaillé, réussite par exercice, QCM proposés (EVA-262 à 265), duplication multiple | V2 | exemple de référence avec exercice annulé (CE-83) |
+| **V4** (complément) | rattrapages collectifs (EVA-259 à 261), aménagements à la création, sujet adapté, partage AESH, conflits d'accompagnement (EVA-266 à 268) | V2 ; port 35 en simulation | CE-81, CE-84, CE-85 |
+| **V11** (complément) | exclusions écrites (R-V40), exemples de style pseudonymisés (R-V35), relecture des bulletins (EVA-275), « ce qui a changé » (EVA-276, déterministe, peut sortir avant l'étude juridique) | V6, V8 | refus testés : demande de note, de mention, de groupes ; aucun exemple d'un autre établissement |
+| **V14** cohabitation de l'an 1 | export de l'assiduité, dépôt et rapprochement des bulletins du logiciel tiers, distribution par les droits des liens, moyennes importées en lecture, affichage « où sont les notes » (EVA-233 à 237) | **V0** ; socle 12 (assiduité) ; socle 7 (coffre, lot d'impression) ; socle 9 X7 bis (journal à reporter) | **à livrer avant le premier bulletin du pilote** ; tests : bulletin non rapproché jamais distribué ; parent interdit exclu ; élève majeur destinataire ; bornes d'assiduité |
+| **V15** secrétariat | contrôle avant publication, publication programmée, lot d'impression, v2 papier, relevés en lot, duplicata, archives, registre annuel, dossier de transfert, bandeau du guichet, prénom d'usage (EVA-244 à 255) | V8 ; socle 23 (bulletins) ; socle 7 | R-V31 à R-V34, R-V36, R-V37, R-V39, R-V42, R-V47 en tests ; matrice du guichet (parent sans exercice, retrait, ordonnance de protection) |
+| **V16** enseignements externes et transferts | écrans de déclaration et de saisie des moyennes externes, relance, contrôle 3ᵉ et baccalauréat (EVA-240 à 242, EVA-280) | V1, V8 | CE-67 à CE-69, CE-88, CE-91 |
+**Ordre recommandé (appliqué par défaut, D-031)** : V0 → **V14** (le pilote en a besoin dès le premier trimestre) → V1 → V2 → … ; V15 avec le premier bulletin produit **par ScolIA** (collège ou an 2 du lycée) ; V16 avec V8.
+
 ---
 
 ## 24. Tests et recette
@@ -1027,6 +1298,17 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 | S-118 | Seuils des alertes | — | trois positions, pas de curseurs |
 | S-119 | Le PP voit les notes détaillées des collègues | — | non par défaut ; à décider |
 | S-120 | Avis « moyenne en baisse » aux familles | marché | **ne pas faire** (anxiété, lien humain) |
+| S-121 | **[ajout personas]** Six types d'appréciations ; « générale » et « du conseil » séparées | un seul texte dans la pratique [H] | une **appréciation générale (du conseil)** par défaut ; la séparée activable |
+| S-122 | **[ajout personas]** `a_rattraper` statut distinct d'`absent` et `non_rendu` | deux codes pour une situation | `a_rattraper` devient un **attribut** (date de rattrapage) ; codes clavier inchangés |
+| S-123 | **[ajout personas]** `non_significative` et `en_attente` | deux notions, un seul affichage (et EA au LSU) | une seule, « en attente », motif interne |
+| S-124 | **[ajout personas]** Publication : trois modes, délai maximal, rappel, retrait | cinq notions pour « publier » | un écran « publier » guidé, défaut du professeur |
+| S-125 | **[ajout personas]** Décalage de publication élève / parents | tentant, sans enjeu réglementaire | **ne pas faire** |
+| S-126 | **[ajout personas]** Rang (parité Pronote et Charlemagne [H]) | demandé par certaines familles | désactivé (Q-EV5) ; **écart de parité assumé**, signalé à Florian |
+| S-127 | **[ajout personas]** Note de vie scolaire ou de conduite | usage ancien [H] | **ne pas faire** |
+| S-128 | **[ajout personas]** Sanctions imprimées au bulletin | usage [H] | **ne pas faire** (R-V32) |
+| S-129 | **[ajout personas]** Bibliothèque commune d'appréciations (Pronote [V titre]) | marché | inchangé : S-116 |
+| S-130 | **[ajout personas]** Simulateur de moyenne | demande des élèves [H] | élève seulement, calcul local |
+| S-131 | **[ajout personas]** Mise en forme du lot d'impression | tentation d'un éditeur de lot | fixe : tri par adresse, fratries regroupées, recto-verso |
 
 ---
 
@@ -1049,6 +1331,16 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 | **Q-EV13** | Collège : autoriser les classes « sans note » en 6ᵉ–4ᵉ (positionnements seulement) ? | **Oui**, permis par l'arrêté [V] ; sans réglage supplémentaire : c'est le mode de l'évaluation |
 | **Q-EV14** | Durée de conservation des notes détaillées (copies, résultats) distincte de celle du bulletin ? | Proposition : notes détaillées **fin de cycle + 1 an** (comme LSUN [V]), bulletins selon le socle 7 ; à valider avec le DPO |
 | **Q-EV15** | Le PP voit-il les notes détaillées des collègues avant l'arrêt (S-119) ? | **Non** : moyennes seulement |
+| **Q-EV16** | **[ajout personas, bloquant A]** Période et verrou par évaluation ou par élève ? | **Par élève** (R-V29, §9.4), dans le schéma de V1 — *appliqué par défaut (D-031)* |
+| **Q-EV17** | **[ajout personas, bloquant B]** An 1 du lycée pilote (D-032) : double saisie ou cohabitation outillée ? | **Cohabitation outillée** (§16, lot V14 juste après V0) ; **ScolIA seul distribue les bulletins** produits par Charlemagne — *appliqué par défaut (D-031)* ; reste à lire le format d'import de Charlemagne sur l'exemple F-07 |
+| **Q-EV18** | **[ajout personas, bloquant C]** Une matière suivie hors de l'établissement (CNED, autre établissement, conservatoire) peut-elle avoir une moyenne externe qui vaut moyenne de matière ? | **Oui**, sur déclaration de la direction, source imprimée (R-V38) — *appliqué par défaut (D-031)* |
+| **Q-EV19** | **[ajout personas]** Parent sans exercice de l'autorité parentale : défaut ? | Bulletins et décisions d'orientation **oui**, notes au fil de l'eau **non** (R-V43, C. civ. 373-2-1 [V]) ; à confirmer avec le socle 4 (contradiction C10) |
+| **Q-EV20** | **[ajout personas]** Sanctions au bulletin ; rétention d'un bulletin pour impayé ? | **Jamais** dans les deux cas (R-V32, R-V33) |
+| **Q-EV21** | **[ajout personas]** Prénom d'usage sur les documents internes ? | **Oui**, selon la décision du socle 2, état civil sur les exports et documents à un tiers (R-V36) ; texte à relire [NV R-36] |
+| **Q-EV22** | **[ajout personas]** Accès d'un ancien élève à son coffre de bulletins après son départ ? | **Un an** en lecture, puis duplicata sur demande |
+| **Q-EV23** | **[ajout personas]** Rattrapages collectifs : au socle 21 ou au 38 ? | **Au 21** (liste, convocations, sujets, copies, V4) ; salles et surveillances par le 38 quand il existera |
+| **Q-EV24** | **[ajout personas]** Envoi postal des bulletins par un prestataire (comme Pronote avec Maileva [V]) ? | **Pas par défaut** (dépendance externe, CLAUDE.md) : lot d'impression local d'abord (EVA-248) ; prestataire à étudier (identité, contrat, données, coût) et à soumettre à Florian |
+| **Q-EV25** | **[ajout personas]** Nombre d'évaluations non rendues imprimé au bulletin (R-30 [V] pour le lycée) ? | **Oui**, par matière, au lycée ; au collège aussi, par cohérence |
 
 ---
 
@@ -1064,6 +1356,14 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 - **C3** Droits d'export : le code donne `livrets.exporter` à la direction seule et `exports.officiels` aux administratifs ; D-022 dit « administratifs (direction, secrétariat) » : un seul droit pour les deux.
 - **C4** Socle 5 porte `date_arret_notes` par période ; le terrain la veut par classe (Q-EV12).
 - **C5** Le bulletin du collège imprime la rubrique « accompagnements » (PAP, PPS…) selon l'arrêté [V], alors que D-027 B interdit de révéler un dispositif : pas de contradiction réelle (le bulletin va à la famille, pas à un tiers), mais l'exemplaire remis à un **tiers** (dossier d'admission ailleurs) doit l'omettre (socle 23).
+- **C6 [ajout personas]** R-V1 et `eva_evaluation.periode_id` (une période par évaluation) contre CE-41 (date d'arrêt par classe) et les cours multi-classes : **tranché par R-V29** (période par élève, §9.4).
+- **C7 [ajout personas]** §16 « double saisie » l'an 1 contre la cohabitation outillée (lot V14) : **tranché par V14** ; D-032 inchangée (notes et bulletins dans Charlemagne).
+- **C8 [ajout personas]** Résultats externes comptés seulement dans un cours (`compte_dans_cours_id`) contre les matières sans professeur dans l'établissement : **tranché par R-V38** (moyenne externe) ; le mécanisme d'origine reste pour les notes d'un établissement d'origine (CE-02).
+- **C9 [ajout personas]** `eva_banque_phrase user_id` et le « style appris des appréciations passées » contre D-013 (aucune visibilité entre établissements) : **tranché par R-V35**.
+- **C10 [ajout personas]** « Parent sans autorité : selon la décision de la direction » (§3, socle 4 C6) contre C. civ. 373-2-1 (droit d'être informé des choix importants [V]) : **défaut R-V43**, la direction gardant la main ; à reporter dans le socle 4.
+- **C11 [ajout personas]** C5 vise le dossier d'admission ; Parcoursup et les relevés de transfert sont aussi des tiers : **R-V37** étend l'exclusion.
+- **C12 [ajout personas]** Six types d'appréciations (§12.1) contre D-023 : **S-121** (un seul texte « générale (du conseil) » par défaut).
+- **C13 [ajout personas]** §6.1 cite une « échelle à 4 niveaux » [V arrêté 2015, via sous-agent] pour les positionnements ; l'annexe III (bilan périodique du cycle 4) relue le 2026-11-09 dit seulement « la note ou tout autre positionnement » [V R-38] : l'échelle à quatre niveaux relève du **bilan de fin de cycle** (socle 22) ; le bilan périodique n'impose aucune échelle.
 
 ---
 
@@ -1074,3 +1374,5 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 3. **Publication (Q-EV2)** : explicite par le professeur, tout publié automatiquement à l'arrêt des notes. **Recommandation : oui** (le relevé et le bulletin comptent enfin la même chose).
 4. **Fenêtre du conseil (Q-EV6)** : pendant la préparation et la tenue du conseil, un professeur voit, pour les seuls élèves de ses groupes, les moyennes et appréciations des autres matières. **Recommandation : oui**, journalisé — c'est la lecture de D-022 qui garde un conseil collégial.
 5. **IA (Q-EV8)** : propositions d'appréciations relues une à une, alertes déterministes, aucune note ni décision par l'IA, étude juridique (règlement européen sur l'IA) avant la mise en service des capacités à modèle de langage. **Recommandation : oui** ; les alertes déterministes peuvent sortir sans attendre.
+
+**[ajout personas] Trois décisions s'ajoutent en tête** (`PERSONAS_21.md` §0), tranchées selon leur recommandation (D-031) : **(A)** période et verrou **par élève** (Q-EV16, dans le schéma de V1) ; **(B)** **cohabitation outillée** de l'an 1 du lycée pilote, ScolIA seul distribuant les bulletins produits par Charlemagne (Q-EV17, lot V14 juste après V0) ; **(C)** **moyenne externe** pour une matière suivie hors de l'établissement (Q-EV18). Puis, avant V7 et V15 : parent sans exercice (Q-EV19), aucune sanction ni rétention au bulletin (Q-EV20), prénom d'usage (Q-EV21).
