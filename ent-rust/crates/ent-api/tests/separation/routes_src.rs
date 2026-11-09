@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 17] = [
+pub const SOURCES: [&str; 18] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
