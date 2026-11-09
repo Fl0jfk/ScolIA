@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Messagerie, lot M0a « correctifs urgents — fuites » (2026-11-09, branche `ent-socle-messagerie-m0a`, base `ENT` e8a69c5)
+**Implémenté et testé en local** (niveau : pas validé par Florian, pas prêt pilote). Conception : `docs/socles/16_MESSAGERIE.md` §2.2 et §27.3 (tableau défaut par défaut, choix à faire valider). Migration **480** `msg_m0a_fuites` (repli 480–499, Q-B2 non tranchée) ; `MIGRATION_TAG` = `480_msg_m0a_fuites`.
+- **Corrigés** : D1 (interdiction de communication relue à la lecture, l'écriture et l'envoi : vue `ent_eleve_lien_communicant`), D2 (règle provisoire par rôle de base), D3 (audience des fils, élève), D4 (textes neutres hors ENT, plus de sujet dans les événements), D5, D6 (vue `ent_eleve_lien_sollicitable`), D7, D9 (droits effectifs), D10 (RLS permissive sur 17 tables).
+- **Tests** : `ent-db` `tests_messagerie_m0a` 11/11 verts (chaque attaque précédée d'un témoin) ; 57 tests ciblés `ent-db` avec labo verts (messagerie, socle 1, RLS, communication, carnet, isolation). Compteur de `tests_rls` +17.
+- **Non fait / à noter** : D8, D11 à D18, D20 (lot M0b) ; envois hors messagerie (cahier, EDT, finances, formulaires, inscriptions) encore sur `ent_eleve_lien_actif` (socle 8) ; l'e-mail du carnet part encore à tout responsable communicant (sans contenu).
+- **CI GitHub** : voir le journal de ce lot ci-dessous (mis à jour après chaque run).
+
 ## CI GitHub du backend en parallèle (2026-11-09, branche `ent-ci-parallele`, base `ent-integration-lot10` ce82cae4)
 **Fait** : seul `.github/workflows/ent-rust.yml` (job `backend` remplacé, jobs formatage / audits / frontend inchangés) et la documentation sont modifiés ; aucun code, aucune dépendance, aucune base de production, aucun secret ; Next.js intact. **Mesuré** (runs 42588864473, 42594621663, 42599566263) :
 
