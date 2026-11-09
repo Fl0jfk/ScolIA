@@ -696,8 +696,12 @@ fn rp2_t03_professeur_de_groupe_borne_sur_les_routes_des_socles_2_a_4() {
             let r = s.req("GET", &c, Some("Prof 3"), None).await;
             assert_refus(&r, &format!("Prof 3 lit {c} (Harry)"));
         }
+        // Recherche ELV-20 (E6) : un mot de moins de 3 lettres ne vaut que comme DÉBUT de mot
+        // (« a » ne retrouve plus « Harry » comme l'ancienne recherche par sous-chaîne). On
+        // interroge donc par le prénom (positif) et par le prénom des élèves hors portée
+        // (négatif : aucun oracle), puis l'annuaire vide (portée du professeur seulement).
         let r = s
-            .req("GET", "/eleves/search?q=4B", Some("Prof 3"), None)
+            .req("GET", "/eleves/search?q=Harry", Some("Prof 3"), None)
             .await;
         assert_eq!(r.statut, StatusCode::OK, "recherche : {}", r.texte);
         assert!(
@@ -706,11 +710,23 @@ fn rp2_t03_professeur_de_groupe_borne_sur_les_routes_des_socles_2_a_4() {
             r.texte
         );
         for prenom in ["Ginny", "Draco"] {
-            assert!(
-                !r.texte.contains(&s.eleve(prenom).to_string()),
-                "{prenom} dans la recherche de Prof 3 : {}",
-                r.texte
-            );
+            let id = s.eleve(prenom).to_string();
+            for q in [prenom, ""] {
+                let r = s
+                    .req(
+                        "GET",
+                        &format!("/eleves/search?q={q}"),
+                        Some("Prof 3"),
+                        None,
+                    )
+                    .await;
+                assert_eq!(r.statut, StatusCode::OK, "recherche {q:?} : {}", r.texte);
+                assert!(
+                    !r.texte.contains(&id),
+                    "{prenom} dans la recherche {q:?} de Prof 3 : {}",
+                    r.texte
+                );
+            }
         }
     });
 }
