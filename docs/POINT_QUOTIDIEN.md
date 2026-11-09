@@ -6,6 +6,59 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-09 (lundi soir, 18 h 45 Paris)
+
+### Passé sur `ENT` aujourd'hui (CI verte : 27 jobs, 1 137 tests, 30 min)
+- **Lots 9 et 10** (`e8a69c53`) : correctifs des recettes 1 et 2 ; socle 2 E5–E6 (propositions de la famille, recherche, doublons, fusion annulable) ; socle 3 I2 (campagnes, dossiers) ; socle 4 A2 (coordonnées) ; socle 5 S0–S2 (structure, objet « cours », profil, sites, salles, fuseau) ; socle 6 P0–P1 (accès sécurisés, agents et contrats) ; écrans de la démo P1 ; **CI parallèle** (30 min au lieu de 3 h 30). Exception d'audit RUSTSEC-2026-0459 vérifiée (SQLite non compilé).
+
+### Prêt mais pas encore sur `ENT`
+- **Correctifs recette sécurité 3** (`ent-recette-securite-3`) : RS3-01 (parent non payeur et SEPA), RS3-02 (double encaissement), RS3-04 (EDT) ; RS3-03 encore ouvert.
+- **Lot 11** (`ent-integration-lot11`) : socle 5 S3 calendrier, S4 « cours », S5 offre, S7 périodes et grille ; socle 6 P2 invitations et casquettes ; assemblé, nouvelle base fusionnée, dernières suites en cours avant la CI.
+
+### En cours
+- **Socle 21 V0** : correctifs urgents des notes (bulletin d'un parent privé d'accès, appréciations avant le conseil, réouverture sans trace, zéro d'absence).
+- **Socle 16 M0a** : correctifs urgents de la messagerie (interdiction de contact, fils privés lisibles par tout personnel).
+
+### Conçu aujourd'hui (rattrapage des domaines d'avant la méthode)
+- **Socle 10 Emploi du temps** : conception + personas (D-030 : ScolIA fait lui-même l'EDT avec l'IA ; D-033).
+- **Socle 21 Évaluations** : conception + personas (D-032).
+- **Socle 16 Messagerie** (avec le 17 annonces) : conception.
+- **Recette sécurité 3** : cloisonnement multi-établissements vérifié sur 714 routes, aucune faille critique.
+- Vérifications sur sources officielles : réglementaire des socles 2 à 8, échanges nationaux (socle 9), OMOGEN.
+
+### Avancement par socle
+| Socle | Conçu | Personas | Codé | Sur ENT | Recette |
+|---|---|---|---|---|---|
+| 1 Sécurité | — | — | oui | oui | recettes 1 et 3 |
+| 2 Élève | oui | oui | E0–E6 | E0–E6 | recette 2 |
+| 3 Inscriptions | oui | oui | I0–I2 | I0–I2 | recette 2 |
+| 4 Dossier administratif | oui | oui | A0–A2 | A0–A2 | recette 2 |
+| 5 Structure | oui | oui | S0–S5, S7 | S0–S2 | non |
+| 6 Personnels | oui | oui | P0–P2 | P0–P1 | non |
+| 7, 8, 9 | oui | oui | non | — | — |
+| 10 Emploi du temps | oui | oui | ancien (lot 7) | ancien | recette 3 |
+| 16 Messagerie | oui | à faire | ancien + M0a | ancien | recette 3 |
+| 21 Évaluations | oui | oui | ancien + V0 | ancien | recette 3 |
+| 24–25 Finances, 34 Santé | à faire | — | ancien | ancien | recette 3 (finances) |
+
+Environ **20 %** d'un ENT au niveau Charlemagne sur `ENT` et validé ; 13 socles sur 51 conçus en profondeur.
+
+### Recommandations appliquées par défaut aujourd'hui (D-031)
+D-032 (socle 21 : V0 d'abord, notes et bulletins dans Charlemagne l'an 1, publication explicite puis automatique à l'arrêt, fenêtre du conseil, IA qui propose sans décider) ; D-033 (socle 10 : choix des élèves qui construisent les barrettes, explications de l'IA sans contrainte d'un collègue, EDT temporaires) ; socle 16 : un fil par foyer, messagerie de l'élève non lue par ses parents, pas de messagerie libre entre élèves, plage calme nationale.
+
+### Décisions attendues de Florian
+- Aucune urgente. Pour le DPO plus tard : durées de conservation (messages, notes, journaux), module santé.
+
+### À fournir par Florian (rappel)
+- **Cette semaine** : inscription simple comme éditeur (Pléiade ou communication-editeurs@education.gouv.fr) — rappel programmé mercredi 11 nov. à 18 h 37.
+- Plus tard : exports Charlemagne et XML anonymisés (F-01 à F-05, F-07), avec un outil d'anonymisation fourni par le pilote.
+
+### Ce qui a coincé
+- Lots 9 et 10 : cinq passages en CI rouges avant le vert (un ou deux tests cassés par les fusions à chaque fois) ; réglé par la CI parallèle.
+- Redémarrages du pilote : environ 5 h perdues la nuit dernière, plusieurs coupures dans la journée (suivi désormais planifié avant toute action).
+
+---
+
 ## 2026-11-09 (lundi, 11 h UTC)
 
 ### Sur `ENT` (validé par la CI GitHub)
