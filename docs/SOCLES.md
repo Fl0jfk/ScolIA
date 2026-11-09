@@ -254,6 +254,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : 020, 023, 037, 038, 047, 050 ; module Leptos `messagerie` ; messagerie dans `ent-mobile`.
 - **Place** : condition de vente ; c'est la surface du futur « chat first » (30).
 - **Faire mieux** : l'action se fait dans la conversation, sans chercher le bon menu.
+- **Conception** (2026-11-09, rattrapage, non décidée) : `docs/socles/16_MESSAGERIE.md` — **lire = participer** (participants nommés, plus de visibilité déduite du lien avec l'élève) ; un fil par foyer pour les parents séparés ; **boîtes de service** (vie scolaire, secrétariat, infirmerie…) avec prise en charge ; matrice « qui peut écrire à qui » calculée sur les faits des socles 4, 5, 6 (sept réglages bornés) ; fils encadrés adulte–mineur, pas de messagerie entre élèves ; plage calme nationale (20 h–7 h, week-end) ; gel, signalement, aucune suppression par un utilisateur ; IA en brouillons confirmés ; **lot M0a de correctifs urgents** sur l'existant (interdiction de communication ignorée, fils privés lus par tout personnel qui suit l'élève, élève et parents qui lisent les fils les uns des autres, contenu en clair dans les notifications) ; 133 actions MSG-100 à MSG-308, 80 cas limites, lots M0a à M17. Plage de migrations 4600–4699 (Q-B2) ou 480–499.
 
 #### 17. Informations, annonces et campagnes
 - **Contient** : annonces ciblées (tous, classe, niveau, groupe, rôle) ; actualités ; lettres d'information ; campagnes mail / SMS / push avec prévisualisation des destinataires, coût et double confirmation ; suivi de lecture ; publipostage.
@@ -261,6 +262,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : annonces (086) ; envois groupés par e-mail et SMS (routes existantes).
 - **Place** : même public que la messagerie, autre usage.
 - **Faire mieux** : on sait qui n'a pas lu, et on le relance seul.
+- **Esquisse** (2026-11-09, dans `docs/socles/16_MESSAGERIE.md` §17 et §19.11, non décidée) : une publication (annonce, actualité, lettre, campagne) est un acte éditorial à **audience décrite**, résolue sous les droits de l'auteur ; la **diffusion** (aperçu, coût, confirmation, relance des non-lecteurs) est la mécanique du socle 8 (Q-N2) ; pas de commentaires publics, « poser une question » ouvre un fil ; reprise des annonces (086) et du contenu des campagnes (191) ; 17 actions ANN-100 à ANN-116, lot M15. Conception propre à faire. Plage réservée 4700–4799 (Q-B2) ou 500–519.
 
 #### 18. Formulaires, autorisations et consentements
 - **Contient** : moteur de formulaires et de sondages ciblés (anonyme ou nominatif annoncé ; une réponse par responsable ou par foyer) ; autorisations récurrentes (droit à l'image, usage du numérique, sortie, transport) ; **consentements versionnés** avec retrait ; résultats et exports.

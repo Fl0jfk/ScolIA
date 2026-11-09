@@ -144,3 +144,13 @@ Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune
 | 460–479 | socle 21, **repli** si Q-B2 n'est pas adoptée (460–467 dans le même ordre, 468–477 réserve, 478–479 RLS stricte et retraits) ; vérifié libre sur toutes les branches distantes le 2026-11-09 (plus haute migration trouvée : 377) | `ent-socle-evaluations-conception` (conception seulement) | réservé |
 
 Note : le lot V0 (correctifs urgents, 5100 / 460) peut partir avant toute décision sur Q-B2 ; il prend alors **460**. Les socles 22 et 23 recevront leur plage (5200–5299, 5300–5399, ou un repli) à leur propre conception.
+
+## Réservation du 2026-11-09 (conception du socle 16, rattrapage, avec l'esquisse du socle 17)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 4600–4699 | socle 16 messagerie et conversations (conception : `16_MESSAGERIE.md` §27.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 4600–4611 attribuées (M0a correctifs urgents : RLS permissive sur toutes les tables de communication, colonne `audience` provisoire, fils ouverts par un élève rendus privés, longueurs ; M0b pagination et taille ; fil enrichi et clés composites ; participants et reprise ; messages enrichis et versions ; boîtes et traitement ; lots et envois différés ; pièces en stockage objet ; carnet et cartes ; signalements, gels, restrictions, supervisions ; absences et paramètres ; vues filtrées), 4612–4689 réserve, 4690–4699 RLS stricte et retrait des anciennes tables et colonnes (`ent_msg_accuse`, `ent_carnet_entree`, contenu `BYTEA` des pièces, `prive_user_id`, `foyer_id`, `archive`, `priorite`, `dossier`) après la durée d'archive | `ent-socle-messagerie-conception` (conception seulement) | réservé |
+| 480–499 | socle 16, **repli** si Q-B2 n'est pas adoptée (480–491 dans le même ordre, 492–497 réserve, 498–499 RLS stricte et retraits) ; vérifié libre sur toutes les branches distantes le 2026-11-09 (plus haute migration trouvée : 460) | `ent-socle-messagerie-conception` (conception seulement) | réservé |
+| 4700–4799 | socle 17 informations, annonces et campagnes (publications, lot M15 de `16_MESSAGERIE.md`), si Q-B2 ; à détailler à sa conception propre | — | réservé |
+| 500–519 | socle 17, **repli** si Q-B2 n'est pas adoptée | — | réservé |
+
+Note : le lot **M0a** (correctifs urgents, 4600 / 480) peut partir avant toute décision sur Q-B2 ; il prend alors **480** (et M0b **481** s'il en a besoin), et la suite du socle garde la même correspondance.
