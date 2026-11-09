@@ -164,7 +164,10 @@ async fn membres_garde_fous_de_saisie() {
     assert!(invalide(ent.cours_membre_ajouter(&a, m.s_all, x, "autre_nature", "ulis", t, None).await));
     assert!(invalide(ent.cours_membre_ajouter(&a, m.s_all, x, "inclusion", "motif_libre", t, None).await));
     assert!(invalide(ent.cours_membre_ajouter(&a, m.s_all, x, "inclusion", "ulis", t, Some(t - Duration::days(1))).await));
-    assert!(invalide(ent.cours_membre_ajouter(&a, Uuid::new_v4(), x, "inclusion", "ulis", t, None).await), "cours inconnu");
+    assert!(
+        matches!(ent.cours_membre_ajouter(&a, Uuid::new_v4(), x, "inclusion", "ulis", t, None).await, Err(EntDbError::Domain(DomainError::NotFound))),
+        "cours inconnu : introuvable (lot S4 : identifiant résolu avant toute écriture)"
+    );
     assert!(ent.cours_membre_ajouter(&a, m.s_all, Uuid::new_v4(), "inclusion", "ulis", t, None).await.is_err(), "élève inconnu");
     // Hors de l'année du cours.
     assert!(invalide(ent.cours_membre_ajouter(&a, m.s_all, x, "inclusion", "ulis", t + Duration::days(900), None).await));

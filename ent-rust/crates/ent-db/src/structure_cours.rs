@@ -204,6 +204,17 @@ pub mod cours {
         if c.ferme_le.is_some() {
             return Err(invalide());
         }
+        let cloturee: Option<bool> = sqlx::query_scalar(
+            "SELECT cloturee_le IS NOT NULL FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(c.annee_id)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(db)?;
+        if cloturee != Some(false) {
+            return Err(invalide());
+        }
         if professeur_principal && c.classe_id.is_none() {
             return Err(invalide());
         }
@@ -559,7 +570,8 @@ impl PgEnt {
         sqlx::query(
             "UPDATE ent_cours SET libelle = COALESCE($3, libelle), offre_id = COALESCE($4, offre_id),
                     heures_hebdo = COALESCE($5::float8::numeric, heures_hebdo),
-                    semaines = COALESCE($6, semaines), a_verifier = false
+                    semaines = COALESCE($6, semaines),
+                    a_verifier = CASE WHEN $3 IS NOT NULL THEN false ELSE a_verifier END
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(a.etablissement_id)
@@ -691,7 +703,8 @@ impl PgEnt {
             &sid.to_string(),
             "pose",
             None,
-            Some(json!({ "cours_id": id, "professeur_principal": professeur_principal })),
+            Some(json!({ "cours_id": id, "prof_user_id": prof_user_id,
+                    "professeur_principal": professeur_principal })),
         )
         .await?;
         let ev = publier(

@@ -240,9 +240,24 @@ BEGIN
 END
 $$ LANGUAGE plpgsql;
 
+-- Si un service change de cours (sa cible ou sa matière change), ses créneaux le suivent.
+CREATE OR REPLACE FUNCTION ent_trg_service_cours_propage() RETURNS trigger AS $$
+BEGIN
+    IF NEW.cours_id IS DISTINCT FROM OLD.cours_id THEN
+        UPDATE ent_edt_creneau SET cours_id = NEW.cours_id
+         WHERE etablissement_id = NEW.etablissement_id AND service_id = NEW.id;
+    END IF;
+    RETURN NULL;
+END
+$$ LANGUAGE plpgsql;
+
 DROP TRIGGER IF EXISTS ent_service_cours ON ent_service_enseignement;
 CREATE TRIGGER ent_service_cours BEFORE INSERT OR UPDATE OF annee_id, classe_id, groupe_id, matiere_id, matiere_libelle, cours_id
     ON ent_service_enseignement FOR EACH ROW EXECUTE FUNCTION ent_trg_service_cours();
+
+DROP TRIGGER IF EXISTS ent_service_cours_propage ON ent_service_enseignement;
+CREATE TRIGGER ent_service_cours_propage AFTER UPDATE OF cours_id
+    ON ent_service_enseignement FOR EACH ROW EXECUTE FUNCTION ent_trg_service_cours_propage();
 
 -- ───────────────────────── Créneaux d'emploi du temps : contrat avec le socle 10 ─────────────────────────
 ALTER TABLE ent_edt_creneau ADD COLUMN IF NOT EXISTS cours_id UUID;
@@ -440,10 +455,14 @@ BEGIN
         END;
     END LOOP;
     -- 2. Créneaux : le cours de leur service.
-    UPDATE ent_edt_creneau c SET cours_id = s.cours_id
-      FROM ent_service_enseignement s
-     WHERE c.service_id = s.id AND c.etablissement_id = s.etablissement_id
-       AND c.cours_id IS NULL AND s.cours_id IS NOT NULL;
+    BEGIN
+        UPDATE ent_edt_creneau c SET cours_id = s.cours_id
+          FROM ent_service_enseignement s
+         WHERE c.service_id = s.id AND c.etablissement_id = s.etablissement_id
+           AND c.cours_id IS NULL AND s.cours_id IS NOT NULL;
+    EXCEPTION WHEN OTHERS THEN
+        RAISE WARNING 'ent_cours_reprendre : créneaux non repris (%)', SQLERRM;
+    END;
     -- 3. Membres individuels : de la ligne de service vers le cours (une seule fois : après, le
     --    cours_id n'est plus un identifiant de service).
     FOR r_m IN SELECT mb.id, s.cours_id AS cours_cible
@@ -452,7 +471,11 @@ BEGIN
               WHERE s.cours_id IS NOT NULL
               ORDER BY mb.created_at, mb.id
     LOOP
-        UPDATE ent_cours_membre SET service_origine_id = cours_id, cours_id = r_m.cours_cible WHERE id = r_m.id;
+        BEGIN
+            UPDATE ent_cours_membre SET service_origine_id = cours_id, cours_id = r_m.cours_cible WHERE id = r_m.id;
+        EXCEPTION WHEN OTHERS THEN
+            RAISE WARNING 'ent_cours_reprendre : membre % non repris (%)', r_m.id, SQLERRM;
+        END;
     END LOOP;
     PERFORM set_config('ent.cours_reprise', '', true);
     RETURN n;
@@ -498,10 +521,12 @@ BEGIN
 END $$;
 
 -- ───────────────────────── Journal de structure : nouveaux objets ─────────────────────────
+-- NOT VALID : la liste ne fait que s'allonger, les lignes existantes la respectent ; ne pas parcourir
+-- tout le journal sous verrou à chaque démarrage.
 ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
 ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
      'indisponibilite', 'import_salles', 'prereglage',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
      'enseignements_suivis', 'enseignement_suivi',
-     'cours', 'cours_membre', 'cours_service'));
+     'cours', 'cours_membre', 'cours_service')) NOT VALID;

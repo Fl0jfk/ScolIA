@@ -701,3 +701,128 @@ async fn reprise_idempotente_sans_perte_et_perimetre_identique() {
     // Rétablir la clé étrangère retirée par la simulation (la migration la recrée à chaque démarrage).
     ent.migrate().await.unwrap();
 }
+
+/// Cloisonnement strict (rôle non propriétaire, RLS forcée) des tables du lot : un établissement
+/// ne voit ni n'écrit les cours d'un autre ; sans transaction d'établissement, rien n'est visible.
+#[tokio::test]
+async fn rls_strict_tables_du_lot_s4() {
+    use crate::tenant_tx::{RlsMode, TenantTx};
+    use sqlx::Row;
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let url = crate::url_guard::url_labo_ou_echec().unwrap();
+    let admin = ent.pool().clone();
+    const ROLE: &str = "ent_rls_app";
+    sqlx::query(&format!(
+        "DO $$ BEGIN CREATE ROLE {ROLE} LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; \
+         EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+    ))
+    .execute(&admin)
+    .await
+    .unwrap();
+    for sql in [
+        format!("GRANT USAGE ON SCHEMA public TO {ROLE}"),
+        format!("GRANT SELECT, INSERT, UPDATE ON ent_cours, ent_cours_membre, ent_cours_a_traiter TO {ROLE}"),
+        format!("ALTER ROLE {ROLE} SET app.rls_strict = 'on'"),
+    ] {
+        sqlx::query(&sql).execute(&admin).await.unwrap();
+    }
+    let mut u = url::Url::parse(&url).unwrap();
+    u.set_username(ROLE).unwrap();
+    u.set_password(Some("rls")).unwrap();
+    let app = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(u.as_str())
+        .await
+        .unwrap();
+
+    // Deux établissements neufs, chacun avec une année, une classe et un cours.
+    let sfx = Uuid::new_v4().simple().to_string()[..6].to_uppercase();
+    let mut mondes = Vec::new();
+    for i in 0..2 {
+        let etab = Uuid::new_v4();
+        let annee = Uuid::new_v4();
+        let t = today_utc();
+        sqlx::query(
+            "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
+             VALUES ($1,$2,'N',$3,$4,true)",
+        )
+        .bind(annee)
+        .bind(etab)
+        .bind(t - Duration::days(60))
+        .bind(t + Duration::days(200))
+        .execute(&admin)
+        .await
+        .unwrap();
+        let classe = ent
+            .referentiel_creer_classe(ADMIN, etab, Some(annee), &format!("R{i}{sfx}"), None, None)
+            .await
+            .unwrap();
+        let a = Acteur {
+            etablissement_id: etab,
+            user_id: cast.direction.user_id,
+            role: cast.direction.role.as_str(),
+        };
+        ent.structure_cours_creer(
+            &a,
+            CoursSaisie {
+                classe_id: Some(classe.id),
+                groupe_id: None,
+                matiere_id: None,
+                libelle: Some("Cours".into()),
+                offre_id: None,
+                heures_hebdo: None,
+                semaines: None,
+                ouvert_le: None,
+            },
+        )
+        .await
+        .unwrap();
+        mondes.push((etab, annee, classe.id));
+    }
+    let (m1, m2) = (mondes[0], mondes[1]);
+    let mut t = TenantTx::begin_mode(&app, m1.0, RlsMode::Strict)
+        .await
+        .unwrap();
+    let n: i64 = sqlx::query("SELECT count(*) FROM ent_cours")
+        .fetch_one(&mut *t)
+        .await
+        .unwrap()
+        .get(0);
+    let autres: i64 = sqlx::query("SELECT count(*) FROM ent_cours WHERE etablissement_id <> $1")
+        .bind(m1.0)
+        .fetch_one(&mut *t)
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(
+        (n, autres),
+        (1, 0),
+        "un seul cours visible, aucun d'un autre établissement"
+    );
+    let r = sqlx::query(
+        "INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, classe_id, ouvert_le)
+         VALUES ($1,$2,$3,'Pirate',$4,current_date)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(m2.0)
+    .bind(m2.1)
+    .bind(m2.2)
+    .execute(&mut *t)
+    .await;
+    let err = r.expect_err("insertion inter-établissement refusée");
+    assert_eq!(
+        err.as_database_error().and_then(|d| d.code()).as_deref(),
+        Some("42501")
+    );
+    drop(t);
+    for table in ["ent_cours", "ent_cours_membre", "ent_cours_a_traiter"] {
+        let n: i64 = sqlx::query(&format!("SELECT count(*) FROM {table}"))
+            .fetch_one(&app)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(n, 0, "{table} sans transaction d'établissement");
+    }
+}

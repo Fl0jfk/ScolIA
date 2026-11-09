@@ -33,7 +33,13 @@ CREATE INDEX IF NOT EXISTS ent_cours_membre_eleve_idx ON ent_cours_membre (etabl
 
 -- Cohérence : même établissement (cours, élève) ; pas deux périodes actives qui se chevauchent
 -- pour (cours, élève, nature) ; la période reste dans l'année du cours.
-CREATE OR REPLACE FUNCTION ent_trg_cours_membre() RETURNS trigger AS $$
+-- Au rejeu (les migrations sont rejouées à chaque démarrage), la définition du lot S4 (341) ne doit
+-- pas être écrasée par celle-ci : elle n'est posée que si le cours (341) n'existe pas encore.
+DO $$
+BEGIN
+    IF to_regclass('public.ent_cours') IS NULL THEN
+        EXECUTE $f$
+CREATE OR REPLACE FUNCTION ent_trg_cours_membre() RETURNS trigger AS $g$
 DECLARE a_debut DATE; a_fin DATE; a_close TIMESTAMPTZ;
 BEGIN
     -- Un membre ne se modifie pas : seule l'annulation (annulee_le NULL -> date) est permise.
@@ -71,7 +77,10 @@ BEGIN
     END IF;
     RETURN NEW;
 END
-$$ LANGUAGE plpgsql;
+$g$ LANGUAGE plpgsql
+        $f$;
+    END IF;
+END $$;
 
 DROP TRIGGER IF EXISTS ent_cours_membre_coherence ON ent_cours_membre;
 CREATE TRIGGER ent_cours_membre_coherence BEFORE INSERT OR UPDATE ON ent_cours_membre
@@ -89,10 +98,16 @@ CREATE TRIGGER ent_cours_membre_pas_de_suppression BEFORE DELETE ON ent_cours_me
 
 -- LA règle de visibilité. Filtres facultatifs : un cours, un professeur (titulaire du cours),
 -- un élève. Sans filtre : tout l'établissement.
+-- Au rejeu (les migrations sont rejouées à chaque démarrage), la définition du lot S4 (341) ne doit
+-- pas être écrasée par celle-ci : elle n'est posée que si le cours (341) n'existe pas encore.
+DO $$
+BEGIN
+    IF to_regclass('public.ent_cours') IS NULL THEN
+        EXECUTE $f$
 CREATE OR REPLACE FUNCTION ent_public_cours_jour(
     p_etab UUID, p_jour DATE,
     p_cours UUID DEFAULT NULL, p_prof UUID DEFAULT NULL, p_eleve UUID DEFAULT NULL)
-RETURNS TABLE (cours_id UUID, eleve_id UUID) LANGUAGE sql STABLE AS $$
+RETURNS TABLE (cours_id UUID, eleve_id UUID) LANGUAGE sql STABLE AS $g$
     SELECT DISTINCT x.cours_id, x.eleve_id
       FROM (
         SELECT s.id AS cours_id, a.eleve_id
@@ -127,7 +142,10 @@ RETURNS TABLE (cours_id UUID, eleve_id UUID) LANGUAGE sql STABLE AS $$
              WHERE ex.etablissement_id = p_etab AND ex.cours_id = x.cours_id AND ex.eleve_id = x.eleve_id
                AND ex.nature = 'exclusion' AND ex.annulee_le IS NULL
                AND ex.du <= p_jour AND (ex.au IS NULL OR ex.au >= p_jour))
-$$;
+$g$
+        $f$;
+    END IF;
+END $$;
 
 ALTER TABLE ent_cours_membre ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ent_cours_membre FORCE ROW LEVEL SECURITY;
