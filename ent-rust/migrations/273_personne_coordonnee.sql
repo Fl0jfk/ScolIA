@@ -34,7 +34,7 @@ BEGIN
         END IF;
         RETURN NULL;
     END IF;
-    IF s ~ '^\+[1-9][0-9]{7,14}$' THEN
+    IF s ~ '^\+[1-9][0-9]{8,14}$' THEN
         RETURN s;
     END IF;
     IF s ~ '^0[1-9][0-9]{8}$' THEN

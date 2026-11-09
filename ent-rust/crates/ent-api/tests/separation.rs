@@ -690,6 +690,14 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cours-membre-ajout-B", "POST", "/referentiel/cours/{cours}/membres",
             Some(r#"{"eleve_id":"{eleve}","nature":"inclusion","motif_code":"ulis","du":"2026-01-05","au":null}"#)),
         ecrire_sur_b("cours-membre-annulation-B", "POST", "/referentiel/cours-membres/{cours}/annuler", None),
+        // Lot S4 : l'objet cours (détail avec les professeurs : gestion seulement).
+        lire("structure-cours-detail", "/structure/cours/{cours}",
+            &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+        ecrire_sur_b("structure-cours-modification-B", "PUT", "/structure/cours/{cours}", Some(r#"{"libelle":"X"}"#)),
+        ecrire_sur_b("structure-cours-fermeture-B", "POST", "/structure/cours/{cours}/fermer",
+            Some(r#"{"a_la_date":"2026-01-05"}"#)),
+        ecrire_sur_b("structure-cours-service-B", "POST", "/structure/cours/{cours}/services",
+            Some(r#"{"prof_user_id":"{eleve}","professeur_principal":false}"#)),
     ]
 }
 

@@ -19,6 +19,7 @@ mod cahier;
 mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
+mod structure_cours;
 mod structure_offre;
 mod structure_periodes;
 mod edt_s2;
@@ -303,6 +304,8 @@ mod tests_finances;
 mod tests_structure;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]

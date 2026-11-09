@@ -362,7 +362,9 @@ BEGIN
 END $$;
 
 -- ───────────────────────── Journal de structure : nouveaux objets ─────────────────────────
--- Le journal (332) est en liste fermée : on y ajoute les objets du lot S5.
+-- Le journal (332) est en liste fermée : on y ajoute les objets du lot S5. NOT VALID : les
+-- migrations sont rejouées à chaque démarrage et un lot suivant (341…) y ajoute ses objets ; sans
+-- cela, la liste étroite de ce lot serait contrôlée contre des lignes déjà écrites par ce lot suivant.
 ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
 ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
@@ -370,6 +372,5 @@ ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_che
      'periodisation', 'periode', 'grille',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
      'enseignements_suivis', 'enseignement_suivi',
-     -- Lot S3 (migration 333) : 338 s'appliquant après 333, la liste finale doit contenir les
-     -- objets des deux lots, sans quoi les écritures du calendrier seraient refusées.
-     'calendrier_evenement', 'calendrier_adoption', 'semaines', 'semaine', 'fermeture'));
+     -- Lot S3 (migration 333) : la liste finale contient les objets de tous les lots.
+     'calendrier_evenement', 'calendrier_adoption', 'semaines', 'semaine', 'fermeture')) NOT VALID;

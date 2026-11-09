@@ -78,6 +78,7 @@ mod quotient_repo;
 mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
+pub mod structure_cours;
 pub mod structure_enseignements;
 pub mod structure_calendrier;
 pub mod structure_etab;
@@ -316,6 +317,8 @@ mod tests_structure_s1;
 mod tests_structure_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]

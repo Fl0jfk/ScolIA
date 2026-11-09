@@ -170,13 +170,15 @@ CREATE TABLE IF NOT EXISTS ent_semaine (
 CREATE INDEX IF NOT EXISTS ent_semaine_lundi_idx ON ent_semaine (etablissement_id, lundi);
 
 -- ───────────────────────── Journal : nouveaux objets ─────────────────────────
+-- NOT VALID : les migrations sont rejouées à chaque démarrage et des lots suivants (335, 338, 341)
+-- écrivent d'autres objets ; la liste finale (union de tous les lots) est posée par 341.
 ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
 ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
      'indisponibilite', 'import_salles', 'prereglage',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
      'enseignements_suivis', 'enseignement_suivi',
-     'calendrier_evenement', 'calendrier_adoption', 'semaines', 'semaine', 'fermeture'));
+     'calendrier_evenement', 'calendrier_adoption', 'semaines', 'semaine', 'fermeture')) NOT VALID;
 
 -- ───────────────────────── RLS ─────────────────────────
 DO $$

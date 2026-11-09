@@ -244,8 +244,10 @@ async fn rls_politiques_presentes_et_forcees() {
     // socle 5 (profil, paramètres, journal de structure, bâtiments, lieux, disponibilités,
     // indisponibilités) + 11 du lot S5 (offre, cibles, groupes, règles, incompatibilités,
     // prérequis ; enseignements suivis, historique, reprise, à traiter) + 5 du lot S3 (événements
-    // du calendrier, cibles, règle de semaines, semaines, historique des fermetures).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5, "tables avec RLS activée et forcée");
+    // du calendrier, cibles, règle de semaines, semaines, historique des fermetures) + 2 du lot S4
+    // (cours, services à traiter à la reprise) + 5 du lot S7 (périodisations et cibles, grilles, cibles
+    // et créneaux de grille).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
