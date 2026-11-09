@@ -4267,7 +4267,7 @@ async fn explorer_facturation(
         return Err(format!("export SEPA incomplet : {sepa_txt}"));
     }
     r.geste(format!("export SEPA CSV {} octets · RUM {rum}", sepa_csv.len()));
-    let (executed, _, fac_sepa, quit_sepa) = ent
+    let (executed, effet_sepa) = ent
         .executer_prelevement_for_actor(
             cast.etablissement_id,
             prev.id,
@@ -4276,6 +4276,7 @@ async fn explorer_facturation(
         )
         .await
         .map_err(|e| e.to_string())?;
+    let (_, fac_sepa, quit_sepa) = effet_sepa.ok_or("première exécution attendue")?;
     if executed.statut != domain_eleve::PrelevementStatut::Execute {
         return Err("prélèvement doit être exécuté".into());
     }

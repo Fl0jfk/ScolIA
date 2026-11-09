@@ -954,6 +954,25 @@ impl PgFacRepo {
             .collect()
     }
 
+    /// RS3-03 : un foyer en paiement `manuel` ne se prélève pas (défaut : prélèvement).
+    pub async fn foyer_en_paiement_manuel(
+        &self,
+        etablissement_id: Uuid,
+        foyer_id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let r: Option<(String,)> = sqlx::query_as(
+            "SELECT mode_paiement FROM ent_fin_compte_payeur WHERE etablissement_id = $1 AND foyer_id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(foyer_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(r.map(|r| r.0 == "manuel").unwrap_or(false))
+    }
+
     pub async fn update_sepa_prelevement(&self, p: &PrelevementSepa) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
@@ -963,7 +982,7 @@ impl PgFacRepo {
                 encaissement_id = $4,
                 motif_rejet = $5,
                 rejete_at = $6
-            WHERE etablissement_id = $1 AND id = $2
+              AND statut IN ('prevu', 'exporte')
             "#,
         )
         .bind(p.etablissement_id)
@@ -977,10 +996,214 @@ impl PgFacRepo {
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
-            return Err(DomainError::NotFound);
+            // RS3-02 : garde de statut dans le WHERE — un prélèvement déjà
+            // exécuté ou rejeté ne se modifie plus (aucun double effet).
+            let existe: Option<(Uuid,)> = sqlx::query_as(
+                "SELECT id FROM ent_fac_sepa_prelevement WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(p.etablissement_id)
+            .bind(p.id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            return Err(if existe.is_some() {
+                DomainError::SepaPrelevementInvalide
+            } else {
+                DomainError::NotFound
+            });
         }
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
+    }
+
+    /// RS3-02 : exécution d'un prélèvement SEPA **atomique et idempotente**.
+    ///
+    /// Une seule transaction : verrou de ligne (`FOR UPDATE`) sur le prélèvement
+    /// puis sur la facture (sérialise les exécutions concurrentes d'une même
+    /// facture), contrôle de statut **avant** toute écriture, puis encaissement,
+    /// solde de la facture, quittance et passage du prélèvement à `execute`.
+    /// Un prélèvement déjà `execute` renvoie `Ok((prelevement, None))` : aucun effet.
+    /// Un prélèvement `rejete` renvoie `SepaPrelevementInvalide`.
+    pub async fn executer_sepa_atomique(
+        &self,
+        etablissement_id: Uuid,
+        prelevement_id: Uuid,
+        actor_user_id: Uuid,
+    ) -> Result<(PrelevementSepa, Option<(Encaissement, Facture, Quittance)>), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let row = sqlx::query_as::<_, PrelevementRow>(
+            r#"
+            SELECT id, etablissement_id, mandat_id, facture_id, foyer_id,
+                   montant_centimes, date_execution, end_to_end_id, statut,
+                   encaissement_id, motif_rejet, rejete_at,
+                   created_by_user_id, created_at
+            FROM ent_fac_sepa_prelevement
+            WHERE etablissement_id = $1 AND id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(prelevement_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(DomainError::NotFound)?;
+        let current = row.into_prelevement().ok_or(DomainError::SepaPrelevementInvalide)?;
+        match current.statut {
+            PrelevementStatut::Prevu | PrelevementStatut::Exporte => {}
+            PrelevementStatut::Execute => {
+                tx.commit().await.map_err(map_sqlx)?;
+                return Ok((current, None));
+            }
+            _ => return Err(DomainError::SepaPrelevementInvalide),
+        }
+        let facture = sqlx::query_as::<_, FactureRow>(
+            r#"
+            SELECT id, etablissement_id, foyer_id, numero, libelle, statut,
+                   total_centimes, nature, annee_scolaire,
+                   created_by_user_id, created_at, emise_at, soldee_at
+            FROM ent_fac_facture
+            WHERE etablissement_id = $1 AND id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(current.facture_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .map(FactureRow::into_facture)
+        .ok_or(DomainError::NotFound)?;
+        let (deja,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(SUM(montant_centimes), 0)::bigint
+            FROM ent_fac_encaissement
+            WHERE etablissement_id = $1 AND facture_id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(current.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let (ouvert,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(SUM(montant_centimes), 0)::bigint
+            FROM ent_fac_sepa_prelevement
+            WHERE etablissement_id = $1 AND facture_id = $2
+              AND statut IN ('prevu', 'exporte')
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(current.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        // Ce prélèvement quitte la réserve ouverte en devenant encaissement.
+        let engage = deja.saturating_add(ouvert.saturating_sub(current.montant_centimes));
+        let (enc, facture_maj) = domain_eleve::plan_encaisser(
+            &facture,
+            engage,
+            domain_eleve::EncaisserFacture {
+                etablissement_id,
+                facture_id: current.facture_id,
+                montant_centimes: current.montant_centimes,
+                moyen: MoyenPaiement::Prelevement,
+                reference: Some(current.end_to_end_id.clone()),
+                actor_user_id,
+            },
+        )?;
+        sqlx::query(
+            r#"
+            INSERT INTO ent_fac_encaissement (
+                id, etablissement_id, facture_id, montant_centimes, moyen,
+                reference, encaisse_at, created_by_user_id, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            "#,
+        )
+        .bind(enc.id)
+        .bind(enc.etablissement_id)
+        .bind(enc.facture_id)
+        .bind(enc.montant_centimes)
+        .bind(enc.moyen.as_str())
+        .bind(&enc.reference)
+        .bind(enc.encaisse_at)
+        .bind(enc.created_by_user_id)
+        .bind(enc.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if facture_maj.statut == FactureStatut::Soldee {
+            let res = sqlx::query(
+                r#"
+                UPDATE ent_fac_facture
+                SET statut = $3, soldee_at = $4
+                WHERE etablissement_id = $1 AND id = $2 AND statut = 'emise'
+                "#,
+            )
+            .bind(facture_maj.etablissement_id)
+            .bind(facture_maj.id)
+            .bind(facture_maj.statut.as_str())
+            .bind(facture_maj.soldee_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            if res.rows_affected() == 0 {
+                return Err(DomainError::FactureDejaSoldee);
+            }
+        }
+        let (nb_q,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint FROM ent_fac_quittance WHERE etablissement_id = $1 AND facture_id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(current.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let quittance =
+            domain_eleve::plan_emettre_quittance(&facture_maj, &enc, (nb_q + 1) as i32)?;
+        sqlx::query(
+            r#"
+            INSERT INTO ent_fac_quittance (
+                id, etablissement_id, foyer_id, facture_id, encaissement_id,
+                numero, montant_centimes, moyen, emise_at, created_by_user_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            "#,
+        )
+        .bind(quittance.id)
+        .bind(quittance.etablissement_id)
+        .bind(quittance.foyer_id)
+        .bind(quittance.facture_id)
+        .bind(quittance.encaissement_id)
+        .bind(&quittance.numero)
+        .bind(quittance.montant_centimes)
+        .bind(quittance.moyen.as_str())
+        .bind(quittance.emise_at)
+        .bind(quittance.created_by_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let executed = domain_eleve::plan_executer_prelevement(&current, enc.id)?;
+        let n = sqlx::query(
+            r#"
+            UPDATE ent_fac_sepa_prelevement
+            SET statut = $3, encaissement_id = $4
+            WHERE etablissement_id = $1 AND id = $2 AND statut IN ('prevu', 'exporte')
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(executed.id)
+        .bind(executed.statut.as_str())
+        .bind(executed.encaissement_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .rows_affected();
+        if n == 0 {
+            return Err(DomainError::SepaPrelevementInvalide);
+        }
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok((executed, Some((enc, facture_maj, quittance))))
     }
 
     pub async fn list_factures_emises(

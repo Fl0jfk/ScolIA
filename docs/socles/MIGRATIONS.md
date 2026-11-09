@@ -121,3 +121,7 @@ Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, p
 Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
 
 Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune migration ajoutée ; `MIGRATION_TAG` = `375_msg_fil_prive` reste la plus haute, aucun numéro en double (vérifié).
+
+## Mise à jour du 2026-11-09 (correctifs de la recette de sécurité 3)
+
+Plage 376–379 (réservée à la recette 2, dont aucune migration n'a été écrite) reprise par la recette de sécurité 3 (`ent-recette-securite-3`) : **376** `sepa_unicite_encaissement` (RS3-02 : index uniques empêchant deux encaissements pour un même prélèvement) et **377** `edt_exception_absence_etab` (RS3-04 : clé étrangère composite `(etablissement_id, absence_rh_id)`, `NOT VALID`). Insérées dans `migrate.rs` après 375 ; `MIGRATION_TAG` = `377_edt_exception_absence_etab`. **378–379 restent libres.** À l'intégration, vérifier qu'aucune autre branche n'a pris 376 ou 377.

@@ -1,7 +1,7 @@
 # Recette de sécurité n° 3 — cloisonnement multi-établissements, sur le logiciel réel
 
 **Date :** 2026-11-09 — **Branche :** `ent-recette-securite-3` (base `ent-integration-lot10`) — **Pilote :** Opus, sous-agents Sonnet pour les relectures adverses.
-**Statut :** recette faite ; **1 faille élevée corrigée + test**, **1 faille faible ouverte (test `#[ignore]`)**, **2 failles financières signalées pour une session de correction**, cloisonnement multi-établissements **vérifié tenant**. À relire par Florian.
+**Statut :** recette faite ; **RS3-01, RS3-02 et RS3-04 corrigées + tests**, **RS3-03 partiellement corrigée** (paiement manuel ; pré-notification et verbe GET de l'export historique restent ouverts), cloisonnement multi-établissements **vérifié tenant**. Correctifs de la session du 2026-11-09 à relire par Florian.
 
 ## Méthode
 
@@ -27,14 +27,14 @@ cargo test --locked -p ent-api --features ent-api/labo,ent-lab/labo \
 
 1. **Le cloisonnement multi-établissements tient** : sur toutes les routes de l'API, un acteur de A (tout rôle, du compte désactivé au double membre) n'atteint **aucune** donnée de B — matrice générique verte, et aucune des trois relectures adverses n'a trouvé de fuite inter-établissements exploitable.
 2. **Une faille élevée, intra-établissement, a été corrigée** : le chemin historique `/facturation/*` ouvrait factures, IBAN et mandats SEPA à un parent **non payeur** (parent séparé, tiers lié), jusqu'à lui permettre de détourner le prélèvement ; il est désormais réservé au parent payeur (RS3-01), comme le chemin `/finances/*`.
-3. **Restent, hors cloisonnement, deux défauts d'intégrité financière SEPA (élevée/moyenne) à corriger en session dédiée** (RS3-02, RS3-03) et **un défaut de cloisonnement faible ouvert** (RS3-04 : `absence_rh_id` d'un autre établissement accepté par `POST /edt/annulations`).
+3. **Corrigés ensuite** : le double encaissement SEPA (RS3-02, migration 376), le prélèvement d'un foyer en paiement manuel (RS3-03, en partie) et la référence croisée `absence_rh_id` de `POST /edt/annulations` (RS3-04, migration 377).
 
 ### Failles critiques ou élevées
 
 | Réf. | Gravité | Portée | Constat | Statut |
 |---|---|---|---|---|
 | **RS3-01** | **Élevée** | intra-établissement | Chemin historique `/facturation/*` : un parent **non payeur** lié au foyer lit factures, quittances, historique IBAN et mandats SEPA, et peut **créer/révoquer** le mandat de prélèvement (détournement du compte débité). `foyer_ids_parent` ne filtrait pas `est_payeur`. | **Corrigé + test RS3-01** |
-| **RS3-02** | **Élevée** | intra-établissement | Double encaissement SEPA : `executer_prelevement_for_actor` encaisse **avant** le contrôle de statut, sans transaction englobante ; rejouer `POST /facturation/sepa/prelevements/{id}/executer` (ou le même relevé via `POST /facturation/banque/rapprocher`) encaisse deux fois. | **Signalé** (correction dédiée) |
+| **RS3-02** | **Élevée** | intra-établissement | Double encaissement SEPA : `executer_prelevement_for_actor` encaisse **avant** le contrôle de statut, sans transaction englobante ; rejouer `POST /facturation/sepa/prelevements/{id}/executer` (ou le même relevé via `POST /facturation/banque/rapprocher`) encaisse deux fois. | **Corrigé + test RS3-02** (voir 2.2) |
 
 Aucune faille **critique**. Aucune fuite **inter-établissements** exploitable (priorité absolue) n'a été trouvée.
 
@@ -74,20 +74,22 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 - **Preuve.** Test `rs3_01_parent_non_payeur_sans_acces_a_la_facturation` : il bascule temporairement la payeuse en non-payeuse (SQL), vérifie le **refus** sur les quatre routes, puis restaure l'état. Sans le correctif, il échoue (`GET facture : 2xx (200)`, `iban-histo : données`, `sepa/mandats : mandat visible`).
 - **Correctif.** `foyer_ids_parent` filtre désormais `l.est_payeur` (un seul point, tous les appelants financiers en héritent : factures, quittances, mandats, IBAN, quotient). Non-régression : suites `ent-db tests_finances` (6/6) et `ent-api separation` (factures, L1/L2) vertes.
 
-### 2.2 RS3-02 — Double encaissement SEPA (élevée) — **SIGNALÉ**
+### 2.2 RS3-02 — Double encaissement SEPA (élevée) — **CORRIGÉ**
 
 - **Scénario.** `executer_prelevement_for_actor` (`ent-db/src/service.rs:19212`, route `POST /facturation/sepa/prelevements/{id}/executer`) exécute `encaisser_avec_engage` (encaissement + quittance + e-mail) **avant** `plan_executer_prelevement`, qui seul contrôle le statut (`Prevu`/`Exporte`). Les deux opérations ne sont **pas** dans une transaction commune. Rejouer la route sur le même prélèvement (ou rejouer le même relevé via `POST /facturation/banque/rapprocher` — `update_sepa_prelevement` n'a aucune garde de statut dans son `WHERE`) **encaisse plusieurs fois** la même échéance.
-- **Correctif recommandé (session dédiée, car code monétaire).** (1) Contrôler le statut du prélèvement **avant** l'encaissement ; (2) envelopper lecture + encaissement + mise à jour dans **une** transaction avec `SELECT … FOR UPDATE` sur la ligne de prélèvement (anti-TOCTOU) ; (3) garde de statut dans le `WHERE` de `update_sepa_prelevement` ; (4) idempotence du rapprochement par `end_to_end_id`. Test à ajouter : préparer un prélèvement (chemin `/finances/*`), appeler `executer` deux fois, vérifier **un seul** encaissement.
+- **Correctif appliqué (2026-11-09).** `PgFacRepo::executer_sepa_atomique` (`fac_repo.rs`) fait tout en **une transaction** : `SELECT … FOR UPDATE` sur le prélèvement puis sur la facture (sérialise les exécutions concurrentes), **contrôle de statut avant toute écriture**, calcul des sommes sous verrou, encaissement, solde, quittance et passage à `execute`. Idempotence : un prélèvement déjà `execute` renvoie `(prélèvement, None)` — réponse 200 **sans effet** ; un prélèvement `rejete` est refusé. Journal et e-mail (`effets_encaissement`) partent **après** la validation, une seule fois. `update_sepa_prelevement` porte une garde de statut dans son `WHERE` (un prélèvement exécuté ou rejeté ne bouge plus : plus de rejet après exécution). Le rapprochement bancaire rejoué enregistre la ligne en `skip` sans compter d'exécution. **Garde-fou en base : migration `376_sepa_unicite_encaissement`** (index uniques sur `ent_fac_sepa_prelevement(encaissement_id)` et sur `ent_fac_encaissement(etablissement_id, reference)` pour le moyen `prelevement`). **Attention au déploiement** : la création de ces index échoue s'il existe déjà des doublons en base — à contrôler avant, sans les corriger automatiquement (données monétaires). Test : `rs3_02_double_encaissement_sepa_rejeu_et_concurrence` (4 appels concurrents, rejeu, relevé rejoué deux fois, doublon refusé par la base, rejet après exécution refusé).
+- *Recommandation d'origine :* (1) Contrôler le statut du prélèvement **avant** l'encaissement ; (2) envelopper lecture + encaissement + mise à jour dans **une** transaction avec `SELECT … FOR UPDATE` sur la ligne de prélèvement (anti-TOCTOU) ; (3) garde de statut dans le `WHERE` de `update_sepa_prelevement` ; (4) idempotence du rapprochement par `end_to_end_id`. Test à ajouter : préparer un prélèvement (chemin `/finances/*`), appeler `executer` deux fois, vérifier **un seul** encaissement.
 
-### 2.3 RS3-03 — Chemin SEPA historique : pré-notification et mode de paiement contournés (moyenne) — **SIGNALÉ**
+### 2.3 RS3-03 — Chemin SEPA historique : pré-notification et mode de paiement contournés (moyenne) — **PARTIELLEMENT CORRIGÉ**
 
-- `GET /facturation/sepa/export` (`service.rs:18904`) exporte les prélèvements `statut = 'prevu'` **sans exiger** `prenotification_id IS NOT NULL` (le chemin neuf `/finances/*` l'exige) ; de plus c'est un **GET qui change l'état** des lignes en `exporte`. `POST /facturation/factures/{id}/sepa/prelever` ne vérifie pas `mode_paiement = manuel`. L'IBAN du créancier passe en **query string** (`cdtr_iban`, `cdtr_bic`, `cdtr_ics`) — hors des logs applicatifs (qui utilisent `MatchedPath`), mais exposé aux proxys/historique. **Recommandation :** aligner l'export historique sur `/finances/*` (pré-notification obligatoire, verbe POST, paramètres du créancier lus côté serveur), ou retirer le chemin historique.
+- `GET /facturation/sepa/export` (`service.rs:18904`) exporte les prélèvements `statut = 'prevu'` **sans exiger** `prenotification_id IS NOT NULL` (le chemin neuf `/finances/*` l'exige) ; de plus c'est un **GET qui change l'état** des lignes en `exporte`. `POST /facturation/factures/{id}/sepa/prelever` ne vérifie pas `mode_paiement = manuel`. L'IBAN du créancier passe en **query string** (`cdtr_iban`, `cdtr_bic`, `cdtr_ics`) — hors des logs applicatifs (qui utilisent `MatchedPath`), mais exposé aux proxys/historique. **Corrigé le 2026-11-09 :** `planifier_prelevement_for_actor` refuse un foyer en paiement `manuel` (test `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel`) ; la garde de statut ajoutée à `update_sepa_prelevement` (RS3-02) rend aussi l'export sans double marquage. **Reste ouvert** : l'export historique n'exige toujours pas `prenotification_id`, reste un `GET` qui change l'état et lit les paramètres du créancier en query string — le scénario de labo (`ent-lab`) et l'UI actuelle s'appuient sur ce chemin ; à traiter en retirant le chemin historique au profit de `/finances/*`. **Recommandation :** aligner l'export historique sur `/finances/*` (pré-notification obligatoire, verbe POST, paramètres du créancier lus côté serveur), ou retirer le chemin historique.
 
-### 2.4 RS3-04 — Référence croisée EDT A→B (faible, cloisonnement) — **FAILLE OUVERTE (test `#[ignore]`)**
+### 2.4 RS3-04 — Référence croisée EDT A→B (faible, cloisonnement) — **CORRIGÉ**
 
 - **Scénario (rejoué, 201 obtenu).** `POST /edt/annulations` (`edt_s2.rs:356`) accepte un `absence_rh_id` du **corps** sans vérifier qu'il appartient à l'établissement de la session : `edt_annuler_seance` → `ecrire_exception` l'insère tel quel (`edt_remplacement.rs`, clé étrangère **simple** `ent_absence_rh(id)`). Une exception d'EDT de A peut donc pointer vers une **absence RH de B**.
 - **Impact.** Limité : il faut `edt.gerer` dans A ; un UUID existant renvoie 201, un UUID inexistant échoue sur la clé étrangère → **oracle d'existence d'UUID** ; la clé étrangère **bloque la suppression** de l'absence côté B (DoS mineur). Pas de fuite de contenu (les lectures filtrent par établissement).
-- **Preuve.** Test `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` (`#[ignore]`) : déclare une absence RH dans B, trouve un créneau de A, annule ce créneau en référençant l'absence de B → attend un refus, obtient **201**. Il échouera tant que la faille existe ; il deviendra vert une fois bornée.
+- **Preuve.** Test `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` : déclare une absence RH dans B, trouve un créneau de A, annule ce créneau en référençant l'absence de B → attend un refus (obtenait **201** avant le correctif ; test `#[ignore]` rendu normal).
+- **Correctif appliqué (2026-11-09).** `edt_annuler_seance` vérifie que l'absence appartient à l'établissement de l'acteur (refus « introuvable », sans oracle d'UUID) ; **migration `377_edt_exception_absence_etab`** : index unique `(etablissement_id, id)` sur `ent_absence_rh` et clé étrangère composite `ent_edt_exception(etablissement_id, absence_rh_id)` créée `NOT VALID` (les lignes historiques ne sont pas revérifiées, toute nouvelle ligne l'est).
 - **Correctif recommandé (petit).** Vérifier `absence_rh_id` par `etablissement_id` avant l'insertion (reprendre le contrôle de `edt_organiser_remplacement`, `edt_remplacement.rs:743`) et poser une **clé étrangère composite** `(etablissement_id, absence_rh_id)` (migration).
 
 ### 2.5 Autres constats signalés (moyens / faibles, intra-établissement)
@@ -110,7 +112,7 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 ## 4. Couverture et limites
 
 - **Couverture des routes** : automatique et auto-entretenue (inventaire extrait du source ; `rs3_inventaire_couvre_tous_les_fichiers_de_routes` échoue si un fichier de routeur n'est pas inventorié). Les deux matrices génériques couvrent lecture (GET à paramètre) et écriture (corps vide) sur **toutes** les routes.
-- **Limites.** (1) Les écritures ne sont éprouvées qu'avec un **corps vide** : un corps complet portant un identifiant de B dans un sous-objet reste du ressort des specs déclaratives de `separation.rs` et des tests ciblés. (2) RS3-02/03 (SEPA) ne sont pas rejouées de bout en bout (mise en scène SEPA lourde) : décrites pour une session de correction. (3) La RLS n'est pas éprouvée en mode strict (déploiement). (4) Pièces jointes et URL pré-signées : vérifiées par relecture (clé de stockage serveur, HMAC court, `key_belongs_to_etab`) et par l'oracle `storage_key` des matrices, non par un essai de forge de lien d'un autre établissement.
+- **Limites.** (1) Les écritures ne sont éprouvées qu'avec un **corps vide** : un corps complet portant un identifiant de B dans un sous-objet reste du ressort des specs déclaratives de `separation.rs` et des tests ciblés. (2) RS3-02 est rejouée de bout en bout sur le chemin historique ; le chemin `/finances/*` exécute déjà sous `FOR UPDATE` et profite de l'index unique de la migration 376. (3) La RLS n'est pas éprouvée en mode strict (déploiement). (4) Pièces jointes et URL pré-signées : vérifiées par relecture (clé de stockage serveur, HMAC court, `key_belongs_to_etab`) et par l'oracle `storage_key` des matrices, non par un essai de forge de lien d'un autre établissement.
 
 ## 5. Tests ajoutés
 
@@ -120,6 +122,8 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 - `rs3_compte_suspendu_puis_ferme_invalide_la_session`, `rs3_logout_invalide_le_jeton_vole`, `rs3_jeton_mobile_de_a_ne_voit_rien_de_b` — comptes/sessions/jetons (verts) ;
 - `rs3_01_parent_non_payeur_sans_acces_a_la_facturation` — RS3-01 corrigée (vert) ;
 - `rs3_inventaire_couvre_tous_les_fichiers_de_routes` — invariant d'inventaire (vert) ;
-- `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` — **`#[ignore]`**, faille ouverte RS3-04 (rouge tant que non corrigée).
+- `rs3_02_double_encaissement_sepa_rejeu_et_concurrence` — RS3-02 corrigée (vert) ;
+- `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel` — RS3-03, volet mode de paiement (vert) ;
+- `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` — RS3-04 corrigée (vert, plus d'`#[ignore]`).
 
 Correctif : `ent-rust/crates/ent-db/src/service.rs` (`foyer_ids_parent` filtre `est_payeur`).

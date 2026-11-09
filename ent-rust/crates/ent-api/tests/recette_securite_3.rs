@@ -566,7 +566,7 @@ fn rs3_01_parent_non_payeur_sans_acces_a_la_facturation() {
 
 // ───────────────────────── EDT : référence croisée inter-établissements (RS3-04) ─────────────────────────
 
-/// **RS3-04 (faible, FAILLE OUVERTE).** `POST /edt/annulations` accepte un
+/// **RS3-04 (faible, corrigée).** `POST /edt/annulations` accepte un
 /// `absence_rh_id` du **corps** sans vérifier qu'il appartient à l'établissement
 /// de la session : une exception d'EDT de A peut pointer vers une absence RH de
 /// B (référence croisée). Impact limité (oracle d'existence d'UUID + blocage de
@@ -574,10 +574,11 @@ fn rs3_01_parent_non_payeur_sans_acces_a_la_facturation() {
 /// c'est un défaut de cloisonnement à fermer (borner `absence_rh_id` par
 /// l'établissement, comme `edt_organiser_remplacement`).
 ///
-/// Test `#[ignore]` : il **échoue tant que la faille existe** (il attend un refus,
-/// or la route renvoie 201). Lancer avec `--ignored`.
+/// Corrigée : `edt_annuler_seance` vérifie l'appartenance de l'absence RH à
+/// l'établissement de l'acteur (404 comme un identifiant inexistant : pas
+/// d'oracle d'UUID) et la clé étrangère composite de la migration 377 verrouille
+/// la base.
 #[test]
-#[ignore = "FAILLE OUVERTE RS3-04 : POST /edt/annulations ne borne pas absence_rh_id par l'établissement (référence croisée A→B)"]
 fn rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement() {
     let Some(m) = monde() else { return };
     rt().block_on(async {
@@ -641,6 +642,196 @@ fn rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement() {
              (obtenu {} ; la référence croisée A→B est acceptée)",
             rep.statut.as_u16()
         );
+    });
+}
+
+
+// ───────────────────────── Finances : double encaissement SEPA (RS3-02) ─────────────────────────
+
+/// Prépare un prélèvement SEPA planifié (chemin historique) sur la facture de
+/// labo du foyer de Harry, via Direction de A. Renvoie `(prelevement_id, e2e)`.
+async fn preparer_prelevement(m: &Monde) -> Option<(Uuid, String)> {
+    let facture = m.a.objets.facture?;
+    let foyer = m.a.objets.foyer;
+    let dir = m.jeton(Direction).to_string();
+    let mandat = m
+        .appel(
+            "POST",
+            "/facturation/sepa/mandats",
+            Some(&dir),
+            Some(&json!({
+                "foyer_id": foyer,
+                "rum": format!("RS3-{}", Uuid::new_v4().simple()),
+                "iban": "FR7630006000011234567890189",
+                "bic": "AGRIFRPP",
+                "titulaire": "Recette"
+            })),
+        )
+        .await;
+    assert!(mandat.est_succes(), "mandat : {} {}", mandat.statut, mandat.texte);
+    let mandat_id = uuid_de(&mandat.json["id"]);
+    let jour = chrono::Utc::now().date_naive() + chrono::Duration::days(20);
+    let prev = m
+        .appel(
+            "POST",
+            &format!("/facturation/factures/{facture}/sepa/prelever"),
+            Some(&dir),
+            Some(&json!({
+                "mandat_id": mandat_id,
+                "montant_centimes": 100,
+                "date_execution": jour.to_string()
+            })),
+        )
+        .await;
+    assert!(prev.est_succes(), "prélèvement : {} {}", prev.statut, prev.texte);
+    Some((uuid_de(&prev.json["id"]), prev.json["end_to_end_id"].as_str().expect("e2e").to_string()))
+}
+
+async fn nb_encaissements(e2e: &str) -> i64 {
+    let pool = pool_de_test().await;
+    let n: (i64,) =
+        sqlx::query_as("SELECT COUNT(*)::bigint FROM ent_fac_encaissement WHERE reference = $1")
+            .bind(e2e)
+            .fetch_one(&pool)
+            .await
+            .expect("compte encaissements");
+    pool.close().await;
+    n.0
+}
+
+/// **RS3-02 (élevée, corrigée).** Rejouer `executer` ou le même relevé
+/// bancaire ne doit encaisser qu'**une** fois : appels rejoués puis concurrents.
+#[test]
+fn rs3_02_double_encaissement_sepa_rejeu_et_concurrence() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        let Some((prev, e2e)) = preparer_prelevement(m).await else {
+            eprintln!("SKIP RS3-02 : pas de facture de labo");
+            return;
+        };
+        let dir = m.jeton(Direction).to_string();
+        let chemin = format!("/facturation/sepa/prelevements/{prev}/executer");
+
+        // 1. Appels concurrents : un seul encaissement.
+        let (r1, r2, r3, r4) = tokio::join!(
+            m.appel("POST", &chemin, Some(&dir), None),
+            m.appel("POST", &chemin, Some(&dir), None),
+            m.appel("POST", &chemin, Some(&dir), None),
+            m.appel("POST", &chemin, Some(&dir), None),
+        );
+        for r in [&r1, &r2, &r3, &r4] {
+            assert!(r.statut.as_u16() < 500, "exécution concurrente : {} {}", r.statut, r.texte);
+        }
+        assert_eq!(nb_encaissements(&e2e).await, 1, "RS3-02 : appels concurrents → un seul encaissement");
+
+        // 2. Rejeu séquentiel : sans effet.
+        let r5 = m.appel("POST", &chemin, Some(&dir), None).await;
+        assert!(r5.statut.as_u16() < 500, "rejeu : {} {}", r5.statut, r5.texte);
+        assert_eq!(nb_encaissements(&e2e).await, 1, "RS3-02 : rejeu de l'exécution → toujours un encaissement");
+
+        // 3. Même relevé bancaire, deux fois : toujours un seul encaissement.
+        let csv = format!("end_to_end_id;montant_centimes;result;motif\n{e2e};100;settled;\n");
+        for _ in 0..2 {
+            let rap = m
+                .appel("POST", "/facturation/banque/rapprocher", Some(&dir), Some(&json!({ "csv": csv })))
+                .await;
+            assert!(rap.statut.as_u16() < 500, "rapprochement : {} {}", rap.statut, rap.texte);
+            assert_eq!(rap.json["executed"], 0, "RS3-02 : relevé rejoué ne ré-exécute rien ({})", rap.texte);
+        }
+        assert_eq!(nb_encaissements(&e2e).await, 1, "RS3-02 : relevé rejoué → un seul encaissement");
+
+        // 4. Garde en base : un second encaissement « prélèvement » de même référence est refusé.
+        let pool = pool_de_test().await;
+        let doublon = sqlx::query(
+            "INSERT INTO ent_fac_encaissement (id, etablissement_id, facture_id, montant_centimes, moyen, reference, encaisse_at, created_at)
+             SELECT gen_random_uuid(), etablissement_id, facture_id, montant_centimes, moyen, reference, now(), now()
+               FROM ent_fac_encaissement WHERE reference = $1",
+        )
+        .bind(&e2e)
+        .execute(&pool)
+        .await;
+        pool.close().await;
+        assert!(doublon.is_err(), "RS3-02 : la base doit refuser un second encaissement pour le même prélèvement");
+
+        // 5. Un prélèvement exécuté ne se rejette plus.
+        let rej = m
+            .appel(
+                "POST",
+                &format!("/facturation/sepa/prelevements/{prev}/rejeter"),
+                Some(&dir),
+                Some(&json!({ "motif": "AC04" })),
+            )
+            .await;
+        assert!(!rej.est_succes(), "RS3-02 : rejet d'un prélèvement exécuté accepté ({})", rej.statut);
+    });
+}
+
+/// **RS3-03 (moyenne).** Le chemin historique ne prélève pas un foyer passé en
+/// paiement `manuel` (comme `/finances/*`).
+#[test]
+fn rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel() {
+    let Some(m) = monde() else { return };
+    let Some(facture) = m.a.objets.facture else { return };
+    rt().block_on(async {
+        let foyer = m.a.objets.foyer;
+        let pool = pool_de_test().await;
+        let (etab,): (Uuid,) = sqlx::query_as("SELECT etablissement_id FROM ent_foyer WHERE id = $1")
+            .bind(foyer)
+            .fetch_one(&pool)
+            .await
+            .expect("établissement du foyer");
+        sqlx::query(
+            "INSERT INTO ent_fin_compte_payeur (etablissement_id, foyer_id, mode_paiement, motif, depuis)
+             VALUES ($1, $2, 'manuel', 'RS3-03', now())
+             ON CONFLICT (etablissement_id, foyer_id) DO UPDATE SET mode_paiement = 'manuel'",
+        )
+        .bind(etab)
+        .bind(foyer)
+        .execute(&pool)
+        .await
+        .expect("mode manuel");
+        let dir = m.jeton(Direction).to_string();
+        let mandat = m
+            .appel(
+                "POST",
+                "/facturation/sepa/mandats",
+                Some(&dir),
+                Some(&json!({
+                    "foyer_id": foyer,
+                    "rum": format!("RS3-{}", Uuid::new_v4().simple()),
+                    "iban": "FR7630006000011234567890189",
+                    "bic": "AGRIFRPP",
+                    "titulaire": "Recette"
+                })),
+            )
+            .await;
+        let rep = if mandat.est_succes() {
+            let jour = chrono::Utc::now().date_naive() + chrono::Duration::days(20);
+            Some(
+                m.appel(
+                    "POST",
+                    &format!("/facturation/factures/{facture}/sepa/prelever"),
+                    Some(&dir),
+                    Some(&json!({
+                        "mandat_id": uuid_de(&mandat.json["id"]),
+                        "montant_centimes": 100,
+                        "date_execution": jour.to_string()
+                    })),
+                )
+                .await,
+            )
+        } else {
+            None
+        };
+        sqlx::query("DELETE FROM ent_fin_compte_payeur WHERE etablissement_id = $1 AND foyer_id = $2 AND motif = 'RS3-03'")
+            .bind(etab)
+            .bind(foyer)
+            .execute(&pool)
+            .await
+            .expect("restauration");
+        pool.close().await;
+        let rep = rep.expect("mandat créé");
+        assert!(!rep.est_succes(), "RS3-03 : prélèvement planifié sur un foyer en paiement manuel ({})", rep.statut);
     });
 }
 
