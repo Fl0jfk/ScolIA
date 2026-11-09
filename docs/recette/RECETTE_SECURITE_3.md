@@ -19,7 +19,7 @@ RUST_MIN_STACK=16777216 CARGO_PROFILE_DEV_DEBUG=0 CARGO_BUILD_JOBS=4 \
 cargo test --locked -p ent-api --features ent-api/labo,ent-lab/labo \
   --test recette_securite_3 -- --test-threads=1
 ```
-(La feature CI est `ent-api/labo,ent-lab/labo`. Le rôle `ent_ci` doit être superuser, comme l'image PostgreSQL de la CI, pour les tests qui créent un rôle RLS jetable.)
+Pour la partie « relevé bancaire rejoué » de RS3-02, ajouter `ENT_BANK_DRY_RUN=1` (sinon cette partie est sautée avec un message). (La feature CI est `ent-api/labo,ent-lab/labo`. Le rôle `ent_ci` doit être superuser, comme l'image PostgreSQL de la CI, pour les tests qui créent un rôle RLS jetable.)
 
 ---
 
@@ -127,3 +127,7 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 - `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` — RS3-04 corrigée (vert, plus d'`#[ignore]`).
 
 Correctif : `ent-rust/crates/ent-db/src/service.rs` (`foyer_ids_parent` filtre `est_payeur`).
+
+## 6. Vérifications des correctifs (2026-11-09)
+
+Verts en local : `recette_securite_3` 10/10 (labo, `ENT_BANK_DRY_RUN=1`) ; `ent-db` sans labo (147 tests unitaires + `isolation_sql_statique`) ; `ent-db` avec labo, modules `tests_finances` (6), `tests_edt_s2` (10) et `migrate` ; clippy sans erreur sur `ent-db`, `ent-api`, `ent-lab` (sans labo). **Non exécutés** : la suite complète `ent-db`/`ent-api` avec labo (plus d'une heure en local), le scénario `ent-lab` de bout en bout (compilé seulement ; il consomme le nouveau type de retour de `executer_prelevement_for_actor`), et `cargo fmt` (les paquets ne sont pas formatés à l'origine : un `fmt` réécrirait des milliers de lignes hors sujet). À lancer par la CI GitHub.
