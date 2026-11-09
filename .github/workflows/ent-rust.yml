@@ -288,6 +288,7 @@ jobs:
 
           ok = True
           resume = []
+          detail = []
           for variante in ("labo", "sans-labo"):
               listes = lire(f"{racine}/inventaire/liste-{variante}.txt")
               ignores = set(lire(f"{racine}/inventaire/ignores-{variante}.txt"))
@@ -309,6 +310,13 @@ jobs:
                           vus[cle] += 1
                           if not m.group(1).startswith(("PASS", "FLAKY")):
                               echecs.append(cle)
+              par_binaire = collections.OrderedDict()
+              for k in sorted(listes):
+                  b = k.split(" ", 1)[0]
+                  par_binaire.setdefault(b, [0, 0])[0] += 1
+                  if k in vus:
+                      par_binaire[b][1] += 1
+              detail.append(f"#### {variante}\n\n| binaire de test | listés | exécutés |\n|---|---|---|\n" + "\n".join(f"| {b} | {n[0]} | {n[1]} |" for b, n in par_binaire.items()))
               manquants = sorted(attendus - set(vus))
               inconnus = sorted(set(vus) - set(listes))
               doubles = sorted(k for k, n in vus.items() if n > 1)
@@ -324,8 +332,9 @@ jobs:
                   print(f"::error::{variante} — aucun journal d'exécution")
           tableau = "| variante | listés | ignorés | exécutés | journaux | manquants | doublons | échecs |\n|---|---|---|---|---|---|---|---|\n" + "\n".join(resume)
           print(tableau)
+          print("\n\n".join(detail))
           with open(__import__("os").environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf8") as f:
-              f.write("### Couverture des tests du backend\n\n" + tableau + "\n")
+              f.write("### Couverture des tests du backend\n\n" + tableau + "\n\n" + "\n\n".join(detail) + "\n")
           sys.exit(0 if ok else 1)
           PY
       - name: Verdict (tous les jobs du backend verts)
