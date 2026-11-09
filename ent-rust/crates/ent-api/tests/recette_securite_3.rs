@@ -464,6 +464,106 @@ fn rs3_jeton_mobile_de_a_ne_voit_rien_de_b() {
     });
 }
 
+// ───────────────────────── Facturation : charge de paiement (RS3-01) ─────────────────────────
+
+/// Bascule `est_payeur` du lien d'un parent sur un foyer donné et renvoie
+/// l'ancienne valeur (pour restauration). Opère sur le lien actif du foyer.
+async fn regler_est_payeur(user_id: Uuid, foyer_id: Uuid, payeur: bool) -> u64 {
+    let pool = pool_de_test().await;
+    let n = sqlx::query(
+        "UPDATE ent_eleve_lien SET est_payeur = $3, updated_at = now() WHERE user_id = $1 AND foyer_id = $2",
+    )
+    .bind(user_id)
+    .bind(foyer_id)
+    .bind(payeur)
+    .execute(&pool)
+    .await
+    .expect("maj est_payeur")
+    .rows_affected();
+    pool.close().await;
+    n
+}
+
+/// **RS3-01 (élevée, corrigée).** Le chemin historique `/facturation/*` autorisait
+/// un parent dès qu'un **lien** existait avec le foyer, sans vérifier `est_payeur`
+/// (`foyer_ids_parent`), contrairement au chemin `/finances/*`. Un parent séparé
+/// non payeur, ou un tiers lié, pouvait donc lire la facture et l'historique
+/// bancaire du foyer, lister les mandats SEPA, et surtout **créer ou révoquer**
+/// le mandat de prélèvement (détournement du compte débité).
+///
+/// On prive la payeuse (Lily) de sa charge de paiement sur le foyer de Harry :
+/// elle doit alors être refusée sur toutes ces routes. État restauré en fin de
+/// test. Vert avec le correctif (`foyer_ids_parent` filtre `est_payeur`).
+#[test]
+fn rs3_01_parent_non_payeur_sans_acces_a_la_facturation() {
+    let Some(m) = monde() else { return };
+    let Some(facture) = m.a.objets.facture else {
+        eprintln!("SKIP RS3-01 : pas de facture de labo pour le foyer de Harry");
+        return;
+    };
+    let foyer = m.a.objets.foyer;
+    let lily = m.a.user_ids[&Parent];
+    rt().block_on(async {
+        let jeton = m.jeton(Parent).to_string();
+        // Référence : payeuse, elle accède à sa facture.
+        let avant = m.appel("GET", &format!("/facturation/factures/{facture}"), Some(&jeton), None).await;
+        assert!(
+            avant.est_succes(),
+            "la payeuse doit lire sa facture au départ (obtenu {})",
+            avant.statut.as_u16()
+        );
+
+        // On la bascule en NON payeuse (parent séparé sans charge de paiement).
+        let maj = regler_est_payeur(lily, foyer, false).await;
+        assert_eq!(maj, 1, "le lien payeur de Lily sur le foyer de Harry doit exister");
+
+        let mut echecs = Vec::new();
+        // Lecture de la facture et de la quittance par identifiant.
+        let f = m.appel("GET", &format!("/facturation/factures/{facture}"), Some(&jeton), None).await;
+        if f.est_succes() {
+            echecs.push(format!("GET facture : 2xx ({}) pour un parent non payeur", f.statut.as_u16()));
+        }
+        // Historique IBAN du foyer.
+        let iban = m.appel("GET", &format!("/foyers/{foyer}/iban-histo"), Some(&jeton), None).await;
+        if iban.est_succes() && !iban.est_vide() {
+            echecs.push("GET iban-histo : données pour un parent non payeur".into());
+        }
+        // Liste des mandats SEPA : ne doit rien montrer du foyer.
+        let mandats = m.appel("GET", "/facturation/sepa/mandats", Some(&jeton), None).await;
+        if mandats.est_succes() && mandats.texte.contains(&foyer.to_string()) {
+            echecs.push("GET sepa/mandats : mandat du foyer visible par un non payeur".into());
+        }
+        // Création d'un mandat SEPA (détournement du compte débité) : refusée.
+        let cree = m
+            .appel(
+                "POST",
+                "/facturation/sepa/mandats",
+                Some(&jeton),
+                Some(&json!({
+                    "foyer_id": foyer,
+                    "rum": format!("RS3-{}", Uuid::new_v4().simple()),
+                    "iban": "FR7630006000011234567890189",
+                    "bic": "AGRIFRPP",
+                    "titulaire": "Attaquant"
+                })),
+            )
+            .await;
+        if cree.est_succes() {
+            echecs.push("POST sepa/mandats : un parent non payeur a créé un mandat".into());
+        }
+
+        // Restauration de l'état (payeuse), quoi qu'il arrive.
+        let remis = regler_est_payeur(lily, foyer, true).await;
+        assert_eq!(remis, 1, "restauration du lien payeur");
+
+        assert!(
+            echecs.is_empty(),
+            "RS3-01 : parent non payeur a accès à la facturation :\n{}",
+            echecs.join("\n")
+        );
+    });
+}
+
 // ───────────────────────── Invariant : inventaire à jour ─────────────────────────
 
 /// Garde-fou : l'inventaire des routes de `routes_src` couvre toujours tous les

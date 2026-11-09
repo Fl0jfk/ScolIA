@@ -18116,6 +18116,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Self::peut_etablissement(role, Action::FacturationLire)
     }
 
+    /// Foyers d'un parent pour la **facturation** : seuls les foyers dont il est
+    /// **payeur** (`ent_eleve_lien.est_payeur`). Un responsable sans charge de
+    /// paiement (parent séparé non payeur, tiers lié) ne voit ni les factures,
+    /// ni l'historique bancaire, ni les mandats SEPA, et ne peut ni créer ni
+    /// révoquer de mandat (RS3-01 : le chemin historique `/facturation/*` ne
+    /// filtrait pas `est_payeur`, contrairement au chemin `/finances/*`).
     async fn foyer_ids_parent(
         &self,
         etablissement_id: Uuid,
@@ -18125,7 +18131,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .foyers
             .liens_for_parent(etablissement_id, parent_user_id)
             .await?;
-        let mut ids: Vec<Uuid> = liens.into_iter().filter_map(|l| l.foyer_id).collect();
+        let mut ids: Vec<Uuid> = liens
+            .into_iter()
+            .filter(|l| l.est_payeur)
+            .filter_map(|l| l.foyer_id)
+            .collect();
         ids.sort();
         ids.dedup();
         Ok(ids)
