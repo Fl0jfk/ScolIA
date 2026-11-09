@@ -79,7 +79,7 @@ jobs:
   #   backend-lint     clippy (avec / sans labo, ent-types -D warnings), compilation production,
   #                    séparation labo / production (L4)                                 ┐ en parallèle
   #   backend-archive  compile UNE fois les binaires de test (avec labo, sans labo) et les publie  ┘
-  #   tests-labo       14 tranches (cargo nextest, partition count:i/14), chacune sur son PostgreSQL
+  #   tests-labo       20 tranches (cargo nextest, partition count:i/20), chacune sur son PostgreSQL
   #   tests-sans-labo  tests `-p ent-api -p ent-db` sans la feature labo (comme avant)
   #   backend          job final : agrège les résultats ET vérifie que chaque test listé a été exécuté.
   # Le nom du dernier job reste « Backend (clippy, compilation, tests) » (contrôle stable).
@@ -172,14 +172,14 @@ jobs:
           retention-days: 7
 
   tests-labo:
-    name: Backend — tests avec labo (tranche ${{ matrix.tranche }}/14)
+    name: Backend — tests avec labo (tranche ${{ matrix.tranche }}/20)
     needs: backend-archive
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
       fail-fast: false      # voir tous les échecs d'un coup
       matrix:
-        tranche: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        tranche: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     services:
       postgres:
         image: postgres:18
@@ -205,12 +205,12 @@ jobs:
         with:
           name: archives-nextest
           path: ${{ runner.temp }}/archives
-      - name: Tests avec la feature labo — tranche ${{ matrix.tranche }} sur 14 (un fil, base propre à la tranche)
+      - name: Tests avec la feature labo — tranche ${{ matrix.tranche }} sur 20 (un fil, base propre à la tranche)
         working-directory: ent-rust
         run: |
           set -o pipefail
           cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
-            --partition count:${{ matrix.tranche }}/14 --test-threads 1 --no-fail-fast --color never \
+            --partition count:${{ matrix.tranche }}/20 --test-threads 1 --no-fail-fast --color never \
             2>&1 | tee "$RUNNER_TEMP/execution-labo-${{ matrix.tranche }}.log"
       - uses: actions/upload-artifact@v4
         if: always()
@@ -271,21 +271,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Résultat des jobs du backend
-        run: |
-          set -eu
-          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }}"
-          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}"; do
-            if [ "$r" != "success" ]; then
-              echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
-              exit 1
-            fi
-          done
       - uses: actions/download-artifact@v4
         with:
           pattern: "{inventaire,execution-*}"
           path: ${{ runner.temp }}/resultats
       - name: Aucun test ne disparaît (tout test listé est exécuté, une seule fois)
+        if: always() && needs.backend-archive.result == 'success'
         run: |
           python3 -I - "$RUNNER_TEMP/resultats" <<'PY'
           import re, sys, glob, collections
@@ -332,6 +323,17 @@ jobs:
               f.write("### Couverture des tests du backend\n\n" + tableau + "\n")
           sys.exit(0 if ok else 1)
           PY
+      - name: Verdict (tous les jobs du backend verts)
+        if: always()
+        run: |
+          set -eu
+          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }}"
+          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
+              exit 1
+            fi
+          done
 
   frontend:
     name: Frontend Leptos (clippy, tests, build, tests contre le backend)
