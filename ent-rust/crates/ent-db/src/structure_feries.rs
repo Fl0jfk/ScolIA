@@ -83,13 +83,48 @@ pub fn est_alsace_moselle(regime_local: Option<&str>, departement: Option<&str>)
 pub fn feries_locaux_outre_mer(t: Territoire, annee: i32) -> Option<Ferie> {
     let (mois, jour, code, libelle) = match t {
         Territoire::Metropole => return None,
-        Territoire::Mayotte => (4, 27, "abolition_mayotte", "Abolition de l'esclavage (Mayotte)"),
-        Territoire::Martinique => (5, 22, "abolition_martinique", "Abolition de l'esclavage (Martinique)"),
-        Territoire::Guadeloupe => (5, 27, "abolition_guadeloupe", "Abolition de l'esclavage (Guadeloupe)"),
-        Territoire::SaintMartin => (5, 28, "abolition_saint_martin", "Abolition de l'esclavage (Saint-Martin)"),
-        Territoire::Guyane => (6, 10, "abolition_guyane", "Abolition de l'esclavage (Guyane)"),
-        Territoire::SaintBarthelemy => (10, 9, "abolition_saint_barthelemy", "Abolition de l'esclavage (Saint-Barthélemy)"),
-        Territoire::Reunion => (12, 20, "abolition_reunion", "Abolition de l'esclavage (La Réunion)"),
+        Territoire::Mayotte => (
+            4,
+            27,
+            "abolition_mayotte",
+            "Abolition de l'esclavage (Mayotte)",
+        ),
+        Territoire::Martinique => (
+            5,
+            22,
+            "abolition_martinique",
+            "Abolition de l'esclavage (Martinique)",
+        ),
+        Territoire::Guadeloupe => (
+            5,
+            27,
+            "abolition_guadeloupe",
+            "Abolition de l'esclavage (Guadeloupe)",
+        ),
+        Territoire::SaintMartin => (
+            5,
+            28,
+            "abolition_saint_martin",
+            "Abolition de l'esclavage (Saint-Martin)",
+        ),
+        Territoire::Guyane => (
+            6,
+            10,
+            "abolition_guyane",
+            "Abolition de l'esclavage (Guyane)",
+        ),
+        Territoire::SaintBarthelemy => (
+            10,
+            9,
+            "abolition_saint_barthelemy",
+            "Abolition de l'esclavage (Saint-Barthélemy)",
+        ),
+        Territoire::Reunion => (
+            12,
+            20,
+            "abolition_reunion",
+            "Abolition de l'esclavage (La Réunion)",
+        ),
     };
     NaiveDate::from_ymd_opt(annee, mois, jour).map(|date| Ferie {
         date,
@@ -135,7 +170,12 @@ pub fn feries(annee: i32, territoire: Territoire, alsace_moselle: bool) -> Vec<F
         // établissements : la direction peut l'annuler (événement `calcule` annulé, motif).
         mobile(50, "lundi_pentecote", "Lundi de Pentecôte", false);
         if alsace_moselle {
-            mobile(-2, "vendredi_saint", "Vendredi saint (Alsace-Moselle)", true);
+            mobile(
+                -2,
+                "vendredi_saint",
+                "Vendredi saint (Alsace-Moselle)",
+                true,
+            );
         }
     }
     if alsace_moselle {
@@ -215,10 +255,16 @@ mod tests {
     fn alsace_moselle_et_outre_mer() {
         let am = feries(2027, Territoire::Metropole, true);
         assert_eq!(am.len(), 13);
-        assert!(am.iter().any(|x| x.code == "vendredi_saint" && x.date == d(2027, 3, 26)));
-        assert!(am.iter().any(|x| x.code == "saint_etienne" && x.date == d(2027, 12, 26)));
+        assert!(am
+            .iter()
+            .any(|x| x.code == "vendredi_saint" && x.date == d(2027, 3, 26)));
+        assert!(am
+            .iter()
+            .any(|x| x.code == "saint_etienne" && x.date == d(2027, 12, 26)));
         let re = feries(2026, Territoire::depuis_departement(Some("974")), false);
-        assert!(re.iter().any(|x| x.code == "abolition_reunion" && x.date == d(2026, 12, 20)));
+        assert!(re
+            .iter()
+            .any(|x| x.code == "abolition_reunion" && x.date == d(2026, 12, 20)));
         assert_eq!(feries(2026, Territoire::Metropole, false).len(), 11);
         assert!(est_alsace_moselle(None, Some("67")));
         assert!(est_alsace_moselle(Some("alsace_moselle"), None));
@@ -228,7 +274,7 @@ mod tests {
     #[test]
     fn annee_scolaire_chevauche_deux_annees_civiles() {
         let v = feries_entre(d(2026, 9, 1), d(2027, 8, 31), Territoire::Metropole, false);
-        assert_eq!(v.len(), 11 - 0); // 1er janvier..25 décembre : chaque férié une seule fois
+        assert_eq!(v.len(), 11); // chaque férié une seule fois
         assert_eq!(v.first().map(|f| f.date), Some(d(2026, 11, 1)));
         assert_eq!(v.last().map(|f| f.date), Some(d(2027, 8, 15)));
     }

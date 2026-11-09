@@ -32,9 +32,7 @@ use uuid::Uuid;
 use crate::ref_commun::{conflit, db, introuvable, invalide, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::structure_etab::{journaliser, net, publier, requis, structure as port_etab};
-use crate::structure_feries::{
-    est_alsace_moselle, feries_entre, ponts_possibles, Territoire,
-};
+use crate::structure_feries::{est_alsace_moselle, feries_entre, ponts_possibles, Territoire};
 use crate::tenant_tx::TenantTx;
 
 pub const TYPES_EVENEMENT: [&str; 14] = [
@@ -403,7 +401,11 @@ pub fn calculer_jour(ctx: &Contexte, date: NaiveDate, cible: &Cible) -> Jour {
         .max_by_key(|e| e.cree_le)
     {
         if let Some(reference) = r.jour_reference.as_deref() {
-            let (rm, rp) = ctx.jours_ouvres.get(reference).copied().unwrap_or((false, false));
+            let (rm, rp) = ctx
+                .jours_ouvres
+                .get(reference)
+                .copied()
+                .unwrap_or((false, false));
             let (tm, tp) = touche(r, date);
             if tm {
                 matin = DemiJournee {
@@ -756,7 +758,10 @@ async fn lire_annees(
         .collect())
 }
 
-async fn lire_jours_ouvres_profil(conn: &mut PgConnection, etab: Uuid) -> Result<Value, EntDbError> {
+async fn lire_jours_ouvres_profil(
+    conn: &mut PgConnection,
+    etab: Uuid,
+) -> Result<Value, EntDbError> {
     let v: Option<Value> = sqlx::query_scalar(
         "SELECT jours_ouvres FROM ent_etablissement_profil WHERE etablissement_id = $1",
     )
@@ -1059,19 +1064,23 @@ async fn valider_cibles(
             }
         }
         let existe: bool = if let Some(id) = c.site_id {
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)")
-                .bind(etab)
-                .bind(id)
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db)?
+            sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?
         } else if let Some(id) = c.niveau_id {
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_niveau WHERE etablissement_id = $1 AND id = $2)")
-                .bind(etab)
-                .bind(id)
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db)?
+            sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_niveau WHERE etablissement_id = $1 AND id = $2)",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?
         } else if let Some(id) = c.classe_id {
             sqlx::query_scalar(
                 "SELECT EXISTS (SELECT 1 FROM ent_classe WHERE etablissement_id = $1 AND id = $2 AND annee_id = $3)",
@@ -1335,8 +1344,16 @@ impl PgEnt {
     ) -> Result<Vec<Evenement>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
-        let v = lire_evenements(&mut t, a.etablissement_id, Some(annee_id), plage, None, avec_annules, false)
-            .await?;
+        let v = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            Some(annee_id),
+            plage,
+            None,
+            avec_annules,
+            false,
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         Ok(v)
     }
@@ -1348,10 +1365,18 @@ impl PgEnt {
     ) -> Result<Evenement, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
         t.commit().await.map_err(db)?;
         Ok(e)
     }
@@ -1375,7 +1400,16 @@ impl PgEnt {
             return Err(invalide());
         }
         valider_cibles(&mut t, a.etablissement_id, s.annee_id, &s.cibles).await?;
-        let chev = chevauchements(&mut t, a.etablissement_id, s.annee_id, s.du, s.au, &s.cibles, None).await?;
+        let chev = chevauchements(
+            &mut t,
+            a.etablissement_id,
+            s.annee_id,
+            s.du,
+            s.au,
+            &s.cibles,
+            None,
+        )
+        .await?;
         let id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_calendrier_evenement
@@ -1402,12 +1436,36 @@ impl PgEnt {
         .await
         .map_err(db)?;
         inserer_cibles(&mut t, a.etablissement_id, id, &s.cibles).await?;
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
-        journaliser(&mut t, a, "calendrier_evenement", &id.to_string(), "creer", None, Some(resume_journal(&e))).await?;
-        publier(&mut t, a, "referentiel.calendrier_modifie", id, charge_evenement(&e, "cree")).await?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
+        journaliser(
+            &mut t,
+            a,
+            "calendrier_evenement",
+            &id.to_string(),
+            "creer",
+            None,
+            Some(resume_journal(&e)),
+        )
+        .await?;
+        publier(
+            &mut t,
+            a,
+            "referentiel.calendrier_modifie",
+            id,
+            charge_evenement(&e, "cree"),
+        )
+        .await?;
         apres_ecriture(&mut t, a, s.annee_id).await?;
         t.commit().await.map_err(db)?;
         Ok(ResultatEvenement {
@@ -1462,7 +1520,10 @@ impl PgEnt {
             publie_familles: m.publie_familles.unwrap_or(avant.publie_familles),
             publie_personnels: m.publie_personnels.unwrap_or(avant.publie_personnels),
             motif: m.motif.clone().or_else(|| avant.motif.clone()),
-            jour_reference: m.jour_reference.clone().or_else(|| avant.jour_reference.clone()),
+            jour_reference: m
+                .jour_reference
+                .clone()
+                .or_else(|| avant.jour_reference.clone()),
         };
         let r = validations_saisie(&s)?;
         let annee = annee_ecrivable(&mut t, a.etablissement_id, avant.annee_id).await?;
@@ -1470,7 +1531,16 @@ impl PgEnt {
             return Err(invalide());
         }
         valider_cibles(&mut t, a.etablissement_id, avant.annee_id, &s.cibles).await?;
-        let chev = chevauchements(&mut t, a.etablissement_id, avant.annee_id, s.du, s.au, &s.cibles, Some(id)).await?;
+        let chev = chevauchements(
+            &mut t,
+            a.etablissement_id,
+            avant.annee_id,
+            s.du,
+            s.au,
+            &s.cibles,
+            Some(id),
+        )
+        .await?;
         sqlx::query(
             "UPDATE ent_calendrier_evenement SET libelle=$3, du=$4, au=$5, du_demi=$6, au_demi=$7, effet=$8,
                     publie_familles=$9, publie_personnels=$10, motif=$11, jour_reference=$12,
@@ -1502,12 +1572,36 @@ impl PgEnt {
                 .map_err(db)?;
             inserer_cibles(&mut t, a.etablissement_id, id, &s.cibles).await?;
         }
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
-        journaliser(&mut t, a, "calendrier_evenement", &id.to_string(), "modifier", Some(resume_journal(&avant)), Some(resume_journal(&e))).await?;
-        publier(&mut t, a, "referentiel.calendrier_modifie", id, charge_evenement(&e, "modifie")).await?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
+        journaliser(
+            &mut t,
+            a,
+            "calendrier_evenement",
+            &id.to_string(),
+            "modifier",
+            Some(resume_journal(&avant)),
+            Some(resume_journal(&e)),
+        )
+        .await?;
+        publier(
+            &mut t,
+            a,
+            "referentiel.calendrier_modifie",
+            id,
+            charge_evenement(&e, "modifie"),
+        )
+        .await?;
         apres_ecriture(&mut t, a, avant.annee_id).await?;
         t.commit().await.map_err(db)?;
         Ok(ResultatEvenement {
@@ -1570,12 +1664,33 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
-        let action = if motif.is_some() { "annuler" } else { "retablir" };
-        journaliser(&mut t, a, "calendrier_evenement", &id.to_string(), action, Some(resume_journal(&avant)), Some(resume_journal(&e))).await?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
+        let action = if motif.is_some() {
+            "annuler"
+        } else {
+            "retablir"
+        };
+        journaliser(
+            &mut t,
+            a,
+            "calendrier_evenement",
+            &id.to_string(),
+            action,
+            Some(resume_journal(&avant)),
+            Some(resume_journal(&e)),
+        )
+        .await?;
         publier(
             &mut t,
             a,
@@ -1607,7 +1722,10 @@ fn validations_saisie(s: &EvenementSaisie) -> Result<Valide, EntDbError> {
     }
     valider_demi(&s.du_demi)?;
     valider_demi(&s.au_demi)?;
-    if s.du == s.au && s.du_demi.as_deref() == Some("apres_midi") && s.au_demi.as_deref() == Some("matin") {
+    if s.du == s.au
+        && s.du_demi.as_deref() == Some("apres_midi")
+        && s.au_demi.as_deref() == Some("matin")
+    {
         return Err(invalide());
     }
     let effet = s
@@ -1708,13 +1826,17 @@ impl PgEnt {
         s: RegleSemaineSaisie,
     ) -> Result<SemainesVue, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let etiquettes: Vec<String> = s.etiquettes.iter().map(|e| e.trim().to_uppercase()).collect();
+        let etiquettes: Vec<String> = s
+            .etiquettes
+            .iter()
+            .map(|e| e.trim().to_uppercase())
+            .collect();
         let distinctes: BTreeSet<&String> = etiquettes.iter().collect();
         if !(2..=4).contains(&etiquettes.len())
             || distinctes.len() != etiquettes.len()
-            || etiquettes
-                .iter()
-                .any(|e| e.is_empty() || e.chars().count() > 8 || !e.chars().all(char::is_alphanumeric))
+            || etiquettes.iter().any(|e| {
+                e.is_empty() || e.chars().count() > 8 || !e.chars().all(char::is_alphanumeric)
+            })
             || !["alternance_continue", "reprise_apres_vacances"].contains(&s.mode.as_str())
             || s.premiere_semaine.weekday() != Weekday::Mon
         {
@@ -1813,7 +1935,10 @@ impl PgEnt {
         if lundi < lundi_de(annee.debut) || lundi > annee.fin {
             return Err(invalide());
         }
-        if etiquette.as_ref().is_some_and(|e| !regle.etiquettes.contains(e)) {
+        if etiquette
+            .as_ref()
+            .is_some_and(|e| !regle.etiquettes.contains(e))
+        {
             return Err(invalide());
         }
         let avant: Option<(Option<String>, String)> = sqlx::query_as(
@@ -1886,7 +2011,16 @@ impl PgEnt {
             return Err(introuvable());
         }
         recalculer_semaines(&mut t, a.etablissement_id, annee_id, a.user_id).await?;
-        journaliser(&mut t, a, "semaine", &format!("{annee_id}:{lundi}"), "liberer", None, None).await?;
+        journaliser(
+            &mut t,
+            a,
+            "semaine",
+            &format!("{annee_id}:{lundi}"),
+            "liberer",
+            None,
+            None,
+        )
+        .await?;
         publier(
             &mut t,
             a,
@@ -2004,7 +2138,9 @@ impl PgEnt {
     ) -> Result<usize, EntDbError> {
         let mut t = self.pool().begin().await.map_err(db)?;
         for l in lignes {
-            if !["vacances", "ferie", "pont_national"].contains(&l.type_ligne.as_str()) || l.au < l.du {
+            if !["vacances", "ferie", "pont_national"].contains(&l.type_ligne.as_str())
+                || l.au < l.du
+            {
                 return Err(invalide());
             }
             sqlx::query(
@@ -2054,7 +2190,9 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (zone, dep, regime) = profil.unwrap_or((None, None, None));
-        let zone = zone.map(|z| z.trim().to_lowercase()).filter(|z| !z.is_empty());
+        let zone = zone
+            .map(|z| z.trim().to_lowercase())
+            .filter(|z| !z.is_empty());
         let mut avertissements = Vec::new();
         let mut r = RapportAdoption {
             annee_id,
@@ -2070,7 +2208,16 @@ impl PgEnt {
             ecrit: false,
         };
         // 1. Calendrier officiel de la zone (s'il a été saisi).
-        let existants = lire_evenements(&mut t, a.etablissement_id, Some(annee_id), None, None, true, true).await?;
+        let existants = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            Some(annee_id),
+            None,
+            None,
+            true,
+            true,
+        )
+        .await?;
         let mut a_ajouter: Vec<(Uuid, String, String, NaiveDate, NaiveDate, String)> = Vec::new();
         let mut a_mettre_a_jour: Vec<(Uuid, String, NaiveDate, NaiveDate, String)> = Vec::new();
         if let Some(z) = &zone {
@@ -2087,7 +2234,11 @@ impl PgEnt {
             for (ref_id, type_ref, libelle, du, au, version) in refs {
                 match existants.iter().find(|e| e.ref_officiel_id == Some(ref_id)) {
                     None => a_ajouter.push((ref_id, type_ref, libelle, du, au, version)),
-                    Some(e) if e.du == du && e.au == au && e.ref_version.as_deref() == Some(version.as_str()) => {
+                    Some(e)
+                        if e.du == du
+                            && e.au == au
+                            && e.ref_version.as_deref() == Some(version.as_str()) =>
+                    {
                         r.inchanges += 1
                     }
                     Some(e) if e.du == du && e.au == au => {
@@ -2120,7 +2271,12 @@ impl PgEnt {
         }
         // 2. Jours fériés calculés (Pâques, Ascension, Pentecôte, régimes locaux).
         let territoire = Territoire::depuis_departement(dep.as_deref());
-        let feries = feries_entre(annee.debut, annee.fin, territoire, est_alsace_moselle(regime.as_deref(), dep.as_deref()));
+        let feries = feries_entre(
+            annee.debut,
+            annee.fin,
+            territoire,
+            est_alsace_moselle(regime.as_deref(), dep.as_deref()),
+        );
         r.ponts_possibles = ponts_possibles(&feries)
             .into_iter()
             .filter_map(|(f, p)| {
@@ -2291,7 +2447,11 @@ pub struct Comparaison {
     pub ecart_jours_cours: i64,
 }
 
-async fn synthese(conn: &mut PgConnection, etab: Uuid, annee: &AnneeLue) -> Result<SyntheseAnnee, EntDbError> {
+async fn synthese(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    annee: &AnneeLue,
+) -> Result<SyntheseAnnee, EntDbError> {
     let ctx = charger_contexte(conn, etab, annee.debut, annee.fin).await?;
     let vide = Cible::default();
     let mut jours_cours = 0;
@@ -2299,7 +2459,11 @@ async fn synthese(conn: &mut PgConnection, etab: Uuid, annee: &AnneeLue) -> Resu
     let mut semaines: BTreeMap<NaiveDate, Option<String>> = BTreeMap::new();
     for d in annee.debut.iter_days().take_while(|d| *d <= annee.fin) {
         let j = calculer_jour(&ctx, d, &vide);
-        let (bm, bp) = ctx.jours_ouvres.get(cle_jour(d.weekday())).copied().unwrap_or((false, false));
+        let (bm, bp) = ctx
+            .jours_ouvres
+            .get(cle_jour(d.weekday()))
+            .copied()
+            .unwrap_or((false, false));
         if bm || bp {
             theoriques += 1;
         }
@@ -2376,7 +2540,13 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
         let annees = lire_annees(&mut t, a.etablissement_id, None).await?;
-        let trouver = |id: Uuid| annees.iter().find(|x| x.id == id).cloned().ok_or_else(introuvable);
+        let trouver = |id: Uuid| {
+            annees
+                .iter()
+                .find(|x| x.id == id)
+                .cloned()
+                .ok_or_else(introuvable)
+        };
         let (x, y) = (trouver(annee_id)?, trouver(reference_id)?);
         let (sx, sy) = (
             synthese(&mut t, a.etablissement_id, &x).await?,
@@ -2553,24 +2723,33 @@ async fn apercu_fermeture(
     let chev = chevauchements(conn, etab, annee_id, s.du, s.au, &s.cibles, sauf).await?;
     let mut avertissements = Vec::new();
     if s.internes_presents {
-        let touche_i = services.iter().any(|x| x == "internat" || x == "restauration");
+        let touche_i = services
+            .iter()
+            .any(|x| x == "internat" || x == "restauration");
         if touche_i {
             avertissements.push(
                 "des internes sont présents : l'internat ou la restauration sont fermés par choix explicite".into(),
             );
         } else {
             avertissements.push(
-                "des internes sont présents : internat et restauration restent ouverts (R-S1)".into(),
+                "des internes sont présents : internat et restauration restent ouverts (R-S1)"
+                    .into(),
             );
         }
     }
     if !chev.is_empty() {
-        avertissements.push(format!("{} événement(s) du calendrier se chevauchent", chev.len()));
+        avertissements.push(format!(
+            "{} événement(s) du calendrier se chevauchent",
+            chev.len()
+        ));
     }
     if s.conditionnelle && s.levee_prevue_le.is_none() {
-        avertissements.push("fermeture conditionnelle sans levée programmée : à lever à la main".into());
+        avertissements
+            .push("fermeture conditionnelle sans levée programmée : à lever à la main".into());
     }
-    if s.levee_prevue_le.is_some_and(|l| l.date_naive() > s.au + Duration::days(1)) {
+    if s.levee_prevue_le
+        .is_some_and(|l| l.date_naive() > s.au + Duration::days(1))
+    {
         avertissements.push("la levée programmée tombe après la fin de la fermeture".into());
     }
     Ok(ApercuFermeture {
@@ -2652,11 +2831,14 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let motif = requis(&s.motif, 500)?;
-        let libelle = net(s.libelle.as_deref(), 160)?.unwrap_or_else(|| "Fermeture exceptionnelle".into());
+        let libelle =
+            net(s.libelle.as_deref(), 160)?.unwrap_or_else(|| "Fermeture exceptionnelle".into());
         valider_demi(&s.du_demi)?;
         valider_demi(&s.au_demi)?;
         if s.au < s.du
-            || (s.du == s.au && s.du_demi.as_deref() == Some("apres_midi") && s.au_demi.as_deref() == Some("matin"))
+            || (s.du == s.au
+                && s.du_demi.as_deref() == Some("apres_midi")
+                && s.au_demi.as_deref() == Some("matin"))
             || s.cibles.iter().any(|c| c.service.is_some())
             || (s.levee_prevue_le.is_some() && !s.conditionnelle)
             || (s.publie_familles && s.publie_personnels)
@@ -2683,7 +2865,15 @@ impl PgEnt {
             .ok_or_else(introuvable)?;
         annee_ecrivable(&mut t, a.etablissement_id, annee.id).await?;
         valider_cibles(&mut t, a.etablissement_id, annee.id, &s.cibles).await?;
-        let apercu = apercu_fermeture(&mut t, a.etablissement_id, annee.id, &s, services.clone(), None).await?;
+        let apercu = apercu_fermeture(
+            &mut t,
+            a.etablissement_id,
+            annee.id,
+            &s,
+            services.clone(),
+            None,
+        )
+        .await?;
         if apercu_seul {
             t.commit().await.map_err(db)?;
             return Ok(ResultatFermeture {
@@ -2693,24 +2883,32 @@ impl PgEnt {
             });
         }
         // Une déclaration identique et encore active est refusée (pas de double message).
-        let doublon = lire_evenements(&mut t, a.etablissement_id, Some(annee.id), Some((s.du, s.au)), None, false, false)
-            .await?
-            .into_iter()
-            .any(|e| {
-                e.type_evenement == "fermeture_exceptionnelle"
-                    && e.du == s.du
-                    && e.au == s.au
-                    && e.du_demi == s.du_demi
-                    && e.au_demi == s.au_demi
-                    && e.services_touches == services
-                    && {
-                        let mut x = e.cibles.clone();
-                        let mut y = s.cibles.clone();
-                        x.sort();
-                        y.sort();
-                        x == y
-                    }
-            });
+        let doublon = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            Some(annee.id),
+            Some((s.du, s.au)),
+            None,
+            false,
+            false,
+        )
+        .await?
+        .into_iter()
+        .any(|e| {
+            e.type_evenement == "fermeture_exceptionnelle"
+                && e.du == s.du
+                && e.au == s.au
+                && e.du_demi == s.du_demi
+                && e.au_demi == s.au_demi
+                && e.services_touches == services
+                && {
+                    let mut x = e.cibles.clone();
+                    let mut y = s.cibles.clone();
+                    x.sort();
+                    y.sort();
+                    x == y
+                }
+        });
         if doublon {
             return Err(conflit());
         }
@@ -2743,13 +2941,37 @@ impl PgEnt {
         .await
         .map_err(db)?;
         inserer_cibles(&mut t, a.etablissement_id, id, &s.cibles).await?;
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
         let h = historiser(&mut t, a, &e, "declaree", "manuel", Some(&motif)).await?;
-        journaliser(&mut t, a, "fermeture", &id.to_string(), "declarer", None, Some(resume_journal(&e))).await?;
-        publier(&mut t, a, "referentiel.fermeture_exceptionnelle", id, charge_fermeture(&e, "declaree", h)).await?;
+        journaliser(
+            &mut t,
+            a,
+            "fermeture",
+            &id.to_string(),
+            "declarer",
+            None,
+            Some(resume_journal(&e)),
+        )
+        .await?;
+        publier(
+            &mut t,
+            a,
+            "referentiel.fermeture_exceptionnelle",
+            id,
+            charge_fermeture(&e, "declaree", h),
+        )
+        .await?;
         apres_ecriture(&mut t, a, annee.id).await?;
         t.commit().await.map_err(db)?;
         Ok(ResultatFermeture {
@@ -2792,7 +3014,9 @@ impl PgEnt {
         valider_demi(&au_demi)?;
         if au < avant.du
             || au < aujourdhui
-            || (au == avant.du && avant.du_demi.as_deref() == Some("apres_midi") && au_demi.as_deref() == Some("matin"))
+            || (au == avant.du
+                && avant.du_demi.as_deref() == Some("apres_midi")
+                && au_demi.as_deref() == Some("matin"))
             || (m.levee_prevue_le.is_some() && m.retirer_levee_programmee)
         {
             return Err(invalide());
@@ -2845,10 +3069,18 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        let e = lire_evenements(&mut t, a.etablissement_id, None, None, Some(id), true, false)
-            .await?
-            .pop()
-            .ok_or_else(introuvable)?;
+        let e = lire_evenements(
+            &mut t,
+            a.etablissement_id,
+            None,
+            None,
+            Some(id),
+            true,
+            false,
+        )
+        .await?
+        .pop()
+        .ok_or_else(introuvable)?;
         let saisie = FermetureSaisie {
             libelle: None,
             du: e.du,
@@ -2864,10 +3096,34 @@ impl PgEnt {
             publie_familles: e.publie_familles,
             publie_personnels: e.publie_personnels,
         };
-        let apercu = apercu_fermeture(&mut t, a.etablissement_id, e.annee_id, &saisie, e.services_touches.clone(), Some(id)).await?;
+        let apercu = apercu_fermeture(
+            &mut t,
+            a.etablissement_id,
+            e.annee_id,
+            &saisie,
+            e.services_touches.clone(),
+            Some(id),
+        )
+        .await?;
         let h = historiser(&mut t, a, &e, changement, "manuel", Some(&motif)).await?;
-        journaliser(&mut t, a, "fermeture", &id.to_string(), changement, Some(resume_journal(&avant)), Some(resume_journal(&e))).await?;
-        publier(&mut t, a, "referentiel.fermeture_exceptionnelle", id, charge_fermeture(&e, changement, h)).await?;
+        journaliser(
+            &mut t,
+            a,
+            "fermeture",
+            &id.to_string(),
+            changement,
+            Some(resume_journal(&avant)),
+            Some(resume_journal(&e)),
+        )
+        .await?;
+        publier(
+            &mut t,
+            a,
+            "referentiel.fermeture_exceptionnelle",
+            id,
+            charge_fermeture(&e, changement, h),
+        )
+        .await?;
         apres_ecriture(&mut t, a, e.annee_id).await?;
         t.commit().await.map_err(db)?;
         Ok(ResultatFermeture {
@@ -2957,7 +3213,8 @@ impl PgEnt {
             };
             // Le jour métier et la demi-journée de la levée viennent du fuseau de l'établissement.
             let local = port_etab::heure_locale(&mut t, etab, instant).await?;
-            let coupure = port_etab::parametre(&mut t, etab, "structure.demi_journee_coupure").await?;
+            let coupure =
+                port_etab::parametre(&mut t, etab, "structure.demi_journee_coupure").await?;
             let coupure = coupure
                 .as_str()
                 .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok())
@@ -2969,7 +3226,16 @@ impl PgEnt {
             };
             // Levée le matin : ouvert dès ce jour ; levée l'après-midi : le matin reste fermé.
             let (jour, apres_midi) = (local.date(), local.time() >= coupure);
-            lever_dans(&mut t, &systeme, id, jour, Some(apres_midi), "programme", None).await?;
+            lever_dans(
+                &mut t,
+                &systeme,
+                id,
+                jour,
+                Some(apres_midi),
+                "programme",
+                None,
+            )
+            .await?;
             t.commit().await.map_err(db)?;
             n += 1;
         }
@@ -2986,7 +3252,10 @@ impl PgEnt {
         .await?;
         let mut n = 0;
         for (etab,) in etabs {
-            match self.structure_fermetures_levees_executer(etab, Utc::now()).await {
+            match self
+                .structure_fermetures_levees_executer(etab, Utc::now())
+                .await
+            {
                 Ok(k) => n += k,
                 Err(e) => tracing::warn!(error = %e, "levée programmée de fermeture non exécutée"),
             }
@@ -3015,11 +3284,12 @@ async fn lever_dans(
         return Err(conflit());
     }
     // Nouvelle fin : la veille du jour de levée, ou le matin de ce jour (levée l'après-midi).
-    let (nouveau_au, nouveau_demi): (NaiveDate, Option<&str>) = if apres_midi_seulement == Some(true) {
-        (jour, Some("matin"))
-    } else {
-        (jour - Duration::days(1), None)
-    };
+    let (nouveau_au, nouveau_demi): (NaiveDate, Option<&str>) =
+        if apres_midi_seulement == Some(true) {
+            (jour, Some("matin"))
+        } else {
+            (jour - Duration::days(1), None)
+        };
     // Rien à lever si la fermeture est déjà finie à cette date (fin actuelle <= nouvelle fin).
     let rang = |demi: Option<&str>| if demi == Some("matin") { 1 } else { 2 };
     let deja_finie = (avant.au, rang(avant.au_demi.as_deref())) <= (nouveau_au, rang(nouveau_demi));
@@ -3079,7 +3349,16 @@ async fn lever_dans(
         .pop()
         .ok_or_else(introuvable)?;
     let h = historiser(conn, a, &e, "levee", origine, motif).await?;
-    journaliser(conn, a, "fermeture", &id.to_string(), "lever", Some(resume_journal(&avant)), Some(resume_journal(&e))).await?;
+    journaliser(
+        conn,
+        a,
+        "fermeture",
+        &id.to_string(),
+        "lever",
+        Some(resume_journal(&avant)),
+        Some(resume_journal(&e)),
+    )
+    .await?;
     let mut charge = charge_fermeture(&e, "levee", h);
     charge["a_partir_du"] = json!(jour);
     charge["apres_midi_seulement"] = json!(apres_midi_seulement == Some(true));
@@ -3101,7 +3380,10 @@ mod tests_purs {
     #[test]
     fn effet_de_fermeture_suit_les_services() {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        assert_eq!(effet_de_fermeture(&s(&["cours", "accueil_eleves"])), "sans_cours");
+        assert_eq!(
+            effet_de_fermeture(&s(&["cours", "accueil_eleves"])),
+            "sans_cours"
+        );
         assert_eq!(effet_de_fermeture(&s(&["cours"])), "accueil_seulement");
         assert_eq!(effet_de_fermeture(&s(&["restauration"])), "cours_modifies");
     }
@@ -3109,7 +3391,9 @@ mod tests_purs {
     #[test]
     fn services_par_defaut_gardent_internat_et_restauration_ouverts() {
         let sans = services_par_defaut(true);
-        assert!(!sans.contains(&"internat".to_string()) && !sans.contains(&"restauration".to_string()));
+        assert!(
+            !sans.contains(&"internat".to_string()) && !sans.contains(&"restauration".to_string())
+        );
         assert!(sans.contains(&"cours".to_string()));
         assert_eq!(services_par_defaut(false).len(), 6);
     }
@@ -3123,11 +3407,38 @@ mod tests_purs {
         };
         let l = |n: i64, v: bool| (d(2026, 8, 31) + Duration::days(7 * n), v);
         // 31/8 (avant la première), 7/9 A, 14/9 B, 21/9 vacances, 28/9 ?, 5/10 ?
-        let semaines = vec![l(0, false), l(1, false), l(2, false), l(3, true), l(4, false), l(5, false)];
+        let semaines = vec![
+            l(0, false),
+            l(1, false),
+            l(2, false),
+            l(3, true),
+            l(4, false),
+            l(5, false),
+        ];
         let c: Vec<_> = etiquettes_semaines(&semaines, &regle("alternance_continue"));
-        assert_eq!(c, vec![None, Some("A".into()), Some("B".into()), None, Some("A".into()), Some("B".into())]);
+        assert_eq!(
+            c,
+            vec![
+                None,
+                Some("A".into()),
+                Some("B".into()),
+                None,
+                Some("A".into()),
+                Some("B".into())
+            ]
+        );
         let r: Vec<_> = etiquettes_semaines(&semaines, &regle("reprise_apres_vacances"));
-        assert_eq!(r, vec![None, Some("A".into()), Some("B".into()), None, Some("A".into()), Some("B".into())]);
+        assert_eq!(
+            r,
+            vec![
+                None,
+                Some("A".into()),
+                Some("B".into()),
+                None,
+                Some("A".into()),
+                Some("B".into())
+            ]
+        );
         // Une seule semaine avant les vacances : la reprise repart de A, l'alternance continue de B.
         let court = vec![l(1, false), l(2, true), l(3, false)];
         let r = etiquettes_semaines(&court, &regle("reprise_apres_vacances"));
@@ -3201,8 +3512,14 @@ mod tests_purs {
         assert!(j.ouvre && j.matin.cours && !j.apres_midi.cours);
         assert_eq!(j.type_jour, "cours");
         // Dimanche : non travaillé. Août 2026 : hors année.
-        assert_eq!(calculer_jour(&c, d(2026, 9, 6), &v).type_jour, "non_travaille");
-        assert_eq!(calculer_jour(&c, d(2026, 8, 15), &v).type_jour, "hors_annee");
+        assert_eq!(
+            calculer_jour(&c, d(2026, 9, 6), &v).type_jour,
+            "non_travaille"
+        );
+        assert_eq!(
+            calculer_jour(&c, d(2026, 8, 15), &v).type_jour,
+            "hors_annee"
+        );
     }
 
     #[test]
@@ -3227,13 +3544,32 @@ mod tests_purs {
     #[test]
     fn cibles_niveau_classe_et_rattrapage() {
         let (niveau, classe) = (Uuid::new_v4(), Uuid::new_v4());
-        let mut banalise = evt("journee_banalisee", d(2026, 9, 10), d(2026, 9, 10), "sans_cours");
-        banalise.cibles = vec![CibleEvenement { niveau_id: Some(niveau), ..Default::default() }];
-        let mut rat = evt("rattrapage", d(2026, 9, 12), d(2026, 9, 12), "cours_modifies");
+        let mut banalise = evt(
+            "journee_banalisee",
+            d(2026, 9, 10),
+            d(2026, 9, 10),
+            "sans_cours",
+        );
+        banalise.cibles = vec![CibleEvenement {
+            niveau_id: Some(niveau),
+            ..Default::default()
+        }];
+        let mut rat = evt(
+            "rattrapage",
+            d(2026, 9, 12),
+            d(2026, 9, 12),
+            "cours_modifies",
+        );
         rat.jour_reference = Some("lun".into());
         let (c, _) = ctx(vec![banalise, rat]);
-        let n = Cible { niveau_id: Some(niveau), ..Default::default() };
-        let autre = Cible { classe_id: Some(classe), ..Default::default() };
+        let n = Cible {
+            niveau_id: Some(niveau),
+            ..Default::default()
+        };
+        let autre = Cible {
+            classe_id: Some(classe),
+            ..Default::default()
+        };
         assert!(!calculer_jour(&c, d(2026, 9, 10), &n).ouvre);
         assert!(calculer_jour(&c, d(2026, 9, 10), &autre).ouvre);
         assert!(calculer_jour(&c, d(2026, 9, 10), &Cible::default()).ouvre);
@@ -3246,13 +3582,24 @@ mod tests_purs {
 
     #[test]
     fn fermeture_effets_differencies_et_services() {
-        let mut f = evt("fermeture_exceptionnelle", d(2026, 11, 9), d(2026, 11, 10), "accueil_seulement");
+        let mut f = evt(
+            "fermeture_exceptionnelle",
+            d(2026, 11, 9),
+            d(2026, 11, 10),
+            "accueil_seulement",
+        );
         f.services_touches = vec!["cours".into(), "transports".into()];
         let (c, _) = ctx(vec![f]);
         let j = calculer_jour(&c, d(2026, 11, 9), &Cible::default());
-        assert!(!j.ouvre && j.matin.eleves && j.matin.personnel, "accueil et personnels maintenus");
+        assert!(
+            !j.ouvre && j.matin.eleves && j.matin.personnel,
+            "accueil et personnels maintenus"
+        );
         assert_eq!(j.type_jour, "fermeture_exceptionnelle");
-        assert_eq!(j.services_fermes, vec!["cours".to_string(), "transports".to_string()]);
+        assert_eq!(
+            j.services_fermes,
+            vec!["cours".to_string(), "transports".to_string()]
+        );
         let s = calculer_jour_service(&c, d(2026, 11, 9), "restauration");
         assert!(s.ouvert, "la restauration n'est pas touchée");
     }
@@ -3262,12 +3609,25 @@ mod tests_purs {
         let vacances = evt("vacances", d(2026, 10, 19), d(2026, 10, 30), "sans_cours");
         let ferie = evt("ferie", d(2026, 11, 11), d(2026, 11, 11), "sans_cours");
         let mut ferme = evt("fermeture", d(2027, 7, 20), d(2027, 8, 20), "sans_cours");
-        ferme.cibles = vec![CibleEvenement { service: Some("secretariat".into()), ..Default::default() }];
+        ferme.cibles = vec![CibleEvenement {
+            service: Some("secretariat".into()),
+            ..Default::default()
+        }];
         let (c, _) = ctx(vec![vacances, ferie, ferme]);
         // Les vacances ne ferment pas le secrétariat ; un férié, si ; un samedi, si.
         assert!(calculer_jour_service(&c, d(2026, 10, 21), "secretariat").ouvert);
-        assert_eq!(calculer_jour_service(&c, d(2026, 11, 11), "secretariat").raison.as_deref(), Some("ferie"));
-        assert_eq!(calculer_jour_service(&c, d(2026, 11, 14), "secretariat").raison.as_deref(), Some("week_end"));
+        assert_eq!(
+            calculer_jour_service(&c, d(2026, 11, 11), "secretariat")
+                .raison
+                .as_deref(),
+            Some("ferie")
+        );
+        assert_eq!(
+            calculer_jour_service(&c, d(2026, 11, 14), "secretariat")
+                .raison
+                .as_deref(),
+            Some("week_end")
+        );
         // Fermeture estivale du secrétariat seulement.
         assert!(!calculer_jour_service(&c, d(2027, 8, 4), "secretariat").ouvert);
         assert!(calculer_jour_service(&c, d(2027, 8, 4), "intendance").ouvert);

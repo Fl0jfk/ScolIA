@@ -68,7 +68,10 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
 
     // Session obligatoire.
     for (m, u) in [
-        ("GET", format!("/structure/calendrier/evenements?annee_id={a}")),
+        (
+            "GET",
+            format!("/structure/calendrier/evenements?annee_id={a}"),
+        ),
         ("POST", "/structure/calendrier/evenements".to_string()),
         ("POST", "/structure/calendrier/adoption".to_string()),
         ("GET", format!("/structure/calendrier/jour?date={demain}")),
@@ -89,9 +92,23 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
 
     // Écriture du calendrier : administratif oui, professeur non.
     let evt = json!({"annee_id": a, "type": "pont", "libelle": "Pont", "du": demain, "au": demain});
-    let (st, _) = appel(&app, "POST", "/structure/calendrier/evenements", Some(prof), Some(evt.clone())).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/structure/calendrier/evenements",
+        Some(prof),
+        Some(evt.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, c) = appel(&app, "POST", "/structure/calendrier/evenements", Some(adm), Some(evt)).await;
+    let (st, c) = appel(
+        &app,
+        "POST",
+        "/structure/calendrier/evenements",
+        Some(adm),
+        Some(evt),
+    )
+    .await;
     assert_eq!(st, StatusCode::CREATED, "{c}");
     let evt_id = c["evenement"]["id"].as_str().unwrap().to_string();
     // Corps invalide : 422.
@@ -104,57 +121,161 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
     )
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
-    let (st, l) = appel(&app, "GET", &format!("/structure/calendrier/evenements?annee_id={a}"), Some(prof), None).await;
+    let (st, l) = appel(
+        &app,
+        "GET",
+        &format!("/structure/calendrier/evenements?annee_id={a}"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     assert_eq!(l.as_array().unwrap().len(), 1);
     // Le jour du pont n'a plus cours.
     let (_, j) = appel(&app, "GET", &jour, Some(dir), None).await;
-    assert!(j["evenements"].as_array().unwrap().iter().any(|e| e["id"] == json!(evt_id)));
+    assert!(j["evenements"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["id"] == json!(evt_id)));
 
     // Adoption : aperçu par défaut, sans écriture.
-    let (st, r) = appel(&app, "POST", "/structure/calendrier/adoption", Some(adm), Some(json!({"annee_id": a}))).await;
+    let (st, r) = appel(
+        &app,
+        "POST",
+        "/structure/calendrier/adoption",
+        Some(adm),
+        Some(json!({"annee_id": a})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{r}");
     assert_eq!(r["ecrit"], json!(false));
-    let (st, m) = appel(&app, "GET", "/structure/calendrier/modele-saisie?zone=a", Some(prof), None).await;
-    assert_eq!((st, m["periodes"].as_array().map(Vec::len)), (StatusCode::OK, Some(5)));
+    let (st, m) = appel(
+        &app,
+        "GET",
+        "/structure/calendrier/modele-saisie?zone=a",
+        Some(prof),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, m["periodes"].as_array().map(Vec::len)),
+        (StatusCode::OK, Some(5))
+    );
 
     // Fermeture : direction seulement ; aperçu par défaut ; doublon 409.
-    let ferme = json!({"du": demain, "au": apres, "motif": "Alerte météo", "internes_presents": true});
-    let (st, _) = appel(&app, "POST", "/structure/fermetures", Some(adm), Some(ferme.clone())).await;
+    let ferme =
+        json!({"du": demain, "au": apres, "motif": "Alerte météo", "internes_presents": true});
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/structure/fermetures",
+        Some(adm),
+        Some(ferme.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::FORBIDDEN);
-    let (st, r) = appel(&app, "POST", "/structure/fermetures", Some(dir), Some(ferme.clone())).await;
+    let (st, r) = appel(
+        &app,
+        "POST",
+        "/structure/fermetures",
+        Some(dir),
+        Some(ferme.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{r}");
     assert_eq!(r["ecrit"], json!(false));
-    assert!(r["apercu"]["services_maintenus"].as_array().unwrap().contains(&json!("internat")));
+    assert!(r["apercu"]["services_maintenus"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("internat")));
     let mut ecrire = ferme.clone();
     ecrire["apercu"] = json!(false);
-    let (st, r) = appel(&app, "POST", "/structure/fermetures", Some(dir), Some(ecrire.clone())).await;
+    let (st, r) = appel(
+        &app,
+        "POST",
+        "/structure/fermetures",
+        Some(dir),
+        Some(ecrire.clone()),
+    )
+    .await;
     assert_eq!(st, StatusCode::CREATED, "{r}");
     let f_id = r["evenement"]["id"].as_str().unwrap().to_string();
-    let (st, _) = appel(&app, "POST", "/structure/fermetures", Some(dir), Some(ecrire)).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/structure/fermetures",
+        Some(dir),
+        Some(ecrire),
+    )
+    .await;
     assert_eq!(st, StatusCode::CONFLICT);
-    let (st, h) = appel(&app, "GET", &format!("/structure/fermetures/{f_id}/historique"), Some(prof), None).await;
+    let (st, h) = appel(
+        &app,
+        "GET",
+        &format!("/structure/fermetures/{f_id}/historique"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!((st, h.as_array().map(Vec::len)), (StatusCode::OK, Some(1)));
 
     // Cloisonnement : l'établissement voisin ne voit ni ne modifie rien.
-    let (st, l) = appel(&app, "GET", &format!("/structure/calendrier/evenements?annee_id={a}"), Some(dir_b), None).await;
+    let (st, l) = appel(
+        &app,
+        "GET",
+        &format!("/structure/calendrier/evenements?annee_id={a}"),
+        Some(dir_b),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     assert!(l.as_array().unwrap().is_empty());
     for (m, u, c) in [
-        ("GET", format!("/structure/calendrier/evenements/{evt_id}"), None),
-        ("POST", format!("/structure/calendrier/evenements/{evt_id}/annuler"), Some(json!({"motif": "x"}))),
-        ("POST", format!("/structure/fermetures/{f_id}/lever"), Some(json!({"motif": "x"}))),
-        ("PUT", format!("/structure/fermetures/{f_id}"), Some(json!({"motif": "x", "au": apres}))),
+        (
+            "GET",
+            format!("/structure/calendrier/evenements/{evt_id}"),
+            None,
+        ),
+        (
+            "POST",
+            format!("/structure/calendrier/evenements/{evt_id}/annuler"),
+            Some(json!({"motif": "x"})),
+        ),
+        (
+            "POST",
+            format!("/structure/fermetures/{f_id}/lever"),
+            Some(json!({"motif": "x"})),
+        ),
+        (
+            "PUT",
+            format!("/structure/fermetures/{f_id}"),
+            Some(json!({"motif": "x", "au": apres})),
+        ),
     ] {
         let (st, _) = appel(&app, m, &u, Some(dir_b), c).await;
         assert_eq!(st, StatusCode::NOT_FOUND, "{m} {u}");
     }
 
     // Levée par la direction, puis l'événement n'est plus en vigueur ; annulation du pont.
-    let (st, e) = appel(&app, "POST", &format!("/structure/fermetures/{f_id}/lever"), Some(dir), Some(json!({"motif": "fin d'alerte", "a_partir_du": demain}))).await;
+    let (st, e) = appel(
+        &app,
+        "POST",
+        &format!("/structure/fermetures/{f_id}/lever"),
+        Some(dir),
+        Some(json!({"motif": "fin d'alerte", "a_partir_du": demain})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{e}");
     assert!(e["annule_le"].is_string());
-    let (st, _) = appel(&app, "POST", &format!("/structure/calendrier/evenements/{evt_id}/annuler"), Some(adm), Some(json!({"motif": "pont renoncé"}))).await;
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/structure/calendrier/evenements/{evt_id}/annuler"),
+        Some(adm),
+        Some(json!({"motif": "pont renoncé"})),
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     let (_, j) = appel(&app, "GET", &jour, Some(dir), None).await;
     assert!(j["evenements"].as_array().unwrap().is_empty());
@@ -167,9 +288,20 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
     };
     let (st, s) = appel(&app, "PUT", "/structure/semaines", Some(adm), Some(json!({"annee_id": a, "etiquettes": ["A", "B"], "mode": "alternance_continue", "premiere_semaine": lundi}))).await;
     assert_eq!(st, StatusCode::OK, "{s}");
-    let (st, s) = appel(&app, "GET", &format!("/structure/semaines?annee_id={a}"), Some(prof), None).await;
+    let (st, s) = appel(
+        &app,
+        "GET",
+        &format!("/structure/semaines?annee_id={a}"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    assert!(s["semaines"].as_array().unwrap().iter().any(|x| x["etiquette"] == json!("A")));
+    assert!(s["semaines"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x["etiquette"] == json!("A")));
     let (st, _) = appel(&app, "PUT", "/structure/semaines", Some(prof), Some(json!({"annee_id": a, "etiquettes": ["A", "B"], "mode": "alternance_continue", "premiere_semaine": lundi}))).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
 }

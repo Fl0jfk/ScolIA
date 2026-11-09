@@ -13,9 +13,9 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::NaiveDate;
 use ent_db::structure_calendrier::{
-    modele_saisie, Cible, Comparaison, Evenement, EvenementModif, EvenementSaisie,
-    FermetureModif, FermetureSaisie, HistoriqueFermeture, Jour, JourService, ModeleSaisie,
-    RapportAdoption, RegleSemaineSaisie, ResultatEvenement, ResultatFermeture, SemainesVue,
+    modele_saisie, Cible, Comparaison, Evenement, EvenementModif, EvenementSaisie, FermetureModif,
+    FermetureSaisie, HistoriqueFermeture, Jour, JourService, ModeleSaisie, RapportAdoption,
+    RegleSemaineSaisie, ResultatEvenement, ResultatFermeture, SemainesVue,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -369,7 +369,13 @@ async fn semaine_forcer(
 ) -> Res<Json<SemainesVue>> {
     Ok(Json(
         s.ent
-            .structure_semaine_forcer(&acteur(&session), b.annee_id, b.lundi, b.etiquette, &b.motif)
+            .structure_semaine_forcer(
+                &acteur(&session),
+                b.annee_id,
+                b.lundi,
+                b.etiquette,
+                &b.motif,
+            )
             .await
             .map_err(map_db)?,
     ))
