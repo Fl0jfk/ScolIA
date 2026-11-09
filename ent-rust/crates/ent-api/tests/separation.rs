@@ -779,6 +779,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/auth/logout"),
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
+    // Invitation d'un agent (lot P2) : la personne invitée n'a pas encore de session, le jeton de
+    // l'invitation (dans le corps, haché en base, à usage unique) fait foi ; corps vide → 422.
+    ("POST", "/invitations/personnel/consulter"),
+    ("POST", "/invitations/personnel/accepter"),
     // Récupération de passkey en libre-service (D-018) : les jetons font foi.
     // Changement d'e-mail en deux temps (RF-01) : les jetons font foi.
     ("POST", "/auth/email/confirmer"),
