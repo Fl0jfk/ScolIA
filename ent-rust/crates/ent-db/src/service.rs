@@ -103,7 +103,7 @@ use domain_eleve::{
     plan_creer_sanction_motif, plan_creer_sanction_type, plan_declarer_incident,
     plan_prononcer_sanction, plan_signer_carnet_entree, solde_points_vs,
     vue_commission_dossier_famille,
-    plan_creer_devoir, plan_creer_note_periode, plan_saisir_appreciation, moyenne_sur_20,
+    plan_creer_devoir, plan_creer_note_periode, plan_saisir_appreciation,
     plan_bulletin_eleve, render_bulletin_pdf,
     Appreciation, CreerDevoir, CreerNotePeriode, Devoir, MoyenneMatiere, NoteLue, NotePeriode,
     NotePeriodeStatut, SaisirAppreciation,
