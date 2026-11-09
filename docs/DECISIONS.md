@@ -347,7 +347,7 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 
 ## D-032 — Socle 21 Évaluations : recommandations appliquées (2026-11-09)
 - **V0** (correctifs urgents de l'existant) avant tout autre lot du domaine — lancé.
-- **Lycée pilote, an 1** (Q-EV11) : notes et bulletins restent dans Charlemagne l'an 1 tant que la validation éditeur LSL / Parcoursup n'est pas obtenue ; **démarche éditeur à lancer** par Florian (voir `A_FOURNIR_PAR_FLORIAN.md`, F-06).
+- **Lycée pilote, an 1** (Q-EV11) : notes et bulletins restent dans Charlemagne l'an 1 tant que la validation éditeur LSL / Parcoursup n'est pas obtenue ; démarche éditeur **reportée** par Florian (vers mai 2027, une fois le logiciel crédible ; `A_FOURNIR_PAR_FLORIAN.md`, F-06). Les lots LSU/LSL/Parcoursup du socle 21 et les échanges officiels du socle 9 attendent ; le reste avance.
 - **Publication** (Q-EV2) : explicite par le professeur ; tout le non-publié l'est automatiquement à l'arrêt des notes.
 - **Fenêtre du conseil** (Q-EV6) : pendant la préparation et la tenue du conseil, un professeur voit toutes les matières des seuls élèves de ses groupes, journalisé.
 - **IA** (Q-EV8) : propositions d'appréciations relues une à une, alertes déterministes, aucune note ni décision par l'IA ; étude juridique (règlement européen sur l'IA) avant la mise en service des fonctions à modèle de langage.
