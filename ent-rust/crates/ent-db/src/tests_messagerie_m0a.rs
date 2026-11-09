@@ -99,7 +99,13 @@ async fn ecrit(ent: &PgEnt, etab: Uuid, user: Uuid, role: Role, fil: Uuid) -> bo
 }
 
 /// Interdiction de communication en cours visant le responsable `parent` pour `eleve`.
-async fn poser_interdiction(ent: &PgEnt, etab: Uuid, eleve: Uuid, parent: Uuid, decide_par: Uuid) -> Uuid {
+async fn poser_interdiction(
+    ent: &PgEnt,
+    etab: Uuid,
+    eleve: Uuid,
+    parent: Uuid,
+    decide_par: Uuid,
+) -> Uuid {
     let (personne,): (Uuid,) = sqlx::query_as(
         "SELECT personne_id FROM ent_eleve_lien WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3",
     )
@@ -157,9 +163,17 @@ async fn rendre_joignable(ent: &PgEnt, etab: Uuid, user: Uuid) {
 }
 
 /// (courriels, SMS, push) émis à propos de l'élève depuis `depuis`.
-async fn envois(ent: &PgEnt, etab: Uuid, eleve: Uuid, depuis: chrono::DateTime<Utc>) -> (i64, i64, i64) {
+async fn envois(
+    ent: &PgEnt,
+    etab: Uuid,
+    eleve: Uuid,
+    depuis: chrono::DateTime<Utc>,
+) -> (i64, i64, i64) {
     let mut n = [0i64; 3];
-    for (i, t) in ["ent_mail_outbox", "ent_sms_outbox", "ent_push_outbox"].iter().enumerate() {
+    for (i, t) in ["ent_mail_outbox", "ent_sms_outbox", "ent_push_outbox"]
+        .iter()
+        .enumerate()
+    {
         let (c,): (i64,) = sqlx::query_as(&format!(
             "SELECT count(*) FROM {t} WHERE etablissement_id = $1 AND eleve_id = $2 AND created_at >= $3"
         ))
@@ -195,18 +209,42 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     rendre_joignable(&ent, etab, lily).await;
     let parent = Role::Parent;
 
     // Témoin : avant l'interdiction, Lily lit, écrit, signe et reçoit.
     let t0 = Utc::now();
-    let avant = ouvrir(&ent, etab, Role::Direction, dir, harry, "Avant interdiction").await;
-    assert!(liste_contient(&ent, etab, lily, parent, avant.id).await, "témoin : liste");
-    assert!(lit(&ent, etab, lily, parent, avant.id).await, "témoin : lecture");
-    assert!(ecrit(&ent, etab, lily, parent, avant.id).await, "témoin : écriture");
+    let avant = ouvrir(
+        &ent,
+        etab,
+        Role::Direction,
+        dir,
+        harry,
+        "Avant interdiction",
+    )
+    .await;
+    assert!(
+        liste_contient(&ent, etab, lily, parent, avant.id).await,
+        "témoin : liste"
+    );
+    assert!(
+        lit(&ent, etab, lily, parent, avant.id).await,
+        "témoin : lecture"
+    );
+    assert!(
+        ecrit(&ent, etab, lily, parent, avant.id).await,
+        "témoin : écriture"
+    );
     let e1 = ent
-        .creer_carnet_entree_for_actor(staff(Role::Direction), carnet(etab, harry, dir, "Entrée témoin"))
+        .creer_carnet_entree_for_actor(
+            staff(Role::Direction),
+            carnet(etab, harry, dir, "Entrée témoin"),
+        )
         .await
         .unwrap();
     assert!(!ent
@@ -215,21 +253,34 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
         .unwrap()
         .is_empty());
     let (mails, sms, push) = envois(&ent, etab, harry, t0).await;
-    assert!(mails > 0 && sms > 0 && push > 0, "témoin : envois {mails}/{sms}/{push}");
+    assert!(
+        mails > 0 && sms > 0 && push > 0,
+        "témoin : envois {mails}/{sms}/{push}"
+    );
 
     // Interdiction de communication posée sur Lily.
     let interdiction = poser_interdiction(&ent, etab, harry, lily, dir).await;
     let t1 = Utc::now();
 
     // Lecture : ni liste, ni fil existant, ni carnet.
-    assert!(!liste_contient(&ent, etab, lily, parent, avant.id).await, "fil existant listé");
-    assert!(!lit(&ent, etab, lily, parent, avant.id).await, "fil existant lu");
+    assert!(
+        !liste_contient(&ent, etab, lily, parent, avant.id).await,
+        "fil existant listé"
+    );
+    assert!(
+        !lit(&ent, etab, lily, parent, avant.id).await,
+        "fil existant lu"
+    );
     assert!(matches!(
-        ent.list_carnet_for_actor(etab, lily, staff(parent), harry).await,
+        ent.list_carnet_for_actor(etab, lily, staff(parent), harry)
+            .await,
         Err(EntDbError::Forbidden)
     ));
     // Écriture : ni réponse, ni ouverture de fil, ni signature.
-    assert!(!ecrit(&ent, etab, lily, parent, avant.id).await, "réponse permise");
+    assert!(
+        !ecrit(&ent, etab, lily, parent, avant.id).await,
+        "réponse permise"
+    );
     assert!(matches!(
         ent.ouvrir_fil_for_actor(
             staff(parent),
@@ -245,14 +296,26 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
-        ent.signer_carnet_for_actor(etab, lily, staff(parent), e1.id).await,
+        ent.signer_carnet_for_actor(etab, lily, staff(parent), e1.id)
+            .await,
         Err(EntDbError::Forbidden)
     ));
     // Envois : nouveau fil, nouvelle entrée de carnet, annonce — rien pour la famille interdite.
-    let apres = ouvrir(&ent, etab, Role::Direction, dir, harry, "Après interdiction").await;
-    ent.creer_carnet_entree_for_actor(staff(Role::Direction), carnet(etab, harry, dir, "Entrée interdite"))
-        .await
-        .unwrap();
+    let apres = ouvrir(
+        &ent,
+        etab,
+        Role::Direction,
+        dir,
+        harry,
+        "Après interdiction",
+    )
+    .await;
+    ent.creer_carnet_entree_for_actor(
+        staff(Role::Direction),
+        carnet(etab, harry, dir, "Entrée interdite"),
+    )
+    .await
+    .unwrap();
     ent.publier_annonce_for_actor(
         staff(Role::Direction),
         CreerAnnonce {
@@ -268,7 +331,11 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
     .unwrap();
     assert!(!lit(&ent, etab, lily, parent, apres.id).await);
     let (mails, sms, push) = envois(&ent, etab, harry, t1).await;
-    assert_eq!((mails, sms, push), (0, 0, 0), "envois vers un parent interdit");
+    assert_eq!(
+        (mails, sms, push),
+        (0, 0, 0),
+        "envois vers un parent interdit"
+    );
     // La personne n'apparaît plus dans les vues d'envoi.
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_eleve_lien_communicant WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3",
@@ -291,7 +358,10 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
         .execute(ent.pool())
         .await
         .unwrap();
-    assert!(lit(&ent, etab, lily, parent, avant.id).await, "accès non rétabli après la levée");
+    assert!(
+        lit(&ent, etab, lily, parent, avant.id).await,
+        "accès non rétabli après la levée"
+    );
 }
 
 #[tokio::test]
@@ -300,7 +370,11 @@ async fn m0a_d1_interdiction_echue_ou_autre_objet_sans_effet() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     let fil = ouvrir(&ent, etab, Role::Direction, dir, harry, "Fil ordinaire").await;
     let id = poser_interdiction(&ent, etab, harry, lily, dir).await;
     assert!(!lit(&ent, etab, lily, Role::Parent, fil.id).await);
@@ -310,14 +384,22 @@ async fn m0a_d1_interdiction_echue_ou_autre_objet_sans_effet() {
         .execute(ent.pool())
         .await
         .unwrap();
-    assert!(lit(&ent, etab, lily, Role::Parent, fil.id).await, "interdiction échue encore appliquée");
+    assert!(
+        lit(&ent, etab, lily, Role::Parent, fil.id).await,
+        "interdiction échue encore appliquée"
+    );
     // Un autre objet (remise) ne ferme pas la messagerie.
-    sqlx::query("UPDATE ent_eleve_interdiction SET au = NULL, objet = ARRAY['remise'] WHERE id = $1")
-        .bind(id)
-        .execute(ent.pool())
-        .await
-        .unwrap();
-    assert!(lit(&ent, etab, lily, Role::Parent, fil.id).await, "interdiction de remise appliquée à la messagerie");
+    sqlx::query(
+        "UPDATE ent_eleve_interdiction SET au = NULL, objet = ARRAY['remise'] WHERE id = $1",
+    )
+    .bind(id)
+    .execute(ent.pool())
+    .await
+    .unwrap();
+    assert!(
+        lit(&ent, etab, lily, Role::Parent, fil.id).await,
+        "interdiction de remise appliquée à la messagerie"
+    );
 }
 
 // ─── D2 : fils privés et relances ───────────────────────────────────────────────────────
@@ -328,15 +410,25 @@ async fn m0a_d2_le_personnel_qui_suit_l_eleve_ne_lit_pas_les_fils_prives_ni_les_
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     let rogue = cast.profs[0].user_id; // enseigne en 4B : suit Harry
     let (cpe, adm) = (cast.cpe.user_id, cast.administratif.user_id);
     let prof = Role::Prof;
-    assert!(ent.prof_suit_eleve(etab, rogue, harry).await.unwrap(), "prérequis : Rogue suit Harry");
+    assert!(
+        ent.prof_suit_eleve(etab, rogue, harry).await.unwrap(),
+        "prérequis : Rogue suit Harry"
+    );
 
     // Témoin : un fil ordinaire de l'établissement reste lisible par Rogue.
     let ordinaire = ouvrir(&ent, etab, Role::Direction, dir, harry, "Fil ordinaire").await;
-    assert!(lit(&ent, etab, rogue, prof, ordinaire.id).await, "témoin : fil ordinaire");
+    assert!(
+        lit(&ent, etab, rogue, prof, ordinaire.id).await,
+        "témoin : fil ordinaire"
+    );
 
     // Fil privé ouvert par Lily : direction, CPE et secrétariat le lisent, pas Rogue.
     let (prive, _) = ent
@@ -352,12 +444,28 @@ async fn m0a_d2_le_personnel_qui_suit_l_eleve_ne_lit_pas_les_fils_prives_ni_les_
         )
         .await
         .unwrap();
-    for (u, r) in [(dir, Role::Direction), (cpe, Role::Cpe), (adm, Role::Administratif)] {
-        assert!(lit(&ent, etab, u, r, prive.id).await, "{r:?} doit lire le fil privé");
+    for (u, r) in [
+        (dir, Role::Direction),
+        (cpe, Role::Cpe),
+        (adm, Role::Administratif),
+    ] {
+        assert!(
+            lit(&ent, etab, u, r, prive.id).await,
+            "{r:?} doit lire le fil privé"
+        );
     }
-    assert!(!liste_contient(&ent, etab, rogue, prof, prive.id).await, "fil privé listé pour Rogue");
-    assert!(!lit(&ent, etab, rogue, prof, prive.id).await, "fil privé lu par Rogue");
-    assert!(!ecrit(&ent, etab, rogue, prof, prive.id).await, "Rogue écrit dans le fil privé");
+    assert!(
+        !liste_contient(&ent, etab, rogue, prof, prive.id).await,
+        "fil privé listé pour Rogue"
+    );
+    assert!(
+        !lit(&ent, etab, rogue, prof, prive.id).await,
+        "fil privé lu par Rogue"
+    );
+    assert!(
+        !ecrit(&ent, etab, rogue, prof, prive.id).await,
+        "Rogue écrit dans le fil privé"
+    );
 
     // Relance de facture (fil de foyer) : lisible du secrétariat, jamais de Rogue.
     let relance_fil = {
@@ -376,11 +484,23 @@ async fn m0a_d2_le_personnel_qui_suit_l_eleve_ne_lit_pas_les_fils_prives_ni_les_
         repo(&ent).insert_message(&msg).await.unwrap();
         fil
     };
-    assert!(lit(&ent, etab, adm, Role::Administratif, relance_fil.id).await, "témoin : secrétariat");
-    assert!(!liste_contient(&ent, etab, rogue, prof, relance_fil.id).await, "relance listée pour Rogue");
-    assert!(!lit(&ent, etab, rogue, prof, relance_fil.id).await, "relance lue par Rogue");
+    assert!(
+        lit(&ent, etab, adm, Role::Administratif, relance_fil.id).await,
+        "témoin : secrétariat"
+    );
+    assert!(
+        !liste_contient(&ent, etab, rogue, prof, relance_fil.id).await,
+        "relance listée pour Rogue"
+    );
+    assert!(
+        !lit(&ent, etab, rogue, prof, relance_fil.id).await,
+        "relance lue par Rogue"
+    );
     // La CPE, non nommée pour les relances, ne les lit pas non plus.
-    assert!(!lit(&ent, etab, cpe, Role::Cpe, relance_fil.id).await, "relance lue par la CPE");
+    assert!(
+        !lit(&ent, etab, cpe, Role::Cpe, relance_fil.id).await,
+        "relance lue par la CPE"
+    );
 
     // Un personnel qui a écrit dans un fil privé continue de le lire.
     let (autre, _) = ent
@@ -408,23 +528,42 @@ async fn m0a_d2_le_personnel_qui_suit_l_eleve_ne_lit_pas_les_fils_prives_ni_les_
         })
         .await
         .unwrap();
-    assert!(lit(&ent, etab, rogue, prof, autre.id).await, "personnel ayant écrit");
+    assert!(
+        lit(&ent, etab, rogue, prof, autre.id).await,
+        "personnel ayant écrit"
+    );
 }
 
 // ─── D3 : l'élève ───────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn m0a_d3_l_eleve_ne_lit_ni_ecrit_dans_les_fils_aux_responsables_et_ses_parents_ne_lisent_pas_les_siens() {
+async fn m0a_d3_l_eleve_ne_lit_ni_ecrit_dans_les_fils_aux_responsables_et_ses_parents_ne_lisent_pas_les_siens(
+) {
     let Some((ent, cast)) = labo().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
-    let compte = cast.eleves[0].compte.clone().expect("compte élève de Harry");
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
+    let compte = cast.eleves[0]
+        .compte
+        .clone()
+        .expect("compte élève de Harry");
     let eleve = Role::Eleve;
 
     // Fil de l'établissement aux parents + alerte d'absences (vie scolaire) + carnet.
-    let aux_parents = ouvrir(&ent, etab, Role::Direction, dir, harry, "Entretien avec la famille").await;
+    let aux_parents = ouvrir(
+        &ent,
+        etab,
+        Role::Direction,
+        dir,
+        harry,
+        "Entretien avec la famille",
+    )
+    .await;
     let alerte = {
         let (fil, msg) = domain_eleve::plan_ouvrir_fil(OuvrirFil {
             etablissement_id: etab,
@@ -434,25 +573,43 @@ async fn m0a_d3_l_eleve_ne_lit_ni_ecrit_dans_les_fils_aux_responsables_et_ses_pa
             actor_user_id: cast.cpe.user_id,
         })
         .unwrap();
-        repo(&ent).insert_fil_portee(&fil, PorteeFil::vie_scolaire()).await.unwrap();
+        repo(&ent)
+            .insert_fil_portee(&fil, PorteeFil::vie_scolaire())
+            .await
+            .unwrap();
         repo(&ent).insert_message(&msg).await.unwrap();
         fil
     };
     let entree = ent
-        .creer_carnet_entree_for_actor(staff(Role::Direction), carnet(etab, harry, dir, "Observation"))
+        .creer_carnet_entree_for_actor(
+            staff(Role::Direction),
+            carnet(etab, harry, dir, "Observation"),
+        )
         .await
         .unwrap();
     let fil_carnet = entree.fil_notif_id.expect("fil du carnet");
 
     // Témoin : les parents les lisent.
     for f in [aux_parents.id, alerte.id, fil_carnet] {
-        assert!(lit(&ent, etab, lily, Role::Parent, f).await, "témoin : Lily lit {f}");
+        assert!(
+            lit(&ent, etab, lily, Role::Parent, f).await,
+            "témoin : Lily lit {f}"
+        );
     }
     // L'élève ne les liste pas, ne les lit pas, n'y écrit pas.
     for f in [aux_parents.id, alerte.id, fil_carnet] {
-        assert!(!liste_contient(&ent, etab, compte.user_id, eleve, f).await, "{f} listé pour l'élève");
-        assert!(!lit(&ent, etab, compte.user_id, eleve, f).await, "{f} lu par l'élève");
-        assert!(!ecrit(&ent, etab, compte.user_id, eleve, f).await, "élève écrit dans {f}");
+        assert!(
+            !liste_contient(&ent, etab, compte.user_id, eleve, f).await,
+            "{f} listé pour l'élève"
+        );
+        assert!(
+            !lit(&ent, etab, compte.user_id, eleve, f).await,
+            "{f} lu par l'élève"
+        );
+        assert!(
+            !ecrit(&ent, etab, compte.user_id, eleve, f).await,
+            "élève écrit dans {f}"
+        );
     }
 
     // Un fil ouvert par l'élève : lui le lit ; ses parents non ; la direction oui.
@@ -469,11 +626,26 @@ async fn m0a_d3_l_eleve_ne_lit_ni_ecrit_dans_les_fils_aux_responsables_et_ses_pa
         )
         .await
         .unwrap();
-    assert!(lit(&ent, etab, compte.user_id, eleve, fil_eleve.id).await, "témoin : l'élève lit son fil");
-    assert!(lit(&ent, etab, dir, Role::Direction, fil_eleve.id).await, "témoin : la direction lit");
-    assert!(!liste_contient(&ent, etab, lily, Role::Parent, fil_eleve.id).await, "fil de l'élève listé pour son parent");
-    assert!(!lit(&ent, etab, lily, Role::Parent, fil_eleve.id).await, "fil de l'élève lu par son parent");
-    assert!(!ecrit(&ent, etab, lily, Role::Parent, fil_eleve.id).await, "parent écrit dans le fil de l'élève");
+    assert!(
+        lit(&ent, etab, compte.user_id, eleve, fil_eleve.id).await,
+        "témoin : l'élève lit son fil"
+    );
+    assert!(
+        lit(&ent, etab, dir, Role::Direction, fil_eleve.id).await,
+        "témoin : la direction lit"
+    );
+    assert!(
+        !liste_contient(&ent, etab, lily, Role::Parent, fil_eleve.id).await,
+        "fil de l'élève listé pour son parent"
+    );
+    assert!(
+        !lit(&ent, etab, lily, Role::Parent, fil_eleve.id).await,
+        "fil de l'élève lu par son parent"
+    );
+    assert!(
+        !ecrit(&ent, etab, lily, Role::Parent, fil_eleve.id).await,
+        "parent écrit dans le fil de l'élève"
+    );
 
     // Aucun parent n'est notifié d'un fil d'élève (destinataires vides).
     assert_eq!(
@@ -495,7 +667,10 @@ async fn m0a_d5_parent_sans_droit_vie_scolaire_ne_lit_pas_les_fils_de_vie_scolai
     let etab = cast.etablissement_id;
     let (draco, cpe) = (cast.eleve_tom_id, cast.cpe.user_id);
     let narcissa = cast.parent_tom.user_id; // peut_voir_vs = false sur Draco
-    assert!(!cast.eleves[1].peut_voir_vs, "prérequis : Narcissa sans vie scolaire");
+    assert!(
+        !cast.eleves[1].peut_voir_vs,
+        "prérequis : Narcissa sans vie scolaire"
+    );
 
     let ordinaire = ouvrir(&ent, etab, Role::Cpe, cpe, draco, "Rendez-vous").await;
     let (vs, msg) = domain_eleve::plan_ouvrir_fil(OuvrirFil {
@@ -506,13 +681,28 @@ async fn m0a_d5_parent_sans_droit_vie_scolaire_ne_lit_pas_les_fils_de_vie_scolai
         actor_user_id: cpe,
     })
     .unwrap();
-    repo(&ent).insert_fil_portee(&vs, PorteeFil::vie_scolaire()).await.unwrap();
+    repo(&ent)
+        .insert_fil_portee(&vs, PorteeFil::vie_scolaire())
+        .await
+        .unwrap();
     repo(&ent).insert_message(&msg).await.unwrap();
 
-    assert!(lit(&ent, etab, narcissa, Role::Parent, ordinaire.id).await, "témoin : fil ordinaire");
-    assert!(!liste_contient(&ent, etab, narcissa, Role::Parent, vs.id).await, "fil de VS listé");
-    assert!(!lit(&ent, etab, narcissa, Role::Parent, vs.id).await, "fil de VS lu");
-    assert!(!ecrit(&ent, etab, narcissa, Role::Parent, vs.id).await, "écriture dans un fil de VS");
+    assert!(
+        lit(&ent, etab, narcissa, Role::Parent, ordinaire.id).await,
+        "témoin : fil ordinaire"
+    );
+    assert!(
+        !liste_contient(&ent, etab, narcissa, Role::Parent, vs.id).await,
+        "fil de VS listé"
+    );
+    assert!(
+        !lit(&ent, etab, narcissa, Role::Parent, vs.id).await,
+        "fil de VS lu"
+    );
+    assert!(
+        !ecrit(&ent, etab, narcissa, Role::Parent, vs.id).await,
+        "écriture dans un fil de VS"
+    );
 }
 
 #[tokio::test]
@@ -521,7 +711,11 @@ async fn m0a_d5_d7_signature_du_carnet_reservee_au_titulaire_de_l_autorite() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     let e1 = ent
         .creer_carnet_entree_for_actor(staff(Role::Direction), carnet(etab, harry, dir, "À signer"))
         .await
@@ -535,7 +729,8 @@ async fn m0a_d5_d7_signature_du_carnet_reservee_au_titulaire_de_l_autorite() {
         .await
         .unwrap();
     assert!(matches!(
-        ent.signer_carnet_for_actor(etab, lily, staff(Role::Parent), e1.id).await,
+        ent.signer_carnet_for_actor(etab, lily, staff(Role::Parent), e1.id)
+            .await,
         Err(EntDbError::Forbidden)
     ));
     // Témoin : avec l'autorité, la signature passe.
@@ -559,7 +754,11 @@ async fn m0a_d6_ne_pas_solliciter_exclu_des_envois_mais_pas_de_ses_propres_fils(
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     rendre_joignable(&ent, etab, lily).await;
 
     // Témoin : avant la décision, le push d'un fil de l'établissement arrive.
@@ -578,16 +777,26 @@ async fn m0a_d6_ne_pas_solliciter_exclu_des_envois_mais_pas_de_ses_propres_fils(
     .fetch_one(ent.pool())
     .await
     .unwrap();
-    ent.definir_ne_pas_solliciter_for_actor(etab, dir, Role::Direction.as_str(), personne, true, None)
-        .await
-        .expect("ne pas solliciter");
+    ent.definir_ne_pas_solliciter_for_actor(
+        etab,
+        dir,
+        Role::Direction.as_str(),
+        personne,
+        true,
+        None,
+    )
+    .await
+    .expect("ne pas solliciter");
     let t1 = Utc::now();
 
     // Plus aucun envoi ouvert par l'établissement : push de fil, annonce, carnet.
     ouvrir(&ent, etab, Role::Direction, dir, harry, "Après la décision").await;
-    ent.creer_carnet_entree_for_actor(staff(Role::Direction), carnet(etab, harry, dir, "Observation"))
-        .await
-        .unwrap();
+    ent.creer_carnet_entree_for_actor(
+        staff(Role::Direction),
+        carnet(etab, harry, dir, "Observation"),
+    )
+    .await
+    .unwrap();
     ent.publier_annonce_for_actor(
         staff(Role::Direction),
         CreerAnnonce {
@@ -601,9 +810,16 @@ async fn m0a_d6_ne_pas_solliciter_exclu_des_envois_mais_pas_de_ses_propres_fils(
     )
     .await
     .unwrap();
-    assert_eq!(envois(&ent, etab, harry, t1).await, (0, 0, 0), "envois vers « ne pas solliciter »");
+    assert_eq!(
+        envois(&ent, etab, harry, t1).await,
+        (0, 0, 0),
+        "envois vers « ne pas solliciter »"
+    );
     // Les vues : communicante (lecture, réponse) oui ; sollicitable (envoi) non.
-    for (vue, attendu) in [("ent_eleve_lien_communicant", 1i64), ("ent_eleve_lien_sollicitable", 0)] {
+    for (vue, attendu) in [
+        ("ent_eleve_lien_communicant", 1i64),
+        ("ent_eleve_lien_sollicitable", 0),
+    ] {
         let (n,): (i64,) = sqlx::query_as(&format!(
             "SELECT count(*) FROM {vue} WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3"
         ))
@@ -649,9 +865,12 @@ async fn m0a_d7_carnet_professeur_hors_perimetre_et_roles_sans_droit() {
     let t0 = Utc::now();
 
     // Témoin : dans son périmètre, il écrit.
-    ent.creer_carnet_entree_for_actor(staff(Role::Prof), carnet(etab, harry, rogue, "Retard répété"))
-        .await
-        .expect("professeur de la classe");
+    ent.creer_carnet_entree_for_actor(
+        staff(Role::Prof),
+        carnet(etab, harry, rogue, "Retard répété"),
+    )
+    .await
+    .expect("professeur de la classe");
     // Hors périmètre : refusé, et aucun envoi à la famille de Draco.
     rendre_joignable(&ent, etab, cast.parent_tom.user_id).await;
     let r = ent
@@ -661,12 +880,18 @@ async fn m0a_d7_carnet_professeur_hors_perimetre_et_roles_sans_droit() {
     assert_eq!(envois(&ent, etab, draco, t0).await, (0, 0, 0));
     // Sans droit « suivi.eleve » : la comptabilité n'écrit pas au carnet.
     let r = ent
-        .creer_carnet_entree_for_actor(staff(Role::Compta), carnet(etab, harry, cast.compta.user_id, "x"))
+        .creer_carnet_entree_for_actor(
+            staff(Role::Compta),
+            carnet(etab, harry, cast.compta.user_id, "x"),
+        )
         .await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
     // Un parent n'écrit pas au carnet.
     let r = ent
-        .creer_carnet_entree_for_actor(staff(Role::Parent), carnet(etab, harry, cast.parent_lea.user_id, "x"))
+        .creer_carnet_entree_for_actor(
+            staff(Role::Parent),
+            carnet(etab, harry, cast.parent_lea.user_id, "x"),
+        )
         .await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
 }
@@ -682,7 +907,14 @@ async fn m0a_d9_messagerie_du_personnel_selon_les_droits_effectifs() {
     let harry = cast.eleve_lea_id;
     // Témoin : la direction a « messagerie.eleve ».
     assert!(ent
-        .list_fils_for_actor(etab, cast.direction.user_id, staff(Role::Direction), None, true, None)
+        .list_fils_for_actor(
+            etab,
+            cast.direction.user_id,
+            staff(Role::Direction),
+            None,
+            true,
+            None
+        )
         .await
         .is_ok());
     // Sans le droit (comptabilité, infirmerie) : ni boîte, ni modèles, ni archivage.
@@ -690,14 +922,22 @@ async fn m0a_d9_messagerie_du_personnel_selon_les_droits_effectifs() {
         (cast.compta.user_id, Role::Compta),
         (cast.infirmieres[0].user_id, Role::Infirmerie),
     ] {
-        assert!(matches!(
-            ent.list_fils_for_actor(etab, u, staff(r), None, true, None).await,
-            Err(EntDbError::Forbidden)
-        ), "{r:?} liste la boîte");
-        assert!(matches!(
-            ent.list_msg_modeles_for_actor(etab, u, staff(r), false).await,
-            Err(EntDbError::Forbidden)
-        ), "{r:?} liste les modèles");
+        assert!(
+            matches!(
+                ent.list_fils_for_actor(etab, u, staff(r), None, true, None)
+                    .await,
+                Err(EntDbError::Forbidden)
+            ),
+            "{r:?} liste la boîte"
+        );
+        assert!(
+            matches!(
+                ent.list_msg_modeles_for_actor(etab, u, staff(r), false)
+                    .await,
+                Err(EntDbError::Forbidden)
+            ),
+            "{r:?} liste les modèles"
+        );
         let r2 = ent
             .ouvrir_fil_for_actor(
                 staff(r),
@@ -715,11 +955,21 @@ async fn m0a_d9_messagerie_du_personnel_selon_les_droits_effectifs() {
     // Retrait du droit : un rôle de base qui perd « messagerie.eleve » perd la boîte (le test
     // d'un rôle paramétré relève de la matrice D-017 ; ici le contrôle suit `droits_effectifs`).
     assert!(ent
-        .a_action_quelconque(etab, cast.direction.user_id, staff(Role::Direction), ent_auth::Action::MessagerieEleve)
+        .a_action_quelconque(
+            etab,
+            cast.direction.user_id,
+            staff(Role::Direction),
+            ent_auth::Action::MessagerieEleve
+        )
         .await
         .unwrap());
     assert!(!ent
-        .a_action_quelconque(etab, cast.compta.user_id, staff(Role::Compta), ent_auth::Action::MessagerieEleve)
+        .a_action_quelconque(
+            etab,
+            cast.compta.user_id,
+            staff(Role::Compta),
+            ent_auth::Action::MessagerieEleve
+        )
         .await
         .unwrap());
 }
@@ -732,7 +982,11 @@ async fn m0a_d4_ni_sujet_ni_contenu_dans_les_push_sms_courriels_du_carnet_ni_les
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
-    let (harry, dir, lily) = (cast.eleve_lea_id, cast.direction.user_id, cast.parent_lea.user_id);
+    let (harry, dir, lily) = (
+        cast.eleve_lea_id,
+        cast.direction.user_id,
+        cast.parent_lea.user_id,
+    );
     rendre_joignable(&ent, etab, lily).await;
     let t0 = Utc::now();
     let sujet = "Signalement de harcèlement concernant Léa";
@@ -746,7 +1000,10 @@ async fn m0a_d4_ni_sujet_ni_contenu_dans_les_push_sms_courriels_du_carnet_ni_les
 
     // Témoin : des envois ont bien eu lieu.
     let (mails, sms, push) = envois(&ent, etab, harry, t0).await;
-    assert!(mails > 0 && sms > 0 && push > 0, "témoin : {mails}/{sms}/{push}");
+    assert!(
+        mails > 0 && sms > 0 && push > 0,
+        "témoin : {mails}/{sms}/{push}"
+    );
     // Aucun motif sensible dans les textes sortants.
     for (table, colonnes) in [
         ("ent_mail_outbox", "subject || ' ' || body_text"),
@@ -784,18 +1041,31 @@ async fn m0a_d4_ni_sujet_ni_contenu_dans_les_push_sms_courriels_du_carnet_ni_les
         .list_fils_for_actor(etab, lily, staff(Role::Parent), None, true, None)
         .await
         .unwrap();
-    assert!(fils.iter().any(|f| f.sujet == sujet), "témoin : le sujet reste dans l'ENT");
+    assert!(
+        fils.iter().any(|f| f.sujet == sujet),
+        "témoin : le sujet reste dans l'ENT"
+    );
 }
 
 // ─── D10 : RLS permissive sur les tables de communication ───────────────────────────────
 
 pub(crate) const TABLES_COMMUNICATION_RLS: &[&str] = &[
-    "ent_msg_fil", "ent_msg", "ent_msg_accuse", "ent_msg_piece", "ent_msg_modele",
-    "ent_carnet_entree", "ent_annonce",
-    "ent_preference_notification", "ent_notification_plafond", "ent_notification_envoi",
-    "ent_campagne", "ent_campagne_destinataire",
-    "ent_rencontre", "ent_creneau_rdv",
-    "ent_formulaire", "ent_formulaire_reponse",
+    "ent_msg_fil",
+    "ent_msg",
+    "ent_msg_accuse",
+    "ent_msg_piece",
+    "ent_msg_modele",
+    "ent_carnet_entree",
+    "ent_annonce",
+    "ent_preference_notification",
+    "ent_notification_plafond",
+    "ent_notification_envoi",
+    "ent_campagne",
+    "ent_campagne_destinataire",
+    "ent_rencontre",
+    "ent_creneau_rdv",
+    "ent_formulaire",
+    "ent_formulaire_reponse",
     "ent_notification",
 ];
 
@@ -815,19 +1085,26 @@ async fn m0a_d10_rls_posee_sur_toutes_les_tables_de_communication() {
         .fetch_one(ent.pool())
         .await
         .unwrap_or_else(|e| panic!("table {t} introuvable : {e}"));
-        assert!(actif && force && politiques == 1, "RLS absente ou incomplète sur {t}");
+        assert!(
+            actif && force && politiques == 1,
+            "RLS absente ou incomplète sur {t}"
+        );
     }
     // Isolation : un fil ne se lit pas avec l'identifiant d'un autre établissement.
     let etab = cast.etablissement_id;
-    let fil = ouvrir(&ent, etab, Role::Direction, cast.direction.user_id, cast.eleve_lea_id, "Fil").await;
+    let fil = ouvrir(
+        &ent,
+        etab,
+        Role::Direction,
+        cast.direction.user_id,
+        cast.eleve_lea_id,
+        "Fil",
+    )
+    .await;
     let autre = Uuid::new_v4();
     assert!(ent
         .list_messages_for_actor(autre, cast.direction.user_id, "direction", fil.id)
         .await
         .is_err());
-    assert!(repo(&ent)
-        .get_fil(autre, fil.id)
-        .await
-        .unwrap()
-        .is_none());
+    assert!(repo(&ent).get_fil(autre, fil.id).await.unwrap().is_none());
 }

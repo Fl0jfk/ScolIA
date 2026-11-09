@@ -192,6 +192,7 @@ impl PgMsgRepo {
         etablissement_id: Uuid,
         fil_id: Uuid,
     ) -> Result<Option<Vec<Uuid>>, DomainError> {
+        #[allow(clippy::type_complexity)]
         let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool)> = sqlx::query_as(
             "SELECT prive_user_id, foyer_id, eleve_id, audience, vie_scolaire
                FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
