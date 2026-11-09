@@ -14,8 +14,17 @@
 CREATE TABLE IF NOT EXISTS ent_note_doublon_archive (
     LIKE ent_note INCLUDING DEFAULTS,
     note_conservee_id UUID NOT NULL,
-    archive_le TIMESTAMPTZ NOT NULL DEFAULT now()
+    archive_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (id)
 );
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'ent_note_doublon_archive'::regclass AND contype = 'p') THEN
+        ALTER TABLE ent_note_doublon_archive ADD PRIMARY KEY (id);
+    END IF;
+END
+$$;
 
 WITH classees AS (
     SELECT n.id,
