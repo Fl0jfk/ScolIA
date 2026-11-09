@@ -1,5 +1,8 @@
 # ScolIA — instructions Claude Code
 
+## Langue
+Toujours répondre à Florian **en français**, y compris pour les points d'étape et les sujets très techniques (décision de Florian, 2026-11-09).
+
 ## Mission
 Tu travailles sur la nouvelle ENT ScolIA, dont le cœur cible est en Rust. Le dépôt contient plusieurs générations et une application Next.js en production. Comprends l'existant ; ne repars pas de zéro.
 
