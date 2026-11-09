@@ -22,6 +22,7 @@ fn tous_auth() -> Vec<Auth> {
         Auth::Infirmerie,
         Auth::Psy,
         Auth::Accueil,
+        Auth::Personnel,
         Auth::Parent,
         Auth::Eleve,
     ];
@@ -36,6 +37,7 @@ fn tous_auth() -> Vec<Auth> {
             | Auth::Infirmerie
             | Auth::Psy
             | Auth::Accueil
+            | Auth::Personnel
             | Auth::Parent
             | Auth::Eleve => {}
         }
@@ -55,6 +57,7 @@ fn vers_ui(r: Auth) -> Ui {
         Auth::Infirmerie => Ui::Infirmerie,
         Auth::Psy => Ui::Psy,
         Auth::Accueil => Ui::Accueil,
+        Auth::Personnel => Ui::Personnel,
         Auth::Parent => Ui::Parent,
         Auth::Eleve => Ui::Eleve,
     }
@@ -72,6 +75,7 @@ fn vers_auth(r: Ui) -> Auth {
         Ui::Infirmerie => Auth::Infirmerie,
         Ui::Psy => Auth::Psy,
         Ui::Accueil => Auth::Accueil,
+        Ui::Personnel => Auth::Personnel,
         Ui::Parent => Auth::Parent,
         Ui::Eleve => Auth::Eleve,
     }
@@ -95,6 +99,7 @@ const ALIAS: &[(&str, Auth)] = &[
     ("psy", Auth::Psy),
     ("psychologue", Auth::Psy),
     ("accueil", Auth::Accueil),
+    ("personnel", Auth::Personnel),
     ("parent", Auth::Parent),
     ("eleve", Auth::Eleve),
 ];

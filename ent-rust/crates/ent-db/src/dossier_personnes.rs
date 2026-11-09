@@ -288,6 +288,18 @@ pub struct FicheEleve {
     pub masquages: Vec<Masquage>,
     /// Interdictions actives visibles (groupe R) ; jamais pour une famille.
     pub interdictions: Vec<InterdictionVue>,
+    /// Mentions « ne pas solliciter » des responsables (démo P1 n° 4) : personnel qui lit les
+    /// responsables seulement, jamais une famille, jamais la référence ni l'adresse.
+    pub protections: Vec<ProtectionFiche>,
+}
+
+/// Une mention « ne pas solliciter » affichée comme alerte sur la fiche du personnel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProtectionFiche {
+    pub personne_id: Uuid,
+    pub designation: String,
+    /// `true` : confirmée par la direction ; `false` : déclarée, à confirmer.
+    pub confirmee: bool,
 }
 
 /// Entrée de la chronologie de l'élève (titre neutre, jamais de texte libre
@@ -664,6 +676,15 @@ pub use droits_dossier::*;
 mod protection;
 pub use protection::*;
 
+// Lot A2 : coordonnées datées, vérification par code, E.164 ; préférences, consentements,
+// divergences compte ↔ fiche, identité versionnée, séparation nom / prénom
+#[path = "dossier_coordonnees.rs"]
+mod coordonnees;
+pub use coordonnees::*;
+#[path = "dossier_contact.rs"]
+mod contact;
+pub use contact::*;
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------
@@ -854,6 +875,30 @@ impl PgEnt {
         } else {
             Vec::new()
         };
+        let protections = if parsed.is_staff() && lecture.vue.f0 {
+            let ids: Vec<Uuid> = responsables.iter().map(|r| r.personne.id).collect();
+            let lignes: Vec<(Uuid, String, Option<String>, bool)> = sqlx::query_as(
+                "SELECT p.id, p.nom, p.prenom, (r.ne_pas_solliciter_confirme_le IS NOT NULL)
+                   FROM ent_personne_reserve r
+                   JOIN ent_personne p ON p.id = r.personne_id AND p.etablissement_id = r.etablissement_id
+                  WHERE r.etablissement_id = $1 AND r.ne_pas_solliciter AND r.personne_id = ANY($2)
+                  ORDER BY p.nom, p.prenom",
+            )
+            .bind(etab)
+            .bind(&ids)
+            .fetch_all(self.pool())
+            .await?;
+            lignes
+                .into_iter()
+                .map(|(personne_id, nom, prenom, confirmee)| ProtectionFiche {
+                    personne_id,
+                    designation: format!("{} {}", prenom.unwrap_or_default(), nom).trim().to_string(),
+                    confirmee,
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let resume = ResumeSections {
             notes: dossier.notes.len(),
             sanctions: dossier.sanctions.len(),
@@ -877,6 +922,7 @@ impl PgEnt {
             masques: groupes.masques(),
             masquages: lecture.masquages,
             interdictions: lecture.interdictions,
+            protections,
         }))
     }
 
@@ -891,6 +937,8 @@ impl PgEnt {
         limite: usize,
     ) -> Result<Vec<EntreeChronologie>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        // RP1-04 : la chronologie n'est lue que par le personnel qui suit l'élève.
+        self.exiger_perimetre_prof(etab, actor, role, eleve_id).await?;
         if self
             .get_eleve_for_actor(etab, actor, role, eleve_id)
             .await?
@@ -1069,6 +1117,9 @@ impl PgEnt {
         actor: Uuid,
     ) -> Result<Uuid, EntDbError> {
         let id = Uuid::new_v4();
+        // Les coordonnées et la première version de l'identité sont tracées par la base
+        // (migrations 274 et 276) : elles portent ici l'auteur et la raison.
+        attribuer_acteur_tx(conn, actor, "personnel", "changement_declare").await?;
         sqlx::query(
             "INSERT INTO ent_personne (id, etablissement_id, nom, prenom, civilite, email,
                                        telephone, telephone_2, adresse, source)
@@ -1132,10 +1183,31 @@ impl PgEnt {
             return Err(EntDbError::ConflitDossier("personne fusionnée dans une autre fiche"));
         }
         let mut champs: Vec<&str> = Vec::new();
+        // L'identité passe par une version (correction) : la projection ne bouge jamais sans trace.
+        let identite = IdentiteSaisie {
+            nom: s.nom.clone(),
+            prenom: s.prenom.clone(),
+            civilite: s.civilite.clone(),
+        };
+        champs.extend(
+            appliquer_identite_tx(
+                &mut tx,
+                etab,
+                actor,
+                "personnel",
+                &avant,
+                &identite,
+                "correction",
+                false,
+                None,
+                "Modification de la fiche de la personne",
+            )
+            .await?,
+        );
+        // Coordonnées : la base ferme et ouvre les lignes datées (jamais d'écrasement) et trace
+        // l'auteur ; les valeurs n'apparaissent ni au journal ni dans l'événement.
+        let mut coord_changees = false;
         for (nom, a, b) in [
-            ("nom", Some(avant.nom.clone()), Some(s.nom.clone())),
-            ("prenom", avant.prenom.clone(), s.prenom.clone()),
-            ("civilite", avant.civilite.clone(), s.civilite.clone()),
             ("email", avant.email.clone(), s.email.clone()),
             ("telephone", avant.telephone.clone(), s.telephone.clone()),
             ("telephone_2", avant.telephone_2.clone(), s.telephone_2.clone()),
@@ -1143,19 +1215,18 @@ impl PgEnt {
         ] {
             if a != b {
                 champs.push(nom);
+                coord_changees = true;
             }
         }
-        if !champs.is_empty() {
+        if coord_changees {
+            attribuer_acteur_tx(&mut tx, actor, "personnel", "changement_declare").await?;
             sqlx::query(
-                "UPDATE ent_personne SET nom = $3, prenom = $4, civilite = $5, email = $6,
-                        telephone = $7, telephone_2 = $8, adresse = $9, updated_at = now()
+                "UPDATE ent_personne SET email = $3, telephone = $4, telephone_2 = $5, adresse = $6,
+                        updated_at = now()
                   WHERE etablissement_id = $1 AND id = $2",
             )
             .bind(etab)
             .bind(personne_id)
-            .bind(&s.nom)
-            .bind(&s.prenom)
-            .bind(&s.civilite)
             .bind(&s.email)
             .bind(&s.telephone)
             .bind(&s.telephone_2)
@@ -1163,6 +1234,8 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        }
+        if coord_changees {
             // Charge utile minimale : noms des champs, jamais leurs valeurs.
             journal_tx(
                 &mut tx,
@@ -1204,10 +1277,36 @@ impl PgEnt {
         personne_id: Uuid,
         user_id: Uuid,
     ) -> Result<Personne, EntDbError> {
+        self.rattacher_compte_confirme(etab, actor, role, personne_id, user_id, false)
+            .await
+    }
+
+    /// RP2-04 : rattachement d'un compte, avec la confirmation explicite de la direction exigée
+    /// pour une personne « ne pas solliciter ».
+    pub async fn rattacher_compte_confirme(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        personne_id: Uuid,
+        user_id: Uuid,
+        confirmation_direction: bool,
+    ) -> Result<Personne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        self.exiger_confirmation_ne_pas_solliciter(
+            &mut tx,
+            etab,
+            actor,
+            role,
+            &[personne_id],
+            confirmation_direction,
+            "rattachement_compte",
+            None,
+        )
+        .await?;
         let p = personne_tx(&mut tx, etab, personne_id, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1592,6 +1691,10 @@ impl PgEnt {
             .await?;
         self.exiger_pas_de_conflit(etab, actor, role, eleve_id).await?;
         self.dossier_exiger_eleve(etab, eleve_id).await?;
+        // RP2-05 : un élève a toujours au moins un payeur ; un changement remplace la liste.
+        if payeurs.is_empty() {
+            return Err(invalide("au moins un payeur est requis (un changement remplace la liste)"));
+        }
         let liens = self.responsables_bruts(etab, eleve_id).await?;
         let mut vus = std::collections::HashSet::new();
         for (lien_id, part) in payeurs {
@@ -1882,6 +1985,51 @@ impl PgEnt {
         cible_id: Uuid,
         motif: &str,
     ) -> Result<FusionPersonne, EntDbError> {
+        self.fusionner_personnes_confirme(etab, actor, role, source_id, cible_id, motif, false)
+            .await
+    }
+
+    /// RP2-04 : fusion, avec la confirmation explicite de la direction exigée si l'une des deux
+    /// fiches est « ne pas solliciter » (la fusion peut lui ouvrir l'accès aux enfants).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fusionner_personnes_confirme(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        source_id: Uuid,
+        cible_id: Uuid,
+        motif: &str,
+        confirmation_direction: bool,
+    ) -> Result<FusionPersonne, EntDbError> {
+        self.fusionner_personnes_interne(
+            etab,
+            actor,
+            role,
+            source_id,
+            cible_id,
+            motif,
+            confirmation_direction,
+            false,
+        )
+        .await
+    }
+
+    /// Fusion de personnes. `agents_geres` : l'appelant (fusion d'agents, socle 6) fusionne lui-même
+    /// les deux agents ; sinon deux agents refusent la fusion et un seul (côté source) suit la
+    /// personne conservée.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn fusionner_personnes_interne(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        source_id: Uuid,
+        cible_id: Uuid,
+        motif: &str,
+        confirmation_direction: bool,
+        agents_geres: bool,
+    ) -> Result<FusionPersonne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesFusionner)
             .await?;
         let motif = motif.trim();
@@ -1895,6 +2043,17 @@ impl PgEnt {
         self.exiger_pas_de_conflit_personne(etab, actor, role, source_id).await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, cible_id).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        self.exiger_confirmation_ne_pas_solliciter(
+            &mut tx,
+            etab,
+            actor,
+            role,
+            &[source_id, cible_id],
+            confirmation_direction,
+            "fusion_personnes",
+            None,
+        )
+        .await?;
         // Verrous dans un ordre stable (pas d'interblocage entre deux fusions croisées).
         let (a, b) = if source_id < cible_id {
             (source_id, cible_id)
@@ -1919,6 +2078,42 @@ impl PgEnt {
                     "deux comptes différents : pas de fusion de comptes",
                 ));
             }
+        }
+        // Socle 6 : un agent suit sa personne. Deux agents → fusion des agents (commande dédiée) ;
+        // un seul, côté source → rattaché à la personne conservée (défusion : remis en place).
+        let agent_source: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2",
+        )
+        .bind(etab)
+        .bind(source.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let agent_cible: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2",
+        )
+        .bind(etab)
+        .bind(cible.id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if agent_source.is_some() && agent_cible.is_some() && !agents_geres {
+            return Err(EntDbError::ConflitDossier(
+                "les deux fiches sont des agents : fusionner les agents depuis les personnels",
+            ));
+        }
+        let mut agent_deplace: Option<Uuid> = None;
+        if let (Some((a,)), None, false) = (agent_source, agent_cible, agents_geres) {
+            sqlx::query(
+                "UPDATE ent_agent SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(a)
+            .bind(cible.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            agent_deplace = Some(a);
         }
         let compte_transfere = source.user_id.filter(|_| cible.user_id.is_none());
         if let Some(u) = compte_transfere {
@@ -2019,6 +2214,8 @@ impl PgEnt {
             "liens_supprimes": liens_supprimes.iter().map(|(_, v)| v).collect::<Vec<_>>(),
             "contacts_deplaces": contacts_deplaces.iter().map(|(id,)| id).collect::<Vec<_>>(),
             "contacts_supprimes": contacts_supprimes.iter().map(|(v,)| v).collect::<Vec<_>>(),
+            "agent_deplace": agent_deplace,
+            "agents_fusionnes": agents_geres,
         });
         let fusion_id = Uuid::new_v4();
         sqlx::query(
@@ -2104,6 +2301,11 @@ impl PgEnt {
         if annule_le.is_some() {
             return Err(EntDbError::ConflitDossier("fusion déjà annulée"));
         }
+        if inst.get("agents_fusionnes").and_then(Value::as_bool).unwrap_or(false) {
+            return Err(EntDbError::ConflitDossier(
+                "fusion liée à une fusion d'agents : non annulable depuis les personnes",
+            ));
+        }
         if Utc::now() - fusionne_le > Duration::days(DELAI_DEFUSION_JOURS) {
             return Err(EntDbError::ConflitDossier("délai d'annulation de la fusion dépassé"));
         }
@@ -2142,6 +2344,22 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        // Socle 6 : l'agent rattaché à la personne conservée à la fusion revient à la source.
+        if let Some(a) = inst
+            .get("agent_deplace")
+            .and_then(Value::as_str)
+            .and_then(|s| Uuid::parse_str(s).ok())
+        {
+            sqlx::query(
+                "UPDATE ent_agent SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(a)
+            .bind(source_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         if let Some(u) = inst
             .get("compte_transfere")
             .and_then(Value::as_str)

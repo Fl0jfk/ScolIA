@@ -22,10 +22,11 @@ Chaque session qui écrit des migrations reçoit une plage réservée ici, pour 
 | 255–259 | correctifs revue finale socle 1 (RF-01, RF-04) | `ent-socle1-revue-correctifs` | 255 écrite ; fusionnée dans `ent-integration-lot6` ; `MIGRATION_TAG` = `255_email_confirmation` |
 | 260–279 | socle 4 dossier administratif (conception : `04_ADMINISTRATIF.md` §16) | `ent-socle-administratif-a0` (lot A0), `ent-socle-administratif-a0-bis` (lot A0 bis) | **260** écrite (A0) ; **265** `etablissement_fuseau`, **266** `personne_reserve`, **267** `adresse_protegee`, **268** `lien_confirmation_voie`, **269** `inscription_responsable_reserve` écrites (A0 bis) ; 261–264 et 275–279 réservées aux lots suivants (270–274 : lot A1, ligne suivante) (la numérotation du §16 de la conception est décalée en conséquence) ; `MIGRATION_TAG` = `269_inscription_responsable_reserve` sur cette branche |
 | 270–274 | socle 4, lot A1 (droits et minimisation) | `ent-socle-administratif-a1` | **270** `conflit_interet`, **271** `eleve_interdiction`, **272** `contact_declarant` écrites ; 273–274 réservées (RLS du lot A14) ; `MIGRATION_TAG` = `272_contact_declarant` sur cette branche |
-| 280–289 | socle 2 élève : 280 (lot E2, identité versionnée) ; **281–282 (lot E3 : identifiants, numéro)** ; **283–286 (lot E4 : scolarisations et statut dérivé, inscriptions, capacité et majorité, options)** ; 287–289 libres | `ent-socle-eleve-e2` (280) puis `ent-socle-eleve-e3-e4` (281–286) | 280 sur E2 ; 281–286 écrites, testées en local ; `MIGRATION_TAG` = `286_eleve_options` |
-| 290–299 | socle 2 élève, lots E5 et suivants | à venir | réservé |
+| 280–289 | socle 2 élève : 280 (lot E2, identité versionnée) ; **281–282 (lot E3 : identifiants, numéro)** ; **283–286 (lot E4 : scolarisations et statut dérivé, inscriptions, capacité et majorité, options)** ; **287–289 (lot E5 : paramétrage des champs, propositions, garde de source externe)** | `ent-socle-eleve-e2` (280), `ent-socle-eleve-e3-e4` (281–286), `ent-socle-eleve-e5` (287–289) | 280 sur E2 ; 281–286 intégrées dans `ent-integration-lot8b` ; **287 `eleve_param_champ`, 288 `eleve_proposition`, 289 `eleve_proposition_garde` écrites (lot E5), testées en local** ; plage 280–289 **épuisée** ; `MIGRATION_TAG` reste `370_edt_creneau_groupe` (370 est plus haute que 289) |
+| 290–299 | socle 2 élève : **290–294 (lot E6 : recherche, doublons, fusion)** ; 295–299 réservées aux lots E7 et suivants | `ent-socle-eleve-e6` | **290** `eleve_recherche`, **291** `eleve_doublon`, **292** `eleve_fusion`, **293** `eleve_fusion_gardes`, **294** `eleve_fusion_securite` écrites ; 295 réservée (E6, non utilisée) ; `MIGRATION_TAG` inchangé = `370_edt_creneau_groupe` (plus haute) |
 
-| 300–329 | socle 3 inscriptions, lots I1 et suivants | `ent-socle-inscriptions-i1` (lot I1) | **300** `inscription_annuelle_prevue` (parcours, source_ref, sources `admission`/`reinscription` sur `ent_eleve_scolarite_annee`) et **301** `inscriptions_i1_dossier` (trace de l'inscription prévue sur le dossier, source `import` des liens en attente) écrites ; **302–304 libres** pour la suite du lot ; 305–329 réservées aux lots I2 et suivants ; `MIGRATION_TAG` = `301_inscriptions_i1_dossier` |
+| 300–329 | socle 3 inscriptions, lots I1 et suivants | `ent-socle-inscriptions-i1` (lot I1) | **300** `inscription_annuelle_prevue` (parcours, source_ref, sources `admission`/`reinscription` sur `ent_eleve_scolarite_annee`) et **301** `inscriptions_i1_dossier` (trace de l'inscription prévue sur le dossier, source `import` des liens en attente) écrites ; **302–309 : lot I2** (branche `ent-socle-inscriptions-i2`, voir la ligne suivante) ; 310–329 réservées aux lots I3 et suivants ; `MIGRATION_TAG` = `301_inscriptions_i1_dossier` sur la branche I1 |
+| 302–309 | socle 3 inscriptions, **lot I2** (campagnes, offre et places, démarches, dossiers, déclarations, fermetures, annulation de validation) | `ent-socle-inscriptions-i2` | **302** `inscription_campagne_modele` (année du référentiel, règles, versions, rapport de reprise), **303** `inscription_offre` (offres, historique de capacité, unités d'hébergement), **304** `inscription_demarche_dossier` (démarche, `etat`, références atomiques, vœux, décisions, synchronisation `statut`/`etat`), **305** `inscription_declaration_responsable` (déclarations par démarche, rangs 1 à 6), **306** `inscription_offre_reprise_places` (reprise des niveaux en offres, vœux, vue du compteur de places), **307** `inscription_fermeture_prolongation`, **308** `inscription_validation_annulee`, **309** `inscription_envoi_information` écrites ; **aucune libre** dans 302–309 ; `MIGRATION_TAG` reste `370_edt_creneau_groupe` (la plus haute du répertoire : 302–309 sont plus basses) |
 | 330–349 | socle 5 structure de l'établissement et année scolaire (conception : `05_STRUCTURE.md` §18) | `ent-socle-structure-conception` (conception seulement) | réservé |
 | 350–369 | socle 6 personnels, services et équipes (conception : `06_PERSONNELS.md` §17 ; 350–351 et la partie accès de 357 touchent des tables du socle 1) | `ent-socle-personnels-conception` (conception seulement) | réservé |
 | 370–374 | D-022 : portée du professeur au groupe (370 : `ent_edt_creneau.groupe_id`) | `ent-d022-portee-groupes` | 370 écrite ; `MIGRATION_TAG` = `370_edt_creneau_groupe` ; 371–374 libres |
@@ -44,17 +45,43 @@ Les plages proposées dans `02_ELEVE.md` (140–149, 160–169) et `03_INSCRIPTI
 | 280 | socle 2 E2 | `ent-socle-eleve-e2` | fait |
 | 281–289 | socle 2 E3–E4 | `ent-socle-eleve-e3-e4` | en cours |
 | 300–304 | socle 3 I1 | `ent-socle-inscriptions-i1` | en cours |
+| 375 | séparation des foyers dans la messagerie (`ent_msg_fil.prive_user_id`, `foyer_id`) — RP1-11 | `ent-recette-1-correctifs` | fait (non fusionné) |
+
+| 330–331 | socle 5 S0 (garde-fous d'état et de cohérence, archive des affectations) et S1 (cours : membres individuels, `ent_public_cours_jour`) ; 332–339 restent réservées au socle 5 (S2 et suivants) | `ent-socle-structure-s0-s1` | fait (S0 et S1) |
 | 370 | D-022 (créneau rattaché à un groupe) — **pris sans réservation, empiète sur la plage du socle 6 (350–369) : 370–374 sont désormais réservés à D-022 et D-022 bis, et le socle 6 reste 350–369** | `ent-d022-portee-groupes`, `ent-d022-bis-enseignements` | fait / en cours |
 | 3700–3799 | socle 7 documents, pièces et signatures (conception : `07_DOCUMENTS.md` §23), **si la règle « 3000 + 100 × socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée** ; 3700–3712 attribuées, 3713–3789 réserve, 3790–3799 retrait des anciennes tables. La consigne de la session indiquait 4000–4099, qui reviendrait au socle 10 (Q-D1) | `ent-socle-documents-conception` (conception seulement) | réservé |
 | 380–399 | socle 7, **repli** si Q-B2 n'est pas adoptée (380–392 attribuées, 399 retrait) | `ent-socle-documents-conception` (conception seulement) | réservé |
 
+## Mise à jour du 2026-11-08 (socle 4, lot A2)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 273–276 | socle 4, lot A2 « personnes et coordonnées » (plage du socle 4 ; le §16 de la conception les numérotait 263–264, déjà prises par A0 bis) : **273** `personne_coordonnee` (coordonnées datées, historique sans valeur, fonction `ent_tel_e164`), **274** `personne_coordonnee_projection` (projection colonnes héritées ↔ coordonnées, reprise unique), **275** `personne_verification_preferences` (code de vérification, préférences, consentements), **276** `personne_version_divergence` (identité versionnée, décisions sur les divergences compte ↔ fiche). 273–274, qui étaient réservées au lot A14 (RLS), sont consommées par A2 : **le lot A14 prendra 277–278** (permissif puis strict) | `ent-socle-administratif-a2` | **écrites et testées en local** ; `MIGRATION_TAG` reste `370_edt_creneau_groupe` (la plus haute) ; 277–278 réservées à A14 (RLS), 279 libre |
+
 Règle : aucune session ne démarre sans sa ligne ici. À terme, `MIGRATION_TAG` sera calculé automatiquement à partir du répertoire des migrations (voir D-026).
+
+
+## Mise à jour du 2026-11-07 (intégration du lot 8 bis)
+Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–272 (A1 : 273–274 restent réservées) ; 280–286 (E2, E3, E4) ; 300–301 (I1) ; 370 (D-022). Liste de `migrate.rs` = répertoire `migrations/`, ordre croissant, aucune collision ; `MIGRATION_TAG` = `370_edt_creneau_groupe`. D-022 bis n'a pas ajouté de migration au-delà de 370 (371–374 restent réservées).
+
+## Mise à jour du 2026-11-07 (lot E5, `ent-socle-eleve-e5`)
+Plage 287–289 utilisée en totalité par le lot E5 (socle 2 : propositions et paramétrage) : 287 `eleve_param_champ` (profil, réglage par champ, règles automatiques), 288 `eleve_proposition` (propositions et lignes de champs, valeurs scellées, immuabilité après décision), 289 `eleve_proposition_garde` (une version d'identité de source `import`, `famille` ou `eleve` ne s'insère que si elle référence une proposition décidée). Dans `migrate.rs` elles sont insérées après 286 et avant 300 (ordre croissant) ; `MIGRATION_TAG` ne change pas (`370_edt_creneau_groupe`). **La plage 280–289 du socle 2 est épuisée** : un lot suivant du socle 2 (E6 et au-delà) doit recevoir une nouvelle plage ici avant de démarrer (290–299, indiquée « réservée aux lots E5 et suivants » plus haut, est libre).
+
+
+
 
 ## Mise à jour du 2026-11-07 (conception du socle 8)
 | Plage | Attribution | Branche | État |
 |---|---|---|---|
 | 3800–3899 | socle 8 notifications et diffusion (conception : `08_NOTIFICATIONS.md` §19 et §27), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 3800–3810 attribuées (paramètres, avis et destinataires, remises et résumés, préférences et appareils, diffusions, urgences, budget SMS et SMS entrants, retours fournisseurs, gels et liens, vues, reprise), 3811–3889 réserve, 3890–3899 retrait des anciennes tables (055, 057, 058 pour les journaux d'envoi, `ent_notification` de 102, 190, 191) après la durée d'archive | `ent-socle-notifications-conception` (conception seulement) | réservé |
 | 400–419 | socle 8, **repli** si Q-B2 n'est pas adoptée (400–410 attribuées, 419 retrait) | `ent-socle-notifications-conception` (conception seulement) | réservé |
+
+## Mise à jour du 2026-11-08 (correctifs de la recette 2)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 376–379 | correctifs de la recette personas 2 (375 est prise par la recette 1) | `ent-recette-2-correctifs` | réservée, **aucune migration écrite** : les correctifs RP2-02/03/04/05/10/11/12/14 n'ont demandé aucun changement de schéma (`MIGRATION_TAG` inchangé : `370_edt_creneau_groupe`) |
+
+## Mise à jour du 2026-11-08 (lot E6, `ent-socle-eleve-e6`)
+Plage **290–294** utilisée par le lot E6 (socle 2 : recherche instantanée, doublons, fusion de fiches), insérées dans `migrate.rs` après 289 et avant 300 : **290** `eleve_recherche` (extensions `pg_trgm` et `unaccent`, fonctions `ent_unaccent` / `ent_cle_recherche`, colonnes `cle_recherche` et `cle_recherche_civil` maintenues par déclencheur, colonne `fusionne_dans`, table `ent_eleve_confidentialite` minimale du §7.6 réutilisée par le lot E7), **291** `eleve_doublon` (`ent_eleve_doublon`, `ent_eleve_non_doublon`, `ent_eleve_doublon_passage`), **292** `eleve_fusion` (`ent_eleve_fusion`, `ent_eleve_fusion_ligne`, registre en ajout seul), **293** `eleve_fusion_gardes` (le drapeau local `ent.fusion_eleve` autorise le repointage de `eleve_id` — et rien d'autre — dans les gardes de scolarisation, identifiant et capacité, et coupe le pont des options), **294** `eleve_fusion_securite` (pas de boucle d'absorption, clé composée de `fusionne_dans`). 295 reste libre pour le lot E6 ; le lot E7 repart de 295. `MIGRATION_TAG` reste `370_edt_creneau_groupe`, plus haute migration présente.
 
 ## Réservations du 2026-11-08 (matin)
 | Plage | Attribution | Branche | État |
@@ -85,3 +112,27 @@ Intégrées dans `ent-integration-lot8b` : 240 ; 260–269 (A0, A0 bis) ; 270–
 | 440–459 | socle 10, **repli** si Q-B2 n'est pas adoptée (440–451 attribuées dans le même ordre, 452–457 réserve, 458–459 RLS et retraits) ; vérifié libre sur toutes les branches distantes le 2026-11-09 | `ent-socle-edt-conception` (conception seulement) | réservé |
 
 Note : le lot T0 (correctifs urgents, 4000 / 440) peut partir avant toute décision sur Q-B2 ; il prend alors **440** et la suite du socle garde la même correspondance.
+
+
+
+## Mise à jour du 2026-11-08 (socle 5, lots S0 et S1)
+330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` restait `370_edt_creneau_groupe` sur cette branche (375 est apparue à l'intégration du lot 9) : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
+
+## Mise à jour du 2026-11-08 (intégration du lot 9, `ent-integration-lot9`)
+Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon de numéro : 287–289 (E5), 290–294 (E6), 302–309 (I2), 330–331 (S0–S1), 375 `msg_fil_prive` (correctifs de la recette 1). `MIGRATION_TAG` = `375_msg_fil_prive` (plus haute migration du répertoire). Plages inutilisées à ce jour : 295 (fin de la plage E6), 332–339 (reste de S0–S1), 376–379 (réservée à la recette 2, **aucune migration écrite** : les correctifs RP2 n'ont pas eu besoin de schéma). 273–276 restent réservées au socle 4 A2 (non intégré).
+330 (`330_structure_garde_fous`) et 331 (`331_cours_membres`) ajoutées dans `migrate.rs` avant 370 (ordre croissant). `MIGRATION_TAG` reste `370_edt_creneau_groupe` : 370 est la plus haute du répertoire. Plage 332–339 : non consommée, réservée à S2 et suivants. Les numéros 340–349 du plan d'origine de `05_STRUCTURE.md` §18 restent à répartir.
+
+## Mise à jour du 2026-11-08 (socle 6, lot P0)
+350 (`350_acces_etat` : état, motif, fin d'un accès ; `ent_acces_ouvert` ; déclencheur du dernier administrateur) et 351 (`351_attributions_datees` : attributions de rôle identifiées, datées, closes au lieu d'effacées ; contrainte d'exclusion) écrites sur `ent-socle-personnels-p0` (base `ent-socle-structure-s0-s1`) et ajoutées dans `migrate.rs` avant 370. `MIGRATION_TAG` reste `370_edt_creneau_groupe` (plus haute migration présente). 352–369 restent réservées au socle 6 (P1 et suivants).
+
+## Mise à jour du 2026-11-08 (socle 6, lot P1)
+352 (`352_agents` : `ent_agent`, `ent_agent_engagement` avec exclusion par (agent, employeur, organisme, nature), `ent_agent_engagement_suspension`, `ent_agent_etat`, `ent_agent_acces_suspendu`, `ent_acces_ouvert` étendue, déclencheur « un agent par compte du personnel », reprise ; RLS), 353 (`353_agents_fonctions` : catalogue `ent_fonction` + fonctions fournies, `ent_agent_fonction`, `ent_agent_discipline`, `ent_agent_qualification`, `ent_agent_contact_urgence`, fonction principale de la reprise ; RLS) et 361 (`361_agent_identifiants` : `ent_agent_identifiant` ; RLS) écrites sur `ent-socle-personnels-p1` (base `ent-socle-personnels-p0`) et ajoutées dans `migrate.rs` avant 370. `MIGRATION_TAG` reste `370_edt_creneau_groupe` (plus haute migration présente). Restent réservées au socle 6 : 354–360, 362–369 (354 services, 355 missions, 356 groupes, 357 casquettes, 358 équipes, 359 délégations, 360 parcours, 362 agent comme sujet, 363 revue, 364 paramétrage, 365–366 RLS globale, 367 bascule, 368–369 retrait). 365–366 « RLS » : les tables du lot P1 portent déjà leur politique (même texte que 100 et 215).
+
+
+## Mise à jour du 2026-11-08 (socle 5, lot S2, `ent-socle-structure-s2`)
+Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, paramètres versionnés, journal de structure en ajout seul) et **337** (`337_structure_lieux` : sites enrichis, bâtiments, salles typées liées à leur site, lieux extérieurs, disponibilités, indisponibilités) consommées, insérées dans `migrate.rs` après 331 et avant 370 (ordre croissant). **333–336 et 338–339 restent réservées** (S3 calendrier, S7 périodes et grilles, S5 offre, S6 groupes). `MIGRATION_TAG` reste `375_msg_fil_prive` : 375 est la plus haute migration du répertoire. Sur la base `ent-integration-lot9`, aucun autre lot n'a pris 332 ni 337.
+
+## Mise à jour du 2026-11-08 (intégration du lot 10, `ent-integration-lot10`)
+Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
+
+Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune migration ajoutée ; `MIGRATION_TAG` = `375_msg_fil_prive` reste la plus haute, aucun numéro en double (vérifié).

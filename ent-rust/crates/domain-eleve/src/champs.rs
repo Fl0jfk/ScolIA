@@ -237,7 +237,8 @@ impl GroupesAutorises {
 
     fn article(&self, g: GroupeChamps) -> String {
         match g {
-            GroupeChamps::EtatCivil | GroupeChamps::Sensible => format!("l'{}", g.libelle()),
+            GroupeChamps::EtatCivil | GroupeChamps::Historique => format!("l'{}", g.libelle()),
+            GroupeChamps::Identifiants | GroupeChamps::Sensible => format!("les {}", g.libelle()),
             _ => format!("la {}", g.libelle()),
         }
     }
@@ -313,6 +314,22 @@ impl ProfilChamps {
         self.pour(eleve_id).ouvert(GroupeChamps::Designation)
     }
 
+    /// Le groupe est ouvert pour **tous** les élèves de l'établissement (et pas seulement pour
+    /// un ensemble) : condition pour l'interroger dans une recherche sans créer d'oracle.
+    pub fn ouvert_partout(&self, g: GroupeChamps) -> bool {
+        *self.portee(g) == PorteeGroupe::Tout
+    }
+
+    /// Élève en confidentialité renforcée (§7.6) : visible seulement de qui détient G6 pour lui
+    /// (`eleves.confidentiel.gerer`) ou a un **lien direct** avec lui — portée restreinte
+    /// (« mes classes », « mes groupes », « désignés ») qui le contient. Un accès à tout
+    /// l'établissement (accueil, secrétariat sans G6) ne suffit pas.
+    pub fn voit_eleve_protege(&self, eleve_id: Uuid) -> bool {
+        self.pour(eleve_id).ouvert(GroupeChamps::Sensible)
+            || matches!(self.portee(GroupeChamps::Designation),
+                PorteeGroupe::Ensemble(s) if s.contains(&eleve_id))
+    }
+
     /// Le badge est interrogeable (recherche) seulement si G3 est ouvert partout
     /// (pas d'oracle sur le badge d'élèves dont on ne voit pas les identifiants).
     pub fn badge_interrogeable(&self) -> bool {
@@ -371,6 +388,15 @@ mod tests {
 
     fn profil(cfg: [PorteeGroupe; 6]) -> ProfilChamps {
         ProfilChamps::new(cfg)
+    }
+
+    #[test]
+    fn messages_de_masquage_bien_accordes() {
+        let g = GroupesAutorises::depuis_niveau(NiveauIdentite::Reduit);
+        let messages: Vec<String> = g.masques().into_iter().map(|m| m.message).collect();
+        assert!(messages.iter().any(|m| m.contains("n'ouvre pas les identifiants")), "{messages:?}");
+        assert!(messages.iter().any(|m| m.contains("n'ouvre pas les données sensibles")), "{messages:?}");
+        assert!(messages.iter().all(|m| !m.contains("l'données") && !m.contains("la identifiants") && !m.contains("la historique")), "{messages:?}");
     }
 
     #[test]

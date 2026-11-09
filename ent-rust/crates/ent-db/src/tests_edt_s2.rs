@@ -278,7 +278,7 @@ fn conflits_sites_et_indisponibilites() {
 // ───────────────────────── Aides pour la base ─────────────────────────
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -364,7 +364,14 @@ impl Ctx {
     }
 
     async fn salle(&self, code: &str) {
-        sqlx::query("INSERT INTO ent_salle (id, etablissement_id, code, libelle, created_by_user_id) VALUES ($1,$2,$3,$3,$4)")
+        // Une salle est toujours liée à un site existant de son établissement (socle 5, S2).
+        sqlx::query("INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES ($1,$2,'edt-s2','Site EDT') ON CONFLICT DO NOTHING")
+            .bind(Uuid::new_v4())
+            .bind(self.e())
+            .execute(self.ent.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO ent_salle (id, etablissement_id, code, libelle, created_by_user_id, site) VALUES ($1,$2,$3,$3,$4,'edt-s2')")
             .bind(Uuid::new_v4())
             .bind(self.e())
             .bind(code)

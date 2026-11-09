@@ -11,11 +11,19 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use ent_db::{
-    ConflitInteretVu, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
+    ChoixDivergence, Consentement, Coordonnee, CoordonneeSaisie, CoordonneesPersonne, DivergenceCompte,
+    HistoriqueCoordonnee, IdentiteSaisie, NatureIdentite, NatureRemplacement, PreferencesPersonne,
+    PropositionSeparation, RaisonCoordonnee, SeparationNom, VerificationEnvoyee, VersionIdentite,
+    CONSENTEMENTS, ConflitInteretVu, ContactSaisie, ContactUrgence, EntreeChronologie, FicheEleve, FusionPersonne,
     InterdictionSaisie, InterdictionVue, LienResultat, LienSaisie, Personne, PersonneSaisie,
     PersonneTrouvee, Responsable,
 };
 use ent_types::dossier::{
+    AncienneIdentiteDto, CodeBody, ConsentementBody, ConsentementCatalogueDto, ConsentementDto,
+    ConsentementsDto, CoordonneeBody, CoordonneeDto, CoordonneeRemplacementBody, CoordonneeRetraitBody,
+    CoordonneeUsagesBody, CoordonneesDto, DivergenceCompteDto, DivergenceDecisionBody,
+    HistoriqueCoordonneeDto, IdentiteBody, PreferencesDto, PropositionSeparationDto, SeparationsBody,
+    SeparationsResultatDto, VerificationEnvoyeeDto, VersionIdentiteDto,
     ConflitInteretBody, ConflitInteretDto, InterdictionBody, InterdictionDto, LeverInterdictionBody,
     MasquageDto,
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody, AlertesProtectionDto,
@@ -89,6 +97,89 @@ pub fn routes() -> Router<AppState> {
         .route("/dossier/personnes/{id}/compte", put(rattacher_compte))
         .route("/dossier/fusions", get(fusions).post(fusionner))
         .route("/dossier/fusions/{id}/annuler", post(defusionner))
+        // Lot A2 : coordonnées, vérification, préférences, consentements, divergences, identité
+        .route(
+            "/dossier/personnes/noms-a-separer",
+            get(noms_a_separer).post(separer_noms),
+        )
+        .route("/dossier/divergences-compte", get(divergences_compte))
+        .route(
+            "/dossier/personnes/{id}/coordonnees",
+            get(coordonnees_personne).post(ajouter_coordonnee),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/historique",
+            get(historique_coordonnees),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/{cid}",
+            put(remplacer_coordonnee),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/{cid}/retirer",
+            post(retirer_coordonnee),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/{cid}/usages",
+            post(usages_coordonnee),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/{cid}/verification",
+            post(demander_verification),
+        )
+        .route(
+            "/dossier/personnes/{id}/coordonnees/{cid}/verification/confirmer",
+            post(confirmer_verification),
+        )
+        .route(
+            "/dossier/personnes/{id}/preferences",
+            get(preferences_personne).put(definir_preferences_personne),
+        )
+        .route(
+            "/dossier/personnes/{id}/consentements",
+            get(consentements_personne).post(enregistrer_consentement_personne),
+        )
+        .route(
+            "/dossier/personnes/{id}/consentements/{objet}/retirer",
+            post(retirer_consentement_personne),
+        )
+        .route(
+            "/dossier/personnes/{id}/divergences-compte/{champ}",
+            post(resoudre_divergence_personne),
+        )
+        .route("/dossier/personnes/{id}/identite", post(modifier_identite))
+        .route(
+            "/dossier/personnes/{id}/identite/historique",
+            get(historique_identite),
+        )
+        // Lot A2 : la personne elle-même
+        .route("/dossier/moi/coordonnees", get(mes_coordonnees).post(ajouter_ma_coordonnee))
+        .route("/dossier/moi/coordonnees/historique", get(mon_historique_coordonnees))
+        .route("/dossier/moi/coordonnees/{cid}", put(remplacer_ma_coordonnee))
+        .route("/dossier/moi/coordonnees/{cid}/retirer", post(retirer_ma_coordonnee))
+        .route("/dossier/moi/coordonnees/{cid}/usages", post(usages_ma_coordonnee))
+        .route(
+            "/dossier/moi/coordonnees/{cid}/verification",
+            post(demander_verification_moi),
+        )
+        .route(
+            "/dossier/moi/coordonnees/{cid}/verification/confirmer",
+            post(confirmer_verification_moi),
+        )
+        .route("/dossier/moi/preferences", get(mes_preferences).put(definir_mes_preferences))
+        .route(
+            "/dossier/moi/consentements",
+            get(mes_consentements).post(enregistrer_mon_consentement),
+        )
+        .route(
+            "/dossier/moi/consentements/{objet}/retirer",
+            post(retirer_mon_consentement),
+        )
+        .route("/dossier/moi/divergences-compte", get(mes_divergences_compte))
+        .route(
+            "/dossier/moi/divergences-compte/{champ}",
+            post(resoudre_ma_divergence),
+        )
 }
 
 // -- Conversions (règle d'orphelin : fonctions locales) ---------------------
@@ -249,6 +340,15 @@ fn fiche_dto(f: FicheEleve) -> FicheEleveDto {
         masques,
         masquages: f.masquages.into_iter().map(masquage_dto).collect(),
         interdictions: f.interdictions.into_iter().map(interdiction_dto).collect(),
+        protections: f
+            .protections
+            .into_iter()
+            .map(|p| ent_types::dossier::ProtectionFicheDto {
+                personne_id: p.personne_id,
+                designation: p.designation,
+                confirmee: p.confirmee,
+            })
+            .collect(),
     }
 }
 
@@ -464,12 +564,13 @@ async fn rattacher_compte(
 ) -> Res<Json<PersonneDto>> {
     let p = state
         .ent
-        .rattacher_compte_for_actor(
+        .rattacher_compte_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             b.user_id,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;
@@ -596,12 +697,13 @@ async fn confirmer_guichet(
         .ok_or((StatusCode::BAD_REQUEST, "type de pièce inconnu".to_string()))?;
     let lien_id = state
         .ent
-        .confirmer_lien_guichet_for_actor(
+        .confirmer_lien_guichet_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             piece,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;
@@ -858,13 +960,14 @@ async fn fusionner(
 ) -> Res<(StatusCode, Json<FusionDto>)> {
     let f = state
         .ent
-        .fusionner_personnes_for_actor(
+        .fusionner_personnes_confirme(
             session.etablissement_id,
             session.user_id,
             &session.role,
             b.source_id,
             b.cible_id,
             &b.motif,
+            b.confirmation_direction,
         )
         .await
         .map_err(map_db)?;
@@ -1007,4 +1110,704 @@ async fn conflits_interet(
         .await
         .map_err(map_db)?;
     Ok(sans_cache(v.into_iter().map(conflit_dto).collect::<Vec<_>>()))
+}
+
+// -- Lot A2 : conversions ---------------------------------------------------
+
+fn coordonnee_dto(c: Coordonnee) -> CoordonneeDto {
+    CoordonneeDto {
+        id: c.id,
+        type_: c.type_,
+        valeur: c.valeur,
+        libelle: c.libelle,
+        usages: c.usages,
+        principal: c.principal,
+        verifiee_le: c.verifiee_le,
+        verification_voie: c.verification_voie,
+        a_verifier: c.a_verifier,
+        delivrabilite: c.delivrabilite,
+        source: c.source,
+        du: c.du,
+        au: c.au,
+        remplace_id: c.remplace_id,
+    }
+}
+
+fn coordonnees_dto(c: CoordonneesPersonne) -> CoordonneesDto {
+    CoordonneesDto {
+        coordonnees: c.coordonnees.into_iter().map(coordonnee_dto).collect(),
+        adresses_masquees: c.adresses_masquees,
+    }
+}
+
+fn historique_dto(h: HistoriqueCoordonnee) -> HistoriqueCoordonneeDto {
+    HistoriqueCoordonneeDto {
+        id: h.id,
+        coordonnee_id: h.coordonnee_id,
+        type_: h.type_,
+        nature: h.nature,
+        raison: h.raison,
+        motif: h.motif,
+        via: h.via,
+        par_nom: h.par_nom,
+        quand: h.quand,
+    }
+}
+
+fn verification_dto(v: VerificationEnvoyee) -> VerificationEnvoyeeDto {
+    VerificationEnvoyeeDto {
+        coordonnee_id: v.coordonnee_id,
+        canal: v.canal.to_string(),
+        expire_le: v.expire_le,
+    }
+}
+
+fn mauvaise(msg: &'static str) -> (StatusCode, String) {
+    (StatusCode::BAD_REQUEST, msg.to_string())
+}
+
+fn raison_de(r: &Option<String>) -> Res<RaisonCoordonnee> {
+    match r.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(RaisonCoordonnee::ChangementDeclare),
+        Some(s) => RaisonCoordonnee::parse(s).ok_or_else(|| mauvaise("raison inconnue")),
+    }
+}
+
+fn saisie_coordonnee(b: CoordonneeBody) -> Res<CoordonneeSaisie> {
+    Ok(CoordonneeSaisie {
+        raison: raison_de(&b.raison)?,
+        type_: b.type_,
+        valeur: b.valeur,
+        libelle: b.libelle,
+        usages: b.usages,
+        principal: b.principal,
+        motif: b.motif,
+    })
+}
+
+fn nature_remplacement(n: &Option<String>) -> Res<NatureRemplacement> {
+    match n.as_deref().map(str::trim) {
+        None | Some("") | Some("remplacement") => Ok(NatureRemplacement::Remplacement),
+        Some("correction") => Ok(NatureRemplacement::Correction),
+        Some(_) => Err(mauvaise("nature inconnue (correction, remplacement)")),
+    }
+}
+
+fn preferences_dto(p: PreferencesPersonne) -> PreferencesDto {
+    PreferencesDto {
+        langue: p.langue,
+        canaux_refuses: p.canaux_refuses,
+        courrier_papier: p.courrier_papier,
+        accessibilite: p.accessibilite,
+        joignable: p.joignable,
+        fuseau: p.fuseau,
+        maj_le: p.maj_le,
+    }
+}
+
+fn preferences_depuis(d: PreferencesDto) -> PreferencesPersonne {
+    PreferencesPersonne {
+        langue: d.langue,
+        canaux_refuses: d.canaux_refuses,
+        courrier_papier: d.courrier_papier,
+        accessibilite: d.accessibilite,
+        joignable: d.joignable,
+        fuseau: d.fuseau,
+        maj_le: None,
+    }
+}
+
+fn consentements_dto(v: Vec<Consentement>) -> ConsentementsDto {
+    ConsentementsDto {
+        catalogue: CONSENTEMENTS
+            .iter()
+            .map(|(o, t)| ConsentementCatalogueDto {
+                objet: (*o).to_string(),
+                texte_version: (*t).to_string(),
+            })
+            .collect(),
+        consentements: v
+            .into_iter()
+            .map(|c| ConsentementDto {
+                id: c.id,
+                objet: c.objet,
+                reponse: c.reponse,
+                texte_version: c.texte_version,
+                canal: c.canal,
+                piece_reference: c.piece_reference,
+                du: c.du,
+                retire_le: c.retire_le,
+            })
+            .collect(),
+    }
+}
+
+fn consentement_dto(c: Consentement) -> ConsentementDto {
+    consentements_dto(vec![c]).consentements.remove(0)
+}
+
+fn divergence_dto(d: DivergenceCompte) -> DivergenceCompteDto {
+    DivergenceCompteDto {
+        personne_id: d.personne_id,
+        personne_libelle: d.personne_libelle,
+        champ: d.champ,
+        nature: d.nature,
+        valeur_compte_masquee: d.valeur_compte_masquee,
+        valeur_fiche_masquee: d.valeur_fiche_masquee,
+    }
+}
+
+fn choix_de(b: &DivergenceDecisionBody) -> Res<ChoixDivergence> {
+    ChoixDivergence::parse(b.choix.trim()).ok_or_else(|| mauvaise("choix inconnu"))
+}
+
+// -- Lot A2 : personnel (ADM-05, ADM-07, ADM-12, ADM-03, ADM-10) --------------
+
+#[derive(Deserialize)]
+struct FermeesQuery {
+    #[serde(default)]
+    fermees: bool,
+}
+
+async fn coordonnees_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<FermeesQuery>,
+) -> Res<Response> {
+    let c = state
+        .ent
+        .coordonnees_personne_for_actor(session.etablissement_id, session.user_id, &session.role, id, q.fermees)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(coordonnees_dto(c)))
+}
+
+async fn ajouter_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<CoordonneeBody>,
+) -> Res<(StatusCode, Json<CoordonneeDto>)> {
+    let s = saisie_coordonnee(b)?;
+    let c = state
+        .ent
+        .ajouter_coordonnee_for_actor(session.etablissement_id, session.user_id, &session.role, id, &s)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(coordonnee_dto(c))))
+}
+
+async fn remplacer_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<CoordonneeRemplacementBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .remplacer_coordonnee_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            cid,
+            &b.valeur,
+            nature_remplacement(&b.nature)?,
+            raison_de(&b.raison)?,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn retirer_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<CoordonneeRetraitBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .retirer_coordonnee_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            cid,
+            raison_de(&b.raison)?,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn usages_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<CoordonneeUsagesBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .usages_coordonnee_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            cid,
+            &b.usages,
+            b.principal,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn historique_coordonnees(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Response> {
+    let h = state
+        .ent
+        .historique_coordonnees_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(h.into_iter().map(historique_dto).collect::<Vec<_>>()))
+}
+
+async fn demander_verification(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+) -> Res<Json<VerificationEnvoyeeDto>> {
+    let v = state
+        .ent
+        .demander_verification_for_actor(session.etablissement_id, session.user_id, &session.role, id, cid)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(verification_dto(v)))
+}
+
+async fn confirmer_verification(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, cid)): Path<(Uuid, Uuid)>,
+    Json(b): Json<CodeBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .verifier_coordonnee_for_actor(session.etablissement_id, session.user_id, &session.role, id, cid, &b.code)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn preferences_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<PreferencesDto>> {
+    let p = state
+        .ent
+        .preferences_personne_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(preferences_dto(p)))
+}
+
+async fn definir_preferences_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<PreferencesDto>,
+) -> Res<Json<PreferencesDto>> {
+    let p = state
+        .ent
+        .definir_preferences_contact_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &preferences_depuis(b),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(preferences_dto(p)))
+}
+
+async fn consentements_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<ConsentementsDto>> {
+    let v = state
+        .ent
+        .consentements_personne_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(consentements_dto(v)))
+}
+
+async fn enregistrer_consentement_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ConsentementBody>,
+) -> Res<(StatusCode, Json<ConsentementDto>)> {
+    let c = state
+        .ent
+        .enregistrer_consentement_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.objet,
+            b.accorde,
+            &b.texte_version,
+            b.canal.as_deref(),
+            b.piece_reference.as_deref(),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(consentement_dto(c))))
+}
+
+async fn retirer_consentement_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, objet)): Path<(Uuid, String)>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .retirer_consentement_for_actor(session.etablissement_id, session.user_id, &session.role, id, &objet)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn divergences_compte(State(state): State<AppState>, session: EntSession) -> Res<Json<Vec<DivergenceCompteDto>>> {
+    let v = state
+        .ent
+        .divergences_compte_for_actor(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v.into_iter().map(divergence_dto).collect()))
+}
+
+async fn resoudre_divergence_personne(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path((id, champ)): Path<(Uuid, String)>,
+    Json(b): Json<DivergenceDecisionBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .resoudre_divergence_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &champ,
+            choix_de(&b)?,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn modifier_identite(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<IdentiteBody>,
+) -> Res<Json<PersonneDto>> {
+    let nature = match b.nature.trim() {
+        "correction" => NatureIdentite::Correction,
+        "changement" => NatureIdentite::Changement,
+        _ => return Err(mauvaise("nature inconnue (correction, changement)")),
+    };
+    let p = state
+        .ent
+        .modifier_identite_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &IdentiteSaisie {
+                nom: b.nom,
+                prenom: b.prenom,
+                civilite: b.civilite,
+            },
+            nature,
+            b.effet_du,
+            &b.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(personne_dto(p)))
+}
+
+fn version_dto(v: VersionIdentite) -> VersionIdentiteDto {
+    VersionIdentiteDto {
+        id: v.id,
+        nom: v.nom,
+        prenom: v.prenom,
+        civilite: v.civilite,
+        nature: v.nature,
+        effet_du: v.effet_du,
+        motif: v.motif,
+        sensible: v.sensible,
+        masquee: v.masquee,
+        enregistre_le: v.enregistre_le,
+        anterieures: v.anterieures.map(|a| {
+            a.into_iter()
+                .map(|x| AncienneIdentiteDto {
+                    prenom: x.prenom,
+                    civilite: x.civilite,
+                })
+                .collect()
+        }),
+    }
+}
+
+async fn historique_identite(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Response> {
+    let v = state
+        .ent
+        .historique_identite_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(v.into_iter().map(version_dto).collect::<Vec<_>>()))
+}
+
+fn proposition_dto(p: PropositionSeparation) -> PropositionSeparationDto {
+    PropositionSeparationDto {
+        personne_id: p.personne_id,
+        nom_actuel: p.nom_actuel,
+        nom_propose: p.nom_propose,
+        prenom_propose: p.prenom_propose,
+        a_verifier: p.a_verifier,
+    }
+}
+
+async fn noms_a_separer(State(state): State<AppState>, session: EntSession) -> Res<Json<Vec<PropositionSeparationDto>>> {
+    let v = state
+        .ent
+        .propositions_separation_noms_for_actor(session.etablissement_id, session.user_id, &session.role, 200)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v.into_iter().map(proposition_dto).collect()))
+}
+
+async fn separer_noms(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<SeparationsBody>,
+) -> Res<Json<SeparationsResultatDto>> {
+    let items: Vec<SeparationNom> = b
+        .separations
+        .into_iter()
+        .map(|s| SeparationNom {
+            personne_id: s.personne_id,
+            nom: s.nom,
+            prenom: s.prenom,
+        })
+        .collect();
+    let n = state
+        .ent
+        .separer_noms_for_actor(session.etablissement_id, session.user_id, &session.role, &items)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(SeparationsResultatDto { appliquees: n }))
+}
+
+// -- Lot A2 : la personne elle-même ("soi") --------------------------------------
+
+async fn mes_coordonnees(State(state): State<AppState>, session: EntSession) -> Res<Response> {
+    let c = state
+        .ent
+        .mes_coordonnees(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(coordonnees_dto(c)))
+}
+
+async fn ajouter_ma_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<CoordonneeBody>,
+) -> Res<(StatusCode, Json<CoordonneeDto>)> {
+    let s = saisie_coordonnee(b)?;
+    let c = state
+        .ent
+        .ajouter_ma_coordonnee(session.etablissement_id, session.user_id, &s)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(coordonnee_dto(c))))
+}
+
+async fn remplacer_ma_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(cid): Path<Uuid>,
+    Json(b): Json<CoordonneeRemplacementBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .remplacer_ma_coordonnee(session.etablissement_id, session.user_id, cid, &b.valeur, &b.motif)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn retirer_ma_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(cid): Path<Uuid>,
+    Json(b): Json<CoordonneeRetraitBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .retirer_ma_coordonnee(session.etablissement_id, session.user_id, cid, &b.motif)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn usages_ma_coordonnee(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(cid): Path<Uuid>,
+    Json(b): Json<CoordonneeUsagesBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .usages_ma_coordonnee(session.etablissement_id, session.user_id, cid, &b.usages, b.principal)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn mon_historique_coordonnees(State(state): State<AppState>, session: EntSession) -> Res<Response> {
+    let h = state
+        .ent
+        .mon_historique_coordonnees(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(sans_cache(h.into_iter().map(historique_dto).collect::<Vec<_>>()))
+}
+
+async fn demander_verification_moi(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(cid): Path<Uuid>,
+) -> Res<Json<VerificationEnvoyeeDto>> {
+    let v = state
+        .ent
+        .demander_verification_ma_coordonnee(session.etablissement_id, session.user_id, cid)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(verification_dto(v)))
+}
+
+async fn confirmer_verification_moi(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(cid): Path<Uuid>,
+    Json(b): Json<CodeBody>,
+) -> Res<Json<CoordonneeDto>> {
+    let c = state
+        .ent
+        .verifier_ma_coordonnee(session.etablissement_id, session.user_id, cid, &b.code)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(coordonnee_dto(c)))
+}
+
+async fn mes_preferences(State(state): State<AppState>, session: EntSession) -> Res<Json<PreferencesDto>> {
+    let p = state
+        .ent
+        .mes_preferences(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(preferences_dto(p)))
+}
+
+async fn definir_mes_preferences(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<PreferencesDto>,
+) -> Res<Json<PreferencesDto>> {
+    let p = state
+        .ent
+        .definir_mes_preferences(session.etablissement_id, session.user_id, &preferences_depuis(b))
+        .await
+        .map_err(map_db)?;
+    Ok(Json(preferences_dto(p)))
+}
+
+async fn mes_consentements(State(state): State<AppState>, session: EntSession) -> Res<Json<ConsentementsDto>> {
+    let v = state
+        .ent
+        .mes_consentements(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(consentements_dto(v)))
+}
+
+async fn enregistrer_mon_consentement(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(b): Json<ConsentementBody>,
+) -> Res<(StatusCode, Json<ConsentementDto>)> {
+    let c = state
+        .ent
+        .enregistrer_mon_consentement(session.etablissement_id, session.user_id, &b.objet, b.accorde, &b.texte_version)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(consentement_dto(c))))
+}
+
+async fn retirer_mon_consentement(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(objet): Path<String>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .retirer_mon_consentement(session.etablissement_id, session.user_id, &objet)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn mes_divergences_compte(State(state): State<AppState>, session: EntSession) -> Res<Json<Vec<DivergenceCompteDto>>> {
+    let v = state
+        .ent
+        .mes_divergences_compte(session.etablissement_id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(v.into_iter().map(divergence_dto).collect()))
+}
+
+async fn resoudre_ma_divergence(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(champ): Path<String>,
+    Json(b): Json<DivergenceDecisionBody>,
+) -> Res<StatusCode> {
+    state
+        .ent
+        .resoudre_ma_divergence(session.etablissement_id, session.user_id, &champ, choix_de(&b)?, &b.motif)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }

@@ -252,6 +252,9 @@ pub async fn enregistrer_inscription_annuelle_tx(
     if !ok {
         return Err(EntDbError::Domain(DomainError::ReferenceInconnue));
     }
+    // RP2-10 : la scolarisation à la date de rentrée existe avant l'inscription annuelle, pour
+    // que le pont vers `ent_eleve_inscription` (modèle du socle 2, E4) puisse écrire la prévue.
+    assurer_scolarisation_prevue_tx(conn, etab, i.eleve_id, &annee, i.source, i.source_ref, actor).await?;
     let existante: Option<(Uuid, String)> = sqlx::query_as(
         "SELECT id, statut FROM ent_eleve_scolarite_annee
           WHERE etablissement_id = $1 AND eleve_id = $2 AND annee_scolaire = $3 FOR UPDATE",
@@ -329,6 +332,96 @@ pub async fn enregistrer_inscription_annuelle_tx(
     .await
     .map_err(db)?;
     Ok(id)
+}
+
+/// RP2-10 — ouvre, si l'élève n'en a pas, la scolarisation qui commence à la rentrée de l'année
+/// visée (ou aujourd'hui si l'année a déjà commencé). Idempotent, dans la transaction de
+/// l'appelant, journalisé. Sans effet si l'année n'existe pas encore dans le référentiel (la
+/// ligne attend alors dans `ent_eleve_inscription_a_traiter`, reprise à la préparation de l'année)
+/// ou si l'élève est déjà scolarisé (ou le sera) à cette date. Motif « retour » pour un ancien élève.
+async fn assurer_scolarisation_prevue_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    annee_libelle: &str,
+    source: SourceInscription,
+    source_ref: Option<Uuid>,
+    actor: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    let annee: Option<(NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND libelle = $2",
+    )
+    .bind(etab)
+    .bind(annee_libelle)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    let Some((debut, fin)) = annee else {
+        return Ok(None);
+    };
+    let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_jour_etablissement($1)")
+        .bind(etab)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+    let entree = std::cmp::max(debut, jour);
+    if entree >= fin {
+        return Ok(None);
+    }
+    // L'élève est-il déjà scolarisé (ou le sera-t-il) à partir de cette date ?
+    let (couvert, anterieure): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM ent_eleve_scolarisation
+                         WHERE etablissement_id = $1 AND eleve_id = $2
+                           AND (date_sortie IS NULL OR date_sortie > $3)),
+                EXISTS (SELECT 1 FROM ent_eleve_scolarisation
+                         WHERE etablissement_id = $1 AND eleve_id = $2 AND date_entree < $3)",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(entree)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if couvert {
+        return Ok(None);
+    }
+    sqlx::query("SELECT set_config('ent.acteur_id', $1, true)")
+        .bind(actor.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    let id = Uuid::new_v4();
+    let motif = if anterieure { "retour" } else { "premiere_inscription" };
+    sqlx::query(
+        "INSERT INTO ent_eleve_scolarisation (id, etablissement_id, eleve_id, date_entree, motif_entree,
+                                              source, source_ref, decide_par)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(id)
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(entree)
+    .bind(motif)
+    .bind(source.code())
+    .bind(source_ref)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    sqlx::query(
+        "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
+                                         payload, visible_famille, actor_user_id, created_at)
+         VALUES ($1,$2,$3,'administratif','scolarisation_ouverte','Scolarisation ouverte',$4,true,$5, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(json!({ "scolarisation_id": id, "motif": motif, "source": source.code(), "source_ref": source_ref }))
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(Some(id))
 }
 
 /// Affectation initiale en classe — **réservée à l'arrivée en cours d'année** (§7.3 et M10 :
@@ -434,4 +527,118 @@ pub async fn classe_de_l_annee_courante_tx(
     .await
     .map_err(db)?;
     Ok(oui)
+}
+
+/// ELV-02 (commande inverse d'ELV-01, appelée par l'annulation d'une validation erronée, INS-68) :
+/// annule la fiche créée **par erreur**. Refusée si la fiche a déjà une vie (classe, scolarisation,
+/// sortie). Rien n'est effacé : la fiche passe à `archive` (statut dérivé), la trace reste au journal ; la trace reste au journal et par l'événement `eleve.creation_annulee`
+/// (sans donnée personnelle). Renvoie `false` si la fiche n'existe pas ou n'est plus annulable.
+pub async fn annuler_creation_eleve_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    dossier_id: Uuid,
+    actor: Uuid,
+) -> Result<bool, EntDbError> {
+    // La fiche créée par la validation n'a ni classe ni vie propre. Depuis RP2-10, la validation
+    // ouvre la scolarisation « prévue » (source = ce dossier) : elle seule est admise ; toute autre
+    // scolarisation (saisie, autre dossier, sortie) rend l'annulation impossible. Une scolarisation
+    // ne se supprime jamais : celle du dossier est clôturée à durée nulle (sortie = entrée, motif
+    // « autre »), puis la fiche est marquée `archive`. Le statut hérité (`status`) n'est pas touché
+    // par l'archivage lui-même.
+    let annulable: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_eleve e
+                         WHERE e.etablissement_id = $1 AND e.id = $2 AND e.classe_id IS NULL
+                           AND e.status IN ('preinscrit', 'actif') AND e.date_sortie IS NULL
+                           AND NOT EXISTS (
+                               SELECT 1 FROM ent_eleve_scolarisation s
+                                WHERE s.etablissement_id = $1 AND s.eleve_id = $2
+                                  AND NOT (s.source IN ('admission', 'reinscription') AND s.source_ref = $3
+                                           AND s.date_sortie IS NULL)))",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if !annulable {
+        return Ok(false);
+    }
+    sqlx::query("SELECT set_config('ent.acteur_id', $1, true)")
+        .bind(actor.to_string())
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    sqlx::query(
+        "UPDATE ent_eleve_scolarisation
+            SET date_sortie = date_entree, motif_sortie = 'autre',
+                motif_sortie_libre = 'Validation du dossier annulée', cloture_le = now(), cloture_par = $4
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND source_ref = $3 AND date_sortie IS NULL",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    let r = sqlx::query(
+        "UPDATE ent_eleve SET statut = 'archive', updated_at = now()
+          WHERE etablissement_id = $1 AND id = $2 AND classe_id IS NULL",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    if r.rows_affected() == 0 {
+        return Ok(false);
+    }
+    sqlx::query(
+        "INSERT INTO ent_journal_modif (id, etablissement_id, eleve_id, domaine, action, libelle,
+                                         payload, visible_famille, actor_user_id, created_at)
+         VALUES ($1,$2,$3,'administratif','creation_annulee','Création de la fiche annulée',$4,false,$5, now())",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(json!({ "eleve_id": eleve_id, "dossier_id": dossier_id }))
+    .bind(actor)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    conn.publier(MetierEventDraft {
+        etablissement_id: etab,
+        type_name: types::ELEVE_CREATION_ANNULEE.into(),
+        aggregate: AggregateKind::Eleve,
+        aggregate_id: eleve_id,
+        eleve_id: Some(eleve_id),
+        payload: json!({ "eleve_id": eleve_id, "dossier_id": dossier_id }),
+        actor_user_id: Some(actor.to_string()),
+    })
+    .await?;
+    Ok(true)
+}
+
+/// Commande inverse d'ELV-09 : retire l'inscription annuelle **prévue** (ligne `projetee`) créée par
+/// un dossier. Une inscription courante, historique ou confirmée par la famille n'est jamais
+/// retirée. Renvoie `true` si une ligne a été retirée.
+pub async fn retirer_inscription_annuelle_prevue_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    dossier_id: Uuid,
+) -> Result<bool, EntDbError> {
+    let r = sqlx::query(
+        "DELETE FROM ent_eleve_scolarite_annee
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND source_ref = $3 AND statut = 'projetee'",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(dossier_id)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(r.rows_affected() > 0)
 }

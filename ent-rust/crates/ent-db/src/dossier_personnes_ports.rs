@@ -1218,7 +1218,69 @@ pub(super) async fn lier_dans_tx(
     .await
 }
 
+/// Personne déjà connue de l'établissement pour un e-mail (RP2-03).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PersonneParEmail {
+    pub id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub ne_pas_solliciter: bool,
+}
+
 impl PgEnt {
+    /// RP2-03 : la personne (non fusionnée) de l'établissement portant cet e-mail — celle qui a un
+    /// compte d'abord. Permet à l'ancien chemin de réutiliser la fiche au lieu d'en créer une
+    /// seconde.
+    pub(crate) async fn personne_par_email(
+        &self,
+        etab: Uuid,
+        email: &str,
+    ) -> Result<Option<PersonneParEmail>, EntDbError> {
+        let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+            "SELECT id, user_id FROM ent_personne
+              WHERE etablissement_id = $1 AND lower(email) = lower($2)
+                AND fusionnee_dans IS NULL AND eleve_id IS NULL
+              ORDER BY (user_id IS NOT NULL) DESC, created_at LIMIT 1",
+        )
+        .bind(etab)
+        .bind(email.trim())
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        let Some((id, user_id)) = row else {
+            return Ok(None);
+        };
+        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let ne_pas_solliciter = personne_ne_pas_solliciter_tx(&mut conn, etab, id).await?;
+        Ok(Some(PersonneParEmail {
+            id,
+            user_id,
+            ne_pas_solliciter,
+        }))
+    }
+
+    /// RP2-03 : rattache à une fiche existante sans compte le compte que l'ancien chemin vient de
+    /// trouver ou créer (aucune seconde fiche). Sans effet si la fiche a déjà ce compte.
+    pub(crate) async fn rattacher_compte_a_la_fiche(
+        &self,
+        etab: Uuid,
+        personne_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        sqlx::query(
+            "UPDATE ent_personne SET user_id = $3, updated_at = now()
+              WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM ent_personne q
+                                 WHERE q.etablissement_id = $1 AND q.user_id = $3)",
+        )
+        .bind(etab)
+        .bind(personne_id)
+        .bind(user_id)
+        .execute(self.pool())
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
     /// DOS-05 / ADM-08 : lier une personne existante à un élève. Une personne avec compte reçoit
     /// une invitation (lien en attente) ; sinon le lien est créé.
     pub async fn lier_personne_for_actor(
@@ -1387,8 +1449,10 @@ impl PgEnt {
         Ok(())
     }
 
-    /// Préférences de canal de la personne (e-mail, SMS, courrier). Réservé au personnel habilité
-    /// (la personne les modifiera elle-même au lot A7).
+    /// Préférences de canal de la personne (e-mail, SMS, courrier), façade conservée du lot A0 :
+    /// le reste des préférences (langue, accessibilité, horaires) est inchangé. La personne les
+    /// modifie elle-même par `definir_mes_preferences` (lot A2).
+    #[allow(clippy::too_many_arguments)]
     pub async fn definir_preferences_for_actor(
         &self,
         etab: Uuid,
@@ -1402,38 +1466,59 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
-        personne_tx(&mut tx, etab, personne_id, true)
-            .await?
-            .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        sqlx::query(
-            "INSERT INTO ent_personne_preference
-                (personne_id, etablissement_id, canal_email, canal_sms, courrier_papier, updated_by)
-             VALUES ($1,$2,$3,$4,$5,$6)
-             ON CONFLICT (personne_id) DO UPDATE SET canal_email = $3, canal_sms = $4,
-                courrier_papier = $5, updated_by = $6, updated_at = now()",
-        )
-        .bind(personne_id)
-        .bind(etab)
-        .bind(canal_email)
-        .bind(canal_sms)
-        .bind(courrier_papier)
-        .bind(actor)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        journal_tx(
-            &mut tx,
-            etab,
-            None,
-            "preferences_modifiees",
-            "Préférences de contact modifiées",
-            json!({ "personne_id": personne_id }),
-            false,
-            actor,
-        )
-        .await?;
-        commit(tx).await?;
+        let mut p = self
+            .preferences_personne_for_actor(etab, actor, role, personne_id)
+            .await?;
+        p.canaux_refuses = [("email", canal_email), ("sms", canal_sms)]
+            .into_iter()
+            .filter(|(_, ok)| !ok)
+            .map(|(c, _)| c.to_string())
+            .collect();
+        p.courrier_papier = courrier_papier;
+        self.definir_preferences_contact_for_actor(etab, actor, role, personne_id, &p)
+            .await?;
         Ok(())
     }
+}
+
+/// Commande inverse d'`integrer_declaration_tx` pour l'annulation d'une validation erronée
+/// (INS-68) : suspend, sans les effacer, les liens créés par la validation — ceux écrits dans la
+/// transaction de la validation, qui portent donc son horodatage. Un lien antérieur (élève déjà
+/// connu) n'est jamais touché. Renvoie le nombre de liens suspendus.
+pub async fn suspendre_liens_crees_le_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve_id: Uuid,
+    cree_le: DateTime<Utc>,
+    motif: &str,
+    decideur: Uuid,
+) -> Result<i64, EntDbError> {
+    let r = sqlx::query(
+        "UPDATE ent_eleve_lien SET suspendu_le = now(), suspendu_par = $4, updated_at = now(),
+                suspension_motif = $5
+          WHERE etablissement_id = $1 AND eleve_id = $2 AND created_at = $3 AND suspendu_le IS NULL",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(cree_le)
+    .bind(decideur)
+    .bind(motif)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    let n = i64::try_from(r.rows_affected()).unwrap_or(i64::MAX);
+    if n > 0 {
+        journal_tx(
+            conn,
+            etab,
+            Some(eleve_id),
+            "liens_suspendus_annulation",
+            "Liens suspendus (validation annulée)",
+            json!({ "nombre": n }),
+            false,
+            decideur,
+        )
+        .await?;
+    }
+    Ok(n)
 }

@@ -259,6 +259,14 @@ const FOYERS: &[Acteur] = &[Admin, Direction, Administratif, Compta, Cpe];
 
 // ───────────────────────── Domaines couverts (cloisonnement correct) ─────────────────────────
 
+/// Les familles de l'établissement A ont toutes une fiche de personne (reprise des liens).
+const FAMILLE_AVEC_FICHE: &[Acteur] = &[Parent, ParentAutreFoyer, ParentSansDrapeaux];
+/// Routes « soi » (`/dossier/moi/*`) : depuis le socle 6 (P1), un compte du personnel a lui aussi une
+/// fiche de personne (son agent) ; il lit la sienne, jamais celle d'un autre (aucun identifiant dans l'URL).
+const SOI_AVEC_FICHE: &[Acteur] = &[
+    Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, ParentAutreFoyer, ParentSansDrapeaux,
+];
+
 fn specs_domaine_eleve_dossier() -> Vec<Spec> {
     vec![
             // D-022 : un professeur ne lit que la fiche des élèves de ses classes et groupes.
@@ -291,10 +299,64 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
                 Some(r#"{"motif":"separation"}"#)),
             ecrire_sur_b("badge-perdu-sur-B", "POST", "/eleves/{eleve}/badge/perdu",
                 Some(r#"{"nouveau_badge":"SEPARATION-BADGE"}"#)),
+            // Socle 2 (E5) : propositions. La file et le détail sont réservés à
+            // `eleves.propositions.traiter` (Admin, Direction, Administratif) ; le déposant ne
+            // voit que les siennes (parent avec lien actif ; l'élève mineur est refusé) ;
+            // toute écriture sur un élève d'un autre établissement échoue.
+            lire("propositions-file", "/eleves/propositions",
+                &[Admin, Direction, Administratif], &[]),
+            lire("propositions-eleve", "/eleves/{eleve}/propositions",
+                &[Admin, Direction, Administratif, Parent, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif]),
+            lire("propositions-champs-signalables", "/eleves/{eleve}/propositions/champs",
+                &[Parent, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+            ecrire_sur_b("proposition-depot-sur-B", "POST", "/eleves/{eleve}/propositions",
+                Some(r#"{"champs":{"nom_naissance":"Separation"}}"#)),
+            ecrire_sur_b("proposition-decision-sur-B", "POST",
+                "/eleves/propositions/00000000-0000-0000-0000-000000000001/decision",
+                Some(r#"{"champs_acceptes":["nom_naissance"],"nature":"correction","motif_code":"autre","motif":"separation"}"#)),
+            ecrire_sur_b("proposition-retrait-sur-B", "POST",
+                "/eleves/propositions/00000000-0000-0000-0000-000000000001/retrait", None),
+            // Paramétrage des champs (ELV-26) : administrateur seulement.
+            lire("parametrage-eleve", "/eleves/parametrage", &[Admin], &[]),
+            // Les écritures de paramétrage n'ont aucun identifiant d'un autre établissement :
+            // elles agissent sur l'établissement de la session (testées à part, `eleve_propositions`).
+            // Socle 2 (E6) : doublons et fusion de fiches. Les listes sont réservées à
+            // `eleves.identite.modifier` / `eleves.fusionner` (Admin, Direction, Administratif
+            // pour les doublons ; Admin, Direction pour les fusions) ; toute écriture qui désigne
+            // un élève d'un autre établissement échoue sans rien révéler.
+            lire("doublons-liste", "/eleves/doublons", &[Admin, Direction, Administratif], &[]),
+            lire("fusions-liste", "/eleves/fusions", &[Admin, Direction], &[]),
+            Spec {
+                nom: "doublons-detecter",
+                methode: "POST",
+                chemin: "/eleves/doublons/detecter",
+                corps: None,
+                liee: &[Admin, Direction, Administratif],
+                non_liee: &[],
+                non_liee_vide: &[],
+                b: Attendu::EchecQuelconque,
+                seulement_b: false,
+                interdits: &[],
+                tolere: &[],
+            },
+            ecrire_sur_b("fusion-apercu-sur-B", "POST", "/eleves/fusions/apercu",
+                Some(r#"{"absorbe_id":"{eleve}","conserve_id":"00000000-0000-0000-0000-000000000001"}"#)),
+            ecrire_sur_b("fusion-sur-B", "POST", "/eleves/fusions",
+                Some(r#"{"absorbe_id":"{eleve}","conserve_id":"00000000-0000-0000-0000-000000000001","motif_code":"doublon_saisie"}"#)),
+            ecrire_sur_b("fusion-sur-B-sens-inverse", "POST", "/eleves/fusions",
+                Some(r#"{"absorbe_id":"00000000-0000-0000-0000-000000000001","conserve_id":"{eleve}","motif_code":"doublon_saisie"}"#)),
+            ecrire_sur_b("defusion-sur-B", "POST",
+                "/eleves/fusions/00000000-0000-0000-0000-000000000001/annuler", None),
+            ecrire_sur_b("non-doublon-sur-B", "POST", "/eleves/doublons/non-doublon",
+                Some(r#"{"eleve_a":"{eleve}","eleve_b":"00000000-0000-0000-0000-000000000001","motif_code":"jumeaux"}"#)),
             // Socle 2 (E4) : scolarité (G1 : `eleves.lire`, Admin/Direction/Administratif) et
             // commandes d'écriture, toutes refusées sur l'élève d'un autre établissement.
+            // Démo P1 n° 3 : le responsable légal (lien actif) lit la scolarité de SON enfant,
+            // minimisée ; jamais celle d'un autre élève (liste « non liée » inchangée).
             lire("scolarite", "/eleves/{eleve}/scolarite",
-                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+                &[Admin, Direction, Administratif, Parent, ParentAutreFoyer, ParentSansDrapeaux],
+                &[Admin, Direction, Administratif]),
             ecrire_sur_b("scolarisation-ouverture-sur-B", "POST", "/eleves/{eleve}/scolarisations",
                 Some(r#"{"date_entree":"{jour}","motif":"reprise"}"#)),
             ecrire_sur_b("scolarisation-reintegration-sur-B", "POST", "/eleves/{eleve}/scolarisations/reintegrer",
@@ -372,6 +434,72 @@ fn specs_domaine_eleve_dossier() -> Vec<Spec> {
             ecrire_sur_b("lever-conflit-interet-B", "POST",
                 "/dossier/conflits-interet/00000000-0000-0000-0000-000000000001/lever", None),
             lire("conflits-interet", "/dossier/conflits-interet", &[Admin, Direction], &[Admin, Direction]),
+            // Socle 4 (lot A2) : coordonnées, vérification, préférences, consentements, divergences
+            // et identité d'une personne. Aucune écriture ni lecture sur la personne d'un autre
+            // établissement ; les listes ne portent que des valeurs masquées ; une coordonnée n'est
+            // jamais dans une réponse mise en cache ni dans un événement.
+            ecrire_sur_b("coordonnees-personne-B", "GET", "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees", None),
+            ecrire_sur_b("coordonnees-historique-B", "GET", "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/historique", None),
+            ecrire_sur_b("coordonnee-ajout-B", "POST", "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees",
+                Some(r#"{"type_":"email","valeur":"separation@exemple.fr"}"#)),
+            ecrire_sur_b("coordonnee-remplacement-B", "PUT",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/00000000-0000-0000-0000-000000000001",
+                Some(r#"{"valeur":"separation@exemple.fr"}"#)),
+            ecrire_sur_b("coordonnee-retrait-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/00000000-0000-0000-0000-000000000001/retirer", Some("{}")),
+            ecrire_sur_b("coordonnee-usages-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/00000000-0000-0000-0000-000000000001/usages", Some(r#"{"usages":["urgence"]}"#)),
+            ecrire_sur_b("verification-demande-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/00000000-0000-0000-0000-000000000001/verification", None),
+            ecrire_sur_b("verification-confirmation-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/coordonnees/00000000-0000-0000-0000-000000000001/verification/confirmer", Some(r#"{"code":"123456"}"#)),
+            ecrire_sur_b("preferences-lecture-B", "GET", "/dossier/personnes/00000000-0000-0000-0000-000000000001/preferences", None),
+            ecrire_sur_b("preferences-ecriture-B", "PUT", "/dossier/personnes/00000000-0000-0000-0000-000000000001/preferences",
+                Some(r#"{"langue":"fr"}"#)),
+            ecrire_sur_b("consentements-lecture-B", "GET", "/dossier/personnes/00000000-0000-0000-0000-000000000001/consentements", None),
+            ecrire_sur_b("consentement-ecriture-B", "POST", "/dossier/personnes/00000000-0000-0000-0000-000000000001/consentements",
+                Some(r#"{"objet":"photo_remise","accorde":true,"texte_version":"2026-11-v1"}"#)),
+            ecrire_sur_b("consentement-retrait-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/consentements/photo_remise/retirer", None),
+            ecrire_sur_b("divergence-resolution-B", "POST",
+                "/dossier/personnes/00000000-0000-0000-0000-000000000001/divergences-compte/email", Some(r#"{"choix":"conserver_fiche"}"#)),
+            ecrire_sur_b("identite-personne-B", "POST", "/dossier/personnes/00000000-0000-0000-0000-000000000001/identite",
+                Some(r#"{"nom":"Separation","nature":"correction","motif":"separation"}"#)),
+            ecrire_sur_b("identite-personne-historique-B", "GET", "/dossier/personnes/00000000-0000-0000-0000-000000000001/identite/historique", None),
+            ecrire_sur_b("noms-separation-B", "POST", "/dossier/personnes/noms-a-separer",
+                Some(r#"{"separations":[{"personne_id":"00000000-0000-0000-0000-000000000001","nom":"X","prenom":"Y"}]}"#)),
+            Spec { interdits: &["@", "+33"], ..lire("noms-a-separer", "/dossier/personnes/noms-a-separer",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]) },
+            // Valeurs masquées dans le rapport des divergences : jamais une adresse e-mail entière.
+            Spec { interdits: &["\"valeur_compte\":"], ..lire("divergences-compte", "/dossier/divergences-compte",
+                &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]) },
+            // « Soi » : la personne n'agit que sur sa propre fiche (aucun identifiant de personne
+            // dans l'URL). Les écritures de ces cas sont invalides à dessein.
+            Spec { interdits: &["enc:v1:"], ..lire("moi-coordonnees", "/dossier/moi/coordonnees", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE) },
+            lire("moi-coordonnees-historique", "/dossier/moi/coordonnees/historique", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-preferences", "/dossier/moi/preferences", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-consentements", "/dossier/moi/consentements", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            lire("moi-divergences-compte", "/dossier/moi/divergences-compte", SOI_AVEC_FICHE, FAMILLE_AVEC_FICHE),
+            ecrire_sur_b("moi-coordonnee-ajout-invalide", "POST", "/dossier/moi/coordonnees",
+                Some(r#"{"type_":"telex","valeur":"1"}"#)),
+            ecrire_sur_b("moi-coordonnee-autre-fiche", "PUT",
+                "/dossier/moi/coordonnees/00000000-0000-0000-0000-000000000001", Some(r#"{"valeur":"x@exemple.fr"}"#)),
+            ecrire_sur_b("moi-coordonnee-retrait-autre-fiche", "POST",
+                "/dossier/moi/coordonnees/00000000-0000-0000-0000-000000000001/retirer", Some("{}")),
+            ecrire_sur_b("moi-verification-autre-fiche", "POST",
+                "/dossier/moi/coordonnees/00000000-0000-0000-0000-000000000001/verification", None),
+            ecrire_sur_b("moi-verification-confirmation-autre-fiche", "POST",
+                "/dossier/moi/coordonnees/00000000-0000-0000-0000-000000000001/verification/confirmer", Some(r#"{"code":"123456"}"#)),
+            ecrire_sur_b("moi-usages-autre-fiche", "POST",
+                "/dossier/moi/coordonnees/00000000-0000-0000-0000-000000000001/usages", Some(r#"{"usages":["urgence"]}"#)),
+            ecrire_sur_b("moi-preferences-invalides", "PUT", "/dossier/moi/preferences",
+                Some(r#"{"langue":"francais"}"#)),
+            ecrire_sur_b("moi-consentement-invalide", "POST", "/dossier/moi/consentements",
+                Some(r#"{"objet":"inconnu","accorde":true,"texte_version":"x"}"#)),
+            ecrire_sur_b("moi-consentement-retrait-invalide", "POST",
+                "/dossier/moi/consentements/inconnu/retirer", None),
+            ecrire_sur_b("moi-divergence-sans-divergence", "POST",
+                "/dossier/moi/divergences-compte/email", Some(r#"{"choix":"adopter_compte"}"#)),
     ]
 }
 
@@ -464,7 +592,8 @@ fn domaine_psy() {
 
 fn specs_domaine_documents() -> Vec<Spec> {
     vec![
-            lire("documents-liste", "/eleves/{eleve}/documents", TOUS, STAFF),
+            // RF-15 : la liste suit « dossier.lire » (D-017) ; un professeur ne liste que ses élèves.
+            lire("documents-liste", "/eleves/{eleve}/documents", TOUS, STAFF_HORS_PROF),
             lire("document-fichier", "/documents/{doc}/fichier",
                 &[Admin, Direction, Administratif, Parent, Eleve], &[]),
             // Document restreint (verrouillé) : seuls les rôles de gestion documentaire.
@@ -550,6 +679,25 @@ fn domaine_edt() {
     jouer("emploi du temps, remplacements, délégations", &specs_domaine_edt());
 }
 
+/// Socle 5, S1 : public et membres individuels d'un cours. Public : gestion de la structure
+/// et professeur du cours ; membres (motifs sensibles) et écritures : gestion seulement.
+fn specs_domaine_cours() -> Vec<Spec> {
+    vec![
+        lire("cours-public", "/referentiel/cours/{cours}/public",
+            &[Admin, Direction, Administratif, Prof], &[Admin, Direction, Administratif, Prof]),
+        lire("cours-membres", "/referentiel/cours/{cours}/membres",
+            &[Admin, Direction, Administratif], &[Admin, Direction, Administratif]),
+        ecrire_sur_b("cours-membre-ajout-B", "POST", "/referentiel/cours/{cours}/membres",
+            Some(r#"{"eleve_id":"{eleve}","nature":"inclusion","motif_code":"ulis","du":"2026-01-05","au":null}"#)),
+        ecrire_sur_b("cours-membre-annulation-B", "POST", "/referentiel/cours-membres/{cours}/annuler", None),
+    ]
+}
+
+#[test]
+fn domaine_cours() {
+    jouer("cours : public et membres individuels", &specs_domaine_cours());
+}
+
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",
@@ -566,6 +714,43 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
 #[test]
 fn domaine_listes_de_l_etablissement() {
     jouer("listes de l'établissement (aucune fuite de B)", &specs_domaine_listes_de_l_etablissement());
+}
+
+/// Lot I2 (socle 3) : listes des inscriptions et routes à identifiant du modèle des campagnes
+/// (offres, transitions, blocage, annulation de validation, « ne pas solliciter », prolongation,
+/// fermetures). Les listes sont réservées au personnel qui gère ou décide les inscriptions ; les
+/// routes à identifiant visent un objet de B avec la session de A : jamais un 2xx.
+fn specs_domaine_inscriptions_i2() -> Vec<Spec> {
+    const CORPS_T: &str = r#"{"action":"annuler","motif":"essai de séparation"}"#;
+    let personnel: &[Acteur] = &[Admin, Direction, Administratif];
+    vec![
+        lire("campagnes-liste", "/inscriptions/campagnes", personnel, &[]),
+        lire("dossiers-liste", "/inscriptions/dossiers", personnel, &[]),
+        lire("fermetures-liste", "/inscriptions/fermetures", personnel, &[]),
+        ecrire_sur_b("offres-liste-de-B", "GET", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/offres", None),
+        ecrire_sur_b("offre-creee-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/offres",
+            Some(r#"{"niveau_code":"6EME","libelle_public":"6e"}"#)),
+        ecrire_sur_b("offre-modifiee-sur-B", "PUT", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2",
+            Some(r#"{"niveau_code":"6EME","libelle_public":"6e"}"#)),
+        ecrire_sur_b("offre-archivee-sur-B", "DELETE", "/inscriptions/offres/00000000-0000-0000-0000-0000000000b2", None),
+        ecrire_sur_b("statut-campagne-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/statut",
+            Some(r#"{"statut":"suspendue"}"#)),
+        ecrire_sur_b("prolongation-sur-B", "POST", "/inscriptions/campagnes/00000000-0000-0000-0000-0000000000b2/prolonger",
+            Some(r#"{"objet":"cloture","nouvelle_date":"2099-01-01","motif_public":"essai"}"#)),
+        ecrire_sur_b("transition-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/transition", Some(CORPS_T)),
+        ecrire_sur_b("blocage-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/blocage",
+            Some(r#"{"bloquer":true,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("annulation-validation-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/annuler-validation",
+            Some(r#"{"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("ne-pas-solliciter-sur-B", "POST", "/inscriptions/dossiers/00000000-0000-0000-0000-0000000000b2/ne-pas-solliciter",
+            Some(r#"{"rang":2,"motif":"essai de séparation"}"#)),
+        ecrire_sur_b("fermeture-annulee-sur-B", "DELETE", "/inscriptions/fermetures/00000000-0000-0000-0000-0000000000b2", None),
+    ]
+}
+
+#[test]
+fn domaine_inscriptions_i2() {
+    jouer("inscriptions I2 (listes, objets de B)", &specs_domaine_inscriptions_i2());
 }
 
 // ───────────────────────── Invariants transverses ─────────────────────────
@@ -644,6 +829,9 @@ fn invariant_inventaire_couvre_tous_les_fichiers_de_routes() {
         ("GET", "/etablissement/domaines"),
         ("PUT", "/referentiel/groupes/{id}/responsables"),
         ("POST", "/referentiel/services"),
+        ("GET", "/referentiel/groupes/{id}/membres"),
+        ("POST", "/referentiel/groupes/{id}/membres"),
+        ("DELETE", "/referentiel/groupes/{id}/membres/{eleve_id}"),
     ] {
         assert!(r.iter().any(|x| x.methode == m && x.chemin == p), "route attendue absente de l'inventaire : {m} {p}");
     }
@@ -1153,7 +1341,8 @@ fn specs_domaine_annuaire_et_vie_scolaire_famille() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux],
                 STAFF_HORS_PROF) },
             // Un parent doit avoir le drapeau « vie scolaire » (Narcissa, Molly : non).
-            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Compta, Infirmiere, Psy, Parent, Eleve], STAFF_HORS_PROF),
+            // RP1-07 : la comptabilité ne lit plus le journal de vie scolaire (ni liée, ni non liée).
+            lire("journal", "/eleves/{eleve}/journal", &[Admin, Direction, Administratif, Cpe, Prof, Infirmiere, Psy, Parent, Eleve], &[Admin, Direction, Administratif, Cpe, Infirmiere, Psy]),
             Spec { b: Attendu::RefuseOuIndistinct, ..lire("points-vs", "/eleves/{eleve}/points-vs",
                 &[Admin, Direction, Administratif, Cpe, Parent],
                 &[Admin, Direction, Administratif, Cpe]) },
@@ -1360,25 +1549,32 @@ async fn construire_doubles(m: &Monde) -> Vec<Double> {
         (Psy, "psy"),
     ] {
         let email = format!("dbl-{}@example.test", Uuid::new_v4().simple());
-        let r = m
-            .appel(
-                "POST",
-                "/etablissement/personnel",
-                Some(m.jeton(Admin)),
-                Some(&json!({"email": email, "display_name": format!("Double {role}"), "role": role})),
-            )
-            .await;
-        assert_eq!(r.statut.as_u16(), 201, "provisionnement du double {role} : {}", r.texte);
-        let user_id = Uuid::parse_str(r.json["user_id"].as_str().unwrap()).unwrap();
-        let mdp = r.json["mot_de_passe_temporaire"].as_str().unwrap().to_string();
-        // Même personne, second établissement (rôle identique).
-        sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())")
-            .bind(user_id)
-            .bind(m.b.objets.etab)
-            .bind(role)
-            .execute(&pool)
-            .await
-            .expect("second rattachement");
+        // Socle 6 P0 : le provisionnement HTTP ne renvoie plus de mot de passe (invitation par
+        // e-mail, testée dans `ent-api`). Les comptes « doubles » sont donc créés directement,
+        // avec un mot de passe connu du test, puis rattachés aux deux établissements.
+        let user_id = Uuid::new_v4();
+        let mdp = format!("Double-{}-Aa9!", Uuid::new_v4().simple());
+        let hash = ent_auth::hash_password(&mdp).expect("hachage");
+        sqlx::query(
+            "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
+             VALUES ($1, $2, $3, $4, now(), now())",
+        )
+        .bind(user_id)
+        .bind(&email)
+        .bind(&hash)
+        .bind(format!("Double {role}"))
+        .execute(&pool)
+        .await
+        .expect("compte double");
+        for etab in [m.a.objets.etab, m.b.objets.etab] {
+            sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())")
+                .bind(user_id)
+                .bind(etab)
+                .bind(role)
+                .execute(&pool)
+                .await
+                .expect("rattachement");
+        }
         let l = m
             .appel(
                 "POST",
@@ -1410,6 +1606,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());
+    v.extend(specs_domaine_cours());
     v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
     v
 }
@@ -1671,6 +1868,44 @@ fn c6_colonnes_user_id_du_client_hors_etablissement_refusees() {
         } else {
             echecs.push(format!("préparation : création de groupe impossible ({} {})", g.statut, g.texte));
         }
+        // RP1-02 : membres de groupe. Un groupe de B manipulé depuis A, un élève de B mis dans un
+        // groupe de A, et les comptes famille / élève sans aucun droit de gestion.
+        let gb = m.appel("POST", "/referentiel/groupes", Some(b.jetons[&Direction].as_str()), Some(&json!({
+            "annee_id": id_premier(&json_de(m, b.jetons[&Direction].as_str(), "/referentiel/annees").await),
+            "code": format!("GB{}", &Uuid::new_v4().simple().to_string()[..6]), "libelle": "atelier B"}))).await;
+        if gb.est_succes() {
+            let gbid = gb.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("GET", &format!("/referentiel/groupes/{gbid}/membres"), Some(dir_a), None).await;
+            exige_refus(&mut echecs, "groupe: membres d'un groupe de B (lecture)", &r);
+            let r = m.appel("POST", &format!("/referentiel/groupes/{gbid}/membres"), Some(dir_a),
+                Some(&json!({"eleve_id": a.objets.eleve}))).await;
+            exige_refus(&mut echecs, "groupe: ajout dans un groupe de B", &r);
+            let r = m.appel("DELETE", &format!("/referentiel/groupes/{gbid}/membres/{}", a.objets.eleve), Some(dir_a), None).await;
+            exige_refus(&mut echecs, "groupe: retrait d'un groupe de B", &r);
+            cas += 3;
+        }
+        if g.est_succes() {
+            let gid = g.json["id"].as_str().unwrap().to_string();
+            let r = m.appel("POST", &format!("/referentiel/groupes/{gid}/membres"), Some(dir_a),
+                Some(&json!({"eleve_id": b.objets.eleve}))).await;
+            exige_refus(&mut echecs, "groupe: élève de B dans un groupe de A", &r);
+            cas += 1;
+            for (acteur, nom) in [(Parent, "parent"), (Eleve, "élève"), (Compta, "compta"), (Prof, "professeur")] {
+                for (meth, chemin, corps) in [
+                    ("POST", format!("/referentiel/groupes/{gid}/membres"), Some(json!({"eleve_id": a.objets.eleve}))),
+                    ("DELETE", format!("/referentiel/groupes/{gid}/membres/{}", a.objets.eleve), None),
+                ] {
+                    let r = m.appel(meth, &chemin, Some(a.jetons[&acteur].as_str()), corps.as_ref()).await;
+                    exige_refus(&mut echecs, &format!("groupe: {meth} membres par {nom}"), &r);
+                    cas += 1;
+                }
+            }
+            for (acteur, nom) in [(Parent, "parent"), (Eleve, "élève")] {
+                let r = m.appel("GET", &format!("/referentiel/groupes/{gid}/membres"), Some(a.jetons[&acteur].as_str()), None).await;
+                exige_refus(&mut echecs, &format!("groupe: liste des membres par {nom}"), &r);
+                cas += 1;
+            }
+        }
         // Attribution de rôle à une personne de B ; rôle de B attribué à une personne de A.
         let role = m.appel("POST", "/roles", Some(adm_a), Some(&json!({
             "nom": format!("Croisé {}", &Uuid::new_v4().simple().to_string()[..6]), "droits": []}))).await;
@@ -1856,6 +2091,9 @@ fn c6_routes_du_socle1_inventaire_401_et_separation() {
             ("DELETE", format!("/roles/{nul}/membres/{nul}"), None),
             ("GET", "/roles/mes-droits".into(), None),
             ("PUT", format!("/referentiel/groupes/{nul}/responsables"), Some(json!({"responsables": []}))),
+            ("GET", format!("/referentiel/groupes/{nul}/membres"), None),
+            ("POST", format!("/referentiel/groupes/{nul}/membres"), Some(json!({"eleve_id": nul}))),
+            ("DELETE", format!("/referentiel/groupes/{nul}/membres/{nul}"), None),
             ("GET", "/auth/sessions".into(), None),
             ("DELETE", format!("/auth/sessions/{nul}"), None),
             ("GET", "/etablissement/securite".into(), None),

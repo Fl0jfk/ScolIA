@@ -202,6 +202,22 @@ pub fn router() -> Router<AppState> {
             "/etablissement/personnel/{id}/reset-mot-de-passe",
             post(reinitialiser_mot_de_passe),
         )
+        .route(
+            "/etablissement/personnel/{id}/acces/fermer",
+            post(acces_fermer),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/suspendre",
+            post(acces_suspendre),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/rouvrir",
+            post(acces_rouvrir),
+        )
+        .route(
+            "/etablissement/personnel/{id}/acces/fin",
+            put(acces_programmer_fin),
+        )
         .route("/eleves/homonymes", post(rechercher_homonymes))
         .route("/eleves/sans-compte", get(list_eleves_sans_compte))
         .route(
@@ -792,6 +808,8 @@ pub fn router() -> Router<AppState> {
     // Référentiel scolaire (module séparé : `referentiel.rs`).
     let r = r.merge(crate::referentiel::routes());
     let r = r.merge(crate::referentiel_s2::routes());
+    // Socle 5, lot S2 : profil, paramètres, sites, salles, lieux (`structure.rs`).
+    let r = r.merge(crate::structure::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
@@ -804,12 +822,18 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::edt_s2::routes());
     // Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
     let r = r.merge(crate::evaluations::routes());
+    // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).
+    let r = r.merge(crate::eleve_propositions::routes());
+    // Socle 2, lot E6 : doublons et fusion de fiches (`eleve_fusion.rs`).
+    let r = r.merge(crate::eleve_fusion::routes());
     // Communication complète (S2-8, module séparé : `communication_s28.rs`).
     let r = r.merge(crate::communication_s28::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).
     let r = r.merge(crate::sante::routes());
+    // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
+    let r = r.merge(crate::personnels::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -832,7 +856,6 @@ struct PersonnelDto {
     email: String,
     role: String,
     label: String,
-    telephone: Option<String>,
 }
 
 /// Routes de labo (`POST /labo/bootstrap`) : compilées SEULEMENT avec la
@@ -1109,7 +1132,6 @@ fn personnel_dto(p: ent_db::StaffMember) -> PersonnelDto {
         email: p.email,
         role: p.role,
         label,
-        telephone: p.telephone,
     }
 }
 
@@ -1146,7 +1168,9 @@ struct PersonnelProvisionneDto {
     user_id: Uuid,
     email: String,
     role: String,
-    mot_de_passe_temporaire: String,
+    /// Toujours `true` : le compte est créé sans mot de passe utilisable et la personne reçoit un
+    /// lien d'invitation à usage unique par e-mail. Aucun secret n'est renvoyé (socle 6 P0).
+    invitation_envoyee: bool,
 }
 
 /// Provisionne un compte personnel (staff) dans l'établissement de la session.
@@ -1167,16 +1191,17 @@ async fn provisionner_personnel(
                 display_name: body.display_name,
                 role: body.role,
             },
+            &base_url_publique(),
         )
         .await
-        .map_err(map_auth)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_auth(e)))?;
     Ok((
         StatusCode::CREATED,
         Json(PersonnelProvisionneDto {
             user_id: p.user_id,
             email: p.email,
             role: p.role,
-            mot_de_passe_temporaire: p.mot_de_passe_temporaire,
+            invitation_envoyee: p.invitation_envoyee,
         }),
     ))
 }
@@ -1184,10 +1209,8 @@ async fn provisionner_personnel(
 #[derive(Serialize)]
 struct MotDePasseReinitialiseDto {
     user_id: Uuid,
-    /// Présent uniquement pour une cible du personnel ; jamais pour un parent / élève.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mot_de_passe_temporaire: Option<String>,
-    /// `true` : un lien de réinitialisation a été envoyé (aucun secret renvoyé).
+    /// `true` : un lien de réinitialisation à usage unique a été envoyé à l'adresse du compte.
+    /// Aucun secret n'est jamais renvoyé (socle 6 P0, fin du mot de passe temporaire).
     lien_envoye: bool,
 }
 
@@ -1223,15 +1246,15 @@ fn base_url_publique() -> String {
     }
 }
 
-/// Réinitialise le mot de passe d'un compte (Direction / Admin). Parent / élève :
-/// un lien est envoyé (202, aucun secret). Personnel : mot de passe temporaire
-/// affiché une seule fois (200).
+/// Réinitialise le mot de passe d'un compte (Direction / Admin) : un lien à usage unique est envoyé
+/// à l'adresse du compte (202). Aucun mot de passe n'est produit ni renvoyé, quel que soit le profil
+/// de la cible ; ses sessions sont révoquées pour un personnel.
 async fn reinitialiser_mot_de_passe(
     State(state): State<AppState>,
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<MotDePasseReinitialiseDto>), (StatusCode, String)> {
-    let issue = state
+    state
         .ent
         .reinitialiser_mot_de_passe_for_actor(
             session.etablissement_id,
@@ -1242,24 +1265,116 @@ async fn reinitialiser_mot_de_passe(
         )
         .await
         .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
-    Ok(match issue {
-        ent_db::ReinitialisationMdp::LienEnvoye => (
-            StatusCode::ACCEPTED,
-            Json(MotDePasseReinitialiseDto {
-                user_id: id,
-                mot_de_passe_temporaire: None,
-                lien_envoye: true,
-            }),
-        ),
-        ent_db::ReinitialisationMdp::MotDePasseTemporaire(mdp) => (
-            StatusCode::OK,
-            Json(MotDePasseReinitialiseDto {
-                user_id: id,
-                mot_de_passe_temporaire: Some(mdp),
-                lien_envoye: false,
-            }),
-        ),
-    })
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(MotDePasseReinitialiseDto {
+            user_id: id,
+            lien_envoye: true,
+        }),
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct MotifAccesBody {
+    motif: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FinAccesBody {
+    /// Jour de fin (AAAA-MM-JJ), l'accès se ferme le soir de ce jour ; `null` retire la date.
+    date_fin: Option<chrono::NaiveDate>,
+}
+
+#[derive(Serialize)]
+struct AccesEtatDto {
+    user_id: Uuid,
+    etat: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    date_fin: Option<chrono::NaiveDate>,
+}
+
+/// Ferme l'accès d'un membre du personnel (départ). Admin / Direction, jamais soi-même ; le
+/// dernier administrateur d'un établissement ne peut pas être fermé (409).
+async fn acces_fermer(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MotifAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_fermer_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &body.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Suspend l'accès d'un membre du personnel (mesure conservatoire, congé) ; réversible.
+async fn acces_suspendre(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<MotifAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_suspendre_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &body.motif,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Rouvre un accès suspendu ou fermé.
+async fn acces_rouvrir(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let etat = state
+        .ent
+        .acces_rouvrir_for_actor(session.etablissement_id, session.user_id, &session.role, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AccesEtatDto { user_id: id, etat: etat.as_str(), date_fin: None }))
+}
+
+/// Programme (ou retire) la date de fin d'un accès.
+async fn acces_programmer_fin(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<FinAccesBody>,
+) -> Result<Json<AccesEtatDto>, (StatusCode, String)> {
+    let fin = state
+        .ent
+        .acces_programmer_fin_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            body.date_fin,
+        )
+        .await
+        .map_err(map_db)?;
+    let etat = state
+        .ent
+        .acces_etat(session.etablissement_id, id)
+        .await
+        .map_err(map_db)?
+        .map_or("ouvert", |a| a.etat.as_str());
+    Ok(Json(AccesEtatDto { user_id: id, etat, date_fin: fin }))
 }
 
 async fn get_personnel(
@@ -3416,6 +3531,7 @@ fn inscription_dto(i: &ent_db::scolarite::InscriptionEleve) -> ent_types::scolar
         redoublement: i.redoublement,
         decision_passage: i.decision_passage.clone(),
         source: i.source.clone(),
+        annee_libelle: None,
     }
 }
 
@@ -3437,19 +3553,44 @@ async fn scolarite_eleve(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ent_types::scolarite::ScolariteDto>, (StatusCode, String)> {
-    session.require_staff()?;
-    session
-        .require_action(&state.ent, ent_auth::Action::ElevesLire, "rôle insuffisant pour lire la scolarité")
-        .await?;
-    let (statut, scol, insc) = state
-        .ent
-        .scolarite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
-        .await
-        .map_err(map_db)?;
+    // Responsable légal (démo P1 n° 3) : lecture minimisée de la scolarité de SON enfant ;
+    // les droits sont revérifiés dans le dépôt (lien actif, pas de « ne pas solliciter »).
+    let mut annees: Vec<(Uuid, String)> = Vec::new();
+    let (statut, scol, insc) = if session.role_parsed() == Some(ent_auth::Role::Parent) {
+        let (statut, scol, insc, a) = state
+            .ent
+            .scolarite_pour_famille(session.etablissement_id, session.user_id, id)
+            .await
+            .map_err(|e| match e {
+                ent_db::EntDbError::Forbidden => {
+                    (StatusCode::FORBIDDEN, "la scolarité de cet élève ne vous est pas ouverte".to_string())
+                }
+                autre => map_db(autre),
+            })?;
+        annees = a;
+        (statut, scol, insc)
+    } else {
+        session.require_staff()?;
+        session
+            .require_action(&state.ent, ent_auth::Action::ElevesLire, "rôle insuffisant pour lire la scolarité")
+            .await?;
+        state
+            .ent
+            .scolarite_pour_acteur(session.etablissement_id, session.user_id, &session.role, id)
+            .await
+            .map_err(map_db)?
+    };
     Ok(Json(ent_types::scolarite::ScolariteDto {
         statut,
         scolarisations: scol.iter().map(scolarisation_dto).collect(),
-        inscriptions: insc.iter().map(inscription_dto).collect(),
+        inscriptions: insc
+            .iter()
+            .map(|i| {
+                let mut d = inscription_dto(i);
+                d.annee_libelle = annees.iter().find(|(id, _)| *id == i.annee_id).map(|(_, l)| l.clone());
+                d
+            })
+            .collect(),
     }))
 }
 
@@ -6661,7 +6802,18 @@ async fn list_trombi_classe(
         )
         .await
         .map_err(map_db)?;
-    Ok(Json(list.iter().map(TrombiEntreeDto::from).collect()))
+    // RP1-03 : un professeur de groupe ne voit que ses élèves, pas toute la classe.
+    let suivis = state
+        .ent
+        .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(
+        list.iter()
+            .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.eleve_id)))
+            .map(TrombiEntreeDto::from)
+            .collect(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -7823,6 +7975,22 @@ async fn effectif_classe(
         .eleves_en_classe_au(session.etablissement_id, &classe, q.jour)
         .await
         .map_err(map_db)?;
+    // RP1-03 / RP1-07 : bornée aux élèves que l'acteur suit (professeur) ; vide pour la compta.
+    // La comptabilité garde l'effectif (identité minimisée par `niveau_identite`) : c'est son
+    // besoin légitime ; seul le professeur est borné à ses élèves.
+    let suivis = if session.role == "compta" {
+        None
+    } else {
+        state
+            .ent
+            .eleves_suivis_restreints(session.etablissement_id, session.user_id, &session.role)
+            .await
+            .map_err(map_db)?
+    };
+    let eleves: Vec<_> = eleves
+        .into_iter()
+        .filter(|e| suivis.as_ref().is_none_or(|s| s.contains(&e.id)))
+        .collect();
     let vues = state
         .ent
         .vues_eleves_pour_acteur(session.etablissement_id, session.user_id, &session.role, eleves)
@@ -12158,7 +12326,9 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         }
         // Dossier élève (S2-1) : classement par variante, messages sans donnée personnelle.
         ent_db::EntDbError::SaisieInvalide(_) => return (StatusCode::BAD_REQUEST, err.to_string()),
-        ent_db::EntDbError::ConflitDossier(_) => return (StatusCode::CONFLICT, err.to_string()),
+        ent_db::EntDbError::ConflitDossier(_) | ent_db::EntDbError::ConflitDossierDetail(_) => {
+            return (StatusCode::CONFLICT, err.to_string())
+        }
         // D2 : fichier déposé refusé (message sans donnée sensible).
         ent_db::EntDbError::Fichier(e) if e.est_taille() => {
             return (StatusCode::PAYLOAD_TOO_LARGE, err.to_string());
@@ -12680,8 +12850,8 @@ fn erreur_interne(err: &dyn std::fmt::Display) -> (StatusCode, String) {
 }
 
 // --- `Debug` masqué des corps / DTO portant secrets (voir `masque.rs`) ------
-debug_masque!(PersonnelProvisionneDto { user_id, role } masque { email, mot_de_passe_temporaire });
-debug_masque!(MotDePasseReinitialiseDto { user_id } masque { mot_de_passe_temporaire });
+debug_masque!(PersonnelProvisionneDto { user_id, role, invitation_envoyee } masque { email });
+debug_masque!(MotDePasseReinitialiseDto { user_id, lien_envoye } masque { });
 #[cfg(feature = "labo")]
 debug_masque!(RegisterBody { etablissement_id, role } masque { email, password });
 debug_masque!(LoginBody { etablissement_id } masque { email, password });

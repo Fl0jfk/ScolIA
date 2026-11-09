@@ -13,6 +13,7 @@ mod vie_scolaire;
 pub mod evaluations;
 mod evaluations_bulletin;
 mod enseignements;
+pub mod cours;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -77,6 +78,8 @@ mod quotient_repo;
 mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
+pub mod structure_etab;
+pub mod structure_lieux;
 mod referentiel_annee;
 mod referentiel_seances;
 pub mod edt_admin;
@@ -92,15 +95,29 @@ mod passkey_repo;
 mod email_change_repo;
 mod recuperation_repo;
 mod perimetre;
+pub mod acces;
+pub mod personnels;
+mod personnels_fiche;
+pub use acces::{AccesEtat, EtatAcces};
+pub use personnels::{
+    agent_du_compte_tx, annuaire_tx, nom_pour_lecteur, AgentActif, FiltreAnnuaire, NiveauAnnuaire,
+    ResultatCreationAgent,
+};
 mod droits_repo;
 mod droits_ctx;
 mod eleve_champs;
 pub mod identifiants;
 pub mod identite;
+pub mod param_eleve;
+pub mod propositions;
+pub mod eleve_doublons;
+pub mod eleve_fusion;
 pub mod scolarite;
 pub mod dossier_personnes;
 pub mod eleve_ports;
 pub mod inscriptions;
+pub mod inscriptions_etats;
+pub mod inscriptions_modele;
 pub mod inscriptions_reactions;
 pub mod imports;
 // Finances reliées (socle 2, lot S2-9).
@@ -225,6 +242,11 @@ pub use dossier_personnes::{
     LienSaisie, Personne, PersonneSaisie, PersonneTrouvee, Responsable, ResumeSections,
     AdresseParquee, AlertesProtection, LienEnAttenteEleve, PieceIdentite, ProtectionADeclarer, ReserveDeclaree,
     ConflitInteretVu, InterdictionSaisie, InterdictionVue, LectureDossierAdmin, NatureConflit as NatureConflitInteret,
+    AncienneIdentite, ChoixDivergence, Consentement, CoordonneeSaisie, Coordonnee, CoordonneesPersonne,
+    DivergenceCompte, HistoriqueCoordonnee, IdentiteSaisie, NatureIdentite, NatureRemplacement,
+    PreferencesPersonne, PropositionSeparation, RaisonCoordonnee, SeparationNom, VerificationEnvoyee,
+    VersionIdentite, CONSENTEMENTS, classer_telephone, masque_courriel, masque_telephone,
+    normaliser_telephone, valider_joignable,
 };
 pub use etablissement_repo::{normaliser_domaine, EtablissementInfo};
 pub use referentiel_repo::{
@@ -281,17 +303,31 @@ mod tests_d022;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022_bis;
 #[cfg(all(test, feature = "labo"))]
+mod tests_recette_personas;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s2;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0bis;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p1;
+#[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_administratif_a2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_inscriptions_i2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_cahier;
 #[cfg(all(test, feature = "labo"))]
@@ -306,6 +342,14 @@ mod tests_eleve_identite;
 mod tests_eleve_identifiants;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_scolarite;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_propositions;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_recherche;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_doublons;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_fusion;
 
 #[cfg(test)]
 mod integration_tests {

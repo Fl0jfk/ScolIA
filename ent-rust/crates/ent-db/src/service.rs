@@ -229,19 +229,22 @@ pub struct ProvisionnerPersonnel {
     pub role: String,
 }
 /// Issue d'une réinitialisation de mot de passe par un tiers habilité.
+///
+/// Socle 6, lot P0 : plus aucun mot de passe temporaire n'est produit ni renvoyé, quel que soit le
+/// profil de la cible. Un lien à usage unique est envoyé à l'adresse du compte.
 #[derive(Clone)]
 pub enum ReinitialisationMdp {
-    /// Parent / élève : un lien a été envoyé, aucun secret n'est renvoyé.
+    /// Un lien a été envoyé, aucun secret n'est renvoyé.
     LienEnvoye,
-    /// Personnel : mot de passe temporaire, affiché une seule fois.
-    MotDePasseTemporaire(String),
 }
 
 /// Famille d'opérations de gestion de compte par un tiers (hiérarchies distinctes).
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum OperationCompte {
+pub(crate) enum OperationCompte {
     Email,
     Identifiants,
+    /// Fermer, suspendre, rouvrir un accès ou en programmer la fin (socle 6, lot P0).
+    Acces,
 }
 
 /// Empreinte SHA-256 tronquée d'une adresse (pseudonymisation pour le journal).
@@ -281,13 +284,14 @@ fn nettoyer_nom_passkey(name: Option<String>) -> Result<Option<String>, EntDbErr
 }
 
 
-/// Résultat d'un provisionnement staff : mot de passe temporaire (affiché une fois).
+/// Résultat d'un provisionnement staff. Aucun secret : la personne reçoit une invitation par
+/// e-mail (lien à usage unique) et choisit elle-même son mot de passe / enrôle sa passkey.
 #[derive(Clone)]
 pub struct PersonnelProvisionne {
     pub user_id: Uuid,
     pub email: String,
     pub role: String,
-    pub mot_de_passe_temporaire: String,
+    pub invitation_envoyee: bool,
 }
 
 /// Durée de vie d'un challenge passkey (minutes). Court : c'est une fenêtre
@@ -413,6 +417,10 @@ pub enum EntDbError {
     /// Opération du dossier élève incompatible avec l'état actuel.
     #[error("opération en conflit : {0}")]
     ConflitDossier(&'static str),
+    /// Même conflit, avec un détail construit (liste de domaines, de types d'événements) : le
+    /// message est destiné à l'utilisateur et ne contient aucune donnée personnelle.
+    #[error("opération en conflit : {0}")]
+    ConflitDossierDetail(String),
     /// Refus métier explicite (S2-6) : le message est destiné à l'utilisateur.
     #[error("{1}")]
     Refus(RefusMetier, &'static str),
@@ -1105,6 +1113,53 @@ impl PgEnt {
             source_id,
             actor_user_id,
             attachments,
+            None,
+        )
+        .await
+    }
+
+    /// Facture, quittance : seulement les **payeurs du foyer concerné** (D-014, RP1-11),
+    /// jamais les responsables d'un autre foyer du même élève.
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_payeurs_foyer_mail(
+        &self,
+        etablissement_id: Uuid,
+        foyer_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        subject: &str,
+        body_text: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        attachments: Vec<MailAttachment>,
+    ) -> Result<usize, EntDbError> {
+        if !self.mailer.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .mail_outbox
+            .count_by_source_kind(etablissement_id, source_id, kind)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        let emails = self
+            .foyers
+            .emails_payeurs_foyer(etablissement_id, foyer_id)
+            .await?;
+        self.envoyer_mail_parents(
+            etablissement_id,
+            eleve_id,
+            kind,
+            subject,
+            body_text,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            attachments,
+            Some(emails),
         )
         .await
     }
@@ -1146,6 +1201,7 @@ impl PgEnt {
             source_id,
             actor_user_id,
             attachments,
+            None,
         )
         .await
     }
@@ -1163,11 +1219,16 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
         attachments: Vec<MailAttachment>,
+        destinataires: Option<Vec<String>>,
     ) -> Result<usize, EntDbError> {
-        let emails = self
-            .foyers
-            .emails_parents_eleve(etablissement_id, eleve_id)
-            .await?;
+        let emails = match destinataires {
+            Some(d) => d,
+            None => {
+                self.foyers
+                    .emails_parents_eleve(etablissement_id, eleve_id)
+                    .await?
+            }
+        };
         let mut n = 0usize;
         for to in emails {
             let receipt = match self
@@ -1483,12 +1544,85 @@ impl PgEnt {
         source_id: Uuid,
         actor_user_id: Option<Uuid>,
     ) -> Result<usize, EntDbError> {
+        self.envoyer_push_parents_vers(
+            etablissement_id,
+            eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            None,
+        )
+        .await
+    }
+
+    /// Notification d'un fil de messagerie : un fil privé ou de foyer (D-014, RP1-11)
+    /// ne notifie que ses destinataires, jamais les autres responsables de l'élève.
+    #[allow(clippy::too_many_arguments)]
+    async fn notify_parents_push_fil(
+        &self,
+        fil: &MsgFil,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+    ) -> Result<usize, EntDbError> {
+        if !self.push.is_ready() {
+            return Ok(0);
+        }
+        if self
+            .push_devices
+            .count_by_source_kind(fil.etablissement_id, source_id, kind)
+            .await?
+            > 0
+        {
+            return Ok(0);
+        }
+        let seulement = self
+            .messages
+            .destinataires_famille_fil(fil.etablissement_id, fil.id)
+            .await?;
+        self.envoyer_push_parents_vers(
+            fil.etablissement_id,
+            fil.eleve_id,
+            kind,
+            title,
+            body,
+            source_aggregate,
+            source_id,
+            actor_user_id,
+            seulement,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn envoyer_push_parents_vers(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        kind: &str,
+        title: &str,
+        body: &str,
+        source_aggregate: &str,
+        source_id: Uuid,
+        actor_user_id: Option<Uuid>,
+        seulement: Option<Vec<Uuid>>,
+    ) -> Result<usize, EntDbError> {
         // Liens ACTIFS seulement (S2-1) : un responsable suspendu n'est plus notifié.
         let liens = self
             .foyers
             .list_liens_eleve_actifs(etablissement_id, eleve_id)
             .await?;
-        let user_ids: Vec<Uuid> = liens.iter().map(|l| l.user_id).collect();
+        let user_ids: Vec<Uuid> = liens
+            .iter()
+            .map(|l| l.user_id)
+            .filter(|u| seulement.as_ref().is_none_or(|s| s.contains(u)))
+            .collect();
         let devices = self
             .push_devices
             .list_active_for_users(etablissement_id, &user_ids)
@@ -2681,7 +2815,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// L'identité (e-mail, mot de passe, passkeys) est **globale** : si la
     /// cible a une appartenance dans un autre établissement (tout rôle),
     /// l'acteur n'a aucun droit dessus (cloisonnement) → refus.
-    async fn cible_compte_autorisee(
+    pub(crate) async fn cible_compte_autorisee(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -2694,12 +2828,22 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             OperationCompte::Email => {
                 matches!(actor, Role::Admin | Role::Direction | Role::Administratif)
             }
-            OperationCompte::Identifiants => matches!(actor, Role::Admin | Role::Direction),
+            // Socle 6 : l'ancien contrôle de profil (Admin, Direction) est l'action
+            // `personnels.acces.gerer` (même modèle par défaut) ; la hiérarchie ci-dessous reste.
+            OperationCompte::Identifiants | OperationCompte::Acces => {
+                self.a_action_etablissement(
+                    etablissement_id,
+                    actor_user_id,
+                    actor_role,
+                    Action::PersonnelsAccesGerer,
+                )
+                .await?
+            }
         };
         if !permis_acteur {
             return Err(EntDbError::Forbidden);
         }
-        if op == OperationCompte::Identifiants && target_user_id == actor_user_id {
+        if op != OperationCompte::Email && target_user_id == actor_user_id {
             return Err(EntDbError::Forbidden);
         }
         let memberships = self
@@ -2718,7 +2862,14 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         // Identité globale : dès que la cible appartient à un AUTRE
         // établissement (quel que soit son rôle), aucun tiers n'a de droit
         // dessus ; seul le propriétaire agit sur son compte.
-        if memberships.iter().any(|(etab, _)| *etab != etablissement_id) {
+        // Exception : l'état d'un accès ne concerne que SON établissement (fermer l'accès ici ne
+        // touche ni l'identité ni les autres établissements de la personne), et seulement un
+        // personnel (les familles et les élèves relèvent des socles 3 et 4).
+        if op == OperationCompte::Acces {
+            if !target.is_staff() {
+                return Err(EntDbError::Forbidden);
+            }
+        } else if memberships.iter().any(|(etab, _)| *etab != etablissement_id) {
             return Err(EntDbError::Forbidden);
         }
         let ok = match (op, actor) {
@@ -2733,7 +2884,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 matches!(target, Role::Parent | Role::Eleve)
             }
             (_, Role::Admin) => true,
-            (OperationCompte::Identifiants, Role::Direction) => {
+            // Tout autre détenteur de l'action (Direction, ou rôle paramétré) : jamais sur un pair
+            // ni sur un niveau supérieur (anti-escalade).
+            (OperationCompte::Identifiants | OperationCompte::Acces, _) => {
                 !matches!(target, Role::Admin | Role::Direction)
             }
             _ => false,
@@ -3241,15 +3394,27 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// session. La création libre étant fermée en prod, c'est le chemin
     /// d'ouverture de comptes staff — réservé à Direction / Admin. Seul un
     /// Admin peut créer un Admin / une Direction.
+    ///
+    /// Socle 6, lot P0 : **plus de mot de passe temporaire**. Le compte est créé avec un secret
+    /// aléatoire que personne ne connaît (ni renvoyé, ni journalisé), et la personne reçoit une
+    /// invitation par e-mail : un lien à usage unique (7 jours) pour choisir son mot de passe, puis
+    /// la politique « passkey obligatoire » (D-009) l'enrôle à la première connexion. Messagerie
+    /// non prête ou URL publique absente → `EnvoiImpossible` **avant** toute création de compte.
     pub async fn provisionner_personnel_for_actor(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         actor_role: &str,
         cmd: ProvisionnerPersonnel,
+        public_base_url: &str,
     ) -> Result<PersonnelProvisionne, EntDbError> {
         let actor = Role::parse(actor_role).ok_or(EntDbError::Forbidden)?;
-        if !matches!(actor, Role::Admin | Role::Direction) {
+        // Socle 6 : l'ancien contrôle de profil (Admin, Direction) est l'action `personnels.gerer`
+        // (même modèle par défaut, test d'oracle) : un rôle paramétré peut l'accorder à d'autres.
+        if !self
+            .a_action_etablissement(etablissement_id, actor_user_id, actor_role, Action::PersonnelsGerer)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let target = Role::parse(&cmd.role).ok_or(EntDbError::Forbidden)?;
@@ -3259,13 +3424,26 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         if matches!(target, Role::Admin | Role::Direction) && actor != Role::Admin {
             return Err(EntDbError::Forbidden);
         }
+        // Conflit dans CET établissement : explicite (409), même messagerie à l'arrêt.
+        if self
+            .auth
+            .email_membre_de(etablissement_id, &cmd.email)
+            .await?
+        {
+            return Err(AuthError::EmailTaken.into());
+        }
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
+        }
 
-        let mot_de_passe_temporaire = generate_temp_password();
+        // Secret aléatoire jamais divulgué : il ne sert qu'à satisfaire le schéma (colonne non
+        // nulle) ; la personne définit le sien par le lien d'invitation.
+        let secret_inconnu = generate_temp_password();
         let user = match self
             .auth
             .register(
                 &cmd.email,
-                &mot_de_passe_temporaire,
+                &secret_inconnu,
                 cmd.display_name.as_deref(),
                 etablissement_id,
                 target.as_str(),
@@ -3278,9 +3456,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 // conflit est légitime (409). Connue ailleurs : réponse
                 // **indiscernable d'un succès** (C1/D-013, pas d'oracle
                 // d'existence inter-établissements) ; aucun compte n'est
-                // créé ni modifié, le mot de passe renvoyé n'est attaché à
-                // rien. Le rattachement passera par une invitation
-                // acceptée par la personne (à concevoir, SOCLE1 C1).
+                // créé ni modifié et aucun message n'est envoyé. Le rattachement
+                // passera par une invitation acceptée par la personne (lot P2).
                 if self
                     .auth
                     .email_membre_de(etablissement_id, &cmd.email)
@@ -3289,7 +3466,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     return Err(AuthError::EmailTaken.into());
                 }
                 // Même coût CPU qu'une création (Argon2id).
-                let _ = ent_auth::hash_password(&mot_de_passe_temporaire);
+                let _ = ent_auth::hash_password(&secret_inconnu);
                 let email = ent_auth::normalize_email(&cmd.email)?;
                 let _ = self
                     .enregistrer_journal_interne(EnregistrerJournal {
@@ -3312,7 +3489,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                     user_id: Uuid::new_v4(),
                     email,
                     role: target.as_str().to_string(),
-                    mot_de_passe_temporaire,
+                    invitation_envoyee: true,
                 });
             }
             Err(e) => return Err(e.into()),
@@ -3339,11 +3516,32 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             })
             .await;
 
+        // Invitation : lien à usage unique, 7 jours. Si l'envoi échoue malgré le contrôle
+        // préalable, le compte existe sans que personne n'en connaisse le secret : l'acteur
+        // renvoie l'invitation par la réinitialisation du mot de passe.
+        self.envoyer_lien_reinitialisation(
+            user.id,
+            public_base_url,
+            7 * 24 * 60,
+            "Invitation à rejoindre l'ENT",
+            "Un compte vient de vous être ouvert sur l'ENT de votre établissement.\nPour choisir votre mot de passe et activer votre accès, ouvrez ce lien (valable 7 jours)",
+        )
+        .await?;
+        self.audit_compte(
+            etablissement_id,
+            actor_user_id,
+            actor_role,
+            "invitation_personnel_envoyee",
+            "Invitation par e-mail envoyée à un nouveau membre du personnel",
+            json!({ "cible_user_id": user.id.to_string(), "cible_role": target.as_str() }),
+        )
+        .await;
+
         Ok(PersonnelProvisionne {
             user_id: user.id,
             email: user.email,
             role: target.as_str().to_string(),
-            mot_de_passe_temporaire,
+            invitation_envoyee: true,
         })
     }
 
@@ -3351,11 +3549,10 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// (Direction / Admin, hiérarchie : la Direction ne touche ni un Admin ni
     /// une autre Direction ; jamais soi-même, voir `POST /auth/password`).
     ///
-    /// * cible **Parent / Élève** : aucun secret n'est produit ni renvoyé ; un
-    ///   lien de réinitialisation (jeton à usage unique) est envoyé à
-    ///   l'adresse du compte. Messagerie non prête → `EnvoiImpossible`.
-    /// * cible **personnel** : mot de passe temporaire renvoyé une seule fois,
-    ///   toutes les sessions de la cible sont révoquées.
+    /// Socle 6, lot P0 : **aucun secret n'est produit ni renvoyé**, pour aucun profil. Un lien de
+    /// réinitialisation à usage unique (30 minutes) est envoyé à l'adresse du compte. Pour un
+    /// personnel, les sessions de la cible sont en plus révoquées (mesure conservatoire). Messagerie
+    /// non prête → `EnvoiImpossible`.
     pub async fn reinitialiser_mot_de_passe_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -3374,47 +3571,30 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             )
             .await?;
 
-        if !target.is_staff() {
-            // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un
-            // tiers : on le dit à l'acteur plutôt que d'envoyer un lien inopérant.
-            if self.email_change.est_gele(target_user_id).await? {
-                return Err(EntDbError::Forbidden);
-            }
-            self.envoyer_lien_reinitialisation(
-                target_user_id,
-                public_base_url,
-                30,
-                "Réinitialisation de votre mot de passe ENT",
-                "Un membre de l'établissement a demandé la réinitialisation de votre mot de passe.\nPour en choisir un nouveau, ouvrez ce lien (valable 30 minutes)",
-            )
-            .await?;
-            self.audit_compte(
-                etablissement_id,
-                actor_user_id,
-                actor_role,
-                "lien_reinitialisation_envoye",
-                "Lien de réinitialisation envoyé à un responsable / élève",
-                json!({
-                    "cible_user_id": target_user_id.to_string(),
-                    "cible_role": target.as_str(),
-                }),
-            )
-            .await;
-            return Ok(ReinitialisationMdp::LienEnvoye);
+        // Le lien serait refusé pendant le gel qui suit un changement d'e-mail par un tiers : on
+        // le dit à l'acteur plutôt que d'envoyer un lien inopérant.
+        if self.email_change.est_gele(target_user_id).await? {
+            return Err(EntDbError::Forbidden);
         }
-
-        let mot_de_passe_temporaire = generate_temp_password();
-        self.auth
-            .set_password(target_user_id, &mot_de_passe_temporaire)
-            .await?;
-        let sessions = self.auth.revoke_all_for_user(target_user_id).await?;
-        self.auth.invalidate_pending_resets(target_user_id).await?;
+        let sessions = if target.is_staff() {
+            self.auth.revoke_all_for_user(target_user_id).await?
+        } else {
+            0
+        };
+        self.envoyer_lien_reinitialisation(
+            target_user_id,
+            public_base_url,
+            30,
+            "Réinitialisation de votre mot de passe ENT",
+            "Un membre de l'établissement a demandé la réinitialisation de votre mot de passe.\nPour en choisir un nouveau, ouvrez ce lien (valable 30 minutes)",
+        )
+        .await?;
         self.audit_compte(
             etablissement_id,
             actor_user_id,
             actor_role,
-            "mot_de_passe_reinitialise",
-            "Mot de passe d'un membre du personnel réinitialisé",
+            "lien_reinitialisation_envoye",
+            "Lien de réinitialisation envoyé",
             json!({
                 "cible_user_id": target_user_id.to_string(),
                 "cible_role": target.as_str(),
@@ -3422,15 +3602,22 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             }),
         )
         .await;
-        Ok(ReinitialisationMdp::MotDePasseTemporaire(
-            mot_de_passe_temporaire,
-        ))
+        Ok(ReinitialisationMdp::LienEnvoye)
     }
 
     /// Un reçu vaut « envoyé » seulement si le statut est `Sent` ; `DryRun`
     /// n'est accepté qu'en build `labo` ou après `install_mail_dry_run` (tests),
     /// jamais en production : sinon un échec / une config absente produirait un
     /// faux « lien envoyé ».
+    /// Même règle pour un SMS (lot A2 : code de vérification d'un mobile).
+    pub(crate) fn sms_envoi_reussi(&self, receipt: &ent_sms::SmsReceipt) -> bool {
+        match receipt.status {
+            ent_sms::SmsSendStatus::Sent => true,
+            ent_sms::SmsSendStatus::DryRun => self.mail_dry_run_accepte,
+            ent_sms::SmsSendStatus::SkippedNoConfig | ent_sms::SmsSendStatus::Failed => false,
+        }
+    }
+
     pub(crate) fn envoi_reussi(&self, receipt: &MailReceipt) -> bool {
         match receipt.status {
             MailSendStatus::Sent => true,
@@ -4311,9 +4498,15 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             Vec::new()
         };
         let liens = if sections.famille {
-            self.foyers
+            let brut = self
+                .foyers
                 .list_liens_dossier(etablissement_id, eleve_id)
-                .await?
+                .await?;
+            // RP2-01 : même vue A1 que `GET /dossier/eleves/{id}/responsables` (aucune seconde règle).
+            let admin = self
+                .lecture_dossier_admin(etablissement_id, actor_user_id, role, eleve_id)
+                .await?;
+            crate::dossier_personnes::minimiser_liens_dossier(brut, &admin.responsables)
         } else {
             Vec::new()
         };
@@ -4531,7 +4724,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 notes,
                 vs,
                 documents: true,
-                dispositifs: true,
+                // RP1-20 : un professeur lit les aménagements (S2-11), jamais le type de
+                // dispositif (PAP, PPS, PPRE, ULIS : donnée de santé / handicap).
+                dispositifs: parsed != Role::Prof,
                 repas: true,
                 bourses: false,
                 continuum: true,
@@ -5141,6 +5336,23 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         }
     }
 
+    /// RP1-03 / RP1-07 (D-022) : élèves qu'un personnel peut **suivre** (`suivi_eleve`).
+    /// `None` = aucune restriction (rôles « établissement ») ; `Some(ids)` = seulement ceux-là
+    /// (professeur : ses classes et ses groupes ; comptabilité : aucun). Listes de classe,
+    /// effectif et trombinoscope s'y bornent. Non-personnel : `None` (leurs routes ont leur règle).
+    pub async fn eleves_suivis_restreints(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+    ) -> Result<Option<std::collections::HashSet<Uuid>>, EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok(None);
+        }
+        self.eleves_autorises(etablissement_id, actor_user_id, role, Action::SuiviEleve)
+            .await
+    }
+
     /// RF-04 (d à g) : le périmètre « mes classes » appliqué à une CLASSE entière. Un
     /// professeur (ou tout rôle dont `suivi_eleve` est borné) n'agit que sur les classes
     /// où il suit au moins un élève ; direction et rôles « établissement » gardent leur
@@ -5541,12 +5753,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         };
         let _ = eleve;
 
+        // RP2-03 : une personne déjà connue pour cet e-mail est réutilisée (jamais de seconde fiche)
+        // et sa marque « ne pas solliciter » est respectée : ni compte ouvert, ni activation.
+        let existante = self.personne_par_email(etablissement_id, email).await?;
+        if existante.is_some_and(|p| p.ne_pas_solliciter) {
+            return Err(EntDbError::ConflitDossier(
+                "cette personne ne doit pas être sollicitée : aucun compte n'est ouvert par ce chemin ; \
+                 utiliser l'ajout de responsable du dossier (lien sans compte)",
+            ));
+        }
         let mut compte_cree = false;
         let user_id = if let Some(uid) = self
             .auth
             .find_member_id_by_email(etablissement_id, email)
             .await?
         {
+            uid
+        } else if let Some(uid) = existante.and_then(|p| p.user_id) {
             uid
         } else {
             // Jamais de mot de passe choisi par un tiers : le compte reçoit un
@@ -5571,6 +5794,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             if !t.is_empty() {
                 self.set_user_telephone(user_id, t).await?;
             }
+        }
+        if let Some(p) = existante.filter(|p| p.user_id.is_none()) {
+            self.rattacher_compte_a_la_fiche(etablissement_id, p.id, user_id)
+                .await?;
         }
 
         let saved = self
@@ -5890,6 +6117,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         };
         if parsed.is_staff() {
+            // E6 (§7.10) : une fiche absorbée par une fusion redirige vers la fiche conservée ;
+            // les droits sont évalués sur la fiche qui répond.
+            let eleve_id = self.eleve_effectif(etablissement_id, eleve_id).await?;
             // E1 : l'annuaire (désignation) est une action du catalogue, avec sa portée.
             if !self
                 .autoriser_eleve(
@@ -5984,7 +6214,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_comptes
                 .eleve_id_for_user(etablissement_id, actor_user_id)
                 .await?;
-            return Ok(linked == Some(eleve_id));
+            if linked != Some(eleve_id) {
+                return Ok(false);
+            }
+            // RF-22 : un élève mineur ne déclare pas sa propre absence (cf. B3).
+            return self
+                .eleve_est_majeur(etablissement_id, eleve_id, today_utc())
+                .await;
         }
         Ok(false)
     }
@@ -7863,9 +8099,32 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Ok((existing, lignes));
         }
 
-        let effectif = self
+        let mut effectif = self
             .effectif_appel(&creneau, jour, auteur_user_id, role)
             .await?;
+        // D-022 (recette personas 1, RP1-24) : l'appel d'un cours de groupe ne porte que sur
+        // les élèves affectés au groupe à la date, jamais sur toute la classe.
+        let groupe: Option<Uuid> = sqlx::query_scalar(
+            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(creneau.id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        if let Some(groupe_id) = groupe {
+            let membres: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT eleve_id FROM ent_affectation
+                  WHERE etablissement_id = $1 AND groupe_id = $2
+                    AND date_debut <= $3 AND (date_fin IS NULL OR date_fin >= $3)",
+            )
+            .bind(etablissement_id)
+            .bind(groupe_id)
+            .bind(jour)
+            .fetch_all(&self.pool)
+            .await?;
+            effectif.retain(|e| membres.contains(&e.id));
+        }
 
         let appel = Appel {
             id: Uuid::new_v4(),
@@ -9417,6 +9676,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get(etablissement_id, eleve_id)
                 .await?
                 .ok_or(DomainError::NotFound)?;
+            // RF-15 (D-017) : le droit « dossier.lire » et sa portée décident ;
+            // un professeur ne liste que les documents de ses élèves.
+            if !self
+                .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DossierLire, eleve_id)
+                .await?
+            {
+                return Err(EntDbError::Forbidden);
+            }
         } else if matches!(parsed, Role::Parent) {
             if self
                 .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
@@ -9445,9 +9712,29 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let accessible = self
                 .actor_can_read_document(etablissement_id, actor_user_id, role, &doc)
                 .await?;
+            // D-014 : le document famille d'un autre foyer n'apparaît même pas.
+            if !accessible
+                && parsed == Role::Parent
+                && doc.tiroir == DocTiroir::Famille
+                && !self
+                    .foyers
+                    .document_famille_lisible(
+                        etablissement_id,
+                        doc.eleve_id,
+                        doc.created_by_user_id,
+                        actor_user_id,
+                    )
+                    .await?
+            {
+                continue;
+            }
             if !accessible {
                 doc.storage_key = None;
                 doc.mime_type = None;
+                // RF-15 : le titre d'un document restreint/santé n'est pas révélé.
+                if doc.confidentialite != DocConfidentialite::Standard {
+                    doc.titre = "Document à accès restreint".to_string();
+                }
             }
             out.push((doc, accessible));
         }
@@ -9599,7 +9886,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let lien = self
                 .lien_parent_eleve(etablissement_id, actor_user_id, doc.eleve_id)
                 .await?;
-            return Ok(lien.is_some());
+            if lien.is_none() {
+                return Ok(false);
+            }
+            // D-014 (RP1-11) : seulement les documents de son propre foyer.
+            return Ok(self
+                .foyers
+                .document_famille_lisible(
+                    etablissement_id,
+                    doc.eleve_id,
+                    doc.created_by_user_id,
+                    actor_user_id,
+                )
+                .await?);
         }
         // Élève : docs famille standard sur soi.
         if parsed == Role::Eleve
@@ -12809,7 +13108,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(closed)
     }
 
-    async fn enregistrer_journal_interne(
+    pub(crate) async fn enregistrer_journal_interne(
         &self,
         cmd: EnregistrerJournal,
     ) -> Result<JournalEntree, EntDbError> {
@@ -12896,6 +13195,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     && !e.action.starts_with("conflit_interet")
                     && !e.action.starts_with("interdiction_")
             });
+        }
+        // RP1-20 : les traces de consultation sensible (« Consultation du PAI », « …dossier
+        // psychologue ») sont du journal d'audit : `audit.lire` seulement, pas le personnel
+        // qui lit simplement le journal de vie scolaire.
+        if parsed.is_staff()
+            && !self
+                .a_action_etablissement(etablissement_id, user_id, role, Action::AuditLire)
+                .await?
+        {
+            entrees.retain(|e| e.domaine != "consultation");
         }
         Ok(entrees)
     }
@@ -13328,6 +13637,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .eleve_id_for_user(cmd.etablissement_id, cmd.actor_user_id)
                 .await?;
             if linked != Some(current.eleve_id) {
+                return Err(EntDbError::Forbidden);
+            }
+            // Recette personas 1 (RP1-10) : un élève mineur ne signe pas à la place de ses
+            // responsables ; seul l'élève majeur signe lui-même.
+            if !self
+                .eleve_est_majeur(cmd.etablissement_id, current.eleve_id, today_utc())
+                .await?
+            {
                 return Err(EntDbError::Forbidden);
             }
         }
@@ -14287,6 +14604,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<String>, EntDbError> {
+        // RP1-04 : la photo d'un élève n'est lue que par le personnel qui le suit.
+        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id)
+            .await?;
         let eleve = self
             .get_eleve_for_actor(etablissement_id, user_id, role, eleve_id)
             .await?
@@ -15590,6 +15910,20 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .dispenses_vs
             .list_eleve(etablissement_id, eleve_id, actives_seulement)
             .await?)
+        .map(|mut l: Vec<DispenseVs>| {
+            // RP1-20 : le professeur et le reste du personnel non soignant voient la
+            // dispense (dates, motif général) mais pas le commentaire libre, qui porte
+            // le motif médical.
+            if parsed.is_staff() && !matches!(parsed, Role::Admin | Role::Direction | Role::Cpe | Role::Infirmerie | Role::Psy) {
+                for d in &mut l {
+                    d.commentaire.clear();
+                    if d.motif == domain_eleve::DispenseVsMotif::Medical {
+                        d.motif = domain_eleve::DispenseVsMotif::Autre;
+                    }
+                }
+            }
+            l
+        })
     }
 
     pub async fn list_dispenses_vs_jour_for_actor(
@@ -16994,8 +17328,36 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         fil: &MsgFil,
     ) -> Result<bool, EntDbError> {
-        self.actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
-            .await
+        if !self
+            .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
+            .await?
+        {
+            return Ok(false);
+        }
+        // D-014 (RP1-11) : un compte famille ne lit que les fils auxquels il participe.
+        if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve)) {
+            return Ok(self
+                .messages
+                .fils_lisibles_famille(etablissement_id, actor_user_id, &[fil.id])
+                .await?
+                .contains(&fil.id));
+        }
+        Ok(true)
+    }
+
+    /// Ne garde que les fils lisibles par un compte famille (D-014, RP1-11).
+    async fn filtrer_fils_famille(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        fils: Vec<MsgFil>,
+    ) -> Result<Vec<MsgFil>, EntDbError> {
+        let ids: Vec<Uuid> = fils.iter().map(|f| f.id).collect();
+        let ok = self
+            .messages
+            .fils_lisibles_famille(etablissement_id, user_id, &ids)
+            .await?;
+        Ok(fils.into_iter().filter(|f| ok.contains(&f.id)).collect())
     }
 
     pub async fn ouvrir_fil_for_actor(
@@ -17020,7 +17382,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?
             .ok_or(DomainError::NotFound)?;
         let (fil, msg) = plan_ouvrir_fil(cmd)?;
-        self.messages.insert_fil(&fil).await?;
+        // D-014 (RP1-11) : un fil ouvert par un responsable reste privé entre lui et
+        // l'établissement ; un fil ouvert par l'établissement reste visible de tous les
+        // responsables de l'élève.
+        let prive = (Role::parse(role) == Some(Role::Parent)).then_some(fil.created_by_user_id);
+        self.messages.insert_fil_portee(&fil, prive, None).await?;
         self.messages.insert_message(&msg).await?;
         self.events
             .publish(MetierEventDraft {
@@ -17037,9 +17403,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             })
             .await?;
         let _ = self
-            .notify_parents_push(
-                fil.etablissement_id,
-                fil.eleve_id,
+            .notify_parents_push_fil(
+                &fil,
                 "messagerie",
                 &fil.sujet,
                 "Nouveau message — ouvrez le portail famille.",
@@ -17088,9 +17453,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         // Push famille si staff répond (pas si le parent se répond à lui-même).
         let _ = self
-            .notify_parents_push(
-                fil.etablissement_id,
-                fil.eleve_id,
+            .notify_parents_push_fil(
+                &fil,
                 "messagerie_reponse",
                 &fil.sujet,
                 "Nouvelle réponse — ouvrez la messagerie.",
@@ -17164,12 +17528,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 if !lies.contains(&eid) {
                     return Err(EntDbError::Forbidden);
                 }
-                return Ok(self.messages.list_fils_eleve(etablissement_id, eid).await?);
+                let fils = self.messages.list_fils_eleve(etablissement_id, eid).await?;
+                return self
+                    .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                    .await;
             }
-            return Ok(self
+            let fils = self
                 .messages
                 .list_fils_eleves(etablissement_id, &lies)
-                .await?);
+                .await?;
+            return self
+                .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                .await;
         }
         if parsed == Role::Eleve {
             let linked = self
@@ -17182,10 +17552,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     return Err(EntDbError::Forbidden);
                 }
             }
-            return Ok(self
+            let fils = self
                 .messages
                 .list_fils_eleve(etablissement_id, linked)
-                .await?);
+                .await?;
+            return self
+                .filtrer_fils_famille(etablissement_id, actor_user_id, fils)
+                .await;
         }
         Err(EntDbError::Forbidden)
     }
@@ -17869,8 +18242,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?
         {
             let _ = self
-                .notify_parents_mail(
+                .notify_payeurs_foyer_mail(
                     emise.etablissement_id,
+                    emise.foyer_id,
                     eleve_id,
                     "facture",
                     &format!("Facture {}", emise.numero),
@@ -18253,8 +18627,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             let pdf = domain_eleve::render_quittance_pdf(&quittance, &facture.numero);
             let _ = self
-                .notify_parents_mail(
+                .notify_payeurs_foyer_mail(
                     facture.etablissement_id,
+                    facture.foyer_id,
                     eleve_id,
                     "quittance",
                     &format!(
@@ -18942,7 +19317,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         premier_message: cand_corps(&cand),
                         actor_user_id,
                     })?;
-                    self.messages.insert_fil(&fil).await?;
+                    // D-014 (RP1-11) : la relance n'est lisible que des payeurs du foyer.
+                    self.messages
+                        .insert_fil_portee(&fil, None, Some(cand.foyer_id))
+                        .await?;
                     self.messages.insert_message(&msg).await?;
                     self.facturation
                         .update_rappel_fil(
@@ -19198,7 +19576,7 @@ impl std::fmt::Debug for PersonnelProvisionne {
             .field("user_id", &self.user_id)
             .field("role", &self.role)
             .field("email", &"[masqué]")
-            .field("mot_de_passe_temporaire", &"[masqué]")
+            .field("invitation_envoyee", &self.invitation_envoyee)
             .finish()
     }
 }

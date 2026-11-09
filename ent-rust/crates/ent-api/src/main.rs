@@ -162,6 +162,13 @@ async fn run_api() {
                     Ok(b) => tracing::info!(?b, "tâche quotidienne des élèves"),
                     Err(e) => tracing::warn!("tâche quotidienne des élèves : {e}"),
                 }
+                // Lot E6 (ELV-22) : détection des doublons, une fois par jour et par établissement
+                // (le passage du jour est mémorisé en base ; les appels suivants ne font rien).
+                match ent.tache_doublons_eleves().await {
+                    Ok(n) if n > 0 => tracing::info!(etablissements = n, "détection des doublons d'élèves"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("détection des doublons d'élèves : {e}"),
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
             }
         })

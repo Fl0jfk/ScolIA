@@ -64,7 +64,13 @@ pub fn PagePreinscription() -> impl IntoView {
         })
     };
 
+    // Établissement : `?etab=` (labo local) ou configuration du serveur ; à terme, déduit
+    // de l'adresse du site (D-012), ce qui rend les deux inutiles.
+    let requete = use_query_map();
     let demarrer = Callback::new(move |_| {
+        let etab_url = requete
+            .with_untracked(|q| q.get("etab"))
+            .and_then(|e| e.trim().parse::<Uuid>().ok());
         let e = email.get_untracked();
         if !email_plausible(&e) {
             erreur.set(Some("Saisissez une adresse e-mail valide.".into()));
@@ -73,7 +79,14 @@ pub fn PagePreinscription() -> impl IntoView {
         erreur.set(None);
         en_cours.set(true);
         spawn_local(async move {
-            let r = client.get_untracked().demarrer(&e, None).await;
+            let etab = match etab_url {
+                Some(id) => Some(id),
+                None => crate::modules::connexion::config_connexion()
+                    .await
+                    .ok()
+                    .and_then(|c| c.etablissement_id),
+            };
+            let r = client.get_untracked().demarrer(&e, etab).await;
             en_cours.set(false);
             match r {
                 Ok(d) => {
@@ -245,7 +258,10 @@ fn Formulaire(
     let resp_tel = RwSignal::new(String::new());
     let resp_adresse = RwSignal::new(String::new());
     let resp_lien = RwSignal::new(String::new());
+    let resp_adresse_protegee = RwSignal::new(false);
     let second = RwSignal::new(false);
+    let second_lien = RwSignal::new(String::new());
+    let second_ne_pas_solliciter = RwSignal::new(false);
     let second_nom = RwSignal::new(String::new());
     let second_prenom = RwSignal::new(String::new());
     let second_email = RwSignal::new(String::new());
@@ -282,7 +298,10 @@ fn Formulaire(
             resp_telephone: resp_tel.get_untracked(),
             resp_adresse: resp_adresse.get_untracked(),
             resp_lien: resp_lien.get_untracked(),
+            resp_adresse_protegee: resp_adresse_protegee.get_untracked(),
             second: second.get_untracked(),
+            second_lien: second_lien.get_untracked(),
+            second_ne_pas_solliciter: second_ne_pas_solliciter.get_untracked(),
             second_nom: second_nom.get_untracked(),
             second_prenom: second_prenom.get_untracked(),
             second_email: second_email.get_untracked(),
@@ -355,7 +374,9 @@ fn Formulaire(
                 <ChampTexte id="pi-resp-prenom" libelle="Prénom" valeur=resp_prenom autocomplete="given-name"/>
                 <ChampTexte id="pi-resp-tel" libelle="Téléphone" valeur=resp_tel genre="tel" autocomplete="tel"/>
                 <ChampTexte id="pi-resp-adresse" libelle="Adresse postale" valeur=resp_adresse autocomplete="street-address"/>
-                <Selection id="pi-resp-lien" libelle="Lien avec l'élève" valeur=resp_lien options=options_liens/>
+                <Selection id="pi-resp-lien" libelle="Lien avec l'élève" valeur=resp_lien options=options_liens.clone()/>
+                <Case id="pi-resp-protegee" libelle="Mon adresse doit rester confidentielle (protection)" coche=resp_adresse_protegee/>
+                <p class="aide">"Si vous cochez cette case, l'adresse n'est conservée nulle part en clair : seule la direction peut l'ouvrir, et elle n'est montrée à aucun autre parent ni au personnel."</p>
             </fieldset>
             <Case id="pi-second" libelle="Indiquer le second parent (il recevra une invitation à la validation du dossier)" coche=second/>
             {move || second.get().then(|| view! {
@@ -363,9 +384,12 @@ fn Formulaire(
                     <legend>"Second parent"</legend>
                     <ChampTexte id="pi-second-nom" libelle="Nom" valeur=second_nom requis=true/>
                     <ChampTexte id="pi-second-prenom" libelle="Prénom" valeur=second_prenom/>
+                    <Selection id="pi-second-lien" libelle="Lien avec l'élève" valeur=second_lien options=options_liens.clone()/>
                     <Case id="pi-second-foyer" libelle="Même foyer que vous" coche=second_meme_foyer/>
                     <ChampTexte id="pi-second-email" libelle="Adresse e-mail du second parent" valeur=second_email genre="email"
                         aide="Obligatoire si les parents sont séparés (une fiche et un compte par parent)."/>
+                    <Case id="pi-second-nps" libelle="Ne pas solliciter ce parent (décision de justice, mesure de protection…)" coche=second_ne_pas_solliciter/>
+                    <p class="aide">"Il ne recevra ni invitation, ni demande de confirmation, ni relance. La direction vérifie et confirme cette mention avant toute prise de contact."</p>
                 </fieldset>
             })}
             <Case id="pi-profil" libelle="Enregistrer ces informations dans votre profil" coche=enregistrer/>

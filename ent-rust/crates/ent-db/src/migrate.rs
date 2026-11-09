@@ -164,6 +164,10 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/270_conflit_interet.sql"),
     include_str!("../../../migrations/271_eleve_interdiction.sql"),
     include_str!("../../../migrations/272_contact_declarant.sql"),
+    include_str!("../../../migrations/273_personne_coordonnee.sql"),
+    include_str!("../../../migrations/274_personne_coordonnee_projection.sql"),
+    include_str!("../../../migrations/275_personne_verification_preferences.sql"),
+    include_str!("../../../migrations/276_personne_version_divergence.sql"),
     include_str!("../../../migrations/280_eleve_identite_versionnee.sql"),
     include_str!("../../../migrations/281_eleve_identifiants.sql"),
     include_str!("../../../migrations/282_eleve_numero.sql"),
@@ -171,16 +175,42 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/284_eleve_inscription.sql"),
     include_str!("../../../migrations/285_eleve_capacite_majorite.sql"),
     include_str!("../../../migrations/286_eleve_options.sql"),
+    include_str!("../../../migrations/287_eleve_param_champ.sql"),
+    include_str!("../../../migrations/288_eleve_proposition.sql"),
+    include_str!("../../../migrations/289_eleve_proposition_garde.sql"),
+    include_str!("../../../migrations/290_eleve_recherche.sql"),
+    include_str!("../../../migrations/291_eleve_doublon.sql"),
+    include_str!("../../../migrations/292_eleve_fusion.sql"),
+    include_str!("../../../migrations/293_eleve_fusion_gardes.sql"),
+    include_str!("../../../migrations/294_eleve_fusion_securite.sql"),
     include_str!("../../../migrations/300_inscription_annuelle_prevue.sql"),
     include_str!("../../../migrations/301_inscriptions_i1_dossier.sql"),
+    include_str!("../../../migrations/302_inscription_campagne_modele.sql"),
+    include_str!("../../../migrations/303_inscription_offre.sql"),
+    include_str!("../../../migrations/304_inscription_demarche_dossier.sql"),
+    include_str!("../../../migrations/305_inscription_declaration_responsable.sql"),
+    include_str!("../../../migrations/306_inscription_offre_reprise_places.sql"),
+    include_str!("../../../migrations/307_inscription_fermeture_prolongation.sql"),
+    include_str!("../../../migrations/308_inscription_validation_annulee.sql"),
+    include_str!("../../../migrations/309_inscription_envoi_information.sql"),
+    include_str!("../../../migrations/330_structure_garde_fous.sql"),
+    include_str!("../../../migrations/331_cours_membres.sql"),
+    include_str!("../../../migrations/332_structure_profil_parametres.sql"),
+    include_str!("../../../migrations/337_structure_lieux.sql"),
+    include_str!("../../../migrations/350_acces_etat.sql"),
+    include_str!("../../../migrations/351_attributions_datees.sql"),
+    include_str!("../../../migrations/352_agents.sql"),
+    include_str!("../../../migrations/353_agents_fonctions.sql"),
+    include_str!("../../../migrations/361_agent_identifiants.sql"),
     include_str!("../../../migrations/370_edt_creneau_groupe.sql"),
+    include_str!("../../../migrations/375_msg_fil_prive.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "370_edt_creneau_groupe";
+pub const MIGRATION_TAG: &str = "375_msg_fil_prive";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

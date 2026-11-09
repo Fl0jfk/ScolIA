@@ -30,7 +30,7 @@ fn mercredi_scolaire(jour: NaiveDate) -> NaiveDate {
 }
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     if assert_local_postgres_url(&url).is_err() {
         panic!("ENT_DATABASE_URL must be local");
     }

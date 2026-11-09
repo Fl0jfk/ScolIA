@@ -7618,6 +7618,21 @@ async fn explorer_param_salles(
     }
     r.geste("Rogue lit seuil_absences=4");
 
+    // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
+    // Déjà présent d'un scénario précédent : le conflit est attendu et ignoré.
+    let _ = ent
+        .ref_creer_site(
+            &ent_db::Acteur {
+                etablissement_id: cast.etablissement_id,
+                user_id: cast.administratif.user_id,
+                role: Role::Administratif.as_str(),
+            },
+            "principal",
+            "Site principal",
+            None,
+            None,
+        )
+        .await;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),
@@ -8004,6 +8019,21 @@ async fn explorer_edt_affectation_editions(
     let mcg = cast.profs.get(1).map(|p| p.user_id).unwrap_or(rogue);
     let admini = cast.administratifs[0].user_id;
 
+    // Une salle est toujours liée à un site existant (socle 5, S2) : le labo déclare le sien.
+    // Déjà présent d'un scénario précédent : le conflit est attendu et ignoré.
+    let _ = ent
+        .ref_creer_site(
+            &ent_db::Acteur {
+                etablissement_id: cast.etablissement_id,
+                user_id: cast.administratif.user_id,
+                role: Role::Administratif.as_str(),
+            },
+            "principal",
+            "Site principal",
+            None,
+            None,
+        )
+        .await;
     let salle = ent
         .creer_salle_for_actor(
             Role::Administratif.as_str(),
@@ -8012,7 +8042,7 @@ async fn explorer_edt_affectation_editions(
                 code: "AFF-01".into(),
                 libelle: "Salle affectation lab".into(),
                 capacite: Some(30),
-                site: None,
+                site: Some("principal".into()),
                 actor_user_id: admini,
             },
         )

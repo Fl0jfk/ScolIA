@@ -228,6 +228,22 @@ pub enum Action {
     DossierAdminParametrer,
     /// Ouvre F2 et F3 d'un élève hors portée, sur motif, avec alerte à la direction ; jamais F4.
     ResponsablesAccesUrgence,
+    /// Valider une inscription admise (INS-05 : secrétariat ou direction ; RP2-11). Placée en fin
+    /// de catalogue : la matrice historique (oracle A1) reste inchangée.
+    InscriptionsValider,
+    // ── Socle 6 (personnels), lot P1 : agents et engagements (`06_PERSONNELS.md` §14.2) ──
+    /// Annuaire interne des agents (désignation, fonction, état) — tout le personnel, sans téléphone.
+    PersonnelsAnnuaire,
+    /// Fiche d'organisation d'un agent : engagements, fonctions, disciplines, qualifications.
+    PersonnelsLire,
+    /// Coordonnées personnelles et contact d'urgence d'un agent.
+    PersonnelsPersonnelLire,
+    /// Identité restreinte, motifs réservés et suspension d'engagement (confidentiel).
+    PersonnelsConfidentielGerer,
+    /// Créer et modifier les agents, engagements, fonctions, disciplines et qualifications.
+    PersonnelsGerer,
+    /// Inviter, ouvrir, suspendre, fermer l'accès d'un agent ; réinitialiser ses identifiants.
+    PersonnelsAccesGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -244,7 +260,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 101] = [
+    pub const TOUTES: [Action; 108] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -350,6 +366,14 @@ impl Action {
         Action::DossierAdminExporter,
         Action::DossierAdminParametrer,
         Action::ResponsablesAccesUrgence,
+        Action::InscriptionsValider,
+        // Socle 6, lot P1
+        Action::PersonnelsAnnuaire,
+        Action::PersonnelsLire,
+        Action::PersonnelsPersonnelLire,
+        Action::PersonnelsConfidentielGerer,
+        Action::PersonnelsGerer,
+        Action::PersonnelsAccesGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -456,6 +480,13 @@ impl Action {
             Self::DossierAdminExporter => "dossier_admin.exporter",
             Self::DossierAdminParametrer => "dossier_admin.parametrer",
             Self::ResponsablesAccesUrgence => "responsables.acces_urgence",
+            Self::InscriptionsValider => "inscriptions.valider",
+            Self::PersonnelsAnnuaire => "personnels.annuaire",
+            Self::PersonnelsLire => "personnels.lire",
+            Self::PersonnelsPersonnelLire => "personnels.personnel.lire",
+            Self::PersonnelsConfidentielGerer => "personnels.confidentiel.gerer",
+            Self::PersonnelsGerer => "personnels.gerer",
+            Self::PersonnelsAccesGerer => "personnels.acces.gerer",
         }
     }
 
@@ -527,7 +558,7 @@ impl Action {
             Self::ElevesExporter => "Exporter des listes nominatives d'élèves",
             Self::ElevesParametrer => "Paramétrer les champs et règles de l'élève",
             Self::InscriptionsGerer => "Gérer les campagnes et instruire les dossiers d'inscription",
-            Self::InscriptionsDecider => "Décider des admissions et valider les inscriptions",
+            Self::InscriptionsDecider => "Décider des admissions",
             Self::ImportsAppliquer => "Importer des élèves et traiter les rejets d'import",
             Self::CahierLire => "Lire le cahier de textes, le travail à faire et la charge de travail",
             Self::CahierEcrire => "Renseigner le cahier de textes, donner du travail, corriger les copies",
@@ -565,6 +596,13 @@ impl Action {
             Self::DossierAdminExporter => "Exports nominatifs du dossier administratif",
             Self::DossierAdminParametrer => "Paramétrer le dossier administratif",
             Self::ResponsablesAccesUrgence => "Bris de glace sur le dossier administratif",
+            Self::InscriptionsValider => "Valider les inscriptions admises par la direction",
+            Self::PersonnelsAnnuaire => "Annuaire interne des agents",
+            Self::PersonnelsLire => "Fiche d'organisation des agents (engagements, fonctions)",
+            Self::PersonnelsPersonnelLire => "Coordonnées personnelles et contact d'urgence des agents",
+            Self::PersonnelsConfidentielGerer => "Identité restreinte et suspension d'engagement des agents",
+            Self::PersonnelsGerer => "Créer et modifier les agents et leurs engagements",
+            Self::PersonnelsAccesGerer => "Inviter, ouvrir, suspendre, fermer l'accès d'un agent",
         }
     }
 
@@ -584,6 +622,8 @@ impl Action {
             Self::ResponsablesJuridiqueLire => &[Self::LiensJuridiqueGerer],
             Self::RemiseLire => &[Self::RemiseGerer],
             Self::ResponsablesProtegeLire => &[Self::ResponsablesProtegeGerer],
+            // Socle 6 (§14.2) : inclusions explicites, aucune autre.
+            Self::PersonnelsLire => &[Self::PersonnelsGerer],
             _ => &[],
         }
     }
@@ -663,9 +703,21 @@ impl Action {
             | Self::FicheRentreeGerer
             | Self::DossierAdminExporter
             | Self::DossierAdminParametrer
-            | Self::ResponsablesAccesUrgence => &[Portee::Etablissement],
+            | Self::ResponsablesAccesUrgence
+            // Socle 6, lot P1 : les « sites désignés » viendront avec le référentiel de sites ;
+            // `personnels.acces.gerer` et `personnels.confidentiel.gerer` ne se donnent que par
+            // qui les détient (anti-escalade, §14.2).
+            | Self::PersonnelsAnnuaire
+            | Self::PersonnelsLire
+            | Self::PersonnelsPersonnelLire
+            | Self::PersonnelsConfidentielGerer
+            | Self::PersonnelsGerer
+            | Self::PersonnelsAccesGerer => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
-            Self::InscriptionsGerer | Self::InscriptionsDecider | Self::ImportsAppliquer => {
+            Self::InscriptionsGerer
+            | Self::InscriptionsDecider
+            | Self::InscriptionsValider
+            | Self::ImportsAppliquer => {
                 &[Portee::Etablissement]
             }
             // S2-7 : actions de direction sur toute une période ou toute une classe.
@@ -736,6 +788,24 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     d.push(etab(ReferentielLire));
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ReferentielGerer));
+    }
+    // Socle 6 (§14.2) : annuaire interne = comportement actuel de `/personnel/search` (tout le
+    // personnel, sans le téléphone) ; fiche d'organisation, gestion et accès = l'ancien
+    // `provisionner_personnel` (Admin, Direction). Le secrétariat n'obtient pas la gestion des
+    // agents par défaut (Q-P23 : comportement actuel conservé, un rôle paramétré peut l'ouvrir).
+    d.push(etab(PersonnelsAnnuaire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsLire));
+    }
+    if role.can_gerer_personnels() {
+        for a in [
+            PersonnelsPersonnelLire,
+            PersonnelsConfidentielGerer,
+            PersonnelsGerer,
+            PersonnelsAccesGerer,
+        ] {
+            d.push(etab(a));
+        }
     }
     // E1 : l'annuaire (désignation) est ouvert à tout le personnel, comme l'ancien
     // `can_read_all_eleves` (Q-E3). Le détail de scolarité (G1, régime, MEF, dates),
@@ -821,9 +891,13 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_read_all_eleves() {
         d.push(etab(DossierLire));
-        d.push(etab(SuiviEleve));
+        // RP1-07 : la comptabilité n'a aucun besoin de la vie scolaire ni du suivi
+        // (journal, alertes CPE, dispenses, conseils, sorties, internat, chronologie).
+        if role != Role::Compta {
+            d.push(etab(SuiviEleve));
+        }
     }
-    if role.can_read_all_eleves() || role.can_manage_eleves() {
+    if (role.can_read_all_eleves() || role.can_manage_eleves()) && role != Role::Compta {
         d.push(etab(JournalLire));
     }
     if matches!(
@@ -988,6 +1062,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role.can_manage_eleves() {
         d.push(etab(InscriptionsGerer));
+        d.push(etab(InscriptionsValider));
         d.push(etab(ImportsAppliquer));
     }
     if matches!(role, Role::Admin | Role::Direction) {
@@ -1120,6 +1195,9 @@ mod tests {
         assert_eq!(a(Role::Administratif, InscriptionsGerer), Some(Portee::Etablissement));
         assert_eq!(a(Role::Administratif, InscriptionsDecider), None);
         assert_eq!(a(Role::Direction, InscriptionsDecider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Administratif, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Direction, InscriptionsValider), Some(Portee::Etablissement));
+        assert_eq!(a(Role::Cpe, InscriptionsValider), None);
         assert_eq!(a(Role::Cpe, InscriptionsGerer), None);
         assert_eq!(a(Role::Compta, ImportsAppliquer), None);
         assert!(modele_par_defaut(Role::Parent).is_empty());
@@ -1232,6 +1310,56 @@ mod tests {
                 assert_eq!(action.portees_admises(), &[Portee::Etablissement]);
             }
         }
+    }
+
+    /// Socle 6, lot P1 : les actions `personnels.*` reproduisent exactement les contrôles de profil
+    /// d'avant (`provisionner_personnel`, `cible_compte_autorisee`, `/personnel/search`) : aucun
+    /// profil ne gagne ni ne perd de droit ; les portées sont d'établissement seulement.
+    #[test]
+    fn p1_modele_identique_aux_capacites_historiques() {
+        use Action::*;
+        let tous = [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Compta,
+            Role::Prof,
+            Role::Infirmerie,
+            Role::Psy,
+            Role::Accueil,
+            Role::Parent,
+            Role::Eleve,
+        ];
+        for r in tous {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            // Annuaire : tout le personnel (comme `Role::is_staff` pour `/personnel/search`).
+            assert_eq!(a(PersonnelsAnnuaire) == 1, r.is_staff(), "{r:?} annuaire");
+            // Gestion et accès : l'ancien contrôle codé en dur (Admin, Direction).
+            for x in [PersonnelsGerer, PersonnelsAccesGerer, PersonnelsConfidentielGerer, PersonnelsPersonnelLire] {
+                assert_eq!(a(x) == 1, r.can_gerer_personnels(), "{r:?} {}", x.code());
+            }
+            // Fiche d'organisation : Admin, Direction, Administratif ; le secrétariat ne crée pas
+            // d'agent par défaut (Q-P23).
+            assert_eq!(
+                a(PersonnelsLire) == 1,
+                matches!(r, Role::Admin | Role::Direction | Role::Administratif),
+                "{r:?} lire"
+            );
+            assert_eq!(a(PersonnelsGerer), usize::from(r == Role::Admin || r == Role::Direction));
+            for (x, p) in &m {
+                if x.code().starts_with("personnels.") {
+                    assert_eq!(*p, Portee::Etablissement, "{r:?} {}", x.code());
+                }
+            }
+        }
+        assert_eq!(Action::parse("personnels.gerer"), Some(PersonnelsGerer));
+        assert_eq!(PersonnelsGerer.portees_admises(), &[Portee::Etablissement]);
+        // Inclusion explicite : gérer inclut lire, et rien d'autre.
+        assert_eq!(PersonnelsLire.accordee_par(), &[PersonnelsGerer]);
+        assert!(PersonnelsAnnuaire.accordee_par().is_empty());
+        assert!(PersonnelsAccesGerer.accordee_par().is_empty());
     }
 
     /// E1 : les nouvelles actions « élève » reproduisent exactement les capacités
@@ -1515,17 +1643,17 @@ mod oracle_a1 {
             "sorties.gerer@etablissement",
             "suivi.eleve@etablissement",
         ]),
+        // RP1-07 (recette personas 1) : la comptabilité n'a ni `journal.lire` ni `suivi.eleve`
+        // (écart voulu avec la matrice historique figée par A1).
         ("compta", &[
             "bourses.gerer@etablissement",
             "dossier.lire@etablissement",
             "facturation.gerer@etablissement",
             "facturation.lire@etablissement",
-            "journal.lire@etablissement",
             "payeurs.definir@etablissement",
             "referentiel.lire@etablissement",
             "repas.gerer@etablissement",
             "repas.scanner@etablissement",
-            "suivi.eleve@etablissement",
         ]),
         ("prof", &[
             "absences.lire@mes_classes",

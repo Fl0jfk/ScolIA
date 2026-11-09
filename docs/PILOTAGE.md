@@ -20,6 +20,7 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 2. **Choisir le modèle à chaque lancement** (F-010) : Sonnet par défaut, Opus pour conception, personas, contradicteur, recette.
 3. **Plage de migrations réservée avant lancement** dans `docs/socles/MIGRATIONS.md`.
 4. **La CI GitHub fait foi** pour valider une intégration : les conteneurs cloud redémarrent et coupent les suites longues (F-012). Les suites locales servent au développement, découpées par paquet pour être reprises.
+   **Le job « Backend » est parallèle depuis `ent-ci-parallele` (2026-11-09)** : le job unique de 1 h 45 à 3 h 50 (suite complète d'un bloc, un seul fil, une seule base ; run séquentiel 42569240935 = **3 h 51**) est remplacé par `backend-lint` (clippy avec et sans labo, `ent-types -D warnings`, compilation de production, séparation L4), `backend-archive` (compile une fois les binaires de test, avec et sans labo, en archives `cargo nextest archive`), `tests-labo` (**20 tranches** `count:i/20`, un fil chacune, **un PostgreSQL éphémère par tranche**), `tests-sans-labo`, puis le job final `Backend (clippy, compilation, tests)` (nom conservé) qui exige tous les jobs verts **et** vérifie la couverture. Un nouveau test est réparti automatiquement (partition par rang, pas de liste de modules à tenir à jour). `cargo-nextest` est épinglé (0.9.150, installé par `taiki-e/install-action`, déjà utilisé pour `cargo-deny`). **Contrôle de couverture** : l'inventaire `cargo nextest list` de chaque archive est comparé aux journaux des tranches ; tout test listé non exécuté, exécuté deux fois ou exécuté sans être listé fait échouer le job final, et le tableau par binaire est écrit dans le résumé du run. Les tests de documentation (`cargo test --doc`) restent exécutés par `backend-archive` (nextest ne les couvre pas). Lire le journal du job final avant de chercher dans les 20 tranches : il nomme les tests en échec.
 5. **Une seule file d'intégration**, dans l'ordre ; pas deux intégrations en parallèle sur des bases différentes.
 6. **Rien sur `ENT` sans les quatre jobs CI verts** (formatage, audits, backend, frontend) et un contrôle du pilote (journal des commits, `MIGRATION_TAG`, aucun test ignoré ajouté, décisions de Florian respectées).
 7. **Trois sessions actives en continu** (Florian, 2026-11-08) ; on peut en lancer une ou deux de plus quand les autres ne font qu'attendre un retour de CI ou de tests. On accélère en fin de semaine si le quota hebdomadaire reste large. Jamais plus de 6 à 7 : au-delà, la limite d'usage coupe tout.
@@ -33,12 +34,10 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 
 ## 4. File d'intégration et état (à tenir à jour)
 
-État au 2026-11-08, 13 h 40 UTC :
-- **Sur `ENT`** : socle 1, lots 6 et 7, **lot 8 bis (socles 2 à 4 : E0–E4, A0–A1, I1, D-022 bis)**, poussé le 2026-11-08 à `b16c7cb` après CI verte (run 42468258695 ; audits et frontend relancés après un échec d'installation d'outils, sans changement de code).
-- **Lot 9** (`ent-integration-lot9`, intégrateur unique) : correctifs recettes 1 et 2, E5–E6, I2, S0–S1 ; en cours.
-- **Après le lot 9** : A2 (`ent-socle-administratif-a2`), P0 (`ent-socle-personnels-p0`), démo P1 (`ent-demo-p1-ecrans`), P1 (`ent-socle-personnels-p1`, en cours), puis `ent-socle1-revue-faibles`, `ent-mobile-app`.
-- **Démo P1** (`docs/recette/DEMO_P1.md` sur `ent-demo-p1-ecrans`) : parcours joué dans un navigateur, 7 défauts d'écran corrigés (dont une fiche élève qui se figeait) ; manques : propositions de la famille (E5, dans le lot 9), vrai dépôt de pièces, scolarité visible par la famille, alerte « ne pas solliciter » sur la fiche.
-- **Conceptions terminées non codées** : socles 7 à 9 (numéros de migration en attente de Q-B2).
+État au 2026-11-09, 13 h 10 UTC :
+- **Sur `ENT`** (`e8a69c53`, CI parallèle verte : 27 jobs, 1 137 tests, 30 min) : socle 1 ; lots 6, 7 ; lot 8 bis (socles 2–4 de base) ; **lot 9** (correctifs recettes 1 et 2, E5–E6, I2, S0–S1) ; **lot 10** (A2, P0–P1, S2, écrans de la démo P1, nouvelle CI parallèle). Exception d'audit RUSTSEC-2026-0459 (SQLite non compilé, vérifié par le pilote) à revoir au 2027-02-01.
+- **Lot 11** (`ent-integration-lot11`) : socle 5 S3, S4, S5, S7 ; socle 6 P2 ; en cours, à rebaser sur la nouvelle tête d'ENT.
+- **Correctifs recette sécurité 3** (`ent-recette-securite-3`) : RS3-01 corrigée ; RS3-02 à 04 en cours ; à intégrer au lot 12.
 
 ### Rattrapage des domaines codés avant la méthode (Florian, 2026-11-09)
 Le socle 1 et le lot 7 (évaluations, finances et SEPA, communication, santé, emploi du temps) ont été codés avant D-021 : pas de conception de fond, pas de passe personas, pas de recette. À rattraper, dans cet ordre, sans bloquer les socles en cours :

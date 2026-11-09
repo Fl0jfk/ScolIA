@@ -239,15 +239,25 @@ impl PgEnt {
             return Err(invalide());
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
-        if courante {
-            sqlx::query(
-                "UPDATE ent_annee_scolaire SET courante = false
-                 WHERE etablissement_id = $1 AND courante",
-            )
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(etablissement_id)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        if courante {
+            // Socle 5 S0 (défaut n° 5) : cette ancienne route ne retire plus la courante sans
+            // la clôturer ; elle ne peut poser « courante » que s'il n'y en a pas encore. Pour
+            // changer d'année : préparer, puis ouvrir (REF-02).
+            let existe: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante)",
+            )
+            .bind(etablissement_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+            if existe {
+                return Err(EntDbError::Domain(DomainError::Conflit));
+            }
         }
         let a = sqlx::query_as::<_, AnneeScolaire>(
             "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
@@ -511,7 +521,20 @@ impl PgEnt {
         prof_user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<ClasseResume>, EntDbError> {
-        let annee = self.referentiel_assurer_annee(etablissement_id, jour).await?;
+        // Lecture seule (S0 n° 3) : jamais de création d'année ; aucune année à cette date = liste vide.
+        let Some(annee_id): Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM ent_annee_scolaire
+              WHERE etablissement_id = $1 AND date_debut <= $2 AND date_fin >= $2
+              ORDER BY courante DESC, date_debut DESC LIMIT 1",
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?
+        else {
+            return Ok(Vec::new());
+        };
         sqlx::query_as::<_, ClasseResume>(&format!(
             "SELECT {COLONNES_CLASSE_RESUME} FROM ent_classe c
              WHERE c.etablissement_id = $1 AND c.annee_id = $2
@@ -525,7 +548,7 @@ impl PgEnt {
              ORDER BY c.code"
         ))
         .bind(etablissement_id)
-        .bind(annee.id)
+        .bind(annee_id)
         .bind(jour)
         .bind(prof_user_id)
         .fetch_all(self.pool())
@@ -712,6 +735,159 @@ impl PgEnt {
         .fetch_one(self.pool())
         .await
         .map_err(db)
+    }
+
+    /// Élèves membres d'un groupe à la date `jour` (hors élèves sortis), ordre alphabétique.
+    pub async fn referentiel_membres_groupe(
+        &self,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        self.groupe_de(etablissement_id, groupe_id).await?;
+        let ids: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT a.eleve_id FROM ent_affectation a
+               JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
+              WHERE a.etablissement_id = $1 AND a.groupe_id = $2
+                AND a.date_debut <= $3 AND (a.date_fin IS NULL OR a.date_fin >= $3)
+                AND (e.date_sortie IS NULL OR e.date_sortie > $3)",
+        )
+        .bind(etablissement_id)
+        .bind(groupe_id)
+        .bind(jour)
+        .fetch_all(self.pool())
+        .await
+        .map_err(db)?;
+        let ids: Vec<Uuid> = ids.into_iter().map(|(i,)| i).collect();
+        Ok(self.eleves_par_ids(etablissement_id, &ids).await?)
+    }
+
+    async fn groupe_de(&self, etablissement_id: Uuid, groupe_id: Uuid) -> Result<Groupe, EntDbError> {
+        sqlx::query_as::<_, Groupe>(
+            "SELECT id, etablissement_id, annee_id, code, libelle, classe_id
+             FROM ent_groupe WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(groupe_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)
+    }
+
+    /// Ajoute un élève à un groupe (RP1-02) : droit de gestion du référentiel, **journalisé**.
+    pub async fn referentiel_ajouter_membre_groupe(
+        &self,
+        role: &str,
+        actor_user_id: Uuid,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        eleve_id: Uuid,
+        date_debut: Option<NaiveDate>,
+    ) -> Result<Affectation, EntDbError> {
+        let a = self
+            .referentiel_affecter_eleve_groupe(role, etablissement_id, groupe_id, eleve_id, date_debut)
+            .await?;
+        let g = self.groupe_de(etablissement_id, groupe_id).await?;
+        self.journaliser_groupe(
+            etablissement_id,
+            actor_user_id,
+            eleve_id,
+            "groupe_membre_ajoute",
+            format!("Élève ajouté au groupe {}", g.libelle),
+            &g,
+            a.date_debut,
+        )
+        .await;
+        Ok(a)
+    }
+
+    /// Retire un élève d'un groupe (RP1-02) : clôt l'affectation à `date_fin` (aujourd'hui par
+    /// défaut) ; une affectation qui n'a pas encore commencé est supprimée (correction).
+    /// Droit de gestion du référentiel, **journalisé**.
+    pub async fn referentiel_retirer_membre_groupe(
+        &self,
+        role: &str,
+        actor_user_id: Uuid,
+        etablissement_id: Uuid,
+        groupe_id: Uuid,
+        eleve_id: Uuid,
+        date_fin: Option<NaiveDate>,
+    ) -> Result<(), EntDbError> {
+        exiger_gestion(role)?;
+        let g = self.groupe_de(etablissement_id, groupe_id).await?;
+        self.exiger_annee_modifiable(etablissement_id, g.annee_id).await?;
+        let fin = date_fin.unwrap_or_else(today_utc);
+        let ouverte: Option<(Uuid, NaiveDate)> = sqlx::query_as(
+            "SELECT id, date_debut FROM ent_affectation
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND groupe_id = $3 AND date_fin IS NULL",
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(groupe_id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        let (id, debut) = ouverte.ok_or_else(introuvable)?;
+        if fin < debut {
+            sqlx::query("DELETE FROM ent_affectation WHERE etablissement_id = $1 AND id = $2")
+                .bind(etablissement_id)
+                .bind(id)
+                .execute(self.pool())
+                .await
+                .map_err(db)?;
+        } else {
+            sqlx::query(
+                "UPDATE ent_affectation SET date_fin = $3 WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etablissement_id)
+            .bind(id)
+            .bind(fin)
+            .execute(self.pool())
+            .await
+            .map_err(db)?;
+        }
+        self.journaliser_groupe(
+            etablissement_id,
+            actor_user_id,
+            eleve_id,
+            "groupe_membre_retire",
+            format!("Élève retiré du groupe {}", g.libelle),
+            &g,
+            fin,
+        )
+        .await;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn journaliser_groupe(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        eleve_id: Uuid,
+        action: &str,
+        libelle: String,
+        g: &Groupe,
+        date_effet: NaiveDate,
+    ) {
+        let r = self
+            .enregistrer_journal_interne(domain_eleve::EnregistrerJournal {
+                etablissement_id,
+                eleve_id: Some(eleve_id),
+                domaine: "referentiel".into(),
+                action: action.into(),
+                libelle,
+                payload: serde_json::json!({
+                    "groupe_id": g.id, "groupe_code": g.code, "date_effet": date_effet,
+                }),
+                visible_famille: false,
+                actor_user_id: Some(actor_user_id),
+            })
+            .await;
+        if let Err(e) = r {
+            tracing::error!(error = %e, "échec d'écriture du journal d'appartenance à un groupe");
+        }
     }
 
     async fn exiger_eleve(&self, etablissement_id: Uuid, eleve_id: Uuid) -> Result<(), EntDbError> {
@@ -984,21 +1160,7 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<bool, EntDbError> {
         let (ok,): (bool,) = sqlx::query_as(
-            "SELECT EXISTS (
-               SELECT 1
-                 FROM ent_service_enseignement s
-                 JOIN ent_annee_scolaire y
-                   ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
-                 JOIN ent_affectation a
-                   ON a.etablissement_id = s.etablissement_id AND a.annee_id = s.annee_id
-                  AND ((s.classe_id IS NOT NULL AND a.classe_id = s.classe_id)
-                    OR (s.groupe_id IS NOT NULL AND a.groupe_id = s.groupe_id))
-                 JOIN ent_eleve e
-                   ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
-                WHERE s.etablissement_id = $1 AND s.prof_user_id = $2 AND a.eleve_id = $3
-                  AND y.date_debut <= $4 AND y.date_fin >= $4
-                  AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
-                  AND (e.date_sortie IS NULL OR e.date_sortie > $4))",
+            "SELECT EXISTS (SELECT 1 FROM ent_public_cours_jour($1, $4, NULL, $2, $3))",
         )
         .bind(etablissement_id)
         .bind(prof_user_id)

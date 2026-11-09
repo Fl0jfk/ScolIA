@@ -19,7 +19,7 @@
 //! * **Réinscription** : dossiers préparés à l'ouverture de la campagne, confirmés
 //!   (ou départ annoncé) par les responsables, validés par l'administration.
 //!
-//! Droits : moteur D-017 (`inscriptions.gerer`, `inscriptions.decider`) ; familles
+//! Droits : moteur D-017 (`inscriptions.gerer`, `inscriptions.decider`, `inscriptions.valider`) ; familles
 //! par le jeton de préinscription (e-mail vérifié) ou par le lien actif (S2-1).
 //! Toute requête est bornée à l'établissement ; une référence d'un autre
 //! établissement répond « introuvable ».
@@ -40,6 +40,8 @@ use uuid::Uuid;
 use crate::champs_chiffres::ChampsSensibles;
 use crate::dossier_personnes::{self, PersonneSaisie};
 use crate::eleve_ports;
+use crate::inscriptions_etats::{self, verifier_transition, Cause};
+use crate::inscriptions_modele;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
@@ -72,19 +74,19 @@ pub const STATUTS_DOSSIER: [&str; 9] = [
     "desistement",
 ];
 
-fn db(err: sqlx::Error) -> EntDbError {
+pub(crate) fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("inscriptions", err))
 }
 
-fn invalide(msg: &'static str) -> EntDbError {
+pub(crate) fn invalide(msg: &'static str) -> EntDbError {
     EntDbError::SaisieInvalide(msg)
 }
 
-fn conflit(msg: &'static str) -> EntDbError {
+pub(crate) fn conflit(msg: &'static str) -> EntDbError {
     EntDbError::ConflitDossier(msg)
 }
 
-fn introuvable() -> EntDbError {
+pub(crate) fn introuvable() -> EntDbError {
     EntDbError::Domain(DomainError::NotFound)
 }
 
@@ -93,7 +95,7 @@ fn jeton_invalide() -> EntDbError {
     EntDbError::Auth(ent_auth::AuthError::InvalidSession)
 }
 
-fn opt(v: &Option<String>) -> Option<String> {
+pub(crate) fn opt(v: &Option<String>) -> Option<String> {
     v.as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -180,7 +182,7 @@ pub fn annee_cible_valide(a: &str) -> bool {
     }
 }
 
-fn bornee(v: Option<String>, max: usize, msg: &'static str) -> Result<Option<String>, EntDbError> {
+pub(crate) fn bornee(v: Option<String>, max: usize, msg: &'static str) -> Result<Option<String>, EntDbError> {
     match v.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
         None => Ok(None),
         Some(s) if s.chars().count() <= max => Ok(Some(s)),
@@ -296,7 +298,7 @@ pub fn normaliser_responsable(
     })
 }
 
-fn reserve_depuis_dto(d: &ReserveResponsableDto) -> dossier_personnes::ReserveDeclaree {
+pub(crate) fn reserve_depuis_dto(d: &ReserveResponsableDto) -> dossier_personnes::ReserveDeclaree {
     dossier_personnes::ReserveDeclaree {
         adresse_a_proteger: d.adresse_a_proteger,
         ne_pas_solliciter: d.ne_pas_solliciter,
@@ -329,7 +331,13 @@ pub fn decision_admise(de: &str) -> bool {
 }
 
 /// Actions proposées au personnel pour un dossier (le serveur revérifie tout).
-pub fn actions_personnel(nature: &str, statut: &str, gerer: bool, decider: bool) -> Vec<String> {
+pub fn actions_personnel(
+    nature: &str,
+    statut: &str,
+    gerer: bool,
+    decider: bool,
+    valider: bool,
+) -> Vec<String> {
     let mut a = Vec::new();
     let ouvert = !matches!(statut, "validee" | "refuse" | "desistement" | "brouillon");
     if gerer && ouvert {
@@ -342,10 +350,10 @@ pub fn actions_personnel(nature: &str, statut: &str, gerer: bool, decider: bool)
             }
         }
     }
-    if decider {
-        if nature == "admission" && decision_admise(statut) {
-            a.push("decider".into());
-        }
+    if decider && nature == "admission" && decision_admise(statut) {
+        a.push("decider".into());
+    }
+    if valider {
         let validable = match nature {
             "admission" => statut == "admis",
             _ => matches!(statut, "deposee" | "en_instruction"),
@@ -361,50 +369,73 @@ pub fn actions_personnel(nature: &str, statut: &str, gerer: bool, decider: bool)
 // Lignes SQL
 // ---------------------------------------------------------------------------
 
-#[derive(sqlx::FromRow)]
-struct CampagneRow {
-    id: Uuid,
-    nature: String,
-    libelle: String,
-    annee_cible: String,
-    statut: String,
-    date_ouverture: Option<NaiveDate>,
-    date_cloture: Option<NaiveDate>,
-    message_famille: Option<String>,
+#[derive(sqlx::FromRow, Clone)]
+pub(crate) struct CampagneRow {
+    pub(crate) id: Uuid,
+    pub(crate) nature: String,
+    pub(crate) libelle: String,
+    pub(crate) annee_cible: String,
+    pub(crate) statut: String,
+    pub(crate) date_ouverture: Option<NaiveDate>,
+    pub(crate) date_cloture: Option<NaiveDate>,
+    pub(crate) message_famille: Option<String>,
+    pub(crate) annee_id: Option<Uuid>,
+    pub(crate) version: i32,
+    pub(crate) accord_responsables: String,
+    pub(crate) decision_requise: bool,
+    pub(crate) motif_communique: String,
+    pub(crate) mode_reinscription: Option<String>,
+    pub(crate) date_limite_famille: Option<NaiveDate>,
+    pub(crate) date_cloture_depot: Option<NaiveDate>,
+    pub(crate) delai_reponse_jours: Option<i16>,
+    pub(crate) delai_annulation_validation_h: i16,
+    pub(crate) page_publique: bool,
+    pub(crate) au_fil_de_l_eau: bool,
+    pub(crate) site_id: Option<Uuid>,
 }
 
-const COLS_CAMPAGNE: &str =
-    "id, nature, libelle, annee_cible, statut, date_ouverture, date_cloture, message_famille";
+pub(crate) const COLS_CAMPAGNE: &str =
+    "id, nature, libelle, annee_cible, statut, date_ouverture, date_cloture, message_famille,
+     annee_id, version, accord_responsables, decision_requise, motif_communique,
+     mode_reinscription, date_limite_famille, date_cloture_depot, delai_reponse_jours,
+     delai_annulation_validation_h, page_publique, au_fil_de_l_eau, site_id";
 
 #[derive(sqlx::FromRow, Clone)]
-struct DossierRow {
-    id: Uuid,
-    campagne_id: Uuid,
-    nature: String,
-    statut: String,
-    eleve_id: Option<Uuid>,
-    eleve_nom: String,
-    eleve_prenom: String,
-    eleve_date_naissance: Option<NaiveDate>,
-    eleve_sexe: Option<String>,
-    eleve_ine: Option<String>,
-    niveau_demande: Option<String>,
-    regime_demande: Option<String>,
-    parcours_demande: Option<String>,
-    etablissement_origine: Option<String>,
-    classe_cible_id: Option<Uuid>,
-    deposant_email: Option<String>,
-    reutilise_identite: bool,
-    decision_motif: Option<String>,
-    depose_le: Option<DateTime<Utc>>,
-    valide_le: Option<DateTime<Utc>>,
-    derniere_relance_le: Option<DateTime<Utc>>,
+pub(crate) struct DossierRow {
+    pub(crate) id: Uuid,
+    pub(crate) campagne_id: Uuid,
+    pub(crate) nature: String,
+    pub(crate) statut: String,
+    pub(crate) eleve_id: Option<Uuid>,
+    pub(crate) eleve_nom: String,
+    pub(crate) eleve_prenom: String,
+    pub(crate) eleve_date_naissance: Option<NaiveDate>,
+    pub(crate) eleve_sexe: Option<String>,
+    pub(crate) eleve_ine: Option<String>,
+    pub(crate) niveau_demande: Option<String>,
+    pub(crate) regime_demande: Option<String>,
+    pub(crate) parcours_demande: Option<String>,
+    pub(crate) etablissement_origine: Option<String>,
+    pub(crate) classe_cible_id: Option<Uuid>,
+    pub(crate) deposant_email: Option<String>,
+    pub(crate) reutilise_identite: bool,
+    pub(crate) decision_motif: Option<String>,
+    pub(crate) depose_le: Option<DateTime<Utc>>,
+    pub(crate) valide_le: Option<DateTime<Utc>>,
+    pub(crate) derniere_relance_le: Option<DateTime<Utc>>,
+    pub(crate) etat: String,
+    pub(crate) etat_avant_blocage: Option<String>,
+    pub(crate) reference: String,
+    pub(crate) demarche_id: Uuid,
+    pub(crate) echeance_famille: Option<NaiveDate>,
+    pub(crate) rang_attente: Option<i32>,
 }
 
-const COLS_DOSSIER: &str = "id, campagne_id, nature, statut, eleve_id, eleve_nom, eleve_prenom,
+pub(crate) const COLS_DOSSIER: &str = "id, campagne_id, nature, statut, eleve_id, eleve_nom, eleve_prenom,
     eleve_date_naissance, eleve_sexe, eleve_ine, niveau_demande, regime_demande,
     parcours_demande, etablissement_origine, classe_cible_id, deposant_email,
-    reutilise_identite, decision_motif, depose_le, valide_le, derniere_relance_le";
+    reutilise_identite, decision_motif, depose_le, valide_le, derniere_relance_le,
+    etat, etat_avant_blocage, reference, demarche_id, echeance_famille, rang_attente";
 
 #[derive(sqlx::FromRow, Clone)]
 struct ResponsableRow {
@@ -521,7 +552,7 @@ pub struct Verifie {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn publier(
+pub(crate) async fn publier(
     conn: &mut PgConnection,
     etab: Uuid,
     type_name: &str,
@@ -545,7 +576,7 @@ async fn publier(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn suivi_tx(
+pub(crate) async fn suivi_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     dossier_id: Uuid,
@@ -576,7 +607,7 @@ async fn suivi_tx(
     Ok(())
 }
 
-async fn dossier_tx(
+pub(crate) async fn dossier_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     id: Uuid,
@@ -593,38 +624,103 @@ async fn dossier_tx(
     .ok_or_else(introuvable)
 }
 
-async fn changer_statut_tx(
+/// **Seul point d'écriture de l'état d'un dossier** (§7.1 à §7.3) : vérifie la transition dans la
+/// table de [`inscriptions_etats`], pose l'état (le déclencheur de la migration 304 tient la
+/// colonne historique `statut` d'accord), recalcule l'échéance de la famille (en tenant compte
+/// des fermetures du secrétariat), clôt le dossier s'il est terminal et écrit le suivi.
+/// Renvoie la ligne à jour pour enchaîner deux transitions dans la même transaction.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn transitionner_tx(
     conn: &mut PgConnection,
     etab: Uuid,
     d: &DossierRow,
     vers: &str,
+    cause: Cause,
     texte: Option<&str>,
     auteur: Option<Uuid>,
-) -> Result<(), EntDbError> {
+) -> Result<DossierRow, EntDbError> {
+    verifier_transition(&d.nature, &d.etat, vers, cause).map_err(conflit)?;
+    if d.etat == "bloque_desaccord"
+        && !inscriptions_etats::retour_de_blocage_admis(d.etat_avant_blocage.as_deref(), vers)
+    {
+        return Err(conflit(
+            "le dossier ne revient qu'à l'état d'avant le blocage, ou se clôt",
+        ));
+    }
+    let avant_blocage = (vers == "bloque_desaccord").then(|| d.etat.clone());
+    let delai: Option<i16> = sqlx::query_scalar(
+        "SELECT delai_reponse_jours FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(d.campagne_id)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    let garde_echeance = vers == "bloque_desaccord";
+    let echeance = match inscriptions_etats::delai_famille_jours(vers, delai) {
+        Some(n) => {
+            let jour: NaiveDate = sqlx::query_scalar("SELECT (CURRENT_DATE + $1::int)")
+                .bind(i32::try_from(n).unwrap_or(8))
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(db)?;
+            Some(inscriptions_modele::echeance_effective_tx(conn, etab, jour).await?)
+        }
+        None => None,
+    };
+    let clos = inscriptions_etats::est_terminal(&d.nature, vers) || vers == "sans_suite";
     sqlx::query(
-        "UPDATE ent_inscription_dossier SET statut = $3, updated_at = now()
+        "UPDATE ent_inscription_dossier
+            SET etat = $3, etat_avant_blocage = $4,
+                echeance_famille = CASE WHEN $5 THEN echeance_famille ELSE $6 END,
+                clos_le = CASE WHEN $7 THEN now() ELSE NULL END,
+                motif_cloture = CASE WHEN $7 THEN left($8, 1000) ELSE NULL END,
+                updated_at = now()
           WHERE etablissement_id = $1 AND id = $2",
     )
     .bind(etab)
     .bind(d.id)
     .bind(vers)
+    .bind(&avant_blocage)
+    .bind(garde_echeance)
+    .bind(echeance)
+    .bind(clos)
+    .bind(texte)
     .execute(&mut *conn)
     .await
     .map_err(db)?;
     suivi_tx(
-        conn,
+        &mut *conn,
         etab,
         d.id,
         "statut",
-        Some((&d.statut, vers)),
+        Some((&d.etat, vers)),
         texte,
         true,
         auteur,
     )
+    .await?;
+    let mut n = d.clone();
+    n.etat = vers.to_string();
+    n.etat_avant_blocage = avant_blocage;
+    if !garde_echeance {
+        n.echeance_famille = echeance;
+    }
+    n.statut = match sqlx::query_scalar::<_, String>(
+        "SELECT statut FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(d.id)
+    .fetch_one(&mut *conn)
     .await
+    {
+        Ok(s) => s,
+        Err(e) => return Err(db(e)),
+    };
+    Ok(n)
 }
 
-async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
+pub(crate) async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
     tx.commit().await.map_err(db)
 }
 
@@ -633,7 +729,7 @@ async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
 // ---------------------------------------------------------------------------
 
 impl PgEnt {
-    async fn ins_exiger(
+    pub(crate) async fn ins_exiger(
         &self,
         etab: Uuid,
         actor: Uuid,
@@ -647,7 +743,7 @@ impl PgEnt {
         }
     }
 
-    async fn ins_peut(
+    pub(crate) async fn ins_peut(
         &self,
         etab: Uuid,
         actor: Uuid,
@@ -657,27 +753,30 @@ impl PgEnt {
         self.a_action_etablissement(etab, actor, role, a).await
     }
 
-    async fn ins_personnel(
+    pub(crate) async fn ins_personnel(
         &self,
         etab: Uuid,
         actor: Uuid,
         role: &str,
-    ) -> Result<(bool, bool), EntDbError> {
+    ) -> Result<(bool, bool, bool), EntDbError> {
         let g = self
             .ins_peut(etab, actor, role, Action::InscriptionsGerer)
             .await?;
         let d = self
             .ins_peut(etab, actor, role, Action::InscriptionsDecider)
             .await?;
-        if !g && !d {
+        let v = self
+            .ins_peut(etab, actor, role, Action::InscriptionsValider)
+            .await?;
+        if !g && !d && !v {
             return Err(EntDbError::Forbidden);
         }
-        Ok((g, d))
+        Ok((g, d, v))
     }
 
     // -- Campagnes -----------------------------------------------------------
 
-    async fn campagne_dto(
+    pub(crate) async fn campagne_dto(
         &self,
         etab: Uuid,
         r: CampagneRow,
@@ -701,6 +800,11 @@ impl PgEnt {
         .fetch_all(self.pool())
         .await
         .map_err(db)?;
+        let offres = if compteurs {
+            self.offres_dto(etab, r.id).await?
+        } else {
+            Vec::new()
+        };
         let compteurs = if compteurs {
             let c: Vec<(String, i64)> = sqlx::query_as(
                 "SELECT statut, count(*) FROM ent_inscription_dossier
@@ -739,10 +843,25 @@ impl PgEnt {
                 })
                 .collect(),
             compteurs,
+            annee_id: r.annee_id,
+            version: r.version,
+            regles: ReglesCampagneDto {
+                accord_responsables: r.accord_responsables,
+                decision_requise: r.decision_requise,
+                motif_communique: r.motif_communique,
+                mode_reinscription: r.mode_reinscription,
+                date_limite_famille: r.date_limite_famille,
+                date_cloture_depot: r.date_cloture_depot,
+                delai_reponse_jours: r.delai_reponse_jours,
+                delai_annulation_validation_h: r.delai_annulation_validation_h,
+                page_publique: r.page_publique,
+                au_fil_de_l_eau: r.au_fil_de_l_eau,
+            },
+            offres,
         })
     }
 
-    async fn campagne_row(&self, etab: Uuid, id: Uuid) -> Result<CampagneRow, EntDbError> {
+    pub(crate) async fn campagne_row(&self, etab: Uuid, id: Uuid) -> Result<CampagneRow, EntDbError> {
         sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2"
         ))
@@ -755,8 +874,16 @@ impl PgEnt {
     }
 
     fn valider_campagne(b: &CampagneBody) -> Result<(), EntDbError> {
-        if !["admission", "reinscription"].contains(&b.nature.as_str()) {
-            return Err(invalide("nature de campagne : admission ou reinscription"));
+        if !inscriptions_etats::NATURES.contains(&b.nature.as_str()) {
+            return Err(invalide(
+                "nature de campagne : admission, affectes, reinscription ou en_cours_annee",
+            ));
+        }
+        if let Some(r) = &b.regles {
+            inscriptions_modele::valider_regles(r, &b.nature)?;
+        }
+        if b.motif_modification.as_deref().is_some_and(|m| m.chars().count() > 500) {
+            return Err(invalide("motif de modification : 500 caractères au plus"));
         }
         let l = b.libelle.trim();
         if l.is_empty() || l.chars().count() > 160 {
@@ -811,6 +938,7 @@ impl PgEnt {
         etab: Uuid,
         id: Uuid,
         b: &CampagneBody,
+        actor: Uuid,
     ) -> Result<(), EntDbError> {
         sqlx::query("DELETE FROM ent_inscription_campagne_niveau WHERE etablissement_id = $1 AND campagne_id = $2")
             .bind(etab)
@@ -853,6 +981,8 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        // Les niveaux sont aussi des offres sans parcours : la capacité est tenue par l'offre.
+        inscriptions_modele::synchroniser_offres_niveaux_tx(conn, etab, id, &b.niveaux, actor).await?;
         Ok(())
     }
 
@@ -868,12 +998,20 @@ impl PgEnt {
             .await?;
         Self::valider_campagne(b)?;
         let id = Uuid::new_v4();
+        let regles = b
+            .regles
+            .clone()
+            .unwrap_or_else(|| inscriptions_modele::regles_par_defaut(&b.nature));
         let mut tx = self.pool().begin().await.map_err(db)?;
+        let annee_id =
+            inscriptions_modele::resoudre_annee_tx(&mut tx, etab, b.annee_cible.trim()).await?;
         sqlx::query(
             "INSERT INTO ent_inscription_campagne
                 (id, etablissement_id, nature, libelle, annee_cible, date_ouverture, date_cloture,
-                 message_famille, created_by_user_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
+                 message_famille, created_by_user_id, annee_id, accord_responsables, decision_requise,
+                 motif_communique, mode_reinscription, date_limite_famille, date_cloture_depot,
+                 delai_reponse_jours, delai_annulation_validation_h, page_publique, au_fil_de_l_eau)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
         )
         .bind(id)
         .bind(etab)
@@ -884,10 +1022,22 @@ impl PgEnt {
         .bind(b.date_cloture)
         .bind(opt(&b.message_famille))
         .bind(actor)
+        .bind(annee_id)
+        .bind(&regles.accord_responsables)
+        .bind(regles.decision_requise)
+        .bind(&regles.motif_communique)
+        .bind(&regles.mode_reinscription)
+        .bind(regles.date_limite_famille)
+        .bind(regles.date_cloture_depot)
+        .bind(regles.delai_reponse_jours)
+        .bind(regles.delai_annulation_validation_h)
+        .bind(regles.page_publique)
+        .bind(regles.au_fil_de_l_eau)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        Self::ecrire_details_campagne(&mut tx, etab, id, b).await?;
+        Self::ecrire_details_campagne(&mut tx, etab, id, b, actor).await?;
+        inscriptions_modele::ecrire_version_tx(&mut tx, etab, id, Some("Création"), actor).await?;
         commit(tx).await?;
         let r = self.campagne_row(etab, id).await?;
         self.campagne_dto(etab, r, true).await
@@ -913,9 +1063,11 @@ impl PgEnt {
             return Err(conflit("la nature d'une campagne ne change pas"));
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
+        let annee_id =
+            inscriptions_modele::resoudre_annee_tx(&mut tx, etab, b.annee_cible.trim()).await?;
         sqlx::query(
             "UPDATE ent_inscription_campagne SET libelle = $3, annee_cible = $4, date_ouverture = $5,
-                    date_cloture = $6, message_famille = $7, updated_at = now()
+                    date_cloture = $6, message_famille = $7, annee_id = $8, updated_at = now()
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -925,10 +1077,57 @@ impl PgEnt {
         .bind(b.date_ouverture)
         .bind(b.date_cloture)
         .bind(opt(&b.message_famille))
+        .bind(annee_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        Self::ecrire_details_campagne(&mut tx, etab, id, b).await?;
+        if let Some(g) = &b.regles {
+            sqlx::query(
+                "UPDATE ent_inscription_campagne SET accord_responsables = $3, decision_requise = $4,
+                        motif_communique = $5, mode_reinscription = $6, date_limite_famille = $7,
+                        date_cloture_depot = $8, delai_reponse_jours = $9,
+                        delai_annulation_validation_h = $10, page_publique = $11, au_fil_de_l_eau = $12
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .bind(&g.accord_responsables)
+            .bind(g.decision_requise)
+            .bind(&g.motif_communique)
+            .bind(&g.mode_reinscription)
+            .bind(g.date_limite_famille)
+            .bind(g.date_cloture_depot)
+            .bind(g.delai_reponse_jours)
+            .bind(g.delai_annulation_validation_h)
+            .bind(g.page_publique)
+            .bind(g.au_fil_de_l_eau)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+        Self::ecrire_details_campagne(&mut tx, etab, id, b, actor).await?;
+        // Toute modification après la création crée une version (journal), avec son motif.
+        if r.statut != "brouillon" {
+            inscriptions_modele::nouvelle_version_tx(
+                &mut tx,
+                etab,
+                id,
+                b.motif_modification.as_deref(),
+                actor,
+            )
+            .await?;
+            publier(
+                &mut tx,
+                etab,
+                types::INSCRIPTION_CAMPAGNE_MODIFIEE,
+                AggregateKind::Admission,
+                id,
+                None,
+                json!({ "campagne_id": id }),
+                Some(actor),
+            )
+            .await?;
+        }
         commit(tx).await?;
         let r = self.campagne_row(etab, id).await?;
         self.campagne_dto(etab, r, true).await
@@ -947,6 +1146,14 @@ impl PgEnt {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
         let r = self.campagne_row(etab, id).await?;
+        // Une campagne fermée ou archivée ne se rouvre pas (une nouvelle campagne se crée) ; une
+        // campagne suspendue reprend sans republier l'ouverture.
+        if !inscriptions_modele::transition_campagne_admise(&r.statut, "ouverte") {
+            return Err(conflit(
+                "cette campagne ne peut pas être ouverte depuis son état actuel (une campagne fermée se remplace par une nouvelle)",
+            ));
+        }
+        let reprise = r.statut == "suspendue";
         let mut tx = self.pool().begin().await.map_err(db)?;
         let maj = sqlx::query(
             "UPDATE ent_inscription_campagne SET statut = 'ouverte', updated_at = now()
@@ -965,10 +1172,17 @@ impl PgEnt {
             });
         }
         let mut prepares = 0_i64;
-        if r.nature == "reinscription" {
+        if r.nature == "reinscription" && !reprise {
             prepares = Self::preparer_reinscriptions_tx(&mut tx, etab, id).await?;
         }
-        publier(
+        if reprise {
+            inscriptions_modele::nouvelle_version_tx(&mut tx, etab, id, Some("Reprise"), actor).await?;
+        } else {
+            inscriptions_modele::nouvelle_version_tx(&mut tx, etab, id, Some("Ouverture"), actor)
+                .await?;
+        }
+        if !reprise {
+            publier(
             &mut tx,
             etab,
             if r.nature == "reinscription" {
@@ -983,6 +1197,7 @@ impl PgEnt {
             Some(actor),
         )
         .await?;
+        }
         commit(tx).await?;
         let r = self.campagne_row(etab, id).await?;
         Ok(OuvertureCampagneDto {
@@ -1022,7 +1237,7 @@ impl PgEnt {
                     (id, etablissement_id, campagne_id, nature, statut, eleve_id, eleve_nom,
                      eleve_prenom, eleve_date_naissance, eleve_sexe, eleve_ine)
                  VALUES ($1,$2,$3,'reinscription','brouillon',$4,$5,$6,$7,$8,$9)
-                 ON CONFLICT (campagne_id, eleve_id) WHERE eleve_id IS NOT NULL DO NOTHING",
+                 ON CONFLICT (campagne_id, eleve_id) WHERE eleve_id IS NOT NULL AND etat <> 'annule' DO NOTHING",
             )
             .bind(dossier_id)
             .bind(etab)
@@ -1090,7 +1305,7 @@ impl PgEnt {
         Ok(n)
     }
 
-    async fn copier_pieces_tx(
+    pub(crate) async fn copier_pieces_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         campagne_id: Uuid,
@@ -1122,8 +1337,8 @@ impl PgEnt {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
         let r = self.campagne_row(etab, id).await?;
-        if r.statut != "ouverte" {
-            return Err(conflit("seule une campagne ouverte peut être fermée"));
+        if !inscriptions_modele::transition_campagne_admise(&r.statut, "fermee") {
+            return Err(conflit("seule une campagne ouverte ou suspendue peut être fermée"));
         }
         let mut tx = self.pool().begin().await.map_err(db)?;
         sqlx::query(
@@ -1135,6 +1350,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        inscriptions_modele::nouvelle_version_tx(&mut tx, etab, id, Some("Fermeture"), actor).await?;
         publier(
             &mut tx,
             etab,
@@ -1175,7 +1391,7 @@ impl PgEnt {
 
     // -- Lecture des dossiers -----------------------------------------------
 
-    async fn dossier_row(&self, etab: Uuid, id: Uuid) -> Result<DossierRow, EntDbError> {
+    pub(crate) async fn dossier_row(&self, etab: Uuid, id: Uuid) -> Result<DossierRow, EntDbError> {
         sqlx::query_as::<_, DossierRow>(&format!(
             "SELECT {COLS_DOSSIER} FROM ent_inscription_dossier WHERE etablissement_id = $1 AND id = $2"
         ))
@@ -1205,7 +1421,7 @@ impl PgEnt {
     }
 
     /// Dossier complet. `famille` : commentaires internes retirés.
-    async fn dossier_dto(
+    pub(crate) async fn dossier_dto(
         &self,
         etab: Uuid,
         d: DossierRow,
@@ -1265,6 +1481,17 @@ impl PgEnt {
         .fetch_all(self.pool())
         .await
         .map_err(db)?;
+        let motif_famille: Option<String> = sqlx::query_scalar(
+            "SELECT motif_communique FROM ent_inscription_decision
+              WHERE etablissement_id = $1 AND dossier_id = $2
+              ORDER BY decide_le DESC, id DESC LIMIT 1",
+        )
+        .bind(etab)
+        .bind(d.id)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?
+        .flatten();
         let suivi: Vec<(DateTime<Utc>, String, Option<String>, Option<String>, bool)> = sqlx::query_as(
             "SELECT created_at, kind, statut_apres, texte, visible_famille FROM ent_inscription_suivi_dossier
               WHERE etablissement_id = $1 AND dossier_id = $2 AND (visible_famille OR NOT $3)
@@ -1322,11 +1549,19 @@ impl PgEnt {
                     },
                 )
                 .collect(),
-            decision_motif: d.decision_motif,
+            // La famille ne lit que le motif **communiqué** de la dernière décision ; le motif
+            // interne reste au personnel (§15.3).
+            decision_motif: if famille { motif_famille } else { d.decision_motif },
             depose_le: d.depose_le,
             valide_le: d.valide_le,
             reutilise_identite: d.reutilise_identite,
             actions,
+            etat: d.etat,
+            reference: d.reference,
+            demarche_id: Some(d.demarche_id),
+            echeance_famille: d.echeance_famille,
+            rang_attente: d.rang_attente,
+            fermeture: inscriptions_modele::fermeture_en_cours(self.pool(), etab).await?,
         })
     }
 
@@ -1338,7 +1573,7 @@ impl PgEnt {
     ) -> Result<Vec<DossierResumeDto>, EntDbError> {
         let sql = format!(
             "SELECT d.id, d.campagne_id, d.nature, d.statut, d.eleve_nom, d.eleve_prenom, d.niveau_demande,
-                    d.eleve_id, d.depose_le,
+                    d.eleve_id, d.depose_le, d.etat, d.reference,
                     (SELECT count(*) FROM ent_inscription_piece p
                       WHERE p.dossier_id = d.id AND p.obligatoire AND p.statut <> 'acceptee') AS manquantes
                FROM ent_inscription_dossier d
@@ -1356,6 +1591,8 @@ impl PgEnt {
             Option<String>,
             Option<Uuid>,
             Option<DateTime<Utc>>,
+            String,
+            String,
             i64,
         )> = sqlx::query_as(&sql)
             .bind(etab)
@@ -1376,7 +1613,9 @@ impl PgEnt {
                 niveau_demande: r.6,
                 eleve_id: r.7,
                 depose_le: r.8,
-                pieces_manquantes: r.9,
+                etat: r.9,
+                reference: r.10,
+                pieces_manquantes: r.11,
             })
             .collect())
     }
@@ -1410,9 +1649,9 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<DossierDto, EntDbError> {
-        let (g, dec) = self.ins_personnel(etab, actor, role).await?;
+        let (g, dec, val) = self.ins_personnel(etab, actor, role).await?;
         let d = self.dossier_row(etab, id).await?;
-        let actions = actions_personnel(&d.nature, &d.statut, g, dec);
+        let actions = actions_personnel(&d.nature, &d.statut, g, dec, val);
         self.dossier_dto(etab, d, false, actions).await
     }
 
@@ -1442,7 +1681,20 @@ impl PgEnt {
         if b.statut == "incomplet" && motif.is_none() {
             return Err(invalide("motif obligatoire pour un dossier incomplet"));
         }
-        changer_statut_tx(&mut tx, etab, &d, &b.statut, motif.as_deref(), Some(actor)).await?;
+        let vers = inscriptions_etats::etat_depuis_statut(&d.nature, &b.statut).ok_or_else(|| {
+            conflit("changement d'étape impossible depuis l'état actuel")
+        })?;
+        // « Incomplet » depuis le dépôt : la prise en charge est implicite (§7.1).
+        let mut cur = d.clone();
+        if cur.etat == "deposee" && vers == "attente_famille" {
+            cur = transitionner_tx(
+                &mut tx, etab, &cur, "en_instruction", Cause::Etape,
+                Some("Prise en charge"), Some(actor),
+            )
+            .await?;
+        }
+        transitionner_tx(&mut tx, etab, &cur, vers, Cause::Etape, motif.as_deref(), Some(actor))
+            .await?;
         publier(
             &mut tx,
             etab,
@@ -1450,7 +1702,7 @@ impl PgEnt {
             AggregateKind::Admission,
             id,
             d.eleve_id,
-            json!({ "dossier_id": id, "de": d.statut, "vers": b.statut }),
+            json!({ "dossier_id": id, "de": d.etat, "vers": vers }),
             Some(actor),
         )
         .await?;
@@ -1562,8 +1814,13 @@ impl PgEnt {
     ) -> Result<i64, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
+        // Fermeture du secrétariat : les délais des familles sont suspendus, donc les relances aussi.
+        self.exiger_secretariat_ouvert(etab).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
+        if d.etat == "bloque_desaccord" {
+            return Err(conflit("dossier bloqué pour désaccord : aucune relance"));
+        }
         if !matches!(
             d.statut.as_str(),
             "deposee" | "en_instruction" | "incomplet" | "admis" | "brouillon"
@@ -1697,6 +1954,33 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &DecisionBody,
     ) -> Result<DossierDto, EntDbError> {
+        self.decider_avance_for_actor(
+            etab,
+            actor,
+            role,
+            id,
+            &DecisionAvanceeBody {
+                decision: b.decision.clone(),
+                motif: b.motif.clone(),
+                // Comportement historique : le motif est aussi communiqué (si la campagne le permet).
+                motif_communique: None,
+                ..Default::default()
+            },
+        )
+        .await
+    }
+
+    /// INS-04 ★ : décider (admis, liste d'attente, refus). Une décision est **une ligne**
+    /// (`ent_inscription_decision`) : auteur, date, motif interne, motif communiqué, offre,
+    /// dépassement de capacité confirmé. La place est comptée au vœu retenu (compteur juste).
+    pub async fn decider_avance_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        id: Uuid,
+        b: &DecisionAvanceeBody,
+    ) -> Result<DossierDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
             .await?;
         let motif = opt(&b.motif);
@@ -1711,6 +1995,18 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         if motif.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif trop long"));
         }
+        if motif.as_deref().is_some_and(|m| m.chars().count() < 3) {
+            return Err(invalide("motif trop court (3 caractères au moins)"));
+        }
+        // Absent = comportement historique (le motif est communiqué) ; chaîne vide = motif interne
+        // seulement ; sinon texte propre. La règle de la campagne a le dernier mot.
+        let mut motif_communique = match &b.motif_communique {
+            None => motif.clone(),
+            Some(m) => opt(&Some(m.clone())),
+        };
+        if motif_communique.as_deref().is_some_and(|m| m.chars().count() > 1000) {
+            return Err(invalide("motif communiqué trop long"));
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if d.nature != "admission" {
@@ -1718,49 +2014,57 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
                 "une réinscription se valide sans décision d'admission",
             ));
         }
-        if !decision_admise(&d.statut) || d.statut == b.decision {
+        if !decision_admise(&d.statut) || d.etat == b.decision {
             return Err(conflit("décision impossible depuis l'état actuel"));
         }
-        if b.decision == "admis" {
-            // Capacité du niveau (verrou sur la campagne : deux admissions
-            // concurrentes ne dépassent pas la capacité).
-            sqlx::query("SELECT id FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE")
-                .bind(etab)
-                .bind(d.campagne_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-            if let Some(niveau) = &d.niveau_demande {
-                let cap: Option<(Option<i32>,)> = sqlx::query_as(
-                    "SELECT capacite FROM ent_inscription_campagne_niveau
-                      WHERE etablissement_id = $1 AND campagne_id = $2 AND code = $3",
-                )
-                .bind(etab)
-                .bind(d.campagne_id)
-                .bind(niveau)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(db)?;
-                if let Some((Some(cap),)) = cap {
-                    let (pris,): (i64,) = sqlx::query_as(
-                        "SELECT count(*) FROM ent_inscription_dossier
-                          WHERE etablissement_id = $1 AND campagne_id = $2 AND niveau_demande = $3
-                            AND statut IN ('admis', 'validee')",
-                    )
-                    .bind(etab)
-                    .bind(d.campagne_id)
-                    .bind(niveau)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                    if pris >= i64::from(cap) {
-                        return Err(conflit(
-                            "capacité du niveau atteinte : liste d'attente possible",
-                        ));
-                    }
-                }
+        let campagne = sqlx::query_as::<_, CampagneRow>(&format!(
+            "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
+              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
+        ))
+        .bind(etab)
+        .bind(d.campagne_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if campagne.motif_communique == "jamais" {
+            if b.motif_communique.as_deref().is_some_and(|m| !m.trim().is_empty()) {
+                return Err(invalide("cette campagne ne communique pas de motif aux familles"));
             }
+            motif_communique = None;
         }
+        if campagne.motif_communique == "toujours"
+            && b.decision == "refuse"
+            && motif_communique.is_none()
+        {
+            return Err(invalide("cette campagne exige un motif communiqué pour un refus"));
+        }
+        // Prise en charge implicite : on décide depuis l'instruction (§7.1).
+        let mut cur = d.clone();
+        if matches!(cur.etat.as_str(), "deposee" | "attente_famille") {
+            cur = transitionner_tx(
+                &mut tx,
+                etab,
+                &cur,
+                "en_instruction",
+                Cause::Etape,
+                Some("Prise en charge avec la décision"),
+                Some(actor),
+            )
+            .await?;
+        }
+        let place = if b.decision == "refuse" {
+            None
+        } else {
+            inscriptions_modele::retenir_voeu_tx(
+                &mut tx,
+                etab,
+                &cur,
+                b.offre_id,
+                b.decision == "admis",
+                b.confirmer_depassement,
+            )
+            .await?
+        };
         sqlx::query(
             "UPDATE ent_inscription_dossier SET decision_motif = $3, decide_par = $4, decide_le = now()
               WHERE etablissement_id = $1 AND id = $2",
@@ -1772,11 +2076,33 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        changer_statut_tx(
+        sqlx::query(
+            "INSERT INTO ent_inscription_decision
+                (id, etablissement_id, dossier_id, sens, offre_id, motif_interne, motif_communique,
+                 depassement_capacite, remplace_decision_id, decide_par)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
+                     (SELECT id FROM ent_inscription_decision
+                       WHERE etablissement_id = $2 AND dossier_id = $3
+                       ORDER BY decide_le DESC, id DESC LIMIT 1), $9)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(id)
+        .bind(&b.decision)
+        .bind(place.as_ref().map(|p| p.offre_id))
+        .bind(motif.clone().unwrap_or_else(|| "Admission prononcée".to_string()))
+        .bind(&motif_communique)
+        .bind(place.as_ref().is_some_and(|p| p.depassement))
+        .bind(actor)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        transitionner_tx(
             &mut tx,
             etab,
-            &d,
+            &cur,
             &b.decision,
+            Cause::Decision,
             motif.as_deref(),
             Some(actor),
         )
@@ -1789,7 +2115,12 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             AggregateKind::Admission,
             id,
             None,
-            json!({ "dossier_id": id, "decision": b.decision }),
+            json!({
+                "dossier_id": id,
+                "decision": b.decision,
+                "offre_id": place.as_ref().map(|p| p.offre_id),
+                "depassement_capacite": place.as_ref().is_some_and(|p| p.depassement),
+            }),
             Some(actor),
         )
         .await?;
@@ -1807,21 +2138,40 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         id: Uuid,
         b: &ValidationBody,
     ) -> Result<ValidationDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+        self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
         let regime = regime_valide(&b.regime)?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let pret = match d.nature.as_str() {
-            "admission" => d.statut == "admis",
-            _ => matches!(d.statut.as_str(), "deposee" | "en_instruction"),
+            // `admis` : la confirmation (conditions : lot I5) est franchie avant la validation.
+            "admission" => matches!(d.etat.as_str(), "admis" | "confirme"),
+            "en_cours_annee" => matches!(d.etat.as_str(), "en_instruction" | "confirme"),
+            "affectes" => d.etat == "complete",
+            _ => matches!(d.etat.as_str(), "confirmee" | "en_attente_passage"),
         };
         if !pret {
-            return Err(conflit(if d.nature == "admission" {
-                "seul un dossier admis peut être validé"
-            } else {
-                "la réinscription doit être confirmée par la famille"
+            return Err(conflit(match d.nature.as_str() {
+                "admission" => "seul un dossier admis peut être validé",
+                "reinscription" => "la réinscription doit être confirmée par la famille",
+                "affectes" => "le dossier de l'élève affecté doit être complété par la famille",
+                _ => "le dossier doit être instruit avant la validation",
             }));
+        }
+        let mut cur = d.clone();
+        if (d.nature == "admission" && cur.etat == "admis")
+            || (d.nature == "en_cours_annee" && cur.etat == "en_instruction")
+        {
+            cur = transitionner_tx(
+                &mut tx,
+                etab,
+                &cur,
+                "confirme",
+                Cause::Etape,
+                Some("Conditions remplies"),
+                Some(actor),
+            )
+            .await?;
         }
         let (manquantes,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_inscription_piece
@@ -1939,11 +2289,13 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             }
             None => false,
         };
+        verifier_transition(&cur.nature, &cur.etat, "validee", Cause::Validation).map_err(conflit)?;
         sqlx::query(
-            "UPDATE ent_inscription_dossier SET statut = 'validee', eleve_id = $3, classe_cible_id = $4,
+            "UPDATE ent_inscription_dossier SET etat = 'validee', eleve_id = $3, classe_cible_id = $4,
                     regime_demande = $5, valide_par = $6, valide_le = now(), updated_at = now(),
                     resolutions = $7, niveau_demande = $8, parcours_demande = $9,
-                    inscription_annuelle_id = $10
+                    inscription_annuelle_id = $10, echeance_famille = NULL,
+                    validation_annulee_le = NULL
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
@@ -1964,7 +2316,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             etab,
             id,
             "statut",
-            Some((&d.statut, "validee")),
+            Some((&cur.etat, "validee")),
             Some("Inscription validée"),
             true,
             Some(actor),
@@ -2078,7 +2430,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .collect())
     }
 
-    /// Correspondances possibles d'un dossier (écran de validation) — droit `decider`.
+    /// Correspondances possibles d'un dossier (écran de validation) — droit `valider`.
     pub async fn correspondances_for_actor(
         &self,
         etab: Uuid,
@@ -2086,7 +2438,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         role: &str,
         id: Uuid,
     ) -> Result<CorrespondancesDto, EntDbError> {
-        self.ins_exiger(etab, actor, role, Action::InscriptionsDecider)
+        self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
@@ -2109,7 +2461,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         Ok(out)
     }
 
-    async fn responsables_tx(
+    pub(crate) async fn responsables_tx(
         conn: &mut PgConnection,
         etab: Uuid,
         dossier_id: Uuid,
@@ -2660,222 +3012,41 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     }
 
     /// INS-02 : dépôt d'une préinscription. Le déposant est l'adresse vérifiée.
+    /// Dépôt d'un seul enfant : une démarche d'un enfant (le dépôt de fratrie est
+    /// [`PgEnt::deposer_demarche`]).
     pub async fn deposer_preinscription(
         &self,
         etab: Uuid,
         jeton: &str,
         b: &PreinscriptionBody,
     ) -> Result<DossierDto, EntDbError> {
-        let v = self.resoudre_jeton_preinscription(etab, jeton).await?;
-        let eleve = normaliser_eleve(&b.eleve)?;
-        let mut r1 = b.responsable.clone();
-        r1.email = Some(v.email.clone());
-        r1.meme_foyer = true;
-        let r1 = normaliser_responsable(&r1)?;
-        let r2 = match &b.second_parent {
-            None => None,
-            Some(s) => {
-                let s = normaliser_responsable(s)?;
-                if s.email.as_deref() == Some(v.email.as_str()) {
-                    return Err(invalide(
-                        "le second parent doit avoir sa propre adresse e-mail",
-                    ));
-                }
-                Some(s)
-            }
-        };
-        let mut tx = self.pool().begin().await.map_err(db)?;
-        let c: Option<(String, String, Option<NaiveDate>, Option<NaiveDate>)> = sqlx::query_as(
-            "SELECT nature, statut, date_ouverture, date_cloture FROM ent_inscription_campagne
-              WHERE etablissement_id = $1 AND id = $2 FOR SHARE",
-        )
-        .bind(etab)
-        .bind(b.campagne_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        let Some((nature, statut, ouv, clo)) = c else {
-            return Err(introuvable());
-        };
-        let today = Utc::now().date_naive();
-        if nature != "admission"
-            || statut != "ouverte"
-            || ouv.is_some_and(|o| o > today)
-            || clo.is_some_and(|c| c < today)
-        {
-            return Err(conflit("campagne d'admission non ouverte"));
-        }
-        let niveaux: Vec<(String,)> = sqlx::query_as(
-            "SELECT code FROM ent_inscription_campagne_niveau WHERE etablissement_id = $1 AND campagne_id = $2",
-        )
-        .bind(etab)
-        .bind(b.campagne_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        if !niveaux.is_empty()
-            && !eleve
-                .niveau_demande
-                .as_ref()
-                .is_some_and(|n| niveaux.iter().any(|(c,)| c == n))
-        {
-            return Err(invalide("niveau demandé non proposé par cette campagne"));
-        }
-        let (deja,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM ent_inscription_dossier
-              WHERE etablissement_id = $1 AND campagne_id = $2 AND deposant_email = $3",
-        )
-        .bind(etab)
-        .bind(b.campagne_id)
-        .bind(&v.email)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
-        if deja >= DOSSIERS_MAX_PAR_DEPOSANT {
-            return Err(conflit(
-                "nombre maximal de dossiers atteint pour cette campagne",
-            ));
-        }
-        let id = Uuid::new_v4();
-        let reutilise = b.utiliser_mes_infos && v.user_id.is_some();
-        sqlx::query(
-            "INSERT INTO ent_inscription_dossier
-                (id, etablissement_id, campagne_id, nature, statut, eleve_nom, eleve_prenom,
-                 eleve_date_naissance, eleve_sexe, eleve_ine, niveau_demande, regime_demande,
-                 etablissement_origine, deposant_email, deposant_user_id, reutilise_identite, depose_le)
-             VALUES ($1,$2,$3,'admission','deposee',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())",
-        )
-        .bind(id)
-        .bind(etab)
-        .bind(b.campagne_id)
-        .bind(&eleve.nom)
-        .bind(&eleve.prenom)
-        .bind(eleve.date_naissance)
-        .bind(&eleve.sexe)
-        .bind(&eleve.ine)
-        .bind(&eleve.niveau_demande)
-        .bind(&eleve.regime_demande)
-        .bind(&eleve.etablissement_origine)
-        .bind(&v.email)
-        .bind(v.user_id)
-        .bind(reutilise)
-        .execute(&mut *tx)
-        .await
-        .map_err(db)?;
-        for (rang, r) in [(1_i16, Some(&r1)), (2, r2.as_ref())] {
-            let Some(r) = r else { continue };
-            let resp_id = Uuid::new_v4();
-            let reserve = r.reserve.as_ref().map(reserve_depuis_dto).unwrap_or_default();
-            let coffre = ChampsSensibles::depuis_env();
-            // Adresse à protéger : jamais en clair dans le dossier (colonne `adresse` vide).
-            let (adresse, adresse_protegee) = if reserve.adresse_a_proteger {
-                (
-                    None,
-                    coffre
-                        .sceller_opt(
-                            "ent_inscription_responsable",
-                            "adresse_protegee",
-                            resp_id,
-                            r.adresse.as_deref(),
-                        )
-                        .map_err(EntDbError::Domain)?,
-                )
-            } else {
-                (r.adresse.clone(), None)
-            };
-            let reference = coffre
-                .sceller_opt(
-                    "ent_inscription_responsable",
-                    "ne_pas_solliciter_ref",
-                    resp_id,
-                    reserve.ne_pas_solliciter_ref.as_deref(),
-                )
-                .map_err(EntDbError::Domain)?;
-            sqlx::query(
-                "INSERT INTO ent_inscription_responsable
-                    (id, etablissement_id, dossier_id, rang, nom, prenom, civilite, email, telephone,
-                     adresse, lien, meme_foyer, autorite_parentale, ne_pas_solliciter,
-                     ne_pas_solliciter_ref, adresse_a_proteger, adresse_protegee, langue,
-                     besoin_interprete, organisme, nature_code)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
+        let demarche = self
+            .deposer_demarche(
+                etab,
+                jeton,
+                &DemarcheBody {
+                    campagne_id: b.campagne_id,
+                    utiliser_mes_infos: b.utiliser_mes_infos,
+                    enregistrer_profil: b.enregistrer_profil,
+                    enfants: vec![EnfantDemarcheBody {
+                        eleve: b.eleve.clone(),
+                        voeux: Vec::new(),
+                    }],
+                    responsable: b.responsable.clone(),
+                    second_parent: b.second_parent.clone(),
+                    autres_responsables: Vec::new(),
+                },
             )
-            .bind(resp_id)
-            .bind(etab)
-            .bind(id)
-            .bind(rang)
-            .bind(&r.nom)
-            .bind(&r.prenom)
-            .bind(&r.civilite)
-            .bind(&r.email)
-            .bind(&r.telephone)
-            .bind(adresse)
-            .bind(r.lien.as_deref().unwrap_or("autre"))
-            .bind(r.meme_foyer)
-            .bind(r.autorite_parentale)
-            .bind(reserve.ne_pas_solliciter)
-            .bind(reference)
-            .bind(reserve.adresse_a_proteger)
-            .bind(adresse_protegee)
-            .bind(&reserve.langue)
-            .bind(reserve.besoin_interprete)
-            .bind(&reserve.organisme)
-            .bind(&reserve.nature_code)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
-        }
-        Self::copier_pieces_tx(&mut tx, etab, b.campagne_id, id).await?;
-        suivi_tx(
-            &mut tx,
-            etab,
-            id,
-            "statut",
-            Some(("brouillon", "deposee")),
-            Some("Préinscription déposée"),
-            true,
-            None,
-        )
-        .await?;
-        if let Some(u) = v.user_id {
-            if reutilise {
-                Self::journal_identite_tx(&mut tx, u, "informations_reutilisees", etab).await?;
-            }
-            if b.enregistrer_profil {
-                sqlx::query(
-                    "INSERT INTO ent_profil_personnel (user_id, nom, prenom, civilite, telephone, adresse, updated_at)
-                     VALUES ($1,$2,$3,$4,$5,$6, now())
-                     ON CONFLICT (user_id) DO UPDATE SET nom = EXCLUDED.nom, prenom = EXCLUDED.prenom,
-                        civilite = EXCLUDED.civilite, telephone = EXCLUDED.telephone,
-                        adresse = EXCLUDED.adresse, updated_at = now()",
-                )
-                .bind(u)
-                .bind(&r1.nom)
-                .bind(&r1.prenom)
-                .bind(&r1.civilite)
-                .bind(&r1.telephone)
-                .bind(&r1.adresse)
-                .execute(&mut *tx)
-                .await
-                .map_err(db)?;
-                Self::journal_identite_tx(&mut tx, u, "profil_enregistre", etab).await?;
-            }
-        }
-        publier(
-            &mut tx,
-            etab,
-            types::ADMISSION_DEPOSEE,
-            AggregateKind::Admission,
-            id,
-            None,
-            json!({ "dossier_id": id, "campagne_id": b.campagne_id, "second_parent": r2.is_some() }),
-            v.user_id,
-        )
-        .await?;
-        commit(tx).await?;
+            .await?;
+        let id = demarche
+            .dossiers
+            .first()
+            .map(|d| d.id)
+            .ok_or_else(introuvable)?;
         self.dossier_famille(etab, jeton, id).await
     }
 
-    async fn journal_identite_tx(
+    pub(crate) async fn journal_identite_tx(
         conn: &mut PgConnection,
         user_id: Uuid,
         action: &str,
@@ -2895,7 +3066,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     }
 
     /// Dossier déposé avec l'adresse vérifiée (sinon « introuvable »).
-    async fn dossier_du_deposant(
+    pub(crate) async fn dossier_du_deposant(
         &self,
         etab: Uuid,
         jeton: &str,
@@ -3624,7 +3795,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
 
     // -- Réinscription par la famille (INS-07, INS-08) -------------------------
 
-    async fn exiger_lien_famille(
+    pub(crate) async fn exiger_lien_famille(
         &self,
         etab: Uuid,
         actor: Uuid,
@@ -3727,11 +3898,12 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .await
         .map_err(db)?;
         if d.statut == "brouillon" {
-            changer_statut_tx(
+            transitionner_tx(
                 &mut tx,
                 etab,
                 &d,
-                "deposee",
+                "confirmee",
+                Cause::Etape,
                 Some("Réinscription confirmée par la famille"),
                 Some(actor),
             )
@@ -3791,7 +3963,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if !matches!(d.statut.as_str(), "brouillon" | "deposee") {
             return Err(conflit("réinscription non modifiable"));
         }
-        changer_statut_tx(&mut tx, etab, &d, "desistement", Some(motif), Some(actor)).await?;
+        transitionner_tx(
+            &mut tx, etab, &d, "non_reinscription_famille", Cause::Etape, Some(motif), Some(actor),
+        )
+        .await?;
         // Motif hors de l'événement (texte libre, §4.1-3).
         publier(
             &mut tx,
@@ -3840,14 +4015,14 @@ mod tests_unitaires {
         assert!(transition_instruction_admise("deposee", "en_instruction"));
         assert!(!transition_instruction_admise("validee", "en_instruction"));
         assert!(!transition_instruction_admise("deposee", "validee"));
-        let a = actions_personnel("admission", "admis", true, false);
+        let a = actions_personnel("admission", "admis", true, false, false);
         assert!(
             !a.contains(&"valider".to_string()),
-            "valider exige inscriptions.decider"
+            "valider exige inscriptions.valider"
         );
-        let a = actions_personnel("admission", "admis", false, true);
+        let a = actions_personnel("admission", "admis", false, false, true);
         assert!(a.contains(&"valider".to_string()));
-        let a = actions_personnel("reinscription", "deposee", true, true);
+        let a = actions_personnel("reinscription", "deposee", true, true, true);
         assert!(a.contains(&"valider".to_string()) && !a.contains(&"decider".to_string()));
     }
 

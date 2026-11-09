@@ -129,9 +129,11 @@ impl EleveVue {
 }
 
 impl PgEnt {
-    /// Recherche d'élèves pour un acteur : seuls les élèves dont il voit la
-    /// désignation (annuaire, avec sa portée) sont renvoyés ; le badge n'est
-    /// interrogeable que si l'acteur voit les identifiants de tous les élèves.
+    /// Recherche instantanée d'élèves pour un acteur (ELV-20) : tolérante aux accents et aux
+    /// fautes, **filtrée par ses droits dans la requête** (portée de l'annuaire, groupes
+    /// interrogeables, élèves protégés) puis minimisée par `EleveVue::de` (E1). Le badge, l'INE
+    /// et le numéro d'élève ne sont interrogeables que si l'acteur les voit pour tous les élèves ;
+    /// l'état civil (nom de naissance, prénoms) de même — aucun oracle sur ce qu'il ne voit pas.
     pub async fn search_eleves_pour_acteur(
         &self,
         etablissement_id: Uuid,
@@ -141,9 +143,42 @@ impl PgEnt {
         limit: i64,
     ) -> Result<Vec<EleveVue>, EntDbError> {
         let profil = self.profil_champs(etablissement_id, user_id, role).await?;
-        let rows = self
-            .search_eleves_brut(etablissement_id, q, limit, profil.badge_interrogeable())
-            .await?;
+        let designation: Option<Vec<Uuid>> = match profil.portee(GroupeChamps::Designation) {
+            PorteeGroupe::Tout => None,
+            PorteeGroupe::Ensemble(s) => Some(s.iter().copied().collect()),
+            PorteeGroupe::Aucune | PorteeGroupe::Reserve => return Ok(Vec::new()),
+        };
+        // Élèves protégés : G6 partout, ou lien direct (portée restreinte qui les contient).
+        let mut proteges_ids: HashSet<Uuid> = HashSet::new();
+        if let PorteeGroupe::Ensemble(s) = profil.portee(GroupeChamps::Designation) {
+            proteges_ids.extend(s.iter().copied());
+        }
+        if let PorteeGroupe::Ensemble(s) = profil.portee(GroupeChamps::Sensible) {
+            proteges_ids.extend(s.iter().copied());
+        }
+        let proteges_ids: Vec<Uuid> = proteges_ids.into_iter().collect();
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?;
+        let rows = crate::eleve_repo::PgEleveRepo::rechercher(
+            &mut tx,
+            &crate::eleve_repo::ParamsRecherche {
+                etablissement_id,
+                q,
+                limit,
+                designation: designation.as_deref(),
+                civil: profil.ouvert_partout(GroupeChamps::EtatCivil),
+                numero: profil.ouvert_partout(GroupeChamps::Scolarite),
+                identifiants: profil.ouvert_partout(GroupeChamps::Identifiants),
+                proteges_tous: profil.ouvert_partout(GroupeChamps::Sensible),
+                proteges_ids: &proteges_ids,
+            },
+        )
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::Protocol(_) => EntDbError::SaisieInvalide("requête de recherche invalide"),
+            e => EntDbError::Sqlx(e),
+        })?;
+        tx.commit().await?;
+        // Défense en profondeur : le filtre SQL et le profil disent la même chose.
         Ok(rows
             .into_iter()
             .filter(|e| profil.voit_designation(e.id))

@@ -16,7 +16,7 @@ fn main() {
         .expect("runtime tokio");
 
     rt.block_on(async {
-        let (app, addr) = match ent_web_server::routeur_complet().await {
+        let (app, addr) = match ent_web_server::routeur_complet_avec_taches().await {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("démarrage impossible : {e}");

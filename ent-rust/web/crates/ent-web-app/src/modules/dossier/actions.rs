@@ -372,12 +372,7 @@ pub fn DialogueSuspension(
 ) -> impl IntoView {
     let notifications = use_notifications();
     let ouvert = RwSignal::new(false);
-    Effect::new(move |_| ouvert.set(lien.get().is_some()));
-    Effect::new(move |_| {
-        if !ouvert.get() {
-            lien.set(None);
-        }
-    });
+    crate::noyau::dialogue::lier_ouverture(ouvert, lien);
     let motif = RwSignal::new(String::new());
     let reference = RwSignal::new(String::new());
     let erreur = RwSignal::new(None::<String>);
@@ -435,7 +430,7 @@ pub fn DialogueRetablir(
 ) -> impl IntoView {
     let notifications = use_notifications();
     let ouvert = RwSignal::new(false);
-    Effect::new(move |_| ouvert.set(lien.get().is_some()));
+    crate::noyau::dialogue::lier_ouverture(ouvert, lien);
     let erreur = RwSignal::new(None::<String>);
     let confirmer = Callback::new(move |_| {
         let Some((id, _)) = lien.get_untracked() else {
@@ -515,12 +510,7 @@ fn DialogueGuichet(
 ) -> impl IntoView {
     let notifications = use_notifications();
     let ouvert = RwSignal::new(false);
-    Effect::new(move |_| ouvert.set(cible.get().is_some()));
-    Effect::new(move |_| {
-        if !ouvert.get() {
-            cible.set(None);
-        }
-    });
+    crate::noyau::dialogue::lier_ouverture(ouvert, cible);
     let piece = RwSignal::new(String::new());
     let verifiee = RwSignal::new(false);
     let erreur = RwSignal::new(None::<String>);

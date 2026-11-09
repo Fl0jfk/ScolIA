@@ -3,6 +3,7 @@
 //! configuration publique de connexion.
 
 pub mod coquille;
+pub mod dialogue;
 pub mod droits;
 pub mod droits_moteur;
 pub mod ecriture;

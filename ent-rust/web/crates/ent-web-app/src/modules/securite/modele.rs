@@ -225,6 +225,7 @@ fn role_canonique(role: &str) -> Option<&'static str> {
         Role::Infirmerie => "infirmerie",
         Role::Psy => "psy",
         Role::Accueil => "accueil",
+        Role::Personnel => "personnel",
         Role::Parent => "parent",
         Role::Eleve => "eleve",
     })

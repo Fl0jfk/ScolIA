@@ -17,6 +17,7 @@ mod dossier;
 mod identifiant;
 mod scolarite;
 mod identite;
+mod proposition;
 mod invitation;
 mod fiche_sante;
 mod fiche_sante_pdf;
@@ -50,6 +51,8 @@ mod conseil_classe;
 mod info_comp;
 mod vacances;
 mod homonyme;
+mod doublon;
+mod fusion;
 mod menu_cantine;
 mod quotient;
 mod tva;
@@ -108,6 +111,15 @@ pub use identifiant::{
     motif_valide as motif_identifiant_valide, normaliser_valeur as normaliser_identifiant,
     transition_permise as transition_identifiant_permise, utilisable_pour_export as identifiant_utilisable_pour_export,
     ErreurIdentifiant, ProvenanceIdentifiant, StatutIdentifiant, SystemeIdentifiant,
+};
+pub use proposition::{
+    champ as champ_catalogue, champ_catalogue_de, champ_catalogue_du_systeme, evaluer_auto,
+    modif_depuis_valeurs, nom_regle_auto, reglage_profil, valeur_identite, regles_auto_profil, statut_final, valider_regle_auto,
+    valider_reglage, verifier_acceptation, verifier_depot,
+    verifier_modification_directe, vient_de_la_source_qui_fait_foi, CibleProposition,
+    ContexteAuto, DefChamp, Deposant, ErreurProposition, ModificationLocale, OrigineProposition,
+    ProfilEtablissement, RaisonNonAuto, ReglageChamp, SaisieFamille, SourceFoi, SourceProposition,
+    TypeValeur, CATALOGUE as CATALOGUE_CHAMPS_ELEVE, MOMENTS_OBLIGATOIRE, MOTIFS_REFUS,
 };
 pub use identite::{
     filtrer_historique as filtrer_historique_identite, planifier_version as planifier_version_identite,
@@ -212,6 +224,14 @@ pub use info_comp::{
 pub use vacances::{
     jour_est_ferme, plan_creer_periode_vacances, CreerPeriodeVacances, PeriodeVacances,
     VacancesKind,
+};
+pub use doublon::{
+    cle_nom as cle_nom_doublon, evaluer as evaluer_doublon, paire_ordonnee, IdentiteDoublon,
+    RaisonDoublon, ScoreDoublon, SEUIL_DOUBLON,
+};
+pub use fusion::{
+    domaine_fusion, domaine_protege, table_eleve, tables_a_deplacer, Strategie as StrategieFusion, TableEleve, DELAI_DEFUSION_JOURS,
+    TABLES_ELEVE,
 };
 pub use homonyme::{
     normalize_identite, plan_rechercher_homonymes, score_homonyme, HomonymeCandidat,

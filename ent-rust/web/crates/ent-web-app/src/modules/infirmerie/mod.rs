@@ -335,12 +335,7 @@ fn DialogueCloture(
     ecriture: Ecriture,
 ) -> impl IntoView {
     let ouvert = RwSignal::new(false);
-    Effect::new(move |_| ouvert.set(cloture.get().is_some()));
-    Effect::new(move |_| {
-        if !ouvert.get() {
-            cloture.set(None);
-        }
-    });
+    crate::noyau::dialogue::lier_ouverture(ouvert, cloture);
     let (heure, issue, soins, personne) = (
         RwSignal::new(String::new()),
         RwSignal::new("retour_classe".to_string()),

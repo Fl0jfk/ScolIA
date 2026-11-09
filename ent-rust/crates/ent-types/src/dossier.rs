@@ -239,6 +239,10 @@ pub struct LienEnAttenteEleveDto {
 pub struct ConfirmationGuichetBody {
     /// `carte_identite`, `passeport`, `titre_sejour`, `permis_conduire`, `livret_famille`, `autre`.
     pub piece: String,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Réponse de la confirmation au guichet.
@@ -409,6 +413,18 @@ pub struct FicheEleveDto {
     /// Interdictions actives visibles (jamais pour une famille).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub interdictions: Vec<InterdictionDto>,
+    /// Mentions « ne pas solliciter » des responsables (personnel seulement).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protections: Vec<ProtectionFicheDto>,
+}
+
+/// Alerte « ne pas solliciter » sur la fiche : ni référence, ni adresse.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProtectionFicheDto {
+    pub personne_id: Uuid,
+    pub designation: String,
+    /// `true` : confirmée par la direction ; `false` : à confirmer.
+    pub confirmee: bool,
 }
 
 /// Un groupe de champs masqué et pourquoi (jamais de masquage muet).
@@ -444,6 +460,10 @@ pub struct PersonneTrouveeDto {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompteBody {
     pub user_id: Uuid,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Corps de `POST /dossier/fusions`.
@@ -452,6 +472,10 @@ pub struct FusionBody {
     pub source_id: Uuid,
     pub cible_id: Uuid,
     pub motif: String,
+    /// RP2-04 : confirmation explicite de la direction quand l'opération touche une personne
+    /// « ne pas solliciter » (même encore à confirmer). Refusée à tout autre rôle.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmation_direction: bool,
 }
 
 /// Fusion de personnes (annulable 30 jours).
@@ -463,4 +487,268 @@ pub struct FusionDto {
     pub motif: String,
     pub fusionne_le: DateTime<Utc>,
     pub annule_le: Option<DateTime<Utc>>,
+}
+
+// ---------------------------------------------------------------------------
+// Socle 4, lot A2 : coordonnées, vérification, préférences, consentements, divergences,
+// identité versionnée. Routes `/dossier/personnes/{id}/…` (personnel) et `/dossier/moi/…`
+// (la personne elle-même). Les journaux et événements ne portent jamais ces valeurs.
+// ---------------------------------------------------------------------------
+
+/// Coordonnée datée d'une personne (`type_` : `email`, `mobile`, `fixe`, `professionnel`,
+/// `adresse`). Les numéros sont en E.164.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneeDto {
+    pub id: Uuid,
+    pub type_: String,
+    pub valeur: String,
+    pub libelle: Option<String>,
+    /// `notifications`, `urgence`, `facturation`, `connexion` (le compte).
+    pub usages: Vec<String>,
+    pub principal: bool,
+    /// Preuve de possession (code reçu) ; `None` = simplement déclarée.
+    pub verifiee_le: Option<DateTime<Utc>>,
+    pub verification_voie: Option<String>,
+    /// Valeur non normalisable, à faire vérifier.
+    pub a_verifier: bool,
+    pub delivrabilite: String,
+    pub source: String,
+    pub du: DateTime<Utc>,
+    pub au: Option<DateTime<Utc>>,
+    pub remplace_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneesDto {
+    pub coordonnees: Vec<CoordonneeDto>,
+    /// Les adresses postales sont fermées pour ce lecteur (groupe F2).
+    pub adresses_masquees: bool,
+}
+
+/// Corps de `POST …/coordonnees`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneeBody {
+    pub type_: String,
+    pub valeur: String,
+    #[serde(default)]
+    pub libelle: Option<String>,
+    #[serde(default)]
+    pub usages: Vec<String>,
+    /// Personnel seulement : en faire la coordonnée principale.
+    #[serde(default)]
+    pub principal: bool,
+    /// `erreur_de_saisie`, `changement_declare` (défaut), `demande_de_la_personne`, `autre`.
+    #[serde(default)]
+    pub raison: Option<String>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `PUT …/coordonnees/{cid}` : nouvelle valeur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneeRemplacementBody {
+    pub valeur: String,
+    /// `correction` (faute de frappe) ou `remplacement` (défaut).
+    #[serde(default)]
+    pub nature: Option<String>,
+    #[serde(default)]
+    pub raison: Option<String>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST …/coordonnees/{cid}/retirer`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneeRetraitBody {
+    #[serde(default)]
+    pub raison: Option<String>,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST …/coordonnees/{cid}/usages`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoordonneeUsagesBody {
+    pub usages: Vec<String>,
+    #[serde(default)]
+    pub principal: bool,
+}
+
+/// Corps de `POST …/coordonnees/{cid}/verification/confirmer`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeBody {
+    pub code: String,
+}
+
+/// Code envoyé (jamais renvoyé dans la réponse).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationEnvoyeeDto {
+    pub coordonnee_id: Uuid,
+    /// `email` ou `sms`.
+    pub canal: String,
+    pub expire_le: DateTime<Utc>,
+}
+
+/// Entrée de l'historique des coordonnées : qui, quand, pourquoi — jamais la valeur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HistoriqueCoordonneeDto {
+    pub id: Uuid,
+    pub coordonnee_id: Uuid,
+    pub type_: String,
+    pub nature: String,
+    pub raison: String,
+    pub motif: Option<String>,
+    /// `personnel`, `personne` ou `systeme`.
+    pub via: String,
+    /// Nom de l'auteur, pour le personnel seulement.
+    pub par_nom: Option<String>,
+    pub quand: DateTime<Utc>,
+}
+
+/// Préférences de contact et langue (`PUT …/preferences`, corps et réponse).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PreferencesDto {
+    #[serde(default)]
+    pub langue: Option<String>,
+    /// `email`, `sms`.
+    #[serde(default)]
+    pub canaux_refuses: Vec<String>,
+    #[serde(default)]
+    pub courrier_papier: bool,
+    /// `gros_caracteres`, `pas_d_appel_vocal`, `interprete`.
+    #[serde(default)]
+    pub accessibilite: Vec<String>,
+    /// `[{"jours":[1,2],"de":"08:00","a":"12:00"}]`.
+    #[serde(default)]
+    pub joignable: Option<serde_json::Value>,
+    #[serde(default)]
+    pub fuseau: Option<String>,
+    #[serde(default)]
+    pub maj_le: Option<DateTime<Utc>>,
+}
+
+/// Consentement administratif (une ligne par réponse ; `retire_le` renseigné = plus en vigueur).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentementDto {
+    pub id: Uuid,
+    pub objet: String,
+    pub reponse: String,
+    pub texte_version: String,
+    pub canal: String,
+    pub piece_reference: Option<String>,
+    pub du: DateTime<Utc>,
+    pub retire_le: Option<DateTime<Utc>>,
+}
+
+/// Objet de consentement et version du texte à présenter.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentementCatalogueDto {
+    pub objet: String,
+    pub texte_version: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentementsDto {
+    pub catalogue: Vec<ConsentementCatalogueDto>,
+    pub consentements: Vec<ConsentementDto>,
+}
+
+/// Corps de `POST …/consentements`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConsentementBody {
+    pub objet: String,
+    pub accorde: bool,
+    pub texte_version: String,
+    /// Personnel : `guichet` (défaut) ou `papier` (référence de pièce obligatoire).
+    #[serde(default)]
+    pub canal: Option<String>,
+    #[serde(default)]
+    pub piece_reference: Option<String>,
+}
+
+/// Divergence entre le compte de connexion et la fiche (valeurs masquées).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DivergenceCompteDto {
+    pub personne_id: Uuid,
+    pub personne_libelle: String,
+    /// `email` ou `telephone`.
+    pub champ: String,
+    /// `absent_de_la_fiche` ou `different_du_principal`.
+    pub nature: String,
+    pub valeur_compte_masquee: String,
+    pub valeur_fiche_masquee: Option<String>,
+}
+
+/// Corps de `POST …/divergences-compte/{champ}`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DivergenceDecisionBody {
+    /// `distinct_voulu`, `conserver_fiche` ou `adopter_compte`.
+    pub choix: String,
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+/// Corps de `POST /dossier/personnes/{id}/identite`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdentiteBody {
+    pub nom: String,
+    #[serde(default)]
+    pub prenom: Option<String>,
+    #[serde(default)]
+    pub civilite: Option<String>,
+    /// `correction` (faute de frappe) ou `changement` (mariage, jugement, prénom d'usage).
+    pub nature: String,
+    #[serde(default)]
+    pub effet_du: Option<NaiveDate>,
+    /// Obligatoire (3 à 500 caractères).
+    pub motif: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AncienneIdentiteDto {
+    pub prenom: Option<String>,
+    pub civilite: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionIdentiteDto {
+    pub id: Uuid,
+    pub nom: Option<String>,
+    pub prenom: Option<String>,
+    pub civilite: Option<String>,
+    pub nature: String,
+    pub effet_du: NaiveDate,
+    pub motif: Option<String>,
+    pub sensible: bool,
+    pub masquee: bool,
+    pub enregistre_le: DateTime<Utc>,
+    /// Anciennes valeurs d'un changement sensible : réservées aux données protégées.
+    pub anterieures: Option<Vec<AncienneIdentiteDto>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PropositionSeparationDto {
+    pub personne_id: Uuid,
+    pub nom_actuel: String,
+    pub nom_propose: String,
+    pub prenom_propose: String,
+    pub a_verifier: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeparationNomBody {
+    pub personne_id: Uuid,
+    pub nom: String,
+    pub prenom: String,
+}
+
+/// Corps de `POST /dossier/personnes/noms-a-separer`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeparationsBody {
+    pub separations: Vec<SeparationNomBody>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeparationsResultatDto {
+    pub appliquees: usize,
 }

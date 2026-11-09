@@ -19,6 +19,8 @@ pub enum Role {
     Psy,
     /// Accueil (socle 4, lot A1) : désigne, joint, remet.
     Accueil,
+    /// Profil de base minimal (RP1-06) : aucun droit propre, tout vient des rôles paramétrables.
+    Personnel,
     Parent,
     Eleve,
 }
@@ -35,6 +37,7 @@ impl Role {
             "infirmerie" | "infirmiere" | "infirmier" => Some(Role::Infirmerie),
             "psy" | "psychologue" => Some(Role::Psy),
             "accueil" => Some(Role::Accueil),
+            "personnel" => Some(Role::Personnel),
             "parent" => Some(Role::Parent),
             "eleve" => Some(Role::Eleve),
             _ => None,
@@ -52,6 +55,7 @@ impl Role {
             Role::Infirmerie => "Infirmerie",
             Role::Psy => "Psychologue",
             Role::Accueil => "Accueil",
+            Role::Personnel => "Personnel",
             Role::Parent => "Famille",
             Role::Eleve => "Élève",
         }

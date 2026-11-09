@@ -96,6 +96,54 @@ fn coffre() -> ChampsSensibles {
     ChampsSensibles::depuis_env()
 }
 
+impl PgEnt {
+    /// RP2-04 : une opération qui peut donner à une personne « ne pas solliciter » (même encore à
+    /// confirmer) un accès à un élève — rattachement de compte, fusion de fiches, confirmation au
+    /// guichet — est refusée tant que la direction ne l'a pas confirmée par une action dédiée.
+    /// La confirmation n'est reçue que de la direction (`responsables.protege.gerer`) et est
+    /// journalisée. Le message ne dit rien de l'élève ni de l'établissement visé.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn exiger_confirmation_ne_pas_solliciter(
+        &self,
+        conn: &mut PgConnection,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        personnes: &[Uuid],
+        confirmation_direction: bool,
+        operation: &str,
+        eleve_id: Option<Uuid>,
+    ) -> Result<(), EntDbError> {
+        let mut visees = Vec::new();
+        for p in personnes {
+            if personne_ne_pas_solliciter_tx(&mut *conn, etab, *p).await? {
+                visees.push(*p);
+            }
+        }
+        if visees.is_empty() {
+            return Ok(());
+        }
+        if !confirmation_direction {
+            return Err(conflit_p(
+                "personne « ne pas solliciter » : opération soumise à la confirmation explicite de la direction",
+            ));
+        }
+        self.dossier_exiger_action(etab, actor, role, Action::ResponsablesProtegeGerer)
+            .await?;
+        journal_tx(
+            &mut *conn,
+            etab,
+            eleve_id,
+            "ne_pas_solliciter_operation_confirmee",
+            "Opération sur une personne « ne pas solliciter » confirmée par la direction",
+            json!({ "operation": operation, "personnes": visees }),
+            false,
+            actor,
+        )
+        .await
+    }
+}
+
 /// Point unique de la règle A0-c : cette personne ne doit recevoir **aucune** sollicitation
 /// (invitation, demande d'accord, relance, message automatique).
 pub async fn personne_ne_pas_solliciter_tx(
@@ -615,6 +663,21 @@ impl PgEnt {
         attente_id: Uuid,
         piece: PieceIdentite,
     ) -> Result<Option<Uuid>, EntDbError> {
+        self.confirmer_lien_guichet_confirme(etab, actor, role, attente_id, piece, false)
+            .await
+    }
+
+    /// RP2-04 : comme [`Self::confirmer_lien_guichet_for_actor`], avec la confirmation explicite de
+    /// la direction exigée quand la personne est « ne pas solliciter » (même encore à confirmer).
+    pub async fn confirmer_lien_guichet_confirme(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        attente_id: Uuid,
+        piece: PieceIdentite,
+        confirmation_direction: bool,
+    ) -> Result<Option<Uuid>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
@@ -643,6 +706,17 @@ impl PgEnt {
         .map_err(db)?;
         self.exiger_pas_de_conflit(etab, actor, role, eleve_attente).await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
+        self.exiger_confirmation_ne_pas_solliciter(
+            &mut tx,
+            etab,
+            actor,
+            role,
+            &[personne_id],
+            confirmation_direction,
+            "confirmation_guichet",
+            Some(eleve_attente),
+        )
+        .await?;
         let filtre = FiltreAttente {
             attente_id: Some(attente_id),
             ..Default::default()

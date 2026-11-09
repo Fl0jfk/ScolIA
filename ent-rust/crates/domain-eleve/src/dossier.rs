@@ -81,7 +81,8 @@ pub struct UpdateIdentite {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LienDossier {
     pub lien_id: Uuid,
-    pub user_id: Uuid,
+    /// Compte du responsable ; `None` quand la vue A1 ferme les coordonnées (F1) de ce lien.
+    pub user_id: Option<Uuid>,
     pub foyer_id: Option<Uuid>,
     pub foyer_libelle: Option<String>,
     pub lien: String,

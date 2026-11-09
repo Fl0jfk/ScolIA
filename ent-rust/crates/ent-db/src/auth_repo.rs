@@ -242,7 +242,8 @@ pub struct StaffMember {
     pub user_id: Uuid,
     pub email: String,
     pub display_name: Option<String>,
-    pub telephone: Option<String>,
+    // Pas de téléphone : l'annuaire du personnel n'expose que des coordonnées professionnelles
+    // (e-mail de l'ENT). Le téléphone personnel reste hors annuaire (socle 6 P0, §2.2 n° 12).
     pub role: String,
 }
 
@@ -432,6 +433,9 @@ impl PgAuthRepo {
             r#"
             SELECT role FROM ent_membership
             WHERE user_id = $1 AND etablissement_id = $2
+              AND etat = 'ouvert'
+              AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab(etablissement_id))
+              AND NOT ent_agent_acces_suspendu(user_id, etablissement_id)
             "#,
         )
         .bind(user_id)
@@ -484,6 +488,16 @@ impl PgAuthRepo {
         role: &str,
         opts: &OptionsSession,
     ) -> Result<SessionInfo, AuthError> {
+        // Socle 6 P0 : quel que soit le chemin (mot de passe, passkey, SSO), aucune session ne
+        // s'ouvre sur un accès suspendu, fermé ou échu.
+        if !self.acces_ouvert(etablissement_id, user_id).await? {
+            tracing::info!(
+                user_id = %user_id,
+                etablissement_id = %etablissement_id,
+                "ouverture de session refusée : accès non ouvert"
+            );
+            return Err(AuthError::NotMember);
+        }
         let (raw_token, token_hash) = generate_session_token();
         let session_id = Uuid::new_v4();
         let now = Utc::now();
@@ -725,7 +739,28 @@ impl PgAuthRepo {
         Ok(())
     }
 
+    /// L'accès de cette personne à cet établissement est-il **ouvert aujourd'hui** (état `ouvert`,
+    /// date de fin non dépassée dans le fuseau de l'établissement) ? Source unique : la fonction SQL
+    /// `ent_acces_ouvert` (migration 350).
+    pub async fn acces_ouvert(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, AuthError> {
+        let (ok,): (bool,) = sqlx::query_as("SELECT ent_acces_ouvert($1, $2)")
+            .bind(user_id)
+            .bind(etablissement_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|_| AuthError::InvalidCredentials)?;
+        Ok(ok)
+    }
+
     /// Rôle d'un utilisateur dans un établissement (`None` s'il n'est pas membre).
+    ///
+    /// Renvoie le profil même si l'accès est suspendu ou fermé : c'est une lecture d'appartenance
+    /// (cible d'une commande d'administration). Ne jamais s'en servir pour autoriser une connexion
+    /// ou une action au nom de la personne : voir [`Self::acces_ouvert`].
     pub async fn role_in(
         &self,
         etablissement_id: Uuid,
@@ -828,6 +863,11 @@ impl PgAuthRepo {
                 JOIN ent_user u ON u.id = s.user_id
                 JOIN ent_membership m
                   ON m.user_id = s.user_id AND m.etablissement_id = s.etablissement_id
+                 -- Socle 6 P0 : un accès suspendu, fermé ou échu invalide aussi les sessions et
+                 -- jetons déjà ouverts, sans attendre leur révocation explicite.
+                 AND m.etat = 'ouvert'
+                 AND (m.date_fin IS NULL OR m.date_fin >= ent_aujourdhui_etab(m.etablissement_id))
+                 AND NOT ent_agent_acces_suspendu(m.user_id, m.etablissement_id)
                 WHERE s.token_hash = $1
                   AND s.revoked_at IS NULL
                   AND s.expires_at > $2
@@ -943,6 +983,7 @@ impl PgAuthRepo {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
+    /// Membre **avec un accès ouvert** : un accès suspendu, fermé ou échu n'est pas un membre actif.
     pub async fn is_member(
         &self,
         etablissement_id: Uuid,
@@ -953,6 +994,9 @@ impl PgAuthRepo {
             SELECT 1
             FROM ent_membership
             WHERE etablissement_id = $1 AND user_id = $2
+              AND etat = 'ouvert'
+              AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab(etablissement_id))
+              AND NOT ent_agent_acces_suspendu(user_id, etablissement_id)
             LIMIT 1
             "#,
         )
@@ -1376,9 +1420,9 @@ impl PgAuthRepo {
         etablissement_id: Uuid,
         user_id: Uuid,
     ) -> Result<Option<StaffMember>, AuthError> {
-        let row: Option<(Uuid, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+        let row: Option<(Uuid, String, Option<String>, String)> = sqlx::query_as(
             r#"
-            SELECT u.id, u.email, u.display_name, u.telephone, m.role
+            SELECT u.id, u.email, u.display_name, m.role
             FROM ent_user u
             INNER JOIN ent_membership m
               ON m.user_id = u.id AND m.etablissement_id = $1
@@ -1391,11 +1435,10 @@ impl PgAuthRepo {
         .fetch_optional(&self.pool)
         .await
         .map_err(|_| AuthError::InvalidCredentials)?;
-        Ok(row.map(|(user_id, email, display_name, telephone, role)| StaffMember {
+        Ok(row.map(|(user_id, email, display_name, role)| StaffMember {
             user_id,
             email,
             display_name,
-            telephone,
             role,
         }))
     }
@@ -1414,13 +1457,16 @@ impl PgAuthRepo {
             format!("%{}%", needle)
         };
         let limit = limit.clamp(1, 100);
-        let rows: Vec<(Uuid, String, Option<String>, Option<String>, String)> = sqlx::query_as(
+        let rows: Vec<(Uuid, String, Option<String>, String)> = sqlx::query_as(
             r#"
-            SELECT u.id, u.email, u.display_name, u.telephone, m.role
+            SELECT u.id, u.email, u.display_name, m.role
             FROM ent_user u
             INNER JOIN ent_membership m
               ON m.user_id = u.id AND m.etablissement_id = $1
             WHERE m.role NOT IN ('parent', 'eleve')
+              AND m.etat = 'ouvert'
+              AND (m.date_fin IS NULL OR m.date_fin >= ent_aujourdhui_etab(m.etablissement_id))
+              AND NOT ent_agent_acces_suspendu(m.user_id, m.etablissement_id)
               AND (
                 u.email ILIKE $2
                 OR COALESCE(u.display_name, '') ILIKE $2
@@ -1438,11 +1484,10 @@ impl PgAuthRepo {
         .map_err(|_| AuthError::InvalidCredentials)?;
         Ok(rows
             .into_iter()
-            .map(|(user_id, email, display_name, telephone, role)| StaffMember {
+            .map(|(user_id, email, display_name, role)| StaffMember {
                 user_id,
                 email,
                 display_name,
-                telephone,
                 role,
             })
             .collect())

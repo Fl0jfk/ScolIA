@@ -17,6 +17,9 @@ pub enum Role {
     Psy,
     /// Accueil de l'établissement (socle 4, A1) : désigne, joint, remet ; profil nouveau.
     Accueil,
+    /// Profil de base **minimal** (RP1-06) : accueil, AED, agent, intendance. Aucun droit
+    /// propre ; tout vient des rôles paramétrables (D-017) qui s'ajoutent au-dessus.
+    Personnel,
     Parent,
     Eleve,
 }
@@ -33,6 +36,7 @@ impl Role {
             Self::Infirmerie => "infirmerie",
             Self::Psy => "psy",
             Self::Accueil => "accueil",
+            Self::Personnel => "personnel",
             Self::Parent => "parent",
             Self::Eleve => "eleve",
         }
@@ -49,6 +53,7 @@ impl Role {
             "infirmerie" | "infirmiere" | "infirmier" => Some(Self::Infirmerie),
             "psy" | "psychologue" => Some(Self::Psy),
             "accueil" => Some(Self::Accueil),
+            "personnel" => Some(Self::Personnel),
             "parent" => Some(Self::Parent),
             "eleve" => Some(Self::Eleve),
             "staff" => Some(Self::Administratif),
@@ -58,6 +63,13 @@ impl Role {
 
     pub fn is_staff(self) -> bool {
         !matches!(self, Self::Parent | Self::Eleve)
+    }
+
+    /// Créer et gérer les agents, leurs engagements et l'accès de leur compte : l'ancien contrôle
+    /// de profil codé en dur de `provisionner_personnel` et de `cible_compte_autorisee` (socle 6).
+    /// Conservée comme **oracle** du modèle par défaut de `personnels.gerer` et `personnels.acces.gerer`.
+    pub fn can_gerer_personnels(self) -> bool {
+        matches!(self, Self::Admin | Self::Direction)
     }
 
     pub fn can_manage_eleves(self) -> bool {

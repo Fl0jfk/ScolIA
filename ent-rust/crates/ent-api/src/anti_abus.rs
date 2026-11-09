@@ -143,7 +143,11 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
         | "/preinscription/dossiers/{id}/pieces/{code}"
         | "/preinscription/dossiers/{id}/banque"
         | "/preinscription/dossiers/{id}/mandat"
-        | "/preinscription/dossiers/{id}/mandat/signer" => r(
+        | "/preinscription/dossiers/{id}/mandat/signer"
+        | "/preinscription/demarches"
+        | "/preinscription/demarches/{id}"
+        | "/preinscription/dossiers/{id}/retirer"
+        | "/preinscription/dossiers/{id}/desister" => r(
             "PREINSCRIPTION_FAMILLE",
             Some(Quota::new(120, 900)),
             None,

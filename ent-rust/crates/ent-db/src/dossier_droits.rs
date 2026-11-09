@@ -147,6 +147,44 @@ pub(crate) fn minimiser_responsable(r: Responsable, v: &VueGroupes) -> Responsab
     appliquer_vue(r, v)
 }
 
+/// RP2-01 : filtre le tableau `liens` de la fiche historique (`GET /eleves/{id}/dossier`)
+/// d'après les responsables **déjà minimisés** par [`PgEnt::lecture_dossier_admin`] (même vue,
+/// conflit d'intérêts par personne compris ; aucune seconde règle). Un lien absent de cette lecture
+/// (F0 fermé, lien inactif pour une famille) est retiré ; sinon un champ dont le groupe est fermé
+/// est neutralisé : coordonnées et compte (F1), foyer (F2), droits du lien (F3), payeurs.
+pub(crate) fn minimiser_liens_dossier(
+    liens: Vec<domain_eleve::LienDossier>,
+    lus: &[Responsable],
+) -> Vec<domain_eleve::LienDossier> {
+    liens
+        .into_iter()
+        .filter_map(|mut l| {
+            let r = lus.iter().find(|r| r.lien_id == l.lien_id)?;
+            let ferme = |g: ent_auth::Groupe| r.masque.iter().any(|m| m.groupe == g);
+            if ferme(ent_auth::Groupe::F1) {
+                l.email = None;
+                l.telephone = None;
+                l.user_id = None;
+            }
+            if ferme(ent_auth::Groupe::F2) {
+                l.foyer_id = None;
+                l.foyer_libelle = None;
+            }
+            if ferme(ent_auth::Groupe::F3) {
+                l.peut_voir_notes = false;
+                l.peut_voir_vs = false;
+                l.peut_justifier_absence = false;
+                l.peut_autoriser_sorties = false;
+            }
+            l.est_payeur = l.est_payeur && r.est_payeur;
+            if r.part_paiement.is_none() {
+                l.part_paiement = None;
+            }
+            Some(l)
+        })
+        .collect()
+}
+
 impl PgEnt {
     /// Minimise un responsable renvoyé par une écriture d'après les groupes de l'acteur.
     pub(crate) async fn minimiser_pour_acteur(
@@ -312,11 +350,16 @@ impl PgEnt {
                         })
                         .collect()
                 }
+                // RP1-21 / RF-16 : un lien suspendu ou fermé n'est visible que d'un lecteur dont
+                // la vue ouvre F3 (statut et dates des liens) ; sinon liens actifs seulement.
                 None => tous
                     .into_iter()
-                    .map(|r| match &vue_conflit {
-                        Some((ids, v)) if ids.contains(&r.personne.id) => appliquer_vue(r, v),
-                        _ => appliquer_vue(r, &vue),
+                    .filter_map(|r| {
+                        let v = match &vue_conflit {
+                            Some((ids, v)) if ids.contains(&r.personne.id) => v,
+                            _ => &vue,
+                        };
+                        (r.actif || v.f3).then(|| appliquer_vue(r, v))
                     })
                     .collect(),
             };
@@ -801,6 +844,11 @@ impl PgEnt {
         }
         let cible = agent_user_id.unwrap_or(actor);
         let origine = if cible == actor {
+            // RP2-14 : l'agent ne déclare que pour lui-même, sur un élève de son périmètre
+            // (un professeur : un élève qu'il suit) ; sinon refus (pas d'oracle d'existence).
+            if parsed == Role::Prof && !self.prof_suit_eleve(etab, actor, eleve_id).await? {
+                return Err(EntDbError::Forbidden);
+            }
             "agent"
         } else {
             self.dossier_exiger_action(etab, actor, role, Action::ResponsablesProtegeGerer)

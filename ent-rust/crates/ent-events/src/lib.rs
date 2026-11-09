@@ -17,6 +17,18 @@ pub mod types {
     pub const ELEVE_IDENTITY_CHANGED: &str = "eleve.identity_changed";
     /// Identifiant externe ajouté, confirmé, contesté, révoqué (système et statuts, jamais la valeur).
     pub const ELEVE_IDENTIFIANT_CHANGE: &str = "eleve.identifiant_change";
+    /// Proposition déposée / décidée (lot E5) : identifiant, cible, source, noms de champs —
+    /// jamais une valeur.
+    pub const ELEVE_PROPOSITION_DEPOSEE: &str = "eleve.proposition_deposee";
+    pub const ELEVE_PROPOSITION_DECIDEE: &str = "eleve.proposition_decidee";
+    /// Paramétrage des champs de l'élève modifié (ELV-26) : noms de champs, jamais de valeur.
+    pub const PARAMETRAGE_ELEVE_MODIFIE: &str = "parametrage.eleve_modifie";
+    /// Fusion de deux fiches d'élèves et son annulation (ELV-23, ELV-24) : identifiants des deux
+    /// fiches et de la fusion, jamais une valeur d'identité.
+    pub const ELEVE_FUSIONNE: &str = "eleve.fusionne";
+    pub const ELEVE_DEFUSIONNE: &str = "eleve.defusionne";
+    /// Deux fiches déclarées distinctes (ELV-33) : identifiants et motif codé.
+    pub const ELEVE_NON_DOUBLON_DECLARE: &str = "eleve.non_doublon_declare";
     /// Réintégration d'un ancien élève sur sa fiche (ELV-12).
     pub const ELEVE_REINTEGRE: &str = "eleve.reintegre";
     /// Passage à la majorité (ELV-14, tâche nocturne) et sa veille de 30 jours (ELV-39).
@@ -208,10 +220,34 @@ pub mod types {
     pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
     /// S2-1 (D-020) : personne (responsable, contact) distincte du compte.
     pub const PERSONNE_CREEE: &str = "personne.creee";
+    /// Socle 6 (personnels), lot P1 : agents et engagements. Charges utiles : identifiants, codes,
+    /// dates, noms de champs — jamais de nom, de coordonnée ni de motif détaillé.
+    pub const PERSONNEL_CREE: &str = "personnel.cree";
+    pub const PERSONNEL_ENGAGEMENT_AJOUTE: &str = "personnel.engagement_ajoute";
+    pub const PERSONNEL_ENGAGEMENT_MODIFIE: &str = "personnel.engagement_modifie";
+    pub const PERSONNEL_ENGAGEMENT_SUSPENDU: &str = "personnel.engagement_suspendu";
+    pub const PERSONNEL_ENGAGEMENT_REPRIS: &str = "personnel.engagement_repris";
+    pub const PERSONNEL_FONCTIONS_MODIFIEES: &str = "personnel.fonctions_modifiees";
+    pub const PERSONNEL_DISCIPLINES_MODIFIEES: &str = "personnel.disciplines_modifiees";
+    pub const PERSONNEL_QUALIFICATION_MODIFIEE: &str = "personnel.qualification_modifiee";
+    pub const PERSONNEL_PHOTO_MODIFIEE: &str = "personnel.photo_modifiee";
+    pub const PERSONNEL_IDENTITE_RESTREINTE: &str = "personnel.identite_restreinte";
+    pub const PERSONNEL_FUSIONNE: &str = "personnel.fusionne";
+    /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
+    /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
+    pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
+    pub const REFERENTIEL_ANNEE_CLOTUREE: &str = "referentiel.annee_cloturee";
+    pub const REFERENTIEL_CLASSE_ARCHIVEE: &str = "referentiel.classe_archivee";
+    pub const REFERENTIEL_GROUPE_FERME: &str = "referentiel.groupe_ferme";
     pub const PERSONNE_COORDONNEES_MODIFIEES: &str = "personne.coordonnees_modifiees";
     pub const PERSONNE_COMPTE_RATTACHE: &str = "personne.compte_rattache";
     pub const PERSONNE_FUSIONNEE: &str = "personne.fusionnee";
     pub const PERSONNE_DEFUSIONNEE: &str = "personne.defusionnee";
+    /// Socle 4, lot A2 : identité, préférences et consentements d'une personne (charges utiles :
+    /// identifiants, codes, noms de champs ; jamais de valeur).
+    pub const PERSONNE_IDENTITE_MODIFIEE: &str = "personne.identite_modifiee";
+    pub const PERSONNE_PREFERENCES_MODIFIEES: &str = "personne.preferences_modifiees";
+    pub const PERSONNE_CONSENTEMENT_MODIFIE: &str = "personne.consentement_modifie";
     /// S2-1 (B7) : lien de responsabilité suspendu / rétabli (décision de justice).
     pub const LIEN_SUSPENDU: &str = "lien.suspendu";
     pub const LIEN_RETABLI: &str = "lien.retabli";
@@ -228,6 +264,21 @@ pub mod types {
     pub const ADMISSION_RELANCE_ENVOYEE: &str = "admission.relance_envoyee";
     /// Fait central de la toile (§4.3) : affectation, invitations, accueil…
     pub const INSCRIPTION_VALIDEE: &str = "inscription.validee";
+    /// Lot I2 (socle 3) : cycle de vie des dossiers, offre, échéances. Charges utiles : identifiants,
+    /// codes, dates ; jamais de nom, d'adresse, d'e-mail ni de motif rédigé.
+    pub const ADMISSION_RETIREE: &str = "admission.retiree";
+    pub const INSCRIPTION_DESISTEMENT: &str = "inscription.desistement";
+    pub const INSCRIPTION_BLOQUE_DESACCORD: &str = "inscription.bloque_desaccord";
+    pub const INSCRIPTION_BLOCAGE_LEVE: &str = "inscription.blocage_leve";
+    pub const INSCRIPTION_VALIDATION_ANNULEE: &str = "inscription.validation_annulee";
+    pub const INSCRIPTION_SOLLICITATION_SUSPENDUE: &str = "inscription.sollicitation_suspendue";
+    pub const INSCRIPTION_CAMPAGNE_MODIFIEE: &str = "inscription.campagne_modifiee";
+    pub const INSCRIPTION_OFFRE_MODIFIEE: &str = "inscription.offre_modifiee";
+    pub const INSCRIPTION_ECHEANCE_PROLONGEE: &str = "inscription.echeance_prolongee";
+    pub const INSCRIPTION_FERMETURE_DECLAREE: &str = "inscription.fermeture_declaree";
+    pub const INSCRIPTION_DOSSIER_CLOS: &str = "inscription.dossier_clos";
+    /// Socle 2 : création d'élève annulée (ELV-02, commande appelée par INS-68).
+    pub const ELEVE_CREATION_ANNULEE: &str = "eleve.creation_annulee";
     pub const SCOLARITE_DEPART_ANNONCE: &str = "scolarite.depart_annonce";
     pub const RESPONSABLE_INVITE: &str = "inscription.responsable_invite";
     pub const INVITATION_ACCEPTEE: &str = "inscription.invitation_acceptee";
@@ -300,6 +351,8 @@ pub enum AggregateKind {
     /// Référentiel scolaire (S2-2) : années, classes, périodes, calendrier, séances.
     Referentiel,
     Personne,
+    /// Agent d'un établissement et ses engagements (socle 6, lot P1).
+    Agent,
     /// Dossier d'admission / de réinscription et campagnes (S2-3).
     Admission,
     /// Lot d'import (S2-3, D23).

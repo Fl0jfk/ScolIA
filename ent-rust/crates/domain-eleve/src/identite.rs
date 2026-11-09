@@ -558,6 +558,9 @@ pub fn planifier_version(
     let motif = motif_valide(&d.motif)?;
     match d.nature {
         NatureVersion::Correction | NatureVersion::ChangementEtatCivil | NatureVersion::Usage => {}
+        // Lot E5 : une valeur venue d'un flux externe entre par une proposition décidée
+        // (la référence de la proposition est alors obligatoire).
+        NatureVersion::Import if d.source_ref.is_some() => {}
         _ => return Err(ErreurIdentite::Invalide("nature réservée au système")),
     }
     let motif_code = d
@@ -568,6 +571,8 @@ pub fn planifier_version(
     let liste: &[&str] = match d.nature {
         NatureVersion::Correction => MOTIFS_CORRECTION,
         NatureVersion::ChangementEtatCivil => MOTIFS_CHANGEMENT,
+        // Un import n'a pas de motif codé (sa raison d'être est la source).
+        NatureVersion::Import => &[],
         _ => MOTIFS_USAGE,
     };
     if matches!(
@@ -626,7 +631,8 @@ pub fn planifier_version(
             // Une version existe déjà à cette date : un nom ou prénom d'usage la
             // remplace (deux valeurs ne peuvent pas valoir le même jour, l'ancienne
             // reste lisible) ; un changement d'état civil est une correction.
-            let usage_meme_jour = d.nature == NatureVersion::Usage && base.effet_du == e;
+            let usage_meme_jour = matches!(d.nature, NatureVersion::Usage | NatureVersion::Import)
+                && base.effet_du == e;
             if existantes_effet.contains(&e) && !usage_meme_jour {
                 return Err(ErreurIdentite::Conflit(
                     "une version existe déjà à cette date d'effet : utiliser une correction",
@@ -647,7 +653,8 @@ pub fn planifier_version(
     version.nature = d.nature;
     version.effet_du = effet_du;
     let remplace = d.nature == NatureVersion::Correction
-        || (d.nature == NatureVersion::Usage && base.effet_du == effet_du);
+        || (matches!(d.nature, NatureVersion::Usage | NatureVersion::Import)
+            && base.effet_du == effet_du);
     version.remplace_version_id = remplace.then_some(base.id);
     version.remplacee_par = None;
     version.motif_code = motif_code.clone();
@@ -676,7 +683,22 @@ pub fn filtrer_historique(
         .filter(|v| v.sensible)
         .map(|v| v.id)
         .collect();
-    versions.retain(|v| !v.sensible);
+    // RP2-02 : l'ancienne identité d'un changement d'état civil sensible est scellée à son tour
+    // (sinon le secrétariat lit « Chang » après l'adoption en « Diggory »).
+    let mut scellees: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    // Un changement d'état civil ne remplace pas l'ancienne version : elle lui succède par la
+    // date d'effet. Tout ce qui est antérieur est l'ancienne identité. Le secrétariat lit
+    // l'identité courante sur la fiche ; le prénom d'usage et les corrections ne scellent rien.
+    for s in versions
+        .iter()
+        .filter(|v| v.sensible && v.nature == NatureVersion::ChangementEtatCivil)
+    {
+        for ancienne in versions.iter().filter(|v| v.effet_du < s.effet_du) {
+            scellees.insert(ancienne.id);
+        }
+    }
+    let masquees: std::collections::HashSet<Uuid> = masquees.union(&scellees).copied().collect();
+    versions.retain(|v| !masquees.contains(&v.id));
     for v in &mut versions {
         if v.remplace_version_id
             .is_some_and(|id| masquees.contains(&id))
@@ -1137,6 +1159,23 @@ mod tests {
         assert!(vue.iter().all(|v| v.remplace_version_id != Some(s.id)));
         assert!(vue.iter().all(|v| v.remplacee_par != Some(s.id)));
         assert_eq!(filtrer_historique(vec![s, c], true).len(), 2);
+    }
+
+    #[test]
+    fn historique_scelle_l_ancienne_identite_d_un_changement_sensible() {
+        // RP2-02 : adoption (changement d'état civil sensible) : l'ancienne version, non sensible,
+        // n'est lisible qu'avec G6 ; une version non liée au changement reste visible.
+        let mut ancienne = base();
+        ancienne.nom_naissance = "Chang".into();
+        let mut adoption = base();
+        adoption.nom_naissance = "Diggory".into();
+        adoption.nature = NatureVersion::ChangementEtatCivil;
+        adoption.sensible = true;
+        adoption.effet_du = d(2026, 10, 15);
+        let vue = filtrer_historique(vec![ancienne.clone(), adoption.clone()], false);
+        assert!(vue.is_empty(), "ni Chang ni Diggory pour le secrétariat : {vue:?}");
+        let tout = filtrer_historique(vec![ancienne, adoption], true);
+        assert_eq!(tout.len(), 2);
     }
 
     #[test]

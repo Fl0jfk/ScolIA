@@ -11,7 +11,7 @@ use ent_auth::Role;
 use uuid::Uuid;
 
 pub(super) async fn labo() -> Option<(PgEnt, LaboCast)> {
-    let url = std::env::var("ENT_DATABASE_URL").ok()?;
+    let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
@@ -179,7 +179,7 @@ async fn parent_sans_compte_est_destinataire_selon_ses_preferences() {
         .telephones_parents_eleve(etab, eleve)
         .await
         .unwrap();
-    assert_eq!(tels, vec![tel.to_string()], "téléphone lu sur la fiche");
+    assert_eq!(tels, vec!["+33612345678".to_string()], "téléphone lu sur la fiche, normalisé E.164");
     // Préférences : plus de SMS, e-mail conservé.
     ent.definir_preferences_for_actor(etab, d, r, res.personne.id, true, false, false)
         .await
