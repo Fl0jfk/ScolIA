@@ -169,7 +169,10 @@ jobs:
       - name: wasm-opt (binaryen version_123)
         working-directory: ${{ runner.temp }}
         run: |
-          curl -sSL https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz | tar xz
+          # Téléchargement d'abord (échec franc et nouvelles tentatives sur 5xx), extraction ensuite :
+          # un 504 de GitHub donnait une page d'erreur que tar prenait pour une archive.
+          curl -sSL --fail --retry 6 --retry-delay 5 --retry-all-errors -o binaryen.tar.gz https://github.com/WebAssembly/binaryen/releases/download/version_123/binaryen-version_123-x86_64-linux.tar.gz
+          tar xzf binaryen.tar.gz
           echo "${{ runner.temp }}/binaryen-version_123/bin" >> "$GITHUB_PATH"
       - name: ent-types compile pour le navigateur (wasm32)
         run: cargo build --locked --manifest-path ../Cargo.toml -p ent-types --target wasm32-unknown-unknown
