@@ -145,9 +145,19 @@ ALTER TABLE ent_periode ADD CONSTRAINT ent_periode_periodisation_fk
     REFERENCES ent_periodisation (id, etablissement_id);
 
 -- Le code d'une période est unique DANS sa périodisation (« T1 » peut exister dans deux
--- périodisations ciblant des niveaux différents).
-DROP INDEX IF EXISTS ent_periode_code_uq;
-CREATE UNIQUE INDEX IF NOT EXISTS ent_periode_pz_code_uq ON ent_periode (periodisation_id, code);
+-- périodisations ciblant des niveaux différents). L'index GARDE son nom `ent_periode_code_uq` :
+-- la migration 110, rejouée à chaque démarrage, fait `CREATE UNIQUE INDEX IF NOT EXISTS` sur ce
+-- nom et recréerait l'ancienne définition (unicité par niveau), fausse dès qu'il y a plusieurs
+-- périodisations.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()
+                    AND indexname = 'ent_periode_code_uq' AND indexdef LIKE '%periodisation_id%') THEN
+        DROP INDEX IF EXISTS ent_periode_code_uq;
+        CREATE UNIQUE INDEX ent_periode_code_uq ON ent_periode (periodisation_id, code);
+    END IF;
+END
+$$;
 CREATE INDEX IF NOT EXISTS ent_periode_pz_idx ON ent_periode (etablissement_id, periodisation_id, date_debut);
 
 -- Pas de chevauchement dans une périodisation (périodes écrites par le service). Les lignes
@@ -155,9 +165,11 @@ CREATE INDEX IF NOT EXISTS ent_periode_pz_idx ON ent_periode (etablissement_id, 
 ALTER TABLE ent_periode DROP CONSTRAINT IF EXISTS ent_periode_chevauchement;
 ALTER TABLE ent_periode ADD CONSTRAINT ent_periode_chevauchement
     EXCLUDE USING gist (periodisation_id WITH =, daterange(date_debut, date_fin, '[]') WITH &&)
-    WHERE (origine = 'service') DEFERRABLE INITIALLY IMMEDIATE;
--- (Le service remplace ou décale des périodes voisines dans une transaction : il diffère la
--- contrainte, qui est vérifiée au plus tard à la validation.)
+    WHERE (origine = 'service');
+-- Contrainte NON différable : les anciens écrivains utilisent `ON CONFLICT DO NOTHING`, que
+-- Postgres refuse avec une contrainte différable. Pour décaler des périodes voisines, le service
+-- passe d'abord les lignes de la périodisation en « reprise » (hors contrainte), les modifie, puis
+-- les repasse en « service » : l'état final est contrôlé ligne par ligne.
 
 -- ───────────────────────── Déclencheurs ─────────────────────────
 -- Niveau « historique » de la période : le niveau de la cible quand la périodisation n'a qu'une
@@ -172,7 +184,13 @@ CREATE OR REPLACE FUNCTION ent_trg_periode_s7() RETURNS trigger LANGUAGE plpgsql
 DECLARE v_pz uuid; v_debut date; v_fin date;
 BEGIN
     IF NEW.periodisation_id IS NULL THEN
-        -- Chemin historique : rattacher à la périodisation de la cible (niveau ou défaut).
+        -- Chemin historique (période de notes, reconduction, ancienne route) : rattacher à la
+        -- périodisation de la cible (niveau ou défaut). Ces chemins n'ont pas toujours posé
+        -- l'établissement courant : on le pose (il vaut celui de la ligne insérée), sinon la RLS
+        -- des périodisations refuserait l'écriture sous un rôle en mode strict.
+        IF COALESCE(current_setting('app.etablissement_id', true), '') = '' THEN
+            PERFORM set_config('app.etablissement_id', NEW.etablissement_id::text, true);
+        END IF;
         SELECT pc.periodisation_id INTO v_pz
           FROM ent_periodisation_cible pc
          WHERE pc.etablissement_id = NEW.etablissement_id AND pc.annee_id = NEW.annee_id
@@ -209,7 +227,7 @@ BEGIN
 END
 $$;
 DROP TRIGGER IF EXISTS ent_periode_s7 ON ent_periode;
-CREATE TRIGGER ent_periode_s7 BEFORE INSERT OR UPDATE OF date_debut, date_fin, periodisation_id
+CREATE TRIGGER ent_periode_s7 BEFORE INSERT OR UPDATE OF date_debut, date_fin, periodisation_id, origine
     ON ent_periode FOR EACH ROW EXECUTE FUNCTION ent_trg_periode_s7();
 
 -- La périodisation d'une période ne change pas (on ne déplace pas une période entre deux
@@ -270,13 +288,15 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- ───────────────────────── Journal de structure : nouveaux objets ─────────────────────────
--- Liste fermée (332) : on y ajoute les objets du lot S7. Chaque migration qui la redéfinit doit
--- reprendre la liste COMPLÈTE de celles qui la précèdent (voir 336 et 338).
+-- La liste fermée des objets (332) est redéfinie par chaque lot. Les migrations sont REJOUÉES à
+-- chaque démarrage : une migration placée avant 338 ne peut donc pas poser une liste plus courte
+-- que celle des lignes déjà écrites (les objets de S5 existent déjà en base). Ici on assouplit en
+-- contrôle de FORMAT (minuscules et `_`) ; la liste fermée complète — qui contient les objets
+-- `periodisation`, `periode`, `grille` de ce lot — est reposée par 338, dernière à la redéfinir.
+-- Règle d'intégration : la liste de la dernière migration qui la pose doit être l'union de tous les lots.
 ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
-ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
-    ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
-     'indisponibilite', 'import_salles', 'prereglage',
-     'periodisation', 'periode'));
+ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check
+    CHECK (objet ~ '^[a-z_]{1,40}$');
 
 -- ───────────────────────── RLS ─────────────────────────
 DO $$

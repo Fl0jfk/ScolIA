@@ -401,7 +401,8 @@ async fn cibles_existent(
 }
 
 /// Deux grilles de codes différents ne visent jamais le même (site, niveau) sur les mêmes jours
-/// pendant la même période : ce serait deux réponses à « quelle grille ce jour-là ? ».
+/// pendant la même période : ce serait deux réponses à « quelle grille ce jour-là ? ». Une cible
+/// qui précise des jours (« le mercredi ») peut coexister avec une cible sans jours : elle l'emporte.
 async fn sans_conflit_de_cible(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -417,7 +418,7 @@ async fn sans_conflit_de_cible(
            JOIN ent_grille_cible c2 ON c2.grille_id = g2.id
                                    AND c2.site_id IS NOT DISTINCT FROM c1.site_id
                                    AND c2.niveau_id IS NOT DISTINCT FROM c1.niveau_id
-                                   AND (c1.jours IS NULL OR c2.jours IS NULL OR c1.jours && c2.jours)
+                                   AND ((c1.jours IS NULL AND c2.jours IS NULL) OR c1.jours && c2.jours)
           WHERE g1.etablissement_id = $1 AND g1.id = $2",
     )
     .bind(etab)

@@ -724,7 +724,10 @@ impl PgEnt {
         niveau_id: Option<Uuid>,
     ) -> Result<Vec<Periode>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
-        sqlx::query_as::<_, Periode>(
+        let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let r = sqlx::query_as::<_, Periode>(
             // Source unique : périodisation d'évaluation dont la cible est ce niveau (ou « défaut »).
             "SELECT p.id, p.annee_id, p.niveau_id, p.code, p.libelle, p.kind, p.ordre, p.date_debut, p.date_fin
                FROM ent_periode p
@@ -738,9 +741,11 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(annee_id)
         .bind(niveau_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *t)
         .await
-        .map_err(db)
+        .map_err(db)?;
+        t.commit().await.map_err(db)?;
+        Ok(r)
     }
 
     /// Remplace atomiquement les périodes d'une année (globales ou d'un niveau). Elles
@@ -756,6 +761,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let annee: Option<(NaiveDate, NaiveDate, bool)> = sqlx::query_as(
             "SELECT date_debut, date_fin, cloturee_le IS NOT NULL FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -847,7 +853,11 @@ impl PgEnt {
                 pz
             }
         };
-        sqlx::query("SET CONSTRAINTS ent_periode_chevauchement DEFERRED")
+        // Contrainte de chevauchement non différable : les lignes sortent de la contrainte le temps
+        // de la réécriture, puis y rentrent toutes (voir migration 335).
+        sqlx::query("UPDATE ent_periode SET origine = 'reprise' WHERE etablissement_id = $1 AND periodisation_id = $2")
+            .bind(e)
+            .bind(pz)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
@@ -901,7 +911,7 @@ impl PgEnt {
                 Some(id) => {
                     sqlx::query(
                         "UPDATE ent_periode SET libelle = $3, kind = $4, ordre = $5,
-                                date_debut = $6, date_fin = $7, origine = 'service'
+                                date_debut = $6, date_fin = $7
                           WHERE etablissement_id = $1 AND id = $2",
                     )
                     .bind(e)
@@ -920,7 +930,7 @@ impl PgEnt {
                         "INSERT INTO ent_periode
                            (id, etablissement_id, annee_id, periodisation_id, code, libelle, kind, ordre,
                             date_debut, date_fin, origine)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'service')",
+                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'reprise')",
                     )
                     .bind(Uuid::new_v4())
                     .bind(e)
@@ -938,6 +948,12 @@ impl PgEnt {
                 }
             }
         }
+        sqlx::query("UPDATE ent_periode SET origine = 'service' WHERE etablissement_id = $1 AND periodisation_id = $2")
+            .bind(e)
+            .bind(pz)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let ev = publier_ref(
             &mut tx,
             a,
@@ -1041,6 +1057,7 @@ impl PgEnt {
         }
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         if let Some(s) = site_id {
             let n: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_site WHERE etablissement_id = $1 AND id = $2",

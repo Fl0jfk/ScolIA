@@ -195,6 +195,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(e)
             .execute(&mut *tx)
@@ -422,6 +423,7 @@ impl PgEnt {
         }
         let decalage = cible.date_debut.year() - source.date_debut.year();
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let mut r = RapportReconduction {
             annee_cible_id: cible_id,
             ..Default::default()

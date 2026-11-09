@@ -217,13 +217,8 @@ BEGIN
 END
 $$;
 
--- ───────────────────────── Journal de structure : nouveaux objets ─────────────────────────
--- Liste fermée (332, 335) : reprise COMPLÈTE de la liste précédente + l'objet `grille`.
-ALTER TABLE ent_structure_journal DROP CONSTRAINT IF EXISTS ent_structure_journal_objet_check;
-ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_check CHECK (objet IN
-    ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
-     'indisponibilite', 'import_salles', 'prereglage',
-     'periodisation', 'periode', 'grille'));
+-- Journal de structure : l'objet `grille` est autorisé par le contrôle de format posé en 335 puis
+-- par la liste fermée reposée en 338 (voir le commentaire de 335 : migrations rejouées).
 
 -- ───────────────────────── RLS ─────────────────────────
 DO $$

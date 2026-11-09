@@ -639,8 +639,11 @@ async fn remplacer_periodes(
         .await
         .map_err(db)?;
     }
-    // Les périodes voisines se décalent dans la même transaction : contrainte vérifiée au commit.
-    sqlx::query("SET CONSTRAINTS ent_periode_chevauchement DEFERRED")
+    // Les périodes voisines se décalent dans la même transaction : le temps des écritures elles
+    // sortent de la contrainte de chevauchement (origine « reprise »), puis y rentrent toutes.
+    sqlx::query("UPDATE ent_periode SET origine = 'reprise' WHERE etablissement_id = $1 AND periodisation_id = $2")
+        .bind(etab)
+        .bind(pz)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
@@ -649,7 +652,7 @@ async fn remplacer_periodes(
             Some(e) => {
                 sqlx::query(
                     "UPDATE ent_periode SET libelle = $3, kind = $4, ordre = $5, date_debut = $6,
-                            date_fin = $7, date_arret_notes = $8, date_conseil = $9, origine = 'service'
+                            date_fin = $7, date_arret_notes = $8, date_conseil = $9
                       WHERE etablissement_id = $1 AND id = $2",
                 )
                 .bind(etab)
@@ -668,6 +671,12 @@ async fn remplacer_periodes(
             None => inserer_periode(conn, etab, annee_id, pz, i, n).await?,
         }
     }
+    sqlx::query("UPDATE ent_periode SET origine = 'service' WHERE etablissement_id = $1 AND periodisation_id = $2")
+        .bind(etab)
+        .bind(pz)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?; // 23P01 impossible : les dates ont été validées (couverture, pas de chevauchement)
     Ok(diff)
 }
 

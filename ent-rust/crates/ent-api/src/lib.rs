@@ -18,6 +18,7 @@ mod cahier;
 mod referentiel_s2;
 mod structure;
 mod structure_offre;
+mod structure_periodes;
 mod edt_s2;
 mod roles;
 mod routes;

@@ -302,6 +302,8 @@ mod tests_structure_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
+mod tests_structure_s7;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0;
