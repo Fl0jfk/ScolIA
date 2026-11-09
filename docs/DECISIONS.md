@@ -341,3 +341,20 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Aide à la création par l'IA** : l'objectif est le plus intelligent et le plus automatisé possible. Prise en compte des **vœux et contraintes des enseignants**, des **choix des élèves** (options, groupes, enseignements suivis du socle 5), des salles, de la grille, du calendrier ; propositions expliquées, scénarios comparés, la personne valide (l'IA n'a jamais plus de droits que l'utilisateur, CLAUDE.md).
 - L'import des logiciels d'EDT du marché (EDT, UnDeuxTEMPS, aSc) et l'export Charlemagne ne servent qu'à la reprise et aux futurs clients ; ils passent **après** les lots de saisie, de génération et d'IA (socle 10, `10_EMPLOI_DU_TEMPS.md`).
 
+## D-031 — Règle : les recommandations du pilote s'appliquent par défaut (Florian, 2026-11-09)
+- Florian : « je suis toujours tes recommandations ». Les questions des conceptions, personas et recettes sont **tranchées selon la recommandation écrite** du pilote ou de la session, sans attendre une réponse, et notées « appliqué par défaut (D-031) ».
+- Restent soumis à Florian avant d'agir : ce qui engage l'établissement à l'extérieur (démarches officielles, contrats, coûts, données réelles), ce qui touche une interdiction de CLAUDE.md, et ce qui contredit une décision existante. Le point quotidien liste les recommandations appliquées pour qu'il puisse revenir dessus.
+
+## D-032 — Socle 21 Évaluations : recommandations appliquées (2026-11-09)
+- **V0** (correctifs urgents de l'existant) avant tout autre lot du domaine — lancé.
+- **Lycée pilote, an 1** (Q-EV11) : notes et bulletins restent dans Charlemagne l'an 1 tant que la validation éditeur LSL / Parcoursup n'est pas obtenue ; **démarche éditeur à lancer** par Florian (voir `A_FOURNIR_PAR_FLORIAN.md`, F-06).
+- **Publication** (Q-EV2) : explicite par le professeur ; tout le non-publié l'est automatiquement à l'arrêt des notes.
+- **Fenêtre du conseil** (Q-EV6) : pendant la préparation et la tenue du conseil, un professeur voit toutes les matières des seuls élèves de ses groupes, journalisé.
+- **IA** (Q-EV8) : propositions d'appréciations relues une à une, alertes déterministes, aucune note ni décision par l'IA ; étude juridique (règlement européen sur l'IA) avant la mise en service des fonctions à modèle de langage.
+
+## D-033 — Socle 10 Emploi du temps : bloquants des personas tranchés selon leurs recommandations (2026-11-09)
+- **A** : les choix des élèves servent à **construire** les barrettes et les groupes (pas une entrée figée), répartition des élèves après l'EDT possible.
+- **B** : explications de l'IA **typées par source et visibilité**, filtrées côté serveur : jamais la contrainte d'un collègue nommée.
+- **C** : versions **de base** et **temporaires** (stage, voyage, suppléant, salle fermée), retour automatique au plan.
+- **D/E/F** : saisie accélérée possible tôt pour le pilote (EDT-216 en T1 si besoin) ; AESH intégrée (§8.3 bis) ; les six pièges de minimisation corrigés (R-E27 et suivantes).
+

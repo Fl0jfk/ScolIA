@@ -24,6 +24,7 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 5. **Une seule file d'intégration**, dans l'ordre ; pas deux intégrations en parallèle sur des bases différentes.
 6. **Rien sur `ENT` sans les quatre jobs CI verts** (formatage, audits, backend, frontend) et un contrôle du pilote (journal des commits, `MIGRATION_TAG`, aucun test ignoré ajouté, décisions de Florian respectées).
 7. **Trois sessions actives en continu** (Florian, 2026-11-08) ; on peut en lancer une ou deux de plus quand les autres ne font qu'attendre un retour de CI ou de tests. On accélère en fin de semaine si le quota hebdomadaire reste large. Jamais plus de 6 à 7 : au-delà, la limite d'usage coupe tout.
+12. **Recommandations appliquées par défaut** (D-031) : on tranche selon la recommandation écrite, sauf engagement extérieur, interdiction ou contradiction ; le point quotidien les liste.
 11. **Toujours répondre à Florian en français** (Florian, 2026-11-09), y compris les points d'étape, les rapports techniques et les résumés de sessions ; termes techniques expliqués simplement.
 10. **Suivi toutes les 30 minutes** (rappel programmé) : voir ce que font les sessions, relancer la CI, archiver, remplacer une session finie ; ne jamais laisser les sessions sans travail.
 8. **Archiver une session** dès que son travail est poussé et qu'elle n'attend plus rien.
