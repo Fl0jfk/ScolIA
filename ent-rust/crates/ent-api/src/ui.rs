@@ -43029,8 +43029,8 @@ function viewConseils() {
           <option value="encouragements">encouragements</option>
           <option value="felicitations">félicitations</option>
           <option value="complement">complément</option>
-          <option value="avertissement_travail">avertissement travail</option>
-          <option value="avertissement_conduite">avertissement conduite</option>
+          <option value="mise_en_garde_travail">mise en garde travail</option>
+          <option value="mise_en_garde_conduite">mise en garde conduite</option>
           <option value="aucune">aucune</option>
         </select></label>
         <label><input type="checkbox" id="ccVisFam" checked/> Visible famille</label>

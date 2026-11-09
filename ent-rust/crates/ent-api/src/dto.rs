@@ -706,17 +706,6 @@ impl From<&Matiere> for MatiereDto {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SaisirNoteBody {
-    pub matiere_id: Uuid,
-    pub valeur: f64,
-    pub sur: Option<f64>,
-    pub date_note: NaiveDate,
-    pub libelle: Option<String>,
-    pub devoir_id: Option<Uuid>,
-    pub periode_id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct CreerNotePeriodeBody {
     pub code: String,
     pub libelle: String,
@@ -727,11 +716,6 @@ pub struct CreerNotePeriodeBody {
 #[derive(Debug, Deserialize)]
 pub struct PublierBulletinBody {
     pub periode_id: Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct SetNotePeriodeStatutBody {
-    pub statut: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2680,16 +2664,6 @@ impl From<&domain_eleve::ConseilClasse> for ConseilClasseDto {
 #[derive(Debug, Deserialize)]
 pub struct AjouterDossierConseilBody {
     pub eleve_id: Uuid,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct DeciderDossierConseilBody {
-    pub appreciation: String,
-    pub mention: String,
-    #[serde(default)]
-    pub decision_texte: String,
-    #[serde(default)]
-    pub visible_famille: bool,
 }
 
 #[derive(Debug, Serialize)]

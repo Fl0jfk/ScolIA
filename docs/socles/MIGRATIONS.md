@@ -121,3 +121,7 @@ Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, p
 Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
 
 Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune migration ajoutée ; `MIGRATION_TAG` = `375_msg_fil_prive` reste la plus haute, aucun numéro en double (vérifié).
+
+## Mise à jour du 2026-11-09 (socle 21, lot V0, `ent-socle-evaluations-v0`)
+**460** `eva_v0_correctifs` (repli 460–479 du socle 21 : la règle Q-B2 n'est pas adoptée) : dédoublonnage des résultats et unicité `(devoir, élève)` (archive `ent_note_doublon_archive`), statut de résultat `a_rattraper`, `absent_compte_zero` forcé à faux (contrainte), journal en ajout seul des changements de statut de période (`ent_note_periode_journal`), mentions `mise_en_garde_*`, RLS permissive sur 18 tables d'évaluation, de conseil, de bulletin et de compétences. 461–467 libres pour V1 à V7 (même ordre que la conception) ; `MIGRATION_TAG` = `460_eva_v0_correctifs` sur cette branche (la plus haute du répertoire).
+

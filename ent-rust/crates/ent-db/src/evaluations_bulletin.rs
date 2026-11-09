@@ -53,8 +53,10 @@ fn libelle_mention(m: &str) -> &'static str {
         "felicitations" => "Félicitations",
         "complement" => "Compliments",
         "encouragements" => "Encouragements",
-        "avertissement_travail" => "Avertissement (travail)",
-        "avertissement_conduite" => "Avertissement (conduite)",
+        // Les anciens codes « avertissement_* » des bulletins déjà générés (immuables) sont
+        // relus comme des mises en garde (R. 511-13 : l'avertissement est une sanction).
+        "mise_en_garde_travail" | "avertissement_travail" => "Mise en garde (travail)",
+        "mise_en_garde_conduite" | "avertissement_conduite" => "Mise en garde (conduite)",
         _ => "",
     }
 }
@@ -769,12 +771,9 @@ impl PgEnt {
         periode_id: Uuid,
     ) -> Result<ExportLivretDto, EntDbError> {
         Self::exiger_staff(role)?;
-        if !self
-            .a_action_etablissement(etab, acteur, role, Action::LivretsExporter)
-            .await?
-        {
-            return Err(EntDbError::Forbidden);
-        }
+        // V0 (D14, D-022) : un seul droit pour tous les exports officiels, `exports.officiels`
+        // (administratifs et direction) ; `livrets.exporter` n'est plus consulté.
+        self.exiger_export_officiel(etab, acteur, role).await?;
         if !matches!(format, "lsu" | "lsl") {
             return Err(refus("format attendu : lsu ou lsl"));
         }

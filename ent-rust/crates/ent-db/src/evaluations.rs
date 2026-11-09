@@ -348,10 +348,12 @@ impl PgEnt {
         .fetch_optional(self.pool())
         .await
         .map_err(db)?;
+        // V0 (D10, R-V5) : l'ancien réglage « un absent compte zéro » est lu comme
+        // faux, quelle que soit la valeur stockée (une absence n'est jamais un zéro).
         Ok(match row {
-            Some((a, z)) => ReglesCalcul {
+            Some((a, _)) => ReglesCalcul {
                 arrondi: Arrondi::parse(&a).unwrap_or_default(),
-                absent_compte_zero: z,
+                absent_compte_zero: false,
             },
             None => ReglesCalcul::default(),
         })
@@ -606,6 +608,13 @@ impl PgEnt {
     }
 
     /// EVA-07 : ouvrir, passer en « appréciations seulement » ou fermer une période.
+    /// Changement de statut d'une période de notes (`periodes.verrouiller`).
+    ///
+    /// V0 (D2, R-V25) : **toute** transition est inscrite dans le journal en ajout seul
+    /// `ent_note_periode_journal` (acteur, avant, après, motif), dans la même transaction.
+    /// **Rouvrir** une période (retour de `fermee` à `ouverte` ou `partielle_appreciations`,
+    /// ou de `partielle_appreciations` à `ouverte`) exige un **motif écrit** d'au moins 3
+    /// caractères.
     pub async fn changer_statut_periode_for_actor(
         &self,
         etab: Uuid,
@@ -613,6 +622,7 @@ impl PgEnt {
         role: &str,
         periode_id: Uuid,
         statut: &str,
+        motif: Option<&str>,
     ) -> Result<PeriodeNotesDto, EntDbError> {
         Self::exiger_staff(role)?;
         if !self
@@ -622,8 +632,36 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let statut = NotePeriodeStatut::parse(statut).ok_or(refus("statut de période inconnu"))?;
-        let avant = self.eva_periode(etab, periode_id).await?;
+        let motif = motif.map(str::trim).filter(|m| !m.is_empty());
         let mut tx = self.pool().begin().await.map_err(db)?;
+        // Verrou de ligne : deux changements concurrents sont sérialisés et l'« avant »
+        // journalisé est celui réellement remplacé.
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT statut FROM ent_note_periode WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(periode_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        let (avant_s,) = row.ok_or_else(introuvable)?;
+        let avant_statut = NotePeriodeStatut::parse(&avant_s).unwrap_or(NotePeriodeStatut::Fermee);
+        let rang = |s: NotePeriodeStatut| match s {
+            NotePeriodeStatut::Ouverte => 0,
+            NotePeriodeStatut::PartielleAppreciations => 1,
+            NotePeriodeStatut::Fermee => 2,
+        };
+        let reouverture = rang(statut) < rang(avant_statut);
+        if reouverture && motif.map_or(true, |m| m.chars().count() < 3) {
+            return Err(refus(
+                "rouvrir une période exige un motif écrit (trace dans le journal de la période)",
+            ));
+        }
+        if let Some(m) = motif {
+            if m.chars().count() > 500 {
+                return Err(refus("motif trop long (500 caractères au plus)"));
+            }
+        }
         sqlx::query("UPDATE ent_note_periode SET statut = $3 WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
             .bind(periode_id)
@@ -631,18 +669,81 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        sqlx::query(
+            "INSERT INTO ent_note_periode_journal
+                 (id, etablissement_id, periode_id, statut_avant, statut_apres, motif, acteur_user_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(periode_id)
+        .bind(avant_statut.as_str())
+        .bind(statut.as_str())
+        .bind(motif)
+        .bind(acteur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         tx.publier(MetierEventDraft {
             etablissement_id: etab,
             type_name: types::NOTE_PERIODE_STATUT.to_string(),
             aggregate: AggregateKind::NotePeriode,
             aggregate_id: periode_id,
             eleve_id: None,
-            payload: json!({ "statut": statut.as_str(), "avant": avant.statut.as_str() }),
+            payload: json!({
+                "statut": statut.as_str(),
+                "avant": avant_statut.as_str(),
+                "reouverture": reouverture,
+            }),
             actor_user_id: Some(acteur.to_string()),
         })
         .await?;
         tx.commit().await.map_err(db)?;
-        Ok(PeriodeRow { statut, ..avant }.dto())
+        Ok(self.eva_periode(etab, periode_id).await?.dto())
+    }
+
+    /// Journal des changements de statut d'une période (direction : `periodes.verrouiller`),
+    /// du plus récent au plus ancien.
+    pub async fn journal_periode_for_actor(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        periode_id: Uuid,
+    ) -> Result<Vec<ent_types::evaluations::JournalPeriodeDto>, EntDbError> {
+        Self::exiger_staff(role)?;
+        if !self
+            .a_action_etablissement(etab, acteur, role, Action::PeriodesVerrouiller)
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        let rows: Vec<(Uuid, Uuid, String, String, Option<String>, Uuid, chrono::DateTime<chrono::Utc>)> =
+            sqlx::query_as(
+                "SELECT id, periode_id, statut_avant, statut_apres, motif, acteur_user_id, cree_le
+                   FROM ent_note_periode_journal
+                  WHERE etablissement_id = $1 AND periode_id = $2
+                  ORDER BY cree_le DESC, id DESC",
+            )
+            .bind(etab)
+            .bind(periode_id)
+            .fetch_all(self.pool())
+            .await
+            .map_err(db)?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, periode_id, a, b, motif, acteur_user_id, cree_le)| {
+                ent_types::evaluations::JournalPeriodeDto {
+                    id,
+                    periode_id,
+                    statut_avant: a,
+                    statut_apres: b,
+                    motif,
+                    acteur_user_id,
+                    cree_le,
+                }
+            })
+            .collect())
     }
 
     pub(crate) fn exiger_staff(role: &str) -> Result<(), EntDbError> {
@@ -681,6 +782,12 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let arrondi = Arrondi::parse(&body.arrondi).ok_or(refus("arrondi inconnu"))?;
+        if body.absent_compte_zero {
+            return Err(refus(
+                "une absence à une évaluation n'est jamais convertie en zéro : statut « absent » \
+                 ou « à rattraper », puis évaluation de remplacement",
+            ));
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_eva_regle (etablissement_id, arrondi, absent_compte_zero, updated_by_user_id, updated_at)
@@ -691,7 +798,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(arrondi.as_str())
-        .bind(body.absent_compte_zero)
+        .bind(false)
         .bind(acteur)
         .execute(&mut *tx)
         .await
@@ -702,7 +809,7 @@ impl PgEnt {
             aggregate: AggregateKind::NotePeriode,
             aggregate_id: etab,
             eleve_id: None,
-            payload: json!({ "arrondi": arrondi.as_str(), "absent_compte_zero": body.absent_compte_zero }),
+            payload: json!({ "arrondi": arrondi.as_str() }),
             actor_user_id: Some(acteur.to_string()),
         })
         .await?;

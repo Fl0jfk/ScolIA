@@ -131,10 +131,26 @@ impl PgCompetenceRepo {
         eleve_id: Uuid,
         periode_id: Option<Uuid>,
     ) -> Result<Vec<EvaluationLue>, DomainError> {
+        Ok(self
+            .list_evaluations_eleve_avec_periode(etablissement_id, eleve_id, periode_id)
+            .await?
+            .into_iter()
+            .map(|(_, e)| e)
+            .collect())
+    }
+
+    /// Idem, avec la période de chaque évaluation (filtre de publication, V0).
+    pub async fn list_evaluations_eleve_avec_periode(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        periode_id: Option<Uuid>,
+    ) -> Result<Vec<(Uuid, EvaluationLue)>, DomainError> {
         let rows = sqlx::query_as::<_, EvalRow>(
             r#"
             SELECT e.id AS evaluation_id, e.item_id, i.domaine, i.libelle AS item_libelle,
-                   i.code AS item_code, i.ordre, e.niveau, e.commentaire, e.maj_at
+                   i.code AS item_code, i.ordre, e.niveau, e.commentaire, e.maj_at,
+                   e.periode_id
             FROM ent_competence_evaluation e
             JOIN ent_competence_item i
               ON i.id = e.item_id AND i.etablissement_id = e.etablissement_id
@@ -150,7 +166,12 @@ impl PgCompetenceRepo {
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        rows.into_iter().map(EvalRow::into_lue).collect()
+        rows.into_iter()
+            .map(|r| {
+                let p = r.periode_id;
+                r.into_lue().map(|e| (p, e))
+            })
+            .collect()
     }
 
     /// Évaluations de tous les élèves d'une classe sur une période (export livret).
@@ -258,6 +279,7 @@ struct EvalRow {
     niveau: String,
     commentaire: Option<String>,
     maj_at: DateTime<Utc>,
+    periode_id: Uuid,
 }
 
 impl EvalRow {

@@ -6,8 +6,10 @@
 //! 1. Une note est ramenée sur 20 : `valeur / barème × 20`.
 //! 2. **Moyenne d'une matière** (élève, période) = Σ(note sur 20 × coefficient du devoir)
 //!    / Σ(coefficients des devoirs **notés**). Les résultats « absent », « dispensé »
-//!    et « non noté » sont exclus du numérateur **et** du dénominateur. Exception
-//!    paramétrable : si `absent_compte_zero`, un « absent » compte 0 avec son coefficient.
+//!    « à rattraper » et « non noté » sont exclus du numérateur **et** du dénominateur.
+//!    **Une absence n'est jamais un zéro** (règle nationale, socle 21 R-V5, lot V0) : l'ancien
+//!    réglage `absent_compte_zero` est conservé dans la structure pour la compatibilité des
+//!    clients mais **n'a plus aucun effet**.
 //! 3. Aucune note comptée → **pas de moyenne** (jamais 0).
 //! 4. **Moyenne générale** = Σ(moyenne de matière × coefficient de matière) / Σ(coefficients
 //!    des matières **ayant une moyenne**). Coefficient de matière par défaut : 1.
@@ -33,17 +35,26 @@ use std::cmp::Ordering;
 pub enum StatutResultat {
     Note,
     Absent,
+    /// Absent, rattrapage à organiser (jamais converti en zéro).
+    ARattraper,
     Dispense,
     NonNote,
 }
 
 impl StatutResultat {
-    pub const TOUS: [StatutResultat; 4] = [Self::Note, Self::Absent, Self::Dispense, Self::NonNote];
+    pub const TOUS: [StatutResultat; 5] = [
+        Self::Note,
+        Self::Absent,
+        Self::ARattraper,
+        Self::Dispense,
+        Self::NonNote,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Note => "note",
             Self::Absent => "absent",
+            Self::ARattraper => "a_rattraper",
             Self::Dispense => "dispense",
             Self::NonNote => "non_note",
         }
@@ -57,7 +68,7 @@ impl StatutResultat {
     pub fn abreviation(self) -> &'static str {
         match self {
             Self::Note => "",
-            Self::Absent => "Abs",
+            Self::Absent | Self::ARattraper => "Abs",
             Self::Dispense => "Disp",
             Self::NonNote => "NN",
         }
@@ -279,7 +290,7 @@ pub struct ResultatCalcul {
 /// Règle 2 : moyenne pondérée sur 20 d'une matière. `None` si aucune note ne compte.
 /// Une ligne mal formée (barème nul, plus de deux décimales) est ignorée : la saisie
 /// l'a déjà refusée ; on ne fabrique jamais une moyenne à partir d'une donnée invalide.
-pub fn moyenne_matiere(resultats: &[ResultatCalcul], regles: &ReglesCalcul) -> Option<Moyenne> {
+pub fn moyenne_matiere(resultats: &[ResultatCalcul], _regles: &ReglesCalcul) -> Option<Moyenne> {
     let mut num = Frac::zero();
     let mut den = Frac::zero();
     for r in resultats {
@@ -294,7 +305,6 @@ pub fn moyenne_matiere(resultats: &[ResultatCalcul], regles: &ReglesCalcul) -> O
                 Some(v) if v <= sur => v,
                 _ => continue,
             },
-            StatutResultat::Absent if regles.absent_compte_zero => 0,
             _ => continue,
         };
         let sur20 = Frac::centiemes(valeur)
@@ -411,7 +421,7 @@ pub fn libelle_niveau_maitrise(n: i16) -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// Avertissement porté par chaque export (fichier et réponse de l'API).
-pub const AVERTISSEMENT_LIVRETS: &str = "[NV] Format documenté par ScolIA d'après les spécifications \
+pub const AVERTISSEMENT_LIVRETS: &str = "[NV] Format de travail NON OFFICIEL, documenté par ScolIA d'après les spécifications \
 publiques connues ; non validé contre le schéma XSD officiel (non disponible : réservé aux éditeurs \
 validés par le ministère). Ne pas importer dans LSU/LSL sans qualification préalable.";
 
@@ -762,22 +772,23 @@ mod tests {
     }
 
     #[test]
-    fn absent_compte_zero_parametrable() {
-        let r = [note(12.0, 20.0, 1.0), statut(StatutResultat::Absent, 20.0, 1.0)];
+    fn une_absence_n_est_jamais_un_zero() {
+        // R-V5 : même si l'ancien réglage est à `true`, l'absent reste exclu.
         let regles = ReglesCalcul {
             absent_compte_zero: true,
             ..R
         };
-        assert_eq!(
-            moyenne_matiere(&r, &regles).map(|x| x.arrondie(Arrondi::Centieme)),
-            Some(6.0)
-        );
-        // Dispensé et non noté restent exclus même dans ce cas.
-        let r2 = [note(12.0, 20.0, 1.0), statut(StatutResultat::Dispense, 20.0, 1.0)];
-        assert_eq!(
-            moyenne_matiere(&r2, &regles).map(|x| x.arrondie(Arrondi::Centieme)),
-            Some(12.0)
-        );
+        for st in [StatutResultat::Absent, StatutResultat::ARattraper] {
+            let r = [note(12.0, 20.0, 1.0), statut(st, 20.0, 1.0)];
+            assert_eq!(
+                moyenne_matiere(&r, &regles).map(|x| x.arrondie(Arrondi::Centieme)),
+                Some(12.0),
+                "{st:?} ne doit jamais compter 0"
+            );
+        }
+        // Seul absent : aucune moyenne (jamais 0).
+        let seul = [statut(StatutResultat::Absent, 20.0, 1.0)];
+        assert_eq!(moyenne_matiere(&seul, &regles), None);
     }
 
     #[test]
