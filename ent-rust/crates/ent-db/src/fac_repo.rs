@@ -982,6 +982,7 @@ impl PgFacRepo {
                 encaissement_id = $4,
                 motif_rejet = $5,
                 rejete_at = $6
+            WHERE etablissement_id = $1 AND id = $2
               AND statut IN ('prevu', 'exporte')
             "#,
         )
