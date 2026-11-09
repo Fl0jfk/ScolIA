@@ -218,7 +218,7 @@ Chaque tableau donne : le manque, pourquoi il compte, sa gravité, le socle conc
 | ID | Ce qui manque | Pourquoi ça compte | Gravité | Socle | Ajout |
 |---|---|---|---|---|---|
 | M-383 | **Information unique des parents** quand l'élève majeur limite leur accès | Le silence soudain inquiète ou fait croire à une panne (RP1-12) | confort | 2, 8 | NTF-159, CN-74 |
-| M-384 | **Élèves mineurs** : jamais la nuit, différé pendant les cours au collège | La règle de l'établissement sur le téléphone [NV] ne doit pas être contredite par l'ENT | différenciant | 8 | R-N66, NTF-158, CN-75, Q-N38 |
+| M-384 | **Élèves mineurs** : jamais la nuit, différé pendant les cours au collège | La règle de l'établissement sur le téléphone (L511-5 [V] : interdiction dans les écoles, collèges et lycées, modalités par le règlement intérieur ; VERIF R7) ne doit pas être contredite par l'ENT | différenciant | 8 | R-N66, NTF-158, CN-75, Q-N38 |
 
 ### P14 — M. Petit (six classes) et Nadia côté réception
 
@@ -431,6 +431,8 @@ Liste à part, recopiée dans `08_NOTIFICATIONS.md` §18 ; **rien n'est supprim�
 **Faits [F]** vérifiés dans la conception : U2 attend la fin des heures calmes de nuit, et `edt.fermeture_exceptionnelle` est U2 (§9.3, §4.1) ; « le professeur qui diffuse voit "1 personne exclue (décision)" » (§15) ; aucune garde d'assemblage sur la nature d'un événement source (§6.1) ; délai de confirmation compté « après la clôture de l'appel » (CN-01, R-N12) ; « remise non confirmée » distincte de « remise » mais aucune règle sur ce que vaut « joint » (§8.3, §11.4) ; texte rendu des natures courantes 90 jours (§19) ; catégories de préférence orientées familles (§9.2) ; audiences de NTF-46 sans payeurs, transport, site ni inscrits de la rentrée ; NTF-94 limité au retard de retour ; diffusions de masse réservées au web (§24) ; aucune règle de changement d'un canal d'envoi ; aucun état d'autorisation des notifications sur l'appareil (§19, `ent_ntf_appareil`). Constats RP1-06, RP1-11, RP1-12, RP1-13 lus dans `RECETTE_PERSONAS_1.md` (branche `ent-recette-1-correctifs`).
 
 **Hypothèses [H]** : la vie des personas et les fréquences (appels non clôturés, numéros d'élèves déclarés comme ceux des parents, groupes de messagerie personnels des enseignants, coupons-réponses, familles sans numérique) ; les fonctions de Charlemagne et d'École Directe ; le comportement des fournisseurs de notifications quand l'utilisateur a coupé les alertes ; le coût des SMS en alphabets non latins (UCS-2).
+
+**Vérifié le 2026-11-09** (`docs/VERIF_REGLEMENTAIRE.md`) : grève au premier degré, information des familles par la commune (L133-4, R6) ; téléphone interdit aux élèves des écoles, collèges et lycées (L511-5, R7) ; signalement d'absentéisme à partir de quatre demi-journées dans le mois (L131-8, R2).
 
 **À vérifier [NV]** : information des familles un jour de grève dans le premier degré public ; règles d'usage du téléphone portable au collège ; procédure et pièces d'un signalement d'absentéisme ; durée de conservation des preuves d'information ; information d'une personne dont le numéro est donné par un tiers ; désignation d'une personne de confiance par un seul titulaire (acte usuel) ; information des familles d'un suivi interne ; plans de numérotation mobile en France et à l'étranger.
 

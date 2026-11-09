@@ -358,7 +358,7 @@ Chaque tableau donne : le manque, pourquoi il compte, sa gravité, le socle conc
 
 | ID | Ce qui manque | Pourquoi ça compte | Gravité | Socle | Ajout |
 |---|---|---|---|---|---|
-| M-109 | Registre des demandes d'exercice des droits, avec échéance et preuve de réponse | Délai d'un mois [NV, à vérifier] ; sans suivi, il est dépassé | important | 4 (+27) | ADM-99 |
+| M-109 | Registre des demandes d'exercice des droits, avec échéance et preuve de réponse | Délai d'un mois, prolongeable de deux mois [V] (RGPD art. 12.3, VERIF R20) ; sans suivi, il est dépassé | important | 4 (+27) | ADM-99 |
 | M-110 | Dossier de justification d'une décision d'admission (critères, avis, chronologie) | Recours, Défenseur des droits, contrôle | important | 3 | INS-67 |
 
 ### Manques transverses (plusieurs personas)
@@ -552,6 +552,8 @@ Règles [R] : une trame ne contient **aucune** donnée hors de ce que le destina
 **Faits [F]** vérifiés dans les conceptions : « Europe/Paris » codé dans `02_ELEVE.md` §7.5 et `04_ADMINISTRATIF.md` §2.2 n° 4, §8 ; motif de sortie sans `deces` (`02` §7.4) ; demande d'accord au dépôt ou à l'admission et invitation à la validation (`03` §4.4) ; lien vers une personne avec compte inactif jusqu'à confirmation (`04` §5.3, A0) ; un seul droit `signer_documents` (`04` §8.6) ; sources de propositions sans « personnel » (`02` §7.8, `04` §8.10) ; adresse en texte libre sur la personne (`04` §2.2 n° 3) ; CPE sans accès aux adresses par défaut (`04` §13.2).
 
 **Hypothèses [H]** : la vie des personas, les fréquences, les pratiques de marché.
+
+**Vérifié le 2026-11-09** (`docs/VERIF_REGLEMENTAIRE.md`) : autorisation préalable de l'instruction en famille (L131-5, R49), délai de réponse aux demandes de droits (RGPD 12.3 : un mois + deux, R20), dissimulation de l'adresse (C. civ. 515-11 6° et 6° bis, R14), prénom d'usage (circulaire du 29-9-2021, R17), pièces d'inscription au premier degré (D131-3-1, R48).
 
 **À vérifier [NV]** : droit à la scolarisation indépendant du titre de séjour ; autorisation préalable de l'instruction en famille ; délai de réponse aux demandes d'exercice des droits ; dissimulation de l'adresse dans une ordonnance de protection ; actes usuels de l'assistant familial ; procédure du prénom d'usage ; nom transmis au GAR ; registre des élèves exigé en contrôle ; forfait trimestriel de demi-pension ; affectation UPE2A ; droits d'un parent incarcéré ou sous mesure de protection.
 

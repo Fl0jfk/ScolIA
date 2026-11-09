@@ -273,7 +273,7 @@ ent_eleve_identite
 
 Règles [R] :
 - **Version courante** = la version non remplacée dont la date d'effet est la plus récente et ≤ aujourd'hui. Une version datée dans le futur (changement annoncé) devient courante à sa date (tâche quotidienne qui recalcule les projections, comme pour le statut).
-- **Prénom d'usage** : utilisé à l'affichage quotidien (listes, appel, trombinoscope, messagerie) quand l'établissement l'a activé ; les documents officiels et les exports nationaux utilisent l'état civil. Cadre à vérifier [NV] : une circulaire de 2021 sur la prise en compte de l'identité de genre en milieu scolaire prévoirait le prénom d'usage à la demande de l'élève, avec l'accord des deux représentants légaux pour un mineur [H]. Le logiciel fournit le mécanisme et la traçabilité ; la procédure (accord des parents, entretien) est un **paramétrage** et une décision humaine. Ces versions sont marquées `sensible` : l'historique n'est visible qu'avec une action dédiée (§12) et les anciennes valeurs sont scellées.
+- **Prénom d'usage** : utilisé à l'affichage quotidien (listes, appel, trombinoscope, messagerie) quand l'établissement l'a activé ; les documents officiels et les exports nationaux utilisent l'état civil. Cadre **[V]** (circulaire du 29-9-2021, BO n° 36 du 30-9-2021, lue dans une copie du BO ; VERIF R17) : pour un mineur, l'aménagement exige **l'accord des deux représentants légaux** ; le prénom d'usage remplace l'état civil « dans tous les documents qui relèvent de l'organisation interne (listes d'appel, carte de cantine …) ainsi que dans les espaces numériques (ENT, etc.) » ; l'état civil reste dans les systèmes de notation qui servent aux diplômes. Le logiciel fournit le mécanisme et la traçabilité ; la procédure (accord des parents, entretien) est un **paramétrage** et une décision humaine. Ces versions sont marquées `sensible` : l'historique n'est visible qu'avec une action dédiée (§12) et les anciennes valeurs sont scellées.
 - **Lieu de naissance** : le code commune s'entend à la date de naissance (une commune fusionnée depuis garde son ancien code) [H : le COG INSEE publie l'historique des communes ; licence ouverte à vérifier, NV]. Saisie assistée par recherche dans le COG, avec libellé libre de secours.
 - **Normalisation** : valeurs stockées telles que saisies (Unicode NFC, accents conservés) ; la transformation vers un format externe (majuscules sans accents, longueur maximale…) est faite **à l'export**, par le connecteur concerné [R]. Contrôles de saisie : pas de chiffres dans un nom, espaces multiples réduits, apostrophes et traits d'union normalisés (paramètre du logiciel, pas de l'établissement).
 
@@ -365,7 +365,7 @@ ent_eleve_capacite
   saisi_par, saisi_le, levee_par, levee_le
 ```
 - **Majorité** : calculée depuis la date de naissance courante (fuseau ~~Europe/Paris~~ **de l'établissement**, Europe/Paris par défaut — [personas] R-E15), jamais saisie ; jamais calculée sur une date de naissance `contestee` (R-E1). Le passage à 18 ans est détecté chaque nuit et publie `eleve.majeur` (DOS-14). Les effets sur les droits des parents dépendent de Q10 (non tranchée) ; le socle 2 ne fait que fournir le fait.
-- **Mineur émancipé** : capable comme un majeur [H, code civil à vérifier]. **Majeur protégé** : le tuteur ou curateur est un responsable (socle 4) avec des droits propres ; le socle 2 porte la mesure et sa pièce.
+- **Mineur émancipé** : « capable, comme un majeur, de tous les actes de la vie civile » et « cesse d'être sous l'autorité de ses père et mère » **[V]** (C. civ. 413-6 et 413-7 ; VERIF R13). **Majeur protégé** : le tuteur ou curateur est un responsable (socle 4) avec des droits propres ; le socle 2 porte la mesure et sa pièce.
 
 ### 7.6 Confidentialité renforcée
 
@@ -597,7 +597,7 @@ Toute lecture de G2, G3, G5, G6, toute ouverture de la fiche d'un élève en con
 ### 10.6 Conservation, effacement, droits des personnes
 
 - **Pas de suppression définitive** d'un élève, sauf **annulation d'une création erronée** (aucune donnée rattachée, délai court, trace conservée) [R, Q-E8]. Un doublon se fusionne ; un élève parti se clôt.
-- Archivage et anonymisation planifiés selon des **durées à valider par le DPO** (ne pas inventer de durée) ; dans le public, les dossiers d'élèves relèvent aussi des règles d'archives publiques [H, à vérifier].
+- Archivage et anonymisation planifiés selon des **durées à valider par le DPO** (ne pas inventer de durée) ; les dossiers d'élèves relèvent des règles d'archives publiques dans le public **[V]** (C. patr. L211-4 1°, élimination soumise au visa, R212-14 ; VERIF R39-R41) et **peut-être aussi dans le privé sous contrat** : L211-4 2° vise les documents « qui procèdent … de l'exercice d'une mission de service public par des personnes de droit privé » (avis du juriste requis).
 - Droit d'accès et de rectification : l'extrait RGPD de l'élève (PLT-08) et la **proposition** (rectification tracée, avec pièce) en sont les outils.
 - Responsable de traitement : l'établissement pour les données de l'élève ; ScolIA sous-traitant (`IDENTITE_ET_PROFILS_FAMILLES.md` §2).
 
@@ -908,7 +908,7 @@ Origine, personas et gravité de chaque point : `docs/socles/PERSONAS_02-04.md`.
 | **Q-E1** | Nouvelle numérotation des socles (2 = élève, 3 = inscriptions, 4 = dossier administratif) : mettre à jour `ROADMAP.md` et rattacher les lots S2-x existants ? | oui / non | **oui** ; les lots S2-0 à S2-4 réalisés deviennent l'acquis de départ des socles 2 à 4 |
 | **Q-E2** | Identité portée par l'élève (versions dédiées) ou par une table « personne » générique commune aux élèves, responsables et personnels ? | élève / personne | **élève** : la clé `eleve_id` est partout, l'identité scolaire a ses règles propres (INE, état civil, prénom d'usage) ; `ent_personne` reste pour les responsables et l'élève majeur payeur |
 | **Q-E3** | Annuaire : tout le personnel voit-il la désignation (nom, classe, photo) de **tous** les élèves (comme aujourd'hui), ou seulement de ceux de sa portée ? | tous / portée | **annuaire pour tout le personnel** (accueil, couloirs, cantine), sauf élèves en confidentialité renforcée ; la scolarité (G1) et au-delà selon la portée |
-| Q-E4 | Prénom d'usage dans le socle 2 ? | oui / plus tard | **oui**, désactivable par l'établissement, procédure paramétrée, versions sensibles — après vérification du cadre réglementaire [NV] |
+| Q-E4 | Prénom d'usage dans le socle 2 ? | oui / plus tard | **oui**, désactivable par l'établissement, procédure paramétrée, versions sensibles ; cadre vérifié **[V]** (circulaire du 29-9-2021 ; accord des deux représentants légaux pour un mineur ; VERIF R17) |
 | Q-E5 | Nationalité : la collecter ? | jamais / paramétrable / toujours | **paramétrable, désactivée par défaut**, chiffrée si activée ; à confirmer : exigée par BEE ou une statistique nationale ? [NV] |
 | Q-E6 | Unicité de l'INE dans l'établissement seulement (rien entre établissements, D-013) ? | oui / non | **oui** |
 | Q-E7 | Public : quand SIECLE fait foi, interdire la modification locale de l'état civil (proposition « à corriger dans SIECLE ») ? | interdire / permettre avec alerte | **interdire par défaut**, réglable par champ |
@@ -934,6 +934,8 @@ Origine, personas et gravité de chaque point : `docs/socles/PERSONAS_02-04.md`.
 ## 18. Récapitulatif : faits, hypothèses, contradictions
 
 **Faits vérifiés [F]** (chemins au §2) : identité écrasée sans historique ; écritures de création et d'identité hors transaction, journal ignoré en cas d'erreur ; état civil en clair dans les événements ; date de naissance exposée par la recherche d'homonymes à des profils « Réduit » (vérifié `service.rs:13288`, `dto.rs:2817`) ; recherche et lecture d'élève ouvertes à tout le personnel (vérifié `routes.rs:968`, `roles.rs:107`) ; INE sans unicité ni provenance, format 9–16 caractères ; 12 tables sans clé étrangère vers l'élève ; aucune RLS sur les tables élève ; UAI présent sur `ent_site` ; aucun import d'élèves dans le Rust ; Next.js : imports SIECLE XML et Excel, export SIECLE ZIP, identifiant SIECLE hors schéma, suppression définitive, pas d'historique de fiche.
+
+**Vérification du 2026-11-09** (`docs/VERIF_REGLEMENTAIRE.md`) : prénom d'usage, émancipation, archives publiques et droit à l'image (C. civ. 372-1 : les parents protègent **en commun** le droit à l'image de l'enfant mineur, VERIF R15) sont désormais [V] ; restent [NV] l'INE, le GAR et les droits des parents d'un élève majeur (R16).
 
 **Hypothèses principales [H] / non vérifié [NV]** : format et familles de l'INE ; mécanisme d'attribution et de retour de l'INE (RNIE, BEE, ONDE) ; obligations déclaratives du hors contrat ; cadre du prénom d'usage (circulaire de 2021) ; codes nationaux de sexe, régime, motifs de sortie, statut de l'apprenant ; nomenclature COG attendue ; capacité juridique (liste des mesures) ; règles d'archives publiques ; comparaison avec les logiciels du marché ; volumes des lots.
 
