@@ -39,6 +39,13 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 - **Démo P1** (`docs/recette/DEMO_P1.md` sur `ent-demo-p1-ecrans`) : parcours joué dans un navigateur, 7 défauts d'écran corrigés (dont une fiche élève qui se figeait) ; manques : propositions de la famille (E5, dans le lot 9), vrai dépôt de pièces, scolarité visible par la famille, alerte « ne pas solliciter » sur la fiche.
 - **Conceptions terminées non codées** : socles 7 à 9 (numéros de migration en attente de Q-B2).
 
+### Rattrapage des domaines codés avant la méthode (Florian, 2026-11-09)
+Le socle 1 et le lot 7 (évaluations, finances et SEPA, communication, santé, emploi du temps) ont été codés avant D-021 : pas de conception de fond, pas de passe personas, pas de recette. À rattraper, dans cet ordre, sans bloquer les socles en cours :
+1. **Recette sécurité n° 3** (cloisonnement multi-établissements, attaques sur toutes les routes, tous modules) — lancée le 2026-11-09 (`ent-recette-securite-3`).
+2. **Socle 10 Emploi du temps** : conception de fond à partir de l'existant — lancée le 2026-11-09 (`ent-socle-edt-conception`), puis personas, recette.
+3. Puis, un à la fois : socle 21 Évaluations (avec 22–23), socle 16 Messagerie (avec 17), socles 24–25 Facturation et paiements, socle 34 Santé (désactivé tant qu'il n'y a pas d'HDS).
+Chaque rattrapage suit le cycle complet : conception (évaluation de l'existant) → personas → lots de correction → recette.
+
 ## 5. Transmission à un futur pilote
 Un pilote qui reprend : lire ce document, `CLAUDE.md`, `docs/DECISIONS.md` (les décisions de Florian font foi), `docs/ROADMAP.md` (jalons de preuve), `docs/SOCLES.md` (carte), `docs/socles/` (conceptions), `docs/PROJECT_STATUS.md` (état technique), `docs/DECISIONS_AND_FAILURES.md` (erreurs à ne pas refaire) ; lister les sessions et les branches ; reprendre la file du §4. Les conceptions et les décisions sont indépendantes du modèle : un modèle plus récent peut les approfondir sans les refaire.
 
