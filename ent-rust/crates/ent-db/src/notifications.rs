@@ -437,6 +437,15 @@ pub struct EnvoiVu {
 const COLONNES_ENVOI_VU: &str =
     "id, canal, kind, titre, statut, motif, source_type, source_id, planifie_pour, traite_le";
 
+/// Communications de masse (annonce, campagne) : SMS et push sans contenu (M0a, D4) ; le texte
+/// complet reste dans l'ENT et dans l'e-mail.
+fn canal_externe_neutre(kind: &str) -> bool {
+    matches!(kind, "campagne" | "annonce")
+}
+const TITRE_NEUTRE_PUSH: &str = "Message de l'établissement";
+const TEXTE_NEUTRE_PUSH: &str = "Nouveau message — ouvrez ScolIA pour le lire.";
+const TEXTE_NEUTRE_SMS: &str = "ScolIA : nouveau message de l'établissement. Connectez-vous pour le lire.";
+
 impl PgEnt {
     /// Préférences de la personne connectée (défauts si jamais enregistrées).
     pub async fn mes_preferences_notification(
@@ -862,7 +871,7 @@ impl Expediteur {
             _ => return Ok(false),
         };
         let ok: Option<(i32,)> = sqlx::query_as(&format!(
-            "SELECT 1 FROM ent_eleve_lien_actif l
+            "SELECT 1 FROM ent_eleve_lien_sollicitable l
               WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.user_id = $3
                 AND {colonne} LIMIT 1"
         ))
@@ -944,7 +953,11 @@ impl Expediteur {
                 if let Some(motif) = self.reserver_sms(e, maintenant).await? {
                     return Ok(Issue::Plafonne(motif));
                 }
-                let texte = sms_texte(titre, corps);
+                let texte = if canal_externe_neutre(&e.kind) {
+                    TEXTE_NEUTRE_SMS.to_string()
+                } else {
+                    sms_texte(titre, corps)
+                };
                 let r = self
                     .sms
                     .send(OutgoingSms {
@@ -999,6 +1012,13 @@ impl Expediteur {
                     return Ok(Issue::Ignore("canal_non_configure"));
                 }
                 let (mut envoye, mut simule, mut derniere) = (None, None, None);
+                // M0a (D4) : un push (Apple, Google, écran verrouillé) ne porte jamais le contenu
+                // d'une communication de masse.
+                let (titre, corps): (&str, &str) = if canal_externe_neutre(&e.kind) {
+                    (TITRE_NEUTRE_PUSH, TEXTE_NEUTRE_PUSH)
+                } else {
+                    (titre, corps)
+                };
                 for (plateforme, token) in appareils {
                     let Some(pf) = PushPlatform::parse(&plateforme) else {
                         continue;

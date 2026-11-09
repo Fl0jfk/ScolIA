@@ -121,3 +121,6 @@ Plage **332** (`332_structure_profil_parametres` : profil de l'établissement, p
 Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon : 273–276 (A2), 332 et 337 (S2), 350–353 et 361 (P0 + P1). `MIGRATION_TAG` = `375_msg_fil_prive` (la plus haute du répertoire). Plages 277–278 réservées à A14 (RLS), 279 libre ; 333–336 et 338–339 libres (socle 5) ; 354–360 et 362–369 libres (socle 6) ; 371–374 réservées à D-022 / D-022 bis.
 
 Après la reprise de la CI du lot 10 (fusion de `ent-integration-lot9`) : aucune migration ajoutée ; `MIGRATION_TAG` = `375_msg_fil_prive` reste la plus haute, aucun numéro en double (vérifié).
+
+## Mise à jour du 2026-11-09 (socle 16 messagerie, lot M0a, `ent-socle-messagerie-m0a`)
+Q-B2 n'étant pas tranchée, M0a prend le **repli 480–499** prévu par `16_MESSAGERIE.md` §27.2. **480** `msg_m0a_fuites` écrite (vues `ent_eleve_lien_communicant` et `ent_eleve_lien_sollicitable` ; colonnes `ent_msg_fil.audience` et `ent_msg_fil.vie_scolaire` avec reprise des fils ouverts par un élève ; RLS permissive sur 17 tables de communication), insérée dans `migrate.rs` après 375. **`MIGRATION_TAG` = `480_msg_m0a_fuites`** (plus haute du répertoire). **481** réservée à M0b ; 482–491 aux lots M1 et suivants (§27.2, dans le même ordre) ; 492–497 réserve ; 498–499 RLS stricte et retraits (M17).

@@ -427,7 +427,7 @@ impl PgEnt {
     ) -> Result<Vec<RencontreFamille>, EntDbError> {
         let rows: Vec<(Uuid, String, String, Uuid, String)> = sqlx::query_as(
             "SELECT DISTINCT r.id, r.titre, c.libelle, e.id, e.prenom
-               FROM ent_eleve_lien_actif l
+               FROM ent_eleve_lien_sollicitable l
                JOIN ent_eleve e ON e.id = l.eleve_id AND e.etablissement_id = l.etablissement_id
                JOIN ent_affectation a
                  ON a.eleve_id = l.eleve_id AND a.etablissement_id = l.etablissement_id
@@ -467,7 +467,7 @@ impl PgEnt {
         let r = self.rencontre(etab, rencontre_id).await?;
         let (ok,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (
-                SELECT 1 FROM ent_eleve_lien_actif l
+                SELECT 1 FROM ent_eleve_lien_sollicitable l
                   JOIN ent_affectation a
                     ON a.eleve_id = l.eleve_id AND a.etablissement_id = l.etablissement_id
                    AND a.classe_id = $4

@@ -512,27 +512,70 @@ impl PgFoyerRepo {
     }
 
     /// Liens ACTIFS d'un élève portant un compte (envois aux familles).
+    /// Liens à qui une communication à propos de l'élève peut être adressée (M0a, D1 et D6) :
+    /// jamais une personne visée par une interdiction de communication ; avec
+    /// `sollicitables_seulement`, jamais non plus une personne « ne pas solliciter »
+    /// (contact ouvert par l'établissement : push, annonce…).
     pub async fn list_liens_eleve_actifs(
         &self,
         etablissement_id: Uuid,
         eleve_id: Uuid,
+        sollicitables_seulement: bool,
     ) -> Result<Vec<EleveLien>, DomainError> {
-        let rows = sqlx::query_as::<_, LienRow>(
+        let vue = if sollicitables_seulement {
+            "ent_eleve_lien_sollicitable"
+        } else {
+            "ent_eleve_lien_communicant"
+        };
+        let rows = sqlx::query_as::<_, LienRow>(&format!(
             r#"
             SELECT id, etablissement_id, eleve_id, user_id, foyer_id, lien,
                    peut_voir_notes, peut_voir_vs, peut_justifier_absence,
                    peut_autoriser_sorties, est_payeur, part_paiement
-            FROM ent_eleve_lien_actif
+            FROM {vue}
             WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id IS NOT NULL
             ORDER BY created_at
-            "#,
-        )
+            "#
+        ))
         .bind(etablissement_id)
         .bind(eleve_id)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LienRow::into_lien).collect())
+    }
+
+    /// Lien ACTIF du compte sur l'élève **et** non visé par une interdiction de communication
+    /// (M0a, D1) : le contrôle de la messagerie et du carnet côté parent. Renvoie aussi
+    /// `autorite_parentale`.
+    pub async fn lien_communicant(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Option<(EleveLien, bool)>, DomainError> {
+        #[derive(sqlx::FromRow)]
+        struct Row {
+            #[sqlx(flatten)]
+            lien: LienRow,
+            autorite_parentale: bool,
+        }
+        let row = sqlx::query_as::<_, Row>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, user_id, foyer_id, lien,
+                   peut_voir_notes, peut_voir_vs, peut_justifier_absence,
+                   peut_autoriser_sorties, est_payeur, part_paiement, autorite_parentale
+            FROM ent_eleve_lien_communicant
+            WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(user_id)
+        .bind(eleve_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|r| (LienRow::into_lien(r.lien), r.autorite_parentale)))
     }
 
     /// **Point unique des contrôles famille** (S2-1, B7) : lien ACTIF du compte
@@ -609,7 +652,7 @@ impl PgFoyerRepo {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT DISTINCT u.email
-            FROM ent_eleve_lien_actif l
+            FROM ent_eleve_lien_communicant l
             JOIN ent_user u ON u.id = l.user_id
             WHERE l.etablissement_id = $1 AND l.foyer_id = $2 AND l.est_payeur
               AND u.email IS NOT NULL AND trim(u.email) <> ''
@@ -638,7 +681,7 @@ impl PgFoyerRepo {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT DISTINCT lower(btrim(COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')))) AS adresse
-            FROM ent_eleve_lien_actif l
+            FROM ent_eleve_lien_communicant l
             JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id
             LEFT JOIN ent_user u ON u.id = p.user_id
             LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
@@ -669,7 +712,7 @@ impl PgFoyerRepo {
         let rows: Vec<(String,)> = sqlx::query_as(
             r#"
             SELECT DISTINCT COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) AS numero
-            FROM ent_eleve_lien_actif l
+            FROM ent_eleve_lien_communicant l
             JOIN ent_personne p ON p.id = l.personne_id AND p.etablissement_id = l.etablissement_id
             LEFT JOIN ent_user u ON u.id = p.user_id
             LEFT JOIN ent_personne_preference pr ON pr.personne_id = p.id
