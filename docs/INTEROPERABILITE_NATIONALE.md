@@ -3,6 +3,14 @@
 **Date :** 2026-11-05 — **Statut :** étude (recherche et conception). Aucun code écrit. Aucune décision prise : les décisions à soumettre sont listées au §15.
 **Contexte :** D-019 (socle 2 vise public **et** privé dès maintenant), lot S2-15 et actions IOP-01→07 de `docs/SOCLE2_DOMAINES.md`, D-009 (passkey obligatoire), D-012/D-013 (sous-domaine par établissement, identité unique), D-017 (rôles paramétrables), D-020 (personne ≠ compte).
 
+> **Vérification du 2026-11-09** (`docs/socles/VERIF_09_SOURCES.md`, qui prime sur ce document) : l'arrêté du 7 septembre 2026 a été lu (art. 1–4, annexe 4). Corrections principales :
+> - « exigence n° 6 » (ÉduConnect et Agents) et « exigence n° 15 » (GAR) sont **fausses**. Ce sont les critères **4** et **5**, et **7** pour le GAR, de l'annexe 4. Le n° 15 porte sur l'annuaire fédérateur.
+> - Le privé sous contrat n'est pas visé.
+> - Dans le public, ScolIA est un « service outillant les missions de vie scolaire » : ÉduConnect sous 10 mois, Agents et GAR sous 22 mois, AAF sous 34 mois.
+> - Le raccordement au GAR est demandé par un **porteur public** via la DANé, pas par l'éditeur. OIDC est admis par le GAR depuis 2022.
+> - La France a le code pays `99100`.
+> - Le BCN n'a pas de licence publiée.
+
 ## 0. Méthode, conventions et limites (à lire d'abord)
 
 **Limite majeure.** La politique réseau de cette session **refuse** les hôtes officiels (réponse 403 du proxy, vérifiée le 2026-11-05) : `eduscol.education.fr`, `eduscol.education.gouv.fr`, `www.education.gouv.fr`, `gar.education.fr`, `www.legifrance.gouv.fr`, `doctrine-technique-numerique.forge.apps.education.fr`, `www.data.gouv.fr`, ainsi que les sites académiques et la presse spécialisée. **Aucun PDF officiel n'a pu être lu en entier.** Les faits ci-dessous viennent des **extraits** que le moteur de recherche renvoie de ces documents (titre, URL, phrases citées). C'est une source réelle mais partielle : le contexte autour d'une phrase, les tableaux et les annexes n'ont pas été vus.

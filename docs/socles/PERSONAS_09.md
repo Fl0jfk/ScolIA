@@ -2,6 +2,14 @@
 
 **Date :** 2026-11-08 — **Statut :** proposition, **non décidée** (à relire par Florian). Aucun code écrit ni modifié ; aucun accès à une base, à un secret ni à un service de production ; l'application Next.js n'a pas été ouverte.
 **Branche :** `ent-personas-socle-9` (base `ent-mc0hoe` `f900681`, qui porte `09_INTEROP.md` relu, §30).
+
+> **Vérification du 2026-11-09** (`VERIF_09_SOURCES.md`).
+> - Les « exigences n° 6 et 15 » citées ici sont en réalité les **critères 4, 5 et 7** (GAR) de l'annexe 4 de l'arrêté de 2026.
+> - Le constat C (ScolIA souvent non-ENT dans le public) est **confirmé par le texte**. L'arrêté distingue l'ENT, issu d'un projet territorial, du service de vie scolaire.
+> - Le raccordement au GAR passe par un porteur public.
+> - Effacement des sanctions (M-411) : vérifié, R. 511-13 IV.
+> - Facturation électronique (M-453) : vérifiée pour les associations non assujetties.
+> - SIFA (M-437) : traitement créé par le décret 2024-1223 [S].
 **Éprouve :** `docs/socles/09_INTEROP.md` (lu en entier), avec `CLAUDE.md`, `docs/PILOTAGE.md`, `docs/DECISIONS.md` (D-009, D-011 à D-013, D-019, D-021 à D-028), `docs/MATRICE_CHARLEMAGNE.md` (§0, §1, lignes ELE-01, ELE-05, ELE-13, ELE-22, INS-16, EDT-04, NOT-09, NOT-10, NOT-16, ORI-02, PER-18, CPT-07, PIL-09, PIL-20, G6, G7, G9, G10, T-26, T-28), `docs/socles/PERSONAS_08.md` (méthode et forme reprises).
 **Ajouts :** faits **directement** dans `09_INTEROP.md`, marqués **[ajout personas]** : statut ; §0 point 11 ; règles `R-X17` à `R-X28` (§6.12) ; flux `FX-09`, `FX-41` à `FX-43`, `FX-56`, `FX-66`, `FX-67`, `FX-75` à `FX-78`, `FX-88`, `FX-97` à `FX-99`, `FX-106` à `FX-108` (§9.12, nouvelle sous-partie) ; note sur le rattachement de rentrée (§10.6) ; cas limites `CX-47` à `CX-65` (§12) ; actions `ITP-119` à `ITP-154` (§13.13) ; réglages signalés `S-68` à `S-79` (§13, couverture) ; droits (§18.3) ; lots (§25.4) ; démarches `D-17` à `D-20` (§26) ; questions `Q-X33` à `Q-X44` (§27) ; contradictions `C10` à `C17` (§28). **Rien n'est supprimé** ; quand un ajout contredit le texte d'origine, une note [ajout personas] est posée à côté.
 **Numérotation :** les manques continuent `PERSONAS_08.md` (qui s'arrête à M-404) : **M-405 à M-496**. Les réglages signalés continuent aussi : **S-68 à S-79**. Identifiants vérifiés libres avant écriture (`grep` sur `docs/`).
