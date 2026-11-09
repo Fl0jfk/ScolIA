@@ -71,6 +71,12 @@ export const messagingParticipant = pgTable(
     lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
     lastDeliveredMessageId: text("last_delivered_message_id"),
     muted: boolean("muted").notNull().default(false),
+    /** « Supprimer la conversation » pour moi : masquée, historique antérieur caché ; réapparaît au prochain message. */
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** Conversation épinglée en haut de ma liste. */
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    /** « Marquer comme non lu » (remis à null à la lecture). */
+    markedUnreadAt: timestamp("marked_unread_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -97,6 +103,11 @@ export const messagingMessage = pgTable(
     forwardedFromId: text("forwarded_from_id"),
     editedAt: timestamp("edited_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** Utilisateurs mentionnés (@) — participants de la conversation uniquement. */
+    mentionUserIds: text("mention_user_ids").array().notNull().default(sql`'{}'::text[]`),
+    /** Message épinglé dans la conversation (visible de tous les participants). */
+    pinnedAt: timestamp("pinned_at", { withTimezone: true }),
+    pinnedById: text("pinned_by_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

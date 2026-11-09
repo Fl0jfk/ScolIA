@@ -87,15 +87,29 @@ export function useMessagingStream({ enabled, onEvent, onFallbackPoll }: UseMess
   return { connected };
 }
 
-export async function fetchConversations(): Promise<MessagingConversationDto[]> {
+export type ConversationsPayload = {
+  conversations: MessagingConversationDto[];
+  /** Identifiant Better-Auth de l'utilisateur courant (celui du serveur). */
+  meId: string | null;
+};
+
+export async function fetchConversationsPayload(): Promise<ConversationsPayload> {
   const res = await fetch("/api/messaging/conversations", { cache: "no-store" });
   if (!res.ok) throw new Error("Impossible de charger les conversations");
-  const data = (await res.json()) as { conversations?: MessagingConversationDto[] };
-  return Array.isArray(data.conversations) ? data.conversations : [];
+  const data = (await res.json()) as { conversations?: MessagingConversationDto[]; meId?: string };
+  return {
+    conversations: Array.isArray(data.conversations) ? data.conversations : [],
+    meId: typeof data.meId === "string" && data.meId ? data.meId : null,
+  };
+}
+
+export async function fetchConversations(): Promise<MessagingConversationDto[]> {
+  return (await fetchConversationsPayload()).conversations;
 }
 
 export function useMessagingConversations(enabled: boolean) {
   const [conversations, setConversations] = useState<MessagingConversationDto[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -104,8 +118,9 @@ export function useMessagingConversations(enabled: boolean) {
     setLoading(true);
     setError(null);
     try {
-      const list = await fetchConversations();
-      setConversations(list);
+      const payload = await fetchConversationsPayload();
+      setConversations(payload.conversations);
+      if (payload.meId) setMeId(payload.meId);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Erreur de chargement");
     } finally {
@@ -117,7 +132,10 @@ export function useMessagingConversations(enabled: boolean) {
     void refresh();
   }, [refresh]);
 
-  const totalUnread = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+  const totalUnread = conversations.reduce(
+    (acc, c) => acc + (c.unreadCount || (c.markedUnread ? 1 : 0)),
+    0,
+  );
 
-  return { conversations, setConversations, loading, error, refresh, totalUnread };
+  return { conversations, setConversations, meId, loading, error, refresh, totalUnread };
 }

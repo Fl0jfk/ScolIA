@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useSessionUser } from "@/app/hooks/useAppUser";
+import { useAppUser, useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import type {
+  MessagingConversationDetailDto,
   MessagingConversationDto,
+  MessagingConversationPatchInput,
   MessagingMessageDto,
   MessagingPeer,
 } from "@/app/lib/messaging/types";
@@ -20,19 +22,22 @@ import {
 } from "@/app/components/messaging/MessagingCallProvider";
 import MessagingCallOverlay from "@/app/components/messaging/MessagingCallOverlay";
 import MessagingCallStage from "@/app/components/messaging/MessagingCallStage";
-import MessagingPresenceBadge from "@/app/components/messaging/MessagingPresenceBadge";
 import MessagingStatusPicker from "@/app/components/messaging/MessagingStatusPicker";
 import { useMessagingPresence } from "@/app/components/messaging/useMessagingPresence";
 import ChannelsPanel from "@/app/components/messaging/ChannelsPanel";
 import {
-  IconSearch,
   IconMessageCircle,
   IconUsers,
   IconHash,
   IconPlus,
 } from "@/app/components/messaging/MessagingIcons";
+import ConversationList from "@/app/components/messaging/list/ConversationList";
+import ConversationDetailsDrawer from "@/app/components/messaging/list/ConversationDetailsDrawer";
+import { useToast } from "@/app/components/messaging/list/useToast";
+import { isUnread } from "@/app/components/messaging/list/listHelpers";
 
 type Section = "messages" | "salons";
+type ConversationsState = ReturnType<typeof useMessagingConversations>;
 
 function parseSection(raw: string | null): Section {
   return raw === "salons" ? "salons" : "messages";
@@ -40,8 +45,11 @@ function parseSection(raw: string | null): Section {
 
 export default function MessageriePageClient() {
   const { user, isLoaded, isSignedIn } = useSessionUser();
+  const { user: authUser } = useAppUser();
   const enabled = Boolean(isLoaded && isSignedIn && user);
-  const currentUserId = user?.id ?? "";
+  const convState = useMessagingConversations(enabled);
+  // Identifiant Better-Auth (celui que le serveur compare). Jamais businessUserId.
+  const currentUserId = convState.meId ?? authUser?.id ?? "";
 
   if (!isLoaded) {
     return (
@@ -63,7 +71,11 @@ export default function MessageriePageClient() {
 
   return (
     <MessagingCallProvider currentUserId={currentUserId}>
-      <MessageriePageBody currentUserId={currentUserId} enabled={enabled} />
+      <MessageriePageBody
+        currentUserId={currentUserId}
+        enabled={enabled}
+        convState={convState}
+      />
     </MessagingCallProvider>
   );
 }
@@ -71,18 +83,21 @@ export default function MessageriePageClient() {
 function MessageriePageBody({
   currentUserId,
   enabled,
+  convState,
 }: {
   currentUserId: string;
   enabled: boolean;
+  convState: ConversationsState;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const section = parseSection(searchParams.get("section"));
+  const cParam = searchParams.get("c");
 
   const { handleSseEvent, startCall, call } = useMessagingCall();
   const callBusy = Boolean(call && call.phase !== "idle");
-  const { conversations, refresh, totalUnread } = useMessagingConversations(enabled);
+  const { conversations, setConversations, refresh, totalUnread } = convState;
   const {
     statusForConversation,
     statusOf,
@@ -95,14 +110,21 @@ function MessageriePageBody({
     conversations,
     callBusy,
   });
-  const [selected, setSelected] = useState<MessagingConversationDto | null>(null);
+  const { toast, toastNode } = useToast();
+
+  const [selectedId, setSelectedId] = useState<string | null>(cParam);
+  const selectedIdRef = useRef<string | null>(cParam);
+  const [mobileOpen, setMobileOpen] = useState(Boolean(cParam));
+  const [detail, setDetail] = useState<MessagingConversationDetailDto | null>(null);
+  const [detailTick, setDetailTick] = useState(0);
+  const [showDetails, setShowDetails] = useState(false);
   const [users, setUsers] = useState<MessagingPeer[]>([]);
-  const [query, setQuery] = useState("");
   const [forwardMessage, setForwardMessage] = useState<MessagingMessageDto | null>(null);
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const setSection = (next: Section) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -111,6 +133,38 @@ function MessageriePageBody({
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
+
+  const writeUrl = useCallback(
+    (id: string | null) => {
+      const params = new URLSearchParams(window.location.search);
+      if (id) params.set("c", id);
+      else params.delete("c");
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [pathname, router],
+  );
+
+  const selectConv = useCallback(
+    (id: string | null) => {
+      selectedIdRef.current = id;
+      setSelectedId(id);
+      setMobileOpen(Boolean(id));
+      setShowDetails(false);
+      writeUrl(id);
+    },
+    [writeUrl],
+  );
+
+  // Lien profond : /messagerie?c=<id> (notifications) ou navigation arrière.
+  useEffect(() => {
+    if (cParam && cParam !== selectedIdRef.current) {
+      selectedIdRef.current = cParam;
+      setSelectedId(cParam);
+      setMobileOpen(true);
+      setShowDetails(false);
+    }
+  }, [cParam]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -122,14 +176,118 @@ function MessageriePageBody({
       .catch(() => setUsers([]));
   }, [enabled]);
 
+  // Desktop : ouvre la première conversation par défaut (pas sur mobile, où la liste reste visible).
   useEffect(() => {
-    if (!selected && conversations.length > 0) {
-      setSelected(conversations[0] ?? null);
-    } else if (selected) {
-      const updated = conversations.find((c) => c.id === selected.id);
-      if (updated) setSelected(updated);
+    if (selectedIdRef.current || cParam || conversations.length === 0) return;
+    if (typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches) {
+      const first = conversations[0];
+      selectedIdRef.current = first.id;
+      setSelectedId(first.id);
     }
-  }, [conversations, selected]);
+  }, [conversations, cParam]);
+
+  // Détail (membres, messages épinglés) : à l'ouverture et sur conversation_updated.
+  useEffect(() => {
+    if (!enabled || !selectedId) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/messaging/conversations/${selectedId}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { conversation?: MessagingConversationDetailDto } | null) => {
+        if (!cancelled && data?.conversation && data.conversation.id === selectedIdRef.current) {
+          setDetail(data.conversation);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, selectedId, detailTick]);
+
+  const selected: MessagingConversationDto | null = useMemo(() => {
+    if (!selectedId) return null;
+    return (
+      conversations.find((c) => c.id === selectedId) ??
+      (detail && detail.id === selectedId ? detail : null)
+    );
+  }, [conversations, selectedId, detail]);
+
+  const currentDetail = detail && detail.id === selectedId ? detail : null;
+
+  const notifyError = useCallback((text: string) => toast(text), [toast]);
+
+  const callPatch = useCallback(
+    async (id: string, patch: MessagingConversationPatchInput) => {
+      const res = await fetch(`/api/messaging/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error("patch");
+      const data = (await res.json()) as { conversation?: MessagingConversationDto };
+      return data.conversation ?? null;
+    },
+    [],
+  );
+
+  const mergeConversation = useCallback(
+    (next: MessagingConversationDto) => {
+      setConversations((list) => list.map((x) => (x.id === next.id ? { ...x, ...next } : x)));
+      setDetail((d) => (d && d.id === next.id ? { ...d, ...next } : d));
+    },
+    [setConversations],
+  );
+
+  // Mise à jour optimiste + rollback.
+  const patchConversation = useCallback(
+    async (c: MessagingConversationDto, patch: MessagingConversationPatchInput) => {
+      const optimistic = (x: MessagingConversationDto): MessagingConversationDto => ({
+        ...x,
+        ...patch,
+        ...(patch.markedUnread === false ? { unreadCount: 0, hasUnreadMention: false } : {}),
+      });
+      setConversations((list) => list.map((x) => (x.id === c.id ? optimistic(x) : x)));
+      setDetail((d) => (d && d.id === c.id ? { ...d, ...optimistic(d) } : d));
+      try {
+        const updated = await callPatch(c.id, patch);
+        if (updated) mergeConversation(updated);
+        if (patch.markedUnread === false && c.unreadCount > 0) {
+          void fetch(`/api/messaging/conversations/${c.id}/read`, { method: "POST" }).catch(
+            () => undefined,
+          );
+        }
+      } catch {
+        setConversations((list) => list.map((x) => (x.id === c.id ? c : x)));
+        setDetail((d) => (d && d.id === c.id ? { ...d, ...c } : d));
+        notifyError("Action impossible pour le moment. Réessayez.");
+      }
+    },
+    [callPatch, mergeConversation, notifyError, setConversations],
+  );
+
+  const removeFromList = useCallback(
+    (id: string) => {
+      setConversations((list) => list.filter((x) => x.id !== id));
+      if (selectedIdRef.current === id) selectConv(null);
+    },
+    [selectConv, setConversations],
+  );
+
+  const deleteConversation = useCallback(
+    async (c: MessagingConversationDto) => {
+      removeFromList(c.id);
+      try {
+        const res = await fetch(`/api/messaging/conversations/${c.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("delete");
+      } catch {
+        notifyError("Suppression impossible. La conversation a été restaurée.");
+        void refresh();
+      }
+    },
+    [notifyError, refresh, removeFromList],
+  );
 
   useMessagingStream({
     enabled,
@@ -138,6 +296,10 @@ function MessageriePageBody({
         handleSseEvent(ev);
       }
       applyPresenceSse(ev);
+
+      if (ev.type === "conversation_updated" && ev.conversationId === selectedIdRef.current) {
+        setDetailTick((n) => n + 1);
+      }
 
       if (ev.type === "message" && ev.conversationId) {
         const payload =
@@ -181,15 +343,19 @@ function MessageriePageBody({
   });
 
   const startWithPeer = async (peer: MessagingPeer) => {
-    const res = await fetch("/api/messaging/conversations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ peerUserId: peer.id }),
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as { conversation?: MessagingConversationDto };
-    await refresh();
-    if (data.conversation) setSelected(data.conversation);
+    try {
+      const res = await fetch("/api/messaging/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ peerUserId: peer.id }),
+      });
+      if (!res.ok) throw new Error("create");
+      const data = (await res.json()) as { conversation?: MessagingConversationDto };
+      await refresh();
+      if (data.conversation) selectConv(data.conversation.id);
+    } catch {
+      notifyError("Impossible d’ouvrir la discussion.");
+    }
   };
 
   const createGroup = async () => {
@@ -205,13 +371,18 @@ function MessageriePageBody({
           memberIds: groupMembers,
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        notifyError("Création du groupe impossible.");
+        return;
+      }
       const data = (await res.json()) as { conversation?: MessagingConversationDto };
       await refresh();
-      if (data.conversation) setSelected(data.conversation);
+      if (data.conversation) selectConv(data.conversation.id);
       setShowNewGroup(false);
       setGroupTitle("");
       setGroupMembers([]);
+    } catch {
+      notifyError("Création du groupe impossible.");
     } finally {
       setCreatingGroup(false);
     }
@@ -220,23 +391,89 @@ function MessageriePageBody({
   useEffect(() => {
     if (!call?.conversationId) return;
     const conv = conversations.find((c) => c.id === call.conversationId);
-    if (conv) setSelected(conv);
-  }, [call?.conversationId, conversations]);
+    if (conv && selectedIdRef.current !== conv.id) selectConv(conv.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call?.conversationId]);
 
-  const q = query.trim().toLowerCase();
-  const filteredUsers = q
-    ? users.filter(
-        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
-      )
-    : [];
+  // Sélection d'une conversation marquée « non lue » : on retire le marquage.
+  const onSelectFromList = (c: MessagingConversationDto) => {
+    selectConv(c.id);
+    if (c.markedUnread) void patchConversation(c, { markedUnread: false });
+  };
+
+  // Titre d'onglet : « (3) Messagerie — … ».
+  const baseTitleRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (baseTitleRef.current === null) {
+      baseTitleRef.current = document.title.replace(/^\(\d+\+?\)\s*/, "");
+    }
+    const base = baseTitleRef.current;
+    const n = conversations.filter(isUnread).length;
+    document.title = n > 0 ? `(${n > 99 ? "99+" : n}) ${base}` : base;
+  }, [conversations]);
+  useEffect(
+    () => () => {
+      if (baseTitleRef.current !== null) document.title = baseTitleRef.current;
+    },
+    [],
+  );
+
+  // Raccourcis : Ctrl+K ou « / » focalisent la recherche.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing =
+        el &&
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setMobileOpen(false);
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      } else if (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setMobileOpen(false);
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const drawerCall = async (fn: () => Promise<Response>, failure: string) => {
+    try {
+      const res = await fn();
+      if (!res.ok) throw new Error("x");
+      return (await res.json().catch(() => ({}))) as {
+        conversation?: MessagingConversationDetailDto;
+      };
+    } catch {
+      notifyError(failure);
+      return null;
+    }
+  };
+
+  const applyDetail = (next: MessagingConversationDetailDto | undefined) => {
+    if (!next) {
+      setDetailTick((n) => n + 1);
+      return;
+    }
+    setDetail((d) => (d && d.id === next.id ? { ...d, ...next } : next));
+    mergeConversation(next);
+  };
 
   const inSplitCall = Boolean(call && call.phase !== "idle" && call.viewMode === "split");
+  const unreadConversations = conversations.filter(isUnread).length;
 
   return (
     <DashboardThemeRoot>
       <MessagingCallOverlay embedSplitInPage />
       <div className="mx-auto flex h-[calc(100dvh-5.5rem)] w-full max-w-[90rem] flex-col gap-3 p-3 sm:p-4 lg:p-5">
-        <header className="flex flex-wrap items-center justify-between gap-3 px-1">
+        <header
+          className={`flex-wrap items-center justify-between gap-3 px-1 ${
+            mobileOpen && section === "messages" ? "hidden md:flex" : "flex"
+          }`}
+        >
           <div className="flex min-w-0 items-center gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dash-ink)] text-white">
               <IconMessageCircle className="h-5 w-5" />
@@ -248,8 +485,8 @@ function MessageriePageBody({
               <p className="text-[11px] font-medium text-[var(--dash-mid)]">
                 {section === "salons"
                   ? "Salons d’équipe"
-                  : totalUnread > 0
-                    ? `${totalUnread} non lu${totalUnread > 1 ? "s" : ""}`
+                  : unreadConversations > 0 || totalUnread > 0
+                    ? `${unreadConversations} conversation${unreadConversations > 1 ? "s" : ""} non lue${unreadConversations > 1 ? "s" : ""}`
                     : "Discussions privées et groupes"}
                 {inSplitCall ? " · Visio en cours" : ""}
               </p>
@@ -312,126 +549,32 @@ function MessageriePageBody({
           <ChannelsPanel embedded className="min-h-0 flex-1" />
         ) : (
           <div
-            className={`grid min-h-0 flex-1 gap-3 transition-opacity duration-200 ${
+            className={`grid min-h-0 flex-1 grid-cols-1 gap-3 transition-opacity duration-200 ${
               inSplitCall
                 ? "lg:grid-cols-[minmax(260px,17rem)_minmax(0,1.15fr)_minmax(280px,1fr)]"
-                : "md:grid-cols-[minmax(260px,17rem)_minmax(0,1fr)]"
+                : "md:grid-cols-[minmax(280px,20rem)_minmax(0,1fr)]"
             }`}
           >
-            <aside className="flex min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-[#eceeea] shadow-[0_1px_0_rgba(0,0,0,0.03)]">
-              <div className="border-b border-black/5 p-2.5">
-                <div className="relative">
-                  <IconSearch className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
-                  <input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="Chercher un collègue…"
-                    className="w-full rounded-2xl border border-black/6 bg-white/80 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-[var(--dash-ink)]"
-                  />
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2 pt-1">
-                {filteredUsers.length > 0 ? (
-                  <div className="mb-2">
-                    <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dash-mid)]">
-                      Personnel
-                    </p>
-                    {filteredUsers.slice(0, 15).map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        className="flex w-full items-center gap-2.5 rounded-2xl px-2.5 py-2 text-left transition hover:bg-white/70"
-                        onClick={() => void startWithPeer(u)}
-                      >
-                        <MessagingPresenceBadge
-                          status={statusOf(u.id)}
-                          dotClassName="h-2.5 w-2.5"
-                        >
-                          <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)] text-xs font-semibold text-white">
-                            {u.name.slice(0, 1).toUpperCase()}
-                          </span>
-                        </MessagingPresenceBadge>
-                        <span className="truncate text-sm font-medium text-[var(--dash-ink)]">
-                          {u.name}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-                <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dash-mid)]">
-                  Conversations
-                </p>
-                {conversations.length === 0 ? (
-                  <p className="px-3 py-6 text-xs leading-relaxed text-neutral-500">
-                    Aucune conversation. Cherchez un collègue pour démarrer.
-                  </p>
-                ) : (
-                  conversations.map((c) => {
-                    const active = selected?.id === c.id;
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={`flex w-full items-center gap-2.5 rounded-2xl px-2.5 py-2.5 text-left transition ${
-                          active
-                            ? "bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]"
-                            : "hover:bg-white/70"
-                        }`}
-                        onClick={() => setSelected(c)}
-                      >
-                        <span className="relative shrink-0">
-                          <MessagingPresenceBadge
-                            status={statusForConversation(c)}
-                            dotClassName="h-2.5 w-2.5"
-                          >
-                            <span className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)] text-xs font-semibold text-white">
-                              {c.kind === "group" ? (
-                                c.membersPreview[0]?.imageUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={c.membersPreview[0].imageUrl}
-                                    alt=""
-                                    className="h-full w-full object-cover"
-                                  />
-                                ) : (
-                                  (c.title || "G").slice(0, 1).toUpperCase()
-                                )
-                              ) : c.peer?.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img
-                                  src={c.peer.imageUrl}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                (c.peer?.name || c.title || "?").slice(0, 1).toUpperCase()
-                              )}
-                            </span>
-                          </MessagingPresenceBadge>
-                          {c.unreadCount > 0 ? (
-                            <span className="absolute -right-0.5 -top-0.5 z-10 min-w-[1rem] rounded-full bg-[var(--dash-lime)] px-1 text-center text-[9px] font-bold text-[var(--dash-ink)]">
-                              {c.unreadCount}
-                            </span>
-                          ) : null}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold text-[var(--dash-ink)]">
-                            {c.title}
-                            {c.kind === "group" ? (
-                              <span className="ml-1.5 text-[10px] font-medium text-[var(--dash-mid)]">
-                                groupe
-                              </span>
-                            ) : null}
-                          </p>
-                          <p className="truncate text-[11px] text-neutral-500">
-                            {c.lastMessage?.body || "—"}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+            <aside
+              className={`min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-[#eceeea] shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
+                mobileOpen ? "hidden md:flex" : "flex"
+              }`}
+            >
+              <ConversationList
+                conversations={conversations}
+                meId={currentUserId}
+                selectedId={selectedId}
+                users={users}
+                statusOf={statusOf}
+                statusForConversation={statusForConversation}
+                searchInputRef={searchInputRef}
+                onSelect={onSelectFromList}
+                onOpenConversationId={(id) => selectConv(id)}
+                onStartWithPeer={(p) => void startWithPeer(p)}
+                onPatch={(c, patch) => void patchConversation(c, patch)}
+                onDelete={(c) => void deleteConversation(c)}
+                notify={notifyError}
+              />
             </aside>
 
             {inSplitCall ? (
@@ -440,28 +583,43 @@ function MessageriePageBody({
               </section>
             ) : null}
 
-            <section className="min-h-0">
+            <section className={`min-h-0 flex-col ${mobileOpen ? "flex" : "hidden md:flex"}`}>
               {selected ? (
-                <MessagingConversationPanel
-                  conversationId={selected.id}
-                  title={selected.title}
-                  peer={selected.peer}
-                  kind={selected.kind}
-                  membersPreview={selected.membersPreview}
-                  memberCount={selected.memberCount}
-                  currentUserId={currentUserId}
-                  presenceStatus={statusForConversation(selected)}
-                  variant="page"
-                  className="h-full"
-                  onForwardRequest={setForwardMessage}
-                  onStartVideoCall={() =>
-                    void startCall({
-                      conversationId: selected.id,
-                      title: selected.title,
-                      kind: selected.kind,
-                    })
-                  }
-                />
+                <>
+                  <button
+                    type="button"
+                    onClick={() => selectConv(null)}
+                    className="mb-2 inline-flex items-center gap-1.5 self-start rounded-2xl bg-[#eceeea] px-3 py-1.5 text-xs font-semibold text-[var(--dash-ink)] md:hidden"
+                  >
+                    <span aria-hidden>←</span> Conversations
+                  </button>
+                  <div className="min-h-0 flex-1">
+                    <MessagingConversationPanel
+                      key={selected.id}
+                      conversationId={selected.id}
+                      title={selected.title}
+                      peer={selected.peer}
+                      kind={selected.kind}
+                      membersPreview={selected.membersPreview}
+                      memberCount={selected.memberCount}
+                      currentUserId={currentUserId}
+                      presenceStatus={statusForConversation(selected)}
+                      variant="page"
+                      className="h-full"
+                      members={currentDetail?.members}
+                      pinnedMessages={currentDetail?.pinnedMessages}
+                      onOpenDetails={() => setShowDetails(true)}
+                      onForwardRequest={setForwardMessage}
+                      onStartVideoCall={() =>
+                        void startCall({
+                          conversationId: selected.id,
+                          title: selected.title,
+                          kind: selected.kind,
+                        })
+                      }
+                    />
+                  </div>
+                </>
               ) : (
                 <div className="flex h-full items-center justify-center rounded-[1.75rem] border border-black/6 bg-white/80 text-sm text-neutral-400 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl">
                   Sélectionnez ou démarrez une conversation
@@ -476,6 +634,79 @@ function MessageriePageBody({
           </div>
         )}
       </div>
+
+      {showDetails && currentDetail ? (
+        <ConversationDetailsDrawer
+          detail={currentDetail}
+          meId={currentUserId}
+          users={users}
+          statusOf={statusOf}
+          statusForConversation={statusForConversation}
+          onClose={() => setShowDetails(false)}
+          onToggleMute={() => void patchConversation(currentDetail, { muted: !currentDetail.muted })}
+          onRename={async (title) => {
+            try {
+              const updated = await callPatch(currentDetail.id, { title });
+              if (updated) mergeConversation(updated);
+              else setDetailTick((n) => n + 1);
+              return true;
+            } catch {
+              notifyError("Renommage impossible.");
+              return false;
+            }
+          }}
+          onAddMembers={async (userIds) => {
+            const data = await drawerCall(
+              () =>
+                fetch(`/api/messaging/conversations/${currentDetail.id}/members`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ userIds }),
+                }),
+              "Ajout impossible.",
+            );
+            if (!data) return false;
+            applyDetail(data.conversation);
+            return true;
+          }}
+          onRemoveMember={async (userId) => {
+            const data = await drawerCall(
+              () =>
+                fetch(
+                  `/api/messaging/conversations/${currentDetail.id}/members/${encodeURIComponent(userId)}`,
+                  { method: "DELETE" },
+                ),
+              "Retrait impossible.",
+            );
+            if (!data) return false;
+            applyDetail(data.conversation);
+            return true;
+          }}
+          onLeave={async () => {
+            const data = await drawerCall(
+              () =>
+                fetch(
+                  `/api/messaging/conversations/${currentDetail.id}/members/${encodeURIComponent(currentUserId)}`,
+                  { method: "DELETE" },
+                ),
+              "Impossible de quitter le groupe.",
+            );
+            if (!data) return false;
+            setShowDetails(false);
+            removeFromList(currentDetail.id);
+            return true;
+          }}
+          onStartVideoCall={() =>
+            void startCall({
+              conversationId: currentDetail.id,
+              title: currentDetail.title,
+              kind: currentDetail.kind,
+            })
+          }
+        />
+      ) : null}
+
+      {toastNode}
 
       {showNewGroup ? (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
@@ -579,7 +810,7 @@ function MessageriePageBody({
                     });
                     setForwardMessage(null);
                     await refresh();
-                    setSelected(c);
+                    selectConv(c.id);
                   }}
                 >
                   {c.title}

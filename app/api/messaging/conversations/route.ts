@@ -16,7 +16,7 @@ export async function GET() {
       gate.ctx.etablissementId,
       gate.ctx.userId,
     );
-    return NextResponse.json({ conversations });
+    return NextResponse.json({ conversations, meId: gate.ctx.userId });
   } catch (error) {
     if (error instanceof MessagingError) {
       return NextResponse.json(

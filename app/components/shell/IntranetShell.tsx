@@ -7,6 +7,7 @@ import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";
 import { DashboardSignalsProvider } from "@/app/components/shell/DashboardSignalsProvider";
 import EleveDossierModalProvider from "@/app/components/shell/EleveDossierModalProvider";
 import IntranetSidebar from "@/app/components/shell/IntranetSidebar";
+import { BrowserNotificationsProvider } from "@/app/components/notifications/BrowserNotificationsProvider";
 
 export default function IntranetShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -38,6 +39,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
       ) : (
     <DashboardThemeRoot>
       <EleveDossierModalProvider>
+        <BrowserNotificationsProvider>
         <div className="min-h-screen lg:pl-[17.5rem]">
           <IntranetSidebar
             mobileOpen={mobileOpen}
@@ -60,6 +62,7 @@ export default function IntranetShell({ children }: { children: ReactNode }) {
 
           <div className="min-w-0">{children}</div>
         </div>
+        </BrowserNotificationsProvider>
       </EleveDossierModalProvider>
     </DashboardThemeRoot>
       )}

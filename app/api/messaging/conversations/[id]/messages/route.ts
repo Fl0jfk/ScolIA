@@ -49,6 +49,7 @@ export async function POST(req: Request, ctx: Ctx) {
       replyToId?: string | null;
       forwardedFromId?: string | null;
       attachments?: MessagingSendAttachmentInput[];
+      mentionUserIds?: unknown;
     };
     const message = await sendMessage(gate.ctx.etablissementId, id, gate.ctx.userId, {
       body: body.body ?? null,
@@ -56,6 +57,9 @@ export async function POST(req: Request, ctx: Ctx) {
       replyToId: body.replyToId ?? undefined,
       forwardedFromId: body.forwardedFromId ?? undefined,
       attachments: body.attachments,
+      mentionUserIds: Array.isArray(body.mentionUserIds)
+        ? body.mentionUserIds.filter((u): u is string => typeof u === "string")
+        : undefined,
     });
     return NextResponse.json({ message });
   } catch (error) {

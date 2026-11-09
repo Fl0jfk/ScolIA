@@ -100,6 +100,14 @@ const nextConfig: NextConfig = {
     ];
     return [
       {
+        // Service worker des notifications : toujours revalidé, portée racine.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
         // CSP + COOP + X-Frame-Options : uniquement pages HTML via proxy.ts.
         // Sur les fetch RSC (?_rsc=) Safari bloque sinon (« access control checks »).
         source: "/((?!api/)(?!documents/rentree/).*)",

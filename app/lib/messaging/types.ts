@@ -65,6 +65,32 @@ export type MessagingMessageDto = {
   reactions: MessagingReactionDto[];
   /** Présent sur les messages dont on est l’auteur (ticks Messenger). */
   receiptStatus?: MessagingReceiptStatus;
+  /** Présent sur mes messages : compteurs pour « Lu par 2/3 » (groupes surtout). */
+  receiptSummary?: MessagingReceiptSummary;
+  /** Nom / avatar de l’auteur (utile en groupe). */
+  senderName: string;
+  senderImageUrl: string | null;
+  /** Participants mentionnés (@). */
+  mentionUserIds: string[];
+  /** Message épinglé dans la conversation. */
+  pinnedAt: string | null;
+  pinnedById: string | null;
+};
+
+export type MessagingReceiptSummary = {
+  recipientCount: number;
+  deliveredCount: number;
+  readCount: number;
+};
+
+/** Détail « Vu par » d’un de mes messages (GET /api/messaging/messages/[id]/receipts). */
+export type MessagingReceiptDetailDto = {
+  messageId: string;
+  recipients: Array<{
+    user: MessagingPeer;
+    deliveredAt: string | null;
+    readAt: string | null;
+  }>;
 };
 
 export type MessagingConversationDto = {
@@ -85,6 +111,32 @@ export type MessagingConversationDto = {
   unreadCount: number;
   updatedAt: string;
   lastMessageAt: string | null;
+  /** Préférences personnelles (participant courant). */
+  pinned: boolean;
+  muted: boolean;
+  markedUnread: boolean;
+  /** Groupe : créateur (peut renommer, ajouter / retirer des membres). */
+  createdById: string | null;
+  canManage: boolean;
+  /** Dernier message : nom court de l’auteur (« Vous » côté client si c’est moi). */
+  lastMessageSenderName: string | null;
+  /** Un de mes messages non lus contient une @mention de moi. */
+  hasUnreadMention: boolean;
+};
+
+/** Membre d’une conversation (GET /api/messaging/conversations/[id]). */
+export type MessagingConversationDetailDto = MessagingConversationDto & {
+  members: MessagingPeer[];
+  pinnedMessages: MessagingMessageDto[];
+};
+
+/** PATCH /api/messaging/conversations/[id] — préférences personnelles et gestion du groupe. */
+export type MessagingConversationPatchInput = {
+  pinned?: boolean;
+  muted?: boolean;
+  markedUnread?: boolean;
+  /** Groupe, réservé à canManage. */
+  title?: string;
 };
 
 export type MessagingSseEventType =

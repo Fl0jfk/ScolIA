@@ -1,26 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { MessagingMessageDto, MessagingReceiptStatus } from "@/app/lib/messaging/types";
-import { REACTION_EMOJIS, extractUrls } from "@/app/lib/messaging/constants";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type {
+  MessagingMessageDto,
+  MessagingPeer,
+  MessagingReceiptDetailDto,
+  MessagingReceiptStatus,
+} from "@/app/lib/messaging/types";
+import { extractUrls } from "@/app/lib/messaging/constants";
 import {
-  IconPencil,
-  IconTrash,
-  IconReply,
-  IconForward,
-  IconSmile,
   IconCheck,
   IconChecks,
+  IconMoreHorizontal,
+  IconPin,
+  IconReply,
 } from "./MessagingIcons";
+import Avatar from "./conversation/Avatar";
+import MessageMenu from "./conversation/MessageMenu";
+import ReceiptPopover from "./conversation/ReceiptPopover";
+import type { Anchor } from "./conversation/FloatingLayer";
+import { formatTime, splitMentions } from "./conversation/utils";
 
 type Props = {
   message: MessagingMessageDto;
   isMine: boolean;
+  currentUserId: string;
+  kind: "dm" | "group";
+  firstInGroup: boolean;
+  /** Dernier de mes messages (affiche le libellé « Vu… » dessous). */
+  isLastMine: boolean;
+  highlighted: boolean;
+  membersById: Map<string, MessagingPeer>;
   onReply: (message: MessagingMessageDto) => void;
   onForward: (message: MessagingMessageDto) => void;
   onEdit: (message: MessagingMessageDto) => void;
+  /** Demande de suppression (la confirmation est gérée par le panneau). */
   onDelete: (message: MessagingMessageDto) => void;
   onReact: (message: MessagingMessageDto, emoji: string) => void;
+  onPin: (message: MessagingMessageDto) => void;
+  onCopy: (message: MessagingMessageDto) => void;
+  onJumpTo: (messageId: string) => void;
 };
 
 function formatBytes(n: number): string {
@@ -29,89 +48,237 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+const STATUS_LABEL: Record<MessagingReceiptStatus, string> = {
+  sent: "Envoyé",
+  delivered: "Distribué",
+  read: "Lu",
+};
+
 function ReceiptTicks({ status }: { status: MessagingReceiptStatus }) {
-  const label =
-    status === "read" ? "Lu" : status === "delivered" ? "Distribué" : "Envoyé";
   const color =
     status === "read"
-      ? "text-[var(--dash-ink)]"
+      ? "text-sky-300"
       : status === "delivered"
-        ? "text-[var(--dash-mid)]"
-        : "text-neutral-400";
+        ? "text-white/75"
+        : "text-white/50";
   return (
-    <span className={`inline-flex items-center gap-0.5 ${color}`} title={label} aria-label={label}>
+    <span className={`inline-flex items-center ${color}`}>
       {status === "sent" ? (
         <IconCheck className="h-3 w-3" />
       ) : (
         <IconChecks className="h-3.5 w-3.5" />
       )}
+      <span className="sr-only">{STATUS_LABEL[status]}</span>
     </span>
   );
 }
 
-export default function MessagingMessageBubble({
+function reactionTooltip(
+  userIds: string[],
+  currentUserId: string,
+  membersById: Map<string, MessagingPeer>,
+): string {
+  const names: string[] = [];
+  if (userIds.includes(currentUserId)) names.push("Vous");
+  let unknown = 0;
+  for (const id of userIds) {
+    if (id === currentUserId) continue;
+    const p = membersById.get(id);
+    if (p) names.push(p.name);
+    else unknown += 1;
+  }
+  if (unknown > 0) names.push(`${unknown} autre${unknown > 1 ? "s" : ""}`);
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`;
+}
+
+function MessagingMessageBubble({
   message,
   isMine,
+  currentUserId,
+  kind,
+  firstInGroup,
+  isLastMine,
+  highlighted,
+  membersById,
   onReply,
   onForward,
   onEdit,
   onDelete,
   onReact,
+  onPin,
+  onCopy,
+  onJumpTo,
 }: Props) {
-  const [showReactions, setShowReactions] = useState(false);
+  const [menu, setMenu] = useState<Anchor | null>(null);
+  const [receipts, setReceipts] = useState<Anchor | null>(null);
+  const [tapped, setTapped] = useState(false);
+  const [dmReadAt, setDmReadAt] = useState<string | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const deleted = Boolean(message.deletedAt);
+  const status = message.receiptStatus;
+  const mentionedMe = !isMine && message.mentionUserIds.includes(currentUserId);
+
   const urls = useMemo(
     () => (message.body && !deleted ? extractUrls(message.body) : []),
     [message.body, deleted],
   );
 
+  const bodySegments = useMemo(() => {
+    if (!message.body) return null;
+    const names = message.mentionUserIds
+      .map((id) => membersById.get(id)?.name)
+      .filter((n): n is string => Boolean(n));
+    return splitMentions(message.body, names);
+  }, [message.body, message.mentionUserIds, membersById]);
+
   const reactionGroups = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, string[]>();
     for (const r of message.reactions) {
-      map.set(r.emoji, (map.get(r.emoji) ?? 0) + 1);
+      const list = map.get(r.emoji) ?? [];
+      list.push(r.userId);
+      map.set(r.emoji, list);
     }
     return [...map.entries()];
   }, [message.reactions]);
 
+  // DM : heure de lecture pour « Vu à 14:32 » (chargée seulement sur le dernier de mes messages).
+  useEffect(() => {
+    if (!isLastMine || kind !== "dm" || status !== "read") return;
+    let cancelled = false;
+    fetch(`/api/messaging/messages/${message.id}/receipts`, { cache: "no-store" })
+      .then(async (res) => (res.ok ? ((await res.json()) as MessagingReceiptDetailDto) : null))
+      .then((d) => {
+        if (!cancelled) setDmReadAt(d?.recipients.find((r) => r.readAt)?.readAt ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isLastMine, kind, status, message.id]);
+
+  const openMenuAt = useCallback((x: number, y: number, height?: number) => {
+    setTapped(false);
+    setMenu({ x, y, height });
+  }, []);
+
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const closeReceipts = useCallback(() => setReceipts(null), []);
+
+  const openReceiptsFrom = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setReceipts({ x: r.left - 180, y: r.top - 8, height: 0 });
+  };
+
+  const clearPress = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+  };
+
+  const hasText = Boolean(message.body);
+  const canEdit = message.type === "text" && !deleted;
+
+  const receiptLabel = (() => {
+    if (!isLastMine || deleted || !status) return null;
+    if (kind === "group" && message.receiptSummary && message.receiptSummary.recipientCount > 0) {
+      const { readCount, recipientCount, deliveredCount } = message.receiptSummary;
+      if (readCount > 0) return { text: `Vu par ${readCount}/${recipientCount}`, read: true };
+      if (deliveredCount > 0) return { text: "Distribué", read: false };
+      return { text: "Envoyé", read: false };
+    }
+    if (status === "read") {
+      return { text: dmReadAt ? `Vu à ${formatTime(dmReadAt)}` : "Vu", read: true };
+    }
+    return { text: STATUS_LABEL[status], read: false };
+  })();
+
+  const showAuthor = kind === "group" && !isMine && firstInGroup;
+  const showAvatarCol = kind === "group" && !isMine;
+
+  const subtle = isMine ? "text-white/60" : "text-neutral-500";
+
   return (
-    <div className={`group flex flex-col gap-1 ${isMine ? "items-end" : "items-start"}`}>
-      {message.replyPreview ? (
-        <div
-          className={`max-w-[85%] rounded-2xl border-l-2 px-2.5 py-1 text-[11px] text-[var(--dash-mid)] ${
-            isMine
-              ? "border-[var(--dash-ink)]/40 bg-[var(--dash-ink)]/5"
-              : "border-black/15 bg-black/[0.03]"
-          }`}
-        >
-          {message.replyPreview}
+    <div
+      id={`msg-${message.id}`}
+      className={`group/msg flex gap-2 ${isMine ? "flex-row-reverse" : ""} ${
+        firstInGroup ? "mt-3" : "mt-0.5"
+      }`}
+    >
+      {showAvatarCol ? (
+        <div className="w-7 shrink-0">
+          {firstInGroup ? (
+            <Avatar name={message.senderName} imageUrl={message.senderImageUrl} size={28} />
+          ) : null}
         </div>
       ) : null}
 
-      <div
-        className={`relative max-w-[85%] rounded-[1.25rem] px-3.5 py-2.5 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] ${
-          isMine
-            ? "rounded-br-md bg-[var(--dash-ink)] text-white"
-            : "rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)]"
-        }`}
-      >
-        {deleted ? (
-          <p className={`italic ${isMine ? "text-white/70" : "text-neutral-400"}`}>
-            Message supprimé
+      <div className={`flex min-w-0 max-w-[85%] flex-col ${isMine ? "items-end" : "items-start"}`}>
+        {showAuthor ? (
+          <p className="mb-0.5 ml-1 max-w-full truncate text-[11px] font-semibold text-[var(--dash-mid)]">
+            {message.senderName}
           </p>
-        ) : (
-          <>
-            {message.forwardedFromId ? (
-              <p
-                className={`mb-1 text-[10px] uppercase tracking-wide ${
-                  isMine ? "text-white/60" : "text-neutral-400"
-                }`}
-              >
-                Transféré
-              </p>
-            ) : null}
+        ) : null}
 
-            {message.type === "image" || message.attachments.some((a) => a.mime.startsWith("image/"))
-              ? message.attachments
+        {message.replyPreview ? (
+          <button
+            type="button"
+            disabled={!message.replyToId}
+            onClick={() => message.replyToId && onJumpTo(message.replyToId)}
+            aria-label="Aller au message cité"
+            className={`mb-0.5 max-w-full truncate rounded-2xl border-l-2 px-2.5 py-1 text-left text-[11px] text-[var(--dash-mid)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 ${
+              isMine
+                ? "border-[var(--dash-ink)]/40 bg-[var(--dash-ink)]/5"
+                : "border-black/15 bg-black/[0.03]"
+            }`}
+          >
+            {message.replyPreview}
+          </button>
+        ) : null}
+
+        <div className="relative max-w-full">
+          <div
+            onContextMenu={(e) => {
+              if (deleted) return;
+              e.preventDefault();
+              openMenuAt(e.clientX, e.clientY);
+            }}
+            onTouchStart={(e) => {
+              if (deleted) return;
+              const t = e.touches[0];
+              clearPress();
+              pressTimer.current = setTimeout(() => openMenuAt(t.clientX, t.clientY), 450);
+            }}
+            onTouchMove={clearPress}
+            onTouchEnd={clearPress}
+            onTouchCancel={clearPress}
+            onClick={(e) => {
+              if ((e.target as HTMLElement).closest("a,button,audio,video")) return;
+              setTapped((v) => !v);
+            }}
+            title={new Date(message.createdAt).toLocaleString("fr-FR", {
+              dateStyle: "full",
+              timeStyle: "short",
+            })}
+            className={`relative rounded-[1.25rem] px-3.5 py-2 text-sm shadow-[0_1px_0_rgba(0,0,0,0.03)] transition-shadow ${
+              isMine
+                ? "rounded-br-md bg-[var(--dash-ink)] text-white"
+                : "rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)]"
+            } ${mentionedMe ? "border-l-[3px] border-l-[var(--dash-lime)]" : ""} ${
+              highlighted ? "ring-2 ring-[var(--dash-lime)] ring-offset-2" : ""
+            }`}
+          >
+            {deleted ? (
+              <p className={`italic ${isMine ? "text-white/70" : "text-neutral-500"}`}>
+                Message supprimé
+              </p>
+            ) : (
+              <>
+                {message.forwardedFromId ? (
+                  <p className={`mb-1 text-[10px] uppercase tracking-wide ${subtle}`}>Transféré</p>
+                ) : null}
+
+                {message.attachments
                   .filter((a) => a.mime.startsWith("image/"))
                   .map((a) =>
                     a.url ? (
@@ -124,11 +291,9 @@ export default function MessagingMessageBubble({
                         />
                       </a>
                     ) : null,
-                  )
-              : null}
+                  )}
 
-            {message.type === "audio" || message.attachments.some((a) => a.mime.startsWith("audio/"))
-              ? message.attachments
+                {message.attachments
                   .filter((a) => a.mime.startsWith("audio/"))
                   .map((a) =>
                     a.url ? (
@@ -136,11 +301,9 @@ export default function MessagingMessageBubble({
                         <track kind="captions" />
                       </audio>
                     ) : null,
-                  )
-              : null}
+                  )}
 
-            {message.type === "video" || message.attachments.some((a) => a.mime.startsWith("video/"))
-              ? message.attachments
+                {message.attachments
                   .filter((a) => a.mime.startsWith("video/"))
                   .map((a) =>
                     a.url ? (
@@ -153,163 +316,199 @@ export default function MessagingMessageBubble({
                         <track kind="captions" />
                       </video>
                     ) : null,
+                  )}
+
+                {message.attachments
+                  .filter(
+                    (a) =>
+                      !a.mime.startsWith("image/") &&
+                      !a.mime.startsWith("audio/") &&
+                      !a.mime.startsWith("video/"),
                   )
-              : null}
+                  .map((a) => (
+                    <a
+                      key={a.id}
+                      href={a.url ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`mb-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-xs ${
+                        isMine ? "bg-white/15" : "bg-black/[0.04]"
+                      }`}
+                    >
+                      <span className="truncate font-medium">{a.fileName}</span>
+                      <span className={subtle}>{formatBytes(a.size)}</span>
+                    </a>
+                  ))}
 
-            {message.attachments
-              .filter(
-                (a) =>
-                  !a.mime.startsWith("image/") &&
-                  !a.mime.startsWith("audio/") &&
-                  !a.mime.startsWith("video/"),
-              )
-              .map((a) => (
-                <a
-                  key={a.id}
-                  href={a.url ?? "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`mb-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-xs ${
-                    isMine ? "bg-white/15" : "bg-black/[0.04]"
-                  }`}
+                {bodySegments ? (
+                  <p className="whitespace-pre-wrap break-words leading-relaxed">
+                    {bodySegments.map((s, i) =>
+                      s.mention ? (
+                        <span
+                          key={i}
+                          className={
+                            isMine
+                              ? "font-semibold text-[var(--dash-lime)]"
+                              : "rounded bg-[var(--dash-lime)]/50 px-0.5 font-semibold"
+                          }
+                        >
+                          {s.text}
+                        </span>
+                      ) : (
+                        <span key={i}>{s.text}</span>
+                      ),
+                    )}
+                  </p>
+                ) : null}
+
+                {urls.map((url) => (
+                  <a
+                    key={url}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`mt-1 block truncate text-xs underline ${
+                      isMine ? "text-white/80" : "text-[var(--dash-ink)]"
+                    }`}
+                  >
+                    {url}
+                  </a>
+                ))}
+              </>
+            )}
+
+            <div className={`mt-0.5 flex items-center justify-end gap-1 text-[10px] ${subtle}`}>
+              {message.pinnedAt && !deleted ? (
+                <IconPin className="h-2.5 w-2.5" aria-label="Épinglé" />
+              ) : null}
+              {message.editedAt && !deleted ? <span>(modifié)</span> : null}
+              <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+              {isMine && status && !deleted ? (
+                <button
+                  type="button"
+                  aria-label={`${STATUS_LABEL[status]} — voir le détail`}
+                  className="rounded p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openReceiptsFrom(e.currentTarget);
+                  }}
                 >
-                  <span className="truncate font-medium">{a.fileName}</span>
-                  <span className={isMine ? "text-white/60" : "text-neutral-400"}>
-                    {formatBytes(a.size)}
-                  </span>
-                </a>
-              ))}
+                  <ReceiptTicks status={status} />
+                </button>
+              ) : null}
+            </div>
+          </div>
 
-            {message.body ? (
-              <p className="whitespace-pre-wrap break-words leading-relaxed">{message.body}</p>
-            ) : null}
-
-            {urls.map((url) => (
-              <a
-                key={url}
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className={`mt-1 block truncate text-xs underline ${
-                  isMine ? "text-white/80" : "text-[var(--dash-ink)]"
-                }`}
+          {!deleted ? (
+            <div
+              className={`absolute -top-4 z-10 flex items-center gap-0.5 rounded-full border border-black/8 bg-white p-0.5 opacity-0 shadow-[0_6px_18px_-8px_rgba(0,0,0,0.4)] transition focus-within:opacity-100 group-hover/msg:opacity-100 ${
+                tapped ? "opacity-100" : ""
+              } ${isMine ? "right-2" : "left-2"}`}
+            >
+              <button
+                type="button"
+                aria-label="Réagir avec 👍"
+                className="hidden rounded-full px-1.5 py-0.5 text-sm outline-none hover:bg-black/[0.06] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 [@media(hover:hover)]:inline-block"
+                onClick={() => onReact(message, "👍")}
               >
-                {url}
-              </a>
-            ))}
-
-            {message.editedAt ? (
-              <span
-                className={`mt-1 block text-[10px] ${isMine ? "text-white/55" : "text-neutral-400"}`}
+                👍
+              </button>
+              <button
+                type="button"
+                aria-label="Répondre"
+                className="hidden rounded-full p-1 text-[var(--dash-mid)] outline-none hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 [@media(hover:hover)]:inline-block"
+                onClick={() => onReply(message)}
               >
-                modifié
-              </span>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      {reactionGroups.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
-          {reactionGroups.map(([emoji, count]) => (
-            <button
-              key={emoji}
-              type="button"
-              onClick={() => onReact(message, emoji)}
-              className="rounded-full border border-black/6 bg-white px-1.5 py-0.5 text-xs shadow-[0_1px_0_rgba(0,0,0,0.03)]"
-            >
-              {emoji} {count > 1 ? count : ""}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {!deleted ? (
-        <div
-          className={`flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100 ${
-            isMine ? "flex-row-reverse" : ""
-          }`}
-        >
-          <button
-            type="button"
-            title="Réagir"
-            className="rounded-lg p-1 text-neutral-400 hover:bg-black/[0.04] hover:text-[var(--dash-ink)]"
-            onClick={() => setShowReactions((v) => !v)}
-          >
-            <IconSmile className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            title="Répondre"
-            className="rounded-lg p-1 text-neutral-400 hover:bg-black/[0.04] hover:text-[var(--dash-ink)]"
-            onClick={() => onReply(message)}
-          >
-            <IconReply className="h-3.5 w-3.5" />
-          </button>
-          <button
-            type="button"
-            title="Transférer"
-            className="rounded-lg p-1 text-neutral-400 hover:bg-black/[0.04] hover:text-[var(--dash-ink)]"
-            onClick={() => onForward(message)}
-          >
-            <IconForward className="h-3.5 w-3.5" />
-          </button>
-          {isMine && message.type === "text" ? (
-            <button
-              type="button"
-              title="Modifier"
-              className="rounded-lg p-1 text-neutral-400 hover:bg-black/[0.04] hover:text-[var(--dash-ink)]"
-              onClick={() => onEdit(message)}
-            >
-              <IconPencil className="h-3.5 w-3.5" />
-            </button>
-          ) : null}
-          {isMine ? (
-            <button
-              type="button"
-              title="Supprimer"
-              className="rounded-lg p-1 text-neutral-400 hover:bg-rose-50 hover:text-rose-600"
-              onClick={() => onDelete(message)}
-            >
-              <IconTrash className="h-3.5 w-3.5" />
-            </button>
+                <IconReply className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Plus d’actions"
+                aria-haspopup="menu"
+                className="rounded-full p-1 text-[var(--dash-mid)] outline-none hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  openMenuAt(r.left, r.top, r.height);
+                }}
+              >
+                <IconMoreHorizontal className="h-3.5 w-3.5" />
+              </button>
+            </div>
           ) : null}
         </div>
-      ) : null}
 
-      {showReactions ? (
-        <div className="flex gap-1 rounded-full border border-black/6 bg-white px-2 py-1 shadow-[0_8px_24px_-16px_rgba(0,0,0,0.35)]">
-          {REACTION_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              className="text-base transition hover:scale-125"
-              onClick={() => {
-                onReact(message, emoji);
-                setShowReactions(false);
-              }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      ) : null}
+        {reactionGroups.length > 0 && !deleted ? (
+          <div className={`mt-1 flex flex-wrap gap-1 ${isMine ? "justify-end" : ""}`}>
+            {reactionGroups.map(([emoji, userIds]) => {
+              const mine = userIds.includes(currentUserId);
+              const tip = reactionTooltip(userIds, currentUserId, membersById);
+              return (
+                <span key={emoji} className="group/pill relative">
+                  <button
+                    type="button"
+                    onClick={() => onReact(message, emoji)}
+                    aria-pressed={mine}
+                    aria-label={`${emoji} ${userIds.length} — ${tip}`}
+                    className={`rounded-full border px-1.5 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 ${
+                      mine
+                        ? "border-[var(--dash-ink)]/50 bg-[var(--dash-lime)]/40 font-semibold"
+                        : "border-black/8 bg-white hover:bg-black/[0.04]"
+                    }`}
+                  >
+                    {emoji} {userIds.length}
+                  </button>
+                  {tip ? (
+                    <span
+                      role="tooltip"
+                      className={`pointer-events-none absolute bottom-full z-20 mb-1 hidden w-max max-w-[14rem] rounded-lg bg-[var(--dash-ink)] px-2 py-1 text-[11px] leading-snug text-white shadow-lg group-hover/pill:block group-focus-within/pill:block ${
+                        isMine ? "right-0" : "left-0"
+                      }`}
+                    >
+                      {tip}
+                    </span>
+                  ) : null}
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
 
-      <div
-        className={`flex items-center gap-1 text-[10px] text-neutral-400 ${
-          isMine ? "flex-row-reverse" : ""
-        }`}
-      >
-        <time>
-          {new Date(message.createdAt).toLocaleTimeString("fr-FR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </time>
-        {isMine && message.receiptStatus && !deleted ? (
-          <ReceiptTicks status={message.receiptStatus} />
+        {receiptLabel ? (
+          <button
+            type="button"
+            className={`mt-1 rounded px-1 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 ${
+              receiptLabel.read ? "font-semibold text-sky-600" : "text-neutral-500"
+            }`}
+            onClick={(e) => openReceiptsFrom(e.currentTarget)}
+            aria-label={`${receiptLabel.text} — voir le détail`}
+          >
+            {receiptLabel.text}
+          </button>
         ) : null}
       </div>
+
+      {menu ? (
+        <MessageMenu
+          anchor={menu}
+          onClose={closeMenu}
+          isMine={isMine}
+          canEdit={canEdit}
+          hasText={hasText}
+          pinned={Boolean(message.pinnedAt)}
+          onReact={(emoji) => onReact(message, emoji)}
+          onReply={() => onReply(message)}
+          onForward={() => onForward(message)}
+          onCopy={() => onCopy(message)}
+          onPin={() => onPin(message)}
+          onEdit={() => onEdit(message)}
+          onDelete={() => onDelete(message)}
+        />
+      ) : null}
+      {receipts ? (
+        <ReceiptPopover messageId={message.id} anchor={receipts} onClose={closeReceipts} />
+      ) : null}
     </div>
   );
 }
+
+export default memo(MessagingMessageBubble);
