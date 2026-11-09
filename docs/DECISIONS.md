@@ -328,3 +328,11 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **Date :** 2026-11-08 — **Décideur :** le pilote ; Florian peut revenir dessus.
 - **Décisions :** (Q-N3) fournisseur d'e-mail : **Scaleway TEM** (cohérent avec l'hébergement français et l'existant Next.js), OVH reste le fournisseur SMS (D-004) ; (Q-N9) « ne pas solliciter » : jamais aucune sollicitation (invitation, demande d'accord, relance, diffusion, sondage) ; pour les informations dues (absence, bulletin, convocation), la direction décide pour chaque personne (courrier ou coffre sans révéler l'établissement, ou suspension) ; à défaut de décision, une tâche bloquante est créée pour la direction, rien ne part en silence ; (Q-N1) les notifications sont inscrites dans la même transaction que le fait qui les provoque et envoyées après validation (file d'envoi).
 - **En attente de Florian :** Q-N5 (SMS automatique aux familles pour les absences et les signalements de l'accueil, et délai avant envoi) et Q-N22 (SMS inclus dans l'abonnement ou facturés à l'établissement).
+
+## D-029 — Ouverture au public avant 2028 : ÉduConnect avant le GAR (Florian, 2026-11-09)
+- **Décision** : ScolIA vise aussi les collèges et lycées **publics**, avec une ouverture possible avant 2028 (réponse à Q-X47).
+- **Conséquence** : le calendrier de l'annexe 4 de l'arrêté du 7 septembre 2026 (JORF du 23/09/2026) s'applique à ScolIA comme « service numérique outillant les missions de vie scolaire » : ÉduConnect et protocoles d'authentification ouverts sous 10 mois (vers juillet 2027), guichets Agents et GAR sous 22 mois, Annuaire fédérateur sous 34 mois (`docs/socles/VERIF_09_SOURCES.md`, lignes 1 à 4).
+- **Ordre des lots du socle 9** : X8 (fédération / ÉduConnect) puis X9 passent **avant** X11–X13 (GAR et annuaires).
+- **Démarches à anticiper** (hors code) : inscription éditeur (Pléiade) pour les spécifications SIECLE, ONDE, LSU, LSL ; raccordement ÉduConnect ; pour le GAR, demande portée par une collectivité ou une académie via la DANé (Q-X45 pour le privé isolé).
+- Le privé sous contrat reste la cible du premier pilote (établissement de Florian) ; l'arrêté ne s'impose pas à lui mais les mêmes briques serviront.
+

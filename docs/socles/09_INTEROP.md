@@ -1521,7 +1521,7 @@ IOP-L0 → X4 (+ identifiants : socles 2, 4, 6 déjà conçus) ; IOP-L1 → X1, 
 | **Q-X44** | **[ajout personas]** Qui tient le calendrier des campagnes nationales ? | **L'opérateur**, référentiel global à couche académique ; l'établissement signale un écart, il ne ressaisit pas (S-74). |
 | **Q-X45** | **[vérif 2026-11-09]** Un établissement **privé sous contrat isolé** (sans projet territorial) peut-il accéder au GAR, et par quel porteur public ? | Le GAR lui est ouvert (arrêté 2017 [V#6]) mais le raccordement passe par un porteur public via la DANé [V#7] : **demander à `dne-gar@education.gouv.fr` et à la DANé** (D-6) ; ne pas construire X11–X12 avant la réponse. |
 | **Q-X46** | **[vérif 2026-11-09]** Importer la **BCN** alors qu'aucune licence n'est publiée ? | **Non** tant que la DEPP n'a pas répondu par écrit (D-12) ; les codes utiles arrivent par les exports SIECLE et STS de l'établissement. |
-| **Q-X47** | **[vérif 2026-11-09]** Le calendrier de l'annexe 4 (ÉduConnect et protocoles à 10 mois pour la vie scolaire, soit juillet 2027) change-t-il l'ordre des lots pour le public ? | **Oui si le public est visé avant 2028** : X8 puis X9 avant X11–X13 ; sinon inchangé. **À trancher par Florian** (cible commerciale). |
+| **Q-X47** | **[vérif 2026-11-09]** Le calendrier de l'annexe 4 (ÉduConnect et protocoles à 10 mois pour la vie scolaire, soit juillet 2027) change-t-il l'ordre des lots pour le public ? | **Oui si le public est visé avant 2028** : X8 puis X9 avant X11–X13 ; sinon inchangé. **Tranché (D-029, 2026-11-09)** : public visé avant 2028 → X8 puis X9 avant X11–X13. |
 
 ---
 
