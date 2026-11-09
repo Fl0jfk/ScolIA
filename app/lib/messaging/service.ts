@@ -1427,8 +1427,14 @@ export async function listMessages(
   conversationId: string,
   userId: string,
   opts?: { cursor?: string; limit?: number },
-): Promise<{ messages: MessagingMessageDto[]; nextCursor: string | null }> {
+): Promise<{
+  messages: MessagingMessageDto[];
+  nextCursor: string | null;
+  /** Ma dernière lecture AVANT l'appel (ligne « Nouveaux messages »). */
+  myLastReadAt: string | null;
+}> {
   const part = await getMyParticipant(etablissementId, conversationId, userId);
+  const myLastReadAt = part.lastReadAt ? part.lastReadAt.toISOString() : null;
   const limit = Math.min(Math.max(opts?.limit ?? 40, 1), 100);
   const cursorKey = opts?.cursor?.trim() || "head";
   // Cache uniquement la première page (head) — cursors = navigation rare.
@@ -1441,7 +1447,7 @@ export async function listMessages(
       messages: MessagingMessageDto[];
       nextCursor: string | null;
     }>(cacheKey);
-    if (cached) return cached;
+    if (cached) return { ...cached, myLastReadAt };
   }
 
   const db = getDb();
@@ -1473,6 +1479,32 @@ export async function listMessages(
 
   const messages = await hydrateMessages(etablissementId, page, userId);
 
+  // Un message cité antérieur à ma suppression de la conversation (hiddenAt) :
+  // l'aperçu ne doit pas fuiter.
+  if (part.hiddenAt) {
+    const hiddenMs = part.hiddenAt.getTime();
+    const replyIds = [
+      ...new Set(messages.map((m) => m.replyToId).filter((x): x is string => Boolean(x))),
+    ];
+    if (replyIds.length > 0) {
+      const targets = await db
+        .select({ id: messagingMessage.id, createdAt: messagingMessage.createdAt })
+        .from(messagingMessage)
+        .where(
+          and(
+            eq(messagingMessage.etablissementId, etablissementId),
+            inArray(messagingMessage.id, replyIds),
+          ),
+        );
+      const old = new Set(
+        targets.filter((t) => t.createdAt.getTime() <= hiddenMs).map((t) => t.id),
+      );
+      for (const m of messages) {
+        if (m.replyToId && old.has(m.replyToId)) m.replyPreview = "Message non disponible";
+      }
+    }
+  }
+
   // Chronologique croissant pour le client
   messages.reverse();
 
@@ -1484,7 +1516,7 @@ export async function listMessages(
   if (cacheKey) {
     void valkeySetJson(cacheKey, payload, VALKEY_TTL.messagingMessages);
   }
-  return payload;
+  return { ...payload, myLastReadAt };
 }
 
 export type SendMessageInput = {

@@ -8,6 +8,7 @@ import type {
 } from "@/app/lib/messaging/types";
 import { messagePreview, normalizeSearch } from "./conversation/utils";
 import Avatar from "./conversation/Avatar";
+import AssistMenu from "./conversation/AssistMenu";
 import {
   ACCEPT_FILE_INPUT,
   isAllowedMime,
@@ -43,6 +44,8 @@ type Props = {
   currentUserId?: string;
   /** ↑ dans un composer vide : modifier mon dernier message. */
   onRequestEditLast?: () => void;
+  /** Résumé IA de la conversation (affiché par le panneau). */
+  onSummary?: (text: string) => void;
 };
 
 const EMOJI_PICKER = [
@@ -128,6 +131,7 @@ export default function MessagingComposer({
   members,
   currentUserId,
   onRequestEditLast,
+  onSummary,
 }: Props) {
   const [text, setText] = useState("");
   const [mentioned, setMentioned] = useState<Array<{ id: string; name: string }>>([]);
@@ -135,6 +139,7 @@ export default function MessagingComposer({
   const [mentionIndex, setMentionIndex] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [focused, setFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const stashedDraft = useRef("");
   const prevEditing = useRef<MessagingMessageDto | null>(null);
@@ -241,6 +246,18 @@ export default function MessagingComposer({
     requestAnimationFrame(() => {
       el?.focus();
       el?.setSelectionRange(pos, pos);
+    });
+  };
+
+  // Brouillon proposé par l'IA : remplace le texte, l'humain relit puis envoie.
+  const applyAssistDraft = (value: string) => {
+    setDraft(value);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(value.length, value.length);
     });
   };
 
@@ -515,7 +532,7 @@ export default function MessagingComposer({
   };
 
   return (
-    <div className="relative border-t border-black/5 bg-[#eceeea]/40 p-2.5 sm:p-3">
+    <div className="relative border-t border-black/5 bg-[#eceeea]/40 p-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] sm:p-3 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       {replyTo ? (
         <div className="mb-1.5 flex items-center justify-between gap-2 rounded-2xl border-l-2 border-[var(--dash-ink)]/40 bg-white/80 px-2.5 py-1.5 text-xs text-[var(--dash-mid)]">
           <span className="min-w-0 truncate">
@@ -585,7 +602,8 @@ export default function MessagingComposer({
               )}
               <button
                 type="button"
-                className="absolute -right-1 -top-1 rounded-full bg-[var(--dash-ink)] p-0.5 text-white"
+                aria-label={`Retirer ${p.file.name}`}
+                className="absolute -right-1 -top-1 rounded-full bg-[var(--dash-ink)] p-0.5 text-white outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-lime)]"
                 onClick={() => {
                   if (p.previewUrl) URL.revokeObjectURL(p.previewUrl);
                   setPending((prev) => prev.filter((_, idx) => idx !== i));
@@ -598,7 +616,11 @@ export default function MessagingComposer({
         </div>
       ) : null}
 
-      {error ? <p className="mb-1 text-xs text-rose-600">{error}</p> : null}
+      {error ? (
+        <p role="alert" className="mb-1 text-xs text-rose-700">
+          {error}
+        </p>
+      ) : null}
 
       {mentionCandidates.length > 0 ? (
         <ul
@@ -630,7 +652,7 @@ export default function MessagingComposer({
         <div
           role="dialog"
           aria-label="Choisir un emoji"
-          className="absolute bottom-full right-3 z-20 mb-1 grid w-60 grid-cols-8 gap-0.5 rounded-2xl border border-black/8 bg-white p-2 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.4)]"
+          className="absolute bottom-full left-3 z-20 mb-1 grid w-60 grid-cols-8 gap-0.5 rounded-2xl border border-black/8 bg-white p-2 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.4)]"
         >
           {EMOJI_PICKER.map((emoji) => (
             <button
@@ -648,7 +670,7 @@ export default function MessagingComposer({
       ) : null}
 
       <div
-        className={`flex items-end gap-1 rounded-[1.25rem] border bg-white p-1 transition ${
+        className={`rounded-[1.25rem] border bg-white transition ${
           dragOver ? "border-[var(--dash-ink)] ring-2 ring-[var(--dash-lime)]" : "border-black/6"
         } focus-within:border-[var(--dash-ink)]/40`}
         onDragOver={(e) => {
@@ -684,43 +706,6 @@ export default function MessagingComposer({
           }}
         />
 
-        <button
-          type="button"
-          title="Pièce jointe" aria-label="Joindre un fichier"
-          disabled={Boolean(editing) || disabled || Boolean(recording)}
-          className="rounded-xl p-2 text-[var(--dash-mid)] transition hover:bg-black/[0.04] disabled:opacity-40"
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <IconPaperclip className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          title="Joindre une vidéo" aria-label="Joindre une vidéo"
-          disabled={Boolean(editing) || disabled || Boolean(recording)}
-          className="rounded-xl p-2 text-[var(--dash-mid)] transition hover:bg-black/[0.04] disabled:opacity-40"
-          onClick={() => videoInputRef.current?.click()}
-        >
-          <IconVideo className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          title={recording === "audio" ? "Arrêter et envoyer" : "Message vocal"}
-          aria-label={recording === "audio" ? "Arrêter et envoyer le vocal" : "Enregistrer un message vocal"}
-          disabled={Boolean(editing) || disabled || recording === "video"}
-          className={`rounded-xl p-2 transition hover:bg-black/[0.04] disabled:opacity-40 ${
-            recording === "audio" ? "text-rose-600" : "text-[var(--dash-mid)]"
-          }`}
-          onClick={() =>
-            recording === "audio" ? stopRecording() : void startRecording("audio")
-          }
-        >
-          {recording === "audio" ? (
-            <IconSquare className="h-4 w-4" />
-          ) : (
-            <IconMic className="h-4 w-4" />
-          )}
-        </button>
-
         <textarea
           ref={textareaRef}
           value={text}
@@ -728,7 +713,9 @@ export default function MessagingComposer({
           aria-label="Écrire un message"
           disabled={disabled || sending || Boolean(recording)}
           placeholder={editing ? "Modifier le message…" : "Écrire un message…"}
-          className="max-h-36 min-h-[2.25rem] flex-1 resize-none border-none bg-transparent px-2 py-2 text-sm outline-none focus:ring-0"
+          className="max-h-36 min-h-[2.25rem] w-full resize-none border-none bg-transparent px-3 pb-1 pt-2.5 text-sm text-[var(--dash-ink)] outline-none placeholder:text-neutral-500 focus:ring-0"
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onChange={(e) => {
             setDraft(e.target.value);
             updateMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
@@ -793,37 +780,99 @@ export default function MessagingComposer({
           }}
         />
 
-        <button
-          type="button"
-          title="Emoji"
-          aria-label="Insérer un emoji"
-          aria-expanded={emojiOpen}
-          disabled={disabled || Boolean(recording)}
-          className="rounded-xl p-2 text-[var(--dash-mid)] transition hover:bg-black/[0.04] disabled:opacity-40"
-          onClick={() => setEmojiOpen((v) => !v)}
-        >
-          <IconSmile className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-0.5 px-1.5 pb-1.5">
+          <button
+            type="button"
+            title="Pièce jointe"
+            aria-label="Joindre un fichier"
+            disabled={Boolean(editing) || disabled || Boolean(recording)}
+            className="rounded-lg p-1.5 text-[var(--dash-mid)] outline-none transition hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 disabled:opacity-40"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <IconPaperclip className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            type="button"
+            title="Emoji"
+            aria-label="Insérer un emoji"
+            aria-expanded={emojiOpen}
+            disabled={disabled || Boolean(recording)}
+            className="rounded-lg p-1.5 text-[var(--dash-mid)] outline-none transition hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 disabled:opacity-40"
+            onClick={() => setEmojiOpen((v) => !v)}
+          >
+            <IconSmile className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            type="button"
+            title="Joindre une vidéo"
+            aria-label="Joindre une vidéo"
+            disabled={Boolean(editing) || disabled || Boolean(recording)}
+            className="rounded-lg p-1.5 text-[var(--dash-mid)] outline-none transition hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 disabled:opacity-40"
+            onClick={() => videoInputRef.current?.click()}
+          >
+            <IconVideo className="h-[18px] w-[18px]" />
+          </button>
+          <button
+            type="button"
+            title={recording === "audio" ? "Arrêter et envoyer" : "Message vocal"}
+            aria-label={
+              recording === "audio" ? "Arrêter et envoyer le vocal" : "Enregistrer un message vocal"
+            }
+            disabled={Boolean(editing) || disabled || recording === "video"}
+            className={`rounded-lg p-1.5 outline-none transition hover:bg-black/[0.06] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 disabled:opacity-40 ${
+              recording === "audio" ? "text-rose-600" : "text-[var(--dash-mid)] hover:text-[var(--dash-ink)]"
+            }`}
+            onClick={() => (recording === "audio" ? stopRecording() : void startRecording("audio"))}
+          >
+            {recording === "audio" ? (
+              <IconSquare className="h-[18px] w-[18px]" />
+            ) : (
+              <IconMic className="h-[18px] w-[18px]" />
+            )}
+          </button>
+          {onSummary ? (
+            <AssistMenu
+              conversationId={conversationId}
+              draft={text}
+              onDraft={applyAssistDraft}
+              onSummary={onSummary}
+              disabled={disabled || sending || Boolean(recording)}
+            />
+          ) : null}
 
-        <button
-          type="button"
-          aria-label={editing ? "Enregistrer la modification" : "Envoyer"}
-          disabled={
-            sending ||
-            disabled ||
-            Boolean(recording) ||
-            (!text.trim() && pending.length === 0 && !editing)
-          }
-          className="rounded-xl bg-[var(--dash-ink)] p-2 text-white transition hover:opacity-90 disabled:opacity-40"
-          onClick={() => void submit()}
-        >
-          <IconSend className="h-4 w-4" />
-        </button>
+          <span
+            className={`ml-2 hidden min-w-0 flex-1 truncate text-[11px] text-neutral-500 sm:block ${
+              focused ? "visible" : "invisible"
+            }`}
+            aria-hidden
+          >
+            Entrée pour envoyer · Maj+Entrée nouvelle ligne
+            {members && members.length > 0 ? " · @ pour mentionner" : ""}
+          </span>
+          <span className="flex-1 sm:hidden" />
+
+          {text.length > 800 ? (
+            <span className="mr-1 shrink-0 text-[11px] tabular-nums text-neutral-500">
+              {text.length} caractères
+            </span>
+          ) : null}
+          <button
+            type="button"
+            aria-label={editing ? "Enregistrer la modification" : "Envoyer"}
+            title={editing ? "Enregistrer" : "Envoyer"}
+            disabled={
+              sending ||
+              disabled ||
+              Boolean(recording) ||
+              (!text.trim() && pending.length === 0 && !editing)
+            }
+            className="shrink-0 rounded-xl bg-[var(--dash-ink)] p-2 text-white outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--dash-lime)] focus-visible:ring-offset-1 disabled:opacity-35"
+            onClick={() => void submit()}
+          >
+            <IconSend className="h-4 w-4" />
+          </button>
+        </div>
       </div>
-      <p className="mt-1.5 text-[10px] text-neutral-400">
-        Entrée pour envoyer, Maj+Entrée pour un retour à la ligne
-        {members && members.length > 0 ? ", @ pour mentionner" : ""}.
-      </p>
     </div>
   );
 }

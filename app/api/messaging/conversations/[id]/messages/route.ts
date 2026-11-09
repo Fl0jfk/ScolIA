@@ -25,6 +25,7 @@ export async function GET(req: Request, ctx: Ctx) {
     return NextResponse.json({
       messages: result.messages,
       nextCursor: result.nextCursor,
+      myLastReadAt: result.myLastReadAt,
     });
   } catch (error) {
     if (error instanceof MessagingError) {

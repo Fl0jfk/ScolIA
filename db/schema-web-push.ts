@@ -1,4 +1,4 @@
-import { index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { etablissement } from "./etablissement-table";
 
@@ -41,7 +41,22 @@ export const webPushPreference = pgTable("web_push_preference", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const webPushSchema = { webPushSubscription, webPushPreference };
+/** Derniers compteurs de signaux du tableau de bord déjà pris en compte par le job serveur. */
+export const webPushSignalState = pgTable(
+  "web_push_signal_state",
+  {
+    userId: text("user_id").notNull(),
+    etablissementId: uuid("etablissement_id")
+      .notNull()
+      .references(() => etablissement.id, { onDelete: "cascade" }),
+    signalId: text("signal_id").notNull(),
+    count: integer("count").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.signalId] })],
+);
+
+export const webPushSchema = { webPushSubscription, webPushPreference, webPushSignalState };
 
 export type WebPushSubscriptionRow = typeof webPushSubscription.$inferSelect;
 export type WebPushPreferenceRow = typeof webPushPreference.$inferSelect;

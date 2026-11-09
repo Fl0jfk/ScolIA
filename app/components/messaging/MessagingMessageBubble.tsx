@@ -7,7 +7,6 @@ import type {
   MessagingReceiptDetailDto,
   MessagingReceiptStatus,
 } from "@/app/lib/messaging/types";
-import { extractUrls } from "@/app/lib/messaging/constants";
 import {
   IconCheck,
   IconChecks,
@@ -18,8 +17,11 @@ import {
 import Avatar from "./conversation/Avatar";
 import MessageMenu from "./conversation/MessageMenu";
 import ReceiptPopover from "./conversation/ReceiptPopover";
+import MessageBody from "./conversation/MessageBody";
+import SeenBy from "./conversation/SeenBy";
+import { FileCard, ImageThumb } from "./conversation/Attachments";
 import type { Anchor } from "./conversation/FloatingLayer";
-import { formatTime, splitMentions } from "./conversation/utils";
+import { formatTime } from "./conversation/utils";
 
 type Props = {
   message: MessagingMessageDto;
@@ -30,6 +32,12 @@ type Props = {
   /** Dernier de mes messages (affiche le libellé « Vu… » dessous). */
   isLastMine: boolean;
   highlighted: boolean;
+  /** Arrivé après l'ouverture de la conversation : petite animation d'apparition. */
+  isNew: boolean;
+  /** Texte recherché dans la conversation (surlignage). */
+  searchQuery: string;
+  /** Résultat de recherche courant. */
+  activeMatch: boolean;
   membersById: Map<string, MessagingPeer>;
   onReply: (message: MessagingMessageDto) => void;
   onForward: (message: MessagingMessageDto) => void;
@@ -40,13 +48,8 @@ type Props = {
   onPin: (message: MessagingMessageDto) => void;
   onCopy: (message: MessagingMessageDto) => void;
   onJumpTo: (messageId: string) => void;
+  onOpenImage: (attachmentId: string) => void;
 };
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} o`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
-  return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
-}
 
 const STATUS_LABEL: Record<MessagingReceiptStatus, string> = {
   sent: "Envoyé",
@@ -54,13 +57,15 @@ const STATUS_LABEL: Record<MessagingReceiptStatus, string> = {
   read: "Lu",
 };
 
+const UNAVAILABLE_PREVIEW = "Message non disponible";
+
 function ReceiptTicks({ status }: { status: MessagingReceiptStatus }) {
   const color =
     status === "read"
       ? "text-sky-300"
       : status === "delivered"
         ? "text-white/75"
-        : "text-white/50";
+        : "text-white/60";
   return (
     <span className={`inline-flex items-center ${color}`}>
       {status === "sent" ? (
@@ -100,6 +105,9 @@ function MessagingMessageBubble({
   firstInGroup,
   isLastMine,
   highlighted,
+  isNew,
+  searchQuery,
+  activeMatch,
   membersById,
   onReply,
   onForward,
@@ -109,29 +117,26 @@ function MessagingMessageBubble({
   onPin,
   onCopy,
   onJumpTo,
+  onOpenImage,
 }: Props) {
   const [menu, setMenu] = useState<Anchor | null>(null);
   const [receipts, setReceipts] = useState<Anchor | null>(null);
   const [tapped, setTapped] = useState(false);
-  const [dmReadAt, setDmReadAt] = useState<string | null>(null);
+  const [receiptDetail, setReceiptDetail] = useState<MessagingReceiptDetailDto | null>(null);
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const deleted = Boolean(message.deletedAt);
   const status = message.receiptStatus;
   const mentionedMe = !isMine && message.mentionUserIds.includes(currentUserId);
+  const groupReadCount = message.receiptSummary?.readCount ?? 0;
 
-  const urls = useMemo(
-    () => (message.body && !deleted ? extractUrls(message.body) : []),
-    [message.body, deleted],
+  const mentionNames = useMemo(
+    () =>
+      message.mentionUserIds
+        .map((id) => membersById.get(id)?.name)
+        .filter((n): n is string => Boolean(n)),
+    [message.mentionUserIds, membersById],
   );
-
-  const bodySegments = useMemo(() => {
-    if (!message.body) return null;
-    const names = message.mentionUserIds
-      .map((id) => membersById.get(id)?.name)
-      .filter((n): n is string => Boolean(n));
-    return splitMentions(message.body, names);
-  }, [message.body, message.mentionUserIds, membersById]);
 
   const reactionGroups = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -143,20 +148,34 @@ function MessagingMessageBubble({
     return [...map.entries()];
   }, [message.reactions]);
 
-  // DM : heure de lecture pour « Vu à 14:32 » (chargée seulement sur le dernier de mes messages).
+  // Détail des accusés, chargé seulement sur le dernier de mes messages lu :
+  // « Vu à 14:32 » (DM) et petits avatars « vu par » (groupes).
+  const wantReceiptDetail =
+    isLastMine &&
+    !deleted &&
+    ((kind === "dm" && status === "read") || (kind === "group" && groupReadCount > 0));
   useEffect(() => {
-    if (!isLastMine || kind !== "dm" || status !== "read") return;
+    if (!wantReceiptDetail) return;
     let cancelled = false;
     fetch(`/api/messaging/messages/${message.id}/receipts`, { cache: "no-store" })
       .then(async (res) => (res.ok ? ((await res.json()) as MessagingReceiptDetailDto) : null))
       .then((d) => {
-        if (!cancelled) setDmReadAt(d?.recipients.find((r) => r.readAt)?.readAt ?? null);
+        if (!cancelled) setReceiptDetail(d);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [isLastMine, kind, status, message.id]);
+  }, [wantReceiptDetail, message.id, status, groupReadCount]);
+
+  const dmReadAt = receiptDetail?.recipients.find((r) => r.readAt)?.readAt ?? null;
+  const readers = useMemo(
+    () =>
+      kind === "group" && wantReceiptDetail
+        ? (receiptDetail?.recipients.filter((r) => r.readAt).map((r) => r.user) ?? [])
+        : [],
+    [kind, wantReceiptDetail, receiptDetail],
+  );
 
   const openMenuAt = useCallback((x: number, y: number, height?: number) => {
     setTapped(false);
@@ -196,14 +215,27 @@ function MessagingMessageBubble({
   const showAuthor = kind === "group" && !isMine && firstInGroup;
   const showAvatarCol = kind === "group" && !isMine;
 
-  const subtle = isMine ? "text-white/60" : "text-neutral-500";
+  const subtle = isMine ? "text-white/70" : "text-neutral-500";
+
+  const images = message.attachments.filter((a) => a.mime.startsWith("image/") && a.url);
+  const audios = message.attachments.filter((a) => a.mime.startsWith("audio/") && a.url);
+  const videos = message.attachments.filter((a) => a.mime.startsWith("video/") && a.url);
+  const files = message.attachments.filter(
+    (a) =>
+      !a.mime.startsWith("image/") && !a.mime.startsWith("audio/") && !a.mime.startsWith("video/"),
+  );
+
+  const quoteUnavailable = !message.replyToId || message.replyPreview === UNAVAILABLE_PREVIEW;
+
+  const barBtn =
+    "rounded-full p-1 text-[var(--dash-mid)] outline-none hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50";
 
   return (
     <div
       id={`msg-${message.id}`}
-      className={`group/msg flex gap-2 ${isMine ? "flex-row-reverse" : ""} ${
+      className={`flex gap-2 ${isMine ? "flex-row-reverse" : ""} ${
         firstInGroup ? "mt-3" : "mt-0.5"
-      }`}
+      } ${isNew ? "scolia-msg-in" : ""}`}
     >
       {showAvatarCol ? (
         <div className="w-7 shrink-0">
@@ -223,20 +255,20 @@ function MessagingMessageBubble({
         {message.replyPreview ? (
           <button
             type="button"
-            disabled={!message.replyToId}
+            disabled={quoteUnavailable}
             onClick={() => message.replyToId && onJumpTo(message.replyToId)}
             aria-label="Aller au message cité"
-            className={`mb-0.5 max-w-full truncate rounded-2xl border-l-2 px-2.5 py-1 text-left text-[11px] text-[var(--dash-mid)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 ${
+            className={`mb-0.5 max-w-full truncate rounded-2xl border-l-2 px-2.5 py-1 text-left text-[11px] text-[var(--dash-mid)] outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 enabled:cursor-pointer enabled:hover:bg-black/[0.06] ${
               isMine
                 ? "border-[var(--dash-ink)]/40 bg-[var(--dash-ink)]/5"
                 : "border-black/15 bg-black/[0.03]"
-            }`}
+            } ${quoteUnavailable ? "italic" : ""}`}
           >
             {message.replyPreview}
           </button>
         ) : null}
 
-        <div className="relative max-w-full">
+        <div className="group/bubble relative max-w-full">
           <div
             onContextMenu={(e) => {
               if (deleted) return;
@@ -266,7 +298,7 @@ function MessagingMessageBubble({
                 : "rounded-bl-md border border-black/6 bg-white text-[var(--dash-ink)]"
             } ${mentionedMe ? "border-l-[3px] border-l-[var(--dash-lime)]" : ""} ${
               highlighted ? "ring-2 ring-[var(--dash-lime)] ring-offset-2" : ""
-            }`}
+            } ${activeMatch && !highlighted ? "ring-2 ring-amber-400 ring-offset-2" : ""}`}
           >
             {deleted ? (
               <p className={`italic ${isMine ? "text-white/70" : "text-neutral-500"}`}>
@@ -278,102 +310,43 @@ function MessagingMessageBubble({
                   <p className={`mb-1 text-[10px] uppercase tracking-wide ${subtle}`}>Transféré</p>
                 ) : null}
 
-                {message.attachments
-                  .filter((a) => a.mime.startsWith("image/"))
-                  .map((a) =>
-                    a.url ? (
-                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="mb-2 block">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={a.url}
-                          alt={a.fileName}
-                          className="max-h-56 max-w-full rounded-xl object-contain"
-                        />
-                      </a>
-                    ) : null,
-                  )}
-
-                {message.attachments
-                  .filter((a) => a.mime.startsWith("audio/"))
-                  .map((a) =>
-                    a.url ? (
-                      <audio key={a.id} controls className="mb-2 max-w-full" src={a.url}>
-                        <track kind="captions" />
-                      </audio>
-                    ) : null,
-                  )}
-
-                {message.attachments
-                  .filter((a) => a.mime.startsWith("video/"))
-                  .map((a) =>
-                    a.url ? (
-                      <video
-                        key={a.id}
-                        controls
-                        className="mb-2 max-h-56 max-w-full rounded-xl"
-                        src={a.url}
-                      >
-                        <track kind="captions" />
-                      </video>
-                    ) : null,
-                  )}
-
-                {message.attachments
-                  .filter(
-                    (a) =>
-                      !a.mime.startsWith("image/") &&
-                      !a.mime.startsWith("audio/") &&
-                      !a.mime.startsWith("video/"),
-                  )
-                  .map((a) => (
-                    <a
-                      key={a.id}
-                      href={a.url ?? "#"}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`mb-2 flex items-center gap-2 rounded-xl px-2 py-1.5 text-xs ${
-                        isMine ? "bg-white/15" : "bg-black/[0.04]"
-                      }`}
-                    >
-                      <span className="truncate font-medium">{a.fileName}</span>
-                      <span className={subtle}>{formatBytes(a.size)}</span>
-                    </a>
-                  ))}
-
-                {bodySegments ? (
-                  <p className="whitespace-pre-wrap break-words leading-relaxed">
-                    {bodySegments.map((s, i) =>
-                      s.mention ? (
-                        <span
-                          key={i}
-                          className={
-                            isMine
-                              ? "font-semibold text-[var(--dash-lime)]"
-                              : "rounded bg-[var(--dash-lime)]/50 px-0.5 font-semibold"
-                          }
-                        >
-                          {s.text}
-                        </span>
-                      ) : (
-                        <span key={i}>{s.text}</span>
-                      ),
-                    )}
-                  </p>
+                {images.length > 0 ? (
+                  <div className="mb-1.5 flex flex-wrap gap-1.5">
+                    {images.map((a) => (
+                      <ImageThumb key={a.id} attachment={a} onOpen={onOpenImage} />
+                    ))}
+                  </div>
                 ) : null}
 
-                {urls.map((url) => (
-                  <a
-                    key={url}
-                    href={url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className={`mt-1 block truncate text-xs underline ${
-                      isMine ? "text-white/80" : "text-[var(--dash-ink)]"
-                    }`}
-                  >
-                    {url}
-                  </a>
+                {audios.map((a) => (
+                  <audio key={a.id} controls className="mb-2 max-w-full" src={a.url ?? undefined}>
+                    <track kind="captions" />
+                  </audio>
                 ))}
+
+                {videos.map((a) => (
+                  <video
+                    key={a.id}
+                    controls
+                    className="mb-2 max-h-56 max-w-full rounded-xl"
+                    src={a.url ?? undefined}
+                  >
+                    <track kind="captions" />
+                  </video>
+                ))}
+
+                {files.map((a) => (
+                  <FileCard key={a.id} attachment={a} isMine={isMine} />
+                ))}
+
+                {message.body ? (
+                  <MessageBody
+                    body={message.body}
+                    mentionNames={mentionNames}
+                    isMine={isMine}
+                    query={searchQuery}
+                  />
+                ) : null}
               </>
             )}
 
@@ -401,9 +374,9 @@ function MessagingMessageBubble({
 
           {!deleted ? (
             <div
-              className={`absolute -top-4 z-10 flex items-center gap-0.5 rounded-full border border-black/8 bg-white p-0.5 opacity-0 shadow-[0_6px_18px_-8px_rgba(0,0,0,0.4)] transition focus-within:opacity-100 group-hover/msg:opacity-100 ${
-                tapped ? "opacity-100" : ""
-              } ${isMine ? "right-2" : "left-2"}`}
+              className={`pointer-events-none absolute -top-3.5 right-1 z-10 flex items-center gap-0.5 rounded-full border border-black/8 bg-white p-0.5 opacity-0 shadow-[0_4px_14px_-6px_rgba(0,0,0,0.35)] transition-opacity duration-100 focus-within:pointer-events-auto focus-within:opacity-100 group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 ${
+                tapped ? "pointer-events-auto opacity-100" : ""
+              }`}
             >
               <button
                 type="button"
@@ -416,7 +389,8 @@ function MessagingMessageBubble({
               <button
                 type="button"
                 aria-label="Répondre"
-                className="hidden rounded-full p-1 text-[var(--dash-mid)] outline-none hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 [@media(hover:hover)]:inline-block"
+                title="Répondre"
+                className={`hidden ${barBtn} [@media(hover:hover)]:inline-block`}
                 onClick={() => onReply(message)}
               >
                 <IconReply className="h-3.5 w-3.5" />
@@ -424,8 +398,9 @@ function MessagingMessageBubble({
               <button
                 type="button"
                 aria-label="Plus d’actions"
+                title="Plus d’actions"
                 aria-haspopup="menu"
-                className="rounded-full p-1 text-[var(--dash-mid)] outline-none hover:bg-black/[0.06] hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50"
+                className={barBtn}
                 onClick={(e) => {
                   const r = e.currentTarget.getBoundingClientRect();
                   openMenuAt(r.left, r.top, r.height);
@@ -474,16 +449,19 @@ function MessagingMessageBubble({
         ) : null}
 
         {receiptLabel ? (
-          <button
-            type="button"
-            className={`mt-1 rounded px-1 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 ${
-              receiptLabel.read ? "font-semibold text-sky-600" : "text-neutral-500"
-            }`}
-            onClick={(e) => openReceiptsFrom(e.currentTarget)}
-            aria-label={`${receiptLabel.text} — voir le détail`}
-          >
-            {receiptLabel.text}
-          </button>
+          <div className="mt-1 flex items-center gap-1.5">
+            {readers.length > 0 ? <SeenBy readers={readers} /> : null}
+            <button
+              type="button"
+              className={`rounded px-1 text-[11px] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/40 ${
+                receiptLabel.read ? "font-semibold text-sky-700" : "text-neutral-500"
+              }`}
+              onClick={(e) => openReceiptsFrom(e.currentTarget)}
+              aria-label={`${receiptLabel.text} — voir le détail`}
+            >
+              {receiptLabel.text}
+            </button>
+          </div>
         ) : null}
       </div>
 

@@ -7,8 +7,10 @@ import type {
   MessagingPeer,
   MessagingPresenceStatus,
 } from "@/app/lib/messaging/types";
-import { IconSearch, IconX } from "@/app/components/messaging/MessagingIcons";
+import { IconPlus, IconSearch, IconUsers, IconX } from "@/app/components/messaging/MessagingIcons";
 import ListAvatar from "./ListAvatar";
+import { ListSkeleton } from "@/app/components/messaging/conversation/Skeletons";
+import { IconChatEmpty } from "@/app/components/messaging/conversation/ExtraIcons";
 import {
   IconAt,
   IconBell,
@@ -64,6 +66,10 @@ type Props = {
   onPatch: (c: MessagingConversationDto, patch: MessagingConversationPatchInput) => void;
   onDelete: (c: MessagingConversationDto) => void;
   notify: (text: string) => void;
+  /** Premier chargement de la liste en cours. */
+  loading?: boolean;
+  /** Ouvre la création de groupe. */
+  onNewGroup?: () => void;
 };
 
 export default function ConversationList({
@@ -80,6 +86,8 @@ export default function ConversationList({
   onPatch,
   onDelete,
   notify,
+  loading = false,
+  onNewGroup,
 }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -194,11 +202,25 @@ export default function ConversationList({
         <button
           type="button"
           onClick={() => onSelect(c)}
-          className={`flex w-full items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left transition ${
-            active ? "bg-white shadow-[0_1px_0_rgba(0,0,0,0.04)]" : "hover:bg-white/70"
+          aria-current={active ? "true" : undefined}
+          className={`relative flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 ${
+            active
+              ? "bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] ring-1 ring-black/5"
+              : "hover:bg-white/80"
           }`}
         >
-          <ListAvatar imageUrl={av.imageUrl} letter={av.letter} status={statusForConversation(c)} />
+          {active ? (
+            <span
+              aria-hidden
+              className="absolute bottom-2.5 left-0 top-2.5 w-[3px] rounded-full bg-[var(--dash-ink)]"
+            />
+          ) : null}
+          <ListAvatar
+            imageUrl={av.imageUrl}
+            letter={av.letter}
+            name={av.name}
+            status={statusForConversation(c)}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
               <p
@@ -209,24 +231,24 @@ export default function ConversationList({
                 {c.title}
               </p>
               <span
-                className={`shrink-0 text-[10px] ${
-                  unread ? "font-semibold text-[var(--dash-ink)]" : "text-neutral-400"
+                className={`shrink-0 text-[11px] tabular-nums ${
+                  unread ? "font-semibold text-[var(--dash-ink)]" : "text-neutral-500"
                 }`}
               >
                 {conversationTime(c.lastMessageAt ?? c.lastMessage?.createdAt)}
               </span>
             </div>
-            <div className="mt-0.5 flex items-center gap-1.5">
+            <div className="mt-0.5 flex h-5 items-center gap-1.5">
               <p
-                className={`min-w-0 flex-1 truncate text-[12px] ${
+                className={`min-w-0 flex-1 truncate text-[12.5px] ${
                   unread ? "font-semibold text-[var(--dash-ink)]" : "text-neutral-500"
                 }`}
               >
                 {conversationPreview(c, meId)}
               </p>
-              {c.muted ? <IconBellOff className="h-3 w-3 shrink-0 text-neutral-400" /> : null}
+              {c.muted ? <IconBellOff className="h-3 w-3 shrink-0 text-neutral-500" /> : null}
               {c.pinned && (filter !== "all" || q) ? (
-                <IconPin className="h-3 w-3 shrink-0 text-neutral-400" />
+                <IconPin className="h-3 w-3 shrink-0 text-neutral-500" />
               ) : null}
               {c.hasUnreadMention ? (
                 <span
@@ -239,7 +261,7 @@ export default function ConversationList({
               {unread ? (
                 c.unreadCount > 0 ? (
                   <span
-                    className={`min-w-[1.1rem] shrink-0 rounded-full px-1.5 text-center text-[10px] font-bold ${
+                    className={`min-w-[1.25rem] shrink-0 rounded-full px-1.5 text-center text-[11px] font-bold leading-5 ${
                       c.muted
                         ? "bg-neutral-300 text-neutral-700"
                         : "bg-[var(--dash-lime)] text-[var(--dash-ink)]"
@@ -262,7 +284,7 @@ export default function ConversationList({
             const r = e.currentTarget.getBoundingClientRect();
             openMenuAt(c, r.right - 240, r.bottom + 4);
           }}
-          className="absolute right-2 top-2 hidden h-6 w-6 items-center justify-center rounded-full bg-white/95 text-neutral-600 shadow ring-1 ring-black/5 transition hover:text-[var(--dash-ink)] group-hover:flex"
+          className="absolute right-2 top-1/2 hidden h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-white text-neutral-600 shadow ring-1 ring-black/5 outline-none transition hover:text-[var(--dash-ink)] focus-visible:flex focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 group-hover:flex [@media(hover:none)]:hidden"
         >
           <IconMore className="h-3.5 w-3.5" />
         </button>
@@ -279,7 +301,7 @@ export default function ConversationList({
     <>
       <div className="space-y-2 border-b border-black/5 p-2.5">
         <div className="relative">
-          <IconSearch className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-400" />
+          <IconSearch className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-neutral-500" />
           <input
             ref={searchInputRef}
             value={query}
@@ -288,14 +310,15 @@ export default function ConversationList({
               if (e.key === "Escape") setQuery("");
             }}
             placeholder="Rechercher (Ctrl+K)"
-            className="w-full rounded-2xl border border-black/6 bg-white/80 py-2 pl-9 pr-8 text-sm outline-none transition focus:border-[var(--dash-ink)]"
+            aria-label="Rechercher une conversation ou un collègue"
+            className="w-full rounded-2xl border border-black/6 bg-white/80 py-2 pl-9 pr-8 text-sm text-[var(--dash-ink)] outline-none transition placeholder:text-neutral-500 focus:border-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/20"
           />
           {query ? (
             <button
               type="button"
               aria-label="Effacer la recherche"
               onClick={() => setQuery("")}
-              className="absolute right-2.5 top-2.5 text-neutral-400 hover:text-[var(--dash-ink)]"
+              className="absolute right-2.5 top-2.5 rounded text-neutral-500 outline-none hover:text-[var(--dash-ink)] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50"
             >
               <IconX className="h-4 w-4" />
             </button>
@@ -307,7 +330,8 @@ export default function ConversationList({
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
-              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+              aria-pressed={filter === f.id}
+              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 ${
                 filter === f.id
                   ? "bg-[var(--dash-ink)] text-white"
                   : "bg-white/70 text-[var(--dash-ink)] hover:bg-white"
@@ -351,7 +375,7 @@ export default function ConversationList({
                     <span className="truncate text-xs font-semibold text-[var(--dash-ink)]">
                       {titleOf(h.conversationId)}
                     </span>
-                    <span className="shrink-0 text-[10px] text-neutral-400">
+                    <span className="shrink-0 text-[11px] text-neutral-500">
                       {conversationTime(h.createdAt)}
                     </span>
                   </span>
@@ -380,6 +404,7 @@ export default function ConversationList({
                 <ListAvatar
                   imageUrl={u.imageUrl}
                   letter={peerLetter(u)}
+                  name={u.name}
                   status={statusOf(u.id)}
                   size="h-9 w-9"
                 />
@@ -398,17 +423,58 @@ export default function ConversationList({
           </>
         ) : null}
 
-        <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dash-mid)]">
-          {pinned.length > 0 ? "Récentes" : "Conversations"}
-        </p>
-        {others.length === 0 && pinned.length === 0 ? (
-          <p className="px-3 py-6 text-xs leading-relaxed text-neutral-500">
-            {conversations.length === 0
-              ? "Aucune conversation. Cherchez un collègue pour démarrer."
-              : "Aucune conversation ne correspond."}
-          </p>
+        {loading && conversations.length === 0 ? (
+          <ListSkeleton />
+        ) : conversations.length === 0 && !q ? (
+          <div className="flex flex-col items-center px-4 py-10 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-[var(--dash-mid)] shadow-sm">
+              <IconChatEmpty className="h-7 w-7" />
+            </span>
+            <p className="mt-3 text-sm font-semibold text-[var(--dash-ink)]">Aucune conversation</p>
+            <p className="mt-1 text-xs leading-relaxed text-[var(--dash-mid)]">
+              Écrivez à un collègue ou créez un groupe pour démarrer.
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  searchInputRef.current?.focus();
+                }}
+                className="inline-flex items-center gap-1.5 rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-xs font-semibold text-white outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--dash-lime)] focus-visible:ring-offset-1"
+              >
+                <IconSearch className="h-3.5 w-3.5" />
+                Chercher un collègue
+              </button>
+              {onNewGroup ? (
+                <button
+                  type="button"
+                  onClick={onNewGroup}
+                  className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-semibold text-[var(--dash-ink)] shadow-sm outline-none transition hover:bg-white/70 focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50"
+                >
+                  <IconPlus className="h-3.5 w-3.5" />
+                  <IconUsers className="h-3.5 w-3.5" />
+                  Créer un groupe
+                </button>
+              ) : null}
+            </div>
+          </div>
         ) : (
-          others.map(renderItem)
+          <>
+            {others.length > 0 || pinned.length > 0 ? (
+              <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--dash-mid)]">
+                {pinned.length > 0 ? "Récentes" : "Conversations"}
+              </p>
+            ) : null}
+            {others.length === 0 && pinned.length === 0 ? (
+              <p className="px-3 py-6 text-center text-xs leading-relaxed text-neutral-600">
+                {filter !== "all" && !q
+                  ? "Rien dans ce filtre pour le moment."
+                  : "Aucune conversation ne correspond."}
+              </p>
+            ) : (
+              others.map(renderItem)
+            )}
+          </>
         )}
       </div>
 

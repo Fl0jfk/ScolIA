@@ -43,16 +43,19 @@ export function sortConversations(list: MessagingConversationDto[]): MessagingCo
 export function conversationAvatarSource(c: MessagingConversationDto): {
   imageUrl: string | null;
   letter: string;
+  name: string;
 } {
   if (c.kind === "group") {
     return {
-      imageUrl: c.membersPreview[0]?.imageUrl ?? null,
+      imageUrl: null,
       letter: (c.title || "G").slice(0, 1).toUpperCase(),
+      name: c.title || "Groupe",
     };
   }
   return {
     imageUrl: c.peer?.imageUrl ?? null,
     letter: (c.peer?.name || c.title || "?").slice(0, 1).toUpperCase(),
+    name: c.peer?.name || c.title || "?",
   };
 }
 

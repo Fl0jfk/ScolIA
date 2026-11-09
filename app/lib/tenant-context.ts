@@ -1,4 +1,5 @@
 import "server-only";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { TENANT_SLUG_HEADER, type TenantConfig } from "@/app/lib/tenant-types";
@@ -17,7 +18,19 @@ import { isPlatformHostname } from "@/app/lib/platform-hostname";
 import { platformTenantFromEnv } from "@/app/lib/platform-tenant";
 
 /** Tenant courant (une requête serveur). */
-export const getTenant = cache(async (): Promise<TenantConfig> => {
+const tenantOverride = new AsyncLocalStorage<TenantConfig>();
+
+/** Exécute `fn` avec un tenant explicite (jobs serveur hors requête HTTP). */
+export function runWithTenant<T>(tenant: TenantConfig, fn: () => Promise<T>): Promise<T> {
+  return tenantOverride.run(tenant, fn);
+}
+
+/** Tenant courant : override explicite (job) sinon celui de la requête (comportement inchangé). */
+export async function getTenant(): Promise<TenantConfig> {
+  return tenantOverride.getStore() ?? getRequestTenant();
+}
+
+const getRequestTenant = cache(async (): Promise<TenantConfig> => {
   const h = await headers();
   const slug = h.get(TENANT_SLUG_HEADER)?.trim();
   if (slug) {

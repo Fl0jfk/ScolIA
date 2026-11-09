@@ -10,12 +10,18 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   const gate = await requireMessagingContext();
   if (!gate.ok) return gate.response;
   try {
-    const { id, userId } = await ctx.params;
+    const { id, userId: rawUserId } = await ctx.params;
+    let userId: string;
+    try {
+      userId = decodeURIComponent(rawUserId);
+    } catch {
+      return NextResponse.json({ error: "Identifiant invalide." }, { status: 400 });
+    }
     const conversation = await removeGroupMember(
       gate.ctx.etablissementId,
       id,
       gate.ctx.userId,
-      decodeURIComponent(userId),
+      userId,
     );
     return NextResponse.json({ ok: true, conversation });
   } catch (error) {

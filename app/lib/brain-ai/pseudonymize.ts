@@ -481,6 +481,22 @@ async function getIndex(etablissementId: string): Promise<NameIndex> {
   return index;
 }
 
+/**
+ * Variante stricte (messagerie) : lève si l'index des noms est vide ou indisponible,
+ * au lieu de laisser partir le texte en clair. Un établissement a toujours du personnel :
+ * un index vide signifie un échec de chargement.
+ */
+export async function pseudonymizeForLlmStrict(
+  etablissementId: string,
+  texts: string[],
+): Promise<{ texts: string[]; restore: (answer: string) => string }> {
+  if (!etablissementId) throw new Error("etablissement manquant");
+  const index = await getIndex(etablissementId);
+  if (index.entityCount === 0) throw new Error("index des noms indisponible");
+  const p = createPseudonymizer(index);
+  return { texts: texts.map((t) => p.mask(t).text), restore: (answer) => p.unmask(answer) };
+}
+
 /** Vide le cache (tests, ou après un gros import d'élèves). */
 export function clearPseudonymizeCache(etablissementId?: string): void {
   if (etablissementId) indexCache.delete(etablissementId);

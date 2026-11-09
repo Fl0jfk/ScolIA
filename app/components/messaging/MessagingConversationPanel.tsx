@@ -1,15 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  IconArrowDown,
-  IconInfo,
-  IconMinus,
-  IconPin,
-  IconUsers,
-  IconVideoCall,
-  IconX,
-} from "./MessagingIcons";
+import { IconArrowDown, IconPin } from "./MessagingIcons";
 import type {
   MessagingConversationDto,
   MessagingConversationKind,
@@ -20,8 +12,15 @@ import type {
 import { MESSAGING_ROOT_ATTR } from "@/app/lib/messaging/dock";
 import MessagingMessageBubble from "./MessagingMessageBubble";
 import MessagingComposer from "./MessagingComposer";
-import MessagingPresenceBadge from "./MessagingPresenceBadge";
 import TypingBubble from "./conversation/TypingBubble";
+import ConversationHeader from "./conversation/ConversationHeader";
+import SearchBar from "./conversation/SearchBar";
+import SummaryCard from "./conversation/SummaryCard";
+import ImageViewer from "./conversation/ImageViewer";
+import MessagingStyles from "./conversation/MessagingStyles";
+import { MessagesSkeleton } from "./conversation/Skeletons";
+import { IconChatEmpty } from "./conversation/ExtraIcons";
+import { messageMatches } from "./conversation/textMatch";
 import {
   buildItems,
   buildMembersMap,
@@ -50,12 +49,33 @@ type Props = {
   onOpenDetails?: () => void;
   /** Messages épinglés connus de la page (complète ceux déjà chargés). */
   pinnedMessages?: MessagingMessageDto[];
+  /** La conversation avait été marquée « non lue » à l’ouverture. */
+  openedMarkedUnread?: boolean;
 };
 
 const BOTTOM_THRESHOLD = 80;
+const JUMP_HIGHLIGHT_MS = 1500;
 
 function prefersReducedMotion(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+/** Premier message d’un autre auteur postérieur à ma dernière lecture (ligne « Nouveaux messages »). */
+function findFirstUnreadId(
+  list: MessagingMessageDto[],
+  lastReadAt: string | null,
+  meId: string,
+  markedUnread: boolean,
+): string | null {
+  const isOther = (m: MessagingMessageDto) =>
+    m.senderId !== meId && m.type !== "system" && !m.deletedAt;
+  const readMs = lastReadAt ? new Date(lastReadAt).getTime() : Number.NEGATIVE_INFINITY;
+  const first = list.find((m) => isOther(m) && new Date(m.createdAt).getTime() > readMs);
+  if (first) return first.id;
+  if (markedUnread) {
+    for (let i = list.length - 1; i >= 0; i--) if (isOther(list[i])) return list[i].id;
+  }
+  return null;
 }
 
 export default function MessagingConversationPanel({
@@ -76,6 +96,7 @@ export default function MessagingConversationPanel({
   members,
   onOpenDetails,
   pinnedMessages,
+  openedMarkedUnread = false,
 }: Props) {
   const [messages, setMessages] = useState<MessagingMessageDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +109,12 @@ export default function MessagingConversationPanel({
   const [newCount, setNewCount] = useState(0);
   const [nearBottom, setNearBottom] = useState(true);
   const [pinIndex, setPinIndex] = useState(0);
+  const [dividerId, setDividerId] = useState<string | null>(null);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchIdx, setMatchIdx] = useState(0);
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
@@ -97,10 +124,22 @@ export default function MessagingConversationPanel({
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeConversation = useRef(conversationId);
   const forwardRef = useRef(onForwardRequest);
+  const meRef = useRef(currentUserId);
+  const markedUnreadRef = useRef(openedMarkedUnread);
+  const firstLoadRef = useRef(true);
+  const initialIdsRef = useRef<Set<string> | null>(null);
 
   useEffect(() => {
     forwardRef.current = onForwardRequest;
   }, [onForwardRequest]);
+  useEffect(() => {
+    meRef.current = currentUserId;
+  }, [currentUserId]);
+  useEffect(() => {
+    // Capturé à l'ouverture seulement (la page retire le marquage aussitôt).
+    markedUnreadRef.current = openedMarkedUnread;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lu à l'ouverture de la conversation uniquement
+  }, [conversationId]);
 
   const membersById = useMemo(
     () => buildMembersMap(members, [peer, ...membersPreview]),
@@ -125,9 +164,22 @@ export default function MessagingConversationPanel({
         cache: "no-store",
       });
       if (!res.ok || activeConversation.current !== id) return;
-      const data = (await res.json()) as { messages?: MessagingMessageDto[] };
+      const data = (await res.json()) as {
+        messages?: MessagingMessageDto[];
+        myLastReadAt?: string | null;
+      };
       if (activeConversation.current !== id) return;
-      setMessages(Array.isArray(data.messages) ? data.messages : []);
+      const list = Array.isArray(data.messages) ? data.messages : [];
+      // Première charge : la lecture n'est marquée qu'après (voir plus bas), donc
+      // myLastReadAt est bien celui d'avant l'ouverture.
+      if (firstLoadRef.current) {
+        firstLoadRef.current = false;
+        initialIdsRef.current = new Set(list.map((m) => m.id));
+        setDividerId(
+          findFirstUnreadId(list, data.myLastReadAt ?? null, meRef.current, markedUnreadRef.current),
+        );
+      }
+      setMessages(list);
     } catch {
       /* réseau : on garde l’état courant */
     } finally {
@@ -144,6 +196,8 @@ export default function MessagingConversationPanel({
   // Changement de conversation : on repart de zéro.
   useEffect(() => {
     activeConversation.current = conversationId;
+    firstLoadRef.current = true;
+    initialIdsRef.current = null;
     setMessages([]);
     setLoading(true);
     setReplyTo(null);
@@ -153,6 +207,11 @@ export default function MessagingConversationPanel({
     setNewCount(0);
     setNearBottom(true);
     setPinIndex(0);
+    setDividerId(null);
+    setSummary(null);
+    setSearchOpen(false);
+    setSearchQuery("");
+    setViewerId(null);
     prevLastIdRef.current = null;
     atBottomRef.current = true;
     for (const t of typingTimers.current.values()) clearTimeout(t);
@@ -190,14 +249,23 @@ export default function MessagingConversationPanel({
   const lastId = lastMessage?.id ?? null;
   const lastSenderId = lastMessage?.senderId ?? null;
 
-  // Collé en bas seulement si on y était déjà (ou si je viens d’écrire).
+  // Ouverture : sur la ligne « Nouveaux messages » s’il y en a, sinon en bas.
+  // Ensuite : collé en bas seulement si on y était déjà (ou si je viens d’écrire).
   useEffect(() => {
     if (loading) return;
     const prev = prevLastIdRef.current;
     prevLastIdRef.current = lastId;
     if (lastId === prev) return;
     if (prev === null) {
-      scrollToBottom(false);
+      const box = scrollRef.current;
+      const divider = box?.querySelector<HTMLElement>("[data-new-divider]");
+      if (box && divider) {
+        const top =
+          divider.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 56;
+        box.scrollTo({ top: Math.max(0, top), behavior: "auto" });
+      } else {
+        scrollToBottom(false);
+      }
       return;
     }
     if (atBottomRef.current || lastSenderId === currentUserId) {
@@ -345,14 +413,21 @@ export default function MessagingConversationPanel({
     void loadMessages();
   };
 
-  const onJumpTo = useCallback((id: string) => {
-    const el = document.getElementById(`msg-${id}`);
-    if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
-    setHighlightId(id);
-    if (highlightTimer.current) clearTimeout(highlightTimer.current);
-    highlightTimer.current = setTimeout(() => setHighlightId(null), 1800);
-  }, []);
+  /** Défile jusqu’au message (déjà chargé) et le met en surbrillance 1,5 s. */
+  const onJumpTo = useCallback(
+    (id: string) => {
+      const el = scrollRef.current?.querySelector<HTMLElement>(`[id="msg-${id}"]`);
+      if (!el) {
+        showToast("Message introuvable dans les messages chargés");
+        return;
+      }
+      el.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      setHighlightId(id);
+      if (highlightTimer.current) clearTimeout(highlightTimer.current);
+      highlightTimer.current = setTimeout(() => setHighlightId(null), JUMP_HIGHLIGHT_MS);
+    },
+    [showToast],
+  );
 
   const onForward = useCallback((m: MessagingMessageDto) => forwardRef.current?.(m), []);
   const onReply = useCallback((m: MessagingMessageDto) => setReplyTo(m), []);
@@ -361,6 +436,7 @@ export default function MessagingConversationPanel({
     setEditing(m);
   }, []);
   const onDeleteRequest = useCallback((m: MessagingMessageDto) => setConfirmDelete(m), []);
+  const onOpenImage = useCallback((attachmentId: string) => setViewerId(attachmentId), []);
 
   const requestEditLast = useCallback(() => {
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -396,25 +472,59 @@ export default function MessagingConversationPanel({
 
   const currentPin = pinned.length > 0 ? pinned[pinIndex % pinned.length] : null;
 
+  // Images de la conversation (visionneuse : flèches entre images).
+  const viewerImages = useMemo(
+    () =>
+      messages.flatMap((m) =>
+        m.deletedAt
+          ? []
+          : m.attachments
+              .filter((a) => a.mime.startsWith("image/") && a.url)
+              .map((a) => ({ id: a.id, url: a.url as string, fileName: a.fileName })),
+      ),
+    [messages],
+  );
+  const viewerIndex = viewerId ? viewerImages.findIndex((i) => i.id === viewerId) : -1;
+
+  // Recherche dans la conversation (messages chargés).
+  const q = searchOpen ? searchQuery.trim() : "";
+  const matchIds = useMemo(
+    () =>
+      q
+        ? messages
+            .filter((m) => !m.deletedAt && m.type !== "system" && messageMatches(m.body, q))
+            .map((m) => m.id)
+        : [],
+    [messages, q],
+  );
+  const matchPos = matchIds.length === 0 ? -1 : Math.min(Math.max(matchIdx, 0), matchIds.length - 1);
+  const activeMatchId = matchPos >= 0 ? matchIds[matchPos] : null;
+
+  useEffect(() => {
+    if (!activeMatchId) return;
+    scrollRef.current
+      ?.querySelector<HTMLElement>(`[id="msg-${activeMatchId}"]`)
+      ?.scrollIntoView({ block: "center", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+  }, [activeMatchId]);
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true);
+  }, []);
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }, []);
+  const stepMatch = (delta: number) => {
+    if (matchIds.length === 0) return;
+    setMatchIdx((matchPos + delta + matchIds.length) % matchIds.length);
+  };
+
   const shell =
     variant === "mobile-full"
-      ? "fixed inset-0 z-[140] flex flex-col bg-[var(--dash-surface)]"
+      ? "fixed inset-0 z-[140] flex flex-col bg-[var(--dash-surface)] pt-[env(safe-area-inset-top)]"
       : variant === "dock"
         ? "flex h-[420px] w-[340px] flex-col overflow-hidden rounded-t-[1.75rem] border border-black/6 bg-[var(--dash-surface)] shadow-[0_16px_40px_rgba(15,23,42,0.28)]"
         : "flex h-full min-h-0 flex-col overflow-hidden rounded-[1.75rem] border border-black/6 bg-white/80 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl";
-
-  const subtitle =
-    kind === "group"
-      ? `${memberCount && memberCount > 0 ? memberCount : Math.max(membersPreview.length + 1, 2)} membres`
-      : presenceStatus === "online"
-        ? "En ligne"
-        : presenceStatus === "away"
-          ? "Absent"
-          : presenceStatus === "busy"
-            ? "Occupé"
-            : presenceStatus === "dnd"
-              ? "Ne pas déranger"
-              : "Hors ligne";
 
   const typingLabel = useMemo(() => {
     const names = typingIds.map((id) => membersById.get(id)?.name);
@@ -426,98 +536,57 @@ export default function MessagingConversationPanel({
     return "Plusieurs personnes écrivent…";
   }, [typingIds, membersById, kind, peer]);
 
-  const iconBtn =
-    "rounded-2xl p-2 outline-none transition hover:bg-black/[0.05] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50";
+  const groupMemberCount =
+    memberCount && memberCount > 0 ? memberCount : Math.max(membersPreview.length + 1, 2);
+  const headerMembers = members && members.length > 0 ? members : membersPreview;
+
+  const onRootKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "f") {
+      e.preventDefault();
+      openSearch();
+    } else if (e.key === "Escape" && searchOpen) {
+      e.preventDefault();
+      closeSearch();
+    }
+  };
 
   return (
-    <div {...{ [MESSAGING_ROOT_ATTR]: "" }} className={`${variant === "mobile-full" ? "" : "relative"} ${shell} ${className}`}>
-      <header className="flex items-center gap-2.5 border-b border-black/5 bg-[#eceeea]/60 px-3.5 py-3">
-        {kind === "group" ? (
-          <div className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-2xl bg-[var(--dash-ink)]">
-            {membersPreview.slice(0, 2).length === 0 ? (
-              <span className="flex h-full w-full items-center justify-center text-xs font-bold text-white">
-                <IconUsers className="h-4 w-4" />
-              </span>
-            ) : (
-              <div className="absolute inset-0 grid grid-cols-2">
-                {membersPreview.slice(0, 2).map((m) => (
-                  <div key={m.id} className="overflow-hidden bg-neutral-300">
-                    {m.imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.imageUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full w-full items-center justify-center text-[8px] font-bold text-[var(--dash-ink)]">
-                        {m.name.slice(0, 1).toUpperCase()}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <MessagingPresenceBadge status={presenceStatus} dotClassName="h-2.5 w-2.5">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[var(--dash-ink)] text-sm font-semibold text-white">
-              {peer?.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={peer.imageUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                (peer?.name || title || "?").slice(0, 1).toUpperCase()
-              )}
-            </div>
-          </MessagingPresenceBadge>
-        )}
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold tracking-tight text-[var(--dash-ink)]">
-            {title}
-          </p>
-          <p className="truncate text-[11px] font-medium text-[var(--dash-mid)]">
-            {typingIds.length > 0 ? typingLabel : subtitle}
-          </p>
-        </div>
-        {onStartVideoCall ? (
-          <button
-            type="button"
-            title="Visio"
-            aria-label="Démarrer une visio"
-            className={`${iconBtn} text-[var(--dash-ink)]`}
-            onClick={onStartVideoCall}
-          >
-            <IconVideoCall className="h-4 w-4" />
-          </button>
-        ) : null}
-        {onOpenDetails ? (
-          <button
-            type="button"
-            title="Informations"
-            aria-label="Informations sur la conversation"
-            className={`${iconBtn} text-[var(--dash-ink)]`}
-            onClick={onOpenDetails}
-          >
-            <IconInfo className="h-4 w-4" />
-          </button>
-        ) : null}
-        {onMinimize ? (
-          <button
-            type="button"
-            aria-label="Réduire"
-            className={`${iconBtn} text-neutral-500`}
-            onClick={onMinimize}
-          >
-            <IconMinus className="h-4 w-4" />
-          </button>
-        ) : null}
-        {onClose ? (
-          <button
-            type="button"
-            aria-label="Fermer"
-            className={`${iconBtn} text-neutral-500`}
-            onClick={onClose}
-          >
-            <IconX className="h-4 w-4" />
-          </button>
-        ) : null}
-      </header>
+    <div
+      {...{ [MESSAGING_ROOT_ATTR]: "" }}
+      onKeyDown={onRootKeyDown}
+      className={`${variant === "mobile-full" ? "" : "relative"} ${shell} ${className}`}
+    >
+      <MessagingStyles />
+      <ConversationHeader
+        title={title}
+        peer={peer}
+        kind={kind}
+        memberCount={groupMemberCount}
+        members={headerMembers}
+        presenceStatus={presenceStatus}
+        typingLabel={typingIds.length > 0 ? typingLabel : null}
+        searchOpen={searchOpen}
+        onToggleSearch={() => (searchOpen ? closeSearch() : openSearch())}
+        onStartVideoCall={onStartVideoCall}
+        onOpenDetails={onOpenDetails}
+        onMinimize={onMinimize}
+        onClose={onClose}
+      />
+
+      {searchOpen ? (
+        <SearchBar
+          query={searchQuery}
+          onQuery={(v) => {
+            setSearchQuery(v);
+            setMatchIdx(Number.MAX_SAFE_INTEGER);
+          }}
+          position={matchPos + 1}
+          total={matchIds.length}
+          onPrev={() => stepMatch(-1)}
+          onNext={() => stepMatch(1)}
+          onClose={closeSearch}
+        />
+      ) : null}
 
       {currentPin ? (
         <button
@@ -540,19 +609,32 @@ export default function MessagingConversationPanel({
         </button>
       ) : null}
 
+      {summary ? <SummaryCard text={summary} onClose={() => setSummary(null)} /> : null}
+
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
           onScroll={onScroll}
           role="log"
+          tabIndex={0}
           aria-live="polite"
           aria-label="Messages"
-          className="h-full overflow-y-auto px-3.5 pb-3 pt-6"
+          className="h-full overflow-y-auto px-3.5 pb-3 pt-6 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--dash-ink)]/30"
         >
           {loading ? (
-            <p className="text-center text-xs text-neutral-500">Chargement…</p>
+            <MessagesSkeleton />
           ) : messages.length === 0 ? (
-            <p className="text-center text-xs text-neutral-500">Aucun message — dites bonjour !</p>
+            <div className="flex h-full min-h-[10rem] flex-col items-center justify-center gap-2 px-6 text-center">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black/[0.05] text-[var(--dash-mid)]">
+                <IconChatEmpty className="h-7 w-7" />
+              </span>
+              <p className="text-sm font-semibold text-[var(--dash-ink)]">Aucun message pour le moment</p>
+              <p className="text-xs text-[var(--dash-mid)]">
+                {kind === "group"
+                  ? "Écrivez le premier message du groupe."
+                  : `Dites bonjour${peer ? ` à ${firstName(peer.name)}` : ""} !`}
+              </p>
+            </div>
           ) : (
             items.map((it) => {
               if (it.kind === "day") {
@@ -568,7 +650,7 @@ export default function MessagingConversationPanel({
                 return (
                   <p
                     key={it.key}
-                    className="my-2 px-6 text-center text-[11px] italic text-neutral-500"
+                    className="my-2 px-6 text-center text-[11px] italic text-neutral-600"
                   >
                     {it.message.body}
                   </p>
@@ -576,25 +658,44 @@ export default function MessagingConversationPanel({
               }
               const m = it.message;
               return (
-                <MessagingMessageBubble
-                  key={it.key}
-                  message={m}
-                  isMine={m.senderId === currentUserId}
-                  currentUserId={currentUserId}
-                  kind={kind}
-                  firstInGroup={it.firstInGroup}
-                  isLastMine={m.id === lastMineId}
-                  highlighted={highlightId === m.id}
-                  membersById={membersById}
-                  onReply={onReply}
-                  onForward={onForward}
-                  onEdit={onEdit}
-                  onDelete={onDeleteRequest}
-                  onReact={onReact}
-                  onPin={onPin}
-                  onCopy={onCopy}
-                  onJumpTo={onJumpTo}
-                />
+                <div key={it.key}>
+                  {m.id === dividerId ? (
+                    <div
+                      data-new-divider
+                      role="separator"
+                      aria-label="Nouveaux messages"
+                      className="mb-1 mt-4 flex items-center gap-2"
+                    >
+                      <span className="h-px flex-1 bg-[var(--dash-ink)]/20" />
+                      <span className="rounded-full bg-[var(--dash-lime)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--dash-ink)]">
+                        Nouveaux messages
+                      </span>
+                      <span className="h-px flex-1 bg-[var(--dash-ink)]/20" />
+                    </div>
+                  ) : null}
+                  <MessagingMessageBubble
+                    message={m}
+                    isMine={m.senderId === currentUserId}
+                    currentUserId={currentUserId}
+                    kind={kind}
+                    firstInGroup={it.firstInGroup || m.id === dividerId}
+                    isLastMine={m.id === lastMineId}
+                    highlighted={highlightId === m.id}
+                    isNew={initialIdsRef.current ? !initialIdsRef.current.has(m.id) : false}
+                    searchQuery={q}
+                    activeMatch={activeMatchId === m.id}
+                    membersById={membersById}
+                    onReply={onReply}
+                    onForward={onForward}
+                    onEdit={onEdit}
+                    onDelete={onDeleteRequest}
+                    onReact={onReact}
+                    onPin={onPin}
+                    onCopy={onCopy}
+                    onJumpTo={onJumpTo}
+                    onOpenImage={onOpenImage}
+                  />
+                </div>
               );
             })
           )}
@@ -616,7 +717,7 @@ export default function MessagingConversationPanel({
             className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-[var(--dash-ink)] px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_24px_-8px_rgba(0,0,0,0.5)] outline-none transition hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--dash-lime)]"
           >
             <IconArrowDown className="h-3.5 w-3.5" />
-            {newCount > 0 ? "Nouveaux messages" : null}
+            {newCount > 0 ? (newCount > 1 ? `${newCount} nouveaux messages` : "Nouveau message") : null}
           </button>
         ) : null}
       </div>
@@ -632,6 +733,7 @@ export default function MessagingConversationPanel({
         members={mentionMembers}
         currentUserId={currentUserId}
         onRequestEditLast={requestEditLast}
+        onSummary={setSummary}
       />
 
       {toast ? (
@@ -643,6 +745,15 @@ export default function MessagingConversationPanel({
             {toast}
           </span>
         </div>
+      ) : null}
+
+      {viewerIndex >= 0 ? (
+        <ImageViewer
+          images={viewerImages}
+          index={viewerIndex}
+          onIndex={(i) => setViewerId(viewerImages[i]?.id ?? null)}
+          onClose={() => setViewerId(null)}
+        />
       ) : null}
 
       {confirmDelete ? (

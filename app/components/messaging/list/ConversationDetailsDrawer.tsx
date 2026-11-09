@@ -115,9 +115,9 @@ export default function ConversationDetailsDrawer({
             <ListAvatar
               imageUrl={av.imageUrl}
               letter={av.letter}
+              name={av.name}
               status={statusForConversation(detail)}
               size="h-20 w-20"
-              rounded="rounded-3xl"
             />
             {renaming ? (
               <form
@@ -277,6 +277,7 @@ export default function ConversationDetailsDrawer({
                       <ListAvatar
                         imageUrl={m.imageUrl}
                         letter={peerLetter(m)}
+                        name={m.name}
                         status={status}
                         size="h-9 w-9"
                       />

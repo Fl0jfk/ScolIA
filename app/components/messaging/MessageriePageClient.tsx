@@ -31,6 +31,7 @@ import {
   IconHash,
   IconPlus,
 } from "@/app/components/messaging/MessagingIcons";
+import { IconChatEmpty } from "@/app/components/messaging/conversation/ExtraIcons";
 import ConversationList from "@/app/components/messaging/list/ConversationList";
 import ConversationDetailsDrawer from "@/app/components/messaging/list/ConversationDetailsDrawer";
 import { useToast } from "@/app/components/messaging/list/useToast";
@@ -113,6 +114,8 @@ function MessageriePageBody({
   const { toast, toastNode } = useToast();
 
   const [selectedId, setSelectedId] = useState<string | null>(cParam);
+  // Conversation ouverte alors qu'elle était marquée « non lue » (ligne « Nouveaux messages »).
+  const [markedUnreadOpenId, setMarkedUnreadOpenId] = useState<string | null>(null);
   const selectedIdRef = useRef<string | null>(cParam);
   const [mobileOpen, setMobileOpen] = useState(Boolean(cParam));
   const [detail, setDetail] = useState<MessagingConversationDetailDto | null>(null);
@@ -397,6 +400,7 @@ function MessageriePageBody({
 
   // Sélection d'une conversation marquée « non lue » : on retire le marquage.
   const onSelectFromList = (c: MessagingConversationDto) => {
+    setMarkedUnreadOpenId(c.markedUnread ? c.id : null);
     selectConv(c.id);
     if (c.markedUnread) void patchConversation(c, { markedUnread: false });
   };
@@ -475,14 +479,11 @@ function MessageriePageBody({
           }`}
         >
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--dash-ink)] text-white">
-              <IconMessageCircle className="h-5 w-5" />
-            </span>
             <div className="min-w-0">
-              <h1 className="truncate text-lg font-semibold tracking-tight text-[var(--dash-ink)] sm:text-xl">
+              <h1 className="truncate text-base font-semibold tracking-tight text-[var(--dash-ink)] sm:text-lg">
                 Messagerie
               </h1>
-              <p className="text-[11px] font-medium text-[var(--dash-mid)]">
+              <p className="text-[11px] font-medium text-neutral-600">
                 {section === "salons"
                   ? "Salons d’équipe"
                   : unreadConversations > 0 || totalUnread > 0
@@ -534,11 +535,11 @@ function MessageriePageBody({
                 </div>
                 <button
                   type="button"
-                  className="inline-flex items-center gap-1.5 rounded-2xl bg-[var(--dash-ink)] px-3 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+                  className="inline-flex items-center gap-1.5 rounded-2xl border border-black/8 bg-white px-3 py-2 text-xs font-semibold text-[var(--dash-ink)] outline-none transition hover:bg-black/[0.04] focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50"
                   onClick={() => setShowNewGroup(true)}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
-                  Groupe
+                  Nouveau groupe
                 </button>
               </>
             ) : null}
@@ -574,6 +575,8 @@ function MessageriePageBody({
                 onPatch={(c, patch) => void patchConversation(c, patch)}
                 onDelete={(c) => void deleteConversation(c)}
                 notify={notifyError}
+                loading={convState.loading}
+                onNewGroup={() => setShowNewGroup(true)}
               />
             </aside>
 
@@ -589,7 +592,7 @@ function MessageriePageBody({
                   <button
                     type="button"
                     onClick={() => selectConv(null)}
-                    className="mb-2 inline-flex items-center gap-1.5 self-start rounded-2xl bg-[#eceeea] px-3 py-1.5 text-xs font-semibold text-[var(--dash-ink)] md:hidden"
+                    className="mb-2 inline-flex items-center gap-1.5 self-start rounded-2xl bg-[#eceeea] px-3 py-2 text-xs font-semibold text-[var(--dash-ink)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-ink)]/50 md:hidden"
                   >
                     <span aria-hidden>←</span> Conversations
                   </button>
@@ -608,6 +611,7 @@ function MessageriePageBody({
                       className="h-full"
                       members={currentDetail?.members}
                       pinnedMessages={currentDetail?.pinnedMessages}
+                      openedMarkedUnread={markedUnreadOpenId === selected.id}
                       onOpenDetails={() => setShowDetails(true)}
                       onForwardRequest={setForwardMessage}
                       onStartVideoCall={() =>
@@ -621,8 +625,16 @@ function MessageriePageBody({
                   </div>
                 </>
               ) : (
-                <div className="flex h-full items-center justify-center rounded-[1.75rem] border border-black/6 bg-white/80 text-sm text-neutral-400 shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl">
-                  Sélectionnez ou démarrez une conversation
+                <div className="flex h-full flex-col items-center justify-center gap-2 rounded-[1.75rem] border border-black/6 bg-white/80 px-6 text-center shadow-[0_1px_0_rgba(0,0,0,0.03)] backdrop-blur-xl">
+                  <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#eceeea] text-[var(--dash-mid)]">
+                    <IconChatEmpty className="h-8 w-8" />
+                  </span>
+                  <p className="text-sm font-semibold text-[var(--dash-ink)]">
+                    Sélectionnez une conversation
+                  </p>
+                  <p className="text-xs text-[var(--dash-mid)]">
+                    ou cherchez un collègue pour en démarrer une (Ctrl+K).
+                  </p>
                 </div>
               )}
               {inSplitCall ? (

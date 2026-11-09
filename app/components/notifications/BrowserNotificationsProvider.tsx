@@ -88,6 +88,7 @@ function NotificationsRuntime({ userId }: { userId: string }) {
   const [permission, setPermission] = useState<Permission>("unsupported");
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [publicKey, setPublicKey] = useState<string | null>(null);
+  const [signalsServer, setSignalsServer] = useState(false);
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null);
   const [subscribed, setSubscribed] = useState(false);
   const [deviceOff, setDeviceOff] = useState(false);
@@ -129,10 +130,15 @@ function NotificationsRuntime({ userId }: { userId: string }) {
       try {
         const res = await fetch("/api/push/config", { cache: "no-store" });
         if (res.ok) {
-          const cfg = (await res.json()) as { configured: boolean; publicKey: string | null };
+          const cfg = (await res.json()) as {
+            configured: boolean;
+            publicKey: string | null;
+            signalsServer?: boolean;
+          };
           if (!cancelled) {
             setConfigured(Boolean(cfg.configured && cfg.publicKey));
             setPublicKey(cfg.publicKey);
+            setSignalsServer(Boolean(cfg.signalsServer));
           }
         } else if (!cancelled) setConfigured(false);
       } catch {
@@ -233,6 +239,8 @@ function NotificationsRuntime({ userId }: { userId: string }) {
     }
     const increased = findIncreasedSignals(previous, notifications);
     lsSet(baselineKey, JSON.stringify(toSignalCounts(notifications)));
+    // Le serveur notifie (même sans onglet) : pas de doublon local si cet appareil est abonné.
+    if (signalsServer && subscribed) return;
     if (!registration || increased.length === 0 || !canNotifyLocally("signal")) return;
 
     for (const n of increased) {
@@ -246,7 +254,17 @@ function NotificationsRuntime({ userId }: { userId: string }) {
       window.setTimeout(() => lsSet(claimKey, null), 150_000);
       void showLocal(n.label, n.detail || "Nouveauté dans ScolIA", n.href, `signal-${n.id}`);
     }
-  }, [fetchGeneration, notifications, registration, baselineKey, userId, canNotifyLocally, showLocal]);
+  }, [
+    fetchGeneration,
+    notifications,
+    registration,
+    baselineKey,
+    userId,
+    canNotifyLocally,
+    showLocal,
+    signalsServer,
+    subscribed,
+  ]);
 
   // Onglet masqué : le provider de signaux ne rafraîchit plus, on le fait ici (~60 s).
   useEffect(() => {
