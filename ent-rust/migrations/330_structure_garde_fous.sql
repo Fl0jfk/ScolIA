@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS ent_affectation_supprimee (
 );
 CREATE INDEX IF NOT EXISTS ent_affectation_supprimee_eleve_idx
     ON ent_affectation_supprimee (etablissement_id, eleve_id);
+-- Clé propre à l'archive (l'`id` d'origine peut y revenir si une affectation supprimée est
+-- recréée puis supprimée de nouveau) : le registre des tables d'élève exige une clé primaire.
+ALTER TABLE ent_affectation_supprimee ADD COLUMN IF NOT EXISTS archive_id UUID NOT NULL DEFAULT gen_random_uuid();
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_index WHERE indrelid = 'ent_affectation_supprimee'::regclass AND indisprimary) THEN
+        ALTER TABLE ent_affectation_supprimee ADD PRIMARY KEY (archive_id);
+    END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION ent_trg_affectation_archive() RETURNS trigger AS $$
 BEGIN

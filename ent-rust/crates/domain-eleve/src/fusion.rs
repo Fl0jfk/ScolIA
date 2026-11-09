@@ -64,7 +64,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_absence_signal", &["id"]),
     d("ent_aesh_affectation", &["id"]),
     d("ent_affectation", &["id"]),
-    r("ent_affectation_supprimee", &["id"], "archive des affectations supprimées (S0) : trace d'audit, elle reste attachée à la fiche d'origine"),
+    r("ent_affectation_supprimee", &["archive_id"], "archive des affectations supprimées : trace en ajout seul, reste sur la fiche où la suppression a eu lieu"),
     d("ent_alerte_cpe", &["id"]),
     d("ent_amenagement", &["id"]),
     d("ent_appel_ligne", &["id"]),
@@ -77,7 +77,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_conseil_classe_dossier", &["id"]),
     d("ent_contrainte_publiee", &["id"]),
     d("ent_convention_stage", &["id"]),
-    r("ent_cours_membre", &["id"], "inclusions et exclusions individuelles d'un cours (S1/S4) : décisions datées et motif sensible (ULIS, UPE2A…) ; ne passent jamais seules à la fiche conservée, la gestion les ressaisit après la fusion"),
+    r("ent_cours_membre", &["id"], "inclusion ou exclusion datée d'un cours : ligne immuable (seule l'annulation est permise), elle reste sur la fiche pour laquelle elle a été décidée"),
     d("ent_creneau_rdv", &["id"]),
     d("ent_dispense_vs", &["id"]),
     d("ent_doc_a_signer", &["id"]),
@@ -245,6 +245,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_journal", "Journal et événements"),
         ("ent_metier_event", "Journal et événements"),
         ("ent_contrainte", "Emploi du temps"),
+        ("ent_cours_membre", "Emploi du temps"),
     ];
     REGLES
         .iter()
