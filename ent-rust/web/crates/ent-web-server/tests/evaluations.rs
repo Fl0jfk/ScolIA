@@ -273,7 +273,9 @@ async fn periode_complete_avec_le_client_du_frontend() {
     // 3. Direction : fermeture, génération, publication ; la famille télécharge le PDF.
     let c_dir = client_de(&base, &l, &personnel(&l, "direction").email).await;
     assert!(matches!(
-        c_prof.changer_statut_periode(periode.id, "fermee", None).await,
+        c_prof
+            .changer_statut_periode(periode.id, "fermee", None)
+            .await,
         Err(ApiError::Interdit(_))
     ));
     let p = c_dir

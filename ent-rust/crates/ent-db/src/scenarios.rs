@@ -2233,7 +2233,8 @@ async fn competences_lues_par_la_famille_et_export_lsu_reel() {
         )
         .await
         .expect("lecture famille");
-    assert!(!vus.is_empty());
+    // V0 (D3b) : avant publication (livret ou bulletin), la famille ne voit aucune compétence.
+    assert!(vus.is_empty(), "compétences non publiées : invisibles de la famille");
     assert!(
         ent.list_evaluations_eleve_for_actor(
             etab,
@@ -2279,6 +2280,18 @@ async fn competences_lues_par_la_famille_et_export_lsu_reel() {
         .expect("publier livret");
     assert_eq!(doc.tiroir.as_str(), "famille");
     assert_eq!(doc.mime_type.as_deref(), Some("application/pdf"));
+    // Livret publié : la famille liée lit désormais les compétences de la période.
+    let publiees = ent
+        .list_evaluations_eleve_for_actor(
+            etab,
+            cast.parent_lea.user_id,
+            Role::Parent.as_str(),
+            lea,
+            Some(periode.id),
+        )
+        .await
+        .expect("lecture famille après publication");
+    assert!(!publiees.is_empty());
     let mails = ent
         .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
         .await
