@@ -286,7 +286,13 @@ async fn grille_coupure(
 ) -> Res<Json<GrilleVue>> {
     Ok(Json(
         s.ent
-            .structure_grille_coupure(&acteur(&session), &code, b.a_partir_du, b.coupure, b.motif.as_deref())
+            .structure_grille_coupure(
+                &acteur(&session),
+                &code,
+                b.a_partir_du,
+                b.coupure,
+                b.motif.as_deref(),
+            )
             .await
             .map_err(map_db)?,
     ))

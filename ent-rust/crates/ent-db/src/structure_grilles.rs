@@ -200,7 +200,8 @@ pub fn valider_creneaux(
         });
     }
     v.sort_by_key(|c| c.heure_debut);
-    if v.windows(2).any(|w| w[1].heure_debut < w[0].heure_fin) || !v.iter().any(|c| c.nature == "cours")
+    if v.windows(2).any(|w| w[1].heure_debut < w[0].heure_fin)
+        || !v.iter().any(|c| c.nature == "cours")
     {
         return Err(invalide());
     }
@@ -255,7 +256,10 @@ pub fn valider_cibles(cibles: &[CibleGrilleSaisie]) -> Result<Vec<CibleGrilleSai
             niveau_id: c.niveau_id,
             jours,
         };
-        if out.iter().any(|o| o.site_id == n.site_id && o.niveau_id == n.niveau_id) {
+        if out
+            .iter()
+            .any(|o| o.site_id == n.site_id && o.niveau_id == n.niveau_id)
+        {
             return Err(invalide());
         }
         out.push(n);
@@ -277,8 +281,9 @@ struct LigneGrille {
     origine: String,
 }
 
-const SQL_GRILLE: &str = "SELECT id, code, libelle, valable_du, valable_au, coupure_demi_journee, motif, origine
-                            FROM ent_grille";
+const SQL_GRILLE: &str =
+    "SELECT id, code, libelle, valable_du, valable_au, coupure_demi_journee, motif, origine
+                            FROM ent_grille WHERE etablissement_id = $1";
 
 async fn creneaux_de(
     conn: &mut PgConnection,
@@ -343,7 +348,7 @@ async fn grille_lue(
     verrou: bool,
 ) -> Result<LigneGrille, EntDbError> {
     sqlx::query_as::<_, LigneGrille>(&format!(
-        "{SQL_GRILLE} WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL{}",
+        "{SQL_GRILLE} AND id = $2 AND archivee_le IS NULL{}",
         if verrou { " FOR UPDATE" } else { "" }
     ))
     .bind(etab)
@@ -516,7 +521,7 @@ async fn ecrire_version(
         .iter()
         .rev()
         .find(|v| v.1 < w.valable_du)
-        .filter(|v| v.2.map_or(true, |f| f >= w.valable_du));
+        .filter(|v| v.2.is_none_or(|f| f >= w.valable_du));
     let suivante = versions.iter().find(|v| v.1 > w.valable_du);
     let valable_au = match (suivante, precedente) {
         (Some(s), _) => Some(s.1 - Duration::days(1)),
@@ -524,13 +529,15 @@ async fn ecrire_version(
         (None, None) => None,
     };
     if let Some(p) = precedente {
-        sqlx::query("UPDATE ent_grille SET valable_au = $3 WHERE etablissement_id = $1 AND id = $2")
-            .bind(e)
-            .bind(p.0)
-            .bind(w.valable_du - Duration::days(1))
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_grille SET valable_au = $3 WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(e)
+        .bind(p.0)
+        .bind(w.valable_du - Duration::days(1))
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
     }
     let id = Uuid::new_v4();
     sqlx::query(
@@ -627,7 +634,8 @@ async fn projeter_ancienne(
 fn code_reprise(site: Option<Uuid>) -> String {
     format!(
         "REPRISE-{}",
-        &site.map_or_else(|| "ETAB".to_string(), |s| s.simple().to_string())[..site.map_or(4, |_| 12)]
+        &site.map_or_else(|| "ETAB".to_string(), |s| s.simple().to_string())
+            [..site.map_or(4, |_| 12)]
     )
 }
 
@@ -665,12 +673,14 @@ pub(crate) async fn miroir_ancienne_grille(
     .await
     .map_err(db)?;
     if let Some(id) = du_jour {
-        sqlx::query("DELETE FROM ent_grille_creneau WHERE etablissement_id = $1 AND grille_id = $2")
-            .bind(e)
-            .bind(id)
-            .execute(&mut *conn)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "DELETE FROM ent_grille_creneau WHERE etablissement_id = $1 AND grille_id = $2",
+        )
+        .bind(e)
+        .bind(id)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
         if neufs.is_empty() {
             sqlx::query("DELETE FROM ent_grille WHERE etablissement_id = $1 AND id = $2")
                 .bind(e)
@@ -748,7 +758,7 @@ impl PgEnt {
         let mut t = tx(self, a).await?;
         let jour = crate::structure_etab::structure::aujourdhui(&mut t, e).await?;
         let lignes = sqlx::query_as::<_, LigneGrille>(&format!(
-            "{SQL_GRILLE} WHERE etablissement_id = $1 AND archivee_le IS NULL ORDER BY code, valable_du DESC"
+            "{SQL_GRILLE} AND archivee_le IS NULL ORDER BY code, valable_du DESC"
         ))
         .bind(e)
         .fetch_all(&mut *t)
@@ -762,7 +772,11 @@ impl PgEnt {
         Ok(out)
     }
 
-    pub async fn structure_grille(&self, a: &Acteur<'_>, id: Uuid) -> Result<GrilleVue, EntDbError> {
+    pub async fn structure_grille(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<GrilleVue, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let e = a.etablissement_id;
         let mut t = tx(self, a).await?;
@@ -817,7 +831,16 @@ impl PgEnt {
         projeter_ancienne(&mut t, e, id, jour).await?;
         let l = grille_lue(&mut t, e, id, false).await?;
         let v = vue_de(&mut t, e, l, jour).await?;
-        journaliser(&mut t, a, "grille", &id.to_string(), "versionnee", None, Some(json_grille(&v))).await?;
+        journaliser(
+            &mut t,
+            a,
+            "grille",
+            &id.to_string(),
+            "versionnee",
+            None,
+            Some(json_grille(&v)),
+        )
+        .await?;
         let ev = publier(
             &mut t,
             a,
@@ -855,12 +878,14 @@ impl PgEnt {
         cibles_existent(&mut t, e, &cibles).await?;
         let ligne = grille_lue(&mut t, e, id, false).await?;
         let avant_vue = vue_de(&mut t, e, ligne, jour).await?;
-        sqlx::query("DELETE FROM ent_grille_creneau WHERE etablissement_id = $1 AND grille_id = $2")
-            .bind(e)
-            .bind(id)
-            .execute(&mut *t)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "DELETE FROM ent_grille_creneau WHERE etablissement_id = $1 AND grille_id = $2",
+        )
+        .bind(e)
+        .bind(id)
+        .execute(&mut *t)
+        .await
+        .map_err(db)?;
         sqlx::query("DELETE FROM ent_grille_cible WHERE etablissement_id = $1 AND grille_id = $2")
             .bind(e)
             .bind(id)
@@ -909,7 +934,11 @@ impl PgEnt {
 
     /// STR-34 : supprime une version qui n'a pas commencé ; la version précédente reprend sa date
     /// de fin si elle avait été close pour lui céder la place.
-    pub async fn structure_grille_supprimer(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
+    pub async fn structure_grille_supprimer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut t = tx(self, a).await?;
@@ -939,7 +968,16 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, "grille", &id.to_string(), "supprimee", Some(json_grille(&avant)), None).await?;
+        journaliser(
+            &mut t,
+            a,
+            "grille",
+            &id.to_string(),
+            "supprimee",
+            Some(json_grille(&avant)),
+            None,
+        )
+        .await?;
         let ev = publier(
             &mut t,
             a,
@@ -979,7 +1017,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let en_vigueur = sqlx::query_as::<_, LigneGrille>(&format!(
-            "{SQL_GRILLE} WHERE etablissement_id = $1 AND code = $2 AND archivee_le IS NULL
+            "{SQL_GRILLE} AND code = $2 AND archivee_le IS NULL
                 AND valable_du <= $3 AND (valable_au IS NULL OR valable_au >= $3) FOR UPDATE"
         ))
         .bind(e)
@@ -1030,7 +1068,9 @@ impl PgEnt {
                     libelle: &avant.libelle,
                     valable_du: a_partir_du,
                     coupure,
-                    motif: motif.as_deref().or(Some("Changement de la coupure des demi-journées")),
+                    motif: motif
+                        .as_deref()
+                        .or(Some("Changement de la coupure des demi-journées")),
                     origine: "service",
                     creneaux: &saisis,
                     cibles: &cibles,
@@ -1270,7 +1310,10 @@ mod tests {
 
     #[test]
     fn sans_pause_la_coupure_par_defaut_est_midi_et_demi() {
-        let j = vec![cr("A", h(8, 0), h(9, 0), "cours"), cr("B", h(14, 0), h(15, 0), "cours")];
+        let j = vec![
+            cr("A", h(8, 0), h(9, 0), "cours"),
+            cr("B", h(14, 0), h(15, 0), "cours"),
+        ];
         assert_eq!(valider_creneaux(&j, None).unwrap().1, h(12, 30));
     }
 
@@ -1293,10 +1336,24 @@ mod tests {
         .unwrap();
         assert_eq!(c[0].jours, None);
         // Jour hors plage, jours vides, cible en double.
-        assert!(valider_cibles(&[CibleGrilleSaisie { jours: Some(vec![0]), ..Default::default() }]).is_err());
-        assert!(valider_cibles(&[CibleGrilleSaisie { jours: Some(vec![8]), ..Default::default() }]).is_err());
-        assert!(valider_cibles(&[CibleGrilleSaisie { jours: Some(vec![]), ..Default::default() }]).is_err());
-        assert!(valider_cibles(&[CibleGrilleSaisie::default(), CibleGrilleSaisie::default()]).is_err());
+        assert!(valider_cibles(&[CibleGrilleSaisie {
+            jours: Some(vec![0]),
+            ..Default::default()
+        }])
+        .is_err());
+        assert!(valider_cibles(&[CibleGrilleSaisie {
+            jours: Some(vec![8]),
+            ..Default::default()
+        }])
+        .is_err());
+        assert!(valider_cibles(&[CibleGrilleSaisie {
+            jours: Some(vec![]),
+            ..Default::default()
+        }])
+        .is_err());
+        assert!(
+            valider_cibles(&[CibleGrilleSaisie::default(), CibleGrilleSaisie::default()]).is_err()
+        );
     }
 
     #[test]

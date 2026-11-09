@@ -229,7 +229,11 @@ pub fn decouper(debut: NaiveDate, fin: NaiveDate, n: i64) -> Vec<(NaiveDate, Nai
 }
 
 /// Modèle prêt à l'emploi : `trimestres` (T1 à T3) ou `semestres` (S1, S2).
-pub fn modele_periodes(modele: &str, debut: NaiveDate, fin: NaiveDate) -> Option<Vec<PeriodeS7Saisie>> {
+pub fn modele_periodes(
+    modele: &str,
+    debut: NaiveDate,
+    fin: NaiveDate,
+) -> Option<Vec<PeriodeS7Saisie>> {
     let (n, prefixe, kind, nom) = match modele {
         "trimestres" => (3, "T", "trimestre", "Trimestre"),
         "semestres" => (2, "S", "semestre", "Semestre"),
@@ -318,8 +322,9 @@ pub fn valider_periodes(
 
 // ───────────────────────── Lectures partagées ─────────────────────────
 
-const SQL_PERIODE: &str = "SELECT id, periodisation_id, code, libelle, kind, ordre, date_debut, date_fin,
-        date_arret_notes, date_conseil FROM ent_periode";
+const SQL_PERIODE: &str =
+    "SELECT id, periodisation_id, code, libelle, kind, ordre, date_debut, date_fin,
+        date_arret_notes, date_conseil FROM ent_periode WHERE etablissement_id = $1";
 
 async fn periodes_de(
     conn: &mut PgConnection,
@@ -327,7 +332,7 @@ async fn periodes_de(
     pz: Uuid,
 ) -> Result<Vec<PeriodeVue>, EntDbError> {
     sqlx::query_as::<_, PeriodeVue>(&format!(
-        "{SQL_PERIODE} WHERE etablissement_id = $1 AND periodisation_id = $2 ORDER BY date_debut"
+        "{SQL_PERIODE} AND periodisation_id = $2 ORDER BY date_debut"
     ))
     .bind(etab)
     .bind(pz)
@@ -364,8 +369,9 @@ struct LignePz {
     archivee: bool,
 }
 
-const SQL_PZ: &str = "SELECT id, annee_id, code, libelle, usage, origine, archivee_le IS NOT NULL AS archivee
-                        FROM ent_periodisation";
+const SQL_PZ: &str =
+    "SELECT id, annee_id, code, libelle, usage, origine, archivee_le IS NOT NULL AS archivee
+                        FROM ent_periodisation WHERE etablissement_id = $1";
 
 async fn vue_de(
     conn: &mut PgConnection,
@@ -394,7 +400,7 @@ async fn pz_lue(
     verrou: bool,
 ) -> Result<LignePz, EntDbError> {
     let sql = format!(
-        "{SQL_PZ} WHERE etablissement_id = $1 AND id = $2{}",
+        "{SQL_PZ} AND id = $2{}",
         if verrou { " FOR UPDATE" } else { "" }
     );
     sqlx::query_as::<_, LignePz>(&sql)
@@ -456,19 +462,23 @@ async fn cibles_valides(
             return Err(invalide());
         }
         let ok: i64 = if let Some(n) = c.niveau_id {
-            sqlx::query_scalar("SELECT count(*) FROM ent_niveau WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(n)
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db)?
+            sqlx::query_scalar(
+                "SELECT count(*) FROM ent_niveau WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(n)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?
         } else if let Some(m) = c.mef_id {
-            sqlx::query_scalar("SELECT count(*) FROM ent_mef WHERE etablissement_id = $1 AND id = $2")
-                .bind(etab)
-                .bind(m)
-                .fetch_one(&mut *conn)
-                .await
-                .map_err(db)?
+            sqlx::query_scalar(
+                "SELECT count(*) FROM ent_mef WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(m)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?
         } else if let Some(cl) = c.classe_id {
             sqlx::query_scalar(
                 "SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = $2 AND annee_id = $3",
@@ -699,16 +709,19 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (d, f) = r.ok_or_else(introuvable)?;
-        Ok([("trimestres", "Trois trimestres"), ("semestres", "Deux semestres")]
-            .into_iter()
-            .filter_map(|(m, l)| {
-                modele_periodes(m, d, f).map(|periodes| ModelePeriodes {
-                    modele: m.to_string(),
-                    libelle: l.to_string(),
-                    periodes,
-                })
+        Ok([
+            ("trimestres", "Trois trimestres"),
+            ("semestres", "Deux semestres"),
+        ]
+        .into_iter()
+        .filter_map(|(m, l)| {
+            modele_periodes(m, d, f).map(|periodes| ModelePeriodes {
+                modele: m.to_string(),
+                libelle: l.to_string(),
+                periodes,
             })
-            .collect())
+        })
+        .collect())
     }
 
     pub async fn structure_periodisations(
@@ -720,7 +733,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
         let mut t = tx(self, a).await?;
         let lignes = sqlx::query_as::<_, LignePz>(&format!(
-            "{SQL_PZ} WHERE etablissement_id = $1 AND annee_id = $2 AND ($3 OR archivee_le IS NULL)
+            "{SQL_PZ} AND annee_id = $2 AND ($3 OR archivee_le IS NULL)
               ORDER BY usage, code"
         ))
         .bind(a.etablissement_id)
@@ -845,7 +858,8 @@ impl PgEnt {
         let annee = annee_verrouillee(&mut t, e, pz.annee_id).await?;
         let valides = valider_periodes(&periodes, annee.debut, annee.fin, &pz.usage)?;
         let jour = crate::structure_etab::structure::aujourdhui(&mut t, e).await?;
-        let diff = remplacer_periodes(&mut t, e, pz.annee_id, id, &valides, jour, est_direction(a)).await?;
+        let diff = remplacer_periodes(&mut t, e, pz.annee_id, id, &valides, jour, est_direction(a))
+            .await?;
         self.cloturer_modification(&mut t, a, &pz, &diff).await?;
         let ev = self.evenement_modification(&mut t, a, &pz, &diff).await?;
         let l = pz_lue(&mut t, e, id, false).await?;
@@ -899,7 +913,10 @@ impl PgEnt {
         }
         if let Some(d) = m.date_debut {
             sai[i].date_debut = d;
-            if m.ajuster_voisines && i > 0 && actuelles[i - 1].date_fin + Duration::days(1) == actuelles[i].date_debut {
+            if m.ajuster_voisines
+                && i > 0
+                && actuelles[i - 1].date_fin + Duration::days(1) == actuelles[i].date_debut
+            {
                 sai[i - 1].date_fin = d - Duration::days(1);
             }
         }
@@ -921,7 +938,16 @@ impl PgEnt {
         // Un arrêt ou un conseil devenus antérieurs au début suivent le début modifié : refus net.
         let valides = valider_periodes(&sai, annee.debut, annee.fin, &pz.usage)?;
         let jour = crate::structure_etab::structure::aujourdhui(&mut t, e).await?;
-        let diff = remplacer_periodes(&mut t, e, pz.annee_id, pid, &valides, jour, est_direction(a)).await?;
+        let diff = remplacer_periodes(
+            &mut t,
+            e,
+            pz.annee_id,
+            pid,
+            &valides,
+            jour,
+            est_direction(a),
+        )
+        .await?;
         self.cloturer_modification(&mut t, a, &pz, &diff).await?;
         let ev = self.evenement_modification(&mut t, a, &pz, &diff).await?;
         let l = pz_lue(&mut t, e, pid, false).await?;
@@ -1074,8 +1100,16 @@ impl PgEnt {
             .execute(&mut *t)
             .await
             .map_err(db)?;
-        journaliser(&mut t, a, "periodisation", &id.to_string(), "archivee", None, Some(json!({ "code": pz.code })))
-            .await?;
+        journaliser(
+            &mut t,
+            a,
+            "periodisation",
+            &id.to_string(),
+            "archivee",
+            None,
+            Some(json!({ "code": pz.code })),
+        )
+        .await?;
         let ev = publier(
             &mut t,
             a,
@@ -1121,7 +1155,7 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let lignes = sqlx::query_as::<_, LignePz>(&format!(
-            "{SQL_PZ} WHERE etablissement_id = $1 AND annee_id = $2 AND usage = 'evaluation'
+            "{SQL_PZ} AND annee_id = $2 AND usage = 'evaluation'
                 AND archivee_le IS NULL ORDER BY code"
         ))
         .bind(e)
@@ -1298,7 +1332,10 @@ mod tests {
     #[test]
     fn modeles_trimestres_et_semestres() {
         let t = modele_periodes("trimestres", d(2026, 9, 1), d(2027, 6, 30)).unwrap();
-        assert_eq!(t.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(), ["T1", "T2", "T3"]);
+        assert_eq!(
+            t.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+            ["T1", "T2", "T3"]
+        );
         let s = modele_periodes("semestres", d(2026, 9, 1), d(2027, 6, 30)).unwrap();
         assert_eq!(s.len(), 2);
         assert!(s.iter().all(|p| p.kind == "semestre"));
@@ -1312,7 +1349,7 @@ mod tests {
         let (a, b) = (d(2026, 9, 1), d(2027, 6, 30));
         let mut t = modele_periodes("trimestres", a, b).unwrap();
         // Trou entre T1 et T2.
-        t[1].date_debut = t[1].date_debut + Duration::days(3);
+        t[1].date_debut += Duration::days(3);
         assert!(valider_periodes(&t, a, b, "evaluation").is_err());
         assert!(valider_periodes(&t, a, b, "autre").is_ok());
         // Chevauchement refusé dans tous les cas.
@@ -1376,7 +1413,10 @@ mod tests {
         assert!(p.saisie_ouverte(d(2026, 12, 11)));
         assert!(!p.saisie_ouverte(d(2026, 12, 12)));
         assert!(!p.saisie_ouverte(d(2026, 8, 31)));
-        let sans_arret = PeriodeVue { date_arret_notes: None, ..p };
+        let sans_arret = PeriodeVue {
+            date_arret_notes: None,
+            ..p
+        };
         assert!(sans_arret.saisie_ouverte(d(2026, 12, 18)));
     }
 }
