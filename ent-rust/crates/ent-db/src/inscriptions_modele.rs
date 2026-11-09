@@ -706,6 +706,49 @@ impl PgEnt {
         self.offres_dto(etab, campagne_id).await
     }
 
+    /// Enseignements (options, langues, spécialités) que l'établissement propose pour cette offre
+    /// d'inscription : **lecture de l'offre du socle 5 par son port** (`structure_offre::offre`),
+    /// filtrée par l'année de la campagne et par le niveau de l'offre. Sans année de campagne ou
+    /// sans niveau rapproché du référentiel, la liste est vide (rien n'est deviné).
+    pub async fn enseignements_proposes_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        campagne_id: Uuid,
+        offre_id: Uuid,
+    ) -> Result<Vec<crate::structure_offre::offre::OffreVoeu>, EntDbError> {
+        self.ins_personnel(etab, actor, role).await?;
+        let campagne = self.campagne_row(etab, campagne_id).await?;
+        let Some(annee_id) = campagne.annee_id else {
+            return Ok(Vec::new());
+        };
+        let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), etab)
+            .await
+            .map_err(db)?;
+        let niveau: Option<Option<Uuid>> = sqlx::query_scalar(
+            "SELECT niveau_id FROM ent_inscription_offre
+              WHERE etablissement_id = $1 AND campagne_id = $2 AND id = $3",
+        )
+        .bind(etab)
+        .bind(campagne_id)
+        .bind(offre_id)
+        .fetch_optional(&mut *t)
+        .await
+        .map_err(db)?;
+        let Some(niveau_id) = niveau else {
+            return Err(EntDbError::Domain(domain_eleve::DomainError::NotFound));
+        };
+        let out = if niveau_id.is_some() {
+            crate::structure_offre::offre::offres_ouvertes_aux_voeux(&mut t, etab, annee_id, niveau_id, None)
+                .await?
+        } else {
+            Vec::new()
+        };
+        t.commit().await.map_err(db)?;
+        Ok(out)
+    }
+
     pub(crate) async fn offres_dto(
         &self,
         etab: Uuid,
