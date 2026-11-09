@@ -20,8 +20,34 @@ import { useAppContext } from "@/app/hooks/useAppContext";
 import EstablishmentSelect from "@/app/components/establishments/EstablishmentSelect";
 import { PaperclipIcon, PrinterIcon, printDaySummary } from "@/app/components/absences/AbsencesCalendarPrint";
 import { formatParisHm, parisDateKey } from "@/app/lib/paris-time";
+import { describeAbsenceOutcome } from "@/app/lib/absences-outcome";
 
 const DAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+/** Coche « validée » sur les demandes d'autorisation (pas sur les convocations / imports). */
+function OutcomeBadge({ item, centered = false }: { item: AbsenceRecord | undefined; centered?: boolean }) {
+  if (!item || item.source !== "self") return null;
+  const o = describeAbsenceOutcome(item);
+  const tone =
+    o.state === "validee"
+      ? "bg-emerald-600 text-white"
+      : o.state === "refusee"
+        ? "bg-rose-600 text-white"
+        : "bg-amber-100 text-amber-900";
+  const icon = o.state === "validee" ? "✓" : o.state === "refusee" ? "✕" : "…";
+  return (
+    <div className={`mt-1 flex ${centered ? "justify-center" : ""}`}>
+      <span
+        title={o.tooltip}
+        aria-label={o.tooltip}
+        className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-black ${tone}`}
+      >
+        <span aria-hidden>{icon}</span>
+        {o.shortLabel}
+      </span>
+    </div>
+  );
+}
 
 function sameDay(date: Date, y: number, m: number, d: number) {
   return date.getFullYear() === y && date.getMonth() === m && date.getDate() === d;
@@ -526,6 +552,7 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
                           <div className="mt-0.5 text-center text-[11px] break-words whitespace-normal text-slate-600">
                             {event.displayTime}
                           </div>
+                          <OutcomeBadge item={itemsById.get(event.id)} centered />
                         </div>
                           );
                         })()
@@ -725,6 +752,7 @@ export default function AbsencesCalendar({ refreshKey = 0 }: AbsencesCalendarPro
                           <div className="font-bold break-words whitespace-normal">{event.displayName}</div>
                           <div className="break-words whitespace-normal">{event.reason}</div>
                           <div className="break-words whitespace-normal">{event.displayTime}</div>
+                          <OutcomeBadge item={itemsById.get(event.id)} />
                         </div>
                           );
                         })()

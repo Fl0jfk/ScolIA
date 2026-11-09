@@ -72,6 +72,7 @@ import {
 import AbsenceMakeupSlotsEditor from "@/app/components/absences/AbsenceMakeupSlotsEditor";
 import { AbsenceInternalThreadPanel } from "@/app/components/absences/AbsenceInternalThreadPanel";
 import AbsenceSuiviBlock from "@/app/components/absences/AbsenceSuiviBlock";
+import AbsencesSuiviTraitees from "@/app/components/absences/AbsencesSuiviTraitees";
 
 const AbsencesDeclareOther = dynamic(
   () => import("@/app/components/absences/AbsencesDeclareOther"),
@@ -890,11 +891,17 @@ export default function AbsencesPageClient({
     (i) => isPendingAbsence(i) || isWaitingAdminTreatment(i) || needsMakeupSlotsFromStaff(i),
   ).length;
   const showTraitementTab = viewerIsProcessor || adminQueue.length > 0;
+  const showSuiviTab = canTreat || viewerIsProcessor || showCalendar;
+  // Demandes d'autorisation déjà décidées (hors convocations / imports PDF).
+  const decidedItems = sorted.filter(
+    (i) => i.source !== "admin_manual" && i.source !== "admin_pdf" && itemDecision(i) !== "EN_ATTENTE",
+  );
   const tabs = [
     { id: "calendrier", label: "Calendrier", show: showCalendar },
     { id: "se-declarer", label: "Demande d'autorisation", show: true },
     { id: "a-traiter", label: "Absences à valider", show: canTreat },
     { id: "traitement", label: "Traitement RH / rectorat", show: showTraitementTab },
+    { id: "suivi", label: "Suivi des absences traitées", show: showSuiviTab },
     { id: "parametrage", label: "Paramétrage", show: canConfigureProcessors },
   ].filter((t) => t.show);
 
@@ -1967,6 +1974,10 @@ export default function AbsencesPageClient({
             ))
           )}
         </div>
+      ) : null}
+
+      {activeTab === "suivi" && showSuiviTab ? (
+        <AbsencesSuiviTraitees items={decidedItems} loading={loading} />
       ) : null}
 
       {activeTab === "parametrage" && canConfigureProcessors ? <AbsencesProcessorsPanel /> : null}
