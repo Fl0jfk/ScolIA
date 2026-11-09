@@ -21,6 +21,14 @@ import { deletePendingRequestPrefix, generatePendingRequestToken, savePendingReq
 import { RH_REQUEST_ROUTE_ID } from "@/app/lib/requests-routing-defaults";
 import { getTenantSmtpConfig } from "@/app/lib/tenant-mail";
 import { clientIpFromRequest, createSlidingWindowRateLimiter } from "@/app/lib/memory-rate-limit";
+import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { rolesFromUserLike } from "@/app/lib/intranet-roles";
+import { canSelfDeclareAbsence } from "@/app/lib/absences-types";
+import {
+  ABSENCE_DECLARE_HREF,
+  ABSENCE_REDIRECT_CODE,
+  looksLikeStaffAbsenceRequest,
+} from "@/app/lib/request-absence-detect";
 
 export const runtime = "nodejs";
 
@@ -47,6 +55,7 @@ function parseCreatePayload(
   forceRouteId: string | null;
   files: File[];
   honeypot: string;
+  notAbsence: boolean;
 } {
   if (form) {
     const g = (k: string) => {
@@ -66,6 +75,7 @@ function parseCreatePayload(
       forceRouteId,
       files: rawFiles.slice(0, MAX_REQUEST_ATTACHMENTS_PER_UPLOAD),
       honeypot: String(form.get("website") || form.get("company") || "").trim(),
+      notAbsence: g("notAbsence") === "1",
     };
   }
   const b = bodyJson as Record<string, unknown>;
@@ -82,6 +92,7 @@ function parseCreatePayload(
     forceRouteId,
     files: [],
     honeypot: String(b?.website || b?.company || "").trim(),
+    notAbsence: b?.notAbsence === true || b?.notAbsence === "1",
   };
 }
 
@@ -199,6 +210,26 @@ export async function POST(req: Request) {
     }
     const orgGate = await requireAuth();
     if (!orgGate.ok) return orgGate.response;
+
+    // Une absence du personnel saisie ici n'arrive à personne : on renvoie vers le module Absences,
+    // sauf si la personne a confirmé que ce n'en est pas une.
+    if (!payload.notAbsence && !payload.forceRouteId) {
+      const roles = rolesFromUserLike(await safeCurrentUser());
+      if (
+        canSelfDeclareAbsence(roles) &&
+        looksLikeStaffAbsenceRequest(validated.value.subject, validated.value.description)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Cela ressemble à une demande d’absence. Les absences se déclarent dans le module Absences : c’est là que la direction les reçoit et les valide.",
+            code: ABSENCE_REDIRECT_CODE,
+            redirectHref: ABSENCE_DECLARE_HREF,
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const now = new Date().toISOString();
     const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

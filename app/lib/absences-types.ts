@@ -165,6 +165,11 @@ export function resolveSelfDeclarationScope(roles: string[], requested?: unknown
   return req === "professeur" ? "professeur" : "ogec";
 }
 
+/** Personnel qui déclare ses absences dans le module Absences (professeurs + personnel OGEC). */
+export function canSelfDeclareAbsence(roles: string[]) {
+  return isTeacherRole(roles) || isOgecStaffRole(roles);
+}
+
 export function canChooseDeclarationScope(roles: string[]) {
   return isTeacherRole(roles) && isOgecStaffRole(roles);
 }

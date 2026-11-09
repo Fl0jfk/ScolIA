@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSessionUser } from "@/app/hooks/useAppUser";
+import { ABSENCE_REDIRECT_CODE } from "@/app/lib/request-absence-detect";
 
 const MAX_FILES = 12;
 
@@ -61,6 +62,7 @@ export default function FaireUneDemandeForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<FaireUneDemandeSuccess | null>(null);
+  const [absenceRedirect, setAbsenceRedirect] = useState<{ message: string; href: string } | null>(null);
 
   useEffect(() => {
     if (initialDescription) setDescription(initialDescription);
@@ -93,11 +95,12 @@ export default function FaireUneDemandeForm({
     setFiles((prev) => [...prev, ...Array.from(list)].slice(0, MAX_FILES));
   };
 
-  const submit = async () => {
+  const submit = async (confirmNotAbsence = false) => {
     if (!canSubmit || submitting) return;
     setSubmitting(true);
     setError(null);
     setSuccess(null);
+    setAbsenceRedirect(null);
     try {
       const rawSubject = fixedSubject?.trim() || deriveSubject(description);
       const subject = (
@@ -116,9 +119,17 @@ export default function FaireUneDemandeForm({
       fd.append("description", description.trim());
       if (forceRouteId) fd.append("forceRouteId", forceRouteId);
       fd.append("website", honeypot);
+      if (confirmNotAbsence) fd.append("notAbsence", "1");
       for (const f of files) fd.append("files", f);
       const res = await fetch("/api/requests/create", { method: "POST", body: fd });
       const data = await res.json();
+      if (res.status === 409 && data?.code === ABSENCE_REDIRECT_CODE) {
+        setAbsenceRedirect({
+          message: data.error || "Cela ressemble à une demande d’absence.",
+          href: typeof data.redirectHref === "string" ? data.redirectHref : "/absences?tab=se-declarer",
+        });
+        return;
+      }
       if (!res.ok) throw new Error(data?.error || "Envoi impossible.");
       if (data.needsEmailVerification) {
         const result: FaireUneDemandeSuccess = {
@@ -313,6 +324,32 @@ export default function FaireUneDemandeForm({
           </div>
 
           {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+
+          {absenceRedirect ? (
+            <div role="alert" className="rounded-2xl border border-amber-300 bg-amber-50 p-4 space-y-3">
+              <p className="font-bold text-amber-900">Demande d&apos;absence ?</p>
+              <p className="text-sm text-amber-900 leading-relaxed">{absenceRedirect.message}</p>
+              <p className="text-xs text-amber-800 leading-relaxed">
+                Si vous l&apos;envoyez ici, elle ne sera pas traitée comme une absence.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href={absenceRedirect.href}
+                  className="px-4 py-2 rounded-full bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition"
+                >
+                  Déclarer mon absence
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => void submit(true)}
+                  disabled={submitting}
+                  className="px-4 py-2 rounded-full bg-white border border-amber-300 text-sm font-bold text-amber-900 hover:bg-amber-100 disabled:opacity-40 transition"
+                >
+                  Ce n&apos;est pas une absence, envoyer quand même
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {!isSignedIn ? (
             <p className="text-xs text-slate-500 leading-relaxed">
