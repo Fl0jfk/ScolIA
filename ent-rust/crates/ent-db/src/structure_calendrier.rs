@@ -2485,11 +2485,13 @@ fn services_valides(v: &[String]) -> Result<Vec<String>, EntDbError> {
 }
 
 fn services_par_defaut(internes_presents: bool) -> Vec<String> {
-    SERVICES_FERMETURE
+    let mut v: Vec<String> = SERVICES_FERMETURE
         .iter()
         .filter(|s| !(internes_presents && matches!(**s, "restauration" | "internat")))
         .map(|s| s.to_string())
-        .collect()
+        .collect();
+    v.sort(); // même forme que les services saisis (triés), pour comparer les déclarations
+    v
 }
 
 fn socles_a_prevenir(services: &[String]) -> Vec<&'static str> {

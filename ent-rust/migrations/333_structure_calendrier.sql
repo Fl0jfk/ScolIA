@@ -13,6 +13,12 @@
 -- Migration additive et rejouable. La fermeture exceptionnelle (effets, levée) est en 334.
 
 -- Clés étrangères composites (id, etablissement_id) pour les cibles.
+-- (mêmes index, mêmes noms que 337 et 338 : IF NOT EXISTS les rend inoffensifs quelle que soit
+-- l'ordre d'application sur une base déjà migrée).
+CREATE UNIQUE INDEX IF NOT EXISTS ent_annee_scolaire_id_etab_uq ON ent_annee_scolaire (id, etablissement_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ent_site_id_etab_uq ON ent_site (id, etablissement_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ent_niveau_id_etab_uq ON ent_niveau (id, etablissement_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ent_groupe_id_etab_uq ON ent_groupe (id, etablissement_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ent_classe_id_etab_uq ON ent_classe (id, etablissement_id);
 
 -- ───────────────────────── Référentiel officiel (global, hors tenant) ─────────────────────────
