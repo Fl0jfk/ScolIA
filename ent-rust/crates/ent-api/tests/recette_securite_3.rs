@@ -75,6 +75,51 @@ const PUBLIQUES: &[(&str, &str)] = &[
 ];
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
 
+fn uuid_de(v: &serde_json::Value) -> Uuid {
+    Uuid::parse_str(v.as_str().unwrap_or_else(|| panic!("uuid attendu : {v}"))).expect("uuid")
+}
+
+async fn pool_de_test() -> sqlx::PgPool {
+    let url = std::env::var("ENT_DATABASE_URL").expect("base de test");
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .expect("connexion de préparation")
+}
+
+/// Crée par SQL un compte jetable, membre de l'établissement A avec `role`, avec
+/// le mot de passe de labo (en labo l'invitation par e-mail n'est pas jouée et
+/// le provisionnement HTTP renvoie 503). Renvoie (email, user_id).
+async fn creer_compte_a(m: &Monde, role: &str) -> (String, Uuid) {
+    let pool = pool_de_test().await;
+    let email = format!("{role}-rs3-{}@exemple.test", Uuid::new_v4().simple());
+    let user_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at)
+         SELECT $1, $2, u.password_hash, $3, now(), now()
+           FROM ent_user u WHERE lower(u.email) = lower($4)",
+    )
+    .bind(user_id)
+    .bind(&email)
+    .bind(format!("Compte RS3 {role}"))
+    .bind(&m.a.emails[&Direction])
+    .execute(&pool)
+    .await
+    .expect("compte jetable");
+    sqlx::query(
+        "INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1, $2, $3, now())",
+    )
+    .bind(user_id)
+    .bind(m.a.objets.etab)
+    .bind(role)
+    .execute(&pool)
+    .await
+    .expect("rattachement");
+    pool.close().await;
+    (email, user_id)
+}
+
 fn est_publique(r: &routes_src::RouteDecl) -> bool {
     PUBLIQUES.iter().any(|(m, p)| r.methode == *m && r.chemin == *p)
         || HANDLERS_PUBLICS.contains(&r.handler.as_str())
@@ -293,6 +338,130 @@ fn matrice_cloisonnement_toutes_routes_ecritures_corps_vide() {
         echecs.len(),
         echecs.join("\n")
     );
+}
+
+// ───────────────────────── Comptes, sessions, jetons ─────────────────────────
+
+/// Connexion directe (jeton Bearer) d'un e-mail de A avec le mot de passe de labo.
+async fn login_a(m: &Monde, email: &str, client: Option<&str>) -> Rep {
+    let mut corps = json!({
+        "email": email,
+        "password": m.a.mot_de_passe,
+        "etablissement_id": m.a.objets.etab,
+    });
+    if let Some(c) = client {
+        corps["client"] = json!(c);
+    }
+    m.appel("POST", "/auth/login", None, Some(&corps)).await
+}
+
+/// **Compte désactivé** : un accès suspendu ou fermé invalide immédiatement les
+/// jetons déjà ouverts (socle 6 P0 : `resolve_bearer` relit l'état du membership
+/// à chaque requête). On provisionne un AED jetable, on le connecte, puis la
+/// Direction suspend son accès : son jeton doit tomber (401). On rouvre ensuite
+/// (état restauré) et on vérifie qu'il refonctionne — sans toucher aux acteurs
+/// partagés par les autres tests.
+#[test]
+fn rs3_compte_suspendu_puis_ferme_invalide_la_session() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        // 1. Créer un personnel jetable (rôle minimal « personnel » = AED/accueil) et le connecter.
+        let (email, cible) = creer_compte_a(m, "personnel").await;
+        let l = login_a(m, &email, None).await;
+        assert_eq!(l.statut.as_u16(), 200, "connexion AED : {}", l.texte);
+        let jeton = l.json["token"].as_str().expect("jeton").to_string();
+        let me = m.appel("GET", "/auth/me", Some(&jeton), None).await;
+        assert_eq!(me.statut.as_u16(), 200, "le jeton AED doit marcher au départ");
+
+        // 3. Direction suspend l'accès : le jeton déjà ouvert tombe.
+        let susp = m
+            .appel(
+                "POST",
+                &format!("/etablissement/personnel/{cible}/acces/suspendre"),
+                Some(m.jeton(Direction)),
+                Some(&json!({"motif": "conservatoire"})),
+            )
+            .await;
+        assert!(susp.statut.is_success(), "suspension : {} {}", susp.statut, susp.texte);
+        let me2 = m.appel("GET", "/auth/me", Some(&jeton), None).await;
+        assert_eq!(
+            me2.statut.as_u16(),
+            401,
+            "un accès suspendu doit invalider le jeton déjà ouvert (obtenu {})",
+            me2.statut.as_u16()
+        );
+        // Une nouvelle connexion est elle aussi refusée tant que l'accès est suspendu.
+        let l2 = login_a(m, &email, None).await;
+        assert_ne!(l2.statut.as_u16(), 200, "connexion refusée tant que suspendu : {}", l2.texte);
+
+        // 4. Fermeture définitive : idem.
+        let ferm = m
+            .appel(
+                "POST",
+                &format!("/etablissement/personnel/{cible}/acces/fermer"),
+                Some(m.jeton(Direction)),
+                Some(&json!({"motif": "depart"})),
+            )
+            .await;
+        assert!(ferm.statut.is_success(), "fermeture : {} {}", ferm.statut, ferm.texte);
+        let me3 = m.appel("GET", "/auth/me", Some(&jeton), None).await;
+        assert_eq!(me3.statut.as_u16(), 401, "un accès fermé doit invalider le jeton");
+    });
+}
+
+/// **Session volée puis révoquée** : après un `POST /auth/logout`, le jeton ne
+/// vaut plus rien (401), y compris pour lire des données ; une session « volée »
+/// ne survit donc pas à la déconnexion de sa victime.
+#[test]
+fn rs3_logout_invalide_le_jeton_vole() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        let (email, _) = creer_compte_a(m, "personnel").await;
+        let l = login_a(m, &email, None).await;
+        let jeton = l.json["token"].as_str().expect("jeton").to_string();
+        // L'« attaquant » copie le jeton ; la victime se déconnecte.
+        let out = m.appel("POST", "/auth/logout", Some(&jeton), None).await;
+        assert!(out.statut.is_success(), "logout : {} {}", out.statut, out.texte);
+        let apres = m.appel("GET", "/auth/me", Some(&jeton), None).await;
+        assert_eq!(apres.statut.as_u16(), 401, "le jeton révoqué par logout doit être refusé");
+    });
+}
+
+/// **Jeton mobile** d'un compte de A : il porte l'établissement A comme un jeton
+/// web ; employé avec des identifiants de B, il est refusé exactement de la même
+/// façon (le type de client n'élargit pas le cloisonnement). Contrôle ponctuel
+/// sur quelques routes (la matrice générique l'étend à toutes avec le jeton web).
+#[test]
+fn rs3_jeton_mobile_de_a_ne_voit_rien_de_b() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        let l = login_a(m, &m.a.emails[&Direction], Some("mobile")).await;
+        assert_eq!(l.statut.as_u16(), 200, "connexion mobile : {}", l.texte);
+        let jeton = l.json["token"].as_str().expect("jeton").to_string();
+        let eleve_b = m.b.objets.eleve;
+        let foyer_b = m.b.objets.foyer;
+        let mut echecs = Vec::new();
+        for chemin in [
+            format!("/eleves/{eleve_b}"),
+            format!("/eleves/{eleve_b}/dossier"),
+            format!("/eleves/{eleve_b}/notes"),
+            format!("/eleves/{eleve_b}/absences"),
+            format!("/eleves/{eleve_b}/documents"),
+            format!("/foyers/{foyer_b}"),
+        ] {
+            let rep = m.appel("GET", &chemin, Some(&jeton), None).await;
+            if rep.est_succes() {
+                let texte = rep.texte.replace(&eleve_b.to_string(), "").replace(&foyer_b.to_string(), "");
+                for f in fuites(m, &texte, INTERDITS_GLOBAUX) {
+                    echecs.push(format!("{chemin} : {f}"));
+                }
+                if !rep.est_vide() {
+                    echecs.push(format!("{chemin} : 2xx non vide sur une cible de B"));
+                }
+            }
+        }
+        assert!(echecs.is_empty(), "jeton mobile de A voit des données de B :\n{}", echecs.join("\n"));
+    });
 }
 
 // ───────────────────────── Invariant : inventaire à jour ─────────────────────────
