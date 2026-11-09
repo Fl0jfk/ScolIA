@@ -368,4 +368,7 @@ ALTER TABLE ent_structure_journal ADD CONSTRAINT ent_structure_journal_objet_che
     ('profil', 'parametre', 'fuseau', 'site', 'batiment', 'salle', 'lieu', 'disponibilite',
      'indisponibilite', 'import_salles', 'prereglage',
      'matiere', 'offre', 'offre_groupe', 'regle_choix', 'incompatibilite', 'prerequis',
-     'enseignements_suivis', 'enseignement_suivi'));
+     'enseignements_suivis', 'enseignement_suivi',
+     -- Lot S3 (migration 333) : 338 s'appliquant après 333, la liste finale doit contenir les
+     -- objets des deux lots, sans quoi les écritures du calendrier seraient refusées.
+     'calendrier_evenement', 'calendrier_adoption', 'semaines', 'semaine', 'fermeture'));

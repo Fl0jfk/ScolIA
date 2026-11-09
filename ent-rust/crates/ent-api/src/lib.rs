@@ -18,6 +18,7 @@ mod referentiel;
 mod cahier;
 mod referentiel_s2;
 mod structure;
+mod structure_calendrier;
 mod structure_offre;
 mod edt_s2;
 mod roles;
@@ -299,6 +300,8 @@ mod tests_sante_module;
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]

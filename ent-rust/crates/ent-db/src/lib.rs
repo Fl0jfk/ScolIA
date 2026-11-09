@@ -79,7 +79,9 @@ mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
 pub mod structure_enseignements;
+pub mod structure_calendrier;
 pub mod structure_etab;
+pub mod structure_feries;
 pub mod structure_lieux;
 pub mod structure_offre;
 mod referentiel_annee;
@@ -310,6 +312,8 @@ mod tests_recette_personas;
 mod tests_structure_s1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
