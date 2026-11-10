@@ -9,7 +9,7 @@ coût et réversible (D-031). Rétentions : **à définir** pour toutes les tabl
 
 ## Ce que le registre classe (une ligne par table, 330 au 2026-11-10)
 portée (`Etablissement` / `ReferentielGlobal` / `CompteMultiEtablissement` / `Technique`), présence de `etablissement_id`,
-données personnelles, santé, fichiers (`Aucun` / `Reference` / `Objet` / `Bytea`), export de portabilité, neutralisation
+données personnelles, santé, fichiers (`Aucun` / `Reference` / `Objet` / `ObjetAvecResidu` / `Bytea`), export de portabilité, neutralisation
 à la restauration, rétention, **exceptions déclarées** (avec raison).
 
 ## Test (`registre_donnees::tests`, tourne en CI avec et sans labo)
@@ -32,7 +32,10 @@ d'effets de bord (courriel, SMS, push, jeton, rappel) doit porter une `Neutralis
 - **11 tables sans `etablissement_id`** (classées, non masquées) : `ent_user`, `ent_oidc_identity`, `ent_profil_personnel`
   (compte multi-établissement) ; `ent_absence_motif`, `ent_systeme_identifiant`, `ref_calendrier_officiel` (référentiel global) ;
   `ent_etablissement`, `ent_coord_reprise_marque` (technique) ; `ent_login_guard`, `ent_rate_limit`, `ent_password_reset` (état éphémère).
-- Fichiers en **`BYTEA`** : `ent_msg_piece`, `ent_pai_piece` (E5, à sortir de la base).
+- Fichiers **hors base, colonne `BYTEA` résiduelle non écrite** (`ObjetAvecResidu`) : `ent_msg_piece`, `ent_pai_piece`
+  (E5). Depuis la migration 601, plus aucun chemin applicatif n'écrit `contenu` ; il ne garde d'octets que pour
+  l'historique non repris (`ent-api reprise-pieces`, voir `docs/PRA_STOCKAGE_OBJETS.md` §5). L'exception `Bytea` est
+  levée ; la colonne disparaît à l'étape 4 (table alors classée `Objet`). Aucune table n'est plus déclarée `Bytea`.
 
 ## Neutralisation des files à la restauration (E9, F-014)
 `neutraliser_files_restauration(conn, PerimetreNeutralisation::{Tout | Etablissement(id)})` : à appeler dans une
