@@ -787,7 +787,13 @@ async fn m0b_d25_lien_cree_apres_une_interdiction_par_libelle_est_a_verifier() {
         .await
         .unwrap();
     assert!(communicant(intrus).await, "lien confirmé");
-    assert!(lit(&ent, etab, intrus, Role::Parent, fil.id).await);
+    // Un fil ouvert après la confirmation est créé aussi pour son foyer.
+    let apres = ouvrir_fils(&ent, etab, Role::Direction, dir, harry, "Après la confirmation").await;
+    let mut lu = false;
+    for f in &apres {
+        lu |= lit(&ent, etab, intrus, Role::Parent, f.id).await;
+    }
+    assert!(lu, "lien confirmé : aucun fil à son foyer");
     // Sans motif, pas de décision.
     assert!(matches!(
         ent.verifier_lien_for_actor(etab, dir, role(Role::Direction), lien, interdiction, true, None).await,
@@ -1456,7 +1462,7 @@ async fn m0b_d18_annonce_ciblee_par_identifiant_de_classe_survit_au_renommage() 
     let annee = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin)
-         VALUES ($1,$2,'2026-2027', date '2026-01-01', date '2030-12-31')",
+         VALUES ($1,$2,'M0b-d18', date '2026-01-01', date '2030-12-31')",
     )
     .bind(annee)
     .bind(etab)
@@ -1577,21 +1583,25 @@ async fn m0b_d20_fusion_de_fiches_les_fils_suivent_l_eleve_conserve_sans_changer
     assert!(lit(&ent, etab, pa, Role::Parent, fil_pa.id).await && lit(&ent, etab, pb, Role::Parent, fil_pb.id).await);
     assert!(!lit(&ent, etab, pa, Role::Parent, fil_pb.id).await);
     // Fusion : B est absorbé dans A.
-    let res = ent
-        .fusionner_eleves_pour_acteur(
-            role(Role::Direction),
-            DemandeFusion {
-                etablissement_id: etab,
-                absorbe_id: b,
-                conserve_id: a,
-                motif_code: "doublon_saisie".into(),
-                motif: None,
-                conflits_acquittes: Vec::new(),
-                acteur: dir,
-            },
-        )
+    let demande = |conflits| DemandeFusion {
+        etablissement_id: etab,
+        absorbe_id: b,
+        conserve_id: a,
+        motif_code: "doublon_saisie".into(),
+        motif: None,
+        conflits_acquittes: conflits,
+        acteur: dir,
+    };
+    let mut res = ent
+        .fusionner_eleves_pour_acteur(role(Role::Direction), demande(Vec::new()))
         .await
         .unwrap();
+    if let ResultatFusion::ConflitsAResoudre(conflits) = res {
+        res = ent
+            .fusionner_eleves_pour_acteur(role(Role::Direction), demande(conflits))
+            .await
+            .unwrap();
+    }
     let ResultatFusion::Faite(fusion) = res else { panic!("fusion non faite : {res:?}") };
     // Les fils sont tous portés par l'élève conservé.
     let sur_a: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_msg_fil WHERE etablissement_id = $1 AND eleve_id = $2")
