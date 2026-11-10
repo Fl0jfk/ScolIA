@@ -793,17 +793,22 @@ struct DossierMesures {
     reprise: i64,
 }
 
-async fn dossier(conn: &mut PgConnection, s: &SortieLigne) -> Result<DossierMesures, EntDbError> {
+async fn dossier(
+    conn: &mut PgConnection,
+    a: &Acteur<'_>,
+    s: &SortieLigne,
+) -> Result<DossierMesures, EntDbError> {
     let (nb_publics, nb_inscrits, nb_enc, nb_resp, depot, reprise): (i64, i64, i64, i64, i64, i64) =
         sqlx::query_as(
-            "SELECT (SELECT count(*) FROM ent_sortie_public WHERE sortie_id = $1),
-                    (SELECT count(*) FROM ent_sortie_participant WHERE sortie_id = $1 AND etat IN ('inscrit','pret','bloque')),
-                    (SELECT count(*) FROM ent_sortie_encadrant WHERE sortie_id = $1 AND role IN ('responsable','encadrant')),
-                    (SELECT count(*) FROM ent_sortie_encadrant WHERE sortie_id = $1 AND role = 'responsable'),
-                    (SELECT count(*) FROM ent_sortie_etape WHERE sortie_id = $1 AND type = 'depot'),
-                    (SELECT count(*) FROM ent_sortie_etape WHERE sortie_id = $1 AND type = 'reprise')",
+            "SELECT (SELECT count(*) FROM ent_sortie_public WHERE sortie_id = $1 AND etablissement_id = $2),
+                    (SELECT count(*) FROM ent_sortie_participant WHERE sortie_id = $1 AND etablissement_id = $2 AND etat IN ('inscrit','pret','bloque')),
+                    (SELECT count(*) FROM ent_sortie_encadrant WHERE sortie_id = $1 AND etablissement_id = $2 AND role IN ('responsable','encadrant')),
+                    (SELECT count(*) FROM ent_sortie_encadrant WHERE sortie_id = $1 AND etablissement_id = $2 AND role = 'responsable'),
+                    (SELECT count(*) FROM ent_sortie_etape WHERE sortie_id = $1 AND etablissement_id = $2 AND type = 'depot'),
+                    (SELECT count(*) FROM ent_sortie_etape WHERE sortie_id = $1 AND etablissement_id = $2 AND type = 'reprise')",
         )
         .bind(s.id)
+        .bind(a.etablissement_id)
         .fetch_one(conn)
         .await
         .map_err(db)?;
@@ -1397,9 +1402,10 @@ impl PgEnt {
         verifier_publics(&mut t, a, &saisie.classes, &saisie.groupes).await?;
         let annee = annee_de(&mut t, a, saisie.debut).await?;
         let avant_publics: Vec<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
-            "SELECT classe_id, groupe_id FROM ent_sortie_public WHERE sortie_id = $1 ORDER BY id",
+            "SELECT classe_id, groupe_id FROM ent_sortie_public WHERE sortie_id = $1 AND etablissement_id = $2 ORDER BY id",
         )
         .bind(id)
+        .bind(a.etablissement_id)
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
@@ -1644,7 +1650,7 @@ impl PgEnt {
             ));
         }
         let ctx = s.contexte();
-        let mesures = dossier(&mut t, &s).await?;
+        let mesures = dossier(&mut t, a, &s).await?;
         let mut etat = s.etat.clone();
         let mut etat_retour: Option<String> = None;
         let mut motif_decision = s.motif_decision.clone();
@@ -2061,19 +2067,24 @@ impl PgEnt {
         if s.forme == "voyage" && s.liste_confirmee_le.is_some() {
             evs.extend(rouvrir_liste(&mut t, a, &s, "programme_liste", 0).await?);
         }
-        let rows = lire_etapes(&mut t, id).await?;
+        let rows = lire_etapes(&mut t, a.etablissement_id, id).await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evs);
         Ok(rows)
     }
 }
 
-async fn lire_etapes(conn: &mut PgConnection, id: Uuid) -> Result<Vec<EtapeVue>, EntDbError> {
+async fn lire_etapes(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<Vec<EtapeVue>, EntDbError> {
     sqlx::query_as::<_, EtapeVue>(
         "SELECT id, ordre, type, debut, fin, duree_minutes, lieu, note, appel_requis
-           FROM ent_sortie_etape WHERE sortie_id = $1 ORDER BY ordre",
+           FROM ent_sortie_etape WHERE sortie_id = $1 AND etablissement_id = $2 ORDER BY ordre",
     )
     .bind(id)
+    .bind(etab)
     .fetch_all(conn)
     .await
     .map_err(db)
@@ -2235,10 +2246,11 @@ impl PgEnt {
                 continue;
             }
             let existant: Option<(Uuid, String)> = sqlx::query_as(
-                "SELECT id, etat FROM ent_sortie_participant WHERE sortie_id = $1 AND eleve_id = $2 FOR UPDATE",
+                "SELECT id, etat FROM ent_sortie_participant WHERE sortie_id = $1 AND eleve_id = $2 AND etablissement_id = $3 FOR UPDATE",
             )
             .bind(id)
             .bind(e)
+            .bind(a.etablissement_id)
             .fetch_optional(&mut *t)
             .await
             .map_err(db)?;
@@ -2248,9 +2260,10 @@ impl PgEnt {
                 }
                 Some((pid, etat)) => {
                     sqlx::query(
-                        "UPDATE ent_sortie_participant SET etat = 'inscrit', modifie_le = now() WHERE id = $1",
+                        "UPDATE ent_sortie_participant SET etat = 'inscrit', modifie_le = now() WHERE id = $1 AND etablissement_id = $2",
                     )
                     .bind(pid)
+                    .bind(a.etablissement_id)
                     .execute(&mut *t)
                     .await
                     .map_err(db)?;
@@ -2390,10 +2403,11 @@ impl PgEnt {
             return Err(conflit());
         }
         sqlx::query(
-            "UPDATE ent_sortie_participant SET etat = $2, rang_attente = NULL, modifie_le = now() WHERE id = $1",
+            "UPDATE ent_sortie_participant SET etat = $2, rang_attente = NULL, modifie_le = now() WHERE id = $1 AND etablissement_id = $3",
         )
         .bind(participant_id)
         .bind(vers)
+        .bind(a.etablissement_id)
         .execute(&mut *t)
         .await
         .map_err(db)?;
@@ -2674,10 +2688,11 @@ impl PgEnt {
             )
         })?;
         let deja: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_sortie_encadrant WHERE sortie_id = $1 AND personne_id = $2)",
+            "SELECT EXISTS (SELECT 1 FROM ent_sortie_encadrant WHERE sortie_id = $1 AND personne_id = $2 AND etablissement_id = $3)",
         )
         .bind(id)
         .bind(personne_id)
+        .bind(a.etablissement_id)
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
@@ -2853,7 +2868,7 @@ impl PgEnt {
     ) -> Result<SortieDetail, EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
-        let mesures = dossier(&mut t, &s).await?;
+        let mesures = dossier(&mut t, a, &s).await?;
         let porteur_nom: String = sqlx::query_scalar(
             "SELECT trim(coalesce(prenom || ' ', '') || nom) FROM ent_personne WHERE etablissement_id = $1 AND id = $2",
         )
@@ -2874,7 +2889,7 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
-        let etapes = lire_etapes(&mut t, id).await?;
+        let etapes = lire_etapes(&mut t, a.etablissement_id, id).await?;
         let encadrants = sqlx::query_as::<_, EncadrantVue>(
             "SELECT se.id, ag.id AS agent_id, p.nom, p.prenom, se.role
                FROM ent_sortie_encadrant se
@@ -2888,9 +2903,10 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let nb_desistes: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM ent_sortie_participant WHERE sortie_id = $1 AND etat IN ('desiste','retire')",
+            "SELECT count(*) FROM ent_sortie_participant WHERE sortie_id = $1 AND etablissement_id = $2 AND etat IN ('desiste','retire')",
         )
         .bind(id)
+        .bind(a.etablissement_id)
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
