@@ -50,6 +50,11 @@ pub enum Fichiers {
     Objet,
     /// Contenu binaire **en base** (`BYTEA`) : à sortir (E5).
     Bytea,
+    /// Fichier **hors base** (`storage_key` + empreinte) ; la colonne `BYTEA` historique existe
+    /// encore mais n'est plus écrite par l'application : elle ne garde d'octets que pour les
+    /// pièces non encore reprises (`reprise_bytea`). Disparaît avec l'étape 4 (suppression de la
+    /// colonne) : la table passe alors en `Objet`.
+    ObjetAvecResidu,
 }
 
 /// Rétention.
@@ -448,7 +453,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_msg_fil", "messagerie", Portee::Etablissement).perso().export(),
     t("ent_msg_lien_decision", "messagerie", Portee::Etablissement).perso().export(),
     t("ent_msg_modele", "messagerie", Portee::Etablissement),
-    t("ent_msg_piece", "messagerie", Portee::Etablissement).perso().fichiers(Fichiers::Bytea).export(),
+    t("ent_msg_piece", "messagerie", Portee::Etablissement).perso().fichiers(Fichiers::ObjetAvecResidu).export(),
     t("ent_msg_reglage", "messagerie", Portee::Etablissement),
     t("ent_niveau", "structure_scolaire", Portee::Etablissement),
     t("ent_note", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
@@ -475,7 +480,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(N_OUTBOX).exc(Exception::SansRls, "distributeur d'événements transverse : un lot lit les événements de tous les établissements (`distribuer_un_lot`), le contexte est posé par événement dans `traiter_par`"),
     t("ent_outbox_agregat", "communication_technique", Portee::Etablissement).neutralise(Neutralisation::JournalSeul("compteur de séquence par agrégat : à conserver, sinon l'ordre des événements se rompt")).exc(Exception::SansRls, "compteur de séquence tenu par le distributeur transverse d'événements (mêmes accès que ent_outbox)").exc(Exception::SansHorodatage, "compteur technique (séquence par agrégat), valeur seule"),
     t("ent_pai", "sante", Portee::Etablissement).perso().sante().export(),
-    t("ent_pai_piece", "sante", Portee::Etablissement).perso().sante().fichiers(Fichiers::Bytea).export(),
+    t("ent_pai_piece", "sante", Portee::Etablissement).perso().sante().fichiers(Fichiers::ObjetAvecResidu).export(),
     t("ent_pai_signature", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_param_eleve_champ", "structure_scolaire", Portee::Etablissement),
     t("ent_param_eleve_fuseau", "structure_scolaire", Portee::Etablissement),
@@ -743,7 +748,7 @@ mod tests {
             if c.sante {
                 assert!(c.donnees_personnelles, "{} : santé => données personnelles", c.nom);
             }
-            if c.fichiers == Fichiers::Bytea {
+            if matches!(c.fichiers, Fichiers::Bytea | Fichiers::ObjetAvecResidu) {
                 assert!(c.donnees_personnelles || c.nom.ends_with("_piece"), "{}", c.nom);
             }
             // E9 : tout ce qui ressemble à une file d'envoi / jeton doit être déclaré.
@@ -877,13 +882,18 @@ mod tests {
             if col.horodatage && c.exception(Exception::SansHorodatage).is_some() {
                 erreurs.push(format!("{nom} : exception SansHorodatage inutile (retirer)"));
             }
-            if col.bytea && c.fichiers != Fichiers::Bytea {
+            if col.bytea && !matches!(c.fichiers, Fichiers::Bytea | Fichiers::ObjetAvecResidu) {
                 erreurs.push(format!("{nom} : colonne BYTEA non déclarée (Fichiers::Bytea, E5)"));
             }
             if !col.bytea && c.fichiers == Fichiers::Bytea {
                 erreurs.push(format!("{nom} : déclarée BYTEA mais plus de colonne BYTEA (mettre à jour)"));
             }
-            if col.storage_key && c.fichiers != Fichiers::Objet && c.fichiers != Fichiers::Bytea {
+            if c.fichiers == Fichiers::ObjetAvecResidu && !(col.bytea && col.storage_key) {
+                erreurs.push(format!("{nom} : « objet avec résidu » sans colonne BYTEA ou sans storage_key (passer en Objet)"));
+            }
+            if col.storage_key
+                && !matches!(c.fichiers, Fichiers::Objet | Fichiers::Bytea | Fichiers::ObjetAvecResidu)
+            {
                 erreurs.push(format!("{nom} : colonne storage_key non déclarée (Fichiers::Objet)"));
             }
         }
