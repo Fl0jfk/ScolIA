@@ -34,8 +34,8 @@ use crate::dto::{
     AffecterBourseBody, AppreciationDto, BourseTypeDto, CantineBadgeApercuDto,
     CantineBadgeFactureBody, CreerBourseTypeBody, CreerRepasActiviteBody, DeciderBourseBody,
     EleveBourseDto, GrilleRepasDto, PassageRepasDto, PoserGrilleRepasBody, RepasActiviteDto,
-    PublierBulletinBody, SaisirAppreciationBody, SaisirNoteBody,
-    ScolariteAnneeDto, ScanBadgeRepasBody, SetNotePeriodeStatutBody, SignalAbsenceDto, SortirBody,
+    PublierBulletinBody, SaisirAppreciationBody,
+    ScolariteAnneeDto, ScanBadgeRepasBody, SignalAbsenceDto, SortirBody,
     VolumeRepasDto, CloreSignalBody, DispenseRepasDto,
     AutorisationSortieDto, ControleSortieBody, ControleSortieDto, DeciderSortieBody,
     DemandeSortieDto, DemanderSortieBody, RecapSortieDto, SortieRegleNiveauDto,
@@ -47,7 +47,7 @@ use crate::dto::{
     DispenseVsDto, JournalEntreeDto, PoserDispenseVsBody,
     AlerteCpeDto, CloreAlerteCpeBody, CreerAlerteCpeBody,
     AjouterDossierConseilBody, ConseilClasseDossierDto, ConseilClasseDto, CreerConseilClasseBody,
-    DeciderDossierConseilBody, DocASignerDto, PublierDocASignerBody,
+    DocASignerDto, PublierDocASignerBody,
     CreerInfoCompChampBody, InfoCompChampDto, InfoCompEleveDto, InfoCompValeurDto,
     UpsertInfoCompValeurBody,
     CreerPeriodeVacancesBody, HomonymeCandidatDto, JourFermeDto, MenuCantineDto,
@@ -84,7 +84,7 @@ use domain_eleve::{
     CreerFacture, CreerMandatSepa, CreerNotePeriode, DeclareAbsence, DeclarerRetard, DocTiroir, EcheanceCmd,
     SaisirAppreciation,
     EncaisserFacture, ExporterOgec, LigneFactureCmd, MonteeLot, MonteeRapide, MoyenPaiement,
-    NotePeriodeStatut, OptionNature, OuvrirCampagneReinscription, OuvrirFil, PlanifierPrelevement,
+    OptionNature, OuvrirCampagneReinscription, OuvrirFil, PlanifierPrelevement,
     plan_sepa_crediteur, ArchiverFil, AttacherPiece, ClasserFil, ConfigurerEdtCalendrierAb,
     CreerCahierTexte, CreerEntretienPsy, CreerMsgModele, CreerPassageInfirmerie,
     DeposerDocument, DispenseSource, DocConfidentialite, EdtExceptionKind,
@@ -102,7 +102,7 @@ use domain_eleve::{
     ScolariteAnneeStatut, SortirEleve, POINTS_VS_DEPART,
     AffecterEleveInternat, CreerChambreInternat, CreerSuiviInternat, PointerPresenceInternat,
     PoserDispenseVs, CreerAlerteCpe,
-    AjouterDossierConseil, CreerConseilClasse, DeciderDossierConseil, PublierDocASigner,
+    AjouterDossierConseil, CreerConseilClasse, PublierDocASigner,
     SignerDocASigner, CreerInfoCompChamp, UpsertInfoCompValeur,
     CreerPeriodeVacances, RechercherHomonymes, UpsertMenuCantine,
     CreerTauxTva, UpsertQuotientFoyer, CreerSalle, UpsertParamEtab,
@@ -113,7 +113,7 @@ use domain_eleve::{
     CreerCompetenceItem, EvaluerCompetence,
 };
 use base64::Engine;
-use ent_db::{Appel, AppelLigne, CreateMatiere, LigneEtat, SaisirNote};
+use ent_db::{Appel, AppelLigne, CreateMatiere, LigneEtat};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -810,6 +810,14 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::referentiel_s2::routes());
     // Socle 5, lot S2 : profil, paramètres, sites, salles, lieux (`structure.rs`).
     let r = r.merge(crate::structure::routes());
+    // Socle 5, lot S5 : matières, offre d'enseignements, enseignements suivis (`structure_offre.rs`).
+    let r = r.merge(crate::structure_offre::routes());
+    // Socle 5, lot S3 : calendrier, semaines A/B, fermetures exceptionnelles (`structure_calendrier.rs`).
+    let r = r.merge(crate::structure_calendrier::routes());
+    // Socle 5, lot S7 : périodisations et grille horaire versionnée (`structure_periodes.rs`).
+    let r = r.merge(crate::structure_periodes::routes());
+    // Socle 5, lot S4 : l'objet « cours » et les postes vacants (`structure_cours.rs`).
+    let r = r.merge(crate::structure_cours::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
@@ -1216,7 +1224,7 @@ struct MotDePasseReinitialiseDto {
 
 /// Erreurs « mot de passe actuel » / envoi / plafond / nom de passkey, mappées
 /// avant les heuristiques génériques. `None` : laisser la fonction appelante décider.
-fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
+pub(crate) fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
     match err {
         ent_db::EntDbError::MotDePasseActuelInvalide => {
             Some((StatusCode::FORBIDDEN, err.to_string()))
@@ -1238,7 +1246,7 @@ fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)>
 /// URL publique pour les liens envoyés par e-mail. Hors feature `labo`, son
 /// absence renvoie une chaîne vide : le service refuse alors d'émettre un jeton
 /// (`EnvoiImpossible`, 503) au lieu de produire un lien vers localhost.
-fn base_url_publique() -> String {
+pub(crate) fn base_url_publique() -> String {
     match std::env::var("ENT_PUBLIC_BASE_URL") {
         Ok(v) if !v.trim().is_empty() => v,
         _ if cfg!(feature = "labo") => "http://localhost:8088".into(),
@@ -2121,6 +2129,8 @@ pub struct MeDto {
     pub passkey_count: i64,
     /// `complete` ou `enrolement` (passkey obligatoire à enrôler avant tout).
     pub portee: &'static str,
+    /// Casquette active : `principale` ou `parent` (socle 6, P2).
+    pub casquette: String,
     /// `mot_de_passe`, `passkey` ou `sso`.
     pub assurance: &'static str,
     /// `web` ou `mobile`.
@@ -2946,7 +2956,7 @@ async fn me(
         .map_err(map_db)?;
     let passkey_obligatoire = state
         .ent
-        .passkey_obligatoire(session.etablissement_id, &session.role)
+        .passkey_obligatoire_compte(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(MeDto {
@@ -2957,6 +2967,7 @@ async fn me(
         eleve_id,
         passkey_count,
         portee: session.portee.as_str(),
+        casquette: session.casquette.clone(),
         assurance: session.assurance.as_str(),
         client: session.client.as_str(),
         passkey_obligatoire,
@@ -5925,39 +5936,12 @@ async fn ajouter_dossier_conseil(
     ))
 }
 
-async fn decider_dossier_conseil(
-    State(state): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(body): Json<DeciderDossierConseilBody>,
-) -> Result<Json<ConseilClasseDossierDto>, (StatusCode, String)> {
-    let d = state
-        .ent
-        .decider_dossier_conseil_for_actor(
-            &session.role,
-            DeciderDossierConseil {
-                etablissement_id: session.etablissement_id,
-                dossier_id: id,
-                appreciation: body.appreciation,
-                mention: body.mention,
-                decision_texte: body.decision_texte,
-                visible_famille: body.visible_famille,
-                actor_user_id: session.user_id,
-            },
-        )
-        .await
-        .map_err(map_db)?;
-    let mut enriched = enrich_conseil_dossiers(
-        &state,
-        session.etablissement_id,
-        vec![ConseilClasseDossierDto::from(&d)],
+/// Route historique **fermée** (lot V0, socle 21) : 410 avec le chemin de remplacement.
+async fn decider_dossier_conseil(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V0, D4) : les décisions du conseil se prennent par PUT /evaluations/conseils/{id}/decisions".into(),
     )
-    .await?;
-    Ok(Json(
-        enriched
-            .pop()
-            .unwrap_or_else(|| ConseilClasseDossierDto::from(&d)),
-    ))
 }
 
 async fn list_conseils_eleve(
@@ -8062,36 +8046,12 @@ async fn list_matieres(
     }
 }
 
-async fn saisir_note(
-    State(state): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(body): Json<SaisirNoteBody>,
-) -> Result<(StatusCode, Json<NoteDto>), (StatusCode, String)> {
-    session.require_saisir_notes()?;
-    let note = state
-        .ent
-        .saisir_note_for_actor(&session.role, SaisirNote {
-            etablissement_id: session.etablissement_id,
-            eleve_id: id,
-            matiere_id: body.matiere_id,
-            valeur: body.valeur,
-            sur: body.sur.unwrap_or(20.0),
-            date_note: body.date_note,
-            auteur_user_id: session.user_id,
-            libelle: body.libelle,
-            devoir_id: body.devoir_id,
-            periode_id: body.periode_id,
-        })
-        .await
-        .map_err(map_db)?;
-    let mut enriched = enrich_notes(
-        &state,
-        session.etablissement_id,
-        vec![NoteDto::from(&note)],
+/// Route historique **fermée** (lot V0, socle 21) : 410 avec le chemin de remplacement.
+async fn saisir_note(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V0, D1) : saisir les notes par la grille d'évaluation (PUT /evaluations/devoirs/{id}/resultats), qui contrôle le service, l'effectif, la période et l'historique".into(),
     )
-    .await?;
-    Ok((StatusCode::CREATED, Json(enriched.remove(0))))
 }
 
 async fn list_notes(
@@ -8190,37 +8150,12 @@ async fn saisir_appreciation(
     Ok((StatusCode::CREATED, Json(enriched.remove(0))))
 }
 
-async fn publier_bulletin(
-    State(state): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(body): Json<PublierBulletinBody>,
-) -> Result<(StatusCode, Json<DocumentMetaDto>), (StatusCode, String)> {
-    let doc = state
-        .ent
-        .publier_bulletin_for_actor(
-            &session.role,
-            session.etablissement_id,
-            id,
-            body.periode_id,
-            session.user_id,
-        )
-        .await
-        .map_err(map_db)?;
-    Ok((
-        StatusCode::CREATED,
-        Json(DocumentMetaDto {
-            id: doc.id,
-            eleve_id: doc.eleve_id,
-            titre: doc.titre,
-            tiroir: doc.tiroir.as_str().to_string(),
-            confidentialite: doc.confidentialite.as_str().to_string(),
-            source: doc.source,
-            code: doc.code,
-            accessible: true,
-            grant_etat: None,
-        }),
-    ))
+/// Route historique **fermée** (lot V0, socle 21) : 410 avec le chemin de remplacement.
+async fn publier_bulletin(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V0, D5) : les bulletins se génèrent puis se publient par version (POST /evaluations/bulletins/generer puis /publier)".into(),
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -8302,30 +8237,12 @@ async fn creer_note_periode(
     Ok((StatusCode::CREATED, Json(NotePeriodeDto::from(&periode))))
 }
 
-async fn set_note_periode_statut(
-    State(state): State<AppState>,
-    session: EntSession,
-    Path(id): Path<Uuid>,
-    Json(body): Json<SetNotePeriodeStatutBody>,
-) -> Result<Json<NotePeriodeDto>, (StatusCode, String)> {
-    session.require_manage_matieres()?;
-    let statut = NotePeriodeStatut::parse(&body.statut).ok_or_else(|| {
-        (
-            StatusCode::BAD_REQUEST,
-            "statut période invalide (ouverte|fermee|partielle_appreciations)".into(),
-        )
-    })?;
-    let periode = state
-        .ent
-        .set_note_periode_statut(
-            session.etablissement_id,
-            id,
-            statut,
-            Some(session.user_id.to_string()),
-        )
-        .await
-        .map_err(map_db)?;
-    Ok(Json(NotePeriodeDto::from(&periode)))
+/// Route historique **fermée** (lot V0, socle 21) : 410 avec le chemin de remplacement.
+async fn set_note_periode_statut(_session: EntSession) -> (StatusCode, String) {
+    (
+        StatusCode::GONE,
+        "route historique fermée (V0, D2) : le statut d'une période se change par PUT /evaluations/periodes/{id}/statut (droit « periodes.verrouiller », motif obligatoire pour rouvrir, journal)".into(),
+    )
 }
 
 #[derive(Debug, Deserialize)]

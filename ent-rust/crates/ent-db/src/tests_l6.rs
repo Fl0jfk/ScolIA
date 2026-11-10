@@ -229,6 +229,7 @@ fn debug_session_info_masque_le_jeton() {
         client: Default::default(),
         assurance: Default::default(),
         portee: Default::default(),
+        casquette: "principale".into(),
     };
     let d = format!("{s:?}");
     assert!(!d.contains("jeton-opaque-tres-secret"));

@@ -191,4 +191,8 @@ pub struct EnseignementDto {
     pub professeur_principal: bool,
     /// Libellé prêt à afficher : « Allemand · 4B-ALL (groupe) ».
     pub libelle: String,
+    /// Cours du socle 5 (ce qui est enseigné à qui) auquel ce service se rattache ; plusieurs
+    /// services (co-intervention) peuvent partager le même cours.
+    #[serde(default)]
+    pub cours_id: Option<Uuid>,
 }

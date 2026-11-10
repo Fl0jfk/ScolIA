@@ -20,6 +20,19 @@ pub struct Acteur<'a> {
     pub role: &'a str,
 }
 
+/// Pose l'établissement courant pour la transaction (variable locale `app.etablissement_id`) dans
+/// une transaction ouverte à l'ancienne (`pool().begin()`), pour que les tables à RLS du socle 5
+/// que ces anciens chemins touchent (périodisations, grilles) restent lisibles et inscriptibles
+/// sous un rôle en mode strict. Identique à ce que fait `TenantTx::begin`.
+pub(crate) async fn contexte_etab(conn: &mut PgConnection, etab: Uuid) -> Result<(), EntDbError> {
+    sqlx::query("SELECT set_config('app.etablissement_id', $1, true)")
+        .bind(etab.to_string())
+        .execute(conn)
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
 pub(crate) fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("referentiel_s2", err))
 }

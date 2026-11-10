@@ -512,7 +512,7 @@ impl Monde {
             .json
             .as_array()
             .and_then(|a| a.first())
-            .and_then(|v| v["service_id"].as_str())
+            .and_then(|v| v["cours_id"].as_str())
             .and_then(|s| Uuid::parse_str(s).ok());
         self.ouvrir_appel(&mut o, &prof).await;
         Some(Etab {

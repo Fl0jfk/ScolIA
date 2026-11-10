@@ -34,6 +34,7 @@ pub fn routes() -> Router<AppState> {
         .route("/evaluations/services", get(services))
         .route("/evaluations/periodes", get(periodes))
         .route("/evaluations/periodes/{id}/statut", put(statut_periode))
+        .route("/evaluations/periodes/{id}/journal", get(journal_periode))
         .route("/evaluations/regles", get(regles).put(definir_regles))
         .route("/evaluations/coefficients", put(coefficient))
         // Grille
@@ -116,7 +117,26 @@ async fn statut_periode(
     Json(b): Json<StatutPeriodeBody>,
 ) -> Res<Json<PeriodeNotesDto>> {
     s.ent
-        .changer_statut_periode_for_actor(session.etablissement_id, session.user_id, &session.role, id, &b.statut)
+        .changer_statut_periode_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &b.statut,
+            b.motif.as_deref(),
+        )
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn journal_periode(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<ent_types::evaluations::JournalPeriodeDto>>> {
+    s.ent
+        .journal_periode_for_actor(session.etablissement_id, session.user_id, &session.role, id)
         .await
         .map(Json)
         .map_err(map_db)

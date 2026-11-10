@@ -34,8 +34,8 @@ const MENTIONS: [&str; 6] = [
     "felicitations",
     "complement",
     "encouragements",
-    "avertissement_travail",
-    "avertissement_conduite",
+    "mise_en_garde_travail",
+    "mise_en_garde_conduite",
     "aucune",
 ];
 const DECISIONS: [&str; 5] = ["aucune", "passage", "redoublement", "orientation", "reserve"];
@@ -650,7 +650,13 @@ impl PgEnt {
                 Some(_) => Err(refus(msg)),
             }
         };
-        let mention = choix(&body.mention, &MENTIONS, "mention inconnue")?;
+        // V0 (D11) : les anciens codes « avertissement_* » sont reclassés en mises en garde.
+        let mention_norm = body.mention.as_deref().map(|m| match m.trim() {
+            "avertissement_travail" => "mise_en_garde_travail".to_string(),
+            "avertissement_conduite" => "mise_en_garde_conduite".to_string(),
+            autre => autre.to_string(),
+        });
+        let mention = choix(&mention_norm, &MENTIONS, "mention inconnue")?;
         let decision = choix(&body.decision_code, &DECISIONS, "décision inconnue")?;
         let appreciation = texte_borne(&body.appreciation, 2000)?;
         let avis = match body.avis_orientation.as_deref() {

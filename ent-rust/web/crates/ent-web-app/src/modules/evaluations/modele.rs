@@ -197,8 +197,8 @@ pub const MENTIONS: [(&str, &str); 6] = [
     ("felicitations", "Félicitations"),
     ("complement", "Compliments"),
     ("encouragements", "Encouragements"),
-    ("avertissement_travail", "Avertissement (travail)"),
-    ("avertissement_conduite", "Avertissement (conduite)"),
+    ("mise_en_garde_travail", "Mise en garde (travail)"),
+    ("mise_en_garde_conduite", "Mise en garde (conduite)"),
 ];
 
 /// Décisions du conseil [H : à vérifier] : (code, libellé).
@@ -279,6 +279,7 @@ mod tests {
             effectif: 12,
             professeur_principal: false,
             libelle: "Allemand · 4B-ALL (groupe)".into(),
+            cours_id: None,
         };
         let reste = services_hors_enseignements(&[service(1), service(2)], &[ens(1)]);
         assert_eq!(reste.len(), 1);

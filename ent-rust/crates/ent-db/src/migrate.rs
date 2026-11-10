@@ -196,23 +196,32 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/330_structure_garde_fous.sql"),
     include_str!("../../../migrations/331_cours_membres.sql"),
     include_str!("../../../migrations/332_structure_profil_parametres.sql"),
+    include_str!("../../../migrations/333_structure_calendrier.sql"),
+    include_str!("../../../migrations/334_structure_fermeture.sql"),
+    include_str!("../../../migrations/335_structure_periodes.sql"),
+    include_str!("../../../migrations/336_structure_grilles.sql"),
     include_str!("../../../migrations/337_structure_lieux.sql"),
+    include_str!("../../../migrations/338_structure_offre.sql"),
+    include_str!("../../../migrations/340_eleve_enseignement.sql"),
+    include_str!("../../../migrations/341_cours.sql"),
     include_str!("../../../migrations/350_acces_etat.sql"),
     include_str!("../../../migrations/351_attributions_datees.sql"),
     include_str!("../../../migrations/352_agents.sql"),
     include_str!("../../../migrations/353_agents_fonctions.sql"),
+    include_str!("../../../migrations/357_casquettes_invitations.sql"),
     include_str!("../../../migrations/361_agent_identifiants.sql"),
     include_str!("../../../migrations/370_edt_creneau_groupe.sql"),
     include_str!("../../../migrations/375_msg_fil_prive.sql"),
     include_str!("../../../migrations/376_sepa_unicite_encaissement.sql"),
     include_str!("../../../migrations/377_edt_exception_absence_etab.sql"),
+    include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "377_edt_exception_absence_etab";
+pub const MIGRATION_TAG: &str = "460_eva_v0_correctifs";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

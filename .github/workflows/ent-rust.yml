@@ -73,24 +73,21 @@ jobs:
         working-directory: ent-rust/web
         run: cargo audit
 
-  backend:
-    name: Backend (clippy, compilation, tests)
+  # ---------------------------------------------------------------------------------------------
+  # Backend en parallèle (cf. docs/PILOTAGE.md, règle 4). Avant : un seul job de 1 h 45 à 3 h 30
+  # (suite complète d'un bloc, un seul fil, une seule base). Maintenant :
+  #   backend-lint     clippy (avec / sans labo, ent-types -D warnings), compilation production,
+  #                    séparation labo / production (L4)                                 ┐ en parallèle
+  #   backend-archive  compile UNE fois les binaires de test (avec labo, sans labo) et les publie  ┘
+  #   tests-labo       20 tranches (cargo nextest, partition count:i/20), chacune sur son PostgreSQL
+  #   tests-sans-labo  tests `-p ent-api -p ent-db` sans la feature labo (comme avant)
+  #   backend          job final : agrège les résultats ET vérifie que chaque test listé a été exécuté.
+  # Le nom du dernier job reste « Backend (clippy, compilation, tests) » (contrôle stable).
+  # ---------------------------------------------------------------------------------------------
+  backend-lint:
+    name: Backend — clippy, compilation production, séparation L4
     runs-on: ubuntu-latest
-    # La suite complète (≈ 570 tests, un seul fil) dépasse 55 min depuis le lot 3.
-    timeout-minutes: 300
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_USER: ent_ci
-          POSTGRES_DB: ent_ci_test
-          POSTGRES_HOST_AUTH_METHOD: trust   # conteneur jetable, accessible au seul runner
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
-    env:
-      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
-      ENT_ENV: test   # gate_open fail-closed (1b5b1b47) : POST /auth/register des tests L2 exige un env non productif
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: ent-rust
@@ -103,6 +100,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "ent-rust -> target"
+          shared-key: backend-lint
       - name: Clippy (erreurs bloquantes ; avertissements existants signalés)
         run: |
           cargo clippy --locked --workspace --all-targets
@@ -121,10 +119,235 @@ jobs:
             fi
           done
           echo "OK : ent-api sans feature labo ne contient ni mot de passe public ni route de labo."
-      - name: Tests sans la feature labo (404 labo / register, page /login sans mot de passe)
-        run: cargo test --locked -p ent-api -p ent-db -- --test-threads=1
-      - name: Tests (unitaires + intégration sur PostgreSQL éphémère, feature labo)
-        run: cargo test --locked --workspace --features ent-api/labo,ent-lab/labo -- --test-threads=1
+
+  backend-archive:
+    name: Backend — compilation des binaires de test (archives nextest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: ent-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "ent-rust -> target"
+          shared-key: backend-archive
+      - name: cargo-nextest (version épinglée, binaire vérifié par install-action)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - name: Archive des binaires de test AVEC la feature labo (tous les paquets)
+        run: cargo nextest archive --locked --workspace --features ent-api/labo,ent-lab/labo --archive-file "$RUNNER_TEMP/labo.tar.zst"
+      - name: Archive des binaires de test SANS la feature labo (ent-api, ent-db)
+        run: cargo nextest archive --locked -p ent-api -p ent-db --archive-file "$RUNNER_TEMP/sans-labo.tar.zst"
+      - name: Inventaire des tests (références du contrôle de couverture)
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/inventaire"
+          for v in labo sans-labo; do
+            cargo nextest list --color never --archive-file "$RUNNER_TEMP/$v.tar.zst" --workspace-remap . --message-format oneline > "$RUNNER_TEMP/inventaire/liste-$v.txt"
+            cargo nextest list --color never --archive-file "$RUNNER_TEMP/$v.tar.zst" --workspace-remap . --message-format oneline --run-ignored ignored-only > "$RUNNER_TEMP/inventaire/ignores-$v.txt"
+            echo "$v : $(wc -l < "$RUNNER_TEMP/inventaire/liste-$v.txt") tests listés, $(wc -l < "$RUNNER_TEMP/inventaire/ignores-$v.txt") ignorés"
+          done
+      - name: Tests de documentation (cargo test --doc, non couverts par nextest)
+        run: |
+          cargo test --locked --workspace --features ent-api/labo,ent-lab/labo --doc
+          cargo test --locked -p ent-api -p ent-db --doc
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archives-nextest
+          path: |
+            ${{ runner.temp }}/labo.tar.zst
+            ${{ runner.temp }}/sans-labo.tar.zst
+          retention-days: 1
+          compression-level: 0     # déjà compressé en zstd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inventaire
+          path: ${{ runner.temp }}/inventaire
+          retention-days: 7
+
+  tests-labo:
+    name: Backend — tests avec labo (tranche ${{ matrix.tranche }}/20)
+    needs: backend-archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false      # voir tous les échecs d'un coup
+      matrix:
+        tranche: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ent_ci
+          POSTGRES_DB: ent_ci_test
+          POSTGRES_HOST_AUTH_METHOD: trust   # conteneur jetable, accessible au seul runner
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
+      ENT_ENV: test   # gate_open fail-closed (1b5b1b47) : POST /auth/register des tests L2 exige un env non productif
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - uses: actions/download-artifact@v4
+        with:
+          name: archives-nextest
+          path: ${{ runner.temp }}/archives
+      - name: Tests avec la feature labo — tranche ${{ matrix.tranche }} sur 20 (un fil, base propre à la tranche)
+        working-directory: ent-rust
+        run: |
+          set -o pipefail
+          cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
+            --partition count:${{ matrix.tranche }}/20 --test-threads 1 --no-fail-fast --color never \
+            2>&1 | tee "$RUNNER_TEMP/execution-labo-${{ matrix.tranche }}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-labo-${{ matrix.tranche }}
+          path: ${{ runner.temp }}/execution-labo-${{ matrix.tranche }}.log
+          retention-days: 7
+
+  tests-sans-labo:
+    name: Backend — tests sans la feature labo (404 labo / register, /login sans mot de passe)
+    needs: backend-archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ent_ci
+          POSTGRES_DB: ent_ci_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
+      ENT_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - uses: actions/download-artifact@v4
+        with:
+          name: archives-nextest
+          path: ${{ runner.temp }}/archives
+      - name: Tests sans la feature labo (ent-api, ent-db)
+        working-directory: ent-rust
+        run: |
+          set -o pipefail
+          cargo nextest run --archive-file "$RUNNER_TEMP/archives/sans-labo.tar.zst" --workspace-remap . \
+            --test-threads 1 --no-fail-fast --color never \
+            2>&1 | tee "$RUNNER_TEMP/execution-sans-labo.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-sans-labo
+          path: ${{ runner.temp }}/execution-sans-labo.log
+          retention-days: 7
+
+  backend:
+    # Nom conservé : c'est le contrôle que la règle 6 de PILOTAGE.md attend.
+    name: Backend (clippy, compilation, tests)
+    if: always()
+    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "{inventaire,execution-*}"
+          path: ${{ runner.temp }}/resultats
+      - name: Aucun test ne disparaît (tout test listé est exécuté, une seule fois)
+        if: always() && needs.backend-archive.result == 'success'
+        run: |
+          python3 -I - "$RUNNER_TEMP/resultats" <<'PY'
+          import re, sys, glob, collections
+          racine = sys.argv[1]
+
+          def lire(chemin):
+              with open(chemin, encoding="utf8") as f:
+                  return [l.strip() for l in f if l.strip()]
+
+          ok = True
+          resume = []
+          detail = []
+          for variante in ("labo", "sans-labo"):
+              listes = lire(f"{racine}/inventaire/liste-{variante}.txt")
+              ignores = set(lire(f"{racine}/inventaire/ignores-{variante}.txt"))
+              attendus = set(listes) - ignores
+              motif = re.compile(r"^\s*(PASS|FAIL|FLAKY \d+/\d+|TIMEOUT|SIG\w+|LEAK|EXECFAIL)\s+\[[^\]]*\]\s+(?:\(\s*\d+/\d+\)\s+)?(\S+)\s+(\S+)\s*$")
+              vus = collections.Counter()
+              echecs = []
+              fichiers = sorted(glob.glob(f"{racine}/execution-{variante}*/*.log"))
+              for fic in fichiers:
+                  # nextest répète les échecs dans son récapitulatif final : un test = une fois par journal.
+                  deja = set()
+                  for l in lire(fic):
+                      m = motif.match(l)
+                      if m:
+                          cle = f"{m.group(2)} {m.group(3)}"
+                          if cle in deja:
+                              continue
+                          deja.add(cle)
+                          vus[cle] += 1
+                          if not m.group(1).startswith(("PASS", "FLAKY")):
+                              echecs.append(cle)
+              par_binaire = collections.OrderedDict()
+              for k in sorted(listes):
+                  b = k.split(" ", 1)[0]
+                  par_binaire.setdefault(b, [0, 0])[0] += 1
+                  if k in vus:
+                      par_binaire[b][1] += 1
+              detail.append(f"#### {variante}\n\n| binaire de test | listés | exécutés |\n|---|---|---|\n" + "\n".join(f"| {b} | {n[0]} | {n[1]} |" for b, n in par_binaire.items()))
+              manquants = sorted(attendus - set(vus))
+              inconnus = sorted(set(vus) - set(listes))
+              doubles = sorted(k for k, n in vus.items() if n > 1)
+              resume.append(f"| {variante} | {len(listes)} | {len(ignores)} | {sum(vus.values())} | {len(fichiers)} | {len(manquants)} | {len(doubles)} | {len(echecs)} |")
+              for titre, lot in (("NON EXÉCUTÉS", manquants), ("EXÉCUTÉS SANS ÊTRE LISTÉS", inconnus), ("EXÉCUTÉS PLUSIEURS FOIS", doubles), ("EN ÉCHEC", echecs)):
+                  if lot:
+                      ok = False
+                      print(f"::error::{variante} — {titre} ({len(lot)}) :")
+                      for k in lot[:50]:
+                          print("   ", k)
+              if not fichiers:
+                  ok = False
+                  print(f"::error::{variante} — aucun journal d'exécution")
+          tableau = "| variante | listés | ignorés | exécutés | journaux | manquants | doublons | échecs |\n|---|---|---|---|---|---|---|---|\n" + "\n".join(resume)
+          print(tableau)
+          print("\n\n".join(detail))
+          with open(__import__("os").environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf8") as f:
+              f.write("### Couverture des tests du backend\n\n" + tableau + "\n\n" + "\n\n".join(detail) + "\n")
+          sys.exit(0 if ok else 1)
+          PY
+      - name: Verdict (tous les jobs du backend verts)
+        if: always()
+        run: |
+          set -eu
+          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }}"
+          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}"; do
+            if [ "$r" != "success" ]; then
+              echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
+              exit 1
+            fi
+          done
 
   frontend:
     name: Frontend Leptos (clippy, tests, build, tests contre le backend)

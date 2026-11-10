@@ -1917,13 +1917,11 @@ async fn explorer_nomenclature_et_notes(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if apps_lily.len() < 2 {
-        return Err("Lily doit lire les 2 appréciations".into());
+    // V0 (D3a) : les appréciations ne sont visibles de la famille qu'avec le bulletin publié.
+    if !apps_lily.is_empty() {
+        return Err("Lily ne doit pas lire les appréciations avant la publication du bulletin".into());
     }
-    r.geste(format!(
-        "Lily lit {} appréciation(s) Harry (période)",
-        apps_lily.len()
-    ));
+    r.geste("Lily ne lit aucune appréciation avant publication du bulletin (attendu)");
 
     let apps_tom = ent
         .list_appreciations_for_actor(
@@ -2128,6 +2126,23 @@ async fn explorer_nomenclature_et_notes(
     r.geste(format!(
         "bulletin PDF publié (période fermée) → doc {}",
         bulletin.titre
+    ));
+    let apps_publiees = ent
+        .list_appreciations_for_actor(
+            cast.etablissement_id,
+            cast.parent_lea.user_id,
+            Role::Parent.as_str(),
+            lea.id,
+            Some(periode.id),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if apps_publiees.len() < 2 {
+        return Err("Lily doit lire les 2 appréciations une fois le bulletin publié".into());
+    }
+    r.geste(format!(
+        "Lily lit {} appréciation(s) Harry après publication du bulletin",
+        apps_publiees.len()
     ));
 
     let dossier_bul = ent
@@ -10489,7 +10504,8 @@ async fn explorer_competences_lsu(
     r.geste("professeur : évalue Harry (D1.1 très bonne maîtrise, D2.3 fragile)");
 
     // 4) La famille liée lit les niveaux ; une autre famille non.
-    let vus = ent
+    // V0 (D3b) : la famille ne voit rien avant la publication du livret ou du bulletin.
+    let avant = ent
         .list_evaluations_eleve_for_actor(
             etab,
             cast.parent_lea.user_id,
@@ -10499,8 +10515,21 @@ async fn explorer_competences_lsu(
         )
         .await
         .map_err(|e| e.to_string())?;
+    if !avant.is_empty() {
+        return Err("la famille lit des compétences non publiées".into());
+    }
+    let vus = ent
+        .list_evaluations_eleve_for_actor(
+            etab,
+            cast.prof.user_id,
+            Role::Prof.as_str(),
+            lea,
+            Some(periode.id),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
     if vus.len() != 2 {
-        return Err(format!("famille attend 2 évaluations, got {}", vus.len()));
+        return Err(format!("le professeur attend 2 évaluations, got {}", vus.len()));
     }
     if ent
         .list_evaluations_eleve_for_actor(
@@ -10561,6 +10590,20 @@ async fn explorer_competences_lsu(
         "professeur : publie le livret PDF ({}) → document famille + notification",
         doc.code.as_deref().unwrap_or("LIVRET")
     ));
+
+    let publiees = ent
+        .list_evaluations_eleve_for_actor(
+            etab,
+            cast.parent_lea.user_id,
+            Role::Parent.as_str(),
+            lea,
+            Some(periode.id),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    if publiees.len() != 2 {
+        return Err(format!("famille attend 2 évaluations après publication, got {}", publiees.len()));
+    }
 
     // Contrôle : le niveau stocké est bien re-lu (fragile sur D2.3).
     let d2_3 = vus

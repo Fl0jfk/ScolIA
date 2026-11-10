@@ -38,6 +38,21 @@ pub struct PeriodeNotesDto {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StatutPeriodeBody {
     pub statut: String,
+    /// Motif écrit : **obligatoire** pour rouvrir une période fermée (V0, D2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motif: Option<String>,
+}
+
+/// Une ligne du journal (ajout seul) des changements de statut d'une période.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JournalPeriodeDto {
+    pub id: Uuid,
+    pub periode_id: Uuid,
+    pub statut_avant: String,
+    pub statut_apres: String,
+    pub motif: Option<String>,
+    pub acteur_user_id: Uuid,
+    pub cree_le: DateTime<Utc>,
 }
 
 /// Règles de calcul de l'établissement (`arrondi` : `centieme`, `dixieme`, `demi_point`).

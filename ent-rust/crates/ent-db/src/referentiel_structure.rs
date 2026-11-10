@@ -724,18 +724,28 @@ impl PgEnt {
         niveau_id: Option<Uuid>,
     ) -> Result<Vec<Periode>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
-        sqlx::query_as::<_, Periode>(
-            "SELECT id, annee_id, niveau_id, code, libelle, kind, ordre, date_debut, date_fin
-               FROM ent_periode
-              WHERE etablissement_id = $1 AND annee_id = $2 AND niveau_id IS NOT DISTINCT FROM $3
-              ORDER BY date_debut",
+        let mut t = crate::tenant_tx::TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let r = sqlx::query_as::<_, Periode>(
+            // Source unique : périodisation d'évaluation dont la cible est ce niveau (ou « défaut »).
+            "SELECT p.id, p.annee_id, p.niveau_id, p.code, p.libelle, p.kind, p.ordre, p.date_debut, p.date_fin
+               FROM ent_periode p
+              WHERE p.etablissement_id = $1 AND p.annee_id = $2
+                AND p.periodisation_id IN (
+                    SELECT c.periodisation_id FROM ent_periodisation_cible c
+                     WHERE c.etablissement_id = $1 AND c.annee_id = $2 AND c.usage = 'evaluation'
+                       AND (($3::uuid IS NULL AND c.defaut) OR c.niveau_id = $3))
+              ORDER BY p.date_debut",
         )
         .bind(a.etablissement_id)
         .bind(annee_id)
         .bind(niveau_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *t)
         .await
-        .map_err(db)
+        .map_err(db)?;
+        t.commit().await.map_err(db)?;
+        Ok(r)
     }
 
     /// Remplace atomiquement les périodes d'une année (globales ou d'un niveau). Elles
@@ -751,6 +761,7 @@ impl PgEnt {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let annee: Option<(NaiveDate, NaiveDate, bool)> = sqlx::query_as(
             "SELECT date_debut, date_fin, cloturee_le IS NOT NULL FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -782,18 +793,86 @@ impl PgEnt {
         if verifier_couverture(periodes, debut, fin).is_err() {
             return Err(invalide());
         }
+        // Source unique (migration 335) : la périodisation d'évaluation dont la cible EST ce niveau
+        // (ou « défaut »), créée au besoin. Une périodisation partagée par plusieurs cibles ne se
+        // modifie pas par cette route historique (409) : passer par `/structure/periodisations`.
+        let pz: Uuid = match sqlx::query_scalar::<_, Uuid>(
+            "SELECT c.periodisation_id FROM ent_periodisation_cible c
+              WHERE c.etablissement_id = $1 AND c.annee_id = $2 AND c.usage = 'evaluation'
+                AND (($3::uuid IS NULL AND c.defaut) OR c.niveau_id = $3)",
+        )
+        .bind(e)
+        .bind(annee_id)
+        .bind(niveau_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        {
+            Some(pz) => {
+                let n: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM ent_periodisation_cible WHERE etablissement_id = $1 AND periodisation_id = $2",
+                )
+                .bind(e)
+                .bind(pz)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+                if n != 1 {
+                    return Err(conflit());
+                }
+                pz
+            }
+            None => {
+                let pz = Uuid::new_v4();
+                sqlx::query(
+                    "INSERT INTO ent_periodisation (id, etablissement_id, annee_id, code, libelle, usage, origine)
+                     VALUES ($1,$2,$3,$4,$5,'evaluation','service')",
+                )
+                .bind(pz)
+                .bind(e)
+                .bind(annee_id)
+                .bind(format!("H-{}", &pz.simple().to_string()[..8]))
+                .bind(if niveau_id.is_some() { "Périodes d'un niveau" } else { "Périodes de l'établissement" })
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                sqlx::query(
+                    "INSERT INTO ent_periodisation_cible
+                       (id, etablissement_id, annee_id, usage, periodisation_id, niveau_id, defaut)
+                     VALUES ($1,$2,$3,'evaluation',$4,$5,$6)",
+                )
+                .bind(Uuid::new_v4())
+                .bind(e)
+                .bind(annee_id)
+                .bind(pz)
+                .bind(niveau_id)
+                .bind(niveau_id.is_none())
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                pz
+            }
+        };
+        // Contrainte de chevauchement non différable : les lignes sortent de la contrainte le temps
+        // de la réécriture, puis y rentrent toutes (voir migration 335).
+        sqlx::query("UPDATE ent_periode SET origine = 'reprise' WHERE etablissement_id = $1 AND periodisation_id = $2")
+            .bind(e)
+            .bind(pz)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let codes: Vec<String> = periodes.iter().map(|p| p.code.trim().to_string()).collect();
         // Retraits : refusés si la saisie de notes s'appuie dessus.
         let utilisees: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_periode p
               WHERE p.etablissement_id = $1 AND p.annee_id = $2
-                AND p.niveau_id IS NOT DISTINCT FROM $3 AND NOT (p.code = ANY($4))
+                AND p.periodisation_id = $3 AND NOT (p.code = ANY($4))
                 AND EXISTS (SELECT 1 FROM ent_note_periode np
                              WHERE np.etablissement_id = p.etablissement_id AND np.periode_id = p.id)",
         )
         .bind(e)
         .bind(annee_id)
-        .bind(niveau_id)
+        .bind(pz)
         .bind(&codes)
         .fetch_one(&mut *tx)
         .await
@@ -804,11 +883,11 @@ impl PgEnt {
         sqlx::query(
             "DELETE FROM ent_periode
               WHERE etablissement_id = $1 AND annee_id = $2
-                AND niveau_id IS NOT DISTINCT FROM $3 AND NOT (code = ANY($4))",
+                AND periodisation_id = $3 AND NOT (code = ANY($4))",
         )
         .bind(e)
         .bind(annee_id)
-        .bind(niveau_id)
+        .bind(pz)
         .bind(&codes)
         .execute(&mut *tx)
         .await
@@ -819,11 +898,11 @@ impl PgEnt {
             let existant: Option<Uuid> = sqlx::query_scalar(
                 "SELECT id FROM ent_periode
                   WHERE etablissement_id = $1 AND annee_id = $2
-                    AND niveau_id IS NOT DISTINCT FROM $3 AND code = $4",
+                    AND periodisation_id = $3 AND code = $4",
             )
             .bind(e)
             .bind(annee_id)
-            .bind(niveau_id)
+            .bind(pz)
             .bind(p.code.trim())
             .fetch_optional(&mut *tx)
             .await
@@ -849,14 +928,14 @@ impl PgEnt {
                 None => {
                     sqlx::query(
                         "INSERT INTO ent_periode
-                           (id, etablissement_id, annee_id, niveau_id, code, libelle, kind, ordre,
-                            date_debut, date_fin)
-                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                           (id, etablissement_id, annee_id, periodisation_id, code, libelle, kind, ordre,
+                            date_debut, date_fin, origine)
+                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'reprise')",
                     )
                     .bind(Uuid::new_v4())
                     .bind(e)
                     .bind(annee_id)
-                    .bind(niveau_id)
+                    .bind(pz)
                     .bind(p.code.trim())
                     .bind(p.libelle.trim())
                     .bind(&p.kind)
@@ -869,6 +948,12 @@ impl PgEnt {
                 }
             }
         }
+        sqlx::query("UPDATE ent_periode SET origine = 'service' WHERE etablissement_id = $1 AND periodisation_id = $2")
+            .bind(e)
+            .bind(pz)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let ev = publier_ref(
             &mut tx,
             a,
@@ -972,6 +1057,7 @@ impl PgEnt {
         }
         let e = a.etablissement_id;
         let mut tx = self.pool().begin().await.map_err(db)?;
+        crate::ref_commun::contexte_etab(&mut tx, e).await?;
         if let Some(s) = site_id {
             let n: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_site WHERE etablissement_id = $1 AND id = $2",
@@ -1185,6 +1271,19 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        }
+        // Source unique (migration 336) : l'ancienne route est aussi écrite dans le modèle versionné
+        // (version « REPRISE » valable aujourd'hui). Le miroir ne doit jamais casser l'ancienne route :
+        // un échec est journalisé et annulé à son point de sauvegarde.
+        {
+            let mut sp = sqlx::Acquire::begin(&mut *tx).await.map_err(db)?;
+            match crate::structure_grilles::miroir_ancienne_grille(&mut sp, a, site_id, creneaux).await {
+                Ok(()) => sp.commit().await.map_err(db)?,
+                Err(err) => {
+                    tracing::warn!(?err, "miroir de la grille historique vers le modèle versionné ignoré");
+                    drop(sp);
+                }
+            }
         }
         let ev = publier_ref(
             &mut tx,
