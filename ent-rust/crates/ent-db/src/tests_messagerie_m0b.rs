@@ -305,15 +305,17 @@ async fn m0b_d22_fil_du_personnel_cree_par_foyer_et_non_lu_des_professeurs() {
     };
     assert_eq!(lecteurs.len(), 2);
     assert!(lecteurs.contains(&Some(cast.foyer_lea_id)) && lecteurs.contains(&Some(foyer_james)));
+    let ids: Vec<Uuid> = fils.iter().map(|f| f.id).collect();
     let pour = |foyer: Uuid| {
-        let ids: Vec<Uuid> = fils.iter().map(|f| f.id).collect();
+        let ids = ids.clone();
+        let pool = ent.pool().clone();
         async move {
             let (id,): (Uuid,) = sqlx::query_as(
                 "SELECT id FROM ent_msg_fil WHERE id = ANY($1) AND foyer_lecteur_id = $2",
             )
             .bind(ids)
             .bind(foyer)
-            .fetch_one(ent.pool())
+            .fetch_one(&pool)
             .await
             .unwrap();
             id
@@ -1190,19 +1192,17 @@ async fn m0b_d16_piece_au_dela_de_256_kio_refusee_en_413_meme_si_le_reglage_est_
         v
     };
     let attacher = |ent: &PgEnt, contenu: Vec<u8>| {
-        let nom = "certificat.pdf".to_string();
-        let fut = ent.attacher_piece_for_actor(
+        ent.attacher_piece_for_actor(
             role(Role::Direction),
             domain_eleve::AttacherPiece {
                 etablissement_id: etab,
                 message_id: message,
-                nom,
+                nom: "certificat.pdf".to_string(),
                 mime_type: "application/pdf".into(),
                 contenu,
                 actor_user_id: dir,
             },
-        );
-        async move { fut.await }
+        )
     };
     // Témoin : une pièce de 100 Kio passe.
     attacher(&ent, pdf(100 * 1024)).await.expect("témoin : pièce de 100 Kio");
