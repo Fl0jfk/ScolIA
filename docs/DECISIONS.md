@@ -358,3 +358,11 @@ Pour chaque nouvelle décision : ID, date, sujet, contexte, options, décision, 
 - **C** : versions **de base** et **temporaires** (stage, voyage, suppléant, salle fermée), retour automatique au plan.
 - **D/E/F** : saisie accélérée possible tôt pour le pilote (EDT-216 en T1 si besoin) ; AESH intégrée (§8.3 bis) ; les six pièges de minimisation corrigés (R-E27 et suivantes).
 
+
+## D-034 — Feuille de route vers la mise en service (Florian, 2026-11-10)
+- **Début décembre 2026** : première démo du quotidien (élève et familles, inscriptions, structure et cours, EDT, appel et absences, notes et bulletins, messagerie, personnels).
+- **Fin janvier – février 2027** : ENT complet en V1 — les 51 socles fonctionnels avec leurs lots essentiels, passés aux personas et validés par la CI, sans épaississement.
+- **Février – août 2027** (environ 6 mois) : épaississement jusqu'à une profondeur digne d'un vrai ENT.
+- **Année 2027-2028** : **année de doublon** dans l'établissement de Florian — ScolIA tourne en parallèle de Charlemagne toute l'année pour repérer manques, erreurs et améliorations ; Charlemagne reste l'outil officiel.
+- **Rentrée 2028** : bascule envisagée si l'année de doublon est concluante (cohérent avec D-029, ouverture au public avant 2028 visée pour la commercialisation).
+Préalables à l'année de doublon (à préparer au printemps 2027) : accord écrit de l'établissement avant toute donnée réelle (`MISE_EN_SERVICE_DONNEES.md` A8/A10), avis du DPO (durées de conservation, registre), hébergement en France (Scaleway) avec module santé désactivé tant qu'il n'y a pas d'hébergeur HDS, reprise de données depuis Charlemagne (F-01 à F-04), inscription éditeur et validation des interfaces utiles (F-06), décision sur la double saisie (ce qui est saisi dans les deux outils, ce qui est importé de Charlemagne). Finances : rester dans Charlemagne pendant le doublon, ScolIA calcule en parallèle sans prélever (recommandation socles 24–25).

@@ -35,6 +35,8 @@ Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet
 
 ## 4. File d'intégration et état (à tenir à jour)
 
+Feuille de route (D-034) : démo du quotidien début décembre 2026 ; ENT complet V1 fin janvier–février 2027 ; épaississement jusqu'en août 2027 ; année de doublon avec Charlemagne en 2027-2028 ; bascule visée rentrée 2028.
+
 État au 2026-11-09, 13 h 10 UTC :
 - **Sur `ENT`** (`e8a69c53`, CI parallèle verte : 27 jobs, 1 137 tests, 30 min) : socle 1 ; lots 6, 7 ; lot 8 bis (socles 2–4 de base) ; **lot 9** (correctifs recettes 1 et 2, E5–E6, I2, S0–S1) ; **lot 10** (A2, P0–P1, S2, écrans de la démo P1, nouvelle CI parallèle). Exception d'audit RUSTSEC-2026-0459 (SQLite non compilé, vérifié par le pilote) à revoir au 2027-02-01.
 - **Lot 11** (`ent-integration-lot11`) : socle 5 S3, S4, S5, S7 ; socle 6 P2 ; en cours, à rebaser sur la nouvelle tête d'ENT.
