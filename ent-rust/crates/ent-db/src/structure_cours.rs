@@ -149,7 +149,9 @@ pub mod cours {
         sqlx::query_as(
             "SELECT id AS service_id, prof_user_id, professeur_principal
                FROM ent_service_enseignement
-              WHERE etablissement_id = $1 AND cours_id = $2 ORDER BY created_at, id",
+              WHERE etablissement_id = $1 AND cours_id = $2
+                AND prof_user_id IS NOT NULL  -- P3 : un service vacant n'a pas de professeur
+              ORDER BY created_at, id",
         )
         .bind(etab)
         .bind(cours_id)

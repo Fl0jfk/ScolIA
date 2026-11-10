@@ -242,6 +242,21 @@ pub mod types {
     pub const PERSONNEL_ACCES_RATTACHE: &str = "personnel.acces_rattache";
     pub const PERSONNEL_ARRIVE: &str = "personnel.arrive";
     pub const SESSION_CASQUETTE_CHANGEE: &str = "session.casquette_changee";
+    /// Socle 6, lot P3 : services d'enseignement et interventions (agrégat `Referentiel`, identifiant
+    /// = service). Charges utiles : identifiants, codes, dates — jamais de nom, de motif détaillé.
+    pub const SERVICE_CREE: &str = "service.cree";
+    pub const SERVICE_MODIFIE: &str = "service.modifie";
+    pub const SERVICE_CLOS: &str = "service.clos";
+    pub const SERVICE_ANNULE: &str = "service.annule";
+    pub const SERVICE_REMPLACE: &str = "service.remplace";
+    pub const SERVICE_INTERVENANT_AJOUTE: &str = "service.intervenant_ajoute";
+    pub const SERVICE_INTERVENANT_TERMINE: &str = "service.intervenant_termine";
+    pub const SERVICE_INTERVENTION_CORRIGEE: &str = "service.intervention_corrigee";
+    pub const SERVICE_SUPPLEANCE_OUVERTE: &str = "service.suppleance_ouverte";
+    pub const SERVICE_SUPPLEANCE_CLOSE: &str = "service.suppleance_close";
+    pub const SERVICE_OUVERT: &str = "service.ouvert";
+    pub const SERVICE_VACANT: &str = "service.vacant";
+    pub const SERVICE_POURVU: &str = "service.pourvu";
     /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
     /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
     pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";

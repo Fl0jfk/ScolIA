@@ -247,6 +247,13 @@ pub enum Action {
     /// Lot P2 : inviter un agent (lien ou QR code), relancer, annuler une invitation. Direction,
     /// administration et secrétariat (PRS-20 à 23) ; n'ouvre ni la fiche d'organisation ni la gestion.
     PersonnelsInviter,
+    // ── Socle 6, lot P3 : services d'enseignement et interventions (`06_PERSONNELS.md` §14.2) ──
+    /// Répartition des services : qui enseigne quoi à qui (lecture). Tout le personnel (aujourd'hui
+    /// `referentiel.lire`) ; `services.gerer` l'inclut.
+    PersonnelsServicesLire,
+    /// Créer, modifier, clore, annuler les services ; ajouter, terminer, corriger les interventions,
+    /// nommer un suppléant, remplacer un agent (aujourd'hui `referentiel.gerer`).
+    ServicesGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -263,7 +270,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 109] = [
+    pub const TOUTES: [Action; 111] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -378,6 +385,9 @@ impl Action {
         Action::PersonnelsGerer,
         Action::PersonnelsAccesGerer,
         Action::PersonnelsInviter,
+        // Socle 6, lot P3
+        Action::PersonnelsServicesLire,
+        Action::ServicesGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -492,6 +502,8 @@ impl Action {
             Self::PersonnelsGerer => "personnels.gerer",
             Self::PersonnelsAccesGerer => "personnels.acces.gerer",
             Self::PersonnelsInviter => "personnels.inviter",
+            Self::PersonnelsServicesLire => "personnels.services.lire",
+            Self::ServicesGerer => "services.gerer",
         }
     }
 
@@ -609,6 +621,8 @@ impl Action {
             Self::PersonnelsGerer => "Créer et modifier les agents et leurs engagements",
             Self::PersonnelsAccesGerer => "Inviter, ouvrir, suspendre, fermer l'accès d'un agent",
             Self::PersonnelsInviter => "Inviter un agent (lien, QR code), relancer, annuler une invitation",
+            Self::PersonnelsServicesLire => "Répartition des services d'enseignement et de leurs intervenants",
+            Self::ServicesGerer => "Créer et modifier les services d'enseignement et leurs interventions",
         }
     }
 
@@ -630,6 +644,7 @@ impl Action {
             Self::ResponsablesProtegeLire => &[Self::ResponsablesProtegeGerer],
             // Socle 6 (§14.2) : inclusions explicites, aucune autre.
             Self::PersonnelsLire => &[Self::PersonnelsGerer],
+            Self::PersonnelsServicesLire => &[Self::ServicesGerer],
             _ => &[],
         }
     }
@@ -719,7 +734,9 @@ impl Action {
             | Self::PersonnelsConfidentielGerer
             | Self::PersonnelsGerer
             | Self::PersonnelsAccesGerer
-            | Self::PersonnelsInviter => &[Portee::Etablissement],
+            | Self::PersonnelsInviter
+            | Self::PersonnelsServicesLire
+            | Self::ServicesGerer => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -806,6 +823,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(PersonnelsInviter));
+    }
+    // Lot P3 : mêmes profils que `referentiel.lire` / `referentiel.gerer` (comportement actuel).
+    d.push(etab(PersonnelsServicesLire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(ServicesGerer));
     }
     if role.can_gerer_personnels() {
         for a in [
@@ -1373,8 +1395,15 @@ mod tests {
                 usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif)),
                 "{r:?} inviter"
             );
+            // Lot P3 : lecture = `referentiel.lire` (tout le personnel), gestion = `referentiel.gerer`.
+            assert_eq!(a(PersonnelsServicesLire) == 1, r.is_staff(), "{r:?} services.lire");
+            assert_eq!(
+                a(ServicesGerer),
+                usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif)),
+                "{r:?} services.gerer"
+            );
             for (x, p) in &m {
-                if x.code().starts_with("personnels.") {
+                if x.code().starts_with("personnels.") || x.code() == "services.gerer" {
                     assert_eq!(*p, Portee::Etablissement, "{r:?} {}", x.code());
                 }
             }
@@ -1385,6 +1414,8 @@ mod tests {
         assert_eq!(PersonnelsLire.accordee_par(), &[PersonnelsGerer]);
         assert!(PersonnelsAnnuaire.accordee_par().is_empty());
         assert!(PersonnelsAccesGerer.accordee_par().is_empty());
+        assert_eq!(Action::parse("services.gerer"), Some(ServicesGerer));
+        assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
     }
 
     /// E1 : les nouvelles actions « élève » reproduisent exactement les capacités

@@ -8,6 +8,7 @@ mod auth;
 pub mod client_ip;
 mod dossier;
 mod personnels;
+mod personnels_services;
 mod dto;
 pub mod http_garde;
 mod ical;
@@ -282,6 +283,8 @@ mod tests_personnels_p0;
 mod tests_personnels_p1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
