@@ -22,6 +22,10 @@ fn assurance_par_defaut() -> String {
     "mot_de_passe".into()
 }
 
+fn casquette_par_defaut() -> String {
+    "principale".into()
+}
+
 fn client_par_defaut() -> String {
     "web".into()
 }
@@ -49,6 +53,9 @@ pub struct MoiSecurite {
     /// La politique de l'établissement impose la passkey à ce rôle.
     #[serde(default)]
     pub passkey_obligatoire: bool,
+    /// Casquette active (`principale` ou `parent`).
+    #[serde(default = "casquette_par_defaut")]
+    pub casquette: String,
 }
 
 impl MoiSecurite {
@@ -65,6 +72,7 @@ impl MoiSecurite {
             assurance: self.assurance.clone(),
             client: self.client.clone(),
             passkey_obligatoire: self.passkey_obligatoire,
+            casquette: self.casquette.clone(),
         }
     }
 }

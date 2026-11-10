@@ -92,6 +92,13 @@ pub struct MeDto {
     /// La politique de l'établissement impose la passkey à ce rôle.
     #[serde(default)]
     pub passkey_obligatoire: bool,
+    /// Casquette active (socle 6, P2) : `principale` ou `parent`. `role` est celui de la casquette.
+    #[serde(default = "casquette_principale")]
+    pub casquette: String,
+}
+
+fn casquette_principale() -> String {
+    "principale".into()
 }
 
 fn portee_complete() -> String {
