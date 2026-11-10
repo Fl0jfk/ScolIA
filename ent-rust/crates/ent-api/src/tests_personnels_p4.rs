@@ -253,7 +253,7 @@ async fn pp_nomme_par_la_direction_visible_dans_mes_missions_et_cloisonne() {
         "POST",
         &format!("/personnels/missions/{mid}/terminer"),
         Some(&dir.jeton),
-        Some(json!({"au": annee.date_fin})),
+        Some(json!({"au": annee.date_fin - chrono::Duration::days(1)})),
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{fin}");
