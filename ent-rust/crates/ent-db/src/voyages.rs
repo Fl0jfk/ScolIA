@@ -281,7 +281,11 @@ pub fn audit(d: &EtatDossier<'_>) -> Vec<PointAudit> {
         );
     }
     if d.destination == "etranger" && d.pays.is_none() {
-        p("pays_absent", Gravite::Bloquant, "Le pays de destination est obligatoire à l'étranger.");
+        p(
+            "pays_absent",
+            Gravite::Bloquant,
+            "Le pays de destination est obligatoire à l'étranger.",
+        );
     }
     if d.forme == "voyage" && d.effectif_eleves_declare.is_none() {
         p(
@@ -373,7 +377,8 @@ pub fn blocages_liste(d: &EtatDossier<'_>) -> Vec<PointAudit> {
                 b.push(PointAudit {
                     code: "effectif_inexact",
                     gravite: Gravite::Bloquant,
-                    libelle: "L'effectif est « exact » : le nombre d'inscrits doit lui être égal.".into(),
+                    libelle: "L'effectif est « exact » : le nombre d'inscrits doit lui être égal."
+                        .into(),
                 });
             }
         }
@@ -594,8 +599,14 @@ mod tests {
         assert_eq!(apres_validation_pedagogique(&fac), "preparation");
         assert_eq!(apres_preparation(&fac), "a_autoriser");
         // Avec car : devis à signer ; voyage sans car : budget.
-        assert_eq!(apres_preparation(&c("facultative", "sans_nuitee", true)), "a_signer");
-        assert_eq!(apres_preparation(&c("facultative", "voyage", false)), "budget_a_valider");
+        assert_eq!(
+            apres_preparation(&c("facultative", "sans_nuitee", true)),
+            "a_signer"
+        );
+        assert_eq!(
+            apres_preparation(&c("facultative", "voyage", false)),
+            "budget_a_valider"
+        );
         // Une sortie obligatoire avec car n'est plus « courte » (il y a un coût).
         assert!(!c("obligatoire", "sans_nuitee", true).circuit_court());
     }
@@ -672,12 +683,16 @@ mod tests {
         let mut d = dossier();
         d.effectif_eleves_declare = Some(10);
         d.nb_inscrits = 11;
-        assert!(blocages_liste(&d).iter().any(|p| p.code == "effectif_depasse"));
+        assert!(blocages_liste(&d)
+            .iter()
+            .any(|p| p.code == "effectif_depasse"));
         d.nb_inscrits = 10;
         assert!(blocages_liste(&d).is_empty());
         d.effectif_mode = "exact";
         d.nb_inscrits = 9;
-        assert!(blocages_liste(&d).iter().any(|p| p.code == "effectif_inexact"));
+        assert!(blocages_liste(&d)
+            .iter()
+            .any(|p| p.code == "effectif_inexact"));
         d.nb_inscrits = 0;
         assert!(blocages_liste(&d).iter().any(|p| p.code == "liste_vide"));
     }
@@ -697,10 +712,22 @@ mod tests {
     #[test]
     fn prochaine_etape_nomme_qui_agit() {
         let fac = c("facultative", "voyage", true);
-        assert_eq!(prochaine_etape("brouillon", &fac, false).qui, Acteur::Porteur);
-        assert_eq!(prochaine_etape("soumise", &fac, false).qui, Acteur::Direction);
-        assert_eq!(prochaine_etape("budget_a_valider", &fac, false).qui, Acteur::Comptabilite);
-        assert_eq!(prochaine_etape("a_autoriser", &fac, false).commande, Some("autoriser"));
+        assert_eq!(
+            prochaine_etape("brouillon", &fac, false).qui,
+            Acteur::Porteur
+        );
+        assert_eq!(
+            prochaine_etape("soumise", &fac, false).qui,
+            Acteur::Direction
+        );
+        assert_eq!(
+            prochaine_etape("budget_a_valider", &fac, false).qui,
+            Acteur::Comptabilite
+        );
+        assert_eq!(
+            prochaine_etape("a_autoriser", &fac, false).commande,
+            Some("autoriser")
+        );
         assert_eq!(
             prochaine_etape("ouverte", &fac, false).commande,
             Some("confirmer-liste")
@@ -717,12 +744,15 @@ mod tests {
         // Les mardis de septembre 2026 : 1, 8, 15, 22, 29.
         let du = NaiveDate::from_ymd_opt(2026, 9, 1).unwrap();
         let au = NaiveDate::from_ymd_opt(2026, 9, 30).unwrap();
-        let exclus: std::collections::HashSet<_> =
-            [NaiveDate::from_ymd_opt(2026, 9, 15).unwrap()].into_iter().collect();
+        let exclus: std::collections::HashSet<_> = [NaiveDate::from_ymd_opt(2026, 9, 15).unwrap()]
+            .into_iter()
+            .collect();
         let (ok, ko) = dates_de_serie(2, du, au, &exclus);
         assert_eq!(ok.len(), 4);
         assert_eq!(ko, vec![NaiveDate::from_ymd_opt(2026, 9, 15).unwrap()]);
-        assert!(ok.iter().all(|d| chrono::Datelike::weekday(d).number_from_monday() == 2));
+        assert!(ok
+            .iter()
+            .all(|d| chrono::Datelike::weekday(d).number_from_monday() == 2));
         // Aucune occurrence si la plage est trop courte.
         let (ok, _) = dates_de_serie(2, du, du, &Default::default());
         assert_eq!(ok, vec![du]);
@@ -733,7 +763,9 @@ mod tests {
     #[test]
     fn reference_lisible_et_stable() {
         let id = Uuid::parse_str("0123abcd-0000-0000-0000-000000000000").unwrap();
-        let d = DateTime::parse_from_rfc3339("2027-03-04T08:00:00Z").unwrap().with_timezone(&Utc);
+        let d = DateTime::parse_from_rfc3339("2027-03-04T08:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
         assert_eq!(reference(d, id), "VOY-2027-0123ABCD");
     }
 

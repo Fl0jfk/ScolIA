@@ -11,12 +11,12 @@ use axum::response::IntoResponse;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ent_db::voyages::Commande;
+use ent_db::voyages::PointAudit;
 use ent_db::voyages_repo::{
     CandidatsClasse, Circulaire, EncadrantVue, EtapeSaisie, EtapeVue, FiltreVoyages, JournalVue,
     ParamsCommande, ParticipantVue, ResultatAjout, ResultatSeance, ResultatSerie, SerieSaisie,
     SortieDetail, SortieLigne, SortieResume, SortieSaisie, TableauDirection, VoyageFamille,
 };
-use ent_db::voyages::PointAudit;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -41,9 +41,15 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/audit", get(audit))
         .route("/voyages/{id}/journal", get(journal))
         .route("/voyages/{id}/candidats", get(candidats))
-        .route("/voyages/{id}/participants", get(participants).post(participants_ajouter))
+        .route(
+            "/voyages/{id}/participants",
+            get(participants).post(participants_ajouter),
+        )
         .route("/voyages/{id}/participants.csv", get(participants_csv))
-        .route("/voyages/{id}/participants/{pid}/desistement", post(desistement))
+        .route(
+            "/voyages/{id}/participants/{pid}/desistement",
+            post(desistement),
+        )
         .route("/voyages/{id}/participants/{pid}/retrait", post(retrait))
         .route("/voyages/{id}/encadrants", post(encadrant_ajouter))
         .route("/voyages/{id}/encadrants/{eid}", delete(encadrant_retirer))
@@ -55,7 +61,12 @@ async fn liste(
     session: EntSession,
     Query(f): Query<FiltreVoyages>,
 ) -> Res<Json<Vec<SortieResume>>> {
-    Ok(Json(s.ent.voyages_liste(&acteur(&session), f).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyages_liste(&acteur(&session), f)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn creer(
@@ -63,7 +74,11 @@ async fn creer(
     session: EntSession,
     Json(b): Json<SortieSaisie>,
 ) -> Res<(StatusCode, Json<SortieLigne>)> {
-    let v = s.ent.voyage_creer(&acteur(&session), b).await.map_err(map_db)?;
+    let v = s
+        .ent
+        .voyage_creer(&acteur(&session), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(v)))
 }
 
@@ -72,7 +87,11 @@ async fn serie_creer(
     session: EntSession,
     Json(b): Json<SerieSaisie>,
 ) -> Res<(StatusCode, Json<ResultatSerie>)> {
-    let v = s.ent.voyage_serie_creer(&acteur(&session), b).await.map_err(map_db)?;
+    let v = s
+        .ent
+        .voyage_serie_creer(&acteur(&session), b)
+        .await
+        .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(v)))
 }
 
@@ -82,16 +101,29 @@ async fn serie_valider(
     Path(serie_id): Path<Uuid>,
 ) -> Res<Json<Vec<ResultatSeance>>> {
     Ok(Json(
-        s.ent.voyage_serie_valider(&acteur(&session), serie_id).await.map_err(map_db)?,
+        s.ent
+            .voyage_serie_valider(&acteur(&session), serie_id)
+            .await
+            .map_err(map_db)?,
     ))
 }
 
 async fn tableau(State(s): State<AppState>, session: EntSession) -> Res<Json<TableauDirection>> {
-    Ok(Json(s.ent.voyages_tableau(&acteur(&session)).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyages_tableau(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn famille(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<VoyageFamille>>> {
-    Ok(Json(s.ent.voyages_famille(&acteur(&session)).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyages_famille(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn detail(
@@ -99,7 +131,12 @@ async fn detail(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<SortieDetail>> {
-    Ok(Json(s.ent.voyage_detail(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyage_detail(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -199,7 +236,12 @@ async fn audit(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<Vec<PointAudit>>> {
-    Ok(Json(s.ent.voyage_audit(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyage_audit(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn journal(
@@ -207,7 +249,12 @@ async fn journal(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<Vec<JournalVue>>> {
-    Ok(Json(s.ent.voyage_journal(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyage_journal(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -236,7 +283,10 @@ async fn participants(
     Path(id): Path<Uuid>,
 ) -> Res<Json<Vec<ParticipantVue>>> {
     Ok(Json(
-        s.ent.voyage_participants(&acteur(&session), id).await.map_err(map_db)?,
+        s.ent
+            .voyage_participants(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
     ))
 }
 
@@ -272,7 +322,10 @@ async fn participants_csv(
     Ok((
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-            (header::CONTENT_DISPOSITION, "attachment; filename=\"participants.csv\""),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"participants.csv\"",
+            ),
             (header::CACHE_CONTROL, "no-store"),
         ],
         csv,
@@ -293,7 +346,13 @@ async fn desistement(
     Json(b): Json<MotifBody>,
 ) -> Res<StatusCode> {
     s.ent
-        .voyage_participant_desister(&acteur(&session), id, pid, &b.motif_code, b.motif_texte.as_deref())
+        .voyage_participant_desister(
+            &acteur(&session),
+            id,
+            pid,
+            &b.motif_code,
+            b.motif_texte.as_deref(),
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -306,7 +365,13 @@ async fn retrait(
     Json(b): Json<MotifBody>,
 ) -> Res<StatusCode> {
     s.ent
-        .voyage_participant_retirer(&acteur(&session), id, pid, &b.motif_code, b.motif_texte.as_deref())
+        .voyage_participant_retirer(
+            &acteur(&session),
+            id,
+            pid,
+            &b.motif_code,
+            b.motif_texte.as_deref(),
+        )
         .await
         .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
@@ -350,5 +415,10 @@ async fn circulaire(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<Circulaire>> {
-    Ok(Json(s.ent.voyage_circulaire(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .voyage_circulaire(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }

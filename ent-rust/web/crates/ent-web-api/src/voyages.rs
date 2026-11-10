@@ -48,12 +48,14 @@ impl ApiClient {
 
     /// `POST /voyages` : crée une sortie (brouillon).
     pub async fn voyage_creer(&self, saisie: &SortieSaisieDto) -> Result<SortieDto, ApiError> {
-        self.appel(Methode::Post, "/voyages", Some(corps(saisie)?)).await
+        self.appel(Methode::Post, "/voyages", Some(corps(saisie)?))
+            .await
     }
 
     /// `GET /voyages/{id}` : détail, droits calculés, prochaine étape, audit.
     pub async fn voyage(&self, id: Uuid) -> Result<SortieDetailDto, ApiError> {
-        self.appel(Methode::Get, &format!("/voyages/{id}"), None).await
+        self.appel(Methode::Get, &format!("/voyages/{id}"), None)
+            .await
     }
 
     /// `PUT /voyages/{id}` : modifie le projet (verrou optimiste sur `version`).
@@ -62,7 +64,8 @@ impl ApiClient {
         id: Uuid,
         modif: &SortieModifDto,
     ) -> Result<SortieDto, ApiError> {
-        self.appel(Methode::Put, &format!("/voyages/{id}"), Some(corps(modif)?)).await
+        self.appel(Methode::Put, &format!("/voyages/{id}"), Some(corps(modif)?))
+            .await
     }
 
     /// `POST /voyages/{id}/commandes/{commande}` : transition d'état (R-SV1).
@@ -86,13 +89,18 @@ impl ApiClient {
         id: Uuid,
         etapes: &[EtapeSaisieDto],
     ) -> Result<Vec<EtapeDto>, ApiError> {
-        self.appel(Methode::Put, &format!("/voyages/{id}/programme"), Some(corps(&etapes)?))
-            .await
+        self.appel(
+            Methode::Put,
+            &format!("/voyages/{id}/programme"),
+            Some(corps(&etapes)?),
+        )
+        .await
     }
 
     /// `GET /voyages/{id}/journal`.
     pub async fn voyage_journal(&self, id: Uuid) -> Result<Vec<JournalDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/voyages/{id}/journal"), None).await
+        self.appel(Methode::Get, &format!("/voyages/{id}/journal"), None)
+            .await
     }
 
     /// `GET /voyages/{id}/candidats` : élèves proposés (registre, scolarisés à la date).
@@ -110,7 +118,8 @@ impl ApiClient {
 
     /// `GET /voyages/{id}/participants`.
     pub async fn voyage_participants(&self, id: Uuid) -> Result<Vec<ParticipantDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/voyages/{id}/participants"), None).await
+        self.appel(Methode::Get, &format!("/voyages/{id}/participants"), None)
+            .await
     }
 
     /// `POST /voyages/{id}/participants` : inscrit des élèves choisis dans le registre.
@@ -161,14 +170,23 @@ impl ApiClient {
     }
 
     /// `DELETE /voyages/{id}/encadrants/{eid}`.
-    pub async fn voyage_retirer_encadrant(&self, id: Uuid, encadrant: Uuid) -> Result<(), ApiError> {
-        self.appel(Methode::Delete, &format!("/voyages/{id}/encadrants/{encadrant}"), None)
-            .await
+    pub async fn voyage_retirer_encadrant(
+        &self,
+        id: Uuid,
+        encadrant: Uuid,
+    ) -> Result<(), ApiError> {
+        self.appel(
+            Methode::Delete,
+            &format!("/voyages/{id}/encadrants/{encadrant}"),
+            None,
+        )
+        .await
     }
 
     /// `POST /voyages/{id}/circulaire` : texte de la circulaire aux familles.
     pub async fn voyage_circulaire(&self, id: Uuid) -> Result<CirculaireDto, ApiError> {
-        self.appel(Methode::Post, &format!("/voyages/{id}/circulaire"), None).await
+        self.appel(Methode::Post, &format!("/voyages/{id}/circulaire"), None)
+            .await
     }
 
     /// `GET /voyages/tableau` : tableau de bord de la direction et de la comptabilité.
@@ -185,7 +203,8 @@ impl ApiClient {
     pub async fn agents_pour_encadrement(
         &self,
     ) -> Result<Vec<ent_types::personnels::AgentResumeDto>, ApiError> {
-        self.appel(Methode::Get, "/personnels/annuaire?limite=200", None).await
+        self.appel(Methode::Get, "/personnels/annuaire?limite=200", None)
+            .await
     }
 }
 

@@ -11,8 +11,14 @@ use uuid::Uuid;
 use crate::noyau::temps::{a_paris, nom_mois, paris_vers_utc};
 
 pub const NATURES: [(&str, &str); 2] = [
-    ("facultative", "Facultative (autorisation des responsables demandée)"),
-    ("obligatoire", "Obligatoire (sur le temps scolaire, gratuite)"),
+    (
+        "facultative",
+        "Facultative (autorisation des responsables demandée)",
+    ),
+    (
+        "obligatoire",
+        "Obligatoire (sur le temps scolaire, gratuite)",
+    ),
 ];
 pub const FORMES: [(&str, &str); 2] = [
     ("sans_nuitee", "Sortie sans nuitée"),
@@ -145,7 +151,9 @@ pub fn libelle_journal(action: &str) -> &'static str {
     match action {
         "creee" => "Sortie créée",
         "modifiee" => "Projet modifié",
-        "modifiee_apres_ouverture" => "Modification après l'ouverture : avis aux familles à proposer",
+        "modifiee_apres_ouverture" => {
+            "Modification après l'ouverture : avis aux familles à proposer"
+        }
         "soumise" => "Soumise à la direction",
         "validee_pedagogie" => "Pédagogie validée",
         "a_completer" => "Modifications demandées",
@@ -180,9 +188,18 @@ pub fn libelle_journal(action: &str) -> &'static str {
 pub fn periode(debut: chrono::DateTime<chrono::Utc>, fin: chrono::DateTime<chrono::Utc>) -> String {
     let (d, f) = (a_paris(debut), a_paris(fin));
     if d.date() == f.date() {
-        format!("{} {} → {}", d.format("%d/%m/%Y"), d.format("%H:%M"), f.format("%H:%M"))
+        format!(
+            "{} {} → {}",
+            d.format("%d/%m/%Y"),
+            d.format("%H:%M"),
+            f.format("%H:%M")
+        )
     } else {
-        format!("{} → {}", d.format("%d/%m/%Y %H:%M"), f.format("%d/%m/%Y %H:%M"))
+        format!(
+            "{} → {}",
+            d.format("%d/%m/%Y %H:%M"),
+            f.format("%d/%m/%Y %H:%M")
+        )
     }
 }
 
@@ -245,7 +262,11 @@ fn entier(v: &str) -> Result<Option<i32>, ()> {
     if v.is_empty() {
         return Ok(None);
     }
-    v.parse::<i32>().ok().filter(|n| (0..=2000).contains(n)).map(Some).ok_or(())
+    v.parse::<i32>()
+        .ok()
+        .filter(|n| (0..=2000).contains(n))
+        .map(Some)
+        .ok_or(())
 }
 
 fn opt(v: &str) -> Option<String> {
@@ -290,16 +311,32 @@ pub fn composer(s: &SaisieVoyage) -> Result<SortieSaisieDto, Erreurs> {
     let eleves = entier(&s.effectif);
     let adultes = entier(&s.adultes);
     if eleves.is_err() {
-        erreur(&mut e, "voy-effectif", "Nombre d'élèves : un entier entre 0 et 2000.");
+        erreur(
+            &mut e,
+            "voy-effectif",
+            "Nombre d'élèves : un entier entre 0 et 2000.",
+        );
     }
     if adultes.is_err() {
-        erreur(&mut e, "voy-adultes", "Nombre d'adultes : un entier entre 0 et 2000.");
+        erreur(
+            &mut e,
+            "voy-adultes",
+            "Nombre d'adultes : un entier entre 0 et 2000.",
+        );
     }
     if s.forme == "voyage" && matches!(eleves, Ok(None)) {
-        erreur(&mut e, "voy-effectif", "Un voyage demande l'effectif d'élèves prévu (devis, budget).");
+        erreur(
+            &mut e,
+            "voy-effectif",
+            "Un voyage demande l'effectif d'élèves prévu (devis, budget).",
+        );
     }
     if s.classes.is_empty() {
-        erreur(&mut e, "voy-classes", "Choisissez au moins une classe concernée.");
+        erreur(
+            &mut e,
+            "voy-classes",
+            "Choisissez au moins une classe concernée.",
+        );
     }
     let (Some(dd), Some(hd), Some(df), Some(hf)) = (dd, hd, df, hf) else {
         return Err(e);
@@ -383,8 +420,20 @@ mod tests {
     #[test]
     fn tous_les_etats_ont_un_libelle_et_un_ton() {
         for e in [
-            "brouillon", "soumise", "a_completer", "preparation", "a_signer", "budget_a_valider",
-            "vote", "a_autoriser", "ouverte", "prete", "en_cours", "rentree", "close", "refusee",
+            "brouillon",
+            "soumise",
+            "a_completer",
+            "preparation",
+            "a_signer",
+            "budget_a_valider",
+            "vote",
+            "a_autoriser",
+            "ouverte",
+            "prete",
+            "en_cours",
+            "rentree",
+            "close",
+            "refusee",
             "annulee",
         ] {
             assert_ne!(libelle_etat(e), "État inconnu", "{e}");
@@ -399,22 +448,27 @@ mod tests {
     fn periode_en_heure_de_paris() {
         // 12 mars 2027 : heure d'hiver (UTC+1).
         let d = Utc.with_ymd_and_hms(2027, 3, 12, 7, 0, 0).unwrap();
-        assert_eq!(periode(d, d + chrono::Duration::hours(9)), "12/03/2027 08:00 → 17:00");
+        assert_eq!(
+            periode(d, d + chrono::Duration::hours(9)),
+            "12/03/2027 08:00 → 17:00"
+        );
         let long = periode(d, d + chrono::Duration::days(3));
-        assert!(long.contains("12/03/2027 08:00") && long.contains("15/03/2027 08:00"), "{long}");
+        assert!(
+            long.contains("12/03/2027 08:00") && long.contains("15/03/2027 08:00"),
+            "{long}"
+        );
     }
 
     #[test]
     fn frise_par_mois_dans_l_ordre_du_serveur() {
-        let l = vec![
-            resume("A", 5, 3),
-            resume("B", 20, 3),
-            resume("C", 2, 4),
-        ];
+        let l = vec![resume("A", 5, 3), resume("B", 20, 3), resume("C", 2, 4)];
         let g = grouper_par_mois(&l);
         assert_eq!(g.len(), 2);
         assert_eq!(g[0].0, "Mars 2027");
-        assert_eq!(g[0].1.iter().map(|s| s.titre.as_str()).collect::<Vec<_>>(), vec!["A", "B"]);
+        assert_eq!(
+            g[0].1.iter().map(|s| s.titre.as_str()).collect::<Vec<_>>(),
+            vec!["A", "B"]
+        );
         assert_eq!(g[1].0, "Avril 2027");
         assert!(grouper_par_mois(&[]).is_empty());
     }
@@ -440,14 +494,24 @@ mod tests {
         s.date_fin = "2027-03-09".into();
         let e = composer(&s).unwrap_err();
         let champs: Vec<&str> = e.iter().map(|(c, _)| c.as_str()).collect();
-        for attendu in ["voy-titre", "voy-pays", "voy-effectif", "voy-classes", "voy-date-fin"] {
+        for attendu in [
+            "voy-titre",
+            "voy-pays",
+            "voy-effectif",
+            "voy-classes",
+            "voy-date-fin",
+        ] {
             assert!(champs.contains(&attendu), "{attendu} manquant : {champs:?}");
         }
         // Heure illisible et nombre hors limites.
         let mut s = valide();
         s.heure_debut = "7h".into();
         s.adultes = "-3".into();
-        let champs: Vec<String> = composer(&s).unwrap_err().into_iter().map(|(c, _)| c).collect();
+        let champs: Vec<String> = composer(&s)
+            .unwrap_err()
+            .into_iter()
+            .map(|(c, _)| c)
+            .collect();
         assert!(champs.contains(&"voy-heure-debut".to_string()));
         assert!(champs.contains(&"voy-adultes".to_string()));
     }

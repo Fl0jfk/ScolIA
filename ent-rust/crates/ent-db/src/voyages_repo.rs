@@ -44,7 +44,9 @@ fn interdit() -> EntDbError {
 }
 
 async fn tx(e: &PgEnt, a: &Acteur<'_>) -> Result<TenantTx<'static>, EntDbError> {
-    TenantTx::begin(e.pool(), a.etablissement_id).await.map_err(db)
+    TenantTx::begin(e.pool(), a.etablissement_id)
+        .await
+        .map_err(db)
 }
 
 fn texte(v: &str, max: usize) -> Result<String, EntDbError> {
@@ -474,15 +476,16 @@ impl Acces {
 fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
     let etat = s.etat.as_str();
     let mut v = Vec::new();
-    let mut ajoute = |code: &'static str, libelle: &'static str, motif_requis: bool, danger: bool| {
-        v.push(CommandeDispo {
-            code,
-            libelle,
-            motif_requis,
-            danger,
-            vers: Vec::new(),
-        });
-    };
+    let mut ajoute =
+        |code: &'static str, libelle: &'static str, motif_requis: bool, danger: bool| {
+            v.push(CommandeDispo {
+                code,
+                libelle,
+                motif_requis,
+                danger,
+                vers: Vec::new(),
+            });
+        };
     let gere = acces.gere(Action::VoyagesModifier);
     let valide = acces.a(Action::VoyagesValider);
     if etat == "brouillon" && gere {
@@ -495,16 +498,31 @@ fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
         ajoute("renvoyer", "Renvoyer après modification", false, false);
     }
     if etat == "a_completer" && (valide || acces.a(Action::VoyagesBudgetValider)) {
-        ajoute("annuler-demande", "Annuler la demande de modifications", false, false);
+        ajoute(
+            "annuler-demande",
+            "Annuler la demande de modifications",
+            false,
+            false,
+        );
     }
     if etat == "preparation" && s.besoin_car && acces.gere(Action::VoyagesPrestataires) {
-        ajoute("demander-signature", "Présenter le devis à la signature", false, false);
+        ajoute(
+            "demander-signature",
+            "Présenter le devis à la signature",
+            false,
+            false,
+        );
     }
     if etat == "preparation" && !s.besoin_car && gere {
         ajoute("passer-finances", "Passer à l'étape suivante", false, false);
     }
     if etat == "a_signer" && acces.a(Action::VoyagesAutoriser) {
-        ajoute("passer-finances", "Passer aux finances sans devis signé", true, false);
+        ajoute(
+            "passer-finances",
+            "Passer aux finances sans devis signé",
+            true,
+            false,
+        );
     }
     if etat == "budget_a_valider" && acces.a(Action::VoyagesBudgetValider) {
         ajoute("valider-budget", "Valider le budget", false, false);
@@ -516,7 +534,12 @@ fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
         && s.liste_confirmee_le.is_none()
         && acces.gere(Action::VoyagesParticipants)
     {
-        ajoute("confirmer-liste", "Confirmer la liste des élèves", false, false);
+        ajoute(
+            "confirmer-liste",
+            "Confirmer la liste des élèves",
+            false,
+            false,
+        );
     }
     let demande = if etat == "budget_a_valider" {
         valide || acces.a(Action::VoyagesBudgetValider)
@@ -524,7 +547,12 @@ fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
         valide
     };
     if etats_de_depart(Commande::DemanderModifications).contains(&etat) && demande {
-        ajoute("demander-modifications", "Demander des modifications", true, false);
+        ajoute(
+            "demander-modifications",
+            "Demander des modifications",
+            true,
+            false,
+        );
     }
     if etats_de_depart(Commande::Refuser).contains(&etat) && valide {
         ajoute("refuser", "Refuser le projet", true, true);
@@ -548,9 +576,7 @@ fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
         });
     }
     let avant_ouverture = !matches!(etat, "ouverte" | "prete" | "en_cours");
-    if etats_de_depart(Commande::Annuler).contains(&etat)
-        && (valide || (avant_ouverture && gere))
-    {
+    if etats_de_depart(Commande::Annuler).contains(&etat) && (valide || (avant_ouverture && gere)) {
         v.push(CommandeDispo {
             code: "annuler",
             libelle: "Annuler la sortie",
@@ -860,9 +886,13 @@ fn valider_saisie(s: &SortieSaisie) -> Result<SaisieValide, EntDbError> {
         Some("exact") => "exact".to_string(),
         _ => return Err(invalide()),
     };
-    for n in [s.places, s.effectif_eleves_declare, s.effectif_adultes_declare]
-        .into_iter()
-        .flatten()
+    for n in [
+        s.places,
+        s.effectif_eleves_declare,
+        s.effectif_adultes_declare,
+    ]
+    .into_iter()
+    .flatten()
     {
         if !(0..=2000).contains(&n) {
             return Err(invalide());
@@ -922,7 +952,10 @@ async fn verifier_publics(
 ) -> Result<(), EntDbError> {
     let uniques: HashSet<&Uuid> = classes.iter().collect();
     let g: HashSet<&Uuid> = groupes.iter().collect();
-    if uniques.len() != classes.len() || g.len() != groupes.len() || classes.len() + groupes.len() > 60 {
+    if uniques.len() != classes.len()
+        || g.len() != groupes.len()
+        || classes.len() + groupes.len() > 60
+    {
         return Err(invalide());
     }
     let n: i64 = sqlx::query_scalar(
@@ -1114,14 +1147,37 @@ impl PgEnt {
                 "Ce compte n'est rattaché à aucune fiche de personnel : il ne peut pas porter une sortie.",
             )
         })?;
-        let s = inserer_sortie(&mut t, a, porteur, annee, None, saisie.debut, saisie.fin, &saisie, &v).await?;
-        poser_publics(&mut t, a, s.id, &saisie.classes, &saisie.groupes).await?;
-        journaliser(&mut t, a, s.id, Fait {
-            etat_apres: Some("brouillon"),
-            ..Fait::simple("creee")
-        })
+        let s = inserer_sortie(
+            &mut t,
+            a,
+            porteur,
+            annee,
+            None,
+            saisie.debut,
+            saisie.fin,
+            &saisie,
+            &v,
+        )
         .await?;
-        let ev = publier(&mut t, a, "voyages.creee", s.id, json!({ "etat": "brouillon", "forme": s.forme })).await?;
+        poser_publics(&mut t, a, s.id, &saisie.classes, &saisie.groupes).await?;
+        journaliser(
+            &mut t,
+            a,
+            s.id,
+            Fait {
+                etat_apres: Some("brouillon"),
+                ..Fait::simple("creee")
+            },
+        )
+        .await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.creee",
+            s.id,
+            json!({ "etat": "brouillon", "forme": s.forme }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(s)
@@ -1135,11 +1191,17 @@ impl PgEnt {
         serie: SerieSaisie,
     ) -> Result<ResultatSerie, EntDbError> {
         self.voyages_exiger(a, Action::VoyagesCreer).await?;
-        if !(1..=7).contains(&serie.jour_semaine) || serie.heure_fin <= serie.heure_debut || serie.au < serie.du {
+        if !(1..=7).contains(&serie.jour_semaine)
+            || serie.heure_fin <= serie.heure_debut
+            || serie.au < serie.du
+        {
             return Err(invalide());
         }
         if (serie.au - serie.du).num_days() > 400 {
-            return Err(refus(RefusMetier::Invalide, "Une série ne dépasse pas une année."));
+            return Err(refus(
+                RefusMetier::Invalide,
+                "Une série ne dépasse pas une année.",
+            ));
         }
         let libelle = texte(&serie.libelle, 200)?;
         // Contrôle du gabarit avec des dates fictives valides.
@@ -1161,7 +1223,10 @@ impl PgEnt {
         }
 
         let porteur = personne_de(&mut t, a).await?.ok_or_else(|| {
-            refus(RefusMetier::Interdit, "Ce compte n'est rattaché à aucune fiche de personnel.")
+            refus(
+                RefusMetier::Interdit,
+                "Ce compte n'est rattaché à aucune fiche de personnel.",
+            )
         })?;
         verifier_publics(&mut t, a, &serie.modele.classes, &serie.modele.groupes).await?;
         let serie_id = Uuid::new_v4();
@@ -1210,17 +1275,40 @@ impl PgEnt {
             m.debut = debut;
             m.fin = fin;
             m.forme = "sans_nuitee".into();
-            let s = inserer_sortie(&mut t, a, porteur, annee, Some(serie_id), debut, fin, &m, &v).await?;
+            let s = inserer_sortie(
+                &mut t,
+                a,
+                porteur,
+                annee,
+                Some(serie_id),
+                debut,
+                fin,
+                &m,
+                &v,
+            )
+            .await?;
             poser_publics(&mut t, a, s.id, &m.classes, &m.groupes).await?;
-            journaliser(&mut t, a, s.id, Fait {
-                etat_apres: Some("brouillon"),
-                motif: Some("séance de série"),
-                ..Fait::simple("creee")
-            })
+            journaliser(
+                &mut t,
+                a,
+                s.id,
+                Fait {
+                    etat_apres: Some("brouillon"),
+                    motif: Some("séance de série"),
+                    ..Fait::simple("creee")
+                },
+            )
             .await?;
             sorties.push(s);
         }
-        let ev = publier(&mut t, a, "voyages.serie_creee", serie_id, json!({ "seances": retenues.len() })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.serie_creee",
+            serie_id,
+            json!({ "seances": retenues.len() }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(ResultatSerie {
@@ -1248,7 +1336,10 @@ impl PgEnt {
             ecartees: ecartees
                 .into_iter()
                 .map(|jour| DateEcartee {
-                    motif: exclus.get(&jour).cloned().unwrap_or_else(|| "manuel".into()),
+                    motif: exclus
+                        .get(&jour)
+                        .cloned()
+                        .unwrap_or_else(|| "manuel".into()),
                     jour,
                 })
                 .collect(),
@@ -1273,7 +1364,10 @@ impl PgEnt {
             return Err(interdit());
         }
         if !est_modifiable(&s.etat) {
-            return Err(refus(RefusMetier::Conflit, "Ce dossier n'est plus modifiable."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce dossier n'est plus modifiable.",
+            ));
         }
         if s.version != version {
             return Err(refus(
@@ -1290,30 +1384,75 @@ impl PgEnt {
         .fetch_all(&mut *t)
         .await
         .map_err(db)?;
-        let mut anciens: HashSet<Uuid> = avant_publics.iter().filter_map(|(c, g)| c.or(*g)).collect();
+        let mut anciens: HashSet<Uuid> =
+            avant_publics.iter().filter_map(|(c, g)| c.or(*g)).collect();
         let n_publics = saisie.classes.len() + saisie.groupes.len();
         let publics_changent = anciens.len() != n_publics
-            || !saisie.classes.iter().chain(saisie.groupes.iter()).all(|x| anciens.remove(x));
+            || !saisie
+                .classes
+                .iter()
+                .chain(saisie.groupes.iter())
+                .all(|x| anciens.remove(x));
 
         let changes: Vec<(&str, String, String)> = vec![
             ("titre", s.titre.clone(), v.titre.clone()),
             ("objectifs", o(&s.objectifs), o(&v.objectifs)),
             ("nature", s.nature.clone(), saisie.nature.clone()),
             ("forme", s.forme.clone(), saisie.forme.clone()),
-            ("destination", s.destination.clone(), saisie.destination.clone()),
+            (
+                "destination",
+                s.destination.clone(),
+                saisie.destination.clone(),
+            ),
             ("pays", o(&s.pays), o(&v.pays)),
-            ("destination_libelle", o(&s.destination_libelle), o(&v.destination_libelle)),
-            ("programme_libelle", o(&s.programme_libelle), o(&v.programme_libelle)),
+            (
+                "destination_libelle",
+                o(&s.destination_libelle),
+                o(&v.destination_libelle),
+            ),
+            (
+                "programme_libelle",
+                o(&s.programme_libelle),
+                o(&v.programme_libelle),
+            ),
             ("debut", s.debut.to_rfc3339(), saisie.debut.to_rfc3339()),
             ("fin", s.fin.to_rfc3339(), saisie.fin.to_rfc3339()),
-            ("effectif_mode", s.effectif_mode.clone(), v.effectif_mode.clone()),
+            (
+                "effectif_mode",
+                s.effectif_mode.clone(),
+                v.effectif_mode.clone(),
+            ),
             ("places", n(s.places), n(saisie.places)),
-            ("effectif_eleves_declare", n(s.effectif_eleves_declare), n(saisie.effectif_eleves_declare)),
-            ("effectif_adultes_declare", n(s.effectif_adultes_declare), n(saisie.effectif_adultes_declare)),
-            ("besoin_car", s.besoin_car.to_string(), saisie.besoin_car.to_string()),
-            ("car_sur_place", s.car_sur_place.to_string(), saisie.car_sur_place.to_string()),
-            ("point_rendez_vous", o(&s.point_rendez_vous), o(&v.point_rendez_vous)),
-            ("consignes_transport", o(&s.consignes_transport), o(&v.consignes_transport)),
+            (
+                "effectif_eleves_declare",
+                n(s.effectif_eleves_declare),
+                n(saisie.effectif_eleves_declare),
+            ),
+            (
+                "effectif_adultes_declare",
+                n(s.effectif_adultes_declare),
+                n(saisie.effectif_adultes_declare),
+            ),
+            (
+                "besoin_car",
+                s.besoin_car.to_string(),
+                saisie.besoin_car.to_string(),
+            ),
+            (
+                "car_sur_place",
+                s.car_sur_place.to_string(),
+                saisie.car_sur_place.to_string(),
+            ),
+            (
+                "point_rendez_vous",
+                o(&s.point_rendez_vous),
+                o(&v.point_rendez_vous),
+            ),
+            (
+                "consignes_transport",
+                o(&s.consignes_transport),
+                o(&v.consignes_transport),
+            ),
             (
                 "places_encadrant_a_pourvoir",
                 s.places_encadrant_a_pourvoir.to_string(),
@@ -1374,44 +1513,75 @@ impl PgEnt {
         for (champ, avant, apres) in changes {
             if avant != apres {
                 modifies += 1;
-                journaliser(&mut t, a, id, Fait {
-                    champ: Some(champ),
-                    avant: Some(avant),
-                    apres: Some(apres),
-                    ..Fait::simple("modifiee")
-                })
+                journaliser(
+                    &mut t,
+                    a,
+                    id,
+                    Fait {
+                        champ: Some(champ),
+                        avant: Some(avant),
+                        apres: Some(apres),
+                        ..Fait::simple("modifiee")
+                    },
+                )
                 .await?;
             }
         }
         if publics_changent {
             modifies += 1;
-            journaliser(&mut t, a, id, Fait {
-                champ: Some("public"),
-                apres: Some(format!("{} classe(s), {} groupe(s)", saisie.classes.len(), saisie.groupes.len())),
-                ..Fait::simple("modifiee")
-            })
+            journaliser(
+                &mut t,
+                a,
+                id,
+                Fait {
+                    champ: Some("public"),
+                    apres: Some(format!(
+                        "{} classe(s), {} groupe(s)",
+                        saisie.classes.len(),
+                        saisie.groupes.len()
+                    )),
+                    ..Fait::simple("modifiee")
+                },
+            )
             .await?;
         }
         if reset_liste {
-            journaliser(&mut t, a, id, Fait {
-                etat_avant: Some(&s.etat),
-                etat_apres: Some(&etat_apres),
-                motif: Some("modification touchant la liste : à reconfirmer"),
-                ..Fait::simple("liste_rouverte")
-            })
+            journaliser(
+                &mut t,
+                a,
+                id,
+                Fait {
+                    etat_avant: Some(&s.etat),
+                    etat_apres: Some(&etat_apres),
+                    motif: Some("modification touchant la liste : à reconfirmer"),
+                    ..Fait::simple("liste_rouverte")
+                },
+            )
             .await?;
         }
         // Au-delà de l'ouverture, un changement de dates ou de lieu appelle un avis aux familles
         // (proposé, jamais envoyé seul : R-SV3). Le journal en garde la trace.
         let apres_ouverture = matches!(s.etat.as_str(), "ouverte" | "prete");
         if apres_ouverture && modifies > 0 {
-            journaliser(&mut t, a, id, Fait {
-                motif: Some("avis aux familles à proposer"),
-                ..Fait::simple("modifiee_apres_ouverture")
-            })
+            journaliser(
+                &mut t,
+                a,
+                id,
+                Fait {
+                    motif: Some("avis aux familles à proposer"),
+                    ..Fait::simple("modifiee_apres_ouverture")
+                },
+            )
             .await?;
         }
-        let ev = publier(&mut t, a, "voyages.modifiee", id, json!({ "champs": modifies, "apres_ouverture": apres_ouverture })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.modifiee",
+            id,
+            json!({ "champs": modifies, "apres_ouverture": apres_ouverture }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(maj)
@@ -1557,7 +1727,12 @@ impl PgEnt {
                         ));
                     }
                 }
-                etat = if ctx.a_budget() { "budget_a_valider" } else { "a_autoriser" }.into();
+                etat = if ctx.a_budget() {
+                    "budget_a_valider"
+                } else {
+                    "a_autoriser"
+                }
+                .into();
                 evenement = "voyages.passee_aux_finances";
             }
             Commande::ValiderBudget => {
@@ -1650,14 +1825,26 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let action = evenement.trim_start_matches("voyages.");
-        journaliser(&mut t, a, id, Fait {
-            etat_avant: Some(&s.etat),
-            etat_apres: Some(&etat),
-            motif: motif.as_deref(),
-            ..Fait::simple(action)
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                etat_avant: Some(&s.etat),
+                etat_apres: Some(&etat),
+                motif: motif.as_deref(),
+                ..Fait::simple(action)
+            },
+        )
         .await?;
-        let ev = publier(&mut t, a, evenement, id, json!({ "avant": s.etat, "apres": etat })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            evenement,
+            id,
+            json!({ "avant": s.etat, "apres": etat }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(maj)
@@ -1724,12 +1911,14 @@ impl PgEnt {
         if est_terminal(&s.etat) {
             return Err(conflit());
         }
-        let nouveau_porteur = personne_de_agent(&mut t, a, agent_id).await?.ok_or_else(|| {
-            refus(
-                RefusMetier::Invalide,
-                "Le porteur doit être un membre du personnel de l'établissement.",
-            )
-        })?;
+        let nouveau_porteur = personne_de_agent(&mut t, a, agent_id)
+            .await?
+            .ok_or_else(|| {
+                refus(
+                    RefusMetier::Invalide,
+                    "Le porteur doit être un membre du personnel de l'établissement.",
+                )
+            })?;
         let maj = sqlx::query_as::<_, SortieLigne>(
             "UPDATE ent_sortie SET porteur_personne_id = $3, version = version + 1, modifie_le = now()
               WHERE id = $1 AND etablissement_id = $2 RETURNING *",
@@ -1740,10 +1929,15 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, id, Fait {
-            champ: Some("porteur"),
-            ..Fait::simple("porteur_change")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                champ: Some("porteur"),
+                ..Fait::simple("porteur_change")
+            },
+        )
         .await?;
         let ev = publier(&mut t, a, "voyages.porteur_change", id, json!({})).await?;
         t.commit().await.map_err(db)?;
@@ -1778,7 +1972,10 @@ impl PgEnt {
             return Err(interdit());
         }
         if !est_modifiable(&s.etat) {
-            return Err(refus(RefusMetier::Conflit, "Ce dossier n'est plus modifiable."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce dossier n'est plus modifiable.",
+            ));
         }
         sqlx::query("DELETE FROM ent_sortie_etape WHERE etablissement_id = $1 AND sortie_id = $2")
             .bind(a.etablissement_id)
@@ -1814,12 +2011,24 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, id, Fait {
-            apres: Some(format!("{} étape(s)", etapes.len())),
-            ..Fait::simple("programme_modifie")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                apres: Some(format!("{} étape(s)", etapes.len())),
+                ..Fait::simple("programme_modifie")
+            },
+        )
         .await?;
-        let ev = publier(&mut t, a, "voyages.programme_modifie", id, json!({ "etapes": etapes.len() })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.programme_modifie",
+            id,
+            json!({ "etapes": etapes.len() }),
+        )
+        .await?;
         let rows = lire_etapes(&mut t, id).await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
@@ -1917,13 +2126,18 @@ impl PgEnt {
                 eleves,
             });
         }
-        journaliser(&mut t, a, id, Fait {
-            apres: Some(format!(
-                "{} élève(s) affichés",
-                out.iter().map(|c| c.eleves.len()).sum::<usize>()
-            )),
-            ..Fait::simple("registre_consulte")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                apres: Some(format!(
+                    "{} élève(s) affichés",
+                    out.iter().map(|c| c.eleves.len()).sum::<usize>()
+                )),
+                ..Fait::simple("registre_consulte")
+            },
+        )
         .await?;
         t.commit().await.map_err(db)?;
         Ok(out)
@@ -1997,7 +2211,9 @@ impl PgEnt {
             .await
             .map_err(db)?;
             match existant {
-                Some((_, etat)) if !matches!(etat.as_str(), "desiste" | "retire") => res.deja.push(e),
+                Some((_, etat)) if !matches!(etat.as_str(), "desiste" | "retire") => {
+                    res.deja.push(e)
+                }
                 Some((pid, etat)) => {
                     sqlx::query(
                         "UPDATE ent_sortie_participant SET etat = 'inscrit', modifie_le = now() WHERE id = $1",
@@ -2006,7 +2222,17 @@ impl PgEnt {
                     .execute(&mut *t)
                     .await
                     .map_err(db)?;
-                    fait_participant(&mut t, a, pid, "reintegration", Some(&etat), "inscrit", None, None).await?;
+                    fait_participant(
+                        &mut t,
+                        a,
+                        pid,
+                        "reintegration",
+                        Some(&etat),
+                        "inscrit",
+                        None,
+                        None,
+                    )
+                    .await?;
                     res.ajoutes.push(e);
                 }
                 None => {
@@ -2023,7 +2249,8 @@ impl PgEnt {
                     .execute(&mut *t)
                     .await
                     .map_err(db)?;
-                    fait_participant(&mut t, a, pid, "inscription", None, "inscrit", None, None).await?;
+                    fait_participant(&mut t, a, pid, "inscription", None, "inscrit", None, None)
+                        .await?;
                     res.ajoutes.push(e);
                 }
             }
@@ -2048,8 +2275,16 @@ impl PgEnt {
         motif_code: &str,
         motif_texte: Option<&str>,
     ) -> Result<(), EntDbError> {
-        self.changer_etat_participant(a, id, participant_id, "desiste", "desistement", motif_code, motif_texte)
-            .await
+        self.changer_etat_participant(
+            a,
+            id,
+            participant_id,
+            "desiste",
+            "desistement",
+            motif_code,
+            motif_texte,
+        )
+        .await
     }
 
     /// VOY-146 : retire un participant, décision de l'établissement avec motif codé. **Jamais pour
@@ -2062,8 +2297,16 @@ impl PgEnt {
         motif_code: &str,
         motif_texte: Option<&str>,
     ) -> Result<(), EntDbError> {
-        self.changer_etat_participant(a, id, participant_id, "retire", "retrait", motif_code, motif_texte)
-            .await
+        self.changer_etat_participant(
+            a,
+            id,
+            participant_id,
+            "retire",
+            "retrait",
+            motif_code,
+            motif_texte,
+        )
+        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2139,13 +2382,25 @@ impl PgEnt {
             // Retirer un élève modifie la liste : à reconfirmer (NX-26).
             evs.extend(rouvrir_liste(&mut t, a, &s, "participant_retire", 1).await?);
         } else {
-            journaliser(&mut t, a, id, Fait {
-                motif: Some(motif_code),
-                ..Fait::simple("participant_desiste")
-            })
+            journaliser(
+                &mut t,
+                a,
+                id,
+                Fait {
+                    motif: Some(motif_code),
+                    ..Fait::simple("participant_desiste")
+                },
+            )
             .await?;
             evs.push(
-                publier(&mut t, a, "voyages.participant_desiste", id, json!({ "motif": motif_code })).await?,
+                publier(
+                    &mut t,
+                    a,
+                    "voyages.participant_desiste",
+                    id,
+                    json!({ "motif": motif_code }),
+                )
+                .await?,
             );
         }
         t.commit().await.map_err(db)?;
@@ -2166,10 +2421,15 @@ impl PgEnt {
             return Err(introuvable());
         }
         let v = liste_participants(&mut t, a, &s, &[]).await?;
-        journaliser(&mut t, a, id, Fait {
-            apres: Some(format!("{} participant(s)", v.len())),
-            ..Fait::simple("liste_consultee")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                apres: Some(format!("{} participant(s)", v.len())),
+                ..Fait::simple("liste_consultee")
+            },
+        )
         .await?;
         t.commit().await.map_err(db)?;
         Ok(v)
@@ -2178,13 +2438,24 @@ impl PgEnt {
     /// VOY-148 (NX-31) : export tableur de la liste (nom, prénom, classe), colonnes minimales,
     /// formules neutralisées, **export journalisé**. Réservé au porteur et à ceux qui gèrent ou lisent
     /// toutes les sorties (jamais à un simple encadrant).
-    pub async fn voyage_participants_csv(&self, a: &Acteur<'_>, id: Uuid) -> Result<String, EntDbError> {
+    pub async fn voyage_participants_csv(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<String, EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
-        if !(acces.porteur || acces.a(Action::VoyagesLire) || acces.a(Action::VoyagesParticipants)) {
+        if !(acces.porteur || acces.a(Action::VoyagesLire) || acces.a(Action::VoyagesParticipants))
+        {
             return Err(interdit());
         }
-        let v = liste_participants(&mut t, a, &s, &["inscrit", "pret", "parti", "rentre", "remis"]).await?;
+        let v = liste_participants(
+            &mut t,
+            a,
+            &s,
+            &["inscrit", "pret", "parti", "rentre", "remis"],
+        )
+        .await?;
         let mut out = String::from("\u{feff}Nom;Prénom;Classe\r\n");
         for p in &v {
             out.push_str(&format!(
@@ -2194,12 +2465,24 @@ impl PgEnt {
                 champ_csv(p.classe.as_deref().unwrap_or(""))
             ));
         }
-        journaliser(&mut t, a, id, Fait {
-            apres: Some(format!("{} ligne(s)", v.len())),
-            ..Fait::simple("liste_exportee")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                apres: Some(format!("{} ligne(s)", v.len())),
+                ..Fait::simple("liste_exportee")
+            },
+        )
         .await?;
-        let ev = publier(&mut t, a, "voyages.liste_exportee", id, json!({ "lignes": v.len() })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.liste_exportee",
+            id,
+            json!({ "lignes": v.len() }),
+        )
+        .await?;
         t.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(out)
@@ -2245,7 +2528,11 @@ async fn rouvrir_liste(
     action: &str,
     nombre: usize,
 ) -> Result<Vec<MetierEvent>, EntDbError> {
-    let etat_apres = if s.etat == "prete" { "ouverte" } else { s.etat.as_str() };
+    let etat_apres = if s.etat == "prete" {
+        "ouverte"
+    } else {
+        s.etat.as_str()
+    };
     if s.liste_confirmee_le.is_some() {
         sqlx::query(
             "UPDATE ent_sortie SET liste_confirmee_le = NULL, liste_confirmee_par_user_id = NULL, etat = $3,
@@ -2258,21 +2545,38 @@ async fn rouvrir_liste(
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-        journaliser(conn, a, s.id, Fait {
-            etat_avant: Some(&s.etat),
-            etat_apres: Some(etat_apres),
-            motif: Some("liste modifiée : à reconfirmer"),
-            ..Fait::simple("liste_rouverte")
-        })
+        journaliser(
+            conn,
+            a,
+            s.id,
+            Fait {
+                etat_avant: Some(&s.etat),
+                etat_apres: Some(etat_apres),
+                motif: Some("liste modifiée : à reconfirmer"),
+                ..Fait::simple("liste_rouverte")
+            },
+        )
         .await?;
     }
-    journaliser(conn, a, s.id, Fait {
-        apres: Some(format!("{nombre} élève(s)")),
-        ..Fait::simple(action)
-    })
+    journaliser(
+        conn,
+        a,
+        s.id,
+        Fait {
+            apres: Some(format!("{nombre} élève(s)")),
+            ..Fait::simple(action)
+        },
+    )
     .await?;
     Ok(vec![
-        publier(conn, a, &format!("voyages.{action}"), s.id, json!({ "nombre": nombre })).await?,
+        publier(
+            conn,
+            a,
+            &format!("voyages.{action}"),
+            s.id,
+            json!({ "nombre": nombre }),
+        )
+        .await?,
     ])
 }
 
@@ -2327,7 +2631,10 @@ impl PgEnt {
             return Err(interdit());
         }
         if !est_modifiable(&s.etat) {
-            return Err(refus(RefusMetier::Conflit, "Ce dossier n'est plus modifiable."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce dossier n'est plus modifiable.",
+            ));
         }
         let personne_id = personne_de_agent(&mut t, a, agent_id).await?.ok_or_else(|| {
             refus(
@@ -2360,13 +2667,25 @@ impl PgEnt {
         .execute(&mut *t)
         .await
         .map_err(db)?;
-        journaliser(&mut t, a, id, Fait {
-            champ: Some("encadrant"),
-            apres: Some(role.to_string()),
-            ..Fait::simple("encadrant_ajoute")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                champ: Some("encadrant"),
+                apres: Some(role.to_string()),
+                ..Fait::simple("encadrant_ajoute")
+            },
+        )
         .await?;
-        let ev = publier(&mut t, a, "voyages.encadrant_ajoute", id, json!({ "role": role })).await?;
+        let ev = publier(
+            &mut t,
+            a,
+            "voyages.encadrant_ajoute",
+            id,
+            json!({ "role": role }),
+        )
+        .await?;
         let v = sqlx::query_as::<_, EncadrantVue>(
             "SELECT se.id, ag.id AS agent_id, p.nom, p.prenom, se.role
                FROM ent_sortie_encadrant se
@@ -2395,7 +2714,10 @@ impl PgEnt {
             return Err(interdit());
         }
         if !est_modifiable(&s.etat) {
-            return Err(refus(RefusMetier::Conflit, "Ce dossier n'est plus modifiable."));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce dossier n'est plus modifiable.",
+            ));
         }
         let lignes = sqlx::query(
             "DELETE FROM ent_sortie_encadrant WHERE id = $1 AND sortie_id = $2 AND etablissement_id = $3",
@@ -2410,10 +2732,15 @@ impl PgEnt {
         if lignes == 0 {
             return Err(introuvable());
         }
-        journaliser(&mut t, a, id, Fait {
-            champ: Some("encadrant"),
-            ..Fait::simple("encadrant_retire")
-        })
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                champ: Some("encadrant"),
+                ..Fait::simple("encadrant_retire")
+            },
+        )
         .await?;
         let ev = publier(&mut t, a, "voyages.encadrant_retire", id, json!({})).await?;
         t.commit().await.map_err(db)?;
@@ -2488,7 +2815,11 @@ impl PgEnt {
 
     /// Détail d'une sortie (porteur, encadrants, détenteurs de `voyages.lire`) avec droits calculés,
     /// prochaine étape (NX-14) et audit (NX-15). Un autre profil reçoit « introuvable ».
-    pub async fn voyage_detail(&self, a: &Acteur<'_>, id: Uuid) -> Result<SortieDetail, EntDbError> {
+    pub async fn voyage_detail(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<SortieDetail, EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
         let mesures = dossier(&mut t, &s).await?;
@@ -2534,7 +2865,11 @@ impl PgEnt {
         .map_err(db)?;
         t.commit().await.map_err(db)?;
         Ok(SortieDetail {
-            prochaine_etape: prochaine_etape(&s.etat, &s.contexte(), s.liste_confirmee_le.is_some()),
+            prochaine_etape: prochaine_etape(
+                &s.etat,
+                &s.contexte(),
+                s.liste_confirmee_le.is_some(),
+            ),
             audit: audit(&mesures.etat(&s)),
             nb_inscrits: mesures.nb_inscrits,
             nb_desistes,
@@ -2549,13 +2884,21 @@ impl PgEnt {
     }
 
     /// VOY-131 (NX-15) : audit des manques et freins d'un dossier.
-    pub async fn voyage_audit(&self, a: &Acteur<'_>, id: Uuid) -> Result<Vec<PointAudit>, EntDbError> {
+    pub async fn voyage_audit(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<Vec<PointAudit>, EntDbError> {
         Ok(self.voyage_detail(a, id).await?.audit)
     }
 
     /// VOY-136 (NX-19) : journal chronologique du séjour (porteur, direction, comptabilité,
     /// secrétariat ; pas un simple encadrant).
-    pub async fn voyage_journal(&self, a: &Acteur<'_>, id: Uuid) -> Result<Vec<JournalVue>, EntDbError> {
+    pub async fn voyage_journal(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<Vec<JournalVue>, EntDbError> {
         let mut t = tx(self, a).await?;
         let (_, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
         if !(acces.porteur || acces.a(Action::VoyagesLire)) {
@@ -2678,7 +3021,11 @@ impl PgEnt {
     /// depuis les champs du séjour (jamais depuis un texte venu du navigateur). **Corrige le défaut de
     /// Next.js** (génération sans contrôle de droits) : réservé au porteur ou à ceux qui gèrent les
     /// sorties, et seulement une fois la sortie `ouverte` (R-SV5). Le PDF est le lot V0b.
-    pub async fn voyage_circulaire(&self, a: &Acteur<'_>, id: Uuid) -> Result<Circulaire, EntDbError> {
+    pub async fn voyage_circulaire(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<Circulaire, EntDbError> {
         let mut t = tx(self, a).await?;
         let (s, acces) = charger_avec_acces(self, &mut t, a, id, false).await?;
         if !acces.gere(Action::VoyagesModifier) {
@@ -2699,7 +3046,10 @@ impl PgEnt {
         .fetch_one(&mut *t)
         .await
         .map_err(db)?;
-        let mut corps = format!("Madame, Monsieur,\n\nNous organisons la sortie « {} ».\n\n", s.titre);
+        let mut corps = format!(
+            "Madame, Monsieur,\n\nNous organisons la sortie « {} ».\n\n",
+            s.titre
+        );
         corps.push_str(&format!("Départ : {debut}\nRetour : {fin}\n"));
         if let Some(d) = &s.destination_libelle {
             corps.push_str(&format!("Destination : {d}\n"));
@@ -2738,7 +3088,9 @@ impl PgEnt {
         du: DateTime<Utc>,
         au: DateTime<Utc>,
     ) -> Result<Vec<EnSortie>, EntDbError> {
-        let mut t = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        let mut t = TenantTx::begin(self.pool(), etablissement_id)
+            .await
+            .map_err(db)?;
         let v = sqlx::query_as::<_, EnSortie>(
             "SELECT sp.eleve_id, s.id AS sortie_id, s.debut, s.fin
                FROM ent_sortie s

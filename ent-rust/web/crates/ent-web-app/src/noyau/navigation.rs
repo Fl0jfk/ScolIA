@@ -463,6 +463,7 @@ mod tests {
                 RENDEZ_VOUS,
                 FORMULAIRES,
                 SANTE_ENFANT,
+                VOYAGES,
                 MESSAGES,
                 REINSCRIPTION,
                 MES_FACTURES
@@ -471,6 +472,20 @@ mod tests {
         // Un parent ne voit jamais la comptabilité, même si le moteur répondait par erreur.
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
         assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    #[test]
+    fn sorties_selon_le_moteur_pour_le_personnel_et_pour_les_familles() {
+        // Personnel : l'entrée vient du droit `voyages.annuaire` du moteur (jamais du profil seul).
+        let sans = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!sans.contains(&VOYAGES.to_string()));
+        let avec = DroitsMoteur::new(vec![droit("voyages.annuaire", "etablissement")]);
+        assert!(adresses(droits_du_role("prof"), &avec).contains(&VOYAGES.to_string()));
+        // Familles et élèves : l'écran montre les sorties de leur enfant.
+        for role in ["parent", "eleve"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(v.contains(&VOYAGES.to_string()), "{role}");
+        }
     }
 
     #[test]

@@ -64,7 +64,11 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     let cast = state.ent.seed_labo_cast().await.expect("cast");
     let autre = state.ent.seed_labo_cast().await.expect("cast B");
     let etab = cast.etablissement_id;
-    let annee = state.ent.referentiel_annee_courante_assuree(etab).await.unwrap();
+    let annee = state
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
     let classe = state
         .ent
         .referentiel_classe_par_code(etab, annee.id, "4B")
@@ -105,8 +109,16 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     }
 
     // Les familles n'ont ni liste, ni création ; seule la projection famille leur est ouverte.
-    assert_eq!(appel(&app, "GET", "/voyages", Some(parent), None).await.0, StatusCode::FORBIDDEN);
-    assert_eq!(appel(&app, "GET", "/voyages/famille", Some(parent), None).await.0, StatusCode::OK);
+    assert_eq!(
+        appel(&app, "GET", "/voyages", Some(parent), None).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        appel(&app, "GET", "/voyages/famille", Some(parent), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
 
     // Création par un professeur (devient porteur) ; valeurs invalides : 4xx.
     let debut = chrono::Utc::now() + chrono::Duration::days(3);
@@ -132,25 +144,56 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     let id = cree["id"].as_str().unwrap().to_string();
     assert_eq!(cree["etat"], "brouillon");
     // Les champs internes ne sortent pas de l'API.
-    assert!(cree.get("cree_par_user_id").is_none() && cree.get("liste_confirmee_par_user_id").is_none());
+    assert!(
+        cree.get("cree_par_user_id").is_none() && cree.get("liste_confirmee_par_user_id").is_none()
+    );
     // Le JSON se désérialise dans les types partagés du frontend.
     let _: ent_types::voyages::SortieDto = serde_json::from_value(cree.clone()).expect("SortieDto");
 
     // Cloisonnement : l'établissement B ne voit rien et ne peut rien faire.
-    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}"), Some(b_dir), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        appel(&app, "GET", &format!("/voyages/{id}"), Some(b_dir), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
     let (st, liste_b) = appel(&app, "GET", "/voyages", Some(b_dir), None).await;
     assert_eq!(st, StatusCode::OK);
-    assert!(liste_b.as_array().unwrap().iter().all(|s| s["id"] != id.as_str()));
+    assert!(liste_b
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["id"] != id.as_str()));
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/commandes/valider-pedagogie"), Some(b_dir), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/commandes/valider-pedagogie"),
+            Some(b_dir),
+            None
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND
     );
 
     // Un autre membre du personnel (la CPE) : introuvable (pas de fuite d'existence).
     let cpe = cast.cpe.token.as_str();
-    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}"), Some(cpe), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        appel(&app, "GET", &format!("/voyages/{id}"), Some(cpe), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
     // Soumission refusée : aucun encadrant. Puis ajout d'un encadrant par l'annuaire du personnel.
-    let (st, rep) = appel(&app, "POST", &format!("/voyages/{id}/commandes/soumettre"), Some(prof), None).await;
+    let (st, rep) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/soumettre"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::CONFLICT, "{rep}");
     let (st, annuaire) = appel(&app, "GET", "/personnels/annuaire", Some(prof), None).await;
     assert_eq!(st, StatusCode::OK, "{annuaire}");
@@ -172,9 +215,22 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     assert_eq!(st, StatusCode::CREATED, "{enc}");
     let _: ent_types::voyages::EncadrantDto = serde_json::from_value(enc).expect("EncadrantDto");
     // La CPE, désormais encadrante, lit le détail mais n'exporte pas la liste et ne modifie pas.
-    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}"), Some(cpe), None).await.0, StatusCode::OK);
     assert_eq!(
-        appel(&app, "GET", &format!("/voyages/{id}/participants.csv"), Some(cpe), None).await.0,
+        appel(&app, "GET", &format!("/voyages/{id}"), Some(cpe), None)
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        appel(
+            &app,
+            "GET",
+            &format!("/voyages/{id}/participants.csv"),
+            Some(cpe),
+            None
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
     let (st, _) = appel(
@@ -192,20 +248,51 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     assert_eq!(st, StatusCode::FORBIDDEN);
 
     // Commandes : le porteur soumet ; il ne valide pas sa propre pédagogie ; la direction oui.
-    let (st, s) = appel(&app, "POST", &format!("/voyages/{id}/commandes/soumettre"), Some(prof), None).await;
+    let (st, s) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/soumettre"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{s}");
     assert_eq!(s["etat"], "soumise");
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/commandes/valider-pedagogie"), Some(prof), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/commandes/valider-pedagogie"),
+            Some(prof),
+            None
+        )
+        .await
+        .0,
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/commandes/inconnue"), Some(dir), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/commandes/inconnue"),
+            Some(dir),
+            None
+        )
+        .await
+        .0,
         StatusCode::NOT_FOUND
     );
     // Mauvaise étape : conflit.
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/commandes/autoriser"), Some(dir), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/commandes/autoriser"),
+            Some(dir),
+            None
+        )
+        .await
+        .0,
         StatusCode::CONFLICT
     );
     // Verrou optimiste : une version périmée est refusée.
@@ -218,39 +305,114 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     )
     .await;
     assert_eq!(st, StatusCode::CONFLICT);
-    let (st, s) = appel(&app, "POST", &format!("/voyages/{id}/commandes/valider-pedagogie"), Some(dir), None).await;
-    assert_eq!((st, s["etat"].as_str()), (StatusCode::OK, Some("preparation")));
-    let (st, s) = appel(&app, "POST", &format!("/voyages/{id}/commandes/passer-finances"), Some(prof), None).await;
-    assert_eq!((st, s["etat"].as_str()), (StatusCode::OK, Some("a_autoriser")), "{s}");
+    let (st, s) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/valider-pedagogie"),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, s["etat"].as_str()),
+        (StatusCode::OK, Some("preparation"))
+    );
+    let (st, s) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/passer-finances"),
+        Some(prof),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, s["etat"].as_str()),
+        (StatusCode::OK, Some("a_autoriser")),
+        "{s}"
+    );
 
     // Circulaire : refusée avant l'autorisation, même au porteur ; refusée à un tiers, à la
     // comptabilité et à une famille ; la direction autorise.
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/circulaire"), Some(prof), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/circulaire"),
+            Some(prof),
+            None
+        )
+        .await
+        .0,
         StatusCode::CONFLICT
     );
-    let (st, s) = appel(&app, "POST", &format!("/voyages/{id}/commandes/autoriser"), Some(dir), None).await;
-    assert_eq!((st, s["etat"].as_str()), (StatusCode::OK, Some("ouverte")), "{s}");
-    for (jeton, nom) in [(compta, "compta"), (parent, "parent"), (cast.profs[1].token.as_str(), "prof tiers")] {
-        let (st, _) = appel(&app, "POST", &format!("/voyages/{id}/circulaire"), Some(jeton), None).await;
+    let (st, s) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/autoriser"),
+        Some(dir),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, s["etat"].as_str()),
+        (StatusCode::OK, Some("ouverte")),
+        "{s}"
+    );
+    for (jeton, nom) in [
+        (compta, "compta"),
+        (parent, "parent"),
+        (cast.profs[1].token.as_str(), "prof tiers"),
+    ] {
+        let (st, _) = appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/circulaire"),
+            Some(jeton),
+            None,
+        )
+        .await;
         assert!(
             st == StatusCode::FORBIDDEN || st == StatusCode::NOT_FOUND,
             "circulaire {nom} : {st}"
         );
     }
-    let (st, circ) = appel(&app, "POST", &format!("/voyages/{id}/circulaire"), Some(prof), None).await;
+    let (st, circ) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/circulaire"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{circ}");
-    let circ: ent_types::voyages::CirculaireDto = serde_json::from_value(circ).expect("CirculaireDto");
+    let circ: ent_types::voyages::CirculaireDto =
+        serde_json::from_value(circ).expect("CirculaireDto");
     assert!(circ.corps.contains("Sortie au muséum") && circ.corps.contains("Grille"));
     assert_eq!(
-        appel(&app, "POST", &format!("/voyages/{id}/circulaire"), Some(adm), None).await.0,
+        appel(
+            &app,
+            "POST",
+            &format!("/voyages/{id}/circulaire"),
+            Some(adm),
+            None
+        )
+        .await
+        .0,
         StatusCode::OK
     );
 
     // Participants : choix dans le registre ; élèves d'un autre établissement refusés.
-    let (st, cand) = appel(&app, "GET", &format!("/voyages/{id}/candidats"), Some(prof), None).await;
+    let (st, cand) = appel(
+        &app,
+        "GET",
+        &format!("/voyages/{id}/candidats"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK, "{cand}");
-    let cand: Vec<ent_types::voyages::CandidatsClasseDto> = serde_json::from_value(cand).expect("CandidatsClasseDto");
+    let cand: Vec<ent_types::voyages::CandidatsClasseDto> =
+        serde_json::from_value(cand).expect("CandidatsClasseDto");
     assert!(cand[0].eleves.len() >= 2);
     let (st, r) = appel(
         &app,
@@ -261,49 +423,102 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
     )
     .await;
     assert_eq!(st, StatusCode::OK, "{r}");
-    let r: ent_types::voyages::ResultatAjoutDto = serde_json::from_value(r).expect("ResultatAjoutDto");
+    let r: ent_types::voyages::ResultatAjoutDto =
+        serde_json::from_value(r).expect("ResultatAjoutDto");
     assert_eq!((r.ajoutes.len(), r.refuses), (2, vec![autre.eleve_lea_id]));
     // Liste confirmée (sans nuitée : pas de dépôt/reprise exigés) → prête.
-    let (st, s) = appel(&app, "POST", &format!("/voyages/{id}/commandes/confirmer-liste"), Some(prof), None).await;
-    assert_eq!((st, s["etat"].as_str()), (StatusCode::OK, Some("prete")), "{s}");
+    let (st, s) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/confirmer-liste"),
+        Some(prof),
+        None,
+    )
+    .await;
+    assert_eq!(
+        (st, s["etat"].as_str()),
+        (StatusCode::OK, Some("prete")),
+        "{s}"
+    );
 
     // Export : porteur oui ; en-têtes sûrs ; journalisé.
-    let (st, h, csv) = appel_brut(&app, "GET", &format!("/voyages/{id}/participants.csv"), Some(prof), None).await;
+    let (st, h, csv) = appel_brut(
+        &app,
+        "GET",
+        &format!("/voyages/{id}/participants.csv"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
     assert!(h["content-type"].to_str().unwrap().starts_with("text/csv"));
     assert_eq!(h["cache-control"], "no-store");
     assert!(csv.as_str().unwrap().contains("Nom;Prénom;Classe"));
-    let (st, journal) = appel(&app, "GET", &format!("/voyages/{id}/journal"), Some(prof), None).await;
+    let (st, journal) = appel(
+        &app,
+        "GET",
+        &format!("/voyages/{id}/journal"),
+        Some(prof),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    let journal: Vec<ent_types::voyages::JournalDto> = serde_json::from_value(journal).expect("JournalDto");
+    let journal: Vec<ent_types::voyages::JournalDto> =
+        serde_json::from_value(journal).expect("JournalDto");
     assert!(journal.iter().any(|j| j.action == "liste_exportee"));
-    assert!(journal.iter().any(|j| j.action == "autorisee" && j.etat_apres.as_deref() == Some("ouverte")));
+    assert!(journal
+        .iter()
+        .any(|j| j.action == "autorisee" && j.etat_apres.as_deref() == Some("ouverte")));
 
     // Projections : détail typé, droits calculés, prochaine étape ; la famille de Harry voit sa sortie.
     let (st, d) = appel(&app, "GET", &format!("/voyages/{id}"), Some(prof), None).await;
     assert_eq!(st, StatusCode::OK);
-    let d: ent_types::voyages::SortieDetailDto = serde_json::from_value(d).expect("SortieDetailDto");
+    let d: ent_types::voyages::SortieDetailDto =
+        serde_json::from_value(d).expect("SortieDetailDto");
     assert!(d.acces.porteur && d.acces.modifier && !d.acces.valider);
     assert_eq!(d.nb_inscrits, 2);
     let (_, d_dir) = appel(&app, "GET", &format!("/voyages/{id}"), Some(dir), None).await;
     assert_eq!(d_dir["acces"]["valider"], true);
     let (st, fam) = appel(&app, "GET", "/voyages/famille", Some(parent), None).await;
     assert_eq!(st, StatusCode::OK);
-    let fam: Vec<ent_types::voyages::VoyageFamilleDto> = serde_json::from_value(fam).expect("VoyageFamilleDto");
+    let fam: Vec<ent_types::voyages::VoyageFamilleDto> =
+        serde_json::from_value(fam).expect("VoyageFamilleDto");
     assert!(fam.iter().all(|f| f.titre == "Sortie au muséum"));
-    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}"), Some(parent), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        appel(&app, "GET", &format!("/voyages/{id}"), Some(parent), None)
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
     // Tableau de la direction et de la comptabilité ; refusé au professeur.
     for jeton in [dir, compta] {
         let (st, t) = appel(&app, "GET", "/voyages/tableau", Some(jeton), None).await;
         assert_eq!(st, StatusCode::OK, "{t}");
-        let _: ent_types::voyages::TableauDirectionDto = serde_json::from_value(t).expect("TableauDirectionDto");
+        let _: ent_types::voyages::TableauDirectionDto =
+            serde_json::from_value(t).expect("TableauDirectionDto");
     }
-    assert_eq!(appel(&app, "GET", "/voyages/tableau", Some(prof), None).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        appel(&app, "GET", "/voyages/tableau", Some(prof), None)
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
 
     // Liste : le professeur tiers voit la sortie ouverte, sous forme minimale.
-    let (st, l) = appel(&app, "GET", "/voyages?q=muséum", Some(cast.profs[1].token.as_str()), None).await;
+    let (st, l) = appel(
+        &app,
+        "GET",
+        "/voyages?q=muséum",
+        Some(cast.profs[1].token.as_str()),
+        None,
+    )
+    .await;
     assert_eq!(st, StatusCode::OK);
-    let l: Vec<ent_types::voyages::SortieResumeDto> = serde_json::from_value(l).expect("SortieResumeDto");
-    let vue = l.iter().find(|s| s.id.to_string() == id).expect("sortie visible du personnel");
+    let l: Vec<ent_types::voyages::SortieResumeDto> =
+        serde_json::from_value(l).expect("SortieResumeDto");
+    let vue = l
+        .iter()
+        .find(|s| s.id.to_string() == id)
+        .expect("sortie visible du personnel");
     assert!(!vue.acces_detail && vue.porteur_nom.is_none());
 }

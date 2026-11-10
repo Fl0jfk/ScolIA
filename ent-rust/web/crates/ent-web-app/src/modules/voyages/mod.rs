@@ -150,13 +150,16 @@ fn Frise(liste: Vec<SortieResumeDto>) -> impl IntoView {
     view! {
         {groupes
             .into_iter()
-            .map(|(mois, sorties)| view! {
-                <section class="voy-mois" aria-label=mois.clone()>
-                    <h2 class="vs-section-titre">{mois}</h2>
-                    <ul class="voy-liste">
-                        {sorties.into_iter().map(|s| view! { <CarteSortie s=s/> }).collect_view()}
-                    </ul>
-                </section>
+            .map(|(mois, sorties)| {
+                let etiquette = mois.clone();
+                view! {
+                    <section class="voy-mois" aria-label=etiquette>
+                        <h2 class="vs-section-titre">{mois}</h2>
+                        <ul class="voy-liste">
+                            {sorties.into_iter().map(|s| view! { <CarteSortie s=s/> }).collect_view()}
+                        </ul>
+                    </section>
+                }
             })
             .collect_view()}
     }
@@ -288,7 +291,10 @@ pub fn PageNouveauVoyage() -> impl IntoView {
         }
     };
     let options = |liste: &[(&str, &str)]| -> Vec<(String, String)> {
-        liste.iter().map(|(c, l)| ((*c).to_string(), (*l).to_string())).collect()
+        liste
+            .iter()
+            .map(|(c, l)| ((*c).to_string(), (*l).to_string()))
+            .collect()
     };
     view! {
         <Title text="Nouvelle sortie"/>
@@ -441,7 +447,12 @@ fn Fiche(d: SortieDetailDto, recharger: Callback<()>) -> impl IntoView {
 /// Boutons d'état proposés par le serveur ; un motif (et une étape pour une réouverture) se demande
 /// dans un petit formulaire.
 #[component]
-fn Commandes(id: Uuid, version: i32, commandes: Vec<CommandeDto>, ecriture: Ecriture) -> impl IntoView {
+fn Commandes(
+    id: Uuid,
+    version: i32,
+    commandes: Vec<CommandeDto>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     if commandes.is_empty() {
         return ().into_any();
     }
@@ -455,7 +466,9 @@ fn Commandes(id: Uuid, version: i32, commandes: Vec<CommandeDto>, ecriture: Ecri
                 motif: m,
                 vers: v,
             };
-            session::client().voyage_commande(id, &c.code, &params).await?;
+            session::client()
+                .voyage_commande(id, &c.code, &params)
+                .await?;
             Ok(format!("« {} » : fait.", c.libelle))
         });
     };
@@ -532,7 +545,9 @@ fn Encadrants(d: SortieDetailDto, ecriture: Ecriture) -> impl IntoView {
         let (a, r) = (agent.get_untracked(), role.get_untracked());
         if let Ok(a) = Uuid::parse_str(&a) {
             ecriture.lancer(async move {
-                session::client().voyage_ajouter_encadrant(id, a, &r).await?;
+                session::client()
+                    .voyage_ajouter_encadrant(id, a, &r)
+                    .await?;
                 Ok("Encadrant ajouté.".to_string())
             });
         }
@@ -592,7 +607,8 @@ fn Encadrants(d: SortieDetailDto, ecriture: Ecriture) -> impl IntoView {
 fn Participants(d: SortieDetailDto, ecriture: Ecriture) -> impl IntoView {
     let id = d.sortie.id;
     let peut = d.acces.participants;
-    let liste = LocalResource::new(move || async move { session::client().voyage_participants(id).await });
+    let liste =
+        LocalResource::new(move || async move { session::client().voyage_participants(id).await });
     let motif = RwSignal::new("autre".to_string());
     let options_motif: Vec<(String, String)> = MOTIFS_SORTIE
         .iter()
@@ -667,10 +683,14 @@ fn Registre(id: Uuid, ecriture: Ecriture) -> impl IntoView {
             return;
         }
         ecriture.lancer(async move {
-            let r = session::client().voyage_ajouter_participants(id, &eleves).await?;
+            let r = session::client()
+                .voyage_ajouter_participants(id, &eleves)
+                .await?;
             Ok(match (r.ajoutes.len(), r.refuses.len()) {
                 (n, 0) => format!("{n} élève(s) inscrit(s)."),
-                (n, m) => format!("{n} élève(s) inscrit(s), {m} refusé(s) (non scolarisés à cette date)."),
+                (n, m) => {
+                    format!("{n} élève(s) inscrit(s), {m} refusé(s) (non scolarisés à cette date).")
+                }
             })
         });
         choix.set(Vec::new());
