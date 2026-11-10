@@ -564,9 +564,24 @@ fn object_key_is_owned(etab: Uuid, ns: &str, id: Uuid, key: &str) -> bool {
         && is_simple_segment(ext)
 }
 
-/// Photo d'élève : `{etab}/trombi/{eleve_id}.{ext}` uniquement.
+/// Photo d'élève : `{etab}/trombi/{eleve_id}[/{uuid}].{ext}` uniquement.
 pub fn photo_storage_key_is_owned(eleve: &Eleve, key: &str) -> bool {
-    object_key_is_owned(eleve.etablissement_id, "trombi", eleve.id, key)
+    // Forme historique `{etab}/trombi/{eleve_id}.{ext}` ou forme immuable
+    // `{etab}/trombi/{eleve_id}/{uuid}.{ext}`.
+    if object_key_is_owned(eleve.etablissement_id, "trombi", eleve.id, key) {
+        return true;
+    }
+    let segs: Vec<&str> = key.split('/').collect();
+    let [e, "trombi", el, file] = segs.as_slice() else {
+        return false;
+    };
+    let Some((id, ext)) = file.split_once('.') else {
+        return false;
+    };
+    *e == eleve.etablissement_id.to_string()
+        && *el == eleve.id.to_string()
+        && Uuid::parse_str(id).is_ok()
+        && is_simple_segment(ext)
 }
 
 /// Pièce PAI : `{etab}/pai/{piece.id}.{ext}` uniquement.
@@ -720,7 +735,13 @@ impl PgEnt {
             .max_connections(5)
             .connect(database_url)
             .await?;
-        Ok(Self::from_pool(pool))
+        let mut ent = Self::from_pool(pool);
+        // Production : le stockage d'objets est S3 ou rien (F-013, PRA §18.4) ; sans
+        // configuration S3 complète le démarrage échoue au lieu de retomber sur le disque.
+        if !ent_auth::env_non_prod() {
+            ent.objects = ObjectStore::from_env_strict(false)?;
+        }
+        Ok(ent)
     }
 
     pub fn from_pool(pool: PgPool) -> Self {
@@ -812,12 +833,11 @@ impl PgEnt {
         self.sms = SmsService::dry_run_only();
         self.push = PushService::dry_run_only();
         self.bank = BankConnector::dry_run_only();
-        // Respecte ENT_OBJECT_S3 / ENT_OBJECT_S3_LIVE / ENT_OBJECT_MEMORY / ENT_OBJECT_DIR.
+        // Labo : respecte ENT_OBJECT_BACKEND (disk | memory | s3) / ENT_OBJECT_DIR / ENT_OBJECT_MEMORY ;
+        // sans choix explicite, la mémoire (aucun fichier laissé sur disque).
         self.objects = ObjectStore::from_env();
-        if !self.objects.is_memory()
-            && !self.objects.is_s3_stub()
-            && !self.objects.is_s3_live()
-        {
+        let choix_explicite = std::env::var("ENT_OBJECT_BACKEND").is_ok_and(|v| !v.trim().is_empty());
+        if !(self.objects.is_memory() || self.objects.is_s3() || (self.objects.is_disk() && choix_explicite)) {
             self.objects = ObjectStore::memory_only();
         }
     }
@@ -868,6 +888,11 @@ impl PgEnt {
 
     pub fn bank(&self) -> &BankConnector {
         &self.bank
+    }
+
+    /// Remplace le magasin d'objets (tests et labo : fournisseur simulé, panne injectée).
+    pub fn installer_objets(&mut self, objets: ObjectStore) {
+        self.objects = objets;
     }
 
     pub fn objects(&self) -> &ObjectStore {
@@ -6582,10 +6607,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             today_utc(),
         )?;
         let bytes = render_bulletin_pdf(&bulletin);
-        let key = ObjectStore::key_for(etablissement_id, "bulletin", periode_id, "pdf");
-        // Clé stable période+élève : namespace inclut eleve_id via suffixe.
+        // Objet immuable : identifiant neuf à chaque génération (jamais de réécriture) ;
+        // le suffixe élève conserve le contrôle d'appartenance (`document_storage_key_is_owned`).
+        let key = ObjectStore::key_for(etablissement_id, "bulletin", Uuid::new_v4(), "pdf");
         let key = format!("{key}-{eleve_id}");
-        self.objects.put(&key, &bytes)?;
+        self.stocker_objet(etablissement_id, &key, Some("application/pdf"), &bytes)
+            .await?;
         let doc = self
             .deposer_document(DeposerDocument {
                 etablissement_id,
@@ -6897,9 +6924,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let bytes = render_livret_competences_pdf(&livret);
         let key = format!(
             "{}-{eleve_id}",
-            ObjectStore::key_for(etablissement_id, "livret-competences", periode_id, "pdf")
+            ObjectStore::key_for(etablissement_id, "livret-competences", Uuid::new_v4(), "pdf")
         );
-        self.objects.put(&key, &bytes)?;
+        self.stocker_objet(etablissement_id, &key, Some("application/pdf"), &bytes)
+            .await?;
         let doc = self
             .deposer_document(DeposerDocument {
                 etablissement_id,
@@ -9446,7 +9474,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             doc.mime_type = Some(valide.mime.to_string());
             let ext = valide.extension;
             let key = ObjectStore::key_for(doc.etablissement_id, "documents", doc.id, ext);
-            self.objects.put(&key, bytes)?;
+            self.stocker_objet(doc.etablissement_id, &key, Some(valide.mime), bytes)
+                .await?;
             doc.storage_key = Some(key);
         }
         self.documents.upsert_document(&doc).await?;
@@ -9578,13 +9607,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let bytes = stub(&doc);
             return Ok((doc, bytes));
         }
-        match self.objects.get(key) {
+        match self.lire_objet(doc.etablissement_id, key).await {
             Ok(bytes) => Ok((doc, bytes)),
-            Err(ObjectStoreError::NotFound(_)) => {
+            Err(EntDbError::Object(ObjectStoreError::NotFound(_))) => {
                 let bytes = stub(&doc);
                 Ok((doc, bytes))
             }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         }
     }
 
@@ -14581,8 +14610,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get(etablissement_id, eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let key = ObjectStore::key_for(etablissement_id, "trombi", eleve_id, &ext);
-        self.objects.put(&key, bytes)?;
+        // Objet immuable : une nouvelle photo = un nouvel objet `{etab}/trombi/{eleve}/{uuid}.{ext}`.
+        let key = format!(
+            "{etablissement_id}/trombi/{eleve_id}/{}.{}",
+            Uuid::new_v4(),
+            ent_object::sanitize_ext(&ext)
+        );
+        self.stocker_objet(etablissement_id, &key, Some(valide.mime), bytes)
+            .await?;
         let eleve = self
             .update_identite(UpdateIdentite {
                 etablissement_id,
@@ -14676,7 +14711,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         else {
             return Ok(None);
         };
-        Ok(Some(self.objects.get(&key)?))
+        Ok(Some(self.lire_objet(etablissement_id, &key).await?))
     }
 
     /// Contrôle d'accès commun au téléchargement ET à l'émission d'un lien de photo :
@@ -16418,7 +16453,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let mut piece = plan_attacher_ordonnance_pai(&pai, cmd)?;
         let ext = valide.extension;
         let key = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
-        self.objects.put(&key, &piece.contenu)?;
+        self.stocker_objet(piece.etablissement_id, &key, Some(valide.mime), &piece.contenu)
+            .await?;
         piece.storage_key = Some(key.clone());
         // Contenu hors base — récupéré via object store au téléchargement.
         piece.contenu = Vec::new();
@@ -16510,7 +16546,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if let Some(ref key) = piece.storage_key {
             // Clé non conforme : jamais lue dans le magasin (traité comme sans contenu).
             if pai_storage_key_is_owned(&piece, key) {
-                piece.contenu = self.objects.get(key)?;
+                piece.contenu = self.lire_objet(piece.etablissement_id, key).await?;
             }
         }
         Ok(piece)
@@ -17923,11 +17959,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
 
     /// Copie dans le magasin d'objets un contenu stocké en base (pièces de messagerie,
     /// pièces PAI historiques) pour pouvoir le servir par lien court. Idempotent.
-    fn refleter_dans_magasin(&self, key: &str, bytes: &[u8]) -> Result<(), EntDbError> {
-        if !self.objects.exists(key) {
-            self.objects.put(key, bytes)?;
-        }
-        Ok(())
+    async fn refleter_dans_magasin(
+        &self,
+        etablissement_id: Uuid,
+        key: &str,
+        mime: &str,
+        bytes: &[u8],
+    ) -> Result<(), EntDbError> {
+        self.stocker_objet_si_absent(etablissement_id, key, Some(mime), bytes)
+            .await
     }
 
     /// Lien court vers le fichier d'un document (mêmes droits que le téléchargement).
@@ -17947,8 +17987,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let key = doc
             .storage_key
             .as_deref()
-            .filter(|k| document_storage_key_is_owned(&doc, k) && self.objects.exists(k))
+            .filter(|k| document_storage_key_is_owned(&doc, k))
             .ok_or(EntDbError::FichierAbsent)?;
+        if !self.objects.existe(key)? {
+            return Err(EntDbError::FichierAbsent);
+        }
         let (nom, mime) = nom_fichier_document(&doc);
         let lien = self.emettre_lien(
             key,
@@ -17989,7 +18032,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         else {
             return Ok(None);
         };
-        if !self.objects.exists(&key) {
+        if !self.objects.existe(&key)? {
             return Ok(None);
         }
         // La route de téléchargement sert toujours « image/jpeg ».
@@ -18023,12 +18066,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             _ if !piece.contenu.is_empty() => {
                 let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
                 let k = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
-                self.refleter_dans_magasin(&k, &piece.contenu)?;
+                self.refleter_dans_magasin(piece.etablissement_id, &k, &piece.mime_type, &piece.contenu)
+                    .await?;
                 k
             }
             _ => return Err(EntDbError::FichierAbsent),
         };
-        if !self.objects.exists(&key) {
+        if !self.objects.existe(&key)? {
             return Err(EntDbError::FichierAbsent);
         }
         let lien = self.emettre_lien(
@@ -18072,7 +18116,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
         let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
         let key = ObjectStore::key_for(piece.etablissement_id, "messages", piece.id, ext);
-        self.refleter_dans_magasin(&key, &piece.contenu)?;
+        self.refleter_dans_magasin(piece.etablissement_id, &key, &piece.mime_type, &piece.contenu)
+            .await?;
         let lien = self.emettre_lien(
             &key,
             actor_user_id,
