@@ -935,6 +935,21 @@ impl PgEnt {
         if self.deplacement_de(etab, creneau_id, jour).await?.is_some() {
             return Err(conflit());
         }
+        // RS3-04 : l'absence RH référencée doit appartenir à l'établissement de
+        // l'acteur (refus identique à « introuvable » : pas d'oracle d'UUID).
+        if let Some(abs_id) = absence_rh_id {
+            let existe: Option<(Uuid,)> = sqlx::query_as(
+                "SELECT id FROM ent_absence_rh WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(abs_id)
+            .fetch_optional(self.pool())
+            .await
+            .map_err(db)?;
+            if existe.is_none() {
+                return Err(introuvable());
+            }
+        }
         let mut tx = self.pool().begin().await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
             .bind(format!("{etab}:{creneau_id}"))

@@ -18185,6 +18185,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Self::peut_etablissement(role, Action::FacturationLire)
     }
 
+    /// Foyers d'un parent pour la **facturation** : seuls les foyers dont il est
+    /// **payeur** (`ent_eleve_lien.est_payeur`). Un responsable sans charge de
+    /// paiement (parent séparé non payeur, tiers lié) ne voit ni les factures,
+    /// ni l'historique bancaire, ni les mandats SEPA, et ne peut ni créer ni
+    /// révoquer de mandat (RS3-01 : le chemin historique `/facturation/*` ne
+    /// filtrait pas `est_payeur`, contrairement au chemin `/finances/*`).
     async fn foyer_ids_parent(
         &self,
         etablissement_id: Uuid,
@@ -18194,7 +18200,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .foyers
             .liens_for_parent(etablissement_id, parent_user_id)
             .await?;
-        let mut ids: Vec<Uuid> = liens.into_iter().filter_map(|l| l.foyer_id).collect();
+        let mut ids: Vec<Uuid> = liens
+            .into_iter()
+            .filter(|l| l.est_payeur)
+            .filter_map(|l| l.foyer_id)
+            .collect();
         ids.sort();
         ids.dedup();
         Ok(ids)
@@ -18633,6 +18643,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             + 1;
         let quittance = plan_emettre_quittance(&facture, &enc, rang as i32)?;
         self.facturation.insert_quittance(&quittance).await?;
+        self.effets_encaissement(&enc, &facture, &quittance, deja).await?;
+        Ok((enc, facture, quittance))
+    }
+
+    /// Événements, notification et quittance PDF d'un encaissement déjà validé
+    /// (appelé après la transaction d'écriture).
+    async fn effets_encaissement(
+        &self,
+        enc: &Encaissement,
+        facture: &Facture,
+        quittance: &Quittance,
+        deja: i64,
+    ) -> Result<(), EntDbError> {
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: enc.etablissement_id,
@@ -18721,7 +18744,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 )
                 .await;
         }
-        Ok((enc, facture, quittance))
+        Ok(())
     }
 
     /// Export journal recettes OGEC (CSV `;`, UTF-8 BOM) — rôles compta uniquement.
@@ -18936,6 +18959,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_facture(cmd.etablissement_id, cmd.facture_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // RS3-03 : même règle que le chemin /finances/* — pas de prélèvement
+        // pour un foyer passé en paiement manuel.
+        if self
+            .facturation
+            .foyer_en_paiement_manuel(cmd.etablissement_id, facture.foyer_id)
+            .await?
+        {
+            return Err(DomainError::SepaPrelevementInvalide.into());
+        }
         let mandat = self
             .facturation
             .get_sepa_mandat(cmd.etablissement_id, cmd.mandat_id)
@@ -19158,6 +19190,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 summary.errors += 1;
                 continue;
             }
+            let mut rejoue = false;
             let apply_result = match planned.action {
                 BankMatchAction::Execute => {
                     self.executer_prelevement_for_actor(
@@ -19167,7 +19200,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         actor_user_id,
                     )
                     .await
-                    .map(|_| ())
+                    .map(|(_, effet)| {
+                        // RS3-02 : relevé rejoué → prélèvement déjà exécuté, aucun effet.
+                        rejoue = effet.is_none();
+                    })
                 }
                 BankMatchAction::Reject => {
                     let motif = line
@@ -19188,11 +19224,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let (action, status, error) = match apply_result {
                 Ok(()) => {
                     match planned.action {
+                        BankMatchAction::Execute if rejoue => {}
                         BankMatchAction::Execute => summary.executed += 1,
                         BankMatchAction::Reject => summary.rejected += 1,
                     }
                     (
                         match planned.action {
+                            BankMatchAction::Execute if rejoue => "skip",
                             BankMatchAction::Execute => "execute",
                             BankMatchAction::Reject => "reject",
                         }
@@ -19268,56 +19306,40 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?)
     }
 
+    /// RS3-02 : exécute un prélèvement SEPA de façon atomique et idempotente.
+    /// Retourne `(prélèvement, Some((encaissement, facture, quittance)))` à la
+    /// première exécution, `(prélèvement, None)` si le prélèvement était déjà
+    /// exécuté (rejeu : aucun effet, aucun second encaissement).
     pub async fn executer_prelevement_for_actor(
         &self,
         etablissement_id: Uuid,
         prelevement_id: Uuid,
         role: &str,
         actor_user_id: Uuid,
-    ) -> Result<(PrelevementSepa, Encaissement, Facture, Quittance), EntDbError> {
+    ) -> Result<
+        (
+            PrelevementSepa,
+            Option<(Encaissement, Facture, Quittance)>,
+        ),
+        EntDbError,
+    > {
         if !Self::role_can_manage_facturation(role) {
             return Err(EntDbError::Forbidden);
         }
-        let current = self
+        let (executed, effet) = self
             .facturation
-            .get_sepa_prelevement(etablissement_id, prelevement_id)
+            .executer_sepa_atomique(etablissement_id, prelevement_id, actor_user_id)
+            .await?;
+        let Some((enc, facture, quittance)) = effet else {
+            return Ok((executed, None));
+        };
+        // Effets de bord après la validation de la transaction (journal, e-mail).
+        let deja_avant = self
+            .facturation
+            .sum_encaissements(etablissement_id, facture.id)
             .await?
-            .ok_or(DomainError::NotFound)?;
-        let facture = self
-            .facturation
-            .get_facture(etablissement_id, current.facture_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let deja = self
-            .facturation
-            .sum_encaissements(etablissement_id, current.facture_id)
-            .await?;
-        let ouvert = self
-            .facturation
-            .sum_prelevements_ouverts(etablissement_id, current.facture_id)
-            .await?;
-        // Ce prélèvement quitte la réserve ouverte en devenant encaissement.
-        let autres_ouverts = ouvert.saturating_sub(current.montant_centimes);
-        let engage = deja.saturating_add(autres_ouverts);
-        let (enc, facture, quittance) = self
-            .encaisser_avec_engage(
-                role,
-                EncaisserFacture {
-                    etablissement_id,
-                    facture_id: current.facture_id,
-                    montant_centimes: current.montant_centimes,
-                    moyen: MoyenPaiement::Prelevement,
-                    reference: Some(current.end_to_end_id.clone()),
-                    actor_user_id,
-                },
-                &facture,
-                deja,
-                engage,
-            )
-            .await?;
-        let executed = plan_executer_prelevement(&current, enc.id)?;
-        self.facturation
-            .update_sepa_prelevement(&executed)
+            .saturating_sub(enc.montant_centimes);
+        self.effets_encaissement(&enc, &facture, &quittance, deja_avant)
             .await?;
         self.events
             .publish(MetierEventDraft {
@@ -19335,7 +19357,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 actor_user_id: Some(actor_user_id.to_string()),
             })
             .await?;
-        Ok((executed, enc, facture, quittance))
+        Ok((executed, Some((enc, facture, quittance))))
     }
 
     /// Lance les rappels J-3 / en retard pour les factures émises (idempotent).
