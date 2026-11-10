@@ -682,7 +682,7 @@ impl PgEnt {
         })
     }
 
-    async fn register_login(
+    pub(crate) async fn register_login(
         &self,
         email: &str,
         role: Role,

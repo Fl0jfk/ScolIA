@@ -33,15 +33,17 @@ impl ApiClient {
     }
 
     /// `PUT /evaluations/periodes/{id}/statut` (`ouverte`, `partielle_appreciations`, `fermee`).
+    /// Le `motif` est **obligatoire pour rouvrir** une période (journalisé côté serveur).
     pub async fn changer_statut_periode(
         &self,
         periode: Uuid,
         statut: &str,
+        motif: Option<&str>,
     ) -> Result<PeriodeNotesDto, ApiError> {
         self.appel(
             Methode::Put,
             &format!("/evaluations/periodes/{periode}/statut"),
-            Some(json!({ "statut": statut })),
+            Some(json!({ "statut": statut, "motif": motif })),
         )
         .await
     }

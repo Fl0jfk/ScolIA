@@ -291,6 +291,8 @@ mod tests_dossier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sante_module;
@@ -1241,7 +1243,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(note.status(), StatusCode::CREATED);
+        // V0 (D1) : la saisie historique est fermée (410) ; les notes se saisissent par la grille.
+        assert_eq!(note.status(), StatusCode::GONE);
 
         // Parent Léa lit · Parent Tom (autre enfant) interdit
         let ok_lea = app

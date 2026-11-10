@@ -24,6 +24,7 @@ Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Act
 9. **Cinq décisions à prendre en priorité** : §28.
 10. **[ajout personas] Ce que la passe personas change** (`PERSONAS_21.md`, 16 personas, 90 manques M-579 à M-668). Trois **bloquants**, tranchés selon leur recommandation (D-031) : **(A)** la période et le verrou se résolvent **par élève** et non par évaluation — un groupe de spécialité réunit six classes aux dates d'arrêt différentes, une option multi-niveaux mêle trimestres et semestres (R-V29, §9.4, à poser dans le schéma de V1) ; **(B)** l'an 1 du lycée pilote (D-032 : notes et bulletins dans Charlemagne) est **outillé** : export de l'assiduité pour le bulletin Charlemagne, dépôt des bulletins Charlemagne dans ScolIA et **distribution par ScolIA seule** selon les droits des liens (lot V14, juste après V0) ; **(C)** une matière **suivie hors de l'établissement** (CNED, autre lycée, conservatoire) reçoit une **moyenne externe** qui vaut moyenne de matière (R-V38 ; sinon la 3ᵉ ne peut pas être close). Puis : appréciations ouvertes par `recevoir_bulletins` (R-V34), parent sans exercice destinataire par défaut des bulletins et décisions (R-V43), aucune activité d'un parent visible de l'autre (R-V46), guichet qui relit les droits (R-V39), assiduité bornée, aucune sanction ni rétention pour impayé au bulletin (R-V31 à R-V33), prénom d'usage (R-V36), rubrique « accompagnements » jamais vers un tiers (R-V37), exclusions écrites de l'IA (R-V40) ; 48 actions (EVA-233 à EVA-280), 29 cas limites (CE-65 à CE-93), lots V14 à V16.
 
+
 ---
 
 ## 1. Thèse : une note est un fait pédagogique daté, la moyenne un calcul, le bulletin un acte
@@ -217,6 +218,7 @@ Recherche par sous-agent sur Légifrance et eduscol ; les pages HTML d'education
 | R-38 | **[ajout personas]** Bilan périodique du cycle 4 (annexe III de l'arrêté du 31/12/2015, à partir de la rentrée 2025) : en 5ᵉ et 4ᵉ « la note de l'élève ou tout autre positionnement », en 3ᵉ « la note de l'élève » ; vie scolaire : assiduité, ponctualité, **demi-journées justifiées ou non** ; accompagnements PAP, PAI, PPRE, PPS, ULIS, UPE2A, SEGPA. **L'annexe III ne fixe pas d'échelle à quatre niveaux** | https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000032615791 | [V] (sous-agent) | confirme R-06 ; l'échelle à quatre niveaux relève du **bilan de fin de cycle** (socle 22), pas du bilan périodique : C13 (§27) |
 | R-39 | **[ajout personas]** CNED : enseignement pour les élèves « ne pouvant être scolarisés totalement ou partiellement » en établissement ; inscription décidée par le directeur général du CNED (avis du DASEN pour l'instruction obligatoire) | R. 426-2 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000020320175 ; R. 426-2-1 — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000025164621/ | [V] partiel ; **qui évalue et qui fait le bulletin en scolarité partagée : [NV]** | R-V38 : moyenne externe transcrite, décision de la direction de la compter, source imprimée ; **ne rien coder qui suppose une règle nationale** sur ce point |
 
+
 **Non vérifié et interdit de coder dessus** : XSD LSU 2ᵈ degré et LSL (espace éditeurs Pléiade, D-2 du socle 9) ; composition du conseil de classe dans le privé sous contrat ; durée de conservation des notes détaillées ; règle de l'élève majeur ; texte consolidé et calendrier du règlement IA.
 
 ---
@@ -247,6 +249,7 @@ Le socle 21 est conçu pour que 22 et 23 n'aient **rien à recalculer** ni à re
 - **Livret et examen** : explication de l'« avis pour l'examen » du LSL à l'élève, demande d'explication tracée (M-637).
 - **Socle 37 (Parcoursup)** : fiche Avenir alimentée par les appréciations annuelles ; assemblage des appréciations de sous-matières ; **jamais** la rubrique « accompagnements » (R-V37).
 - **Socle 19 (rendez-vous)** : proposer des créneaux à une famille depuis la fiche du conseil (M-600).
+
 
 ## 7. Concepts et vocabulaire
 
@@ -345,6 +348,7 @@ Moyenne de cours = (14×2 + 14×1 + 11×2) / (2+1+2) = 64/5 = **12,80**. L'expli
 - **Moyenne du groupe** : pour un enseignement en groupe dont le public vient de plusieurs classes, la statistique de comparaison au bulletin est celle **du groupe** (élèves notés du cours, seuil de 5, §8.7), libellée « moyenne du groupe » ; pour un enseignement en classe entière, celle de la classe (R-V30).
 - **Moyenne externe** : pour un enseignement suivi hors de l'établissement (CNED, autre établissement, conservatoire), la moyenne de période transcrite par le secrétariat **est** la moyenne de matière de l'élève quand la direction l'a déclaré ; elle entre dans la moyenne générale selon le coefficient de la matière, dans la moyenne annuelle selon la méthode de l'établissement (§8.5), et porte sa source (R-V38).
 
+
 ## 9. La vie d'une période d'évaluation
 
 ### 9.1 États [R]
@@ -406,6 +410,7 @@ Un cours peut réunir des élèves de plusieurs classes qui n'ont **ni la même 
 4. La colonne `periode_id` de l'évaluation devient une **période indicative** (celle de la classe majoritaire, pour trier l'écran du professeur) ; **aucun contrôle** ne la lit. Un port `evaluations::periode_eleve(tx, evaluation, eleve)` (et sa version ensembliste) est la seule source.
 5. Une évaluation dont **aucun** élève n'est dans une période ouverte est refusée à la création ; une évaluation dont une partie seulement l'est est acceptée, les autres élèves étant marqués « hors période ouverte » (et non `non_concerne`).
 6. Moyenne de cours et de matière : calculées **par élève sur sa période** ; les statistiques d'une évaluation multi-classes restent celles de l'évaluation (tous élèves notés) ; la moyenne de comparaison au bulletin est celle du groupe (R-V30).
+
 
 ---
 
@@ -541,6 +546,7 @@ Un cours peut réunir des élèves de plusieurs classes qui n'ont **ni la même 
 | CE-92 | L'établissement demande une **note de vie scolaire** comptée dans la moyenne | Non proposée (S-127) ; l'appréciation de vie scolaire et l'assiduité restent |
 | CE-93 | Une appréciation cite une **sanction effacée** (« après son exclusion de l'an passé… ») | Avertissement à l'auteur avant validation (comme R-V18) ; aucune sanction au bulletin (R-V32) |
 
+
 ## 12. Appréciations
 
 ### 12.1 Types [R]
@@ -567,6 +573,7 @@ Un cours peut réunir des élèves de plusieurs classes qui n'ont **ni la même 
 - **Saisie** : filtre par groupe (et non seulement par classe), **dictée vocale** sur mobile (V9), éléments des séances du professeur (oublis, travaux non faits, socles 12 et 20) affichés à côté de l'appréciation, pour ses cours seulement.
 - **Contrôles** ajoutés à ceux du §12.2 : ancien prénom d'un élève qui a un prénom d'usage (R-V36) ; mention d'une sanction ou d'un fait disciplinaire ancien (CE-93) ; prénom d'un autre élève (déjà prévu).
 - **Glossaire** : les libellés imprimés (mentions, « en attente », « dispensé », « moyenne du groupe ») ont une définition courte accessible depuis le bulletin en ligne et le relevé.
+
 
 ---
 
@@ -628,6 +635,7 @@ Le règlement européen sur l'IA classe à haut risque les systèmes **destinés
 - **« Ce qui a changé depuis le dernier conseil »** (déterministe, sans modèle) dans le dossier de chaque élève : évolution des moyennes, nouvelles alertes, appréciations du conseil précédent (§13.4).
 - **Synthèse agrégée d'une évaluation** pour son professeur (exercices les moins réussis, à partir du barème détaillé §8.9), **sans classement ni liste d'élèves** : utile, mais elle touche l'évaluation des acquis ; **sous l'étude juridique** (Q-EV8 c).
 - **Résumé hebdomadaire des familles** (EVA-278) : faits déterministes ; reformulation et traduction par l'IA facultatives (§13.5).
+
 
 ---
 
@@ -698,6 +706,7 @@ Projetée en présence des délégués : nom, moyennes, appréciations, proposit
 14. **Note privée** du professeur : communicable au titre du droit d'accès (R-37), l'écran le dit (R-V41).
 15. **Finances** : aucun lien entre une dette et la publication d'un document d'évaluation (R-V33).
 
+
 ---
 
 ## 15. Notifications (socle 8)
@@ -745,6 +754,7 @@ Règles : tout export passe par le moteur du socle 9 (pré-contrôle, instantan�
 | Distribution des bulletins | ScolIA → familles | exemplaire de chaque lien `recevoir_bulletins`, coffre ou courrier, élève majeur, exclusions | moteur du socle 7 (le PDF de Charlemagne est rangé tel quel, un exemplaire par destinataire) | V14 (EVA-235) |
 | Moyennes et appréciations de période | Charlemagne → ScolIA | moyennes de matière par élève, appréciations | export tableur de Charlemagne [H], en **résultats externes de période**, lecture seule | V14 (EVA-236) |
 Règles : les bulletins de Charlemagne **ne sont jamais distribués par ScolIA sans rapprochement certain** ; la diffusion par le portail de l'éditeur est désactivée pour les bulletins (CE-90) ; les moyennes importées servent à l'historique, aux alertes du §13.3 et à la reprise de l'an 2 (FX-106), jamais à un document officiel ; aucune saisie de note dans ScolIA pour ce lycée l'an 1.
+
 
 ## 17. Actions métier (EVA-100 et suivantes)
 
@@ -1054,6 +1064,7 @@ Notation des acteurs : PRF professeur, PP professeur principal, DIR direction, A
 
 Actions précisées sans nouveau numéro : **EVA-125** dupliquer **plusieurs** évaluations en une opération (M-667) ; **EVA-152** mode conseil de groupe (§14.6 point 8) ; **EVA-158** bulletin de l'an passé visible du PP, de la direction et de la CPE seulement (CE-80) ; **EVA-171** « en attente » appliqué en masse à une classe et une matière (M-608) ; **EVA-195** dictée vocale (V9).
 
+
 ## 18. Règles transverses (R-V1 et suivantes) [R]
 
 | Id | Règle |
@@ -1105,6 +1116,7 @@ Actions précisées sans nouveau numéro : **EVA-125** dupliquer **plusieurs** �
 | R-V45 | **[ajout personas]** Au lycée, les **moyennes annuelles** des enseignements du baccalauréat sont contrôlées avant l'arrêt de la dernière période de 1ʳᵉ et de terminale, comme en 3ᵉ (R-V22) ; une moyenne manquante appelle l'évaluation de remplacement (R-29). |
 | R-V46 | **[ajout personas]** Un parent ne voit **jamais l'activité de l'autre parent** (lecture, accusé, demande de révision, réponse reçue). |
 | R-V47 | **[ajout personas]** Les **destinataires** d'un bulletin (et d'un avis de décision) sont calculés **à la publication**, pas à la génération : majorité, nouveau lien, droit retiré entre-temps sont pris en compte. |
+
 
 ---
 
@@ -1209,6 +1221,7 @@ eva_appreciation.type            + 'dispositif' (§12.3)
 ```
 Côté socle 23 (attentes, tables à concevoir là-bas) : publication programmée et remise en main propre par classe ou niveau ; délégation de présidence ; PV et présents ; registre annuel ; duplicatas. Côté socle 7 : lot d'impression par adresse. Les compléments entrent dans la réserve **5108–5189** (repli **468–477**).
 
+
 ---
 
 ## 22. Plan de migration depuis l'existant (sans casser l'appel, le mobile ni le labo)
@@ -1230,6 +1243,8 @@ Côté socle 23 (attentes, tables à concevoir là-bas) : publication programmé
 | Lot | Contenu | Dépend de | Critères de fin |
 |---|---|---|---|
 | **V0** correctifs urgents | D1–D5, D8–D12, D14 : fermeture des routes historiques d'écriture (réponse 410 explicite), filtres de publication sur `/eleves/{id}/appreciations`, `/competences`, `/conseils` ; lecture du document « bulletin » soumise à `recevoir_bulletins` du lien ; dédoublonnage + unicité ; RLS permissive sur toutes les tables d'évaluation, conseil, bulletin, compétences ; `absent_compte_zero` lu comme faux et retiré de l'écran ; mentions « avertissement » → « mise en garde » (libellés, données reprises) ; un seul droit d'export (`livrets.exporter` : secrétariat, direction) ; lectures historiques sur le moteur exact | rien (peut partir tout de suite) | tests : parent sans `voir_notes` ne télécharge pas le bulletin ; élève ne lit pas une appréciation non publiée ; administratif ne rouvre pas une période ; professeur ne publie pas de bulletin ni ne décide au conseil ; isolation B ; aucune régression des 4 scénarios existants ; CI verte |
+
+| **V0** correctifs urgents (**code fait, branche `ent-socle-evaluations-v0`, 2026-11-09 : voir §29**) | D1–D5, D8–D12, D14 : fermeture des routes historiques d'écriture (réponse 410 explicite), filtres de publication sur `/eleves/{id}/appreciations`, `/competences`, `/conseils` ; lecture du document « bulletin » soumise à `recevoir_bulletins` du lien ; dédoublonnage + unicité ; RLS permissive sur toutes les tables d'évaluation, conseil, bulletin, compétences ; `absent_compte_zero` lu comme faux et retiré de l'écran ; mentions « avertissement » → « mise en garde » (libellés, données reprises) ; un seul droit d'export (`livrets.exporter` : secrétariat, direction) ; lectures historiques sur le moteur exact | rien (peut partir tout de suite) | tests : parent sans `voir_notes` ne télécharge pas le bulletin ; élève ne lit pas une appréciation non publiée ; administratif ne rouvre pas une période ; professeur ne publie pas de bulletin ni ne décide au conseil ; isolation B ; aucune régression des 4 scénarios existants ; CI verte |
 | **V1** modèle et reprise | tables §21 (hors IA), reprise M2, vues de compatibilité, machine d'états de période, historique en ajout seul, plus de suppression physique (D6, D7), RLS | V0 ; socle 5 S4 (cours) et S7 (périodes) intégrés | test d'or de reprise (moyennes identiques) ; déclencheurs d'immuabilité testés ; `MIGRATION_TAG` calculé |
 | **V2** moteur étendu | statuts §8.2, « compte si améliore », « ne compte pas », sous-matières, moyenne de matière multi-cours, annuelle (deux méthodes), statistiques et médiane, seuil de 5, explication ligne à ligne ; tests de propriétés | V1 | exemple de référence §8.8 ; propriétés (ordre des saisies, arrondi, aucune moyenne sans note) |
 | **V3** grille et saisie | écran grille au clavier, collage tableur, import fichier professeur, codes rapides, conflits de version, publication programmée, retrait, délai maximal | V2 | mesure 40 × 20 ; tests clavier et 375 px ; axe-core |
@@ -1261,6 +1276,7 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 | **V15** secrétariat | contrôle avant publication, publication programmée, lot d'impression, v2 papier, relevés en lot, duplicata, archives, registre annuel, dossier de transfert, bandeau du guichet, prénom d'usage (EVA-244 à 255) | V8 ; socle 23 (bulletins) ; socle 7 | R-V31 à R-V34, R-V36, R-V37, R-V39, R-V42, R-V47 en tests ; matrice du guichet (parent sans exercice, retrait, ordonnance de protection) |
 | **V16** enseignements externes et transferts | écrans de déclaration et de saisie des moyennes externes, relance, contrôle 3ᵉ et baccalauréat (EVA-240 à 242, EVA-280) | V1, V8 | CE-67 à CE-69, CE-88, CE-91 |
 **Ordre recommandé (appliqué par défaut, D-031)** : V0 → **V14** (le pilote en a besoin dès le premier trimestre) → V1 → V2 → … ; V15 avec le premier bulletin produit **par ScolIA** (collège ou an 2 du lycée) ; V16 avec V8.
+
 
 ---
 
@@ -1310,6 +1326,7 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 | S-130 | **[ajout personas]** Simulateur de moyenne | demande des élèves [H] | élève seulement, calcul local |
 | S-131 | **[ajout personas]** Mise en forme du lot d'impression | tentation d'un éditeur de lot | fixe : tri par adresse, fratries regroupées, recto-verso |
 
+
 ---
 
 ## 26. Questions à Florian (avec recommandations)
@@ -1342,6 +1359,7 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 | **Q-EV24** | **[ajout personas]** Envoi postal des bulletins par un prestataire (comme Pronote avec Maileva [V]) ? | **Pas par défaut** (dépendance externe, CLAUDE.md) : lot d'impression local d'abord (EVA-248) ; prestataire à étudier (identité, contrat, données, coût) et à soumettre à Florian |
 | **Q-EV25** | **[ajout personas]** Nombre d'évaluations non rendues imprimé au bulletin (R-30 [V] pour le lycée) ? | **Oui**, par matière, au lycée ; au collège aussi, par cohérence |
 
+
 ---
 
 ## 27. Faits, hypothèses, contradictions
@@ -1365,6 +1383,7 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 - **C12 [ajout personas]** Six types d'appréciations (§12.1) contre D-023 : **S-121** (un seul texte « générale (du conseil) » par défaut).
 - **C13 [ajout personas]** §6.1 cite une « échelle à 4 niveaux » [V arrêté 2015, via sous-agent] pour les positionnements ; l'annexe III (bilan périodique du cycle 4) relue le 2026-11-09 dit seulement « la note ou tout autre positionnement » [V R-38] : l'échelle à quatre niveaux relève du **bilan de fin de cycle** (socle 22) ; le bilan périodique n'impose aucune échelle.
 
+
 ---
 
 ## 28. Les cinq décisions à prendre en priorité
@@ -1376,3 +1395,35 @@ Si Q-B2 est adoptée : **5100** V0 (RLS permissive, unicité, neutralisation du 
 5. **IA (Q-EV8)** : propositions d'appréciations relues une à une, alertes déterministes, aucune note ni décision par l'IA, étude juridique (règlement européen sur l'IA) avant la mise en service des capacités à modèle de langage. **Recommandation : oui** ; les alertes déterministes peuvent sortir sans attendre.
 
 **[ajout personas] Trois décisions s'ajoutent en tête** (`PERSONAS_21.md` §0), tranchées selon leur recommandation (D-031) : **(A)** période et verrou **par élève** (Q-EV16, dans le schéma de V1) ; **(B)** **cohabitation outillée** de l'an 1 du lycée pilote, ScolIA seul distribuant les bulletins produits par Charlemagne (Q-EV17, lot V14 juste après V0) ; **(C)** **moyenne externe** pour une matière suivie hors de l'établissement (Q-EV18). Puis, avant V7 et V15 : parent sans exercice (Q-EV19), aucune sanction ni rétention au bulletin (Q-EV20), prénom d'usage (Q-EV21).
+
+---
+
+## 29. État du lot V0 (2026-11-09, branche `ent-socle-evaluations-v0`, base `ENT`)
+
+**Niveau : implémenté + testé en local (PostgreSQL 16) ; CI GitHub : voir `docs/PROJECT_STATUS.md` ; non validé par Florian ; non prêt pilote.** Migration **460** (`460_eva_v0_correctifs`, repli 460–479 : la règle Q-B2 n'est **pas** adoptée dans `DECISIONS.md`) ; `MIGRATION_TAG` = `460_eva_v0_correctifs`. Le moteur de calcul est inchangé, sauf D10 (ci-dessous).
+
+| Défaut | Traitement | Test |
+|---|---|---|
+| **D1** saisie historique `POST /eleves/{id}/notes` | route **fermée** (410 + chemin de remplacement : la grille) ; la valeur de la note ne figure plus dans l'événement `note.saisie` (R-V17) | `ent-api` : `routes_historiques_d_ecriture_fermees_et_periode_inchangee` |
+| **D2** deux routes de statut de période | route historique **fermée** (410) ; la route de la grille (`PUT /evaluations/periodes/{id}/statut`, droit `periodes.verrouiller` = admin et direction) **exige un motif (≥ 3 caractères) pour rouvrir** (de `fermee` ou `partielle_appreciations` vers un statut moins avancé) ; **toute** transition est inscrite dans `ent_note_periode_journal` (ajout seul, déclencheur) dans la même transaction ; lecture `GET /evaluations/periodes/{id}/journal` (direction). L'écran Leptos affiche un champ « Motif » pour une période non ouverte | `ent-db` : `rouvrir_une_periode_exige_un_motif_et_laisse_une_trace` (motif absent, vide, trop court ; journal ; administratif, professeur, famille refusés ; autre établissement) ; `ent-api` : `reouverture_de_periode_http_motif_obligatoire_et_journal` |
+| **D3 a** appréciations lisibles avant le conseil | la famille et l'élève ne lisent une appréciation (matière ou générale) qu'avec le **bulletin publié de la période** (`ent_bulletin.statut = 'publie'`, ou, pour les données historiques, un document `BULLETIN_<code>` ou `LIVRET_<code>` du tiroir famille) | `ent-db` : `appreciations_et_competences_invisibles_a_la_famille_avant_publication` |
+| **D3 b** compétences visibles dès la saisie | même règle de publication | idem |
+| **D3 c** bulletin téléchargeable sans droit aux notes | tout document de notes (source `bulletin`, code `BULLETIN_*` ou `LIVRET_*`) exige, pour un parent, `peut_voir_notes` du **lien** (téléchargement et liste : `accessible = false`) ; un document famille ordinaire reste lisible | `ent-db` : `bulletin_illisible_pour_un_parent_prive_d_acces_aux_notes` |
+| **D3 d** conseils de l'élève lisibles par tout parent lié | `peut_voir_notes` du lien exigé | `ent-db` : `conseils_de_l_eleve_soumis_au_droit_du_lien` |
+| **D4** décision de conseil historique | route **fermée** (410) ; décisions par `PUT /evaluations/conseils/{id}/decisions` | `ent-api` (même test que D1) |
+| **D5** bulletin historique | route **fermée** (410) | idem |
+| **D8** doublons `(devoir, élève)` | migration : doublons **archivés** (`ent_note_doublon_archive`) puis retirés (on garde la ligne qui porte une correction, sinon la plus récente) ; index unique `ent_note_devoir_eleve_uq` | `un_resultat_par_devoir_et_par_eleve` |
+| **D9** aucune RLS | RLS **permissive** (politique des migrations 100 et 206) sur 18 tables : `ent_note_periode`, `ent_devoir`, `ent_note`, `ent_note_appreciation`, `ent_note_correction`, `ent_eva_regle`, `ent_eva_coef_matiere`, `ent_eva_export`, `ent_conseil_classe`, `ent_conseil_classe_dossier`, `ent_orientation_avis`, `ent_bilan_cycle`, `ent_bilan_cycle_composante`, `ent_bulletin`, `ent_competence_item`, `ent_competence_evaluation` + les deux nouvelles tables. La RLS **stricte** et les clés étrangères composées restent au lot V13 | `rls_sur_les_tables_d_evaluation_isole_les_etablissements` (rôle non propriétaire, mode strict : un autre établissement et l'absence d'établissement ne voient rien) ; compteur de `tests_rls` |
+| **D10 / R-V5** absence = zéro | `absent_compte_zero` : **refusé en écriture** (message explicite), **lu comme faux** en base et par le moteur (`moyenne_matiere` ne le lit plus), contrainte `CHECK (absent_compte_zero = false)` ; nouveau statut de résultat **`a_rattraper`** (distinct, exclu des calculs, abrégé « Abs ») ; un résultat non numérique ne porte jamais de valeur ; le rattrapage (re-saisie d'une note) reste possible | `une_absence_n_est_jamais_un_zero_et_le_rattrapage_reste_possible` ; test de domaine `une_absence_n_est_jamais_un_zero` |
+| **D11** mentions « avertissement » | codes `mise_en_garde_travail` / `mise_en_garde_conduite` (libellés « Mise en garde ») ; données reprises par la migration ; les anciens codes sont encore acceptés en entrée (reclassés) et relus sur les bulletins déjà générés (immuables) ; écran Leptos et liste de l'UI JS mis à jour | `les_anciennes_mentions_avertissement_deviennent_des_mises_en_garde` |
+| **D12** deux calculs | `moyenne_matiere` et `moyennes_eleve_periode` (lectures historiques) appellent le **moteur exact** (fractions entières, arrondi d'affichage selon la règle de l'établissement) ; le f64 arrondi en cours de calcul est retiré | `les_lectures_historiques_utilisent_le_moteur_exact` |
+| **D14** exports | **un seul droit** pour tout export officiel, LSU et LSL de la grille compris : `exports.officiels` (administratifs, direction ; jamais le professeur, D-022) ; mention « format de travail NON OFFICIEL » dans l'avertissement des fichiers ; **neutralisation de l'injection de formule** dans les CSV historiques (`=`, `+`, `-`, `@`, tabulation, retour chariot) | `export_livret_reserve_aux_administratifs_avec_mention_non_officielle` ; tests de domaine `csv_neutralise_les_formules` |
+
+**Écarts à la conception, à faire valider par Florian** :
+1. **Plage de migration** : 460 (repli), faute de décision sur Q-B2.
+2. **Droit d'export** : la conception écrit « `livrets.exporter` » comme droit unique ; le code retient **`exports.officiels`** (déjà utilisé par tous les autres exports officiels, nom de D-022). `livrets.exporter` reste au catalogue mais n'est plus consulté. Mêmes rôles par défaut (administratif, direction, admin) : aucun effet sur les profils standards ; un rôle libre qui avait reçu `livrets.exporter` doit recevoir `exports.officiels`.
+3. **`recevoir_bulletins`** n'existe pas dans le code (c'est un droit du socle 4, lot A14) : le bulletin est soumis à **`peut_voir_notes`** du lien, seul droit disponible. À affiner quand le droit `recevoir_bulletins` existera (parent séparé qui voit les notes mais ne reçoit pas le bulletin).
+4. **Clients historiques** : l'UI JavaScript (`ent-api/src/ui.rs`, saisie de notes, publication du bulletin, décision de conseil) et tout client qui appelait ces trois écritures reçoivent désormais **410**. Les applis mobiles du dépôt n'appellent que des lectures (inchangées, mais filtrées par la publication). La grille Leptos couvre la saisie, le bulletin et le conseil.
+5. **Non traité en V0** (conception : V1) : D6 (historique avant fermeture), D7 (suppression physique d'une cellule vidée), D13 (code de période unique à vie), D15 (changement de classe). `POST /devoirs`, `DELETE /devoirs/{id}`, `POST /conseils-classe/{id}/tenir` et `…/dossiers` (routes historiques) restent ouverts : ils ne sont pas dans la liste V0.
+6. **Rattrapage** : le statut `a_rattraper` et la re-saisie sont en place ; l'**évaluation de remplacement** (nature d'évaluation, seule habilitée à porter un 0 après absence non justifiée, EVA-172) est au lot V2.
+

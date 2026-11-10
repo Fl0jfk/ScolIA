@@ -154,3 +154,7 @@ Note : le lot V0 (correctifs urgents, 5100 / 460) peut partir avant toute décis
 | 500–519 | socle 17, **repli** si Q-B2 n'est pas adoptée | — | réservé |
 
 Note : le lot **M0a** (correctifs urgents, 4600 / 480) peut partir avant toute décision sur Q-B2 ; il prend alors **480** (et M0b **481** s'il en a besoin), et la suite du socle garde la même correspondance.
+
+## Mise à jour du 2026-11-09 (socle 21, lot V0, `ent-socle-evaluations-v0`)
+**460** `eva_v0_correctifs` (repli 460–479 du socle 21 : la règle Q-B2 n'est pas adoptée) : dédoublonnage des résultats et unicité `(devoir, élève)` (archive `ent_note_doublon_archive`), statut de résultat `a_rattraper`, `absent_compte_zero` forcé à faux (contrainte), journal en ajout seul des changements de statut de période (`ent_note_periode_journal`), mentions `mise_en_garde_*`, RLS permissive sur 18 tables d'évaluation, de conseil, de bulletin et de compétences. 461–467 libres pour V1 à V7 (même ordre que la conception) ; `MIGRATION_TAG` = `460_eva_v0_correctifs` sur cette branche (la plus haute du répertoire).
+

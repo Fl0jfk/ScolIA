@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- [NV] Format documenté par ScolIA d'après les spécifications publiques connues ; non validé contre le schéma XSD officiel (non disponible : réservé aux éditeurs validés par le ministère). Ne pas importer dans LSU/LSL sans qualification préalable. -->
+<!-- [NV] Format de travail NON OFFICIEL, documenté par ScolIA d'après les spécifications publiques connues ; non validé contre le schéma XSD officiel (non disponible : réservé aux éditeurs validés par le ministère). Ne pas importer dans LSU/LSL sans qualification préalable. -->
 <lsun-bilans xmlns="urn:fr:edu:scolarite:lsun:bilans:import" schemaVersion="NV">
   <entete>
     <editeur>ScolIA</editeur>
