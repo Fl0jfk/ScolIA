@@ -229,15 +229,22 @@ async fn pp_nomme_par_la_direction_visible_dans_mes_missions_et_cloisonne() {
     .await;
     assert_eq!(st, StatusCode::OK, "{s}");
     assert_eq!(s["sans_effet_sur_les_droits"], false);
-    // Explication : un agent n'explique pas les droits d'un collègue.
-    let q = format!(
-        "/personnels/acces/expliquer?agent_id={}&eleve_id={}",
-        agents[1],
-        Uuid::new_v4()
-    );
+    // Explication : un agent n'explique pas les droits d'un collègue (le sien, si : 404 sur l'élève inconnu).
+    let mut interdits = 0;
+    for a in &agents {
+        let q = format!(
+            "/personnels/acces/expliquer?agent_id={a}&eleve_id={}",
+            Uuid::new_v4()
+        );
+        match appel(&app, "GET", &q, Some(&prof.jeton), None).await.0 {
+            StatusCode::FORBIDDEN => interdits += 1,
+            StatusCode::NOT_FOUND => {}
+            autre => panic!("statut inattendu {autre}"),
+        }
+    }
     assert_eq!(
-        appel(&app, "GET", &q, Some(&prof.jeton), None).await.0,
-        StatusCode::FORBIDDEN
+        interdits, 2,
+        "deux collègues refusés, soi-même : élève inconnu"
     );
 
     // Fin de mission puis annulation (404 la seconde fois) ; autre établissement : 404.
