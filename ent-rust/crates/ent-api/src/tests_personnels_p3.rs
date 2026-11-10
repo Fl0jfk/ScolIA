@@ -38,6 +38,7 @@ async fn cycle_de_vie_d_un_service_et_de_ses_interventions() {
     let dir = inscrire(&app, etab, "direction").await;
     let sec = inscrire(&app, etab, "administratif").await;
     let prof = inscrire(&app, etab, "prof").await;
+    let _prof2 = inscrire(&app, etab, "prof").await;
     let parent = inscrire(&app, etab, "parent").await;
     let annee = ent.referentiel_annee_courante_assuree(etab).await.unwrap();
     let classe = ent
