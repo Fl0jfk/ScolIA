@@ -154,6 +154,9 @@ Note : le lot V0 (correctifs urgents, 5100 / 460) peut partir avant toute décis
 | 500–519 | socle 17, **repli** si Q-B2 n'est pas adoptée | — | réservé |
 
 Note : le lot **M0a** (correctifs urgents, 4600 / 480) peut partir avant toute décision sur Q-B2 ; il prend alors **480** (et M0b **481** s'il en a besoin), et la suite du socle garde la même correspondance.
+## Mise à jour du 2026-11-09 (correctifs de la recette de sécurité 3)
+
+Plage 376–379 (réservée à la recette 2, dont aucune migration n'a été écrite) reprise par la recette de sécurité 3 (`ent-recette-securite-3`) : **376** `sepa_unicite_encaissement` (RS3-02 : index uniques empêchant deux encaissements pour un même prélèvement) et **377** `edt_exception_absence_etab` (RS3-04 : clé étrangère composite `(etablissement_id, absence_rh_id)`, `NOT VALID`). Insérées dans `migrate.rs` après 375 ; `MIGRATION_TAG` = `377_edt_exception_absence_etab`. **378–379 restent libres.** À l'intégration, vérifier qu'aucune autre branche n'a pris 376 ou 377.
 ## Mise à jour du 2026-11-08 (socle 5, lot S5, `ent-socle-structure-s5`)
 Plage **338** (`338_structure_offre` : matières enrichies, offre d'enseignements par année, cibles, groupes porteurs, règles de choix, incompatibilités, prérequis ; extension de la liste fermée d'objets du journal de structure) et **340** (`340_eleve_enseignement` : enseignements suivis par l'élève, historique en ajout seul, reprise idempotente des options historiques, contrôle « choix sans groupe ») consommées, insérées dans `migrate.rs` après 337 et avant 370 (ordre croissant). **333–336, 339 et 341–349 restent réservées** (S3, S7, S6, S4, S8 à S13). `MIGRATION_TAG` reste `375_msg_fil_prive` : 375 est la plus haute migration du répertoire. Sur la base `ent-socle-structure-s2` (qui contient 332 et 337), aucun autre lot n'a pris 338 ni 340.
 
