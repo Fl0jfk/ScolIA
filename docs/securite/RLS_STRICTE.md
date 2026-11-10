@@ -1,6 +1,6 @@
 # RLS stricte : chemins d'accès sans contexte, conversion par domaine, accès transverses
 
-Statut : **conversion des accès d'`ent-db` faite et gardée par un test statique ; suites de domaine rejouées en mode strict en CI.
+Statut : **conversion des accès d'`ent-db` faite et gardée par un test statique ; un seul domaine (élèves et responsables) rejoué en mode strict en CI.
 Mode strict NON activé par défaut, ni en production** (voir §8 pour les conditions de bascule). Aucune base de production consultée.
 Vocabulaire : *fait* (vérifié dans le code ou par un test), *décision de conception* (à valider), *reste à faire*.
 
@@ -274,13 +274,30 @@ passages de pool à des assistants qui ouvrent leur propre contexte et les table
    `app.rls_strict = on` au niveau du rôle** : un accès sans contexte voit 0 ligne et ne peut rien écrire. Les vérifications SQL directes des tests passent par
    `PgEnt::pool_verif()` (propriétaire) ; les migrations rejouées par un test aussi. Le test `harnais_strict_est_bien_strict` prouve que le harnais est strict
    (0 ligne sans contexte, rôle réel, `TenantTx` voit son établissement).
-3. **CI** (`.github/workflows/ent-rust.yml`, job `tests-rls-stricte`, 12 tranches) : rejoue en `ENT_RLS_MODE=strict` les suites converties : élèves (`tests_eleve_*`), dossier
-   et responsables (`tests_dossier_personnes`), finances, inscriptions, dossier administratif (`tests_administratif_a0/a1/a2`), santé, messagerie (M0a), vie scolaire,
-   évaluations, rôles. Les mêmes tests tournent aussi en mode normal (`tests-labo`), donc la parité normal / strict est vérifiée. Résultat : voir §9.
+3. **CI** (`.github/workflows/ent-rust.yml`, job `tests-rls-stricte`, 12 tranches) : rejoue en `ENT_RLS_MODE=strict` les suites du domaine **élèves et responsables** (`tests_eleve_*`,
+   `tests_dossier_personnes`) et le harnais. Les mêmes tests tournent aussi en mode normal (`tests-labo`), donc la parité normal / strict est vérifiée. Résultat : voir §9.
 4. Tests existants adaptés : `tests_rls.rs` (le rechiffrement sous rôle strict **fonctionne** désormais, par établissement) ; `tests_eleve_doublons` (la tâche parcourt les établissements connus de la plateforme).
 
-## 7. Reste à faire
-RÉSULTAT À COMPLÉTER APRÈS LA CI (voir §9).
+## 7. Périmètre prouvé et reste à faire
+**Domaine prouvé en mode strict (CI `tests-rls-stricte`) : élèves et responsables** (`tests_eleve_*`, `tests_dossier_personnes`, harnais). C'est le seul
+domaine rejoué en strict à ce stade (décision du pilote après deux tours rouges : réduire le périmètre au domaine prouvé).
+
+**Code converti mais NON rejoué en strict (donc en mode permissif)** : finances, inscriptions, santé, messagerie/communication, vie scolaire, évaluations,
+structure, emploi du temps, personnels. Les accès y passent par `TenantTx` (la garde statique l'impose), la suite normale les couvre, mais leurs suites
+n'ont pas été prouvées en strict en CI : elles sont **à ajouter au filtre du job `tests-rls-stricte`, domaine par domaine**, en commençant par les harnais déjà
+adaptés (`tests_finances`, `tests_inscriptions*`, `tests_administratif_a0/a1/a2`, `tests_sante`, `tests_messagerie_m0a`, `tests_vie_scolaire`, `tests_evaluations`,
+`tests_roles` : `labo_selon_mode` + `pool_verif()`).
+
+**Suites dont le harnais n'est pas converti** : `tests_communication`, `tests_cahier`, `tests_evaluations_v0`, `tests_outbox`, `tests_administratif_a0bis`, structure / EDT / personnels
+(`tests_structure_*`, `tests_edt_s2`, `tests_personnels_*`, `tests_d022*`…). Elles utilisent leur propre connexion et du SQL direct sur `ent.pool()`.
+
+**Leçons de la conversion (à appliquer pour chaque domaine ajouté)**
+1. Un `fetch_*` n'est pas une lecture seule : `INSERT … RETURNING` et **fonctions SQL volatiles** (`ent_rattacher_classes`, `ent_eleve_statut_recalculer`,
+   `ent_assurer_annee`…) écrivent. Toute écriture exige `commit()`. Corrigés à la main : `referentiel_affecter_eleve_groupe`, `ent_rattacher_classes`, `statut_recalculer`.
+   Liste des fonctions volatiles : `SELECT proname FROM pg_proc WHERE provolatile='v'`.
+2. Un job qui parcourt les établissements ne doit pas filtrer côté Rust une fonction qui écrit (mode `off` : la fonction traite tout au premier appel) : `appeler_par_etablissement`.
+3. Les tests directs sur `ent.pool()` (SQL de vérification) passent par `pool_verif()` en strict ; un test qui crée ses propres connexions n'est pas rejouable tel quel.
+4. L'analyse statique d'un fichier ne doit pas s'arrêter au premier `#[cfg(test)]` (un champ de test isolé avait masqué ~20 accès directs dans `service.rs`).
 
 ## 8. Conditions pour basculer le mode strict en production (rien n'est basculé)
 1. Tous les domaines verts en CI strict (§9) ; ceux qui ne sont pas dans le filtre (§7) à convertir **et** à passer en strict d'abord.
@@ -290,7 +307,11 @@ RÉSULTAT À COMPLÉTER APRÈS LA CI (voir §9).
 5. Passage en environnement de test, puis pilote : la prochaine étape après le strict est la suppression du repli permissif (migration qui remplace la politique).
 
 ## 9. Résultats
-À COMPLÉTER.
+- Run 42875935093 (`cf8109fd`) : rouge. Causes corrigées : écriture d'affectation de groupe non validée (régression en mode normal), `service.rs` non converti, filtre CI trop large.
+- Run 42897077926 (`8b6ab91a`) : rouge, y compris en mode normal. Causes corrigées (vérifiées localement une à une) : exceptions périmées de `isolation_sql_statique`
+  (les sondes de `service.rs` filtrent maintenant par établissement) ; rechiffrement sous rôle strict (droits de lecture des deux tables d'établissements + mode de contexte du test) ;
+  tâche nocturne élèves (fonction `ent_eleve_statut_recalculer` dont l'écriture n'était pas validée) ; `ent_rattacher_classes` (écriture non validée).
+- Résultat du dernier run : voir l'en-tête du rapport final de la session (numéro de run, SHA).
 
 ## 10. Exigences E1–E14, D-036, registre
 | Exigence | Effet de ce lot |

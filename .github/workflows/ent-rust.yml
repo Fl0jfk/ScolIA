@@ -220,7 +220,7 @@ jobs:
           retention-days: 7
 
   # RLS stricte (docs/securite/RLS_STRICTE.md §5) : les suites des domaines CONVERTIS rejouées avec
-  # ENT_RLS_MODE=strict. Le harnais (tests_rls_stricte.rs) prépare la base avec le rôle propriétaire puis fait
+  # ENT_RLS_MODE=strict (un seul domaine à ce stade : élèves et responsables ; les autres restent en mode permissif). Le harnais (tests_rls_stricte.rs) prépare la base avec le rôle propriétaire puis fait
   # tourner le code testé sur un rôle applicatif non propriétaire, sans BYPASSRLS, `app.rls_strict = on` au
   # niveau du rôle : tout accès qui oublie le contexte d'établissement voit 0 ligne et ne peut rien écrire.
   # Un domaine n'entre dans ce filtre qu'une fois converti ET vert ; la liste des domaines restants est dans
@@ -266,7 +266,7 @@ jobs:
         run: |
           set -o pipefail
           cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
-            -E 'test(/^tests_(eleve_[a-z]+|dossier_personnes|finances|inscriptions|inscriptions_i2|administratif_a[012]|sante|messagerie_m0a|vie_scolaire|evaluations|roles|rls_stricte)::/)' \
+            -E 'test(/^tests_(eleve_[a-z]+|dossier_personnes|rls_stricte)::/)' \
             --partition count:${{ matrix.tranche }}/12 --test-threads 1 --no-fail-fast --color never \
             2>&1 | tee "$RUNNER_TEMP/execution-rls-stricte-${{ matrix.tranche }}.log"
       - uses: actions/upload-artifact@v4

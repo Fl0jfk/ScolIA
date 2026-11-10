@@ -69,8 +69,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     // Sondes de métriques (/metrics) : compteurs agrégés, aucune donnée nominative.
     ("service.rs", "FROM ent_session WHERE revoked_at IS NULL AND expires_at > now()", "métrique globale (compteur)"),
     ("service.rs", "FROM ent_passkey_credential", "métrique globale (compteur)"),
-    ("service.rs", "FROM ent_eleve", "métrique globale (compteur)"),
-    ("service.rs", "FROM ent_mail_outbox GROUP BY status", "métrique globale (compteurs par statut)"),
     // ── Socle 4, lot A2 : coordonnées, vérifications, consentements. Chaque requête suit un
     // `personne_tx(etab, pid)` (ou un id lu) dans la MÊME transaction ; le filtre d'établissement
     // littéral et la RLS viennent avec le lot A14. À reprendre à l'intégration d'A14. ──

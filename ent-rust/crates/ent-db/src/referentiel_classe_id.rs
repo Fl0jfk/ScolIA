@@ -109,10 +109,14 @@ impl PgEnt {
         &self,
         etablissement_id: uuid::Uuid,
     ) -> Result<Vec<(String, i64)>, EntDbError> {
-        sqlx::query_as("SELECT o_table, o_rattachees FROM ent_rattacher_classes($1)")
+        // `ent_rattacher_classes` écrit (rattachement des classes) : transaction validée.
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
+        let lignes = sqlx::query_as("SELECT o_table, o_rattachees FROM ent_rattacher_classes($1)")
             .bind(etablissement_id)
-            .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
+            .fetch_all(&mut *tx)
             .await
-            .map_err(db)
+            .map_err(db)?;
+        tx.commit().await?;
+        Ok(lignes)
     }
 }

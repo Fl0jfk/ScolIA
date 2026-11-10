@@ -191,6 +191,30 @@ where
         let mut tx = TenantTx::begin(pool, etab).await?;
         let mut lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
         lignes.retain(|l| l.etablissement() == etab);
+        // Validation : la sélection peut appeler une fonction SQL qui écrit (ex. `ent_eleve_statut_recalculer()`).
+        tx.commit().await?;
+        tout.extend(lignes);
+    }
+    Ok(tout)
+}
+
+/// Variante pour une **fonction SQL qui écrit** et renvoie ce qu'elle a changé (ex. `ent_eleve_statut_recalculer()`).
+/// Sans `etablissement_id` filtré côté Rust : en mode `off` la base ne restreint pas la fonction, qui traite alors tous
+/// les établissements dès le premier appel (les suivants ne trouvent plus rien) ; les lignes renvoyées ne doivent pas
+/// être perdues. Sous RLS (permissif ou strict), chaque appel ne voit que son établissement : aucune ligne en double.
+pub async fn appeler_par_etablissement<T>(
+    pool: &PgPool,
+    contexte: ContexteSysteme,
+    sql: &'static str,
+) -> Result<Vec<T>, sqlx::Error>
+where
+    T: for<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> + Send + Unpin,
+{
+    let mut tout = Vec::new();
+    for etab in etablissements_systeme(pool, contexte).await? {
+        let mut tx = TenantTx::begin(pool, etab).await?;
+        let lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
+        tx.commit().await?;
         tout.extend(lignes);
     }
     Ok(tout)

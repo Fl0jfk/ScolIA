@@ -1744,7 +1744,7 @@ impl PgEnt {
             ..Default::default()
         };
         // — Statuts dérivés —
-        let changes: Vec<(Uuid, Uuid, Option<String>, String)> = lire_par_etablissement(
+        let changes: Vec<(Uuid, Uuid, Option<String>, String)> = crate::tenant_tx::appeler_par_etablissement(
             self.pool(),
             ContexteSysteme::TacheNocturneEleves,
             "SELECT etablissement_id, eleve_id, ancien, nouveau FROM ent_eleve_statut_recalculer()",
