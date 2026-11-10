@@ -434,6 +434,8 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : projet, budget, validation (direction, conseil d'administration [H]) ; participants ; autorisations et pièces ; paiements et aides ; encadrants (ordres de mission) ; absences, dispenses de repas et cours des encadrants générés ; fiche d'urgence hors ligne ; bilan et solde.
 - **Dépend de** : 18, 24, 34, 6.
 - **Existant** : rien (le Brain prévoit le cas « séjour → absence »).
+- **Existant [F, Next.js]** : le module voyages de l'add-on, en production (D-035), est inventorié dans `docs/socles/42_SORTIES_VOYAGES.md` §2 : 74 actions reprises et 48 défauts.
+- **Conception** (2026-11-10, non décidée) : `docs/socles/42_SORTIES_VOYAGES.md`. Le 42 prend les sorties **collectives** ; les sorties individuelles restent au 14. Lot V0 = parité avec Next.js branchée sur l'élève. Plage de migrations 7200–7299, repli 600–619.
 
 #### 43. Activités périscolaires et transports
 - **Contient** : clubs, association sportive, études surveillées, garderie, ateliers ; inscriptions et places ; appel (composant du socle 12) ; facturation (24) ; transports scolaires (lignes, abonnements, souvent gérés par la région : import plutôt que saisie [H]).

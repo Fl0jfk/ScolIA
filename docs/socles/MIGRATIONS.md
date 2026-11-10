@@ -207,3 +207,11 @@ Vérifié libre sur **toutes les branches distantes** le 2026-11-10 : plus haute
 | 580–599 | socle 34, **repli** si Q-B2 n'est pas adoptée (580–589 dans le même ordre, 590–597 réserve, 598–599 RLS stricte et retraits) ; **S0 part en 580** (Q-B2 non adoptée à ce jour) ; vérifié libre sur toutes les branches distantes le 2026-11-10 (plus haute migration trouvée : 480 ; plus haute réservation : 560–579, socle 26) | `ent-socle-sante-conception` (conception seulement) | réservé |
 
 Le **cabinet** (niveau N-2, base séparée dans le périmètre HDS) aura son propre répertoire de migrations (`migrations-cabinet/`, numérotation `C001`…), hors de ce registre. Les plages des socles 10, 16, 21, 24, 25, 26 sont portées par leurs branches de conception, non fusionnées dans `ENT` : ce registre-ci ne les liste pas encore.
+
+## Réservation du 2026-11-10 (conception du socle 42, sorties et voyages scolaires)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 7200–7299 | socle 42 sorties et voyages (conception : `42_SORTIES_VOYAGES.md` §27.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 7200–7216 attribuées (V0 : cœur, participants, encadrants, budget, prestataires et courrier entrant, restauration, journal de voyage, reprise ; puis V1 à V11), 7217–7289 réserve, 7290–7299 RLS stricte et retraits | `ent-socle-voyages-conception` (conception seulement) | réservé |
+| 600–619 | socle 42, **repli** si Q-B2 n'est pas adoptée (600–616 dans le même ordre, 617 réserve, 618–619 RLS et retraits) ; **V0 part en 600** (Q-B2 non adoptée à ce jour) | idem | réservé |
+
+Vérifié libre sur **les 105 branches distantes** le 2026-11-10 : plus haute migration écrite **480** (socle 16 M0a) ; plus hautes réservations **580–599** (socle 34, repli) et 6400–6499 (socle 34, Q-B2). Aucun fichier de migration ni ligne de `migrate.rs` n'a été ajouté par cette conception.
