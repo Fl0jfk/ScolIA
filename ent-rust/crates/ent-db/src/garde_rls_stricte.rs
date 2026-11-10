@@ -27,7 +27,6 @@ const FICHIERS_SANS_CONTEXTE: &[(&str, &str)] = &[
     ("pg_err", "traduction d'erreurs"),
     ("url_guard", "garde d'URL"),
     ("garde_rls_stricte", "ce fichier (motifs recherchés)"),
-    ("service", "façade : construction des dépôts, aucun SQL direct hors contexte"),
 ];
 
 /// (fichier, extrait de la ligne, justification) : accès directs au pool **autorisés**. Une exception inutilisée
@@ -43,6 +42,10 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("inscriptions_reactions", "pool.begin()", "worker d'envoi des e-mails d'inscription : ent_inscription_envoi et ent_inscription_invitation, tables sans RLS (relève les envois de tous les établissements)"),
     ("champs_chiffres", "Conn::Pool(pool.acquire()", "tables sans établissement (branche `None`, aucune aujourd'hui) ; les tables par établissement passent par TenantTx"),
     ("delegation", "charger_droits(self.pool(), etab", "l'assistant ouvre son propre contexte d'établissement"),
+    ("service", "apply_socle_migrations(&self.pool)", "migrations : rôle propriétaire (ou pool de test propriétaire)"),
+    ("service", "SELECT 1", "sonde de vie de la base"),
+    ("service", ".fetch_one(&self.pool)", "sondes : ent_session, ent_passkey_credential, ent_membership (tables sans RLS)"),
+    ("service", "&self.pool", "accesseur `pool()` de la façade"),
     ("sante_acc", ".fetch_optional(self.pool())", "ent_user : table d'identité sans RLS"),
     ("securite_repo", ".execute(self.pool())", "ent_session / ent_membership : tables sans RLS"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
@@ -54,10 +57,17 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
     let motifs = ["&self.pool", "self.pool()", "self.pool.", "&pool", "(pool)", "(pool,", "(&*pool", "pool.begin(", "pool.acquire("];
     let ok = [
         "TenantTx::begin(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
-        "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ",
+        "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ", "from_pool(", "pool_verif", "pool.size()", "pool.num_idle()", "pool.options()",
     ];
     let appelants = ["lire_par_etablissement(", "etablissements_systeme(", "TenantTx::begin(", "tenant("];
-    let lignes: Vec<&str> = src.split("#[cfg(test)]").next().unwrap_or("").lines().collect();
+    // Le code de test commence au premier `#[cfg(test)]` suivi d'un `mod` (d'autres attributs `cfg(test)`
+    // isolés, comme un champ réservé aux tests, ne doivent pas tronquer l'analyse du fichier).
+    let fin = src
+        .match_indices("#[cfg(test)]")
+        .find(|(i, m)| src[i + m.len()..].trim_start().starts_with("mod "))
+        .map(|(i, _)| i)
+        .unwrap_or(src.len());
+    let lignes: Vec<&str> = src[..fin].lines().collect();
     let mut out = Vec::new();
     for (i, l) in lignes.iter().enumerate() {
         let code = l.split("//").next().unwrap_or("");

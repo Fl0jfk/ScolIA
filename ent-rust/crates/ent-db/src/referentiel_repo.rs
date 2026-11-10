@@ -735,7 +735,7 @@ impl PgEnt {
         if existe.is_some() {
             return Err(EntDbError::Domain(DomainError::Conflit));
         }
-        sqlx::query_as::<_, Affectation>(
+        let r = sqlx::query_as::<_, Affectation>(
             "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, groupe_id, date_debut, source)
              VALUES ($1,$2,$3,$4,$5,$6,'saisie')
              RETURNING id, etablissement_id, annee_id, eleve_id, classe_id, groupe_id, date_debut, date_fin",
@@ -748,7 +748,10 @@ impl PgEnt {
         .bind(debut)
         .fetch_one(&mut *tx)
         .await
-        .map_err(db)
+        .map_err(db);
+        let r = r?;
+        tx.commit().await.map_err(db)?;
+        Ok(r)
     }
 
     /// Élèves membres d'un groupe à la date `jour` (hors élèves sortis), ordre alphabétique.

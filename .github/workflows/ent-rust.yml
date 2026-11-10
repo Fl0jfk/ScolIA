@@ -266,7 +266,7 @@ jobs:
         run: |
           set -o pipefail
           cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
-            -E 'test(/^tests_(eleve_|dossier_personnes|finances|inscriptions|administratif_a[012]|sante|messagerie_m0a|vie_scolaire|evaluations|roles|rls_stricte)/)' \
+            -E 'test(/^tests_(eleve_[a-z]+|dossier_personnes|finances|inscriptions|inscriptions_i2|administratif_a[012]|sante|messagerie_m0a|vie_scolaire|evaluations|roles|rls_stricte)::/)' \
             --partition count:${{ matrix.tranche }}/12 --test-threads 1 --no-fail-fast --color never \
             2>&1 | tee "$RUNNER_TEMP/execution-rls-stricte-${{ matrix.tranche }}.log"
       - uses: actions/upload-artifact@v4
