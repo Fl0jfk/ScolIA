@@ -155,6 +155,13 @@ pub struct MsgPiece {
     /// Contenu binaire (attach / download uniquement — absente des listes).
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub contenu: Vec<u8>,
+    /// Clé d'objet opaque (`{etab}/messages/{uuid}.{ext}`) : le fichier vit dans le magasin
+    /// d'objets ; `contenu` ne reste rempli que pour l'historique non encore repris.
+    #[serde(default)]
+    pub storage_key: Option<String>,
+    /// Empreinte SHA-256 (hex) du contenu.
+    #[serde(default)]
+    pub sha256: Option<String>,
     pub created_by_user_id: Uuid,
     pub created_at: DateTime<Utc>,
 }
@@ -344,6 +351,8 @@ pub fn plan_attacher_piece(msg: &Message, cmd: AttacherPiece) -> Result<MsgPiece
         mime_type: mime,
         taille_octets: cmd.contenu.len() as i32,
         contenu: cmd.contenu,
+        storage_key: None,
+        sha256: None,
         created_by_user_id: cmd.actor_user_id,
         created_at: Utc::now(),
     })

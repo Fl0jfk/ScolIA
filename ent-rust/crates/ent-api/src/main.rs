@@ -41,7 +41,102 @@ fn main() {
         .thread_stack_size(stack_mb * 1024 * 1024)
         .build()
         .expect("tokio runtime");
+    // Tâche de maintenance : `ent-api reprise-pieces …` (pas de serveur HTTP).
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("reprise-pieces") {
+        let code = rt.block_on(reprise_pieces(&args[1..]));
+        std::process::exit(code);
+    }
     rt.block_on(run_api());
+}
+
+const AIDE_REPRISE: &str = "\
+ent-api reprise-pieces [options]
+  Sort les pièces historiques (BYTEA) de la messagerie et du PAI vers le magasin d'objets.
+  Idempotente et reprenable : relancer après un arrêt ne refait que le reste.
+
+  --simulation              ne rien écrire (ni objet, ni registre, ni ligne) ; contrôle tout
+  --sauvegarde-verifiee     vider `contenu` après vérification (à n'utiliser qu'après un point
+                            de sauvegarde vérifié) ; sans cela : copie vérifiée, BYTEA conservé
+  --etablissement <uuid>    un seul établissement (défaut : tous, un par un)
+  --table <messagerie|pai|toutes>   (défaut : toutes)
+  --lot <n>                 taille d'un lot (défaut 50)
+  --limite <n>              s'arrêter proprement après n pièces
+Code de sortie : 0 tout repris / simulation sans échec ; 1 erreur ; 2 au moins une pièce en échec.
+Les journaux et le rapport ne contiennent ni nom de fichier ni clé d'objet.
+";
+
+async fn reprise_pieces(args: &[String]) -> i32 {
+    use ent_db::reprise_bytea::{OptionsReprise, TablePiece};
+    let mut options = OptionsReprise::default();
+    let mut etab: Option<uuid::Uuid> = None;
+    let mut tables: Vec<TablePiece> = TablePiece::TOUTES.to_vec();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut valeur = || it.next().cloned();
+        match a.as_str() {
+            "--simulation" => options.simulation = true,
+            "--sauvegarde-verifiee" => options.vider = true,
+            "--etablissement" => match valeur().and_then(|v| uuid::Uuid::parse_str(&v).ok()) {
+                Some(u) => etab = Some(u),
+                None => return erreur_reprise("--etablissement attend un UUID"),
+            },
+            "--table" => match valeur().as_deref() {
+                Some("toutes") => {}
+                Some(v) => match TablePiece::parse(v) {
+                    Some(t) => tables = vec![t],
+                    None => return erreur_reprise("--table : messagerie, pai ou toutes"),
+                },
+                None => return erreur_reprise("--table attend une valeur"),
+            },
+            "--lot" => match valeur().and_then(|v| v.parse::<i64>().ok()).filter(|n| *n >= 1) {
+                Some(n) => options.taille_lot = n,
+                None => return erreur_reprise("--lot attend un entier >= 1"),
+            },
+            "--limite" => match valeur().and_then(|v| v.parse::<u64>().ok()) {
+                Some(n) => options.limite_pieces = Some(n),
+                None => return erreur_reprise("--limite attend un entier"),
+            },
+            "--aide" | "--help" | "-h" => {
+                print!("{AIDE_REPRISE}");
+                return 0;
+            }
+            _ => return erreur_reprise("option inconnue (voir --aide)"),
+        }
+    }
+    let Ok(url) = std::env::var("ENT_DATABASE_URL") else {
+        return erreur_reprise("ENT_DATABASE_URL requis");
+    };
+    let ent = match ent_db::PgEnt::connect(&url).await {
+        Ok(e) => e,
+        Err(e) => return erreur_reprise(&format!("connexion : {e}")),
+    };
+    let rapports = match ent.reprendre_pieces(&tables, etab, &options).await {
+        Ok(r) => r,
+        Err(e) => {
+            return erreur_reprise(&format!(
+                "reprise impossible (schéma à jour, migration 601 ? stockage joignable ?) : {e}"
+            ))
+        }
+    };
+    let mut echecs = 0;
+    for r in &rapports {
+        println!("{}", r.resume());
+        echecs += r.en_echec.len();
+    }
+    let restantes: u64 = rapports.iter().map(|r| r.restantes).sum();
+    println!(
+        "Total : {} pièce(s) en échec, {} avec octets encore en base{}",
+        echecs,
+        restantes,
+        if options.simulation { " (simulation : rien n'a été écrit)" } else { "" }
+    );
+    i32::from(echecs > 0) * 2
+}
+
+fn erreur_reprise(msg: &str) -> i32 {
+    eprintln!("reprise-pieces : {msg}");
+    1
 }
 
 async fn run_api() {

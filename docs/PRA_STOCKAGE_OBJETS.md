@@ -31,7 +31,7 @@ Niveau : **implémenté et testé en local (PostgreSQL 16) ; non validé par Flo
 | E2 | Pas de FK vers une ligne d'établissement : la référence est la clé objet, contrainte `cle_objet LIKE etablissement_id/%`. **Écart assumé** : les tables métier gardent `storage_key` (texte) sans FK vers `ent_objet` (reprise des objets historiques sans ligne, voir §5). |
 | E3 | `id UUID` généré par l'application. |
 | E4 | Table d'établissement, pas globale. |
-| E5 | Objet immuable + ligne `cle_objet`, `taille`, `sha256`, `mime`, `cree_le`, `supprime_le`. **Reste** : les deux `BYTEA` (§5) et les objets historiques sans ligne. |
+| E5 | Objet immuable + ligne `cle_objet`, `taille`, `sha256`, `mime`, `cree_le`, `supprime_le`. **Reste** : la suppression des deux colonnes `BYTEA` (§5, étape 4) et les objets historiques sans ligne. |
 | E6 | `cree_le` ; pas de `modifie_le` (table non modifiable) ; suppression = `supprime_le`. |
 | E7 | Journal des accès sensibles inchangé ; pas de nouvelle action sensible. |
 | E8 | Migration additive et rejouable (`IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP TRIGGER IF EXISTS`). |
@@ -54,22 +54,43 @@ Réserve honnête : on maintient donc ~100 lignes de signature (testées contre 
 
 Conséquence : les appels sont **synchrones** et bloquent un thread de l'exécuteur le temps de la requête (délai de connexion 5 s, global 60 s, 3 tentatives). Acceptable aux tailles actuelles (≤ quelques Mo) ; à surveiller avec les métriques ; si besoin, `spawn_blocking` côté appelants.
 
-## 5. Plan de reprise des deux tables en `BYTEA` (non fait : ni simple ni sûr dans ce lot)
-Tables : `ent_msg_piece.contenu` (pièces de messagerie) et `ent_pai_piece.contenu` (pièces de PAI **historiques** : depuis le lot D2, les nouveaux dépôts PAI vont déjà dans le magasin, `contenu` vide et `storage_key` renseignée).
+## 5. Reprise des deux tables en `BYTEA` (branche `ent-stockage-reprise-bytea`)
+Tables : `ent_msg_piece.contenu` (pièces de messagerie) et `ent_pai_piece.contenu` (pièces de PAI : **données de santé**).
 
-Ce qui est déjà couvert par ce lot : à l'émission d'un lien, le contenu historique est recopié dans le magasin sous une clé conforme, **vérifié** et **enregistré dans `ent_objet`** ; une erreur de stockage remonte (avant : ignorée).
+Niveau : **implémenté et testé en local (PostgreSQL 16, magasin mémoire avec pannes simulées)** ; non validé par Florian ; **non éprouvé contre un vrai bucket ni sur le volume du pilote**. Étapes 1 et 2 faites ; 3 (observation) et 4 (suppression de la colonne) restent.
 
-Plan, en quatre étapes, chacune additive et réversible (E8) :
-1. **Migration additive** : `ent_msg_piece.storage_key TEXT`, `objet_id UUID` ; `ent_msg_piece.contenu` devient nullable avec défaut vide (comme `ent_pai_piece` en 059). Les **nouveaux** envois de pièces écrivent dans le magasin (comme le cahier de textes) et ne remplissent plus `contenu`.
-2. **Reprise en lots** (outil de maintenance, idempotent, reprenable) : pour chaque pièce avec `contenu` non vide et sans objet : écrire l'objet (clé `{etab}/messages|pai/{piece.id}.{ext}`, immuable), **relire et comparer SHA-256**, enregistrer `ent_objet`, poser `storage_key`. Ne **vide** `contenu` qu'après vérification et après un point de sauvegarde vérifié ; rapport de lots (comptes, volume, échecs) ; reprise sans risque si interrompue.
-3. **Observation** : métriques `lectures_sans_empreinte` et nombre de lignes avec `contenu` non vide ; une période d'observation sur le pilote avant de supprimer.
-4. **Suppression de la colonne** (migration ultérieure, destructive, **avec décision** et sauvegarde vérifiée, `MIGRATIONS.md`) ; `VACUUM FULL` programmé hors pointe pour rendre l'espace à la base et aux WAL.
+### Étape 1 — migration additive et écritures (faite)
+- Migration `601_pieces_vers_objets.sql` (600 est prise par `ent-securite-rls-stricte`, aucune des deux ne touche l'autre) : `storage_key`, `sha256`, `repris_le` sur `ent_msg_piece` ; `sha256`, `repris_le` sur `ent_pai_piece` (qui avait déjà `storage_key`) ; `contenu` nullable, vide par défaut ; contraintes (empreinte = 64 hex, clé préfixée par l'établissement de la ligne) ; index partiels sur les lignes à reprendre. La taille reste dans `taille_octets`. Rien n'est supprimé (E8).
+- **Écritures nouvelles** : messagerie et PAI passent par le `StorageProvider` (empreinte calculée avant l'envoi, relue après), `ent_objet` est enregistré, la ligne porte `storage_key` + `sha256`, `contenu` reste vide. `insert_piece` / `insert_pai_piece` **refusent** une pièce sans clé ni empreinte : plus aucun chemin n'écrit de BYTEA. Un échec du magasin remonte (aucune ligne, aucun repli en base).
+- **Lectures** : l'objet est préféré (empreinte contrôlée contre `ent_objet` **et** contre la ligne de la pièce) ; le BYTEA ne sert que pour l'historique sans `storage_key`. Le lien court d'une pièce historique recopie toujours le contenu sous **la même clé que la reprise** (`{etab}/messages|pai/{id}.{ext}`) : un objet déjà recopié est adopté, pas dupliqué.
 
-Questions pour Florian : (a) volume réel des pièces de messagerie à reprendre (à mesurer sur la base pilote, pas sur la production Next) ; (b) rétention des pièces de messagerie supprimées (D-043, DPO).
+### Étape 2 — reprise en lots (faite) : `ent-api reprise-pieces`
+Code : `ent-db/src/reprise_bytea.rs` ; commande : sous-commande du binaire `ent-api`.
+- **Idempotente et reprenable** : la sélection est « `contenu` encore rempli » ; relancer ne refait que le reste. Lots par curseur d'identifiant, **par établissement**, **une transaction par pièce** (ligne verrouillée `FOR UPDATE` : pas d'écriture concurrente), RLS posée par `TenantTx`.
+- **`contenu` jamais vidé avant vérification** : écriture immuable → **relecture depuis le stockage** → comparaison du SHA-256 à celui des octets de la base → ligne `ent_objet` → référence posée → vidage, le tout dans la même transaction ; au moindre échec la transaction est abandonnée et la ligne n'a pas bougé.
+- **Deux temps** (plan : « point de sauvegarde vérifié ») : sans `--sauvegarde-verifiee` la reprise copie et référence seulement (BYTEA conservé) ; avec, elle revérifie depuis le stockage puis vide.
+- **Simulation** (`--simulation`) : ne rien écrire (ni objet, ni registre, ni ligne) ; détecte tout de même les conflits.
+- **Rapport** : déjà repris, examinés, copiés, revérifiés, vidés, octets, restants, **en échec avec cause** : `stockage_indisponible`, `objet_deja_present_different`, `relecture_differente`, `taille_incoherente`, `registre_incoherent`, `base`. Seuls des identifiants de pièces (UUID) y figurent.
+- **E14** : clé opaque, jamais le nom du fichier ; journaux = décomptes seulement.
+
+Mode d'emploi (par un opérateur, hors production Next ; `ENT_DATABASE_URL` + configuration S3 de l'ENT Rust) :
+1. `ent-api reprise-pieces --simulation` : lit tout, n'écrit rien ; relever les échecs prévisibles.
+2. `ent-api reprise-pieces --etablissement <uuid> --limite 20` : essai sur peu de pièces (copie vérifiée, BYTEA conservé).
+3. `ent-api reprise-pieces` : tous les établissements, copie vérifiée sans vidage.
+4. **Sauvegarde de la base vérifiée** (restauration éprouvée), puis `ent-api reprise-pieces --sauvegarde-verifiee` : revérifie et vide `contenu`.
+5. Code de sortie 2 s'il reste des pièces en échec : corriger la cause (stockage, incohérence) puis relancer.
+
+### Étape 3 — observation (à faire sur le pilote)
+Suivre le nombre de lignes à octets non vides (`restantes` du rapport) et `lectures_sans_empreinte` ; une période d'observation avant l'étape 4.
+
+### Étape 4 — suppression de la colonne (NON faite : décision de Florian + sauvegarde vérifiée)
+Migration ultérieure, destructive, **avec décision** (`MIGRATIONS.md`) : `DROP COLUMN contenu` sur les deux tables, retrait du résidu dans `registre_donnees.rs` (`ObjetAvecResidu` → `Objet`), retrait des lectures de repli, `VACUUM FULL` hors pointe.
+
+Questions pour Florian : (a) volume réel des pièces de messagerie à reprendre (à mesurer sur la base pilote, pas sur la production Next) ; (b) rétention des pièces de messagerie supprimées (D-043, DPO) ; (c) qui exécute la commande et avec quelle sauvegarde de référence.
 
 ## 6. Reste à faire / hors périmètre
 - **Aucun essai contre un vrai bucket** (Scaleway ou OVHcloud) : le client est testé contre un faux serveur HTTP local et le vecteur AWS ; l'essai réel est un préalable au pilote. Points à vérifier : `HEAD` d'une clé absente sans droit de listage (403 traité comme « absent » avant écriture, l'écriture tranche), `x-amz-meta-sha256` restitué en `HEAD`/`GET`, comportement de `Content-Length` du `HEAD`.
-- Objets historiques écrits avant la migration 500 : pas de ligne `ent_objet` ; lus avec la seule empreinte du fournisseur (disque : fichier `.sha256` absent pour les très anciens, donc non vérifiables ; compteur `lectures_sans_empreinte`). Reprise : tâche de maintenance à écrire avec §5.
+- Objets historiques écrits avant la migration 500 : pas de ligne `ent_objet` ; lus avec la seule empreinte du fournisseur (disque : fichier `.sha256` absent pour les très anciens, donc non vérifiables ; compteur `lectures_sans_empreinte`). Reprise : les deux tables de pièces sont couvertes par §5 ; les autres objets historiques (photos, documents anciens) restent à traiter.
 - Réplication vers les destinations de sauvegarde A et B (D-040), Object Lock, SSE : hors de ce lot (réglages de bucket et lot `ent-sauvegarde`).
 - Les graines du labo (`seed.rs`) écrivent encore avec `let _ = put(…)` : labo seulement, mémoire ou disque, non concerné par la production.
 - Registre de classement des tables (E12) : à créer avec le lot PRA ; y inscrire `ent_objet`.

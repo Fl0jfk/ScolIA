@@ -135,6 +135,9 @@ pub struct PaiPiece {
     pub contenu: Vec<u8>,
     /// Clé objet (filesystem / S3) — prioritaire pour le téléchargement.
     pub storage_key: Option<String>,
+    /// Empreinte SHA-256 (hex) du contenu, posée à l'écriture dans le magasin ou à la reprise.
+    #[serde(default)]
+    pub sha256: Option<String>,
     pub created_by_user_id: Uuid,
     pub created_at: DateTime<Utc>,
 }
@@ -211,6 +214,7 @@ pub fn plan_attacher_ordonnance_pai(
         taille_octets: taille,
         contenu: cmd.contenu,
         storage_key: None,
+        sha256: None,
         created_by_user_id: cmd.actor_user_id,
         created_at: Utc::now(),
     })

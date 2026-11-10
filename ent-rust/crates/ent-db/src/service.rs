@@ -211,6 +211,7 @@ use ent_bank::{plan_action_ligne, BankConnector, BankMatchAction, BankParseError
 use ent_object::presign::{Disposition, LinkSpec, PresignError, Presigner};
 use ent_object::upload::{ErreurFichier, PolitiqueFichiers, UsageFichier};
 use ent_object::{ObjectStore, ObjectStoreError};
+use crate::objets::cle_reprise;
 use ent_oidc::{
     build_authorization_url, discover, exchange_authorization_code, generate_pkce, random_token,
     valider_url, HttpOidcTransport, OidcDiscovery, OidcError, OidcProviderConfig, OidcTransport,
@@ -550,7 +551,7 @@ fn is_simple_segment(s: &str) -> bool {
 }
 
 /// Clé objet d'une pièce de la forme `{etab}/{ns}/{id}.{ext}` appartenant bien à (etab, id).
-fn object_key_is_owned(etab: Uuid, ns: &str, id: Uuid, key: &str) -> bool {
+pub(crate) fn object_key_is_owned(etab: Uuid, ns: &str, id: Uuid, key: &str) -> bool {
     let segs: Vec<&str> = key.split('/').collect();
     let [e, n, file] = segs.as_slice() else {
         return false;
@@ -582,6 +583,11 @@ pub fn photo_storage_key_is_owned(eleve: &Eleve, key: &str) -> bool {
         && *el == eleve.id.to_string()
         && Uuid::parse_str(id).is_ok()
         && is_simple_segment(ext)
+}
+
+/// Pièce de messagerie : `{etab}/messages/{piece.id}.{ext}` uniquement.
+pub fn msg_storage_key_is_owned(piece: &MsgPiece, key: &str) -> bool {
+    object_key_is_owned(piece.etablissement_id, "messages", piece.id, key)
 }
 
 /// Pièce PAI : `{etab}/pai/{piece.id}.{ext}` uniquement.
@@ -16453,9 +16459,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let mut piece = plan_attacher_ordonnance_pai(&pai, cmd)?;
         let ext = valide.extension;
         let key = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
-        self.stocker_objet(piece.etablissement_id, &key, Some(valide.mime), &piece.contenu)
+        let info = self
+            .stocker_objet(piece.etablissement_id, &key, Some(valide.mime), &piece.contenu)
             .await?;
         piece.storage_key = Some(key.clone());
+        piece.sha256 = Some(info.sha256);
         // Contenu hors base — récupéré via object store au téléchargement.
         piece.contenu = Vec::new();
         self.infirmerie.insert_pai_piece(&piece).await?;
@@ -16546,7 +16554,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if let Some(ref key) = piece.storage_key {
             // Clé non conforme : jamais lue dans le magasin (traité comme sans contenu).
             if pai_storage_key_is_owned(&piece, key) {
-                piece.contenu = self.lire_objet(piece.etablissement_id, key).await?;
+                piece.contenu = self
+                    .lire_objet_empreinte(piece.etablissement_id, key, piece.sha256.as_deref())
+                    .await?;
             }
         }
         Ok(piece)
@@ -17863,7 +17873,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !can {
             return Err(EntDbError::Forbidden);
         }
-        // D2 : signature binaire + liste blanche + nom assaini (le contenu reste en base, P0).
+        // D2 : signature binaire + liste blanche + nom assaini.
         let mut cmd = cmd;
         let valide = self
             .uploads
@@ -17871,7 +17881,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .map_err(EntDbError::Fichier)?;
         cmd.nom = valide.nom;
         cmd.mime_type = valide.mime.to_string();
-        let piece = plan_attacher_piece(&msg, cmd)?;
+        let mut piece = plan_attacher_piece(&msg, cmd)?;
+        // Le fichier va dans le magasin d'objets (clé opaque, empreinte vérifiée), jamais en
+        // BYTEA : un échec de stockage remonte et aucune ligne n'est créée.
+        let key = ObjectStore::key_for(piece.etablissement_id, "messages", piece.id, valide.extension);
+        let info = self
+            .stocker_objet(piece.etablissement_id, &key, Some(valide.mime), &piece.contenu)
+            .await?;
+        piece.storage_key = Some(key);
+        piece.sha256 = Some(info.sha256);
+        piece.contenu = Vec::new();
         self.messages.insert_piece(&piece).await?;
         self.events
             .publish(MetierEventDraft {
@@ -17892,7 +17911,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(MsgPieceMeta::from(&piece))
     }
 
-    pub async fn telecharger_piece_for_actor(
+    /// Pièce de messagerie telle qu'en base (sans relire l'objet), après contrôle d'accès au fil.
+    async fn piece_message_autorisee_sans_contenu(
         &self,
         etablissement_id: Uuid,
         actor_user_id: Uuid,
@@ -17914,6 +17934,30 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
+        }
+        Ok(piece)
+    }
+
+    pub async fn telecharger_piece_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        piece_id: Uuid,
+    ) -> Result<MsgPiece, EntDbError> {
+        let mut piece = self
+            .piece_message_autorisee_sans_contenu(etablissement_id, actor_user_id, role, piece_id)
+            .await?;
+        // L'objet est préféré ; le BYTEA ne sert que pour l'historique non encore repris.
+        if let Some(key) = piece.storage_key.clone() {
+            if !msg_storage_key_is_owned(&piece, &key) {
+                return Err(EntDbError::FichierAbsent);
+            }
+            piece.contenu = self
+                .lire_objet_empreinte(etablissement_id, &key, piece.sha256.as_deref())
+                .await?;
+        } else if piece.contenu.is_empty() {
+            return Err(EntDbError::FichierAbsent);
         }
         Ok(piece)
     }
@@ -18064,8 +18108,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             Some(k) if pai_storage_key_is_owned(&piece, k) => k.to_string(),
             // Pièce historique stockée en base : recopiée sous une clé conforme.
             _ if !piece.contenu.is_empty() => {
-                let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
-                let k = ObjectStore::key_for(piece.etablissement_id, "pai", piece.id, ext);
+                let k = cle_reprise(piece.etablissement_id, "pai", piece.id, &piece.nom);
                 self.refleter_dans_magasin(piece.etablissement_id, &k, &piece.mime_type, &piece.contenu)
                     .await?;
                 k
@@ -18109,15 +18152,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::LiensIndisponibles);
         }
         let piece = self
-            .telecharger_piece_for_actor(etablissement_id, actor_user_id, role, piece_id)
+            .piece_message_autorisee_sans_contenu(etablissement_id, actor_user_id, role, piece_id)
             .await?;
-        if piece.contenu.is_empty() {
+        let key = match piece.storage_key.as_deref() {
+            Some(k) if msg_storage_key_is_owned(&piece, k) => k.to_string(),
+            Some(_) => return Err(EntDbError::FichierAbsent),
+            // Pièce historique encore en base : recopiée sous la clé de reprise (idempotent).
+            None if !piece.contenu.is_empty() => {
+                let k = cle_reprise(piece.etablissement_id, "messages", piece.id, &piece.nom);
+                self.refleter_dans_magasin(piece.etablissement_id, &k, &piece.mime_type, &piece.contenu)
+                    .await?;
+                k
+            }
+            None => return Err(EntDbError::FichierAbsent),
+        };
+        if !self.objects.existe(&key)? {
             return Err(EntDbError::FichierAbsent);
         }
-        let ext = piece.nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
-        let key = ObjectStore::key_for(piece.etablissement_id, "messages", piece.id, ext);
-        self.refleter_dans_magasin(piece.etablissement_id, &key, &piece.mime_type, &piece.contenu)
-            .await?;
         let lien = self.emettre_lien(
             &key,
             actor_user_id,
@@ -19934,6 +19985,7 @@ mod tests_cles_objet_photo_pai {
             taille_octets: 1,
             contenu: Vec::new(),
             storage_key: None,
+            sha256: None,
             created_by_user_id: Uuid::new_v4(),
             created_at: Utc::now(),
         };

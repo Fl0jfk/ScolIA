@@ -407,14 +407,19 @@ impl PgInfirmerieRepo {
         row.map(|r| r.into_pai(&self.champs)).transpose()
     }
 
+    /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets. Plus aucune
+    /// écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
     pub async fn insert_pai_piece(&self, piece: &PaiPiece) -> Result<(), DomainError> {
+        let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
+            return Err(DomainError::PaiPieceInvalide);
+        };
         let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_pai_piece (
                 id, etablissement_id, eleve_id, pai_id, nom, mime_type,
-                taille_octets, contenu, storage_key, created_by_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                taille_octets, contenu, storage_key, sha256, created_by_user_id, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,'\x'::bytea,$8,$9,$10,$11)
             "#,
         )
         .bind(piece.id)
@@ -424,8 +429,8 @@ impl PgInfirmerieRepo {
         .bind(&piece.nom)
         .bind(&piece.mime_type)
         .bind(piece.taille_octets)
-        .bind(&piece.contenu)
-        .bind(&piece.storage_key)
+        .bind(cle)
+        .bind(sha)
         .bind(piece.created_by_user_id)
         .bind(piece.created_at)
         .execute(&mut *tx)
@@ -445,7 +450,7 @@ impl PgInfirmerieRepo {
             r#"
             SELECT id, etablissement_id, eleve_id, pai_id, nom, mime_type,
                    taille_octets, COALESCE(contenu, '\x'::bytea) AS contenu,
-                   storage_key, created_by_user_id, created_at
+                   storage_key, sha256, created_by_user_id, created_at
             FROM ent_pai_piece
             WHERE etablissement_id = $1 AND pai_id = $2
             ORDER BY created_at DESC
@@ -470,7 +475,7 @@ impl PgInfirmerieRepo {
             r#"
             SELECT id, etablissement_id, eleve_id, pai_id, nom, mime_type,
                    taille_octets, COALESCE(contenu, '\x'::bytea) AS contenu,
-                   storage_key, created_by_user_id, created_at
+                   storage_key, sha256, created_by_user_id, created_at
             FROM ent_pai_piece
             WHERE etablissement_id = $1 AND id = $2
             "#,
@@ -496,6 +501,7 @@ struct PaiPieceRow {
     taille_octets: i32,
     contenu: Vec<u8>,
     storage_key: Option<String>,
+    sha256: Option<String>,
     created_by_user_id: Uuid,
     created_at: DateTime<Utc>,
 }
@@ -512,6 +518,7 @@ impl PaiPieceRow {
             taille_octets: self.taille_octets,
             contenu: self.contenu,
             storage_key: self.storage_key,
+            sha256: self.sha256,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
         }

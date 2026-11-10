@@ -146,6 +146,7 @@ mod oidc_repo;
 mod pra;
 pub mod registre_donnees;
 mod objets;
+pub mod reprise_bytea;
 mod tva_repo;
 mod param_etab_repo;
 mod salle_repo;
@@ -313,6 +314,8 @@ mod tests_rls;
 mod tests_rls_lots;
 #[cfg(all(test, feature = "labo"))]
 mod tests_objets;
+#[cfg(all(test, feature = "labo"))]
+mod tests_reprise_bytea;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;
