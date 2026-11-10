@@ -215,3 +215,15 @@ Le **cabinet** (niveau N-2, base séparée dans le périmètre HDS) aura son pro
 | 600–619 | socle 42, **repli** si Q-B2 n'est pas adoptée (600–616 dans le même ordre, 617 réserve, 618–619 RLS et retraits) ; **V0 part en 600** (Q-B2 non adoptée à ce jour) | idem | réservé |
 
 Vérifié libre sur **les 105 branches distantes** le 2026-11-10 : plus haute migration écrite **480** (socle 16 M0a) ; plus hautes réservations **580–599** (socle 34, repli) et 6400–6499 (socle 34, Q-B2). Aucun fichier de migration ni ligne de `migrate.rs` n'a été ajouté par cette conception.
+
+## Socle 42 : exceptions D-036 déclarées (passe personas, 2026-11-10)
+
+Source : `docs/socles/42_SORTIES_VOYAGES.md` §32.6, `docs/socles/PERSONAS_42.md`. Plages inchangées (600–619 en repli, 7200–7299 si Q-B2).
+
+| Colonne ou table | Classement | Justification |
+|---|---|---|
+| `ent_sortie_journal.avant`, `ent_sortie_journal.apres` (`jsonb`) | **exception permise** : instantané d'audit | valeur avant/après d'une commande, en ajout seul, jamais relue comme source de vérité |
+| `ent_reprise_nx_attr (lot_id, travel_id, chemin, valeur)` (colonnes `TEXT`, pas de JSON) | **exception permise** : zone d'import transitoire | copie des paires chemin → texte de `travel_attr` de Next.js, relue seulement par l'outil de reprise, **purgée à la clôture du lot** |
+| `ent_sortie_restauration.jours`, `ent_sortie_reprise.rapport`, tableaux `categories[]`, `pieces[]`, `eleves_visibles[]`, `incidents_codes[]`, `regle_jours` (conception d'origine, §25) | **à normaliser avant écriture** | remplacés par des tables (§32.6) ; aucune migration n'en a été écrite |
+
+Contrôle de revue : `grep -i jsonb` sur les migrations du socle 42 ne trouve que `ent_sortie_journal`.
