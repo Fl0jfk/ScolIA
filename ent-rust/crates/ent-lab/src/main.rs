@@ -3431,8 +3431,12 @@ async fn explorer_messagerie(
     if push_msg < 1 {
         return Err("push messagerie attendu sur device Lily".into());
     }
-    if ent.push().count_with_title_contains("Rendez-vous") < 1 {
-        return Err("push mémoire doit tracer le sujet fil".into());
+    // M0a (D4) : le titre du push est neutre — le sujet du fil ne sort jamais de l'ENT.
+    if ent.push().count_with_title_contains("Nouveau message") < 1 {
+        return Err("push mémoire doit tracer un titre neutre « Nouveau message »".into());
+    }
+    if ent.push().count_with_title_contains("Rendez-vous") > 0 {
+        return Err("le sujet du fil ne doit jamais figurer dans le titre d'un push (M0a, D4)".into());
     }
     r.geste(format!("push messagerie dry-run → {push_msg} notif(s) outbox"));
 
@@ -7364,9 +7368,16 @@ async fn explorer_vacances_homonymes_menus(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if menus_f.len() != 1 || menus_f[0].plat != "Poulet rôti" {
+    // Le jeu de labo publie déjà les menus de la semaine courante : la vérification ne dépend
+    // donc pas du jour d'exécution — le menu publié du jour est visible, le brouillon de J+1
+    // ne l'est pas, et tout ce que la famille voit est publié.
+    let menu_du_jour = menus_f.iter().find(|m| m.jour == jour);
+    let voit_brouillon = menus_f
+        .iter()
+        .any(|m| m.jour == jour + Duration::days(1) || !m.publie);
+    if menu_du_jour.map(|m| m.plat.as_str()) != Some("Poulet rôti") || voit_brouillon {
         return Err(format!(
-            "Lily doit voir 1 menu publié, got {:?}",
+            "Lily doit voir le menu publié du jour et aucun brouillon, got {:?}",
             menus_f
                 .iter()
                 .map(|m| (m.jour, m.plat.clone(), m.publie))
@@ -7385,9 +7396,12 @@ async fn explorer_vacances_homonymes_menus(
         )
         .await
         .map_err(|e| e.to_string())?;
-    if menus_staff.len() != 2 {
+    let brouillon_vu = menus_staff
+        .iter()
+        .any(|m| m.jour == jour + Duration::days(1) && !m.publie);
+    if !brouillon_vu || !menus_staff.iter().any(|m| m.jour == jour && m.publie) {
         return Err(format!(
-            "staff doit voir 2 menus (publié+brouillon), got {}",
+            "staff doit voir le menu publié du jour et le brouillon de J+1, got {} menus",
             menus_staff.len()
         ));
     }
