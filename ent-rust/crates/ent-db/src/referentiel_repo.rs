@@ -1136,6 +1136,7 @@ impl PgEnt {
                FROM ent_service_enseignement s
                LEFT JOIN ent_matiere m ON m.id = s.matiere_id AND m.etablissement_id = s.etablissement_id
               WHERE s.etablissement_id = $1
+                AND s.prof_user_id IS NOT NULL  -- P3 : un service vacant n'a pas (encore) de professeur
                 AND (s.classe_id = $2
                      OR s.groupe_id IN (SELECT g.id FROM ent_groupe g
                                          WHERE g.etablissement_id = $1 AND g.classe_id = $2))

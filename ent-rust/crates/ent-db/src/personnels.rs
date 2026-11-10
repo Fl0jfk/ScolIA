@@ -215,6 +215,16 @@ pub(crate) fn ecriture(err: sqlx::Error) -> EntDbError {
                 "ent_agent_personne_uq" => "Cette personne est déjà agent de l'établissement.",
                 "ent_agent_identifiant_actif_uq" => "Cet identifiant désigne déjà un agent.",
                 "ent_fonction_code_uq" => "Ce code de fonction existe déjà.",
+                "ent_interv_agent_sans_chevauchement" => {
+                    "Cet agent intervient déjà sur ce service à ces dates."
+                }
+                "ent_interv_un_titulaire" => {
+                    "Ce service a déjà un titulaire sur cette période : terminez l'intervention en cours d'abord."
+                }
+                "ent_interv_un_suppleant" => "Une suppléance est déjà ouverte sur cette période.",
+                "ent_service_unique_idx" => {
+                    "Ce service existe déjà (même cible, matière, modalité, code et titulaire)."
+                }
                 _ => "Cette écriture entre en conflit avec une donnée existante.",
             };
             return conflit(message);
@@ -223,6 +233,22 @@ pub(crate) fn ecriture(err: sqlx::Error) -> EntDbError {
             return EntDbError::Domain(DomainError::ReferenceInconnue);
         }
         if code == "23514" || code == "23502" {
+            let m = d.message();
+            if m.contains("service_clos_immuable") || m.contains("intervention_service_clos") {
+                return conflit("Ce service est clos ou annulé : il ne se modifie plus.");
+            }
+            if m.contains("service_etat_irreversible") {
+                return conflit("Cet état de service ne se change plus.");
+            }
+            if m.contains("intervention_immuable") {
+                return conflit("Une intervention ne se modifie pas : corrigez-la (annulation).");
+            }
+            if m.contains("intervention_annee_cloturee") {
+                return conflit("L'année est clôturée.");
+            }
+            if m.contains("intervention_agent_fusionne") {
+                return conflit("Cet agent a été fusionné dans un autre.");
+            }
             return invalide("Valeur refusée par les règles de l'établissement.");
         }
     }
