@@ -1017,9 +1017,18 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     // référence `Role::can_*` sert d'oracle au test de non-régression). ──
     let direction_admin = matches!(role, Role::Admin | Role::Direction | Role::Administratif);
     if direction_admin || role == Role::Compta {
-        for a in [FacturationGerer, FacturationLire, BoursesGerer, RepasGerer] {
-            d.push(etab(a));
+        // F0 (FD-27) : facturation.gerer et bourses.gerer ne vont plus à l'Administratif ;
+        // facturation.lire lui reste (consultation du compte du payeur présent).
+        if role.can_manage_facturation() {
+            d.push(etab(FacturationGerer));
         }
+        if role.can_lire_facturation() {
+            d.push(etab(FacturationLire));
+        }
+        if role.can_manage_bourses() {
+            d.push(etab(BoursesGerer));
+        }
+        d.push(etab(RepasGerer));
     }
     if direction_admin || matches!(role, Role::Compta | Role::Cpe) {
         d.push(etab(RepasScanner));
@@ -1309,7 +1318,7 @@ mod tests {
             // D-022 (écart voulu avec l'historique : le professeur n'exporte plus).
             (ExportsOfficiels, Role::can_manage_eleves),
             (FacturationGerer, Role::can_manage_facturation),
-            (FacturationLire, Role::can_manage_facturation),
+            (FacturationLire, Role::can_lire_facturation),
             (BoursesGerer, Role::can_manage_bourses),
             (EdtGerer, Role::can_manage_edt),
             (AnnoncesPublier, Role::can_publier_annonces),
@@ -1632,7 +1641,8 @@ mod oracle_a1 {
             "annonces.publier@etablissement",
             "appel.verifier@etablissement",
             "audit.lire@etablissement",
-            "bourses.gerer@etablissement",
+            // F0 (FD-27) : « bourses.gerer » et « facturation.gerer » retirés par défaut du
+            // secrétariat (séparation des tâches) ; « facturation.lire » est conservé.
             "cahier.lire@etablissement",
             "conseils.gerer@etablissement",
             "docs_a_signer.publier@etablissement",
@@ -1643,7 +1653,6 @@ mod oracle_a1 {
             "dossier.lire@etablissement",
             "edt.gerer@etablissement",
             "eleves.gerer@etablissement",
-            "facturation.gerer@etablissement",
             "facturation.lire@etablissement",
             "imports.appliquer@etablissement",
             "incidents.declarer@etablissement",

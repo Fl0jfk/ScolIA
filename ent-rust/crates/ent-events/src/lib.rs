@@ -142,6 +142,8 @@ pub mod types {
     pub const FAC_SEPA_EXECUTE: &str = "fac.sepa_execute";
     pub const FAC_SEPA_REJET: &str = "fac.sepa_rejet";
     pub const FAC_RAPPEL_ENVOYE: &str = "fac.rappel_envoye";
+    /// F0 (FD-11) : le compte créancier de l'établissement a changé (IBAN toujours masqué).
+    pub const FIN_CREDITEUR_MODIFIE: &str = "fin.crediteur_modifie";
     // Finances reliées (socle 2, lot S2-9).
     pub const FAC_TARIF_DEFINI: &str = "fac.tarif_defini";
     pub const FAC_REMISE_APPLIQUEE: &str = "fac.remise_appliquee";

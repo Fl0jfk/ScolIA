@@ -1,7 +1,7 @@
 # Recette de sécurité n° 3 — cloisonnement multi-établissements, sur le logiciel réel
 
 **Date :** 2026-11-09 — **Branche :** `ent-recette-securite-3` (base `ent-integration-lot10`) — **Pilote :** Opus, sous-agents Sonnet pour les relectures adverses.
-**Statut :** recette faite ; **RS3-01, RS3-02 et RS3-04 corrigées + tests**, **RS3-03 partiellement corrigée** (paiement manuel ; pré-notification et verbe GET de l'export historique restent ouverts), cloisonnement multi-établissements **vérifié tenant**. Correctifs de la session du 2026-11-09 à relire par Florian.
+**Statut :** recette faite ; **RS3-01 à RS3-04 corrigées + tests** (RS3-03 soldée par le lot F0 des finances, 2026-11-10), cloisonnement multi-établissements **vérifié tenant**. Correctifs de la session du 2026-11-09 à relire par Florian.
 
 ## Méthode
 
@@ -82,7 +82,7 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 
 ### 2.3 RS3-03 — Chemin SEPA historique : pré-notification et mode de paiement contournés (moyenne) — **PARTIELLEMENT CORRIGÉ**
 
-- `GET /facturation/sepa/export` (`service.rs:18904`) exporte les prélèvements `statut = 'prevu'` **sans exiger** `prenotification_id IS NOT NULL` (le chemin neuf `/finances/*` l'exige) ; de plus c'est un **GET qui change l'état** des lignes en `exporte`. `POST /facturation/factures/{id}/sepa/prelever` ne vérifie pas `mode_paiement = manuel`. L'IBAN du créancier passe en **query string** (`cdtr_iban`, `cdtr_bic`, `cdtr_ics`) — hors des logs applicatifs (qui utilisent `MatchedPath`), mais exposé aux proxys/historique. **Corrigé le 2026-11-09 :** `planifier_prelevement_for_actor` refuse un foyer en paiement `manuel` (test `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel`) ; la garde de statut ajoutée à `update_sepa_prelevement` (RS3-02) rend aussi l'export sans double marquage. **Reste ouvert** : l'export historique n'exige toujours pas `prenotification_id`, reste un `GET` qui change l'état et lit les paramètres du créancier en query string — le scénario de labo (`ent-lab`) et l'UI actuelle s'appuient sur ce chemin ; à traiter en retirant le chemin historique au profit de `/finances/*`. **Recommandation :** aligner l'export historique sur `/finances/*` (pré-notification obligatoire, verbe POST, paramètres du créancier lus côté serveur), ou retirer le chemin historique.
+- `GET /facturation/sepa/export` (`service.rs:18904`) exporte les prélèvements `statut = 'prevu'` **sans exiger** `prenotification_id IS NOT NULL` (le chemin neuf `/finances/*` l'exige) ; de plus c'est un **GET qui change l'état** des lignes en `exporte`. `POST /facturation/factures/{id}/sepa/prelever` ne vérifie pas `mode_paiement = manuel`. L'IBAN du créancier passe en **query string** (`cdtr_iban`, `cdtr_bic`, `cdtr_ics`) — hors des logs applicatifs (qui utilisent `MatchedPath`), mais exposé aux proxys/historique. **Corrigé le 2026-11-09 :** `planifier_prelevement_for_actor` refuse un foyer en paiement `manuel` (test `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel`) ; la garde de statut ajoutée à `update_sepa_prelevement` (RS3-02) rend aussi l'export sans double marquage. **Soldé le 2026-11-10 (lot F0 des finances, branche `ent-socle-finances-f0`)** : l'export historique est un **`POST`** (`GET` → 405) ; le créancier est **lu côté serveur** (plus de `cdtr_*`, un champ inconnu est refusé) ; il n'exporte que les prélèvements **pré-notifiés** (garde en base : transition `prevu → exporte` refusée sans pré-notification), sur **mandat actif**, du chemin historique ; la planification historique remet la pré-notification (délai de l'établissement, payeur joignable exigé) et refuse une facture qui a des échéances. Tests : `ent-api/tests/recette_finances_f0.rs` (`f0_fd03_…`, `f0_r_p6_…`, `f0_fd04_…`, `f0_fd10_…`). L'UI JavaScript actuelle appelle le nouvel export en POST. **Recommandation d'origine (réalisée) :** aligner l'export historique sur `/finances/*` (pré-notification obligatoire, verbe POST, paramètres du créancier lus côté serveur), ou retirer le chemin historique.
 
 ### 2.4 RS3-04 — Référence croisée EDT A→B (faible, cloisonnement) — **CORRIGÉ**
 
@@ -123,7 +123,7 @@ Un parent **non payeur** est désormais refusé sur `GET /facturation/factures/{
 - `rs3_01_parent_non_payeur_sans_acces_a_la_facturation` — RS3-01 corrigée (vert) ;
 - `rs3_inventaire_couvre_tous_les_fichiers_de_routes` — invariant d'inventaire (vert) ;
 - `rs3_02_double_encaissement_sepa_rejeu_et_concurrence` — RS3-02 corrigée (vert) ;
-- `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel` — RS3-03, volet mode de paiement (vert) ;
+- `rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel` — RS3-03, volet mode de paiement (vert) ; les volets pré-notification, verbe et IBAN en URL sont couverts par `recette_finances_f0.rs` (lot F0) ;
 - `rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement` — RS3-04 corrigée (vert, plus d'`#[ignore]`).
 
 Correctif : `ent-rust/crates/ent-db/src/service.rs` (`foyer_ids_parent` filtre `est_payeur`).

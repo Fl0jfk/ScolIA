@@ -59,6 +59,23 @@ async fn exec(ent: &PgEnt, sql: &str, ids: &[Uuid]) {
     q.execute(ent.pool()).await.unwrap();
 }
 
+/// Correction de date de **test** sur une pièce figée (F0 : les déclencheurs d'immutabilité
+/// la refuseraient) : on suspend les déclencheurs le temps de l'instruction, comme le
+/// ferait un administrateur de base lors d'une reprise. Jamais utilisé par le code produit.
+async fn exec_corrige(ent: &PgEnt, sql: &str, ids: &[Uuid]) {
+    let mut tx = ent.pool().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let mut q = sqlx::query(sql);
+    for i in ids {
+        q = q.bind(*i);
+    }
+    q.execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
 async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
@@ -461,6 +478,70 @@ async fn prorata_fratrie_quotient_bourse() {
     .await
     .unwrap();
 
+    // F0 (FD-12) : deux demi-pensionnaires boursiers — bourse de 1 200 € (≤ restauration 3 000 €,
+    // imputée en entier) et de 4 000 € (plafonnée à la restauration : 3 000 €, jamais sur la scolarité).
+    sqlx::query(
+        "INSERT INTO ent_fin_bourse_bareme (id, etablissement_id, annee_scolaire, bourse_type_id, echelon, montant_annuel_centimes)
+         VALUES ($1, $2, $3, $4, '9', 400000)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(etab)
+    .bind(ANNEE)
+    .bind(bt)
+    .execute(ent.pool())
+    .await
+    .unwrap();
+    let f_dp = foyer(&ent, etab, "Foyer DP bourse").await;
+    let dp_petite = eleve(&ent, etab, "DpPetite", d(2016, 1, 1), "demi_pension").await;
+    let dp_grande = eleve(&ent, etab, "DpGrande", d(2016, 2, 2), "demi_pension").await;
+    payeur_personne(&ent, etab, dp_petite, "Dupont", f_dp, 100).await;
+    payeur_personne(&ent, etab, dp_grande, "Dupont2", f_dp, 100).await;
+    for (el, ech) in [(dp_petite, "3"), (dp_grande, "9")] {
+        sqlx::query(
+            "INSERT INTO ent_eleve_bourse (id, etablissement_id, eleve_id, bourse_type_id, echelon, avec_procuration, status, date_debut)
+             VALUES ($1, $2, $3, $4, $5, true, 'acceptee', '2030-09-01')",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(el)
+        .bind(bt)
+        .bind(ech)
+        .execute(ent.pool())
+        .await
+        .unwrap();
+    }
+    let mut tx = ent.pool().begin().await.unwrap();
+    for el in [dp_petite, dp_grande] {
+        crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, el, None, None, Default::default())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    let ldp = lignes_foyer(&ent, etab, f_dp).await;
+    let bourse_de = |el: Uuid| -> i64 {
+        ldp.iter()
+            .filter(|x| x.0.contains(&el.to_string()) && x.0.contains(":bourse:"))
+            .map(|x| x.1)
+            .sum()
+    };
+    assert_eq!(bourse_de(dp_petite), -120_000, "bourse de 1 200 € imputée en entier sur la restauration");
+    assert_eq!(bourse_de(dp_grande), -300_000, "bourse de 4 000 € plafonnée à la restauration (3 000 €)");
+    let restauration: i64 = ldp
+        .iter()
+        .filter(|x| x.2.as_deref() == Some("restauration"))
+        .map(|x| x.1)
+        .sum();
+    let bourses: i64 = ldp
+        .iter()
+        .filter(|x| x.2.as_deref() == Some("bourse"))
+        .map(|x| x.1)
+        .sum();
+    assert!(
+        -bourses <= restauration,
+        "FD-12 : bourses ({bourses}) au-delà des lignes de restauration/internat ({restauration})"
+    );
+
     let mut tx = ent.pool().begin().await.unwrap();
     // Aîné : année entière. Cadet : entrée le 20 novembre → 8 mois sur 10.
     crate::finances::facturer_annee_eleve(
@@ -495,7 +576,9 @@ async fn prorata_fratrie_quotient_bourse() {
             .map(|x| x.1)
             .collect()
     };
-    // Aîné : tarif quotient 6 000 € ; bourse −1 200 € ; pas de fratrie (rang 1).
+    // Aîné : tarif quotient 6 000 € ; pas de fratrie (rang 1) ; F0 (FD-12, règle provisoire) :
+    // externe, donc aucune ligne de restauration ni d'internat : la bourse (−1 200 €) n'est
+    // plus imputée sur la scolarité.
     assert_eq!(
         l.iter()
             .filter(|x| x.0.contains(&aine.to_string()) && x.2.as_deref() == Some("scolarite"))
@@ -505,7 +588,8 @@ async fn prorata_fratrie_quotient_bourse() {
     );
     assert_eq!(
         ligne(format!("annuel:{ANNEE}:{aine}:bourse")),
-        vec![-120_000]
+        Vec::<i64>::new(),
+        "FD-12 : bourse imputée sur la scolarité d'un externe"
     );
     // Cadet : 6 000 € × 8/10 = 4 800 € ; fratrie 10 % = −480 €.
     let cadet_scol: i64 = l
@@ -529,7 +613,7 @@ async fn prorata_fratrie_quotient_bourse() {
     .fetch_one(ent.pool())
     .await
     .unwrap();
-    assert_eq!(total, 600_000 - 120_000 + 480_000 - 48_000);
+    assert_eq!(total, 600_000 + 480_000 - 48_000);
 }
 
 /// Changement de régime, sortie, absence prolongée : avoirs exacts, idempotents,
@@ -755,12 +839,26 @@ async fn sepa_rejets_reglements_relances_export() {
     let etab = c.etablissement_id;
     let (u, r) = compta(&c);
     grille(&ent, &c).await;
+    // F0 (FD-11) : le compte créancier ne se change qu'au niveau direction ; la compta ne peut pas.
+    let (ud, rd) = direction(&c);
+    assert!(matches!(
+        ent.modifier_parametres_finances_for_actor(
+            etab,
+            u,
+            r,
+            &ParametresFinancesBody {
+                crediteur_iban: Some("FR1420041010050500013M02606".into()),
+                ..Default::default()
+            },
+        )
+        .await,
+        Err(EntDbError::Forbidden)
+    ));
     ent.modifier_parametres_finances_for_actor(
         etab,
-        u,
-        r,
+        ud,
+        rd,
         &ParametresFinancesBody {
-            frais_rejet_centimes: Some(750),
             crediteur_nom: Some("Lycée de test".into()),
             crediteur_iban: Some("FR1420041010050500013M02606".into()),
             crediteur_bic: Some("PSSTFRPPXXX".into()),
@@ -915,7 +1013,7 @@ async fn sepa_rejets_reglements_relances_export() {
         Err(EntDbError::ConflitDossier(_))
     ));
 
-    // Rejet AM04 (provision insuffisante) : re-présentation, frais 7,50 € facturés et émis.
+    // Rejet AM04 (provision insuffisante) : re-présentation ; F0 (FD-13) : aucun frais facturé.
     let rej = ent
         .traiter_rejet_for_actor(
             etab,
@@ -929,15 +1027,8 @@ async fn sepa_rejets_reglements_relances_export() {
         .await
         .unwrap();
     assert_eq!(rej.suite, "representation");
-    assert_eq!(rej.frais_centimes, 750);
-    let frais = ent
-        .facture_detail_for_actor(etab, u, r, rej.facture_frais_id.unwrap())
-        .await
-        .unwrap();
-    assert_eq!(
-        (frais.facture.statut.as_str(), frais.facture.total_centimes),
-        ("emise", 750)
-    );
+    assert_eq!(rej.frais_centimes, 0);
+    assert!(rej.facture_frais_id.is_none(), "FD-13 : facture de frais émise");
     assert!(matches!(
         ent.traiter_rejet_for_actor(
             etab,
@@ -968,7 +1059,7 @@ async fn sepa_rejets_reglements_relances_export() {
         compter(&ent, "SELECT count(*) FROM ent_notification WHERE destinataire_user_id = $1 AND kind = 'fin.rejet'", c.parent_lea.user_id).await,
         1
     );
-    // Échéance rouverte : re-présentée (présentation 2), avec la facture de frais.
+    // Échéance rouverte : re-présentée (présentation 2), sans facture de frais.
     let rap2 = ent
         .preparer_prelevements_for_actor(
             etab,
@@ -980,7 +1071,7 @@ async fn sepa_rejets_reglements_relances_export() {
         )
         .await
         .unwrap();
-    assert_eq!(rap2.prelevements_crees, 2, "échéance rejetée + frais");
+    assert_eq!(rap2.prelevements_crees, 1, "échéance rejetée seulement");
     let prevs2: Vec<PrelevementDto> = ent
         .prelevements_for_actor(etab, u, r, Some("prevu".into()), Some(date))
         .await
@@ -1031,29 +1122,6 @@ async fn sepa_rejets_reglements_relances_export() {
         .iter()
         .any(|e| e.foyer_id == fa && e.motif == "paiement manuel"));
 
-    // Exécution constatée (prélèvement de frais exporté, date passée).
-    let p_frais = prevs2.iter().find(|p| p.presentation == 1).unwrap();
-    exec(&ent, "UPDATE ent_fac_sepa_prelevement SET date_execution = (now() - interval '2 days')::date WHERE id = $1", &[p_frais.id]).await;
-    let passee = Utc::now().date_naive() - Duration::days(2);
-    let ex = ent
-        .constater_execution_for_actor(
-            etab,
-            u,
-            r,
-            &ExecutionBody {
-                date_execution: passee,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(ex.executes, 1);
-    let frais_det = ent
-        .facture_detail_for_actor(etab, u, r, p_frais.facture_id)
-        .await
-        .unwrap();
-    assert_eq!(frais_det.facture.statut, "soldee");
-    assert!(frais_det.lettrages.iter().all(|l| l.code.starts_with('L')));
-
     // Règlement manuel de B (chèque) : facture soldée, lettrée ; trop-perçu au crédit.
     let fb_total = ent
         .facture_detail_for_actor(etab, u, r, factures[1])
@@ -1085,7 +1153,7 @@ async fn sepa_rejets_reglements_relances_export() {
     // Relances : échéance de A en retard de 40 jours → palier 2 (30 j) proposé ; jamais avant l'échéance.
     let aucune = ent.proposer_relances_for_actor(etab, u, r).await.unwrap();
     assert!(aucune.proposees.is_empty(), "aucune échéance passée");
-    exec(&ent, "UPDATE ent_fac_echeance SET date_echeance = (now() - interval '40 days')::date WHERE facture_id = $1 AND rang = 1", &[factures[0]]).await;
+    exec_corrige(&ent, "UPDATE ent_fac_echeance SET date_echeance = (now() - interval '40 days')::date WHERE facture_id = $1 AND rang = 1", &[factures[0]]).await;
     let rel = ent.proposer_relances_for_actor(etab, u, r).await.unwrap();
     assert_eq!(rel.proposees.len(), 1);
     assert_eq!(rel.proposees[0].palier, 2);
@@ -1130,8 +1198,8 @@ async fn sepa_rejets_reglements_relances_export() {
         .await,
         Err(EntDbError::SaisieInvalide(_))
     ));
-    exec(&ent, "UPDATE ent_fac_facture SET emise_at = now() - interval '1 day' WHERE etablissement_id = $1 AND emise_at IS NOT NULL", &[etab]).await;
-    exec(&ent, "UPDATE ent_fac_encaissement SET encaisse_at = now() - interval '1 day' WHERE etablissement_id = $1 AND encaisse_at > now() - interval '1 day'", &[etab]).await;
+    exec_corrige(&ent, "UPDATE ent_fac_facture SET emise_at = now() - interval '1 day' WHERE etablissement_id = $1 AND emise_at IS NOT NULL", &[etab]).await;
+    exec_corrige(&ent, "UPDATE ent_fac_encaissement SET encaisse_at = now() - interval '1 day' WHERE etablissement_id = $1 AND encaisse_at > now() - interval '1 day'", &[etab]).await;
     let exp = ent
         .exporter_comptabilite_for_actor(
             etab,
@@ -1377,7 +1445,7 @@ async fn rls_tables_finances() {
         u,
         r,
         &ParametresFinancesBody {
-            frais_rejet_centimes: Some(100),
+            jours_prenotification: Some(15),
             ..Default::default()
         },
     )
