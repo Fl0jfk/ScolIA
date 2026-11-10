@@ -137,7 +137,7 @@ $$;
 -- aucun lien (480) : la personne, liée ensuite sous une autre identité, communiquait. Tout lien
 -- créé après une telle interdiction est inactif dans la messagerie jusqu'à décision de la
 -- direction (`confirme`) ; `maintenu_inactif` consigne un refus explicite.
-CREATE TABLE IF NOT EXISTS ent_eleve_lien_verification (
+CREATE TABLE IF NOT EXISTS ent_msg_lien_decision (
     etablissement_id UUID NOT NULL
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     lien_id UUID NOT NULL REFERENCES ent_eleve_lien (id) ON DELETE CASCADE,
@@ -148,8 +148,8 @@ CREATE TABLE IF NOT EXISTS ent_eleve_lien_verification (
     decide_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (lien_id, interdiction_id)
 );
-CREATE INDEX IF NOT EXISTS ent_eleve_lien_verification_etab_idx
-    ON ent_eleve_lien_verification (etablissement_id, lien_id);
+CREATE INDEX IF NOT EXISTS ent_msg_lien_decision_etab_idx
+    ON ent_msg_lien_decision (etablissement_id, lien_id);
 
 CREATE OR REPLACE VIEW ent_eleve_lien_communicant AS
 SELECT l.*
@@ -177,7 +177,7 @@ WHERE l.suspendu_le IS NULL
             -- D25 : interdiction par libellé, lien créé après elle et pas confirmé.
             OR (i.personne_id IS NULL
                 AND l.created_at >= i.created_at
-                AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien_verification v
+                AND NOT EXISTS (SELECT 1 FROM ent_msg_lien_decision v
                                  WHERE v.lien_id = l.id AND v.interdiction_id = i.id
                                    AND v.decision = 'confirme'))));
 
@@ -238,7 +238,7 @@ ALTER TABLE ent_notification_envoi ADD CONSTRAINT ent_notif_envoi_statut_chk
 DO $$
 DECLARE
     t text;
-    tables text[] := ARRAY['ent_msg_reglage', 'ent_eleve_lien_verification'];
+    tables text[] := ARRAY['ent_msg_reglage', 'ent_msg_lien_decision'];
 BEGIN
     FOREACH t IN ARRAY tables LOOP
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);

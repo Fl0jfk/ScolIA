@@ -260,7 +260,7 @@ impl PgEnt {
                 AND i.personne_id IS NULL AND l.created_at >= i.created_at
                 AND i.du <= ent_aujourdhui_etab($1)
                 AND (i.au IS NULL OR i.au >= ent_aujourdhui_etab($1))
-                AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien_verification v
+                AND NOT EXISTS (SELECT 1 FROM ent_msg_lien_decision v
                                  WHERE v.lien_id = l.id AND v.interdiction_id = i.id)
               ORDER BY l.created_at",
         )
@@ -314,7 +314,7 @@ impl PgEnt {
             return Err(DomainError::NotFound.into());
         };
         let r = sqlx::query(
-            "INSERT INTO ent_eleve_lien_verification
+            "INSERT INTO ent_msg_lien_decision
                 (etablissement_id, lien_id, interdiction_id, decision, motif, decide_par)
              VALUES ($1,$2,$3,$4,$5,$6)
              ON CONFLICT (lien_id, interdiction_id) DO UPDATE

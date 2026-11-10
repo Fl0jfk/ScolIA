@@ -9,7 +9,7 @@ Conception : `docs/socles/16_MESSAGERIE.md` §27.1 et §33.2, `PERSONAS_16.md` (
 | D22 | fil du personnel « aux responsables » créé **par foyer** (`ent_msg_fil.foyer_lecteur_id`) ; lecture du personnel : auteur, qui a écrit, titulaires du droit ; avis limité au foyer |
 | D23 | élève majeur : fil adressé à l'élève (audience `eleve`), jamais aux parents (aucun droit conservé du socle 4 n'existe encore) |
 | D24 | plage calme nationale (20 h–7 h, vendredi 20 h–lundi 7 h, fuseau de l'établissement) : message du personnel invisible hors de son auteur jusqu'à `remise_prevue_le`, avis différé par la chaîne S2-8, annulable par l'auteur, dérogation de la direction (`messagerie.urgence_hors_plage`) avec motif tracé, réglage `ent_msg_reglage` (motif obligatoire pour réduire) |
-| D25 | lien créé après une interdiction par libellé : inactif (vue `ent_eleve_lien_communicant`) jusqu'à décision de la direction (`ent_eleve_lien_verification`) |
+| D25 | lien créé après une interdiction par libellé : inactif (vue `ent_eleve_lien_communicant`) jusqu'à décision de la direction (`ent_msg_lien_decision`) |
 | D26 | action D-017 `messagerie.fils_reserves.lire` (établissement) au lieu des rôles ; défaut admin, direction, administratif, CPE |
 | D28 | `messagerie.eleve` et `fils_reserves.lire` retirés aux profils infirmerie et psychologue (attribution refusée, droits effectifs filtrés) |
 | MSG-329 | `GET /messages/non-traites` |
@@ -26,7 +26,7 @@ Conception : `docs/socles/16_MESSAGERIE.md` §27.1 et §33.2, `PERSONAS_16.md` (
 | D27 | e-mail, SMS et push neutres pour annonces et campagnes |
 
 ## Conformité PRA
-E1 (`etablissement_id` sur les nouvelles tables), E5 (aucun nouveau BYTEA ; pièces historiques non migrées), E9 (aucune nouvelle file : la chaîne S2-8 existante est réutilisée), E10 (aucune donnée en JSON), E13 (RLS sur `ent_msg_reglage` et `ent_eleve_lien_verification`, `tests_rls` +2).
+E1 (`etablissement_id` sur les nouvelles tables), E5 (aucun nouveau BYTEA ; pièces historiques non migrées), E9 (aucune nouvelle file : la chaîne S2-8 existante est réutilisée), E10 (aucune donnée en JSON), E13 (RLS sur `ent_msg_reglage` et `ent_msg_lien_decision`, `tests_rls` +2).
 
 ## Réglages et décisions
 - **Plage calme : active par défaut** (recommandation Q-M17, réversible : `PUT /messagerie/reglage`, droit `notifications.gerer`, motif obligatoire pour réduire). Le seed de labo la désactive pour des tests déterministes.

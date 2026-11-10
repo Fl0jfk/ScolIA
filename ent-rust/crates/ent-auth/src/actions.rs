@@ -285,8 +285,6 @@ impl Action {
         Action::DossierLire,
         Action::JournalLire,
         Action::MessagerieEleve,
-        Action::MessagerieFilsReserves,
-        Action::MessagerieUrgenceHorsPlage,
         Action::SuiviEleve,
         Action::AbsencesDeclarer,
         Action::AppelVerifier,
@@ -396,6 +394,9 @@ impl Action {
         // Socle 6, lot P3
         Action::PersonnelsServicesLire,
         Action::ServicesGerer,
+        // M0b : ajoutées en fin de catalogue (le catalogue historique est repéré par position).
+        Action::MessagerieFilsReserves,
+        Action::MessagerieUrgenceHorsPlage,
     ];
 
     pub fn code(self) -> &'static str {
