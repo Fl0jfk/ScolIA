@@ -405,6 +405,37 @@ impl S3Config {
     }
 }
 
+impl S3Config {
+    /// `(schéma, hôte[:port], chemin encodé)` de l'objet `key` (style chemin ou hôte virtuel).
+    pub(crate) fn cible(&self, key: &str) -> (String, String, String) {
+        let (scheme, host_part) = self
+            .endpoint
+            .split_once("://")
+            .expect("endpoint validé à la construction");
+        if self.virtual_host {
+            (
+                scheme.to_string(),
+                format!("{}.{}", self.bucket, host_part),
+                format!("/{}", uri_encode(key, false)),
+            )
+        } else {
+            (
+                scheme.to_string(),
+                host_part.to_string(),
+                format!(
+                    "/{}/{}",
+                    uri_encode(&self.bucket, false),
+                    uri_encode(key, false)
+                ),
+            )
+        }
+    }
+
+    pub(crate) fn secret(&self) -> &str {
+        &self.secret_key
+    }
+}
+
 impl fmt::Debug for S3Config {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("S3Config")
@@ -418,14 +449,14 @@ impl fmt::Debug for S3Config {
     }
 }
 
-fn hmac_raw(key: &[u8], data: &[u8]) -> Vec<u8> {
+pub(crate) fn hmac_raw(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut m =
         <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepte toute longueur de clé");
     m.update(data);
     m.finalize().into_bytes().to_vec()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     const H: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -436,7 +467,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 /// Encodage URI AWS : tout sauf `A-Za-z0-9-._~` (et `/` si `encode_slash` est faux).
-fn uri_encode(s: &str, encode_slash: bool) -> String {
+pub(crate) fn uri_encode(s: &str, encode_slash: bool) -> String {
     let mut out = String::with_capacity(s.len());
     for &b in s.as_bytes() {
         if b.is_ascii_alphanumeric()
@@ -466,7 +497,7 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// `(YYYYMMDD, YYYYMMDD'T'HHMMSS'Z')` en UTC.
-fn amz_dates(unix: i64) -> (String, String) {
+pub(crate) fn amz_dates(unix: i64) -> (String, String) {
     let (y, m, d) = civil_from_days(unix.div_euclid(86_400));
     let s = unix.rem_euclid(86_400);
     let date = format!("{y:04}{m:02}{d:02}");

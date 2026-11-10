@@ -436,7 +436,8 @@ impl PgEnt {
             let id = Uuid::new_v4();
             let pdf = rendre_pdf_lignes(&lignes_bulletin(&contenu));
             let key = ObjectStore::key_for(etab, "bulletins", id, "pdf");
-            self.objects().put(&key, &pdf)?;
+            let info = self.objects().put(&key, &pdf)?;
+            crate::objets::enregistrer_objet(&mut *tx, etab, &info, Some("application/pdf")).await?;
             let json = serde_json::to_value(&contenu).map_err(|_| refus("bulletin non sérialisable"))?;
             sqlx::query(
                 "UPDATE ent_bulletin SET statut = 'remplace'
@@ -748,7 +749,7 @@ impl PgEnt {
         bulletin_id: Uuid,
     ) -> Result<(String, Vec<u8>), EntDbError> {
         let (b, _, key) = self.eva_bulletin_accessible(etab, acteur, role, bulletin_id).await?;
-        let octets = self.objects().get(&key)?;
+        let octets = self.lire_objet(etab, &key).await?;
         let nom = format!(
             "bulletin-{}-{}-v{}.pdf",
             nettoyer_nom(&b.eleve_nom),
