@@ -165,3 +165,34 @@ Vérification avant écriture : **354** et **362** n'existent ni sur `origin/ENT
 **Fusion de `origin/ENT` dans `ent-socle-personnels-p3` (2026-11-10)** : ENT portait entre-temps 376 (`376_sepa_unicite_encaissement`) et 377 (`377_edt_exception_absence_etab`, recette sécurité 3). Ordre croissant dans `migrate.rs` (… 361, 362, 370, 375, 376, 377, 460), aucun numéro en double (vérifié sur le répertoire), `MIGRATION_TAG` = `460_eva_v0_correctifs`. 377 pose une clé étrangère composite vers `ent_absence_rh (etablissement_id, id)` : sans effet sur 362 (qui n'ajoute que `agent_id`).
 
 **Seconde fusion de `origin/ENT` (2026-11-10)** : ENT portait aussi 480 (`480_msg_m0a_fuites`, messagerie M0a, +17 tables RLS). Ordre croissant conservé (… 362, 370, 375, 376, 377, 460, 480), aucun doublon ; `MIGRATION_TAG` = `480_msg_m0a_fuites` (la plus haute du répertoire) ; compte des tables RLS de `tests_rls.rs` : M0a (+17) et P3 (+1) cumulés.
+
+## Plage 560–579 — lot D-036 « normalisation JSON » (branche `ent-d036-normalisation-json`, 2026-11-10)
+
+Plage réservée après vérification sur **toutes** les branches distantes (`git ls-tree` de chaque `origin/*`) : plus hautes migrations existantes = 480 (ENT) et 520 (`ent-socle-finances-f0`, plage 520–539) ; 380–439 sont réservées par les repli des socles 7 à 9 ; 440–519 hors de ce lot ; 540–559 laissées libres. **560–563 consommées**, 564–579 libres. Insérées dans `migrate.rs` après 480 (ordre croissant) ; `MIGRATION_TAG` = `563_signalement_assiduite_detail`. Compte RLS de `tests_rls.rs` : +4 tables (`ent_delegation_droit`, `ent_delegation_droit_cible`, `ent_inscription_resolution`, `ent_signalement_assiduite_detail`). **À l'intégration** : si `ent-socle-finances-f0` (520) ou une autre branche arrive avant, `MIGRATION_TAG` repasse à 563 (la plus haute) ; le compte RLS s'additionne.
+
+| Migration | Objet |
+|---|---|
+| 560 | `ent_delegation_droit`, `ent_delegation_droit_cible` ; reprise de `ent_delegation.droits` |
+| 561 | `ent_inscription_resolution` ; reprise de `ent_inscription_dossier.resolutions` |
+| 562 | colonnes `scol_*` ; reprise de `ent_inscription_dossier.scolarite_actuelle` |
+| 563 | `ent_signalement_assiduite_detail` ; reprise de `ent_signalement_assiduite.dossier` |
+
+## Exceptions D-036 (colonnes JSON/JSONB permises ou déclarées)
+
+Détail, usage et justification de chaque colonne : `docs/D036_INVENTAIRE_JSON.md`. Liste exécutable : `COLONNES_JSON_D036` dans `crates/ent-db/src/migrate.rs` (le test `aucune_colonne_json_hors_liste_d036` échoue pour toute colonne JSON/JSONB non déclarée).
+
+| Table.colonne | Statut | Justification |
+|---|---|---|
+| `ent_metier_event.payload` | exception | charge utile transitoire d'événement |
+| `ent_edt_import.report_json` | exception | rapport d'import figé |
+| `ent_journal_modif.payload` | exception | journal d'audit en ajout seul |
+| `ent_passkey_credential.passkey`, `ent_passkey_challenge.state` | exception | état opaque `webauthn-rs` |
+| `ent_cdt_historique.instantane` | exception | instantané d'historique |
+| `ent_bulletin.contenu` | exception | copie figée d'un bulletin publié |
+| `ent_eleve_orphelin.ligne` | exception | quarantaine, instantané figé |
+| `ent_inscription_campagne_version.instantane` | exception | instantané d'historique |
+| `ent_eleve_fusion.resume` | exception | résumé figé (ajout seul) |
+| `ent_structure_journal.avant` / `.apres` | exception | journal en ajout seul |
+| `ent_delegation.droits`, `ent_inscription_dossier.resolutions`, `ent_inscription_dossier.scolarite_actuelle`, `ent_signalement_assiduite.dossier` | normalisée (560–563), en lecture seule | retrait de la colonne : lot ultérieur |
+| `ent_inscription_campagne.regle_relance` | laissée | refonte prévue au socle finances 24–25 (lot F0) |
+| `ent_import_ligne.donnees`, `ent_personne_preference(_version).joignable`, `ent_etablissement_profil.jours_ouvres`, `ent_parametre.valeur`, `ent_eleve_fusion.conflits_resolus` / `.doublons_touches`, `ent_eleve_fusion_ligne.cle`, `ent_personne_fusion.instantane` | à normaliser | lot suivant (dette déclarée) |

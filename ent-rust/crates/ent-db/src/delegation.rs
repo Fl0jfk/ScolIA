@@ -38,7 +38,7 @@ const NON_DELEGABLES: [Action; 3] = [
     Action::DelegationsGerer,
 ];
 
-/// Droit délégué tel qu'échangé avec l'API et stocké (JSON).
+/// Droit délégué tel qu'échangé avec l'API (JSON d'échange) ; stocké dans `ent_delegation_droit`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DroitDelegue {
     pub action: String,
@@ -82,7 +82,6 @@ struct LigneDelegation {
     delegue_nom: Option<String>,
     delegant_user_id: Uuid,
     delegant_nom: Option<String>,
-    droits: serde_json::Value,
     debut: NaiveDate,
     fin: NaiveDate,
     motif: String,
@@ -91,7 +90,7 @@ struct LigneDelegation {
 }
 
 impl LigneDelegation {
-    fn vers(self, jour: NaiveDate) -> Delegation {
+    fn vers(self, jour: NaiveDate, droits: Vec<DroitDelegue>) -> Delegation {
         let etat = match self.statut.as_str() {
             "revoquee" => "revoquee",
             _ if self.fin < jour => "expiree",
@@ -104,7 +103,7 @@ impl LigneDelegation {
             delegue_nom: self.delegue_nom,
             delegant_user_id: self.delegant_user_id,
             delegant_nom: self.delegant_nom,
-            droits: serde_json::from_value(self.droits).unwrap_or_default(),
+            droits,
             debut: self.debut,
             fin: self.fin,
             motif: self.motif,
@@ -118,7 +117,7 @@ const SELECT_DELEGATION: &str = "SELECT d.id, d.delegue_user_id,
         coalesce(nullif(btrim(u1.display_name), ''), u1.email) AS delegue_nom,
         d.delegant_user_id,
         coalesce(nullif(btrim(u2.display_name), ''), u2.email) AS delegant_nom,
-        d.droits, d.debut, d.fin, d.motif, d.source, d.statut
+        d.debut, d.fin, d.motif, d.source, d.statut
    FROM ent_delegation d
    JOIN ent_user u1 ON u1.id = d.delegue_user_id
    JOIN ent_user u2 ON u2.id = d.delegant_user_id
@@ -158,6 +157,95 @@ pub fn droits_du_catalogue(saisis: &[DroitDelegue]) -> Result<Vec<Droit>, EntDbE
     Ok(out)
 }
 
+/// Droits (et cibles désignées) des délégations `ids`, lus dans les tables typées (D-036).
+pub(crate) async fn charger_droits(
+    pool: &sqlx::PgPool,
+    etab: Uuid,
+    ids: &[Uuid],
+) -> Result<std::collections::HashMap<Uuid, Vec<DroitDelegue>>, EntDbError> {
+    let mut out: std::collections::HashMap<Uuid, Vec<DroitDelegue>> =
+        std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(out);
+    }
+    let droits: Vec<(Uuid, i16, String, String)> = sqlx::query_as(
+        "SELECT delegation_id, ordre, action, portee FROM ent_delegation_droit
+          WHERE etablissement_id = $1 AND delegation_id = ANY($2)
+          ORDER BY delegation_id, ordre",
+    )
+    .bind(etab)
+    .bind(ids)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    let cibles: Vec<(Uuid, i16, Uuid)> = sqlx::query_as(
+        "SELECT delegation_id, ordre, cible_id FROM ent_delegation_droit_cible
+          WHERE etablissement_id = $1 AND delegation_id = ANY($2)
+          ORDER BY delegation_id, ordre, cible_id",
+    )
+    .bind(etab)
+    .bind(ids)
+    .fetch_all(pool)
+    .await
+    .map_err(db)?;
+    for (deleg, ordre, action, portee) in droits {
+        let cibles: Vec<Uuid> = cibles
+            .iter()
+            .filter(|(d, o, _)| *d == deleg && *o == ordre)
+            .map(|(_, _, c)| *c)
+            .collect();
+        out.entry(deleg).or_default().push(DroitDelegue {
+            action,
+            portee,
+            cibles,
+        });
+    }
+    Ok(out)
+}
+
+/// Remplace les droits d'une délégation par `droits` (dans la transaction de l'appelant).
+pub(crate) async fn ecrire_droits_tx(
+    tx: &mut sqlx::PgConnection,
+    etab: Uuid,
+    delegation_id: Uuid,
+    droits: &[DroitDelegue],
+) -> Result<(), EntDbError> {
+    sqlx::query("DELETE FROM ent_delegation_droit WHERE etablissement_id = $1 AND delegation_id = $2")
+        .bind(etab)
+        .bind(delegation_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+    for (ordre, d) in droits.iter().enumerate() {
+        sqlx::query(
+            "INSERT INTO ent_delegation_droit (etablissement_id, delegation_id, ordre, action, portee)
+             VALUES ($1,$2,$3,$4,$5)",
+        )
+        .bind(etab)
+        .bind(delegation_id)
+        .bind(ordre as i16)
+        .bind(&d.action)
+        .bind(&d.portee)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        for cible in &d.cibles {
+            sqlx::query(
+                "INSERT INTO ent_delegation_droit_cible (etablissement_id, delegation_id, ordre, cible_id)
+                 VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING",
+            )
+            .bind(etab)
+            .bind(delegation_id)
+            .bind(ordre as i16)
+            .bind(cible)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+    }
+    Ok(())
+}
+
 impl PgEnt {
     /// Droits des délégations en cours à `jour` (appelé par le moteur de droits).
     pub(crate) async fn droits_delegues(
@@ -166,8 +254,8 @@ impl PgEnt {
         user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<Droit>, EntDbError> {
-        let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
-            "SELECT droits FROM ent_delegation
+        let ids: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_delegation
               WHERE etablissement_id = $1 AND delegue_user_id = $2 AND statut = 'accordee'
                 AND debut <= $3 AND fin >= $3",
         )
@@ -177,10 +265,11 @@ impl PgEnt {
         .fetch_all(self.pool())
         .await
         .map_err(db)?;
+        let ids: Vec<Uuid> = ids.into_iter().map(|(id,)| id).collect();
+        let mut par_delegation = charger_droits(self.pool(), etab, &ids).await?;
         let mut out = Vec::new();
-        for (json,) in rows {
-            let saisis: Vec<DroitDelegue> = serde_json::from_value(json).unwrap_or_default();
-            for s in saisis {
+        for id in &ids {
+            for s in par_delegation.remove(id).unwrap_or_default() {
                 // Codes inconnus ou interdits (catalogue réduit depuis) : ignorés, jamais élargis.
                 if let (Some(action), Some(portee)) =
                     (Action::parse(&s.action), Portee::parse(&s.portee))
@@ -259,20 +348,20 @@ impl PgEnt {
         let mut tx = self.pool().begin().await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_delegation
-               (id, etablissement_id, delegue_user_id, delegant_user_id, droits, debut, fin, motif)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+               (id, etablissement_id, delegue_user_id, delegant_user_id, debut, fin, motif)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)",
         )
         .bind(id)
         .bind(etab)
         .bind(s.delegue_user_id)
         .bind(a.user_id)
-        .bind(json!(stock))
         .bind(debut)
         .bind(s.fin)
         .bind(s.motif.trim())
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        ecrire_droits_tx(&mut tx, etab, id, &stock).await?;
         let ev = publier_agg(
             &mut tx,
             a,
@@ -307,13 +396,18 @@ impl PgEnt {
         id: Uuid,
     ) -> Result<Option<Delegation>, EntDbError> {
         let sql = format!("{SELECT_DELEGATION} AND d.id = $2");
-        Ok(sqlx::query_as::<_, LigneDelegation>(&sql)
+        let Some(l) = sqlx::query_as::<_, LigneDelegation>(&sql)
             .bind(etab)
             .bind(id)
             .fetch_optional(self.pool())
             .await
             .map_err(db)?
-            .map(|l| l.vers(today_utc())))
+        else {
+            return Ok(None);
+        };
+        let mut droits = charger_droits(self.pool(), etab, &[l.id]).await?;
+        let d = droits.remove(&l.id).unwrap_or_default();
+        Ok(Some(l.vers(today_utc(), d)))
     }
 
     /// Révoque une délégation (effet immédiat) ; sans effet si déjà révoquée ou expirée.
@@ -369,16 +463,14 @@ impl PgEnt {
                 AND (NOT $2 OR (d.statut = 'accordee' AND d.fin >= $3))
               ORDER BY d.created_at DESC LIMIT 500"
         );
-        Ok(sqlx::query_as::<_, LigneDelegation>(&sql)
+        let lignes = sqlx::query_as::<_, LigneDelegation>(&sql)
             .bind(a.etablissement_id)
             .bind(en_cours_seulement)
             .bind(jour)
             .fetch_all(self.pool())
             .await
-            .map_err(db)?
-            .into_iter()
-            .map(|l| l.vers(jour))
-            .collect())
+            .map_err(db)?;
+        self.avec_droits(a.etablissement_id, lignes, jour).await
     }
 
     /// Délégations reçues par l'acteur (lecture de SES droits temporaires).
@@ -389,14 +481,29 @@ impl PgEnt {
                 AND d.delegue_user_id = $2
               ORDER BY d.created_at DESC LIMIT 100"
         );
-        Ok(sqlx::query_as::<_, LigneDelegation>(&sql)
+        let lignes = sqlx::query_as::<_, LigneDelegation>(&sql)
             .bind(a.etablissement_id)
             .bind(a.user_id)
             .fetch_all(self.pool())
             .await
-            .map_err(db)?
+            .map_err(db)?;
+        self.avec_droits(a.etablissement_id, lignes, jour).await
+    }
+
+    async fn avec_droits(
+        &self,
+        etab: Uuid,
+        lignes: Vec<LigneDelegation>,
+        jour: NaiveDate,
+    ) -> Result<Vec<Delegation>, EntDbError> {
+        let ids: Vec<Uuid> = lignes.iter().map(|l| l.id).collect();
+        let mut droits = charger_droits(self.pool(), etab, &ids).await?;
+        Ok(lignes
             .into_iter()
-            .map(|l| l.vers(jour))
+            .map(|l| {
+                let d = droits.remove(&l.id).unwrap_or_default();
+                l.vers(jour, d)
+            })
             .collect())
     }
 

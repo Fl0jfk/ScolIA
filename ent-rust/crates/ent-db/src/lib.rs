@@ -302,6 +302,8 @@ mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_d036;
+#[cfg(all(test, feature = "labo"))]
 mod tests_rls;
 
 #[cfg(all(test, feature = "labo"))]
