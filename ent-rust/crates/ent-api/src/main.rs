@@ -121,6 +121,22 @@ async fn run_api() {
             }
         });
     }
+    // Socle 5 (S3, STR-94) : exécution des levées programmées de fermetures exceptionnelles. Une
+    // levée = un événement ; la levée programmée est effacée dans la même transaction, donc la
+    // tâche est rejouable sans doublon de message.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.structure_fermetures_levees_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(fermetures = n, "levées programmées exécutées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("levées programmées de fermetures : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {

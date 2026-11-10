@@ -279,6 +279,7 @@ mod tests {
             effectif: 12,
             professeur_principal: false,
             libelle: "Allemand · 4B-ALL (groupe)".into(),
+            cours_id: None,
         };
         let reste = services_hors_enseignements(&[service(1), service(2)], &[ens(1)]);
         assert_eq!(reste.len(), 1);

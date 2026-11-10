@@ -18,6 +18,10 @@ mod referentiel;
 mod cahier;
 mod referentiel_s2;
 mod structure;
+mod structure_calendrier;
+mod structure_cours;
+mod structure_offre;
+mod structure_periodes;
 mod edt_s2;
 mod roles;
 mod routes;
@@ -277,6 +281,8 @@ mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p2;
+#[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;
@@ -300,6 +306,12 @@ mod tests_sante_module;
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;

@@ -810,6 +810,14 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::referentiel_s2::routes());
     // Socle 5, lot S2 : profil, paramètres, sites, salles, lieux (`structure.rs`).
     let r = r.merge(crate::structure::routes());
+    // Socle 5, lot S5 : matières, offre d'enseignements, enseignements suivis (`structure_offre.rs`).
+    let r = r.merge(crate::structure_offre::routes());
+    // Socle 5, lot S3 : calendrier, semaines A/B, fermetures exceptionnelles (`structure_calendrier.rs`).
+    let r = r.merge(crate::structure_calendrier::routes());
+    // Socle 5, lot S7 : périodisations et grille horaire versionnée (`structure_periodes.rs`).
+    let r = r.merge(crate::structure_periodes::routes());
+    // Socle 5, lot S4 : l'objet « cours » et les postes vacants (`structure_cours.rs`).
+    let r = r.merge(crate::structure_cours::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
@@ -1216,7 +1224,7 @@ struct MotDePasseReinitialiseDto {
 
 /// Erreurs « mot de passe actuel » / envoi / plafond / nom de passkey, mappées
 /// avant les heuristiques génériques. `None` : laisser la fonction appelante décider.
-fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
+pub(crate) fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)> {
     match err {
         ent_db::EntDbError::MotDePasseActuelInvalide => {
             Some((StatusCode::FORBIDDEN, err.to_string()))
@@ -1238,7 +1246,7 @@ fn map_compte_sensible(err: &ent_db::EntDbError) -> Option<(StatusCode, String)>
 /// URL publique pour les liens envoyés par e-mail. Hors feature `labo`, son
 /// absence renvoie une chaîne vide : le service refuse alors d'émettre un jeton
 /// (`EnvoiImpossible`, 503) au lieu de produire un lien vers localhost.
-fn base_url_publique() -> String {
+pub(crate) fn base_url_publique() -> String {
     match std::env::var("ENT_PUBLIC_BASE_URL") {
         Ok(v) if !v.trim().is_empty() => v,
         _ if cfg!(feature = "labo") => "http://localhost:8088".into(),
@@ -2121,6 +2129,8 @@ pub struct MeDto {
     pub passkey_count: i64,
     /// `complete` ou `enrolement` (passkey obligatoire à enrôler avant tout).
     pub portee: &'static str,
+    /// Casquette active : `principale` ou `parent` (socle 6, P2).
+    pub casquette: String,
     /// `mot_de_passe`, `passkey` ou `sso`.
     pub assurance: &'static str,
     /// `web` ou `mobile`.
@@ -2946,7 +2956,7 @@ async fn me(
         .map_err(map_db)?;
     let passkey_obligatoire = state
         .ent
-        .passkey_obligatoire(session.etablissement_id, &session.role)
+        .passkey_obligatoire_compte(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(MeDto {
@@ -2957,6 +2967,7 @@ async fn me(
         eleve_id,
         passkey_count,
         portee: session.portee.as_str(),
+        casquette: session.casquette.clone(),
         assurance: session.assurance.as_str(),
         client: session.client.as_str(),
         passkey_obligatoire,

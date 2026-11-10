@@ -244,6 +244,9 @@ pub enum Action {
     PersonnelsGerer,
     /// Inviter, ouvrir, suspendre, fermer l'accès d'un agent ; réinitialiser ses identifiants.
     PersonnelsAccesGerer,
+    /// Lot P2 : inviter un agent (lien ou QR code), relancer, annuler une invitation. Direction,
+    /// administration et secrétariat (PRS-20 à 23) ; n'ouvre ni la fiche d'organisation ni la gestion.
+    PersonnelsInviter,
 }
 
 /// Sur quoi une action s'applique.
@@ -260,7 +263,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 108] = [
+    pub const TOUTES: [Action; 109] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -374,6 +377,7 @@ impl Action {
         Action::PersonnelsConfidentielGerer,
         Action::PersonnelsGerer,
         Action::PersonnelsAccesGerer,
+        Action::PersonnelsInviter,
     ];
 
     pub fn code(self) -> &'static str {
@@ -487,6 +491,7 @@ impl Action {
             Self::PersonnelsConfidentielGerer => "personnels.confidentiel.gerer",
             Self::PersonnelsGerer => "personnels.gerer",
             Self::PersonnelsAccesGerer => "personnels.acces.gerer",
+            Self::PersonnelsInviter => "personnels.inviter",
         }
     }
 
@@ -603,6 +608,7 @@ impl Action {
             Self::PersonnelsConfidentielGerer => "Identité restreinte et suspension d'engagement des agents",
             Self::PersonnelsGerer => "Créer et modifier les agents et leurs engagements",
             Self::PersonnelsAccesGerer => "Inviter, ouvrir, suspendre, fermer l'accès d'un agent",
+            Self::PersonnelsInviter => "Inviter un agent (lien, QR code), relancer, annuler une invitation",
         }
     }
 
@@ -712,7 +718,8 @@ impl Action {
             | Self::PersonnelsPersonnelLire
             | Self::PersonnelsConfidentielGerer
             | Self::PersonnelsGerer
-            | Self::PersonnelsAccesGerer => &[Portee::Etablissement],
+            | Self::PersonnelsAccesGerer
+            | Self::PersonnelsInviter => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -796,6 +803,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     d.push(etab(PersonnelsAnnuaire));
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(PersonnelsLire));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsInviter));
     }
     if role.can_gerer_personnels() {
         for a in [
@@ -1348,6 +1358,12 @@ mod tests {
                 "{r:?} lire"
             );
             assert_eq!(a(PersonnelsGerer), usize::from(r == Role::Admin || r == Role::Direction));
+            // Lot P2 : inviter = direction, administration, secrétariat (PRS-20 à 23).
+            assert_eq!(
+                a(PersonnelsInviter),
+                usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif)),
+                "{r:?} inviter"
+            );
             for (x, p) in &m {
                 if x.code().starts_with("personnels.") {
                     assert_eq!(*p, Portee::Etablissement, "{r:?} {}", x.code());

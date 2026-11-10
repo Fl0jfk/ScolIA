@@ -96,6 +96,10 @@ pub enum PorteeSession {
     #[default]
     Complete,
     Enrolement,
+    /// Socle 6 (P2, PRS-25) : l'agent n'a pas encore d'engagement courant mais en a un à venir.
+    /// Jamais stockée : calculée à chaque requête (`ent_agent_avant_arrivee`), de sorte que
+    /// l'accès s'ouvre pleinement le matin de la date d'arrivée sans tâche ni nouvelle connexion.
+    Arrivee,
 }
 
 impl PorteeSession {
@@ -103,6 +107,7 @@ impl PorteeSession {
         match self {
             Self::Complete => "complete",
             Self::Enrolement => "enrolement",
+            Self::Arrivee => "arrivee",
         }
     }
     fn from_db(v: &str) -> Self {
@@ -259,6 +264,9 @@ pub struct SessionInfo {
     pub client: ClientSession,
     pub assurance: AssuranceSession,
     pub portee: PorteeSession,
+    /// Casquette active (socle 6, P2) : `principale` (profil de l'accès) ou `parent`. Le champ
+    /// `role` est celui de la casquette : jamais l'union des deux.
+    pub casquette: String,
 }
 
 /// Identité vérifiée après contrôle du mot de passe et de l'appartenance à
@@ -553,6 +561,7 @@ impl PgAuthRepo {
             client: opts.client,
             assurance: opts.assurance,
             portee: opts.portee,
+            casquette: "principale".to_string(),
         })
     }
 
@@ -852,13 +861,20 @@ impl PgAuthRepo {
             String,
             chrono::DateTime<Utc>,
             chrono::DateTime<Utc>,
+            String,
+            bool,
+            bool,
         );
         // Inactivité (web) contrôlée en base : un jeton inutilisé depuis plus
         // longtemps que `inactivite_max_secs` est refusé, quel que soit le porteur.
         let row: Option<Ligne> = sqlx::query_as(
             r#"
                 SELECT s.id, s.user_id, s.etablissement_id, u.email, m.role, s.expires_at,
-                       s.client, s.assurance, s.portee, s.last_seen_at, s.created_at
+                       s.client, s.assurance, s.portee, s.last_seen_at, s.created_at,
+                       s.casquette,
+                       -- Socle 6 (P2) : casquette parent encore ouverte ; accès réduit avant l'arrivée.
+                       ent_casquette_ouverte(s.user_id, s.etablissement_id, 'parent'),
+                       ent_agent_avant_arrivee(s.user_id, s.etablissement_id)
                 FROM ent_session s
                 JOIN ent_user u ON u.id = s.user_id
                 JOIN ent_membership m
@@ -893,12 +909,31 @@ impl PgAuthRepo {
             portee,
             last_seen_at,
             created_at,
+            casquette,
+            parent_ouverte,
+            avant_arrivee,
         )) = row
         else {
             return Err(AuthError::InvalidSession);
         };
         let client = ClientSession::parse_client(Some(&client));
-        let portee = PorteeSession::from_db(&portee);
+        let mut portee = PorteeSession::from_db(&portee);
+
+        // Socle 6 (P2) : une session = une casquette. Les droits de la session sont ceux de la
+        // casquette active, jamais l'union. Une casquette parent fermée ou échue invalide la
+        // session (elle ne retombe pas silencieusement sur la casquette personnel).
+        let mut role = role;
+        if casquette == "parent" {
+            if !parent_ouverte {
+                return Err(AuthError::InvalidSession);
+            }
+            role = Role::Parent.as_str().to_string();
+        } else if portee == PorteeSession::Complete
+            && avant_arrivee
+            && Role::parse(&role).is_some_and(|r| r.is_staff())
+        {
+            portee = PorteeSession::Arrivee;
+        }
 
         // Activité : écriture amortie (au plus une fois par minute). Mobile :
         // prolongation glissante, plafonnée depuis la connexion.
@@ -932,6 +967,7 @@ impl PgAuthRepo {
             client,
             assurance: AssuranceSession::from_db(&assurance),
             portee,
+            casquette,
         })
     }
 

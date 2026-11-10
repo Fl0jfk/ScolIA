@@ -1921,7 +1921,7 @@ impl PgEnt {
             .await?;
         if passkeys.is_empty() {
             let portee = if self
-                .passkey_obligatoire(etablissement_id, &identity.role)
+                .passkey_obligatoire_compte(etablissement_id, identity.user_id, &identity.role)
                 .await?
             {
                 PorteeSession::Enrolement
@@ -3355,7 +3355,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         }
 
         let portee = if self
-            .passkey_obligatoire(state.etablissement_id, &role)
+            .passkey_obligatoire_compte(state.etablissement_id, user_id, &role)
             .await?
         {
             PorteeSession::Enrolement

@@ -439,3 +439,157 @@ pub struct FicheAgentDto {
     /// `null` sans `personnels.personnel.lire` (et hors de l'agent lui-même).
     pub contacts_urgence: Option<Vec<ContactUrgenceAgentDto>>,
 }
+
+// ---------------------------------------------------------------------------------------------
+// Lot P2 : invitations, accueil, casquettes (PRS-20 à PRS-29)
+// ---------------------------------------------------------------------------------------------
+//
+// **Aucun jeton ne figure dans ces types, sauf `InvitationQrDto::lien`** : le lien d'une
+// invitation par QR code est le contenu du QR, affiché une seule fois sur l'écran authentifié du
+// secrétariat qui vient de l'émettre. Aucune lecture ultérieure (liste, relance, annulation) ne le
+// renvoie ; la base ne conserve que son empreinte.
+
+/// Corps de `POST /personnels/agents/{id}/invitations` (PRS-20, PRS-21).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InviterAgentBody {
+    /// `email` (lien valable 7 jours) ou `qr` (valable 10 minutes, affiché au guichet).
+    pub canal: String,
+    /// Profil de base que l'accès recevra (`prof`, `cpe`, `accueil`, `infirmerie`, `psy`,
+    /// `administratif`, `direction`, `admin`) ; la hiérarchie des comptes s'applique.
+    pub profil: String,
+    /// Adresse d'envoi (canal e-mail) ; à défaut, l'adresse de la fiche de la personne.
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
+/// Réponse d'une invitation par e-mail : jamais de jeton, jamais l'adresse en clair.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    pub canal: String,
+    pub profil: String,
+    /// `en_attente`, `expiree`, `utilisee`, `annulee`.
+    pub etat: String,
+    pub email_masque: Option<String>,
+    pub cree_le: chrono::DateTime<chrono::Utc>,
+    pub expire_le: chrono::DateTime<chrono::Utc>,
+    pub utilisee_le: Option<chrono::DateTime<chrono::Utc>>,
+    pub annulee_le: Option<chrono::DateTime<chrono::Utc>>,
+    /// L'invitation a rattaché une identité qui existait déjà.
+    pub rattachement_identite_existante: bool,
+}
+
+/// Réponse de l'émission d'une invitation par QR code : seule réponse qui porte le lien.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationQrDto {
+    pub invitation: InvitationDto,
+    /// Contenu du QR code (à afficher, jamais à journaliser). Valable 10 minutes, usage unique.
+    pub lien: String,
+}
+
+/// Corps de `POST /personnels/invitations/lot` (PRS-22).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationsLotBody {
+    pub agent_ids: Vec<Uuid>,
+    pub profil: String,
+    /// `true` : aperçu seul (aucun envoi, aucune écriture).
+    #[serde(default)]
+    pub apercu: bool,
+}
+
+/// Une ligne du lot : `envoyee`, `a_envoyer` (aperçu), `adresse_manquante`, `deja_un_acces`,
+/// `non_autorisee`, `introuvable`, `echec_envoi`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationLotLigneDto {
+    pub agent_id: Uuid,
+    pub resultat: String,
+}
+
+/// Aperçu de l'invitation pour la personne qui détient le lien (public : le jeton est la preuve).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationApercuDto {
+    pub etablissement_id: Uuid,
+    pub canal: String,
+    pub profil: String,
+    pub expire_le: chrono::DateTime<chrono::Utc>,
+    /// Une identité existe déjà : se connecter (passkey) puis confirmer le rattachement.
+    pub identite_existante: bool,
+    /// L'engagement commence plus tard : l'accès sera réduit jusqu'à la date d'arrivée.
+    pub avant_arrivee: bool,
+}
+
+/// Corps de `POST /invitations/personnel/consulter`.
+#[derive(Clone, Deserialize)]
+pub struct InvitationJetonBody {
+    pub token: String,
+}
+
+/// Corps de `POST /invitations/personnel/accepter`. Le mot de passe n'est jamais journalisé.
+#[derive(Clone, Deserialize)]
+pub struct AccepterInvitationBody {
+    pub token: String,
+    /// Nouvelle identité : mot de passe choisi par la personne.
+    #[serde(default)]
+    pub mot_de_passe: Option<String>,
+    /// Nouvelle identité, invitation par QR code (sans adresse mémorisée).
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub nom_affiche: Option<String>,
+    /// Identité existante : confirmation explicite du rattachement (jamais implicite).
+    #[serde(default)]
+    pub confirmer_rattachement: bool,
+}
+
+impl std::fmt::Debug for AccepterInvitationBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccepterInvitationBody")
+            .field("confirmer_rattachement", &self.confirmer_rattachement)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Issue de l'acceptation. Aucune session n'est ouverte ici : la personne se connecte ensuite
+/// (mot de passe puis enrôlement de la passkey, ou passkey) ; l'enrôlement est exigé pour la
+/// casquette personnel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InvitationAccepteeDto {
+    /// `compte_cree` ou `identite_rattachee`.
+    pub resultat: String,
+    pub etablissement_id: Uuid,
+    /// `true` : la connexion doit enrôler une passkey avant tout accès.
+    pub passkey_a_enroler: bool,
+    /// `true` : l'accès est réduit jusqu'à la date d'arrivée.
+    pub avant_arrivee: bool,
+    /// Casquettes ouvertes sur ce compte dans l'établissement.
+    pub casquettes: Vec<String>,
+}
+
+/// Une casquette ouverte pour la session (PRS-29).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CasquetteDto {
+    /// `principale` ou `parent`.
+    pub code: String,
+    /// Libellé neutre : `Espace professeur`, `Espace parent`…
+    pub libelle: String,
+    pub active: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CasquettesDto {
+    pub casquettes: Vec<CasquetteDto>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BasculerCasquetteBody {
+    pub casquette: String,
+}
+
+/// « Préparer mon arrivée » (PRS-25) : aucune donnée d'élève.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparerArriveeDto {
+    pub avant_arrivee: bool,
+    pub arrivee_le: Option<NaiveDate>,
+    pub collegues: Vec<AgentResumeDto>,
+}

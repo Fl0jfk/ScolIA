@@ -125,6 +125,7 @@ mod tests {
             } else {
                 format!("{matiere} · {cible}")
             },
+            cours_id: None,
         }
     }
 
