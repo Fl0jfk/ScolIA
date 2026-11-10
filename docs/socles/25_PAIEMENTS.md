@@ -1,7 +1,7 @@
 # Socle 25 — Paiements, prélèvements et recouvrement
 
 **Date :** 2026-11-10 — **Statut :** conception de fond, **non décidée** (à relire par Florian), rédigée après le code (lot 7 et lot S2-9), comme `24_FINANCES.md`. Aucun code écrit ni modifié ; aucun accès à une base, à un secret, à un compte bancaire ni à l'application Next.js.
-**Branche :** `ent-socle-finances-conception` (partie d'`origin/ENT` `5366c196`).
+**Branche :** `ent-socle-finances-conception` (partie d'`origin/ENT` `5366c196`, **mise à jour sur `origin/ENT` `ee7706d3`** le 2026-11-10 : correctifs RS3-01, RS3-02, RS3-04 et migrations 376–377 désormais sur `ENT`). **Passe personas :** `docs/socles/PERSONAS_24_25.md` (ajouts marqués « ajout personas »).
 **Lire d'abord :** `docs/socles/24_FINANCES.md` — il porte le **cadre commun** : thèse (§1), existant et défauts **FD-01 à FD-26** (§2), acteurs (§3), année financière (§4), réglementaire général (§5), frontières (§6), payeurs et familles séparées (§9), cas limites CF-01 à CF-40 (§15), **lot F0** et tableau des lots (§25), migrations, questions Q-F. Ce document-ci ne reprend que ce qui est propre à l'argent qui entre et qui sort.
 **Conventions :** celles du 24 ([F], [V], [NV], [H], [R]) ; actions **PAY-100** à **PAY-211** ; règles **R-P1** à **R-P24** ; cas limites **CF-41** à **CF-72** ; questions **Q-P1**… ; réglages **S-169**…
 **Plage de migrations :** **5500–5599** si Q-B2, **repli 540–559** (vérifié libre sur toutes les branches distantes le 2026-11-10).
@@ -13,11 +13,12 @@ Sommaire : §0 En bref · §1 Thèse · §2 Existant propre au 25 · §3 Acteurs
 ## 0. En bref
 
 1. **Ce qui tient** [F] : IBAN des mandats **chiffrés** (AES-GCM) et **masqués** partout ; préparation des prélèvements **par échéance** refusée à moins de 14 jours de la date (pré-notification) ; pré-notification enregistrée par (foyer, date) ; rejets avec motif normalisé, re-présentation, **retour au paiement manuel** après N rejets ; règlement manuel imputé sur les plus anciennes échéances avec trop-perçu au crédit ; lettrage ; relances **proposées par le système, envoyées après confirmation humaine**, jamais avant l'échéance ni pendant un prélèvement en cours ; export comptable équilibré.
-2. **Ce qui fuit ou se trompe** : RS3-01 et RS3-02 non corrigées sur `ENT` (24 FD-01, FD-02) ; export SEPA historique en `GET`, sans pré-notification, IBAN du créancier dans l'URL (FD-03) ; mandats révoqués exportés (FD-10) ; mandat « signé » à l'instant de sa création **sans preuve de consentement**, RUM choisie par le client (RS3-08) ; **pré-notification interne seulement** : un payeur sans compte est prélevé sans être prévenu (FD-14) ; pain.008 en **version .001.02** alors que l'EPC applique la version 2019 (**.001.08**) et **interdit les adresses non structurées au 15/11/2026** [V] ; aucun retour ni remboursement après exécution ; rapprochement simulé ; aucune remise de chèques ; aucun reçu d'espèces conforme au plafond ; frais de relance facturables (interdits, FD-13) ; aucun remboursement des trop-perçus.
+2. **Ce qui fuit ou se trompe** : ~~RS3-01 et RS3-02 non corrigées sur `ENT`~~ — **corrigées sur `ENT` depuis `ee7706d3`** (24 FD-01, FD-02 ; F0 les **vérifie**) ; export SEPA historique en `GET`, sans pré-notification, IBAN du créancier dans l'URL (FD-03) ; mandats révoqués exportés (FD-10) ; mandat « signé » à l'instant de sa création **sans preuve de consentement**, RUM choisie par le client (RS3-08) ; **pré-notification interne seulement** : un payeur sans compte est prélevé sans être prévenu (FD-14) ; pain.008 en **version .001.02** alors que l'EPC applique la version 2019 (**.001.08**) et **interdit les adresses non structurées au 15/11/2026** [V] ; aucun retour ni remboursement après exécution ; rapprochement simulé ; aucune remise de chèques ; aucun reçu d'espèces conforme au plafond ; frais de relance facturables (interdits, FD-13) ; aucun remboursement des trop-perçus.
 3. **La thèse (§1).** Un paiement est **un fait bancaire prouvé**, rattaché à **un payeur** et **imputé** sur ses pièces ; un prélèvement n'existe qu'avec **un mandat prouvé**, une **pré-notification qui a atteint la personne**, un **lot validé** ; le relevé bancaire **fait foi** et le rapprochement est automatique ; une relance est **un dialogue gradué** qui commence par comprendre ; l'argent dû **à** la famille (trop-perçu, excédent de bourse, avoir) part aussi vite que l'argent dû **par** elle.
 4. **SEPA [V]** : rulebook EPC SDD Core 2025 v1.1 — mandat (mentions obligatoires, RUM unique, conservation 13 mois au moins après la fin), ICS (Banque de France), **pré-notification 14 jours** sauf accord, présentation au plus tard J-1 ouvré, **FRST facultatif**, **caducité à 36 mois** sans collecte (obligation du créancier), remboursement **inconditionnel 8 semaines** (CMF L. 133-25-1), **13 mois** si non autorisé, retours sous 5 jours ouvrés ; format **pain.008.001.08** ; adresses structurées ou hybrides obligatoires au **15/11/2026**.
 5. **Recouvrement [V]** : prescription **2 ans** très probable (C. consom. L. 218-2) ; **aucun frais de recouvrement** à la charge de la famille sans titre exécutoire (CPCE L. 111-8) ; injonction de payer réformée (décret 2026-96) ; sociétés de recouvrement encadrées (R. 124-1 s.) ; référentiel CNIL des impayés (suppression 48 h après régularisation) ; **espèces plafonnées à 1 000 €** par paiement (CMF D. 112-3) ; carte : **jamais le cryptogramme**, page hébergée du prestataire (délibération CNIL 2018-303).
 6. **Le plan.** 112 actions (PAY-100 à PAY-211), 32 cas limites (CF-41 à CF-72), 24 règles, 12 lots (**P1 à P12**) après le lot commun **F0** ; parcours minimal : P1–P4, P6 ; **soumis à Florian** : contrat bancaire (ICS, mode de remise des fichiers, coûts, relevés électroniques), prestataire de paiement en ligne (contrat, frais), éventuelle société de recouvrement, avis juridique sur le refus de réinscription pour impayé.
+7. **Ajout personas (2026-11-10, `PERSONAS_24_25.md`)** : **surendettement** (la recevabilité gèle les exécutions et **interdit de payer** les créances antérieures : un prélèvement automatique de ces échéances serait un paiement interdit, R-P25, C. consom. L. 722-2 et L. 722-5 [V]) ; **recours contre un co-signataire solidaire** sur décision de la direction (PAY-212, bloquant A du 24) ; la famille agit **avant** le rejet (prévenance, report, date au choix, PAY-216 à PAY-218) ; **paiement par un tiers** sur référence (PAY-219) ; **mandat sur compte joint d'ex-conjoints** (PAY-221) ; **entité de facturation** sur le mandat (PAY-226, bloquant C du 24) ; **contrôle interne** (remboursement vers un IBAN neuf, propre compte, journal des déchiffrements d'IBAN, R-P28 à R-P30) ; **public** : ordonnateur ≠ agent comptable, régie selon le **décret 2020-542** (correction, R-P33). Nouveaux lots **P13** (situations légales) et **P14** (organismes publics et régie) ; actions PAY-212 à PAY-239 ; règles R-P25 à R-P33 ; questions Q-P15 à Q-P20. Total après la passe : **140 actions**, **33 règles**.
 
 ---
 
@@ -40,7 +41,7 @@ Le tableau général est au 24 §2.1 ; les défauts au 24 §2.2 (FD-01 à FD-26)
 
 | Élément | Où | Ce que ça fait | Limites |
 |---|---|---|---|
-| Mandats | `030_sepa.sql`, `facturation_sepa.rs:141`, `routes.rs:10958` | RUM (≤ 35), IBAN contrôlé en **format seulement** (pas de clé modulo 97), BIC 8/11, un mandat actif par foyer, historique d'IBAN (`078`) | `signe_at = now()` sans preuve (RS3-08) ; RUM du client ; pas d'avenant (`AmdmntInd` toujours faux) ; pas de caducité ; créé par le parent **même non payeur** sur `ENT` (FD-01) |
+| Mandats | `030_sepa.sql`, `facturation_sepa.rs:141`, `routes.rs:10958` | RUM (≤ 35), IBAN contrôlé en **format seulement** (pas de clé modulo 97), BIC 8/11, un mandat actif par foyer, historique d'IBAN (`078`) | `signe_at = now()` sans preuve (RS3-08) ; RUM du client ; pas d'avenant (`AmdmntInd` toujours faux) ; pas de caducité ; créé par le parent **même non payeur** sur `ENT` (FD-01) — **corrigé sur `ENT` depuis `ee7706d3`** (RS3-01, ajout personas) |
 | Prélèvements (historique) | `service.rs:18904-19321` | par facture ; export CSV ou pain.008.001.02 (FRST si aucun prélèvement antérieur, sinon RCUR ; pas d'OOFF) ; exécution = encaissement + quittance | FD-02, FD-03, FD-06, FD-10 ; lignes passées « exporté » **avant** la génération du fichier |
 | Prélèvements (S2-9) | `finances_sepa.rs:264-859` | préparation par échéance à ≥ 14 jours ; pré-notification par (foyer, date) ; export des seuls pré-notifiés ; MsgId `SDD-AAAAMMJJ-nnnnnn` ; exécution constatée manuellement ; rejet depuis `exporte` seulement, codes ISO en dur [NV], frais facturés et émis aussitôt, retour au manuel | pré-notification **interne seulement** (FD-14) ; un FRST rejeté repart en FRST ; aucun retour ni remboursement après exécution ; aucun lien avec le rapprochement |
 | Règlements | `203`, `finances_sepa.rs:907-1020` | règlement imputé sur les plus anciennes, trop-perçu, code de lettrage `L{n}` | pas de remise de chèques, pas de caisse, pas de reçu d'espèces, pas de remboursement du trop-perçu |
@@ -83,7 +84,7 @@ Le tableau général est au 24 §2.1 ; les défauts au 24 §2.2 (FD-01 à FD-26)
 
 ### 4.2 Espèces, chèques, cartes [V]
 - **Espèces** : CMF **D. 112-3** : **1 000 €** par paiement d'une dette entre un professionnel et un particulier domicilié en France (15 000 € pour un non-résident qui le justifie, 10 000 € si le créancier n'est pas assujetti aux obligations anti-blanchiment) ; amende jusqu'à 5 % [V partiel]. **Reçu** : aucun texte propre trouvé ; reçu numéroté = bonne pratique et preuve [R].
-- **Chèques** : aucune règle propre relevée ; en public, remise à l'encaissement **le lendemain** par le régisseur (décret 2019-798) [V partiel].
+- **Chèques** : aucune règle propre relevée ; en public, remise à l'encaissement **le lendemain** par le régisseur (décret 2019-798) [V partiel]. **(ajout personas) Correction** : pour un **EPLE**, les régies relèvent du **décret n° 2020-542 du 7 mai 2020** et de l'arrêté du 13/08/2020 (régisseur nommé par le chef d'établissement avec l'agrément de l'agent comptable ; l'ordonnateur ne peut être régisseur) [V, M9.6 du 19/01/2026] ; le décret 2019-798 est le texte général (C-P7).
 - **Cartes** : délibération CNIL **2018-303** : cryptogramme **jamais** conservé ; données de carte gardées **13 mois** (15 si débit différé) en archive intermédiaire pour les contestations ; conservation pour des paiements futurs seulement avec **consentement explicite** [V]. → ScolIA ne touche **aucune donnée de carte** : page de paiement **hébergée** par le prestataire, ScolIA ne reçoit qu'une référence de transaction (périmètre PCI DSS minimal [H]).
 
 ### 4.3 Recouvrement [V]
@@ -94,6 +95,16 @@ Le tableau général est au 24 §2.1 ; les défauts au 24 §2.2 (FD-01 à FD-26)
 - **Pénalités contractuelles** : possibles si le contrat les prévoit, révisables par le juge (clause pénale) ; **indemnité forfaitaire de 40 € interdite envers un particulier** [V partiel].
 - **Refus de réinscription pour impayé** : aucune source officielle [NV] ; liberté contractuelle de ne pas renouveler un contrat probable, **sanction disciplinaire de l'élève exclue** [H] ; **avis juridique** (Q-P9).
 - **CNIL** : référentiel « gestion des impayés » : suppression de l'inscription **48 h** après régularisation ; sinon 5 ans au plus [V].
+
+### 4.5 Compléments de la passe personas (vérifiés le 2026-11-10)
+Détail et URL : `PERSONAS_24_25.md` §5.
+- **Surendettement** [V] : C. consom. **L. 722-2** (la recevabilité emporte **suspension et interdiction des procédures d'exécution**, dettes non alimentaires), **L. 722-3** (jusqu'au plan, aux mesures imposées ou au rétablissement, deux ans au plus), **L. 722-5** (**interdiction pour le débiteur de payer** une créance antérieure, sauf autorisation du juge) ; M9.6 § 2.2.4.7.5 (EPLE) : la **demi-pension n'est pas une créance alimentaire** ; répondre à l'état des créances sous **30 jours** et déclarer dans le délai de l'appel aux créanciers (sinon la commission retient les chiffres du débiteur) ; 30 jours pour contester un plan ; effacement = non-valeur **sans reprise** ; rétablissement personnel avec liquidation : déclarer sous **2 mois** après le BODACC (R. 742-11) ; un acte d'exécution pris en violation de L. 722-2 est annulable (Cass. 2e civ., 28/03/2024, n° 22-12.797) [V partiel].
+- **Solidarité** (24 §5.10 point 1) : C. civ. 220 et 515-4 [V] ; recours contre un co-signataire : **décision humaine** (PAY-212).
+- **CNIL, impayés** [V] : accès habilité **et tracé** ; information **en trois temps** (collecte ; impayé : moyens de régulariser et **droit de présenter des observations** ; inscription au fichier) → palier 1 de relance (PAY-185 précisé).
+- **EPLE** [V, M9.6] : recouvrement contentieux par l'**agent comptable** sur **autorisation de poursuivre** de l'ordonnateur (C. éduc. R. 421-68), à défaut sous un mois admission en non-valeur ; saisie administrative à tiers détenteur ; **non-valeur** votée par le CA (seuil délégable à l'ordonnateur), n'éteint pas la créance ; **remise gracieuse** votée par le CA sur avis conforme de l'agent comptable (R. 421-69), éteint la créance → P14.
+- **Chèques-vacances** [V pour l'EPLE] : convention ANCV obligatoire (adoptée par le CA, régisseur habilité) → PAY-167.
+- **Majeur protégé** [V] : tutelle, le tuteur signe le mandat (C. civ. 473) ; curatelle simple, la personne seule (467) ; curatelle renforcée, le curateur règle les dépenses (472).
+- **Paiement par un tiers** : C. civ. 1342-1 [NV, texte connu non relu] → PAY-219.
 
 ### 4.4 Conservation des données bancaires [V partiel]
 IBAN : durée de vie du mandat ; mandat et preuves : **13 mois au moins** après la dernière opération (rulebook, L. 133-24) ; pièces comptables 6 à 10 ans (24 §5.2) ; aucune règle CNIL propre à l'IBAN trouvée [NV] → durées **soumises au DPO** (Q-P11).
@@ -149,6 +160,10 @@ IBAN : durée de vie du mandat ; mandat et preuves : **13 mois au moins** après
 - **Avenant** (changement d'IBAN, de titulaire, de créancier) : nouvelle **version** du mandat, même RUM si le rulebook l'admet, indicateur d'amendement dans le fichier suivant (`AmdmntInd`, informations d'origine) [V principe, détail .001.08 NV] ; l'ancien IBAN reste chiffré dans l'historique.
 - **Changement de payeur** (24 §9.2) : le mandat du payeur sortant **ne sert plus** pour cet élève à la date d'effet (« le mandat de M. X ne servira plus pour Léo à partir du 01/02 ») ; jamais de transfert du mandat d'une personne à une autre.
 - **Plusieurs comptes débiteurs, un mandat** : un mandat par **compte débiteur** (payeur) et par créancier ; un payeur d'une seule catégorie a son propre mandat.
+- **(ajout personas)** **Entité de facturation** : le mandat porte `entite_facturation_id` (24 §9.6) ; en groupe consenti, **un mandat d'entité** sert les comptes consolidés du payeur (PAY-226).
+- **(ajout personas)** **Compte joint d'ex-conjoints** : à l'enregistrement d'une séparation (socle 4), tout mandat dont le **titulaire** enregistré comprend l'autre parent déclenche une alerte et une **invitation à re-signer** sur un compte personnel (PAY-221, CF-80) ; le mandat reste valable jusqu'à révocation.
+- **(ajout personas)** **Élève majeur payeur** : il signe son mandat avec sa passkey ; celui des parents ne sert plus pour ses frais (PAY-225).
+- **(ajout personas)** **Majeur protégé** : signature du tuteur, ou du curateur en curatelle renforcée (§4.5).
 
 ### 7.3 Pré-notification [R]
 - **Par défaut, une pré-notification annuelle** : l'échéancier de la facture (dates et montants) remis **avec** la facture, au moins 14 jours avant la première échéance ; **une pré-notification spécifique** si un montant ou une date change (échéancier dérogatoire, re-présentation après rejet, régularisation).
@@ -217,7 +232,7 @@ IBAN : durée de vie du mandat ; mandat et preuves : **13 mois au moins** après
 - **Prescription** : alerte à 18 mois d'ancienneté d'une échéance non réglée sans acte interruptif (plan signé, reconnaissance) : « créance proche de la prescription » (R-P14).
 
 ### 10.2 Situations [R]
-Chaque dossier porte une **situation** choisie par la comptabilité (jamais déduite par l'IA) : `oubli`, `contestation` (suspend), `plan` (suspend tant que respecté), `difficulte` (oriente vers l'assistante sociale et le fonds social, suspend selon décision), `deuil` (suspend, contact humain), `conflit_parental` (rappel : chaque payeur ne doit que sa part), `procedure`. La situation n'est visible que du personnel financier et de la direction ; **le motif social n'y figure pas** (renvoi au socle 26 / 36).
+Chaque dossier porte une **situation** choisie par la comptabilité (jamais déduite par l'IA) : `oubli`, `contestation` (suspend), `plan` (suspend tant que respecté), `difficulte` (oriente vers l'assistante sociale et le fonds social, suspend selon décision), `deuil` (suspend, contact humain), `conflit_parental` (rappel : chaque payeur ne doit que sa part **reçue** ; le recours éventuel contre un co-signataire solidaire est une décision de la direction, PAY-212), `procedure`. **(ajout personas)** `surendettement` (**effets légaux automatiques** à la date de recevabilité, R-P25 : relances et procédures gelées sur les échéances antérieures, prélèvements de ces échéances retirés, échéances postérieures maintenues) et `transmis_agent_comptable` (public, R-P33). La situation n'est visible que du personnel financier et de la direction ; **le motif social n'y figure pas** (renvoi au socle 26 / 36).
 
 ### 10.3 Plan d'apurement [R]
 Proposé par la comptabilité **ou demandé par la famille en ligne** (montant mensuel, date) ; accepté et **signé** par le payeur (socle 7 : vaut reconnaissance de dette et interrompt la prescription [NV]) ; échéancier dérogatoire (24 FAC-163) ; prélèvements ou paiements suivis ; deux échéances manquées → proposition de révocation (décision humaine).
@@ -265,7 +280,7 @@ Priver l'élève d'un document scolaire, d'un bulletin, d'un résultat, d'un cer
 | CF-55 | Fichier refusé par la banque (format) | lot `refuse_banque`, correction, nouveau fichier, même lignes |
 | CF-56 | Payeur sans compte ScolIA ni e-mail | pré-notification par courrier ; sans preuve de remise : pas de prélèvement (R-P6) |
 | CF-57 | Virement sans référence d'un nom inconnu | file « à identifier », suggestions ; jamais d'imputation incertaine |
-| CF-58 | Virement d'un montant qui couvre deux payeurs (la mère paie aussi la part du père) | imputé sur son compte ; excédent = crédit de la mère ; **jamais** sur le compte du père sans accord écrit des deux |
+| CF-58 | Virement d'un montant qui couvre deux payeurs (la mère paie aussi la part du père) | imputé sur son compte ; excédent = crédit de la mère ; **jamais** sur le compte du père sans accord écrit des deux. **(ajout personas, C-P5)** : si la mère **désigne** la référence de la facture du père, le paiement par un tiers est accepté (PAY-219, R-P27, 24 CF-81) ; sans désignation, la règle ci-dessus s'applique |
 | CF-59 | Chèque signé par un grand-parent pour la facture de la mère | accepté, imputé au compte de la mère, tireur noté |
 | CF-60 | Chèque sans provision | R-transaction « chèque impayé », contre-passation, avis neutre, relance selon le parcours |
 | CF-61 | Espèces : 1 200 € pour une facture | refus au-delà de 1 000 € (D. 112-3) ; fractionnement artificiel **interdit** (même dette) ; autre moyen proposé |
@@ -316,7 +331,7 @@ Abréviations du 24 §17 ; ★ = N3.
 | PAY-111 | Signer un mandat en ligne | PAY (payeur seulement) | §7.2 ; RUM serveur ; modulo 97 ; passkey ou code | `paiements.mandat_signe` |
 | PAY-112 | Reprendre l'IBAN masqué d'un autre établissement à l'inscription (D-014) | PAY | consentement ; nouveau mandat ; trace | `paiements.iban_repris` |
 | PAY-113 | Inviter un payeur à signer un mandat | CPT, ADF · `paiements.mandats` | lien nominatif | `paiements.mandat_invitation` |
-| PAY-114 | Saisir un mandat papier (scan obligatoire) | CPT · `paiements.mandats` | contrôle par une seconde personne si S-171 | `paiements.mandat_saisi` |
+| PAY-114 | Saisir un mandat papier (scan obligatoire) | CPT · `paiements.mandats` | contrôle par une seconde personne si S-171 ; **(ajout personas)** saisie en série avec scans (M-681) | `paiements.mandat_saisi` |
 | PAY-115 | Contrôler un mandat papier | autre CPT · `paiements.mandats` | — | `paiements.mandat_controle` |
 | PAY-116 | Voir mes mandats (masqués), télécharger le document | PAY | — | — |
 | PAY-117 | Modifier mon IBAN (avenant) | PAY | nouvelle signature ; effet au prochain lot non validé | `paiements.mandat_avenant` |
@@ -361,7 +376,7 @@ Abréviations du 24 §17 ; ★ = N3.
 | PAY-148 | Émettre un reversal (erreur de l'établissement) ★ | CPT · `paiements.prelever_valider` | ≤ 5 jours ouvrés | `paiements.reversal` |
 | PAY-149 | Choisir la suite d'un rejet (re-présentation, manuel, contact) | CPT · `paiements.prelever` | défaut [F] | — |
 | PAY-150 | Voir le tableau des rejets du mois (motifs, montants) | CPT, DIR · `paiements.lire` | — | — |
-| PAY-151 | Expliquer un rejet à la famille (avis neutre + détail dans le compte) | SYS | — | — |
+| PAY-151 | Expliquer un rejet à la famille (avis neutre + détail dans le compte) | SYS | **(ajout personas)** sans culpabiliser ; rappelle que sa banque a pu facturer des frais et propose la prévenance (PAY-217) pour la prochaine fois | — |
 
 ### 15.5 Règlements, caisses, remises
 | ID | Action | Qui · droit | Règles | Événement |
@@ -381,7 +396,7 @@ Abréviations du 24 §17 ; ★ = N3.
 | PAY-164 | Délettrer et réimputer (motif) | CPT · `paiements.annuler` | trace | `paiements.reimputation` |
 | PAY-165 | Imprimer / envoyer un reçu, une quittance | ADF, CPT | document stocké | — |
 | PAY-166 | Voir le journal d'une caisse | CPT, DIR | — | — |
-| PAY-167 | Enregistrer un paiement par chèques-vacances (si conventionné) | CPT | réglage | idem PAY-153 |
+| PAY-167 | Enregistrer un paiement par chèques-vacances (si conventionné) | CPT | réglage ; **(ajout personas)** seulement avec la référence de la convention ANCV (§4.5) | idem PAY-153 |
 | PAY-168 | Enregistrer le versement d'un tiers (aide) | CPT · `paiements.encaisser` | imputé comme aide affectée (24) | `paiements.aide_recue` |
 
 ### 15.6 Paiement en ligne
@@ -406,7 +421,7 @@ Abréviations du 24 §17 ; ★ = N3.
 ### 15.8 Attestations
 | ID | Action | Qui · droit | Règles | Événement |
 |---|---|---|---|---|
-| PAY-180 | Obtenir une attestation de paiement (période, élève, catégorie) | PAY (libre-service), ADF | rien d'autre que les montants payés | `paiements.attestation` |
+| PAY-180 | Obtenir une attestation de paiement (période, élève, catégorie) | PAY (libre-service), ADF | rien d'autre que les montants payés ; **(ajout personas)** au nom du payeur qui a payé, y compris un payeur sans lien (grand-parent) ; jamais « de la famille » (PAY-220) | `paiements.attestation` |
 | PAY-181 | Obtenir l'attestation annuelle de frais de garde (< 6 ans) | PAY | garde séparée de la nourriture [V partiel] | idem |
 | PAY-182 | Obtenir une attestation de situation de compte (quitus) | PAY, ADF | « aucune somme due au … » | idem |
 | PAY-183 | Obtenir un relevé de compte | PAY, ADF | — | — |
@@ -415,7 +430,7 @@ Abréviations du 24 §17 ; ★ = N3.
 | ID | Action | Qui · droit | Règles | Événement |
 |---|---|---|---|---|
 | PAY-184 | Proposer les relances du jour | SYS | jamais avant l'échéance ni pendant un prélèvement [F] ; suspensions | `paiements.relances_proposees` |
-| PAY-185 | Confirmer l'envoi d'une relance (paliers 1–2) | CPT · `paiements.relancer` | payeur seul ; plage calme | `paiements.relance_envoyee` |
+| PAY-185 | Confirmer l'envoi d'une relance (paliers 1–2) | CPT · `paiements.relancer` | payeur seul ; plage calme ; **(ajout personas)** le palier 1 rappelle les moyens de régulariser et le **droit de présenter des observations** (référentiel CNIL, §4.5) | `paiements.relance_envoyee` |
 | PAY-186 | Confirmer une mise en demeure ★ | DIR · `paiements.recouvrer` | courrier ; aucune menace sur l'élève | idem |
 | PAY-187 | Annuler une relance proposée (motif) | CPT | [F] | `paiements.relance_annulee` |
 | PAY-188 | Choisir la situation d'un dossier | CPT · `paiements.recouvrer` | liste fermée ; aucun motif social | `paiements.dossier_situation` |
@@ -430,7 +445,7 @@ Abréviations du 24 §17 ; ★ = N3.
 | PAY-197 | Préparer un dossier d'injonction de payer ★ | DIR | pièces : contrat, factures, mise en demeure, relevé | `paiements.injonction_preparee` |
 | PAY-198 | Voir les alertes de prescription (18 mois) | CPT, DIR | — | — |
 | PAY-199 | Passer une créance en perte ★ | DIR · `paiements.recouvrer` | socle 48 ; plus de relance | `paiements.creance_perte` |
-| PAY-200 | Tableau des impayés (ancienneté, situation, montant) | DIR, CPT, OGEC (agrégé) | nominatif selon droit | — |
+| PAY-200 | Tableau des impayés (ancienneté, situation, montant) | DIR, CPT, OGEC (agrégé) | nominatif selon droit ; **(ajout personas)** jamais au secrétariat (24 R-F37) ; propose la provision pour créances douteuses par ancienneté et situation (M-701) | — |
 
 ### 15.10 Remboursements, crédits, porte-monnaie
 | ID | Action | Qui · droit | Règles | Événement |
@@ -448,8 +463,40 @@ Abréviations du 24 §17 ; ★ = N3.
 | ID | Action | Qui · droit | Règles | Événement |
 |---|---|---|---|---|
 | PAY-209 | Prévisionnel d'encaissements par mois | DIR, OGEC, CPT · `paiements.pilotage` | agrégé | — |
-| PAY-210 | Produire les écritures de banque pour le socle 48 | SYS / CPT | compte par moyen (512, 530 caisse, 5112 chèques à encaisser [H, plan à valider]) | `paiements.ecritures_produites` |
+| PAY-210 | Produire les écritures de banque pour le socle 48 | SYS / CPT | compte par moyen (512, 530 caisse, 5112 chèques à encaisser [H, plan à valider]) ; **(ajout personas)** crédits des familles en 419, distincts des créances 411 (M-700) ; plan ANC 2018-06 | `paiements.ecritures_produites` |
 | PAY-211 | Expliquer un rejet, suggérer une identification, préparer une relance (brouillon) | IA | §14 ; N3 à l'envoi | — |
+
+### 15.12 Actions ajoutées par la passe personas (PAY-212 à PAY-239)
+| ID | Action | Qui · droit | Règles | Événement | Lot |
+|---|---|---|---|---|---|
+| PAY-212 | **Proposer un recours** contre un co-signataire solidaire pour la part impayée d'un autre payeur | SYS → DIR · `paiements.recouvrer` ★ | 24 R-F29 : après mise en demeure du payeur défaillant ; clause `solidaire` lue ; S-183 ; avis au co-signataire du **seul** montant et de la période | `paiements.recours_propose` | P13 |
+| PAY-213 | **Déclarer une procédure de surendettement** (date de recevabilité, commission) | CPT · `paiements.recouvrer` | R-P25 : effets automatiques à la date ; pièce au socle 7 (accès restreint) | `paiements.surendettement_declare` | P13 |
+| PAY-214 | **Préparer l'état de créance** à la date de recevabilité et le suivi des délais (30 jours, 2 mois après le BODACC) | SYS → CPT | rappels datés ; envoi par une personne | `paiements.creance_declaree` | P13 |
+| PAY-215 | **Appliquer la décision de la commission** (plan, mesures imposées, effacement, rétablissement) | CPT, DIR ★ | plan = échéancier qui remplace le plan amiable ; effacement = perte sans reprise (socle 48) ; données d'impayé supprimées selon la CNIL | `paiements.surendettement_decision` | P13 |
+| PAY-216 | **Demander le report** d'une échéance avant sa présentation | PAY | S-181 ; pré-notification spécifique de la nouvelle date | `paiements.report_demande` | P3 |
+| PAY-217 | **Prévenir d'une difficulté** (« je ne pourrai pas payer le 5 ») | PAY | R-P26 : ligne retirée du lot non validé, sans rejet ni frais ; dialogue ouvert | `paiements.prevenance` | P3 |
+| PAY-218 | **Choisir sa date de prélèvement** parmi celles ouvertes | PAY | S-180 ; effet au prochain échéancier | `paiements.mode_modifie` | P3 |
+| PAY-219 | **Payer pour le compte d'un autre payeur** sur la référence de sa facture | PAY ou tiers | R-P27 ; le tiers ne voit que son paiement ; l'autre payeur voit « paiement reçu d'un tiers » sans nom sauf accord | `paiements.reglement` | P1 |
+| PAY-220 | Obtenir l'**attestation de ma part payée** (période, élève) | PAY | rien sur l'autre payeur ; jamais « de la famille » (CF-93) | `paiements.attestation` | P10 |
+| PAY-221 | **Alerter sur un mandat porté par un compte joint** d'ex-conjoints à la séparation et inviter à re-signer | SYS → PAY | §7.2 ; mandat conservé jusqu'à révocation | `paiements.mandat_invitation` | P2 |
+| PAY-222 | **Suivre le paiement d'un organisme public** (mandatement, délai de paiement) | CPT · `paiements.lire` | R-P31 : pas de relance avant le délai ; relance à l'organisme seul | — | P14 |
+| PAY-223 | **Rapprocher le versement de bourse** des services académiques (par élève, par trimestre) avec la déduction prévue | CPT · `paiements.banque` | écart → tâche ; procuration vérifiée (24 §10.5) | `paiements.aide_recue` | P5 |
+| PAY-224 | **Reverser l'excédent de bourse** au bénéficiaire | SYS → CPT · `paiements.rembourser` ★ | bénéficiaire = personne qui a la charge de l'élève ou boursier majeur (R. 531-19, R. 531-35) | `paiements.credit_propose` | P7 |
+| PAY-225 | **Élève majeur** : signer son mandat ; mandat des parents écarté pour ses frais | ELM payeur | passkey | `paiements.mandat_signe` | P2 |
+| PAY-226 | **Mandat d'entité** pour les comptes consolidés d'un payeur | PAY, CPT | 24 §9.6 ; groupe consenti ; une RUM | `paiements.mandat_signe` | P2 (colonne), P3 (usage) |
+| PAY-227 | **Départ** : arrêter les prélèvements futurs à la date de radiation, échéancier de solde, remboursement ou compensation proposée | SYS → CPT | compensation avec le crédit du **même** payeur, la famille informée ; 24 F16 | `paiements.depart_traite` | P7 |
+| PAY-228 | **Relancer après départ** à la nouvelle adresse du payeur | CPT · `paiements.relancer` | R-P32 : rien au nouvel établissement | `paiements.relance_envoyee` | P6 |
+| PAY-229 | **Restituer une caution** (internat, badge, matériel), retenue motivée | CPT · `paiements.rembourser` ★ | IBAN vérifié ; motif de retenue | `paiements.caution_restituee` | P7 |
+| PAY-230 | **Paiement international hors SEPA** : virement avec référence, écart de frais ou de change signalé | CPT · `paiements.banque` | CF-89 ; aucune relance automatique de l'écart | — | P5 |
+| PAY-231 | **Prélever l'échéancier d'un voyage** sur le mandat existant | SYS | pré-notification spécifique ; engagement de voyage signé (24 FAC-233) | `paiements.lot_prepare` | P3 |
+| PAY-232 | **Imprimer les relances papier en lot** (mises en demeure, tri par adresse) | CPT, DIR | documents stockés (socle 7) | — | P6 |
+| PAY-233 | **Tenir la régie** (EPLE) : journal, plafond d'encaisse, versements au comptable, nomination du régisseur avec l'agrément de l'agent comptable | Régisseur · `paiements.caisse` | décret 2020-542, arrêté du 13/08/2020 ; l'ordonnateur n'est jamais régisseur | `paiements.versement_comptable` | P14 |
+| PAY-234 | **Exporter les encaissements de régie** et les bordereaux vers le comptable (Op@le [NV sur le format]) | Régisseur | 24 F13 | `paiements.ecritures_produites` | P14 |
+| PAY-235 | **Transmettre un impayé à l'agent comptable** (public) ; l'ordonnateur autorise ou non la poursuite | Ordonnateur ★ | R-P33 ; R. 421-68 ; à défaut, non-valeur proposée au CA | `paiements.transmis_comptable` | P14 |
+| PAY-236 | Voir le **journal des déchiffrements d'IBAN** (qui, quand, pour quel fichier) | DIR, DPO | R-P30 | — | 24 F15 |
+| PAY-237 | **Purger les IBAN** des mandats terminés depuis plus de 13 mois (durée validée par le DPO) | SYS | rapport au DPO | `paiements.purge` | 24 F15 |
+| PAY-238 | **Second regard** sur un remboursement vers un IBAN saisi depuis moins de 30 jours | autre CPT ou DIR ★ | R-P28 : délai de 48 h ; avis au payeur sur son canal habituel | `paiements.remboursements_valides` | P7 |
+| PAY-239 | **Refuser** qu'un personnel encaisse, impute ou rembourse sur son propre compte ou celui d'un proche déclaré | SYS | R-P29 ; contrôle à chaque geste | — | P1 |
 
 ---
 
@@ -478,9 +525,18 @@ Abréviations du 24 §17 ; ★ = N3.
 | R-P19 | **Aucune donnée de carte** dans ScolIA ; page hébergée ; notifications signées et idempotentes | P8 |
 | R-P20 | Un **crédit** est proposé au remboursement dès sa naissance ; jamais imputé sur un autre payeur | P7 |
 | R-P21 | IBAN **chiffré, masqué**, jamais dans un journal, un événement, une URL, un contexte d'IA ; déchiffré seulement pour le fichier bancaire et l'affichage masqué | F0 |
-| R-P22 | **Séparation des tâches** : saisie ≠ validation d'un lot au-delà du seuil ; proposition ≠ validation du créancier | P3 |
+| R-P22 | **Séparation des tâches** : saisie ≠ validation d'un lot au-delà du seuil ; proposition ≠ validation du créancier ; **(ajout personas)** dans un OGEC à une comptable, la direction ou son délégué (24 FAC-248) est le second regard par défaut | P3 |
 | R-P23 | Un **relevé importé deux fois** ne produit rien ; un **lot remis deux fois** est refusé | P3, P5 |
 | R-P24 | L'élève **n'est jamais** destinataire d'un avis de paiement, de rejet ou de relance ; il voit au plus le solde de son porte-monnaie | F0, P9 |
+| R-P25 | **(ajout personas)** **Surendettement** : à la date de recevabilité, relances et procédures **gelées** sur les échéances antérieures, **aucun prélèvement** de ces échéances (le débiteur n'a pas le droit de les payer, L. 722-5), échéances postérieures maintenues avec leur pré-notification ; état de créance préparé ; effacement = perte sans reprise ; aucune pression sur la famille ni sur l'élève | P13 |
+| R-P26 | **(ajout personas)** **Prévenance** : une difficulté signalée par la famille avant la validation du lot retire la ligne, sans rejet ni frais ; après validation, la comptabilité propose une revocation de la ligne si la banque le permet | P3 |
+| R-P27 | **(ajout personas)** **Paiement par un tiers** (C. civ. 1342-1 [NV]) accepté sur la **référence** d'une facture ; le tiers ne voit que son paiement et son reçu ; le payeur voit « paiement reçu d'un tiers » sans nom sauf accord ; aucun excédent n'est transféré d'un payeur à l'autre | P1 |
+| R-P28 | **(ajout personas)** **Remboursement vers un IBAN saisi depuis moins de 30 jours** : seconde validation par une autre personne, délai de 48 h, avis au payeur sur son canal habituel | P7 |
+| R-P29 | **(ajout personas)** **Aucun personnel** n'encaisse, n'impute, ne rembourse, ne révoque un mandat sur **son propre compte** ou celui d'un proche déclaré (24 R-F35) | P1, P7 |
+| R-P30 | **(ajout personas)** Tout **déchiffrement d'IBAN** est journalisé (acteur, objet, finalité : fichier bancaire, affichage masqué) ; jamais la valeur | F0 (minimal), 24 F15 |
+| R-P31 | **(ajout personas)** **Organisme payeur** : aucune relance avant l'échéance de paiement convenue (mandatement public) ; la relance va à l'organisme, **jamais** à la famille ni à l'élève | P14 |
+| R-P32 | **(ajout personas)** **Après un départ**, aucune information financière n'est transmise au nouvel établissement (D-013) ; la relance suit l'adresse du payeur | P6 |
+| R-P33 | **(ajout personas)** **Public (EPLE)** : l'ordonnateur liquide et propose ; l'**agent comptable** recouvre sur autorisation de poursuivre (R. 421-68) ; non-valeur et remise gracieuse votées par le CA (R. 421-69) ; régie selon le décret 2020-542 ; dans ScolIA, mise en demeure contentieuse et perte ne sont pas des gestes de l'ordonnateur | P14 |
 
 ---
 
@@ -600,7 +656,7 @@ ent_fin_paiements_journal (ajout seul)
 
 | Étape | Quoi | Garantie |
 |---|---|---|
-| MIG-P1 (F0) | voir 24 §24 MIG-1 et MIG-2 ; plus : IBAN créancier chiffré ; exclusions de l'export ; pré-notification exigée ; RUM serveur pour les nouveaux mandats | aucune donnée monétaire modifiée par script |
+| MIG-P1 (F0) | voir 24 §24 MIG-1 (**vérification** de RS3-01, RS3-02, 376–377, déjà sur `ENT` depuis `ee7706d3`, ajout personas) et MIG-2 ; plus : IBAN créancier chiffré ; exclusions de l'export ; pré-notification exigée ; RUM serveur pour les nouveaux mandats | aucune donnée monétaire modifiée par script |
 | MIG-P2 (P2) | `ent_fac_sepa_mandat` enrichie en `ent_fin_mandat` (colonnes ajoutées, renommage par vue de compatibilité) ; mandats existants : `preuve_signature_id` NULL, marqués « preuve non conservée » ; **invitation** des payeurs à re-signer en ligne à la rentrée suivante (pas de révocation automatique) ; `derniere_collecte_le` calculée | aucun mandat actif perdu |
 | MIG-P3 (P3) | `ent_fin_parametres.crediteur_*` → `ent_fin_creancier` (première version validée par la direction à la mise en service) | — |
 | MIG-P4 (P5) | `ent_bank_rapprochement` conservée en lecture (labo) ; nouvelles tables de relevés | — |
@@ -628,6 +684,10 @@ Le lot commun **F0** et l'ordre d'ensemble sont au **24 §25**.
 | **P10** attestations | paiement, frais de garde, quitus, relevé, en libre-service | P1 ; socle 7 | rien d'autre que les montants |
 | **P11** trésorerie et pilotage | prévisionnel d'encaissements, état des rejets, des impayés, écritures de banque par moyen vers le 48 | P5, P6 | écritures équilibrées |
 | **P12** IA | capacités §14 | P4, P6 ; `ent-ia` | aucun geste sans N3 ; aucun IBAN en contexte |
+| **P13** situations légales (ajout personas) | surendettement de bout en bout (PAY-213 à PAY-215, R-P25), recours contre un co-signataire solidaire (PAY-212, 24 R-F29), décès d'un co-signataire (24 CF-98) | P6 ; 24 F4 (signataires) ; socle 7 | 24 CF-73, CF-78, CF-79, CF-98 ; **aucun** prélèvement d'une échéance antérieure à la recevabilité (test) ; aucun recours sans décision ★ |
+| **P14** organismes publics et régie (ajout personas) | délais des organismes payeurs (PAY-222, R-P31), régie d'EPLE (PAY-233, PAY-234), transmission à l'agent comptable (PAY-235, R-P33) | P1, P6 ; 24 F13 | 24 CF-100 ; ordonnateur jamais régisseur (test) |
+
+**Compléments personas des lots existants** : **P1** paiement par un tiers (PAY-219), refus sur son propre compte (PAY-239) ; **P2** compte joint d'ex-conjoints (PAY-221), élève majeur (PAY-225), `entite_facturation_id` sur le mandat (PAY-226) ; **P3** report, prévenance, date au choix, voyage (PAY-216 à PAY-218, PAY-231) — **coût de plusieurs dates de lot à vérifier avec la banque** ; **P5** bourse (PAY-223), international (PAY-230) ; **P6** relance après départ (PAY-228), relances papier en lot (PAY-232), information en trois temps (CNIL) au palier 1 ; **P7** départ (PAY-227), excédent de bourse (PAY-224), caution (PAY-229), second regard IBAN neuf (PAY-238) ; **P10** attestation de ma part (PAY-220).
 
 ### 23.2 Migrations
 | Plage si Q-B2 | Repli | Lot | Contenu |
@@ -642,7 +702,9 @@ Le lot commun **F0** et l'ordre d'ensemble sont au **24 §25**.
 | 5507 | 547 | P8 | paiements en ligne |
 | 5508 | 548 | P9 | porte-monnaie |
 | 5509 | 549 | P10 | attestations |
-| 5510–5589 | 550–557 | réserve | P11, P12 et suivants |
+| 5510 | 550 | **P13** | (ajout personas) procédures de surendettement, recours |
+| 5511 | 551 | **P14** | (ajout personas) régies, transmissions à l'agent comptable |
+| 5512–5589 | 552–557 | réserve | P11, P12 et suivants ; colonnes personas de P2 (`entite_facturation_id`) et P3 (date choisie, report) dans les migrations de ces lots (541, 542) |
 | 5590–5599 | 558–559 | retrait | RLS stricte, retrait des tables et routes historiques (`ent_bank_rapprochement`, `ent_fac_rappel`) après archive |
 
 ---
@@ -692,12 +754,18 @@ Le lot commun **F0** et l'ordre d'ensemble sont au **24 §25**.
 | Q-P12 | Changement de l'IBAN créancier : double validation par deux personnes différentes et délai de 24 h ? | **Oui** (appliqué) : c'est la fraude la plus coûteuse du domaine. |
 | Q-P13 | Remboursement des trop-perçus par **virement** (lot pain.001) plutôt que par chèque ? | **Oui** (appliqué). |
 | Q-P14 | Plafond des espèces : refuser au-delà de 1 000 € (D. 112-3), réglage pour les non-résidents ? | **Oui** (appliqué). |
+| Q-P15 | (ajout personas) **Surendettement** : effets légaux automatiques à la date de recevabilité (gel, aucun prélèvement des échéances antérieures), état de créance préparé ? | **Oui** (appliqué, R-P25, P13) ; la déclaration de créance est envoyée par une personne. |
+| Q-P16 | (ajout personas) **Paiement pour le compte d'un autre payeur** sur référence ? | **Oui** (appliqué, R-P27, S-184) ; texte du C. civ. 1342-1 à relire [NV]. |
+| Q-P17 | (ajout personas) **Prévenance et report** à la demande de la famille (une fois par an) ? | **Oui** (appliqué, R-P26, S-181). |
+| Q-P18 | (ajout personas) **Deux dates de prélèvement** au choix (5 et 15) ? | **Oui sur le principe** (appliqué, S-180) ; **coût d'un second lot mensuel à vérifier avec la banque** (soumis à Florian). |
+| Q-P19 | (ajout personas) Remboursement vers un **IBAN neuf** : seconde validation et 48 h ? | **Oui** (appliqué, R-P28). |
+| Q-P20 | (ajout personas) **Recours contre un co-signataire solidaire** : désactivé par défaut, direction seulement ? | **Oui** (appliqué, S-183) ; **clause du contrat et pratique à faire valider par un juriste** (soumis, 24 Q-F26). |
 
 ---
 
 ## 27. Faits, hypothèses, contradictions
 
-**Faits [F]** : §2 et 24 §2 (code lu sur `origin/ENT` `5366c196`).
+**Faits [F]** : §2 et 24 §2 (code lu sur `origin/ENT` `5366c196`) ; **mise à jour personas** sur `ee7706d3` : RS3-01 (`ent-db/src/service.rs:18194-18205`), RS3-02 (`ent-db/src/fac_repo.rs:1028`, migration 376), export historique toujours en `GET` avec `cdtr_iban` en paramètre (`ent-api/src/routes.rs:11019-11038`).
 **Vérifié [V]** : §4 (rulebook EPC 2025 v1.1 lu en entier ; Légifrance ; Banque de France ; CNIL).
 **Hypothèses [H]** : pratiques des comptables (saisie de chèques en série, lecteurs de chèques) ; plan de comptes de banque (512, 530, 5112) à valider par l'expert-comptable ; disponibilité de camt.053 et d'EBICS chez la banque de l'OGEC ; usage d'EasyTransac côté Next.js (relevé par la matrice, non relu).
 **Contradictions relevées** :
@@ -705,3 +773,6 @@ Le lot commun **F0** et l'ordre d'ensemble sont au **24 §25**.
 2. Le S2-9 refacture les **frais de rejet** émis aussitôt et prévoit des **frais de relance** : contraires à CPCE L. 111-8 pour les seconds [V] ; à qualifier pour les premiers (24 Q-F21).
 3. `RECETTE_SECURITE_3.md` RS3-08 (mandat sans preuve, RUM du client) est classée « faible » : ce document la remonte au lot **F0** pour la RUM et au lot **P2** pour la preuve, parce qu'un litige de mandat se perd sans preuve (remboursement 13 mois).
 4. La version **pain.008.001.02** générée par l'existant n'est plus celle du standard EPC (version 2019, .001.08) [V] ; l'échéance du **15/11/2026** sur les adresses structurées est **dans cinq jours** : si l'établissement prélevait avec ScolIA, ce serait un bloquant ; ce n'est pas le cas aujourd'hui (le pilote prélève avec Charlemagne [H]), d'où sa place en F0 (vérification) et P3 (migration de format).
+5. **C-P5 (ajout personas)** : CF-58 interdit d'imputer sur le compte du père un paiement de la mère « sans accord écrit des deux » ; le paiement par un tiers non tenu est licite (C. civ. 1342-1 [NV]) ; tranché : accepté s'il **désigne** la référence de la facture (R-P27), sinon CF-58.
+6. **C-P6 (ajout personas)** : « chaque payeur ne doit que sa part » (§10.2, `conflit_parental`) suppose que la répartition limite la dette ; le débiteur contractuel peut être un co-signataire solidaire (24 §9.5) ; tranché : la relance suit la répartition, le recours est une décision (PAY-212).
+7. **C-P7 (ajout personas)** : §4.2 cite le décret 2019-798 pour les régies ; pour un EPLE, la référence est le décret **2020-542** (§4.5) ; corrigé.
