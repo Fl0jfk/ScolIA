@@ -1649,6 +1649,8 @@ pub struct CreerFactureLigneBody {
 #[derive(Debug, Deserialize)]
 pub struct CreerFactureBody {
     pub foyer_id: Uuid,
+    /// Ignoré (F0, FD-05) : le numéro est attribué par le serveur à l'émission.
+    #[serde(default)]
     pub numero: String,
     pub libelle: String,
     pub nature: Option<String>,
@@ -1711,6 +1713,8 @@ impl From<&domain_eleve::MandatSepa> for MandatSepaDto {
 #[derive(Debug, Deserialize)]
 pub struct CreerMandatSepaBody {
     pub foyer_id: Uuid,
+    /// Ignorée (F0, RS3-08) : la RUM est attribuée par le serveur.
+    #[serde(default)]
     pub rum: String,
     pub iban: String,
     pub bic: Option<String>,

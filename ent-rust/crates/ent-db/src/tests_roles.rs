@@ -470,7 +470,8 @@ fn controles_r2() -> Vec<(&'static str, Action, fn(&str) -> bool)> {
 
 fn ancien(role: Role, action: Action) -> bool {
     match action {
-        Action::FacturationGerer | Action::FacturationLire => role.can_manage_facturation(),
+        Action::FacturationGerer => role.can_manage_facturation(),
+        Action::FacturationLire => role.can_lire_facturation(),
         Action::BoursesGerer => role.can_manage_bourses(),
         Action::EdtGerer => role.can_manage_edt(),
         Action::AnnoncesPublier => role.can_publier_annonces(),
@@ -517,7 +518,7 @@ async fn r2_non_regression_profils_hors_et_dans_le_contexte() {
         }
         assert_eq!(
             PgEnt::role_can_lire_facturation(r),
-            role.can_manage_facturation(),
+            role.can_lire_facturation(),
             "lecture facturation {r}"
         );
     }

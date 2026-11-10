@@ -679,10 +679,36 @@ async fn mandat_actif_ou_cree(m: &Monde, foyer: Uuid) -> Uuid {
     uuid_de(&mandat.json["id"])
 }
 
-/// Prépare un prélèvement SEPA planifié (chemin historique) sur la facture de
-/// labo du foyer de Harry, via Direction de A. Renvoie `(prelevement_id, e2e)`.
+/// Facture émise **sans échéance** du foyer de Harry (F0, FD-04 : une facture à
+/// échéances ne se prélève plus par le chemin historique, la facture de labo en a).
+async fn facture_emise_sans_echeance(m: &Monde, total: i64) -> Uuid {
+    let dir = m.jeton(Direction).to_string();
+    let rep = m
+        .appel(
+            "POST",
+            "/facturation/factures",
+            Some(&dir),
+            Some(&json!({
+                "foyer_id": m.a.objets.foyer,
+                "libelle": "Recette RS3",
+                "lignes": [{ "libelle": "Cantine", "quantite": 1, "montant_unitaire_centimes": total }]
+            })),
+        )
+        .await;
+    assert!(rep.est_succes(), "facture : {} {}", rep.statut, rep.texte);
+    let id = uuid_de(&rep.json["facture"]["id"]);
+    let em = m
+        .appel("POST", &format!("/facturation/factures/{id}/emettre"), Some(&dir), None)
+        .await;
+    assert!(em.est_succes(), "émission : {} {}", em.statut, em.texte);
+    id
+}
+
+/// Prépare un prélèvement SEPA planifié (chemin historique) sur une facture émise
+/// du foyer de Harry, via Direction de A. Renvoie `(prelevement_id, e2e)`.
 async fn preparer_prelevement(m: &Monde) -> Option<(Uuid, String)> {
-    let facture = m.a.objets.facture?;
+    m.a.objets.facture?;
+    let facture = facture_emise_sans_echeance(m, 1_000).await;
     let foyer = m.a.objets.foyer;
     let dir = m.jeton(Direction).to_string();
     let mandat_id = mandat_actif_ou_cree(m, foyer).await;
@@ -791,8 +817,9 @@ fn rs3_02_double_encaissement_sepa_rejeu_et_concurrence() {
 #[test]
 fn rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel() {
     let Some(m) = monde() else { return };
-    let Some(facture) = m.a.objets.facture else { return };
+    let Some(_) = m.a.objets.facture else { return };
     rt().block_on(async {
+        let facture = facture_emise_sans_echeance(m, 1_000).await;
         let foyer = m.a.objets.foyer;
         let pool = pool_de_test().await;
         let (etab,): (Uuid,) = sqlx::query_as("SELECT etablissement_id FROM ent_foyer WHERE id = $1")
