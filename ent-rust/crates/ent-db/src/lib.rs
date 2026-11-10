@@ -61,6 +61,8 @@ mod pg_err;
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_communication;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m0a;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;

@@ -613,8 +613,11 @@ fn domaine_documents() {
 
 fn specs_domaine_fils_de_messages() -> Vec<Spec> {
     vec![
+            // M0a : le fil du labo lié à l'élève est un fil de vie scolaire (carnet) adressé aux
+            // responsables. L'élève ne le lit plus (D3) et un parent sans `peut_voir_vs`
+            // (ParentAutreFoyer, Draco) non plus (D5) ; le refus est exigé pour eux.
             lire("fil", "/messages/fils/{fil}",
-                &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer], GESTION_HORS_PROF),
+                &[Admin, Direction, Administratif, Cpe, Prof, Parent], GESTION_HORS_PROF),
             ecrire_sur_b("repondre-B", "POST", "/messages/fils/{fil}/repondre", Some(r#"{"corps":"separation"}"#)),
             ecrire_sur_b("archiver-B", "POST", "/messages/fils/{fil}/archiver", Some("{}")),
             ecrire_sur_b("ouvrir-fil-B", "POST", "/messages/fils",

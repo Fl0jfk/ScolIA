@@ -260,7 +260,7 @@ pub(crate) async fn responsables_de(
            FROM (
                 SELECT l.user_id, (array_agg(l.eleve_id ORDER BY l.eleve_id))[1] AS eleve_id,
                        count(DISTINCT l.eleve_id) AS nb
-                  FROM ent_eleve_lien_actif l
+                  FROM ent_eleve_lien_sollicitable l
                   JOIN ent_membership m
                     ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
                  WHERE l.etablissement_id = $1 AND l.eleve_id = ANY($2)

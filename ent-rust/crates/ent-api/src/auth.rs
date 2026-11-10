@@ -129,17 +129,6 @@ impl EntSession {
         }
     }
 
-    pub fn require_ecrire_carnet(&self) -> Result<(), (StatusCode, String)> {
-        if PgEnt::role_can_ecrire_carnet(&self.role) {
-            Ok(())
-        } else {
-            Err((
-                StatusCode::FORBIDDEN,
-                "rôle insuffisant pour écrire au carnet".into(),
-            ))
-        }
-    }
-
     /// D-017 (R2) : pré-filtre d'une route — l'acteur doit avoir `action` avec au
     /// moins une portée (rôle de base ou rôles paramétrés). Le contrôle par élève
     /// reste fait par le service (`autoriser_eleve`).

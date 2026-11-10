@@ -154,6 +154,8 @@ Note : le lot V0 (correctifs urgents, 5100 / 460) peut partir avant toute décis
 | 500–519 | socle 17, **repli** si Q-B2 n'est pas adoptée | — | réservé |
 
 Note : le lot **M0a** (correctifs urgents, 4600 / 480) peut partir avant toute décision sur Q-B2 ; il prend alors **480** (et M0b **481** s'il en a besoin), et la suite du socle garde la même correspondance.
+## Mise à jour du 2026-11-09 (socle 16 messagerie, lot M0a, `ent-socle-messagerie-m0a`)
+Q-B2 n'étant pas tranchée, M0a prend le **repli 480–499** prévu par `16_MESSAGERIE.md` §27.2. **480** `msg_m0a_fuites` écrite (vues `ent_eleve_lien_communicant` et `ent_eleve_lien_sollicitable` ; colonnes `ent_msg_fil.audience` et `ent_msg_fil.vie_scolaire` avec reprise des fils ouverts par un élève ; RLS permissive sur 17 tables de communication), insérée dans `migrate.rs` après 375. **`MIGRATION_TAG` = `480_msg_m0a_fuites`** (plus haute du répertoire). **481** réservée à M0b ; 482–491 aux lots M1 et suivants (§27.2, dans le même ordre) ; 492–497 réserve ; 498–499 RLS stricte et retraits (M17).
 ## Mise à jour du 2026-11-09 (correctifs de la recette de sécurité 3)
 
 Plage 376–379 (réservée à la recette 2, dont aucune migration n'a été écrite) reprise par la recette de sécurité 3 (`ent-recette-securite-3`) : **376** `sepa_unicite_encaissement` (RS3-02 : index uniques empêchant deux encaissements pour un même prélèvement) et **377** `edt_exception_absence_etab` (RS3-04 : clé étrangère composite `(etablissement_id, absence_rh_id)`, `NOT VALID`). Insérées dans `migrate.rs` après 375 ; `MIGRATION_TAG` = `377_edt_exception_absence_etab`. **378–379 restent libres.** À l'intégration, vérifier qu'aucune autre branche n'a pris 376 ou 377.

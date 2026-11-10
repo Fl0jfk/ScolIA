@@ -9,31 +9,68 @@ pub struct PgMsgRepo {
     pool: PgPool,
 }
 
+/// Portée de lecture d'un fil à sa création (M0a, D3 et D5).
+#[derive(Debug, Clone, Copy)]
+pub struct PorteeFil {
+    pub prive_user_id: Option<Uuid>,
+    pub foyer_id: Option<Uuid>,
+    /// `responsables` (défaut), `famille` ou `eleve`.
+    pub audience: &'static str,
+    pub vie_scolaire: bool,
+}
+
+impl PorteeFil {
+    /// Fil de l'établissement aux responsables, invisible de l'élève.
+    pub const fn responsables() -> Self {
+        Self { prive_user_id: None, foyer_id: None, audience: "responsables", vie_scolaire: false }
+    }
+
+    /// Fil de vie scolaire (carnet, alerte d'absences) aux responsables ayant le droit.
+    pub const fn vie_scolaire() -> Self {
+        Self { vie_scolaire: true, ..Self::responsables() }
+    }
+
+    /// Fil de relance de facture, réservé aux payeurs du foyer.
+    pub const fn foyer(foyer_id: Uuid) -> Self {
+        Self { foyer_id: Some(foyer_id), ..Self::responsables() }
+    }
+
+    /// Fil ouvert par un responsable : privé entre lui et l'établissement.
+    pub const fn prive_parent(user_id: Uuid) -> Self {
+        Self { prive_user_id: Some(user_id), ..Self::responsables() }
+    }
+
+    /// Fil ouvert par un élève : privé à l'élève et au personnel, jamais un parent.
+    pub const fn eleve(user_id: Uuid) -> Self {
+        Self { prive_user_id: Some(user_id), audience: "eleve", ..Self::responsables() }
+    }
+}
+
 impl PgMsgRepo {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
     pub async fn insert_fil(&self, fil: &MsgFil) -> Result<(), DomainError> {
-        self.insert_fil_portee(fil, None, None).await
+        self.insert_fil_portee(fil, PorteeFil::responsables()).await
     }
 
-    /// Insère un fil avec sa portée de lecture côté famille (D-014, RP1-11) :
-    /// `prive_user_id` = fil privé entre ce responsable et l'établissement ;
-    /// `foyer_id` = fil réservé aux payeurs de ce foyer (relance de facture).
+    /// Insère un fil avec sa portée de lecture (D-014, RP1-11 ; M0a D3 et D5) :
+    /// `prive_user_id` = fil privé entre ce compte et l'établissement ; `foyer_id` = fil réservé
+    /// aux payeurs de ce foyer (relance de facture) ; `audience` et `vie_scolaire` : voir
+    /// [`PorteeFil`].
     pub async fn insert_fil_portee(
         &self,
         fil: &MsgFil,
-        prive_user_id: Option<Uuid>,
-        foyer_id: Option<Uuid>,
+        portee: PorteeFil,
     ) -> Result<(), DomainError> {
         sqlx::query(
             r#"
             INSERT INTO ent_msg_fil (
                 id, etablissement_id, eleve_id, sujet, created_by_user_id,
                 created_at, last_message_at, archive, modele_id, priorite, dossier,
-                prive_user_id, foyer_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                prive_user_id, foyer_id, audience, vie_scolaire
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
             "#,
         )
         .bind(fil.id)
@@ -47,21 +84,28 @@ impl PgMsgRepo {
         .bind(fil.modele_id)
         .bind(fil.priorite.as_str())
         .bind(fil.dossier.as_deref())
-        .bind(prive_user_id)
-        .bind(foyer_id)
+        .bind(portee.prive_user_id)
+        .bind(portee.foyer_id)
+        .bind(portee.audience)
+        .bind(portee.vie_scolaire)
         .execute(&self.pool)
         .await
         .map_err(map_sqlx)?;
         Ok(())
     }
 
-    /// Parmi `fil_ids`, ceux qu'un compte **famille** (responsable ou élève) peut lire
-    /// (D-014, RP1-11) : jamais le fil privé d'un autre responsable ; un fil de relance
-    /// (`foyer_id`) seulement pour les payeurs actifs de ce foyer, jamais pour un élève.
+    /// Parmi `fil_ids`, ceux qu'un compte **famille** peut lire (D-014, RP1-11 ; M0a D1, D3, D5) :
+    /// - jamais le fil privé d'un autre compte ;
+    /// - un fil de relance (`foyer_id`) seulement pour les payeurs actifs de ce foyer, jamais
+    ///   pour un élève ;
+    /// - un parent : lien actif **non visé par une interdiction de communication** ; un fil de
+    ///   vie scolaire exige `peut_voir_vs` et l'autorité parentale ; jamais un fil `eleve` ;
+    /// - un élève : seulement les fils d'audience `eleve` ou `famille`.
     pub async fn fils_lisibles_famille(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
+        est_parent: bool,
         fil_ids: &[Uuid],
     ) -> Result<Vec<Uuid>, DomainError> {
         if fil_ids.is_empty() {
@@ -74,51 +118,122 @@ impl PgMsgRepo {
              WHERE f.etablissement_id = $1 AND f.id = ANY($2)
                AND (f.prive_user_id IS NULL OR f.prive_user_id = $3)
                AND (f.foyer_id IS NULL
-                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_actif l
+                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
                                 WHERE l.etablissement_id = f.etablissement_id
                                   AND l.eleve_id = f.eleve_id AND l.user_id = $3
                                   AND l.foyer_id = f.foyer_id AND l.est_payeur))
+               AND CASE WHEN $4 THEN
+                        f.audience IN ('famille', 'responsables')
+                        AND EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
+                                     WHERE l.etablissement_id = f.etablissement_id
+                                       AND l.eleve_id = f.eleve_id AND l.user_id = $3
+                                       AND (NOT f.vie_scolaire
+                                            OR (l.peut_voir_vs AND l.autorite_parentale)))
+                    ELSE
+                        f.audience IN ('famille', 'eleve') AND f.foyer_id IS NULL
+                    END
             "#,
         )
         .bind(etablissement_id)
         .bind(fil_ids)
         .bind(user_id)
+        .bind(est_parent)
         .fetch_all(&self.pool)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    /// Responsables à notifier pour ce fil : `None` = tous les liens actifs de l'élève ;
-    /// `Some(ids)` = seulement ceux-là (fil privé ou de foyer).
+    /// Parmi `fil_ids`, ceux qu'un **personnel** peut lire (M0a, D2). Un fil privé d'un parent
+    /// (`prive_user_id`, audience ≠ `eleve`) n'est lisible que si `prive_ok` (rôle nommé par la
+    /// conception : direction, CPE, secrétariat) ; un fil de relance (`foyer_id`) que si
+    /// `foyer_ok` (direction, secrétariat, comptabilité) ; dans les deux cas aussi par un
+    /// personnel qui y a écrit. Les autres fils ne dépendent pas de ces règles.
+    pub async fn fils_lisibles_personnel(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        prive_ok: bool,
+        foyer_ok: bool,
+        fil_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>, DomainError> {
+        if fil_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT f.id
+              FROM ent_msg_fil f
+             WHERE f.etablissement_id = $1 AND f.id = ANY($2)
+               AND ((f.foyer_id IS NULL AND (f.prive_user_id IS NULL OR f.audience = 'eleve'))
+                    OR ($4 AND f.foyer_id IS NULL)
+                    OR ($5 AND f.foyer_id IS NOT NULL)
+                    OR EXISTS (SELECT 1 FROM ent_msg m
+                                WHERE m.etablissement_id = f.etablissement_id
+                                  AND m.fil_id = f.id AND m.auteur_user_id = $3))
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(fil_ids)
+        .bind(user_id)
+        .bind(prive_ok)
+        .bind(foyer_ok)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Comptes responsables à notifier pour ce fil : `None` = tous les liens notifiables de
+    /// l'élève ; `Some(ids)` = seulement ceux-là (fil privé, de foyer, d'élève ou de vie
+    /// scolaire). Le filtre des liens interdits ou « ne pas solliciter » est appliqué ensuite.
     pub async fn destinataires_famille_fil(
         &self,
         etablissement_id: Uuid,
         fil_id: Uuid,
     ) -> Result<Option<Vec<Uuid>>, DomainError> {
-        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid)> = sqlx::query_as(
-            "SELECT prive_user_id, foyer_id, eleve_id FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
+        #[allow(clippy::type_complexity)]
+        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool)> = sqlx::query_as(
+            "SELECT prive_user_id, foyer_id, eleve_id, audience, vie_scolaire
+               FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etablissement_id)
         .bind(fil_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(map_sqlx)?;
-        let Some((prive, foyer, eleve)) = row else {
+        let Some((prive, foyer, eleve, audience, vie_scolaire)) = row else {
             return Ok(Some(Vec::new()));
         };
+        if audience == "eleve" {
+            // Le fil d'un élève n'est jamais annoncé à un parent.
+            return Ok(Some(Vec::new()));
+        }
         if let Some(u) = prive {
             return Ok(Some(vec![u]));
         }
         if let Some(fid) = foyer {
             let ids: Vec<(Uuid,)> = sqlx::query_as(
-                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_actif
+                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
                     WHERE etablissement_id = $1 AND eleve_id = $2 AND foyer_id = $3
                       AND est_payeur AND user_id IS NOT NULL"#,
             )
             .bind(etablissement_id)
             .bind(eleve)
             .bind(fid)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
+        }
+        if vie_scolaire {
+            let ids: Vec<(Uuid,)> = sqlx::query_as(
+                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
+                    WHERE etablissement_id = $1 AND eleve_id = $2
+                      AND peut_voir_vs AND autorite_parentale AND user_id IS NOT NULL"#,
+            )
+            .bind(etablissement_id)
+            .bind(eleve)
             .fetch_all(&self.pool)
             .await
             .map_err(map_sqlx)?;

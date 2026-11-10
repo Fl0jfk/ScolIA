@@ -9035,7 +9035,10 @@ async fn creer_carnet(
     Path(id): Path<Uuid>,
     Json(body): Json<CreerCarnetBody>,
 ) -> Result<(StatusCode, Json<CarnetEntreeDto>), (StatusCode, String)> {
-    session.require_ecrire_carnet()?;
+    // M0a (D9) : droit effectif « suivi.eleve » ; le contrôle par élève est dans le service.
+    session
+        .require_action(&state.ent, ent_auth::Action::SuiviEleve, "droit insuffisant pour écrire au carnet")
+        .await?;
     let categorie = CarnetCategorie::parse(&body.categorie).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -9718,7 +9721,7 @@ async fn list_msg_modeles(
 ) -> Result<Json<Vec<MsgModeleDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_msg_modeles_for_actor(session.etablissement_id, &session.role, !q.tous)
+        .list_msg_modeles_for_actor(session.etablissement_id, session.user_id, &session.role, !q.tous)
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(MsgModeleDto::from).collect()))
