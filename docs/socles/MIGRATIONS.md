@@ -152,3 +152,14 @@ Intégrées dans l'ordre croissant de `migrate.rs`, sans doublon (204 fichiers, 
 
 ## Mise à jour du 2026-11-10 (fusion de `origin/ENT` dans `ent-integration-lot11`)
 Fusion de la migration **460** (`eva_v0_correctifs`, V0 évaluations) avec 333–357 du lot 11 : ordre croissant dans `migrate.rs`, aucun doublon. `MIGRATION_TAG` = `460_eva_v0_correctifs` (la plus haute du répertoire). Compte des tables avec RLS : +18 (V0) ajoutés à celui du lot 11.
+
+## Mise à jour du 2026-11-10 (conception des socles 24 et 25, finances des familles)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 5400–5499 | socle 24 facturation (conception : `24_FINANCES.md` §25.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 5400–5410 attribuées (F0 correctifs urgents communs aux socles 24 et 25 : `RESTRICT` au lieu de `CASCADE`, déclencheurs d'immutabilité des pièces émises, numéro nul des brouillons, série, IBAN du créancier chiffré, relances sans frais, quantités ≥ 0 ; F1 journal et droits ; F2 comptes débiteurs ; F3 grilles versionnées, nature légale, TVA ; F4 engagements, sources, lignes en attente ; F5 pièces et documents ; F6 consommations ; F8 aides affectées ; F9 périodes ; F10 voyages ; F11 organismes et Chorus Pro), 5411–5489 réserve, 5490–5499 RLS stricte et retrait des tables historiques | `ent-socle-finances-conception` (conception seulement) | réservé |
+| 520–539 | socle 24, **repli** si Q-B2 n'est pas adoptée (520 = F0, 521–530 dans le même ordre, 531–537 réserve, 538–539 RLS et retraits) ; **F0 part en 520** (Q-B2 non adoptée à ce jour) ; le lot F0 **rapatrie aussi 376 et 377** de `ent-recette-securite-3` sous leur numéro d'origine | `ent-socle-finances-conception` (conception seulement) | réservé |
+| 5500–5599 | socle 25 paiements, prélèvements, recouvrement (conception : `25_PAIEMENTS.md` §23.2), si Q-B2 ; 5500–5509 attribuées (P1 à P10), 5510–5589 réserve, 5590–5599 retrait | idem | réservé |
+| 540–559 | socle 25, **repli** (540–549 dans le même ordre, 550–557 réserve, 558–559 retrait) | idem | réservé |
+| 5600–5699 / 560–579 | socle 26 bourses et aides, réservé pour éviter une collision (à détailler à sa conception) | — | réservé |
+
+Vérifié libre sur **toutes les branches distantes** le 2026-11-10 : plus haute migration écrite trouvée **480** (socle 16 M0a) ; plus haute réservation **500–519** (socle 17). Aucun fichier de migration ni ligne de `migrate.rs` n'a été ajouté par cette conception.
