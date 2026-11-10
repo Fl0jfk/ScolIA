@@ -1191,32 +1191,19 @@ async fn m0b_d16_piece_au_dela_de_256_kio_refusee_en_413_meme_si_le_reglage_est_
         v.extend_from_slice(b"\n%%EOF\n");
         v
     };
-    let attacher = |ent: &PgEnt, contenu: Vec<u8>| {
-        ent.attacher_piece_for_actor(
-            role(Role::Direction),
-            domain_eleve::AttacherPiece {
-                etablissement_id: etab,
-                message_id: message,
-                nom: "certificat.pdf".to_string(),
-                mime_type: "application/pdf".into(),
-                contenu,
-                actor_user_id: dir,
-            },
-        )
-    };
     // Témoin : une pièce de 100 Kio passe.
-    attacher(&ent, pdf(100 * 1024)).await.expect("témoin : pièce de 100 Kio");
+    attacher(&ent, etab, message, dir, pdf(100 * 1024)).await.expect("témoin : pièce de 100 Kio");
     // 300 Kio : refus de taille (HTTP 413), jamais une erreur de base (HTTP 500).
-    match attacher(&ent, pdf(300 * 1024)).await {
+    match attacher(&ent, etab, message, dir, pdf(300 * 1024)).await {
         Err(EntDbError::Fichier(e)) => assert!(e.est_taille(), "{e:?}"),
         autre => panic!("D16 : attendu un refus de taille, obtenu {autre:?}"),
     }
     // Au plus 5 pièces par message (R-M44).
     for _ in 0..4 {
-        attacher(&ent, pdf(10 * 1024)).await.expect("pièces 2 à 5");
+        attacher(&ent, etab, message, dir, pdf(10 * 1024)).await.expect("pièces 2 à 5");
     }
     assert!(matches!(
-        attacher(&ent, pdf(10 * 1024)).await,
+        attacher(&ent, etab, message, dir, pdf(10 * 1024)).await,
         Err(EntDbError::SaisieInvalide(_))
     ));
 }
@@ -1681,4 +1668,25 @@ async fn m0b_d24_piece_d_un_message_differe_introuvable_pour_la_famille() {
         "D24 : pièce d'un message différé lisible de la famille"
     );
     assert!(ent.telecharger_piece_for_actor(etab, dir, role(Role::Direction), piece.id).await.is_ok(), "l'auteur la garde");
+}
+
+async fn attacher(
+    ent: &PgEnt,
+    etab: Uuid,
+    message: Uuid,
+    auteur: Uuid,
+    contenu: Vec<u8>,
+) -> Result<domain_eleve::MsgPieceMeta, EntDbError> {
+    ent.attacher_piece_for_actor(
+        role(Role::Direction),
+        domain_eleve::AttacherPiece {
+            etablissement_id: etab,
+            message_id: message,
+            nom: "certificat.pdf".to_string(),
+            mime_type: "application/pdf".into(),
+            contenu,
+            actor_user_id: auteur,
+        },
+    )
+    .await
 }
