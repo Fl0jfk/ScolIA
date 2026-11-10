@@ -1048,6 +1048,51 @@ fn n(v: Option<i32>) -> String {
     v.map(|x| x.to_string()).unwrap_or_default()
 }
 
+/// Jours à écarter d'une série (fériés, vacances, fermetures de l'établissement) : lus dans la
+/// transaction du fait, avec le calendrier du socle 5 (`ent_jour_calendrier`, `ent_periode_vacances`).
+async fn jours_neutralises(
+    conn: &mut PgConnection,
+    a: &Acteur<'_>,
+    du: NaiveDate,
+    au: NaiveDate,
+) -> Result<std::collections::HashMap<NaiveDate, String>, EntDbError> {
+    let mut out = std::collections::HashMap::new();
+    let jours: Vec<(NaiveDate, String)> = sqlx::query_as(
+        "SELECT jour, kind FROM ent_jour_calendrier
+          WHERE etablissement_id = $1 AND jour BETWEEN $2 AND $3 AND kind IN ('ferme','ferie','vacances')",
+    )
+    .bind(a.etablissement_id)
+    .bind(du)
+    .bind(au)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    out.extend(jours);
+    let periodes: Vec<(String, NaiveDate, NaiveDate)> = sqlx::query_as(
+        "SELECT kind, debut, fin FROM ent_periode_vacances
+          WHERE etablissement_id = $1 AND debut <= $3 AND fin >= $2",
+    )
+    .bind(a.etablissement_id)
+    .bind(du)
+    .bind(au)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    for (kind, debut, fin) in periodes {
+        let code = match kind.as_str() {
+            "ferie" => "ferie",
+            "fermeture" => "ferme",
+            _ => "vacances",
+        };
+        let mut j = debut.max(du);
+        while j <= fin.min(au) {
+            out.entry(j).or_insert_with(|| code.to_string());
+            j += chrono::Duration::days(1);
+        }
+    }
+    Ok(out)
+}
+
 // ───────────────────────── Commandes : projet ─────────────────────────
 
 impl PgEnt {
@@ -1104,12 +1149,8 @@ impl PgEnt {
         gabarit.forme = "sans_nuitee".into();
         let v = valider_saisie(&gabarit)?;
 
-        let calendrier = self.calendrier_plage(a.etablissement_id, serie.du, serie.au).await?;
-        let exclus: std::collections::HashMap<NaiveDate, String> = calendrier
-            .iter()
-            .filter(|j| matches!(j.kind.as_str(), "ferie" | "vacances" | "ferme"))
-            .map(|j| (j.jour, j.kind.clone()))
-            .collect();
+        let mut t = tx(self, a).await?;
+        let exclus = jours_neutralises(&mut t, a, serie.du, serie.au).await?;
         let jours: HashSet<NaiveDate> = exclus.keys().copied().collect();
         let (retenues, ecartees) = dates_de_serie(serie.jour_semaine, serie.du, serie.au, &jours);
         if retenues.is_empty() {
@@ -1119,7 +1160,6 @@ impl PgEnt {
             ));
         }
 
-        let mut t = tx(self, a).await?;
         let porteur = personne_de(&mut t, a).await?.ok_or_else(|| {
             refus(RefusMetier::Interdit, "Ce compte n'est rattaché à aucune fiche de personnel.")
         })?;

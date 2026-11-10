@@ -971,6 +971,59 @@ async fn serie_hebdomadaire_ecarte_les_feries_et_se_valide_seance_par_seance() {
     assert_eq!(n, 1);
 }
 
+#[tokio::test]
+async fn serie_ecarte_aussi_les_periodes_de_vacances_et_refuse_une_serie_vide() {
+    let Some(c) = Cadre::nouveau().await else { return };
+    let prof = c.a(c.prof, Role::Prof);
+    let jour_sem = chrono::Datelike::weekday(&c.jour).number_from_monday();
+    // Une semaine de vacances (période du calendrier de l'établissement) autour de la 2e séance.
+    sqlx::query(
+        "INSERT INTO ent_periode_vacances (id, etablissement_id, libelle, kind, debut, fin, created_by_user_id)
+         VALUES ($1,$2,'Vacances test','vacances',$3,$4,$5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(c.etab)
+    .bind(c.jour + Duration::days(5))
+    .bind(c.jour + Duration::days(11))
+    .bind(c.dir)
+    .execute(c.ent.pool())
+    .await
+    .unwrap();
+    let mk = |du: NaiveDate, au: NaiveDate| SerieSaisie {
+        libelle: "Atelier".into(),
+        jour_semaine: jour_sem,
+        heure_debut: NaiveTime::from_hms_opt(14, 0, 0).unwrap(),
+        heure_fin: NaiveTime::from_hms_opt(15, 0, 0).unwrap(),
+        du,
+        au,
+        modele: c.saisie("Atelier", "sans_nuitee"),
+    };
+    let r = c.ent.voyage_serie_creer(&prof, mk(c.jour, c.jour + Duration::days(20))).await.unwrap();
+    assert_eq!(r.sorties.len(), 2, "3 semaines moins la semaine de vacances");
+    assert_eq!(r.ecartees.len(), 1);
+    assert_eq!(r.ecartees[0].motif, "vacances");
+    // Une plage entièrement en vacances : refusée, rien n'est créé.
+    let avant: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_sortie_serie WHERE etablissement_id = $1")
+        .bind(c.etab)
+        .fetch_one(c.ent.pool())
+        .await
+        .unwrap();
+    let e = c
+        .ent
+        .voyage_serie_creer(&prof, mk(c.jour + Duration::days(7), c.jour + Duration::days(7)))
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e), "{e:?}");
+    let apres: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_sortie_serie WHERE etablissement_id = $1")
+        .bind(c.etab)
+        .fetch_one(c.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(avant, apres, "aucune série vide en base");
+    // Une série de plus d'un an est refusée.
+    assert!(c.ent.voyage_serie_creer(&prof, mk(c.jour, c.jour + Duration::days(500))).await.is_err());
+}
+
 // ─────────────────────────── Corrections des défauts de Next.js ───────────────────────────
 
 #[tokio::test]

@@ -162,7 +162,8 @@ async fn commande(
 
 #[derive(Debug, Deserialize)]
 struct PorteurBody {
-    personne_id: Uuid,
+    /// Agent du personnel (annuaire du socle 6).
+    agent_id: Uuid,
 }
 
 async fn porteur(
@@ -173,7 +174,7 @@ async fn porteur(
 ) -> Res<Json<SortieLigne>> {
     Ok(Json(
         s.ent
-            .voyage_changer_porteur(&acteur(&session), id, b.personne_id)
+            .voyage_changer_porteur(&acteur(&session), id, b.agent_id)
             .await
             .map_err(map_db)?,
     ))
@@ -313,7 +314,8 @@ async fn retrait(
 
 #[derive(Debug, Deserialize)]
 struct EncadrantBody {
-    personne_id: Uuid,
+    /// Agent du personnel (annuaire du socle 6) : jamais un nom libre.
+    agent_id: Uuid,
     role: String,
 }
 
@@ -325,7 +327,7 @@ async fn encadrant_ajouter(
 ) -> Res<(StatusCode, Json<EncadrantVue>)> {
     let v = s
         .ent
-        .voyage_encadrant_ajouter(&acteur(&session), id, b.personne_id, &b.role)
+        .voyage_encadrant_ajouter(&acteur(&session), id, b.agent_id, &b.role)
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(v)))

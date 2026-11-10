@@ -697,8 +697,9 @@ fn Registre(id: Uuid, ecriture: Ecriture) -> impl IntoView {
                                         }
                                     });
                                 });
+                                let deja = e.deja_inscrit;
                                 let libelle = format!("{} {}", e.prenom, e.nom);
-                                view! { <Case id=format!("voy-eleve-{eid}") libelle=libelle coche=coche desactive=e.deja_inscrit/> }
+                                view! { <Case id=format!("voy-eleve-{eid}") libelle=libelle coche=coche desactive=Signal::derive(move || deja)/> }
                             }).collect_view()}
                         </fieldset>
                     }).collect_view()}
