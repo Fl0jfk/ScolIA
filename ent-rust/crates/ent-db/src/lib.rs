@@ -63,6 +63,8 @@ mod tests_l6;
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0a;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m0b;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -190,7 +192,12 @@ pub use auth_repo::{
 };
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
-pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce};
+pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
+pub mod messagerie_m0b;
+pub use messagerie_m0b::{
+    ApercuAnnonce, FilOuvert, LienAVerifier, MessageEnvoye, OptionsEnvoiMessage, PageFils,
+    ParamsListeFils, ReglagePlageCalme, ReglagePlageCalmeSaisie,
+};
 pub use domain_eleve::{
     DeclarerRetard, GroupeChamps, GroupesAutorises, MasqueChamps, NiveauIdentite, ProfilChamps,
     Retard,

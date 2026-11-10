@@ -32,6 +32,9 @@ use crate::fac_repo::PgFacRepo;
 use crate::infirmerie_repo::PgInfirmerieRepo;
 use crate::psy_repo::PgPsyRepo;
 use crate::msg_repo::{PgMsgRepo, PorteeFil};
+use crate::messagerie_m0b::{
+    FilOuvert, MessageEnvoye, OptionsEnvoiMessage, PageFils, ParamsListeFils,
+};
 
 /// Titre des push de messagerie : jamais le sujet du fil (M0a, D4).
 const TITRE_PUSH_MESSAGE: &str = "Nouveau message";
@@ -124,7 +127,7 @@ use domain_eleve::{
     CreerMandatSepa, CreerMsgModele, CreerPassageInfirmerie, CreerRdvPsy, DossierPsy, Echeance,
     EcheanceVue, EdtCalendrierAb, EdtException, EdtExceptionKind, EdtSemaineAb, EleveInvitation,
     FicheSante, Encaissement, EncaisserFacture, EntretienPsy, ExporterOgec, Facture, FactureLigne,
-    FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele, MsgPriorite,
+    FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele,
     MsgPiece, MsgPieceMeta, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
     PoserEcheancier, PoserEdtException, PrelevementSepa, Quittance, RappelCanal, RappelFacture,
     RdvPsy, RepondreFil, UpsertDossierPsy, UpsertFicheSante, NATURE_CANTINE_BADGE,
@@ -188,7 +191,8 @@ use domain_eleve::{
     CreerEntreprise, Entreprise,
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte,
 };
-use domain_eleve::{plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce};
+use domain_eleve::Annonce;
+use domain_eleve::{MSG_PIECES_MAX_PAR_MESSAGE, MSG_PIECE_MAX_OCTETS};
 use domain_eleve::{plan_declarer_retard, DeclarerRetard, NiveauIdentite, Retard};
 use domain_eleve::{
     plan_creer_competence_item, plan_evaluer_competence, render_livret_competences_pdf,
@@ -970,6 +974,10 @@ impl PgEnt {
         &self.auth
     }
 
+    pub(crate) fn events_bus(&self) -> &PgEventStore {
+        &self.events
+    }
+
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
     }
@@ -1194,48 +1202,6 @@ impl PgEnt {
             actor_user_id,
             attachments,
             Some(emails),
-        )
-        .await
-    }
-
-    /// Diffusion : anti-doublon **par destinataire** (élève). Plusieurs familles
-    /// peuvent partager la même `source_id` (ex. annonce établissement) sans se
-    /// bloquer mutuellement.
-    #[allow(clippy::too_many_arguments)]
-    async fn notify_parents_mail_broadcast(
-        &self,
-        etablissement_id: Uuid,
-        eleve_id: Uuid,
-        kind: &str,
-        subject: &str,
-        body_text: &str,
-        source_aggregate: &str,
-        source_id: Uuid,
-        actor_user_id: Option<Uuid>,
-        attachments: Vec<MailAttachment>,
-    ) -> Result<usize, EntDbError> {
-        if !self.mailer.is_ready() {
-            return Ok(0);
-        }
-        if self
-            .mail_outbox
-            .count_by_source_kind_eleve(etablissement_id, source_id, kind, eleve_id)
-            .await?
-            > 0
-        {
-            return Ok(0);
-        }
-        self.envoyer_mail_parents(
-            etablissement_id,
-            eleve_id,
-            kind,
-            subject,
-            body_text,
-            source_aggregate,
-            source_id,
-            actor_user_id,
-            attachments,
-            None,
         )
         .await
     }
@@ -1528,44 +1494,6 @@ impl PgEnt {
         .await
     }
 
-    /// Diffusion : anti-doublon **par destinataire** (élève) — plusieurs familles
-    /// peuvent partager la même `source_id` (ex. annonce établissement).
-    #[allow(clippy::too_many_arguments)]
-    async fn notify_parents_push_broadcast(
-        &self,
-        etablissement_id: Uuid,
-        eleve_id: Uuid,
-        kind: &str,
-        title: &str,
-        body: &str,
-        source_aggregate: &str,
-        source_id: Uuid,
-        actor_user_id: Option<Uuid>,
-    ) -> Result<usize, EntDbError> {
-        if !self.push.is_ready() {
-            return Ok(0);
-        }
-        if self
-            .push_devices
-            .count_by_source_kind_eleve(etablissement_id, source_id, kind, eleve_id)
-            .await?
-            > 0
-        {
-            return Ok(0);
-        }
-        self.envoyer_push_parents(
-            etablissement_id,
-            eleve_id,
-            kind,
-            title,
-            body,
-            source_aggregate,
-            source_id,
-            actor_user_id,
-        )
-        .await
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn envoyer_push_parents(
         &self,
@@ -1692,7 +1620,30 @@ impl PgEnt {
             {
                 Ok(r) => r,
                 Err(e) => {
+                    // M0b (D14) : une panne du fournisseur n'est plus invisible : la ligne
+                    // d'envoi en échec est conservée (le texte de l'erreur, sans jeton).
                     tracing::error!(canal = "push", kind = %kind, error = %e, "envoi échoué");
+                    if let Err(e2) = self
+                        .push_devices
+                        .insert_outbox(InsertPushOutbox {
+                            etablissement_id,
+                            eleve_id: Some(eleve_id),
+                            user_id: Some(device.user_id),
+                            kind: kind.to_string(),
+                            title: title.to_string(),
+                            body: body.to_string(),
+                            platform: Some(device.platform.clone()),
+                            token: Some(device.token.clone()),
+                            status: ent_push::PushSendStatus::Failed,
+                            error: Some(e.to_string()),
+                            source_aggregate: Some(source_aggregate.to_string()),
+                            source_id: Some(source_id),
+                            message_id: None,
+                        })
+                        .await
+                    {
+                        tracing::error!(canal = "push", error = %e2, "trace de l'échec d'envoi impossible");
+                    }
                     continue;
                 }
             };
@@ -13521,112 +13472,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Self::peut_etablissement(role, Action::AnnoncesPublier)
     }
 
-    /// Publie une annonce de l'établissement. Répercussions transverses :
-    /// événement `annonce.publiee`, entrée journal, et — si l'audience touche
-    /// les familles — notification mail + push **de chaque famille ciblée**
-    /// (anti-doublon par destinataire, cf. `notify_parents_*_broadcast`).
-    pub async fn publier_annonce_for_actor(
-        &self,
-        role: &str,
-        cmd: CreerAnnonce,
-    ) -> Result<Annonce, EntDbError> {
-        if !Self::role_can_publier_annonces(role) {
-            return Err(EntDbError::Forbidden);
-        }
-        let planned = plan_creer_annonce(cmd)?;
-        self.annonces.insert(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::ANNONCE_PUBLIEE.to_string(),
-                aggregate: AggregateKind::Annonce,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "titre": planned.titre,
-                    "audience": planned.audience.as_str(),
-                    "cible_classe": planned.cible_classe,
-                }),
-                actor_user_id: Some(planned.auteur_user_id.to_string()),
-            })
-            .await?;
-        self.enregistrer_journal_interne(EnregistrerJournal {
-            etablissement_id: planned.etablissement_id,
-            eleve_id: None,
-            domaine: "communication".into(),
-            action: "annonce_publiee".into(),
-            libelle: format!(
-                "Annonce « {} » diffusée ({})",
-                planned.titre,
-                planned.audience.as_str()
-            ),
-            payload: json!({
-                "annonce_id": planned.id,
-                "audience": planned.audience.as_str(),
-                "cible_classe": planned.cible_classe,
-            }),
-            visible_famille: planned.audience.touche_parents(),
-            actor_user_id: Some(planned.auteur_user_id),
-        })
-        .await?;
-
-        if planned.audience.touche_parents() {
-            self.diffuser_annonce_aux_familles(&planned).await;
-        }
-        Ok(planned)
-    }
-
-    /// Projette une annonce vers les familles ciblées : un mail + un push par
-    /// élève (donc par foyer), sans jamais bloquer le geste si un envoi échoue.
-    async fn diffuser_annonce_aux_familles(&self, a: &Annonce) {
-        let jour = chrono::Utc::now().date_naive();
-        let eleves = match a.audience {
-            AudienceAnnonce::Classe => {
-                let classe = a.cible_classe.clone().unwrap_or_default();
-                self.eleves
-                    .list_en_classe_au(a.etablissement_id, &classe, jour)
-                    .await
-                    .unwrap_or_default()
-            }
-            _ => self
-                .eleves
-                .list_actifs_au(a.etablissement_id, jour)
-                .await
-                .unwrap_or_default(),
-        };
-        let subject = format!("Annonce — {}", a.titre);
-        // M0a (D4) : pas de contenu dans un push ; le texte est dans l'ENT et l'e-mail.
-        let push_titre = "Annonce de l'établissement";
-        let push_body = "Nouvelle annonce — ouvrez ScolIA pour la lire.";
-        for e in eleves {
-            let _ = self
-                .notify_parents_mail_broadcast(
-                    a.etablissement_id,
-                    e.id,
-                    "annonce",
-                    &subject,
-                    &a.corps,
-                    "annonce",
-                    a.id,
-                    Some(a.auteur_user_id),
-                    Vec::new(),
-                )
-                .await;
-            let _ = self
-                .notify_parents_push_broadcast(
-                    a.etablissement_id,
-                    e.id,
-                    "annonce",
-                    push_titre,
-                    push_body,
-                    "annonce",
-                    a.id,
-                    Some(a.auteur_user_id),
-                )
-                .await;
-        }
-    }
-
     /// Annonces de l'établissement (vue staff / communication).
     pub async fn list_annonces_for_actor(
         &self,
@@ -13653,9 +13498,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let eleve = self
             .charger_eleve_si_autorise(etablissement_id, user_id, role, eleve_id)
             .await?;
+        // M0b (D18) : par identifiant de classe (affectations du jour), pas par libellé.
+        let classes = self.classes_de_eleve(etablissement_id, eleve_id).await?;
         Ok(self
             .annonces
-            .list_visibles_famille(etablissement_id, eleve.classe.as_deref(), 100)
+            .list_visibles_famille(etablissement_id, &classes, eleve.classe.as_deref(), 100)
             .await?)
     }
 
@@ -17499,17 +17346,29 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(false)
     }
 
-    /// Rôles de base nommés par la règle provisoire de la conception (M0a, D2) : un fil
-    /// privé d'un parent n'est lisible que de la direction, de la CPE et du secrétariat ;
-    /// une relance de facture que de la direction, du secrétariat et de la comptabilité.
-    /// Dans les deux cas, aussi des personnels qui y ont écrit.
-    fn role_lit_fils_reserves(role: &str) -> (bool, bool) {
-        match Role::parse(role) {
-            Some(Role::Admin | Role::Direction | Role::Administratif) => (true, true),
-            Some(Role::Cpe) => (true, false),
-            Some(Role::Compta) => (false, true),
-            _ => (false, false),
-        }
+    /// Droits de lecture des fils réservés d'un personnel.
+    ///
+    /// - `reserve` : le droit D-017 `messagerie.fils_reserves.lire` (M0b, D26) ouvre les fils
+    ///   privés des parents et des élèves et les fils du personnel aux responsables ; il remplace
+    ///   la liste de rôles de base de M0a (D2) et peut être donné à un rôle paramétré (un AED).
+    /// - `foyer` : les relances de facture restent à la direction, au secrétariat et à la
+    ///   comptabilité (inchangé).
+    ///
+    /// Dans les deux cas, aussi le personnel qui a écrit dans le fil.
+    async fn lit_fils_reserves(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<(bool, bool), EntDbError> {
+        let reserve = self
+            .a_action_etablissement(etablissement_id, user_id, role, Action::MessagerieFilsReserves)
+            .await?;
+        let foyer = matches!(
+            Role::parse(role),
+            Some(Role::Admin | Role::Direction | Role::Administratif | Role::Compta)
+        );
+        Ok((reserve, foyer))
     }
 
     /// Accès à un fil existant (socle 1, B2) : règle de l'élève du fil. Pour un
@@ -17542,30 +17401,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .await?
                 .contains(&fil.id));
         }
-        // M0a (D2) : le personnel ne lit pas tout fil privé ou de foyer de l'élève qu'il suit.
-        let (prive_ok, foyer_ok) = Self::role_lit_fils_reserves(role);
+        // M0a (D2), M0b (D21, D22) : le personnel ne lit pas tout fil de l'élève qu'il suit.
+        let (reserve_ok, foyer_ok) = self
+            .lit_fils_reserves(etablissement_id, actor_user_id, role)
+            .await?;
         Ok(self
             .messages
-            .fils_lisibles_personnel(etablissement_id, actor_user_id, prive_ok, foyer_ok, &[fil.id])
+            .fils_lisibles_personnel(etablissement_id, actor_user_id, reserve_ok, foyer_ok, &[fil.id])
             .await?
             .contains(&fil.id))
-    }
-
-    /// Ne garde que les fils lisibles par ce personnel (M0a, D2).
-    async fn filtrer_fils_personnel(
-        &self,
-        etablissement_id: Uuid,
-        user_id: Uuid,
-        role: &str,
-        fils: Vec<MsgFil>,
-    ) -> Result<Vec<MsgFil>, EntDbError> {
-        let ids: Vec<Uuid> = fils.iter().map(|f| f.id).collect();
-        let (prive_ok, foyer_ok) = Self::role_lit_fils_reserves(role);
-        let ok = self
-            .messages
-            .fils_lisibles_personnel(etablissement_id, user_id, prive_ok, foyer_ok, &ids)
-            .await?;
-        Ok(fils.into_iter().filter(|f| ok.contains(&f.id)).collect())
     }
 
     /// Ne garde que les fils lisibles par un compte famille (D-014, RP1-11).
@@ -17584,11 +17428,44 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(fils.into_iter().filter(|f| ok.contains(&f.id)).collect())
     }
 
+    /// Ouvre un fil (compatibilité) : retourne le premier fil créé. Pour un personnel qui écrit
+    /// « aux responsables » d'un élève à plusieurs foyers, plusieurs fils sont créés (un par
+    /// foyer, M0b D22) : voir [`Self::ouvrir_fils_for_actor`].
     pub async fn ouvrir_fil_for_actor(
         &self,
         role: &str,
         cmd: OuvrirFil,
     ) -> Result<(MsgFil, Message), EntDbError> {
+        let mut fils = self
+            .ouvrir_fils_for_actor(role, cmd, OptionsEnvoiMessage::default())
+            .await?;
+        let premier = fils.remove(0);
+        Ok((premier.fil, premier.message))
+    }
+
+    /// Ouvre un ou plusieurs fils (M0b) :
+    /// - parent : un fil privé entre lui et l'établissement (D-014) ;
+    /// - élève : un fil privé à l'élève et au personnel qui y écrit, jamais un parent (M0a D3) ;
+    /// - personnel, élève **mineur** : **un fil par foyer** de liens communicants (D22), chacun
+    ///   lu des seuls responsables de ce foyer ; un responsable sans foyer a son fil privé ;
+    /// - personnel, élève **majeur** : un fil adressé à l'élève, jamais à ses parents (D23).
+    pub async fn ouvrir_fils_for_actor(
+        &self,
+        role: &str,
+        cmd: OuvrirFil,
+        options: OptionsEnvoiMessage,
+    ) -> Result<Vec<FilOuvert>, EntDbError> {
+        self.ouvrir_fils_a(role, cmd, options, None, Utc::now()).await
+    }
+
+    pub(crate) async fn ouvrir_fils_a(
+        &self,
+        role: &str,
+        cmd: OuvrirFil,
+        options: OptionsEnvoiMessage,
+        modele_id: Option<Uuid>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<Vec<FilOuvert>, EntDbError> {
         let can = self
             .actor_can_access_msg_fil(
                 cmd.etablissement_id,
@@ -17605,44 +17482,303 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let (fil, msg) = plan_ouvrir_fil(cmd)?;
+        // Validation (vide, longueurs) avant toute écriture.
+        let (modele, _) = plan_ouvrir_fil(cmd.clone())?;
+        drop(modele);
+        let portees = self.portees_ouverture(role, &cmd).await?;
+        let (remise, derogation) = self
+            .remise_et_derogation(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                options.urgence_motif.as_deref(),
+                maintenant,
+            )
+            .await?;
+        let auteur_famille = matches!(Role::parse(role), Some(Role::Parent | Role::Eleve));
+        let mut ouverts = Vec::with_capacity(portees.len());
+        for portee in portees {
+            let (mut fil, msg) = plan_ouvrir_fil(cmd.clone())?;
+            fil.modele_id = modele_id;
+            self.messages.insert_fil_portee(&fil, portee).await?;
+            self.messages
+                .insert_message_remise(
+                    &msg,
+                    remise,
+                    derogation.as_ref().map(|(m, u)| (m.as_str(), *u)),
+                )
+                .await?;
+            let mut payload = json!({ "message_id": msg.id });
+            if let Some(m) = modele_id {
+                payload["modele_id"] = json!(m);
+            }
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: fil.etablissement_id,
+                    type_name: types::MSG_FIL_OUVERT.to_string(),
+                    aggregate: AggregateKind::MsgFil,
+                    aggregate_id: fil.id,
+                    eleve_id: Some(fil.eleve_id),
+                    // M0a (D4) : jamais le sujet dans un événement immuable.
+                    payload,
+                    actor_user_id: Some(fil.created_by_user_id.to_string()),
+                })
+                .await?;
+            if let Some((motif_len, _)) = derogation.as_ref().map(|(m, u)| (m.len(), *u)) {
+                // Dérogation tracée (le motif est dans la ligne du message, pas dans l'événement).
+                self.events
+                    .publish(MetierEventDraft {
+                        etablissement_id: fil.etablissement_id,
+                        type_name: types::MSG_DEROGATION_PLAGE.to_string(),
+                        aggregate: AggregateKind::MsgFil,
+                        aggregate_id: fil.id,
+                        eleve_id: Some(fil.eleve_id),
+                        payload: json!({ "message_id": msg.id, "motif_caracteres": motif_len }),
+                        actor_user_id: Some(fil.created_by_user_id.to_string()),
+                    })
+                    .await?;
+            }
+            if auteur_famille {
+                self.prevenir_personnels_famille(&fil, &msg, maintenant).await;
+            } else {
+                self.avertir_famille_message(
+                    &fil,
+                    msg.id,
+                    "messagerie",
+                    "Nouveau message — ouvrez le portail famille.",
+                    remise,
+                    fil.created_by_user_id,
+                )
+                .await;
+            }
+            ouverts.push(FilOuvert { fil, message: msg, remise_prevue_le: remise });
+        }
+        Ok(ouverts)
+    }
+
+    /// Portées des fils à créer (M0b D22, D23) : voir [`Self::ouvrir_fils_for_actor`].
+    async fn portees_ouverture(
+        &self,
+        role: &str,
+        cmd: &OuvrirFil,
+    ) -> Result<Vec<PorteeFil>, EntDbError> {
         // D-014 (RP1-11) : un fil ouvert par un responsable reste privé entre lui et
         // l'établissement. M0a (D3) : un fil ouvert par un élève est privé à l'élève (et au
-        // personnel), jamais lu d'un parent ; un fil ouvert par l'établissement est adressé
-        // aux responsables, jamais lu de l'élève.
-        let portee = match Role::parse(role) {
-            Some(Role::Parent) => PorteeFil::prive_parent(fil.created_by_user_id),
-            Some(Role::Eleve) => PorteeFil::eleve(fil.created_by_user_id),
-            _ => PorteeFil::responsables(),
-        };
-        self.messages.insert_fil_portee(&fil, portee).await?;
-        self.messages.insert_message(&msg).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: fil.etablissement_id,
-                type_name: types::MSG_FIL_OUVERT.to_string(),
-                aggregate: AggregateKind::MsgFil,
-                aggregate_id: fil.id,
-                eleve_id: Some(fil.eleve_id),
-                // M0a (D4) : jamais le sujet dans un événement immuable.
-                payload: json!({
-                    "message_id": msg.id,
-                }),
-                actor_user_id: Some(fil.created_by_user_id.to_string()),
-            })
+        // personnel), jamais lu d'un parent.
+        match Role::parse(role) {
+            Some(Role::Parent) => return Ok(vec![PorteeFil::prive_parent(cmd.actor_user_id)]),
+            Some(Role::Eleve) => return Ok(vec![PorteeFil::eleve(cmd.actor_user_id)]),
+            _ => {}
+        }
+        let jour = self.aujourdhui_etablissement(cmd.etablissement_id).await?;
+        if self
+            .eleve_est_majeur(cmd.etablissement_id, cmd.eleve_id, jour)
+            .await?
+        {
+            // D23 : adressé à l'élève majeur ; les parents n'y entrent que selon les droits
+            // conservés du socle 4 (aucun droit de ce type n'existe encore : jamais).
+            return Ok(vec![PorteeFil::eleve_majeur()]);
+        }
+        let groupes = self
+            .messages
+            .groupes_communicants(cmd.etablissement_id, cmd.eleve_id)
             .await?;
-        let _ = self
-            .notify_parents_push_fil(
-                &fil,
-                "messagerie",
-                TITRE_PUSH_MESSAGE,
-                "Nouveau message — ouvrez le portail famille.",
-                "msg_fil",
-                fil.id,
-                Some(fil.created_by_user_id),
+        if groupes.is_empty() {
+            // Aucun responsable joignable : fil du personnel seul, lu de personne d'autre.
+            return Ok(vec![PorteeFil::responsables()]);
+        }
+        let mut portees = Vec::new();
+        for (foyer, users) in groupes {
+            match foyer {
+                Some(f) => portees.push(PorteeFil::responsables_du_foyer(f)),
+                // Sans foyer, rien ne dit que deux liens se connaissent : un fil par responsable.
+                None => portees.extend(users.into_iter().map(PorteeFil::prive_parent)),
+            }
+        }
+        Ok(portees)
+    }
+
+    /// Instant de remise différée par la plage calme et dérogation éventuelle (M0b, D24).
+    ///
+    /// Seul le message d'un **personnel** est différé (vers une famille ou un élève) ; la
+    /// famille qui écrit est enregistrée tout de suite. La direction (`messagerie.urgence_hors_plage`)
+    /// remet immédiatement avec un motif, tracé dans la ligne du message.
+    async fn remise_et_derogation(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        urgence_motif: Option<&str>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(Option<DateTime<Utc>>, Option<(String, Uuid)>), EntDbError> {
+        if !Role::parse(role).is_some_and(|r| r.is_staff()) {
+            return Ok((None, None));
+        }
+        let (remise,): (Option<DateTime<Utc>>,) =
+            sqlx::query_as("SELECT ent_msg_remise_calme($1, $2)")
+                .bind(etablissement_id)
+                .bind(maintenant)
+                .fetch_one(&self.pool)
+                .await?;
+        let Some(remise) = remise else {
+            return Ok((None, None));
+        };
+        let motif = urgence_motif.map(str::trim).filter(|m| !m.is_empty());
+        let Some(motif) = motif else {
+            return Ok((Some(remise), None));
+        };
+        if !self
+            .a_action_etablissement(
+                etablissement_id,
+                actor_user_id,
+                role,
+                Action::MessagerieUrgenceHorsPlage,
             )
-            .await;
-        Ok((fil, msg))
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        let motif: String = motif.chars().filter(|c| !c.is_control()).take(300).collect();
+        Ok((None, Some((motif, actor_user_id))))
+    }
+
+    /// Avis au responsable (M0b D24, D14) : immédiat, ou différé à la fin de la plage calme par
+    /// la chaîne S2-8 (retries, statut, relecture du droit à l'envoi). Jamais bloquant ; les
+    /// erreurs sont journalisées.
+    async fn avertir_famille_message(
+        &self,
+        fil: &MsgFil,
+        message_id: Uuid,
+        kind: &str,
+        corps: &str,
+        remise: Option<DateTime<Utc>>,
+        auteur: Uuid,
+    ) {
+        let r = match remise {
+            None => self
+                .notify_parents_push_fil(
+                    fil,
+                    kind,
+                    TITRE_PUSH_MESSAGE,
+                    corps,
+                    "msg_message",
+                    message_id,
+                    Some(auteur),
+                )
+                .await
+                .map(|_| ()),
+            Some(quand) => self
+                .planifier_avis_differe(fil, message_id, corps, quand, auteur)
+                .await
+                .map(|_| ()),
+        };
+        if let Err(e) = r {
+            tracing::error!(canal = "messagerie", fil = %fil.id, error = %e, "avis de message non émis");
+        }
+    }
+
+    /// Planifie, dans la file S2-8, l'avis push d'un message différé : un envoi par responsable
+    /// destinataire, à `quand`, dédoublonné par message.
+    async fn planifier_avis_differe(
+        &self,
+        fil: &MsgFil,
+        message_id: Uuid,
+        corps: &str,
+        quand: DateTime<Utc>,
+        auteur: Uuid,
+    ) -> Result<usize, EntDbError> {
+        let seulement = self
+            .messages
+            .destinataires_famille_fil(fil.etablissement_id, fil.id)
+            .await?;
+        let sollicitables_seulement = !seulement
+            .as_ref()
+            .is_some_and(|s| s.len() == 1 && s[0] == fil.created_by_user_id);
+        let liens = self
+            .foyers
+            .list_liens_eleve_actifs(fil.etablissement_id, fil.eleve_id, sollicitables_seulement)
+            .await?;
+        let mut users: Vec<Uuid> = liens
+            .iter()
+            .map(|l| l.user_id)
+            .filter(|u| *u != auteur && seulement.as_ref().is_none_or(|s| s.contains(u)))
+            .collect();
+        users.sort();
+        users.dedup();
+        let mut crees = 0usize;
+        for u in users {
+            let r = sqlx::query(
+                "INSERT INTO ent_notification_envoi
+                    (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
+                     source_type, source_id, cle_dedup, droit_requis, planifie_pour)
+                 VALUES ($1,$2,$3,'push','messagerie',$4,$5,$6,'systeme',$7,$8,'lien',$9)
+                 ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
+            )
+            .bind(Uuid::new_v4())
+            .bind(fil.etablissement_id)
+            .bind(u)
+            .bind(TITRE_PUSH_MESSAGE)
+            .bind(corps)
+            .bind(fil.eleve_id)
+            .bind(message_id)
+            .bind(format!("msg-avis:{message_id}"))
+            .bind(quand)
+            .execute(&self.pool)
+            .await?;
+            crees += r.rows_affected() as usize;
+        }
+        Ok(crees)
+    }
+
+    /// Prévient les personnels qu'une famille a écrit (M0b, D13) : dans l'ENT, et selon leurs
+    /// préférences par la chaîne S2-8 (texte neutre, jamais le sujet ni le contenu). Jamais
+    /// bloquant ; les erreurs sont journalisées.
+    async fn prevenir_personnels_famille(
+        &self,
+        fil: &MsgFil,
+        msg: &Message,
+        maintenant: DateTime<Utc>,
+    ) {
+        let r: Result<(), EntDbError> = async {
+            let destinataires = self
+                .messages
+                .personnels_a_prevenir(
+                    fil.etablissement_id,
+                    fil.id,
+                    msg.auteur_user_id,
+                    &["admin", "direction", "administratif", "cpe"],
+                )
+                .await?;
+            let mut c = self.pool.acquire().await?;
+            for u in destinataires {
+                crate::notifications::notifier_personne(
+                    &mut c,
+                    crate::notifications::EnvoiAPlanifier {
+                        etablissement_id: fil.etablissement_id,
+                        user_id: u,
+                        kind: "messagerie_famille",
+                        titre: "Nouveau message d'une famille",
+                        corps: "Un message de famille attend une réponse dans la messagerie.",
+                        eleve_id: Some(fil.eleve_id),
+                        notification_id: None,
+                        source_type: "systeme",
+                        source_id: msg.id,
+                        cle_dedup: format!("msgfam:{}", msg.id),
+                        droit_requis: None,
+                        regroupable: true,
+                        canaux_voulus: &["push"],
+                    },
+                    msg.id,
+                    maintenant,
+                )
+                .await?;
+            }
+            Ok(())
+        }
+        .await;
+        if let Err(e) = r {
+            tracing::error!(canal = "messagerie", fil = %fil.id, error = %e, "avis aux personnels non émis");
+        }
     }
 
     pub async fn repondre_fil_for_actor(
@@ -17650,6 +17786,31 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: RepondreFil,
     ) -> Result<Message, EntDbError> {
+        Ok(self
+            .repondre_fil_avec_options(role, cmd, OptionsEnvoiMessage::default())
+            .await?
+            .message)
+    }
+
+    /// Répond dans un fil (M0b) : une réponse **désarchive** le fil (D11) ; un message du
+    /// personnel écrit pendant la plage calme est remis à sa fin (D24) ; le message d'une famille
+    /// prévient les personnels (D13).
+    pub async fn repondre_fil_avec_options(
+        &self,
+        role: &str,
+        cmd: RepondreFil,
+        options: OptionsEnvoiMessage,
+    ) -> Result<MessageEnvoye, EntDbError> {
+        self.repondre_fil_a(role, cmd, options, Utc::now()).await
+    }
+
+    pub(crate) async fn repondre_fil_a(
+        &self,
+        role: &str,
+        cmd: RepondreFil,
+        options: OptionsEnvoiMessage,
+        maintenant: DateTime<Utc>,
+    ) -> Result<MessageEnvoye, EntDbError> {
         let fil = self
             .messages
             .get_fil(cmd.etablissement_id, cmd.fil_id)
@@ -17662,10 +17823,42 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let (msg, at) = plan_repondre_fil(&fil, cmd)?;
-        self.messages.insert_message(&msg).await?;
+        let (remise, derogation) = self
+            .remise_et_derogation(
+                msg.etablissement_id,
+                msg.auteur_user_id,
+                role,
+                options.urgence_motif.as_deref(),
+                maintenant,
+            )
+            .await?;
+        self.messages
+            .insert_message_remise(
+                &msg,
+                remise,
+                derogation.as_ref().map(|(m, u)| (m.as_str(), *u)),
+            )
+            .await?;
         self.messages
             .touch_fil_last(msg.etablissement_id, msg.fil_id, at)
             .await?;
+        if fil.archive {
+            // D11 : la réponse d'un parent ne disparaît plus dans l'archive du personnel.
+            self.messages
+                .set_fil_archive(msg.etablissement_id, fil.id, false, None)
+                .await?;
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: msg.etablissement_id,
+                    type_name: types::MSG_FIL_ARCHIVE.to_string(),
+                    aggregate: AggregateKind::MsgFil,
+                    aggregate_id: fil.id,
+                    eleve_id: Some(fil.eleve_id),
+                    payload: json!({ "archive": false, "cause": "reponse" }),
+                    actor_user_id: Some(msg.auteur_user_id.to_string()),
+                })
+                .await?;
+        }
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: msg.etablissement_id,
@@ -17680,19 +17873,117 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 actor_user_id: Some(msg.auteur_user_id.to_string()),
             })
             .await?;
-        // Push famille si staff répond (pas si le parent se répond à lui-même).
-        let _ = self
-            .notify_parents_push_fil(
+        if let Some((motif, _)) = derogation.as_ref() {
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: msg.etablissement_id,
+                    type_name: types::MSG_DEROGATION_PLAGE.to_string(),
+                    aggregate: AggregateKind::MsgFil,
+                    aggregate_id: msg.fil_id,
+                    eleve_id: Some(fil.eleve_id),
+                    payload: json!({ "message_id": msg.id, "motif_caracteres": motif.len() }),
+                    actor_user_id: Some(msg.auteur_user_id.to_string()),
+                })
+                .await?;
+        }
+        if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve)) {
+            self.prevenir_personnels_famille(&fil, &msg, maintenant).await;
+        } else {
+            // Push famille si le personnel répond (pas si le parent se répond à lui-même).
+            self.avertir_famille_message(
                 &fil,
-                "messagerie_reponse",
-                TITRE_PUSH_MESSAGE,
-                "Nouvelle réponse — ouvrez la messagerie.",
-                "msg_message",
                 msg.id,
-                Some(msg.auteur_user_id),
+                "messagerie_reponse",
+                "Nouvelle réponse — ouvrez la messagerie.",
+                remise,
+                msg.auteur_user_id,
             )
             .await;
-        Ok(msg)
+        }
+        Ok(MessageEnvoye { message: msg, remise_prevue_le: remise })
+    }
+
+    /// Rouvre un fil archivé (D11) : route de désarchivage du personnel.
+    pub async fn desarchiver_fil_for_actor(
+        &self,
+        role: &str,
+        cmd: ArchiverFil,
+    ) -> Result<MsgFil, EntDbError> {
+        self.exiger_messagerie_staff(cmd.etablissement_id, cmd.actor_user_id, role)
+            .await?;
+        let fil = self
+            .messages
+            .get_fil(cmd.etablissement_id, cmd.fil_id)
+            .await?
+            .ok_or(DomainError::MsgFilIntrouvable)?;
+        if !self
+            .actor_can_access_fil(cmd.etablissement_id, cmd.actor_user_id, role, &fil)
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        if fil.archive {
+            self.messages
+                .set_fil_archive(cmd.etablissement_id, fil.id, false, None)
+                .await?;
+            self.events
+                .publish(MetierEventDraft {
+                    etablissement_id: cmd.etablissement_id,
+                    type_name: types::MSG_FIL_ARCHIVE.to_string(),
+                    aggregate: AggregateKind::MsgFil,
+                    aggregate_id: fil.id,
+                    eleve_id: Some(fil.eleve_id),
+                    payload: json!({ "archive": false, "cause": "desarchivage" }),
+                    actor_user_id: Some(cmd.actor_user_id.to_string()),
+                })
+                .await?;
+        }
+        Ok(MsgFil { archive: false, ..fil })
+    }
+
+    /// Annule un message différé par la plage calme, avant sa remise (R-M48) : son auteur seul.
+    pub async fn annuler_message_differe_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        message_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let msg = self
+            .messages
+            .get_message(etablissement_id, message_id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        let fil = self
+            .messages
+            .get_fil(etablissement_id, msg.fil_id)
+            .await?
+            .ok_or(DomainError::MsgFilIntrouvable)?;
+        if msg.auteur_user_id != actor_user_id
+            || !self
+                .actor_can_access_fil(etablissement_id, actor_user_id, role, &fil)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        if !self
+            .messages
+            .annuler_message_differe(etablissement_id, message_id, actor_user_id)
+            .await?
+        {
+            return Err(EntDbError::ConflitDossier("message déjà remis ou introuvable"));
+        }
+        // L'avis différé, s'il était planifié, n'a plus d'objet.
+        sqlx::query(
+            "UPDATE ent_notification_envoi SET statut = 'annule', traite_le = now()
+              WHERE etablissement_id = $1 AND source_type = 'systeme' AND source_id = $2
+                AND statut = 'en_attente'",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn list_fils_for_actor(
@@ -17704,9 +17995,43 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         include_archives: bool,
         dossier: Option<&str>,
     ) -> Result<Vec<MsgFil>, EntDbError> {
+        Ok(self
+            .list_fils_page_for_actor(
+                etablissement_id,
+                actor_user_id,
+                role,
+                ParamsListeFils {
+                    eleve_id,
+                    include_archives,
+                    dossier: dossier.map(str::to_string),
+                    ..ParamsListeFils::default()
+                },
+            )
+            .await?
+            .fils)
+    }
+
+    /// Une page de la liste des fils (M0b, D12) : boîte du personnel paginée par curseur, avec
+    /// recherche sur le sujet côté serveur. Les comptes famille et élève reçoivent leurs fils
+    /// sans pagination (quelques fils par élève).
+    pub async fn list_fils_page_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        params: ParamsListeFils,
+    ) -> Result<PageFils, EntDbError> {
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
+        let ParamsListeFils {
+            eleve_id,
+            include_archives,
+            dossier,
+            recherche,
+            apres,
+            limite,
+        } = params;
         // D9 : le droit effectif « messagerie.eleve » (D-017), pas le rôle de base. Socle 1 (B2) :
         // un professeur ne voit que les fils de ses élèves (revue E6), jamais toute la boîte.
         if parsed.is_staff() {
@@ -17716,43 +18041,51 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             {
                 return Err(EntDbError::Forbidden);
             }
-            let perimetre = self
+            let perimetre: Option<Vec<Uuid>> = self
                 .eleves_autorises(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+                .await?
+                .map(|s| s.into_iter().collect());
+            if let (Some(suivis), Some(eid)) = (&perimetre, eleve_id) {
+                if !suivis.contains(&eid) {
+                    return Ok(PageFils::default());
+                }
+            }
+            let (reserve_ok, foyer_ok) = self
+                .lit_fils_reserves(etablissement_id, actor_user_id, role)
                 .await?;
-            let mut fils = match (perimetre, eleve_id) {
-                (Some(suivis), Some(eid)) if !suivis.contains(&eid) => Vec::new(),
-                (None, Some(eid)) | (Some(_), Some(eid)) => {
-                    self.messages.list_fils_eleve(etablissement_id, eid).await?
-                }
-                (Some(suivis), None) => {
-                    let ids: Vec<Uuid> = suivis.into_iter().collect();
-                    self.messages
-                        .list_fils_eleves(etablissement_id, &ids)
-                        .await?
-                }
-                (None, None) => {
-                    self.messages
-                        .list_fils_etab(etablissement_id, 50, include_archives, dossier)
-                        .await?
-                }
+            let limite = limite.unwrap_or(50).clamp(1, 200);
+            let apres = match apres.as_deref() {
+                None => None,
+                Some(c) => Some(
+                    crate::msg_repo::CurseurFils::decoder(c)
+                        .ok_or(EntDbError::SaisieInvalide("curseur de page invalide"))?,
+                ),
             };
-            // M0a (D2) : ni les fils privés des parents, ni les relances, sauf rôle nommé ou
-            // personnel qui y a écrit.
-            fils = self
-                .filtrer_fils_personnel(etablissement_id, actor_user_id, role, fils)
+            let mut fils = self
+                .messages
+                .page_fils_personnel(
+                    etablissement_id,
+                    actor_user_id,
+                    reserve_ok,
+                    foyer_ok,
+                    &crate::msg_repo::FiltreFils {
+                        eleve_id,
+                        eleves: perimetre.as_deref(),
+                        avec_archives: include_archives,
+                        dossier: dossier.as_deref(),
+                        recherche: recherche.as_deref(),
+                        apres,
+                        limite,
+                    },
+                )
                 .await?;
-            let dossier = dossier.map(str::trim).filter(|d| !d.is_empty());
-            fils.retain(|f| {
-                (include_archives || eleve_id.is_some() || !f.archive)
-                    && dossier.is_none_or(|d| f.dossier.as_deref() == Some(d))
-            });
-            fils.sort_by(|a, b| {
-                (a.priorite != MsgPriorite::Haute)
-                    .cmp(&(b.priorite != MsgPriorite::Haute))
-                    .then(b.last_message_at.cmp(&a.last_message_at))
-            });
-            fils.truncate(50);
-            return Ok(fils);
+            let suivant = if fils.len() as i64 > limite {
+                fils.truncate(limite as usize);
+                fils.last().map(|f| crate::msg_repo::CurseurFils::de_fil(f).encoder())
+            } else {
+                None
+            };
+            return Ok(PageFils { fils, suivant });
         }
         if parsed == Role::Parent {
             let lies = self.eleves_lies(etablissement_id, actor_user_id).await?;
@@ -17761,17 +18094,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     return Err(EntDbError::Forbidden);
                 }
                 let fils = self.messages.list_fils_eleve(etablissement_id, eid).await?;
-                return self
-                    .filtrer_fils_famille(etablissement_id, actor_user_id, true, fils)
-                    .await;
+                return Ok(PageFils {
+                    fils: self
+                        .filtrer_fils_famille(etablissement_id, actor_user_id, true, fils)
+                        .await?,
+                    suivant: None,
+                });
             }
             let fils = self
                 .messages
                 .list_fils_eleves(etablissement_id, &lies)
                 .await?;
-            return self
-                .filtrer_fils_famille(etablissement_id, actor_user_id, true, fils)
-                .await;
+            return Ok(PageFils {
+                fils: self
+                    .filtrer_fils_famille(etablissement_id, actor_user_id, true, fils)
+                    .await?,
+                suivant: None,
+            });
         }
         if parsed == Role::Eleve {
             let linked = self
@@ -17788,11 +18127,78 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .messages
                 .list_fils_eleve(etablissement_id, linked)
                 .await?;
-            return self
-                .filtrer_fils_famille(etablissement_id, actor_user_id, false, fils)
-                .await;
+            return Ok(PageFils {
+                fils: self
+                    .filtrer_fils_famille(etablissement_id, actor_user_id, false, fils)
+                    .await?,
+                suivant: None,
+            });
         }
         Err(EntDbError::Forbidden)
+    }
+
+    /// File « messages des familles non traités » (MSG-329, M0b-1) : les fils où la famille a
+    /// écrit en dernier, du plus ancien au plus récent. Réservée à qui lit les fils réservés
+    /// (`messagerie.fils_reserves.lire`), dans son périmètre `messagerie.eleve`.
+    pub async fn list_fils_non_traites_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        limite: i64,
+    ) -> Result<Vec<crate::msg_repo::FilNonTraite>, EntDbError> {
+        let (reserve_ok, _) = self
+            .lit_fils_reserves(etablissement_id, actor_user_id, role)
+            .await?;
+        if !reserve_ok
+            || !self
+                .a_action_quelconque(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        let perimetre: Option<Vec<Uuid>> = self
+            .eleves_autorises(etablissement_id, actor_user_id, role, Action::MessagerieEleve)
+            .await?
+            .map(|s| s.into_iter().collect());
+        Ok(self
+            .messages
+            .fils_non_traites(etablissement_id, perimetre.as_deref(), limite)
+            .await?)
+    }
+
+    /// Messages sur lesquels `lecteur` peut poser un accusé de lecture (M0b, D15) : ceux écrits
+    /// par l'**autre côté** (famille ↔ personnel), et, pour un personnel, seulement s'il
+    /// participe au fil (auteur ou ayant écrit). Une lecture de supervision, par un autre membre
+    /// de l'équipe ou par l'auteur du message ne pose rien.
+    async fn messages_a_accuser(
+        &self,
+        fil: &MsgFil,
+        msgs: &[Message],
+        etablissement_id: Uuid,
+        lecteur: Uuid,
+        role: &str,
+    ) -> Result<Vec<Message>, EntDbError> {
+        let lecteur_famille = matches!(Role::parse(role), Some(Role::Parent | Role::Eleve));
+        if !lecteur_famille {
+            let participe = fil.created_by_user_id == lecteur
+                || msgs.iter().any(|m| m.auteur_user_id == lecteur);
+            if !participe {
+                return Ok(Vec::new());
+            }
+        }
+        let auteurs: Vec<Uuid> = msgs.iter().map(|m| m.auteur_user_id).collect();
+        let roles = self.messages.roles_de(etablissement_id, &auteurs).await?;
+        Ok(msgs
+            .iter()
+            .filter(|m| {
+                let auteur_famille = roles
+                    .get(&m.auteur_user_id)
+                    .is_some_and(|r| matches!(Role::parse(r), Some(Role::Parent | Role::Eleve)));
+                auteur_famille != lecteur_famille
+            })
+            .cloned()
+            .collect())
     }
 
     pub async fn list_messages_for_actor(
@@ -17813,10 +18219,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !can {
             return Err(EntDbError::Forbidden);
         }
-        let msgs = self.messages.list_messages(etablissement_id, fil_id).await?;
+        let msgs = self
+            .messages
+            .list_messages(etablissement_id, fil_id, actor_user_id)
+            .await?;
+        // M0b (D15) : l'accusé n'est posé que par le côté destinataire. Un directeur, un
+        // supérieur ou un collègue qui ouvre le fil ne fait pas croire à la famille que le
+        // professeur l'a lu.
+        let a_accuser = self
+            .messages_a_accuser(&fil, &msgs, etablissement_id, actor_user_id, role)
+            .await?;
         let nouveaux = plan_accuser_lecture(
             &fil,
-            &msgs,
+            &a_accuser,
             &AccuserLecture {
                 etablissement_id,
                 fil_id,
@@ -17872,6 +18287,21 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
+        }
+        // D16 (M0b) : la taille réelle est bornée par le `CHECK` de la colonne (256 Kio), même si
+        // `ENT_UPLOAD_MAX_MESSAGE` est réglée plus haut : refus clair (413), jamais une erreur 500.
+        if cmd.contenu.len() > MSG_PIECE_MAX_OCTETS {
+            return Err(EntDbError::Fichier(ErreurFichier::TropGros {
+                max: MSG_PIECE_MAX_OCTETS,
+            }));
+        }
+        if self
+            .messages
+            .count_pieces_message(cmd.etablissement_id, cmd.message_id)
+            .await?
+            >= MSG_PIECES_MAX_PAR_MESSAGE
+        {
+            return Err(EntDbError::SaisieInvalide("5 pièces jointes au plus par message"));
         }
         // D2 : signature binaire + liste blanche + nom assaini.
         let mut cmd = cmd;
@@ -17934,6 +18364,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .await?;
         if !can {
             return Err(EntDbError::Forbidden);
+        }
+        // M0b (D24) : la pièce d'un message encore différé n'existe pas pour les autres.
+        if !self
+            .messages
+            .message_remis_pour(etablissement_id, piece.message_id, actor_user_id)
+            .await?
+        {
+            return Err(DomainError::MsgPieceIntrouvable.into());
         }
         Ok(piece)
     }
@@ -18269,31 +18707,25 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 classe: eleve.classe.clone().unwrap_or_default(),
             },
         );
-        let (mut fil, msg) = plan_ouvrir_fil(OuvrirFil {
-            etablissement_id,
-            eleve_id,
-            sujet,
-            premier_message: corps,
-            actor_user_id,
-        })?;
-        fil.modele_id = Some(modele.id);
-        self.messages.insert_fil(&fil).await?;
-        self.messages.insert_message(&msg).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: fil.etablissement_id,
-                type_name: types::MSG_FIL_OUVERT.to_string(),
-                aggregate: AggregateKind::MsgFil,
-                aggregate_id: fil.id,
-                eleve_id: Some(fil.eleve_id),
-                payload: json!({
-                    "message_id": msg.id,
-                    "modele_id": modele.id,
-                }),
-                actor_user_id: Some(fil.created_by_user_id.to_string()),
-            })
+        // M0b (D17, D22) : même chemin que l'ouverture ordinaire (un fil par foyer, plage calme,
+        // avis aux responsables) ; le modèle est conservé sur chaque fil.
+        let mut ouverts = self
+            .ouvrir_fils_a(
+                role,
+                OuvrirFil {
+                    etablissement_id,
+                    eleve_id,
+                    sujet,
+                    premier_message: corps,
+                    actor_user_id,
+                },
+                OptionsEnvoiMessage::default(),
+                Some(modele.id),
+                Utc::now(),
+            )
             .await?;
-        Ok((fil, msg))
+        let premier = ouverts.remove(0);
+        Ok((premier.fil, premier.message))
     }
 
     pub async fn archiver_fil_for_actor(

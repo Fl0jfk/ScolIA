@@ -1854,15 +1854,24 @@ async fn annonce_etablissement_notifie_les_familles_ciblees() {
         .await
         .expect("publication annonce");
 
-    let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
-        .await
-        .expect("lecture outbox mail");
-    let touches: std::collections::HashSet<Uuid> = mails
-        .iter()
-        .filter(|m| m.kind == "annonce" && m.source_id == Some(annonce.id))
-        .filter_map(|m| m.eleve_id)
-        .collect();
+    // M0b (D8) : la diffusion est mise en file (avis dans l'ENT, un par responsable, rattaché à
+    // son premier élève) ; le fournisseur n'est plus appelé dans la requête.
+    let avis = |source: Uuid| {
+        let pool = ent.pool().clone();
+        async move {
+            let rows: Vec<(Option<Uuid>,)> = sqlx::query_as(
+                "SELECT eleve_id FROM ent_notification
+                  WHERE etablissement_id = $1 AND source_event_id = $2 AND kind = 'annonce'",
+            )
+            .bind(etab)
+            .bind(source)
+            .fetch_all(&pool)
+            .await
+            .expect("avis d'annonce");
+            rows.into_iter().filter_map(|(e,)| e).collect::<std::collections::HashSet<Uuid>>()
+        }
+    };
+    let touches = avis(annonce.id).await;
     assert!(
         touches.len() >= 2,
         "la diffusion doit atteindre plusieurs familles (got {})",
@@ -1886,15 +1895,7 @@ async fn annonce_etablissement_notifie_les_familles_ciblees() {
         )
         .await
         .expect("publication annonce ciblée");
-    let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
-        .await
-        .expect("lecture outbox mail");
-    let cible_ids: Vec<Option<Uuid>> = mails
-        .iter()
-        .filter(|m| m.kind == "annonce" && m.source_id == Some(cible.id))
-        .map(|m| m.eleve_id)
-        .collect();
+    let cible_ids: Vec<Option<Uuid>> = avis(cible.id).await.into_iter().map(Some).collect();
     assert!(
         !cible_ids.is_empty(),
         "une annonce de classe doit notifier au moins une famille"
@@ -1920,14 +1921,8 @@ async fn annonce_etablissement_notifie_les_familles_ciblees() {
         )
         .await
         .expect("publication annonce personnels");
-    let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
-        .await
-        .expect("lecture outbox mail");
     assert!(
-        !mails
-            .iter()
-            .any(|m| m.kind == "annonce" && m.source_id == Some(interne.id)),
+        avis(interne.id).await.is_empty(),
         "une annonce « personnels » ne part pas vers les familles"
     );
 

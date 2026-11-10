@@ -423,11 +423,17 @@ async fn m0a_d2_le_personnel_qui_suit_l_eleve_ne_lit_pas_les_fils_prives_ni_les_
         "prérequis : Rogue suit Harry"
     );
 
-    // Témoin : un fil ordinaire de l'établissement reste lisible par Rogue.
-    let ordinaire = ouvrir(&ent, etab, Role::Direction, dir, harry, "Fil ordinaire").await;
+    // Témoin : Rogue lit le fil qu'il a lui-même ouvert. M0b (D22) : un fil ordinaire ouvert par
+    // la direction n'est plus lisible d'un professeur par le seul lien d'enseignement.
+    let ordinaire = ouvrir(&ent, etab, Role::Prof, rogue, harry, "Fil ordinaire").await;
     assert!(
         lit(&ent, etab, rogue, prof, ordinaire.id).await,
         "témoin : fil ordinaire"
+    );
+    let de_la_direction = ouvrir(&ent, etab, Role::Direction, dir, harry, "Fil de la direction").await;
+    assert!(
+        !lit(&ent, etab, rogue, prof, de_la_direction.id).await,
+        "M0b D22 : fil de la direction lu par un professeur"
     );
 
     // Fil privé ouvert par Lily : direction, CPE et secrétariat le lisent, pas Rogue.
