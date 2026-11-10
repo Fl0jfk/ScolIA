@@ -20,12 +20,21 @@ async fn html(base: &str, chemin: &str) -> String {
     let rep = reqwest::get(format!("{base}{chemin}")).await.unwrap();
     assert_eq!(rep.status(), 200, "{chemin}");
     let csp = rep.headers()["content-security-policy"].to_str().unwrap();
-    assert!(csp.contains("script-src 'self' 'nonce-"), "{chemin} : CSP à nonce");
-    assert!(!csp.contains("'unsafe-inline'"), "{chemin} : pas de script en ligne");
+    assert!(
+        csp.contains("script-src 'self' 'nonce-"),
+        "{chemin} : CSP à nonce"
+    );
+    assert!(
+        !csp.contains("'unsafe-inline'"),
+        "{chemin} : pas de script en ligne"
+    );
     assert_eq!(rep.headers()["cache-control"], "no-store", "{chemin}");
     let page = rep.text().await.unwrap();
     assert!(page.contains(r#"<html lang="fr""#), "{chemin}");
-    assert!(!page.contains(" style=\""), "{chemin} : style en ligne interdit");
+    assert!(
+        !page.contains(" style=\""),
+        "{chemin} : style en ligne interdit"
+    );
     page
 }
 
@@ -43,12 +52,25 @@ async fn pages_des_sorties_dans_la_coquille() {
     ] {
         let page = html(&base, chemin).await;
         assert!(page.contains(attendu), "{chemin} : {attendu}");
-        assert!(page.contains("Aller au contenu"), "{chemin} : lien d'évitement");
-        assert!(page.contains("Navigation principale"), "{chemin} : coquille");
+        assert!(
+            page.contains("Aller au contenu"),
+            "{chemin} : lien d'évitement"
+        );
+        assert!(
+            page.contains("Navigation principale"),
+            "{chemin} : coquille"
+        );
     }
     // Chaque champ du formulaire de création est étiqueté.
     let page = html(&base, "/web/voyages/nouveau").await;
-    for etiquette in ["Titre", "Nature", "Forme", "Destination", "Date de départ", "Heure de retour"] {
+    for etiquette in [
+        "Titre",
+        "Nature",
+        "Forme",
+        "Destination",
+        "Date de départ",
+        "Heure de retour",
+    ] {
         assert!(page.contains(etiquette), "étiquette « {etiquette} »");
     }
     // Aucune donnée d'établissement dans le HTML du serveur : ni sortie, ni élève, ni circulaire.
