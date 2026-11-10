@@ -212,6 +212,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/361_agent_identifiants.sql"),
     include_str!("../../../migrations/370_edt_creneau_groupe.sql"),
     include_str!("../../../migrations/375_msg_fil_prive.sql"),
+    include_str!("../../../migrations/376_sepa_unicite_encaissement.sql"),
+    include_str!("../../../migrations/377_edt_exception_absence_etab.sql"),
     include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
     include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
 ];

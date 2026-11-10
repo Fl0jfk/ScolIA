@@ -11083,7 +11083,7 @@ async fn executer_sepa_prelevement(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<PrelevementSepaDto>, (StatusCode, String)> {
-    let (prev, _, _, _) = state
+    let (prev, _) = state
         .ent
         .executer_prelevement_for_actor(
             session.etablissement_id,
