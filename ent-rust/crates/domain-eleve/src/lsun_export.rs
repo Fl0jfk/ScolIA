@@ -38,11 +38,17 @@ pub fn render_lsun_csv(lignes: &[LigneLsun]) -> String {
     out
 }
 
+/// Échappement CSV (séparateur `;`) **et** neutralisation de l'injection de formule
+/// (D14, socle 21) : une cellule qui commence par `=`, `+`, `-`, `@`, tabulation ou
+/// retour chariot serait interprétée comme une formule par un tableur ; on la
+/// préfixe d'une apostrophe.
 fn csv_esc(s: &str) -> String {
-    if s.contains(';') || s.contains('"') || s.contains('\n') {
+    let proteger = s.starts_with(['=', '+', '-', '@', '\t', '\r']);
+    let s = if proteger { format!("'{s}") } else { s.to_string() };
+    if s.contains(';') || s.contains('"') || s.contains('\n') || s.contains('\r') {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {
-        s.to_string()
+        s
     }
 }
 
@@ -105,5 +111,13 @@ mod tests {
         }]);
         assert!(csv.starts_with("ine;nom;prenom"));
         assert!(csv.contains("D1;Lire;MF"));
+    }
+
+    #[test]
+    fn csv_neutralise_les_formules() {
+        assert_eq!(super::csv_esc("=1+1"), "'=1+1");
+        assert_eq!(super::csv_esc("@SUM(A1)"), "'@SUM(A1)");
+        assert_eq!(super::csv_esc("-2"), "'-2");
+        assert_eq!(super::csv_esc("Dupont"), "Dupont");
     }
 }

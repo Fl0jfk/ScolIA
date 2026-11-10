@@ -18,6 +18,10 @@ mod referentiel;
 mod cahier;
 mod referentiel_s2;
 mod structure;
+mod structure_calendrier;
+mod structure_cours;
+mod structure_offre;
+mod structure_periodes;
 mod edt_s2;
 mod roles;
 mod routes;
@@ -277,6 +281,8 @@ mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p2;
+#[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;
@@ -291,6 +297,8 @@ mod tests_dossier;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sante_module;
@@ -298,6 +306,12 @@ mod tests_sante_module;
 mod tests_finances;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
 mod tests {
     use super::*;
@@ -1241,7 +1255,8 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(note.status(), StatusCode::CREATED);
+        // V0 (D1) : la saisie historique est fermée (410) ; les notes se saisissent par la grille.
+        assert_eq!(note.status(), StatusCode::GONE);
 
         // Parent Léa lit · Parent Tom (autre enfant) interdit
         let ok_lea = app

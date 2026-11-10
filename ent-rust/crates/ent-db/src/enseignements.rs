@@ -11,7 +11,18 @@ use uuid::Uuid;
 use crate::evaluations::db;
 use crate::service::{EntDbError, PgEnt};
 
-type Ligne = (Uuid, Option<Uuid>, Option<Uuid>, Option<Uuid>, String, String, String, Option<Uuid>, bool);
+type Ligne = (
+    Uuid,
+    Option<Uuid>,
+    Option<Uuid>,
+    Option<Uuid>,
+    String,
+    String,
+    String,
+    Option<Uuid>,
+    bool,
+    Option<Uuid>,
+);
 
 impl PgEnt {
     /// Enseignements (services) de l'acteur pour l'année scolaire qui contient `jour`.
@@ -30,7 +41,7 @@ impl PgEnt {
             "SELECT s.id, s.classe_id, s.groupe_id, COALESCE(s.classe_id, g.classe_id),
                     COALESCE(c.code, g.code, ''), COALESCE(cp.code, c.code, ''),
                     COALESCE(m.libelle, NULLIF(s.matiere_libelle, ''), '—'),
-                    s.matiere_id, s.professeur_principal
+                    s.matiere_id, s.professeur_principal, s.cours_id
                FROM ent_service_enseignement s
                LEFT JOIN ent_matiere m ON m.id = s.matiere_id AND m.etablissement_id = s.etablissement_id
                LEFT JOIN ent_classe c ON c.id = s.classe_id AND c.etablissement_id = s.etablissement_id
@@ -53,16 +64,33 @@ impl PgEnt {
             .eleves_autorises(etab, acteur, role, Action::SuiviEleve)
             .await?;
         let mut out = Vec::with_capacity(rows.len());
-        for (service_id, classe_id, groupe_id, classe_parente, cible_code, classe_code, matiere, matiere_id, pp) in
-            rows
+        for (
+            service_id,
+            classe_id,
+            groupe_id,
+            classe_parente,
+            cible_code,
+            classe_code,
+            matiere,
+            matiere_id,
+            pp,
+            cours_id,
+        ) in rows
         {
             // Public du cours par la règle unique (membres individuels compris).
-            let membres = self.public_cours(etab, jour, Some(service_id), None, None).await?;
+            let membres = match cours_id {
+                Some(c) => self.public_cours(etab, jour, Some(c), None, None).await?,
+                None => Vec::new(),
+            };
             let effectif = membres
                 .iter()
                 .filter(|(_, id)| autorises.as_ref().is_none_or(|a| a.contains(id)))
                 .count() as i64;
-            let nature = if classe_id.is_some() { "classe" } else { "groupe" };
+            let nature = if classe_id.is_some() {
+                "classe"
+            } else {
+                "groupe"
+            };
             let libelle = if classe_id.is_some() {
                 format!("{matiere} · {cible_code}")
             } else {
@@ -80,6 +108,7 @@ impl PgEnt {
                 effectif,
                 professeur_principal: pp,
                 libelle,
+                cours_id,
             });
         }
         Ok(out)

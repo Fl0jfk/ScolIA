@@ -12,7 +12,7 @@ use domain_eleve::{today_utc, CreateEleve, CreerNotePeriode, DomainError};
 use ent_types::evaluations::*;
 use uuid::Uuid;
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
@@ -45,23 +45,23 @@ async fn notifs(ent: &PgEnt, etab: Uuid, user: Uuid, kind: &str) -> usize {
         .count()
 }
 
-struct Monde {
-    etab: Uuid,
-    classe: Uuid,
-    maths: Uuid,
-    francais: Uuid,
+pub(crate) struct Monde {
+    pub(crate) etab: Uuid,
+    pub(crate) classe: Uuid,
+    pub(crate) maths: Uuid,
+    pub(crate) francais: Uuid,
     /// Service de maths du professeur du labo, professeur principal de la classe.
-    s_maths: Uuid,
+    pub(crate) s_maths: Uuid,
     /// Service de français d'un autre professeur.
-    s_fr: Uuid,
-    autre_prof: Uuid,
-    periode: Uuid,
-    eleves: Vec<Uuid>,
+    pub(crate) s_fr: Uuid,
+    pub(crate) autre_prof: Uuid,
+    pub(crate) periode: Uuid,
+    pub(crate) eleves: Vec<Uuid>,
 }
 
 const ADMIN: &str = "admin";
 
-async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
+pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
     let etab = cast.etablissement_id;
     let annee = ent.referentiel_annee_courante_assuree(etab).await.unwrap();
     let suffixe = &Uuid::new_v4().simple().to_string()[..6];
@@ -206,7 +206,7 @@ async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
     }
 }
 
-fn devoir(service: Uuid, periode: Uuid, titre: &str, coef: f64, sur: f64) -> CreerDevoirGrilleBody {
+pub(crate) fn devoir(service: Uuid, periode: Uuid, titre: &str, coef: f64, sur: f64) -> CreerDevoirGrilleBody {
     CreerDevoirGrilleBody {
         service_id: service,
         periode_id: periode,
@@ -217,7 +217,7 @@ fn devoir(service: Uuid, periode: Uuid, titre: &str, coef: f64, sur: f64) -> Cre
     }
 }
 
-fn r(eleve: Uuid, statut: &str, valeur: Option<f64>) -> SaisieResultatBody {
+pub(crate) fn r(eleve: Uuid, statut: &str, valeur: Option<f64>) -> SaisieResultatBody {
     SaisieResultatBody {
         eleve_id: eleve,
         statut: statut.into(),
@@ -225,9 +225,16 @@ fn r(eleve: Uuid, statut: &str, valeur: Option<f64>) -> SaisieResultatBody {
     }
 }
 
-async fn statut(ent: &PgEnt, cast: &LaboCast, m: &Monde, s: &str) {
-    ent.changer_statut_periode_for_actor(m.etab, cast.direction.user_id, "direction", m.periode, s)
-        .await
+pub(crate) async fn statut(ent: &PgEnt, cast: &LaboCast, m: &Monde, s: &str) {
+    ent.changer_statut_periode_for_actor(
+        m.etab,
+        cast.direction.user_id,
+        "direction",
+        m.periode,
+        s,
+        Some("réouverture de test"),
+    )
+    .await
         .unwrap();
 }
 
@@ -589,7 +596,7 @@ async fn professeur_hors_classe_et_familles_refuses() {
     assert!(matches!(ent.vue_classe_for_actor(etab, lea, "parent", m.classe, m.periode).await, Err(EntDbError::Forbidden)));
     // Verrou et règles : direction seulement.
     assert!(matches!(
-        ent.changer_statut_periode_for_actor(etab, prof, "prof", m.periode, "fermee").await,
+        ent.changer_statut_periode_for_actor(etab, prof, "prof", m.periode, "fermee", None).await,
         Err(EntDbError::Forbidden)
     ));
     assert!(matches!(
@@ -662,7 +669,7 @@ async fn isolation_entre_etablissements() {
     assert!(nf(ent.grille_for_actor(b, dir_b, "direction", m.s_maths, m.periode).await.map(|_| ())));
     assert!(nf(ent.saisir_grille_for_actor(b, dir_b, "direction", d.id, &SaisieGrilleBody { resultats: vec![] }).await.map(|_| ())));
     assert!(nf(ent.publier_devoir_for_actor(b, dir_b, "direction", d.id).await.map(|_| ())));
-    assert!(nf(ent.changer_statut_periode_for_actor(b, dir_b, "direction", m.periode, "fermee").await.map(|_| ())));
+    assert!(nf(ent.changer_statut_periode_for_actor(b, dir_b, "direction", m.periode, "fermee", None).await.map(|_| ())));
     assert!(nf(ent.vue_classe_for_actor(b, dir_b, "direction", m.classe, m.periode).await.map(|_| ())));
     assert!(nf(ent.generer_bulletins_for_actor(b, dir_b, "direction", &GenererBulletinsBody { classe_id: m.classe, periode_id: m.periode, motif: None }).await.map(|_| ())));
     // Le service de A n'apparaît pas dans B ; B ne crée rien sur un service de A.
@@ -721,15 +728,20 @@ async fn coefficients_de_matiere_et_regles_de_calcul() {
         ent.definir_coef_matiere_for_actor(etab, prof, "prof", &CoefMatiereBody { classe_id: m.classe, matiere_id: m.maths, coef: 2.0 }).await,
         Err(EntDbError::Forbidden)
     ));
-    // Règle « absent = 0 » : maths (16 + 0) / 2 = 8 → générale (24 + 10,25) / 4 = 8,5625 ;
-    // arrondi au dixième → 8,6.
-    ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "dixieme".into(), absent_compte_zero: true }).await.unwrap();
+    // V0 (D10, R-V5) : « absent = 0 » n'existe plus. Le réglage est refusé ; l'absent reste
+    // exclu : maths 16 (le devoir « absent » ne compte pas), générale (48 + 10,25) / 4 =
+    // 14,5625 ; arrondi au dixième → 14,6.
+    assert!(matches!(
+        ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "dixieme".into(), absent_compte_zero: true }).await,
+        Err(EntDbError::SaisieInvalide(_))
+    ));
+    ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "dixieme".into(), absent_compte_zero: false }).await.unwrap();
     let v = ent.vue_classe_for_actor(etab, dir, "direction", m.classe, m.periode).await.unwrap();
     assert_eq!(v.arrondi, "dixieme");
     let l = v.lignes.iter().find(|l| l.eleve_id == a).unwrap();
     let idx = v.matieres.iter().position(|x| x.matiere_id == m.maths).unwrap();
-    assert_eq!(l.moyennes[idx], Some(8.0));
-    assert_eq!(l.moyenne_generale, Some(8.6));
+    assert_eq!(l.moyennes[idx], Some(16.0));
+    assert_eq!(l.moyenne_generale, Some(14.6));
     // Arrondi inconnu refusé.
     assert!(matches!(
         ent.definir_regles_calcul_for_actor(etab, dir, "direction", &ReglesCalculDto { arrondi: "entier".into(), absent_compte_zero: false }).await,

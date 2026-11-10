@@ -18,6 +18,8 @@ mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
@@ -80,8 +82,15 @@ mod quotient_repo;
 mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
+pub mod structure_cours;
+pub mod structure_enseignements;
+pub mod structure_calendrier;
 pub mod structure_etab;
+pub mod structure_feries;
+pub mod structure_grilles;
 pub mod structure_lieux;
+pub mod structure_offre;
+pub mod structure_periodes;
 mod referentiel_annee;
 mod referentiel_seances;
 pub mod edt_admin;
@@ -99,8 +108,10 @@ mod recuperation_repo;
 mod perimetre;
 pub mod acces;
 pub mod personnels;
+pub mod personnels_acces;
 mod personnels_fiche;
 pub use acces::{AccesEtat, EtatAcces};
+pub use personnels_acces::{CtxSession, ErreurAcceptation, InvitationEmise};
 pub use personnels::{
     agent_du_compte_tx, annuaire_tx, nom_pour_lecteur, AgentActif, FiltreAnnuaire, NiveauAnnuaire,
     ResultatCreationAgent,
@@ -311,6 +322,14 @@ mod tests_structure_s1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s2;
 #[cfg(all(test, feature = "labo"))]
+mod tests_structure_s3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s7;
+#[cfg(all(test, feature = "labo"))]
 mod tests_dossier_personnes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a0;
@@ -320,6 +339,8 @@ mod tests_administratif_a0bis;
 mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]

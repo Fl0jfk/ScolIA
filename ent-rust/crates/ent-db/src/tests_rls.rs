@@ -242,10 +242,16 @@ async fn rls_politiques_presentes_et_forcees() {
     // doublons, fusions) + 9 du socle 6 (P1 : agents, engagements, suspensions, fonctions et
     // catalogue, disciplines, qualifications, contacts d'urgence, identifiants) + 7 du lot S2 du
     // socle 5 (profil, paramètres, journal de structure, bâtiments, lieux, disponibilités,
-    // indisponibilités) + 17 de la messagerie et de la communication (M0a, migration 480 : fils,
-    // messages, accusés, pièces, modèles, carnet, annonces, notifications, campagnes, rencontres,
-    // formulaires).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 17, "tables avec RLS activée et forcée");
+    // indisponibilités) + 11 du lot S5 (offre, cibles, groupes, règles, incompatibilités,
+    // prérequis ; enseignements suivis, historique, reprise, à traiter) + 5 du lot S3 (événements
+    // du calendrier, cibles, règle de semaines, semaines, historique des fermetures) + 2 du lot S4
+    // (cours, services à traiter à la reprise) + 5 du lot S7 (périodisations et cibles, grilles, cibles
+    // et créneaux de grille) + 2 du lot P2
+    // (casquettes, invitations) + 18 du socle 21 (V0 : évaluations, conseil, bulletins,
+    // compétences, journal des périodes, archive des doublons) + 17 de la messagerie et de la
+    // communication (M0a, migration 480 : fils, messages, accusés, pièces, modèles, carnet,
+    // annonces, notifications, campagnes, rencontres, formulaires).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

@@ -215,12 +215,16 @@ fn PanneauPeriode(
         let id = Uuid::parse_str(&choix.get()).ok()?;
         liste.with_value(|l| l.iter().find(|p| p.id == id).cloned())
     });
+    // V0 (D2) : rouvrir une période exige un motif écrit, journalisé côté serveur.
+    let motif = RwSignal::new(String::new());
     let changer = move |statut: &'static str| {
         Callback::new(move |_| {
             if let Some(p) = courante.get_untracked() {
+                let m = motif.get_untracked();
                 ecriture.lancer(async move {
+                    let m = m.trim().to_string();
                     let r = session::client()
-                        .changer_statut_periode(p.id, statut)
+                        .changer_statut_periode(p.id, statut, (!m.is_empty()).then_some(m.as_str()))
                         .await?;
                     Ok(format!(
                         "Période « {} » : {}.",
@@ -240,6 +244,14 @@ fn PanneauPeriode(
                     <BadgePeriode statut=p.statut.clone()/>
                     " "{format!("du {} au {}", p.date_debut.format("%d/%m/%Y"), p.date_fin.format("%d/%m/%Y"))}
                 </p>
+                {(peut && p.statut != "ouverte").then(|| view! {
+                    <ChampTexte
+                        id="periode-motif"
+                        libelle="Motif (obligatoire pour rouvrir la période)"
+                        valeur=motif
+                        aide="Inscrit dans le journal de la période : qui, quand, pourquoi."
+                    />
+                })}
                 {peut.then(|| view! {
                     <div class="eva-actions" role="group" aria-label="Verrou de la période">
                         <Bouton variante=Variante::Secondaire en_cours=ecriture.en_cours on_click=changer("ouverte")>"Ouvrir"</Bouton>

@@ -40,8 +40,10 @@ pub enum MentionConseil {
     Felicitations,
     Complement,
     Encouragements,
-    AvertissementTravail,
-    AvertissementConduite,
+    /// Mise en garde (travail) : sans valeur disciplinaire (R. 511-13 : l'avertissement est une
+    /// sanction du chef d'établissement, jamais du conseil de classe ; V0, D11).
+    MiseEnGardeTravail,
+    MiseEnGardeConduite,
     Aucune,
 }
 
@@ -51,8 +53,8 @@ impl MentionConseil {
             Self::Felicitations => "felicitations",
             Self::Complement => "complement",
             Self::Encouragements => "encouragements",
-            Self::AvertissementTravail => "avertissement_travail",
-            Self::AvertissementConduite => "avertissement_conduite",
+            Self::MiseEnGardeTravail => "mise_en_garde_travail",
+            Self::MiseEnGardeConduite => "mise_en_garde_conduite",
             Self::Aucune => "aucune",
         }
     }
@@ -62,10 +64,11 @@ impl MentionConseil {
             "felicitations" | "félicitations" => Some(Self::Felicitations),
             "complement" | "complément" | "complementaires" => Some(Self::Complement),
             "encouragements" => Some(Self::Encouragements),
-            "avertissement_travail" | "avertissement travail" => Some(Self::AvertissementTravail),
-            "avertissement_conduite" | "avertissement conduite" => {
-                Some(Self::AvertissementConduite)
-            }
+            // Anciens codes « avertissement » acceptés et reclassés en mises en garde.
+            "mise_en_garde_travail" | "mise en garde travail" | "avertissement_travail"
+            | "avertissement travail" => Some(Self::MiseEnGardeTravail),
+            "mise_en_garde_conduite" | "mise en garde conduite" | "avertissement_conduite"
+            | "avertissement conduite" => Some(Self::MiseEnGardeConduite),
             "aucune" | "sans" | "" => Some(Self::Aucune),
             _ => None,
         }

@@ -69,7 +69,7 @@ fn session_aplatie_et_defi_passkey() {
             "etablissement_id":"6f1c3c80-0000-4000-8000-000000000002","role":"eleve",
             "eleve_id":"6f1c3c80-0000-4000-8000-000000000009","passkey_count":0,
             "portee":"complete","assurance":"mot_de_passe","client":"web",
-            "passkey_obligatoire":false}"#,
+            "passkey_obligatoire":false,"casquette":"principale"}"#,
     );
     // Ancien format (avant le socle 1) : toujours lisible, valeurs par défaut sûres.
     let ancien: MeDto = serde_json::from_str(
@@ -80,6 +80,7 @@ fn session_aplatie_et_defi_passkey() {
     .unwrap();
     assert_eq!(ancien.portee, "complete");
     assert!(!ancien.passkey_obligatoire);
+    assert_eq!(ancien.casquette, "principale");
 }
 
 #[test]
