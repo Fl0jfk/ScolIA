@@ -2,6 +2,7 @@
 
 **Date :** 2026-11-10 — **Statut :** conception de fond, **non décidée** (à relire par Florian), rédigée **après** le code (lot S2-11 : migrations 210–216, `sante_acc.rs`, `accompagnement.rs` ; lot 7 et antérieurs : migrations 040, 045, 052, 053, `infirmerie_repo.rs`, `fiche_sante*.rs`, `pai.rs`) pour le rattraper (`docs/PILOTAGE.md` §4, « rattrapage des domaines codés avant la méthode »). Le module santé est **désactivé par défaut** (migration 216) faute d'hébergeur certifié HDS. Aucun code écrit ni modifié ; aucun accès à une base, à un secret ni à l'application Next.js.
 **Branche :** `ent-socle-sante-conception`, partie d'`origin/ENT` (`ee7706d3`).
+**Passe personas (2026-11-10, ajout) :** `PERSONAS_34.md` ; ajouts au **§30**, qui l'emporte en cas de contradiction (§28, points 11 à 16).
 **À lire avec :** `CLAUDE.md` (données d'élèves, cloisonnement, autorisation côté serveur, minimisation, audit ; l'IA n'a jamais plus de droits que l'utilisateur) ; `docs/DECISIONS.md` (D-009, D-017, D-019, D-021, D-022, D-023, D-026, D-027, D-028 ; D-029 à D-033 sur les branches de conception) ; `docs/SOCLES.md` (socles 34, 35, 36, 12, 14, 40, 41, 42) ; `docs/SOCLE2_DOMAINES.md` (SAN-01 à SAN-08, ACC-01 à ACC-05) ; `docs/MATRICE_CHARLEMAGNE.md` §3.12 ; `02_ELEVE.md` (pastilles, bris de glace R-E11) ; `04_ADMINISTRATIF.md` (contacts d'urgence, remise, interdictions, majorité) ; `07_DOCUMENTS.md` (domaine `sante`, C3, signature S2 du PAI) ; `08_NOTIFICATIONS.md` (natures `sante.*`, défaut E6) ; `16_MESSAGERIE.md` (boîtes C3, Q-M21) ; `10_EMPLOI_DU_TEMPS.md` (AESH, CL-33, CL-34) ; `21_EVALUATIONS.md` (dispenses et aménagements sans motif) ; `IA_COEUR.md` (C3, classe « sensible », Q-IA5) ; `docs/VERIF_REGLEMENTAIRE.md` R23–R27 (branche `ent-verif-reglementaire`, non fusionnée) ; modèles de forme : `10_EMPLOI_DU_TEMPS.md`, `16_MESSAGERIE.md`, `21_EVALUATIONS.md`, `24_FINANCES.md`.
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin et ligne cités) ; **[V]** règle lue sur une source officielle (URL citée, §5) ; **[Ve]** extrait officiel vu sans lecture du texte entier ; **[NV]** règle non vérifiée ; **[H]** hypothèse (pratique du terrain, interprétation) ; **[R]** recommandation (non décidée). Numérotation propre : actions **SAN-100** et suivantes (SAN-01 à SAN-08 sont pris par `SOCLE2_DOMAINES.md`, et la matrice emploie SAN-05 à SAN-12 avec un autre sens, §28) ; défauts **SD-01**… ; règles **R-S1**… ; cas limites **CS-01**… ; questions **Q-S1**… ; réglages signalés **S-180**… (après S-178 du socle 24).
 **Plages de migrations :** **6400–6499** si la règle « 3000 + 100 × numéro de socle » (Q-B2 d'`ARCHITECTURE_BRIQUES.md`) est adoptée, **repli 580–599** sinon. Vérifié libre sur **toutes les branches distantes** le 2026-11-10 (`git ls-tree` de chaque `origin/*` : plus haute migration trouvée **480**, socle 16 M0a ; plus haute réservation **560–579**, socle 26). Q-B2 n'étant pas adoptée (les socles 21 et 24 ont pris leur repli), **le lot S0 part en 580**. Registre : `MIGRATIONS.md`.
@@ -21,6 +22,7 @@ Sommaire : §0 En bref · §1 Thèse · §2 Existant · §3 Acteurs · §4 L'ann
 6. **Ce que ScolIA apporte de plus que le marché [H]** : un professeur sait **en temps réel** qu'un élève est à l'infirmerie (l'appel le montre, ce n'est pas une absence) ; l'infirmière renvoie un enfant au domicile **avec la photo et les interdictions de remise sous les yeux**, et l'absence se crée seule ; le PAI se signe en ligne **par chaque titulaire**, chaque version est figée et prouvée, la trousse a une date de péremption qui alerte ; un encadrant de voyage a la **fiche d'urgence hors ligne** de ses élèves, effacée au retour ; une mineure peut venir pour une contraception d'urgence **sans qu'aucun avis, aucune absence motivée, aucune ligne de journal visible ne la trahisse** ; l'infirmière voit **qui a lu quoi** dans ses dossiers.
 7. **Le plan.** **160 actions** (SAN-100 à SAN-295, numérotation à trous), **58 cas limites** (CS-01 à CS-58), **34 règles** (R-S1 à R-S34), **14 réglages signalés** (S-180 à S-193), **16 lots** : **S0** (correctifs urgents de l'existant), **S1** (droits, cercles, niveaux, journal), **S2 à S4** (N-1 : sécurité et organisation, PAI, inaptitudes), **S5 à S9** (N-2 : cabinet, vaccinations et dépistages, sorties, crises, conservation et droits d'accès), **S10 à S15** (messagerie de l'infirmerie, mobile, accompagnement avec le 35, articulation LIEN / Esculape, IA, RLS stricte et retraits). **Parcours minimal d'un pilote** : S0, S1, S2, S3, S4 en **N-1** — après l'avis du DPO ; N-2 attend l'hébergement HDS.
 8. **Décisions appliquées par défaut (D-031)** : 28 questions (Q-S1 à Q-S28) tranchées selon la recommandation ; **soumis à Florian** : **hébergeur HDS et coût** (certification de ScolIA comme hébergeur ou infogérance certifiée, contrat Scaleway HDS), **DPO** (avis sur N-1 sans HDS, AIPD, durées de conservation), **infirmier et médecin référents** du pilote (relecture métier, protocoles, PAI).
+9. **Ajout personas (§30)** : **N-0 devient « sans donnée de santé »** au sens strict (statut neutre « sortie autorisée », sans lieu) ; **mouvement confidentiel dès N-1** ; audience « qui a l'élève maintenant » ; accès d'urgence de la vie scolaire ; **mode sans infirmière** ; **IA exclue de toute donnée du 34** ; destructions rejouées après restauration, cabinet sauvegardé en HDS sur chaque destination, export santé chiffré pour un destinataire nommé ; **jalon N-1 avant la bascule des voyages (16 avril 2027)** ; risque de production du module santé de Next.js signalé (Q-S34). 33 actions (SAN-300 à SAN-332), 18 règles (R-S35 à R-S52), 12 cas limites (CS-59 à CS-70).
 
 ---
 
@@ -91,6 +93,8 @@ Code lu sur `origin/ENT` (`ee7706d3`), chemins depuis `ent-rust/`. Un audit ind�
 | **SD-23** | Élevée | **Activation du module en un clic** par tout détenteur de `securite.politique`, sans attestation (contrat HDS, AIPD, avis du DPO), sans confirmation renforcée ; journal écrit **après** et hors transaction ; un seul niveau (tout ou rien) | un administrateur active le module « pour essayer » et l'établissement héberge des soins hors HDS | `module_sante.rs:33-68` | S0 (N3 + attestation), S1 (niveaux) |
 | SD-24 | Faible | **PDF de fiche santé non stocké** et téléchargeable par les applis mobiles [H : stockage local non vérifié] | copie médicale sur un téléphone, sans effacement | `fiche_sante_pdf.rs`, `routes.rs:670` | S0 (route fermée), S11 |
 
+**Ajout personas** : SD-25 (signatures du PAI en cascade, FK non composite, `210:22`), SD-26 (tableaux `TEXT[]`), SD-27 (clé unique `ENT_SECRETS_KEY` pour IBAN, santé, psychologie), SD-28 (N-0 garde « envoyé à l'infirmerie ») : `PERSONAS_34.md` §3.2, lots au §30.10.
+
 ### 2.3 Verdict : garder, corriger, remplacer
 
 - **Garder** : le **catalogue fermé** de contraintes et d'aménagements (sans texte libre, la base le garantit) ; la **fiche d'urgence à deux niveaux** ; la **signature du PAI par partie et par version** avec contrôle de version ; le chiffrement AES-GCM par champ avec AAD par ligne ; les **événements sans donnée médicale** et leur test sentinelle ; le lien pré-signé tracé ; le module **fermé par défaut**.
@@ -100,6 +104,8 @@ Code lu sur `origin/ENT` (`ee7706d3`), chemins depuis `ent-rust/`. Un audit ind�
 
 ### 2.4 Ce que fait l'application Next.js de production (sans lecture nouvelle)
 D'après la matrice (`MATRICE_CHARLEMAGNE.md`, ligne 460 [F, lecture déjà faite par une autre session]) : `app/api/sante/`. **Aucune lecture nouvelle** n'a été faite. Le document `IA_COEUR.md` (§2, ligne 771 [F]) signale déjà que Next.js envoie à un fournisseur d'IA des données de santé mentale d'élèves mineurs : **risque de production à signaler à Florian**, hors du périmètre de ce document (Next.js intouchable).
+
+**Ajout personas (lecture ciblée faite le 2026-11-10)** : NXS-01 à NXS-12 (`PERSONAS_34.md` §3.1). **Risque de production** : le module `sante` de Next.js est ouvert aux directions, administrateurs, secrétariat, CPE, surveillants, psychologue et infirmerie, avec textes de soins en clair, sans journal des accès, suppression en cascade avec l'élève (`app/lib/intranet-modules.ts:922-931`, `drizzle/0054`–`0056`) ; signalé à Florian (Q-S34).
 
 ---
 
@@ -219,6 +225,8 @@ Sources lues par un sous-agent ; **[V]** texte lu, **[Ve]** extrait officiel vu,
 | **N-2 — cabinet infirmier** | N-1 + registre des soins complet (motif, soins, issue, orientation), cahier de l'infirmière, traitements et administrations, contraception d'urgence, contenu du PAI et ordonnances, vaccinations détaillées, dépistages et visites, comptes rendus, pièces de santé ouvrables, dossier infirmier, transmissions | données d'un autre cercle (psychologue, assistante sociale : socle 36) | **certificat HDS de toute la chaîne** : infrastructure (Scaleway HDS, contrat signé) **et** ScolIA pour l'administration et l'exploitation (ou infogérance certifiée) ; stockage UE/EEE ; aucun accès à distance hors UE | direction + infirmier référent + attestation HDS et DPO (★ N3) ; **refus serveur** si la plateforme n'est pas déclarée HDS (R-S2) |
 
 **Public / privé (D-019) [R]** : dans un **EPLE**, N-2 est **désactivé par défaut et déconseillé** tant que l'infirmier trace ses actes dans LIEN (circulaire 2015-119 : « l'application numérique prévue à cet effet ») ; ScolIA sert N-1 et la logistique ; l'infirmier peut choisir de tenir dans ScolIA les seuls **mouvements** (N-1). Dans le **privé sous contrat** et le **hors contrat**, N-2 est l'offre complète, après HDS. Un réglage signalé (S-180) permet à un EPLE d'activer N-2 si son académie le demande.
+
+**Ajout personas (§30.1, R-S35)** : le tableau ci-dessus se contredit pour N-0 (« ne contient jamais » de donnée de santé, mais l'appel garde « envoyé à l'infirmerie », donnée de santé indirecte). **N-0 devient « sans donnée de santé » au sens strict** : statut neutre « sortie autorisée », sans lieu ni motif ; c'est le défaut, sans HDS ni avis du DPO.
 
 ### 6.2 Architecture d'hébergement [R]
 1. **Deux bases.** La base principale de l'ENT reçoit N-1 (tables `ent_san_*` de la brique `sante`, champs chiffrés). Le **cabinet** (N-2) vit dans **une base PostgreSQL séparée**, sur des instances du périmètre HDS, avec ses sauvegardes propres (activité 6° de R1111-9), sans réplique dans la base principale ; la base principale ne contient du cabinet que des **identifiants opaques** et des **états** (« passage clos », « PAI version 3 signée »).
@@ -502,6 +510,8 @@ Passages par jour, motif agrégé (N-2), issue, heure, niveau ; renvois au domic
 ---
 
 ## 13. Intelligence artificielle (contrat IA du socle, `IA_COEUR.md` §5, §7.2, Q-IA5)
+
+**Ajout personas (§30.4, R-S48) : remplace le §13.1 (deuxième point) et le §13.3** : aucune capacité IA sur une donnée du 34, N-1 compris ; seule reste la rédaction d'informations collectives (C0).
 
 ### 13.1 Ce que l'IA fait [R]
 - **Hors santé personnelle** : aider à rédiger un **protocole générique** ou une **information collective** (canicule, pédiculose) à partir des modèles validés, en proposition (N3 pour toute diffusion) ; reformuler une consigne en langage simple ; traduire une **information générale** (jamais une conduite à tenir).
@@ -1009,6 +1019,8 @@ cab_outbox                          -- événements internes du cabinet
 ## 24. Lots de code (équipe Sonnet)
 
 ### 24.1 Tableau des lots
+**Ajout personas** : S0 complété, S7-min nouveau (avant le 16 avril 2027), compléments de S1, S2, S3, S9, S11, S14 : **§30.10**.
+
 | Lot | Contenu | Dépend de | Critères de fin |
 |---|---|---|---|
 | **S0** correctifs urgents | **SD-01** droits (MIG-1) ; **SD-02** interdictions (MIG-3) ; **SD-03** garde de service + `/dossier` + dispenses + journal + documents (MIG-2) ; **SD-04** masquage de `/vs/dispenses` ; **SD-05** secrétariat hors documents santé ; **SD-06** `droit_requis = lien` pour les avis de santé (avec N0b du socle 8) ; **SD-07** enveloppe neutre ; **SD-08** fermeture : lecture et signature réservées aux titulaires avec autorité, élève majeur exclu de l'accès parental, `visible_famille` forcé à faux tant que S5 n'existe pas ; **SD-09** chiffrement des pièces (MIG-5), commentaire, libellé, motif ; **SD-10** RLS ; **SD-11** trace fail-closed, PDF et listes tracés, `audit.lire` sans entrées santé ; **SD-12** instantané des versions du PAI ; **SD-14** clôture unique et corrections ; **SD-15** historique de la fiche ; **SD-16** fusion bloquée pour la santé ; **SD-17** portées réduites ; **SD-21** libellé de dispositif masqué ; **SD-22** seed sans pathologie ; **SD-23** activation N3 + attestation obligatoire + journal transactionnel ; **SD-24** PDF de fiche santé retiré du mobile | — | un test par défaut corrigé ; matrice de séparation des routes santé (direction, admin, secrétariat, CPE, professeur, parent sans autorité, parent interdit, parents d'un majeur, autre établissement) ; aucune régression des tests S2-11 hors ceux qui figeaient SD-01 ; `MIGRATION_TAG` à jour |
@@ -1084,6 +1096,8 @@ cab_outbox                          -- événements internes du cabinet
 
 ## 27. Questions à Florian (avec recommandations, appliquées par défaut — D-031)
 
+**Ajout personas** : Q-S29 à Q-S40 et précisions de Q-S1, Q-S2, Q-S3, Q-S6 : **§30.11** et `PERSONAS_34.md` §8.
+
 | # | Question | Recommandation |
 |---|---|---|
 | Q-S1 | **Hébergement HDS** : contrat Scaleway HDS et **certification de ScolIA** comme hébergeur (activité d'administration et d'exploitation) ou **infogérance** par un prestataire certifié ? Budget ? | **Soumis à Florian** (contrat, coût). Recommandation : ne pas engager avant un pilote N-1 ; vérifier Scaleway sur la liste de l'ANS (v2) ; demander deux devis (certification propre / infogérance) ; N-2 reporté d'ici là. |
@@ -1133,6 +1147,12 @@ cab_outbox                          -- événements internes du cabinet
 8. **Socle 8** prévoit `sante.passage_infirmerie` aux titulaires « indépendamment de `voir_vie_scolaire` » : ce document le confirme, **sauf actes confidentiels** et **sauf élève majeur**, deux exceptions à ajouter au socle 8.
 9. **Socle 16** Q-M21 parlait d'une boîte infirmerie « avant l'HDS » ; ce document précise : logistique en N-0/N-1, stockage au cabinet en N-2.
 10. `docs/socles/MIGRATIONS.md` (copie d'`ENT`) ne contient pas les réservations des socles 10, 16, 21, 24, 25, 26 (portées par leurs branches) : la ligne du socle 34 est ajoutée ici en tenant compte de ces branches.
+11. **(personas)** §6.1 : N-0 « ne contient jamais » de donnée de santé, mais garde « envoyé à l'infirmerie » : tranché par R-S35 (§30.1).
+12. **(personas)** §13 : l'IA lit les consignes N-1, alors que le §5.3 en fait des données de santé et que Florian exclut l'IA de toute donnée de santé : tranché par R-S48 (§30.4).
+13. **(personas)** §10.10 : l'acte confidentiel n'existe qu'en N-2, alors que le pilote vivra en N-1 : tranché par R-S50 (mouvement confidentiel dès N-1).
+14. **(personas)** §9.1 : la pastille PAI est visible du CPE pour tous les élèves : réduite par R-S38.
+15. **(personas)** `PORTABILITE_EXPORTS.md` §4 fait approuver l'export santé par la direction : compatible avec R-S1 seulement sur une vue sans contenu (R-S45) ; §4 à préciser.
+16. **(personas)** D-040 (deuxième destination de sauvegarde) : pour le cabinet, chaque destination doit être certifiée HDS (activité 6°) ; §18 : journal des accès 3 ans seulement si l'AIPD le justifie (délibération CNIL 2021-122), sinon 1 an.
 
 ---
 
@@ -1143,3 +1163,143 @@ cab_outbox                          -- événements internes du cabinet
 3. **Trois niveaux, et N-1 d'abord** (Q-S5, Q-S2) : un pilote réel en N-1 (mouvements, remise, consignes, PAI sans contenu médical, inaptitudes) **après l'avis écrit du DPO**. **Soumis au DPO.**
 4. **L'hébergement HDS** (Q-S1, Q-S27) : certification de ScolIA ou infogérance certifiée, contrat Scaleway HDS, base séparée pour le cabinet. **Soumis à Florian** (contrat, coût) ; N-2 attend.
 5. **Les référents métier** (Q-S3) : un infirmier et un médecin scolaires pour relire consignes, protocoles et PAI et conduire la recette. **Soumis à Florian.**
+
+---
+
+## 30. Ajout personas (2026-11-10, `PERSONAS_34.md`)
+
+**Statut :** proposition, non décidée ; recommandations appliquées par défaut (D-031), sauf ce qui engage l'établissement à l'extérieur (hébergement HDS et coût, DPO, référents médicaux : `PERSONAS_34.md` §8.2). **Ce paragraphe l'emporte** sur le texte d'origine quand ils se contredisent (contradictions écrites au §28, points 11 à 16). Sources réglementaires nouvelles : `PERSONAS_34.md` §5 (R1 à R19).
+
+### 30.1 N-0 « sans donnée de santé » (R-S35, corrige SD-28)
+1. **N-0 est le défaut**, activable sans HDS ni avis du DPO, parce qu'il ne contient **aucune donnée de santé**, même indirecte (C-184/20) : aucune table `ent_san_*` ne reçoit de ligne, aucune route santé ne répond, la boîte infirmerie n'existe pas.
+2. L'appel et la vie scolaire disposent d'un **statut neutre « sortie autorisée »** (heure de sortie, heure de retour, autorisé par), **sans lieu ni motif** ; il remplace « envoyé à l'infirmerie » en N-0. En N-1, le lieu « infirmerie » s'affiche, sauf mouvement confidentiel (R-S50).
+3. Restent disponibles en N-0, car ce ne sont pas des données de santé : contacts d'urgence, personnes autorisées, interdictions de remise (socle 4), remise sécurisée, numéros d'urgence, protocoles **génériques** sans nom d'élève, compteur anonyme de l'état chiffré (SAN-319).
+4. **Registre des données de santé indirectes des autres socles** (tenu au registre de classement E12, colonne « santé indirecte ») : motif d'absence « maladie » et certificats d'absence (12), dispositifs, aménagements et AESH (35), statut « dispensé » (21), régimes de la cantine (40). Ils relèvent de l'AIPD générale de l'ENT, pas du mode du 34 ; le **dossier d'avis du DPO** (SAN-324) les liste.
+
+### 30.2 Mode « sans infirmière » (R-S43, S-463)
+1. Proposé quand le cercle de soins est **vide** (pas d'infirmière, départ, poste vacant : SAN-305) ; **N-1 seulement** ; **soumis au DPO** avec l'avis N-1 (Q-S33).
+2. Le chef désigne un **référent PAI** non soignant (fonction du socle 6, SAN-322) : il tient le **registre des PAI** (métadonnées), consigne les signatures d'après le document signé (SAN-174), publie et retire les **consignes** à partir d'un PAI ou d'un certificat **signé par un médecin** (pièce vue, **non stockée**), enregistre les trousses et l'armoire à pharmacie collective (SAN-214, SAN-216).
+3. Il n'existe **ni mouvements d'infirmerie, ni plis, ni soins** ; les **premiers secours** sont saisis par les adultes formés (SAN-125), et la fiche d'urgence montre les **adultes formés présents aujourd'hui** (SAN-323). Fondement : protocole de 2000, soins et urgences assurés par des personnels formés PSC1 ou SST en l'absence d'infirmier [Ve, `PERSONAS_34.md` §5 R7].
+4. À l'arrivée d'une infirmière, le référent garde la lecture du registre pendant un mois pour la transmission, puis perd ses droits.
+
+### 30.3 Sauvegardes, restauration, export, clés (R-S44 à R-S47 ; D-037 à D-046)
+1. **Destructions rejouées** (R-S44) : toute destruction (§18, SAN-291) est inscrite dans un **journal des destructions** `ent_san_destruction` (ajout seul, identifiants opaques, date, procès-verbal sans contenu), **conservé hors de la rétention des données détruites** ; après toute restauration (globale ou d'un établissement, `PRA_SAUVEGARDES.md` §10–§11), le journal est **rejoué avant réouverture** (SAN-327) ; une restauration n'annule jamais une destruction. La notice aux familles dit que la donnée détruite peut subsister jusqu'à 12 mois dans les sauvegardes chiffrées (D-043), jamais restaurée.
+2. **Effets de bord** : après restauration, aucun avis santé n'est renvoyé (E9) ; le journal des accès est restauré avec les données, jamais tronqué.
+3. **Cabinet (N-2)** : sauvegardé dans sa propre chaîne ; **chaque destination certifiée HDS** (activité 6°, sites dans l'EEE ; OVHcloud Object Storage ou Cold Storage, Scaleway Object Storage HDS Paris sans règles de cycle de vie, donc purge par notre code [`PERSONAS_34.md` §5 R11–R13]) ; jamais lu par `ent-extraction` de la base principale ; restauré à part, dans le périmètre HDS. **Si** le DPO juge N-1 dans le champ HDS, la même règle vaut pour les sauvegardes de N-1 et « N-1 sans HDS » tombe (question posée explicitement, Q-S2).
+4. **Registre de classement (E12)** : toutes les tables `ent_san_*` en catégorie **« particulière »** ; `ent_san_acces` et `ent_san_destruction` aussi ; le cabinet tient son **registre propre**. Un test échoue si un **export complet** (D-041) contient une ligne du 34 (CS-69).
+5. **Export santé** (R-S45, SAN-328 ; précise `PORTABILITE_EXPORTS.md` §4) : initié par l'infirmière titulaire (ou le DPO) ; approuvé par le DPO **et** par la direction sur une **vue sans contenu** (volumes, catégories, destinataire) ; archive chiffrée **pour un destinataire nommé** (soignant successeur, nouvel hébergeur HDS), illisible des approbateurs comme de ScolIA ; actes confidentiels exclus sauf accord de l'élève ; journal. Aucun autre export de consignes que SAN-205 (N3) ; toute impression santé est **filigranée** (lecteur, date, « document de santé — ne pas diffuser »).
+6. **Clés** (R-S47, SAN-329, corrige SD-27) : clé de données santé **par établissement et par niveau**, enveloppée par une clé du KMS, avec **identifiant** (`enc:v2:<id_cle>:`, E11), séquestre **séparé** de celui d'`ENT_SECRETS_KEY` (D-042) ; sa destruction en fin de contrat rend illisibles **aussi les sauvegardes** (effacement cryptographique) ; le support n'y a jamais accès ; aucun compte partagé sur les postes de l'infirmerie ou de la cuisine, verrouillage automatique (S-462).
+7. **Sécurité d'écran et journaux techniques** (R-S46) : vues santé en écran sécurisé sur Android (capture bloquée), masquées dans le sélecteur d'applications et capture détectée et tracée sur iOS, filigrane nominatif ; aucun corps de requête santé dans les journaux applicatifs et les rapports d'erreur (E14 étendue).
+
+### 30.4 IA (R-S48, remplace le §13.1 et le §13.3)
+**Aucune capacité IA sur une donnée du socle 34, quel que soit le niveau** (N-1 compris : les consignes sont des données de santé, §5.3). Seule reste `sante.rediger_information_collective` (C0 : modèles validés, aucune donnée d'élève, N3 pour diffusion). `sante.recapituler_sortie`, `sante.expliquer_consigne` et `sante.statistiques_rapport` sont **retirées**. À une question sur la santé d'un élève, l'IA répond « je n'ai pas accès à la santé des élèves » et donne le lien vers l'écran qui répond. Les contextes IA de **tous** les socles filtrent les ports du 34 ; un test échoue sinon.
+
+### 30.5 Next.js et jalon de la bascule des voyages
+1. **Faits** : `PERSONAS_34.md` §3.1 (NXS-01 à NXS-12) ; **risque de production** NXS-10 et NXS-12 signalé à Florian (Q-S34) ; aucune action du pilote sur Next.js.
+2. **Reprise** : aucune donnée de soins reprise sans HDS (inchangé, T0 R-08) ; les extraits sont **recodés** à la main par l'infirmière en consignes du catalogue (SAN-300) ; à l'arrêt du module Next.js, export par l'infirmière pour elle-même, puis destruction décidée par Florian.
+3. **Jalon N-1 pour la bascule du 42 (17 avril 2027)** (Q-S30) : avis écrit du DPO **avant fin janvier 2027** ; S0, S1, S2, S3 et **S7-min** prêts **avant le 16 avril 2027** ; repli : fiche sanitaire papier remise par l'infirmière à l'encadrant pour les séjours repris et mention « santé : voir l'infirmière » à l'écran (changement d'usage signalé).
+
+### 30.6 Actions ajoutées (SAN-300 à SAN-332)
+| ID | Action | Qui · droit | Niv. | Règles | Événement |
+|---|---|---|---|---|---|
+| SAN-300 | Recoder un extrait santé de Next.js en consigne du catalogue | INF, référent PAI · `sante.consignes.publier` | N-1 | à partir du PAI ; aucun texte libre repris | `sante.consigne_publiee` |
+| SAN-301 | Saisir un mouvement a posteriori (heure déclarée) ; contexte « nuit d'internat » | INF, INR, surveillant de nuit · `sante.registre.saisir` | N-1 | heure déclarée et heure de saisie tracées | `sante.arrivee` |
+| SAN-302 | Gérer la file d'attente (arrivées scannées, prioritaire signalé par l'envoyeur, sans motif) | INF · `sante.registre.saisir` ; PRF, VS (case « urgent ») | N-1 | — | — |
+| SAN-303 | Rappeler un joignable (numéros du socle 4), jamais confirmer à un appel entrant inconnu | INF, VS · `sante.registre.saisir` | N-0 | R-S36 | `sante.famille_appelee` |
+| SAN-304 | Afficher le registre du jour pour le recopier dans LIEN (aucun fichier) | INF · `sante.registre.lire` | N-1 | public ; tracé | — |
+| SAN-305 | Fermer l'accès à la fin de fonction ; alerter « cercle vide » | SYS (socle 6) ; DIR | N-1 | proposition du mode sans infirmière | `sante.cercle_modifie` |
+| SAN-306 | Préparer la vacation du médecin (file, créneaux) | INF · `sante.avis.demander` | N-1 | socle 19 | — |
+| SAN-307 | Ouvrir la fiche minimale d'un élève en urgence (vie scolaire) | CPE, VS · `sante.urgence.lire@urgence` | N-1 | motif en un geste ; signalé à l'infirmière ; seuil S-461 | `sante.acces_urgence` |
+| SAN-308 | Déclencher « urgence en classe » depuis l'appel | PRF, VS · `sante.envoyer` | N-0 | U3 infirmerie et vie scolaire ; numéros d'urgence | `sante.urgence_classe` |
+| SAN-309 | Saisir les incapacités d'un certificat reçu et le suivre jusqu'à l'infirmerie | PEPS · `sante.inaptitudes.saisir@mes_classes` | N-1 | aucun scan en N-1 | `sante.inaptitude_enregistree` |
+| SAN-310 | Joindre une traduction de la conduite à tenir validée par le médecin | MED · `sante.pai.rediger` | N-2 | version du PAI ; jamais automatique (R-S20) | `sante.pai_version_creee` |
+| SAN-311 | Tenir la main courante d'une crise | DIR, INF · `sante.crise.piloter` | N-1 | ajout seul ; aucun nom hors cercle | — |
+| SAN-312 | Produire la fiche PPMS par zone (élèves à consigne présents, trousses) | DIR, INF · `sante.crise.piloter` ; responsable de zone en lecture | N-1 | d'après l'EDT ; zone seulement | — |
+| SAN-313 | Produire le relevé de conformité d'un PAI (sans contenu) | DIR, INF · `sante.pai.signer_chef` | N-1 | signatures, consignes, lectures, trousses | `sante.releve_produit` |
+| SAN-314 | Signer en série les PAI de rentrée | DIR · `sante.pai.signer_chef` | N-1 | confirmation par PAI | `sante.pai_signe` |
+| SAN-315 | Suivre une enveloppe papier (reçue, remise à l'infirmerie) | ADF, INF · `sante.plis.suivre` | N-0 | aucun titre médical | — |
+| SAN-316 | Informer la famille à chaque passage pour un élève et une période | INF · `sante.parametrer` | N-1 | S-460 ; jamais pour l'écoute ni un acte confidentiel | — |
+| SAN-317 | Voir « ce que l'établissement sait de la santé de mon enfant » | PAR, ELM · lien | N-0 | niveau, consignes, registre, mouvements utiles, droit d'accès | — |
+| SAN-318 | Enregistrer un mouvement confidentiel | INF · `sante.registre.saisir` | N-1 | R-S50 | (aucun événement nominatif) |
+| SAN-319 | Compter un acte anonyme pour l'état chiffré (mineure / majeure, mois) | INF · `sante.statistiques.produire` | N-0 | aucune donnée personnelle | — |
+| SAN-320 | Chronométrer une crise et l'enregistrer comme premier secours | adultes de l'audience · `sante.premiers_secours` | N-1 | sans texte libre | `sante.premiers_secours` |
+| SAN-321 | Désigner les adultes formés à un geste du PAI | INF, référent PAI · `sante.pai.rediger` | N-1 | nom, formation, date ; lu par la fiche d'urgence | — |
+| SAN-322 | Désigner le référent PAI (mode sans infirmière) | DIR · `sante.cercle.gerer` | N-1 | R-S43 | `sante.cercle_modifie` |
+| SAN-323 | Voir les adultes formés présents aujourd'hui | tout personnel · `sante.protocoles.lire` | N-0 | socle 6 (habilitations), EDT | — |
+| SAN-324 | Produire le dossier d'avis du DPO | DIR, DPO · `sante.module.lire` | N-0 | niveaux, matrice, tests, hébergement, sauvegardes, durées, données indirectes | — |
+| SAN-325 | Suivre la procédure de contrôle de la CNIL | DPO · `sante.journal.lire` | N-0 | données médicales individuelles en présence d'un médecin (78-17, 19 III) | — |
+| SAN-326 | Calculer le périmètre d'une fuite (export, fichier, appareil) | DPO · `sante.journal.lire` | N-1 | liste des élèves concernés, sans contenu | `sante.fuite_evaluee` |
+| SAN-327 | Rejouer le journal des destructions après restauration | SYS (exploitation) | N-1 | avant réouverture ; bloque la réouverture en cas d'échec | `sante.destructions_rejouees` |
+| SAN-328 | Exporter la santé (procédure particulière) ★ | INF titulaire ou DPO · `donnees.export.sante` ; DPO et DIR approuvent | N-1 | R-S45 | `sante.export_sante` |
+| SAN-329 | Créer, faire tourner, détruire la clé santé d'un établissement ★ | SYS (exploitation, deux personnes) | N-1 | E11, D-042 | `sante.cle_*` |
+| SAN-330 | Générer la notice aux familles par niveau | DIR, DPO · `sante.module.lire` | N-0 | sauvegardes comprises | — |
+| SAN-331 | Afficher l'écran d'accueil du module par rôle (« ce que vous voyez, et pourquoi pas plus ») | tous | N-0 | — | — |
+| SAN-332 | Tenir le protocole « santé mentale » de l'établissement et recueillir l'accord parental d'orientation | INF, MED, PSY · `sante.protocoles.gerer` ; PAR · lien | N-1 | circulaire 2026/58 ; aucune liste d'élèves | `sante.protocole_modifie` |
+
+**Précisions sur des actions existantes** : SAN-137 (déclaration d'accident) ouverte au **témoin** (PRF, PEPS) ; SAN-138 (passages répétés) **dès N-1** sur les mouvements ; SAN-174 aussi par le référent PAI ; SAN-179 : chaque titulaire est informé séparément ; SAN-214 : trousse « portée par l'élève » et « conservation au froid » ; SAN-216 aussi par le référent PAI ; SAN-232 possible **en N-1** pour les seuls mouvements ; SAN-292 : réponse du DPO aux familles par catégories, dates et finalités. **Compte** : 160 + 33 = **193 actions**.
+
+### 30.7 Règles ajoutées (R-S35 à R-S52)
+| # | Règle | Lot |
+|---|---|---|
+| R-S35 | **N-0 sans donnée de santé** : aucune ligne santé ; statut neutre « sortie autorisée » sans lieu ni motif | S0 |
+| R-S36 | **Jamais de confirmation à un appel entrant non identifié** ; rappel aux seuls joignables | S2 |
+| R-S37 | **Accès d'urgence de la vie scolaire** : fiche minimale seulement, motif, trace, signalement, seuil bas, revue hebdomadaire par l'infirmière | S1 |
+| R-S38 | **Pastille PAI du CPE** limitée aux élèves dont il a la charge (corrige la matrice §9.1) | S0 |
+| R-S39 | **Audience calculée sur qui a l'élève maintenant** (séance, remplacement, permanence, intervenant, sortie, affectation AESH du jour) | S2 |
+| R-S40 | **Bénévole de sortie** : fiche minimale de son groupe seulement | S7 |
+| R-S41 | **Rendez-vous de l'infirmerie et du psychologue** : ni motif ni auteur hors cercle, jamais dans l'EDT vu de la famille | S10 |
+| R-S42 | **Aucune donnée de santé au prestataire** d'un séjour, sauf la consigne alimentaire par SAN-205 | S7 |
+| R-S43 | **Mode sans infirmière** (§30.2) | S1–S3 |
+| R-S44 | **Sauvegarde et restauration** : destructions rejouées, effets neutralisés, cabinet HDS sur chaque destination, export complet sans santé (§30.3) | S0 (classement), S1, S9 |
+| R-S45 | **Sortie de données de santé** : export santé chiffré pour un destinataire nommé, approuvé sans contenu ; aucun autre export que SAN-205 ; impressions filigranées | S9 (export), S2 (impressions) |
+| R-S46 | **Sécurité d'écran et journaux techniques** sans contenu santé | S11, S0 (journaux) |
+| R-S47 | **Comptes et clés** : clé santé séparée avec identifiant ; aucun compte partagé ; support sans accès | S0 (inventaire), S1 |
+| R-S48 | **IA : aucune donnée du 34**, à aucun niveau (§30.4) | S0 (garde), S14 |
+| R-S49 | **Opposition d'un titulaire** : la partie urgence s'applique toujours ; mesures non urgentes contestées suspendues jusqu'à la décision du médecin et de la direction ; opposition visible du cercle et de la direction seulement | S3 |
+| R-S50 | **Mouvement confidentiel dès N-1** : aucun lieu publié (statut neutre), aucun avis, exclu de la chronologie, des vues et exports familiaux, des statistiques nominatives ; s'applique aussi à une carte de sortie vers un lieu refuge | S2 |
+| R-S51 | **Téléphone de suivi médical** : la consigne lue par la discipline interdit confiscation et sanction pour cet usage (L511-5) | S2 |
+| R-S52 | **Pas d'affichage mural** d'une liste santé ; tablette à session | S2 |
+
+Extension de règles existantes : **R-S4** (catalogue) interdit aussi tout code de « vigilance psychique » ; **R-S15** (enveloppe neutre) s'applique aussi aux notifications de l'**élève** ; **R-S8** : durée du journal des accès 3 ans **seulement si l'AIPD le justifie**, sinon 1 an (délibération CNIL 2021-122, `PERSONAS_34.md` §5 R15).
+
+### 30.8 Cas limites ajoutés (CS-59 à CS-70)
+| # | Cas | Réponse [R] |
+|---|---|---|
+| CS-59 | Médecin de secteur au service d'établissements de deux organisations clientes | une identité, une casquette par établissement ; restauration et export d'un établissement n'emportent rien de l'autre |
+| CS-60 | Élève majeur malade qui n'a désigné aucun contact | ses contacts choisis, sinon le 15 ; jamais ses parents d'office |
+| CS-61 | Démo de décembre 2026 | N-0 ; santé montrée sur maquette et données fictives ; N-1 jamais activé sur le labo partagé |
+| CS-62 | Restauration à J-3 alors qu'un dossier a été détruit à J-1 | destruction rejouée avant réouverture (SAN-327) |
+| CS-63 | L'infirmière démissionne un lundi | accès fermé le jour même ; consignes publiées maintenues ; nouvelles publications bloquées jusqu'au référent ou à la remplaçante |
+| CS-64 | Remplaçante arrivée le matin même dans une classe avec trois PAI | audience R-S39 : elle voit les consignes dès sa première séance |
+| CS-65 | Élève parti sans billet, noté absent, arrivé à l'infirmerie | l'arrivée remplace l'absence avant l'envoi de l'avis (socle 12) |
+| CS-66 | Crise d'asthme alors que le père s'est opposé au traitement de fond | conduite à tenir appliquée, 15 appelé ; l'opposition ne s'affiche pas à l'adulte qui agit |
+| CS-67 | Le téléphone de Tom est confisqué par un surveillant | consigne R-S51 lue à la saisie de la confiscation : refus avec explication, restitution |
+| CS-68 | Capture d'écran d'une fiche hors ligne | Android : bloquée ; iOS : tracée et rappel ; filigrane nominatif |
+| CS-69 | Export complet demandé par l'OGEC (D-041) | santé exclue ; procédure SAN-328 à part |
+| CS-70 | Contrôle sur place de la CNIL qui demande un dossier infirmier | journal exporté sans contenu ; contenu seulement sous l'autorité et en présence d'un médecin |
+
+### 30.9 Catalogue de consignes et audiences (ajouts)
+- **Audiences** : `periscolaire` (garderie, étude, accueil du mercredi ; parité NXS-07), `internat_nuit` (NXS-01), `examens` (S-189, inchangé), `zone_ppms`.
+- **Codes** (instructions, aucun nom de maladie, R-S4) : `pas_de_nourriture_partagee`, `eviter_latex`, `surveillance_rapprochee_piscine`, `pas_d_activite_en_hauteur`, `eviter_lumieres_clignotantes`, `telephone_suivi_medical_autorise`, `collation_autorisee_en_classe`, `passage_prioritaire_cantine`, `repas_a_heure_fixe`, `traitement_a_heure_fixe_en_sortie`, `sortie_libre_lieu_refuge`.
+- **Trousse** : lieu « portée par l'élève (prévu au PAI) » ; champ « conservation » (ambiante, froid).
+
+### 30.10 Lots révisés (le tableau du §24.1 reste ; ces lignes le complètent)
+| Lot | Ajouts | Critères de fin ajoutés |
+|---|---|---|
+| **S0** (complété) | **SD-25** clés étrangères composites, aucune cascade sur les signatures ; **SD-28** statut neutre « sortie autorisée » en N-0 (R-S35) ; pastille du CPE (R-S38) ; **garde IA** : aucune donnée du 34 dans un contexte IA (R-S48) ; tables santé classées « particulière » au registre (E12) et **test « export complet sans santé »** ; journaux et rapports d'erreur sans contenu santé (R-S46) ; **inventaire** de la clé santé à créer (SD-27, E11) | test « N-0 sans donnée de santé » (aucune ligne, aucune route, aucun lieu) ; test « IA sans santé » ; test « export complet sans santé » |
+| **S1** | clé santé par établissement et par niveau (SAN-329) ; accès d'urgence de la vie scolaire (SAN-307) ; fin de fonction et cercle vide (SAN-305) ; référent PAI (SAN-322) ; dossier d'avis du DPO (SAN-324) ; journal des destructions (`ent_san_destruction`) | aucune lecture d'urgence sans trace ni signalement |
+| **S2** | statut neutre et mouvement confidentiel N-1 (R-S50, SAN-318) ; file, saisie différée, nuit d'internat (SAN-301, SAN-302) ; rappel d'un joignable (SAN-303) ; urgence en classe (SAN-308) ; audience R-S39 ; catalogue §30.9 ; impressions filigranées ; pas d'affichage mural | CS-63 à CS-65, CS-67 |
+| **S3** | opposition R-S49 ; relevé de conformité (SAN-313) ; signature en série (SAN-314) ; adultes formés (SAN-321) | CS-66 |
+| **S7-min** (nouveau, **avant le 16 avril 2027**) | récapitulatif de sortie, trousses emportées, fiches d'urgence hors ligne, bénévole limité à son groupe (R-S40), aucune donnée au prestataire (R-S42) | un séjour repris part avec ses trousses cochées |
+| **S9** | export santé (SAN-328) ; destructions rejouées après restauration (SAN-327) ; périmètre d'une fuite (SAN-326) | CS-62, CS-69 ; test « restauration » |
+| **S11** | sécurité d'écran (R-S46), chronomètre de crise (SAN-320) | CS-68 |
+| **S14** | retrait des capacités IA sur les consignes (§30.4) | — |
+
+**Parcours minimal révisé** : **N-0** dès la démo (S0) ; **N-1** après l'avis écrit du DPO, avec S0, S1, S2, S3, S4 et **S7-min avant le 16 avril 2027** (jalon de la bascule des voyages) ; N-2 après l'hébergement HDS, **chaque destination de sauvegarde comprise**.
+
+**Normalisation D-036 et E2** (corrige SD-26) : `ent_san_consigne_audience (etablissement_id, consigne_id, audience)`, `ent_san_inaptitude_incapacite (etablissement_id, inaptitude_id, code)`, `ent_san_niveau_activateur (etablissement_id, niveau_journal_id, personne_id)` remplacent les tableaux du §22 ; `cab_pai_section (version_id, section_code, contenu_chiffre)` : une ligne par section, jamais un bloc chiffré qui cache une liste ; nouvelles tables `ent_san_destruction`, `ent_san_referent`, `ent_san_adulte_forme`, `ent_san_compteur_anonyme (etablissement_id, mois, categorie, nombre)`, `ent_san_crise_main_courante`. Toutes : `etablissement_id NOT NULL`, FK composites, UUID applicatifs, `cree_le`, RLS (E1–E3, E6, E13). Migrations dans les plages déjà réservées (S0 en 580 ; ajouts des personas en 590–597).
+
+### 30.11 Réglages et questions
+- **Réglages** : S-460 à S-466 (`PERSONAS_34.md` §8 bis).
+- **Appliquées par défaut (D-031)** : Q-S29 (N-0 strict), Q-S32 (IA), Q-S35 (confidentiel et compteur dès N-1), Q-S36 (audience), Q-S37 (accès d'urgence de la vie scolaire), Q-S38 (opposition), Q-S39 (pas de réglage « chaque passage »), Q-S40 (sécurité d'écran).
+- **Soumises à Florian** : Q-S1 précisée (HDS **et** seconde destination de sauvegarde HDS, coût), Q-S2 précisée (avis du DPO **avant fin janvier 2027**, y compris la question « N-1 est-il dans le champ HDS ? »), Q-S3 (référents, plus un établissement sans infirmière), Q-S6 (durées, effet dans les sauvegardes), Q-S30 (jalon de la bascule et repli papier), Q-S31 (destinataire d'une archive santé, au contrat), Q-S33 (référent PAI non soignant, DPO), **Q-S34** (module santé de Next.js : usage, restriction ou arrêt).
