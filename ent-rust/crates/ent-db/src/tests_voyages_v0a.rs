@@ -55,6 +55,18 @@ async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
         .expect("fiche personne du compte")
 }
 
+async fn agent_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT a.id FROM ent_agent a JOIN ent_personne p ON p.etablissement_id = a.etablissement_id AND p.id = a.personne_id
+          WHERE a.etablissement_id = $1 AND p.user_id = $2",
+    )
+    .bind(etab)
+    .bind(user)
+    .fetch_one(ent.pool())
+    .await
+    .expect("agent du compte")
+}
+
 struct Cadre {
     ent: PgEnt,
     etab: Uuid,
@@ -220,7 +232,7 @@ impl Cadre {
 
     /// Porteur : ajoute un encadrant responsable et les trois élèves ; soumet.
     async fn preparer_jusqu_a_soumise(&self, id: Uuid) {
-        let p2 = personne_de(&self.ent, self.etab, self.prof2).await;
+        let p2 = agent_de(&self.ent, self.etab, self.prof2).await;
         self.ent
             .voyage_encadrant_ajouter(&self.a(self.prof, Role::Prof), id, p2, "responsable")
             .await
@@ -574,23 +586,13 @@ async fn droits_et_projections_par_role() {
     // Version périmée : refusée (les écritures concurrentes ne s'écrasent plus).
     let e = c.ent.voyage_modifier(&sec, brouillon.id, brouillon.version, m).await.unwrap_err();
     assert!(est_refus(&e), "{e:?}");
-    let nouveau = personne_de(&c.ent, c.etab, autre).await;
+    let nouveau = agent_de(&c.ent, c.etab, autre).await;
     let r = c.ent.voyage_changer_porteur(&sec, brouillon.id, nouveau).await.unwrap();
-    assert_eq!(r.porteur_personne_id, nouveau);
+    assert_eq!(r.porteur_personne_id, personne_de(&c.ent, c.etab, autre).await);
     let e = c.ent.voyage_changer_porteur(&c.a(c.prof, Role::Prof), ouverte.id, nouveau).await.unwrap_err();
     assert!(est_forbidden(&e), "{e:?}");
-    // Un porteur ne peut pas être un adulte hors du personnel (un parent, par exemple).
-    let parent_personne: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2",
-    )
-    .bind(c.etab)
-    .bind(c.parent)
-    .fetch_optional(c.ent.pool())
-    .await
-    .unwrap();
-    if let Some(pp) = parent_personne {
-        assert!(c.ent.voyage_changer_porteur(&sec, ouverte.id, pp).await.is_err());
-    }
+    // Un porteur ne peut pas être un adulte hors du personnel : un agent inconnu est refusé.
+    assert!(c.ent.voyage_changer_porteur(&sec, ouverte.id, Uuid::new_v4()).await.is_err());
     // Le journal des modifications garde l'ancienne valeur.
     let j = c.ent.voyage_journal(&sec, brouillon.id).await.unwrap();
     assert!(j.iter().any(|l| l.champ.as_deref() == Some("titre") && l.avant.as_deref() == Some("Brouillon secret")));
@@ -799,7 +801,7 @@ async fn export_trace_et_sans_formule() {
     assert!(!csv.contains(";=") && !csv.contains("\r\n="));
     assert!(actions_journal(&c, s.id).await.iter().any(|a| a == "liste_exportee"));
     // Un simple encadrant n'exporte pas la liste.
-    let p2 = personne_de(&c.ent, c.etab, c.prof2).await;
+    let p2 = agent_de(&c.ent, c.etab, c.prof2).await;
     c.ent.voyage_encadrant_ajouter(&prof, s.id, p2, "encadrant").await.unwrap();
     let enc = c.a(c.prof2, Role::Prof);
     assert!(c.ent.voyage_detail(&enc, s.id).await.is_ok(), "l'encadrant lit sa sortie");
@@ -816,48 +818,16 @@ async fn encadrants_du_personnel_seulement() {
     let Some(c) = Cadre::nouveau().await else { return };
     let s = c.creer("Encadrement", "sans_nuitee").await;
     let prof = c.a(c.prof, Role::Prof);
-    // Un parent n'est pas un encadrant possible (VD-19 : jamais un nom libre ni un tiers).
-    let parent_personne: Uuid = match sqlx::query_scalar(
-        "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2",
-    )
-    .bind(c.etab)
-    .bind(c.parent)
-    .fetch_optional(c.ent.pool())
-    .await
-    .unwrap()
-    {
-        Some(p) => p,
-        None => {
-            let p = Uuid::new_v4();
-            sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom) VALUES ($1,$2,'Parent')")
-                .bind(p)
-                .bind(c.etab)
-                .execute(c.ent.pool())
-                .await
-                .unwrap();
-            p
-        }
-    };
-    let e = c.ent.voyage_encadrant_ajouter(&prof, s.id, parent_personne, "encadrant").await;
-    // Si le compte parent possède une fiche de personnel (agent), le test n'a pas de sens ; sinon refus.
-    let est_agent: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2)",
-    )
-    .bind(c.etab)
-    .bind(parent_personne)
-    .fetch_one(c.ent.pool())
-    .await
-    .unwrap();
-    if !est_agent {
-        assert!(e.is_err(), "un non-agent ne peut pas encadrer");
-    }
+    // Seuls les agents du personnel encadrent (VD-19 : jamais un nom libre ni un tiers) : un
+    // identifiant inconnu est refusé.
+    assert!(c.ent.voyage_encadrant_ajouter(&prof, s.id, Uuid::new_v4(), "encadrant").await.is_err());
     // Une personne d'un autre établissement : introuvable ou refusée.
     let autre = Uuid::new_v4();
     let dir_b = compte(&c.ent, autre, "prof").await;
-    let pb = personne_de(&c.ent, autre, dir_b).await;
+    let pb = agent_de(&c.ent, autre, dir_b).await;
     assert!(c.ent.voyage_encadrant_ajouter(&prof, s.id, pb, "encadrant").await.is_err());
     // Un agent du personnel : accepté ; doublon : conflit ; rôle inconnu refusé.
-    let p2 = personne_de(&c.ent, c.etab, c.prof2).await;
+    let p2 = agent_de(&c.ent, c.etab, c.prof2).await;
     assert!(c.ent.voyage_encadrant_ajouter(&prof, s.id, p2, "chef").await.is_err());
     let enc = c.ent.voyage_encadrant_ajouter(&prof, s.id, p2, "responsable").await.unwrap();
     assert_eq!(enc.role, "responsable");
@@ -918,7 +888,7 @@ async fn serie_hebdomadaire_ecarte_les_feries_et_se_valide_seance_par_seance() {
     let r_prof = c.ent.voyage_serie_valider(&prof, r.serie_id).await.unwrap();
     assert!(r_prof.iter().all(|x| !x.ok), "{r_prof:?}");
     // Préparer et soumettre deux séances sur trois.
-    let p2 = personne_de(&c.ent, c.etab, c.prof2).await;
+    let p2 = agent_de(&c.ent, c.etab, c.prof2).await;
     for s in r.sorties.iter().take(2) {
         c.ent.voyage_encadrant_ajouter(&prof, s.id, p2, "responsable").await.unwrap();
         c.cmd(c.prof, Role::Prof, s.id, Commande::Soumettre).await.unwrap();

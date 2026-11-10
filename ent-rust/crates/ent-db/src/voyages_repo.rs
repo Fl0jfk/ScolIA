@@ -253,7 +253,8 @@ pub struct EtapeSaisie {
 #[derive(Debug, Clone, FromRow, Serialize)]
 pub struct EncadrantVue {
     pub id: Uuid,
-    pub personne_id: Uuid,
+    /// Agent du personnel (socle 6) : identifiant de l'annuaire du personnel.
+    pub agent_id: Uuid,
     pub nom: String,
     pub prenom: Option<String>,
     pub role: String,
@@ -479,6 +480,23 @@ async fn personne_de(conn: &mut PgConnection, a: &Acteur<'_>) -> Result<Option<U
     )
     .bind(a.etablissement_id)
     .bind(a.user_id)
+    .fetch_optional(conn)
+    .await
+    .map_err(db)
+}
+
+/// Fiche de personne d'un agent **actif** du personnel (socle 6) de l'établissement.
+async fn personne_de_agent(
+    conn: &mut PgConnection,
+    a: &Acteur<'_>,
+    agent_id: Uuid,
+) -> Result<Option<Uuid>, EntDbError> {
+    sqlx::query_scalar(
+        "SELECT personne_id FROM ent_agent
+          WHERE etablissement_id = $1 AND id = $2 AND fusionne_dans_agent_id IS NULL",
+    )
+    .bind(a.etablissement_id)
+    .bind(agent_id)
     .fetch_optional(conn)
     .await
     .map_err(db)
@@ -1544,12 +1562,12 @@ impl PgEnt {
         Ok(sortie)
     }
 
-    /// VOY-108 (NX-13) : attribue ou transfère le porteur (une personne du socle 6).
+    /// VOY-108 (NX-13) : attribue ou transfère le porteur (un agent du personnel, socle 6).
     pub async fn voyage_changer_porteur(
         &self,
         a: &Acteur<'_>,
         id: Uuid,
-        nouveau_porteur: Uuid,
+        agent_id: Uuid,
     ) -> Result<SortieLigne, EntDbError> {
         self.voyages_exiger(a, Action::VoyagesPorteur).await?;
         let mut t = tx(self, a).await?;
@@ -1557,21 +1575,12 @@ impl PgEnt {
         if est_terminal(&s.etat) {
             return Err(conflit());
         }
-        let agent: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2
-                             AND fusionne_dans_agent_id IS NULL)",
-        )
-        .bind(a.etablissement_id)
-        .bind(nouveau_porteur)
-        .fetch_one(&mut *t)
-        .await
-        .map_err(db)?;
-        if !agent {
-            return Err(refus(
+        let nouveau_porteur = personne_de_agent(&mut t, a, agent_id).await?.ok_or_else(|| {
+            refus(
                 RefusMetier::Invalide,
                 "Le porteur doit être un membre du personnel de l'établissement.",
-            ));
-        }
+            )
+        })?;
         let maj = sqlx::query_as::<_, SortieLigne>(
             "UPDATE ent_sortie SET porteur_personne_id = $3, version = version + 1, modifie_le = now()
               WHERE id = $1 AND etablissement_id = $2 RETURNING *",
@@ -2150,13 +2159,14 @@ async fn liste_participants(
 // ───────────────────────── Encadrants ─────────────────────────
 
 impl PgEnt {
-    /// VOY-150 (NX-32) : ajoute un encadrant **du personnel** (agent du socle 6) avec son rôle.
-    /// Aucun nom libre (VD-19) ; un intervenant extérieur est d'abord créé au socle 6.
+    /// VOY-150 (NX-32) : ajoute un encadrant **du personnel** (agent du socle 6, tel que l'annuaire du
+    /// personnel le désigne) avec son rôle. Aucun nom libre (VD-19) ; un intervenant extérieur est
+    /// d'abord créé au socle 6.
     pub async fn voyage_encadrant_ajouter(
         &self,
         a: &Acteur<'_>,
         id: Uuid,
-        personne_id: Uuid,
+        agent_id: Uuid,
         role: &str,
     ) -> Result<EncadrantVue, EntDbError> {
         if !ROLES_ENCADRANT.contains(&role) {
@@ -2170,21 +2180,12 @@ impl PgEnt {
         if !est_modifiable(&s.etat) {
             return Err(refus(RefusMetier::Conflit, "Ce dossier n'est plus modifiable."));
         }
-        let agent: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2
-                             AND fusionne_dans_agent_id IS NULL)",
-        )
-        .bind(a.etablissement_id)
-        .bind(personne_id)
-        .fetch_one(&mut *t)
-        .await
-        .map_err(db)?;
-        if !agent {
-            return Err(refus(
+        let personne_id = personne_de_agent(&mut t, a, agent_id).await?.ok_or_else(|| {
+            refus(
                 RefusMetier::Invalide,
                 "Cet adulte n'est pas dans le personnel de l'établissement : créez-le d'abord (personnels).",
-            ));
-        }
+            )
+        })?;
         let deja: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM ent_sortie_encadrant WHERE sortie_id = $1 AND personne_id = $2)",
         )
@@ -2218,9 +2219,10 @@ impl PgEnt {
         .await?;
         let ev = publier(&mut t, a, "voyages.encadrant_ajoute", id, json!({ "role": role })).await?;
         let v = sqlx::query_as::<_, EncadrantVue>(
-            "SELECT se.id, se.personne_id, p.nom, p.prenom, se.role
+            "SELECT se.id, ag.id AS agent_id, p.nom, p.prenom, se.role
                FROM ent_sortie_encadrant se
                JOIN ent_personne p ON p.etablissement_id = se.etablissement_id AND p.id = se.personne_id
+               JOIN ent_agent ag ON ag.etablissement_id = se.etablissement_id AND ag.personne_id = se.personne_id
               WHERE se.id = $1",
         )
         .bind(eid)
@@ -2363,9 +2365,10 @@ impl PgEnt {
         .map_err(db)?;
         let etapes = lire_etapes(&mut t, id).await?;
         let encadrants = sqlx::query_as::<_, EncadrantVue>(
-            "SELECT se.id, se.personne_id, p.nom, p.prenom, se.role
+            "SELECT se.id, ag.id AS agent_id, p.nom, p.prenom, se.role
                FROM ent_sortie_encadrant se
                JOIN ent_personne p ON p.etablissement_id = se.etablissement_id AND p.id = se.personne_id
+               JOIN ent_agent ag ON ag.etablissement_id = se.etablissement_id AND ag.personne_id = se.personne_id
               WHERE se.etablissement_id = $1 AND se.sortie_id = $2 ORDER BY se.role, p.nom",
         )
         .bind(a.etablissement_id)
