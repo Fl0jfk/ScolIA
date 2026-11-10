@@ -200,3 +200,10 @@ Fusion de la migration **460** (`eva_v0_correctifs`, V0 évaluations) avec 333�
 | 5600–5699 / 560–579 | socle 26 bourses et aides, réservé pour éviter une collision (à détailler à sa conception) | — | réservé |
 
 Vérifié libre sur **toutes les branches distantes** le 2026-11-10 : plus haute migration écrite trouvée **480** (socle 16 M0a) ; plus haute réservation **500–519** (socle 17). Aucun fichier de migration ni ligne de `migrate.rs` n'a été ajouté par cette conception.
+## Mise à jour du 2026-11-10 (conception du socle 34)
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| 6400–6499 | socle 34 santé scolaire et infirmerie (conception : `34_SANTE.md` §24.2), **si la règle « 3000 + 100 × socle » (Q-B2) est adoptée** ; 6400–6409 attribuées (S0 correctifs urgents, S1 niveaux et journal, S2 mouvements et consignes, S3 PAI, S4 inaptitudes, S5 références vers le cabinet, S6 vaccinations, S7 sorties, S8 crises, S9 conservation), 6410–6489 réserve, 6490–6499 RLS stricte et retraits | `ent-socle-sante-conception` (conception seulement) | réservé |
+| 580–599 | socle 34, **repli** si Q-B2 n'est pas adoptée (580–589 dans le même ordre, 590–597 réserve, 598–599 RLS stricte et retraits) ; **S0 part en 580** (Q-B2 non adoptée à ce jour) ; vérifié libre sur toutes les branches distantes le 2026-11-10 (plus haute migration trouvée : 480 ; plus haute réservation : 560–579, socle 26) | `ent-socle-sante-conception` (conception seulement) | réservé |
+
+Le **cabinet** (niveau N-2, base séparée dans le périmètre HDS) aura son propre répertoire de migrations (`migrations-cabinet/`, numérotation `C001`…), hors de ce registre. Les plages des socles 10, 16, 21, 24, 25, 26 sont portées par leurs branches de conception, non fusionnées dans `ENT` : ce registre-ci ne les liste pas encore.

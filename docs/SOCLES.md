@@ -391,6 +391,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Dépend de** : 2, 4, 7, 12.
 - **Existant [F]** : 040, 045, 052, 053 ; champs chiffrés ; `domain-eleve/src/{fiche_sante,pai,infirmerie}.rs`.
 - **Place** : ouvre l'étage, car restauration, internat et sorties en dépendent.
+- **Conception** (2026-11-10, non décidée) : `docs/socles/34_SANTE.md` (secret confié, conséquences partagées ; trois niveaux d'activation N-0 / N-1 « sécurité et organisation » sans dossier de soins, après avis du DPO / N-2 « cabinet » seulement en HDS de bout en bout, base séparée ; public : LIEN et Esculape, pas de double saisie ; 160 actions SAN-100 à SAN-295, 58 cas limites, 34 règles, lots S0–S15, migrations 6400–6499 ou repli 580–599). Défauts à corriger en premier (lot S0) : direction et administrateur lisent les dossiers médicaux, interdictions de remise ignorées au renvoi au domicile, garde du module seulement HTTP, motif médical des dispenses visible des professeurs, avis d'infirmerie perdus, ordonnances non chiffrées, activation sans attestation.
 
 #### 35. Besoins éducatifs particuliers et inclusion
 - **Contient** : PAP, PPS, PPRE, ULIS, élèves allophones [H] ; AESH (affectation, planning) ; aménagements pédagogiques et d'examen visibles des seuls professeurs concernés ; équipes de suivi ; révisions et échéances ; tutorat.
