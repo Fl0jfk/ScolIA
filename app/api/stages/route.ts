@@ -243,7 +243,11 @@ export async function GET() {
         Boolean(c.tutorEmailChangeRequest) ||
         Boolean(c.scheduleChangeRequest),
     );
-    const signaturesPending = boardConventions.filter((c) => c.status === "signatures_pending");
+    // Toutes les signatures en cours, les plus récentes d'abord (plus de coupure à 30 :
+    // un dossier pouvait disparaître de l'accueil sans aucun signal).
+    const signaturesPending = boardConventions
+      .filter((c) => c.status === "signatures_pending")
+      .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
     const signaturesPendingCount = visibleIndex.filter(
       (e) => e.status === "signatures_pending",
     ).length;
@@ -257,10 +261,7 @@ export async function GET() {
       watcherAssignments.length > 0;
     const canSeeAdminDepositQueue = roles.includes("administratif");
 
-    const boardSlice = [
-      ...adminQueue.slice(0, 30),
-      ...signaturesPending.slice(0, 30),
-    ];
+    const boardSlice = [...adminQueue, ...signaturesPending];
 
     const [myPendingSignatures, eleves] = await Promise.all([
       listPendingSignaturesForUser(
@@ -417,7 +418,7 @@ export async function GET() {
     perf.mark("photos");
 
     // Périodes officielles par classe (file dépôts uniquement) — pour alerte hors période.
-    const adminQueueSlice = adminQueue.slice(0, 30);
+    const adminQueueSlice = adminQueue;
     const classNamesForAlignment = [
       ...new Set(
         adminQueueSlice
@@ -507,9 +508,7 @@ export async function GET() {
           periodsByClass,
         }),
       ),
-      signaturesPending: signaturesPending
-        .slice(0, 30)
-        .map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
+      signaturesPending: signaturesPending.map((c) => mapBoardCard(c, photoByConventionId, secteurByConventionId)),
       conventions: visibleIndex.slice(0, 100).map((e) => ({
         id: e.id,
         studentName: e.studentName,
