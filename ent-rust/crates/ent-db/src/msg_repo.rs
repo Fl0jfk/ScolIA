@@ -3,8 +3,9 @@ use domain_eleve::{
     DomainError, Message, MsgAccuse, MsgFil, MsgModele, MsgPiece, MsgPieceMeta, MsgPriorite,
 };
 use sqlx::PgPool;
-use uuid::Uuid;
+
 use crate::tenant_tx::TenantTx;
+use uuid::Uuid;
 
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
 /// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
@@ -924,14 +925,21 @@ impl PgMsgRepo {
         Ok(rows.into_iter().collect())
     }
 
+    /// Insère une pièce dont le fichier est **déjà** dans le magasin d'objets (clé + empreinte).
+    /// Plus aucune écriture de BYTEA : `contenu` reste vide (PRA_STOCKAGE_OBJETS §5, étape 1).
     pub async fn insert_piece(&self, piece: &MsgPiece) -> Result<(), DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id).await.map_err(map_sqlx)?;
+        let (Some(cle), Some(sha)) = (piece.storage_key.as_deref(), piece.sha256.as_deref()) else {
+            return Err(DomainError::MsgPieceInvalide);
+        };
+        let mut tx = TenantTx::begin(&self.pool, piece.etablissement_id)
+            .await
+            .map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_msg_piece (
                 id, etablissement_id, fil_id, message_id, nom, mime_type,
-                taille_octets, contenu, created_by_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                taille_octets, contenu, storage_key, sha256, created_by_user_id, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,'\x'::bytea,$8,$9,$10,$11)
             "#,
         )
         .bind(piece.id)
@@ -941,7 +949,8 @@ impl PgMsgRepo {
         .bind(&piece.nom)
         .bind(&piece.mime_type)
         .bind(piece.taille_octets)
-        .bind(&piece.contenu)
+        .bind(cle)
+        .bind(sha)
         .bind(piece.created_by_user_id)
         .bind(piece.created_at)
         .execute(&mut *tx)
@@ -978,19 +987,24 @@ impl PgMsgRepo {
         etablissement_id: Uuid,
         piece_id: Uuid,
     ) -> Result<Option<MsgPiece>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id)
+            .await
+            .map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, PieceRow>(
             r#"
             SELECT id, etablissement_id, fil_id, message_id, nom, mime_type,
-                   taille_octets, contenu, created_by_user_id, created_at
+                   taille_octets, COALESCE(contenu, '\x'::bytea) AS contenu,
+                   storage_key, sha256, created_by_user_id, created_at
             FROM ent_msg_piece
             WHERE etablissement_id = $1 AND id = $2
             "#,
         )
         .bind(etablissement_id)
         .bind(piece_id)
-        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(row.map(PieceRow::into_piece))
     }
 
@@ -1264,6 +1278,8 @@ struct PieceRow {
     mime_type: String,
     taille_octets: i32,
     contenu: Vec<u8>,
+    storage_key: Option<String>,
+    sha256: Option<String>,
     created_by_user_id: Uuid,
     created_at: DateTime<Utc>,
 }
@@ -1279,6 +1295,8 @@ impl PieceRow {
             mime_type: self.mime_type,
             taille_octets: self.taille_octets,
             contenu: self.contenu,
+            storage_key: self.storage_key,
+            sha256: self.sha256,
             created_by_user_id: self.created_by_user_id,
             created_at: self.created_at,
         }

@@ -234,13 +234,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/586_rls_inscriptions.sql"),
     include_str!("../../../migrations/587_rls_structure_acces_divers.sql"),
     include_str!("../../../migrations/600_rls_stricte_adhesion_contexte.sql"),
+    include_str!("../../../migrations/601_pieces_vers_objets.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "600_rls_stricte_adhesion_contexte";
+pub const MIGRATION_TAG: &str = "601_pieces_vers_objets";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

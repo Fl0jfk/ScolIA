@@ -16,6 +16,15 @@ use uuid::Uuid;
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
+/// Clé d'objet d'une pièce historique : `{etab}/{espace}/{id}.{ext}`. Seuls l'établissement,
+/// un mot fixe, l'UUID de la pièce et l'extension (assainie) y figurent — jamais le nom du
+/// fichier (E14). Même dérivation pour le lien court d'une pièce historique et pour la reprise :
+/// un objet déjà recopié est donc retrouvé, pas dupliqué.
+pub(crate) fn cle_reprise(etablissement_id: Uuid, espace: &str, id: Uuid, nom: &str) -> String {
+    let ext = nom.rsplit_once('.').map(|(_, e)| e).unwrap_or("bin");
+    ent_object::ObjectStore::key_for(etablissement_id, espace, id, ext)
+}
+
 /// Enregistre (idempotent) l'empreinte et la taille d'un objet déjà écrit et vérifié.
 /// À appeler dans la **même transaction** que la ligne métier qui référence la clé.
 pub(crate) async fn enregistrer_objet<'e, E: PgExecutor<'e>>(
@@ -86,6 +95,24 @@ impl PgEnt {
             Some(a) => self.objects().get_attendu(key, &a)?,
             None => self.objects().get(key)?,
         })
+    }
+
+    /// Lit un objet et, si la ligne métier porte sa propre empreinte, la compare aussi : deux
+    /// références indépendantes (`ent_objet` et la pièce) doivent s'accorder avec le fournisseur.
+    pub(crate) async fn lire_objet_empreinte(
+        &self,
+        etablissement_id: Uuid,
+        key: &str,
+        sha256_ligne: Option<&str>,
+    ) -> Result<Vec<u8>, EntDbError> {
+        let octets = self.lire_objet(etablissement_id, key).await?;
+        if let Some(attendu) = sha256_ligne {
+            if ent_object::sha256_hex(&octets) != attendu {
+                tracing::error!("pièce : empreinte du magasin différente de celle de la ligne");
+                return Err(EntDbError::Object(ent_object::ObjectStoreError::Integrity));
+            }
+        }
+        Ok(octets)
     }
 
     /// Recopie dans le magasin (et le registre) un contenu historique stocké en base.
