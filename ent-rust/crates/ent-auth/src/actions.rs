@@ -27,6 +27,12 @@ pub enum Action {
     JournalLire,
     /// Lire et écrire dans les fils de messages à propos d'un élève.
     MessagerieEleve,
+    /// Lire les fils privés des parents et des élèves (M0b, D26) : réservé à qui traite les
+    /// messages des familles (direction, CPE, administratif ; assignable à un rôle D-017).
+    MessagerieFilsReserves,
+    /// Remettre immédiatement un message pendant la plage calme, pour une urgence, avec motif
+    /// tracé (M0b, D24) : la direction.
+    MessagerieUrgenceHorsPlage,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -270,7 +276,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 111] = [
+    pub const TOUTES: [Action; 113] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -279,6 +285,8 @@ impl Action {
         Action::DossierLire,
         Action::JournalLire,
         Action::MessagerieEleve,
+        Action::MessagerieFilsReserves,
+        Action::MessagerieUrgenceHorsPlage,
         Action::SuiviEleve,
         Action::AbsencesDeclarer,
         Action::AppelVerifier,
@@ -400,6 +408,8 @@ impl Action {
             Self::DossierLire => "dossier.lire",
             Self::JournalLire => "journal.lire",
             Self::MessagerieEleve => "messagerie.eleve",
+            Self::MessagerieFilsReserves => "messagerie.fils_reserves.lire",
+            Self::MessagerieUrgenceHorsPlage => "messagerie.urgence_hors_plage",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -517,6 +527,8 @@ impl Action {
             Self::DossierLire => "Consulter le dossier de l'élève",
             Self::JournalLire => "Consulter le journal de l'élève",
             Self::MessagerieEleve => "Échanger avec les familles à propos de l'élève",
+            Self::MessagerieFilsReserves => "Lire les fils privés des familles et des élèves",
+            Self::MessagerieUrgenceHorsPlage => "Remettre un message en urgence pendant la plage calme",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -663,6 +675,8 @@ impl Action {
             | Self::FormulairesGerer
             | Self::ConsentementsLire
             | Self::NotificationsGerer
+            | Self::MessagerieFilsReserves
+            | Self::MessagerieUrgenceHorsPlage
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -937,6 +951,17 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
     ) {
         d.push(etab(MessagerieEleve));
+    }
+    // M0b (D26) : le droit de lire les fils privés remplace la liste de rôles codée en dur
+    // (M0a, D2) ; mêmes titulaires par défaut, assignable à un rôle paramétré (un AED).
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
+    ) {
+        d.push(etab(MessagerieFilsReserves));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(MessagerieUrgenceHorsPlage));
     }
     // Vie scolaire (lot S2-4) : modèles par défaut calés sur les profils déjà
     // habilités à la vie scolaire (déclarer, vérifier, punir) ; la discipline

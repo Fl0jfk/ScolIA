@@ -209,7 +209,7 @@ pub use doc_signer::{
     DocSignerStatut, PublierDocASigner, SignerDocASigner,
 };
 pub use annonce::{
-    plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce,
+    plan_creer_annonce, Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce,
 };
 pub use retard::{plan_declarer_retard, DeclarerRetard, Retard};
 pub use conseil_classe::{
@@ -342,7 +342,8 @@ pub use messagerie::{
     plan_attacher_piece, plan_classer_fil, plan_creer_msg_modele, plan_ouvrir_fil, plan_repondre_fil,
     AccuserLecture, ArchiverFil, AttacherPiece, ClasserFil, ContexteModele, CreerMsgModele,
     Message, MessageLue, MsgAccuse, MsgFil, MsgModele, MsgPiece, MsgPieceMeta, MsgPriorite,
-    OuvrirFil, RepondreFil, MSG_PIECE_MAX_OCTETS,
+    OuvrirFil, RepondreFil, MSG_CORPS_MAX_CARACTERES, MSG_PIECES_MAX_PAR_MESSAGE,
+    MSG_PIECE_MAX_OCTETS, MSG_SUJET_MAX_CARACTERES,
 };
 pub use notes::{
     moyenne_sur_20, plan_creer_devoir, plan_creer_note_periode, plan_saisir_appreciation,
@@ -602,6 +603,8 @@ pub enum DomainError {
     DevoirNotesLiees,
     #[error("sujet ou message vide")]
     MessageVide,
+    #[error("sujet ou message trop long (sujet : 200 caractères, message : 20 000)")]
+    MessageTropLong,
     #[error("modèle de message invalide")]
     MsgModeleInvalide,
     #[error("priorité ou dossier de messagerie invalide")]

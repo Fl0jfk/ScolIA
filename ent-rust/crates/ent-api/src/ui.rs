@@ -53229,7 +53229,8 @@ async function bindAnnonces() {
         return;
       }
       try {
-        await api('/annonces', {
+        // M0b (D8) : aperçu chiffré, puis confirmation humaine avant tout envoi.
+        const apercu = await api('/annonces', {
           method: 'POST',
           body: JSON.stringify({
             titre: val('annTitre'),
@@ -53238,6 +53239,13 @@ async function bindAnnonces() {
             cible_classe: audience === 'classe' ? cible : null,
           }),
         });
+        const nbR = apercu.nb_responsables, nbE = apercu.nb_eleves;
+        if (audience !== 'personnels' && !window.confirm(
+          `Cette annonce sera envoyée à ${nbR} responsable(s) (${nbE} élève(s) concerné(s)). La publier ?`)) {
+          if (msg) msg.innerHTML = '<span class="muted">Aperçu conservé, rien n\u2019a été envoyé.</span>';
+          return;
+        }
+        await api('/annonces/' + apercu.id + '/confirmer', { method: 'POST' });
         if (msg) msg.innerHTML = '<span class="ok">Publiée.</span>';
         const t = document.getElementById('annTitre'); if (t) t.value = '';
         const c = document.getElementById('annCorps'); if (c) c.value = '';

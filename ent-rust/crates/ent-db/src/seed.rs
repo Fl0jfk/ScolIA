@@ -130,6 +130,17 @@ impl PgEnt {
         let etab = Uuid::new_v4();
         let suffix = etab.simple().to_string();
         let short = &suffix[..8];
+        // Messagerie (M0b, D24) : le labo reste déterministe à toute heure ; la plage calme
+        // nationale (20 h–7 h, week-end) s'active par défaut hors labo, et les tests qui la
+        // vérifient la réactivent explicitement.
+        sqlx::query(
+            "INSERT INTO ent_msg_reglage (etablissement_id, plage_calme, motif)
+             VALUES ($1, false, 'labo : tests déterministes à toute heure')
+             ON CONFLICT (etablissement_id) DO NOTHING",
+        )
+        .bind(etab)
+        .execute(self.pool())
+        .await?;
 
         let admin = self
             .register_login(

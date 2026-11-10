@@ -1095,6 +1095,9 @@ pub struct OuvrirFilBody {
     pub eleve_id: Uuid,
     pub sujet: String,
     pub message: String,
+    /// Direction : motif d'une remise immédiate pendant la plage calme (M0b, D24).
+    #[serde(default)]
+    pub urgence_motif: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1113,6 +1116,9 @@ pub struct CreerMsgModeleBody {
 #[derive(Debug, Deserialize)]
 pub struct RepondreFilBody {
     pub corps: String,
+    /// Direction : motif d'une remise immédiate pendant la plage calme (M0b, D24).
+    #[serde(default)]
+    pub urgence_motif: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1262,6 +1268,44 @@ impl From<&domain_eleve::MessageLue> for MessageDto {
 pub struct FilDetailDto {
     pub fil: MsgFilDto,
     pub messages: Vec<MessageDto>,
+    /// M0b (D24) : message différé par la plage calme, remis à cet instant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remise_prevue_le: Option<String>,
+    /// M0b (D22) : autres fils créés pour les autres foyers du même élève.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub autres_fils: Vec<Uuid>,
+}
+
+/// Réponse à l'envoi d'un message : le message et sa remise éventuelle.
+#[derive(Debug, Serialize)]
+pub struct MessageEnvoyeDto {
+    #[serde(flatten)]
+    pub message: MessageDto,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remise_prevue_le: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RetirerAnnonceBody {
+    pub motif: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifierLienBody {
+    pub interdiction_id: Uuid,
+    /// `true` : la personne n'est pas visée, le lien redevient communicant.
+    pub confirmer: bool,
+    pub motif: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReglagePlageCalmeBody {
+    pub plage_calme: bool,
+    pub debut_heure: i16,
+    pub fin_heure: i16,
+    pub weekend: bool,
+    #[serde(default)]
+    pub motif: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3731,6 +3775,10 @@ pub struct CreerAnnonceBody {
     pub audience: String,
     #[serde(default)]
     pub cible_classe: Option<String>,
+    /// M0b (D8) : `false` (défaut) = aperçu chiffré, rien n'est envoyé ; l'auteur confirme avec
+    /// `POST /annonces/{id}/confirmer`. `true` : confirmation immédiate (outils internes).
+    #[serde(default)]
+    pub confirmer: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3849,6 +3897,12 @@ pub struct AnnonceDto {
     pub cible_classe: Option<String>,
     pub auteur_user_id: Uuid,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// `apercu`, `publiee` ou `retiree` (M0b, D8).
+    pub statut: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apercu_nb_eleves: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub apercu_nb_responsables: Option<i32>,
 }
 
 impl From<&ent_db::Annonce> for AnnonceDto {
@@ -3861,6 +3915,9 @@ impl From<&ent_db::Annonce> for AnnonceDto {
             cible_classe: a.cible_classe.clone(),
             auteur_user_id: a.auteur_user_id,
             created_at: a.created_at,
+            statut: a.statut.as_str(),
+            apercu_nb_eleves: a.apercu_nb_eleves,
+            apercu_nb_responsables: a.apercu_nb_responsables,
         }
     }
 }

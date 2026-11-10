@@ -15,7 +15,8 @@ use crate::dto::{
     DecisionAbsenceBody, FactureLigneDto, FilDetailDto, JustifierAbsenceBody, MarquerAppelLigneBody,
     MatiereDto,
     CandidatsMonteeLotDto, ConfigurerAcompteBody, CreerMandatSepaBody, DeposerDocReinscriptionBody,
-    AttacherPieceBody, ChangerStatutRdvPsyBody, CompteProvisionneDto, CreerEntretienPsyBody,
+    AttacherPieceBody, MessageEnvoyeDto, ReglagePlageCalmeBody, RetirerAnnonceBody, VerifierLienBody,
+    ChangerStatutRdvPsyBody, CompteProvisionneDto, CreerEntretienPsyBody,
     CommissionDto, CommissionDossierDto, ConvoquerCommissionBody, CreerCommissionBody,
     CreerMsgModeleBody, CreerPassageInfirmerieBody, CreerRdvPsyBody, DeciderCommissionBody,
     DeclarerIncidentBody, DossierPsyDto, FicheSanteDto, IncidentDto, PaiDto, PaiPieceDto,
@@ -479,6 +480,8 @@ pub fn router() -> Router<AppState> {
         .route("/docs-a-signer/{id}/annuler", post(annuler_doc_a_signer))
         .route("/vs/docs-a-signer", get(list_docs_a_signer_etab))
         .route("/annonces", get(list_annonces).post(publier_annonce))
+        .route("/annonces/{id}/confirmer", post(confirmer_annonce))
+        .route("/annonces/{id}/retirer", post(retirer_annonce))
         .route("/notifications", get(mes_notifications))
         .route("/eleves/{id}/annonces", get(list_annonces_eleve))
         .route(
@@ -707,6 +710,15 @@ pub fn router() -> Router<AppState> {
         .route("/messages/fils/{id}", get(get_fil))
         .route("/messages/fils/{id}/repondre", post(repondre_fil))
         .route("/messages/fils/{id}/archiver", post(archiver_fil))
+        .route("/messages/fils/{id}/desarchiver", post(desarchiver_fil))
+        .route("/messages/non-traites", get(list_fils_non_traites))
+        .route("/messages/{id}/annuler", post(annuler_message_differe))
+        .route(
+            "/messagerie/reglage",
+            get(get_reglage_plage_calme).put(put_reglage_plage_calme),
+        )
+        .route("/messagerie/liens-a-verifier", get(list_liens_a_verifier))
+        .route("/messagerie/liens/{id}/verification", post(verifier_lien_messagerie))
         .route("/messages/fils/{id}/classer", post(classer_fil))
         .route("/messages/modeles", get(list_msg_modeles).post(creer_msg_modele))
         .route(
@@ -5538,27 +5550,75 @@ async fn list_docs_a_signer_etab(
     ))
 }
 
+/// Annonce en deux temps (M0b, D8) : sans `confirmer`, un aperçu chiffré est créé et rien n'est
+/// envoyé ; `POST /annonces/{id}/confirmer` publie et met les envois en file.
 async fn publier_annonce(
     State(state): State<AppState>,
     session: EntSession,
     Json(body): Json<CreerAnnonceBody>,
-) -> Result<(StatusCode, Json<AnnonceDto>), (StatusCode, String)> {
+) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
+    let cmd = CreerAnnonce {
+        etablissement_id: session.etablissement_id,
+        titre: body.titre,
+        corps: body.corps,
+        audience: body.audience,
+        cible_classe: body.cible_classe,
+        actor_user_id: session.user_id,
+    };
+    if body.confirmer {
+        let a = state
+            .ent
+            .publier_annonce_for_actor(&session.role, cmd)
+            .await
+            .map_err(map_db)?;
+        return Ok((
+            StatusCode::CREATED,
+            Json(serde_json::to_value(AnnonceDto::from(&a)).unwrap_or_default()),
+        ));
+    }
+    let apercu = state
+        .ent
+        .apercu_annonce_for_actor(&session.role, cmd)
+        .await
+        .map_err(map_db)?;
+    let mut v = serde_json::to_value(AnnonceDto::from(&apercu.annonce)).unwrap_or_default();
+    v["nb_eleves"] = apercu.nb_eleves.into();
+    v["nb_responsables"] = apercu.nb_responsables.into();
+    v["nb_eleves_sans_responsable"] = apercu.nb_eleves_sans_responsable.into();
+    Ok((StatusCode::CREATED, Json(v)))
+}
+
+async fn confirmer_annonce(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AnnonceDto>, (StatusCode, String)> {
     let a = state
         .ent
-        .publier_annonce_for_actor(
+        .confirmer_annonce_for_actor(&session.role, session.etablissement_id, session.user_id, id)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(AnnonceDto::from(&a)))
+}
+
+async fn retirer_annonce(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<RetirerAnnonceBody>,
+) -> Result<Json<AnnonceDto>, (StatusCode, String)> {
+    let a = state
+        .ent
+        .retirer_annonce_for_actor(
             &session.role,
-            CreerAnnonce {
-                etablissement_id: session.etablissement_id,
-                titre: body.titre,
-                corps: body.corps,
-                audience: body.audience,
-                cible_classe: body.cible_classe,
-                actor_user_id: session.user_id,
-            },
+            session.etablissement_id,
+            session.user_id,
+            id,
+            &body.motif,
         )
         .await
         .map_err(map_db)?;
-    Ok((StatusCode::CREATED, Json(AnnonceDto::from(&a))))
+    Ok(Json(AnnonceDto::from(&a)))
 }
 
 async fn list_annonces(
@@ -9081,6 +9141,12 @@ struct FilsQuery {
     archives: bool,
     /// Staff : filtre dossier (ex. `vs`).
     dossier: Option<String>,
+    /// Staff (M0b, D12) : recherche sur le sujet, côté serveur.
+    q: Option<String>,
+    /// Staff : curseur de la page suivante (en-tête `x-curseur-suivant` de la page précédente).
+    apres: Option<String>,
+    /// Staff : taille de page, 1 à 200 (50 par défaut).
+    limite: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -9639,27 +9705,41 @@ async fn list_fils(
     State(state): State<AppState>,
     session: EntSession,
     Query(q): Query<FilsQuery>,
-) -> Result<Json<Vec<MsgFilDto>>, (StatusCode, String)> {
-    let list = state
+) -> Result<(HeaderMap, Json<Vec<MsgFilDto>>), (StatusCode, String)> {
+    let page = state
         .ent
-        .list_fils_for_actor(
+        .list_fils_page_for_actor(
             session.etablissement_id,
             session.user_id,
             &session.role,
-            q.eleve_id,
-            q.archives,
-            q.dossier.as_deref(),
+            ent_db::ParamsListeFils {
+                eleve_id: q.eleve_id,
+                include_archives: q.archives,
+                dossier: q.dossier,
+                recherche: q.q,
+                apres: q.apres,
+                limite: q.limite,
+            },
         )
         .await
         .map_err(map_db)?;
-    Ok(Json(
-        enrich_msg_fils(
-            &state,
-            session.etablissement_id,
-            session.user_id,
-            list.iter().map(MsgFilDto::from).collect(),
-        )
-        .await?,
+    let mut headers = HeaderMap::new();
+    if let Some(suivant) = page.suivant.as_deref() {
+        if let Ok(v) = HeaderValue::from_str(suivant) {
+            headers.insert("x-curseur-suivant", v);
+        }
+    }
+    Ok((
+        headers,
+        Json(
+            enrich_msg_fils(
+                &state,
+                session.etablissement_id,
+                session.user_id,
+                page.fils.iter().map(MsgFilDto::from).collect(),
+            )
+            .await?,
+        ),
     ))
 }
 
@@ -9668,9 +9748,9 @@ async fn ouvrir_fil(
     session: EntSession,
     Json(body): Json<OuvrirFilBody>,
 ) -> Result<(StatusCode, Json<FilDetailDto>), (StatusCode, String)> {
-    let (fil, msg) = state
+    let mut ouverts = state
         .ent
-        .ouvrir_fil_for_actor(
+        .ouvrir_fils_for_actor(
             &session.role,
             OuvrirFil {
                 etablissement_id: session.etablissement_id,
@@ -9679,14 +9759,23 @@ async fn ouvrir_fil(
                 premier_message: body.message,
                 actor_user_id: session.user_id,
             },
+            ent_db::OptionsEnvoiMessage { urgence_motif: body.urgence_motif },
         )
         .await
         .map_err(map_db)?;
+    let premier = ouverts.remove(0);
     Ok((
         StatusCode::CREATED,
         Json(FilDetailDto {
-            fil: MsgFilDto::from(&fil),
-            messages: enrich_messages(&state, session.etablissement_id, vec![MessageDto::from(&msg)]).await?,
+            fil: MsgFilDto::from(&premier.fil),
+            messages: enrich_messages(
+                &state,
+                session.etablissement_id,
+                vec![MessageDto::from(&premier.message)],
+            )
+            .await?,
+            remise_prevue_le: premier.remise_prevue_le.map(|d| d.to_rfc3339()),
+            autres_fils: ouverts.iter().map(|o| o.fil.id).collect(),
         }),
     ))
 }
@@ -9712,6 +9801,8 @@ async fn ouvrir_fil_depuis_modele(
         Json(FilDetailDto {
             fil: MsgFilDto::from(&fil),
             messages: enrich_messages(&state, session.etablissement_id, vec![MessageDto::from(&msg)]).await?,
+            remise_prevue_le: None,
+            autres_fils: Vec::new(),
         }),
     ))
 }
@@ -9818,6 +9909,8 @@ async fn get_fil(
     Ok(Json(FilDetailDto {
         fil: MsgFilDto::from(&fil),
         messages: enrich_messages(&state, session.etablissement_id, msgs.iter().map(MessageDto::from).collect()).await?,
+        remise_prevue_le: None,
+        autres_fils: Vec::new(),
     }))
 }
 
@@ -9826,10 +9919,10 @@ async fn repondre_fil(
     session: EntSession,
     Path(id): Path<Uuid>,
     Json(body): Json<RepondreFilBody>,
-) -> Result<(StatusCode, Json<MessageDto>), (StatusCode, String)> {
-    let msg = state
+) -> Result<(StatusCode, Json<MessageEnvoyeDto>), (StatusCode, String)> {
+    let envoye = state
         .ent
-        .repondre_fil_for_actor(
+        .repondre_fil_avec_options(
             &session.role,
             RepondreFil {
                 etablissement_id: session.etablissement_id,
@@ -9837,13 +9930,182 @@ async fn repondre_fil(
                 corps: body.corps,
                 actor_user_id: session.user_id,
             },
+            ent_db::OptionsEnvoiMessage { urgence_motif: body.urgence_motif },
         )
         .await
         .map_err(map_db)?;
     Ok((
         StatusCode::CREATED,
-        Json(enrich_message(&state, session.etablissement_id, MessageDto::from(&msg)).await?),
+        Json(MessageEnvoyeDto {
+            message: enrich_message(
+                &state,
+                session.etablissement_id,
+                MessageDto::from(&envoye.message),
+            )
+            .await?,
+            remise_prevue_le: envoye.remise_prevue_le.map(|d| d.to_rfc3339()),
+        }),
     ))
+}
+
+/// Rouvre un fil archivé (M0b, D11).
+async fn desarchiver_fil(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<MsgFilDto>, (StatusCode, String)> {
+    let fil = state
+        .ent
+        .desarchiver_fil_for_actor(
+            &session.role,
+            ArchiverFil {
+                etablissement_id: session.etablissement_id,
+                fil_id: id,
+                actor_user_id: session.user_id,
+            },
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(MsgFilDto::from(&fil)))
+}
+
+/// Annule un message différé par la plage calme, avant sa remise (R-M48).
+async fn annuler_message_differe(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .ent
+        .annuler_message_differe_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct NonTraitesQuery {
+    limite: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct FilNonTraiteDto {
+    fil: MsgFilDto,
+    en_attente_depuis: String,
+}
+
+/// File « messages des familles non traités » (MSG-329).
+async fn list_fils_non_traites(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<NonTraitesQuery>,
+) -> Result<Json<Vec<FilNonTraiteDto>>, (StatusCode, String)> {
+    let liste = state
+        .ent
+        .list_fils_non_traites_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            q.limite.unwrap_or(100),
+        )
+        .await
+        .map_err(map_db)?;
+    let fils = enrich_msg_fils(
+        &state,
+        session.etablissement_id,
+        session.user_id,
+        liste.iter().map(|n| MsgFilDto::from(&n.fil)).collect(),
+    )
+    .await?;
+    Ok(Json(
+        fils.into_iter()
+            .zip(liste.iter())
+            .map(|(fil, n)| FilNonTraiteDto {
+                fil,
+                en_attente_depuis: n.en_attente_depuis.to_rfc3339(),
+            })
+            .collect(),
+    ))
+}
+
+/// Réglage de la plage calme (D24).
+async fn get_reglage_plage_calme(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<ent_db::ReglagePlageCalme>, (StatusCode, String)> {
+    Ok(Json(
+        state
+            .ent
+            .reglage_plage_calme(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn put_reglage_plage_calme(
+    State(state): State<AppState>,
+    session: EntSession,
+    Json(body): Json<ReglagePlageCalmeBody>,
+) -> Result<Json<ent_db::ReglagePlageCalme>, (StatusCode, String)> {
+    Ok(Json(
+        state
+            .ent
+            .definir_reglage_plage_calme_for_actor(
+                session.etablissement_id,
+                session.user_id,
+                &session.role,
+                ent_db::ReglagePlageCalmeSaisie {
+                    plage_calme: body.plage_calme,
+                    debut_heure: body.debut_heure,
+                    fin_heure: body.fin_heure,
+                    weekend: body.weekend,
+                    motif: body.motif,
+                },
+            )
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+/// Liens créés après une interdiction de communication par libellé (D25).
+async fn list_liens_a_verifier(
+    State(state): State<AppState>,
+    session: EntSession,
+) -> Result<Json<Vec<ent_db::LienAVerifier>>, (StatusCode, String)> {
+    Ok(Json(
+        state
+            .ent
+            .liens_a_verifier_for_actor(session.etablissement_id, session.user_id, &session.role)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn verifier_lien_messagerie(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(lien_id): Path<Uuid>,
+    Json(body): Json<VerifierLienBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    state
+        .ent
+        .verifier_lien_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            lien_id,
+            body.interdiction_id,
+            body.confirmer,
+            Some(&body.motif),
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn attacher_piece(
