@@ -235,8 +235,22 @@ impl Cadre {
         id: Uuid,
         c: Commande,
     ) -> Result<SortieLigne, EntDbError> {
+        // Les décisions portent sur la version lue du dossier.
+        let version: i32 = sqlx::query_scalar("SELECT version FROM ent_sortie WHERE id = $1")
+            .bind(id)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap();
         self.ent
-            .voyage_commande(&self.a(user, role), id, c, ParamsCommande::default())
+            .voyage_commande(
+                &self.a(user, role),
+                id,
+                c,
+                ParamsCommande {
+                    version: Some(version),
+                    ..Default::default()
+                },
+            )
             .await
     }
 
@@ -1423,8 +1437,12 @@ async fn serie_hebdomadaire_ecarte_les_feries_et_se_valide_seance_par_seance() {
     }
     // Valider toute la série : la direction doit avoir soumis les séances (sinon, rien n'est validé,
     // séance par séance) ; un professeur n'a pas le droit pour aucune d'elles (VD-18).
-    let r_prof = c.ent.voyage_serie_valider(&prof, r.serie_id).await.unwrap();
-    assert!(r_prof.iter().all(|x| !x.ok), "{r_prof:?}");
+    let e = c
+        .ent
+        .voyage_serie_valider(&prof, r.serie_id)
+        .await
+        .unwrap_err();
+    assert!(est_forbidden(&e), "{e:?}");
     // Préparer et soumettre deux séances sur trois.
     let p2 = agent_de(&c.ent, c.etab, c.prof2).await;
     for s in r.sorties.iter().take(2) {
@@ -1557,6 +1575,89 @@ async fn serie_ecarte_aussi_les_periodes_de_vacances_et_refuse_une_serie_vide() 
         .voyage_serie_creer(&prof, mk(c.jour, c.jour + Duration::days(500)))
         .await
         .is_err());
+}
+
+#[tokio::test]
+async fn revue_securite_garde_fous_v0a() {
+    let Some(c) = Cadre::nouveau().await else {
+        return;
+    };
+    let prof = c.a(c.prof, Role::Prof);
+    let s = c.creer("Garde-fous", "sans_nuitee").await;
+    c.jusqu_a_ouverte(s.id).await;
+    let s = c.ent.voyage_detail(&prof, s.id).await.unwrap().sortie;
+    // Décision sans version : refusée.
+    let t = c.creer("Sans version", "sans_nuitee").await;
+    c.preparer_jusqu_a_soumise(t.id).await;
+    c.cmd(c.dir, Role::Direction, t.id, Commande::ValiderPedagogie)
+        .await
+        .unwrap();
+    c.cmd(c.prof, Role::Prof, t.id, Commande::PasserAuxFinances)
+        .await
+        .unwrap();
+    let e = c
+        .ent
+        .voyage_commande(
+            &c.a(c.dir, Role::Direction),
+            t.id,
+            Commande::Autoriser,
+            ParamsCommande::default(),
+        )
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e), "{e:?}");
+    // Le porteur ne change plus la nature ni la destination d'un dossier autorisé ; la direction oui.
+    let mut m = c.saisie("Garde-fous", "sans_nuitee");
+    m.destination = "etranger".into();
+    m.pays = Some("Italie".into());
+    let e = c
+        .ent
+        .voyage_modifier(&prof, s.id, s.version, m.clone())
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e), "{e:?}");
+    assert!(c
+        .ent
+        .voyage_modifier(&c.a(c.dir, Role::Direction), s.id, s.version, m)
+        .await
+        .is_ok());
+    // Désistement « financier » : jamais décidé par le porteur ni le secrétariat.
+    c.ent
+        .voyage_participants_ajouter(&prof, s.id, vec![c.eleves[0]])
+        .await
+        .unwrap();
+    let pid = c.ent.voyage_participants(&prof, s.id).await.unwrap()[0].id;
+    for (u, r) in [(c.prof, Role::Prof), (c.sec, Role::Administratif)] {
+        let e = c
+            .ent
+            .voyage_participant_desister(&c.a(u, r), s.id, pid, "financier", Some("x"))
+            .await
+            .unwrap_err();
+        assert!(est_refus(&e), "{e:?}");
+    }
+    // Validation d'une série : droit requis avant toute information.
+    let r = c
+        .ent
+        .voyage_serie_valider(&prof, Uuid::new_v4())
+        .await
+        .unwrap_err();
+    assert!(est_forbidden(&r), "{r:?}");
+    // Famille : un lien échu ne donne plus accès.
+    let sp = c.creer("Famille", "sans_nuitee").await;
+    c.jusqu_a_ouverte(sp.id).await;
+    c.ent
+        .voyage_participants_ajouter(&prof, sp.id, vec![c.eleves[0]])
+        .await
+        .unwrap();
+    let parent = c.a(c.parent, Role::Parent);
+    assert!(!c.ent.voyages_famille(&parent).await.unwrap().is_empty());
+    sqlx::query("UPDATE ent_eleve_lien SET date_fin = current_date - 1 WHERE etablissement_id = $1 AND user_id = $2")
+        .bind(c.etab)
+        .bind(c.parent)
+        .execute(c.ent.pool())
+        .await
+        .unwrap();
+    assert!(c.ent.voyages_famille(&parent).await.unwrap().is_empty());
 }
 
 // ─────────────────────────── Corrections des défauts de Next.js ───────────────────────────

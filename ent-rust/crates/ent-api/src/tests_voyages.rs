@@ -289,7 +289,7 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
             "POST",
             &format!("/voyages/{id}/commandes/autoriser"),
             Some(dir),
-            None
+            Some(json!({"version": 1}))
         )
         .await
         .0,
@@ -345,12 +345,14 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
         .0,
         StatusCode::CONFLICT
     );
+    let (_, courant) = appel(&app, "GET", &format!("/voyages/{id}"), Some(dir), None).await;
+    let ver = courant["sortie"]["version"].clone();
     let (st, s) = appel(
         &app,
         "POST",
         &format!("/voyages/{id}/commandes/autoriser"),
         Some(dir),
-        None,
+        Some(json!({"version": ver})),
     )
     .await;
     assert_eq!(

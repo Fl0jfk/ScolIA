@@ -1375,6 +1375,25 @@ impl PgEnt {
                 "Le dossier a été modifié entre-temps : rechargez-le avant de recommencer.",
             ));
         }
+        // Une fois le dossier présenté, validé ou autorisé, la nature, la forme, la destination et le
+        // besoin de car engagent des décisions (budget, devis, autorisation) : seule la direction les
+        // change ; le porteur demande une réouverture.
+        let engage = matches!(
+            s.etat.as_str(),
+            "a_signer" | "budget_a_valider" | "a_autoriser" | "ouverte" | "prete"
+        );
+        if engage
+            && !acces.a(Action::VoyagesValider)
+            && (s.nature != saisie.nature
+                || s.forme != saisie.forme
+                || s.destination != saisie.destination
+                || s.besoin_car != saisie.besoin_car)
+        {
+            return Err(refus(
+                RefusMetier::Conflit,
+                "Ce dossier est déjà validé : demandez à la direction de le rouvrir pour changer sa nature, sa forme, sa destination ou le car.",
+            ));
+        }
         verifier_publics(&mut t, a, &saisie.classes, &saisie.groupes).await?;
         let annee = annee_de(&mut t, a, saisie.debut).await?;
         let avant_publics: Vec<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
@@ -1611,6 +1630,12 @@ impl PgEnt {
                     "Le dossier a été modifié entre-temps : rechargez-le avant de recommencer.",
                 ));
             }
+        }
+        if matches!(cmd, Commande::Autoriser | Commande::ValiderBudget) && p.version.is_none() {
+            return Err(refus(
+                RefusMetier::Invalide,
+                "Une décision porte sur la version du dossier que vous avez lue : rechargez-le.",
+            ));
         }
         if !etats_de_depart(cmd).contains(&s.etat.as_str()) {
             return Err(refus(
@@ -1858,6 +1883,8 @@ impl PgEnt {
         a: &Acteur<'_>,
         serie_id: Uuid,
     ) -> Result<Vec<ResultatSeance>, EntDbError> {
+        // Titres et dates des séances ne sortent que pour qui peut valider (jamais d'identifiant de série seul).
+        self.voyages_exiger(a, Action::VoyagesValider).await?;
         let seances: Vec<(Uuid, String, DateTime<Utc>)> = {
             let mut t = tx(self, a).await?;
             let r = sqlx::query_as(
@@ -2029,9 +2056,14 @@ impl PgEnt {
             json!({ "etapes": etapes.len() }),
         )
         .await?;
+        let mut evs = vec![ev];
+        // Les horaires de dépôt et de reprise conditionnent la liste d'un voyage : à reconfirmer.
+        if s.forme == "voyage" && s.liste_confirmee_le.is_some() {
+            evs.extend(rouvrir_liste(&mut t, a, &s, "programme_liste", 0).await?);
+        }
         let rows = lire_etapes(&mut t, id).await?;
         t.commit().await.map_err(db)?;
-        self.diffuser_apres_commit(&[ev]);
+        self.diffuser_apres_commit(&evs);
         Ok(rows)
     }
 }
@@ -2335,8 +2367,7 @@ impl PgEnt {
                 "Ce dossier n'accepte plus de changement de liste.",
             ));
         }
-        if vers == "retire"
-            && motif_code == "financier"
+        if motif_code == "financier"
             && !(acces.a(Action::VoyagesAutoriser) && motif_texte.is_some())
         {
             return Err(refus(
@@ -3003,7 +3034,10 @@ impl PgEnt {
                 AND sp.etat NOT IN ('propose','desiste','retire')
                 AND s.etat IN ('ouverte','prete','en_cours','rentree')
                 AND (EXISTS (SELECT 1 FROM ent_eleve_lien l
-                              WHERE l.etablissement_id = $1 AND l.eleve_id = sp.eleve_id AND l.user_id = $2)
+                              WHERE l.etablissement_id = $1 AND l.eleve_id = sp.eleve_id AND l.user_id = $2
+                                AND l.suspendu_le IS NULL
+                                AND (l.date_debut IS NULL OR l.date_debut <= current_date)
+                                AND (l.date_fin IS NULL OR l.date_fin >= current_date))
                   OR EXISTS (SELECT 1 FROM ent_eleve_compte c
                               WHERE c.etablissement_id = $1 AND c.eleve_id = sp.eleve_id AND c.user_id = $2))
               ORDER BY s.debut",
