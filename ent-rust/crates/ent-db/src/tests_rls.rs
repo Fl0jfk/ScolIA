@@ -251,10 +251,11 @@ async fn rls_politiques_presentes_et_forcees() {
     // compétences, journal des périodes, archive des doublons) + 17 de la messagerie et de la
     // communication (M0a, migration 480 : fils, messages, accusés, pièces, modèles, carnet,
     // annonces, notifications, campagnes, rencontres, formulaires) + 1 du lot P3 (interventions
-    // de service) + 1 du registre des objets stockés (migration 500, PRA E5) + 150 des lots RLS 580–587
-    // (élèves et responsables, santé et assiduité, finances, communication, vie scolaire,
-    // évaluations, inscriptions, structure et accès : tests_rls_lots.rs).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 150, "tables avec RLS activée et forcée");
+    // de service) + 1 du registre des objets stockés (migration 500, PRA E5) + 4 du lot D-036
+    // (droits de délégation et leurs cibles, résolutions d'inscription, détail des signalements d'assiduité)
+    // + 150 des lots RLS 580–587 (élèves et responsables, santé et assiduité, finances, communication,
+    // vie scolaire, évaluations, inscriptions, structure et accès : tests_rls_lots.rs).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 150, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

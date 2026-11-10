@@ -833,7 +833,7 @@ impl Expediteur {
             Default::default();
         for e in a_envoyer {
             let resume = e.regroupable && e.canal != "sms" && {
-                let mut c = self.pool.acquire().await.map_err(db)?;
+                let mut c = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(db)?;
                 preferences_de(&mut c, e.etablissement_id, e.destinataire_user_id)
                     .await?
                     .resume
@@ -1118,7 +1118,7 @@ impl Expediteur {
         e: &EnvoiReclame,
         maintenant: DateTime<Utc>,
     ) -> Result<Option<&'static str>, EntDbError> {
-        let mut tx = self.pool.begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(db)?;
         // Verrou transactionnel par établissement : les réservations sont sérialisées.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 8))")
             .bind(e.etablissement_id)

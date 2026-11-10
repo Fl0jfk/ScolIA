@@ -187,7 +187,7 @@ impl PgAppelRepo {
         eleve_id: Uuid,
         etat: &LigneEtat,
     ) -> Result<bool, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         let statut: Option<(String,)> = sqlx::query_as(
             r#"
             SELECT statut FROM ent_appel

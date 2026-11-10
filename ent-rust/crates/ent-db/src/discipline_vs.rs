@@ -169,6 +169,23 @@ pub struct SignalementAssiduite {
     pub dossier: serde_json::Value,
 }
 
+/// Lecture d'un signalement : le « dossier » (JSON d'échange de l'API) est reconstruit depuis les
+/// colonnes, la fiche élève et `ent_signalement_assiduite_detail` (D-036 : rien n'est relu d'un JSON stocké).
+const SELECT_SIGNALEMENT: &str = "SELECT s.id, s.eleve_id, s.mois, s.demi_journees, s.seuil, s.statut,
+        jsonb_build_object(
+            'eleve', jsonb_build_object('id', s.eleve_id, 'nom', e.nom, 'prenom', e.prenom),
+            'mois', s.mois::text,
+            'demi_journees_non_justifiees', s.demi_journees,
+            'seuil', s.seuil,
+            'demi_journees', coalesce((
+                SELECT jsonb_agg(jsonb_build_object('jour', d.jour::text, 'periode', d.periode,
+                                                    'minutes', d.minutes) ORDER BY d.jour, d.periode)
+                  FROM ent_signalement_assiduite_detail d
+                 WHERE d.etablissement_id = s.etablissement_id AND d.signalement_id = s.id), '[]'::jsonb)
+        ) AS dossier
+   FROM ent_signalement_assiduite s
+   JOIN ent_eleve e ON e.id = s.eleve_id";
+
 fn aujourdhui() -> NaiveDate {
     PgEnt::maintenant_local().date()
 }
@@ -950,30 +967,22 @@ impl PgEnt {
         let dj = self
             .demi_journees(etablissement_id, None, debut, dernier)
             .await?;
-        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         for e in decompte.eleves.iter().filter(|e| e.seuil_atteint) {
-            let detail: Vec<serde_json::Value> = dj
+            let detail: Vec<_> = dj
                 .iter()
                 .filter(|d| d.eleve_id == e.eleve_id && d.non_justifiee)
-                .map(|d| {
-                    json!({"jour": d.jour.to_string(), "periode": d.periode.as_str(), "minutes": d.minutes})
-                })
                 .collect();
-            let dossier = json!({
-                "eleve": {"id": e.eleve_id, "nom": e.nom, "prenom": e.prenom},
-                "mois": debut.to_string(),
-                "demi_journees_non_justifiees": e.demi_journees_non_justifiees,
-                "seuil": decompte.seuil_signalement,
-                "demi_journees": detail,
-            });
-            sqlx::query(
+            let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+            // Une proposition déjà décidée n'est pas modifiée (aucune ligne renvoyée).
+            let ecrit: Option<(Uuid,)> = sqlx::query_as(
                 "INSERT INTO ent_signalement_assiduite
-                    (id, etablissement_id, eleve_id, mois, demi_journees, seuil, propose_par_user_id, dossier)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                    (id, etablissement_id, eleve_id, mois, demi_journees, seuil, propose_par_user_id)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)
                  ON CONFLICT (etablissement_id, eleve_id, mois) DO UPDATE
                     SET demi_journees = EXCLUDED.demi_journees, seuil = EXCLUDED.seuil,
-                        dossier = EXCLUDED.dossier
-                  WHERE ent_signalement_assiduite.statut = 'propose'",
+                        dossier = '{}'::jsonb
+                  WHERE ent_signalement_assiduite.statut = 'propose'
+                 RETURNING id",
             )
             .bind(Uuid::new_v4())
             .bind(etablissement_id)
@@ -982,12 +991,37 @@ impl PgEnt {
             .bind(e.demi_journees_non_justifiees as i32)
             .bind(decompte.seuil_signalement)
             .bind(acteur)
-            .bind(dossier)
-            .execute(&mut *tx)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
+            if let Some((signalement_id,)) = ecrit {
+                sqlx::query(
+                    "DELETE FROM ent_signalement_assiduite_detail
+                      WHERE etablissement_id = $1 AND signalement_id = $2",
+                )
+                .bind(etablissement_id)
+                .bind(signalement_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+                for d in detail {
+                    sqlx::query(
+                        "INSERT INTO ent_signalement_assiduite_detail
+                           (etablissement_id, signalement_id, jour, periode, minutes)
+                         VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(etablissement_id)
+                    .bind(signalement_id)
+                    .bind(d.jour)
+                    .bind(d.periode.as_str())
+                    .bind(d.minutes as i32)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                }
+            }
+            tx.commit().await.map_err(db)?;
         }
-        tx.commit().await.map_err(db)?;
         self.signalements_du_mois(etablissement_id, debut).await
     }
 
@@ -997,10 +1031,11 @@ impl PgEnt {
         mois: NaiveDate,
     ) -> Result<Vec<SignalementAssiduite>, EntDbError> {
         sqlx::query_as::<_, SignalementAssiduite>(
-            "SELECT id, eleve_id, mois, demi_journees, seuil, statut, dossier
-               FROM ent_signalement_assiduite
-              WHERE etablissement_id = $1 AND mois = $2
-              ORDER BY demi_journees DESC, eleve_id",
+            &format!(
+            "{SELECT_SIGNALEMENT}
+              WHERE s.etablissement_id = $1 AND s.mois = $2
+              ORDER BY s.demi_journees DESC, s.eleve_id"
+        ),
         )
         .bind(etablissement_id)
         .bind(mois)
@@ -1044,9 +1079,10 @@ impl PgEnt {
         };
         let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let s = sqlx::query_as::<_, SignalementAssiduite>(
-            "SELECT id, eleve_id, mois, demi_journees, seuil, statut, dossier
-               FROM ent_signalement_assiduite
-              WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+            &format!(
+                "{SELECT_SIGNALEMENT}
+              WHERE s.etablissement_id = $1 AND s.id = $2 FOR UPDATE OF s"
+            ),
         )
         .bind(etablissement_id)
         .bind(signalement_id)

@@ -2225,19 +2225,16 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
 
         let mut payeurs = Vec::new();
-        let mut resolutions = Value::Null;
         let eleve_id = match (d.nature.as_str(), d.eleve_id) {
             ("reinscription", Some(e)) => {
                 payeurs.extend(responsables.iter().filter_map(|r| r.personne_id));
+                Self::ecrire_resolutions_tx(&mut tx, etab, id, None).await?;
                 e
             }
             _ => {
                 // Rien n'est rapproché ni créé sans décision humaine explicite.
                 let plan = Self::planifier_tx(&mut tx, etab, &d, &responsables, b).await?;
-                resolutions = json!({
-                    "eleve": b.eleve,
-                    "responsables": b.responsables,
-                });
+                Self::ecrire_resolutions_tx(&mut tx, etab, id, Some(b)).await?;
                 let eleve_id = match plan.eleve_existant {
                     Some(e) => e,
                     None => {
@@ -2295,8 +2292,8 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         sqlx::query(
             "UPDATE ent_inscription_dossier SET etat = 'validee', eleve_id = $3, classe_cible_id = $4,
                     regime_demande = $5, valide_par = $6, valide_le = now(), updated_at = now(),
-                    resolutions = $7, niveau_demande = $8, parcours_demande = $9,
-                    inscription_annuelle_id = $10, echeance_famille = NULL,
+                    niveau_demande = $7, parcours_demande = $8,
+                    inscription_annuelle_id = $9, echeance_famille = NULL,
                     validation_annulee_le = NULL
               WHERE etablissement_id = $1 AND id = $2",
         )
@@ -2306,7 +2303,6 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .bind(classe)
         .bind(&regime)
         .bind(actor)
-        .bind(resolutions)
         .bind(&niveau)
         .bind(&parcours)
         .bind(inscription_annuelle_id)
@@ -2461,6 +2457,75 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         }
         tx.rollback().await.map_err(db)?;
         Ok(out)
+    }
+
+    /// Choix humains de la validation (D-036) : une ligne `ent_inscription_resolution` pour
+    /// l'élève, une par responsable. Remplace celles d'une validation précédente (annulée).
+    async fn ecrire_resolutions_tx(
+        tx: &mut PgConnection,
+        etab: Uuid,
+        dossier: Uuid,
+        b: Option<&ValidationBody>,
+    ) -> Result<(), EntDbError> {
+        sqlx::query(
+            "DELETE FROM ent_inscription_resolution WHERE etablissement_id = $1 AND dossier_id = $2",
+        )
+        .bind(etab)
+        .bind(dossier)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        let Some(b) = b else { return Ok(()) };
+        if let Some(choix) = &b.eleve {
+            let (nom, eleve_id, confirme) = match choix {
+                ChoixEleve::Nouveau => ("nouveau", None, None),
+                ChoixEleve::Existant {
+                    eleve_id,
+                    confirme_responsables_existants,
+                } => ("existant", Some(*eleve_id), Some(*confirme_responsables_existants)),
+            };
+            sqlx::query(
+                "INSERT INTO ent_inscription_resolution
+                   (etablissement_id, dossier_id, cible, choix, eleve_id, confirme_responsables_existants)
+                 VALUES ($1,$2,'eleve',$3,$4,$5)",
+            )
+            .bind(etab)
+            .bind(dossier)
+            .bind(nom)
+            .bind(eleve_id)
+            .bind(confirme)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+        for r in &b.responsables {
+            let (choix, personne_id) = match &r.personne {
+                ChoixPersonne::Nouvelle => ("nouveau", None),
+                ChoixPersonne::Existante { personne_id } => ("existant", Some(*personne_id)),
+            };
+            let (foyer_choix, foyer_id) = match &r.foyer {
+                None => (None, None),
+                Some(ChoixFoyer::Nouveau) => (Some("nouveau"), None),
+                Some(ChoixFoyer::Existant { foyer_id }) => (Some("existant"), Some(*foyer_id)),
+            };
+            sqlx::query(
+                "INSERT INTO ent_inscription_resolution
+                   (etablissement_id, dossier_id, cible, responsable_id, choix, personne_id,
+                    foyer_choix, foyer_id)
+                 VALUES ($1,$2,'responsable',$3,$4,$5,$6,$7)",
+            )
+            .bind(etab)
+            .bind(dossier)
+            .bind(r.responsable_id)
+            .bind(choix)
+            .bind(personne_id)
+            .bind(foyer_choix)
+            .bind(foyer_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
+        Ok(())
     }
 
     pub(crate) async fn responsables_tx(

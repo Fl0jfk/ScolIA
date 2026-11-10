@@ -40,6 +40,9 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("inscriptions_modele", "fermeture_en_cours(self.pool(), etab)", "l'assistant ouvre son propre contexte d'établissement"),
     ("rencontres", "enseignants_de(self.pool()", "l'assistant ouvre son propre contexte d'établissement"),
     ("rencontres", "enseignants_de_eleve(self.pool()", "l'assistant ouvre son propre contexte d'établissement"),
+    ("inscriptions_reactions", "pool.begin()", "worker d'envoi des e-mails d'inscription : ent_inscription_envoi et ent_inscription_invitation, tables sans RLS (relève les envois de tous les établissements)"),
+    ("champs_chiffres", "Conn::Pool(pool.acquire()", "tables sans établissement (branche `None`, aucune aujourd'hui) ; les tables par établissement passent par TenantTx"),
+    ("delegation", "charger_droits(self.pool(), etab", "l'assistant ouvre son propre contexte d'établissement"),
     ("sante_acc", ".fetch_optional(self.pool())", "ent_user : table d'identité sans RLS"),
     ("securite_repo", ".execute(self.pool())", "ent_session / ent_membership : tables sans RLS"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
@@ -48,7 +51,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
 /// Lignes de code où le pool est employé comme exécuteur sans passer par `TenantTx`, `lire_par_etablissement`
 /// ou `etablissements_systeme`. Les commentaires, signatures, constructeurs et clones sont ignorés.
 fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
-    let motifs = ["&self.pool", "self.pool()", "&pool", "(pool)", "(pool,", "(&*pool"];
+    let motifs = ["&self.pool", "self.pool()", "self.pool.", "&pool", "(pool)", "(pool,", "(&*pool", "pool.begin(", "pool.acquire("];
     let ok = [
         "TenantTx::begin(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
         "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ",

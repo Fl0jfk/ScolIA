@@ -873,25 +873,25 @@ impl PgEnt {
         .await?;
         let (delegation_id,): (Uuid,) = sqlx::query_as(
             "INSERT INTO ent_delegation
-               (id, etablissement_id, delegue_user_id, delegant_user_id, droits, debut, fin, motif,
+               (id, etablissement_id, delegue_user_id, delegant_user_id, debut, fin, motif,
                 source, reference_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$6,'Remplacement','remplacement',$7)
+             VALUES ($1,$2,$3,$4,$5,$5,'Remplacement','remplacement',$6)
              ON CONFLICT (etablissement_id, reference_id, delegue_user_id)
                WHERE source = 'remplacement' AND reference_id IS NOT NULL
              DO UPDATE SET statut = 'accordee', revoquee_le = NULL, revoquee_par_user_id = NULL,
-                           expiree_le = NULL, droits = EXCLUDED.droits, delegant_user_id = EXCLUDED.delegant_user_id
+                           expiree_le = NULL, delegant_user_id = EXCLUDED.delegant_user_id
              RETURNING id",
         )
         .bind(Uuid::new_v4())
         .bind(etab)
         .bind(cmd.remplacant_user_id)
         .bind(a.user_id)
-        .bind(json!(droits))
         .bind(cmd.jour)
         .bind(exc_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
+        crate::delegation::ecrire_droits_tx(&mut tx, etab, delegation_id, &droits).await?;
         let ev = publier_agg(
             &mut tx,
             a,
