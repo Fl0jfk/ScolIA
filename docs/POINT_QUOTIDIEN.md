@@ -6,6 +6,71 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-10 (mardi soir, 18 h 45 Paris)
+
+### Passé sur `ENT` aujourd'hui (CI verte à chaque fois ; tête `88c1caae`)
+- **Lot 11** (`5366c196`) : socle 5 S3 calendrier, S4 « cours », S5 offre, S7 périodes et grille ; socle 6 P2 invitations et casquettes.
+- **Recette sécurité 3** (`ee7706d3`) : RS3-01 (parent non payeur et SEPA), RS3-02 (double encaissement), RS3-04 (EDT).
+- **Socle 16 M0a** (`3d2b358b`) : interdiction de contact, fils privés, fils de vie scolaire réservés aux responsables autorisés.
+- **Socle 6 P3** (`3ba1231b`) : services d'enseignement et interventions (titulaire, suppléant, co-enseignant), cours vacants.
+- **Finances F0** (`e9b574e6`) : un seul chemin d'encaissement, plus de double prélèvement, numéro de facture serveur, pièces comptables immuables, mandats révoqués exclus, export SEPA en POST sans IBAN dans l'URL (RS3-03 soldée), IBAN chiffré, frais de relance désactivés.
+- **Stockage des fichiers S3** (`a32ee605`) : S3 obligatoire en production (Scaleway et OVHcloud), objets immuables, empreinte SHA-256 vérifiée, aucun échec ignoré.
+- **Registre de toutes les tables** (`16354f36`, D-037) : 330 tables classées, test bloquant, suspension des envois à la restauration ; défaut corrigé (appréciations invisibles si le code de période a des minuscules).
+- **RLS sur 150 tables de plus** (`30b8414c`) : élèves, santé et assiduité, finances, communication, vie scolaire, évaluations, inscriptions, structure (migrations 580–587).
+- **D-036, JSON → tables** (`88c1caae`) : droits délégués, résolutions d'inscription, scolarité actuelle, signalements d'assiduité ; test de garde contre tout nouveau JSON.
+
+### Prêt mais pas encore sur `ENT`
+- Rien (tout ce qui était vert est passé).
+
+### En cours
+- **Socle 16 M0b** (messagerie, défauts résiduels ; + étape labo « fil d'alerte seuil ») : CI en file.
+- **RLS stricte** : faire passer les accès par le contexte d'établissement (élèves, finances, inscriptions d'abord) pour activer le mode strict.
+
+### Conçu aujourd'hui (docs sur `ent-mc0hoe`)
+- **Socles 24–25 Finances et paiements** : conception + personas (302 actions, 31 lots).
+- **Socle 34 Santé** : conception + personas (mode « sans donnée de santé » strict, IA exclue, établissement sans infirmière).
+- **Socle 42 Sorties et voyages** : conception à partir du module Next.js + personas (parité des 52 routes, bascule visée le 17 avril 2027).
+- **Socle 16 Messagerie** : personas.
+- **Transition Next.js → Rust** : plan (`TRANSITION_NEXT_RUST.md`, fusion dans le cœur, bascules pendant les vacances) et inventaire T0 de la base Next.js (maturité des modules, JSON sur S3).
+- **PRA, sauvegardes et portabilité** (`PRA_SAUVEGARDES.md`, `PORTABILITE_EXPORTS.md`) : double destination Scaleway + OVHcloud, restauration par établissement, export à double validation ; exigences E1–E14 imposées à tous les lots (règle 13).
+- Décisions inscrites : D-034 (feuille de route), D-035 (add-on Next.js repris en Rust et branché sur le cœur), D-036 (plus de JSON-mémoire) ; D-037 à D-046 proposées.
+
+### Avancement par socle
+| Socle | Conçu | Personas | Sur ENT | Recette |
+|---|---|---|---|---|
+| 1 Sécurité | — | — | oui + registre + RLS 150 tables | recettes 1 et 3 |
+| 2 Élève, 3 Inscriptions, 4 Dossier | oui | oui | oui | recette 2 |
+| 5 Structure | oui | oui | S0–S5, S7 | non |
+| 6 Personnels | oui | oui | P0–P3 | non |
+| 7, 8, 9 | oui | oui | non | — |
+| 10 Emploi du temps | oui | oui | ancien | recette 3 |
+| 16 Messagerie | oui | **oui** | ancien + M0a | recette 3 |
+| 21 Évaluations | oui | oui | ancien + V0 | recette 3 |
+| 24–25 Finances | **oui** | **oui** | ancien + F0 | recette 3 |
+| 34 Santé | **oui** | **oui** | ancien (désactivé) | — |
+| 42 Sorties et voyages | **oui** | **oui** | non (Next.js en prod) | — |
+
+Environ **27 %** d'un ENT au niveau Charlemagne sur `ENT` et validé ; 16 socles sur 51 conçus en profondeur. Feuille de route D-034 : démo début décembre, V1 complète fin janvier–février 2027.
+
+### Décisions attendues de Florian (rien de bloquant aujourd'hui)
+- **Urgent, production Next.js (à toi seul)** : module santé exposé (données de soins en clair, lisibles par direction, secrétariat, CPE, surveillants, sans journal) — l'utilises-tu ? restreindre ou couper (Q-S34) ; voyages : `send-transport` et `generate-circular` ne vérifient que la session.
+- **PRA** : valider D-037 à D-046 ; demander par écrit à Scaleway si leur base managée permet un retour à un instant précis (Q-PRA1) ; vérifier que le DNS de `scolia.fr` ne dépend pas de Scaleway ; format d'archive d'export ZIP chiffré ou `age` (Q-EXP1).
+- **Inventaire Next.js** : absences du personnel fiables ou ébauche ? facturation des familles et covoiturage ébauches ?
+- **Finances F0** : droits d'encaissement du secrétariat ; rapprocher les prélèvements annulés des mandats révoqués avant données réelles.
+- **P3** : choix sur les services d'enseignement à trancher avant P4 (par défaut sinon).
+- **DPO / juriste** (plus tard) : durées de conservation, avis santé avant fin janvier 2027, frais de rejet, TVA des voyages.
+
+### À fournir par Florian (rappel)
+- **Demain mercredi** : inscription simple comme éditeur (rappel programmé à 18 h 37, aide à la rédaction du courriel).
+- **Avant Noël (phase T1)** : un conteneur et une base PostgreSQL séparés pour ScolIA chez Scaleway (F-08) ; je donnerai la liste exacte deux semaines avant.
+- Plus tard : exports anonymisés Charlemagne et base Next.js (F-01 à F-05, F-07), avec l'outil d'anonymisation fourni d'abord.
+
+### Ce qui a coincé
+- Nuit : création de sessions bloquée en attente d'approbation (≈ 4 h perdues) → réglé par le mode Auto et `.claude/settings.json`.
+- File de la CI GitHub saturée par 3–4 branches en parallèle : chaque avancée d'`ENT` oblige les autres branches à refusionner et repasser la CI (≈ 30–40 min chacune).
+
+---
+
 ## 2026-11-09 (lundi soir, 18 h 45 Paris)
 
 ### Passé sur `ENT` aujourd'hui (CI verte : 27 jobs, 1 137 tests, 30 min)
