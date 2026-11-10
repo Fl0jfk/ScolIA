@@ -65,9 +65,9 @@ Toutes ces actions n'admettent que la portée `etablissement` (les contrôles d'
 
 | Action | Libellé | Profils par défaut | Remplace |
 |---|---|---|---|
-| `facturation.gerer` | Créer, émettre, encaisser, prélever | Admin, Dir, Adm, Compta | `can_manage_facturation` (écritures) |
-| `facturation.lire` | Consulter factures, mandats, rappels, TVA, quotient | idem (`facturation.gerer` l'inclut) | `can_manage_facturation` (lectures) |
-| `bourses.gerer` | Affecter et trancher les bourses | Admin, Dir, Adm, Compta | `can_manage_bourses` |
+| `facturation.gerer` | Créer, émettre, encaisser, prélever | Admin, Dir, Compta (**F0, FD-27** : retiré par défaut à l'Administratif, attribuable par rôle) | `can_manage_facturation` (écritures) |
+| `facturation.lire` | Consulter factures, mandats, rappels, TVA, quotient | Admin, Dir, Adm, Compta (`facturation.gerer` l'inclut) ; toute consultation nominative est journalisée (F0, R-F36) | `can_lire_facturation` (lectures) |
+| `bourses.gerer` | Affecter et trancher les bourses | Admin, Dir, Compta (**F0, FD-27** : retiré par défaut à l'Administratif) | `can_manage_bourses` |
 | `edt.gerer` | Exceptions, import, calendrier A/B, contraintes | Admin, Dir, Adm, CPE | `can_manage_edt` |
 | `annonces.publier` | Publier des annonces | Admin, Dir, Adm, CPE | `can_publier_annonces` |
 | `repas.gerer` | Activités, grilles, dispenses, menus | Admin, Dir, Adm, Compta | `can_manage_repas` |

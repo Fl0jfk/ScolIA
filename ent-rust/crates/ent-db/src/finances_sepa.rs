@@ -35,9 +35,9 @@ use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use crate::finances::{
-    aujourd_hui, conflit, db, echeances_couvertes, emettre_piece_tx, euros, facture_row,
-    inserer_lignes, introuvable, invalide, mode_paiement, notifier_payeurs, opt_texte, paliers_tx,
-    params_tx, poser_mode, prochain_numero, publier, verrou_foyer, FactureRow, LigneAFacturer,
+    aujourd_hui, conflit, db, echeances_couvertes, euros, facture_row,
+    comptes_payeurs, introuvable, invalide, mode_paiement, notifier_payeurs, opt_texte, paliers_tx,
+    params_tx, poser_mode, prochain_numero, publier, verrou_foyer, FactureRow,
     SELECT_FACTURE,
 };
 use crate::finances_calcul::{self as calcul, Ecriture};
@@ -137,60 +137,22 @@ async fn encaisser_tx(
     Ok((id, code))
 }
 
-/// Facture de frais (rejet, relance) : créée puis émise dans la même transaction
-/// (le geste humain qui la déclenche vaut décision). Idempotente par `source`.
+/// Facture de frais (rejet, relance) — **désactivée** (F0, FD-13, R-P16).
+///
+/// Aucun frais de recouvrement ne se facture à la famille (CPCE L. 111-8 ; frais de
+/// rejet à qualifier par un juriste, question Q-F21). La fonction reste l'unique
+/// point d'entrée (rejet et relance l'appellent) et ne crée jamais de pièce : le
+/// jour où la décision est prise, elle se réactive ici et nulle part ailleurs.
 async fn facturer_frais(
-    conn: &mut PgConnection,
-    etab: Uuid,
-    foyer: Uuid,
-    montant: i64,
-    libelle: &str,
-    source: &str,
-    actor: Uuid,
+    _conn: &mut PgConnection,
+    _etab: Uuid,
+    _foyer: Uuid,
+    _montant: i64,
+    _libelle: &str,
+    _source: &str,
+    _actor: Uuid,
 ) -> Result<Option<Uuid>, EntDbError> {
-    if montant <= 0 {
-        return Ok(None);
-    }
-    let p = params_tx(conn, etab).await?;
-    let annee = crate::finances::annee_de(&p, aujourd_hui());
-    let r = inserer_lignes(
-        conn,
-        etab,
-        Some(&annee),
-        "frais",
-        "Frais",
-        vec![LigneAFacturer {
-            foyer_id: foyer,
-            eleve_id: None,
-            article_id: None,
-            categorie: "frais".into(),
-            libelle: libelle.into(),
-            quantite: 1,
-            unitaire: montant,
-            source_cle: source.into(),
-            periode: None,
-        }],
-        Some(actor),
-        Causalite::default(),
-    )
-    .await?;
-    let Some(id) = r.factures.first().copied() else {
-        return Ok(None);
-    };
-    let f = facture_row(conn, etab, id).await?;
-    if f.statut == "brouillon" {
-        emettre_piece_tx(
-            conn,
-            etab,
-            &p,
-            &f,
-            aujourd_hui(),
-            Some(actor),
-            Causalite::default(),
-        )
-        .await?;
-    }
-    Ok(Some(id))
+    Ok(None)
 }
 
 #[derive(sqlx::FromRow)]
@@ -257,6 +219,142 @@ impl PrelevementRow {
 
 impl PgEnt {
     // -- Prélèvements (FIN-11) ---------------------------------------------------
+    /// Créancier SEPA de l'établissement, lu **côté serveur** dans les paramètres
+    /// financiers (IBAN déchiffré le temps de construire le fichier bancaire).
+    pub(crate) async fn crediteur_sepa(
+        &self,
+        etab: Uuid,
+    ) -> Result<domain_eleve::SepaCrediteur, EntDbError> {
+        let mut tx = self.fin_tx(etab).await?;
+        let p = params_tx(&mut tx, etab).await?;
+        tx.commit().await.map_err(db)?;
+        domain_eleve::plan_sepa_crediteur(
+            p.crediteur_nom.as_deref().unwrap_or(""),
+            p.crediteur_iban.as_deref().unwrap_or(""),
+            p.crediteur_bic.as_deref().unwrap_or(""),
+            p.crediteur_ics.as_deref().unwrap_or(""),
+        )
+        .map_err(|_| {
+            invalide("créancier SEPA incomplet : nom, IBAN, BIC et ICS dans les paramètres")
+        })
+    }
+
+    // -- F0 : pré-notification du chemin historique (R-P6, FD-03, FD-14) ----------
+
+    /// Vérifie, **avant** de planifier un prélèvement historique, que la
+    /// pré-notification pourra être remise : délai de l'établissement respecté et au
+    /// moins un compte payeur joignable (sinon le payeur serait prélevé sans être prévenu).
+    pub(crate) async fn verifier_prenotifiable(
+        &self,
+        etab: Uuid,
+        foyer: Uuid,
+        date_execution: NaiveDate,
+    ) -> Result<(), EntDbError> {
+        let mut tx = self.fin_tx(etab).await?;
+        let p = params_tx(&mut tx, etab).await?;
+        if (date_execution - aujourd_hui()).num_days() < p.jours_prenotification as i64 {
+            return Err(invalide(
+                "date d'exécution trop proche : délai de pré-notification non respecté",
+            ));
+        }
+        if comptes_payeurs(&mut tx, etab, foyer).await?.is_empty() {
+            return Err(invalide(
+                "aucun payeur joignable : la pré-notification ne peut pas être remise",
+            ));
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(())
+    }
+
+    /// Remet la pré-notification d'un prélèvement planifié par le chemin historique et
+    /// la trace sur le prélèvement : sans elle, ni l'export ni la base ne le laissent partir.
+    pub(crate) async fn prenotifier_prelevement_historique(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        prelevement: Uuid,
+    ) -> Result<(), EntDbError> {
+        let mut tx = self.fin_tx(etab).await?;
+        let (foyer, mandat, date_execution, montant, rum): (Uuid, Uuid, NaiveDate, i64, String) =
+            sqlx::query_as(
+                "SELECT p.foyer_id, p.mandat_id, p.date_execution, p.montant_centimes, m.rum
+                   FROM ent_fac_sepa_prelevement p
+                   JOIN ent_fac_sepa_mandat m ON m.id = p.mandat_id AND m.etablissement_id = p.etablissement_id
+                  WHERE p.etablissement_id = $1 AND p.id = $2 AND p.statut = 'prevu'",
+            )
+            .bind(etab)
+            .bind(prelevement)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?
+            .ok_or_else(introuvable)?;
+        let (prenotif,): (Uuid,) = sqlx::query_as(
+            "INSERT INTO ent_fin_prenotification (id, etablissement_id, foyer_id, mandat_id, date_execution,
+                    montant_centimes, nb_prelevements, created_by)
+             VALUES ($1, $2, $3, $4, $5, $6, 1, $7)
+             ON CONFLICT (etablissement_id, foyer_id, date_execution) DO UPDATE
+                SET montant_centimes = ent_fin_prenotification.montant_centimes + EXCLUDED.montant_centimes,
+                    nb_prelevements = ent_fin_prenotification.nb_prelevements + 1,
+                    envoyee_le = now()
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(foyer)
+        .bind(mandat)
+        .bind(date_execution)
+        .bind(montant)
+        .bind(actor)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_fac_sepa_prelevement SET prenotification_id = $3
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(prelevement)
+        .bind(prenotif)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        let evt = publier(
+            &mut tx,
+            etab,
+            types::FAC_SEPA_PRENOTIFICATION,
+            AggregateKind::Facture,
+            foyer,
+            None,
+            json!({ "foyer_id": foyer, "date_execution": date_execution, "montant_centimes": montant,
+                    "prelevements": 1, "rum": rum }),
+            Some(actor),
+            Causalite::default(),
+        )
+        .await?;
+        let n = notifier_payeurs(
+            &mut tx,
+            etab,
+            foyer,
+            evt.id,
+            "fin.prenotification",
+            "Prélèvement à venir",
+            &format!(
+                "Un prélèvement de {} sera présenté le {} sur le mandat {rum}.",
+                euros(montant),
+                date_execution.format("%d/%m/%Y")
+            ),
+        )
+        .await?;
+        if n == 0 {
+            // Rien n'a été remis à personne : on ne laisse pas partir ce prélèvement.
+            return Err(invalide(
+                "aucun payeur joignable : la pré-notification ne peut pas être remise",
+            ));
+        }
+        tx.commit().await.map_err(db)?;
+        Ok(())
+    }
+
 
     /// Prépare les prélèvements des échéances arrivées à terme à `date_execution`
     /// et envoie les pré-notifications. Idempotent (une échéance n'a qu'un
@@ -305,6 +403,33 @@ impl PgEnt {
             .map_err(db)?;
             let mut dues = Vec::new();
             for f in &factures {
+                // F0 (FD-04) : un prélèvement historique (par facture) encore ouvert sur
+                // cette facture empêche d'en préparer un second par échéance : sinon, la
+                // même somme serait prélevée deux fois.
+                let (historique,): (i64,) = sqlx::query_as(
+                    "SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_fac_sepa_prelevement
+                      WHERE etablissement_id = $1 AND facture_id = $2 AND echeance_id IS NULL
+                        AND statut IN ('prevu', 'exporte')",
+                )
+                .bind(etab)
+                .bind(f.id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+                if historique > 0 {
+                    rapport.ecartes.push(FoyerEcarteDto {
+                        foyer_id: foyer,
+                        foyer: libelle
+                            .clone()
+                            .filter(|s| !s.trim().is_empty())
+                            .unwrap_or_else(|| format!("Foyer {}", &foyer.simple().to_string()[..8])),
+                        motif: format!(
+                            "facture {} : prélèvement historique déjà ouvert",
+                            f.numero
+                        ),
+                    });
+                    continue;
+                }
                 for (e, couvert) in echeances_couvertes(&mut tx, etab, f).await? {
                     if e.date_echeance <= b.date_execution
                         && couvert < e.montant_centimes
@@ -345,6 +470,17 @@ impl PgEnt {
                 });
                 continue;
             };
+            // F0 (FD-14, R-P6) : aucun prélèvement sans pré-notification remise. Sans
+            // compte payeur joignable, la pré-notification ne peut pas être remise :
+            // le foyer est écarté (tâche : obtenir un canal de contact) plutôt que prélevé.
+            if comptes_payeurs(&mut tx, etab, foyer).await?.is_empty() {
+                rapport.ecartes.push(FoyerEcarteDto {
+                    foyer_id: foyer,
+                    foyer: nom,
+                    motif: "aucun payeur joignable : pré-notification impossible".into(),
+                });
+                continue;
+            }
             let mut ids = Vec::new();
             let mut total = 0;
             for (facture_id, numero, echeance_id, montant) in dues {
@@ -535,7 +671,8 @@ impl PgEnt {
         };
         let rows: Vec<PrelevementRow> = sqlx::query_as(&format!(
             "{SELECT_PRELEVEMENT} WHERE p.etablissement_id = $1 AND p.statut = 'prevu' AND p.date_execution = $2
-               AND p.prenotification_id IS NOT NULL ORDER BY p.created_at FOR UPDATE OF p"
+               AND p.prenotification_id IS NOT NULL AND m.statut = 'actif'
+               AND p.echeance_id IS NOT NULL ORDER BY p.created_at FOR UPDATE OF p"
         ))
         .bind(etab)
         .bind(b.date_execution)

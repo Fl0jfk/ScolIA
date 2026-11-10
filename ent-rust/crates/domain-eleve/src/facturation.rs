@@ -167,15 +167,31 @@ pub fn plan_ligne_cantine_depuis_passages(
     })
 }
 
+/// Quantité maximale d'une ligne de facture (garde-fou de saisie).
+pub const MAX_QUANTITE_LIGNE: i32 = 100_000;
+/// Montant unitaire maximal d'une ligne (1 000 000 €).
+pub const MAX_UNITAIRE_CENTIMES: i64 = 100_000_000;
+/// Préfixe du numéro provisoire d'un brouillon (le numéro définitif est attribué à l'émission).
+pub const PREFIXE_NUMERO_PROVISOIRE: &str = "BRO-";
+
+pub fn numero_provisoire(facture_id: Uuid) -> String {
+    format!(
+        "{PREFIXE_NUMERO_PROVISOIRE}{}",
+        &facture_id.simple().to_string()[..12]
+    )
+}
+
 pub fn plan_creer_facture(cmd: CreerFacture) -> Result<(Facture, Vec<FactureLigne>), DomainError> {
     if cmd.etablissement_id.is_nil() || cmd.foyer_id.is_nil() {
         return Err(DomainError::Event(
             ent_events::EventBusError::MissingEtablissement,
         ));
     }
-    let numero = cmd.numero.trim().to_string();
+    // F0 (FD-05) : le numéro vient du serveur, jamais du client. Un brouillon
+    // porte un numéro provisoire ; le numéro définitif (série continue) est
+    // attribué à l'émission.
     let libelle = cmd.libelle.trim().to_string();
-    if numero.is_empty() || libelle.is_empty() {
+    if libelle.is_empty() {
         return Err(DomainError::FactureInvalide);
     }
     if cmd.lignes.is_empty() {
@@ -187,7 +203,15 @@ pub fn plan_creer_facture(cmd: CreerFacture) -> Result<(Facture, Vec<FactureLign
     let mut total: i64 = 0;
     for l in cmd.lignes {
         let lib = l.libelle.trim().to_string();
-        if lib.is_empty() || l.quantite <= 0 {
+        // F0 (FD-16) : quantité > 0 et bornée ; montant unitaire borné. Une ligne négative
+        // (déduction de bourse, réduction) reste permise sur ce chemin — sans article typé il
+        // n'y a pas d'autre moyen de l'exprimer —, mais le total de la pièce ne peut jamais
+        // descendre sous 0 (contrôlé plus bas) : jamais d'avoir déguisé.
+        if lib.is_empty()
+            || l.quantite <= 0
+            || l.quantite > MAX_QUANTITE_LIGNE
+            || l.montant_unitaire_centimes.abs() > MAX_UNITAIRE_CENTIMES
+        {
             return Err(DomainError::FactureInvalide);
         }
         let ligne = FactureLigne {
@@ -220,7 +244,7 @@ pub fn plan_creer_facture(cmd: CreerFacture) -> Result<(Facture, Vec<FactureLign
         id: facture_id,
         etablissement_id: cmd.etablissement_id,
         foyer_id: cmd.foyer_id,
-        numero,
+        numero: numero_provisoire(facture_id),
         libelle,
         statut: FactureStatut::Brouillon,
         total_centimes: total,
@@ -257,10 +281,17 @@ pub struct EncaisserFacture {
     pub actor_user_id: Uuid,
 }
 
-/// Enregistre un paiement sur facture émise. Passe en soldée si somme >= total.
+/// Enregistre un paiement sur facture émise.
+///
+/// `deja_encaisse_centimes` : l'**encaissé réel** (avoirs inclus). `engage_centimes` :
+/// l'encaissé réel **plus** les prélèvements encore ouverts. Le dépassement se
+/// contrôle sur l'engagé (on n'encaisse pas ce qu'un prélèvement va déjà couvrir) ;
+/// le **solde** de la facture ne se décide que sur l'encaissé réel (F0, FD-06) :
+/// un prélèvement ouvert n'est pas de l'argent reçu.
 pub fn plan_encaisser(
     facture: &Facture,
     deja_encaisse_centimes: i64,
+    engage_centimes: i64,
     cmd: EncaisserFacture,
 ) -> Result<(Encaissement, Facture), DomainError> {
     if facture.etablissement_id != cmd.etablissement_id || facture.id != cmd.facture_id {
@@ -277,10 +308,13 @@ pub fn plan_encaisser(
     if deja_encaisse_centimes < 0 {
         return Err(DomainError::EncaissementInvalide);
     }
-    let nouveau_total = deja_encaisse_centimes.saturating_add(cmd.montant_centimes);
-    if nouveau_total > facture.total_centimes {
+    if engage_centimes < deja_encaisse_centimes {
+        return Err(DomainError::EncaissementInvalide);
+    }
+    if engage_centimes.saturating_add(cmd.montant_centimes) > facture.total_centimes {
         return Err(DomainError::EncaissementDepasse);
     }
+    let nouveau_total = deja_encaisse_centimes.saturating_add(cmd.montant_centimes);
     let now = Utc::now();
     let reference = cmd
         .reference
@@ -663,6 +697,7 @@ mod tests {
         let (e1, f1) = plan_encaisser(
             &emise,
             0,
+            0,
             EncaisserFacture {
                 etablissement_id: emise.etablissement_id,
                 facture_id: emise.id,
@@ -677,6 +712,7 @@ mod tests {
         assert_eq!(f1.statut, FactureStatut::Emise);
         let (_e2, f2) = plan_encaisser(
             &f1,
+            4000,
             4000,
             EncaisserFacture {
                 etablissement_id: emise.etablissement_id,
@@ -714,6 +750,7 @@ mod tests {
         let emise = plan_emettre_facture(&f).unwrap();
         let err = plan_encaisser(
             &emise,
+            0,
             0,
             EncaisserFacture {
                 etablissement_id: emise.etablissement_id,
@@ -849,9 +886,12 @@ mod tests {
             actor_user_id: Uuid::new_v4(),
         })
         .unwrap();
-        let emise = plan_emettre_facture(&f).unwrap();
+        let mut emise = plan_emettre_facture(&f).unwrap();
+        // Le numéro définitif est attribué par le serveur à l'émission (F0, FD-05).
+        emise.numero = "F-100".into();
         let (enc, _) = plan_encaisser(
             &emise,
+            0,
             0,
             EncaisserFacture {
                 etablissement_id: emise.etablissement_id,
@@ -867,5 +907,63 @@ mod tests {
         assert_eq!(q.numero, "Q-F-100-01");
         assert_eq!(q.montant_centimes, 2000);
         assert_eq!(q.encaissement_id, enc.id);
+    }
+
+    fn cmd_f0(numero: &str, quantite: i32, unitaire: i64) -> CreerFacture {
+        CreerFacture {
+            etablissement_id: Uuid::new_v4(),
+            foyer_id: Uuid::new_v4(),
+            numero: numero.into(),
+            libelle: "Test".into(),
+            nature: None,
+            annee_scolaire: None,
+            lignes: vec![LigneFactureCmd {
+                eleve_id: None,
+                libelle: "X".into(),
+                quantite,
+                montant_unitaire_centimes: unitaire,
+            }],
+            actor_user_id: Uuid::new_v4(),
+        }
+    }
+
+    /// F0 / FD-05 : le numéro fourni par le client est ignoré.
+    #[test]
+    fn f0_numero_du_client_ignore() {
+        let (f, _) = plan_creer_facture(cmd_f0("CM-20261110", 1, 100)).unwrap();
+        assert_ne!(f.numero, "CM-20261110");
+        assert!(f.numero.starts_with(PREFIXE_NUMERO_PROVISOIRE));
+    }
+
+    /// F0 / FD-16 : quantité négative, montant démesuré, total négatif refusés.
+    #[test]
+    fn f0_quantites_et_montants_bornes() {
+        assert!(plan_creer_facture(cmd_f0("A", 1, -500)).is_err());
+        assert!(plan_creer_facture(cmd_f0("A", -3, 500)).is_err());
+        assert!(plan_creer_facture(cmd_f0("A", 0, 500)).is_err());
+        assert!(plan_creer_facture(cmd_f0("A", MAX_QUANTITE_LIGNE + 1, 1)).is_err());
+        assert!(plan_creer_facture(cmd_f0("A", 1, MAX_UNITAIRE_CENTIMES + 1)).is_err());
+        assert!(plan_creer_facture(cmd_f0("A", 2, 500)).is_ok());
+    }
+
+    /// F0 / FD-06 : un prélèvement ouvert n'est pas de l'argent reçu — la facture
+    /// ne passe pas soldée tant que l'encaissé réel ne couvre pas le total.
+    #[test]
+    fn f0_prelevement_ouvert_ne_solde_pas() {
+        let (f, _) = plan_creer_facture(cmd_f0("A", 1, 10_000)).unwrap();
+        let emise = plan_emettre_facture(&f).unwrap();
+        let cmd = |m| EncaisserFacture {
+            etablissement_id: emise.etablissement_id,
+            facture_id: emise.id,
+            montant_centimes: m,
+            moyen: MoyenPaiement::Especes,
+            reference: None,
+            actor_user_id: Uuid::new_v4(),
+        };
+        // 6 000 € engagés par un prélèvement ouvert, 4 000 encaissés à la main : pas soldée.
+        let (_, apres) = plan_encaisser(&emise, 0, 6_000, cmd(4_000)).unwrap();
+        assert_eq!(apres.statut, FactureStatut::Emise);
+        // Au-delà de ce qui reste à engager : refusé.
+        assert!(plan_encaisser(&emise, 0, 6_000, cmd(4_001)).is_err());
     }
 }
