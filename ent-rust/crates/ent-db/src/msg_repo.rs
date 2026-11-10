@@ -218,10 +218,12 @@ impl PgMsgRepo {
                                   AND l.foyer_id = f.foyer_lecteur_id))
                -- M0b (D24) : un fil dont aucun message n'est encore remis n'existe pas pour la
                -- famille (sauf pour son propre auteur).
-               AND EXISTS (SELECT 1 FROM ent_msg m
-                            WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id
-                              AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now()
-                                   OR m.auteur_user_id = $3))
+               AND (NOT EXISTS (SELECT 1 FROM ent_msg m
+                                 WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id)
+                    OR EXISTS (SELECT 1 FROM ent_msg m
+                                WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id
+                                  AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now()
+                                       OR m.auteur_user_id = $3)))
                AND (f.foyer_id IS NULL
                     OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
                                 WHERE l.etablissement_id = f.etablissement_id
