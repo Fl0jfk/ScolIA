@@ -262,6 +262,11 @@ pub mod types {
     pub const SERVICE_OUVERT: &str = "service.ouvert";
     pub const SERVICE_VACANT: &str = "service.vacant";
     pub const SERVICE_POURVU: &str = "service.pourvu";
+    /// Socle 6, lot P4 : missions (agrégat `Referentiel`, identifiant = mission). Identifiants, codes, dates.
+    pub const MISSION_ATTRIBUEE: &str = "mission.attribuee";
+    pub const MISSION_TERMINEE: &str = "mission.terminee";
+    pub const MISSION_ANNULEE: &str = "mission.annulee";
+    pub const MISSION_TYPE_CREE: &str = "mission.type_cree";
     /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
     /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
     pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
