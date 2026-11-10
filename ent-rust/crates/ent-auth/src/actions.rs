@@ -911,6 +911,35 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ServicesGerer));
     }
+    // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
+    // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
+    // réservés. Le porteur et les encadrants d'une sortie agissent sur la leur sans droit d'établissement.
+    d.push(etab(VoyagesAnnuaire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Prof | Role::Cpe
+    ) {
+        d.push(etab(VoyagesCreer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [VoyagesModifier, VoyagesParticipants, VoyagesPorteur] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesPrestataires));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [VoyagesEncadrement, VoyagesValider, VoyagesAutoriser] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Compta) {
+        d.push(etab(VoyagesBudgetValider));
+    }
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1030,35 +1059,6 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(MessagerieUrgenceHorsPlage));
-    }
-    // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
-    // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
-    // réservés. Le porteur et les encadrants d'une sortie agissent sur la leur sans droit d'établissement.
-    d.push(etab(VoyagesAnnuaire));
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(VoyagesLire));
-    }
-    if matches!(
-        role,
-        Role::Admin | Role::Direction | Role::Administratif | Role::Prof | Role::Cpe
-    ) {
-        d.push(etab(VoyagesCreer));
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
-        for a in [VoyagesModifier, VoyagesParticipants, VoyagesPorteur] {
-            d.push(etab(a));
-        }
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(VoyagesPrestataires));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        for a in [VoyagesEncadrement, VoyagesValider, VoyagesAutoriser] {
-            d.push(etab(a));
-        }
-    }
-    if matches!(role, Role::Admin | Role::Compta) {
-        d.push(etab(VoyagesBudgetValider));
     }
     // Vie scolaire (lot S2-4) : modèles par défaut calés sur les profils déjà
     // habilités à la vie scolaire (déclarer, vérifier, punir) ; la discipline
@@ -1937,5 +1937,53 @@ mod oracle_a1 {
         assert!(modele_par_defaut(Role::Direction).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence));
         // Familles et élèves : aucun droit paramétrable.
         assert!(modele_par_defaut(Role::Parent).is_empty() && modele_par_defaut(Role::Eleve).is_empty());
+    }
+
+    /// Socle 42, lot V0a : modèles par défaut des onze actions `voyages.*` (`42_SORTIES_VOYAGES.md` §21.1).
+    #[test]
+    fn voyages_v0a_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        // Tout le personnel (jamais une famille ni un élève) lit la liste minimale.
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            assert!(a(r, VoyagesAnnuaire), "{r:?} voyages.annuaire");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).is_empty(), "{r:?} : aucun droit paramétrable");
+        }
+        // Création : professeurs, CPE, secrétariat, direction ; pas l'accueil ni la comptabilité.
+        for (r, attendu) in [
+            (Role::Prof, true), (Role::Cpe, true), (Role::Administratif, true), (Role::Direction, true),
+            (Role::Admin, true), (Role::Accueil, false), (Role::Compta, false), (Role::Infirmerie, false),
+        ] {
+            assert_eq!(a(r, VoyagesCreer), attendu, "{r:?} voyages.creer");
+        }
+        // Un professeur ne lit ni ne valide, ne modifie pas les sorties des autres, n'écrit pas aux prestataires.
+        for x in [VoyagesLire, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement, VoyagesValider,
+                  VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
+            assert!(!a(Role::Prof, x), "professeur : {x:?}");
+            assert!(!a(Role::Accueil, x), "accueil : {x:?}");
+        }
+        // Validation et autorisation : direction et administrateur seulement ; budget : comptabilité.
+        for (r, v, au, b) in [
+            (Role::Direction, true, true, false), (Role::Admin, true, true, true),
+            (Role::Administratif, false, false, false), (Role::Compta, false, false, true),
+            (Role::Cpe, false, false, false),
+        ] {
+            assert_eq!(a(r, VoyagesValider), v, "{r:?} valider");
+            assert_eq!(a(r, VoyagesAutoriser), au, "{r:?} autoriser");
+            assert_eq!(a(r, VoyagesBudgetValider), b, "{r:?} budget_valider");
+        }
+        // Prestataires (défaut de Next.js corrigé) : secrétariat, comptabilité, direction.
+        for (r, attendu) in [(Role::Administratif, true), (Role::Compta, true), (Role::Direction, true), (Role::Prof, false), (Role::Cpe, false)] {
+            assert_eq!(a(r, VoyagesPrestataires), attendu, "{r:?} prestataires");
+        }
+        // Codes lisibles et uniques ; établissement entier seulement.
+        for x in [VoyagesAnnuaire, VoyagesLire, VoyagesCreer, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement,
+                  VoyagesValider, VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
+            assert!(x.code().starts_with("voyages."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
     }
 }

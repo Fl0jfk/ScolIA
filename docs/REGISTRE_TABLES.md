@@ -7,7 +7,7 @@ extracteur, CI), il évolue avec les migrations et un test le confronte au sché
 Statut : **implémenté et testé en local** ; D-037 est *proposée* (branche `ent-mc0hoe`), appliquée par défaut car sans
 coût et réversible (D-031). Rétentions : **à définir** pour toutes les tables sauf les états éphémères.
 
-## Ce que le registre classe (une ligne par table, 330 au 2026-11-10)
+## Ce que le registre classe (une ligne par table, 345 au 2026-11-10, dont les 9 du socle 42)
 portée (`Etablissement` / `ReferentielGlobal` / `CompteMultiEtablissement` / `Technique`), présence de `etablissement_id`,
 données personnelles, santé, fichiers (`Aucun` / `Reference` / `Objet` / `Bytea`), export de portabilité, neutralisation
 à la restauration, rétention, **exceptions déclarées** (avec raison).

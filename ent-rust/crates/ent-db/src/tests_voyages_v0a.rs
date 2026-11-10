@@ -99,6 +99,17 @@ impl Cadre {
             .clamp(annee.date_debut, annee.date_fin - Duration::days(1));
         let sfx = Uuid::new_v4().simple().to_string()[..6].to_string();
         let classe_texte = format!("V0A{sfx}");
+        let classe = ent
+            .referentiel_creer_classe(
+                "administratif",
+                etab,
+                Some(annee.id),
+                &classe_texte,
+                Some("4e"),
+                Some("4EME"),
+            )
+            .await
+            .expect("classe");
         let mut eleves = Vec::new();
         for (i, nom) in ["Alpha", "Bravo", "Charlie"].iter().enumerate() {
             let e = ent
@@ -122,13 +133,18 @@ impl Cadre {
                 })
                 .await
                 .expect("élève");
+            // Affectation à la classe dès le début de l'année (scolarisé à la date de la sortie).
+            ent.referentiel_affecter_eleve_classe(
+                "administratif",
+                etab,
+                classe.id,
+                e.id,
+                Some(annee.date_debut),
+            )
+            .await
+            .expect("affectation");
             eleves.push(e.id);
         }
-        let classe = ent
-            .referentiel_classe_par_code(etab, annee.id, &classe_texte)
-            .await
-            .unwrap()
-            .expect("classe");
         sqlx::query(
             "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id) VALUES ($1,$2,$3,$4)",
         )
@@ -273,6 +289,20 @@ async fn actions_journal(c: &Cadre, id: Uuid) -> Vec<String> {
         .unwrap()
 }
 
+async fn codes(c: &Cadre, user: Uuid, role: Role, id: Uuid) -> Vec<String> {
+    let mut v: Vec<String> = c
+        .ent
+        .voyage_detail(&c.a(user, role), id)
+        .await
+        .unwrap()
+        .commandes
+        .into_iter()
+        .map(|x| x.code.to_string())
+        .collect();
+    v.sort();
+    v
+}
+
 // ─────────────────────────── Circuit complet ───────────────────────────
 
 #[tokio::test]
@@ -282,6 +312,10 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
     assert_eq!(s.etat, "brouillon");
     assert_eq!(s.version, 1);
     assert!(s.reference.starts_with("VOY-"));
+    // Le serveur propose au porteur de soumettre et d'annuler ; un professeur tiers ne voit rien.
+    assert_eq!(codes(&c, c.prof, Role::Prof, s.id).await, vec!["annuler", "soumettre"]);
+    // La direction (qui a `voyages.modifier`) peut aussi soumettre un brouillon et le requalifier.
+    assert_eq!(codes(&c, c.dir, Role::Direction, s.id).await, vec!["annuler", "requalifier", "soumettre"]);
 
     // Soumission refusée tant qu'il manque un encadrant : le message dit quoi.
     let e = c.cmd(c.prof, Role::Prof, s.id, Commande::Soumettre).await.unwrap_err();
@@ -295,6 +329,13 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
     assert_eq!(d.sortie.etat, "soumise");
     assert_eq!(d.prochaine_etape.libelle.is_empty(), false);
     assert!(d.acces.porteur && !d.acces.valider);
+    // Soumise : le porteur ne peut que l'annuler ; la direction valide, demande, refuse.
+    assert_eq!(codes(&c, c.prof, Role::Prof, s.id).await, vec!["annuler"]);
+    let cd = codes(&c, c.dir, Role::Direction, s.id).await;
+    for attendu in ["valider-pedagogie", "demander-modifications", "refuser", "annuler"] {
+        assert!(cd.contains(&attendu.to_string()), "{attendu} : {cd:?}");
+    }
+    assert!(!cd.contains(&"soumettre".to_string()));
 
     // Le porteur ne valide pas sa propre pédagogie ; la direction oui.
     let e = c.cmd(c.prof, Role::Prof, s.id, Commande::ValiderPedagogie).await.unwrap_err();
@@ -305,6 +346,9 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
     // Voyage : passage aux finances, validé par la comptabilité (pas par la direction).
     let s = c.cmd(c.prof, Role::Prof, s.id, Commande::PasserAuxFinances).await.unwrap();
     assert_eq!(s.etat, "budget_a_valider");
+    // Le budget se valide à la comptabilité seule, pas à la direction.
+    assert!(codes(&c, c.compta, Role::Compta, s.id).await.contains(&"valider-budget".to_string()));
+    assert!(!codes(&c, c.dir, Role::Direction, s.id).await.contains(&"valider-budget".to_string()));
     let e = c.cmd(c.dir, Role::Direction, s.id, Commande::ValiderBudget).await.unwrap_err();
     assert!(est_forbidden(&e), "{e:?}");
     let s = c.cmd(c.compta, Role::Compta, s.id, Commande::ValiderBudget).await.unwrap();
@@ -315,6 +359,13 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
     assert!(est_forbidden(&e), "{e:?}");
     let s = c.cmd(c.dir, Role::Direction, s.id, Commande::Autoriser).await.unwrap();
     assert_eq!(s.etat, "ouverte");
+    // Ouverte : le porteur confirme la liste ; la direction peut rouvrir.
+    assert!(codes(&c, c.prof, Role::Prof, s.id).await.contains(&"confirmer-liste".to_string()));
+    let cd = codes(&c, c.dir, Role::Direction, s.id).await;
+    assert!(cd.contains(&"rouvrir".to_string()), "{cd:?}");
+    let rouvrir = c.ent.voyage_detail(&c.a(c.dir, Role::Direction), s.id).await.unwrap();
+    let r = rouvrir.commandes.iter().find(|x| x.code == "rouvrir").unwrap();
+    assert!(r.motif_requis && r.vers.len() == 5, "cinq étapes amont (NX-83)");
 
     // Choix des élèves dans le registre.
     let r = c
@@ -398,7 +449,7 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
     // Événements dans la même transaction, sans identité d'élève.
     let (n, avec_eleve): (i64, i64) = sqlx::query_as(
         "SELECT count(*), count(eleve_id) FROM ent_metier_event
-          WHERE etablissement_id = $1 AND aggregate_id = $2 AND type_name LIKE 'voyages.%'",
+          WHERE etablissement_id = $1 AND aggregate_id = $2 AND type LIKE 'voyages.%'",
     )
     .bind(c.etab)
     .bind(s.id)
@@ -899,8 +950,11 @@ async fn serie_hebdomadaire_ecarte_les_feries_et_se_valide_seance_par_seance() {
     assert!(res.iter().find(|x| !x.ok).unwrap().raison.is_some());
     // Annuler une séance : seule celle-ci passe à « annulée ».
     let une = r.sorties[0].id;
-    c.cmd_motif(c.prof, Role::Prof, une, Commande::Annuler, "Intervenant absent", None).await.unwrap_err();
-    c.cmd_motif(c.dir, Role::Direction, une, Commande::Annuler, "Intervenant absent", None).await.unwrap();
+    // Le porteur annule une séance avant l'ouverture (NX-10) ; un professeur tiers n'y a pas accès.
+    let tiers = compte(&c.ent, c.etab, "prof").await;
+    let e = c.cmd_motif(tiers, Role::Prof, une, Commande::Annuler, "Intervenant absent", None).await.unwrap_err();
+    assert!(est_introuvable(&e), "{e:?}");
+    c.cmd_motif(c.prof, Role::Prof, une, Commande::Annuler, "Intervenant absent", None).await.unwrap();
     let etats: Vec<String> =
         sqlx::query_scalar("SELECT etat FROM ent_sortie WHERE serie_id = $1 ORDER BY debut")
             .bind(r.serie_id)

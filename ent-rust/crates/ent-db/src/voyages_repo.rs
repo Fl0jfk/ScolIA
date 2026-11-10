@@ -282,6 +282,21 @@ pub struct SortieDetail {
     pub prochaine_etape: ProchaineEtape,
     pub audit: Vec<PointAudit>,
     pub acces: AccesVue,
+    /// Commandes d'état proposées **à cet appelant** dans l'état actuel (calcul serveur : l'écran
+    /// n'a aucune règle). Le serveur revérifie à l'exécution ; les préconditions (liste, encadrant…)
+    /// sont vérifiées alors et expliquées par un refus.
+    pub commandes: Vec<CommandeDispo>,
+}
+
+/// Une commande d'état proposée à l'appelant.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct CommandeDispo {
+    pub code: &'static str,
+    pub libelle: &'static str,
+    pub motif_requis: bool,
+    pub danger: bool,
+    /// Étapes possibles pour une réouverture.
+    pub vers: Vec<&'static str>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize)]
@@ -451,6 +466,100 @@ impl Acces {
             prestataires: self.gere(Action::VoyagesPrestataires),
         }
     }
+}
+
+/// Commandes proposées à l'appelant (état, droits du porteur et d'établissement). Miroir des gardes de
+/// [`PgEnt::voyage_commande`] : un test vérifie qu'aucune commande proposée n'est refusée pour le
+/// droit ou pour l'étape.
+fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
+    let etat = s.etat.as_str();
+    let mut v = Vec::new();
+    let mut ajoute = |code: &'static str, libelle: &'static str, motif_requis: bool, danger: bool| {
+        v.push(CommandeDispo {
+            code,
+            libelle,
+            motif_requis,
+            danger,
+            vers: Vec::new(),
+        });
+    };
+    let gere = acces.gere(Action::VoyagesModifier);
+    let valide = acces.a(Action::VoyagesValider);
+    if etat == "brouillon" && gere {
+        ajoute("soumettre", "Soumettre à la direction", false, false);
+    }
+    if etat == "soumise" && valide {
+        ajoute("valider-pedagogie", "Valider la pédagogie", false, false);
+    }
+    if etat == "a_completer" && gere {
+        ajoute("renvoyer", "Renvoyer après modification", false, false);
+    }
+    if etat == "a_completer" && (valide || acces.a(Action::VoyagesBudgetValider)) {
+        ajoute("annuler-demande", "Annuler la demande de modifications", false, false);
+    }
+    if etat == "preparation" && s.besoin_car && acces.gere(Action::VoyagesPrestataires) {
+        ajoute("demander-signature", "Présenter le devis à la signature", false, false);
+    }
+    if etat == "preparation" && !s.besoin_car && gere {
+        ajoute("passer-finances", "Passer à l'étape suivante", false, false);
+    }
+    if etat == "a_signer" && acces.a(Action::VoyagesAutoriser) {
+        ajoute("passer-finances", "Passer aux finances sans devis signé", true, false);
+    }
+    if etat == "budget_a_valider" && acces.a(Action::VoyagesBudgetValider) {
+        ajoute("valider-budget", "Valider le budget", false, false);
+    }
+    if etat == "a_autoriser" && acces.a(Action::VoyagesAutoriser) {
+        ajoute("autoriser", "Autoriser la sortie", false, false);
+    }
+    if matches!(etat, "a_autoriser" | "ouverte")
+        && s.liste_confirmee_le.is_none()
+        && acces.gere(Action::VoyagesParticipants)
+    {
+        ajoute("confirmer-liste", "Confirmer la liste des élèves", false, false);
+    }
+    let demande = if etat == "budget_a_valider" {
+        valide || acces.a(Action::VoyagesBudgetValider)
+    } else {
+        valide
+    };
+    if etats_de_depart(Commande::DemanderModifications).contains(&etat) && demande {
+        ajoute("demander-modifications", "Demander des modifications", true, false);
+    }
+    if etats_de_depart(Commande::Refuser).contains(&etat) && valide {
+        ajoute("refuser", "Refuser le projet", true, true);
+    }
+    if matches!(etat, "ouverte" | "prete") && valide {
+        v.push(CommandeDispo {
+            code: "rouvrir",
+            libelle: "Rouvrir vers une étape antérieure",
+            motif_requis: true,
+            danger: false,
+            vers: ETAPES_AMONT.to_vec(),
+        });
+    }
+    if etats_de_depart(Commande::Requalifier).contains(&etat) && valide && !s.besoin_car {
+        v.push(CommandeDispo {
+            code: "requalifier",
+            libelle: "Requalifier en sortie avec car",
+            motif_requis: false,
+            danger: false,
+            vers: Vec::new(),
+        });
+    }
+    let avant_ouverture = !matches!(etat, "ouverte" | "prete" | "en_cours");
+    if etats_de_depart(Commande::Annuler).contains(&etat)
+        && (valide || (avant_ouverture && gere))
+    {
+        v.push(CommandeDispo {
+            code: "annuler",
+            libelle: "Annuler la sortie",
+            motif_requis: true,
+            danger: true,
+            vers: Vec::new(),
+        });
+    }
+    v
 }
 
 impl PgEnt {
@@ -2394,6 +2503,7 @@ impl PgEnt {
             etapes,
             encadrants,
             acces: acces.vue(),
+            commandes: commandes_disponibles(&s, &acces),
             sortie: s,
         })
     }

@@ -228,6 +228,18 @@ pub struct SortieDetailDto {
     pub prochaine_etape: ProchaineEtapeDto,
     pub audit: Vec<PointAuditDto>,
     pub acces: AccesDto,
+    pub commandes: Vec<CommandeDto>,
+}
+
+/// Commande d'état proposée à l'appelant dans l'état actuel (calcul serveur).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandeDto {
+    pub code: String,
+    pub libelle: String,
+    pub motif_requis: bool,
+    pub danger: bool,
+    /// Étapes possibles pour une réouverture.
+    pub vers: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
