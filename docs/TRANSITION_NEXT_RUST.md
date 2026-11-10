@@ -23,6 +23,7 @@ L'add-on était seul ; il devient une partie de l'ENT. Les données ne sont donc
 - **Ventilation** : ce qui était local à l'add-on rejoint le socle compétent (ex. participants d'un voyage → inscriptions au séjour rattachées à l'élève du cœur ; paiements d'un voyage → finances 24–25 ; congés du personnel → socle 6 ; réservations → salles du socle 5).
 - **Tables qui n'ont plus lieu d'être** : copies locales d'élèves ou de classes, miroirs, tables techniques de l'ancienne authentification, etc. Elles ne sont pas reprises ; leur contenu utile passe par le rapprochement ci-dessus.
 - **Classement de chaque module** avant toute bascule (inventaire T0, à valider par Florian) : **à conserver** (données à reprendre sans perte, ex. voyages, RH), **perdable** (on repart de zéro sans dommage), **vide** (rien à reprendre). Le pilote propose le classement à partir du schéma ; Florian le corrige d'après l'usage réel (le pilote ne voit pas la base de production).
+- **Inventaire T0 fait (proposé, 2026-11-10)** : `docs/TRANSITION_T0_INVENTAIRE.md` — classement des modules, correspondance Next.js → ScolIA, règles de rapprochement, contrôles, esquisse de `ent-reprise` et de l'anonymisation. Point clé : une partie des modules vit dans des collections JSON (`ent_collection_*`) et des fichiers S3, pas seulement dans des tables typées.
 
 ## 3. Bascule module par module, pendant les vacances
 Pour chaque module basculé (voyages, réservations de salles, demandes, absences et RH du personnel…) :
