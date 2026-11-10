@@ -1,6 +1,6 @@
 # Transition de l'add-on Next.js vers ScolIA (Rust)
 
-Statut : **proposé par le pilote, à valider par Florian** (2026-11-10). Complète D-034 et D-035. Rien ici n'autorise le pilote à toucher à la production : chaque action sur la prod (base, Next.js, branche `main`) est faite ou autorisée explicitement par Florian.
+Statut : **proposé par le pilote, à valider par Florian** (2026-11-10). Dates des vacances de l'établissement données par Florian. Complète D-034 et D-035. Rien ici n'autorise le pilote à toucher à la production : chaque action sur la prod (base, Next.js, branche `main`) est faite ou autorisée explicitement par Florian.
 
 ## 1. Faits
 - [F] Le Next.js de production tourne **en Docker chez Scaleway** (Amplify n'est plus utilisé). Scaleway héberge déjà tout le nécessaire.
@@ -17,6 +17,13 @@ On ne transforme **pas** la base de production en base ScolIA. On fait une **rep
 5. **Répétitions** : la reprise est répétée plusieurs fois sur des exports anonymisés (outil d'anonymisation fourni par le pilote, lancé par Florian), puis une fois sur un export réel en pré-production fermée, avant toute bascule.
 6. Comptes : les comptes et rôles sont repris ; les mots de passe ne sont pas transférés tels quels si leur format diffère — première connexion par lien sécurisé puis passkey (D-009).
 
+## 2 bis. La reprise est une fusion, pas une copie de tables (précision de Florian, 2026-11-10)
+L'add-on était seul ; il devient une partie de l'ENT. Les données ne sont donc **pas recopiées table pour table** : elles sont **ventilées dans les tables du cœur** et **fusionnées** avec ce qui y existe déjà.
+- **Doublons à fusionner** : élèves, classes, personnels, comptes, établissements, années, sites existent dans les deux bases. Règle : le cœur ScolIA fait foi (base élèves alimentée par Charlemagne/SIECLE) ; chaque fiche Next.js est **rapprochée** d'une fiche du cœur (INE, nom + prénom + date de naissance, adresse e-mail pour les personnels), puis ses données rattachées à la fiche du cœur. Rapprochement incertain : liste de cas présentée à Florian ou au secrétariat, jamais de fusion automatique douteuse (même outil que la fusion de doublons du socle 2, E6, annulable).
+- **Ventilation** : ce qui était local à l'add-on rejoint le socle compétent (ex. participants d'un voyage → inscriptions au séjour rattachées à l'élève du cœur ; paiements d'un voyage → finances 24–25 ; congés du personnel → socle 6 ; réservations → salles du socle 5).
+- **Tables qui n'ont plus lieu d'être** : copies locales d'élèves ou de classes, miroirs, tables techniques de l'ancienne authentification, etc. Elles ne sont pas reprises ; leur contenu utile passe par le rapprochement ci-dessus.
+- **Classement de chaque module** avant toute bascule (inventaire T0, à valider par Florian) : **à conserver** (données à reprendre sans perte, ex. voyages, RH), **perdable** (on repart de zéro sans dommage), **vide** (rien à reprendre). Le pilote propose le classement à partir du schéma ; Florian le corrige d'après l'usage réel (le pilote ne voit pas la base de production).
+
 ## 3. Bascule module par module, pendant les vacances
 Pour chaque module basculé (voyages, réservations de salles, demandes, absences et RH du personnel…) :
 1. Le vendredi soir des vacances : le module Next.js passe en **lecture seule** (action de Florian).
@@ -29,9 +36,9 @@ Les modules non encore basculés continuent sur Next.js comme aujourd'hui (donn�
 | Période | Phase | Contenu |
 |---|---|---|
 | Maintenant → mi-décembre | T0 | Inventaire du schéma Next.js (lecture du dépôt), table de correspondance Next → ScolIA, écriture et tests de `ent-reprise` sur des données fictives au format Next.js, outil d'anonymisation. |
-| **Vacances de Noël** (19 déc. 2026 → 3 janv. 2027) | T1 | **ScolIA mis en production technique** chez Scaleway (conteneur et base séparés, sauvegardes, supervision), avec données de démonstration : c'est la démo de décembre (D-034). **Première répétition** de la reprise sur un export anonymisé de la base Next.js. Aucun utilisateur basculé : les modules Rust équivalents à l'add-on ne sont pas encore prêts. |
-| Vacances d'hiver (février 2027, selon la zone) | T2 | Deuxième répétition (export réel en pré-production fermée, après accord écrit de l'établissement). **Première bascule** d'un module simple si prêt (ex. réservation de salles) ; sinon, répétition seulement. |
-| Vacances de printemps (avril 2027) | T3 | Bascule des gros modules : voyages et séjours (branchés sur élèves, administratif, finances), absences et RH du personnel, demandes. |
+| **Vacances de Noël** (sam. 19 déc. 2026 → reprise lun. 4 janv. 2027) | T1 | **ScolIA mis en production technique** chez Scaleway (conteneur et base séparés, sauvegardes, supervision), avec données de démonstration : c'est la démo de décembre (D-034). **Première répétition** de la reprise sur un export anonymisé de la base Next.js. Aucun utilisateur basculé : les modules Rust équivalents à l'add-on ne sont pas encore prêts. |
+| Vacances d'hiver (sam. 20 févr. → reprise lun. 8 mars 2027) | T2 | Deuxième répétition (export réel en pré-production fermée, après accord écrit de l'établissement). **Première bascule** d'un module simple si prêt (ex. réservation de salles) ; sinon, répétition seulement. |
+| Vacances de printemps (sam. 17 avr. → reprise lun. 3 mai 2027) | T3 | Bascule des gros modules : voyages et séjours (branchés sur élèves, administratif, finances), absences et RH du personnel, demandes. |
 | Été 2027 | T4 | Derniers modules ; arrêt de Next.js ; **`ENT` devient `main`** et le code Next.js est retiré du dépôt (une étiquette d'archive le garde). Rentrée 2027 : usage réel des modules de l'add-on, doublon pour le reste (D-034, D-035). |
 
 ## 5. Pourquoi pas une bascule réelle à Noël
@@ -40,6 +47,6 @@ Les modules Rust qui remplacent l'add-on dépendent du cœur (élèves, administ
 ## 6. À fournir ou décider par Florian
 - Accord écrit de l'établissement et avis du DPO avant toute reprise sur données réelles (avant T2).
 - Les exports `pg_dump` (anonymisés d'abord), lancés par Florian.
-- La zone de vacances de l'établissement (dates exactes de T2 et T3).
+- Le classement des modules (à conserver / perdable / vide) proposé par le pilote en T0.
 - Pour chaque bascule : passage en lecture seule du module Next.js, relecture du rapport de contrôle, arrêt final.
 - En T4 : autorisation explicite de faire de `ENT` la branche `main` et de retirer le code Next.js.
