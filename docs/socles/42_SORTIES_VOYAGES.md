@@ -2,6 +2,7 @@
 
 **Date :** 2026-11-10 — **Statut :** conception de fond, **non décidée** (à relire par Florian). Elle est rédigée **avant** le code Rust, et **après** un module Next.js qui fonctionne et sert en production (D-035). Aucun code n'a été écrit ni modifié. Aucun accès à une base, à un secret ou à un environnement de production. Le code Next.js a été **lu seulement**, sur une copie de `origin/main` extraite dans le dossier temporaire de la session (`git archive`, rien exécuté, rien construit).
 **Branche :** `ent-socle-voyages-conception`, partie de `origin/ent-mc0hoe` (`d47cd79b`, D-035).
+**Passe personas (2026-11-10, branche `ent-socle-voyages-personas`) :** `docs/socles/PERSONAS_42.md`. Ajouts faits **ici**, marqués **« ajout personas »** : §2.2 (NX-75 à NX-86), §2.3 (VD-49, VD-50), §5 (corrections réglementaires), §8.1, renvois aux §25 à §28, §31, et surtout le **nouveau §32** (bascule d'avril 2027, argent pendant le doublon, normalisation D-036, actions VOY-250 à VOY-289, lots révisés). **En cas de contradiction, le §32 l'emporte** ; rien n'a été supprimé.
 **Lien avec le socle 14 :** le 14 (accueil, sorties et sûreté) possède les **sorties individuelles** de l'établissement : régime de sortie, sortie anticipée, remise de l'enfant. Le 42 possède les **sorties et voyages collectifs**, pédagogiques ou éducatifs, organisés par l'établissement. Le 42 **consomme** le 14 pour deux choses : la remise des élèves au retour (« qui vient chercher Léa à 22 h au car ? ») et la liste des présents en cas d'alerte.
 **À lire avec :** `CLAUDE.md`. `docs/DECISIONS.md` : D-017 (droits), D-021 (méthode), D-023 (peu de réglages), D-026 (briques), D-027, D-029 (public), D-031 (recommandations appliquées par défaut), **D-034** (feuille de route), **D-035** (reprise de l'add-on, branchement sur le cœur). `docs/SOCLES.md` (socles 14 et 42). `docs/MATRICE_CHARLEMAGNE.md` §3.14 (VOY-01 à VOY-08) et T-20. `docs/SOCLE2_DOMAINES.md` §D20 (SEJ-01 à SEJ-10, repris et étendus ici). Conceptions `02_ELEVE.md`, `04_ADMINISTRATIF.md` (§5.3 ports, §8.9 payeurs), `05_STRUCTURE.md`, `06_PERSONNELS.md` (P21 bénévoles, habilitations), `07_DOCUMENTS.md` (nature « Sorties et voyages », D77, pièce d'identité), `08_NOTIFICATIONS.md` (natures `voyages.*`, NTF-94, R-N64), `10_EMPLOI_DU_TEMPS.md` (neutralisation, §2.x « Sorties et voyages »), `16_MESSAGERIE.md` (CM-80), `24_FINANCES.md` §12 et lot F10, `25_PAIEMENTS.md`, `34_SANTE.md` (branche `ent-socle-sante-conception`, §9.1, §10.7, SAN-223/224, R-S23) et `IA_COEUR.md` (§6.2 niveaux N0–N3). Modèles de forme : `10_EMPLOI_DU_TEMPS.md`, `21_EVALUATIONS.md`, `24_FINANCES.md`.
 **Conventions.** Les marques d'origine :
@@ -52,6 +53,7 @@ Sommaire :
 | Technique | §22 Événements · §23 Notifications · §24 Écrans · §25 Modèle de données |
 | Mise en œuvre | §26 Reprise des données · §27 Lots et migrations · §28 Tests et recette |
 | Décisions | §29 Réglages signalés · §30 Décisions appliquées et questions · §31 Faits, hypothèses, contradictions |
+| Ajout personas | §32 Bascule d'avril 2027, argent pendant le doublon, D-036, actions VOY-250 à VOY-289, lots révisés |
 
 ---
 
@@ -139,6 +141,12 @@ Sommaire :
    - le maintien du **journal de voyage par lien sans compte** ;
    - le transporteur et la boîte de réception des devis ;
    - l'arrêt de chaque écran Next.js (décision et geste de Florian).
+8. **Ajout personas (§32, `PERSONAS_42.md`)** :
+   - la **bascule du 17 avril 2027** est une passation de séjours vivants : **propriété unique par séjour** (R-SV37), séjours « en vol » finis dans Next.js, reprise différentielle ;
+   - Next.js n'a **ni paiement de famille ni autorisation en ligne** [F] : autorisations papier et versements tenus hors de Next.js sont **attestés ou importés** à la bascule (R-SV39) ;
+   - pendant le doublon (D-034), l'argent est en **mode suivi** : ScolIA décide, répartit, pointe et exporte, sans facturer (R-SV44, lot V2a) ;
+   - **V0 = parité complète** : 12 fonctions de Next.js sans NX ajoutées (NX-75 à NX-86), trois reculs corrigés ;
+   - le modèle du §25 est **normalisé** (D-036, §32.6).
 
 ---
 
@@ -303,6 +311,23 @@ Les actions sont regroupées par domaine. Chaque ligne indique où l'action est 
 | NX-73 | Dédoublonnage des envois aux parents après un échec partiel | `travels-parent-email-batch.ts` | R-SV13 |
 | NX-74 | Effectif adultes compris dans la demande de devis et la commande | `travels-transport-quote-pdf.ts` | VOY-156 |
 
+**Ajout personas : fonctions et comportements sans NX trouvés par l'audit de parité** (`PERSONAS_42.md` §3, lecture seule de `origin/main`)
+
+| N° | Action existante | Où | Reprise |
+|---|---|---|---|
+| NX-75 | Alerte par e-mail d'un courriel entrant non rattaché (vers une adresse d'alerte de l'exploitant) | `lib/travel-email-alert.ts:25-68` | VOY-250 (au secrétariat de l'établissement) |
+| NX-76 | Fiche « actualité » de l'assistant IA réécrite à chaque enregistrement | `lib/brain-ai/sync/knowledge-writer.ts:141-158` | **abandonnée** (Q-V36) : lecture de l'état vivant |
+| NX-77 | Suppression de dossiers de test par le support, avec simulation | `api/travels/support-cleanup-tests/route.ts:51-112` | VOY-251 |
+| NX-78 | Filtre par établissement ou « groupe scolaire » ; le libellé choisit la direction qui signe | `(admin)/travels/page.tsx:79,166-181`, `complex/page.tsx:198-207` | VOY-252 (sorties liées, Q-V35) |
+| NX-79 | Accompagnateurs déclarés plus nombreux que les noms (« à préciser ») | `api/travels/update/route.ts:117-135` | VOY-253 |
+| NX-80 | E-mail d'activation du journal de voyage aux parents, `.ics` joint | `lib/travels-parent-blog.ts:298-352` | VOY-254 |
+| NX-81 | Modification générale (titre, destination, objectifs, accompagnateurs) ; réédition d'une sortie simple | `TripDetailsLoaded.tsx:120,597-620`, `simple/page.tsx:97-145` | VOY-106 (précisée) |
+| NX-82 | « En sortie » lu par l'internat (repas du soir, sorties) et la prévision de la cantine | `lib/internat-repas-soir-db.ts:55,132`, `lib/internat-sorties-db.ts:194-199`, `lib/passages-prevision-shared.ts:26,100` | VOY-255 |
+| NX-83 | Réouverture vers **cinq** étapes amont | `lib/travels-direction-permissions.ts:34-44` | §8.1 (corrigé) |
+| NX-84 | Demandes de devis **dès la création** d'un séjour avec car | `complex/page.tsx:117-141` | VOY-156 ; changement d'usage signalé (Q-V34) |
+| NX-85 | Commande cuisine par **jour de semaine**, avec heure et lieu de livraison | `complex/page.tsx:57-68` | VOY-180 (par date) |
+| NX-86 | Convives adultes sans compte ; accompagnateurs en nom libre | `lib/travels-types.ts:81-90` | VOY-256 ; intervenant du socle 6 |
+
 ### 2.3 Défauts trouvés dans Next.js (à ne pas reproduire ; corrigés dans la réécriture)
 
 « Certain » = lu dans le code ; « probable » = déduit, à confirmer par un essai. Les défauts ne sont **pas corrigés dans Next.js** (intouchable, CLAUDE.md). Ils sont signalés à Florian pour sa propre décision, et la version Rust les évite par construction.
@@ -374,6 +399,8 @@ Les actions sont regroupées par domaine. Chaque ligne indique où l'action est 
 | VD-46 | Moyenne | Toute la boîte partagée de la plateforme (réponses de parents comprises) part à l'IA avec l'OCR des pièces ; l'IA reçoit le catalogue de **tous** les établissements pour deviner le bon ; un seul établissement → choisi d'office ; les e-mails non rattachés n'ont ni écran ni action. | `travel-imap-poller.ts:104-332`, `travel-tenant-match.ts:37-51`, `api/travels/email-unmatched` | Boîte par établissement ; jamais de devinette entre établissements ; écran de tri |
 | VD-47 | Moyenne | Copie systématique de tous les e-mails aux transporteurs de tous les établissements vers l'adresse d'alerte de l'exploitant. | `lib/travel-email-routing.ts:29-44` | Aucune copie hors établissement |
 | VD-48 | Faible | Noms de marque et d'établissement écrits en dur dans les e-mails ; deux sources pour les adresses comptables ; statuts hérités ; aperçus d'e-mail réécrits à part du code d'envoi (ils peuvent diverger). | `update/route.ts:281-296`, `travels-cuisine-send.ts:102,169`, `travels-mail-preview.ts` | Gabarits uniques par établissement |
+| VD-49 | **Critique** (ajout personas) | `send-transport` ne vérifie que la session et prend le dossier fourni par le client : tout utilisateur du module déclenche des demandes de devis à **tous** les transporteurs. | `api/travels/send-transport/route.ts:9-30` | Commande VOY-156, droit et état vérifiés (R-SV1, R-SV5) |
+| VD-50 | Haute (ajout personas) | `generate-circular` ne vérifie que la session, prend le dossier du client et lance l'OCR sur des clés ou URL de pièces fournies par lui. | `api/travels/generate-circular/route.ts:10-32` | Rendu serveur depuis les faits ; pièces par identifiant (VD-05) |
 
 ### 2.4 Ce qu'il ne faut pas perdre (D-035, point 5)
 
@@ -488,6 +515,8 @@ Sources citées dans ce §5 :
   - L'AST concerne aussi le mineur étranger qui réside en France.
   - Formulaire cerfa 15646\*01 : numéro lu sur une note de préfecture [V partiel].
   - Le guide ajoute que l'AST et les copies sont **gardées par l'enseignant pendant le séjour** et, en cas de conflit connu entre parents, qu'il faut rechercher l'accord du second (G2 fiche 7).
+- **Ajout personas (vérifié le 2026-11-10)** : F1359 (vérifiée le 30-10-2026) précise que la copie de la pièce du signataire peut être une CNI ou un passeport **valide ou périmé depuis moins de 5 ans** (non européen : passeport et titre de séjour), qu'une **IST** permet le départ seulement après sa levée, et propose un formulaire en ligne (R46121) [V]. G2 fiche 7 : si les noms de l'enfant et du signataire diffèrent, demander une pièce prouvant l'autorité parentale [V].
+- **Royaume-Uni (ajout personas, remplace « à vérifier »)** : page gov.uk « Visit the UK as part of a French school trip » (mise à jour du 5-6-2026) [V] — groupe d'au moins 5 enfants de 18 ans ou moins d'une école française ; formulaire « France-UK school trip travel information form » adressé à la préfecture **au moins 15 jours avant le départ**, avec les AST et les copies des pièces des parents ; **CNI acceptée** pour les ressortissants UE, EEE et Suisse, passeport sinon ; **enfants dispensés de visa et d'ETA quelle que soit leur nationalité** ; **chaque adulte** listé, avec passeport et ETA ou visa selon sa nationalité. Ce formulaire tient lieu de liste de voyageurs pour le RU (VOY-280, VOY-281).
 - **Élèves ressortissants de pays tiers** : liste de voyageurs (document de voyage collectif, décision 94/795/JAI) délivrée gratuitement par la préfecture, dossier au moins 1 mois avant le départ (délai propre à la préfecture lue) ; non valable pour l'Irlande, à vérifier pour le Royaume-Uni ; un élève majeur présente titre de séjour, passeport et visa. Source : note de la préfecture de Côte-d'Or, 2022, http://www.cote-dor.gouv.fr/contenu/telechargement/16293/124029/file/20220315_note_etablissements_scolaires_voyages_scolaires_union_europeenne.pdf [V, document local].
 
 ### 5.5 Argent [V, G2 fiche 5 ; C24]
@@ -495,7 +524,7 @@ Sources citées dans ce §5 :
 - La contribution aux sorties facultatives est « limitée » et ne doit **en aucun cas** écarter un élève pour raison financière.
 - Fonds sociaux ; **paiement en 2 ou 3 fois spontanément proposé** ; échéancier sur demande ; chèques-vacances si l'établissement est agréé ANCV.
 - **Participation fixe, au plus égale au coût réel par élève** ; budget **équilibré**.
-- **Le coût des accompagnateurs ne peut être imputé « même indirectement » aux familles.**
+- **Le coût des accompagnateurs ne peut être imputé « même indirectement » aux familles.** *Source précisée (ajout personas) : la phrase est dans **G2 fiche 5** (« D'aucune manière, le coût de la sortie scolaire des accompagnateurs ne peut être imputé, même indirectement, aux familles ») et dans F22575 (« leurs frais liés à la sortie sont pris en charge par l'établissement »), pas dans C24 [V].* C24 §2.3 porte seulement la contribution « limitée » qui ne doit « en aucun cas » écarter un élève, et §2.2 le surcoût lié au handicap [V-copie].
   - Il est porté sur une **ligne séparée**.
   - Les accompagnateurs en mission ne paient pas.
   - Une remise commerciale bénéficie à **tous** les participants.
@@ -510,6 +539,8 @@ Sources citées dans ce §5 :
   - Au moins **un enseignant** toujours présent.
   - Tout adulte encadrant est **autorisé par écrit** par le chef d'établissement, avec l'accord écrit de son employeur.
   - Les **AESH**, les **volontaires du service civique** et le **conducteur** ne comptent pas dans l'encadrement (C24 annexe ; G2 fiches 4 et 8).
+  - *Ajout personas* : l'AESH qui accompagne donne son **accord préalable**, et son **employeur** aussi si son emploi du temps change (G2 fiches 4 et 6) [V] → VOY-274.
+  - *Ajout personas* : le contrôle **FIJAIS** est prévu pour chaque voyage dans le public (C24 §1.3 [V-copie], G2 fiche 4 [V]) ; **son application au privé sous contrat n'est pas tranchée** [NT], la pratique varie selon la DSDEN → Q-V39 [F].
 - **Premier degré** : au moins 2 adultes, dont un enseignant.
   - Maternelle : 2 jusqu'à 16 élèves, puis +1 par tranche de 8.
   - Élémentaire, sortie sans nuitée : 2 jusqu'à 30, +1 par tranche de 15.
@@ -523,6 +554,7 @@ Sources citées dans ce §5 :
 ### 5.7 Assurance [V, G2 fiche 10]
 - Depuis le guide de décembre 2025, l'attestation d'assurance de l'élève **ne peut être exigée pour aucune sortie**, obligatoire ou facultative. Elle reste « vivement recommandée ».
 - Responsabilité civile et individuelle accident « fortement recommandées » pour les bénévoles. CEAM recommandée en Europe. Assurance annulation fortement recommandée.
+- *Ajout personas* : F22575 (vérifiée le 17-2-2026) : « L'assurance n'est pas obligatoire » [V]. La page CNIL citée ci-dessous date du **12-9-2017**, avant G2 et F22575 ; justice.fr dit encore « doit être assuré ». ScolIA suit G2 et F22575.
 - **Contradiction relevée** : la page CNIL de rentrée (https://www.cnil.fr/fr/rentree-scolaire-ce-que-les-etablissements-scolaires-et-periscolaires-peuvent-vous-demander) dit encore qu'une attestation peut être exigée pour les activités facultatives.
   - → ScolIA **demande** l'attestation sans **bloquer** (R-SV9). Le socle 4 la porte (« Assurance scolaire de l'élève : attestation datée », `04_ADMINISTRATIF.md`), le 42 la lit.
   - `07_DOCUMENTS.md` liste « attestation d'assurance demandée » : cohérent, à condition de ne pas la rendre bloquante.
@@ -549,6 +581,8 @@ Sources citées dans ce §5 :
   - **ne pas préciser la nature du handicap ou de la pathologie** ;
   - allergies avec **consentement exprès** ;
   - pour les accueils collectifs de mineurs, la fiche sanitaire n'est pas informatisée et est restituée en fin de séjour. Pour un voyage scolaire, c'est une **analogie** : ScolIA ne recueille **pas** de fiche sanitaire libre et s'appuie sur les consignes du socle 34 (R-SV22).
+- **Droit à l'image (ajout personas)** : art. 372-1 C. civ. (loi 2024-120 du 19-2-2024) : « les parents protègent en commun le droit à l'image de leur enfant mineur », en l'associant selon son âge [lu sur copies secondaires, à relire sur Légifrance]. Des commentateurs y voient un acte non usuel pour une diffusion publique. → S-439 et Q-V33 : journal fermé aux familles des participants = un titulaire + information de l'autre avec opposition ; diffusion publique = les deux titulaires ; à l'avis du DPO.
+- **Élève majeur (ajout personas)** : aucun texte trouvé [NT] ; C24 et G2 visent l'élève mineur ; F22575 ne prévoit pas d'autorisation parentale pour un majeur. Conduite : Q-V41 (DPO, juriste).
 - **Vigipirate** : posture « vigilance renforcée » ; voyages autorisés sous réserve de l'autorisation préalable, d'Ariane et des conseils aux voyageurs [NV, page 403].
 - **Conservation** : la seule règle lue est que l'enseignant garde les AST, les copies d'identité et les PAI **pendant le séjour**. Aucune durée d'archivage officielle n'a été trouvée.
   - → durées proposées au §21.3, **soumises au DPO**.
@@ -563,7 +597,10 @@ Sources citées dans ce §5 :
 - Vigipirate.
 - Les durées d'archivage.
 - Le coût des accompagnateurs **dans le privé**.
-- L'éligibilité des séjours scolaires aux chèques-vacances.
+- L'éligibilité des séjours scolaires aux chèques-vacances (EPLE agréé : possible [V, G2, F22575] ; OGEC : conventionnement de droit commun [NT]).
+- *Ajout personas* : **TVA** de la participation facturée par un OGEC — l'exonération de l'enseignement et de ses compléments (CGI 261-4-4°, BOFiP BOI-TVA-CHAMP-30-10-20-50) ne dit rien des voyages [NT] → Q-V38 [F].
+- *Ajout personas* : **Code du tourisme L. 211-1 IV** (en vigueur depuis le 1-7-2018) [V, Légifrance] : le régime des voyages ne s'applique pas à qui organise « qu'à titre occasionnel, dans un but non lucratif et pour un groupe limité de voyageurs » ; un établissement qui organise lui-même peut y entrer [R, aucune doctrine scolaire trouvée]. Obligations des agences (immatriculation, garantie financière, contrat de forfait) non relues article par article [NT].
+- *Ajout personas* : une note académique (La Réunion, 1-9-2025, lue en extrait, page 403) dirait que les sorties du privé relèvent de la seule responsabilité de ses directeurs, en citant R. 442-55 [NT].
 
 ---
 
@@ -719,7 +756,7 @@ Chaque événement du cœur est consommé dans une transaction. L'effet est **pr
 | `annulee` | Annulée avant ou pendant (motif), avec ses effets (avoirs, avenants, avis) | DIR (ORG avant `ouverte`) | lecture ; avoirs ; annulation des séances neutralisées |
 
 - **Séance de série annulée** = `annulee` sur la séance seule (ex-`SEANCE_ANNULEE`).
-- **Réouverture** (NX-09) : de `prete` ou `ouverte` vers `preparation`, `budget_a_valider` ou `a_autoriser`, par la direction, motif obligatoire. Une réouverture **ne défait rien** (pièces émises, autorisations, factures) : elle crée de nouvelles versions.
+- **Réouverture** (NX-09) : de `prete` ou `ouverte` vers `preparation`, `budget_a_valider` ou `a_autoriser`, par la direction, motif obligatoire. *Ajout personas (NX-83, parité) : aussi vers `soumise` et `a_signer`, soit les cinq étapes amont de Next.js.* Une réouverture **ne défait rien** (pièces émises, autorisations, factures) : elle crée de nouvelles versions.
 
 ### 8.2 Circuit selon le contexte (moteur de règles, R-SV4)
 
@@ -1513,6 +1550,8 @@ Direction artistique ScolIA : sobre, net, un seul accent bleu, états métier to
 
 ## 25. Modèle de données cible (brique `sorties`) [R]
 
+> **Ajout personas** : ce modèle garde du JSON et des tableaux sans clé étrangère, contraires à **D-036**. Il est **remplacé** par le §32.6 pour `ent_sortie_restauration`, `ent_sortie_reprise`, `ent_prestataire.categories`, `ent_sortie_courrier_entrant.pieces`, `ent_sortie_publication_photo.eleves_visibles`, `ent_sortie_bilan.incidents_codes`, `ent_sortie_serie.regle_jours` et les règles du moteur de contexte. Seul `ent_sortie_journal.avant/apres` reste en `jsonb` (instantané d'audit jamais relu, exception déclarée dans `MIGRATIONS.md`).
+
 Toutes les tables portent `etablissement_id` avec une clé composite `(etablissement_id, id)`, des UUID serveur, la RLS par établissement, `cree_le` / `cree_par` et `version` (verrou optimiste).
 
 ```sql
@@ -1564,6 +1603,8 @@ La santé, l'argent, les signatures et les envois restent dans leurs socles. Le 
 
 ## 26. Plan de reprise des données de Next.js (D-035, point 4)
 
+> **Ajout personas** : les points 5 et 8 ci-dessous se contredisent (séjours en cours repris dans leur état, ou terminés dans Next.js). Le **§32.1 à §32.4** les remplace : propriété unique par séjour, gel à une date (S-436), séjours en vol finis dans Next.js, état de départ attesté (autorisations papier, versements tenus hors de Next.js), envois déjà faits repris, table complète des états. Le format d'export du point 2 est précisé par `TRANSITION_T0_INVENTAIRE.md` : `pg_dump` **et** les fichiers du stockage objet, pas un CSV par table.
+
 1. **Aucun accès à la base de production.** Florian fournit un **export** des tables `travel`, `travel_attr`, `travel_participant`, `travel_history`, `travel_message`, `travel_parent_blog*` et des métadonnées de pièces. Pour les essais, l'export est **anonymisé** (noms, INE, e-mails, téléphones remplacés de façon cohérente ; montants conservés). Les données réelles viennent seulement après l'**accord écrit de l'établissement et l'avis du DPO** (printemps 2027).
 2. **Format attendu** : CSV ou JSON par table, avec un fichier de description. Le pilote fournit à Florian la requête d'export **en lecture**, que Florian exécute lui-même (`A_FOURNIR_PAR_FLORIAN.md`, à compléter).
 3. **Chargement** dans une zone de reprise (`ent_sortie_reprise`), jamais directement dans les tables : le dossier aplati est **reconstruit** (codec clé/valeur), puis converti.
@@ -1592,6 +1633,8 @@ La santé, l'argent, les signatures et les envois restent dans leurs socles. Le 
    - l'arrêt de l'écran Next.js est décidé par Florian.
 
 ## 27. Lots de code (équipe Sonnet) et migrations
+
+> **Ajout personas** : le lot V0 est **élargi et daté** pour la bascule du 17 avril 2027, V2 est **scindé** en V2a (suivi, pendant le doublon) et V2b (facturation réelle), et le « parcours minimal » est revu : voir le **§32.10**, qui l'emporte sur ce tableau.
 
 ### 27.1 Tableau des lots
 
@@ -1661,7 +1704,15 @@ La santé, l'argent, les signatures et les envois restent dans leurs socles. Le 
   - les documents produits ;
   - les destinataires (moins nombreux ou égaux, jamais plus) ;
   - le temps passé par l'organisateur (chronométré avec Florian).
-- **Personas** (`PERSONAS_42.md`, à produire comme pour les autres socles) : organisateur d'un voyage en Espagne, professeur d'EPS avec série piscine, direction, comptabilité, parent séparé, élève majeur, encadrant hors ligne, accueil au retour du car.
+- **Personas** : faites, `PERSONAS_42.md` (16 personas, 85 manques).
+- **Ajout personas : tests de bascule.**
+  - Reprendre un export anonymisé contenant **chaque** état Next.js, hérités compris.
+  - Rejouer la reprise deux fois : aucun doublon.
+  - Lancer une reprise différentielle : l'ombre est mise à jour, et un séjour dont ScolIA est propriétaire n'est jamais écrasé.
+  - La reprise ne produit **aucun envoi**.
+  - Un séjour repris en `ouverte` sans attestation n'a aucun participant `pret`.
+  - Un séjour en vol reste propriété de Next.js jusqu'à son retour.
+- **Ajout personas : check-list de parité.** NX-01 à NX-86 forment une check-list de recette, cochée par Florian et un organisateur réel avant le gel ; aucune ligne n'est cochée « abandonnée » sans décision écrite (NX-76 est la seule abandonnée, Q-V36).
 
 ## 29. Réglages signalés (D-023 : peu de réglages, signalés) — S-420 à S-435
 
@@ -1748,3 +1799,298 @@ Chaque question est **tranchée selon la recommandation** tant que Florian ne di
 4. **Arrondi** : Next.js arrondit la part à l'euro supérieur, le socle 24 pose « arrondi en faveur de la famille » ; ce socle suit le 24 (Q-V4).
 5. **Socle 14** : la carte y range des « sorties » au sens des sorties individuelles ; le 42 les laisse au 14 et ne prend que les collectives (en-tête).
 6. **`SOCLE2_DOMAINES.md` §D20** (SEJ-01 à SEJ-10) : repris et remplacé par le §19 ; SEJ-08 (fiche hors ligne) correspond à VOY-192.
+7. **Ajout personas — §26 points 5 et 8** : séjours en cours « repris dans leur état » contre « terminés dans Next.js ». Tranché par R-SV37 (§32.1).
+8. **Ajout personas — §27 contre D-034** : le parcours minimal faisait facturer la part familles par ScolIA, alors que D-034 garde les finances dans Charlemagne pendant le doublon. Tranché par le mode suivi (R-SV44, V2a).
+9. **Ajout personas — §25 contre D-036** : `jours jsonb`, `rapport jsonb` et tableaux sans clé étrangère. Tranché par le §32.6.
+10. **Ajout personas — §8.1 contre l'usage** : Next.js rouvre vers cinq étapes, la conception vers trois. Corrigé.
+11. **Ajout personas — §5.5** : la règle sur les accompagnateurs était attribuée à C24 ; elle vient de G2 fiche 5 et de F22575. Corrigé.
+12. **Ajout personas — §2.4 et §26** : la conception supposait des autorisations et des paiements à reprendre de Next.js. Le code montre qu'il n'y en a pas [F] : ils vivent sur papier et dans la comptabilité (§32.2).
+13. **Ajout personas — `TRANSITION_NEXT_RUST.md` §2 point 4** : le retour arrière n'est trivial qu'avant la première écriture dans ScolIA (§32.4).
+
+---
+
+## 32. Ajout personas : bascule d'avril 2027, argent pendant le doublon, D-036, actions et lots révisés
+
+Source : `PERSONAS_42.md` (2026-11-10). Ce paragraphe **l'emporte** sur les §25 à §27 en cas de contradiction (écrites au §31). Les recommandations s'appliquent par défaut (D-031) ; ce qui engage Florian est au §32.11.
+
+### 32.1 Principe : propriété unique par séjour (R-SV37)
+- À tout instant, un séjour est **modifiable dans un seul outil**. La propriété vaut `nextjs` ou `scolia`, enregistrée dans `ent_sortie_reprise_sejour.proprietaire`.
+- Tant que Next.js est propriétaire, ScolIA tient une **ombre en lecture** du séjour. Chaque reprise la met à jour, et elle suit les **mêmes projections par rôle** que les séjours ScolIA (sinon elle reproduirait VD-03).
+- La **reprise est différentielle et rejouable** (VOY-259) :
+  - elle met à jour l'ombre des séjours encore portés par Next.js ;
+  - elle n'écrit **jamais** sur un séjour dont ScolIA est propriétaire ;
+  - un écart constaté sur un séjour déjà basculé est **signalé**, jamais appliqué.
+- **Gel** (S-436, date et geste de Florian ; proposition : vendredi 16 avril 2027 au soir). Au gel :
+  - tous les séjours non clos passent à ScolIA ;
+  - les séjours terminés sont repris en **archive** (lecture seule, comptés dans la synthèse APEL de l'année) ;
+  - **exception, les séjours « en vol »** : ceux dont le départ tombe entre le gel et le lundi 3 mai + 2 jours restent propriété de Next.js jusqu'à leur retour. Ils sont repris en archive par une reprise différentielle après le retour (CV-65). Leur lien de journal de voyage reste actif jusqu'à la fin prévue (VOY-265).
+- **Répétitions** (T1 à Noël, T2 en février) : tout est repris en ombre. Aucun séjour n'est basculé avant le gel, sauf décision de Florian séjour par séjour.
+
+### 32.2 État de départ attesté (R-SV39) : ce qui n'a jamais été dans Next.js
+Vérifié dans le code [F] : Next.js ne recueille **aucune autorisation** (coupon papier dans la circulaire) et ne suit **aucun paiement de famille**. Le droit à l'image y est une case **vraie par défaut**.
+- **Autorisations** (VOY-260) : pour chaque séjour repris non clos, l'organisateur ou le secrétariat **atteste**, participant par participant ou en masse avec confirmation :
+  - « autorisation papier reçue le …, signée par [titulaire choisi dans le socle 4] », avec scan facultatif ;
+  - l'exigence passe `remplie`, de source `attestation_reprise`, avec l'auteur et la date ;
+  - sans attestation, elle reste `attendue`.
+- **Droit à l'image** (R-SV40) : la case de Next.js est reprise `inconnu`, jamais `consenti`. Le filtre des publications s'applique dès le 3 mai ; l'organisateur recueille les consentements au guichet ou par le formulaire minimal (VOY-171 en V0).
+- **Versements** (VOY-261) : la comptabilité importe l'état qu'elle tient (tableur ou export comptable : élève, payeur, montant, date, moyen) en **versements constatés avant bascule**, rattachés à la part du payeur.
+  - Les écarts (élève inconnu, payeur absent du socle 4, total supérieur à la part) vont en file de rapprochement.
+  - Rien n'est relancé avant que la comptabilité ait validé l'import.
+- **Part annoncée** (R-SV46) : la part annoncée aux familles avant la bascule est **conservée telle quelle**, même si elle suit les règles de Next.js (arrondi supérieur, coût des accompagnateurs inclus). L'écart avec la règle de ScolIA est **signalé** à la direction, qui décide (absorber, ou garder en connaissance de cause). Les règles de ScolIA s'appliquent aux **nouveaux** séjours.
+- **Signatures** : un devis signé dans Next.js (image collée) est repris comme pièce « signée hors ScolIA (image), le … par … ». Il n'est pas re-signé ; le premier avenant passe par la signature du socle 7 (R-SV30).
+- **Aides nominatives** de la fiche budget : **retirées** du budget repris et de ses PDF, signalées à la seule comptabilité (Q-V29, VD-37).
+
+### 32.3 Correspondance des états (complète le §26 point 4)
+
+| Statut Next.js [F] | État ScolIA | Remarque |
+|---|---|---|
+| `BROUILLON` (hérité) | `brouillon` | signalé |
+| `EN_ATTENTE_VALIDATION` (hérité) | `soumise` | signalé |
+| `EN_ATTENTE_DIR_INITIAL` | `soumise` | demandes de devis **déjà parties** reprises comme faits (CV-66) ; pas de nouvel envoi |
+| `PROF_LOGISTICS` | `preparation` | |
+| `EN_ATTENTE_BUS_SIGNATURE` | `a_signer` | |
+| `EN_ATTENTE_COMPTA` | `budget_a_valider` | |
+| `EN_ATTENTE_DIR_FINAL` | `a_autoriser` | |
+| `FINALISE_DIR_ATTENTE_ELEVES` | `ouverte` | |
+| `VALIDE`, départ à venir | `ouverte` | passe `prete` quand les attestations sont faites (§32.2) ; le budget validé est repris **validé**, version 1 |
+| `VALIDE`, retour passé | `close` (archive) | |
+| `BESOIN_MODIFICATION` | `a_completer` | étape d'origine = `previousStatus` |
+| `REJETE` | `refusee` | |
+| `ANNULE` | `annulee` | aucun avoir généré (aucune facture n'existe dans Next.js) |
+| `SEANCE_ANNULEE` | `annulee` (séance) | |
+
+- **Envois déjà faits** (R-SV38, VOY-262) : `remindersSent`, `parentComLogs`, l'empreinte du calendrier, l'instantané de la liste des paniers et les avenants numérotés sont repris comme **remises historiques** du socle 8. Les rappels déjà partis ne repartent pas, et l'avenant suivant prend le numéro suivant.
+- **Instantanés transporteur** (`transportQuoteSnapshot`, `transportDateSnapshot`, avenant en attente) : repris en colonnes de la commande (effectif et dates commandés), base du calcul du prochain avenant.
+- **Restauration** : les jours de semaine sont convertis en **dates** du séjour, avec l'heure et le lieu de livraison.
+- **Pièces à ne pas reprendre** :
+  - les CSV envoyés au transporteur, qui contiennent les téléphones des parents (VD-16) ;
+  - le blog parents, sauf pour les séjours en vol (VOY-265) ;
+  - les marqueurs techniques d'ingestion.
+- **Courriels non rattachés** (`travels/email-devis-unmatched.json`, 200 au plus) : repris dans la file de tri, avec leur date de réception. Ils sont purgés à 3 mois (§21.3).
+- **Champs morts** (`partFamille`, `partEtablissement`, `description`) : non repris.
+
+### 32.4 Tableau de bascule, retour arrière, premières journées
+- **Tableau de bascule** (VOY-263) :
+  - une ligne par séjour : propriétaire, état source et état cible, participants rapprochés ou à rapprocher, attestations faites, versements importés, pièces copiées (empreinte contrôlée), écarts de montants au centime ;
+  - un séjour n'est **basculable** que tout vert, ou avec une dérogation écrite de Florian.
+- **Information des tiers** (VOY-264, N3) :
+  - les prestataires des séjours repris reçoivent la nouvelle adresse de réponse, avec la référence de leur séjour conservée ;
+  - les familles reçoivent un avis seulement si un geste leur est demandé (consentement image, lien du journal).
+- **Retour arrière** : tant qu'aucune écriture métier n'a eu lieu dans ScolIA, Next.js redevient propriétaire de tout. Après, le retour se fait **séjour par séjour**, et les écritures faites dans ScolIA sont listées pour être ressaisies (M-2279).
+- **Dès le lundi 3 mai** :
+  - « en sortie » à l'appel pour les participants `pret` des séjours repris (VOY-200, port du 12) ;
+  - lecture de « en sortie » par l'internat et la cantine (VOY-255) ;
+  - répercussions minimales du §6.4 : départ de l'élève, nouveau PAI, nouvelle interdiction de remise, OST.
+- **Appel de départ** : pour les séjours de mai et juin 2027, il se fait sur le **web mobile**, si l'application de l'encadrant (V6) n'est pas prête.
+
+### 32.5 L'argent pendant le doublon : mode suivi (R-SV44, S-437)
+- Tant que D-034 garde les finances dans Charlemagne, ScolIA :
+  - **décide** la part familles (budget, R-SV15) et l'échéancier proposé ;
+  - la **répartit** entre les payeurs du socle 4 ;
+  - **pointe** les versements reçus (VOY-267) : chèque, espèces, virement, chèques-vacances ;
+  - **exporte** parts et versements vers la comptabilité (VOY-268, même principe que le lot F14 du 24).
+- Il **n'émet aucune facture, aucun avis de prélèvement ni aucun avoir comptable**. Les avoirs du §12.5 sont des **montants proposés**, exportés.
+- **Chèques collectés par l'organisateur** (VOY-266, R-SV45) :
+  - un bordereau nominatif est saisi, avec le nombre et le total, puis remis au secrétariat **le jour même** (S-438) ;
+  - l'écart entre bordereau et remise est signalé ;
+  - dans le public, seul le régisseur manie les fonds : l'organisateur ne collecte pas.
+- **Échéancier fournisseur** (VOY-270) : acomptes dus à l'agence ou à l'hébergeur, payés ou en retard, avec alerte à la comptabilité.
+- **Sortie obligatoire payante pour l'établissement** : la part est 0, imposée, et le budget s'équilibre seul par la ligne « établissement » (CV-81).
+- **Contournement du devis** (NX-07) : motifs **codés** (transport en commun, à pied, véhicule de l'établissement, autre avec texte). « Transport en commun » ne demande pas de justification supplémentaire.
+- **V2b** (facturation réelle par les socles 24 et 25) seulement quand les finances quittent Charlemagne.
+
+### 32.6 Normalisation du modèle (D-036, R-SV43)
+Remplace les colonnes correspondantes du §25. Aucune donnée métier en JSON ; tableaux d'identifiants remplacés par des tables de liaison avec clés étrangères composites `(etablissement_id, …)`.
+
+```sql
+-- séries : règle de jours typée
+ent_sortie_serie (id, etablissement_id, libelle, jour_semaine SMALLINT CHECK (1..7), heure_debut, heure_fin, du, au)
+ent_sortie_serie_exclusion (serie_id, date, motif_code)          -- fériés et vacances calculés, exclusions manuelles
+
+-- destination et effectifs déclarés (champs Next.js manquants)
+ent_sortie (+ destination_libelle TEXT, programme_libelle TEXT,
+            effectif_eleves_declare INT, effectif_adultes_declare INT,
+            besoin_car BOOL, car_sur_place BOOL, consignes_transport TEXT,
+            image_piece_id NULL, image_auteur TEXT, image_licence TEXT, image_source_url TEXT,
+            places_encadrant_a_pourvoir INT DEFAULT 0)
+
+-- moteur de contexte (R-SV4) : règles en tables versionnées
+ent_sortie_regle_version (id, libelle, en_vigueur_le, source_reglementaire)
+ent_sortie_regle (version_id, statut_etab CHECK (public|prive), degre, nature, forme, destination,
+                  exigence_code, bloquante BOOL, etape_code NULL, source_ref TEXT)
+
+-- calendrier des familles : étapes typées
+ent_sortie_etape (+ type CHECK (depart|depot|reprise|visite|hebergement|retour|reunion|autre),
+                  duree_minutes INT NULL, note TEXT NULL)
+
+-- restauration (remplace jours jsonb)
+ent_sortie_restauration (id, sortie_id, version, envoyee_le, remplace_version NULL)
+ent_sortie_restauration_jour (id, restauration_id, date, livraison_heure TIME, livraison_lieu TEXT)
+ent_sortie_restauration_ligne (jour_id, categorie CHECK (panier|self_eleve|self_adulte|boisson|gouter|autre),
+                               variante CHECK (standard|sans_porc|vegetarien|consigne), quantite INT CHECK (>= 0))
+ent_sortie_panier (restauration_id, jour_id, beneficiaire_type CHECK (eleve|adulte|convive_externe),
+                   participant_id NULL, encadrant_id NULL, convive_id NULL, variante)
+ent_sortie_convive_externe (id, sortie_id, libelle, nombre INT)  -- NX-86, sans donnée personnelle
+
+-- courrier entrant, prestataires, photos, bilan : tables de liaison
+ent_prestataire_categorie (prestataire_id, categorie CHECK (transporteur|hebergeur|agence|lieu|autre))
+ent_prestataire_piece (prestataire_id, type CHECK (immatriculation|garantie_financiere|rc_pro|licence_transport|assurance),
+                       piece_id, valide_jusqu_au)
+ent_sortie_courrier_piece (courrier_id, piece_id)
+ent_sortie_publication_photo_eleve (photo_id, eleve_id)         -- marquage interne, jamais affiché aux familles
+ent_sortie_bilan_incident (sortie_id, incident_code)
+ent_sortie_commande (+ effectif_eleves_commande INT, effectif_adultes_commande INT, debut_commande, fin_commande)
+ent_sortie_echeance_fournisseur (id, commande_id, du_le, montant_centimes, payee_le NULL)
+
+-- budget : champs de Next.js
+ent_sortie_budget (+ imputation_compte TEXT, imputation_ligne TEXT, eleves_factures INT,
+                   marge_figee_centimes BIGINT NULL)
+
+-- encadrement, chambres, liste aux prestataires
+ent_sortie_groupe (id, sortie_id, libelle, encadrant_id)
+ent_sortie_groupe_membre (groupe_id, participant_id)
+ent_sortie_chambre (id, sortie_id, libelle, accessible BOOL, capacite INT)
+ent_sortie_chambre_occupant (chambre_id, participant_id NULL, encadrant_id NULL)
+ent_sortie_liste_transmise (id, sortie_id, prestataire_id, transmise_le, par, motif, pays_destinataire,
+                            hors_ue BOOL, piece_id)
+ent_sortie_liste_transmise_champ (liste_id, champ CHECK (nom|prenom|date_naissance|nationalite|sexe|piece_type|piece_numero|piece_validite))
+
+-- argent en mode suivi
+ent_sortie_versement (id, sortie_id, participant_id, payeur_personne_id, montant_centimes BIGINT CHECK (> 0),
+                      recu_le date, moyen CHECK (cheque|especes|virement|ancv|en_ligne|autre),
+                      bordereau_id NULL, source CHECK (saisie|import_reprise), exporte_le NULL)
+ent_sortie_bordereau (id, sortie_id, remis_par, remis_le, nombre INT, total_centimes BIGINT, recu_par NULL, ecart_centimes BIGINT NULL)
+
+-- reprise (remplace rapport jsonb)
+ent_sortie_reprise_lot (id, etablissement_id, source CHECK (nextjs), exporte_le, charge_le, mode CHECK (ombre|bascule|differentielle))
+ent_sortie_reprise_sejour (lot_id, source_id TEXT, sortie_id NULL, proprietaire CHECK (nextjs|scolia),
+                           etat_source TEXT, etat_cible TEXT, classement CHECK (termine|preparation|circuit|brouillon|en_vol))
+ent_sortie_reprise_ligne (id, lot_id, objet TEXT, source_id TEXT, statut CHECK (repris|a_rapprocher|refuse|ignore),
+                          motif_code TEXT, detail TEXT)
+ent_reprise_nx_attr (lot_id, travel_id TEXT, chemin TEXT, valeur TEXT)  -- zone d'import, colonnes texte, purgée à la clôture du lot
+```
+
+- **Exception maintenue** : `ent_sortie_journal.avant` et `apres` restent en `jsonb`. Ce sont des **instantanés d'audit jamais relus comme source** ; l'exception est déclarée dans `MIGRATIONS.md`.
+- **Zone d'import** `ent_reprise_nx_attr` : copie **transitoire** des paires chemin → texte de `travel_attr`, en colonnes texte. Elle n'est relue que par l'outil de reprise et **purgée** à la clôture du lot ; elle est déclarée dans `MIGRATIONS.md`.
+- **Réglages** : `settings__modules__travels` et `settings__notifications` de Next.js deviennent des **colonnes typées** du réglage d'établissement du socle 42 (boîtes comptabilité, cuisine et décompte, GED, pied de page, carte d'assistance en pièce) et l'annuaire des prestataires. Les signatures en image ne sont pas reprises (R-SV30).
+- Revue (D-036 point 2) : `grep -i jsonb` sur les migrations 600–619 ne doit trouver **que** `ent_sortie_journal`.
+
+### 32.7 Actions ajoutées (VOY-250 à VOY-289)
+
+| N° | Action | Acteur · droit | Règles | Lot |
+|---|---|---|---|---|
+| VOY-250 | Avertir le secrétariat d'un courriel à trier (NX-75) | SYS | avis `voyages.courrier_a_trier` ; jamais hors établissement | V0 |
+| VOY-251 | Supprimer un brouillon ou un dossier marqué « essai », avec simulation (NX-77) | ADM, porteur (son brouillon) | un dossier soumis s'annule, ne se supprime pas | V0 |
+| VOY-252 | Filtrer par établissement ; relier des sorties de plusieurs établissements (NX-78) | DIR, ORG | chaque établissement signe pour ses participants (CV-17, CV-79) | V0 |
+| VOY-253 | Déclarer des places d'encadrant à pourvoir (NX-79) | ORG | comptées « manquantes » au contrôle d'encadrement | V0 |
+| VOY-254 | Avis d'ouverture du journal de voyage, calendrier joint (NX-80) | ORG | destinataires recalculés | V0 |
+| VOY-255 | Fournir « en sortie » à l'internat et à la cantine (NX-82) | SYS → 40, 41 | plages réelles | V0 |
+| VOY-256 | Enregistrer des convives externes (libellé, nombre, panier) (NX-86) | ORG | aucune donnée personnelle | V0 |
+| VOY-257 | Saisir l'imputation et le nombre d'élèves facturés du budget (NX-51) | CPT | — | V0 |
+| VOY-258 | Classer chaque séjour Next.js et fixer son régime à la bascule | ADM avec Florian | §32.1 ; séjours en vol listés à J-30 du gel | V0 |
+| VOY-259 | Rejouer la reprise (ombre, bascule, différentielle) | ADM | R-SV37 ; idempotente par `source_id` | V0 |
+| VOY-260 | Attester l'état de départ d'un participant (autorisation papier reçue, signataire, date) | ORG, ADF | R-SV39 ; en masse avec confirmation | V0 |
+| VOY-261 | Importer l'état des versements tenu hors de Next.js | CPT | file de rapprochement ; aucune relance avant validation | V0 |
+| VOY-262 | Reprendre les envois déjà faits comme remises historiques | SYS | R-SV38 | V0 |
+| VOY-263 | Tableau de bascule par séjour | ADM, DIR | §32.4 | V0 |
+| VOY-264 | Informer prestataires et familles du changement d'outil | ORG, ADF | N3 | V0 |
+| VOY-265 | Maintenir le lien du journal des séjours en vol ; nouveau lien nominatif pour les autres | SYS | redirection décidée par Florian (`TRANSITION_T0_INVENTAIRE.md` R-09) | V0 |
+| VOY-266 | Saisir un bordereau de remise de chèques | ORG → ADF | R-SV45 ; le jour même (S-438) | V2a |
+| VOY-267 | Pointer un versement sur la part d'un payeur, sans facture | CPT, ADF | mode suivi ; répartition du socle 4 ; échéancier long accordé sans le dire à l'organisateur | V2a |
+| VOY-268 | Exporter parts, versements et avoirs proposés vers la comptabilité | CPT | format lisible par la saisie de Charlemagne [NV] | V2a |
+| VOY-269 | Demander et ventiler un devis forfait d'agence ; contrôler les pièces de l'agence | ORG, CPT | ventilation par poste (encadrement, handicap) ; immatriculation, garantie, RC pro datées | V1 |
+| VOY-270 | Suivre l'échéancier des acomptes fournisseurs | CPT | alerte avant échéance | V2a |
+| VOY-271 | Transmettre une liste nominative à un prestataire selon le contrat | ORG, avec validation DIR | R-SV41 ; champs choisis, motif, pays, trace | V1 |
+| VOY-272 | Répartir les chambres (rooming list) et la transmettre | ORG | chambre accessible, aucun motif ni diagnostic | V1 |
+| VOY-273 | Enregistrer les frais réels d'un désistement (billet, pénalité du prestataire) | CPT | base de l'avoir proposé (§12.5) | V2a |
+| VOY-274 | Recueillir l'accord de l'AESH et de son employeur ; proposer la modification de son emploi du temps | ORG → DIR | G2 fiches 4 et 6 | V1 |
+| VOY-275 | Ouvrir un compte bénévole limité au séjour | DIR | voit son groupe, la fiche d'urgence de son groupe pendant les dates, les consignes de son groupe ; rien d'autre | V1 |
+| VOY-276 | Constituer les groupes d'encadrement | ORG | base des appels d'étape et de la remise | V3 |
+| VOY-277 | Recueillir le consentement au droit à l'image selon S-439 | PAR | un ou deux titulaires selon la diffusion | V0 (minimal), V1 |
+| VOY-278 | Régler l'information des parents payeurs d'un élève majeur | ELV majeur | Q-V41 | V1 |
+| VOY-279 | Préparer la liste des voyageurs (préfecture) pour un élève de pays tiers mineur ; alerte pour un majeur | DIR | §5.4 | V9 |
+| VOY-280 | Préparer le formulaire France–Royaume-Uni (préfecture, J-15) | DIR | §5.4 | V9 |
+| VOY-281 | Vérifier l'ETA ou le visa des adultes (Royaume-Uni) | ORG | case et date, pas de copie du titre | V9 |
+| VOY-282 | Planifier l'accueil des non-partants (salle, surveillant, plages) | VS, CPE | alerte si rien n'est prévu à J-3 | V3 |
+| VOY-283 | Déposer le travail des non-partants | professeurs concernés | cahier de textes (socle 20) | V3 |
+| VOY-284 | Prévenir le professeur dont la séance est vidée (à la validation et à J-7) | SYS | nature `voyages.cours_impacte` ; nombre d'élèves restants, conflits | V3 |
+| VOY-285 | Montrer à la direction l'impact pédagogique avant la validation | SYS → DIR | simulation de neutralisation sans publication (socle 10) | V3 (V0 : nombre de séances par classe) |
+| VOY-286 | Traiter le départ d'un élève en cours de préparation (prestataire, avoir, accès de la famille) | SYS → ORG, CPT | changement de nom vers la liste d'attente, ou annulation ; quittances gardées | V2a, V7 |
+| VOY-287 | Fournir la fiche de registre et les éléments d'AIPD du traitement | ADM → DPO | avant toute donnée réelle | V0 (document) |
+| VOY-288 | Répondre au droit d'accès d'une famille (CV-62) | ADF, DPO | sans les autres élèves, avec les transmissions aux prestataires | V7 |
+| VOY-289 | Signaler un transfert hors UE et l'indiquer dans la circulaire | SYS → ORG, DPO | Q-V43 | V1 |
+
+### 32.8 Règles ajoutées (R-SV37 à R-SV47)
+
+| N° | Règle | Lot |
+|---|---|---|
+| R-SV37 | **Propriété unique par séjour** ; ombre en lecture aux mêmes projections ; reprise différentielle qui n'écrase jamais un séjour ScolIA | V0 |
+| R-SV38 | **Aucun envoi rejoué** par la reprise ; envois déjà faits repris comme remises historiques | V0 |
+| R-SV39 | **Les faits tenus hors de Next.js** (autorisations papier, versements) sont repris comme **attestés ou importés**, avec source, auteur et date ; jamais présumés | V0 |
+| R-SV40 | **Le droit à l'image de Next.js n'est pas un consentement** : repris « inconnu » | V0 |
+| R-SV41 | **Liste nominative à un prestataire** seulement avec les champs exigés par le contrat, un motif, la trace (qui, quand, quels champs, quel pays) et le signalement d'un transfert hors UE | V1 |
+| R-SV42 | **Aucune famille ne voit les autres participants** : un envoi par destinataire, `.ics` sans participants, marquage des photos interne, pas de commentaires, fil de réponse individuel, aucune liste exportable vers une famille | V0 |
+| R-SV43 | **Aucune donnée métier en JSON** (D-036, §32.6) ; exceptions déclarées dans `MIGRATIONS.md` | V0 |
+| R-SV44 | **Mode suivi** tant que les finances sont dans Charlemagne : ScolIA décide, répartit, pointe et exporte, et n'émet aucune pièce comptable | V2a |
+| R-SV45 | **Argent manié par un professeur** : bordereau et remise le jour même ; dans le public, régie seule | V2a |
+| R-SV46 | **Part annoncée avant la bascule conservée** ; écart avec les règles de ScolIA signalé à la direction | V0 |
+| R-SV47 | **Changement de RIB ou d'adresse d'un prestataire** : par un humain, avec contre-appel au numéro de l'annuaire ; jamais depuis un courriel | V0 |
+
+### 32.9 Cas limites ajoutés (CV-65 à CV-84)
+
+| N° | Cas | Réponse |
+|---|---|---|
+| CV-65 | Séjour à Londres du 19 au 23 avril, pendant la bascule | « en vol » : fini dans Next.js, repris en archive après le retour ; journal par jeton actif jusqu'à la fin prévue |
+| CV-66 | Dossier `EN_ATTENTE_DIR_INITIAL` dont les demandes de devis sont déjà parties | `soumise` ; demandes reprises comme faits ; les devis reçus vont au séjour |
+| CV-67 | Statuts hérités `BROUILLON`, `EN_ATTENTE_VALIDATION` | §32.3 ; signalés au tableau de bascule |
+| CV-68 | Participant repris déjà radié dans le cœur | `retire`, motif « départ » ; versements importés pour régularisation |
+| CV-69 | Coupon signé par un parent qui a depuis perdu l'autorité | attestation reprise puis marquée « à revoir » (§6.4) |
+| CV-70 | Coupon signé par les deux parents avec des mentions contradictoires (« oui » et « non à l'image ») | chaque consentement est distinct ; l'image suit la règle la plus protectrice |
+| CV-71 | Désistement d'un élève dont le billet d'avion est nominatif | frais réels saisis (VOY-273) ; avoir proposé hors de ces frais, sauf motif légitime et assurance |
+| CV-72 | Départ d'un élève en février, billet cessible à un élève de la liste d'attente | changement de nom proposé ; le payeur sortant est remboursé de ce qui n'est pas perdu |
+| CV-73 | Agence en défaillance avant le départ | garantie financière de l'agence (pièce de l'annuaire) ; direction prévenue ; annulation ou reprise par une autre |
+| CV-74 | Parent bénévole dont l'enfant participe | l'enfant est proposé dans un autre groupe ; le parent ne voit que son groupe |
+| CV-75 | AESH absente le jour du départ | décision de la direction (remplaçant, autre accompagnant, report) ; jamais un refus automatique de l'élève |
+| CV-76 | Élève majeur qui refuse que ses parents payeurs soient informés au-delà du paiement | ils voient part, échéancier et dates ; rien d'autre (Q-V41) |
+| CV-77 | Parent séparé qui ne paie pas sa moitié | l'élève part (CV-13) ; pas de report sur l'autre sans accord ; recours du socle 24 |
+| CV-78 | Parent qui demande la liste des participants « pour un covoiturage » | refus ; fil à adhésion proposé (relève du module covoiturage) |
+| CV-79 | Professeur d'un autre établissement du même organisme sur une sortie liée | voit le séjour lié et ses participants, jamais ceux de l'autre ni son budget |
+| CV-80 | Élève de pays tiers vers le Royaume-Uni | formulaire France–RU (enfants dispensés de visa et d'ETA) ; adulte non européen : visa ou ETA |
+| CV-81 | Sortie obligatoire avec un car payé par l'établissement | part 0 imposée ; budget équilibré par la ligne « établissement » |
+| CV-82 | Non-partant gardé à la maison par sa famille | absence ordinaire à justifier, pas « en sortie » |
+| CV-83 | Classe entière partie, professeur resté | heures libérées proposées à la direction (soutien, remplacement) |
+| CV-84 | Fonds social refusé, famille qui ne peut pas payer | la direction décide la prise en charge ; jamais l'organisateur |
+
+### 32.10 Lots révisés (remplacent le « parcours minimal » du §27.1)
+
+| Lot | Contenu | Échéance [R] |
+|---|---|---|
+| **V0 parité branchée** | les actions « V0 » du §19, **plus** VOY-250 à VOY-265, VOY-277 minimal, VOY-171 minimal, VOY-173, VOY-214 (IA N1 sur devis confirmés), image de couverture du catalogue (VOY-109 sans recherche web), VOY-287 ; normalisation du §32.6 ; reprise (ombre, bascule, différentielle) et tableau de bascule | code fini mi-février 2027 ; **répétition sur export réel aux vacances d'hiver** (T2) ; recette de parité NX-01 à NX-86 en mars ; **gel et bascule le 16–17 avril 2027** |
+| **V2a suivi de l'argent** | VOY-266 à VOY-268, VOY-270, VOY-273, VOY-286 (argent) | si possible avant la bascule ; sinon import en lecture seulement (VOY-261) jusqu'à la rentrée 2027 |
+| V1, V3, V4, V6, V7 | comme au §27.1, plus VOY-269, VOY-271, VOY-272, VOY-274, VOY-275, VOY-278, VOY-289 (V1) ; VOY-276, VOY-282 à VOY-285 (V3) ; VOY-288 (V7) | **rentrée 2027** (usage réel, D-035) |
+| V2b facturation réelle | l'ancien V2 (24 F10, 25) | après l'année de doublon |
+| V5, V8 à V15 | inchangés ; VOY-279 à VOY-281 en V9 | épaississement |
+
+**Dépendances critiques pour avril** : socles 2, 4 (titulaires, payeurs, remise), 5, 6 (intervenants), 7 (dépôt, rendu, S1), 8 (avis, remises historiques), 12 (`localiser`). Sans l'un d'eux à mi-février, la bascule des voyages est **reportée** aux vacances d'été (T4) : Next.js continue, et rien n'est perdu.
+
+### 32.11 Réglages et questions
+
+**Réglages** : S-436 date de gel (Florian) · S-437 mode de l'argent (suivi par défaut) · S-438 remise des chèques le jour même · S-439 consentement à l'image (journal fermé : un titulaire + information de l'autre ; diffusion publique : les deux).
+
+| N° | Question | Recommandation appliquée (D-031) |
+|---|---|---|
+| Q-V31 [F] | Date du gel ; séjours en vol ; geste de mise en lecture seule de Next.js | 16 avril 2027 au soir ; séjours en vol finis dans Next.js ; **geste de Florian** |
+| Q-V32 [F] | Où vivent aujourd'hui les coupons et les versements ; qui fournit l'état de départ | attestation par l'organisateur, import par la comptabilité |
+| Q-V33 | Un ou deux titulaires pour le droit à l'image | S-439 ; avis du DPO |
+| Q-V34 | Demandes de devis dès la création (usage) ou après la validation pédagogique | après validation, préparées avant ; **changement d'usage signalé** |
+| Q-V35 | « Groupe scolaire » | sorties liées |
+| Q-V36 | Fiche « actualité » de l'assistant IA | abandonnée |
+| Q-V37 | Argent pendant le doublon | mode suivi |
+| Q-V38 [F] | TVA de la participation facturée par l'OGEC ; Code du tourisme | expert-comptable |
+| Q-V39 [F] | FIJAIS dans le privé | demander à la DSDEN |
+| Q-V40 [F] | Registre et AIPD | DPO, avant les données réelles |
+| Q-V41 | Parents payeurs d'un élève majeur | part, échéancier, dates ; le reste avec l'accord de l'élève |
+| Q-V42 | Chèques collectés par l'organisateur | bordereau, remise le jour même |
+| Q-V43 [F] | Transferts hors UE (agences, hébergeurs) | DPO ; information des familles dans la circulaire |
+
+À ajouter à Q-V30 : **VD-49 et VD-50** (Next.js), décision et geste de Florian.

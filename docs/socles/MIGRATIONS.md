@@ -222,3 +222,15 @@ Vérification avant écriture : **354** et **362** n'existent ni sur `origin/ENT
 **Fusion de `origin/ENT` dans `ent-socle-personnels-p3` (2026-11-10)** : ENT portait entre-temps 376 (`376_sepa_unicite_encaissement`) et 377 (`377_edt_exception_absence_etab`, recette sécurité 3). Ordre croissant dans `migrate.rs` (… 361, 362, 370, 375, 376, 377, 460), aucun numéro en double (vérifié sur le répertoire), `MIGRATION_TAG` = `460_eva_v0_correctifs`. 377 pose une clé étrangère composite vers `ent_absence_rh (etablissement_id, id)` : sans effet sur 362 (qui n'ajoute que `agent_id`).
 
 **Seconde fusion de `origin/ENT` (2026-11-10)** : ENT portait aussi 480 (`480_msg_m0a_fuites`, messagerie M0a, +17 tables RLS). Ordre croissant conservé (… 362, 370, 375, 376, 377, 460, 480), aucun doublon ; `MIGRATION_TAG` = `480_msg_m0a_fuites` (la plus haute du répertoire) ; compte des tables RLS de `tests_rls.rs` : M0a (+17) et P3 (+1) cumulés.
+
+## Socle 42 : exceptions D-036 déclarées (passe personas, 2026-11-10)
+
+Source : `docs/socles/42_SORTIES_VOYAGES.md` §32.6, `docs/socles/PERSONAS_42.md`. Plages inchangées (600–619 en repli, 7200–7299 si Q-B2).
+
+| Colonne ou table | Classement | Justification |
+|---|---|---|
+| `ent_sortie_journal.avant`, `ent_sortie_journal.apres` (`jsonb`) | **exception permise** : instantané d'audit | valeur avant/après d'une commande, en ajout seul, jamais relue comme source de vérité |
+| `ent_reprise_nx_attr (lot_id, travel_id, chemin, valeur)` (colonnes `TEXT`, pas de JSON) | **exception permise** : zone d'import transitoire | copie des paires chemin → texte de `travel_attr` de Next.js, relue seulement par l'outil de reprise, **purgée à la clôture du lot** |
+| `ent_sortie_restauration.jours`, `ent_sortie_reprise.rapport`, tableaux `categories[]`, `pieces[]`, `eleves_visibles[]`, `incidents_codes[]`, `regle_jours` (conception d'origine, §25) | **à normaliser avant écriture** | remplacés par des tables (§32.6) ; aucune migration n'en a été écrite |
+
+Contrôle de revue : `grep -i jsonb` sur les migrations du socle 42 ne trouve que `ent_sortie_journal`.
