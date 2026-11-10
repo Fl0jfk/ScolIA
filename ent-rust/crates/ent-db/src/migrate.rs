@@ -220,6 +220,10 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
     include_str!("../../../migrations/500_objet_registre.sql"),
     include_str!("../../../migrations/520_finances_f0_immuabilite.sql"),
+    include_str!("../../../migrations/560_delegation_droits_normalises.sql"),
+    include_str!("../../../migrations/561_inscription_resolution.sql"),
+    include_str!("../../../migrations/562_inscription_scolarite_actuelle.sql"),
+    include_str!("../../../migrations/563_signalement_assiduite_detail.sql"),
     include_str!("../../../migrations/580_rls_eleves_responsables.sql"),
     include_str!("../../../migrations/581_rls_sante_assiduite.sql"),
     include_str!("../../../migrations/582_rls_finances.sql"),
@@ -341,5 +345,140 @@ mod tests {
             noms.len(),
             "chaque fichier de migrations/ doit être dans MIGRATIONS"
         );
+    }
+
+    /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
+    /// Catégories : `exception` (permise par D-036), `retrait` (reprise faite dans une table typée,
+    /// colonne conservée en lecture seule jusqu'au lot de retrait), `dette` (à normaliser, lot suivant ;
+    /// voir `docs/D036_INVENTAIRE_JSON.md`). Toute nouvelle colonne JSONB hors de cette liste fait
+    /// échouer `aucune_colonne_json_hors_liste_d036`.
+    const COLONNES_JSON_D036: &[(&str, &str, &str, &str)] = &[
+        ("ent_metier_event", "payload", "exception", "charge utile d'événement (file d'envoi / journal figé)"),
+        ("ent_edt_import", "report_json", "exception", "rapport d'import figé, jamais relu comme source"),
+        ("ent_journal_modif", "payload", "exception", "journal d'audit en ajout seul"),
+        ("ent_passkey_credential", "passkey", "exception", "état opaque webauthn-rs"),
+        ("ent_passkey_challenge", "state", "exception", "état opaque webauthn-rs (transitoire)"),
+                ("ent_cdt_historique", "instantane", "exception", "instantané d'historique du cahier de textes"),
+        ("ent_bulletin", "contenu", "exception", "copie figée d'un bulletin publié"),
+        ("ent_eleve_orphelin", "ligne", "exception", "ligne mise en quarantaine, instantané figé"),
+        ("ent_inscription_campagne_version", "instantane", "exception", "instantané d'historique de campagne"),
+        ("ent_structure_journal", "avant", "exception", "journal de structure en ajout seul (valeur avant)"),
+        ("ent_structure_journal", "apres", "exception", "journal de structure en ajout seul (valeur après)"),
+        ("ent_eleve_fusion", "resume", "exception", "registre de fusion en ajout seul (résumé figé)"),
+        ("ent_delegation", "droits", "retrait", "repris dans ent_delegation_droit (560)"),
+        ("ent_inscription_dossier", "resolutions", "retrait", "repris dans ent_inscription_resolution (561)"),
+        ("ent_inscription_dossier", "scolarite_actuelle", "retrait", "repris en colonnes scol_* (562)"),
+        ("ent_signalement_assiduite", "dossier", "retrait", "repris dans ent_signalement_assiduite_detail (563)"),
+        ("ent_import_ligne", "donnees", "dette", "lignes d'import : à typer par type d'import (lot suivant)"),
+        ("ent_personne_preference", "joignable", "dette", "plages de joignabilité : table de plages (lot suivant)"),
+        ("ent_personne_preference_version", "joignable", "dette", "historique des plages de joignabilité (lot suivant)"),
+        ("ent_inscription_campagne", "regle_relance", "dette", "laissée : refonte prévue au socle finances 24-25 (lot F0 en cours)"),
+        ("ent_etablissement_profil", "jours_ouvres", "dette", "semaine type : table jour/demi-journée (lot suivant)"),
+        ("ent_parametre", "valeur", "dette", "paramètres : registre typé par clé (lot suivant)"),
+        ("ent_eleve_fusion", "doublons_touches", "dette", "relue à l'annulation de fusion : table de liaison (lot suivant)"),
+        ("ent_eleve_fusion", "conflits_resolus", "dette", "relue à l'annulation de fusion : table des conflits résolus (lot suivant)"),
+        ("ent_eleve_fusion_ligne", "cle", "dette", "clé relue (jsonb_to_recordset) pour repointer à l'annulation : colonnes typées (lot suivant)"),
+        ("ent_personne_fusion", "instantane", "dette", "relu pour restaurer à l'annulation de fusion de personnes (lot suivant)"),
+    ];
+
+    /// Colonnes JSON/JSONB déclarées dans les migrations (`CREATE TABLE` / `ADD COLUMN`).
+    fn colonnes_json_des_migrations() -> Vec<(String, String)> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/../../../migrations");
+        let mut fichiers: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("lecture {}: {e}", dir.display()))
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "sql"))
+            .collect();
+        fichiers.sort();
+        let mut trouvees = Vec::new();
+        for f in fichiers {
+            let texte = std::fs::read_to_string(&f).unwrap();
+            let mut table: Option<String> = None;
+            let mut dans_corps = false;
+            for ligne in texte.lines() {
+                let l = ligne.split("--").next().unwrap_or("").trim_end().to_lowercase();
+                if l.trim().is_empty() {
+                    continue;
+                }
+                // Corps de fonction ou bloc DO (`$$ … $$`) : pas de déclaration de colonne.
+                let n = l.matches("$$").count();
+                if dans_corps {
+                    if n % 2 == 1 {
+                        dans_corps = false;
+                    }
+                    continue;
+                }
+                if n % 2 == 1 {
+                    dans_corps = true;
+                    continue;
+                }
+                let mots: Vec<&str> = l
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == ',')
+                    .filter(|m| !m.is_empty())
+                    .collect();
+                if mots.len() >= 3 && (mots[0] == "create" || mots[0] == "alter") && mots[1] == "table" {
+                    let mut i = 2;
+                    if mots.get(i) == Some(&"if") {
+                        i += 3; // if not exists
+                    }
+                    if mots.get(i) == Some(&"only") {
+                        i += 1;
+                    }
+                    table = mots.get(i).map(|t| t.trim_matches('"').to_string());
+                }
+                if let Some(t) = &table {
+                    let type_json = |m: &str| matches!(m.trim_end_matches(';'), "json" | "jsonb");
+                    // `col jsonb …` en tête de ligne, ou `add column [if not exists] col jsonb`.
+                    let mut candidat: Option<&str> = None;
+                    if mots.len() >= 2 && type_json(mots[1]) {
+                        candidat = Some(mots[0]);
+                    }
+                    if let Some(p) = mots.iter().position(|m| *m == "column") {
+                        let mut i = p + 1;
+                        if mots.get(i) == Some(&"if") {
+                            i += 3;
+                        }
+                        if mots.get(i + 1).is_some_and(|m| type_json(m)) {
+                            candidat = Some(mots[i]);
+                        }
+                    }
+                    if let Some(c) = candidat {
+                        if !matches!(c, "alter" | "add" | "column" | "returns" | "return") {
+                            trouvees.push((t.clone(), c.trim_matches('"').to_string()));
+                        }
+                    }
+                }
+                if l.trim_end().ends_with(';') {
+                    table = None;
+                }
+            }
+        }
+        trouvees.sort();
+        trouvees.dedup();
+        trouvees
+    }
+
+    /// D-036 : aucune colonne JSON/JSONB ne peut apparaître sans être déclarée (et justifiée)
+    /// dans `COLONNES_JSON_D036` ; la liste ne garde pas non plus d'entrée disparue.
+    #[test]
+    fn aucune_colonne_json_hors_liste_d036() {
+        let trouvees = colonnes_json_des_migrations();
+        let declarees: Vec<(String, String)> = COLONNES_JSON_D036
+            .iter()
+            .map(|(t, c, _, _)| (t.to_string(), c.to_string()))
+            .collect();
+        let inconnues: Vec<_> = trouvees.iter().filter(|c| !declarees.contains(c)).collect();
+        assert!(
+            inconnues.is_empty(),
+            "colonne(s) JSON/JSONB non déclarée(s) (D-036 : normaliser en tables typées, ou déclarer \
+             l'exception dans COLONNES_JSON_D036 et docs/socles/MIGRATIONS.md) : {inconnues:?}"
+        );
+        let disparues: Vec<_> = declarees.iter().filter(|c| !trouvees.contains(c)).collect();
+        assert!(disparues.is_empty(), "entrée(s) obsolète(s) dans COLONNES_JSON_D036 : {disparues:?}");
+        for (t, c, cat, just) in COLONNES_JSON_D036 {
+            assert!(["exception", "retrait", "dette"].contains(cat), "{t}.{c} : catégorie {cat}");
+            assert!(!just.is_empty(), "{t}.{c} : justification manquante");
+        }
     }
 }

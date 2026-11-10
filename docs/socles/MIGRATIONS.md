@@ -242,6 +242,37 @@ Contrôle de revue : `grep -i jsonb` sur les migrations du socle 42 ne trouve qu
 ## Socle 16 : passe personas (2026-11-10, `PERSONAS_16.md`)
 - **481** reste réservée à M0b, désormais **M0b-1** (avant la démo de décembre) : `ent_msg_fil.foyer_lecteur_id` (un fil du personnel par foyer, D22), `ent_msg.remise_prevue_le` (plage calme minimale, D24), action D-017 `messagerie.fils_reserves.lire` (D26) ; M0b-2 prend la suite dans 481 ou 482 selon la taille. Aucun fichier de migration écrit par cette passe.
 - **Exceptions D-036 à déclarer** (messagerie) : charge utile de l'outbox (transitoire), instantanés d'audit, export JSON du droit d'accès (format d'échange). **À normaliser avant écriture** : `ent_msg_boite.horaires` et `astreinte` (`jsonb`), `mission_codes[]`, `etiquettes[]`, `criteres[]`, `ent_msg_parametre (cle, valeur)`, audience JSON du socle 17 (`16_MESSAGERIE.md` §33.6). **À classer** : `ent_eleve_interdiction.objet TEXT[]` (271), `ent_campagne.canaux TEXT[]` et `cible_ids UUID[]` (191), `ent_formulaire.cible_ids UUID[]` (193).
+## Plage 560–579 — lot D-036 « normalisation JSON » (branche `ent-d036-normalisation-json`, 2026-11-10)
+
+Plage réservée après vérification sur **toutes** les branches distantes (`git ls-tree` de chaque `origin/*`) : plus hautes migrations existantes = 480 (ENT) et 520 (`ent-socle-finances-f0`, plage 520–539) ; 380–439 sont réservées par les repli des socles 7 à 9 ; 440–519 hors de ce lot ; 540–559 laissées libres. **560–563 consommées**, 564–579 libres. Insérées dans `migrate.rs` après 480 (ordre croissant) ; `MIGRATION_TAG` = `563_signalement_assiduite_detail`. Compte RLS de `tests_rls.rs` : +4 tables (`ent_delegation_droit`, `ent_delegation_droit_cible`, `ent_inscription_resolution`, `ent_signalement_assiduite_detail`). **Fusion d'`origin/ENT` (2026-11-10, e9b574e6)** : ENT porte désormais 520 (`520_finances_f0_immuabilite`, aucune table créée, compte RLS inchangé), puis a32ee605 : 500 (`500_objet_registre`, +1 table `ent_objet` avec RLS ; compte RLS de `tests_rls.rs` = base ENT + 1 + 4 du lot D-036). Ordre croissant dans `migrate.rs` (… 480, 500, 520, 560–563), aucun doublon ; `MIGRATION_TAG` = `563_signalement_assiduite_detail` (la plus haute du répertoire).
+
+| Migration | Objet |
+|---|---|
+| 560 | `ent_delegation_droit`, `ent_delegation_droit_cible` ; reprise de `ent_delegation.droits` |
+| 561 | `ent_inscription_resolution` ; reprise de `ent_inscription_dossier.resolutions` |
+| 562 | colonnes `scol_*` ; reprise de `ent_inscription_dossier.scolarite_actuelle` |
+| 563 | `ent_signalement_assiduite_detail` ; reprise de `ent_signalement_assiduite.dossier` |
+
+## Exceptions D-036 (colonnes JSON/JSONB permises ou déclarées)
+
+Détail, usage et justification de chaque colonne : `docs/D036_INVENTAIRE_JSON.md`. Liste exécutable : `COLONNES_JSON_D036` dans `crates/ent-db/src/migrate.rs` (le test `aucune_colonne_json_hors_liste_d036` échoue pour toute colonne JSON/JSONB non déclarée).
+
+| Table.colonne | Statut | Justification |
+|---|---|---|
+| `ent_metier_event.payload` | exception | charge utile transitoire d'événement |
+| `ent_edt_import.report_json` | exception | rapport d'import figé |
+| `ent_journal_modif.payload` | exception | journal d'audit en ajout seul |
+| `ent_passkey_credential.passkey`, `ent_passkey_challenge.state` | exception | état opaque `webauthn-rs` |
+| `ent_cdt_historique.instantane` | exception | instantané d'historique |
+| `ent_bulletin.contenu` | exception | copie figée d'un bulletin publié |
+| `ent_eleve_orphelin.ligne` | exception | quarantaine, instantané figé |
+| `ent_inscription_campagne_version.instantane` | exception | instantané d'historique |
+| `ent_eleve_fusion.resume` | exception | résumé figé (ajout seul) |
+| `ent_structure_journal.avant` / `.apres` | exception | journal en ajout seul |
+| `ent_delegation.droits`, `ent_inscription_dossier.resolutions`, `ent_inscription_dossier.scolarite_actuelle`, `ent_signalement_assiduite.dossier` | normalisée (560–563), en lecture seule | retrait de la colonne : lot ultérieur |
+| `ent_inscription_campagne.regle_relance` | laissée | refonte prévue au socle finances 24–25 (lot F0) |
+| `ent_import_ligne.donnees`, `ent_personne_preference(_version).joignable`, `ent_etablissement_profil.jours_ouvres`, `ent_parametre.valeur`, `ent_eleve_fusion.conflits_resolus` / `.doublons_touches`, `ent_eleve_fusion_ligne.cle`, `ent_personne_fusion.instantane` | à normaliser | lot suivant (dette déclarée) |
+
 ## Mise à jour du 2026-11-10 (lot `ent-stockage-objets-s3`, base `origin/ENT`)
 Vérification avant écriture : aucun numéro de 481 à 519 n'existe sur les branches distantes (`git ls-tree` du répertoire `ent-rust/migrations` de chaque `origin/*`) ; plus hautes trouvées : 520 (`ent-finances-f0`), 560–563 (délégation, inscriptions). 480–499 est la plage de repli de la messagerie : le lot prend **500**.
 **500** `500_objet_registre` : table `ent_objet` (registre des objets stockés hors base : clé opaque, taille, SHA-256, type, dates), RLS standard, immuable par déclencheur. Test RLS : +1 table (153). Fusion de `origin/ENT` (e9b574e6, qui porte 520 `finances_f0_immuabilite`, aucune table) : ordre croissant … 480, 500, 520, aucun doublon ; `MIGRATION_TAG` = `520_finances_f0_immuabilite` (la plus haute du répertoire). Les lots 560–563 (autres branches) devront prendre la suite.

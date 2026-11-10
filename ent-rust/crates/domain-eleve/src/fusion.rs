@@ -124,6 +124,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_info_comp_valeur", &["id"]),
     d("ent_inscription_dossier", &["id"]),
     d("ent_inscription_lien_attente", &["id"]),
+    d("ent_inscription_resolution", &["id"]),
     d("ent_inscription_suivi", &["id"]),
     d("ent_internat_affectation", &["id"]),
     d("ent_internat_presence", &["id"]),
