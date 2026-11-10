@@ -234,3 +234,7 @@ Source : `docs/socles/42_SORTIES_VOYAGES.md` §32.6, `docs/socles/PERSONAS_42.md
 | `ent_sortie_restauration.jours`, `ent_sortie_reprise.rapport`, tableaux `categories[]`, `pieces[]`, `eleves_visibles[]`, `incidents_codes[]`, `regle_jours` (conception d'origine, §25) | **à normaliser avant écriture** | remplacés par des tables (§32.6) ; aucune migration n'en a été écrite |
 
 Contrôle de revue : `grep -i jsonb` sur les migrations du socle 42 ne trouve que `ent_sortie_journal`.
+
+## Socle 16 : passe personas (2026-11-10, `PERSONAS_16.md`)
+- **481** reste réservée à M0b, désormais **M0b-1** (avant la démo de décembre) : `ent_msg_fil.foyer_lecteur_id` (un fil du personnel par foyer, D22), `ent_msg.remise_prevue_le` (plage calme minimale, D24), action D-017 `messagerie.fils_reserves.lire` (D26) ; M0b-2 prend la suite dans 481 ou 482 selon la taille. Aucun fichier de migration écrit par cette passe.
+- **Exceptions D-036 à déclarer** (messagerie) : charge utile de l'outbox (transitoire), instantanés d'audit, export JSON du droit d'accès (format d'échange). **À normaliser avant écriture** : `ent_msg_boite.horaires` et `astreinte` (`jsonb`), `mission_codes[]`, `etiquettes[]`, `criteres[]`, `ent_msg_parametre (cle, valeur)`, audience JSON du socle 17 (`16_MESSAGERIE.md` §33.6). **À classer** : `ent_eleve_interdiction.objet TEXT[]` (271), `ent_campagne.canaux TEXT[]` et `cible_ids UUID[]` (191), `ent_formulaire.cible_ids UUID[]` (193).
