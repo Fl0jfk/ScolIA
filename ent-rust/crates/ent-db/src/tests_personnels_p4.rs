@@ -591,6 +591,14 @@ async fn remplacement_d_une_seance_le_remplacant_suit_les_eleves_du_titulaire() 
         .fetch_one(c.ent.pool())
         .await
         .unwrap();
+    // Le créneau historique relie par le texte de classe : les élèves du cadre le portent.
+    sqlx::query("UPDATE ent_eleve SET classe = $2 WHERE etablissement_id = $1 AND id = ANY($3)")
+        .bind(c.etab)
+        .bind(&code)
+        .bind(vec![c.e1, c.e2, c.e3])
+        .execute(c.ent.pool())
+        .await
+        .unwrap();
     let creneau = Uuid::new_v4();
     let s = c.service(c.p1).await;
     sqlx::query(
