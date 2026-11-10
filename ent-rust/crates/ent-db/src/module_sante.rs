@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::ref_commun::db;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 impl PgEnt {
     /// Le module santé est-il actif pour cet établissement ? Fermé par défaut.
@@ -22,7 +23,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 AND module = 'sante'",
         )
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         Ok(actif.unwrap_or(false))
@@ -43,6 +44,7 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_module_etablissement (etablissement_id, module, actif, modifie_par)
              VALUES ($1, 'sante', $2, $3)
@@ -52,9 +54,10 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(actif)
         .bind(acteur)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         self.audit_compte(
             etablissement_id,
             acteur,

@@ -935,6 +935,7 @@ impl PgEnt {
         role: &str,
         eleve: Uuid,
     ) -> Result<SourceProposition, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         match role {
             "parent" => {
                 let (ok,): (bool,) = sqlx::query_as(
@@ -947,7 +948,7 @@ impl PgEnt {
                 .bind(etab)
                 .bind(user)
                 .bind(eleve)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await?;
                 if ok {
                     Ok(SourceProposition::Famille)
@@ -975,7 +976,7 @@ impl PgEnt {
                 .bind(etab)
                 .bind(user)
                 .bind(eleve)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await?;
                 if ok {
                     Ok(SourceProposition::Eleve)
@@ -996,7 +997,7 @@ impl PgEnt {
         eleve: Uuid,
     ) -> Result<Vec<ChampSignalable>, EntDbError> {
         self.exiger_deposant_famille(etab, user, role, eleve).await?;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let reglages = reglages_tx(&mut conn, etab).await?;
         Ok(domain_eleve::CATALOGUE_CHAMPS_ELEVE
             .iter()
@@ -1386,12 +1387,13 @@ impl PgEnt {
     /// deviennent `expiree`. Aucune durée par défaut (Q-E15 : durées à valider par le DPO) :
     /// seules celles qui ont une échéance (posée par un import) expirent. Renvoie le nombre.
     pub async fn expirer_propositions_echues(&self) -> Result<i64, EntDbError> {
-        let dues: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        let dues: Vec<(Uuid, Uuid)> = crate::tenant_tx::lire_par_etablissement(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::ExpirationPropositions,
             "SELECT etablissement_id, id FROM ent_eleve_proposition
              WHERE statut = 'en_attente' AND expire_le IS NOT NULL AND expire_le < now()
              ORDER BY expire_le LIMIT 500",
         )
-        .fetch_all(self.pool())
         .await?;
         let mut n = 0;
         for (etab, id) in dues {
@@ -1465,9 +1467,9 @@ impl PgEnt {
         .bind(&f.champ)
         .bind(f.avant)
         .bind(limite)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let l = assembler(&mut conn, etab, entetes, true).await?;
         drop(conn);
         self.tracer_acces_sensible(
@@ -1497,7 +1499,7 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let e = sqlx::query_as::<_, EnteteProposition>(&format!(
             "SELECT {COLONNES} FROM ent_eleve_proposition WHERE etablissement_id = $1 AND id = $2"
         ))
@@ -1541,9 +1543,9 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve)
         .bind(user)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         assembler(&mut conn, etab, entetes, false).await
     }
 }

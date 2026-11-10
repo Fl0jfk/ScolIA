@@ -16,18 +16,12 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    // Mail, SMS et push simulés : jamais de réseau.
-    ent.install_mail_dry_run();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); e.install_mail_dry_run(); }).await;
     Some((ent, cast))
 }
 
 fn repo(ent: &PgEnt) -> PgMsgRepo {
-    PgMsgRepo::new(ent.pool().clone())
+    PgMsgRepo::new(ent.pool_verif().clone())
 }
 
 fn staff(ent_role: Role) -> &'static str {
@@ -112,7 +106,7 @@ async fn poser_interdiction(
     .bind(etab)
     .bind(eleve)
     .bind(parent)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .expect("personne du lien");
     let id = Uuid::new_v4();
@@ -127,7 +121,7 @@ async fn poser_interdiction(
     .bind(eleve)
     .bind(personne)
     .bind(decide_par)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .expect("interdiction");
     id
@@ -137,7 +131,7 @@ async fn poser_interdiction(
 async fn rendre_joignable(ent: &PgEnt, etab: Uuid, user: Uuid) {
     sqlx::query("UPDATE ent_user SET telephone = '0612345678' WHERE id = $1")
         .bind(user)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query(
@@ -146,7 +140,7 @@ async fn rendre_joignable(ent: &PgEnt, etab: Uuid, user: Uuid) {
     )
     .bind(etab)
     .bind(user)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     sqlx::query(
@@ -157,7 +151,7 @@ async fn rendre_joignable(ent: &PgEnt, etab: Uuid, user: Uuid) {
     .bind(etab)
     .bind(user)
     .bind(format!("tok-m0a-{user}"))
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
 }
@@ -180,7 +174,7 @@ async fn envois(
         .bind(etab)
         .bind(eleve)
         .bind(depuis)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         n[i] = c;
@@ -343,7 +337,7 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
     .bind(etab)
     .bind(lily)
     .bind(harry)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 0);
@@ -355,7 +349,7 @@ async fn m0a_d1_parent_interdit_ne_lit_ni_n_ecrit_ni_ne_signe_ni_ne_recoit() {
     sqlx::query("UPDATE ent_eleve_interdiction SET levee_le = now(), levee_par = $2 WHERE id = $1")
         .bind(interdiction)
         .bind(dir)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(
@@ -381,7 +375,7 @@ async fn m0a_d1_interdiction_echue_ou_autre_objet_sans_effet() {
     // Échue hier : sans effet.
     sqlx::query("UPDATE ent_eleve_interdiction SET au = ent_aujourdhui_etab(etablissement_id) - 1 WHERE id = $1")
         .bind(id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(
@@ -393,7 +387,7 @@ async fn m0a_d1_interdiction_echue_ou_autre_objet_sans_effet() {
         "UPDATE ent_eleve_interdiction SET au = NULL, objet = ARRAY['remise'] WHERE id = $1",
     )
     .bind(id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     assert!(
@@ -725,7 +719,7 @@ async fn m0a_d5_d7_signature_du_carnet_reservee_au_titulaire_de_l_autorite() {
         .bind(etab)
         .bind(harry)
         .bind(lily)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(matches!(
@@ -738,7 +732,7 @@ async fn m0a_d5_d7_signature_du_carnet_reservee_au_titulaire_de_l_autorite() {
         .bind(etab)
         .bind(harry)
         .bind(lily)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     ent.signer_carnet_for_actor(etab, lily, staff(Role::Parent), e1.id)
@@ -774,7 +768,7 @@ async fn m0a_d6_ne_pas_solliciter_exclu_des_envois_mais_pas_de_ses_propres_fils(
     .bind(etab)
     .bind(harry)
     .bind(lily)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     ent.definir_ne_pas_solliciter_for_actor(
@@ -826,7 +820,7 @@ async fn m0a_d6_ne_pas_solliciter_exclu_des_envois_mais_pas_de_ses_propres_fils(
         .bind(etab)
         .bind(lily)
         .bind(harry)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         assert_eq!(n, attendu, "{vue}");
@@ -1019,7 +1013,7 @@ async fn m0a_d4_ni_sujet_ni_contenu_dans_les_push_sms_courriels_du_carnet_ni_les
         .bind(etab)
         .bind(harry)
         .bind(t0)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         assert_eq!(n, 0, "contenu sensible dans {table}");
@@ -1032,7 +1026,7 @@ async fn m0a_d4_ni_sujet_ni_contenu_dans_les_push_sms_courriels_du_carnet_ni_les
     )
     .bind(etab)
     .bind(t0)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 0, "sujet ou titre dans un événement");
@@ -1082,7 +1076,7 @@ async fn m0a_d10_rls_posee_sur_toutes_les_tables_de_communication() {
                FROM pg_class c WHERE c.relname = $1 AND c.relkind = 'r'",
         )
         .bind(t)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap_or_else(|e| panic!("table {t} introuvable : {e}"));
         assert!(

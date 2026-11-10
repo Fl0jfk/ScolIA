@@ -17,6 +17,7 @@
 //! 265 ; Europe/Paris par défaut).
 
 use super::*;
+use crate::tenant_tx::TenantTx;
 
 /// Origine d'un lien (colonne `source` de `ent_lien_attente`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1243,13 +1244,13 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(email.trim())
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         let Some((id, user_id)) = row else {
             return Ok(None);
         };
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ne_pas_solliciter = personne_ne_pas_solliciter_tx(&mut conn, etab, id).await?;
         Ok(Some(PersonneParEmail {
             id,
@@ -1266,6 +1267,7 @@ impl PgEnt {
         personne_id: Uuid,
         user_id: Uuid,
     ) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         sqlx::query(
             "UPDATE ent_personne SET user_id = $3, updated_at = now()
               WHERE etablissement_id = $1 AND id = $2 AND user_id IS NULL
@@ -1275,9 +1277,10 @@ impl PgEnt {
         .bind(etab)
         .bind(personne_id)
         .bind(user_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1299,7 +1302,7 @@ impl PgEnt {
         let personne_id = saisie
             .personne_id
             .ok_or(invalide("personne à lier obligatoire"))?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (lien, attente) =
             lier_dans_tx(&mut tx, etab, actor, eleve_id, personne_id, saisie).await?;
         commit(tx).await?;
@@ -1328,7 +1331,7 @@ impl PgEnt {
             (Some(p), None) => Some(p.normaliser()?),
             (None, Some(_)) => None,
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let personne_id = match &nouvelle {
             Some(s) => creer_personne_tx(&mut tx, etab, s, SourceLien::Saisie, actor).await?,
             None => ajout.lien.personne_id.unwrap_or_default(),
@@ -1382,7 +1385,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -1407,7 +1410,7 @@ impl PgEnt {
         attente_id: Uuid,
         accepter: bool,
     ) -> Result<(), EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_personne
               WHERE etablissement_id = $1 AND user_id = $2 AND fusionnee_dans IS NULL FOR UPDATE",

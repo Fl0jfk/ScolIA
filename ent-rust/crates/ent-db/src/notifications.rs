@@ -40,6 +40,7 @@ use sqlx::{PgConnection, PgPool};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub(crate) fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("notifications", err))
@@ -453,7 +454,7 @@ impl PgEnt {
         etablissement_id: Uuid,
         user_id: Uuid,
     ) -> Result<Preferences, EntDbError> {
-        let mut c = self.pool().acquire().await.map_err(db)?;
+        let mut c = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         preferences_de(&mut c, etablissement_id, user_id).await
     }
 
@@ -465,13 +466,14 @@ impl PgEnt {
         pref: Preferences,
     ) -> Result<Preferences, EntDbError> {
         pref.valider()?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         // La personne doit être membre de l'établissement de sa session.
         let membre: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
         )
         .bind(etablissement_id)
         .bind(user_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if membre.is_none() {
@@ -496,9 +498,10 @@ impl PgEnt {
         .bind(&pref.resume)
         .bind(pref.calme_debut.map(|v| v as i16))
         .bind(pref.calme_fin.map(|v| v as i16))
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(pref)
     }
 
@@ -517,7 +520,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(limite.clamp(1, 200))
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -531,7 +534,7 @@ impl PgEnt {
     ) -> Result<Plafonds, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::NotificationsGerer)
             .await?;
-        let mut c = self.pool().acquire().await.map_err(db)?;
+        let mut c = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         plafonds_de(&mut c, etablissement_id).await
     }
 
@@ -550,6 +553,7 @@ impl PgEnt {
         {
             return Err(EntDbError::SaisieInvalide("plafond hors limites"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_notification_plafond
                 (etablissement_id, sms_par_jour, sms_par_personne_jour, sms_par_campagne,
@@ -568,9 +572,10 @@ impl PgEnt {
         .bind(p.sms_par_campagne)
         .bind(p.campagnes_par_jour)
         .bind(acteur)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(p)
     }
 
@@ -594,7 +599,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(source_type)
         .bind(source_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -614,7 +619,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(source_type)
         .bind(source_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -740,9 +745,36 @@ impl Expediteur {
     }
 
     /// Un passage : récupère les envois échus et les expédie.
+    ///
+    /// Worker transverse nommé (`ContexteSysteme::WorkerEnvoi`, docs/securite/RLS_STRICTE.md §4) :
+    /// un passage **par établissement**, chacun dans son contexte (RLS stricte) ; un seul
+    /// établissement si la configuration en désigne un.
     pub async fn expedier(&self, maintenant: DateTime<Utc>) -> Result<BilanExpedition, EntDbError> {
+        let etabs = match self.config.etablissement {
+            Some(e) => vec![e],
+            None => crate::tenant_tx::etablissements_systeme(&self.pool, crate::tenant_tx::ContexteSysteme::WorkerEnvoi)
+                .await
+                .map_err(db)?,
+        };
+        let mut total = BilanExpedition::default();
+        for etab in etabs {
+            let b = self.expedier_etab(etab, maintenant).await?;
+            total.reclames += b.reclames;
+            total.envoyes += b.envoyes;
+            total.simules += b.simules;
+            total.echecs += b.echecs;
+            total.ignores += b.ignores;
+            total.plafonnes += b.plafonnes;
+            total.regroupes += b.regroupes;
+            total.interrompus += b.interrompus;
+        }
+        Ok(total)
+    }
+
+    async fn expedier_etab(&self, etab: Uuid, maintenant: DateTime<Utc>) -> Result<BilanExpedition, EntDbError> {
         let mut bilan = BilanExpedition::default();
         // 1. Lignes abandonnées en cours d'envoi : échec (jamais renvoyées).
+        let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(db)?;
         let perimes = sqlx::query(
             "UPDATE ent_notification_envoi
                 SET statut = 'echec', motif = 'interrompu', traite_le = $1
@@ -754,13 +786,15 @@ impl Expediteur {
             maintenant
                 - Duration::from_std(self.config.perime_apres).unwrap_or(Duration::minutes(15)),
         )
-        .bind(self.config.etablissement)
-        .execute(&self.pool)
+        .bind(Some(etab))
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         bilan.interrompus = perimes.rows_affected() as usize;
 
         // 2. Réclamation atomique des envois échus.
+        let mut claim = TenantTx::begin(&self.pool, etab).await.map_err(db)?;
         let lot: Vec<EnvoiReclame> = sqlx::query_as(
             "UPDATE ent_notification_envoi e
                 SET statut = 'envoi', tentative_le = $1
@@ -776,11 +810,12 @@ impl Expediteur {
                         e.droit_requis, e.regroupable",
         )
         .bind(maintenant)
-        .bind(self.config.etablissement)
+        .bind(Some(etab))
         .bind(self.config.taille_lot)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *claim)
         .await
         .map_err(db)?;
+        claim.commit().await.map_err(db)?;
         bilan.reclames = lot.len();
 
         // 3. Droits relus, puis regroupement en résumé ou envoi individuel.
@@ -845,13 +880,14 @@ impl Expediteur {
     }
 
     async fn droit_toujours_valide(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
         // Le destinataire doit encore être membre de l'établissement.
         let membre: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
         )
         .bind(e.etablissement_id)
         .bind(e.destinataire_user_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if membre.is_none() {
@@ -878,7 +914,7 @@ impl Expediteur {
         .bind(e.etablissement_id)
         .bind(eleve)
         .bind(e.destinataire_user_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         Ok(ok.is_some())
@@ -892,7 +928,7 @@ impl Expediteur {
         corps: &str,
         maintenant: DateTime<Utc>,
     ) -> Result<Issue, EntDbError> {
-        let mut c = self.pool.acquire().await.map_err(db)?;
+        let mut c = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(db)?;
         let Some(contacts) = contacts_de(&mut c, e.etablissement_id, e.destinataire_user_id).await?
         else {
             return Ok(Issue::Ignore("destinataire_inconnu"));
@@ -1002,7 +1038,7 @@ impl Expediteur {
                 )
                 .bind(e.etablissement_id)
                 .bind(e.destinataire_user_id)
-                .fetch_all(&self.pool)
+                .fetch_all(&mut *TenantTx::begin(&self.pool, e.etablissement_id).await?)
                 .await
                 .map_err(db)?;
                 if appareils.is_empty() {
@@ -1167,6 +1203,7 @@ impl Expediteur {
                 ("plafonne", Some(m.to_string()), None)
             }
         };
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await?;
         sqlx::query(
             "UPDATE ent_notification_envoi
                 SET statut = $3, motif = $4, message_id = $5, resume_id = $6, traite_le = $7
@@ -1179,9 +1216,10 @@ impl Expediteur {
         .bind(mid)
         .bind(resume_id)
         .bind(maintenant)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 }

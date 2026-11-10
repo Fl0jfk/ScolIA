@@ -20,10 +20,7 @@ use crate::scolarite::InscriptionAnnuelle;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -77,7 +74,7 @@ async fn donnees(ent: &PgEnt, etab: Uuid, eleve: Uuid, absences: i64, retards: i
             .bind(etab)
             .bind(eleve)
             .bind(jour(2025, 10, 1) + Duration::days(i))
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -86,7 +83,7 @@ async fn donnees(ent: &PgEnt, etab: Uuid, eleve: Uuid, absences: i64, retards: i
             .bind(etab)
             .bind(eleve)
             .bind(jour(2025, 11, 1) + Duration::days(i))
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -95,7 +92,7 @@ async fn donnees(ent: &PgEnt, etab: Uuid, eleve: Uuid, absences: i64, retards: i
             .bind(etab)
             .bind(eleve)
             .bind(jour(2025, 9, 1) + Duration::days(i))
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -104,7 +101,7 @@ async fn donnees(ent: &PgEnt, etab: Uuid, eleve: Uuid, absences: i64, retards: i
             .bind(etab)
             .bind(eleve)
             .bind(format!("Pièce {i}"))
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -123,7 +120,7 @@ async fn image(ent: &PgEnt, etab: Uuid, ids: &[Uuid]) -> BTreeMap<String, Value>
             ))
             .bind(etab)
             .bind(e)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
             m.insert(format!("{e}/{}", t.table), v);
@@ -131,7 +128,7 @@ async fn image(ent: &PgEnt, etab: Uuid, ids: &[Uuid]) -> BTreeMap<String, Value>
         let v: Value = sqlx::query_scalar("SELECT to_jsonb(e) FROM ent_eleve e WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
             .bind(e)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
         m.insert(format!("{e}/ent_eleve"), v);
@@ -162,7 +159,7 @@ async fn nb(ent: &PgEnt, table: &str, etab: Uuid, eleve: Uuid) -> i64 {
     sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE etablissement_id = $1 AND eleve_id = $2"))
         .bind(etab)
         .bind(eleve)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap()
 }
@@ -196,7 +193,7 @@ async fn inscription(ent: &PgEnt, etab: Uuid, eleve: Uuid, date_annee: &str, act
     let (annee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, $2::date)")
         .bind(etab)
         .bind(date_annee)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     ent.enregistrer_inscription_annuelle(
@@ -242,7 +239,7 @@ async fn fusion_puis_defusion_a_l_identique() {
     let (etab, dir) = (Uuid::new_v4(), cast.direction.user_id);
     let (a, b) = deux_fiches(&ent, &cast, etab).await;
     let avant = image(&ent, etab, &[a.id, b.id]).await;
-    let a_badge: Option<String> = sqlx::query_scalar("SELECT numero_badge FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool()).await.unwrap();
+    let a_badge: Option<String> = sqlx::query_scalar("SELECT numero_badge FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(a_badge.is_none());
 
     // Aperçu : rien n'est écrit, tout est annoncé.
@@ -257,7 +254,7 @@ async fn fusion_puis_defusion_a_l_identique() {
     assert!(ap.differences.contains(&"nom"));
     assert_identique(&avant, &image(&ent, etab, &[a.id, b.id]).await);
     assert!(sqlx::query_scalar::<_, Option<Uuid>>("SELECT fusionne_dans FROM ent_eleve WHERE id = $1")
-        .bind(b.id).fetch_one(ent.pool()).await.unwrap().is_none(), "l'aperçu n'écrit rien");
+        .bind(b.id).fetch_one(ent.pool_verif()).await.unwrap().is_none(), "l'aperçu n'écrit rien");
 
     // Fusion.
     let f = fuser(&ent, etab, b.id, a.id, dir).await;
@@ -272,11 +269,11 @@ async fn fusion_puis_defusion_a_l_identique() {
     assert_eq!(nb(&ent, "ent_eleve_scolarisation", etab, a.id).await, 2, "ancien séjour de B + séjour de A");
     assert_eq!(nb(&ent, "ent_eleve_inscription", etab, a.id).await, 2);
     assert!(nb(&ent, "ent_eleve_identite", etab, b.id).await >= 1, "l'historique d'état civil reste sur B");
-    let absorbe: Option<Uuid> = sqlx::query_scalar("SELECT fusionne_dans FROM ent_eleve WHERE id = $1").bind(b.id).fetch_one(ent.pool()).await.unwrap();
+    let absorbe: Option<Uuid> = sqlx::query_scalar("SELECT fusionne_dans FROM ent_eleve WHERE id = $1").bind(b.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(absorbe, Some(a.id));
     // Le badge de B est passé à A (projection recalculée) ; l'INE de A est intact.
     let (badge, ine): (Option<String>, Option<String>) =
-        sqlx::query_as("SELECT numero_badge, ine FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool()).await.unwrap();
+        sqlx::query_as("SELECT numero_badge, ine FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(badge.is_some_and(|x| x.starts_with("BADGE-")));
     assert!(ine.is_some_and(|x| x.starts_with("AAAA")));
     assert_eq!(ent.eleve_effectif(etab, b.id).await.unwrap(), a.id, "toute lecture redirige");
@@ -291,7 +288,7 @@ async fn fusion_puis_defusion_a_l_identique() {
                 (SELECT payload FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'eleve_fusionne' LIMIT 1)",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     for p in [payload.to_string(), journal.to_string()] {
@@ -373,7 +370,7 @@ async fn conflits_a_acquitter_puis_defusion_a_l_identique() {
     assert_eq!(nb(&ent, "ent_eleve_scolarisation", etab, a.id).await, 1, "séjour de A inchangé");
     assert_eq!(nb(&ent, "ent_eleve_scolarisation", etab, b.id).await, 1, "séjour en conflit resté sur B");
     assert_eq!(nb(&ent, "ent_absence", etab, a.id).await, 3, "sans conflit : passent à A");
-    let ine_a: Option<String> = sqlx::query_scalar("SELECT ine FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool()).await.unwrap();
+    let ine_a: Option<String> = sqlx::query_scalar("SELECT ine FROM ent_eleve WHERE id = $1").bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(ine_a.as_deref(), Some(ine.as_str()));
     // Défusion à l'identique.
     let ResultatDefusion::Faite(_) = ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f.id).await.unwrap() else { panic!("défusion") };
@@ -391,12 +388,12 @@ async fn defusion_refusee_si_une_ligne_deplacee_a_change() {
     let f = fuser(&ent, etab, b.id, a.id, dir).await;
     // Une absence de B (maintenant sur A) est justifiée depuis la fusion ; un retard est supprimé.
     let (abs_id,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 AND debut = $3")
-        .bind(etab).bind(a.id).bind(jour(2025, 10, 3)).fetch_one(ent.pool()).await.unwrap();
-    sqlx::query("UPDATE ent_absence SET motif = 'rdv_medical' WHERE id = $1").bind(abs_id).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(a.id).bind(jour(2025, 10, 3)).fetch_one(ent.pool_verif()).await.unwrap();
+    sqlx::query("UPDATE ent_absence SET motif = 'rdv_medical' WHERE id = $1").bind(abs_id).execute(ent.pool_verif()).await.unwrap();
     let (ret,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_retard WHERE etablissement_id = $1 AND eleve_id = $2 AND jour = $3")
-        .bind(etab).bind(a.id).bind(jour(2025, 11, 2)).fetch_one(ent.pool()).await.unwrap();
-    let ligne_retard: Value = sqlx::query_scalar("SELECT to_jsonb(r) FROM ent_retard r WHERE id = $1").bind(ret).fetch_one(ent.pool()).await.unwrap();
-    sqlx::query("DELETE FROM ent_retard WHERE id = $1").bind(ret).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(a.id).bind(jour(2025, 11, 2)).fetch_one(ent.pool_verif()).await.unwrap();
+    let ligne_retard: Value = sqlx::query_scalar("SELECT to_jsonb(r) FROM ent_retard r WHERE id = $1").bind(ret).fetch_one(ent.pool_verif()).await.unwrap();
+    sqlx::query("DELETE FROM ent_retard WHERE id = $1").bind(ret).execute(ent.pool_verif()).await.unwrap();
     let r = ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f.id).await.unwrap();
     let ResultatDefusion::LignesModifiees(l) = r else { panic!("défusion refusée attendue") };
     assert_eq!(l.len(), 2, "{l:?}");
@@ -407,8 +404,8 @@ async fn defusion_refusee_si_une_ligne_deplacee_a_change() {
     assert_eq!(nb(&ent, "ent_absence", etab, b.id).await, 0);
     assert_eq!(ent.eleve_effectif(etab, b.id).await.unwrap(), a.id);
     // On rétablit les deux lignes telles qu'elles étaient : la défusion passe, à l'identique.
-    sqlx::query("UPDATE ent_absence SET motif = 'maladie' WHERE id = $1").bind(abs_id).execute(ent.pool()).await.unwrap();
-    sqlx::query("INSERT INTO ent_retard SELECT * FROM jsonb_populate_record(NULL::ent_retard, $1)").bind(&ligne_retard).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_absence SET motif = 'maladie' WHERE id = $1").bind(abs_id).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_retard SELECT * FROM jsonb_populate_record(NULL::ent_retard, $1)").bind(&ligne_retard).execute(ent.pool_verif()).await.unwrap();
     let ResultatDefusion::Faite(_) = ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f.id).await.unwrap() else { panic!("défusion") };
     assert_identique(&avant, &image(&ent, etab, &[a.id, b.id]).await);
 }
@@ -440,17 +437,17 @@ async fn delai_d_annulation_et_fusions_chainees() {
     assert_eq!(nb(&ent, "ent_absence", etab, a.id).await, 1);
     // Au-delà de 30 jours, la défusion est refusée.
     let f3 = fuser(&ent, etab, b.id, a.id, dir).await;
-    sqlx::query("ALTER TABLE ent_eleve_fusion DISABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool()).await.unwrap();
-    sqlx::query("UPDATE ent_eleve_fusion SET fusionne_le = now() - interval '31 days' WHERE id = $1").bind(f3.id).execute(ent.pool()).await.unwrap();
-    sqlx::query("ALTER TABLE ent_eleve_fusion ENABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool()).await.unwrap();
+    sqlx::query("ALTER TABLE ent_eleve_fusion DISABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("UPDATE ent_eleve_fusion SET fusionne_le = now() - interval '31 days' WHERE id = $1").bind(f3.id).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("ALTER TABLE ent_eleve_fusion ENABLE TRIGGER ent_eleve_fusion_garde").execute(ent.pool_verif()).await.unwrap();
     assert!(matches!(
         ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f3.id).await,
         Err(EntDbError::ConflitDossier(m)) if m.contains("délai")
     ));
     // La garde SQL : une fusion ne se réécrit ni ne se supprime ; son registre est en ajout seul.
-    assert!(sqlx::query("UPDATE ent_eleve_fusion SET motif = 'x' WHERE id = $1").bind(f3.id).execute(ent.pool()).await.is_err());
-    assert!(sqlx::query("DELETE FROM ent_eleve_fusion WHERE id = $1").bind(f3.id).execute(ent.pool()).await.is_err());
-    assert!(sqlx::query("DELETE FROM ent_eleve_fusion_ligne WHERE fusion_id = $1").bind(f3.id).execute(ent.pool()).await.is_err());
+    assert!(sqlx::query("UPDATE ent_eleve_fusion SET motif = 'x' WHERE id = $1").bind(f3.id).execute(ent.pool_verif()).await.is_err());
+    assert!(sqlx::query("DELETE FROM ent_eleve_fusion WHERE id = $1").bind(f3.id).execute(ent.pool_verif()).await.is_err());
+    assert!(sqlx::query("DELETE FROM ent_eleve_fusion_ligne WHERE fusion_id = $1").bind(f3.id).execute(ent.pool_verif()).await.is_err());
 }
 
 /// Droits : seule la portée établissement de `eleves.fusionner` ; motif et cloisonnement.
@@ -518,19 +515,19 @@ async fn eleve_protege_signale_et_mesure_conservee() {
     )
     .bind(etab)
     .bind(b.id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let ap = ent.apercu_fusion_pour_acteur(DIR, etab, dir, b.id, a.id).await.unwrap();
     assert!(ap.avertissements.contains(&AvertissementFusion::EleveProtege));
     let f = fuser(&ent, etab, b.id, a.id, dir).await;
-    let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool()).await.unwrap();
+    let protege: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(protege, "la mesure de B suit la fiche conservée");
     // Les fusions qui touchent un élève protégé n'existent pas pour qui n'a pas G6 : ici la
     // direction l'a, donc la liste la montre.
     assert_eq!(ent.fusions_pour_acteur(DIR, etab, dir, 10).await.unwrap().len(), 1);
     let ResultatDefusion::Faite(_) = ent.defusionner_eleves_pour_acteur(DIR, etab, dir, f.id).await.unwrap() else { panic!() };
-    let protege_a: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool()).await.unwrap();
+    let protege_a: bool = sqlx::query_scalar("SELECT ent_eleve_confidentiel($1, $2)").bind(etab).bind(a.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(!protege_a, "après défusion, la mesure est revenue à B");
 }
 
@@ -546,7 +543,7 @@ async fn garde_du_registre_tables_eleve() {
             AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'eleve_id' AND NOT a.attisdropped)
           ORDER BY 1",
     )
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     let reelles: Vec<String> = reelles.into_iter().map(|(n,)| n).collect();
@@ -569,7 +566,7 @@ async fn garde_du_registre_tables_eleve() {
                     EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = ($1)::regclass AND a.attname = 'etablissement_id')",
         )
         .bind(t.table)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         assert_eq!(pk, t.cle.iter().map(|s| s.to_string()).collect::<Vec<_>>(), "clé primaire de {}", t.table);

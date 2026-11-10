@@ -26,6 +26,7 @@ use uuid::Uuid;
 use crate::ref_commun::{conflit, db, introuvable, invalide, publier_agg, Acteur};
 use crate::referentiel_structure::{index_neutralises, CreneauGrille, JourCalendrier};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Créneau de l'EDT rapproché de la classe de l'année visée.
 #[derive(Debug, Clone, FromRow)]
@@ -225,13 +226,14 @@ impl PgEnt {
     ) -> Result<RapportSeances, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let annee: Option<(NaiveDate, NaiveDate, String)> = sqlx::query_as(
             "SELECT date_debut, date_fin, statut FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(e)
         .bind(annee_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let Some((debut, fin, statut)) = annee else {
@@ -260,7 +262,7 @@ impl PgEnt {
         )
         .bind(e)
         .bind(annee_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let exceptions: Vec<ExceptionSource> = sqlx::query_as(
@@ -270,14 +272,14 @@ impl PgEnt {
         .bind(e)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let ab_reference: Option<NaiveDate> = sqlx::query_scalar(
             "SELECT reference_lundi FROM ent_edt_calendrier_ab WHERE etablissement_id = $1",
         )
         .bind(e)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let grille: Vec<CreneauGrille> = sqlx::query_as(
@@ -285,7 +287,7 @@ impl PgEnt {
                FROM ent_grille_horaire WHERE etablissement_id = $1",
         )
         .bind(e)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let jours: Vec<JourCalendrier> = self.calendrier_plage(e, du, au).await?;
@@ -302,7 +304,7 @@ impl PgEnt {
             creneaux_ab_ignores,
             ..Default::default()
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))")
             .bind(e)
             .execute(&mut *tx)
@@ -437,7 +439,7 @@ impl PgEnt {
         .bind(au)
         .bind(classe_id)
         .bind(prof_user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -452,7 +454,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let creneau: Option<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT prof_user_id, classe_id, btrim(classe) FROM ent_edt_creneau
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",

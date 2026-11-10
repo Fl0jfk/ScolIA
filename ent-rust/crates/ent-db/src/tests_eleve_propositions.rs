@@ -20,10 +20,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     reset(&ent, cast.etablissement_id).await;
     Some((ent, cast))
 }
@@ -36,7 +33,7 @@ async fn reset(ent: &PgEnt, etab: Uuid) {
     ] {
         sqlx::query(&format!("DELETE FROM {t} WHERE etablissement_id = $1"))
             .bind(etab)
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -88,7 +85,7 @@ async fn piece(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
     .bind(id)
     .bind(etab)
     .bind(eleve)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -133,7 +130,7 @@ fn import_siecle(etab: Uuid, eleve: Uuid, champs: Vec<(&str, Value)>) -> DepotPr
 async fn nom_courant(ent: &PgEnt, eleve: Uuid) -> String {
     let (n,): (String,) = sqlx::query_as("SELECT nom FROM ent_eleve WHERE id = $1")
         .bind(eleve)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     n
@@ -243,7 +240,7 @@ async fn profils_d_etablissement_et_reglage_par_champ() {
         "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'parametrage.eleve_modifie'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(n >= 3);
@@ -424,7 +421,7 @@ async fn import_passe_par_une_proposition_et_la_base_refuse_le_contournement() {
          WHERE eleve_id = $1 AND remplacee_par IS NULL ORDER BY effet_du DESC, enregistre_le DESC LIMIT 1",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((nature.as_str(), source.as_str(), sref), ("import", "import", Some(auto.entete.id)));
@@ -437,7 +434,7 @@ async fn import_passe_par_une_proposition_et_la_base_refuse_le_contournement() {
     assert_eq!(r2.champs_identiques, vec!["nom_naissance".to_string()]);
     // Le contournement échoue en base : version de source externe sans proposition décidée.
     let base = {
-        let mut conn = ent.pool().acquire().await.unwrap();
+        let mut conn = ent.pool_verif().acquire().await.unwrap();
         crate::identite::PgIdentiteRepo::en_vigueur_a(&mut conn, etab, e.id, Utc::now().date_naive())
             .await
             .unwrap()
@@ -453,7 +450,7 @@ async fn import_passe_par_une_proposition_et_la_base_refuse_le_contournement() {
         v.source = source.into();
         v.source_ref = source_ref;
         v.effet_du = base.effet_du;
-        let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool(), etab).await.unwrap();
+        let mut tx = crate::tenant_tx::TenantTx::begin(ent.pool_verif(), etab).await.unwrap();
         let err = sqlx::query(
             "INSERT INTO ent_eleve_identite (id, etablissement_id, eleve_id, nom_naissance, prenoms, rang_prenom_usuel,
                 date_naissance_precision, date_naissance_statut, nature, effet_du, source, source_ref, enregistre_par)
@@ -600,7 +597,7 @@ async fn ine_par_proposition_import_officiel() {
         "SELECT statut, provenance, valeur FROM ent_eleve_identifiant WHERE eleve_id = $1 AND systeme = 'INE' AND valide_au IS NULL",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((statut.as_str(), prov.as_str(), v.as_str()), ("confirme", "import_aaf", valeur.as_str()));
@@ -637,7 +634,7 @@ async fn ine_par_proposition_import_officiel() {
         "SELECT valeur FROM ent_eleve_identifiant WHERE eleve_id = $1 AND systeme = 'INE' AND valide_au IS NULL",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(actif, valeur, "l'INE confirmé est intact");
@@ -651,17 +648,17 @@ async fn ine_par_proposition_import_officiel() {
         "CREATE OR REPLACE FUNCTION ent_test_panne_ine() RETURNS TRIGGER LANGUAGE plpgsql AS $$
          BEGIN IF NEW.valeur LIKE 'PANNE%' THEN RAISE EXCEPTION 'panne simulée' USING ERRCODE = '23514'; END IF; RETURN NEW; END $$",
     )
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
-    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_ine ON ent_eleve_identifiant").execute(ent.pool()).await.unwrap();
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_ine ON ent_eleve_identifiant").execute(ent.pool_verif()).await.unwrap();
     sqlx::query("CREATE TRIGGER ent_test_panne_ine BEFORE INSERT ON ent_eleve_identifiant FOR EACH ROW EXECUTE FUNCTION ent_test_panne_ine()")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let panne = format!("PANNE{}", alea(7).to_uppercase());
     let r = ent.deposer_proposition_systeme(d(&panne, OrigineProposition::Aaf)).await;
-    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_ine ON ent_eleve_identifiant").execute(ent.pool()).await.unwrap();
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_ine ON ent_eleve_identifiant").execute(ent.pool_verif()).await.unwrap();
     let r = r.unwrap();
     assert!(r.appliquee_auto.is_none());
     assert!(r.raisons_non_auto.iter().any(|(_, m)| *m == "application_impossible"), "{r:?}");
@@ -670,7 +667,7 @@ async fn ine_par_proposition_import_officiel() {
     assert_eq!(attente.champs[0].decision, "en_attente");
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_identifiant WHERE eleve_id = $1 AND valeur LIKE 'PANNE%'")
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 0);
@@ -778,7 +775,7 @@ async fn eleve_majeur_ou_emancipe_depose_pour_lui_meme() {
         sqlx::query("DELETE FROM ent_eleve_compte WHERE etablissement_id = $1 AND user_id = ANY($2)")
             .bind(etab)
             .bind(vec![compte, compte_mineur])
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     };
@@ -790,7 +787,7 @@ async fn eleve_majeur_ou_emancipe_depose_pour_lui_meme() {
             .bind(etab)
             .bind(e.id)
             .bind(u)
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -813,7 +810,7 @@ async fn eleve_majeur_ou_emancipe_depose_pour_lui_meme() {
     .bind(etab)
     .bind(mineur.id)
     .bind(pj)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let r = ent.deposer_proposition_famille("eleve", cmd(mineur.id), compte_mineur).await.unwrap();
@@ -838,7 +835,7 @@ async fn decision_partielle_nature_choisie_et_refus_motive() {
     let nouveau = nom_unique("Decide");
     let (actuelle,): (Option<NaiveDate>,) = sqlx::query_as("SELECT date_naissance FROM ent_eleve WHERE id = $1")
         .bind(lea)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let autre_date = actuelle.unwrap() + Duration::days(40);
@@ -910,12 +907,12 @@ async fn decision_partielle_nature_choisie_et_refus_motive() {
          WHERE eleve_id = $1 AND remplacee_par IS NULL ORDER BY effet_du DESC, enregistre_le DESC LIMIT 1",
     )
     .bind(lea)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((nature.as_str(), source.as_str(), motif.as_deref(), sref), ("correction", "famille", Some("d_apres_piece"), Some(id)));
     assert!(piece_v.is_none() || piece_v == Some(pj));
-    let (d,): (Option<NaiveDate>,) = sqlx::query_as("SELECT date_naissance FROM ent_eleve WHERE id = $1").bind(lea).fetch_one(ent.pool()).await.unwrap();
+    let (d,): (Option<NaiveDate>,) = sqlx::query_as("SELECT date_naissance FROM ent_eleve WHERE id = $1").bind(lea).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(d, actuelle, "la date refusée n'a pas bougé");
     // Le déposant voit la décision et le motif (pas de valeur actuelle).
     let mes = ent.mes_propositions("parent", etab, parent, lea).await.unwrap();
@@ -928,9 +925,9 @@ async fn decision_partielle_nature_choisie_et_refus_motive() {
         .decider_proposition(role, DecisionProposition { champs_acceptes: vec![], refus_code: Some("autre".into()), refus_motif: Some("x".into()), ..decision(etab, id, secr) })
         .await;
     assert!(matches!(r, Err(EntDbError::ConflitDossier(_))), "{r:?}");
-    let r = sqlx::query("UPDATE ent_eleve_proposition SET statut = 'acceptee' WHERE id = $1").bind(id).execute(ent.pool()).await;
+    let r = sqlx::query("UPDATE ent_eleve_proposition SET statut = 'acceptee' WHERE id = $1").bind(id).execute(ent.pool_verif()).await;
     assert!(r.is_err());
-    let r = sqlx::query("DELETE FROM ent_eleve_proposition WHERE id = $1").bind(id).execute(ent.pool()).await;
+    let r = sqlx::query("DELETE FROM ent_eleve_proposition WHERE id = $1").bind(id).execute(ent.pool_verif()).await;
     assert!(r.is_err());
     reset(&ent, etab).await;
 }
@@ -986,7 +983,7 @@ async fn nature_changement_etat_civil_et_usage() {
     )
     .bind(lea)
     .bind(id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(lignes, vec![("changement_etat_civil".to_string(), Some(usage.clone()), nom.clone())]);
@@ -1011,7 +1008,7 @@ async fn nature_changement_etat_civil_et_usage() {
     )
     .bind(lea)
     .bind(id2)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((nature.as_str(), motif.as_deref()), ("usage", Some("demande_famille")));
@@ -1177,7 +1174,7 @@ async fn valeurs_scellees_et_absentes_des_traces() {
         "SELECT actuel, propose FROM ent_eleve_proposition_champ WHERE proposition_id = $1",
     )
     .bind(id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     for v in [&actuel, &propose] {
@@ -1188,14 +1185,14 @@ async fn valeurs_scellees_et_absentes_des_traces() {
         "SELECT count(*) FROM ent_metier_event WHERE payload::text ILIKE '%' || $1 || '%'",
     )
     .bind(&secret)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let (n_jrn,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_journal_modif WHERE payload::text ILIKE '%' || $1 || '%'",
     )
     .bind(&secret)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((n_evt, n_jrn), (0, 0), "aucune valeur dans les événements ni le journal");
@@ -1203,7 +1200,7 @@ async fn valeurs_scellees_et_absentes_des_traces() {
         "SELECT count(*) FROM ent_metier_event WHERE type = 'eleve.proposition_deposee' AND payload->>'proposition_id' = $1",
     )
     .bind(id.to_string())
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n_dep, 1);
@@ -1421,12 +1418,12 @@ async fn echec_de_la_part_automatique_ne_perd_aucune_modification() {
          BEGIN IF NEW.nom_naissance LIKE 'Panne%' AND NEW.source = 'import' THEN
              RAISE EXCEPTION 'panne simulée' USING ERRCODE = '23514'; END IF; RETURN NEW; END $$",
     )
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
-    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool()).await.unwrap();
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool_verif()).await.unwrap();
     sqlx::query("CREATE TRIGGER ent_test_panne_identite BEFORE INSERT ON ent_eleve_identite FOR EACH ROW EXECUTE FUNCTION ent_test_panne_identite()")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let r = ent
@@ -1436,7 +1433,7 @@ async fn echec_de_la_part_automatique_ne_perd_aucune_modification() {
             vec![("nom_naissance", json!(nom_unique("Panne"))), ("prenoms", json!(["Aurélie"]))],
         ))
         .await;
-    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool()).await.unwrap();
+    sqlx::query("DROP TRIGGER IF EXISTS ent_test_panne_identite ON ent_eleve_identite").execute(ent.pool_verif()).await.unwrap();
     let r = r.unwrap();
     assert!(r.appliquee_auto.is_none());
     let p = r.en_attente.clone().expect("tout attend une personne");
@@ -1448,7 +1445,7 @@ async fn echec_de_la_part_automatique_ne_perd_aucune_modification() {
     // Aucune proposition intermédiaire laissée en base pour cet élève.
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_proposition WHERE eleve_id = $1")
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 1);
@@ -1471,7 +1468,7 @@ async fn sans_autorite_parentale_pas_de_depot() {
     .bind(etab)
     .bind(lea)
     .bind(parent)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(initial);
@@ -1484,7 +1481,7 @@ async fn sans_autorite_parentale_pas_de_depot() {
         .bind(lea)
         .bind(parent)
         .bind(v)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     }

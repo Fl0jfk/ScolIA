@@ -2,6 +2,7 @@ use domain_eleve::DomainError;
 use ent_push::{PushPlatform, PushSendStatus};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Clone)]
 pub struct PushDevice {
@@ -57,6 +58,7 @@ impl PgPushRepo {
         }
         let id = Uuid::new_v4();
         let platform = cmd.platform.as_str();
+        let mut txw = TenantTx::begin(&self.pool, cmd.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, DeviceRow>(
             r#"
             INSERT INTO ent_push_device (
@@ -78,9 +80,10 @@ impl PgPushRepo {
         .bind(platform)
         .bind(&token)
         .bind(&cmd.app_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.into_device())
     }
 
@@ -103,7 +106,7 @@ impl PgPushRepo {
         )
         .bind(etablissement_id)
         .bind(user_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(DeviceRow::into_device).collect())
@@ -114,6 +117,7 @@ impl PgPushRepo {
         row: InsertPushOutbox,
     ) -> Result<Uuid, DomainError> {
         let id = Uuid::new_v4();
+        let mut tx = TenantTx::begin(&self.pool, row.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_push_outbox (
@@ -137,9 +141,10 @@ impl PgPushRepo {
         .bind(&row.source_aggregate)
         .bind(row.source_id)
         .bind(&row.message_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(id)
     }
 
@@ -156,7 +161,7 @@ impl PgPushRepo {
         )
         .bind(etablissement_id)
         .bind(kind)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -177,7 +182,7 @@ impl PgPushRepo {
         .bind(etablissement_id)
         .bind(source_id)
         .bind(kind)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -201,7 +206,7 @@ impl PgPushRepo {
         .bind(source_id)
         .bind(kind)
         .bind(eleve_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)

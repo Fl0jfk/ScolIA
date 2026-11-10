@@ -43,7 +43,7 @@ async fn dossier_en_etat(
     .bind(camp)
     .bind(etab)
     .bind(nature)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let id = Uuid::new_v4();
@@ -62,7 +62,7 @@ async fn dossier_en_etat(
     .bind(etat)
     .bind(avant_blocage)
     .bind(c.eleve_lea_id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -92,7 +92,7 @@ async fn i2_machine_d_etats_chaque_transition_est_testee() {
                 };
                 for cause in causes {
                     let id = dossier_en_etat(&ent, &c, nature, de, avant).await;
-                    let mut tx = ent.pool().begin().await.unwrap();
+                    let mut tx = ent.pool_verif().begin().await.unwrap();
                     let d = dossier_tx(&mut tx, etab, id).await.unwrap();
                     let attendu = inscriptions_etats::verifier_transition(nature, de, vers, *cause)
                         .is_ok()
@@ -115,7 +115,7 @@ async fn i2_machine_d_etats_chaque_transition_est_testee() {
                             "SELECT etat, statut FROM ent_inscription_dossier WHERE id = $1",
                         )
                         .bind(id)
-                        .fetch_one(ent.pool())
+                        .fetch_one(ent.pool_verif())
                         .await
                         .unwrap();
                         assert_eq!(etat, *vers);
@@ -125,7 +125,7 @@ async fn i2_machine_d_etats_chaque_transition_est_testee() {
                                 .bind(nature)
                                 .bind(vers)
                                 .bind(&d.statut)
-                                .fetch_one(ent.pool())
+                                .fetch_one(ent.pool_verif())
                                 .await
                                 .unwrap();
                         assert_eq!(statut, attendu_statut, "{nature}: statut après {de} → {vers}");
@@ -135,7 +135,7 @@ async fn i2_machine_d_etats_chaque_transition_est_testee() {
                         let (etat,): (String,) =
                             sqlx::query_as("SELECT etat FROM ent_inscription_dossier WHERE id = $1")
                                 .bind(id)
-                                .fetch_one(ent.pool())
+                                .fetch_one(ent.pool_verif())
                                 .await
                                 .unwrap();
                         assert_eq!(etat, *de, "une transition refusée ne change rien");
@@ -157,14 +157,14 @@ async fn i2_machine_d_etats_chaque_transition_est_testee() {
             let (sql,): (bool,) = sqlx::query_as("SELECT ent_inscription_etat_valide($1,$2)")
                 .bind(nature)
                 .bind(e)
-                .fetch_one(ent.pool())
+                .fetch_one(ent.pool_verif())
                 .await
                 .unwrap();
             assert_eq!(sql, inscriptions_etats::etats(nature).contains(&e), "{nature}/{e}");
         }
     }
     let (inconnue,): (bool,) = sqlx::query_as("SELECT ent_inscription_etat_valide('inconnue','deposee')")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(!inconnue);
@@ -198,7 +198,7 @@ async fn i2_campagne_etats() {
             sqlx::query("UPDATE ent_inscription_campagne SET statut = $2 WHERE id = $1")
                 .bind(camp.id)
                 .bind(de)
-                .execute(ent.pool())
+                .execute(ent.pool_verif())
                 .await
                 .unwrap();
             let r = ent.changer_statut_campagne_for_actor(etab, d, dr, camp.id, vers).await;
@@ -309,7 +309,7 @@ async fn i2_campagne_regles_annee_et_offres_des_niveaux() {
     )
     .bind(camp2)
     .bind(apres.version)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(motif.as_deref(), Some("Capacité relevée"));
@@ -318,7 +318,7 @@ async fn i2_campagne_regles_annee_et_offres_des_niveaux() {
            JOIN ent_inscription_offre o ON o.id = h.offre_id WHERE o.campagne_id = $1",
     )
     .bind(camp2)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(hist >= 2, "création et changement de capacité tracés");
@@ -342,13 +342,13 @@ async fn i2_reprise_idempotente() {
     )
     .bind(camp)
     .bind(etab)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     sqlx::query("INSERT INTO ent_inscription_campagne_niveau (campagne_id, etablissement_id, code, capacite) VALUES ($1,$2,'QUATRIEME',4)")
         .bind(camp)
         .bind(etab)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     // Dossiers « historiques » : écrits avec le seul `statut`, comme le faisait l'ancien code.
@@ -364,7 +364,7 @@ async fn i2_reprise_idempotente() {
         .bind(camp)
         .bind(statut)
         .bind(niveau)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
         sqlx::query(
@@ -375,7 +375,7 @@ async fn i2_reprise_idempotente() {
         .bind(etab)
         .bind(id)
         .bind(format!("hist-{}@exemple.test", id.simple()))
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
         ids.push(id);
@@ -385,7 +385,7 @@ async fn i2_reprise_idempotente() {
         "SELECT statut, etat, reference FROM ent_inscription_dossier WHERE campagne_id = $1 ORDER BY created_at, id",
     )
     .bind(camp)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     let etats: Vec<&str> = lignes.iter().map(|l| l.1.as_str()).collect();
@@ -394,7 +394,7 @@ async fn i2_reprise_idempotente() {
 
     // Deux reprises de suite : rien ne change, rien ne se duplique.
     let compter_tout = |ent: &PgEnt| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let v: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
                 "SELECT (SELECT count(*) FROM ent_inscription_offre),
@@ -422,7 +422,7 @@ async fn i2_reprise_idempotente() {
                JOIN ent_inscription_dossier d ON d.demarche_id = x.demarche_id WHERE d.id = $1",
         )
         .bind(id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         assert_eq!(n, 1, "une déclaration par responsable repris");
@@ -430,7 +430,7 @@ async fn i2_reprise_idempotente() {
     // Les dossiers d'un niveau absent de l'offre / de l'année sont au rapport, pas perdus.
     let (annee,): (Option<Uuid>,) = sqlx::query_as("SELECT annee_id FROM ent_inscription_campagne WHERE id = $1")
         .bind(camp)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(annee.is_none(), "une année absente du référentiel n'est pas créée par la reprise");
@@ -438,13 +438,13 @@ async fn i2_reprise_idempotente() {
         "SELECT count(*) FROM ent_inscription_reprise_rapport WHERE objet_id = $1 AND cause = 'annee_absente_du_referentiel'",
     )
     .bind(camp)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(rap, 1);
     let (offres,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_inscription_offre WHERE campagne_id = $1")
         .bind(camp)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(offres, 1, "le niveau de campagne est repris en offre");
@@ -452,7 +452,7 @@ async fn i2_reprise_idempotente() {
         "SELECT count(*) FROM ent_inscription_voeu v JOIN ent_inscription_dossier d ON d.id = v.dossier_id WHERE d.campagne_id = $1",
     )
     .bind(camp)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(voeux, 2, "deux dossiers nomment le niveau de l'offre ; l'inconnu n'a pas de vœu");
@@ -460,7 +460,7 @@ async fn i2_reprise_idempotente() {
         "SELECT count(*) FROM ent_inscription_reprise_rapport WHERE cause = 'niveau_sans_offre' AND objet_id = ANY($1)",
     )
     .bind(&ids)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(sans_offre, 1);
@@ -468,7 +468,7 @@ async fn i2_reprise_idempotente() {
         "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = ANY($1) AND motif_interne = 'motif repris'",
     )
     .bind(&ids)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(dec, 2, "décisions reprises avec leur motif");
@@ -477,7 +477,7 @@ async fn i2_reprise_idempotente() {
         "SELECT statut, etat FROM ent_inscription_dossier WHERE campagne_id = $1 ORDER BY created_at, id",
     )
     .bind(camp)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(
@@ -501,12 +501,12 @@ async fn i2_references_uniques_sous_concurrence() {
     )
     .bind(camp)
     .bind(etab)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let mut taches = Vec::new();
     for _ in 0..16 {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         taches.push(tokio::spawn(async move {
             sqlx::query_scalar::<_, String>(
                 "INSERT INTO ent_inscription_dossier (id, etablissement_id, campagne_id, nature, etat, eleve_nom, eleve_prenom)
@@ -530,12 +530,12 @@ async fn i2_references_uniques_sous_concurrence() {
     let (autre, _) = (labo().await.unwrap().1, ());
     let camp2 = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_inscription_campagne (id, etablissement_id, nature, libelle, annee_cible) VALUES ($1,$2,'reinscription','R','2071-2072')")
-        .bind(camp2).bind(autre.etablissement_id).execute(ent.pool()).await.unwrap();
+        .bind(camp2).bind(autre.etablissement_id).execute(ent.pool_verif()).await.unwrap();
     let r: String = sqlx::query_scalar(
         "INSERT INTO ent_inscription_dossier (id, etablissement_id, campagne_id, nature, etat, eleve_nom, eleve_prenom)
          VALUES (gen_random_uuid(), $1, $2, 'reinscription', 'a_confirmer', 'X', 'Y') RETURNING reference",
     )
-    .bind(autre.etablissement_id).bind(camp2).fetch_one(ent.pool()).await.unwrap();
+    .bind(autre.etablissement_id).bind(camp2).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(r, "REI-2071-0001");
 }
 
@@ -622,7 +622,7 @@ async fn i2_fratrie_une_demarche_plusieurs_dossiers() {
         "SELECT count(DISTINCT demarche_id) FROM ent_inscription_dossier WHERE id = ANY($1)",
     )
     .bind(dem.dossiers.iter().map(|x| x.id).collect::<Vec<_>>())
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(nd, 1);
@@ -630,14 +630,14 @@ async fn i2_fratrie_une_demarche_plusieurs_dossiers() {
         "SELECT count(*) FROM ent_inscription_voeu WHERE dossier_id = ANY($1)",
     )
     .bind(dem.dossiers.iter().map(|x| x.id).collect::<Vec<_>>())
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .map(|v: Vec<(i64,)>| v[0])
     .unwrap();
     assert_eq!(nv, 2);
     // Seul le déposant vérifié lit la démarche ; la marque « ne pas solliciter » ne lui est jamais rendue.
     sqlx::query("UPDATE ent_inscription_declaration_responsable SET ne_pas_solliciter = true WHERE demarche_id = $1 AND ordre = 2")
-        .bind(dem.id).execute(ent.pool()).await.unwrap();
+        .bind(dem.id).execute(ent.pool_verif()).await.unwrap();
     let vue = ent.demarche_famille(etab, &jeton, dem.id).await.unwrap();
     assert!(vue.declarations.iter().all(|x| !x.ne_pas_solliciter && x.personne_id.is_none()));
     let autre = verifier(&ent, etab, &email("autre")).await;
@@ -674,7 +674,7 @@ async fn i2_compteur_de_places_juste() {
     let (d, dr) = dir(&c);
     let camp = campagne_ouverte(&ent, &c, "admission", Some(2)).await;
     let places = |ent: &PgEnt| {
-        let ent_pool = ent.pool().clone();
+        let ent_pool = ent.pool_verif().clone();
         async move {
             let r: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
                 "SELECT proposees, confirmees, validees, liste_attente, reserve_reinscription, demandes
@@ -726,7 +726,7 @@ async fn i2_compteur_de_places_juste() {
     assert_eq!(places(&ent).await, (2, 0, 0, 1, 0, 1));
     let (rang,): (Option<i32>,) = sqlx::query_as("SELECT rang_attente FROM ent_inscription_dossier WHERE id = $1")
         .bind(dossiers[2])
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(rang, Some(1));
@@ -737,7 +737,7 @@ async fn i2_compteur_de_places_juste() {
         "SELECT count(*) FROM ent_inscription_decision WHERE dossier_id = $1 AND depassement_capacite",
     )
     .bind(dossiers[3])
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(depasse, 1, "le dépassement est tracé dans la décision");
@@ -748,7 +748,7 @@ async fn i2_compteur_de_places_juste() {
     // Validation : la place passe de « proposée » à « validée » (pièces obligatoires acceptées).
     sqlx::query("UPDATE ent_inscription_piece SET statut = 'acceptee' WHERE dossier_id = $1")
         .bind(dossiers[1])
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     ent.valider_inscription_for_actor(etab, d, dr, dossiers[1], &ValidationBody {
@@ -771,7 +771,7 @@ async fn i2_compteur_de_places_juste() {
     let offre_rein = rein.offres[0].id;
     let (offre_adm,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_inscription_offre WHERE campagne_id = $1")
         .bind(camp)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     for etat in ["confirmee", "validee", "a_confirmer"] {
@@ -781,20 +781,20 @@ async fn i2_compteur_de_places_juste() {
              VALUES ($1,$2,$3,'reinscription',$4,'Rein','Scrit', CASE WHEN $4='validee' THEN $5 END, CASE WHEN $4='validee' THEN now() END)",
         )
         .bind(dr_id).bind(etab).bind(rein.id).bind(etat).bind(c.eleve_tom_id)
-        .execute(ent.pool()).await.unwrap();
+        .execute(ent.pool_verif()).await.unwrap();
         let v = Uuid::new_v4();
         sqlx::query("INSERT INTO ent_inscription_voeu (id, etablissement_id, dossier_id, rang, offre_id, statut) VALUES ($1,$2,$3,1,$4,'retenu')")
-            .bind(v).bind(etab).bind(dr_id).bind(offre_rein).execute(ent.pool()).await.unwrap();
-        sqlx::query("UPDATE ent_inscription_dossier SET voeu_retenu_id = $2 WHERE id = $1").bind(dr_id).bind(v).execute(ent.pool()).await.unwrap();
+            .bind(v).bind(etab).bind(dr_id).bind(offre_rein).execute(ent.pool_verif()).await.unwrap();
+        sqlx::query("UPDATE ent_inscription_dossier SET voeu_retenu_id = $2 WHERE id = $1").bind(dr_id).bind(v).execute(ent.pool_verif()).await.unwrap();
     }
     // Mode explicite : « à confirmer » ne réserve rien ; confirmée et validée réservent.
     let (reserve,): (i64,) = sqlx::query_as("SELECT reserve_reinscription FROM ent_inscription_offre_occupation WHERE offre_id = $1")
-        .bind(offre_adm).fetch_one(ent.pool()).await.unwrap();
+        .bind(offre_adm).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(reserve, 2);
     // Mode tacite : tout réinscrit non parti garde sa place.
-    sqlx::query("UPDATE ent_inscription_campagne SET mode_reinscription = 'tacite' WHERE id = $1").bind(rein.id).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_inscription_campagne SET mode_reinscription = 'tacite' WHERE id = $1").bind(rein.id).execute(ent.pool_verif()).await.unwrap();
     let (reserve,): (i64,) = sqlx::query_as("SELECT reserve_reinscription FROM ent_inscription_offre_occupation WHERE offre_id = $1")
-        .bind(offre_adm).fetch_one(ent.pool()).await.unwrap();
+        .bind(offre_adm).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(reserve, 3);
     assert_eq!(dispo(&ent, etab, d, dr, camp).await, Some(-3), "2 − 3 réservées − 1 proposée − 1 validée");
 }
@@ -822,7 +822,7 @@ async fn i2_derniere_place_une_seule_admission() {
     assert_eq!([a.is_ok(), b.is_ok()].iter().filter(|x| **x).count(), 1, "une seule admission passe");
     let (n,): (i64,) = sqlx::query_as("SELECT proposees FROM ent_inscription_offre_occupation WHERE campagne_id = $1")
         .bind(camp)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 1);
@@ -874,7 +874,7 @@ async fn i2_decision_est_une_ligne_et_motif_communique() {
         "SELECT sens, remplace_decision_id, id FROM ent_inscription_decision WHERE dossier_id = $1 ORDER BY decide_le, id",
     )
     .bind(doss.id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(lignes.iter().map(|l| l.0.as_str()).collect::<Vec<_>>(), ["liste_attente", "admis"]);
@@ -906,7 +906,7 @@ async fn i2_blocage_desaccord() {
     assert!(ent.changer_statut_for_actor(etab, a, ar, dossier, &StatutBody { statut: "en_instruction".into(), motif: None }).await.is_err());
     assert!(ent.relancer_for_actor(etab, a, ar, dossier).await.is_err(), "aucune relance pendant le blocage");
     let (n,): (i64,) = sqlx::query_as("SELECT proposees FROM ent_inscription_offre_occupation WHERE campagne_id = $1")
-        .bind(camp).fetch_one(ent.pool()).await.unwrap();
+        .bind(camp).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(n, 1, "le dossier bloqué garde sa place");
     // Lever : réservé à la direction (le secrétariat n'a pas le droit de décider).
     assert!(matches!(
@@ -975,7 +975,7 @@ async fn i2_transitions_du_personnel() {
     // Clôture tracée.
     let (clos, motif): (Option<chrono::DateTime<chrono::Utc>>, Option<String>) =
         sqlx::query_as("SELECT clos_le, motif_cloture FROM ent_inscription_dossier WHERE id = $1")
-            .bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+            .bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(clos.is_some());
     assert_eq!(motif.as_deref(), Some("Doublon de dossier"));
 }
@@ -1000,7 +1000,7 @@ async fn i2_ne_pas_solliciter_apres_le_depot() {
          VALUES (gen_random_uuid(), $1, $2, $3, 'information', $4, 'Copie', 'Bonjour')",
     )
     .bind(etab).bind(dossier).bind(format!("copie:{}", Uuid::new_v4())).bind(&protege)
-    .execute(ent.pool()).await.unwrap();
+    .execute(ent.pool_verif()).await.unwrap();
     let motif = "Ordonnance de protection du 3 mars";
     // Droits : décision de la direction ; le déposant n'est pas marquable ; rang inconnu.
     assert!(matches!(ent.ne_pas_solliciter_for_actor(etab, a, ar, dossier, &NePasSolliciterBody { rang: 2, motif: motif.into() }).await, Err(EntDbError::Forbidden)));
@@ -1012,20 +1012,20 @@ async fn i2_ne_pas_solliciter_apres_le_depot() {
     // Marque portée par la ligne du dossier ET par la déclaration ; motif scellé, jamais renvoyé.
     let (flag, sceau): (bool, Option<String>) = sqlx::query_as(
         "SELECT ne_pas_solliciter, ne_pas_solliciter_ref FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = 2",
-    ).bind(dossier).fetch_one(ent.pool()).await.unwrap();
+    ).bind(dossier).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(flag);
     let sceau = sceau.expect("motif scellé");
     assert!(!sceau.contains("Ordonnance"), "le motif n'est jamais en clair");
     let (decl,): (bool,) = sqlx::query_as(
         "SELECT x.ne_pas_solliciter FROM ent_inscription_declaration_responsable x
            JOIN ent_inscription_dossier d ON d.demarche_id = x.demarche_id WHERE d.id = $1 AND x.ordre = 2",
-    ).bind(dossier).fetch_one(ent.pool()).await.unwrap();
+    ).bind(dossier).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(decl, "la déclaration porte la marque");
     let vue = serde_json::to_string(&ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap()).unwrap();
     assert!(!vue.contains("Ordonnance") && !vue.contains(&sceau), "ni motif ni sceau dans la vue du personnel");
     let (envoi_actif,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_inscription_envoi WHERE dossier_id = $1 AND lower(destinataire) = lower($2) AND statut = 'a_envoyer'",
-    ).bind(dossier).bind(&protege).fetch_one(ent.pool()).await.unwrap();
+    ).bind(dossier).bind(&protege).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(envoi_actif, 0);
     // La validation n'invite pas la personne marquée ; le déposant, lui, est servi normalement.
     ent.valider_inscription_for_actor(etab, d, dr, dossier, &ValidationBody::default()).await.unwrap();
@@ -1035,7 +1035,7 @@ async fn i2_ne_pas_solliciter_apres_le_depot() {
     let (invit,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_inscription_invitation i JOIN ent_inscription_responsable r ON r.id = i.responsable_id
           WHERE i.dossier_id = $1 AND r.rang = 2",
-    ).bind(dossier).fetch_one(ent.pool()).await.unwrap();
+    ).bind(dossier).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(invit, 0);
     // Aucune prolongation ni fermeture ne la prévient non plus (voir les tests dédiés).
 }
@@ -1056,19 +1056,19 @@ async fn i2_adresse_a_proteger_jamais_en_clair_dans_la_declaration() {
     let doss = ent.deposer_preinscription(etab, &j, &f).await.unwrap();
     let (adr_resp, scelle): (Option<String>, Option<String>) = sqlx::query_as(
         "SELECT adresse, adresse_protegee FROM ent_inscription_responsable WHERE dossier_id = $1 AND rang = 1",
-    ).bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    ).bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(adr_resp.is_none());
     assert!(scelle.as_deref().is_some_and(|s| !s.contains("Lilas")));
     let (adr_decl, protege): (Option<String>, bool) = sqlx::query_as(
         "SELECT x.adresse, x.adresse_a_proteger FROM ent_inscription_declaration_responsable x
            JOIN ent_inscription_dossier d ON d.demarche_id = x.demarche_id WHERE d.id = $1 AND x.ordre = 1",
-    ).bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    ).bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(adr_decl.is_none(), "la déclaration ne contient jamais l'adresse à protéger");
     assert!(protege);
     // La table entière : aucune trace en clair.
     let (n,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_inscription_declaration_responsable WHERE row_to_json(ent_inscription_declaration_responsable)::text LIKE '%Lilas%'",
-    ).fetch_one(ent.pool()).await.unwrap();
+    ).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(n, 0);
 }
 
@@ -1100,14 +1100,14 @@ async fn i2_annuler_une_validation_erronee() {
     sqlx::query(
         "INSERT INTO ent_metier_event (id, etablissement_id, type, aggregate, aggregate_id, eleve_id, created_at)
          VALUES ($1,$2,'note.saisie','note',$1,$3, now() + interval '1 minute')",
-    ).bind(evt).bind(etab).bind(v.eleve_id).execute(ent.pool()).await.unwrap();
+    ).bind(evt).bind(etab).bind(v.eleve_id).execute(ent.pool_verif()).await.unwrap();
     let err = ent.annuler_validation_for_actor(etab, d, dr, dossier, &corps).await.unwrap_err();
     assert!(err.to_string().contains("note.saisie"), "la liste est montrée : {err}");
-    sqlx::query("DELETE FROM ent_metier_event WHERE id = $1").bind(evt).execute(ent.pool()).await.unwrap();
+    sqlx::query("DELETE FROM ent_metier_event WHERE id = $1").bind(evt).execute(ent.pool_verif()).await.unwrap();
     // Délai dépassé (campagne à 0 h) : refus.
-    sqlx::query("UPDATE ent_inscription_campagne SET delai_annulation_validation_h = 0 WHERE id = $1").bind(camp).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_inscription_campagne SET delai_annulation_validation_h = 0 WHERE id = $1").bind(camp).execute(ent.pool_verif()).await.unwrap();
     assert!(ent.annuler_validation_for_actor(etab, d, dr, dossier, &corps).await.is_err());
-    sqlx::query("UPDATE ent_inscription_campagne SET delai_annulation_validation_h = 72 WHERE id = $1").bind(camp).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_inscription_campagne SET delai_annulation_validation_h = 72 WHERE id = $1").bind(camp).execute(ent.pool_verif()).await.unwrap();
     // Annulation : tout revient, rien n'est effacé.
     let r = ent.annuler_validation_for_actor(etab, d, dr, dossier, &corps).await.unwrap();
     assert_eq!(r.etat, "confirme");
@@ -1115,17 +1115,17 @@ async fn i2_annuler_une_validation_erronee() {
     let (statut, trace): (String, i64) = sqlx::query_as(
         "SELECT statut, (SELECT count(*) FROM ent_journal_modif j WHERE j.eleve_id = ent_eleve.id AND j.action = 'creation_annulee')
            FROM ent_eleve WHERE id = $1",
-    ).bind(v.eleve_id).fetch_one(ent.pool()).await.unwrap();
+    ).bind(v.eleve_id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(statut, "archive", "la fiche créée par erreur est archivée, pas effacée");
     assert_eq!(trace, 1, "la création annulée laisse sa trace au journal");
     let (prevues,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_scolarite_annee WHERE eleve_id = $1 AND source_ref = $2")
-        .bind(v.eleve_id).bind(dossier).fetch_one(ent.pool()).await.unwrap();
+        .bind(v.eleve_id).bind(dossier).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(prevues, 0);
     let (liens_actifs,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_lien WHERE eleve_id = $1 AND suspendu_le IS NULL")
-        .bind(v.eleve_id).fetch_one(ent.pool()).await.unwrap();
+        .bind(v.eleve_id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(liens_actifs, 0, "les liens créés par la validation sont suspendus");
     let (events,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_metier_event WHERE eleve_id = $1 AND type = 'inscription.validation_annulee'")
-        .bind(v.eleve_id).fetch_one(ent.pool()).await.unwrap();
+        .bind(v.eleve_id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(events, 1);
     let dto = ent.dossier_for_actor(etab, d, dr, dossier).await.unwrap();
     assert_eq!((dto.etat.as_str(), dto.eleve_id, dto.valide_le), ("confirme", None, None));
@@ -1190,7 +1190,7 @@ async fn i2_prolonger_une_echeance_en_masse() {
         mails.push(m);
     }
     let echeance = |id: Uuid| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let (e,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1")
                 .bind(id).fetch_one(&pool).await.unwrap();
@@ -1199,7 +1199,7 @@ async fn i2_prolonger_une_echeance_en_masse() {
     };
     let avant = echeance(ids[0]).await.expect("échéance posée à l'état « attente de la famille »");
     // P3 a déjà une échéance plus lointaine : elle ne recule jamais.
-    sqlx::query("UPDATE ent_inscription_dossier SET echeance_famille = $2 WHERE id = $1").bind(ids[2]).bind(aujourdhui + chrono::Duration::days(60)).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_inscription_dossier SET echeance_famille = $2 WHERE id = $1").bind(ids[2]).bind(aujourdhui + chrono::Duration::days(60)).execute(ent.pool_verif()).await.unwrap();
     let nouvelle = aujourdhui + chrono::Duration::days(30);
     // Droit et validité.
     let prof = (c.prof.user_id, Role::Prof.as_str());
@@ -1217,7 +1217,7 @@ async fn i2_prolonger_une_echeance_en_masse() {
     let (en_file,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_inscription_envoi WHERE etablissement_id = $1 AND kind = 'information' AND statut = 'a_envoyer'
             AND dossier_id = ANY($2) AND destinataire = ANY($3)",
-    ).bind(etab).bind(&ids).bind(&mails).fetch_one(ent.pool()).await.unwrap();
+    ).bind(etab).bind(&ids).bind(&mails).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(en_file, 2);
     assert_eq!(courriels_vers(&ent, &mails[0]).min(0), 0);
     // Date limite de la campagne : en avant seulement.
@@ -1228,7 +1228,7 @@ async fn i2_prolonger_une_echeance_en_masse() {
     let k = ent.list_campagnes_for_actor(etab, d, dr).await.unwrap().into_iter().find(|k| k.id == camp.id).unwrap();
     assert_eq!(k.regles.date_limite_famille, Some(limite + chrono::Duration::days(10)));
     assert!(k.version >= 3);
-    let (journal,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_inscription_prolongation WHERE campagne_id = $1").bind(camp.id).fetch_one(ent.pool()).await.unwrap();
+    let (journal,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_inscription_prolongation WHERE campagne_id = $1").bind(camp.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(journal, 2);
 }
 
@@ -1248,7 +1248,7 @@ async fn i2_fermeture_suspend_les_delais_et_les_relances() {
     let doss = ent.deposer_preinscription(etab, &j, &formulaire(camp, "Ferme", None)).await.unwrap();
     ent.changer_statut_for_actor(etab, a, ar, doss.id, &StatutBody { statut: "incomplet".into(), motif: Some("Pièce manquante".into()) }).await.unwrap();
     let aujourdhui = chrono::Utc::now().date_naive();
-    let (ech,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    let (ech,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     let ech = ech.unwrap();
     // Validité : période cohérente, motif.
     let corps = FermetureBody {
@@ -1265,7 +1265,7 @@ async fn i2_fermeture_suspend_les_delais_et_les_relances() {
     let f = ent.declarer_fermeture_for_actor(etab, a, ar, &corps).await.unwrap();
     assert!(f.echeances_reportees >= 1);
     // L'échéance de la famille est reportée au jour de réouverture + 2 jours.
-    let (apres,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    let (apres,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(apres, Some(corps.date_fin + chrono::Duration::days(3)));
     // Relances suspendues pendant la fermeture ; message affiché sur la démarche de la famille.
     assert!(matches!(ent.relancer_for_actor(etab, a, ar, doss.id).await, Err(EntDbError::ConflitDossier(_))));
@@ -1275,10 +1275,10 @@ async fn i2_fermeture_suspend_les_delais_et_les_relances() {
     // Une échéance recalculée pendant la fermeture tombe après la réouverture.
     ent.changer_statut_for_actor(etab, a, ar, doss.id, &StatutBody { statut: "en_instruction".into(), motif: None }).await.unwrap();
     ent.changer_statut_for_actor(etab, a, ar, doss.id, &StatutBody { statut: "incomplet".into(), motif: Some("Encore une pièce".into()) }).await.unwrap();
-    let (re,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    let (re,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(re.unwrap() > corps.date_fin, "délai famille jamais échu pendant la fermeture");
     // La famille est prévenue par la file. Annuler la fermeture rend les relances.
-    let (info,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_inscription_envoi WHERE dossier_id = $1 AND kind = 'information'").bind(doss.id).fetch_one(ent.pool()).await.unwrap();
+    let (info,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_inscription_envoi WHERE dossier_id = $1 AND kind = 'information'").bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(info, 1);
     assert_eq!(ent.fermetures_for_actor(etab, d, dr).await.unwrap().len(), 1);
     ent.annuler_fermeture_for_actor(etab, a, ar, f.id).await.unwrap();
@@ -1324,7 +1324,7 @@ async fn i2_offres_cles_unites_et_droits() {
     // Capacité modifiée en cours, avec trace ; le compteur suit.
     let m = ent.modifier_offre_for_actor(etab, d, dr, o.id, &OffreBody { capacite: Some(12), motif: Some("Ouverture d'un dortoir".into()), ..corps.clone() }).await.unwrap();
     assert_eq!((m.capacite, m.disponibles), (Some(12), Some(12)));
-    let (h,): (Option<String>,) = sqlx::query_as("SELECT motif FROM ent_inscription_offre_historique WHERE offre_id = $1 ORDER BY modifie_le DESC LIMIT 1").bind(o.id).fetch_one(ent.pool()).await.unwrap();
+    let (h,): (Option<String>,) = sqlx::query_as("SELECT motif FROM ent_inscription_offre_historique WHERE offre_id = $1 ORDER BY modifie_le DESC LIMIT 1").bind(o.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(h.as_deref(), Some("Ouverture d'un dortoir"));
     // Archivage : refusé dès qu'un vœu s'y rattache, sinon possible.
     let j = verifier(&ent, etab, &email("archive")).await;
@@ -1349,7 +1349,7 @@ async fn i2_isolation_etablissements() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
-    let b = ent.seed_labo_cast().await.unwrap();
+    let b = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (da, dra) = dir(&a);
     let (db_, drb) = dir(&b);
     let camp = campagne_ouverte(&ent, &a, "admission", Some(5)).await;

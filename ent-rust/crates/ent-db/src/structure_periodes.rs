@@ -705,7 +705,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(annee_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         let (d, f) = r.ok_or_else(introuvable)?;

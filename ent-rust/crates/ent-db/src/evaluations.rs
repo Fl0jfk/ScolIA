@@ -37,6 +37,7 @@ use uuid::Uuid;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Types d'événements du lot S2-7 (les noms existants d'`ent_events::types` sont réutilisés).
 pub mod types_eva {
@@ -312,7 +313,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(periode_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let (id, code, libelle, date_debut, date_fin, statut) = row.ok_or_else(introuvable)?;
@@ -334,7 +335,7 @@ impl PgEnt {
         let row: Option<ServiceTuple> = sqlx::query_as(&format!("{SELECT_SERVICE} AND s.id = $2"))
             .bind(etab)
             .bind(service_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         row.map(service_de).ok_or_else(introuvable)
@@ -345,7 +346,7 @@ impl PgEnt {
             "SELECT arrondi, absent_compte_zero FROM ent_eva_regle WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         // V0 (D10, R-V5) : l'ancien réglage « un absent compte zéro » est lu comme
@@ -384,7 +385,7 @@ impl PgEnt {
         .bind(groupe_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -403,7 +404,7 @@ impl PgEnt {
         .bind(etab)
         .bind(service_id)
         .bind(periode_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(devoir_de).collect())
@@ -415,7 +416,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         row.map(devoir_de).ok_or_else(introuvable)
@@ -438,7 +439,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(devoirs)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -492,7 +493,7 @@ impl PgEnt {
         .bind(acteur)
         .bind(classe_id)
         .bind(today_utc())
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -518,7 +519,7 @@ impl PgEnt {
         .bind(acteur)
         .bind(classe_id)
         .bind(today_utc())
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -542,7 +543,7 @@ impl PgEnt {
         .bind(eleve_id)
         .bind(debut)
         .bind(fin)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(row.map(|(c,)| c))
@@ -578,7 +579,7 @@ impl PgEnt {
         .bind(tous)
         .bind(acteur)
         .bind(today_utc())
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().filter_map(|t| service_de(t).dto()).collect())
@@ -591,7 +592,7 @@ impl PgEnt {
                FROM ent_note_periode WHERE etablissement_id = $1 ORDER BY date_debut, code",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -633,7 +634,7 @@ impl PgEnt {
         }
         let statut = NotePeriodeStatut::parse(statut).ok_or(refus("statut de période inconnu"))?;
         let motif = motif.map(str::trim).filter(|m| !m.is_empty());
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Verrou de ligne : deux changements concurrents sont sérialisés et l'« avant »
         // journalisé est celui réellement remplacé.
         let row: Option<(String,)> = sqlx::query_as(
@@ -727,7 +728,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(periode_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         Ok(rows
@@ -788,7 +789,7 @@ impl PgEnt {
                  ou « à rattraper », puis évaluation de remplacement",
             ));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_eva_regle (etablissement_id, arrondi, absent_compte_zero, updated_by_user_id, updated_at)
              VALUES ($1, $2, $3, $4, now())
@@ -835,6 +836,7 @@ impl PgEnt {
         if domain_eleve::evaluation::centiemes(body.coef).is_none_or(|c| c <= 0 || c > 10_000) {
             return Err(refus(erreur_saisie(ErreurSaisie::Coefficient)));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ok: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_classe c JOIN ent_matiere m ON m.etablissement_id = c.etablissement_id
               WHERE c.etablissement_id = $1 AND c.id = $2 AND m.id = $3",
@@ -842,7 +844,7 @@ impl PgEnt {
         .bind(etab)
         .bind(body.classe_id)
         .bind(body.matiere_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if ok.is_none() {
@@ -860,9 +862,10 @@ impl PgEnt {
         .bind(body.matiere_id)
         .bind(body.coef)
         .bind(acteur)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -917,7 +920,7 @@ impl PgEnt {
         .bind(etab)
         .bind(periode_id)
         .bind(matiere)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let apprs: HashMap<Uuid, String> = apprs.into_iter().collect();
@@ -1020,6 +1023,7 @@ impl PgEnt {
             return Err(refus("titre du devoir obligatoire"));
         }
         let id = Uuid::new_v4();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Classe de rattachement : la classe, ou celle du demi-groupe ; '' pour un
         // groupe transverse (le déclencheur `classe_id` n'invente alors aucune classe).
         let classe_code: String = match service.classe_parente {
@@ -1029,14 +1033,14 @@ impl PgEnt {
                 )
                 .bind(etab)
                 .bind(c)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 code
             }
             None => String::new(),
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if !statut_periode_tx(&mut tx, etab, periode.id).await?.autorise_saisie_notes() {
             return Err(conflit("période verrouillée : saisie des notes fermée"));
         }
@@ -1161,7 +1165,7 @@ impl PgEnt {
                 Err(e) => rapport.refuses.push(refuser(erreur_saisie(e))),
             }
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if !statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
             return Err(conflit("période verrouillée : saisie des notes fermée"));
         }
@@ -1296,7 +1300,7 @@ impl PgEnt {
         }
         let mut publie_le = devoir.publie_le;
         if publie_le.is_none() {
-            let mut tx = self.pool().begin().await.map_err(db)?;
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let maj: Option<(chrono::DateTime<Utc>,)> = sqlx::query_as(
                 "UPDATE ent_devoir SET publie_le = now(), publie_par_user_id = $3
                   WHERE etablissement_id = $1 AND id = $2 AND publie_le IS NULL RETURNING publie_le",
@@ -1386,6 +1390,7 @@ impl PgEnt {
         let statut = StatutResultat::parse(&body.statut).ok_or(refus("statut inconnu"))?;
         let valeur = valider_resultat(statut, body.valeur, devoir.sur).map_err(|e| refus(erreur_saisie(e)))?;
         self.exiger_eleve_existe(etab, body.eleve_id).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // L'élève doit appartenir à l'effectif du service (ou de la classe) du devoir.
         let (classe_id, groupe_id) = match devoir.service_id {
             Some(sid) => {
@@ -1398,7 +1403,7 @@ impl PgEnt {
                 )
                 .bind(etab)
                 .bind(devoir_id)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 (c, None)
@@ -1410,7 +1415,7 @@ impl PgEnt {
         if !effectif.iter().any(|(id, _, _)| *id == body.eleve_id) {
             return Err(refus("élève hors de l'effectif de l'évaluation"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if statut_periode_tx(&mut tx, etab, devoir.periode_id).await?.autorise_saisie_notes() {
             return Err(conflit("période ouverte : corriger depuis la grille"));
         }
@@ -1517,11 +1522,12 @@ impl PgEnt {
         publiees_seulement: bool,
     ) -> Result<CalculClasse, EntDbError> {
         let periode = self.eva_periode(etab, periode_id).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let row: Option<(String,)> =
             sqlx::query_as("SELECT code FROM ent_classe WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
                 .bind(classe_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
         let (classe_code,) = row.ok_or_else(introuvable)?;
@@ -1544,7 +1550,7 @@ impl PgEnt {
         .bind(etab)
         .bind(periode_id)
         .bind(classe_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let devoirs: Vec<DevoirRow> = rows
@@ -1564,7 +1570,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(classe_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         ids_matieres.extend(services.into_iter().map(|(m,)| m));
@@ -1580,7 +1586,7 @@ impl PgEnt {
         .bind(etab)
         .bind(&ids_matieres)
         .bind(classe_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let matieres: Vec<(Uuid, String, String, f64)> = matieres_rows

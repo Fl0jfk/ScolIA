@@ -694,7 +694,7 @@ impl PgEnt {
         .bind(etab)
         .bind(x)
         .bind(y)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         if distincte {
             avertissements.push(AvertissementFusion::DeclareeDistincte);
@@ -1087,7 +1087,7 @@ impl PgEnt {
         .bind(etab)
         .bind(voit_proteges)
         .bind(limite.clamp(1, 200))
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         Ok(lignes.into_iter().map(LigneFusion::en_fusion).collect())
     }
@@ -1105,7 +1105,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(eleve_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         Ok(r.unwrap_or(eleve_id))
     }

@@ -309,6 +309,10 @@ mod tests_socle1;
 mod tests_rls;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rls_lots;
+#[cfg(test)]
+mod garde_rls_stricte;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rls_stricte;
 #[cfg(all(test, feature = "labo"))]
 mod tests_objets;
 

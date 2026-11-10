@@ -1,6 +1,7 @@
 use domain_eleve::{AttributKind, CutoverOp, DomainError, ElevePeriode};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgPeriodeRepo {
     pool: PgPool,
@@ -30,7 +31,7 @@ impl PgPeriodeRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(kind.as_str())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(PeriodeRow::into_periode))
@@ -51,7 +52,7 @@ impl PgPeriodeRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PeriodeRow::into_periode).collect())
@@ -69,6 +70,7 @@ impl PgPeriodeRepo {
                 period_id,
                 nouvelle_valeur,
             } => {
+                let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
                 let result = sqlx::query(
                     r#"
                     UPDATE ent_eleve_periode
@@ -79,12 +81,13 @@ impl PgPeriodeRepo {
                 .bind(period_id)
                 .bind(nouvelle_valeur)
                 .bind(etablissement_id)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(map_sqlx)?;
                 if result.rows_affected() == 0 {
                     return Err(DomainError::NotFound);
                 }
+                tx.commit().await.map_err(map_sqlx)?;
                 Ok(())
             }
             CutoverOp::CloseAndOpen {
@@ -92,7 +95,7 @@ impl PgPeriodeRepo {
                 close_date_fin,
                 open,
             } => {
-                let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+                let mut tx = TenantTx::begin(&self.pool, open.etablissement_id).await.map_err(map_sqlx)?;
                 let closed = sqlx::query(
                     r#"
                     UPDATE ent_eleve_periode
@@ -134,8 +137,9 @@ impl PgPeriodeRepo {
                 Ok(())
             }
             CutoverOp::OpenFirst { period } => {
-                let mut conn = self.pool.acquire().await.map_err(map_sqlx)?;
-                Self::ouvrir_premiere_sur(&mut conn, period).await
+                let mut tx = TenantTx::begin(&self.pool, period.etablissement_id).await.map_err(map_sqlx)?;
+                Self::ouvrir_premiere_sur(&mut tx, period).await?;
+                tx.commit().await.map_err(map_sqlx)
             }
         }
     }
@@ -172,6 +176,7 @@ impl PgPeriodeRepo {
         eleve_id: Uuid,
         date_fin: chrono::NaiveDate,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_eleve_periode
@@ -187,9 +192,10 @@ impl PgPeriodeRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 }

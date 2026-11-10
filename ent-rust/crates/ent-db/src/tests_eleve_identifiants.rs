@@ -12,10 +12,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -71,7 +68,7 @@ fn ajout(etab: Uuid, eleve: Uuid, systeme: SystemeIdentifiant, valeur: &str, act
 }
 
 async fn colonne(ent: &PgEnt, sql: &str, eleve: Uuid) -> Option<String> {
-    let (v,): (Option<String>,) = sqlx::query_as(sql).bind(eleve).fetch_one(ent.pool()).await.unwrap();
+    let (v,): (Option<String>,) = sqlx::query_as(sql).bind(eleve).fetch_one(ent.pool_verif()).await.unwrap();
     v
 }
 
@@ -110,7 +107,7 @@ async fn ajout_ine_declare_projete_sans_valeur_dans_les_traces() {
                  ORDER BY created_at DESC LIMIT 1)",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(payload["systeme"], "INE");
@@ -122,7 +119,7 @@ async fn ajout_ine_declare_projete_sans_valeur_dans_les_traces() {
         "SELECT visible_famille FROM ent_journal_modif WHERE eleve_id = $1 AND action = 'identifiant_ajoute' LIMIT 1",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(!visible, "le journal des identifiants n'est pas visible de la famille");
@@ -186,7 +183,7 @@ async fn collision_devient_conteste_puis_se_resout() {
          AND payload->>'action' IN ('ajoute', 'confirme')",
     )
     .bind(b.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 2);
@@ -239,7 +236,7 @@ async fn unicite_par_etablissement_seulement_aucune_verification_entre_etablisse
     .bind(&valeur)
     .bind(etab_a)
     .bind(etab_b)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 2);
@@ -355,7 +352,7 @@ async fn pont_des_ecritures_heritees() {
         "SELECT systeme, valeur, statut, provenance FROM ent_eleve_identifiant WHERE eleve_id = $1 ORDER BY systeme",
     )
     .bind(e.id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(ids.len(), 2, "{ids:?}");
@@ -365,7 +362,7 @@ async fn pont_des_ecritures_heritees() {
     sqlx::query("UPDATE ent_eleve SET ine = $2 WHERE id = $1")
         .bind(e.id)
         .bind(&i2)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let (actifs, revoques): (i64, i64) = sqlx::query_as(
@@ -373,12 +370,12 @@ async fn pont_des_ecritures_heritees() {
          FROM ent_eleve_identifiant WHERE eleve_id = $1 AND systeme = 'INE'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((actifs, revoques), (1, 1));
     // Vider l'INE : révoqué, projection NULL.
-    sqlx::query("UPDATE ent_eleve SET ine = NULL WHERE id = $1").bind(e.id).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_eleve SET ine = NULL WHERE id = $1").bind(e.id).execute(ent.pool_verif()).await.unwrap();
     assert_eq!(colonne(&ent, "SELECT ine FROM ent_eleve WHERE id = $1", e.id).await, None);
     // Collision par l'ancienne voie : conteste, la colonne héritée garde la valeur écrite.
     let autre = eleve_avec(&ent, etab, "Pont2", Some(&i2), None).await;
@@ -389,7 +386,7 @@ async fn pont_des_ecritures_heritees() {
     )
     .bind(&i2)
     .bind(etab)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert!(st.contains(&(autre.id, "declare".into())), "{st:?}");
@@ -402,7 +399,7 @@ async fn pont_des_ecritures_heritees() {
     // Une mise à jour héritée qui ne change pas l'INE ne crée rien (change_status → upsert).
     let avant: (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_identifiant WHERE eleve_id = $1")
         .bind(autre.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     ent.change_status(ChangeStatus {
@@ -415,7 +412,7 @@ async fn pont_des_ecritures_heritees() {
     .unwrap();
     let apres: (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_identifiant WHERE eleve_id = $1")
         .bind(autre.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(avant, apres);
@@ -430,7 +427,7 @@ async fn reprise_des_identifiants_existants() {
     let (seul, double) = (ine(), ine());
     let badge = format!("RP-{}", alea(6));
     let (e1, e2, e3) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("ALTER TABLE ent_eleve DISABLE TRIGGER ent_eleve_identifiant_pont")
         .execute(&mut *tx)
         .await
@@ -459,17 +456,17 @@ async fn reprise_des_identifiants_existants() {
         .unwrap();
     tx.commit().await.unwrap();
     let (n1,): (i64,) = sqlx::query_as("SELECT ent_eleve_identifiant_reprendre()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(n1 >= 4, "n1 = {n1}");
     let (n2,): (i64,) = sqlx::query_as("SELECT ent_eleve_identifiant_reprendre()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n2, 0, "reprise idempotente");
     let statut = |eleve: Uuid, systeme: &'static str| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let (s, p): (String, String) = sqlx::query_as(
                 "SELECT statut, provenance FROM ent_eleve_identifiant WHERE eleve_id = $1 AND systeme = $2",
@@ -491,7 +488,7 @@ async fn reprise_des_identifiants_existants() {
     // Rejouer les migrations ne crée rien non plus.
     ent.migrate().await.unwrap();
     let (n3,): (i64,) = sqlx::query_as("SELECT ent_eleve_identifiant_reprendre()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n3, 0);
@@ -519,13 +516,13 @@ async fn badge_perdu_et_droits_par_systeme() {
          AND statut = 'revoque' AND motif = 'badge perdu'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(revoque, 2 - 1);
     // Collision de badge : le CPE (sans droit de lecture des identifiants) ne sait pas QUEL élève.
     let autre = eleve_avec(&ent, etab, "Badge2", None, Some(&format!("ZZ-{}", alea(6)))).await;
-    let (bautre,): (String,) = sqlx::query_as("SELECT numero_badge FROM ent_eleve WHERE id = $1").bind(autre.id).fetch_one(ent.pool()).await.unwrap();
+    let (bautre,): (String,) = sqlx::query_as("SELECT numero_badge FROM ent_eleve WHERE id = $1").bind(autre.id).fetch_one(ent.pool_verif()).await.unwrap();
     let coll = ent.declarer_badge_perdu(Role::Cpe.as_str(), etab, e.id, cpe, Some(&bautre)).await.unwrap().unwrap();
     assert!(coll.collision && coll.collision_eleve_id.is_none());
     // Le CPE ne gère pas l'INE ; le professeur ne gère rien.
@@ -550,7 +547,7 @@ async fn badge_perdu_et_droits_par_systeme() {
         "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'identifiants' AND action = 'consultation'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(n >= 1);
@@ -567,7 +564,7 @@ async fn numero_d_eleve_attribue_unique_immuable() {
     let a = eleve_avec(&ent, etab, "Num", None, None).await;
     let b = eleve_avec(&ent, etab, "Num", None, None).await;
     let num = |id: Uuid| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let (n,): (Option<String>,) = sqlx::query_as("SELECT numero FROM ent_eleve WHERE id = $1")
                 .bind(id)
@@ -586,17 +583,17 @@ async fn numero_d_eleve_attribue_unique_immuable() {
     // Immuable (même par l'administrateur de la base applicative).
     let modif = sqlx::query("UPDATE ent_eleve SET numero = 'X-1' WHERE id = $1")
         .bind(a.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(modif.is_err(), "le numéro a été modifié");
     let efface = sqlx::query("UPDATE ent_eleve SET numero = NULL WHERE id = $1")
         .bind(a.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(efface.is_err(), "le numéro a été effacé");
     // Une mise à jour héritée (upsert) ne consomme aucun numéro.
     let compteur = || {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let r: Option<(i64,)> = sqlx::query_as(
                 "SELECT derniere FROM ent_eleve_numero_compteur WHERE etablissement_id = $1
@@ -626,7 +623,7 @@ async fn numero_d_eleve_attribue_unique_immuable() {
     let dup = sqlx::query("UPDATE ent_eleve SET numero = $2 WHERE id = $1 AND false")
         .bind(b.id)
         .bind(&na)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(dup.is_ok());
     let (n_uniq,): (i64,) = sqlx::query_as(
@@ -634,7 +631,7 @@ async fn numero_d_eleve_attribue_unique_immuable() {
          GROUP BY numero HAVING count(*) > 1) d",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n_uniq, 0);
@@ -650,7 +647,7 @@ async fn numero_format_parametre_et_compteurs_par_etablissement() {
         "INSERT INTO ent_param_eleve_numero (etablissement_id, format, remise_a_zero_annuelle) VALUES ($1, 'E{seq:2}', false)",
     )
     .bind(b1)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let mut numeros = Vec::new();
@@ -658,7 +655,7 @@ async fn numero_format_parametre_et_compteurs_par_etablissement() {
         let e = eleve_avec(&ent, b1, "Fmt", None, None).await;
         let (n,): (String,) = sqlx::query_as("SELECT numero FROM ent_eleve WHERE id = $1")
             .bind(e.id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
         numeros.push(n);
@@ -668,20 +665,20 @@ async fn numero_format_parametre_et_compteurs_par_etablissement() {
     let e = eleve_avec(&ent, b2, "Fmt", None, None).await;
     let (n,): (String,) = sqlx::query_as("SELECT numero FROM ent_eleve WHERE id = $1")
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(n.ends_with("-00001"), "{n}");
     // Dépassement de la largeur : le numéro s'allonge, jamais tronqué.
     sqlx::query("UPDATE ent_eleve_numero_compteur SET derniere = 99 WHERE etablissement_id = $1 AND cle = 0")
         .bind(b1)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let e = eleve_avec(&ent, b1, "Fmt", None, None).await;
     let (n,): (String,) = sqlx::query_as("SELECT numero FROM ent_eleve WHERE id = $1")
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, "E100");
@@ -693,7 +690,7 @@ async fn numero_format_parametre_et_compteurs_par_etablissement() {
         .bind(Uuid::new_v4())
         .bind(fmt)
         .bind(raz)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
         assert!(r.is_err(), "format accepté à tort : {fmt}");
     }

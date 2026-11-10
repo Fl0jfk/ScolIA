@@ -48,7 +48,7 @@ async fn lignes(ent: &PgEnt, pid: Uuid) -> Vec<(String, String, bool, bool)> {
           WHERE personne_id = $1 ORDER BY du, valeur",
     )
     .bind(pid)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap()
 }
@@ -60,7 +60,7 @@ fn a_ligne(l: &[(String, String, bool, bool)], valeur: &str, ouverte: bool) -> b
 async fn legacy(ent: &PgEnt, pid: Uuid) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
     sqlx::query_as("SELECT email, telephone, telephone_2, adresse FROM ent_personne WHERE id = $1")
         .bind(pid)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap()
 }
@@ -71,14 +71,14 @@ async fn traces_de(ent: &PgEnt, pid: Uuid) -> String {
         "SELECT payload::text FROM ent_journal_modif WHERE payload->>'personne_id' = $1",
     )
     .bind(pid.to_string())
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     let e: Vec<(String,)> = sqlx::query_as(
         "SELECT payload::text FROM ent_metier_event WHERE aggregate_id = $1",
     )
     .bind(pid)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     j.into_iter().chain(e).map(|(t,)| t).collect::<Vec<_>>().join("\n")
@@ -156,7 +156,7 @@ async fn coordonnees_aucune_perdue_historique_sans_valeur() {
     // Un écrivain historique qui n'a jamais entendu parler des coordonnées (inscriptions, imports).
     sqlx::query("UPDATE ent_personne SET telephone = '07 11 22 33 44', adresse = NULL WHERE id = $1")
         .bind(p.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let l = lignes(&ent, p.id).await;
@@ -293,7 +293,7 @@ async fn coordonnees_commandes_et_regles() {
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, source) VALUES ($1,$2,'Ailleurs','saisie')")
         .bind(autre_p)
         .bind(autre)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(matches!(
@@ -332,7 +332,7 @@ async fn verification_par_code_et_remplacement_famille() {
     // En base : l'empreinte seule, jamais le code.
     let (hash,): (String,) = sqlx::query_as("SELECT code_hash FROM ent_coordonnee_verification WHERE coordonnee_id = $1 AND statut = 'envoye'")
         .bind(c.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(hash != code && !hash.contains(&code));
@@ -356,7 +356,7 @@ async fn verification_par_code_et_remplacement_famille() {
     }
     let (statut,): (String,) = sqlx::query_as("SELECT statut FROM ent_coordonnee_verification WHERE coordonnee_id = $1 ORDER BY envoye_le DESC LIMIT 1")
         .bind(c2.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(statut, "epuisee");
@@ -433,7 +433,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     assert!(!mine.valeur_compte_masquee.contains("exemple") || mine.valeur_compte_masquee.contains("•••"));
     assert!(!mine.valeur_compte_masquee.contains(&email_compte), "valeur masquée");
     // Le compte n'a pas bougé et la fiche non plus.
-    let (u,): (String,) = sqlx::query_as("SELECT email FROM ent_user WHERE id = $1").bind(user).fetch_one(ent.pool()).await.unwrap();
+    let (u,): (String,) = sqlx::query_as("SELECT email FROM ent_user WHERE id = $1").bind(user).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(u, email_compte);
     assert_eq!(legacy(&ent, pid).await.0.as_deref(), Some(perso.valeur.as_str()));
     // La personne voit sa propre divergence ; un autre compte ne la voit pas.
@@ -448,7 +448,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     assert!(refus(ent.resoudre_divergence_for_actor(etab, d, r, pid, "email", ChoixDivergence::DistinctVoulu, &None).await), "plus rien à résoudre");
     // L'e-mail du compte change (confirmation en deux temps) : la divergence revient.
     let nouveau_compte = format!("nouveau.{}@exemple.fr", Uuid::new_v4().simple());
-    sqlx::query("UPDATE ent_user SET email = $2 WHERE id = $1").bind(user).bind(&nouveau_compte).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_user SET email = $2 WHERE id = $1").bind(user).bind(&nouveau_compte).execute(ent.pool_verif()).await.unwrap();
     let div = ent.divergences_compte_for_actor(etab, d, r).await.unwrap();
     assert_eq!(div.iter().find(|x| x.personne_id == pid).map(|x| x.nature.as_str()), Some("absent_de_la_fiche"));
     // Adopter la valeur du compte : elle devient principale, l'ancienne reste dans la fiche.
@@ -466,18 +466,18 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     let u2 = Uuid::new_v4();
     let email_u2 = format!("u2.{}@exemple.fr", Uuid::new_v4().simple());
     sqlx::query("INSERT INTO ent_user (id, email, telephone, password_hash, display_name, created_at, updated_at) VALUES ($1,$2,'06 00 00 00 01','x','Ancien', now(), now())")
-        .bind(u2).bind(&email_u2).execute(ent.pool()).await.unwrap();
+        .bind(u2).bind(&email_u2).execute(ent.pool_verif()).await.unwrap();
     sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,'parent', now())")
-        .bind(u2).bind(etab).execute(ent.pool()).await.unwrap();
+        .bind(u2).bind(etab).execute(ent.pool_verif()).await.unwrap();
     let ancien = Uuid::new_v4();
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("ALTER TABLE ent_personne DISABLE TRIGGER ent_personne_coordonnee_legacy").execute(&mut *tx).await.unwrap();
     sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, email, telephone, telephone_2, adresse, user_id, source) VALUES ($1,$2,'Reprise','Fiche.Ancienne@Exemple.fr','06 22 33 44 55','bizarre 12',  '3 impasse X', $3, 'reprise')")
         .bind(ancien).bind(etab).bind(u2).execute(&mut *tx).await.unwrap();
     sqlx::query("ALTER TABLE ent_personne ENABLE TRIGGER ent_personne_coordonnee_legacy").execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     assert!(lignes(&ent, ancien).await.is_empty());
-    sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool()).await.unwrap();
+    sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool_verif()).await.unwrap();
     ent.migrate().await.unwrap();
     let l = lignes(&ent, ancien).await;
     assert!(a_ligne(&l, "fiche.ancienne@exemple.fr", true), "e-mail de la fiche repris");
@@ -487,7 +487,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     assert!(a_ligne(&l, &email_u2, true), "e-mail du compte ajouté (usage connexion)");
     assert!(a_ligne(&l, "+33600000001", true), "téléphone du compte ajouté");
     let (a_verifier,): (bool,) = sqlx::query_as("SELECT a_verifier FROM ent_personne_coordonnee WHERE personne_id = $1 AND valeur = 'bizarre 12'")
-        .bind(ancien).fetch_one(ent.pool()).await.unwrap();
+        .bind(ancien).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(a_verifier);
     let (email, tel, _, _) = legacy(&ent, ancien).await;
     assert_eq!(email.as_deref(), Some("fiche.ancienne@exemple.fr"));
@@ -497,7 +497,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     assert!(champs.contains(&"email") && champs.contains(&"telephone"), "divergences du rapport de reprise : {champs:?}");
     // Rejouer la reprise ne change rien (idempotente) : même nombre de lignes.
     let avant = lignes(&ent, ancien).await.len();
-    sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool()).await.unwrap();
+    sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool_verif()).await.unwrap();
     ent.migrate().await.unwrap();
     assert_eq!(lignes(&ent, ancien).await.len(), avant);
 }
@@ -530,7 +530,7 @@ async fn preferences_langue_canaux_et_versions() {
     assert!(p.courrier_papier && p.maj_le.is_some());
     // Le personnel lit les mêmes préférences ; l'envoi aux familles respecte le canal refusé.
     assert_eq!(ent.preferences_personne_for_actor(etab, d, r, pid).await.unwrap().langue.as_deref(), Some("fa-af"));
-    let (canal_sms,): (bool,) = sqlx::query_as("SELECT canal_sms FROM ent_personne_preference WHERE personne_id = $1").bind(pid).fetch_one(ent.pool()).await.unwrap();
+    let (canal_sms,): (bool,) = sqlx::query_as("SELECT canal_sms FROM ent_personne_preference WHERE personne_id = $1").bind(pid).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(!canal_sms);
     // Refus ou valeurs invalides.
     for mauvais in [
@@ -545,7 +545,7 @@ async fn preferences_langue_canaux_et_versions() {
     assert_eq!(ent.mes_preferences(etab, user).await.unwrap().langue.as_deref(), Some("fa-af"), "rien d'écrit en cas de refus");
     // Sans changement : aucune version supplémentaire.
     let n = |ent: &PgEnt| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_personne_preference_version WHERE personne_id = $1").bind(pid).fetch_one(&pool).await.unwrap();
             n
@@ -565,7 +565,7 @@ async fn preferences_langue_canaux_et_versions() {
     // Langue de la préinscription reprise comme repli.
     let (p2, u2) = personne_avec_compte(&ent, etab, "Repli", &format!("repli.{}@exemple.fr", Uuid::new_v4().simple())).await;
     sqlx::query("INSERT INTO ent_personne_reserve (id, etablissement_id, personne_id, langue) VALUES (gen_random_uuid(), $1, $2, 'ar')")
-        .bind(etab).bind(p2).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(p2).execute(ent.pool_verif()).await.unwrap();
     assert_eq!(ent.mes_preferences(etab, u2).await.unwrap().langue.as_deref(), Some("ar"));
     // Un parent ne lit pas les préférences d'une autre personne.
     assert!(matches!(
@@ -611,7 +611,7 @@ async fn consentements_administratifs_texte_versionne_et_retrait() {
     assert!(ent.mes_consentements(etab, user).await.unwrap().iter().all(|c| c.retire_le.is_some()));
     // Événement : objet et réponse sous forme de codes, aucune pièce, aucun nom.
     let evts: Vec<(String,)> = sqlx::query_as("SELECT payload::text FROM ent_metier_event WHERE aggregate_id = $1 AND type = 'personne.consentement_modifie'")
-        .bind(pid).fetch_all(ent.pool()).await.unwrap();
+        .bind(pid).fetch_all(ent.pool_verif()).await.unwrap();
     assert!(evts.len() >= 4);
     assert!(evts.iter().all(|(t,)| !t.contains("classeur") && !t.contains("Consent")));
     // Un parent ne lit ni n'écrit les consentements d'une autre personne.
@@ -661,7 +661,7 @@ async fn identite_versionnee_changement_sensible_scelle() {
     #[allow(clippy::type_complexity)]
     let brut: Vec<(Option<String>, Option<String>, bool, bool, Option<String>)> = sqlx::query_as(
         "SELECT prenom, civilite, masquee, sensible, valeurs_anterieures FROM ent_personne_version WHERE personne_id = $1 ORDER BY enregistre_le, id")
-        .bind(p.id).fetch_all(ent.pool()).await.unwrap();
+        .bind(p.id).fetch_all(ent.pool_verif()).await.unwrap();
     assert_eq!(brut.len(), 3);
     for v in &brut[..2] {
         assert!(v.0.is_none() && v.1.is_none() && v.2, "anciennes valeurs retirées des versions précédentes");
@@ -686,9 +686,9 @@ async fn identite_versionnee_changement_sensible_scelle() {
         assert!(!traces.contains(v), "valeur « {v} » dans les traces");
     }
     // Un écrivain historique ne contourne pas les versions.
-    sqlx::query("UPDATE ent_personne SET nom = 'Identite-Dupont' WHERE id = $1").bind(p.id).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_personne SET nom = 'Identite-Dupont' WHERE id = $1").bind(p.id).execute(ent.pool_verif()).await.unwrap();
     let (derniere,): (String,) = sqlx::query_as("SELECT nature FROM ent_personne_version WHERE personne_id = $1 ORDER BY enregistre_le DESC, id DESC LIMIT 1")
-        .bind(p.id).fetch_one(ent.pool()).await.unwrap();
+        .bind(p.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(derniere, "correction");
 }
 
@@ -706,7 +706,7 @@ async fn separation_nom_prenom_en_lot() {
         async move {
             let id = Uuid::new_v4();
             sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, source) VALUES ($1,$2,$3,'compte')")
-                .bind(id).bind(etab).bind(nom).execute(ent.pool()).await.unwrap();
+                .bind(id).bind(etab).bind(nom).execute(ent.pool_verif()).await.unwrap();
             id
         }
     };
@@ -733,7 +733,7 @@ async fn separation_nom_prenom_en_lot() {
     ));
     // Tout ou rien : une séparation fausse annule le lot.
     assert!(ent.separer_noms_for_actor(etab, d, r, &[sep(a, &format!("Dupont{tag}"), "Marie"), sep(b, "Autre", "Chose")]).await.is_err());
-    let (nom_a,): (String,) = sqlx::query_as("SELECT nom FROM ent_personne WHERE id = $1").bind(a).fetch_one(ent.pool()).await.unwrap();
+    let (nom_a,): (String,) = sqlx::query_as("SELECT nom FROM ent_personne WHERE id = $1").bind(a).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(nom_a, format!("Marie Dupont{tag}"), "rien d'écrit");
     // Validation humaine : le découpage de c est corrigé à la main (prénom composé).
     let n = ent
@@ -745,9 +745,9 @@ async fn separation_nom_prenom_en_lot() {
         .await
         .unwrap();
     assert_eq!(n, 3);
-    let (nom_c, prenom_c): (String, Option<String>) = sqlx::query_as("SELECT nom, prenom FROM ent_personne WHERE id = $1").bind(c).fetch_one(ent.pool()).await.unwrap();
+    let (nom_c, prenom_c): (String, Option<String>) = sqlx::query_as("SELECT nom, prenom FROM ent_personne WHERE id = $1").bind(c).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!((nom_c, prenom_c.as_deref()), (format!("Moreau{tag}"), Some("Jean Pierre")));
-    let (nature,): (String,) = sqlx::query_as("SELECT nature FROM ent_personne_version WHERE personne_id = $1 ORDER BY enregistre_le DESC, id DESC LIMIT 1").bind(a).fetch_one(ent.pool()).await.unwrap();
+    let (nature,): (String,) = sqlx::query_as("SELECT nature FROM ent_personne_version WHERE personne_id = $1 ORDER BY enregistre_le DESC, id DESC LIMIT 1").bind(a).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(nature, "separation_noms");
     assert!(!ent.propositions_separation_noms_for_actor(etab, d, r, 500).await.unwrap().iter().any(|p| p.personne_id == a));
     assert!(ent.separer_noms_for_actor(etab, d, r, &[sep(a, &format!("Dupont{tag}"), "Marie")]).await.is_err(), "déjà un prénom");
@@ -767,8 +767,8 @@ async fn compte_rattache_est_une_coordonnee_et_adresse_protegee_jamais_ecrite() 
     let p = ent.creer_personne_for_actor(etab, d, r, &saisie("Rattache", None, None)).await.unwrap();
     let email = format!("rattache.{}@exemple.fr", Uuid::new_v4().simple());
     let user = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at) VALUES ($1,$2,'x','R', now(), now())").bind(user).bind(&email).execute(ent.pool()).await.unwrap();
-    sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,'parent', now())").bind(user).bind(etab).execute(ent.pool()).await.unwrap();
+    sqlx::query("INSERT INTO ent_user (id, email, password_hash, display_name, created_at, updated_at) VALUES ($1,$2,'x','R', now(), now())").bind(user).bind(&email).execute(ent.pool_verif()).await.unwrap();
+    sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,'parent', now())").bind(user).bind(etab).execute(ent.pool_verif()).await.unwrap();
     ent.rattacher_compte_for_actor(etab, d, r, p.id, user).await.unwrap();
     let c = ent.coordonnees_personne_for_actor(etab, d, r, p.id, false).await.unwrap();
     let ligne = c.coordonnees.iter().find(|c| c.valeur == email).expect("compte = coordonnée");
@@ -777,7 +777,7 @@ async fn compte_rattache_est_une_coordonnee_et_adresse_protegee_jamais_ecrite() 
 
     // Adresse protégée en attente de la direction : aucune adresse en clair n'est écrite.
     sqlx::query("INSERT INTO ent_adresse_protegee (id, etablissement_id, personne_id, adresse, origine) VALUES (gen_random_uuid(), $1, $2, 'enc:v1:x', 'saisie')")
-        .bind(etab).bind(p.id).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(p.id).execute(ent.pool_verif()).await.unwrap();
     assert!(refus_de(ent.ajouter_coordonnee_for_actor(etab, d, r, p.id, &saisie_coord("adresse", "5 rue Secrète 75001 Paris")).await, RefusMetier::Interdit));
     assert!(lignes(&ent, p.id).await.iter().all(|(t, _, _, _)| t != "adresse"));
     // Le personnel sans droit sur les adresses (F2) ne les voit pas dans la fiche.
@@ -805,7 +805,7 @@ async fn normalisation_e164_concorde_avec_sql() {
         "+33912345678", "+1 202 555 0143", "(06) 12-34/56 78", "00 33 6 12 34 56 78", "+33 1234", "0212",
         "+3 12345678901234", "+3 123456789012345",
     ] {
-        let (sql,): (Option<String>,) = sqlx::query_as("SELECT ent_tel_e164($1)").bind(brut).fetch_one(ent.pool()).await.unwrap();
+        let (sql,): (Option<String>,) = sqlx::query_as("SELECT ent_tel_e164($1)").bind(brut).fetch_one(ent.pool_verif()).await.unwrap();
         assert_eq!(crate::dossier_personnes::normaliser_telephone(brut), sql, "« {brut} »");
     }
 }
@@ -858,7 +858,7 @@ async fn revue_securite_a2_promotion_motif_compte_et_correction_sensible() {
         &IdentiteSaisie { nom: "Revue2".into(), prenom: Some("Nouveau".into()), civilite: None },
         NatureIdentite::Correction, None, "correction d'un prénom").await.unwrap();
     let clair: Vec<(Option<String>,)> = sqlx::query_as("SELECT prenom FROM ent_personne_version WHERE personne_id = $1 AND prenom = 'Ancien'")
-        .bind(p.id).fetch_all(ent.pool()).await.unwrap();
+        .bind(p.id).fetch_all(ent.pool_verif()).await.unwrap();
     assert!(clair.is_empty(), "l'ancien prénom n'est plus en clair");
     // Plafond par personne : retirer puis rajouter une coordonnée ne remet pas le compteur à zéro.
     let (p3, u3) = personne_avec_compte(&ent, etab, "Plafond", &format!("pl.{}@exemple.fr", Uuid::new_v4().simple())).await;

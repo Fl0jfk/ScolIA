@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use domain_eleve::{Absence, AbsenceStatut, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgAbsenceRepo {
     pool: PgPool,
@@ -13,7 +14,9 @@ impl PgAbsenceRepo {
     }
 
     pub async fn upsert(&self, absence: &Absence) -> Result<(), DomainError> {
-        Self::upsert_sur(&self.pool, absence).await
+        let mut tx = TenantTx::begin(&self.pool, absence.etablissement_id).await.map_err(map_sqlx)?;
+        Self::upsert_sur(&mut *tx, absence).await?;
+        tx.commit().await.map_err(map_sqlx)
     }
 
     /// Même écriture, dans la transaction de l'appelant (fait + événement).
@@ -98,7 +101,7 @@ impl PgAbsenceRepo {
         )
         .bind(etablissement_id)
         .bind(absence_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AbsenceRow::into_absence))
@@ -120,7 +123,7 @@ impl PgAbsenceRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(AbsenceRow::into_absence).collect())
@@ -145,7 +148,7 @@ impl PgAbsenceRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(AbsenceRow::into_absence).collect())
@@ -169,7 +172,7 @@ impl PgAbsenceRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(depuis)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n)
@@ -218,7 +221,7 @@ impl PgAbsenceRepo {
         .bind(depuis)
         .bind(classe)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows)
@@ -244,7 +247,7 @@ impl PgAbsenceRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.is_some())

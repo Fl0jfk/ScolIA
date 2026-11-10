@@ -1,6 +1,7 @@
 use domain_eleve::{DomainError, EdtContrainte, EdtContrainteKind};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgEdtContrainteRepo {
     pool: PgPool,
@@ -12,6 +13,7 @@ impl PgEdtContrainteRepo {
     }
 
     pub async fn insert(&self, c: &EdtContrainte) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_edt_contrainte (
@@ -32,9 +34,10 @@ impl PgEdtContrainteRepo {
         .bind(&c.detail)
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -53,7 +56,7 @@ impl PgEdtContrainteRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_contrainte).collect())

@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use domain_eleve::{DomainError, Eleve, EleveStatus};
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 /// Paramètres de [`PgEleveRepo::rechercher`] : tout ce que l'appelant a le droit de voir.
 pub(crate) struct ParamsRecherche<'a> {
@@ -47,7 +48,7 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
 
@@ -76,7 +77,7 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(badge)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(EleveRow::into_eleve))
@@ -99,7 +100,7 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -154,7 +155,7 @@ impl PgEleveRepo {
         .bind(like)
         .bind(limit)
         .bind(par_badge)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
@@ -311,7 +312,7 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
@@ -346,7 +347,7 @@ impl PgEleveRepo {
         .bind(etablissement_id)
         .bind(classe)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
 
@@ -371,7 +372,7 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n)
@@ -398,15 +399,16 @@ impl PgEleveRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EleveRow::into_eleve).collect())
     }
 
     pub async fn upsert(&self, eleve: &Eleve) -> Result<(), DomainError> {
-        let mut conn = self.pool.acquire().await.map_err(map_sqlx)?;
-        Self::upsert_sur(&mut conn, eleve).await
+        let mut tx = TenantTx::begin(&self.pool, eleve.etablissement_id).await.map_err(map_sqlx)?;
+        Self::upsert_sur(&mut tx, eleve).await?;
+        tx.commit().await.map_err(map_sqlx)
     }
 
     /// Lecture avec verrou de ligne dans la transaction du fait métier (E0) :

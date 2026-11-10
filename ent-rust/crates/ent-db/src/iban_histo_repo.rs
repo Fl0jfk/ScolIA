@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::DomainError;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IbanHisto {
@@ -37,6 +38,7 @@ impl PgIbanHistoRepo {
         let iban = self.champs.sceller(T_HISTO, "iban", h.id, &h.iban)?;
         let bic = self.champs.sceller_opt(T_HISTO, "bic", h.id, h.bic.as_deref())?;
         let titulaire = self.champs.sceller(T_HISTO, "titulaire", h.id, &h.titulaire)?;
+        let mut tx = TenantTx::begin(&self.pool, h.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_foyer_iban_histo (
@@ -54,9 +56,10 @@ impl PgIbanHistoRepo {
         .bind(h.mandat_id)
         .bind(h.created_by_user_id)
         .bind(h.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -79,7 +82,7 @@ impl PgIbanHistoRepo {
         .bind(etablissement_id)
         .bind(foyer_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         rows.into_iter().map(|r| r.into_histo(&self.champs)).collect()

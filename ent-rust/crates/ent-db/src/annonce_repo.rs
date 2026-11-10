@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{Annonce, AudienceAnnonce, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgAnnonceRepo {
     pool: PgPool,
@@ -14,6 +15,7 @@ impl PgAnnonceRepo {
     }
 
     pub async fn insert(&self, a: &Annonce) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_annonce (
@@ -30,9 +32,10 @@ impl PgAnnonceRepo {
         .bind(&a.cible_classe)
         .bind(a.auteur_user_id)
         .bind(a.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -50,7 +53,7 @@ impl PgAnnonceRepo {
         )
         .bind(etablissement_id)
         .bind(limit.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(AnnonceSql::into_annonce).collect())
@@ -80,7 +83,7 @@ impl PgAnnonceRepo {
         .bind(etablissement_id)
         .bind(classe)
         .bind(limit.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(AnnonceSql::into_annonce).collect())

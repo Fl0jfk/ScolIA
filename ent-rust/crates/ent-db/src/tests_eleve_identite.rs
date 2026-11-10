@@ -10,10 +10,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -62,7 +59,7 @@ async fn piece(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
     .bind(id)
     .bind(etab)
     .bind(eleve)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -105,7 +102,7 @@ async fn projection(ent: &PgEnt, eleve: Uuid) -> Projection {
          FROM ent_eleve WHERE id = $1",
     )
     .bind(eleve)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap()
 }
@@ -125,7 +122,7 @@ async fn creation_ecrit_la_version_initiale() {
              FROM ent_eleve_identite WHERE eleve_id = $1",
         )
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!((nature.as_str(), source.as_str()), ("creation", "saisie"));
@@ -151,7 +148,7 @@ async fn reprise_de_l_existant_idempotente() {
     let id = Uuid::new_v4();
     let nom = unique("Ancien");
     // Élève « ancien » : inséré sans que le trigger de création écrive de version.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("ALTER TABLE ent_eleve DISABLE TRIGGER ent_eleve_identite_initiale")
         .execute(&mut *tx)
         .await
@@ -174,18 +171,18 @@ async fn reprise_de_l_existant_idempotente() {
     let sans: (Option<Uuid>,) =
         sqlx::query_as("SELECT identite_version_id FROM ent_eleve WHERE id = $1")
             .bind(id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert!(sans.0.is_none());
 
     let (n1,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_reprendre()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(n1 >= 1);
     let (n2,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_reprendre()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n2, 0, "la reprise doit être idempotente");
@@ -194,7 +191,7 @@ async fn reprise_de_l_existant_idempotente() {
     let (versions,): (i64,) =
         sqlx::query_as("SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1")
             .bind(id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(versions, 1);
@@ -203,7 +200,7 @@ async fn reprise_de_l_existant_idempotente() {
         "SELECT nature, source, nom_naissance, sexe FROM ent_eleve_identite WHERE eleve_id = $1",
     )
     .bind(id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((nature.as_str(), source.as_str()), ("reprise", "reprise"));
@@ -214,7 +211,7 @@ async fn reprise_de_l_existant_idempotente() {
          WHERE eleve_id = $1 AND champ = 'sexe'",
     )
     .bind(id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(
@@ -231,7 +228,7 @@ async fn reprise_de_l_existant_idempotente() {
             OR e.nom_naissance IS DISTINCT FROM v.nom_naissance
             OR e.date_naissance IS DISTINCT FROM v.date_naissance",
     )
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(ecarts, 0, "projection ≠ version");
@@ -261,7 +258,7 @@ async fn correction_remplace_changement_ajoute() {
     let (remplacee_par, effet0): (Option<Uuid>, NaiveDate) =
         sqlx::query_as("SELECT remplacee_par, effet_du FROM ent_eleve_identite WHERE id = $1")
             .bind(v0)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(remplacee_par, Some(r.version.id));
@@ -331,13 +328,13 @@ async fn correction_remplace_changement_ajoute() {
     // … puis la tâche quotidienne la projette (idempotente).
     sqlx::query("SELECT ent_eleve_identite_resynchroniser($1)")
         .bind(futur)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(projection(&ent, e.id).await.nom, nouveau_nom);
     let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser($1)")
         .bind(futur)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 0);
@@ -352,7 +349,7 @@ async fn correction_remplace_changement_ajoute() {
     // Retour à aujourd'hui : la version annoncée n'est pas encore effective, la fiche
     // retrouve la version en vigueur (la correction).
     sqlx::query("SELECT ent_eleve_identite_resynchroniser(current_date)")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(projection(&ent, e.id).await.nom, corrige);
@@ -400,7 +397,7 @@ async fn ecriture_directe_refusee() {
         "UPDATE ent_eleve_identite SET sensible = true WHERE eleve_id = $1",
         "DELETE FROM ent_eleve_identite WHERE eleve_id = $1",
     ] {
-        let r = sqlx::query(sql).bind(e.id).execute(ent.pool()).await;
+        let r = sqlx::query(sql).bind(e.id).execute(ent.pool_verif()).await;
         let refus = r.expect_err(sql);
         let code = refus
             .as_database_error()
@@ -410,7 +407,7 @@ async fn ecriture_directe_refusee() {
     // Les autres colonnes restent modifiables, et l'identité n'a pas bougé.
     sqlx::query("UPDATE ent_eleve SET regime = 'DP' WHERE id = $1")
         .bind(e.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let p = projection(&ent, e.id).await;
@@ -419,7 +416,7 @@ async fn ecriture_directe_refusee() {
     // d'upsert historiques réécrivent la ligne entière sans la changer.
     sqlx::query("UPDATE ent_eleve SET nom = nom WHERE id = $1")
         .bind(e.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
 }
@@ -476,7 +473,7 @@ async fn aucun_etat_civil_dans_les_evenements() {
         "SELECT payload FROM ent_metier_event WHERE eleve_id = $1 AND type = 'eleve.identity_changed'",
     )
     .bind(e.id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(evenements.len(), 2);
@@ -485,7 +482,7 @@ async fn aucun_etat_civil_dans_les_evenements() {
          WHERE eleve_id = $1 AND action LIKE 'identite_%'",
     )
     .bind(e.id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(journal.len(), 2);
@@ -589,7 +586,7 @@ async fn droits_ecriture_et_historique() {
         "SELECT count(*) FROM ent_journal_modif WHERE eleve_id = $1 AND domaine = 'identite'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(n >= 2);
@@ -650,7 +647,7 @@ async fn ancienne_saisie_d_identite_passe_par_une_version() {
         "SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1 AND nature = 'correction'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 1);
@@ -702,7 +699,7 @@ async fn date_incomplete_motif_code_sensibilite_forcee() {
         "SELECT date_naissance_precision, date_naissance_statut FROM ent_eleve WHERE id = $1",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((prec.as_str(), stat.as_str()), ("jour", "declaree"));
@@ -727,7 +724,7 @@ async fn date_incomplete_motif_code_sensibilite_forcee() {
         "SELECT date_naissance_precision, date_naissance_statut FROM ent_eleve WHERE id = $1",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((prec.as_str(), stat.as_str()), ("mois", "presumee"));
@@ -735,7 +732,7 @@ async fn date_incomplete_motif_code_sensibilite_forcee() {
     let direct =
         sqlx::query("UPDATE ent_eleve SET date_naissance_precision = 'jour' WHERE id = $1")
             .bind(e.id)
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await;
     assert!(direct.is_err());
 
@@ -798,7 +795,7 @@ async fn date_incomplete_motif_code_sensibilite_forcee() {
     )
     .bind(c.version.id)
     .bind(ma_piece)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await;
     assert!(refus.is_err(), "adoption non sensible acceptée par la base");
 }

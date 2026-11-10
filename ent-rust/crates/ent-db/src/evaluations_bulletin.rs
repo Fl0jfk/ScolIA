@@ -38,6 +38,7 @@ use crate::evaluations::{
 };
 use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 fn empreinte(octets: &[u8]) -> String {
     let h = Sha256::digest(octets);
@@ -216,6 +217,7 @@ impl PgEnt {
         debut: NaiveDate,
         fin: NaiveDate,
     ) -> Result<Compteurs, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let absences: Vec<(Uuid, i64, i64)> = sqlx::query_as(
             "SELECT eleve_id, count(*)::bigint,
                     count(*) FILTER (WHERE statut <> 'justifiee')::bigint
@@ -228,7 +230,7 @@ impl PgEnt {
         .bind(eleves)
         .bind(debut)
         .bind(fin)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let retards: Vec<(Uuid, i64)> = sqlx::query_as(
@@ -240,7 +242,7 @@ impl PgEnt {
         .bind(eleves)
         .bind(debut)
         .bind(fin)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut out: Compteurs = HashMap::new();
@@ -257,7 +259,7 @@ impl PgEnt {
     async fn eva_nom_etablissement(&self, etab: Uuid) -> Result<String, EntDbError> {
         let row: Option<(String,)> = sqlx::query_as("SELECT nom FROM ent_etablissement WHERE id = $1")
             .bind(etab)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         Ok(row.map(|(n,)| n).unwrap_or_else(|| "Établissement".into()))
@@ -271,6 +273,7 @@ impl PgEnt {
     ) -> Result<Vec<(Uuid, BulletinContenuDto)>, EntDbError> {
         let a = calc.regles.arrondi;
         let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let apprs: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT eleve_id, matiere_id, texte FROM ent_note_appreciation
               WHERE etablissement_id = $1 AND periode_id = $2 AND eleve_id = ANY($3)",
@@ -278,7 +281,7 @@ impl PgEnt {
         .bind(etab)
         .bind(calc.periode.id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         // Décisions du conseil le plus récent (non annulé) de la classe pour la période.
@@ -295,7 +298,7 @@ impl PgEnt {
         .bind(etab)
         .bind(calc.classe_id)
         .bind(calc.periode.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let compteurs = self
@@ -400,6 +403,7 @@ impl PgEnt {
         // Première passe : ce qui change, sans rien écrire.
         let mut a_creer = Vec::new();
         let mut inchanges = 0u32;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         for (eleve, contenu) in contenus {
             let fond = serde_json::to_vec(&contenu).map_err(|_| refus("bulletin non sérialisable"))?;
             let emp = empreinte(&fond);
@@ -411,7 +415,7 @@ impl PgEnt {
             .bind(etab)
             .bind(eleve)
             .bind(body.periode_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             match dernier {
@@ -426,7 +430,7 @@ impl PgEnt {
             }
         }
         let mut crees = Vec::new();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if statut_periode_tx(&mut tx, etab, body.periode_id).await? != NotePeriodeStatut::Fermee {
             return Err(conflit("période non fermée : bulletin impossible"));
         }
@@ -491,7 +495,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(bulletin_de).collect())
@@ -515,6 +519,7 @@ impl PgEnt {
             .eva_effectif(etab, Some(body.classe_id), None, periode.date_debut, periode.date_fin)
             .await?;
         let ids: Vec<Uuid> = effectif.iter().map(|e| e.0).collect();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a_publier: Vec<(Uuid, Uuid, i32, String)> = sqlx::query_as(
             "SELECT id, eleve_id, version, storage_key FROM ent_bulletin
               WHERE etablissement_id = $1 AND periode_id = $2 AND eleve_id = ANY($3) AND statut = 'genere'
@@ -523,12 +528,12 @@ impl PgEnt {
         .bind(etab)
         .bind(body.periode_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let total = ids.len() as u32;
         let mut publies = Vec::new();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if statut_periode_tx(&mut tx, etab, body.periode_id).await? != NotePeriodeStatut::Fermee {
             return Err(conflit("période rouverte : régénérer après fermeture avant de publier"));
         }
@@ -650,7 +655,7 @@ impl PgEnt {
         .bind(etab)
         .bind(periode_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(bulletin_de).collect())
@@ -685,7 +690,7 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve_id)
         .bind(staff)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(bulletin_de).collect())
@@ -704,7 +709,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(bulletin_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let (eleve_id, statut, contenu, key) = row.ok_or_else(introuvable)?;
@@ -781,11 +786,12 @@ impl PgEnt {
         let calc = self.eva_calculer_classe(etab, classe_id, periode_id, false).await?;
         let a = calc.regles.arrondi;
         let ids: Vec<Uuid> = calc.eleves.iter().map(|e| e.0).collect();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ines: Vec<(Uuid, Option<String>)> =
             sqlx::query_as("SELECT id, ine FROM ent_eleve WHERE etablissement_id = $1 AND id = ANY($2)")
                 .bind(etab)
                 .bind(&ids)
-                .fetch_all(self.pool())
+                .fetch_all(&mut *tx)
                 .await
                 .map_err(db)?;
         let ines: HashMap<Uuid, String> = ines
@@ -799,7 +805,7 @@ impl PgEnt {
         .bind(etab)
         .bind(periode_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let compteurs = self
@@ -816,7 +822,7 @@ impl PgEnt {
         .bind(etab)
         .bind(&ids)
         .bind(calc.periode.date_debut)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let comps: Vec<(Uuid, String, i16)> = sqlx::query_as(
@@ -825,7 +831,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(bilans.iter().map(|b| b.0).collect::<Vec<_>>())
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let uai: Option<(String,)> = sqlx::query_as(
@@ -833,7 +839,7 @@ impl PgEnt {
               ORDER BY code LIMIT 1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         // Rang de la période dans son année scolaire.
@@ -850,7 +856,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(calc.periode.date_debut)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let indice = soeurs.iter().position(|(id,)| *id == periode_id).map(|i| i + 1).unwrap_or(1);
@@ -921,7 +927,7 @@ impl PgEnt {
         xml_bien_forme(&contenu).map_err(|_| refus("export XML mal formé"))?;
         let emp = empreinte(contenu.as_bytes());
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_eva_export (id, etablissement_id, format, periode_id, classe_id, nb_eleves, empreinte,
                                          conforme_verifie, exporte_par_user_id)

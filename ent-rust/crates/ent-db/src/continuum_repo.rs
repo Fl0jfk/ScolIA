@@ -4,6 +4,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgContinuumRepo {
     pool: PgPool,
@@ -18,6 +19,7 @@ impl PgContinuumRepo {
         &self,
         c: &ReinscriptionCampagne,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_reinscription_campagne (
@@ -49,9 +51,10 @@ impl PgContinuumRepo {
         .bind(&c.annee_cible)
         .bind(c.ouverte)
         .bind(c.acompte_centimes)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -69,13 +72,14 @@ impl PgContinuumRepo {
         )
         .bind(etablissement_id)
         .bind(annee_cible)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(CampagneRow::into_campagne))
     }
 
     pub async fn upsert_scolarite(&self, s: &ScolariteAnnee) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_scolarite_annee (
@@ -113,9 +117,10 @@ impl PgContinuumRepo {
         .bind(s.passage_juridique)
         .bind(s.redoublement_possible)
         .bind(s.date_montee)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -137,7 +142,7 @@ impl PgContinuumRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(annee_scolaire)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ScolariteRow::into_scol))
@@ -160,7 +165,7 @@ impl PgContinuumRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(ScolariteRow::into_scol).collect())
@@ -184,7 +189,7 @@ impl PgContinuumRepo {
         )
         .bind(etablissement_id)
         .bind(annee_scolaire)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(ScolariteRow::into_scol).collect())
@@ -204,6 +209,7 @@ impl PgContinuumRepo {
     }
 
     pub async fn upsert_option_annee(&self, o: &OptionAnnee) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, o.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_option_annee (
@@ -224,9 +230,10 @@ impl PgContinuumRepo {
         .bind(&o.code)
         .bind(&o.libelle)
         .bind(o.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -248,7 +255,7 @@ impl PgContinuumRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(annee_scolaire)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(OptAnneeRow::into_opt).collect())
@@ -271,6 +278,7 @@ impl PgContinuumRepo {
         &self,
         e: &ExigenceDocReinscription,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_reinscription_exigence_doc (
@@ -290,9 +298,10 @@ impl PgContinuumRepo {
         .bind(&e.libelle)
         .bind(e.tiroir.as_str())
         .bind(e.obligatoire)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -311,7 +320,7 @@ impl PgContinuumRepo {
         )
         .bind(etablissement_id)
         .bind(annee_cible)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(ExigenceRow::into_ex).collect())

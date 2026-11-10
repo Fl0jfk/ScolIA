@@ -653,7 +653,7 @@ impl PgEnt {
         let voit_sensible = self
             .autoriser_eleve(etab, acteur, role, Action::ElevesConfidentielGerer, eleve)
             .await?;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let versions = PgIdentiteRepo::historique(&mut conn, etab, eleve).await?;
         drop(conn);
         if versions.is_empty() {
@@ -679,10 +679,22 @@ impl PgEnt {
     /// Tâche quotidienne : une version annoncée devenue effective est projetée sur la
     /// fiche. Idempotente ; renvoie le nombre d'élèves resynchronisés.
     pub async fn resynchroniser_identites(&self) -> Result<i64, EntDbError> {
-        let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser(current_date)")
-            .fetch_one(self.pool())
-            .await?;
-        Ok(n)
+        // Fonction transverse : une fois par établissement, dans son contexte (RLS stricte).
+        let mut total = 0;
+        for etab in crate::tenant_tx::etablissements_systeme(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::TacheNocturneEleves,
+        )
+        .await?
+        {
+            let mut tx = TenantTx::begin(self.pool(), etab).await?;
+            let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser(current_date)")
+                .fetch_one(&mut *tx)
+                .await?;
+            tx.commit().await?;
+            total += n;
+        }
+        Ok(total)
     }
 }
 

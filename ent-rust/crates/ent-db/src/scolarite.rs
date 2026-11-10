@@ -34,7 +34,7 @@ use uuid::Uuid;
 use crate::eleve_repo::PgEleveRepo;
 use crate::outbox::Publier;
 use crate::service::{EntDbError, PgEnt};
-use crate::tenant_tx::TenantTx;
+use crate::tenant_tx::{lire_par_etablissement, ContexteSysteme, TenantTx};
 
 fn erreur(e: ErreurScolarite) -> EntDbError {
     match e {
@@ -448,7 +448,7 @@ impl PgEnt {
 
     /// Jour courant dans le fuseau de l'établissement (R-E15).
     pub async fn jour_etablissement(&self, etab: Uuid) -> Result<NaiveDate, EntDbError> {
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         Ok(Repo::jour(&mut conn, etab).await?)
     }
 
@@ -1239,13 +1239,14 @@ impl PgEnt {
             "SELECT dates_changement, dates FROM ent_param_eleve_regime WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         let Some((mode, dates)) = p else { return Ok(DatesChangement::Libre) };
         let fins = |kind: Option<&str>| {
             let kind = kind.map(String::from);
             let pool = self.pool().clone();
             async move {
+                let mut tx = TenantTx::begin(&pool, etab).await?;
                 let l: Vec<(NaiveDate,)> = sqlx::query_as(
                     "SELECT p.date_fin FROM ent_periode p
                      JOIN ent_annee_scolaire a ON a.id = p.annee_id
@@ -1256,7 +1257,7 @@ impl PgEnt {
                 .bind(etab)
                 .bind(annee_jour)
                 .bind(kind)
-                .fetch_all(&pool)
+                .fetch_all(&mut *tx)
                 .await?;
                 Ok::<_, sqlx::Error>(l.into_iter().map(|(d,)| d).collect::<Vec<_>>())
             }
@@ -1611,7 +1612,7 @@ impl PgEnt {
         if !self.autoriser_eleve(etab, acteur, role, Action::ElevesLire, eleve).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
@@ -1634,7 +1635,7 @@ impl PgEnt {
         drop(conn);
         self.tracer_acces_sensible(etab, acteur, role, Some(eleve), "scolarite", "consultation",
             "Consultation de la scolarité de l'élève").await;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let sql = format!(
             "SELECT {COL_INSC} FROM ent_eleve_inscription WHERE etablissement_id = $1 AND eleve_id = $2
              ORDER BY date_debut DESC NULLS LAST"
@@ -1657,7 +1658,7 @@ impl PgEnt {
         parent: Uuid,
         eleve: Uuid,
     ) -> Result<(String, Vec<ScolarisationEleve>, Vec<InscriptionEleve>, Vec<(Uuid, String)>), EntDbError> {
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let lien: Option<(Uuid,)> = sqlx::query_as(
             "SELECT personne_id FROM ent_eleve_lien_actif
               WHERE etablissement_id = $1 AND user_id = $2 AND eleve_id = $3",
@@ -1723,7 +1724,7 @@ impl PgEnt {
             .bind(etab)
             .bind(eleve)
             .bind(jour)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await?;
         Ok(s)
     }
@@ -1743,10 +1744,11 @@ impl PgEnt {
             ..Default::default()
         };
         // — Statuts dérivés —
-        let changes: Vec<(Uuid, Uuid, Option<String>, String)> = sqlx::query_as(
+        let changes: Vec<(Uuid, Uuid, Option<String>, String)> = lire_par_etablissement(
+            self.pool(),
+            ContexteSysteme::TacheNocturneEleves,
             "SELECT etablissement_id, eleve_id, ancien, nouveau FROM ent_eleve_statut_recalculer()",
         )
-        .fetch_all(self.pool())
         .await?;
         for (etab, eleve, ancien, nouveau) in changes {
             // Un échec sur un élève ne bloque ni les autres ni les autres établissements.
@@ -1778,7 +1780,9 @@ impl PgEnt {
         }
         // Répercussions de sortie (idempotentes) : on rejoue les sorties des 3 derniers jours, pour
         // qu'un échec ponctuel ou une sortie datée dans le futur ne soit jamais perdu.
-        let sorties: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
+        let sorties: Vec<(Uuid, Uuid, NaiveDate)> = lire_par_etablissement(
+            self.pool(),
+            ContexteSysteme::TacheNocturneEleves,
             "SELECT e.etablissement_id, e.id, max(s.date_sortie)
              FROM ent_eleve e JOIN ent_eleve_scolarisation s
                ON s.etablissement_id = e.etablissement_id AND s.eleve_id = e.id
@@ -1787,7 +1791,6 @@ impl PgEnt {
                AND s.date_sortie <= ent_jour_etablissement(e.etablissement_id)
              GROUP BY e.etablissement_id, e.id",
         )
-        .fetch_all(self.pool())
         .await?;
         for (etab, eleve, date) in sorties {
             match self.appliquer_repercussions_sortie(etab, eleve, date, None).await {
@@ -1796,10 +1799,11 @@ impl PgEnt {
             }
         }
         // — Majorité —
-        let dues: Vec<(Uuid, Uuid, String, NaiveDate, NaiveDate, bool)> = sqlx::query_as(
+        let dues: Vec<(Uuid, Uuid, String, NaiveDate, NaiveDate, bool)> = lire_par_etablissement(
+            self.pool(),
+            ContexteSysteme::TacheNocturneEleves,
             "SELECT etablissement_id, eleve_id, sorte, majorite_le, jour, presumee FROM ent_eleve_majorites_a_traiter()",
         )
-        .fetch_all(self.pool())
         .await?;
         for (etab, eleve, sorte, majorite_le, jour, presumee) in dues {
             // Fenêtre de rattrapage : au-delà de 14 jours après le jour des 18 ans (première mise

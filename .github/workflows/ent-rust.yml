@@ -219,6 +219,63 @@ jobs:
           path: ${{ runner.temp }}/execution-labo-${{ matrix.tranche }}.log
           retention-days: 7
 
+  # RLS stricte (docs/securite/RLS_STRICTE.md §5) : les suites des domaines CONVERTIS rejouées avec
+  # ENT_RLS_MODE=strict. Le harnais (tests_rls_stricte.rs) prépare la base avec le rôle propriétaire puis fait
+  # tourner le code testé sur un rôle applicatif non propriétaire, sans BYPASSRLS, `app.rls_strict = on` au
+  # niveau du rôle : tout accès qui oublie le contexte d'établissement voit 0 ligne et ne peut rien écrire.
+  # Un domaine n'entre dans ce filtre qu'une fois converti ET vert ; la liste des domaines restants est dans
+  # docs/securite/RLS_STRICTE.md §7. Ces tests sont AUSSI exécutés (en mode normal) par tests-labo : le contrôle
+  # de couverture ne regarde que les journaux `execution-labo*` et `execution-sans-labo*`.
+  tests-rls-stricte:
+    name: Backend — suites de domaine en RLS stricte (tranche ${{ matrix.tranche }}/12)
+    needs: backend-archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        tranche: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ent_ci
+          POSTGRES_DB: ent_ci_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ent_ci" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      ENT_DATABASE_URL: postgres://ent_ci@127.0.0.1:5432/ent_ci_test
+      ENT_ENV: test
+      ENT_RLS_MODE: strict
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - uses: actions/download-artifact@v4
+        with:
+          name: archives-nextest
+          path: ${{ runner.temp }}/archives
+      - name: Suites converties en mode strict — tranche ${{ matrix.tranche }} sur 12 (un fil, base propre à la tranche)
+        working-directory: ent-rust
+        run: |
+          set -o pipefail
+          cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
+            -E 'test(/^tests_(eleve_|dossier_personnes|finances|inscriptions|administratif_a[012]|sante|messagerie_m0a|vie_scolaire|evaluations|roles|rls_stricte)/)' \
+            --partition count:${{ matrix.tranche }}/12 --test-threads 1 --no-fail-fast --color never \
+            2>&1 | tee "$RUNNER_TEMP/execution-rls-stricte-${{ matrix.tranche }}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-rls-stricte-${{ matrix.tranche }}
+          path: ${{ runner.temp }}/execution-rls-stricte-${{ matrix.tranche }}.log
+          retention-days: 7
+
   tests-sans-labo:
     name: Backend — tests sans la feature labo (404 labo / register, /login sans mot de passe)
     needs: backend-archive
@@ -267,7 +324,7 @@ jobs:
     # Nom conservé : c'est le contrôle que la règle 6 de PILOTAGE.md attend.
     name: Backend (clippy, compilation, tests)
     if: always()
-    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo]
+    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo, tests-rls-stricte]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -341,8 +398,8 @@ jobs:
         if: always()
         run: |
           set -eu
-          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }}"
-          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}"; do
+          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }} rls-stricte=${{ needs.tests-rls-stricte.result }}"
+          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}" "${{ needs.tests-rls-stricte.result }}"; do
             if [ "$r" != "success" ]; then
               echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
               exit 1

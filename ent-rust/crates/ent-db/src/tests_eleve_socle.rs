@@ -8,10 +8,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -46,7 +43,7 @@ fn unique(prefixe: &str) -> String {
 }
 
 async fn un_i64(ent: &PgEnt, sql: &str, a: Uuid) -> i64 {
-    let (n,): (i64,) = sqlx::query_as(sql).bind(a).fetch_one(ent.pool()).await.unwrap();
+    let (n,): (i64,) = sqlx::query_as(sql).bind(a).fetch_one(ent.pool_verif()).await.unwrap();
     n
 }
 
@@ -127,7 +124,7 @@ async fn creation_ecrit_journal_et_evenement_sans_etat_civil() {
         "SELECT payload FROM ent_metier_event WHERE eleve_id = $1 AND type = 'eleve.created'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let texte = payload.to_string();
@@ -162,18 +159,18 @@ async fn creation_defaite_si_le_journal_echoue() {
          BEGIN IF NEW.action IN ('eleve_cree','identite_modifiee','identite_correction') THEN
            RAISE EXCEPTION 'journal refusé (test)'; END IF; RETURN NEW; END $$",
     )
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     sqlx::query("DROP TRIGGER IF EXISTS ent_test_refuse_journal ON ent_journal_modif")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query(
         "CREATE TRIGGER ent_test_refuse_journal BEFORE INSERT ON ent_journal_modif
          FOR EACH ROW EXECUTE FUNCTION ent_test_refuse_journal()",
     )
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let resultat = ent
@@ -181,13 +178,13 @@ async fn creation_defaite_si_le_journal_echoue() {
         .await;
     let (restant,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve WHERE nom = $1")
         .bind(&nom)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     // La mise à jour d'identité doit, elle aussi, échouer sans effet.
     let existant = cast.eleve_lea_id;
     let nom_de = |ent: &PgEnt| {
-        let pool = ent.pool().clone();
+        let pool = ent.pool_verif().clone();
         async move {
             let (n,): (String,) = sqlx::query_as("SELECT nom FROM ent_eleve WHERE id = $1")
                 .bind(existant)
@@ -217,7 +214,7 @@ async fn creation_defaite_si_le_journal_echoue() {
     let apres = nom_de(&ent).await;
     // Nettoyage avant toute assertion (le trigger est global).
     sqlx::query("DROP TRIGGER IF EXISTS ent_test_refuse_journal ON ent_journal_modif")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(resultat.is_err(), "la création doit échouer si le journal échoue");
@@ -259,7 +256,7 @@ async fn identite_evenement_et_journal_sans_valeurs() {
         "SELECT payload FROM ent_metier_event WHERE eleve_id = $1 AND type = 'eleve.identity_changed'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     // E2 : nom et date de naissance passent par une version (correction) ; l'événement
@@ -270,7 +267,7 @@ async fn identite_evenement_et_journal_sans_valeurs() {
         "SELECT payload, libelle FROM ent_journal_modif WHERE eleve_id = $1 AND action = 'identite_correction'",
     )
     .bind(e.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     for t in [payload.to_string(), journal.to_string(), libelle] {
@@ -291,19 +288,19 @@ async fn cles_composees_refusent_l_autre_etablissement_et_l_inconnu() {
     let croise = sqlx::query(sql)
         .bind(Uuid::new_v4())
         .bind(cast.eleve_lea_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(croise.is_err(), "rattachement inter-établissements accepté");
     // Élève inexistant.
     let inconnu = sqlx::query(sql)
         .bind(cast.etablissement_id)
         .bind(Uuid::new_v4())
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(inconnu.is_err(), "rattachement à un élève inexistant accepté");
     // Aucun orphelin non traité n'est signalé sur la base de test.
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_orphelin WHERE traite_le IS NULL")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 0);
@@ -405,7 +402,7 @@ async fn e1_roles_libres_groupes_portees_site_niveau() {
          ORDER BY date_debut DESC LIMIT 1",
     )
     .bind(harry)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let code = unique("S");
@@ -414,7 +411,7 @@ async fn e1_roles_libres_groupes_portees_site_niveau() {
     )
     .bind(etab)
     .bind(&code)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let (niveau,): (Uuid,) = sqlx::query_as(
@@ -422,20 +419,20 @@ async fn e1_roles_libres_groupes_portees_site_niveau() {
     )
     .bind(etab)
     .bind(&code)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let ancien: (Option<Uuid>, Option<Uuid>) =
         sqlx::query_as("SELECT site_id, niveau_id FROM ent_classe WHERE id = $1")
             .bind(classe_harry)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     sqlx::query("UPDATE ent_classe SET site_id = $2, niveau_id = $3 WHERE id = $1")
         .bind(classe_harry)
         .bind(site)
         .bind(niveau)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
 
@@ -550,7 +547,7 @@ async fn e1_roles_libres_groupes_portees_site_niveau() {
         .bind(classe_harry)
         .bind(ancien.0)
         .bind(ancien.1)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
 }

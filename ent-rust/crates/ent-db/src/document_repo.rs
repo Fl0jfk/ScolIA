@@ -5,6 +5,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgDocumentRepo {
     pool: PgPool,
@@ -16,6 +17,7 @@ impl PgDocumentRepo {
     }
 
     pub async fn upsert_document(&self, doc: &EleveDocument) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, doc.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_document (
@@ -42,9 +44,10 @@ impl PgDocumentRepo {
         .bind(doc.confidentialite.as_str())
         .bind(&doc.source)
         .bind(doc.created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -66,7 +69,7 @@ impl PgDocumentRepo {
         )
         .bind(etablissement_id)
         .bind(document_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -98,7 +101,7 @@ impl PgDocumentRepo {
         )
         .bind(etablissement_id)
         .bind(document_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(DocRow::into_doc))
@@ -120,13 +123,14 @@ impl PgDocumentRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DocRow::into_doc).collect())
     }
 
     pub async fn upsert_grant(&self, g: &DocumentGrant) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, g.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_document_grant (
@@ -160,9 +164,10 @@ impl PgDocumentRepo {
         .bind(g.decided_by_user_id)
         .bind(g.expires_at)
         .bind(&g.note)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -181,7 +186,7 @@ impl PgDocumentRepo {
         )
         .bind(etablissement_id)
         .bind(grant_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(GrantRow::into_grant))
@@ -211,7 +216,7 @@ impl PgDocumentRepo {
         .bind(document_id)
         .bind(user_id)
         .bind(now)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(GrantRow::into_grant).collect())
@@ -237,7 +242,7 @@ impl PgDocumentRepo {
         .bind(etablissement_id)
         .bind(document_id)
         .bind(user_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(|(s,)| s))
@@ -257,13 +262,14 @@ impl PgDocumentRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(GrantRow::into_grant).collect())
     }
 
     pub async fn upsert_dispositif(&self, d: &EleveDispositif) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_dispositif (
@@ -284,9 +290,10 @@ impl PgDocumentRepo {
         .bind(d.document_id)
         .bind(d.date_debut)
         .bind(d.date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -305,7 +312,7 @@ impl PgDocumentRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DispRow::into_disp).collect())

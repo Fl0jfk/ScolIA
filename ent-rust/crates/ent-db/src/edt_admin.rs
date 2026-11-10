@@ -27,6 +27,7 @@ use crate::ref_commun::{Acteur, conflit, db, introuvable, invalide, publier_agg}
 use crate::referentiel_seances::{CreneauSource, ExceptionSource, SeancePlan, planifier_seances};
 use crate::referentiel_structure::{CreneauGrille, index_neutralises};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 // ───────────────────────────── Conflits (logique pure) ─────────────────────────────
 
@@ -343,7 +344,7 @@ impl PgEnt {
                   WHERE etablissement_id = $1 AND kind IN ('prof_indispo', 'salle_indispo')",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -365,7 +366,7 @@ impl PgEnt {
                FROM ent_edt_creneau WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(LigneConflit::vers).collect())
@@ -395,7 +396,7 @@ impl PgEnt {
             .bind(classe)
             .bind(prof_user_id)
             .bind(salle)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(db)
     }
@@ -426,6 +427,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let ab = EdtSemaineAb::parse(&s.semaine_ab).ok_or_else(invalide)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Classe connue du référentiel de CET établissement (pas de classe fantôme).
         let (classe_ok,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_classe
@@ -433,7 +435,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(classe)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         if !classe_ok {
@@ -450,7 +452,7 @@ impl PgEnt {
             .bind(etab)
             .bind(g)
             .bind(classe)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if !ok {
@@ -475,7 +477,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(code)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if !ok {
@@ -517,7 +519,7 @@ impl PgEnt {
             return Ok(ResultatCreneau::Enregistre { creneau: None });
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 5))")
             .bind(etab)
             .execute(&mut *tx)
@@ -584,7 +586,7 @@ impl PgEnt {
         sqlx::query_as::<_, CreneauAdmin>(&sql)
             .bind(etab)
             .bind(id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)
     }
@@ -604,7 +606,7 @@ impl PgEnt {
         }
         let cand = self.valider_saisie_creneau(etab, s, Some(id)).await?;
         let indispos = self.indispos(etab).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 5))")
             .bind(etab)
             .execute(&mut *tx)
@@ -669,7 +671,7 @@ impl PgEnt {
     pub async fn edt_creneau_supprimer(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
         self.exiger_edt(a, Action::EdtGerer).await?;
         let etab = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let res =
             sqlx::query("DELETE FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
@@ -716,6 +718,7 @@ impl PgEnt {
         {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let res = sqlx::query(
             "UPDATE ent_salle SET libelle = btrim($3), capacite = $4, actif = $5
               WHERE etablissement_id = $1 AND id = $2",
@@ -725,9 +728,10 @@ impl PgEnt {
         .bind(libelle)
         .bind(capacite)
         .bind(actif)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         if res.rows_affected() == 0 {
             return Err(introuvable());
         }
@@ -774,6 +778,7 @@ impl PgEnt {
         if au < du || (au - du).num_days() > 62 {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let annees: Vec<(Uuid, NaiveDate, NaiveDate)> = sqlx::query_as(
             "SELECT id, date_debut, date_fin FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND date_debut <= $3 AND date_fin >= $2
@@ -782,7 +787,7 @@ impl PgEnt {
         .bind(etab)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         if annees.is_empty() {
@@ -795,14 +800,14 @@ impl PgEnt {
         .bind(etab)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let ab_reference: Option<NaiveDate> = sqlx::query_scalar(
             "SELECT reference_lundi FROM ent_edt_calendrier_ab WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let grille: Vec<CreneauGrille> = sqlx::query_as(
@@ -810,7 +815,7 @@ impl PgEnt {
                FROM ent_grille_horaire WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let jours = self.calendrier_plage(etab, du, au).await?;
@@ -833,7 +838,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(annee_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             let groupes: HashMap<Uuid, Option<Uuid>> =
@@ -953,7 +958,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().collect())
@@ -994,7 +999,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(eleve_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         if ok { Ok(()) } else { Err(introuvable()) }
@@ -1007,6 +1012,7 @@ impl PgEnt {
         eleve_id: Uuid,
         jour: NaiveDate,
     ) -> Result<(HashSet<Uuid>, HashSet<Uuid>), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let rows: Vec<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
             "SELECT classe_id, groupe_id FROM ent_affectation
               WHERE etablissement_id = $1 AND eleve_id = $2
@@ -1015,7 +1021,7 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut classes: HashSet<Uuid> = rows.iter().filter_map(|r| r.0).collect();
@@ -1028,7 +1034,7 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .flatten()
@@ -1054,13 +1060,14 @@ impl PgEnt {
                 }
             }
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if let CibleEdt::Classe(c) = &cible {
             let (ok,): (bool,) = sqlx::query_as(
                 "SELECT EXISTS (SELECT 1 FROM ent_classe WHERE etablissement_id = $1 AND id = $2)",
             )
             .bind(etab)
             .bind(c)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if !ok {
@@ -1080,7 +1087,7 @@ impl PgEnt {
         .bind(etab)
         .bind(lundi)
         .bind(dimanche)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let (classes_eleve, groupes_eleve) = match &cible {
@@ -1193,7 +1200,7 @@ impl PgEnt {
             "SELECT reference_lundi FROM ent_edt_calendrier_ab WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .map(|r| match semaine_ab_au_jour(r, lundi) {

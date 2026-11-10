@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::evaluations::db;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 type Ligne = (
     Uuid,
@@ -56,7 +57,7 @@ impl PgEnt {
         .bind(etab)
         .bind(acteur)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         // Même règle que partout : les élèves que l'acteur peut suivre (None = tous).

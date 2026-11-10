@@ -38,6 +38,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub mod types_com {
     pub const CAMPAGNE_LANCEE: &str = "campagne.lancee";
@@ -347,7 +348,7 @@ impl PgEnt {
             // Un rôle limité à des classes ne peut pas écrire à tout l'établissement.
             return Err(EntDbError::Forbidden);
         }
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = Utc::now().date_naive();
         let cibles = eleves_de_audience(&mut conn, etab, &c.audience, &c.cible_ids, jour).await?;
         let total = cibles.len();
@@ -379,7 +380,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let c = c.ok_or(EntDbError::Domain(domain_eleve::DomainError::NotFound))?;
@@ -415,7 +416,7 @@ impl PgEnt {
         let mut cibles: Vec<Uuid> = n.cible_ids.clone();
         cibles.sort();
         cibles.dedup();
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         valider_audience(&mut conn, etab, &n.audience, &cibles).await?;
         let id = Uuid::new_v4();
         sqlx::query(
@@ -434,7 +435,7 @@ impl PgEnt {
         .execute(&mut *conn)
         .await
         .map_err(db)?;
-        drop(conn);
+        conn.commit().await.map_err(db)?;
         self.campagne_visible(etab, acteur, role, id).await
     }
 
@@ -458,7 +459,7 @@ impl PgEnt {
         .bind(etab)
         .bind(acteur)
         .bind(toutes)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -489,15 +490,17 @@ impl PgEnt {
         if c.cree_par != acteur {
             return Err(EntDbError::Forbidden);
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = sqlx::query(
             "UPDATE ent_campagne SET statut = 'annulee', updated_at = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut IN ('brouillon', 'apercu')",
         )
         .bind(etab)
         .bind(id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         if r.rows_affected() == 0 {
             return Err(EntDbError::ConflitDossier("la campagne n'est plus annulable"));
         }
@@ -543,7 +546,7 @@ impl PgEnt {
         }
         let nb_sms = par_canal.get("sms").copied().unwrap_or(0);
         let sms = if c.canaux.iter().any(|k| k == "sms") {
-            let mut conn = self.pool().acquire().await.map_err(db)?;
+            let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let plafonds = plafonds_de(&mut conn, etab).await?;
             let deja = sms_du_jour(&mut conn, etab).await?;
             let longueur = format!("{} : {}", c.titre, c.corps).chars().count();
@@ -562,6 +565,7 @@ impl PgEnt {
         } else {
             None
         };
+        let mut txw = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_campagne
                 SET statut = 'apercu', apercu_empreinte = $3, apercu_nb = $4, apercu_sms = $5,
@@ -573,9 +577,10 @@ impl PgEnt {
         .bind(&calcul.empreinte)
         .bind(calcul.responsables.len() as i32)
         .bind(nb_sms as i32)
-        .execute(self.pool())
+        .execute(&mut *txw)
         .await
         .map_err(db)?;
+        txw.commit().await.map_err(db)?;
         let tronque = vus.len() > 200;
         vus.truncate(200);
         Ok(ApercuCampagne {
@@ -638,7 +643,7 @@ impl PgEnt {
             })
             .count();
 
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Verrou : deux lancements simultanés de la même campagne se sérialisent.
         let statut: Option<(String,)> = sqlx::query_as(
             "SELECT statut FROM ent_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",

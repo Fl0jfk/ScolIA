@@ -14,6 +14,7 @@ use sqlx::{PgExecutor, Row};
 use uuid::Uuid;
 
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Enregistre (idempotent) l'empreinte et la taille d'un objet déjà écrit et vérifié.
 /// À appeler dans la **même transaction** que la ligne métier qui référence la clé.
@@ -50,7 +51,9 @@ impl PgEnt {
         bytes: &[u8],
     ) -> Result<ObjectInfo, EntDbError> {
         let info = self.objects().put(key, bytes)?;
-        enregistrer_objet(self.pool(), etablissement_id, &info, mime).await?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?;
+        enregistrer_objet(&mut *tx, etablissement_id, &info, mime).await?;
+        tx.commit().await?;
         Ok(info)
     }
 
@@ -65,7 +68,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(key)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await?;
         Ok(row.map(|r| ObjectAttendu {
             taille: r.get::<i64, _>("taille").max(0) as u64,

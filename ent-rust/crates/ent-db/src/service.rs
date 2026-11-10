@@ -639,6 +639,11 @@ pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
 /// Façade async Postgres — auth + noyau élève (+ périodes + absences) + events + Brain.
 pub struct PgEnt {
     pool: PgPool,
+    /// Tests en mode strict (`ENT_RLS_MODE=strict`) : pool du rôle propriétaire, réservé aux
+    /// vérifications et à la préparation des données ; le code testé passe par `pool` (rôle
+    /// applicatif sans BYPASSRLS, strict). Voir `tests_rls_stricte.rs`.
+    #[cfg(test)]
+    pub(crate) pool_verif: Option<PgPool>,
     eleves: PgEleveRepo,
     absences: PgAbsenceRepo,
     periodes: PgPeriodeRepo,
@@ -820,6 +825,8 @@ impl PgEnt {
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
             pool,
+            #[cfg(test)]
+            pool_verif: None,
             brain: None,
             mail_dry_run_accepte: cfg!(feature = "labo"),
         }
@@ -940,6 +947,12 @@ impl PgEnt {
     /// fermée ensuite : le rôle applicatif (`ENT_DATABASE_URL`) n'a alors aucun
     /// droit DDL. Sinon : comportement historique (migrations via le pool applicatif).
     pub async fn migrate(&self) -> Result<(), EntDbError> {
+        // Tests en mode strict : les migrations passent par le propriétaire (le rôle applicatif n'a pas de DDL).
+        #[cfg(test)]
+        if let Some(proprietaire) = &self.pool_verif {
+            apply_socle_migrations(proprietaire).await?;
+            return Ok(());
+        }
         match migration_url_from_env() {
             Some(url) => {
                 assert_local_postgres_url(&url)?;
@@ -966,6 +979,12 @@ impl PgEnt {
 
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Tests : pool des **vérifications** (propriétaire en mode strict, sinon le pool normal).
+    #[cfg(test)]
+    pub(crate) fn pool_verif(&self) -> &PgPool {
+        self.pool_verif.as_ref().unwrap_or(&self.pool)
     }
 
     /// Après commit : informe les observateurs locaux des événements publiés par outbox.

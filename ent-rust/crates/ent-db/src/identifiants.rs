@@ -740,7 +740,7 @@ impl PgEnt {
         {
             return Err(EntDbError::Forbidden);
         }
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         let existe: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
                 .bind(etab)
@@ -788,7 +788,7 @@ impl PgEnt {
              LIMIT 500",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         self.tracer_acces_sensible(
             etab,
