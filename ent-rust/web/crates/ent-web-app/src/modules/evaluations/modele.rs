@@ -197,8 +197,8 @@ pub const MENTIONS: [(&str, &str); 6] = [
     ("felicitations", "Félicitations"),
     ("complement", "Compliments"),
     ("encouragements", "Encouragements"),
-    ("avertissement_travail", "Avertissement (travail)"),
-    ("avertissement_conduite", "Avertissement (conduite)"),
+    ("mise_en_garde_travail", "Mise en garde (travail)"),
+    ("mise_en_garde_conduite", "Mise en garde (conduite)"),
 ];
 
 /// Décisions du conseil [H : à vérifier] : (code, libellé).

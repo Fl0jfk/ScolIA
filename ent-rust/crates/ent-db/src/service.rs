@@ -103,7 +103,7 @@ use domain_eleve::{
     plan_creer_sanction_motif, plan_creer_sanction_type, plan_declarer_incident,
     plan_prononcer_sanction, plan_signer_carnet_entree, solde_points_vs,
     vue_commission_dossier_famille,
-    plan_creer_devoir, plan_creer_note_periode, plan_saisir_appreciation, moyenne_sur_20,
+    plan_creer_devoir, plan_creer_note_periode, plan_saisir_appreciation,
     plan_bulletin_eleve, render_bulletin_pdf,
     Appreciation, CreerDevoir, CreerNotePeriode, Devoir, MoyenneMatiere, NoteLue, NotePeriode,
     NotePeriodeStatut, SaisirAppreciation,
@@ -6225,6 +6225,37 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(false)
     }
 
+    /// Périodes dont les résultats sont **publiés à la famille** pour cet élève (V0, D3, R-V7) :
+    /// un bulletin publié (`ent_bulletin`) ou, pour les données historiques, un document
+    /// « bulletin » ou « livret » (`BULLETIN_<code>`, `LIVRET_<code>`) déposé au tiroir famille.
+    pub(crate) async fn periodes_publiees_famille(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT b.periode_id FROM ent_bulletin b
+              WHERE b.etablissement_id = $1 AND b.eleve_id = $2 AND b.statut = 'publie'
+             UNION
+             SELECT p.id FROM ent_note_periode p
+               JOIN ent_eleve_document d
+                 ON d.etablissement_id = p.etablissement_id
+                AND d.code IN ('BULLETIN_' || p.code, 'LIVRET_' || p.code)
+              WHERE p.etablissement_id = $1 AND d.eleve_id = $2
+                AND d.tiroir = 'famille' AND d.confidentialite = 'standard'",
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Vrai si l'acteur est de la famille ou l'élève (lecture soumise à publication).
+    fn role_famille_ou_eleve(role: &str) -> bool {
+        matches!(Role::parse(role), Some(Role::Parent | Role::Eleve))
+    }
+
     pub async fn actor_can_read_notes(
         &self,
         etablissement_id: Uuid,
@@ -6468,10 +6499,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self
+        let mut list = self
             .notes
             .list_appreciations_eleve(etablissement_id, eleve_id, periode_id)
-            .await?)
+            .await?;
+        // V0 (D3a, R-V7/R-V8) : la famille et l'élève ne lisent une appréciation qu'avec le
+        // bulletin publié de la période ; avant, seul le personnel habilité la voit.
+        if Self::role_famille_ou_eleve(role) {
+            let publiees = self.periodes_publiees_famille(etablissement_id, eleve_id).await?;
+            list.retain(|a| publiees.contains(&a.periode_id));
+        }
+        Ok(list)
     }
 
     /// Période fermée → PDF bulletin → dépôt document famille (un cerveau).
@@ -6771,10 +6809,16 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get(etablissement_id, eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        Ok(self
+        let mut list = self
             .competences
-            .list_evaluations_eleve(etablissement_id, eleve_id, periode_id)
-            .await?)
+            .list_evaluations_eleve_avec_periode(etablissement_id, eleve_id, periode_id)
+            .await?;
+        // V0 (D3b) : compétences visibles de la famille et de l'élève après publication seulement.
+        if Self::role_famille_ou_eleve(role) {
+            let publiees = self.periodes_publiees_famille(etablissement_id, eleve_id).await?;
+            list.retain(|(p, _)| publiees.contains(p));
+        }
+        Ok(list.into_iter().map(|(_, e)| e).collect())
     }
 
     /// Publie le **livret de compétences** (PDF) — déposé côté famille + notifié.
@@ -7225,10 +7269,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 aggregate: AggregateKind::Note,
                 aggregate_id: note.id,
                 eleve_id: Some(note.eleve_id),
+                // V0 (D1, R-V17) : jamais la valeur de la note dans un événement.
                 payload: json!({
                     "matiere_id": note.matiere_id,
-                    "valeur": note.valeur,
-                    "sur": note.sur,
                     "date_note": note.date_note.to_string(),
                     "devoir_id": note.devoir_id,
                     "periode_id": note.periode_id,
@@ -7258,10 +7301,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .notes
             .list_for_moyenne(etablissement_id, eleve_id, periode_id, matiere_id)
             .await?;
-        Ok(moyenne_sur_20(&rows).map(|m| MoyenneMatiere {
+        // V0 (D12, R-V3) : un seul moteur de calcul, exact (fractions entières, aucun arrondi
+        // intermédiaire) ; l'ancien calcul en virgule flottante est retiré. Arrondi d'affichage
+        // selon la règle de l'établissement.
+        let regles = self.eva_regles(etablissement_id).await?;
+        let calcul: Vec<domain_eleve::evaluation::ResultatCalcul> = rows
+            .iter()
+            .map(|&(valeur, sur, coef)| domain_eleve::evaluation::ResultatCalcul {
+                statut: domain_eleve::evaluation::StatutResultat::Note,
+                valeur,
+                sur,
+                coef,
+            })
+            .collect();
+        Ok(domain_eleve::evaluation::moyenne_matiere(&calcul, &regles).map(|m| MoyenneMatiere {
             matiere_id,
             periode_id,
-            moyenne_sur_20: (m * 100.0).round() / 100.0,
+            moyenne_sur_20: m.arrondie(regles.arrondi),
         }))
     }
 
@@ -9847,6 +9903,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(d)
     }
 
+    /// Document qui porte des résultats scolaires (bulletin, livret de compétences).
+    pub(crate) fn document_de_notes(doc: &EleveDocument) -> bool {
+        doc.source == "bulletin"
+            || doc
+                .code
+                .as_deref()
+                .is_some_and(|c| c.starts_with("BULLETIN_") || c.starts_with("LIVRET_"))
+    }
+
     pub async fn actor_can_read_document(
         &self,
         etablissement_id: Uuid,
@@ -9886,7 +9951,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let lien = self
                 .lien_parent_eleve(etablissement_id, actor_user_id, doc.eleve_id)
                 .await?;
-            if lien.is_none() {
+            let Some(lien) = lien else {
+                return Ok(false);
+            };
+            // V0 (D3c) : un bulletin ou un livret de compétences est une donnée de notes ;
+            // un responsable privé de l'accès aux notes par la direction ne le lit pas.
+            if Self::document_de_notes(doc) && !lien.peut_voir_notes {
                 return Ok(false);
             }
             // D-014 (RP1-11) : seulement les documents de son propre foyer.
@@ -13987,13 +14057,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
         }
-        if parent
-            && self
-                .lien_parent_eleve(etablissement_id, user_id, eleve_id)
-                .await?
-                .is_none()
-        {
-            return Err(EntDbError::Forbidden);
+        if parent {
+            // V0 (D3d) : les décisions du conseil sont des données de notes (droit du lien).
+            let lien = self.lien_parent_eleve(etablissement_id, user_id, eleve_id).await?;
+            if !lien.is_some_and(|l| l.peut_voir_notes) {
+                return Err(EntDbError::Forbidden);
+            }
         }
         if eleve {
             let own = self

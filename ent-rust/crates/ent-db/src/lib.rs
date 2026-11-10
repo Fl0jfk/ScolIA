@@ -18,6 +18,8 @@ mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations;
+#[cfg(all(test, feature = "labo"))]
+mod tests_evaluations_v0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
