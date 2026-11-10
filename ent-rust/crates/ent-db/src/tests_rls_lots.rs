@@ -133,7 +133,7 @@ async fn verifier_lot(nom: &str) {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let (_, tables) = LOTS.iter().find(|(n, _)| *n == nom).expect("lot");
-    let (inconnu, autre) = (Uuid::new_v4(), Uuid::new_v4());
+    let inconnu = Uuid::new_v4();
     for table in *tables {
         // 1. RLS activée, forcée, politique présente.
         let (rls, forcee, pol): (bool, bool, i64) = sqlx::query_as(
@@ -148,29 +148,23 @@ async fn verifier_lot(nom: &str) {
         .unwrap_or_else(|_| panic!("{table} : table absente"));
         assert!(rls && forcee && pol == 1, "{table} : RLS {rls}, FORCE {forcee}, politiques {pol}");
 
-        // 2. Écriture vers un autre établissement : refusée par la base (42501), quelle que soit
-        //    la table. WITH CHECK est évalué avant les contraintes de colonne.
-        let mut tx = TenantTx::begin_mode(&e.app, inconnu, RlsMode::Strict).await.unwrap();
-        let r = sqlx::query(&format!("INSERT INTO {table} (etablissement_id) VALUES ($1)"))
-            .bind(autre)
-            .execute(&mut *tx)
-            .await;
-        let code = match &r {
-            Err(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()),
-            _ => None,
-        };
-        assert_eq!(code.as_deref(), Some("42501"), "{table} : l'écriture vers un autre établissement doit être refusée par RLS ({r:?})");
-        drop(tx);
-        // Sans contexte (rôle strict) : refusée aussi.
-        let r = sqlx::query(&format!("INSERT INTO {table} (etablissement_id) VALUES ($1)"))
-            .bind(autre)
-            .execute(&e.app)
-            .await;
-        let code = match &r {
-            Err(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()),
-            _ => None,
-        };
-        assert_eq!(code.as_deref(), Some("42501"), "{table} : écriture sans contexte en mode strict ({r:?})");
+        // 2. La politique filtre bien sur l'établissement du contexte, en lecture (USING) comme en
+        //    écriture (WITH CHECK) : le refus d'écriture vers un autre établissement est démontré sur
+        //    une table réelle par lot (`verifier_isolation_concrete`) ; les contraintes de colonnes
+        //    (NOT NULL, CHECK) passent avant WITH CHECK, d'où l'absence d'INSERT générique.
+        let (qual, check): (String, String) = sqlx::query_as(
+            "SELECT qual, with_check FROM pg_policies WHERE tablename = $1 AND policyname = 'ent_rls_etablissement'",
+        )
+        .bind(table)
+        .fetch_one(&e.admin)
+        .await
+        .unwrap();
+        for (nom_expr, expr) in [("USING", &qual), ("WITH CHECK", &check)] {
+            assert!(
+                expr.contains("etablissement_id = ( SELECT ent_rls_etablissement()") || expr.contains("etablissement_id = (SELECT ent_rls_etablissement()"),
+                "{table} : {nom_expr} ne filtre pas sur l'établissement du contexte : {expr}"
+            );
+        }
 
         // 3. Lecture : un établissement qui n'a pas de lignes n'en voit aucune, quelles que soient
         //    les lignes des autres ; sans contexte : 0 ; avec le bon contexte : ses lignes seulement.
@@ -190,7 +184,7 @@ async fn verifier_lot(nom: &str) {
 
 /// Lignes réelles de A et de B dans une table représentative : lecture, mise à jour et
 /// suppression **sans filtre d'établissement** n'atteignent que l'établissement du contexte.
-async fn verifier_isolation_concrete(e: &Env, table: &str, colonne_maj: &str, valeur_maj: &str, ligne: impl Fn(Uuid, Uuid, Uuid) -> String) {
+async fn verifier_isolation_concrete(e: &Env, table: &str, ligne: impl Fn(Uuid, Uuid, Uuid) -> String) {
     let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
     // Les clés étrangères ne sont pas l'objet du test : un rôle de réplication les suspend.
     let mut tx = e.admin.begin().await.unwrap();
@@ -211,9 +205,16 @@ async fn verifier_isolation_concrete(e: &Env, table: &str, colonne_maj: &str, va
     let ids: Vec<(Uuid,)> = sqlx::query_as(&format!("SELECT id FROM {table}")).fetch_all(&mut *tx).await.unwrap();
     assert_eq!(ids, vec![(ida,)], "{table} : A ne voit que ses lignes");
     // UPDATE et DELETE sans filtre : seule la ligne de A est touchée.
-    let r = sqlx::query(&format!("UPDATE {table} SET {colonne_maj} = {valeur_maj}")).execute(&mut *tx).await.unwrap();
+    let r = sqlx::query(&format!("UPDATE {table} SET id = id")).execute(&mut *tx).await.unwrap();
     assert_eq!(r.rows_affected(), 1, "{table} : UPDATE sans filtre sous A");
-    tx.commit().await.unwrap();
+    // Écriture d'une ligne de B depuis le contexte de A : refusée par la base (42501).
+    let r = sqlx::query(&ligne(Uuid::new_v4(), b, Uuid::new_v4())).execute(&mut *tx).await;
+    let code = match &r {
+        Err(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()),
+        _ => None,
+    };
+    assert_eq!(code.as_deref(), Some("42501"), "{table} : écrire une ligne de B sous A doit être refusé ({r:?})");
+    drop(tx);
 
     // Sous B : symétrique ; suppression sans filtre.
     let mut tx = TenantTx::begin_mode(&e.app, b, RlsMode::Strict).await.unwrap();
@@ -230,39 +231,39 @@ async fn verifier_isolation_concrete(e: &Env, table: &str, colonne_maj: &str, va
 }
 
 macro_rules! test_lot {
-    ($fonction:ident, $lot:literal, $table:literal, $col:literal, $val:literal, $ligne:expr) => {
+    ($fonction:ident, $lot:literal, $table:literal, $ligne:expr) => {
         #[tokio::test]
         async fn $fonction() {
             verifier_lot($lot).await;
             let Some(e) = preparer().await else { return };
-            verifier_isolation_concrete(&e, $table, $col, $val, $ligne).await;
+            verifier_isolation_concrete(&e, $table, $ligne).await;
         }
     };
 }
 
-test_lot!(lot_eleves_responsables, "eleves_responsables", "ent_foyer", "note", "'x'", |id, etab, _| {
+test_lot!(lot_eleves_responsables, "eleves_responsables", "ent_foyer", |id, etab, _| {
     format!("INSERT INTO ent_foyer (id, etablissement_id) VALUES ('{id}', '{etab}')")
 });
-test_lot!(lot_sante_assiduite, "sante_assiduite", "ent_alerte_cpe", "created_at", "now()", |id, etab, el| {
-    format!("INSERT INTO ent_alerte_cpe (id, etablissement_id, eleve_id) VALUES ('{id}', '{etab}', '{el}')")
+test_lot!(lot_sante_assiduite, "sante_assiduite", "ent_alerte_cpe", |id, etab, el| {
+    format!("INSERT INTO ent_alerte_cpe (id, etablissement_id, eleve_id, titre, jour, created_by_user_id) VALUES ('{id}', '{etab}', '{el}', 't', current_date, '{el}')")
 });
-test_lot!(lot_finances, "finances", "ent_taux_tva", "taux", "taux", |id, etab, _| {
-    format!("INSERT INTO ent_taux_tva (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_finances, "finances", "ent_taux_tva", |id, etab, _| {
+    format!("INSERT INTO ent_taux_tva (id, etablissement_id, code, libelle, taux_bps, created_by_user_id) VALUES ('{id}', '{etab}', 't', 't', 0, '{id}')")
 });
-test_lot!(lot_communication, "communication", "ent_sms_outbox", "status", "status", |id, etab, _| {
-    format!("INSERT INTO ent_sms_outbox (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_communication, "communication", "ent_sms_outbox", |id, etab, _| {
+    format!("INSERT INTO ent_sms_outbox (id, etablissement_id, kind, to_phone, body, status) VALUES ('{id}', '{etab}', 'k', '0600000000', 'b', 'dry_run')")
 });
-test_lot!(lot_vie_scolaire_discipline, "vie_scolaire_discipline", "ent_punition_type", "libelle", "libelle", |id, etab, _| {
-    format!("INSERT INTO ent_punition_type (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_vie_scolaire_discipline, "vie_scolaire_discipline", "ent_punition_type", |id, etab, _| {
+    format!("INSERT INTO ent_punition_type (id, etablissement_id, code, libelle) VALUES ('{id}', '{etab}', 'abc', 't')")
 });
-test_lot!(lot_evaluations_pedagogie, "evaluations_pedagogie", "ent_matiere", "libelle", "libelle", |id, etab, _| {
-    format!("INSERT INTO ent_matiere (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_evaluations_pedagogie, "evaluations_pedagogie", "ent_matiere", |id, etab, _| {
+    format!("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ('{id}', '{etab}', 'abc', 't')")
 });
-test_lot!(lot_inscriptions, "inscriptions", "ent_inscription_responsable", "nom", "'Nouveau'", |id, etab, _| {
-    format!("INSERT INTO ent_inscription_responsable (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_inscriptions, "inscriptions", "ent_inscription_responsable", |id, etab, el| {
+    format!("INSERT INTO ent_inscription_responsable (id, etablissement_id, dossier_id, rang, nom) VALUES ('{id}', '{etab}', '{el}', 1, 'N')")
 });
-test_lot!(lot_structure_acces_divers, "structure_acces_divers", "ent_salle", "libelle", "libelle", |id, etab, _| {
-    format!("INSERT INTO ent_salle (id, etablissement_id) VALUES ('{id}', '{etab}')")
+test_lot!(lot_structure_acces_divers, "structure_acces_divers", "ent_niveau", |id, etab, _| {
+    format!("INSERT INTO ent_niveau (id, etablissement_id, code, libelle) VALUES ('{id}', '{etab}', 'n', 'n')")
 });
 
 /// Les lots listés ici sont exactement les tables des migrations 580–587 : pas de table oubliée,
@@ -301,6 +302,6 @@ async fn lots_couvrent_les_migrations() {
     let sans: Vec<String> = sans.into_iter().map(|(n,)| n).collect();
     for n in &sans {
         let c = crate::registre_donnees::classer(n).unwrap_or_else(|| panic!("{n} non classée"));
-        assert!(c.exception(crate::registre_donnees::Exception::SansRls).is_some() || !c.colonne_etablissement, "{n} sans RLS ni exception");
+        assert!(c.exception(crate::registre_donnees::Exception::SansRls).is_some() || c.portee != crate::registre_donnees::Portee::Etablissement, "{n} sans RLS ni exception");
     }
 }

@@ -5,11 +5,19 @@
 -- démarrage). Pose via ent_rls_poser (définie en 580).
 
 CREATE OR REPLACE FUNCTION ent_rls_poser(tables text[]) RETURNS void
-LANGUAGE plpgsql AS $f$
+LANGUAGE plpgsql AS $$
 DECLARE
     t text;
 BEGIN
     FOREACH t IN ARRAY tables LOOP
+        -- Déjà conforme (RLS + FORCE + politique d'établissement) : aucun verrou exclusif repris
+        -- à chaque démarrage (évite les deadlocks avec le trafic en cours).
+        CONTINUE WHEN EXISTS (
+            SELECT 1 FROM pg_class c JOIN pg_policies p ON p.tablename = c.relname AND p.schemaname = 'public'
+             WHERE c.relname = t AND c.relnamespace = 'public'::regnamespace
+               AND c.relrowsecurity AND c.relforcerowsecurity
+               AND p.policyname = 'ent_rls_etablissement'
+               AND p.qual LIKE '%ent_rls_strict()%' AND p.with_check LIKE '%ent_rls_strict()%');
         EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
         EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
         EXECUTE format('DROP POLICY IF EXISTS ent_rls_etablissement ON %I', t);
@@ -22,7 +30,7 @@ BEGIN
             t);
     END LOOP;
 END
-$f$;
+$$;
 
 SELECT ent_rls_poser(ARRAY[
         'ent_adresse_protegee',
