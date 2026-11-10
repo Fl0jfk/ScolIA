@@ -6,6 +6,82 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use crate::tenant_tx::TenantTx;
 
+/// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
+/// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
+const PREDICAT_LISIBLE_PERSONNEL: &str = "(
+       (f.foyer_id IS NULL AND f.vie_scolaire)
+    OR (f.foyer_id IS NOT NULL AND $5)
+    OR (f.foyer_id IS NULL AND NOT f.vie_scolaire AND $4)
+    OR f.created_by_user_id = $3
+    OR EXISTS (SELECT 1 FROM ent_msg m
+                WHERE m.etablissement_id = f.etablissement_id
+                  AND m.fil_id = f.id AND m.auteur_user_id = $3))";
+
+/// Échappe `\`, `%` et `_` d'une recherche libre pour `ILIKE ... ESCAPE '\'`.
+fn echapper_like(r: &str) -> String {
+    r.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// Curseur de pagination de la boîte : position du dernier fil rendu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CurseurFils {
+    /// 0 = priorité haute, 1 = normale.
+    pub rang: i16,
+    pub dernier_message: DateTime<Utc>,
+    pub fil_id: Uuid,
+}
+
+impl CurseurFils {
+    pub fn de_fil(f: &MsgFil) -> Self {
+        Self {
+            rang: f.priorite.rang(),
+            dernier_message: f.last_message_at,
+            fil_id: f.id,
+        }
+    }
+
+    /// Forme texte opaque pour l'API : `rang|horodatage|id`.
+    pub fn encoder(&self) -> String {
+        format!(
+            "{}|{}|{}",
+            self.rang,
+            self.dernier_message.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            self.fil_id
+        )
+    }
+
+    pub fn decoder(s: &str) -> Option<Self> {
+        let mut p = s.split('|');
+        let rang: i16 = p.next()?.parse().ok()?;
+        let dernier_message = DateTime::parse_from_rfc3339(p.next()?).ok()?.with_timezone(&Utc);
+        let fil_id = Uuid::parse_str(p.next()?).ok()?;
+        if p.next().is_some() || !(0..=1).contains(&rang) {
+            return None;
+        }
+        Some(Self { rang, dernier_message, fil_id })
+    }
+}
+
+/// Filtres d'une page de la boîte d'un personnel.
+#[derive(Debug, Clone, Default)]
+pub struct FiltreFils<'a> {
+    pub eleve_id: Option<Uuid>,
+    /// Périmètre d'un professeur (`None` = tout l'établissement).
+    pub eleves: Option<&'a [Uuid]>,
+    pub avec_archives: bool,
+    pub dossier: Option<&'a str>,
+    pub recherche: Option<&'a str>,
+    pub apres: Option<CurseurFils>,
+    pub limite: i64,
+}
+
+/// Fil en attente de réponse du personnel (MSG-329).
+#[derive(Debug, Clone)]
+pub struct FilNonTraite {
+    pub fil: MsgFil,
+    pub en_attente_depuis: DateTime<Utc>,
+}
+
 pub struct PgMsgRepo {
     pool: PgPool,
 }
@@ -18,12 +94,32 @@ pub struct PorteeFil {
     /// `responsables` (défaut), `famille` ou `eleve`.
     pub audience: &'static str,
     pub vie_scolaire: bool,
+    /// M0b (D22) : foyer lecteur d'un fil du personnel « aux responsables » (un fil par foyer).
+    /// Distinct de `foyer_id` (payeurs d'une relance).
+    pub foyer_lecteur_id: Option<Uuid>,
 }
 
 impl PorteeFil {
     /// Fil de l'établissement aux responsables, invisible de l'élève.
     pub const fn responsables() -> Self {
-        Self { prive_user_id: None, foyer_id: None, audience: "responsables", vie_scolaire: false }
+        Self {
+            prive_user_id: None,
+            foyer_id: None,
+            audience: "responsables",
+            vie_scolaire: false,
+            foyer_lecteur_id: None,
+        }
+    }
+
+    /// Fil du personnel aux responsables d'**un** foyer (D22) : lu des seuls liens communicants
+    /// de ce foyer, jamais de l'autre foyer.
+    pub const fn responsables_du_foyer(foyer_lecteur_id: Uuid) -> Self {
+        Self { foyer_lecteur_id: Some(foyer_lecteur_id), ..Self::responsables() }
+    }
+
+    /// Fil du personnel à l'élève majeur (D23) : l'élève le lit, jamais un parent.
+    pub const fn eleve_majeur() -> Self {
+        Self { audience: "eleve", ..Self::responsables() }
     }
 
     /// Fil de vie scolaire (carnet, alerte d'absences) aux responsables ayant le droit.
@@ -52,10 +148,6 @@ impl PgMsgRepo {
         Self { pool }
     }
 
-    pub async fn insert_fil(&self, fil: &MsgFil) -> Result<(), DomainError> {
-        self.insert_fil_portee(fil, PorteeFil::responsables()).await
-    }
-
     /// Insère un fil avec sa portée de lecture (D-014, RP1-11 ; M0a D3 et D5) :
     /// `prive_user_id` = fil privé entre ce compte et l'établissement ; `foyer_id` = fil réservé
     /// aux payeurs de ce foyer (relance de facture) ; `audience` et `vie_scolaire` : voir
@@ -71,8 +163,8 @@ impl PgMsgRepo {
             INSERT INTO ent_msg_fil (
                 id, etablissement_id, eleve_id, sujet, created_by_user_id,
                 created_at, last_message_at, archive, modele_id, priorite, dossier,
-                prive_user_id, foyer_id, audience, vie_scolaire
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+                prive_user_id, foyer_id, audience, vie_scolaire, foyer_lecteur_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
             "#,
         )
         .bind(fil.id)
@@ -90,6 +182,7 @@ impl PgMsgRepo {
         .bind(portee.foyer_id)
         .bind(portee.audience)
         .bind(portee.vie_scolaire)
+        .bind(portee.foyer_lecteur_id)
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
@@ -120,6 +213,20 @@ impl PgMsgRepo {
               FROM ent_msg_fil f
              WHERE f.etablissement_id = $1 AND f.id = ANY($2)
                AND (f.prive_user_id IS NULL OR f.prive_user_id = $3)
+               -- M0b (D22) : un fil du personnel à un foyer n'est lu que de ce foyer.
+               AND (f.foyer_lecteur_id IS NULL OR NOT $4
+                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
+                                WHERE l.etablissement_id = f.etablissement_id
+                                  AND l.eleve_id = f.eleve_id AND l.user_id = $3
+                                  AND l.foyer_id = f.foyer_lecteur_id))
+               -- M0b (D24) : un fil dont aucun message n'est encore remis n'existe pas pour la
+               -- famille (sauf pour son propre auteur).
+               AND (NOT EXISTS (SELECT 1 FROM ent_msg m
+                                 WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id)
+                    OR EXISTS (SELECT 1 FROM ent_msg m
+                                WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id
+                                  AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now()
+                                       OR m.auteur_user_id = $3)))
                AND (f.foyer_id IS NULL
                     OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
                                 WHERE l.etablissement_id = f.etablissement_id
@@ -147,44 +254,227 @@ impl PgMsgRepo {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    /// Parmi `fil_ids`, ceux qu'un **personnel** peut lire (M0a, D2). Un fil privé d'un parent
-    /// (`prive_user_id`, audience ≠ `eleve`) n'est lisible que si `prive_ok` (rôle nommé par la
-    /// conception : direction, CPE, secrétariat) ; un fil de relance (`foyer_id`) que si
-    /// `foyer_ok` (direction, secrétariat, comptabilité) ; dans les deux cas aussi par un
-    /// personnel qui y a écrit. Les autres fils ne dépendent pas de ces règles.
+    /// Parmi `fil_ids`, ceux qu'un **personnel** peut lire (M0a D2, M0b D21 et D22).
+    ///
+    /// Règle commune ([`PREDICAT_LISIBLE_PERSONNEL`]) :
+    /// - un fil de vie scolaire (carnet, alerte d'absences) reste lisible du personnel suivant
+    ///   l'élève ;
+    /// - un fil de relance (`foyer_id`) : `foyer_ok` (direction, secrétariat, comptabilité) ;
+    /// - tout autre fil (privé d'un parent, d'un élève, du personnel aux responsables d'un foyer
+    ///   ou à un élève majeur) : `reserve_ok` (droit `messagerie.fils_reserves.lire`) ;
+    /// - dans tous les cas, son auteur et tout personnel qui y a écrit.
+    ///
+    /// Le lien d'enseignement seul (`messagerie.eleve` d'un professeur) ne suffit plus : il ouvre
+    /// l'écriture d'un nouveau fil, pas la lecture de ceux des autres.
     pub async fn fils_lisibles_personnel(
         &self,
         etablissement_id: Uuid,
         user_id: Uuid,
-        prive_ok: bool,
+        reserve_ok: bool,
         foyer_ok: bool,
         fil_ids: &[Uuid],
     ) -> Result<Vec<Uuid>, DomainError> {
         if fil_ids.is_empty() {
             return Ok(Vec::new());
         }
-        let rows: Vec<(Uuid,)> = sqlx::query_as(
+        let sql = format!(
+            "SELECT f.id FROM ent_msg_fil f
+              WHERE f.etablissement_id = $1 AND f.id = ANY($2) AND {PREDICAT_LISIBLE_PERSONNEL}"
+        );
+        let rows: Vec<(Uuid,)> = sqlx::query_as(&sql)
+            .bind(etablissement_id)
+            .bind(fil_ids)
+            .bind(user_id)
+            .bind(reserve_ok)
+            .bind(foyer_ok)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(|(id,)| id).collect())
+    }
+
+    /// Une page de la boîte d'un personnel (M0b, D12) : filtrage de lisibilité **dans la
+    /// requête** (une page ne se vide pas après coup), recherche sur le sujet, curseur stable
+    /// `(priorité, dernier message, id)`. Retourne au plus `filtre.limite + 1` fils : le
+    /// dernier, s'il est présent, signale une page suivante.
+    pub async fn page_fils_personnel(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        reserve_ok: bool,
+        foyer_ok: bool,
+        filtre: &FiltreFils<'_>,
+    ) -> Result<Vec<MsgFil>, DomainError> {
+        let sql = format!(
+            "SELECT f.id, f.etablissement_id, f.eleve_id, f.sujet, f.created_by_user_id,
+                    f.created_at, f.last_message_at, f.archive, f.modele_id, f.priorite, f.dossier
+               FROM ent_msg_fil f
+              WHERE f.etablissement_id = $1 AND $2::uuid[] IS NOT NULL AND {PREDICAT_LISIBLE_PERSONNEL}
+                AND ($6::uuid IS NULL OR f.eleve_id = $6)
+                AND ($7::uuid[] IS NULL OR f.eleve_id = ANY($7))
+                AND ($8 OR NOT f.archive)
+                AND ($9::text IS NULL OR f.dossier = $9)
+                AND ($10::text IS NULL OR f.sujet ILIKE '%' || $10 || '%' ESCAPE '\\')
+                AND ($11::smallint IS NULL
+                     OR (CASE f.priorite WHEN 'haute' THEN 0 ELSE 1 END) > $11
+                     OR ((CASE f.priorite WHEN 'haute' THEN 0 ELSE 1 END) = $11
+                         AND (f.last_message_at < $12
+                              OR (f.last_message_at = $12 AND f.id < $13))))
+              ORDER BY CASE f.priorite WHEN 'haute' THEN 0 ELSE 1 END, f.last_message_at DESC, f.id DESC
+              LIMIT $14"
+        );
+        let dossier = filtre.dossier.map(str::trim).filter(|d| !d.is_empty());
+        let recherche = filtre
+            .recherche
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .map(echapper_like);
+        let rows = sqlx::query_as::<_, FilRow>(&sql)
+            .bind(etablissement_id)
+            .bind(Vec::<Uuid>::new()) // $2 (réservé au prédicat commun)
+            .bind(user_id)
+            .bind(reserve_ok)
+            .bind(foyer_ok)
+            .bind(filtre.eleve_id)
+            .bind(filtre.eleves)
+            .bind(filtre.avec_archives || filtre.eleve_id.is_some())
+            .bind(dossier)
+            .bind(recherche)
+            .bind(filtre.apres.map(|c| c.rang))
+            .bind(filtre.apres.map(|c| c.dernier_message))
+            .bind(filtre.apres.map(|c| c.fil_id))
+            .bind(filtre.limite.clamp(1, 200) + 1)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+            .await
+            .map_err(map_sqlx)?;
+        Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
+    }
+
+    /// File « messages des familles non traités » (MSG-329, M0b-1) : fils privés d'un parent,
+    /// d'un élève ou du personnel à un foyer dont le **dernier message remis** est de la famille
+    /// (aucune réponse du personnel depuis), les plus anciens d'abord. `eleves` borne le
+    /// périmètre (`None` = tout l'établissement). Ne retourne que des fils lisibles avec
+    /// `reserve_ok` : l'appelant exige `messagerie.fils_reserves.lire`.
+    pub async fn fils_non_traites(
+        &self,
+        etablissement_id: Uuid,
+        eleves: Option<&[Uuid]>,
+        limite: i64,
+    ) -> Result<Vec<FilNonTraite>, DomainError> {
+        #[derive(sqlx::FromRow)]
+        struct Ligne {
+            #[sqlx(flatten)]
+            fil: FilRow,
+            en_attente_depuis: DateTime<Utc>,
+        }
+        let rows = sqlx::query_as::<_, Ligne>(
             r#"
-            SELECT f.id
+            SELECT f.id, f.etablissement_id, f.eleve_id, f.sujet, f.created_by_user_id,
+                   f.created_at, f.last_message_at, f.archive, f.modele_id, f.priorite, f.dossier,
+                   d.created_at AS en_attente_depuis
               FROM ent_msg_fil f
-             WHERE f.etablissement_id = $1 AND f.id = ANY($2)
-               AND ((f.foyer_id IS NULL AND (f.prive_user_id IS NULL OR f.audience = 'eleve'))
-                    OR ($4 AND f.foyer_id IS NULL)
-                    OR ($5 AND f.foyer_id IS NOT NULL)
-                    OR EXISTS (SELECT 1 FROM ent_msg m
-                                WHERE m.etablissement_id = f.etablissement_id
-                                  AND m.fil_id = f.id AND m.auteur_user_id = $3))
+              JOIN LATERAL (
+                    SELECT m.auteur_user_id, m.created_at
+                      FROM ent_msg m
+                     WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id
+                       AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now())
+                     ORDER BY m.created_at DESC, m.id DESC LIMIT 1) d ON true
+             WHERE f.etablissement_id = $1
+               AND NOT f.archive AND f.foyer_id IS NULL AND NOT f.vie_scolaire
+               AND (f.prive_user_id IS NOT NULL OR f.foyer_lecteur_id IS NOT NULL
+                    OR f.audience = 'eleve')
+               AND EXISTS (SELECT 1 FROM ent_membership mb
+                            WHERE mb.etablissement_id = f.etablissement_id
+                              AND mb.user_id = d.auteur_user_id
+                              AND mb.role IN ('parent', 'eleve'))
+               AND ($2::uuid[] IS NULL OR f.eleve_id = ANY($2))
+             ORDER BY d.created_at ASC, f.id ASC
+             LIMIT $3
             "#,
         )
         .bind(etablissement_id)
-        .bind(fil_ids)
-        .bind(user_id)
-        .bind(prive_ok)
-        .bind(foyer_ok)
+        .bind(eleves)
+        .bind(limite.clamp(1, 500))
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
-        Ok(rows.into_iter().map(|(id,)| id).collect())
+        Ok(rows
+            .into_iter()
+            .filter_map(|l| {
+                Some(FilNonTraite { fil: l.fil.into_fil()?, en_attente_depuis: l.en_attente_depuis })
+            })
+            .collect())
+    }
+
+    /// Rôle de base de chaque compte (membres de l'établissement).
+    pub async fn roles_de(
+        &self,
+        etablissement_id: Uuid,
+        user_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, String>, DomainError> {
+        if user_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let rows: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT user_id, role FROM ent_membership
+              WHERE etablissement_id = $1 AND user_id = ANY($2)",
+        )
+        .bind(etablissement_id)
+        .bind(user_ids)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Personnels à prévenir quand une famille écrit (M0b, D13) : ceux qui ont déjà écrit dans le
+    /// fil (hors `sauf`) ; à défaut, les titulaires de `messagerie.fils_reserves.lire` à
+    /// l'échelle de l'établissement (rôle de base `bases` ou rôle paramétré actif).
+    pub async fn personnels_a_prevenir(
+        &self,
+        etablissement_id: Uuid,
+        fil_id: Uuid,
+        sauf: Uuid,
+        bases: &[&str],
+    ) -> Result<Vec<Uuid>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let ont_ecrit: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT DISTINCT m.auteur_user_id
+               FROM ent_msg m
+               JOIN ent_membership mb ON mb.etablissement_id = m.etablissement_id
+                                     AND mb.user_id = m.auteur_user_id
+              WHERE m.etablissement_id = $1 AND m.fil_id = $2 AND m.auteur_user_id <> $3
+                AND mb.role NOT IN ('parent', 'eleve')",
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .bind(sauf)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if !ont_ecrit.is_empty() {
+            return Ok(ont_ecrit.into_iter().map(|(u,)| u).collect());
+        }
+        let bases: Vec<String> = bases.iter().map(|b| (*b).to_string()).collect();
+        let rows: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT m.user_id FROM ent_membership m
+              WHERE m.etablissement_id = $1 AND m.role = ANY($2) AND m.user_id <> $3
+             UNION
+             SELECT a.user_id
+               FROM ent_role_attribution a
+               JOIN ent_role_droit d ON d.role_id = a.role_id
+                                    AND d.etablissement_id = a.etablissement_id
+              WHERE a.etablissement_id = $1 AND a.clos_le IS NULL AND a.user_id <> $3
+                AND a.debut <= ent_aujourdhui_etab($1) AND (a.fin IS NULL OR a.fin >= ent_aujourdhui_etab($1))
+                AND d.action = 'messagerie.fils_reserves.lire' AND d.portee = 'etablissement'",
+        )
+        .bind(etablissement_id)
+        .bind(&bases)
+        .bind(sauf)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(|(u,)| u).collect())
     }
 
     /// Comptes responsables à notifier pour ce fil : `None` = tous les liens notifiables de
@@ -197,16 +487,17 @@ impl PgMsgRepo {
     ) -> Result<Option<Vec<Uuid>>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         #[allow(clippy::type_complexity)]
-        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool)> = sqlx::query_as(
-            "SELECT prive_user_id, foyer_id, eleve_id, audience, vie_scolaire
+        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool, Option<Uuid>)> =
+            sqlx::query_as(
+                "SELECT prive_user_id, foyer_id, eleve_id, audience, vie_scolaire, foyer_lecteur_id
                FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
-        )
+            )
         .bind(etablissement_id)
         .bind(fil_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-        let Some((prive, foyer, eleve, audience, vie_scolaire)) = row else {
+        let Some((prive, foyer, eleve, audience, vie_scolaire, foyer_lecteur)) = row else {
             return Ok(Some(Vec::new()));
         };
         if audience == "eleve" {
@@ -215,6 +506,21 @@ impl PgMsgRepo {
         }
         if let Some(u) = prive {
             return Ok(Some(vec![u]));
+        }
+        if let Some(fid) = foyer_lecteur {
+            // M0b (D22) : le fil d'un foyer n'est annoncé qu'aux responsables de ce foyer.
+            let ids: Vec<(Uuid,)> = sqlx::query_as(
+                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
+                    WHERE etablissement_id = $1 AND eleve_id = $2 AND foyer_id = $3
+                      AND user_id IS NOT NULL"#,
+            )
+            .bind(etablissement_id)
+            .bind(eleve)
+            .bind(fid)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
         }
         if let Some(fid) = foyer {
             let ids: Vec<(Uuid,)> = sqlx::query_as(
@@ -383,12 +689,24 @@ impl PgMsgRepo {
     }
 
     pub async fn insert_message(&self, msg: &Message) -> Result<(), DomainError> {
+        self.insert_message_remise(msg, None, None).await
+    }
+
+    /// Insère un message ; `remise` = instant de remise différée par la plage calme (M0b, D24),
+    /// `derogation` = (motif, auteur) d'une remise immédiate demandée par la direction.
+    pub async fn insert_message_remise(
+        &self,
+        msg: &Message,
+        remise: Option<DateTime<Utc>>,
+        derogation: Option<(&str, Uuid)>,
+    ) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, msg.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_msg (
-                id, etablissement_id, fil_id, auteur_user_id, corps, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6)
+                id, etablissement_id, fil_id, auteur_user_id, corps, created_at,
+                remise_prevue_le, derogation_motif, derogation_par
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
             "#,
         )
         .bind(msg.id)
@@ -397,6 +715,9 @@ impl PgMsgRepo {
         .bind(msg.auteur_user_id)
         .bind(&msg.corps)
         .bind(msg.created_at)
+        .bind(remise)
+        .bind(derogation.map(|d| d.0))
+        .bind(derogation.map(|d| d.1))
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
@@ -495,72 +816,26 @@ impl PgMsgRepo {
         Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
     }
 
-    /// Boîte établissement : par défaut hors archive ; `include_archives` pour tout voir.
-    /// `dossier` filtre optionnel (`Some("")` ou None = tous).
-    pub async fn list_fils_etab(
-        &self,
-        etablissement_id: Uuid,
-        limit: i64,
-        include_archives: bool,
-        dossier: Option<&str>,
-    ) -> Result<Vec<MsgFil>, DomainError> {
-        let dossier_filter = dossier.map(str::trim).filter(|d| !d.is_empty());
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        let rows = if include_archives {
-            sqlx::query_as::<_, FilRow>(
-                r#"
-                SELECT id, etablissement_id, eleve_id, sujet, created_by_user_id,
-                       created_at, last_message_at, archive, modele_id, priorite, dossier
-                FROM ent_msg_fil
-                WHERE etablissement_id = $1
-                  AND ($3::text IS NULL OR dossier = $3)
-                ORDER BY CASE priorite WHEN 'haute' THEN 0 ELSE 1 END, last_message_at DESC
-                LIMIT $2
-                "#,
-            )
-            .bind(etablissement_id)
-            .bind(limit)
-            .bind(dossier_filter)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(map_sqlx)?
-        } else {
-            sqlx::query_as::<_, FilRow>(
-                r#"
-                SELECT id, etablissement_id, eleve_id, sujet, created_by_user_id,
-                       created_at, last_message_at, archive, modele_id, priorite, dossier
-                FROM ent_msg_fil
-                WHERE etablissement_id = $1 AND archive = false
-                  AND ($3::text IS NULL OR dossier = $3)
-                ORDER BY CASE priorite WHEN 'haute' THEN 0 ELSE 1 END, last_message_at DESC
-                LIMIT $2
-                "#,
-            )
-            .bind(etablissement_id)
-            .bind(limit)
-            .bind(dossier_filter)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(map_sqlx)?
-        };
-        Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
-    }
-
+    /// Messages remis du fil, plus ceux que `lecteur` a lui-même écrits et dont la remise est
+    /// différée par la plage calme (M0b, D24 : invisibles de tout autre jusqu'à la remise).
     pub async fn list_messages(
         &self,
         etablissement_id: Uuid,
         fil_id: Uuid,
+        lecteur: Uuid,
     ) -> Result<Vec<Message>, DomainError> {
         let rows = sqlx::query_as::<_, MsgRow>(
             r#"
             SELECT id, etablissement_id, fil_id, auteur_user_id, corps, created_at
             FROM ent_msg
             WHERE etablissement_id = $1 AND fil_id = $2
+              AND (remise_prevue_le IS NULL OR remise_prevue_le <= now() OR auteur_user_id = $3)
             ORDER BY created_at ASC
             "#,
         )
         .bind(etablissement_id)
         .bind(fil_id)
+        .bind(lecteur)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
@@ -632,6 +907,7 @@ impl PgMsgRepo {
             WHERE m.etablissement_id = $1
               AND m.fil_id = ANY($2)
               AND m.auteur_user_id <> $3
+              AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now())
               AND NOT EXISTS (
                 SELECT 1 FROM ent_msg_accuse a
                 WHERE a.message_id = m.id AND a.lecteur_user_id = $3
@@ -716,6 +992,113 @@ impl PgMsgRepo {
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(PieceRow::into_piece))
+    }
+
+    /// Liens communicants de l'élève groupés par foyer (`None` = lien sans foyer) : un fil du
+    /// personnel est créé par groupe (M0b, D22). Ordre stable (foyers par identifiant).
+    pub async fn groupes_communicants(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Vec<(Option<Uuid>, Vec<Uuid>)>, DomainError> {
+        let rows: Vec<(Option<Uuid>, Uuid)> = sqlx::query_as(
+            "SELECT DISTINCT foyer_id, user_id FROM ent_eleve_lien_communicant
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id IS NOT NULL
+              ORDER BY foyer_id NULLS LAST, user_id",
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        let mut groupes: Vec<(Option<Uuid>, Vec<Uuid>)> = Vec::new();
+        for (foyer, user) in rows {
+            match groupes.last_mut() {
+                Some((f, users)) if *f == foyer => users.push(user),
+                _ => groupes.push((foyer, vec![user])),
+            }
+        }
+        Ok(groupes)
+    }
+
+    /// Supprime un message dont la remise est encore à venir (R-M48), s'il est de `auteur`.
+    /// `false` si le message est déjà remis, d'un autre auteur ou absent.
+    pub async fn annuler_message_differe(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+        auteur: Uuid,
+    ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let ok: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_msg
+              WHERE etablissement_id = $1 AND id = $2 AND auteur_user_id = $3
+                AND remise_prevue_le > now() FOR UPDATE",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .bind(auteur)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if ok.is_none() {
+            return Ok(false);
+        }
+        for table in ["ent_msg_piece", "ent_msg_accuse"] {
+            sqlx::query(&format!(
+                "DELETE FROM {table} WHERE etablissement_id = $1 AND message_id = $2"
+            ))
+            .bind(etablissement_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        sqlx::query("DELETE FROM ent_msg WHERE etablissement_id = $1 AND id = $2")
+            .bind(etablissement_id)
+            .bind(message_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(true)
+    }
+
+    pub async fn count_pieces_message(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+    ) -> Result<i64, DomainError> {
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_msg_piece WHERE etablissement_id = $1 AND message_id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(n)
+    }
+
+    /// Le message est-il remis, ou écrit par `lecteur` lui-même (M0b, D24) ?
+    pub async fn message_remis_pour(
+        &self,
+        etablissement_id: Uuid,
+        message_id: Uuid,
+        lecteur: Uuid,
+    ) -> Result<bool, DomainError> {
+        let (ok,): (bool,) = sqlx::query_as(
+            "SELECT coalesce((SELECT remise_prevue_le IS NULL OR remise_prevue_le <= now()
+                                     OR auteur_user_id = $3
+                                FROM ent_msg WHERE etablissement_id = $1 AND id = $2), false)",
+        )
+        .bind(etablissement_id)
+        .bind(message_id)
+        .bind(lecteur)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ok)
     }
 
     pub async fn get_message(

@@ -438,11 +438,15 @@ pub struct EnvoiVu {
 const COLONNES_ENVOI_VU: &str =
     "id, canal, kind, titre, statut, motif, source_type, source_id, planifie_pour, traite_le";
 
-/// Communications de masse (annonce, campagne) : SMS et push sans contenu (M0a, D4) ; le texte
-/// complet reste dans l'ENT et dans l'e-mail.
+/// Communications de masse (annonce, campagne) : SMS, push **et e-mail** sans contenu (M0a D4,
+/// M0b D27) ; le texte complet reste dans l'ENT, derrière l'authentification : une boîte e-mail
+/// partagée ou un téléphone verrouillé ne laisse rien lire.
 fn canal_externe_neutre(kind: &str) -> bool {
-    matches!(kind, "campagne" | "annonce")
+    matches!(kind, "campagne" | "annonce" | "messagerie_famille")
 }
+const SUJET_NEUTRE_EMAIL: &str = "Message de l'établissement";
+const TEXTE_NEUTRE_EMAIL: &str =
+    "Un nouveau message de l'établissement est disponible dans ScolIA. Connectez-vous pour le lire.";
 const TITRE_NEUTRE_PUSH: &str = "Message de l'établissement";
 const TEXTE_NEUTRE_PUSH: &str = "Nouveau message — ouvrez ScolIA pour le lire.";
 const TEXTE_NEUTRE_SMS: &str = "ScolIA : nouveau message de l'établissement. Connectez-vous pour le lire.";
@@ -942,12 +946,17 @@ impl Expediteur {
                 if !self.mailer.is_ready() {
                     return Ok(Issue::Ignore("canal_non_configure"));
                 }
+                let (sujet, texte): (&str, &str) = if canal_externe_neutre(&e.kind) {
+                    (SUJET_NEUTRE_EMAIL, TEXTE_NEUTRE_EMAIL)
+                } else {
+                    (titre, corps)
+                };
                 let r = self
                     .mailer
                     .send(OutgoingMail {
                         to: to.clone(),
-                        subject: titre.to_string(),
-                        body_text: corps.to_string(),
+                        subject: sujet.to_string(),
+                        body_text: texte.to_string(),
                         attachments: Vec::new(),
                     })
                     .await;
@@ -961,8 +970,8 @@ impl Expediteur {
                         eleve_id: e.eleve_id,
                         kind: e.kind.clone(),
                         to_email: to,
-                        subject: titre.to_string(),
-                        body_text: corps.to_string(),
+                        subject: sujet.to_string(),
+                        body_text: texte.to_string(),
                         status: statut,
                         error: erreur.clone(),
                         source_aggregate: Some("notification_envoi".into()),

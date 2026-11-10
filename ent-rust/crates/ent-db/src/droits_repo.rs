@@ -18,6 +18,16 @@ use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::tenant_tx::TenantTx;
 
+/// Profils dont les fils de messagerie sur un élève seraient lisibles de tout professeur de
+/// l'élève tant que les boîtes à confidentialité propre (socle 16, M3) n'existent pas.
+fn profil_sans_messagerie(r: Role) -> bool {
+    matches!(r, Role::Infirmerie | Role::Psy)
+}
+
+fn action_messagerie_interdite(a: Action) -> bool {
+    matches!(a, Action::MessagerieEleve | Action::MessagerieFilsReserves)
+}
+
 fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("droits_repo", err))
 }
@@ -76,6 +86,7 @@ impl PgEnt {
         if !base.is_staff() {
             return Ok(droits); // garde-fou 1 : familles et élèves hors rôles libres
         }
+        let sans_messagerie = profil_sans_messagerie(base);
         // Bord de journée dans le fuseau de l'établissement (et non en UTC) : une attribution qui
         // finit le 31 août s'éteint le soir du 31 août à l'heure locale. Les lignes closes
         // (retrait, modification) ne donnent plus aucun droit, même dans leurs dates.
@@ -111,6 +122,11 @@ impl PgEnt {
             self.droits_delegues(etablissement_id, user_id, jour)
                 .await?,
         );
+        if sans_messagerie {
+            // M0b (D28) : garde appliquée à la lecture, quelle que soit l'origine du droit
+            // (rôle attribué avant la garde, délégation).
+            droits.retain(|d| !action_messagerie_interdite(d.action));
+        }
         Ok(droits)
     }
 
@@ -527,6 +543,13 @@ impl PgEnt {
             Some(_) => return Err(DomainError::ValeurInvalide.into()), // garde-fou 1
             None => return Err(DomainError::NotFound.into()),
         }
+        // M0b (D28) : jamais de droit de messagerie sur les élèves pour un profil santé ou
+        // psychologue avant les boîtes à confidentialité propre (M3).
+        if base.is_some_and(profil_sans_messagerie)
+            && role.droits.iter().any(|d| action_messagerie_interdite(d.action))
+        {
+            return Err(DomainError::ValeurInvalide.into());
+        }
         let aujourdhui = self.aujourdhui_etablissement(etablissement_id).await?;
         let debut_explicite = debut;
         let debut = debut.unwrap_or(aujourdhui);
@@ -853,6 +876,12 @@ impl PgEnt {
                     cibles,
                 });
             }
+        }
+        // M0b (D28) : un rôle modelé sur un profil santé ou psychologue ne reçoit pas ces droits.
+        if saisie.modele.as_deref().and_then(Role::parse).is_some_and(profil_sans_messagerie)
+            && droits.iter().any(|d| action_messagerie_interdite(d.action))
+        {
+            return Err(DomainError::ValeurInvalide.into());
         }
         self.exiger_couverture(etablissement_id, actor_user_id, actor_role, &droits)
             .await?;

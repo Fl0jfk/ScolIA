@@ -178,12 +178,34 @@ async fn socle1_messagerie_prof_limitee_a_ses_eleves_et_a_ses_fils() {
         .await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "{r:?}");
 
-    // McGonagall (enseigne en 5A) le voit ; Rogue voit ses propres élèves.
+    // McGonagall (enseigne en 5A) est dans le périmètre de Draco, mais depuis M0b (D21, D22) le
+    // lien d'enseignement ne donne plus la lecture du fil ouvert par la CPE : elle ne le voit pas.
     let boite_mcg = ent
         .list_fils_for_actor(etab, mcg, prof, None, true, None)
         .await
         .unwrap();
-    assert!(boite_mcg.iter().any(|f| f.id == fil_draco.id));
+    assert!(!boite_mcg.iter().any(|f| f.id == fil_draco.id));
+    // Témoin : dans son périmètre, elle peut en ouvrir un et le lit.
+    let (fil_mcg, _) = ent
+        .ouvrir_fil_for_actor(
+            prof,
+            OuvrirFil {
+                etablissement_id: etab,
+                eleve_id: draco,
+                sujet: "Suivi 5A".into(),
+                premier_message: "Bonjour.".into(),
+                actor_user_id: mcg,
+            },
+        )
+        .await
+        .unwrap();
+    assert!(ent
+        .list_fils_for_actor(etab, mcg, prof, None, true, None)
+        .await
+        .unwrap()
+        .iter()
+        .any(|f| f.id == fil_mcg.id));
+    // Rogue voit ses propres élèves.
     let (fil_harry, _) = ent
         .ouvrir_fil_for_actor(
             prof,
