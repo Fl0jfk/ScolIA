@@ -9,8 +9,13 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Taille max d'une PJ messagerie (P0 local).
+/// Taille max d'une PJ messagerie (P0 local) : égale au `CHECK` de la colonne `taille_octets`
+/// (migration 038). Un réglage supérieur (`ENT_UPLOAD_MAX_MESSAGE`) ne la dépasse jamais.
 pub const MSG_PIECE_MAX_OCTETS: usize = 256 * 1024;
+/// Longueurs maximales (R-M44, M0b D17) : sujet 200 caractères, message 20 000, 5 pièces.
+pub const MSG_SUJET_MAX_CARACTERES: usize = 200;
+pub const MSG_CORPS_MAX_CARACTERES: usize = 20_000;
+pub const MSG_PIECES_MAX_PAR_MESSAGE: i64 = 5;
 
 fn mime_piece_autorise(mime: &str) -> bool {
     matches!(
@@ -239,6 +244,11 @@ pub fn plan_ouvrir_fil(cmd: OuvrirFil) -> Result<(MsgFil, Message), DomainError>
     if sujet.is_empty() || corps.is_empty() {
         return Err(DomainError::MessageVide);
     }
+    if sujet.chars().count() > MSG_SUJET_MAX_CARACTERES
+        || corps.chars().count() > MSG_CORPS_MAX_CARACTERES
+    {
+        return Err(DomainError::MessageTropLong);
+    }
     let now = Utc::now();
     let fil_id = Uuid::new_v4();
     let fil = MsgFil {
@@ -272,6 +282,9 @@ pub fn plan_repondre_fil(fil: &MsgFil, cmd: RepondreFil) -> Result<(Message, Dat
     let corps = cmd.corps.trim().to_string();
     if corps.is_empty() {
         return Err(DomainError::MessageVide);
+    }
+    if corps.chars().count() > MSG_CORPS_MAX_CARACTERES {
+        return Err(DomainError::MessageTropLong);
     }
     let now = Utc::now();
     let msg = Message {

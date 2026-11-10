@@ -130,6 +130,11 @@ pub mod types {
     pub const MSG_ENVOYE: &str = "msg.envoye";
     pub const MSG_ACCUSE: &str = "msg.accuse";
     pub const MSG_PIECE: &str = "msg.piece";
+    pub const MSG_DEROGATION_PLAGE: &str = "msg.derogation_plage";
+    pub const ANNONCE_APERCU: &str = "annonce.apercu";
+    pub const ANNONCE_RETIREE: &str = "annonce.retiree";
+    pub const LIEN_VERIFIE: &str = "lien.verifie";
+    pub const MSG_REGLAGE: &str = "msg.reglage";
     pub const FAC_FACTURE_CREEE: &str = "fac.facture_creee";
     pub const FAC_FACTURE_EMISE: &str = "fac.facture_emise";
     pub const FAC_ENCAISSEMENT: &str = "fac.encaissement";

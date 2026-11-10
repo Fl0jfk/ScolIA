@@ -50,6 +50,35 @@ impl AudienceAnnonce {
     }
 }
 
+/// État d'une annonce (M0b, D8) : `apercu` = brouillon chiffré, rien n'est parti ; `publiee` =
+/// confirmée ; `retiree` = retirée (envois en attente annulés, plus visible des familles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StatutAnnonce {
+    Apercu,
+    Publiee,
+    Retiree,
+}
+
+impl StatutAnnonce {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Apercu => "apercu",
+            Self::Publiee => "publiee",
+            Self::Retiree => "retiree",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "apercu" => Some(Self::Apercu),
+            "publiee" => Some(Self::Publiee),
+            "retiree" => Some(Self::Retiree),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Annonce {
     pub id: Uuid,
@@ -61,6 +90,13 @@ pub struct Annonce {
     pub cible_classe: Option<String>,
     pub auteur_user_id: Uuid,
     pub created_at: DateTime<Utc>,
+    pub statut: StatutAnnonce,
+    /// M0b (D18) : classe ciblée par identifiant (survit à un renommage) ; `None` si le libellé
+    /// ne désigne aucune classe du référentiel (ancien ciblage par libellé).
+    pub classe_id: Option<Uuid>,
+    /// Chiffres de l'aperçu (D8) : élèves et responsables joignables au moment de l'aperçu.
+    pub apercu_nb_eleves: Option<i32>,
+    pub apercu_nb_responsables: Option<i32>,
 }
 
 impl Annonce {
@@ -121,6 +157,10 @@ pub fn plan_creer_annonce(cmd: CreerAnnonce) -> Result<Annonce, DomainError> {
         },
         auteur_user_id: cmd.actor_user_id,
         created_at: Utc::now(),
+        statut: StatutAnnonce::Apercu,
+        classe_id: None,
+        apercu_nb_eleves: None,
+        apercu_nb_responsables: None,
     })
 }
 
