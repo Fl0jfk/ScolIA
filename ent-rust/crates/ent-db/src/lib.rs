@@ -310,6 +310,8 @@ mod tests_d036;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rls;
 #[cfg(all(test, feature = "labo"))]
+mod tests_rls_lots;
+#[cfg(all(test, feature = "labo"))]
 mod tests_objets;
 
 #[cfg(all(test, feature = "labo"))]

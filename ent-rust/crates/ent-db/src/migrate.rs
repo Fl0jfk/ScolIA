@@ -224,13 +224,21 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/561_inscription_resolution.sql"),
     include_str!("../../../migrations/562_inscription_scolarite_actuelle.sql"),
     include_str!("../../../migrations/563_signalement_assiduite_detail.sql"),
+    include_str!("../../../migrations/580_rls_eleves_responsables.sql"),
+    include_str!("../../../migrations/581_rls_sante_assiduite.sql"),
+    include_str!("../../../migrations/582_rls_finances.sql"),
+    include_str!("../../../migrations/583_rls_communication.sql"),
+    include_str!("../../../migrations/584_rls_vie_scolaire_discipline.sql"),
+    include_str!("../../../migrations/585_rls_evaluations_pedagogie.sql"),
+    include_str!("../../../migrations/586_rls_inscriptions.sql"),
+    include_str!("../../../migrations/587_rls_structure_acces_divers.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "563_signalement_assiduite_detail";
+pub const MIGRATION_TAG: &str = "587_rls_structure_acces_divers";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
