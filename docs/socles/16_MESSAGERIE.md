@@ -2,13 +2,14 @@
 
 **Date :** 2026-11-09 — **Statut :** conception de fond, **non décidée** (à relire par Florian), rédigée **après** le code (lot 7, S2-8 « communication », et correctif RP1-11 de la recette 1) pour le rattraper (`docs/PILOTAGE.md` §4, « rattrapage des domaines codés avant la méthode »). Aucun code écrit ni modifié ; aucun accès à une base, à un secret ni à l'application Next.js (lecture ciblée de deux schémas seulement, §2.4).
 **État du lot M0a (2026-11-09, branche `ent-socle-messagerie-m0a`, base `ENT`) :** **implémenté et testé en local** (tests Postgres `ent-db` `tests_messagerie_m0a`, voir §27.3) ; **CI GitHub : voir §27.3** ; migration **480** (repli 480–499, Q-B2 non tranchée). Non validé par Florian, non prêt pilote : le reste (participants, boîtes, pièces, etc.) vient dans M0b et M1 à M17.
+**Passe personas (2026-11-10, ajout personas) :** `PERSONAS_16.md` (18 personas, 112 manques M-2301 à M-2412) ; ajouts au **§33**, marqués « ajout personas », sans suppression. **M0a n'a pas fermé toutes les fuites** (D21 à D28, §33.1) : lot **M0b élargi avant la démo de décembre** (§33.2).
 **Branche :** `ent-socle-messagerie-conception` (partie de `ent-mc0hoe`, `91e3822`, qui contient `ent-socle2-communication` et `ent-recette-1-correctifs` ; `ent-recette-securite-3` lue sans être fusionnée).
 **À lire avec :** `CLAUDE.md` (envois soumis à confirmation humaine ; l'IA n'a jamais plus de droits que l'utilisateur) ; `docs/PILOTAGE.md` ; `docs/DECISIONS.md` (D-013, D-014, D-017, D-021, **D-022**, **D-023**, D-024, D-026, **D-028**, **D-031**) ; `docs/SOCLES.md` (socles **16, 17**, 8, 18, 19, 30, 33, 36) ; `docs/MATRICE_CHARLEMAGNE.md` §3.9 (COM-01 à COM-21) ; `docs/socles/04_ADMINISTRATIF.md` (§8.6 droits du lien, §8.8 interdictions, §8.12 destinataires, §12.3 adresse protégée) ; `08_NOTIFICATIONS.md` et `PERSONAS_08.md` (**le socle 8 distribue, le socle 16 converse**) ; `06_PERSONNELS.md` (suppléances, départs, équipes) ; `07_DOCUMENTS.md` (pièces, coffre, conversion) ; `IA_COEUR.md` (§6.2 niveaux de confirmation, §8.2 tâches de réponse) ; `docs/VERIF_REGLEMENTAIRE.md` ; `docs/recette/RECETTE_PERSONAS_1.md` (RP1-11) ; `RECETTE_SECURITE_3.md` (branche `ent-recette-securite-3`) ; modèle de forme : `21_EVALUATIONS.md`.
 **Conventions.** **[F]** fait vérifié dans le dépôt (chemin et ligne cités) ; **[V]** règle lue sur une source officielle (URL citée) ; **[NV]** règle non vérifiée sur une source officielle ; **[H]** hypothèse (pratique du terrain, marché) ; **[R]** recommandation (non décidée). Numérotation propre à ce socle : actions **MSG-100** et suivantes (COM-01 à COM-09 sont pris par `SOCLE2_DOMAINES.md`), actions du socle 17 **ANN-100** et suivantes, règles **R-M1**…, cas limites **CM-01**…, questions **Q-M1**…, réglages signalés **S-132**… (après S-131 du socle 21).
 **Plage de migrations :** **4600–4699** si la règle « 3000 + 100 × numéro de socle » (Q-B2) est adoptée ; **repli 480–499** sinon (vérifié libre sur toutes les branches distantes le 2026-11-09, plus haute migration trouvée : 460) ; le lot **M0a** peut partir tout de suite en **480**. Socle 17 : **4700–4799** ou repli **500–519**, réservé pour éviter une collision (registre `MIGRATIONS.md`).
 **Méthode.** Lecture des décisions, de la carte, des conceptions 04, 06, 07, 08, de la passe personas 08, des recettes 1, 2 et de sécurité 3 ; lecture directe des migrations 023 et 375 ; audit indépendant du code (sous-agent, lecture seule, ~90 lectures), dont **les défauts D1, D2, D3, D4 et D7 ont été relus ligne à ligne** ; recherche réglementaire (sous-agent) sur Légifrance, cnil.fr, service-public.gouv.fr, les PDF officiels du ministère et le service d'assistance de la Commission (règlement IA) ; les pages HTML d'education.gouv.fr, d'eduscol et d'EUR-Lex renvoient 403 aux robots (points marqués [NV]).
 
-Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs · §4 Cas limites · §5 Réglementaire · §6 Frontières · §7 Concepts · §8 Matrice « qui peut écrire à qui » · §9 Parents séparés, interdictions · §10 Élèves · §11 Personnels · §12 Pièces jointes · §13 Lecture et accusés · §14 Modération, harcèlement, protection, urgence · §15 Conservation · §16 IA · §17 Socle 17 (esquisse) · §18 Carnet de correspondance · §19 Actions · §20 Règles transverses · §21 Droits et minimisation · §22 Événements · §23 Notifications · §24 Écrans · §25 Modèle de données · §26 Plan de migration · §27 Lots de code et migrations · §28 Tests et recette · §29 Réglages signalés · §30 Questions · §31 Faits, hypothèses, contradictions · §32 Les cinq décisions à prendre en priorité.
+Sommaire : §0 En bref · §1 Thèse · §2 Évaluation de l'existant · §3 Acteurs · §4 Cas limites · §5 Réglementaire · §6 Frontières · §7 Concepts · §8 Matrice « qui peut écrire à qui » · §9 Parents séparés, interdictions · §10 Élèves · §11 Personnels · §12 Pièces jointes · §13 Lecture et accusés · §14 Modération, harcèlement, protection, urgence · §15 Conservation · §16 IA · §17 Socle 17 (esquisse) · §18 Carnet de correspondance · §19 Actions · §20 Règles transverses · §21 Droits et minimisation · §22 Événements · §23 Notifications · §24 Écrans · §25 Modèle de données · §26 Plan de migration · §27 Lots de code et migrations · §28 Tests et recette · §29 Réglages signalés · §30 Questions · §31 Faits, hypothèses, contradictions · §32 Les cinq décisions à prendre en priorité · §33 Ajouts de la passe personas.
 
 ---
 
@@ -271,7 +272,7 @@ Sources consultées le 2026-11-09 par un sous-agent de recherche ; les PDF offic
 | R-14 | Données du compte « pour la durée de l'année scolaire ou, au besoin, du cycle » ; traces de connexion **12 mois au plus** ; durées détaillées renvoyées à un « kit de conservation » introuvable ; **rien sur les accusés de lecture** | kit juridique du SDET 2025 **[V]** ; kit de conservation **[NV]** (403) | (même URL que R-11) | Journaux 12 mois ; accusés : choix de minimisation (§13) | DPO |
 | R-15 | RGPD : copie des données sans atteinte aux droits d'autrui (15 §4) ; pas d'effacement en cas de mission d'intérêt public, d'archivage ou de défense en justice (17 §3) ; pas de décision uniquement automatisée (22) ; protection dès la conception et par défaut, pas d'accès à un nombre indéterminé de personnes (25) ; AIPD si risque élevé (35) ; données de santé interdites sauf exceptions (9) | RGPD art. 8, 9, 15, 17, 22, 23, 25, 35 **[V]** (copie CNIL) ; art. 5 et 6 **[NV]** | https://www.cnil.fr/fr/reglement-europeen-protection-donnees/chapitre3 ; …/chapitre4 | Export expurgé ; effacement encadré (MSG-254) ; IA sans décision (§16) ; **AIPD de la messagerie** (mineurs, santé possible, IA) ; avertissement santé hors infirmerie (CM-71) | DPO |
 | R-16 | « Aucun élève ne doit subir de faits de harcèlement » : prévenir, détecter, orienter, informer chaque année, y compris sur le cyberharcèlement ; délit de harcèlement scolaire (jusqu'à 10 ans) ; **L. 511-3-1 abrogé** ; 3018 gratuit et anonyme, 7 j/7 de 9 h à 23 h | loi 2022-299 ; C. éduc. L. 111-6 ; C. pén. 222-33-2-3 **[V]** ; service-public A17444 **[V]** ; pHARe, remplacement du 3020 **[NV]** | https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000045287658 ; https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000045289333 ; https://www.service-public.gouv.fr/particuliers/actualites/A17444 | Signalement, gel, export horodaté, 3018 affiché ; élève–élève fermé (§10.4, §14) | — |
-| R-17 | Information préoccupante transmise sans délai au président du conseil départemental (CRIP), parents informés « sauf intérêt contraire de l'enfant » ; avis au procureur par tout fonctionnaire (art. 40 al. 2, **abrogé au 1ᵉʳ janvier 2029** par l'ordonnance 2025-1091) | CASF L. 226-2-1 **[V]** ; C. proc. pén. 40 **[V]** ; L. 226-2-2, L. 226-3, 119 **[NV]** | https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000027572899 ; https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006574933 | Gel, accès restreint et journalisé, aucun avis automatique à la famille, références légales paramétrables (§14 point 4) | J |
+| R-17 | Information préoccupante transmise sans délai au président du conseil départemental (CRIP), parents informés « sauf intérêt contraire de l'enfant » ; avis au procureur par tout fonctionnaire (art. 40 al. 2 ; **ajout personas** : l'ordonnance 2025-1091 **réécrit à droit constant** le CPP au 1ᵉʳ janvier 2029, date reportable — elle n'abroge pas l'obligation, `PERSONAS_16.md` §7 R-5) | CASF L. 226-2-1 **[V]** ; C. proc. pén. 40 **[V]** ; L. 226-2-2, L. 226-3, 119 **[NV]** | https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000027572899 ; https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006574933 | Gel, accès restreint et journalisé, aucun avis automatique à la famille, références légales paramétrables (§14 point 4) | J |
 | R-18 | **Outils ENT et vie scolaire paramétrés par défaut pour ne diffuser aucune nouvelle information de 20 h à 7 h en semaine et du vendredi 20 h au lundi 7 h** (messagerie, blog, tchat, notes, devoirs) ; saisie possible, visibilité différée, rappel à l'émetteur (exigence 8) ; la direction ajuste, notamment pour les urgences (exigence 9) | référentiel du numérique responsable pour l'éducation (doctrine technique), §4.4 **[V]** ; circulaire « numérique raisonné », BO n° 28 du 10 juillet 2025 **[NV]** ; C. trav. L. 2242-17 **[NV]** | https://www.education.gouv.fr/sites/default/files/2025-09/doctrine-technique-du-num-rique-pour-l-ducation---r-f-rentiel-du-num-rique-responsable-pour-l-ducation-439554.pdf | Plage calme par défaut, remise à 7 h, dérogation de la direction tracée (R-M20, R-M21, §11.3) ; cohérence à vérifier avec le socle 8 (heures calmes, §31) | — |
 | R-19 | Une messagerie fermée relève de la correspondance privée : pas d'obligations de plateforme (DSA, LCEN) tant que les services ne sont pas accessibles au public ; signalement abusif puni | kit juridique §4.3 **[V]** ; LCEN art. 6 (version du 26 août 2026) **[V]** ; texte du DSA **[NV]** | https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000049577522 | Procédure interne de signalement et de modération (§14) ; pas de commentaires publics des publications (Q-M19) ; laïcité et neutralité non recherchées **[NV]** | J |
 | R-20 | Règlement IA : annexe III point 3 (admission, évaluation des acquis, niveau, surveillance des examens) ; art. 6 §3 (tâche procédurale étroite hors haut risque, **profilage toujours à haut risque**) ; art. 50 (information, **marquage lisible par machine** des contenus générés sauf aide à l'édition standard) ; calendrier : art. 50 depuis le 2 août 2026, annexe III à partir du 2 décembre 2027 (omnibus IA) ; référentiel numérique responsable §5.3 : pas d'IA générative grand public avec des données personnelles | règlement 2024/1689 **[V]** (service d'assistance de la Commission) | https://ai-act-service-desk.ec.europa.eu/en/ai-act/annex-3 ; …/article-6 ; …/article-50 ; https://digital-strategy.ec.europa.eu/en/news/ai-omnibus-enters-force | Tri, rédaction, traduction : hors annexe III a priori ; mention visible et marque machine (R-M47) ; aucun profilage d'élève ni de famille (§16.2) ; aucune obligation trouvée sur la traduction pour les familles allophones | J |
@@ -483,7 +484,7 @@ Principe : un adulte de l'établissement peut échanger avec un élève mineur, 
 1. **Signaler** un message (tout participant) : catégories courtes (insulte, menace, harcèlement, contenu inapproprié, autre) ; le message est **gelé** et masqué pour celui qui signale s'il le demande ; la direction (ou le référent harcèlement si la catégorie le désigne) reçoit une tâche ; l'auteur n'est pas prévenu automatiquement.
 2. **Modération** par la direction : retrait d'un message (motif), clôture d'un fil, **restriction** d'une personne (vers une boîte seulement, lecture seule), datée et réexaminée (rappel à 30 jours) ; la personne restreinte est informée par un message neutre rédigé par la direction ; l'information due continue.
 3. **Harcèlement entre élèves** : obligation de prévenir, détecter et orienter (C. éduc. L. 111-6, loi 2022-299 [V]) ; délit de harcèlement scolaire (C. pén. 222-33-2-3 [V]) ; parcours vers le référent harcèlement (programme pHARe [NV]) ; conservation de la preuve (gel) ; rappel du **3018** (gratuit, anonyme, 7 j/7 de 9 h à 23 h [V]) à l'élève qui signale ; jamais de confrontation des familles dans un fil commun.
-4. **Révélation d'une maltraitance** dans un message : gel dès que le personnel le marque ; accès limité à la direction et aux personnels sociaux et de santé désignés, chaque accès journalisé ; **aucun avis automatique** à la famille (socle 8 R-N58) : l'information préalable des parents est une décision humaine, écartée si l'intérêt de l'enfant s'y oppose (CASF L. 226-2-1 [V]) ; parcours « information préoccupante » (CRIP) ou avis au procureur (C. proc. pén. 40 al. 2 [V], **abrogé au 1ᵉʳ janvier 2029** par l'ordonnance 2025-1091 : références légales **paramétrables**, jamais en dur) ; le **119** est affiché dans l'espace élève [NV].
+4. **Révélation d'une maltraitance** dans un message : gel dès que le personnel le marque ; accès limité à la direction et aux personnels sociaux et de santé désignés, chaque accès journalisé ; **aucun avis automatique** à la famille (socle 8 R-N58) : l'information préalable des parents est une décision humaine, écartée si l'intérêt de l'enfant s'y oppose (CASF L. 226-2-1 [V]) ; parcours « information préoccupante » (CRIP) ou avis au procureur (C. proc. pén. 40 al. 2 [V], **réécrit à droit constant au 1ᵉʳ janvier 2029** par l'ordonnance 2025-1091, date reportable — ajout personas : références légales **paramétrables**, jamais en dur) ; le **119** est affiché dans l'espace élève [NV].
 5. **Urgence** : la messagerie n'est **pas** un canal d'urgence ; bandeau permanent avec les numéros (établissement, 15, 17, 112, 119, 3018) ; tri déterministe des mots d'alerte en tête de boîte ; astreinte facultative.
 6. **Aucun filtrage automatique bloquant du contenu** (risque d'erreur, de censure, de faux sentiment de sécurité) ; un avertissement doux avant envoi pour les mots injurieux évidents côté élève (P, S-142).
 
@@ -1026,6 +1027,8 @@ ent_msg_vigilance                                  -- indicateurs calculés (san
   fil_id, calcule_le, criteres TEXT[]
 ```
 
+**Ajout personas (D-036)** : `horaires JSONB`, `astreinte JSONB`, `mission_codes TEXT[]`, `etiquettes TEXT[]`, `criteres TEXT[]`, `ent_msg_parametre (cle, valeur)` et l'audience JSON du socle 17 sont **remplacés avant écriture** par les tables du §33.6 ; `lu_le` est une **date** (§33.4).
+
 **Lectures filtrées** : vue `ent_msg_fil_lisible(user_id)` = fils où l'utilisateur est participant actif (personne liée au compte ou membre d'une boîte participante à la date) ∪ supervisions en cours ; **toutes** les requêtes de lecture de la brique passent par elle (R-M2).
 
 **Socle 17 (esquisse, plage propre)** : `ent_pub_publication` (type, titre, corps, rubrique, audience décrite JSON, période, épingle, prise de connaissance demandée, état brouillon / à valider / programmée / publiée / retirée, auteur, valideur, diffusion_id du socle 8), `ent_pub_version` (ajout seul), `ent_pub_traduction`, `ent_pub_lecture` (ou lecture des preuves du socle 8), `ent_pub_rubrique` ; reprise de `ent_annonce` (086) et du contenu de `ent_campagne` (191).
@@ -1053,7 +1056,7 @@ ent_msg_vigilance                                  -- indicateurs calculés (san
 | Lot | Contenu | Dépend de | Critères de fin |
 |---|---|---|---|
 | **M0a** correctifs urgents — fuites | D1 (interdiction de communication relue à la lecture, à l'écriture et dans les envois de la messagerie, du carnet et des annonces) ; D2 (règle provisoire : un fil privé ou de foyer n'est lisible du personnel que par la direction, la CPE, le secrétariat ou l'intendance pour les relances, et par les personnels qui y ont écrit) ; D3 (fil ouvert par un élève privé à l'élève et au personnel ; fils système et carnet « aux responsables » invisibles de l'élève ; colonne `audience`) ; D5 (droits du lien : `peut_voir_vs` pour les fils de vie scolaire, autorité pour la signature) ; D6 (« ne pas solliciter » dans le push, les annonces, les campagnes, les rencontres) ; D7 (carnet : `autoriser_eleve`, signature d'un titulaire) ; D9 (droits D-017 au lieu des rôles) ; D4 (textes neutres : push, SMS, e-mail du carnet ; sujet retiré des événements) ; D10 (RLS permissive sur toutes les tables de communication) | rien (**peut partir tout de suite**) | tests : parent interdit ne lit, ne reçoit, ne signe rien ; professeur ne lit pas le fil privé d'un parent ni une relance ; élève ne lit pas l'alerte d'absences adressée aux parents ; parents ne lisent pas le fil ouvert par l'élève ; parent sans `peut_voir_vs` ne lit pas la vie scolaire ; « ne pas solliciter » exclu des campagnes et rencontres ; professeur hors périmètre n'écrit pas au carnet ; aucun sujet dans `ent_metier_event` ni dans un titre de push ; inventaire RLS ; non-régression RP1-11 et de `separation.rs` ; CI verte |
-| **M0b** correctifs urgents — fiabilité | D8 (annonces : aperçu chiffré, confirmation, retrait, envoi par la chaîne S2-8, plus de boucle synchrone) ; D11 (réponse = désarchivage, route de désarchivage) ; D12 (pagination de la boîte) ; D13 (notification in-app du personnel) ; D14 (erreurs d'envoi journalisées) ; D15 (accusé posé par le côté destinataire seulement) ; D16 (taille bornée au `CHECK`, réponse 413 claire) ; D17 (push du fil de modèle, longueurs maximales R-M44) ; D18 (annonces par `classe_id`) ; D20 (test de fusion) | M0a | tests de chaque défaut ; aucune régression ; CI verte |
+| **M0b** correctifs urgents — fiabilité | D8 (annonces : aperçu chiffré, confirmation, retrait, envoi par la chaîne S2-8, plus de boucle synchrone) ; D11 (réponse = désarchivage, route de désarchivage) ; D12 (pagination de la boîte) ; D13 (notification in-app du personnel) ; D14 (erreurs d'envoi journalisées) ; D15 (accusé posé par le côté destinataire seulement) ; D16 (taille bornée au `CHECK`, réponse 413 claire) ; D17 (push du fil de modèle, longueurs maximales R-M44) ; D18 (annonces par `classe_id`) ; D20 (test de fusion) ; **ajout personas : D21 à D28, plage calme minimale, file « non traités » (§33.2, M0b-1 avant la démo)** | M0a | tests de chaque défaut ; aucune régression ; CI verte |
 | **M1** participants et contrôle d'accès | tables §25 (fil enrichi, `fil_eleve`, participants, messages enrichis, versions), clés composites (D19), vue filtrée, contrôle unique R-M1/R-M2, reprise MIG-1 à MIG-4 et rapport, événements `messagerie.*` en outbox | M0a | test d'or de reprise (aucun lecteur ne gagne ni ne perd un fil hors MIG-3 documenté) ; garde « aucune lecture hors vue » ; matrice de séparation étendue (familles, élève, personnels, boîtes) ; `MIGRATION_TAG` calculé |
 | **M2** matrice et destinataires | `peut_ecrire` (§8), ports socles 4, 5, 6, sept réglages bornés, fils par foyer (R-M3), fils jumeaux, exclusions agrégées, interdiction / « ne pas solliciter » / suspension / décès relus, dédoublement à la séparation (MSG-118, MSG-284), majorité (raccord socle 4) | M1 ; socle 4 port `destinataires` (ou adaptateur provisoire sur les liens actuels) ; socle 5 cours ; socle 6 P2 | CM-01 à CM-18 en tests ; professeur de LV2 (CM-38) ; aperçu sans coordonnées |
 | **M3** boîtes de service | boîtes du catalogue, membres par mission, traitement (états, prise en charge, transfert, notes internes, échéances, étiquettes), réponse au nom de la boîte, horaires, réponse automatique, astreinte, message téléphonique (accueil), messages entrants non vérifiés, boîtes C3 (R-M11), bandeau d'urgence | M2 ; socle 6 (missions) | CM-31, CM-44, CM-49 ; aucune lecture C3 hors membres ; aucune liste de membres côté famille |
@@ -1072,7 +1075,7 @@ ent_msg_vigilance                                  -- indicateurs calculés (san
 | **M16** migration des clients | UI JS (F-001, non étendue) et applis sur les nouvelles routes ; fermeture des anciennes | M12, M14 | aucun appel aux anciennes routes pendant 30 jours |
 | **M17** RLS stricte et retraits | RLS stricte, retrait des colonnes et tables en sursis | M16 | inventaire RLS ; tests d'isolation |
 
-**Parcours minimal vendable** : M0a, M0b, M1, M2, M3, M4, M6, M12 (mobile minimal) — une famille écrit au bon service, la bonne personne répond, personne d'autre ne lit, chacun est prévenu sans fuite. **Avant tout pilote avec des élèves** : M8 et M10 (fils encadrés, signalement, gel).
+**Parcours minimal vendable** : M0a, M0b, M1, M2, M3, M4, M6, M12 (mobile minimal) — une famille écrit au bon service, la bonne personne répond, personne d'autre ne lit, chacun est prévenu sans fuite. **Avant tout pilote avec des élèves** : M8 et M10 (fils encadrés, signalement, gel). **Ajout personas** : M10 (signalement, restriction) passe aussi **avant tout usage réel avec des familles** (parent harcelant, `PERSONAS_16.md` P10) ; **M0b élargi** (§33.2) passe **avant la démo de décembre**.
 
 ### 27.3 État du lot M0a (implémenté 2026-11-09)
 
@@ -1150,19 +1153,20 @@ Si Q-B2 est adoptée : **4600** M0a (RLS permissive sur toutes les tables de com
 | Q-M7 | **Fils encadrés adulte–mineur** : supervision motivée possible et indicateur de vigilance déterministe, sans lecture du contenu ? | **Oui** ; le référent est désigné par la direction ; DPO à consulter (journalisation, information des personnels). |
 | Q-M8 | Ce que voit la famille de la lecture : « lu par l'établissement / par Mme B. », sans l'heure ? | **Oui**. |
 | Q-M9 | Réponse d'une boîte : au nom de la boîte avec prénom et initiale de l'agent ? | **Oui** (« Vie scolaire — Paul D. »). |
+| Q-M23 → Q-M30 | (ajout personas) | voir §33.8 |
 | Q-M10 | **Durées de conservation** proposées (§15 point 3 : purge 3 mois après la perte du droit au compte, après versement au dossier de ce qui a une valeur administrative ; carnet 1 an ; journaux 12 mois) ? | **Appliquées comme hypothèses de travail** ; **à valider par le DPO et, pour le public, par le service d'archives (visa) avant la mise en service** (engagement extérieur, D-031 : soumis à Florian). |
 | Q-M11 | AESH et familles : participer aux fils ouverts par le PP ou le professeur, sans en ouvrir seul ? | **Oui** (réglage borné). |
 | Q-M12 | Mention « rédigé avec l'aide de l'assistant » visible du destinataire ? | **Oui par défaut** (transparence, art. 50 du règlement IA à confirmer) ; l'établissement peut la retirer pour les seules reformulations. |
 | Q-M13 | IA de tri : déterministe d'abord, modèle de langage ensuite, sans aucune décision ? | **Oui** ; les fonctions à modèle de langage attendent l'étude juridique (comme Q-EV8). |
 | Q-M14 | Réponses par e-mail aux avis : rejetées avec renvoi vers ScolIA, ou déposées dans la boîte comme messages non vérifiés ? | **Rejetées par défaut** (risque d'usurpation d'adresse) ; dépôt possible par réglage. |
-| Q-M15 | Moteur d'analyse antivirus des pièces (libre, sur nos serveurs) ? | **Choix à instruire** (licence, activité, sécurité — CLAUDE.md) ; en attendant, quarantaine + types restreints + conversion ; **soumis à Florian** (dépendance nouvelle). |
+| Q-M15 | Moteur d'analyse antivirus des pièces (libre, sur nos serveurs) ? | **Choix à instruire** (licence, activité, sécurité — CLAUDE.md) ; en attendant, quarantaine + types restreints + conversion ; **soumis à Florian** (dépendance nouvelle). **Ajout personas** : désarmer d'abord (conversion servie, métadonnées retirées, domaine séparé), puis ClamAV en processus séparé (GPL-2.0, socket) : §33.5. |
 | Q-M16 | Carnet de correspondance : mots signés par un seul titulaire suffisent-ils ? | **Oui**, sauf mot marqué « les deux » par le personnel. |
 | Q-M17 | Plage calme : appliquer **exactement** le défaut national (20 h–7 h, vendredi 20 h–lundi 7 h) à tous les messages du personnel vers les familles et les élèves, dérogation d'urgence par la direction seulement ? | **Oui** (exigences 8 et 9 du référentiel du numérique responsable, §5 R-18). |
 | Q-M18 | Fils système (absence à justifier, relance de facture, document à signer) : participants calculés par la nature (titulaires avec le droit, payeurs), dédoublés par foyer ? | **Oui**. |
 | Q-M19 | Socle 17 : pas de commentaires publics sur une publication, seulement « poser une question » en fil individuel ? | **Oui**. |
 | Q-M20 | Plage de migrations 4600–4699 (Q-B2) ou repli 480–499 ; socle 17 4700–4799 ou 500–519 ? | **Réservées** ; M0a part en **480** si Q-B2 n'est pas tranchée. |
 | Q-M22 | Parent **sans exercice** de l'autorité parentale : informations dues dans ses propres fils, écriture vers la direction et le secrétariat, pas de messages ordinaires des professeurs (CM-10) ? | **Oui**, ajustable par la direction au vu de la pièce ; aligné sur la brochure DGESCO et TA Toulouse 2022 (§5 R-4, R-5). |
-| Q-M21 | Messagerie de l'infirmerie avant l'hébergement de données de santé (HDS) ? | **Boîte infirmerie limitée à la logistique** (rendez-vous, retour à la maison, PAI renvoyé au socle 34) avec avertissement « pas de détail médical » tant que l'HDS n'est pas en place (`VERIF_REGLEMENTAIRE.md` R23) ; **soumis au DPO**. |
+| Q-M21 | Messagerie de l'infirmerie avant l'hébergement de données de santé (HDS) ? | **Boîte infirmerie limitée à la logistique** (rendez-vous, retour à la maison, PAI renvoyé au socle 34) avec avertissement « pas de détail médical » tant que l'HDS n'est pas en place (`VERIF_REGLEMENTAIRE.md` R23) ; **soumis au DPO**. **Ajout personas** : en N-0 / N-1, **demandes structurées sans texte libre** (§33.5). |
 
 ---
 
@@ -1178,6 +1182,8 @@ Si Q-B2 est adoptée : **4600** M0a (RLS permissive sur toutes les tables de com
 5. **`SOCLE2_DOMAINES.md` COM-07** (« message à propos d'un élève visible dans son dossier ») : précisé — visible dans la chronologie **du personnel** seulement, titre neutre pour C3, jamais dans une vue famille.
 
 6. **Plage calme et heures calmes du socle 8** : le socle 8 (§9.3, §16) prévoit des heures calmes réglables (défaut établissement) et une disponibilité des personnels de 7 h 30 à 19 h 00 ; le référentiel du numérique responsable [V] impose un **défaut** de 20 h–7 h et du vendredi 20 h au lundi 7 h pour tout ce que les outils ENT et vie scolaire diffusent. Le socle 8 devra aligner son défaut d'établissement sur ce texte (à signaler à sa passe personas ou à son lot N3).
+8. **Ajout personas** : contradictions C8 à C14 de `PERSONAS_16.md` §12 (choix 2 du §27.3, ordre de M10, article 40, borne famille ↔ famille, D-036, inventaire T0, CM-76).
+
 7. **Socle 8 §16** (« les messages de familles hors horaires : la famille voit "le professeur lira votre message à partir de 7 h 30" ») : conservé ; c'est la disponibilité du personnel, distincte de la plage calme d'envoi.
 
 ---
@@ -1189,3 +1195,144 @@ Si Q-B2 est adoptée : **4600** M0a (RLS permissive sur toutes les tables de com
 3. **Élèves** (Q-M5, Q-M6, Q-M7) : les parents d'un mineur ne lisent pas sa messagerie ; pas de messagerie libre entre élèves ; fils adulte–mineur encadrés (supervision motivée prévue par la charte, indicateur de vigilance sans lecture du contenu). **Recommandation : oui**, avec un **avis juridique** sur le contrôle du chef d'établissement (C. pén. 432-9) et un passage au DPO **avant tout pilote avec des élèves**.
 4. **Temps et conservation** (Q-M17, Q-M10) : plage calme nationale par défaut (20 h–7 h, week-end), dérogation d'urgence par la direction seulement ; aucune suppression par un utilisateur ; purge 3 mois après la perte du droit au compte, après versement au dossier de ce qui a une valeur administrative. **Recommandation : oui pour la plage calme** (texte national) ; **durées appliquées comme hypothèses de travail, à faire valider par le DPO et le service d'archives** avant la mise en service.
 5. **Cadre de l'IA** (Q-M12, Q-M13) : aide à la rédaction, résumé, tri, traduction ; chaque envoi relu et confirmé (N3, passkey récente), destinataires imposés par le fil, mention visible et marque machine, aucune décision ni profilage ; tri déterministe d'abord. **Recommandation : oui** ; les fonctions à modèle de langage attendent l'étude juridique déjà demandée au socle 21 (Q-EV8) et le choix du fournisseur (Mistral prioritaire, sous garanties).
+
+---
+
+## 33. Ajouts de la passe personas (2026-11-10, `PERSONAS_16.md`) — ajout personas
+
+Recommandations appliquées par défaut (D-031), sauf mention « soumis » (`PERSONAS_16.md` §10.2). Rien n'est supprimé ailleurs dans ce document ; en cas d'écart, ce paragraphe précise.
+
+### 33.1 Défauts résiduels après M0a (suite du §2.2) [F]
+| # | Gravité | Défaut | Preuve | Lot |
+|---|---|---|---|---|
+| D21 | **critique** | Fil ouvert par un élève lisible de tout personnel ayant `messagerie.eleve` sur lui (professeurs compris) | `msg_repo.rs:168` ; §27.3 choix 2 | M0b-1 |
+| D22 | **critique** | Fil ouvert par un personnel « aux responsables » lisible des **deux foyers** et de tout professeur de l'élève ; push aux deux foyers à chaque réponse | `ouvrir_fil_for_actor` (`PorteeFil::responsables()`) ; `msg_repo.rs:119-131` ; `destinataires_famille_fil` | M0b-1 |
+| D23 | élevée | Élève majeur : les fils du personnel qui le concernent lui sont invisibles et vont à ses parents | `msg_repo.rs:133` | M0b-1 |
+| D24 | élevée | Aucune plage calme ni disponibilité dans la messagerie ; push synchrone à toute heure | `service.rs:1568-1612` | M0b-1 (minimal), M4 |
+| D25 | élevée | Interdiction saisie par libellé seul : sans effet, même si la personne est liée ensuite | `480:23-38` ; §27.3 choix 4 | M0b-1 + socle 4 |
+| D26 | moyenne | Règle provisoire D2 par rôle de base : l'AED ne peut traiter aucun message de famille | `service.rs:17460-17467` | M0b-1 |
+| D27 | moyenne | Corps des annonces et campagnes encore envoyé par e-mail ; e-mail du carnet à tout responsable communicant | §27.3 D4 ; `PROJECT_STATUS.md` | M0b-2 + socle 8 N0 |
+| D28 | moyenne | Aucune garde empêchant d'accorder `messagerie.eleve` aux profils infirmerie et psychologue avant les boîtes C3 | `ent-auth/src/actions.rs` | M0b-1 |
+
+### 33.2 Lot M0b élargi
+| Lot | Contenu | Dépend de | Critères de fin |
+|---|---|---|---|
+| **M0b-1** sécurité résiduelle (**avant la démo de décembre**, migration **481**) | D21 (fil d'élève : lisible des seuls rôles réservés et de qui y a écrit) ; D22 (fil du personnel aux responsables créé **une fois par foyer** de liens communicants, colonne `ent_msg_fil.foyer_lecteur_id` distincte de `foyer_id` ; lecture du personnel : auteur, qui a écrit, rôles réservés) ; D23 (majeur : audience `eleve`, parents selon les droits conservés du socle 4) ; D24 minimal (`ent_msg.remise_prevue_le`, remise et avis à 7 h, fuseau de l'établissement, annonce à l'auteur, dérogation `messagerie.urgence_hors_plage` tracée) ; D25 (lien créé après une interdiction par libellé : inactif dans la messagerie jusqu'à confirmation) ; D26 (action D-017 `messagerie.fils_reserves.lire` au lieu des rôles) ; D28 (garde) ; file « messages des familles non traités » (MSG-329) | M0a | un test d'attaque par défaut, précédé d'un témoin ; démo du labo (Lily et James Potter) sans fuite ; CI verte |
+| **M0b-2** fiabilité | contenu du M0b d'origine (D8, D11 à D18, D20) + D27 | M0b-1 | comme au §27.1 |
+
+Ordre des lots précisé : **M10 avant tout usage réel avec des familles** (pas seulement avant un pilote avec des élèves) ; **M5** commence par le désarmement (§33.5) sans attendre l'antivirus ; la boîte infirmerie n'ouvre qu'après **M3**.
+
+### 33.3 Règles ajoutées (R-M48 et suivantes)
+| # | Règle | Lot |
+|---|---|---|
+| R-M48 | Un message différé par la plage calme reste modifiable et annulable jusqu'à sa remise ; le délai de correction court à partir de la remise | M0b-1, M4 |
+| R-M49 | Entre personnels : message remis, **avis différé** pendant la plage calme et les vacances scolaires, sauf urgence de la direction ; « recevoir quand même » est un choix personnel | M4, M6 |
+| R-M50 | **Débit** : un compte famille ouvre au plus 3 fils par jour vers une même personne et écrit au plus 20 messages par fil et par jour ; au-delà, orientation vers la boîte et avis à la direction ; un personnel envoie au plus 3 lots par heure | M4 |
+| R-M51 | Un appelant sans droit (interdiction, lien suspendu, non identifiable) : l'accueil ne confirme rien ; le message téléphonique va à la direction, sans motif affiché | M3 |
+| R-M52 | **Silence de crise** : pendant une alerte U3 active (`surete.alerte`, intrusion ou confinement), la messagerie n'émet aucun avis ; bandeau, réponse automatique, boîte « cellule de crise » | M3, socle 8 N3 |
+| R-M53 | La supervision motivée est refusée tant que la version en vigueur de la charte de l'établissement n'en contient pas la clause | M10 |
+| R-M54 | Un numéro à rappeler est une **carte** lue au moment de la lecture selon les droits du lecteur ; un numéro tapé est marqué « donné par l'appelant » | M3 |
+| R-M55 | **Protection entre responsables** (ordonnance, adresse protégée vis-à-vis de l'autre, interdiction de contact entre eux, socle 4) : aucun fil, carte ou formulaire ne les réunit, même dans un foyer déclaré commun | M2 |
+| R-M56 | Une carte d'action partagée entre titulaires n'affiche jamais l'action de l'autre ni sa date (« accord recueilli ») | M7 |
+| R-M57 | **Alerte de rédaction** quand une réponse du personnel contient un motif de coordonnée dans un fil d'un élève protégé | M2 |
+| R-M58 | Boîte infirmerie en N-0 / N-1 : demandes et réponses **structurées**, aucun champ libre ; texte libre seulement en N-2 (cabinet HDS) | M3 (soumis au DPO) |
+| R-M59 | Tout le système (écrans, cartes, gabarits, réponses types) est traduit par des humains dans les langues déclarées, indépendamment de l'IA | M14 |
+| R-M60 | **Revue annuelle des gels** : un gel sans procédure active depuis 12 mois remonte à la direction (levée ou maintien motivé) ; signalements gelés automatiquement | M10 |
+| R-M61 | Pièces : formats bornés (SVG, HTML, archives refusés) ; **version convertie servie** (images ré-encodées sans métadonnées, PDF reconstruits), original en quarantaine non servi ; nom de fichier réécrit ; domaine séparé, `Content-Disposition: attachment`, `nosniff`, CSP `sandbox` ; message ou publication de lot dont l'information n'est que dans une image : texte équivalent exigé | M5, M15 |
+| R-M62 | L'**accusé automatique** d'une boîte, en réponse au geste d'une famille ou d'un élève, est remis à toute heure (numéros d'urgence compris) | M3 |
+| R-M63 | Un seul fil direct par paire de personnels (rouvert, jamais dupliqué) ; noms « Direction », « Vie scolaire »… réservés aux boîtes ; badge « établissement » sur les messages du personnel ; liens externes non cliquables sans avertissement du domaine ; **aucun aperçu de lien** calculé par le serveur | M1, M14 |
+| R-M64 | Un accès « en tant que » (supervision technique d'un compte) ne lit jamais la messagerie de la personne (repris de Next.js, `access.ts:43-61`) | M1 |
+| R-M65 | La messagerie ne vaut jamais preuve de convocation (D. 511-31) ; la carte affiche le mode d'envoi réel tenu par le socle 13 | M7 |
+| R-M66 | Un intervenant extérieur ou une AESH n'est jamais seul avec une famille ou un élève dans un fil : l'intervenant n'entre que dans un fil interne avec son référent ; l'AESH écrit à la famille dans un fil de liaison où le PP ou le coordonnateur reste participant | M8, M9 |
+
+### 33.4 Actions ajoutées
+| ID | Action | Qui · droit | Règles |
+|---|---|---|---|
+| MSG-320 | **Passer la main** (vers vie scolaire, PP, direction) avec note interne, et sortir du fil | PRF, PP | la famille voit « suivi par … » |
+| MSG-321 | Demander à la direction le gel et l'export d'un fil (protection, plainte) | personnels | tâche à la direction |
+| MSG-322 | Renommer un fil interne à plusieurs | auteur | message système |
+| MSG-323 | Mentionner un collègue (`@`) | personnels, fils internes et d'équipe | jamais en fil famille ou élève |
+| MSG-324 | Épingler un message dans un fil interne ou d'équipe | participants personnels | — |
+| MSG-325 | Transférer un message entre fils internes | personnels | interdit depuis un fil famille ou élève |
+| MSG-326 | Voir, modifier, annuler ses **envois différés** | auteur | R-M48 |
+| MSG-327 | **Aiguillage à la saisie** (« ceci ressemble à une absence : l'adresser à la vie scolaire ? ») | SYS, côté famille | déterministe, sans IA |
+| MSG-328 | **Lot à textes individuels** : préparer un texte par élève, relire dans l'aperçu, confirmer une fois (N3, empreinte) | PP, PRF, CPE | précise CM-76 ; plafond S-450 |
+| MSG-329 | File « messages des familles non traités » (avant les boîtes) | CPE, VS, DIR | M0b-1 |
+| MSG-330 | Réponses types de boîte traduites par un humain | responsables de boîte | R-M59 |
+| MSG-331 | **Mode crise** côté familles (bandeau, réponse automatique, boîte cellule de crise) | SYS sur alerte U3 | R-M52 |
+| MSG-332 | Ouvrir un **fil de crise interne** silencieux | DIR | en attendant le socle 14 |
+| MSG-333 | Revue annuelle des gels | DIR | R-M60 |
+| MSG-334 | Ajouter un **interprète** sans compte à un fil (lien nominatif à usage limité, engagement de confidentialité) | CPE, DIR, PP | jamais l'élève comme interprète |
+| MSG-335 | Demander le **réexamen** d'une restriction | personne restreinte | une fois par 30 jours ; décision motivée |
+| MSG-336 | Parcours **« signaler un harcèlement »** (victime ou témoin, captures gelées, 3018, 119) | ELV, PAR | aucun avis automatique à la famille |
+| MSG-337 | Ouvrir un **fil de liaison famille–AESH** | PP, coordonnateur ULIS | R-M66 |
+| MSG-338 | Écrire à la **boîte des représentants de parents** de la classe ; y répondre au nom de la boîte | PAR ; représentants élus | aucune adresse visible |
+| MSG-339 | Générer la fiche de traitement et l'AIPD pré-remplie de la messagerie | DPO, DIR | — |
+| ANN-117 | Publication des **représentants de parents** à l'audience « parents de la classe qui ont accepté » | représentants | consentement exprès par parent, révocable ; pas de validation de fond (D. 111-9) |
+| ANN-118 | Suspendre une publication de représentants pour un motif des limites légales, avec renvoi à l'autorité académique | DIR | tracé |
+| ANN-119 | Exiger un texte équivalent pour une image | SYS | R-M61 |
+| ANN-120 | Publication interne aux personnels (remplace le salon « Général » des channels Next.js) | DIR, personnels autorisés | — |
+| ANN-121 | Gérer les consentements à la liste des représentants (accepter, retirer) | PAR | table de consentements |
+
+### 33.5 Points tranchés
+- **Durées de conservation** : tableau de `PERSONAS_16.md` §6.1 appliqué comme paramètres par catégorie (fil famille ou élève : fin de l'année scolaire suivant son dernier message, au plus tard 3 mois après la perte du droit ; carnet et fils internes : fin de l'année suivante ; signalements : clôture + 1 an ; journaux : 12 mois ; gels revus chaque année). **Soumis** au DPO et, dans le public, au service d'archives (visa).
+- **Antivirus** : désarmer d'abord (formats bornés, conversion servie, métadonnées retirées, domaine séparé), puis **ClamAV** en processus séparé (`clamd`, socket, GPL-2.0, pas d'édition de liens) derrière l'adaptateur `AnalyseurAntivirus`. **Soumis** à Florian (dépendance nouvelle).
+- **Infirmerie** : demandes structurées sans texte libre en N-0 / N-1 (R-M58), cabinet HDS pour N-2 (`34_SANTE.md` §10.15), logistique seulement dans le public, ouverture après M3. **Soumis** au DPO.
+- **Plage calme** : `PERSONAS_16.md` §6.4 (personnel → famille ou élève : remise différée ; entre personnels : avis différés ; familles : enregistré, accusé automatique permis ; vacances ; silence de crise ; même défaut dans le privé).
+- **Accusés** : sans heure pour tous ; agrégés dans les fils d'équipe ; `lu_le DATE` ; prise de connaissance signée horodatée ; « vu par » nominatif de Next.js non repris.
+- **Modération** : aucun blocage ; avertissement doux pour élèves et familles (S-451) ; débit ; réexamen des restrictions ; aucune modération par l'IA.
+- **Traduction** : système traduit par des humains ; traduction à la lecture côté destinataire par défaut (N0) ; sortante en N3, jamais envoyée sans geste humain ; `ent_msg_traduction` ; jamais en C3.
+
+### 33.6 Normalisation D-036 du modèle cible (§25), avant toute migration
+| Au §25 | Remplacé par |
+|---|---|
+| `ent_msg_boite.horaires JSONB` | `ent_msg_boite_horaire (boite_id, jour_iso SMALLINT CHECK 1–7, debut TIME, fin TIME)` |
+| `ent_msg_boite.astreinte JSONB` | `ent_msg_astreinte (id, boite_id, personne_id, du TIMESTAMPTZ, au TIMESTAMPTZ)` |
+| `ent_msg_boite.mission_codes TEXT[]` | `ent_msg_boite_mission (boite_id, mission_code → référentiel des missions du socle 6)` |
+| `ent_msg_traitement.etiquettes TEXT[]` | `ent_msg_etiquette (id, boite_id, code, libelle)` + `ent_msg_traitement_etiquette (fil_id, boite_id, etiquette_id)` |
+| `ent_msg_vigilance.criteres TEXT[]` | `ent_msg_vigilance_critere (vigilance_id, critere CHECK (liste fermée))` |
+| `ent_msg_parametre (cle, valeur)` | `ent_msg_reglage` : une ligne par version (établissement, `du`, `par`) avec **colonnes typées** (les sept réglages, plage calme `debut` / `fin`, pièces des familles, traitement des réponses e-mail, mention IA) |
+| socle 17 : « audience décrite JSON » | `ent_pub_audience_critere (publication_id, type CHECK, site_id / niveau_id / classe_id / groupe_id / cours_id / mission_code NULL, exactement un renseigné selon le type)` |
+| (nouveau) consentements des représentants | `ent_pub_consentement_representants (etablissement_id, personne_id, classe_id, accepte_le, retire_le)` |
+| (nouveau) traductions | `ent_msg_traduction (message_id, langue, texte, moteur, cree_le)` |
+
+**Exceptions permises**, à déclarer à `MIGRATIONS.md` : charge utile de l'outbox (`ent_metier_event.payload`, transitoire) ; instantanés d'audit ; export JSON du droit d'accès (format d'échange). **À signaler** : `ent_eleve_interdiction.objet TEXT[]` (socle 4), `ent_campagne.canaux TEXT[]` et `cible_ids UUID[]`, `ent_formulaire.cible_ids UUID[]` (socle 8, 18) : tableaux sans clé étrangère, à classer.
+
+### 33.7 Cas limites ajoutés (CM-81 et suivants)
+| # | Situation | Ce qui doit se passer |
+|---|---|---|
+| CM-81 | Le PP prépare 35 bilans différents | lot à textes individuels, aperçu déroulant, une confirmation (MSG-328) |
+| CM-82 | Alerte intrusion : 600 parents écrivent | silence de crise, bandeau, réponse automatique, boîte cellule de crise (R-M52) |
+| CM-83 | « Je suis le père de Léo, il est là ? » à l'accueil, père sous interdiction | rien n'est confirmé ; message à la direction (R-M51) |
+| CM-84 | Ordonnance de protection : le père garde l'autorité, la mère a un domicile caché | deux fils obligatoires ; informations dues aux deux ; aucune carte commune (R-M55, R-M56) |
+| CM-85 | Élève qui signale un harcèlement à 22 h | accusé automatique immédiat avec 119 et 3018 ; lecture à 7 h 30 ; captures gelées ; aucun professeur ne lit (D21) |
+| CM-86 | Intervenant théâtre qui veut prévenir les élèves d'une répétition | refusé ; il écrit au référent, qui informe (R-M66) |
+| CM-87 | Parent délégué qui veut écrire aux parents de la classe | boîte et publication des représentants, consentement exprès (MSG-338, ANN-117) |
+| CM-88 | Professeure qui écrit le dimanche à 21 h | « partira lundi à 7 h » ; modifiable jusqu'à la remise (R-M48) |
+| CM-89 | Collègue qui écrit à 22 h | message remis, avis à 7 h (R-M49) |
+| CM-90 | Parent qui ouvre un quatrième fil dans la journée vers la même professeure | orienté vers la boîte vie scolaire (R-M50) |
+| CM-91 | Élève majeure dont le père écrit au PP | alerte de rédaction et réponse type sans donnée (R-M12) |
+| CM-92 | Élève qui écrit à l'infirmerie « j'ai besoin de la pilule du lendemain » | impossible en N-0 / N-1 : demande structurée « voir l'infirmière, urgent » (R-M58) |
+| CM-93 | Photo HEIC avec position GPS d'un enfant | ré-encodée sans métadonnées, version convertie servie (R-M61) |
+| CM-94 | SVG envoyé par un parent | refusé (R-M61) |
+| CM-95 | Lien d'hameçonnage depuis un compte parent compromis | lien non cliquable sans avertissement ; aucun aperçu serveur (R-M63) |
+| CM-96 | Quelqu'un se nomme « Direction » | nom réservé aux boîtes (R-M63) |
+| CM-97 | Interdiction saisie par libellé, puis lien créé au guichet | lien inactif dans la messagerie jusqu'à confirmation (D25) |
+| CM-98 | Parent qui demande l'adresse de l'autre à la CPE | alerte de rédaction si la réponse contient une coordonnée (R-M57) |
+| CM-99 | Gel posé pour un signalement il y a 14 mois, sans procédure | revue annuelle (R-M60) |
+| CM-100 | Administrateur en accès « en tant que » sur le compte d'une CPE | la messagerie de la CPE n'est pas lisible (R-M64) |
+
+### 33.8 Questions ajoutées
+| # | Question | Recommandation |
+|---|---|---|
+| Q-M23 | Usage réel de la messagerie Next.js (interne, visio, fils famille) ? | **Fait que seul Florian connaît** ; décide le niveau visé à la rentrée 2027 (D-035) |
+| Q-M24 | Un élève de 15 ans et plus exerce-t-il seul le droit d'accès à ses propres fils ? | **Oui** ; à confirmer par le DPO (soumis) |
+| Q-M25 | M0b-1 avant la démo de décembre ? | **Oui** ; sinon retirer la messagerie de la démo |
+| Q-M26 | Boîte des représentants de parents (nuance la borne « famille ↔ famille ») ? | **Oui** (appliqué) |
+| Q-M27 | Plage calme appliquée dans le privé sous contrat aussi ? | **Oui**, même défaut partout |
+| Q-M28 | Messages vocaux et vidéos entre personnels (Next.js les a) ? | **Non** pour familles et élèves ; entre personnels, après M5 si l'usage le montre |
+| Q-M29 | Couper ou restreindre les « channels » de Next.js (NXD-1) ? | **Décision de Florian** (Next.js intouchable pour le pilote) |
+| Q-M30 | ClamAV comme moteur d'analyse ? | **Oui** après désarmement ; **soumis** (dépendance) |
+
+### 33.9 Réglages signalés (D-023)
+S-450 à S-456 : `PERSONAS_16.md` §11.
