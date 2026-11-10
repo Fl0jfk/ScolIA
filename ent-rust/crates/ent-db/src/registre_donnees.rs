@@ -460,6 +460,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_notification", "communication_technique", Portee::Etablissement).perso().export(),
     t("ent_notification_envoi", "communication_technique", Portee::Etablissement).perso().neutralise(N_NOTIF),
     t("ent_notification_plafond", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_objet", "dossier_eleve", Portee::Etablissement).perso().fichiers(Fichiers::Objet).export(),
     t("ent_offre_cible", "structure_scolaire", Portee::Etablissement).exc(Exception::SansHorodatage, "table de liaison (offre ↔ cible), datée par l'offre"),
     t("ent_offre_enseignement", "structure_scolaire", Portee::Etablissement),
     t("ent_offre_groupe", "structure_scolaire", Portee::Etablissement),

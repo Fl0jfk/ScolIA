@@ -174,8 +174,7 @@ async fn run() -> Result<(), String> {
     std::env::set_var("ENT_SMS_DRY_RUN", "1");
     std::env::set_var("ENT_PUSH_DRY_RUN", "1");
     std::env::set_var("ENT_BANK_DRY_RUN", "1");
-    std::env::set_var("ENT_OBJECT_S3_LIVE", "1");
-    std::env::set_var("ENT_OBJECT_S3_BUCKET", "scola-lab");
+    std::env::set_var("ENT_OBJECT_BACKEND", "disk");
     std::env::set_var(
         "ENT_OBJECT_DIR",
         format!(".ent-objects-lab-{}", Uuid::new_v4()),
@@ -8792,23 +8791,20 @@ async fn explorer_staff_sans_metier(
     if !ordo.contenu.is_empty() {
         return Err("contenu PAI doit être hors base (object store)".into());
     }
-    if !ent.objects().is_s3_live() {
-        return Err("object store lab attendu en S3 live (disque)".into());
+    if !ent.objects().is_disk() {
+        return Err("object store lab attendu sur disque".into());
     }
-    let uri = ent.objects().s3_uri(key);
-    if !uri.starts_with("s3://scola-lab/") {
-        return Err(format!("URI S3 live inattendue: {uri}"));
-    }
+    let uri = ent.objects().uri(key);
     let on_disk = ent
         .objects()
-        .root()
-        .join(ent.objects().s3_bucket())
+        .disk_root()
+        .ok_or("racine disque du lab absente")?
         .join(key);
     if !on_disk.is_file() {
-        return Err(format!("fichier S3 live absent: {}", on_disk.display()));
+        return Err(format!("fichier objet absent: {}", on_disk.display()));
     }
     r.geste(format!(
-        "infirmière joint ordonnance {} ({} o) → {uri} (live disque)",
+        "infirmière joint ordonnance {} ({} o) → {uri} (disque lab)",
         ordo.nom, ordo.taille_octets
     ));
 
