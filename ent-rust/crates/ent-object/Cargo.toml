@@ -4,13 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Stockage objet local (remplace S3 en lab) — clés tenantées pour PAI / docs"
+description = "Stockage objet : S3-compatible (SigV4) en production, disque/mémoire en labo — objets immuables, empreintes SHA-256"
 
 [dependencies]
 base64 = "0.22"
 hmac = "0.12"
 sha2 = "0.10"
 thiserror = { workspace = true }
+tracing = "0.1"
+# Client HTTP synchrone minimal (rustls, sans runtime async) : l'API du magasin est synchrone.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 uuid = { workspace = true }
 
 [dev-dependencies]

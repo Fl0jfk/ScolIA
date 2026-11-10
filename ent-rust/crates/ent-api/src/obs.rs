@@ -99,6 +99,11 @@ pub fn installer_familles(obs: &Metrics) {
         "1 si la collecte des sondes base a échoué au dernier scrape",
     );
     obs.declarer(
+        "ent_objet_operations",
+        Genre::Jauge,
+        "Magasin d'objets (S3) depuis le démarrage : opérations par type et résultat ; toute valeur non nulle sur echec/integrite/sans_empreinte est à traiter",
+    );
+    obs.declarer(
         "ent_info",
         Genre::Jauge,
         "Version, SHA git et tag de migration du binaire",
@@ -173,6 +178,25 @@ async fn rendre(state: &AppState) -> Response {
         ],
         1,
     );
+
+    {
+        let m = state.ent.objects().metrics();
+        for (op, res, v) in [
+            ("ecriture", "ok", m.ecritures_ok),
+            ("ecriture", "echec", m.ecritures_echec),
+            ("lecture", "ok", m.lectures_ok),
+            ("lecture", "echec", m.lectures_echec),
+            ("lecture", "sans_empreinte", m.lectures_sans_empreinte),
+            ("verification", "echec", m.head_echec),
+            ("integrite", "echec", m.integrite_echec),
+        ] {
+            obs.jauge_definir(
+                "ent_objet_operations",
+                &[("operation", op), ("resultat", res)],
+                i64::try_from(v).unwrap_or(i64::MAX),
+            );
+        }
+    }
 
     match state.ent.sondes_metriques().await {
         Ok(sondes) => {

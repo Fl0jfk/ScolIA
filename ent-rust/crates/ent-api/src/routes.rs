@@ -1852,11 +1852,12 @@ async fn servir_fichier_signe(
     if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
         return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
     }
+    // Lecture contrôlée : empreinte et taille comparées à celles de la base.
     let bytes = state
         .ent
-        .objects()
-        .get(&claims.key)
-        .map_err(|e| map_db(e.into()))?;
+        .lire_objet(claims.etablissement_id, &claims.key)
+        .await
+        .map_err(map_db)?;
     let mut res = Response::new(Body::from(bytes));
     *res.status_mut() = StatusCode::OK;
     let h = res.headers_mut();
@@ -12495,6 +12496,26 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         }
         ent_db::EntDbError::Object(ent_db::ObjectStoreError::InvalidKey) => {
             return (StatusCode::BAD_REQUEST, "Fichier invalide.".to_string());
+        }
+        // Stockage : l'échec est visible (jamais un fichier vide ni altéré servi en silence).
+        ent_db::EntDbError::Object(ent_db::ObjectStoreError::Integrity) => {
+            tracing::error!("intégrité d'un objet non vérifiée : lecture refusée");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Fichier indisponible : intégrité non vérifiée.".to_string(),
+            );
+        }
+        ent_db::EntDbError::Object(ent_db::ObjectStoreError::Immutable) => {
+            return (StatusCode::CONFLICT, "Fichier déjà enregistré.".to_string());
+        }
+        ent_db::EntDbError::Object(
+            ent_db::ObjectStoreError::Backend(_) | ent_db::ObjectStoreError::Unavailable,
+        ) => {
+            tracing::error!("stockage d'objets indisponible");
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Stockage de fichiers indisponible.".to_string(),
+            );
         }
         ent_db::EntDbError::Domain(domain_eleve::DomainError::TenantMismatch) => {
             return (StatusCode::FORBIDDEN, err.to_string());
