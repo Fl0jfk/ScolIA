@@ -1193,6 +1193,43 @@ impl PgEnt {
             .await
             .map_err(ecriture)?;
         }
+        // Lot P3 : les interventions de service (annulées comprises : l'historique suit l'agent
+        // conservé) et les lignes qui désignent l'agent (créneaux, séances, absences) le suivent.
+        // Le drapeau local autorise le repointage de `agent_id`, et de rien d'autre.
+        sqlx::query("SELECT set_config('ent.agent_fusion', 'on', true)")
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        sqlx::query("UPDATE ent_service_intervenant SET agent_id = $3 WHERE etablissement_id = $1 AND agent_id = $2")
+            .bind(etab)
+            .bind(source.id)
+            .bind(cible.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| match ecriture(e) {
+                EntDbError::Refus(_, _) => conflit("Les deux agents interviennent sur un même service aux mêmes dates : corriger l'une des interventions avant de fusionner."),
+                autre => autre,
+            })?;
+        sqlx::query("SELECT set_config('ent.agent_fusion', 'off', true)")
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        for (table, colonne) in [
+            ("ent_edt_creneau", "agent_id"),
+            ("ent_edt_seance", "agent_id"),
+            ("ent_edt_seance", "remplacant_agent_id"),
+            ("ent_absence_rh", "agent_id"),
+        ] {
+            sqlx::query(&format!(
+                "UPDATE {table} SET {colonne} = $3 WHERE etablissement_id = $1 AND {colonne} = $2"
+            ))
+            .bind(etab)
+            .bind(source.id)
+            .bind(cible.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         // Les références (référent, « remplace ») pointent désormais l'agent conservé.
         sqlx::query("UPDATE ent_agent_engagement SET referent_agent_id = $3 WHERE etablissement_id = $1 AND referent_agent_id = $2")
             .bind(etab).bind(source.id).bind(cible.id).execute(&mut *tx).await.map_err(ecriture)?;
