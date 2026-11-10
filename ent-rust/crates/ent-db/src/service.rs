@@ -6228,7 +6228,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
              SELECT p.id FROM ent_note_periode p
                JOIN ent_eleve_document d
                  ON d.etablissement_id = p.etablissement_id
-                AND d.code IN ('BULLETIN_' || p.code, 'LIVRET_' || p.code)
+                AND upper(d.code) IN (upper('BULLETIN_' || p.code), upper('LIVRET_' || p.code))
               WHERE p.etablissement_id = $1 AND d.eleve_id = $2
                 AND d.tiroir = 'famille' AND d.confidentialite = 'standard'",
         )

@@ -146,6 +146,7 @@ mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
 mod pra;
+pub mod registre_donnees;
 mod objets;
 mod tva_repo;
 mod param_etab_repo;
