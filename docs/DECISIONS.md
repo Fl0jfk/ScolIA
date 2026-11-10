@@ -32,6 +32,7 @@
 | Cible commerciale du socle 2 | **Public et privé ensemble** (ÉduConnect, GAR, interfaces nationales prévues dès le socle 2) | **Validé** | D-019 |
 | Modèle personne / compte, absences | Personne distincte du compte pour les responsables ; absences à la séance avec dérivation en demi-journées | **Validé** | D-020 |
 | Construction par socles | Socles profonds conçus avant d'être codés ; 1 sécurité (fait), 2 l'élève, 3 inscriptions et réinscriptions, 4 dossier administratif ; carte 5–51 proposée (`docs/SOCLES.md`) | **Validé** (ordre 1–4) ; carte 5–51 à valider | D-021 |
+| Sauvegardes, PRA, portabilité | Deux destinations actives (Scaleway + OVHcloud), PITR, restauration et export par établissement, double validation des exports complets | **Proposé, à valider par Florian** | D-037 à D-046, `PRA_SAUVEGARDES.md`, `PORTABILITE_EXPORTS.md` |
 | Next.js production | Intouchable | Règle absolue | — |
 | DB production | Aucun accès même lecture | Règle absolue | — |
 
@@ -389,3 +390,47 @@ Préalables à l'année de doublon (à préparer au printemps 2027) : accord éc
 1. Audit de l'existant Rust (environ 25 colonnes JSONB sur `ENT` au 2026-11-10, ex. `134_vs_discipline.dossier`, `172_delegation.droits`, `302…regle_relance`, `304…scolarite_actuelle`, `332…jours_ouvres` et `valeur`, `144_import_lot.donnees`, `250…resolutions`) : chaque colonne est classée « exception permise » ou « à normaliser », et les colonnes à normaliser reçoivent une migration de reprise vers des tables.
 2. Toute nouvelle conception et tout nouveau lot respectent la règle ; la revue du pilote la vérifie (`grep -i jsonb` sur les migrations ajoutées).
 3. Transition (D-035) : les modules Next.js qui stockent encore leurs données en JSON (fichiers ou objets S3) sont inventoriés en T0 ; leurs données sont reprises dans des tables, et un `pg_dump` seul ne suffit pas pour eux (export des fichiers JSON à prévoir).
+
+## D-037 à D-046 — Sauvegardes, PRA et portabilité (proposées le 2026-11-10, **à valider par Florian**)
+Issues de la mission `docs/missions/MISSION_PRA_SAUVEGARDES.md`. Détail et justification : `docs/PRA_SAUVEGARDES.md` et `docs/PORTABILITE_EXPORTS.md`. **Aucune n'est décidée** ; numéros provisoires si une autre session ajoute des décisions entre-temps. D-031 ne s'applique pas d'office : D-039, D-040 et D-043 engagent des coûts ou des contrats.
+
+### À prendre maintenant (elles contraignent le modèle de données ou les lots en cours)
+
+## D-037 — Un seul moteur d'extraction par établissement, et un registre de classement des tables (proposé, à valider par Florian)
+- **Contexte** : une PITR PostgreSQL est globale ; restaurer ou exporter un établissement exige d'extraire ses lignes et ses fichiers proprement (identité partagée `ent_user` référencée par 163 FK, ~500 FK non composites, effets de bord en file).
+- **Proposition** : crate `ent-extraction` unique pour la restauration sélective, les tests de restauration, les exports de portabilité et le format de manifeste de `ent-reprise` ; **registre de classement** de chaque table dans le code (portée, catégorie d'export, neutralisation à la restauration) avec un **test CI qui échoue** si une table n'est pas classée.
+- **Impacts** : lot EXP-0 réalisable tout de suite ; chaque nouvelle migration classe ses tables.
+
+## D-038 — Exigences de modèle de données pour la restaurabilité et la portabilité (proposé, à valider par Florian)
+- **Proposition** : les exigences E1 à E14 de `PRA_SAUVEGARDES.md` §18.4 deviennent des règles de revue pour tous les lots : `etablissement_id NOT NULL` partout (tables filles comprises), FK composites pour les nouvelles tables, UUID applicatifs, pas de nouvelle table globale à données d'établissement, fichiers hors base immuables avec empreinte, horodatages, journal, migrations rejouables depuis tout état antérieur, files d'effets de bord déclarées, D-036, clés inventoriées avec identifiant, RLS.
+- **Impacts** : à transmettre par le pilote aux sessions de code (consigne de lancement, `PILOTAGE.md` §2).
+
+## D-039 — Hébergement de PostgreSQL compatible avec un PITR vers nos propres dépôts (proposé, à valider par Florian)
+- **Faits (2026-11-10)** : la base managée Scaleway ne documente ni PITR ni accès aux WAL (sauvegarde quotidienne, 7 j) ; les outils PITR exigent `archive_command` ou la réplication physique.
+- **Proposition** : (1) T1 et année de doublon : base managée Scaleway + `pg_dump` horaires chiffrés vers les deux destinations (RPO ≈ 1 h, acceptable car Charlemagne reste officiel) ; (2) **avant le premier usage réel** (modules de l'add-on, rentrée 2027, D-035) : PostgreSQL autogéré sur instance Scaleway + **pgBackRest** (MIT) avec `repo1` Scaleway et `repo2` OVHcloud, `archive_timeout` 60 s (RPO ≤ 5 min) — **sauf** si Scaleway confirme un PITR sur l'offre managée (Q-PRA1, à poser par Florian).
+- **Risques** : exploitation d'un PostgreSQL autogéré (mises à jour, HA).
+
+## D-040 — Deux destinations de sauvegarde actives et indépendantes, objets immuables (proposé, à valider par Florian)
+- **Proposition** : Scaleway (organisation ou projet **séparé** de la production) et OVHcloud (compte distinct, Paris 3-AZ), en France, toutes deux versionnées avec **Object Lock** (GOVERNANCE 35 j au départ) ; réplication par notre worker (états par destination, réconciliation par manifestes), pas par les fonctions natives ; identifiants d'écriture sans droit de suppression ; **objets de production immuables** (nouvelle version = nouvelle clé, empreinte en base).
+- **Conséquence immédiate** : lot de correction d'`ent-object` (écriture S3 signée, erreurs remontées, empreinte) et sortie des `BYTEA` (`ent_msg_piece`, `ent_pai_piece`).
+
+## D-041 — Double validation des exports complets, réauthentification par passkey (proposé, à valider par Florian)
+- **Proposition** : actions `donnees.export.initier`, `.approuver`, `.planifier`, `.sante` ; exports complets et domaines nominatifs à **deux personnes distinctes** (comptes, personnes D-020 et passkeys différents, contrôlés en base) ; session ouverte par passkey **et** réauthentification passkey de moins de 5 min (nouvelle colonne `ent_session.authentification_forte_le`) ; suppléance par `ent_delegation`, approbateur extérieur désigné à l'avance en cas d'absence ; aucun contournement par un administrateur technique (limite assumée : l'opérateur de la plateforme a l'accès infrastructure). Détail : `PORTABILITE_EXPORTS.md` §4–§6.
+
+### Peuvent attendre
+
+## D-042 — Clés : séquestre hors Scaleway, identifiant de clé, exercice annuel (proposé, à valider par Florian ; avant T1)
+- Séquestre des phrases de passe pgBackRest, de `ENT_SECRETS_KEY` (et anciennes versions) et de la clé de signature des manifestes : Secret Manager + deux exemplaires hors ligne + un coffre hors Scaleway ; format chiffré `enc:v2:<id_cle>:` ; rotation annuelle ; exercice annuel de restauration depuis OVHcloud sans accès à Scaleway.
+
+## D-043 — Rétentions des sauvegardes (proposé, à valider par Florian **et le DPO**)
+- PITR 35 jours sur chaque destination ; 12 sauvegardes mensuelles ; effacement dans les sauvegardes à l'expiration de la rétention (à écrire dans la notice et les contrats).
+
+## D-044 — Troisième copie froide immuable (proposé, à valider par Florian ; vers ~50 établissements)
+- Copie mensuelle en OVHcloud Cold Archive (≈ 0,3 à 20 €/mois selon l'échelle), contre la perte simultanée des deux comptes ou un défaut de notre worker.
+
+## D-045 — Pas d'infrastructure de reprise chaude au lancement (proposé, à valider par Florian)
+- RTO réaliste « Scaleway perdu » : 8–24 h, ≈ 4 h après répétitions ; une reprise chaude chez OVHcloud (≈ 100–400 €/mois) n'est pas justifiée pour un établissement en doublon ; à réexaminer à la commercialisation ou sur exigence contractuelle.
+
+## D-046 — Format d'export de portabilité (proposé, à valider par Florian ; avant le lot EXP-1)
+- Archive avec `manifeste.json` signé, vue métier CSV, vue technique JSON Lines (format d'échange, compatible D-036), fichiers originaux, dictionnaire et `LISEZMOI` ; ZIP AES-256 ou `age` (Q-EXP1) ; rétention 7 jours ; bucket d'exports hors réplication.
+

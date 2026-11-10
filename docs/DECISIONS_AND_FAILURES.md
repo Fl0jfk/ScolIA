@@ -118,3 +118,16 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Faits :** (1) des consignes envoyées par message à des sessions déjà lancées (correctifs des personas, D-022) ont été **refusées** par ces sessions, à raison, car elles ne venaient pas du porteur du projet ; (2) les conteneurs cloud ont redémarré à de nombreuses reprises et ont coupé les suites de tests longues (70 à 100 min), bloquant le lot 7 pendant une nuit ; (3) la CI GitHub, lancée à la main sur la branche, a trouvé en 30 min une erreur de compilation que les suites locales coupées n'atteignaient pas ; (4) aucun regard extérieur sur les consignes du pilote avant lancement.
 - **Correction :** règles du §2 de `docs/PILOTAGE.md` (consignes dans le message de lancement, CI GitHub comme juge, file d'intégration unique, rôle de contradicteur avant chaque vague).
 - **Apprentissage :** le goulot n'est pas l'écriture du code mais l'assemblage et la validation ; il faut un rôle dédié et une validation fiable.
+
+## F-013 — Capacités de sauvegarde supposées, non vérifiées (constat de la mission PRA, 2026-11-10)
+- **Faits** : `ent-rust-observabilite-pra.md` §2.1 annonçait « snapshots + PITR de la RDB Scaleway, RPO quelques minutes » et des objets « bucket S3/Scaleway, versionné (`ent-object`) ». Vérification du 2026-11-10 : la documentation publique de la base managée Scaleway décrit une sauvegarde **quotidienne** (7 j) et des snapshots, **aucun PITR ni accès aux WAL** ; `ent-object` garde le **disque local** comme source de vérité et n'envoie à S3 qu'un `PUT` HTTP non signé, facultatif, dont l'échec est ignoré (`let _ = http_put_object(…)`).
+- **Cause probable (hypothèse)** : capacités d'un fournisseur supposées d'après l'usage courant (« une base managée a un PITR ») ; stockage objet écrit pour le labo puis décrit comme s'il était prêt pour la production.
+- **Coût / risque** : RPO réel jusqu'à 24 h au lieu de quelques minutes ; fichiers potentiellement jamais envoyés au stockage objet ; fausse confiance dans le PRA.
+- **Correction** : notes ajoutées à `ent-rust-observabilite-pra.md` ; architecture et décisions proposées dans `PRA_SAUVEGARDES.md` (D-039, D-040).
+- **Apprentissage** : toute capacité d'un fournisseur citée dans un document porte sa **source et sa date de consultation** ; « une sauvegarde existe » ne vaut que si une **restauration** a été faite.
+
+## F-014 — Contenu de fichiers stocké en base (`BYTEA`) et effets de bord restaurables (constat de conception, 2026-11-10)
+- **Faits** : `ent_msg_piece.contenu` et `ent_pai_piece.contenu` sont en `BYTEA` (migrations 038, 053) ; les files `ent_outbox` et courriels ne figurent pas dans `TABLES_VOLATILES`.
+- **Risque** : base, WAL et sauvegardes gonflés ; deux circuits de fichiers (base et stockage objet) à exporter et contrôler ; une restauration naïve **renverrait** des messages en attente aux familles.
+- **Correction proposée** : exigences E5 et E9 (`PRA_SAUVEGARDES.md` §18.4) ; reprise des deux tables vers le stockage objet à planifier.
+- **Apprentissage** : décider dès la conception d'une table si elle est « à restaurer » ou « à neutraliser » ; un fichier n'a rien à faire dans la base.

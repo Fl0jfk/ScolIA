@@ -115,6 +115,8 @@ produit `route="/personnel/{id}"` et l'UUID n'apparaît nulle part dans l'export
 
 ### 2.1 Ce qui sauvegarde quoi (couches)
 
+> **Correction du 2026-11-10** (`docs/PRA_SAUVEGARDES.md` §2.3, F-013) : la ligne « Infra » n'est pas vérifiée. La documentation publique de la base managée Scaleway (consultée le 2026-11-10) décrit une sauvegarde automatique **quotidienne** (rétention 7 j) et des snapshots, **sans PITR ni accès aux WAL** : RPO réel jusqu'à 24 h, à reconfirmer auprès de Scaleway (Q-PRA1). La ligne « Objets » est aussi inexacte : `ent-object` garde le disque local comme source de vérité et l'envoi S3 est facultatif, non signé, sans remontée d'erreur. L'architecture cible (deux destinations, pgBackRest, Object Lock) est dans `PRA_SAUVEGARDES.md` ; ce tableau décrit l'intention d'origine.
+
 | Couche | Mécanisme | RPO | RTO |
 |---|---|---|---|
 | **Infra** | snapshots + PITR de la RDB Scaleway (rétention gérée côté fournisseur) | quelques minutes | dizaines de minutes |
@@ -205,4 +207,5 @@ DATABASE_URL=postgres://scola:scola_dev_pwd@127.0.0.1:5432/scola \
 | **Métriques métier par établissement** (`/metrics` est global) | non | éviter la cardinalité et toute fuite inter-tenant dans un endpoint d'infra. L'inventaire par établissement est, lui, **gardé par rôle et cloisonné**. |
 | **`pg_dump`/`pg_restore` dans cette VM** | absents (le paquet embarqué ne fournit que `initdb`/`pg_ctl`/`postgres`) | les scripts exigent les utilitaires PostgreSQL et le disent (`code 3`) ; seule la partie applicative de la preuve (inventaire + dérive) est exécutée ici. |
 | **Réplication logique / restore cross-région automatisé** | non | hors scope tant que la RDB Scaleway assure PITR + snapshots. |
+| *(2026-11-10)* | — | remplacé par la double destination Scaleway + OVHcloud proposée dans `PRA_SAUVEGARDES.md` (D-039, D-040). |
 | **Chiffrement des dumps au repos** | non (recommandé : volume chiffré / bucket chiffré, ou `age`/`gpg` en enveloppe) | à trancher avec l'hébergeur ; le SHA256 détecte l'altération, pas la lecture. |

@@ -3,6 +3,12 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Sauvegardes, PRA multi-fournisseur et portabilité par établissement — architecture (2026-11-10, branche `ent-architecture-pra`, base `ent-mc0hoe`)
+Documentation seulement, **proposé, à valider par Florian**, aucun code, aucune ressource cloud : `docs/PRA_SAUVEGARDES.md` (commande §1–§16) et `docs/PORTABILITE_EXPORTS.md` (§17). Décisions proposées D-037 à D-046 ; erreurs F-013 (PITR managé Scaleway et S3 d'`ent-object` supposés, non vérifiés) et F-014 (`BYTEA`, files d'envoi restaurables).
+- Audit : 317/329 tables avec `etablissement_id`, 69/566 FK composites, 163 FK vers `ent_user`, 2 tables `BYTEA`, RLS ≈ 63 tables (mode `off` par défaut), migrations rejouées hors transaction.
+- Points clés : base managée Scaleway sans PITR documenté (RPO jusqu'à 24 h) → PostgreSQL autogéré + pgBackRest double dépôt avant le premier usage réel ; `ent-object` à corriger (écriture S3 réelle) ; moteur `ent-extraction` partagé PRA / exports ; double validation par passkey des exports complets.
+- **Exigences E1–E14 à transmettre aux lots en cours** : `PRA_SAUVEGARDES.md` §18.4.
+
 ## Socle 42 « sorties et voyages scolaires » — conception (2026-11-10, branche `ent-socle-voyages-conception`, base `ent-mc0hoe` d47cd79b)
 Documentation seulement, **non décidée**, aucun code : `docs/socles/42_SORTIES_VOYAGES.md`. Méthode D-035 :
 - **inventaire du module Next.js en production**, lu seulement sur une copie de `origin/main` : 74 actions métier (NX-01 à NX-74), toutes reprises ;
