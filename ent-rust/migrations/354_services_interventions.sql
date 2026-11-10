@@ -187,7 +187,7 @@ CREATE INDEX IF NOT EXISTS ent_interv_agent_idx ON ent_service_intervenant (etab
 
 -- Compte (user) du titulaire à une date : le titulaire en cours ; à défaut le dernier titulaire passé
 -- (les lecteurs historiques gardent un professeur pour les services finis) ; un titulaire futur seul
--- n'est pas encore le professeur du service. NULL si l'agent n'a pas de compte, ou si le service est
+-- n'est pas encore le professeur du service (sauf s'il commence avec le service lui-même : un service d'une année à venir reconduit garde son professeur, comme avant). NULL si l'agent n'a pas de compte, ou si le service est
 -- seulement PRÉVU (répartition de l'année suivante : aucun effet sur les droits) ou ANNULÉ.
 CREATE OR REPLACE FUNCTION ent_service_titulaire_user(p_etab UUID, p_service UUID, p_jour DATE)
 RETURNS UUID LANGUAGE sql STABLE AS $$
@@ -196,8 +196,10 @@ RETURNS UUID LANGUAGE sql STABLE AS $$
       JOIN ent_agent a ON a.etablissement_id = i.etablissement_id AND a.id = i.agent_id
       JOIN ent_personne p ON p.etablissement_id = a.etablissement_id AND p.id = a.personne_id
       JOIN ent_service_enseignement s ON s.etablissement_id = i.etablissement_id AND s.id = i.service_id
+      JOIN ent_annee_scolaire y ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
      WHERE i.etablissement_id = p_etab AND i.service_id = p_service
-       AND i.nature = 'titulaire' AND i.annule_le IS NULL AND i.du <= p_jour
+       AND i.nature = 'titulaire' AND i.annule_le IS NULL
+       AND (i.du <= p_jour OR i.du <= coalesce(s.du, y.date_debut))
        AND s.etat IN ('ouvert', 'clos')
      ORDER BY (i.au IS NULL OR i.au >= p_jour) DESC, i.du DESC
      LIMIT 1

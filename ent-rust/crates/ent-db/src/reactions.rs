@@ -159,7 +159,7 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let destinataires: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT DISTINCT l.user_id
-        FROM ent_eleve_lien_actif l
+        FROM ent_eleve_lien_sollicitable l
         JOIN ent_membership m
           ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
         WHERE l.etablissement_id = $1 AND l.eleve_id = $2
@@ -362,7 +362,7 @@ async fn destinataires_notes(
     let rows: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT DISTINCT l.user_id
-          FROM ent_eleve_lien_actif l
+          FROM ent_eleve_lien_sollicitable l
           JOIN ent_membership m ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.peut_voir_notes AND m.role = 'parent'
         UNION
