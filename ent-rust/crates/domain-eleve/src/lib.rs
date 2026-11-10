@@ -320,7 +320,8 @@ pub use facturation::{
     plan_poser_echeancier, reste_a_payer, total_deductions_lignes, ventiler_bourse_sur_echeances,
     CreerFacture, Echeance, EcheanceCmd, EcheanceCouverture, EcheanceVue, Encaissement,
     EncaisserFacture, Facture, FactureLigne, FactureStatut, LigneFactureCmd, MoyenPaiement,
-    PoserEcheancier, Quittance, NATURE_CANTINE_BADGE, NATURE_REINSCRIPTION_ACOMPTE,
+    numero_provisoire, PoserEcheancier, Quittance, NATURE_CANTINE_BADGE,
+    NATURE_REINSCRIPTION_ACOMPTE, PREFIXE_NUMERO_PROVISOIRE,
 };
 pub use facturation_ogec::{
     plan_exporter_ogec, render_ogec_csv, ExporterOgec, OgecLigneExport,
@@ -331,7 +332,7 @@ pub use facturation_rappel::{
     RappelCandidat, RappelFacture, RappelKind, RAPPEL_J_MOINS,
 };
 pub use facturation_sepa::{
-    masquer_iban, moyen_prelevement, normalize_iban, plan_creer_mandat_sepa, plan_executer_prelevement,
+    generer_rum, iban_modulo_97_valide, masquer_iban, moyen_prelevement, normalize_iban, plan_creer_mandat_sepa, plan_executer_prelevement,
     plan_marquer_exporte, plan_planifier_prelevement, plan_rejeter_prelevement,
     plan_revoquer_mandat, plan_sepa_crediteur, render_sepa_csv, render_sepa_pain008,
     CreerMandatSepa, MandatSepa, MandatSepaStatut, PlanifierPrelevement, PrelevementSepa,

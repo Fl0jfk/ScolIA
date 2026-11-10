@@ -210,19 +210,25 @@ impl Role {
     }
 
     /// Affecter / trancher bourses (déduction facture).
+    ///
+    /// F0 (FD-27, R-F37) : le secrétariat (Administratif) n'a plus ce droit par défaut
+    /// (il reste attribuable par rôle, D-017) ; la liste des boursiers n'est pas à sa portée.
     pub fn can_manage_bourses(self) -> bool {
-        matches!(
-            self,
-            Self::Admin | Self::Direction | Self::Administratif | Self::Compta
-        )
+        matches!(self, Self::Admin | Self::Direction | Self::Compta)
     }
 
-    /// Créer / émettre des factures foyer.
+    /// Créer / émettre des factures foyer, enregistrer des encaissements, faire des avoirs.
+    ///
+    /// F0 (FD-27) : l'Administratif ne l'a plus par défaut — séparation des tâches ;
+    /// il garde la consultation ([`Role::can_lire_facturation`]).
     pub fn can_manage_facturation(self) -> bool {
-        matches!(
-            self,
-            Self::Admin | Self::Direction | Self::Administratif | Self::Compta
-        )
+        matches!(self, Self::Admin | Self::Direction | Self::Compta)
+    }
+
+    /// Consulter la facturation (`facturation.lire`). Le secrétariat l'a par défaut ;
+    /// la vue « guichet » restreinte au payeur présent arrive au lot F1 (R-F37).
+    pub fn can_lire_facturation(self) -> bool {
+        self.can_manage_facturation() || self == Self::Administratif
     }
 
     /// Ouvrir campagne réinscription / montée rapide (préparation rentrée).

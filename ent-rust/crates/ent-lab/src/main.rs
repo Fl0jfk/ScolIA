@@ -698,9 +698,10 @@ async fn explorer_repas_bourses(
         .await
         .map_err(|e| e.to_string())?;
     r.geste(format!("compta crée type bourse {}", type_tom.code));
+    // F0 (FD-27) : le secrétariat n'a plus `bourses.gerer` par défaut ; la comptabilité affecte.
     let demandee = ent
         .affecter_bourse_for_actor(
-            Role::Administratif.as_str(),
+            Role::Compta.as_str(),
             AffecterBourse {
                 etablissement_id: cast.etablissement_id,
                 eleve_id: cast.eleve_tom_id,
@@ -708,7 +709,7 @@ async fn explorer_repas_bourses(
                 echelon: "1".into(),
                 avec_procuration: true,
                 date_debut: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
-                actor_user_id: Some(cast.administratif.user_id.to_string()),
+                actor_user_id: Some(cast.compta.user_id.to_string()),
             },
         )
         .await
@@ -716,7 +717,7 @@ async fn explorer_repas_bourses(
     if demandee.status != BourseStatus::Demandee {
         return Err("affectation → demandee".into());
     }
-    r.geste("admini affecte bourse Tom → demandee");
+    r.geste("compta affecte bourse Tom → demandee");
     let acceptee = ent
         .decider_bourse_for_actor(
             Role::Compta.as_str(),
@@ -4150,6 +4151,8 @@ async fn explorer_facturation(
     ));
 
     let jour = domain_eleve::today_utc();
+    // F0 : un prélèvement n'est planifié qu'au-delà du délai de pré-notification (14 jours par défaut).
+    let jour_sepa = jour + chrono::Duration::days(20);
     let csv = ent
         .export_ogec_for_actor(
             Role::Compta.as_str(),
@@ -4222,7 +4225,6 @@ async fn explorer_facturation(
         )
         .await
         .map_err(|e| e.to_string())?;
-    let rum = format!("RUM-{}", &cast.etablissement_id.to_string()[..8]);
     let mandat = ent
         .creer_mandat_sepa_for_actor(
             Role::Compta.as_str(),
@@ -4230,7 +4232,7 @@ async fn explorer_facturation(
             domain_eleve::CreerMandatSepa {
                 etablissement_id: cast.etablissement_id,
                 foyer_id: cast.foyer_tom_id,
-                rum: rum.clone(),
+                rum: String::new(),
                 iban: "FR76 3000 6000 0112 3456 7890 189".into(),
                 bic: Some("AGRIFRPP".into()),
                 titulaire: "Lily Potter".into(),
@@ -4240,6 +4242,8 @@ async fn explorer_facturation(
         )
         .await
         .map_err(|e| e.to_string())?;
+    // F0 (RS3-08) : la RUM est attribuée par le serveur.
+    let rum = mandat.rum.clone();
     r.geste(format!(
         "Slughorn crée mandat SEPA {} · IBAN {}",
         mandat.rum, mandat.iban
@@ -4252,7 +4256,7 @@ async fn explorer_facturation(
                 facture_id: emise_sepa.id,
                 mandat_id: mandat.id,
                 montant_centimes: 8000,
-                date_execution: jour,
+                date_execution: jour_sepa,
                 actor_user_id: cast.compta.user_id,
             },
         )
@@ -4266,11 +4270,10 @@ async fn explorer_facturation(
         .export_sepa_for_actor(
             cast.etablissement_id,
             Role::Compta.as_str(),
-            jour,
-            jour,
+            jour_sepa,
+            jour_sepa,
             cast.compta.user_id,
             "csv",
-            None,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -4342,28 +4345,36 @@ async fn explorer_facturation(
                 facture_id: emise2.id,
                 mandat_id: mandat.id,
                 montant_centimes: 2500,
-                date_execution: jour,
+                date_execution: jour_sepa,
                 actor_user_id: cast.compta.user_id,
             },
         )
         .await
         .map_err(|e| e.to_string())?;
-    let cdtr = domain_eleve::plan_sepa_crediteur(
-        "College Hogwarts",
-        "FR76 1010 7001 0112 3456 7890 129",
-        "CCBPFRPPXXX",
-        "FR72ZZZHOGWARTS",
+    // F0 (FD-03, FD-11) : le créancier est lu côté serveur dans les paramètres ; seule la
+    // direction peut changer le compte crédité.
+    ent.modifier_parametres_finances_for_actor(
+        cast.etablissement_id,
+        cast.direction.user_id,
+        Role::Direction.as_str(),
+        &ent_db::ParametresFinancesBody {
+            crediteur_nom: Some("College Hogwarts".into()),
+            crediteur_iban: Some("FR76 1010 7001 0112 3456 7890 129".into()),
+            crediteur_bic: Some("CCBPFRPPXXX".into()),
+            crediteur_ics: Some("FR72ZZZHOGWARTS".into()),
+            ..Default::default()
+        },
     )
+    .await
     .map_err(|e| e.to_string())?;
     let (pain_xml, kind_pain) = ent
         .export_sepa_for_actor(
             cast.etablissement_id,
             Role::Compta.as_str(),
-            jour,
-            jour,
+            jour_sepa,
+            jour_sepa,
             cast.compta.user_id,
             "pain008",
-            Some(cdtr),
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -4450,7 +4461,7 @@ async fn explorer_facturation(
                 facture_id: fac_bank_ok.id,
                 mandat_id: mandat.id,
                 montant_centimes: 4500,
-                date_execution: jour,
+                date_execution: jour_sepa,
                 actor_user_id: cast.compta.user_id,
             },
         )
@@ -4494,7 +4505,7 @@ async fn explorer_facturation(
                 facture_id: fac_bank_ko.id,
                 mandat_id: mandat.id,
                 montant_centimes: 1200,
-                date_execution: jour,
+                date_execution: jour_sepa,
                 actor_user_id: cast.compta.user_id,
             },
         )
@@ -4504,11 +4515,10 @@ async fn explorer_facturation(
         .export_sepa_for_actor(
             cast.etablissement_id,
             Role::Compta.as_str(),
-            jour,
-            jour,
+            jour_sepa,
+            jour_sepa,
             cast.compta.user_id,
             "csv",
-            None,
         )
         .await
         .map_err(|e| e.to_string())?;

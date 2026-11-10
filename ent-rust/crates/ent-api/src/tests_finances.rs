@@ -59,6 +59,7 @@ async fn finances_http_droits_isolation_famille() {
     let autre = ent.seed_labo_cast().await.expect("cast B");
     let app = app(state);
     let compta = cast.compta.token.as_str();
+    let direction = cast.direction.token.as_str();
     let prof = cast.prof.token.as_str();
     let parent = cast.parent_lea.token.as_str();
 
@@ -85,7 +86,7 @@ async fn finances_http_droits_isolation_famille() {
         &app,
         "PUT",
         "/finances/parametres",
-        Some(compta),
+        Some(direction),
         Some(
             json!({ "crediteur_iban": "FR1420041010050500013M02606", "jours_prenotification": 10 }),
         ),

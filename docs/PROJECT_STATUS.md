@@ -466,3 +466,7 @@ Incidents d'intégration de cette vague : `DECISIONS_AND_FAILURES.md`, F-006.
 **Questions ouvertes** : (a) `config_connexion` expose l'identifiant d'établissement : à trancher avec D-012 (éventuelle mise à jour de `DECISIONS.md`, non faite ici) ; (b) faut-il autoriser une route en lecture pour consulter un appel sans `POST` ?
 
 Pour chaque domaine fonctionnel, préciser absent / prototype / partiel / implémenté / testé / validé / prêt pilote. Ne jamais remplir par supposition. Next.js prod reste intouchable ; DB prod inaccessible.
+
+## Finances — lot F0 (2026-11-10, `ent-socle-finances-f0`)
+Correctifs urgents de l'existant, **implémentés et testés** (migration 520, tests `ent-api/tests/recette_finances_f0.rs`), **non validés** par Florian, **non prêts production** : un seul chemin d'encaissement verrouillé, numéro de facture attribué à l'émission, pièces émises immuables et non supprimables (déclencheurs), mandats révoqués exclus, export SEPA en POST avec pré-notification exigée et créancier lu côté serveur, IBAN du créancier chiffré, frais de relance désactivés, droits du secrétariat réduits. RS3-03 soldée. Détail, limites et points ouverts : `docs/recette/RECETTE_FINANCES_F0.md`.
+

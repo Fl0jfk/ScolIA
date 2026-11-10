@@ -17843,10 +17843,13 @@ function eleveCell(row) {
   return esc(lab);
 }
 
-async function fetchAuthedExport(path) {
+async function fetchAuthedExport(path, opts) {
   const headers = {};
   if (STORE.token) headers.authorization = 'Bearer ' + STORE.token;
-  const res = await fetch(path, { headers });
+  if (opts && opts.json !== undefined) headers['content-type'] = 'application/json';
+  const res = await fetch(path, opts && opts.json !== undefined
+    ? { method: 'POST', headers, body: JSON.stringify(opts.json) }
+    : { headers });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || ('HTTP ' + res.status));
@@ -49191,12 +49194,6 @@ function viewFacturationStaff() {
         <button type="button" id="btnExportSepa">CSV</button>
         <button type="button" id="btnExportPain008">pain.008</button>
       </div>
-      <div class="row" style="margin-top:.35rem">
-        <label>Créancier <input id="cdtrNom" value="Établissement" size="14"/></label>
-        <label>IBAN créd. <input id="cdtrIban" value="FR76 1010 7001 0112 3456 7890 129" style="min-width:14rem"/></label>
-        <label>BIC <input id="cdtrBic" value="CCBPFRPPXXX" size="10"/></label>
-        <label>ICS <input id="cdtrIcs" value="FR72ZZZ123456" size="12"/></label>
-      </div>
       <div id="sepaMandats" class="muted" style="margin-top:.5rem"></div>
       <h3 style="margin-top:1rem">Quotient / TVA / IBAN</h3>
       <div class="row">
@@ -49342,7 +49339,8 @@ async function bindFacturationStaff() {
   }
 
   async function exportSepaAndToast(pathUrl, filename, format, debut, fin) {
-    const { blob, text, res } = await fetchAuthedExport(pathUrl);
+    // F0 (FD-03) : export en POST ; le créancier est lu côté serveur (plus d'IBAN dans l'URL).
+    const { blob, text, res } = await fetchAuthedExport(pathUrl, { json: { format, debut, fin } });
     saveExportBlob(blob, res, filename);
     const flux = format === 'pain008' ? parseSepaPainFlux(text) : parseSepaCsvFlux(text);
     if (isStaffFacturationFlux() || flux.n > 0) {
@@ -49670,9 +49668,7 @@ async function bindFacturationStaff() {
       return;
     }
     try {
-      const pathUrl = '/facturation/sepa/export?format=csv&debut=' + encodeURIComponent(debut)
-        + '&fin=' + encodeURIComponent(fin);
-      await exportSepaAndToast(pathUrl, 'sepa.csv', 'csv', debut, fin);
+      await exportSepaAndToast('/facturation/sepa/export', 'sepa.csv', 'csv', debut, fin);
     } catch (e) { alert(e.message); }
   };
   document.getElementById('btnExportPain008').onclick = async () => {
@@ -49682,17 +49678,8 @@ async function bindFacturationStaff() {
       alert('Indiquez la période SEPA.');
       return;
     }
-    const q = new URLSearchParams({
-      format: 'pain008',
-      debut,
-      fin,
-      cdtr_nom: document.getElementById('cdtrNom').value.trim(),
-      cdtr_iban: document.getElementById('cdtrIban').value.trim(),
-      cdtr_bic: document.getElementById('cdtrBic').value.trim(),
-      cdtr_ics: document.getElementById('cdtrIcs').value.trim(),
-    });
     try {
-      await exportSepaAndToast('/facturation/sepa/export?' + q.toString(), 'sepa-pain008.xml', 'pain008', debut, fin);
+      await exportSepaAndToast('/facturation/sepa/export', 'sepa-pain008.xml', 'pain008', debut, fin);
     } catch (e) { alert(e.message); }
   };
   async function loadRappels() {

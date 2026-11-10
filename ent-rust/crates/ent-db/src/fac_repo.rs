@@ -102,12 +102,28 @@ impl PgFacRepo {
         Ok(())
     }
 
-    pub async fn update_facture_emise(&self, facture: &Facture) -> Result<(), DomainError> {
+    /// Émission d'un brouillon (F0, FD-05, R-F3) : le **serveur** attribue le numéro
+    /// définitif dans la série continue de l'établissement (même compteur que le
+    /// chemin `/finances` : `facture-AAAA`, `F2026-000042`), dans la transaction de
+    /// l'émission. Renvoie le numéro attribué.
+    pub async fn update_facture_emise(&self, facture: &Facture) -> Result<String, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, facture.etablissement_id).await.map_err(map_sqlx)?;
+        let annee = crate::finances::aujourd_hui().format("%Y").to_string();
+        let (n,): (i64,) = sqlx::query_as(
+            "INSERT INTO ent_fin_compteur (etablissement_id, cle, dernier) VALUES ($1, $2, 1)
+             ON CONFLICT (etablissement_id, cle) DO UPDATE SET dernier = ent_fin_compteur.dernier + 1
+             RETURNING dernier",
+        )
+        .bind(facture.etablissement_id)
+        .bind(format!("facture-{annee}"))
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let numero = format!("F{annee}-{n:06}");
         let res = sqlx::query(
             r#"
             UPDATE ent_fac_facture
-            SET statut = $3, emise_at = $4
+            SET statut = $3, emise_at = $4, numero = $5
             WHERE etablissement_id = $1 AND id = $2 AND statut = 'brouillon'
             "#,
         )
@@ -115,64 +131,17 @@ impl PgFacRepo {
         .bind(facture.id)
         .bind(facture.statut.as_str())
         .bind(facture.emise_at)
+        .bind(&numero)
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if res.rows_affected() == 0 {
+            // Rien n'est émis : la transaction (donc le numéro consommé) est annulée,
+            // la série reste sans trou.
             return Err(DomainError::FactureDejaEmise);
         }
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
-    }
-
-    pub async fn insert_encaissement_and_maybe_solde(
-        &self,
-        enc: &Encaissement,
-        facture: &Facture,
-    ) -> Result<(), DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, enc.etablissement_id).await.map_err(map_sqlx)?;
-        sqlx::query(
-            r#"
-            INSERT INTO ent_fac_encaissement (
-                id, etablissement_id, facture_id, montant_centimes, moyen,
-                reference, encaisse_at, created_by_user_id, created_at
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-            "#,
-        )
-        .bind(enc.id)
-        .bind(enc.etablissement_id)
-        .bind(enc.facture_id)
-        .bind(enc.montant_centimes)
-        .bind(enc.moyen.as_str())
-        .bind(&enc.reference)
-        .bind(enc.encaisse_at)
-        .bind(enc.created_by_user_id)
-        .bind(enc.created_at)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-
-        if facture.statut == FactureStatut::Soldee {
-            let res = sqlx::query(
-                r#"
-                UPDATE ent_fac_facture
-                SET statut = $3, soldee_at = $4
-                WHERE etablissement_id = $1 AND id = $2 AND statut = 'emise'
-                "#,
-            )
-            .bind(facture.etablissement_id)
-            .bind(facture.id)
-            .bind(facture.statut.as_str())
-            .bind(facture.soldee_at)
-            .execute(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-            if res.rows_affected() == 0 {
-                return Err(DomainError::FactureDejaSoldee);
-            }
-        }
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
+        Ok(numero)
     }
 
     pub async fn sum_encaissements(
@@ -273,54 +242,6 @@ impl PgFacRepo {
         .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EchRow::into_ech).collect())
-    }
-
-    pub async fn count_quittances_facture(
-        &self,
-        etablissement_id: Uuid,
-        facture_id: Uuid,
-    ) -> Result<i64, DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        let row: (i64,) = sqlx::query_as(
-            r#"
-            SELECT COUNT(*)::bigint FROM ent_fac_quittance
-            WHERE etablissement_id = $1 AND facture_id = $2
-            "#,
-        )
-        .bind(etablissement_id)
-        .bind(facture_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(row.0)
-    }
-
-    pub async fn insert_quittance(&self, q: &Quittance) -> Result<(), DomainError> {
-        let mut tx = TenantTx::begin(&self.pool, q.etablissement_id).await.map_err(map_sqlx)?;
-        sqlx::query(
-            r#"
-            INSERT INTO ent_fac_quittance (
-                id, etablissement_id, foyer_id, facture_id, encaissement_id,
-                numero, montant_centimes, moyen, emise_at, created_by_user_id
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-            "#,
-        )
-        .bind(q.id)
-        .bind(q.etablissement_id)
-        .bind(q.foyer_id)
-        .bind(q.facture_id)
-        .bind(q.encaissement_id)
-        .bind(&q.numero)
-        .bind(q.montant_centimes)
-        .bind(q.moyen.as_str())
-        .bind(q.emise_at)
-        .bind(q.created_by_user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
     }
 
     pub async fn list_quittances_facture(
@@ -553,14 +474,11 @@ impl PgFacRepo {
         fin: chrono::NaiveDate,
     ) -> Result<Vec<OgecLigneExport>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        let debut_ts = debut
-            .and_hms_opt(0, 0, 0)
-            .map(|d| d.and_utc())
-            .ok_or(DomainError::OgecPeriodeInvalide)?;
-        let fin_ts = fin
-            .and_hms_opt(23, 59, 59)
-            .map(|d| d.and_utc())
-            .ok_or(DomainError::OgecPeriodeInvalide)?;
+        // F0 (FD-24) : la période se lit en heure de Paris (un encaissement de 0 h 30
+        // appartient au jour même, pas à la veille).
+        if fin < debut {
+            return Err(DomainError::OgecPeriodeInvalide);
+        }
         let rows = sqlx::query_as::<_, OgecRow>(
             r#"
             SELECT e.encaisse_at,
@@ -578,14 +496,14 @@ impl PgFacRepo {
             LEFT JOIN ent_fac_quittance q
                 ON q.encaissement_id = e.id AND q.etablissement_id = e.etablissement_id
             WHERE e.etablissement_id = $1
-              AND e.encaisse_at >= $2
-              AND e.encaisse_at <= $3
+              AND e.encaisse_at >= ($2::date)::timestamp AT TIME ZONE 'Europe/Paris'
+              AND e.encaisse_at < (($3::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')
             ORDER BY e.encaisse_at ASC, f.numero ASC
             "#,
         )
         .bind(etablissement_id)
-        .bind(debut_ts)
-        .bind(fin_ts)
+        .bind(debut)
+        .bind(fin)
         .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
@@ -939,6 +857,13 @@ impl PgFacRepo {
               AND p.statut = 'prevu'
               AND p.date_execution >= $2
               AND p.date_execution <= $3
+              -- F0 (FD-04) : seulement les prélèvements du chemin historique (par facture) ;
+              -- ceux du chemin par échéance s'exportent par /finances.
+              AND p.echeance_id IS NULL
+              -- F0 (FD-03, R-P6) : jamais sans pré-notification.
+              AND p.prenotification_id IS NOT NULL
+              -- F0 (FD-10, R-P9) : jamais sur un mandat révoqué.
+              AND m.statut = 'actif'
             ORDER BY p.date_execution ASC, p.created_at ASC
             "#,
         )
@@ -1100,10 +1025,25 @@ impl PgFacRepo {
         .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-        // Ce prélèvement quitte la réserve ouverte en devenant encaissement.
-        let engage = deja.saturating_add(ouvert.saturating_sub(current.montant_centimes));
+        let (avoirs,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(SUM(montant_centimes), 0)::bigint
+            FROM ent_fin_lettrage
+            WHERE etablissement_id = $1 AND facture_id = $2 AND piece = 'avoir'
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(current.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        // F0 (FD-06) : le solde se décide sur l'encaissé réel (avoirs compris) ;
+        // ce prélèvement quitte la réserve ouverte en devenant encaissement.
+        let regle = deja.saturating_add(avoirs);
+        let engage = regle.saturating_add(ouvert.saturating_sub(current.montant_centimes));
         let (enc, facture_maj) = domain_eleve::plan_encaisser(
             &facture,
+            regle,
             engage,
             domain_eleve::EncaisserFacture {
                 etablissement_id,
@@ -1207,6 +1147,289 @@ impl PgFacRepo {
         Ok((executed, Some((enc, facture_maj, quittance))))
     }
 
+    /// F0 (FD-10) : à la révocation d'un mandat, les prélèvements encore « prévus »
+    /// (jamais exportés) sont annulés. Renvoie le nombre de lignes annulées ; les
+    /// prélèvements déjà exportés restent visibles pour traitement humain.
+    pub async fn annuler_prelevements_prevus_mandat(
+        &self,
+        etablissement_id: Uuid,
+        mandat_id: Uuid,
+    ) -> Result<(u64, u64), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let annules = sqlx::query(
+            "UPDATE ent_fac_sepa_prelevement SET statut = 'annule'
+              WHERE etablissement_id = $1 AND mandat_id = $2 AND statut = 'prevu'",
+        )
+        .bind(etablissement_id)
+        .bind(mandat_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .rows_affected();
+        let (deja_exportes,): (i64,) = sqlx::query_as(
+            "SELECT count(*)::bigint FROM ent_fac_sepa_prelevement
+              WHERE etablissement_id = $1 AND mandat_id = $2 AND statut = 'exporte'",
+        )
+        .bind(etablissement_id)
+        .bind(mandat_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok((annules, deja_exportes as u64))
+    }
+
+    /// Avoirs imputés sur une facture (lettrage `avoir`), à ajouter à l'encaissé réel.
+    pub async fn sum_avoirs(
+        &self,
+        etablissement_id: Uuid,
+        facture_id: Uuid,
+    ) -> Result<i64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_fin_lettrage
+              WHERE etablissement_id = $1 AND facture_id = $2 AND piece = 'avoir'",
+        )
+        .bind(etablissement_id)
+        .bind(facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(n)
+    }
+
+    /// Annule un prélèvement « prévu » (échec de pré-notification : il ne doit pas rester).
+    pub async fn annuler_prelevement_prevu(
+        &self,
+        etablissement_id: Uuid,
+        prelevement_id: Uuid,
+    ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        sqlx::query(
+            "UPDATE ent_fac_sepa_prelevement SET statut = 'annule'
+              WHERE etablissement_id = $1 AND id = $2 AND statut = 'prevu'",
+        )
+        .bind(etablissement_id)
+        .bind(prelevement_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    /// F0 (FD-23) : mandats des foyers donnés, filtrés **en SQL** (un parent voit
+    /// toujours ses propres mandats, quelle que soit la taille de l'établissement).
+    pub async fn list_sepa_mandats_foyers(
+        &self,
+        etablissement_id: Uuid,
+        foyers: &[Uuid],
+        limit: i64,
+    ) -> Result<Vec<MandatSepa>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        let rows = sqlx::query_as::<_, MandatRow>(
+            r#"
+            SELECT id, etablissement_id, foyer_id, rum, iban, bic, titulaire,
+                   statut, signe_at, created_by_user_id, created_at
+            FROM ent_fac_sepa_mandat
+            WHERE etablissement_id = $1 AND foyer_id = ANY($2)
+            ORDER BY created_at DESC
+            LIMIT $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(foyers)
+        .bind(limit)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        rows.into_iter()
+            .filter_map(|r| r.into_mandat(&self.champs).transpose())
+            .collect()
+    }
+
+    /// F0 (FD-04/05/06/07) — **encaissement unique, atomique et verrouillé**.
+    ///
+    /// Dans **une seule transaction** : verrou du foyer (même clé que le chemin
+    /// `/finances`) puis de la facture (`FOR UPDATE`), recalcul de l'encaissé réel
+    /// (encaissements + avoirs) et des prélèvements ouverts, encaissement,
+    /// imputation (lettrage), solde éventuel et quittance (rang par compteur sous
+    /// verrou). Deux guichets simultanés ne peuvent plus dépasser le total ; un
+    /// prélèvement ouvert ne solde plus la facture.
+    pub async fn encaisser_atomique(
+        &self,
+        cmd: domain_eleve::EncaisserFacture,
+    ) -> Result<(Encaissement, Facture, Quittance, i64), DomainError> {
+        let etab = cmd.etablissement_id;
+        let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(map_sqlx)?;
+        let (foyer,): (Uuid,) = sqlx::query_as(
+            "SELECT foyer_id FROM ent_fac_facture WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(cmd.facture_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .ok_or(DomainError::NotFound)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(format!("fin:{etab}:{foyer}"))
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        let facture = sqlx::query_as::<_, FactureRow>(
+            r#"
+            SELECT id, etablissement_id, foyer_id, numero, libelle, statut,
+                   total_centimes, nature, annee_scolaire,
+                   created_by_user_id, created_at, emise_at, soldee_at
+            FROM ent_fac_facture
+            WHERE etablissement_id = $1 AND id = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(etab)
+        .bind(cmd.facture_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?
+        .map(FactureRow::into_facture)
+        .ok_or(DomainError::NotFound)?;
+        let (deja,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_fac_encaissement
+              WHERE etablissement_id = $1 AND facture_id = $2",
+        )
+        .bind(etab)
+        .bind(cmd.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let (avoirs,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_fin_lettrage
+              WHERE etablissement_id = $1 AND facture_id = $2 AND piece = 'avoir'",
+        )
+        .bind(etab)
+        .bind(cmd.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let (ouvert,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(montant_centimes), 0)::bigint FROM ent_fac_sepa_prelevement
+              WHERE etablissement_id = $1 AND facture_id = $2 AND statut IN ('prevu', 'exporte')",
+        )
+        .bind(etab)
+        .bind(cmd.facture_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let regle = deja.saturating_add(avoirs);
+        let (enc, facture_maj) = domain_eleve::plan_encaisser(
+            &facture,
+            regle,
+            regle.saturating_add(ouvert),
+            cmd,
+        )?;
+        sqlx::query(
+            r#"
+            INSERT INTO ent_fac_encaissement (
+                id, etablissement_id, facture_id, montant_centimes, moyen,
+                reference, encaisse_at, created_by_user_id, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            "#,
+        )
+        .bind(enc.id)
+        .bind(enc.etablissement_id)
+        .bind(enc.facture_id)
+        .bind(enc.montant_centimes)
+        .bind(enc.moyen.as_str())
+        .bind(&enc.reference)
+        .bind(enc.encaisse_at)
+        .bind(enc.created_by_user_id)
+        .bind(enc.created_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO ent_fin_lettrage (id, etablissement_id, facture_id, piece, piece_id, montant_centimes)
+             VALUES ($1, $2, $3, 'encaissement', $4, $5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(enc.facture_id)
+        .bind(enc.id)
+        .bind(enc.montant_centimes)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        if facture_maj.statut == FactureStatut::Soldee {
+            let res = sqlx::query(
+                "UPDATE ent_fac_facture SET statut = 'soldee', soldee_at = $3
+                  WHERE etablissement_id = $1 AND id = $2 AND statut = 'emise'",
+            )
+            .bind(etab)
+            .bind(facture_maj.id)
+            .bind(facture_maj.soldee_at)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            if res.rows_affected() == 0 {
+                return Err(DomainError::FactureDejaSoldee);
+            }
+            let (n,): (i64,) = sqlx::query_as(
+                "INSERT INTO ent_fin_compteur (etablissement_id, cle, dernier) VALUES ($1, 'lettrage', 1)
+                 ON CONFLICT (etablissement_id, cle) DO UPDATE SET dernier = ent_fin_compteur.dernier + 1
+                 RETURNING dernier",
+            )
+            .bind(etab)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+            sqlx::query(
+                "UPDATE ent_fin_lettrage SET code = $3
+                  WHERE etablissement_id = $1 AND facture_id = $2 AND code IS NULL",
+            )
+            .bind(etab)
+            .bind(facture_maj.id)
+            .bind(format!("L{n:06}"))
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        }
+        // Rang de quittance sous verrou de la facture : jamais deux fois le même.
+        let (nb_q,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*)::bigint FROM ent_fac_quittance WHERE etablissement_id = $1 AND facture_id = $2",
+        )
+        .bind(etab)
+        .bind(facture_maj.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        let quittance = domain_eleve::plan_emettre_quittance(&facture_maj, &enc, (nb_q + 1) as i32)?;
+        sqlx::query(
+            r#"
+            INSERT INTO ent_fac_quittance (
+                id, etablissement_id, foyer_id, facture_id, encaissement_id,
+                numero, montant_centimes, moyen, emise_at, created_by_user_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+            "#,
+        )
+        .bind(quittance.id)
+        .bind(quittance.etablissement_id)
+        .bind(quittance.foyer_id)
+        .bind(quittance.facture_id)
+        .bind(quittance.encaissement_id)
+        .bind(&quittance.numero)
+        .bind(quittance.montant_centimes)
+        .bind(quittance.moyen.as_str())
+        .bind(quittance.emise_at)
+        .bind(quittance.created_by_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok((enc, facture_maj, quittance, regle))
+    }
+
     pub async fn list_factures_emises(
         &self,
         etablissement_id: Uuid,
@@ -1220,6 +1443,9 @@ impl PgFacRepo {
                    created_by_user_id, created_at, emise_at, soldee_at
             FROM ent_fac_facture
             WHERE etablissement_id = $1 AND statut = 'emise'
+              -- F0 (FD-04) : les rappels historiques ne portent que sur les pièces du chemin
+              -- historique (origine NULL) ; le chemin par échéance a ses propres relances.
+              AND origine IS NULL AND type_piece = 'facture'
             ORDER BY emise_at DESC NULLS LAST
             LIMIT $2
             "#,

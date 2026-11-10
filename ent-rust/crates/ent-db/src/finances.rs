@@ -68,8 +68,35 @@ pub(crate) fn introuvable() -> EntDbError {
     EntDbError::Domain(DomainError::NotFound)
 }
 
+/// Jour courant **en heure de Paris** (F0, FD-24, R-F24) : un acte posé à 0 h 30
+/// heure locale appartient au jour même, pas à la veille en UTC.
 pub(crate) fn aujourd_hui() -> NaiveDate {
-    Utc::now().date_naive()
+    date_paris(Utc::now())
+}
+
+/// Date civile à Paris d'un instant UTC (heure d'été de l'UE : du dernier dimanche
+/// de mars 01:00 UTC au dernier dimanche d'octobre 01:00 UTC).
+pub(crate) fn date_paris(t: chrono::DateTime<Utc>) -> NaiveDate {
+    use chrono::{Datelike, TimeZone, Weekday};
+    fn dernier_dimanche(annee: i32, mois: u32) -> NaiveDate {
+        let dernier_jour = if mois == 12 {
+            NaiveDate::from_ymd_opt(annee + 1, 1, 1)
+        } else {
+            NaiveDate::from_ymd_opt(annee, mois + 1, 1)
+        }
+        .and_then(|d| d.pred_opt())
+        .expect("date valide");
+        let mut d = dernier_jour;
+        while d.weekday() != Weekday::Sun {
+            d = d.pred_opt().expect("date valide");
+        }
+        d
+    }
+    let annee = t.year();
+    let debut_ete = Utc.from_utc_datetime(&dernier_dimanche(annee, 3).and_hms_opt(1, 0, 0).expect("heure"));
+    let fin_ete = Utc.from_utc_datetime(&dernier_dimanche(annee, 10).and_hms_opt(1, 0, 0).expect("heure"));
+    let decalage = if t >= debut_ete && t < fin_ete { 2 } else { 1 };
+    (t + Duration::hours(decalage)).date_naive()
 }
 
 fn est_doublon(e: &sqlx::Error) -> bool {
@@ -167,6 +194,8 @@ pub(crate) async fn verrou_foyer(
 
 #[derive(Debug, Clone)]
 pub(crate) struct Params {
+    /// Identifiant de la ligne de paramètres (authentifie le chiffrement de l'IBAN créancier).
+    pub id: Option<Uuid>,
     pub mois_debut: i16,
     pub nb_mois: i16,
     pub jour_echeance: i16,
@@ -187,6 +216,7 @@ pub(crate) struct Params {
 impl Default for Params {
     fn default() -> Self {
         Self {
+            id: None,
             mois_debut: 9,
             nb_mois: 10,
             jour_echeance: 5,
@@ -214,6 +244,7 @@ impl Params {
 
 #[derive(sqlx::FromRow)]
 struct ParamsRow {
+    id: Uuid,
     mois_debut: i16,
     nb_mois: i16,
     jour_echeance: i16,
@@ -231,9 +262,11 @@ struct ParamsRow {
     journal_banque: String,
 }
 
+const T_PARAMETRES: &str = "ent_fin_parametres";
+
 pub(crate) async fn params_tx(conn: &mut PgConnection, etab: Uuid) -> Result<Params, EntDbError> {
     let r: Option<ParamsRow> = sqlx::query_as(
-        "SELECT mois_debut, nb_mois, jour_echeance, jours_prenotification, frais_rejet_centimes,
+        "SELECT id, mois_debut, nb_mois, jour_echeance, jours_prenotification, frais_rejet_centimes,
                 rejets_avant_manuel, seuil_absence_jours, crediteur_nom, crediteur_iban, crediteur_bic,
                 crediteur_ics, compte_clients, compte_banque, journal_ventes, journal_banque
            FROM ent_fin_parametres WHERE etablissement_id = $1",
@@ -245,6 +278,12 @@ pub(crate) async fn params_tx(conn: &mut PgConnection, etab: Uuid) -> Result<Par
     Ok(match r {
         None => Params::default(),
         Some(r) => Params {
+            // F0 (FD-11, R-P21) : l'IBAN du créancier est chiffré au repos ; en mémoire il
+            // est en clair le temps d'écrire le fichier bancaire, jamais renvoyé tel quel.
+            crediteur_iban: crate::champs_chiffres::ChampsSensibles::depuis_env()
+                .ouvrir_opt(T_PARAMETRES, "crediteur_iban", r.id, r.crediteur_iban)
+                .map_err(EntDbError::from)?,
+            id: Some(r.id),
             mois_debut: r.mois_debut,
             nb_mois: r.nb_mois,
             jour_echeance: r.jour_echeance,
@@ -253,7 +292,6 @@ pub(crate) async fn params_tx(conn: &mut PgConnection, etab: Uuid) -> Result<Par
             rejets_avant_manuel: r.rejets_avant_manuel,
             seuil_absence_jours: r.seuil_absence_jours,
             crediteur_nom: r.crediteur_nom,
-            crediteur_iban: r.crediteur_iban,
             crediteur_bic: r.crediteur_bic,
             crediteur_ics: r.crediteur_ics,
             compte_clients: r.compte_clients,
@@ -1055,12 +1093,26 @@ pub(crate) async fn lignes_annuelles(
         .fetch_all(&mut *conn)
         .await
         .map_err(db)?;
+        // F0 (FD-12, règle provisoire R-F14) : une bourse ne se déduit que des lignes de
+        // restauration et d'internat du foyer qui la reçoit, à hauteur de ces lignes ;
+        // jamais de la scolarité ni des activités. L'excédent n'est pas imputé (il sera
+        // reversé à la famille quand le socle 26 existera).
+        let mut plafond: HashMap<Uuid, i64> = HashMap::new();
+        for l in lignes
+            .iter()
+            .filter(|l| l.categorie == "restauration" || l.categorie == "internat")
+        {
+            *plafond.entry(l.foyer_id).or_insert(0) += l.unitaire * i64::from(l.quantite);
+        }
         for (bourse_id, libelle, annuel) in bourses {
             let du = calcul::prorata(annuel, mois_dus, cal.nb_mois);
             for (foyer, part) in calcul::repartir(du, &parts) {
+                let reste = plafond.entry(foyer).or_insert(0);
+                let part = part.min((*reste).max(0));
                 if part == 0 {
                     continue;
                 }
+                *reste -= part;
                 lignes.push(LigneAFacturer {
                     foyer_id: foyer,
                     eleve_id: Some(eleve_id),
@@ -1680,6 +1732,12 @@ impl PgEnt {
             .await?;
         let mut tx = self.fin_tx(etab).await?;
         let mut p = params_tx(&mut tx, etab).await?;
+        let avant_crediteur = (
+            p.crediteur_nom.clone(),
+            p.crediteur_iban.clone(),
+            p.crediteur_bic.clone(),
+            p.crediteur_ics.clone(),
+        );
         macro_rules! maj {
             ($champ:ident) => {
                 if let Some(v) = b.$champ {
@@ -1703,8 +1761,12 @@ impl PgEnt {
         if !(1..=60).contains(&p.jours_prenotification) {
             return Err(invalide("pré-notification entre 1 et 60 jours"));
         }
-        if !(0..=100_000).contains(&p.frais_rejet_centimes) {
-            return Err(invalide("frais de rejet entre 0 et 1 000 €"));
+        // F0 (FD-13, R-P16) : aucun frais de recouvrement à la charge du débiteur sans
+        // titre exécutoire (CPCE L. 111-8) ; frais de rejet : à qualifier par un juriste.
+        if p.frais_rejet_centimes != 0 {
+            return Err(invalide(
+                "frais de rejet : aucun frais de recouvrement ne peut être facturé à la famille (décision juridique requise)",
+            ));
         }
         if !(1..=10).contains(&p.rejets_avant_manuel) || !(1..=365).contains(&p.seuil_absence_jours)
         {
@@ -1730,6 +1792,23 @@ impl PgEnt {
         if b.crediteur_ics.is_some() {
             p.crediteur_ics = opt_texte(&b.crediteur_ics, 35).map(|s| s.to_ascii_uppercase());
         }
+        // F0 (FD-11) : changer le compte crédité est un geste de niveau direction. Un
+        // autre profil financier ne peut pas rediriger les prélèvements des familles.
+        let apres_crediteur = (
+            p.crediteur_nom.clone(),
+            p.crediteur_iban.clone(),
+            p.crediteur_bic.clone(),
+            p.crediteur_ics.clone(),
+        );
+        let crediteur_change = avant_crediteur != apres_crediteur;
+        if crediteur_change
+            && !matches!(
+                ent_auth::Role::parse(role),
+                Some(ent_auth::Role::Admin | ent_auth::Role::Direction)
+            )
+        {
+            return Err(EntDbError::Forbidden);
+        }
         for (src, dst) in [
             (&b.compte_clients, &mut p.compte_clients),
             (&b.compte_banque, &mut p.compte_banque),
@@ -1745,12 +1824,16 @@ impl PgEnt {
                 *dst = v;
             }
         }
+        let param_id = p.id.unwrap_or_else(Uuid::new_v4);
+        let iban_scelle = crate::champs_chiffres::ChampsSensibles::depuis_env()
+            .sceller_opt(T_PARAMETRES, "crediteur_iban", param_id, p.crediteur_iban.as_deref())
+            .map_err(EntDbError::from)?;
         sqlx::query(
             "INSERT INTO ent_fin_parametres (etablissement_id, mois_debut, nb_mois, jour_echeance,
                     jours_prenotification, frais_rejet_centimes, rejets_avant_manuel, seuil_absence_jours,
                     crediteur_nom, crediteur_iban, crediteur_bic, crediteur_ics, compte_clients, compte_banque,
-                    journal_ventes, journal_banque, updated_by, updated_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now())
+                    journal_ventes, journal_banque, updated_by, updated_at, id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17, now(), $18)
              ON CONFLICT (etablissement_id) DO UPDATE SET mois_debut = $2, nb_mois = $3, jour_echeance = $4,
                     jours_prenotification = $5, frais_rejet_centimes = $6, rejets_avant_manuel = $7,
                     seuil_absence_jours = $8, crediteur_nom = $9, crediteur_iban = $10, crediteur_bic = $11,
@@ -1766,7 +1849,7 @@ impl PgEnt {
         .bind(p.rejets_avant_manuel)
         .bind(p.seuil_absence_jours)
         .bind(&p.crediteur_nom)
-        .bind(&p.crediteur_iban)
+        .bind(&iban_scelle)
         .bind(&p.crediteur_bic)
         .bind(&p.crediteur_ics)
         .bind(&p.compte_clients)
@@ -1774,9 +1857,54 @@ impl PgEnt {
         .bind(&p.journal_ventes)
         .bind(&p.journal_banque)
         .bind(actor)
+        .bind(param_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        if crediteur_change {
+            // Événement + alerte à la direction (IBAN toujours masqué).
+            let evt = publier(
+                &mut tx,
+                etab,
+                types::FIN_CREDITEUR_MODIFIE,
+                AggregateKind::Facture,
+                etab,
+                None,
+                json!({
+                    "iban_avant": avant_crediteur.1.as_deref().map(masquer_iban),
+                    "iban_apres": p.crediteur_iban.as_deref().map(masquer_iban),
+                    "ics_change": avant_crediteur.3 != apres_crediteur.3,
+                    "nom_change": avant_crediteur.0 != apres_crediteur.0,
+                }),
+                Some(actor),
+                Causalite::default(),
+            )
+            .await?;
+            let direction: Vec<(Uuid,)> = sqlx::query_as(
+                "SELECT DISTINCT user_id FROM ent_membership
+                  WHERE etablissement_id = $1 AND role IN ('direction', 'admin')",
+            )
+            .bind(etab)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
+            for (user,) in direction {
+                sqlx::query(
+                    "INSERT INTO ent_notification (id, etablissement_id, destinataire_user_id, kind, titre, corps, source_event_id)
+                     VALUES ($1, $2, $3, 'fin.crediteur_modifie', $4, $5, $6)
+                     ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(user)
+                .bind("Compte créancier modifié")
+                .bind("Le compte bancaire qui reçoit les prélèvements des familles vient d'être modifié. Si ce n'est pas voulu, contactez immédiatement l'administrateur.")
+                .bind(evt.id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+        }
         if let Some(paliers) = &b.paliers {
             if paliers.len() > 5 {
                 return Err(invalide("5 paliers de relance au plus"));
@@ -1786,10 +1914,10 @@ impl PgEnt {
                 if pa.rang != i as i16 + 1
                     || pa.jours_retard <= prec
                     || pa.jours_retard > 365
-                    || !(0..=100_000).contains(&pa.frais_centimes)
+                    || pa.frais_centimes != 0
                 {
                     return Err(invalide(
-                        "paliers : rangs 1, 2, 3… et jours de retard croissants",
+                        "paliers : rangs 1, 2, 3… et jours de retard croissants ; aucun frais de relance facturable",
                     ));
                 }
                 prec = pa.jours_retard;
@@ -2499,9 +2627,13 @@ impl PgEnt {
         let source = texte(&b.source, 120, "clé de source obligatoire (120 caractères)")?;
         let libelle = texte(&b.libelle, 160, "libellé obligatoire")?;
         if !(1..=1000).contains(&b.quantite)
-            || !(-100_000_000..=100_000_000).contains(&b.montant_unitaire_centimes)
+            // F0 (FD-16, R-F13) : une consommation est une quantité >= 0 à montant >= 0 ;
+            // un montant négatif serait un avoir déguisé, sans pièce ni motif.
+            || !(0..=100_000_000).contains(&b.montant_unitaire_centimes)
         {
-            return Err(invalide("quantité (1 à 1000) ou montant hors bornes"));
+            return Err(invalide(
+                "quantité (1 à 1000) ou montant (0 à 1 000 000 €) hors bornes ; un avoir se fait par une pièce d'avoir",
+            ));
         }
         if matches!((b.periode_debut, b.periode_fin), (Some(a), Some(z)) if z < a) {
             return Err(invalide("période : fin avant début"));
@@ -3478,4 +3610,32 @@ pub(crate) async fn compte_tx(
         echeances,
         mandats: ms,
     })
+}
+
+#[cfg(test)]
+mod tests_fuseau_f0 {
+    use super::date_paris;
+    use chrono::{NaiveDate, TimeZone, Utc};
+
+    fn d(a: i32, m: u32, j: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(a, m, j).unwrap()
+    }
+
+    /// F0 (FD-24, R-F24) : un instant à 23 h 30 UTC l'été (1 h 30 le lendemain à Paris) tombe
+    /// le jour suivant ; l'hiver (UTC+1) aussi à 23 h 30 ; à 22 h 30 UTC l'été c'est déjà le lendemain.
+    #[test]
+    fn f0_date_comptable_en_heure_de_paris() {
+        // Été : UTC+2.
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 7, 14, 21, 59, 0).unwrap()), d(2026, 7, 14));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 7, 14, 22, 0, 0).unwrap()), d(2026, 7, 15));
+        // Hiver : UTC+1.
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 12, 1, 22, 59, 0).unwrap()), d(2026, 12, 1));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 12, 1, 23, 0, 0).unwrap()), d(2026, 12, 2));
+        // Changements d'heure 2026 : 29 mars 01:00 UTC (passage à l'été) et 25 octobre 01:00 UTC.
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 3, 28, 22, 30, 0).unwrap()), d(2026, 3, 28));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 3, 29, 22, 30, 0).unwrap()), d(2026, 3, 30));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 24, 22, 30, 0).unwrap()), d(2026, 10, 25));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 25, 22, 30, 0).unwrap()), d(2026, 10, 25));
+        assert_eq!(date_paris(Utc.with_ymd_and_hms(2026, 10, 25, 23, 30, 0).unwrap()), d(2026, 10, 26));
+    }
 }

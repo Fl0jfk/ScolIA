@@ -158,7 +158,40 @@ pub fn normalize_iban(raw: &str) -> Result<String, DomainError> {
     if !check.chars().all(|c| c.is_ascii_digit()) || body.is_empty() {
         return Err(DomainError::SepaIbanInvalide);
     }
+    // F0 : contrôle de la clé (ISO 13616, modulo 97) — une faute de frappe ne
+    // devient plus un mandat ni un prélèvement rejeté.
+    if !iban_modulo_97_valide(&iban) {
+        return Err(DomainError::SepaIbanInvalide);
+    }
     Ok(iban)
+}
+
+/// Clé de contrôle d'un IBAN (réarrangement puis reste de la division par 97 = 1).
+pub fn iban_modulo_97_valide(iban: &str) -> bool {
+    let n: Vec<char> = iban.chars().collect();
+    if n.len() < 5 {
+        return false;
+    }
+    let mut reste: u32 = 0;
+    for c in n[4..].iter().chain(n[..4].iter()) {
+        let Some(v) = c.to_digit(36) else {
+            return false;
+        };
+        // Un chiffre vaut 1 position, une lettre (10..35) en vaut 2.
+        reste = if v >= 10 {
+            (reste * 100 + v) % 97
+        } else {
+            (reste * 10 + v) % 97
+        };
+    }
+    reste == 1
+}
+
+/// RUM attribuée **par le serveur** (jamais choisie par le client, RS3-08) :
+/// 35 caractères alphanumériques au plus, unique par construction.
+pub fn generer_rum() -> String {
+    let u = Uuid::new_v4().simple().to_string().to_ascii_uppercase();
+    format!("SCOLIA{}{}", Utc::now().format("%y%m%d"), &u[..14])
 }
 
 fn normalize_rum(raw: &str) -> Result<String, DomainError> {
@@ -701,9 +734,32 @@ mod tests {
         assert!(xml.contains("SEPA-F1-abcd"));
         assert!(xml.contains("42.50"));
         assert!(xml.contains("FR72ZZZ123456"));
+        // F0 (25 §4.1, EPC au 15/11/2026) : aucune adresse non structurée (`AdrLine`) ;
+        // le fichier ne porte aucune adresse postale du tout.
+        assert!(!xml.contains("AdrLine"), "adresse non structurée dans le pain.008");
+        assert!(!xml.contains("PstlAdr"), "aucune adresse postale attendue en F0");
 
         let rej = plan_rejeter_prelevement(&p, "AC04").unwrap();
         assert_eq!(rej.statut, PrelevementStatut::Rejete);
         assert_eq!(rej.motif_rejet.as_deref(), Some("AC04"));
+    }
+
+    /// F0 : la clé IBAN (modulo 97) est contrôlée.
+    #[test]
+    fn f0_iban_cle_modulo_97() {
+        assert!(normalize_iban("FR76 3000 6000 0112 3456 7890 189").is_ok());
+        assert!(normalize_iban("FR1420041010050500013M02606").is_ok());
+        // Un chiffre modifié : clé fausse.
+        assert!(normalize_iban("FR76 3000 6000 0112 3456 7890 188").is_err());
+        assert!(normalize_iban("FR7630006000011234567890199").is_err());
+    }
+
+    /// F0 : RUM générée par le serveur (35 caractères alphanumériques au plus, unique).
+    #[test]
+    fn f0_rum_serveur() {
+        let a = generer_rum();
+        let b = generer_rum();
+        assert_ne!(a, b);
+        assert!(a.len() <= 35 && a.chars().all(|c| c.is_ascii_alphanumeric()));
     }
 }

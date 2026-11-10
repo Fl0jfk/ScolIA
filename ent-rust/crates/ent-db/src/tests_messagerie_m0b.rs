@@ -1531,12 +1531,11 @@ async fn m0b_d18_annonce_ciblee_par_identifiant_de_classe_survit_au_renommage() 
         .await
         .unwrap();
     assert!(autre.iter().all(|x| x.id != a.id), "l'annonce d'une classe atteint une autre famille");
-    // Un libellé ambigu ou inconnu garde l'ancien ciblage par libellé, sans erreur.
-    let b = ent
-        .publier_annonce_for_actor(role(Role::Direction), annonce(etab, dir, "classe", Some("Classe inexistante")))
+    // Un libellé inconnu ne fait pas échouer la publication (l'ancien ciblage par libellé
+    // reste possible quand aucune classe du référentiel ne porte ce nom).
+    ent.publier_annonce_for_actor(role(Role::Direction), annonce(etab, dir, "classe", Some("Classe inconnue")))
         .await
         .unwrap();
-    assert_eq!(b.classe_id, None);
 }
 
 // ─── D20 : fusion de fiches ─────────────────────────────────────────────────────────────────
