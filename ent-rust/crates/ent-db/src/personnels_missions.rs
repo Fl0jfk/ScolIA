@@ -568,9 +568,10 @@ async fn appliquer_role_tx(
     let attribution = match existante {
         Some((id, debut)) => {
             if du < debut {
-                sqlx::query("UPDATE ent_role_attribution SET debut = $2 WHERE id = $1")
+                sqlx::query("UPDATE ent_role_attribution SET debut = $2 WHERE id = $1 AND etablissement_id = $3")
                     .bind(id)
                     .bind(du)
+                    .bind(etab)
                     .execute(&mut *conn)
                     .await
                     .map_err(erreur_mission)?;
@@ -642,11 +643,12 @@ async fn fermer_attributions_vides_tx(
     for (a,) in attrs {
         let (reste,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_attribution_cible c
-                             WHERE c.attribution_id = $1 AND c.annule_le IS NULL
+                             WHERE c.attribution_id = $1 AND c.etablissement_id = $3 AND c.annule_le IS NULL
                                AND (c.au IS NULL OR c.au >= $2))",
         )
         .bind(a)
         .bind(au)
+        .bind(etab)
         .fetch_one(&mut *conn)
         .await
         .map_err(db)?;
@@ -656,20 +658,22 @@ async fn fermer_attributions_vides_tx(
         if annulee {
             sqlx::query(
                 "UPDATE ent_role_attribution SET clos_le = now(), clos_par_user_id = $2
-                  WHERE id = $1 AND source = 'mission' AND clos_le IS NULL",
+                  WHERE id = $1 AND etablissement_id = $3 AND source = 'mission' AND clos_le IS NULL",
             )
             .bind(a)
             .bind(actor)
+            .bind(etab)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
         } else {
             sqlx::query(
                 "UPDATE ent_role_attribution SET fin = greatest(debut, $2)
-                  WHERE id = $1 AND source = 'mission' AND clos_le IS NULL AND (fin IS NULL OR fin > $2)",
+                  WHERE id = $1 AND etablissement_id = $3 AND source = 'mission' AND clos_le IS NULL AND (fin IS NULL OR fin > $2)",
             )
             .bind(a)
             .bind(au)
+            .bind(etab)
             .execute(&mut *conn)
             .await
             .map_err(db)?;
