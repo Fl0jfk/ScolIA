@@ -271,6 +271,8 @@ pub use referentiel_repo::{
     ServiceEnseignement,
 };
 pub use migrate::{apply_socle_migrations, MigrateError, MIGRATION_TAG};
+/// Corps de modification des paramètres financiers (réexporté pour le labo : F0, FD-11).
+pub use ent_types::finances::ParametresFinancesBody;
 pub use tenant_tx::{RlsMode, TenantTx};
 pub use pra::{
     EcartInventaire, Inventaire, InventaireTable, RapportIntegrite, INVENTAIRE_VERSION,

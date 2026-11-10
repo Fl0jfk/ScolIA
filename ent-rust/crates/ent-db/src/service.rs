@@ -112,7 +112,7 @@ use domain_eleve::{
     NotePeriodeStatut, SaisirAppreciation,
     couvrir_echeances, plan_creer_facture, plan_creer_mandat_sepa, plan_echeancier_parts_egales,
     plan_ligne_cantine_depuis_passages,
-    plan_emettre_facture, plan_emettre_quittance, plan_encaisser, plan_executer_prelevement,
+    plan_emettre_facture,
     plan_candidats_rappel, plan_creer_rappel, plan_exporter_ogec, plan_marquer_exporte,
     enrichir_messages_lues, plan_accuser_lecture, plan_attacher_piece, plan_inviter_compte_eleve,
     plan_ouvrir_fil, plan_planifier_prelevement, plan_poser_echeancier, plan_rejeter_prelevement,
@@ -125,9 +125,9 @@ use domain_eleve::{
     EcheanceVue, EdtCalendrierAb, EdtException, EdtExceptionKind, EdtSemaineAb, EleveInvitation,
     FicheSante, Encaissement, EncaisserFacture, EntretienPsy, ExporterOgec, Facture, FactureLigne,
     FactureStatut, InviterCompteEleve, MandatSepa, Message, MessageLue, MsgFil, MsgModele, MsgPriorite,
-    MsgPiece, MsgPieceMeta, MoyenPaiement, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
+    MsgPiece, MsgPieceMeta, OuvrirFil, PassageInfirmerie, PlanifierPrelevement,
     PoserEcheancier, PoserEdtException, PrelevementSepa, Quittance, RappelCanal, RappelFacture,
-    RdvPsy, RepondreFil, SepaCrediteur, UpsertDossierPsy, UpsertFicheSante, NATURE_CANTINE_BADGE,
+    RdvPsy, RepondreFil, UpsertDossierPsy, UpsertFicheSante, NATURE_CANTINE_BADGE,
     appliquer_modele, creneau_actif_semaine, plan_archiver_fil, plan_changer_statut_rdv_psy,
     plan_classer_fil, plan_configurer_edt_calendrier_ab, plan_courrier_orientation_psy,
     plan_creer_cahier_texte, plan_creer_entretien_psy, plan_creer_msg_modele,
@@ -18453,8 +18453,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_facture(etablissement_id, facture_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let emise = plan_emettre_facture(&current)?;
-        self.facturation.update_facture_emise(&emise).await?;
+        let mut emise = plan_emettre_facture(&current)?;
+        // F0 (FD-05, R-F3) : le numéro définitif est attribué ici, par le serveur,
+        // dans la série continue de l'établissement.
+        emise.numero = self.facturation.update_facture_emise(&emise).await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: emise.etablissement_id,
@@ -18539,7 +18541,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .facturation
                 .sum_encaissements(etablissement_id, f.id)
                 .await?;
-            let reste = reste_a_payer(f.total_centimes, encaisse);
+            // F0 (FD-26) : le reste à payer compte les avoirs imputés (la famille ne voit
+            // pas « à payer » une somme déjà couverte par un avoir).
+            let avoirs = self.facturation.sum_avoirs(etablissement_id, f.id).await?;
+            let reste = reste_a_payer(f.total_centimes, encaisse.saturating_add(avoirs));
             out.push((f, encaisse, reste));
         }
         Ok(out)
@@ -18763,44 +18768,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_manage_facturation(role) {
             return Err(EntDbError::Forbidden);
         }
-        let current = self
-            .facturation
-            .get_facture(cmd.etablissement_id, cmd.facture_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let deja = self
-            .facturation
-            .sum_encaissements(cmd.etablissement_id, cmd.facture_id)
+        // F0 (FD-04/06/07) : un seul chemin d'encaissement, atomique et verrouillé
+        // (foyer + facture), qui compte l'encaissé réel et les avoirs, pas les
+        // prélèvements ouverts ; encaissement, imputation et quittance ensemble.
+        let (enc, facture, quittance, deja) = self.facturation.encaisser_atomique(cmd).await?;
+        self.effets_encaissement(&enc, &facture, &quittance, deja)
             .await?;
-        let ouvert = self
-            .facturation
-            .sum_prelevements_ouverts(cmd.etablissement_id, cmd.facture_id)
-            .await?;
-        let engage = deja.saturating_add(ouvert);
-        self.encaisser_avec_engage(role, cmd, &current, deja, engage)
-            .await
-    }
-
-    async fn encaisser_avec_engage(
-        &self,
-        _role: &str,
-        cmd: EncaisserFacture,
-        current: &Facture,
-        deja: i64,
-        engage: i64,
-    ) -> Result<(Encaissement, Facture, Quittance), EntDbError> {
-        let (enc, facture) = plan_encaisser(current, engage, cmd)?;
-        self.facturation
-            .insert_encaissement_and_maybe_solde(&enc, &facture)
-            .await?;
-        let rang = self
-            .facturation
-            .count_quittances_facture(enc.etablissement_id, enc.facture_id)
-            .await?
-            + 1;
-        let quittance = plan_emettre_quittance(&facture, &enc, rang as i32)?;
-        self.facturation.insert_quittance(&quittance).await?;
-        self.effets_encaissement(&enc, &facture, &quittance, deja).await?;
         Ok((enc, facture, quittance))
     }
 
@@ -18955,6 +18928,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(DomainError::SepaMandatInvalide.into());
         }
+        // F0 (RS3-08, R-P5) : la RUM est attribuée par le serveur, jamais choisie par le client.
+        let mut cmd = cmd;
+        cmd.rum = domain_eleve::generer_rum();
         let mandat = plan_creer_mandat_sepa(cmd)?;
         self.facturation.insert_sepa_mandat(&mandat).await?;
         let histo = IbanHisto {
@@ -19037,21 +19013,22 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
     ) -> Result<Vec<MandatSepa>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let all = self
-            .facturation
-            .list_sepa_mandats_etab(etablissement_id, 80)
-            .await?;
         if Self::role_can_lire_facturation(role) {
-            return Ok(all);
+            return Ok(self
+                .facturation
+                .list_sepa_mandats_etab(etablissement_id, 500)
+                .await?);
         }
         if matches!(parsed, Role::Parent) {
+            // F0 (FD-23) : filtre **en SQL** sur les foyers dont le parent est payeur
+            // (plus de 80 derniers mandats de l'établissement filtrés en mémoire).
             let foyers = self
                 .foyer_ids_parent(etablissement_id, actor_user_id)
                 .await?;
-            return Ok(all
-                .into_iter()
-                .filter(|m| foyers.contains(&m.foyer_id))
-                .collect());
+            return Ok(self
+                .facturation
+                .list_sepa_mandats_foyers(etablissement_id, &foyers, 100)
+                .await?);
         }
         Err(EntDbError::Forbidden)
     }
@@ -19085,6 +19062,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.facturation
             .update_sepa_mandat_statut(&revoke)
             .await?;
+        // F0 (FD-10, R-P9) : la révocation annule les prélèvements encore prévus ;
+        // ceux déjà exportés sont signalés pour traitement humain.
+        let (annules, deja_exportes) = self
+            .facturation
+            .annuler_prelevements_prevus_mandat(etablissement_id, mandat_id)
+            .await?;
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: revoke.etablissement_id,
@@ -19096,6 +19079,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     "foyer_id": revoke.foyer_id,
                     "rum": revoke.rum,
                     "statut": revoke.statut.as_str(),
+                    "prelevements_annules": annules,
+                    "prelevements_deja_exportes": deja_exportes,
                 }),
                 actor_user_id: Some(actor_user_id.to_string()),
             })
@@ -19130,16 +19115,47 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_sepa_mandat(cmd.etablissement_id, cmd.mandat_id)
             .await?
             .ok_or(DomainError::NotFound)?;
+        // F0 (FD-04) : une facture qui a des échéances se prélève par échéance
+        // (`/finances/prelevements/*`), jamais par ce chemin : double prélèvement.
+        if self
+            .facturation
+            .count_echeances(cmd.etablissement_id, cmd.facture_id)
+            .await?
+            > 0
+        {
+            return Err(DomainError::SepaPrelevementInvalide.into());
+        }
+        // F0 (FD-03/14, R-P6) : délai de pré-notification et payeur joignable, avant tout.
+        self.verifier_prenotifiable(cmd.etablissement_id, facture.foyer_id, cmd.date_execution)
+            .await?;
         let deja = self
             .facturation
             .sum_encaissements(cmd.etablissement_id, cmd.facture_id)
-            .await?;
+            .await?
+            .saturating_add(
+                self.facturation
+                    .sum_avoirs(cmd.etablissement_id, cmd.facture_id)
+                    .await?,
+            );
         let ouvert = self
             .facturation
             .sum_prelevements_ouverts(cmd.etablissement_id, cmd.facture_id)
             .await?;
         let prev = plan_planifier_prelevement(&facture, &mandat, deja, ouvert, cmd)?;
         self.facturation.insert_sepa_prelevement(&prev).await?;
+        if let Err(e) = self
+            .prenotifier_prelevement_historique(
+                prev.etablissement_id,
+                prev.created_by_user_id.unwrap_or_default(),
+                prev.id,
+            )
+            .await
+        {
+            self.facturation
+                .annuler_prelevement_prevu(prev.etablissement_id, prev.id)
+                .await?;
+            return Err(e);
+        }
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: prev.etablissement_id,
@@ -19159,6 +19175,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(prev)
     }
 
+    /// Export SEPA du chemin historique (F0, FD-03, FD-10, R-P2, R-P6).
+    ///
+    /// Les coordonnées du **créancier** sont lues côté serveur dans les paramètres
+    /// de l'établissement (jamais en paramètre de requête, donc jamais dans un
+    /// journal de proxy). N'exporte que les prélèvements pré-notifiés, sur mandat
+    /// actif, du chemin historique ; le fichier est construit **avant** de marquer
+    /// les lignes exportées.
     pub async fn export_sepa_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -19167,7 +19190,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         fin: NaiveDate,
         actor_user_id: Uuid,
         format: &str,
-        crediteur: Option<SepaCrediteur>,
     ) -> Result<(Vec<u8>, &'static str), EntDbError> {
         if !Self::role_can_manage_facturation(role) {
             return Err(EntDbError::Forbidden);
@@ -19177,9 +19199,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
         let format = format.trim().to_ascii_lowercase();
         let is_pain = matches!(format.as_str(), "pain008" | "pain.008" | "xml");
-        if is_pain && crediteur.is_none() {
-            return Err(DomainError::SepaMandatInvalide.into());
-        }
+        let crediteur = if is_pain {
+            Some(self.crediteur_sepa(etablissement_id).await?)
+        } else {
+            None
+        };
         let lignes = self
             .facturation
             .list_sepa_prelevements_a_exporter(etablissement_id, debut, fin)
@@ -19208,15 +19232,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
         }
 
-        for ligne in &lignes {
-            let marked = plan_marquer_exporte(&ligne.prelevement)?;
-            self.facturation
-                .update_sepa_prelevement(&marked)
-                .await?;
-        }
-
-        let (bytes, content_kind) = if is_pain {
-            let cdtr = crediteur.expect("crediteur checked");
+        let (bytes, content_kind) = if let Some(cdtr) = crediteur {
             let msg_id = format!(
                 "SDD-{}",
                 &Uuid::new_v4().simple().to_string()[..16]
@@ -19226,6 +19242,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         } else {
             (render_sepa_csv(&lignes), "csv")
         };
+
+        for ligne in &lignes {
+            let marked = plan_marquer_exporte(&ligne.prelevement)?;
+            self.facturation
+                .update_sepa_prelevement(&marked)
+                .await?;
+        }
 
         self.events
             .publish(MetierEventDraft {

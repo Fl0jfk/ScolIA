@@ -85,7 +85,7 @@ use domain_eleve::{
     SaisirAppreciation,
     EncaisserFacture, ExporterOgec, LigneFactureCmd, MonteeLot, MonteeRapide, MoyenPaiement,
     OptionNature, OuvrirCampagneReinscription, OuvrirFil, PlanifierPrelevement,
-    plan_sepa_crediteur, ArchiverFil, AttacherPiece, ClasserFil, ConfigurerEdtCalendrierAb,
+    ArchiverFil, AttacherPiece, ClasserFil, ConfigurerEdtCalendrierAb,
     CreerCahierTexte, CreerEntretienPsy, CreerMsgModele, CreerPassageInfirmerie,
     DeposerDocument, DispenseSource, DocConfidentialite, EdtExceptionKind,
     EntretienPsyKind, ExporterVolumesRepas, InviterCompteEleve,
@@ -788,7 +788,8 @@ pub fn router() -> Router<AppState> {
             "/facturation/factures/{id}/sepa/prelever",
             post(planifier_sepa_prelevement),
         )
-        .route("/facturation/sepa/export", get(export_sepa))
+        // F0 (FD-03) : POST — l'export change l'état des prélèvements ; jamais en GET.
+        .route("/facturation/sepa/export", post(export_sepa))
         .route(
             "/facturation/sepa/prelevements/{id}/executer",
             post(executer_sepa_prelevement),
@@ -10523,7 +10524,7 @@ async fn list_factures(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Result<Json<Vec<FactureDto>>, (StatusCode, String)> {
-    if session.role == "parent" {
+    if !ent_db::PgEnt::role_can_lire_facturation(&session.role) {
         return Err((
             StatusCode::FORBIDDEN,
             "utiliser /facturation/famille".into(),
@@ -10534,6 +10535,8 @@ async fn list_factures(
         .list_factures_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
+    // F0 (R-F36) : toute lecture nominative du personnel est journalisée.
+    tracer_acces(&state, &session, "facturation", "lecture", "Liste des factures").await;
     Ok(Json(list.iter().map(FactureDto::from).collect()))
 }
 
@@ -10541,8 +10544,14 @@ async fn list_factures_famille(
     State(state): State<AppState>,
     session: EntSession,
 ) -> Result<Json<Vec<FactureFamilleListItemDto>>, (StatusCode, String)> {
-    if session.role != "parent" {
-        return Err((StatusCode::FORBIDDEN, "réservé aux parents".into()));
+    // F0 (FD-26) : décision par **droit**, pas par un nom de rôle en dur. Un compte qui
+    // consulte la facturation de l'établissement utilise `/facturation/factures` ; ici,
+    // le service ne rend que les factures des foyers dont l'appelant est payeur.
+    if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "utiliser /facturation/factures".into(),
+        ));
     }
     let list = state
         .ent
@@ -10625,6 +10634,10 @@ async fn get_facture(
         )
         .await
         .map_err(map_db)?;
+    if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
+        // F0 (R-F36) : consultation nominative d'un compte par le personnel.
+        tracer_acces(&state, &session, "facturation", "lecture", "Consultation d'une facture").await;
+    }
     Ok(Json(FactureDetailDto {
         facture: FactureDto::from(&facture),
         lignes: lignes.iter().map(FactureLigneDto::from).collect(),
@@ -10941,6 +10954,10 @@ async fn list_sepa_mandats(
         .list_mandats_sepa_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
+    if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
+        // F0 (R-F36, R-P30) : consultation des mandats par le personnel.
+        tracer_acces(&state, &session, "facturation", "lecture", "Liste des mandats SEPA").await;
+    }
     Ok(Json(list.iter().map(MandatSepaDto::from).collect()))
 }
 
@@ -11016,48 +11033,23 @@ async fn planifier_sepa_prelevement(
 }
 
 #[derive(Debug, Deserialize)]
-struct SepaExportQuery {
+#[serde(deny_unknown_fields)]
+struct SepaExportBody {
     debut: NaiveDate,
     fin: NaiveDate,
     /// `csv` (défaut) ou `pain008`
     format: Option<String>,
-    cdtr_nom: Option<String>,
-    cdtr_iban: Option<String>,
-    cdtr_bic: Option<String>,
-    cdtr_ics: Option<String>,
+    // F0 (FD-03, R-P2) : aucun champ `cdtr_*`. Le nom, l'IBAN, le BIC et l'ICS du
+    // créancier sont lus côté serveur dans les paramètres de l'établissement. Un
+    // champ inconnu est refusé (`deny_unknown_fields` ci-dessous), pas ignoré.
 }
 
 async fn export_sepa(
     State(state): State<AppState>,
     session: EntSession,
-    Query(q): Query<SepaExportQuery>,
+    Json(q): Json<SepaExportBody>,
 ) -> Result<Response, (StatusCode, String)> {
     let format = q.format.as_deref().unwrap_or("csv");
-    let crediteur = if matches!(
-        format.trim().to_ascii_lowercase().as_str(),
-        "pain008" | "pain.008" | "xml"
-    ) {
-        let nom = q.cdtr_nom.as_deref().unwrap_or("Etablissement");
-        let iban = q
-            .cdtr_iban
-            .as_deref()
-            .ok_or((StatusCode::BAD_REQUEST, "cdtr_iban requis pour pain.008".into()))?;
-        let bic = q
-            .cdtr_bic
-            .as_deref()
-            .ok_or((StatusCode::BAD_REQUEST, "cdtr_bic requis pour pain.008".into()))?;
-        let ics = q
-            .cdtr_ics
-            .as_deref()
-            .ok_or((StatusCode::BAD_REQUEST, "cdtr_ics requis pour pain.008".into()))?;
-        Some(
-            plan_sepa_crediteur(nom, iban, bic, ics).map_err(|e| {
-                (StatusCode::BAD_REQUEST, e.to_string())
-            })?,
-        )
-    } else {
-        None
-    };
     let (bytes, kind) = state
         .ent
         .export_sepa_for_actor(
@@ -11067,7 +11059,6 @@ async fn export_sepa(
             q.fin,
             session.user_id,
             format,
-            crediteur,
         )
         .await
         .map_err(map_db)?;
