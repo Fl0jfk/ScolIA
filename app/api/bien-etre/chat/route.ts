@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   // NJ-03 : aucun message d'élève n'est envoyé à une IA externe tant que l'AIPD n'est pas faite.
   if (!BIEN_ETRE_IA_ACTIVE) {
     return NextResponse.json(
-      { error: "L'écoute automatique est momentanément indisponible. Parle à un adulte de confiance, ou appelle le 3018 ou le 116 111." },
+      { error: "L'écoute automatique est momentanément indisponible. Parle à un adulte de confiance, ou appelle le 119 (enfance en danger), le 3114 (souffrance psychique) ou le 3018 (harcèlement)." },
       { status: 503 },
     );
   }

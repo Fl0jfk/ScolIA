@@ -234,7 +234,7 @@ export default function ChatbotBubbleBienEtre() {
               <p>Un <strong>signalement</strong> au psychologue est volontaire et seul ce choix conserve ton prénom.</p>
               <p className="text-xs">
                 Urgence : <a href="tel:112" className="font-bold text-red-600">112</a> ·{" "}
-                <a href="tel:3018" className="font-bold">3018</a> · <a href="tel:116111" className="font-bold">116 111</a>
+                <a href="tel:3018" className="font-bold">3018</a> · <a href="tel:119" className="font-bold">119</a> · <a href="tel:3114" className="font-bold">3114</a>
               </p>
               <button type="button" onClick={acceptConsent} className="w-full rounded-xl bg-violet-600 text-white font-bold py-2.5">
                 J&apos;ai compris
@@ -268,7 +268,8 @@ export default function ChatbotBubbleBienEtre() {
               </div>
               <div className="p-3 pb-[max(12px,env(safe-area-inset-bottom))] border-t border-violet-100 bg-white/30 space-y-2">
                 <div className="flex justify-center gap-3 text-[10px] font-bold">
-                  <a href="tel:116111" className="text-teal-700">116 111</a>
+                  <a href="tel:119" className="text-teal-700">119</a>
+                  <a href="tel:3114" className="text-teal-700">3114</a>
                   <a href="tel:3018" className="text-teal-700">3018</a>
                   <a href="tel:112" className="text-red-600">112</a>
                 </div>
