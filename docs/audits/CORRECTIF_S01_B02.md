@@ -75,11 +75,14 @@ Refusés même pour l'opérateur : le domaine de plateforme lui-même (`scolia.f
 
 ## 7. Tests de non-régression
 
-`ent-rust/crates/ent-db/src/tests_correctif_s01_b02.rs` (base locale, feature `labo`) :
+S-01 : `ent-rust/crates/ent-db/src/tests_correctif_s01.rs` ; B-02 : `administration_des_domaines` dans `ent-rust/crates/ent-api/tests/tenant_hote.rs` (base locale, feature `labo`) :
 
 - scénario S-01 complet : fournisseur de A, victime membre de A et B sans passkey, passkey rendue obligatoire → rattachement refusé, aucun `ent_oidc_identity` écrit, aucune session ;
 - victime avec passkey → rattachement refusé ;
 - victime non membre de A → refus et aucun rattachement écrit (contrôle avant écriture) ;
 - compte de A seul → rattachement accepté (non-régression) ;
 - rattachement antérieur vers une identité multi-établissements → session dans A seulement, enrôlement sans mot de passe refusé ; compte de A seul → enrôlement sans mot de passe toujours accepté jusqu'à la vérification de la passkey ;
-- scénario B-02 : l'administrateur de A ne peut ni ajouter `college-b.scolia.fr`, ni retirer son domaine, ni changer son slug ; l'opérateur ajoute, refuse les hôtes réservés et les conflits, retire.
+- scénario B-02 (HTTP) : l'administrateur de A ne peut ni ajouter `college-b.scolia.fr`, `app.scolia.fr` ou le domaine de B, ni retirer un domaine, ni changer son slug (il renomme le nom affiché) ; l'opérateur ajoute (normalisé), refuse les hôtes réservés et les conflits, retire ; journal « plateforme » ;
+- test unitaire des hôtes réservés (`etablissement_repo::tests::hotes_reserves_de_la_plateforme`).
+
+Le faux fournisseur de test (`ent-oidc/src/testing.rs`) sait désormais affirmer un `sub` et une adresse arbitraires (`set_subject`, `set_email`), comme un IdP contrôlé par un tiers.
