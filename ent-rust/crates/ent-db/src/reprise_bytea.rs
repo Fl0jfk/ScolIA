@@ -215,15 +215,13 @@ impl PgEnt {
     /// établissement posé, seule la première source est visible : passer alors
     /// `--etablissement`.
     pub async fn etablissements_pour_reprise(&self) -> Result<Vec<Uuid>, EntDbError> {
-        Ok(sqlx::query_scalar(
-            "SELECT id FROM ent_etablissement
-             UNION SELECT etablissement_id FROM ent_msg_piece
-                   WHERE contenu IS NOT NULL AND octet_length(contenu) > 0
-             UNION SELECT etablissement_id FROM ent_pai_piece
-                   WHERE contenu IS NOT NULL AND octet_length(contenu) > 0
-             ORDER BY 1",
+        // Contexte système nommé (docs/securite/RLS_STRICTE.md §4) : racine des établissements et
+        // établissements portant des adhésions (tables sans RLS) ; la reprise ouvre ensuite un
+        // `TenantTx` par établissement. Les pièces sous RLS ne sont plus lues hors contexte.
+        Ok(crate::tenant_tx::etablissements_systeme(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("reprise_bytea"),
         )
-        .fetch_all(self.pool())
         .await?)
     }
 

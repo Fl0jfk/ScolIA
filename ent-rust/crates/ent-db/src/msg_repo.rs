@@ -158,6 +158,7 @@ impl PgMsgRepo {
         fil: &MsgFil,
         portee: PorteeFil,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, fil.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_msg_fil (
@@ -183,9 +184,10 @@ impl PgMsgRepo {
         .bind(portee.audience)
         .bind(portee.vie_scolaire)
         .bind(portee.foyer_lecteur_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -247,7 +249,7 @@ impl PgMsgRepo {
         .bind(fil_ids)
         .bind(user_id)
         .bind(est_parent)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -286,7 +288,7 @@ impl PgMsgRepo {
             .bind(user_id)
             .bind(reserve_ok)
             .bind(foyer_ok)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
             .await
             .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -343,7 +345,7 @@ impl PgMsgRepo {
             .bind(filtre.apres.map(|c| c.dernier_message))
             .bind(filtre.apres.map(|c| c.fil_id))
             .bind(filtre.limite.clamp(1, 200) + 1)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
             .await
             .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
@@ -394,7 +396,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(eleves)
         .bind(limite.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -420,7 +422,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(user_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().collect())
@@ -436,6 +438,7 @@ impl PgMsgRepo {
         sauf: Uuid,
         bases: &[&str],
     ) -> Result<Vec<Uuid>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let ont_ecrit: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT DISTINCT m.auteur_user_id
                FROM ent_msg m
@@ -447,7 +450,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(fil_id)
         .bind(sauf)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if !ont_ecrit.is_empty() {
@@ -469,7 +472,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(&bases)
         .bind(sauf)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(u,)| u).collect())
@@ -483,6 +486,7 @@ impl PgMsgRepo {
         etablissement_id: Uuid,
         fil_id: Uuid,
     ) -> Result<Option<Vec<Uuid>>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         #[allow(clippy::type_complexity)]
         let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool, Option<Uuid>)> =
             sqlx::query_as(
@@ -491,7 +495,7 @@ impl PgMsgRepo {
             )
         .bind(etablissement_id)
         .bind(fil_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         let Some((prive, foyer, eleve, audience, vie_scolaire, foyer_lecteur)) = row else {
@@ -514,7 +518,7 @@ impl PgMsgRepo {
             .bind(etablissement_id)
             .bind(eleve)
             .bind(fid)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?;
             return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
@@ -528,7 +532,7 @@ impl PgMsgRepo {
             .bind(etablissement_id)
             .bind(eleve)
             .bind(fid)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?;
             return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
@@ -541,7 +545,7 @@ impl PgMsgRepo {
             )
             .bind(etablissement_id)
             .bind(eleve)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?;
             return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
@@ -556,6 +560,7 @@ impl PgMsgRepo {
         archive: bool,
         archived_at: Option<DateTime<Utc>>,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_msg_fil
@@ -567,9 +572,10 @@ impl PgMsgRepo {
         .bind(fil_id)
         .bind(archive)
         .bind(archived_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -580,6 +586,7 @@ impl PgMsgRepo {
         priorite: MsgPriorite,
         dossier: Option<&str>,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_msg_fil
@@ -591,13 +598,15 @@ impl PgMsgRepo {
         .bind(fil_id)
         .bind(priorite.as_str())
         .bind(dossier)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn insert_modele(&self, m: &MsgModele) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_msg_modele (
@@ -614,9 +623,10 @@ impl PgMsgRepo {
         .bind(m.actif)
         .bind(m.created_by_user_id)
         .bind(m.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -635,7 +645,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(modele_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(ModeleRow::into_modele))
@@ -646,6 +656,7 @@ impl PgMsgRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<MsgModele>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, ModeleRow>(
                 r#"
@@ -657,7 +668,7 @@ impl PgMsgRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -671,7 +682,7 @@ impl PgMsgRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -690,6 +701,7 @@ impl PgMsgRepo {
         remise: Option<DateTime<Utc>>,
         derogation: Option<(&str, Uuid)>,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, msg.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_msg (
@@ -707,9 +719,10 @@ impl PgMsgRepo {
         .bind(remise)
         .bind(derogation.map(|d| d.0))
         .bind(derogation.map(|d| d.1))
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -719,6 +732,7 @@ impl PgMsgRepo {
         fil_id: Uuid,
         at: DateTime<Utc>,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_msg_fil SET last_message_at = $3
@@ -728,9 +742,10 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(fil_id)
         .bind(at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -749,7 +764,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(fil_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(FilRow::into_fil))
@@ -771,7 +786,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
@@ -796,7 +811,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(FilRow::into_fil).collect())
@@ -822,7 +837,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(fil_id)
         .bind(lecteur)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(MsgRow::into_msg).collect())
@@ -832,6 +847,7 @@ impl PgMsgRepo {
     pub async fn upsert_accuses(&self, accuses: &[MsgAccuse]) -> Result<usize, DomainError> {
         let mut inserted = 0usize;
         for a in accuses {
+            let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
             let res = sqlx::query(
                 r#"
                 INSERT INTO ent_msg_accuse (
@@ -846,9 +862,10 @@ impl PgMsgRepo {
             .bind(a.message_id)
             .bind(a.lecteur_user_id)
             .bind(a.lu_at)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(map_sqlx)?;
+            tx.commit().await.map_err(map_sqlx)?;
             inserted += res.rows_affected() as usize;
         }
         Ok(inserted)
@@ -868,7 +885,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(fil_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(AccuseRow::into_accuse).collect())
@@ -902,7 +919,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(fil_ids)
         .bind(lecteur_user_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().collect())
@@ -959,7 +976,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(fil_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PieceMetaRow::into_meta).collect())
@@ -1005,7 +1022,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         let mut groupes: Vec<(Option<Uuid>, Vec<Uuid>)> = Vec::new();
@@ -1026,7 +1043,7 @@ impl PgMsgRepo {
         message_id: Uuid,
         auteur: Uuid,
     ) -> Result<bool, DomainError> {
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let ok: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_msg
               WHERE etablissement_id = $1 AND id = $2 AND auteur_user_id = $3
@@ -1071,7 +1088,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(message_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n)
@@ -1092,7 +1109,7 @@ impl PgMsgRepo {
         .bind(etablissement_id)
         .bind(message_id)
         .bind(lecteur)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(ok)
@@ -1112,7 +1129,7 @@ impl PgMsgRepo {
         )
         .bind(etablissement_id)
         .bind(message_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(MsgRow::into_msg))

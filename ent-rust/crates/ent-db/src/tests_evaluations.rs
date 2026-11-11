@@ -14,11 +14,7 @@ use uuid::Uuid;
 
 pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
     Some((ent, cast))
 }
 
@@ -158,7 +154,7 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
             .bind(etab)
             .bind(eleves[i])
             .bind(ine)
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
     }
@@ -398,11 +394,11 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     let filiere = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_filiere (id, etablissement_id, code, libelle, created_by_user_id) VALUES ($1,$2,$3,'Seconde générale',$4)")
         .bind(filiere).bind(etab).bind(format!("2GT{}", &filiere.simple().to_string()[..4])).bind(cast.admin.user_id)
-        .execute(ent.pool()).await.unwrap();
+        .execute(ent.pool_verif()).await.unwrap();
     let voeu = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_voeu_inscription (id, etablissement_id, eleve_id, filiere_id, rang, annee_scolaire, created_by_user_id) VALUES ($1,$2,$3,$4,1,'2026-2027',$5)")
         .bind(voeu).bind(etab).bind(a).bind(filiere).bind(lea)
-        .execute(ent.pool()).await.unwrap();
+        .execute(ent.pool_verif()).await.unwrap();
     let avis = ent.avis_voeu_for_actor(etab, prof, "prof", conseil.id, &AvisVoeuBody {
         voeu_id: voeu, avis: "favorable".into(), motivation: "Résultats solides".into(),
     }).await.unwrap();
@@ -462,7 +458,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     let (nom, pdf) = ent.bulletin_pdf_for_actor(etab, lea, "parent", bul_a).await.unwrap();
     assert!(pdf.starts_with(b"%PDF-1.4") && nom.ends_with("-v1.pdf"));
     let (docs,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_document WHERE etablissement_id = $1 AND eleve_id = $2 AND source = 'bulletin' AND tiroir = 'famille'")
-        .bind(etab).bind(a).fetch_one(ent.pool()).await.unwrap();
+        .bind(etab).bind(a).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(docs, 1, "bulletin archivé au dossier");
     // Avis désormais visible ; la famille répond.
     let o = ent.orientation_eleve_for_actor(etab, lea, "parent", a).await.unwrap();
@@ -482,9 +478,9 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
 
     // Immuabilité : la base refuse de modifier ou supprimer une version.
     assert!(sqlx::query("UPDATE ent_bulletin SET contenu = '{}'::jsonb WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab).bind(bul_a).execute(ent.pool()).await.is_err());
+        .bind(etab).bind(bul_a).execute(ent.pool_verif()).await.is_err());
     assert!(sqlx::query("DELETE FROM ent_bulletin WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab).bind(bul_a).execute(ent.pool()).await.is_err());
+        .bind(etab).bind(bul_a).execute(ent.pool_verif()).await.is_err());
 
     // Correction après fermeture (EVA-14) : direction seule, motif obligatoire.
     let corr = CorrigerNoteBody { eleve_id: c, statut: "note".into(), valeur: Some(12.0), motif: "Erreur de report".into() };
@@ -519,7 +515,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     let versions = ent.bulletins_eleve_for_actor(etab, dir, "direction", c).await.unwrap();
     // L'ancienne version publiée reste archivée mais sort du tiroir famille.
     let (visibles,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_document WHERE etablissement_id = $1 AND eleve_id = $2 AND source = 'bulletin' AND confidentialite = 'standard'")
-        .bind(etab).bind(c).fetch_one(ent.pool()).await.unwrap();
+        .bind(etab).bind(c).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(visibles, 1);
     // Période rouverte : publication refusée tant qu'elle n'est pas refermée.
     statut(&ent, &cast, &m, "partielle_appreciations").await;
@@ -550,7 +546,7 @@ async fn periode_complete_de_la_grille_au_bulletin_et_a_l_export() {
     let lsl = ent.exporter_livret_for_actor(etab, cast.administratif.user_id, "administratif", "lsl", m.classe, m.periode).await.unwrap();
     assert!(lsl.contenu.contains("<scolia-lsl"));
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eva_export WHERE etablissement_id = $1")
-        .bind(etab).fetch_one(ent.pool()).await.unwrap();
+        .bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(n, 2);
     assert!(matches!(
         ent.exporter_livret_for_actor(etab, cast.administratif.user_id, "administratif", "csv", m.classe, m.periode).await,
@@ -663,7 +659,7 @@ async fn isolation_entre_etablissements() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let m = monde(&ent, &cast).await;
     let d = ent.creer_devoir_grille_for_actor(m.etab, cast.prof.user_id, "prof", &devoir(m.s_maths, m.periode, "C1", 1.0, 20.0)).await.unwrap();
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (b, dir_b) = (autre.etablissement_id, autre.direction.user_id);
     let nf = |r: Result<_, EntDbError>| matches!(r, Err(EntDbError::Domain(DomainError::NotFound)));
     assert!(nf(ent.grille_for_actor(b, dir_b, "direction", m.s_maths, m.periode).await.map(|_| ())));
@@ -684,7 +680,7 @@ async fn isolation_entre_etablissements() {
     assert!(ent.bulletins_eleve_for_actor(b, dir_b, "direction", m.eleves[0]).await.map(|v| v.is_empty()).unwrap_or(true));
     // Un événement forgé dans B citant un élève de A ne notifie personne : depuis la clé
     // composée d'E0 (migration 240), la base refuse déjà la publication elle-même.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     use crate::outbox::Publier;
     let forge = tx
         .publier(ent_events::MetierEventDraft {

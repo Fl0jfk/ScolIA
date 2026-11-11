@@ -1,6 +1,7 @@
 use domain_eleve::{ConventionStage, DomainError, Entreprise};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgStageRepo {
     pool: PgPool,
@@ -12,6 +13,7 @@ impl PgStageRepo {
     }
 
     pub async fn insert_entreprise(&self, e: &Entreprise) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_entreprise (
@@ -27,9 +29,10 @@ impl PgStageRepo {
         .bind(&e.adresse)
         .bind(e.created_by_user_id)
         .bind(e.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -47,7 +50,7 @@ impl PgStageRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(EntRow::into_entreprise).collect())
@@ -70,7 +73,7 @@ impl PgStageRepo {
         )
         .bind(etablissement_id)
         .bind(entreprise_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().collect())
@@ -91,13 +94,14 @@ impl PgStageRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(EntRow::into_entreprise))
     }
 
     pub async fn insert_convention(&self, c: &ConventionStage) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_convention_stage (
@@ -116,9 +120,10 @@ impl PgStageRepo {
         .bind(&c.statut)
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -138,7 +143,7 @@ impl PgStageRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(ConvRow::into_convention).collect())

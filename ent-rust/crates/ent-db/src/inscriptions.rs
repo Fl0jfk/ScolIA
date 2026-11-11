@@ -45,6 +45,7 @@ use crate::inscriptions_modele;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Message affiché à la famille dans tous les cas (D-014).
 pub const MESSAGE_CONFIDENTIALITE: &str = "Les informations saisies ici ne sont transmises qu'à cet établissement. Aucune donnée n'est partagée avec un autre établissement sans votre accord.";
@@ -721,8 +722,8 @@ pub(crate) async fn transitionner_tx(
     Ok(n)
 }
 
-pub(crate) async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
-    tx.commit().await.map_err(db)
+pub(crate) async fn commit(tx: impl crate::tenant_tx::Validable) -> Result<(), EntDbError> {
+    tx.valider().await.map_err(db)
 }
 
 // ---------------------------------------------------------------------------
@@ -783,13 +784,14 @@ impl PgEnt {
         r: CampagneRow,
         compteurs: bool,
     ) -> Result<CampagneDto, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let niveaux: Vec<(String, Option<i32>)> = sqlx::query_as(
             "SELECT code, capacite FROM ent_inscription_campagne_niveau
               WHERE etablissement_id = $1 AND campagne_id = $2 ORDER BY code",
         )
         .bind(etab)
         .bind(r.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let pieces: Vec<(String, String, bool)> = sqlx::query_as(
@@ -798,7 +800,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(r.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let offres = if compteurs {
@@ -813,7 +815,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(r.id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             c.into_iter()
@@ -868,7 +870,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -1003,7 +1005,7 @@ impl PgEnt {
             .regles
             .clone()
             .unwrap_or_else(|| inscriptions_modele::regles_par_defaut(&b.nature));
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let annee_id =
             inscriptions_modele::resoudre_annee_tx(&mut tx, etab, b.annee_cible.trim()).await?;
         sqlx::query(
@@ -1063,7 +1065,7 @@ impl PgEnt {
         if r.nature != b.nature {
             return Err(conflit("la nature d'une campagne ne change pas"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let annee_id =
             inscriptions_modele::resoudre_annee_tx(&mut tx, etab, b.annee_cible.trim()).await?;
         sqlx::query(
@@ -1155,7 +1157,7 @@ impl PgEnt {
             ));
         }
         let reprise = r.statut == "suspendue";
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let maj = sqlx::query(
             "UPDATE ent_inscription_campagne SET statut = 'ouverte', updated_at = now()
               WHERE etablissement_id = $1 AND id = $2",
@@ -1341,7 +1343,7 @@ impl PgEnt {
         if !inscriptions_modele::transition_campagne_admise(&r.statut, "fermee") {
             return Err(conflit("seule une campagne ouverte ou suspendue peut être fermée"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_inscription_campagne SET statut = 'fermee', updated_at = now()
               WHERE etablissement_id = $1 AND id = $2",
@@ -1380,7 +1382,7 @@ impl PgEnt {
               ORDER BY annee_cible DESC, created_at DESC"
         ))
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -1398,7 +1400,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -1416,7 +1418,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -1479,7 +1481,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(d.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         let motif_famille: Option<String> = sqlx::query_scalar(
@@ -1489,7 +1491,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(d.id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?
         .flatten();
@@ -1501,7 +1503,7 @@ impl PgEnt {
         .bind(etab)
         .bind(d.id)
         .bind(famille)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(DossierDto {
@@ -1599,7 +1601,7 @@ impl PgEnt {
             .bind(etab)
             .bind(binds.0)
             .bind(binds.1)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         Ok(rows
@@ -1672,7 +1674,7 @@ impl PgEnt {
         if motif.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif trop long"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if !transition_instruction_admise(&d.statut, &b.statut) {
             return Err(conflit(
@@ -1732,7 +1734,7 @@ impl PgEnt {
         if motif.as_deref().is_some_and(|m| m.chars().count() > 500) {
             return Err(invalide("motif trop long"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if matches!(d.statut.as_str(), "validee" | "refuse" | "desistement") {
             return Err(conflit("dossier clos"));
@@ -1787,7 +1789,7 @@ impl PgEnt {
         if t.is_empty() || t.chars().count() > 2000 {
             return Err(invalide("commentaire vide ou trop long (2000 caractères)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         dossier_tx(&mut tx, etab, id).await?;
         suivi_tx(
             &mut tx,
@@ -1817,7 +1819,7 @@ impl PgEnt {
             .await?;
         // Fermeture du secrétariat : les délais des familles sont suspendus, donc les relances aussi.
         self.exiger_secretariat_ouvert(etab).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if d.etat == "bloque_desaccord" {
             return Err(conflit("dossier bloqué pour désaccord : aucune relance"));
@@ -1927,7 +1929,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             let parti = matches!(&res, Ok(r) if matches!(r.status, ent_mail::MailSendStatus::Sent | ent_mail::MailSendStatus::DryRun));
             if !parti {
                 tracing::warn!(dossier = %id, "relance : message non envoyé");
-                let mut tx = self.pool().begin().await.map_err(db)?;
+                let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
                 suivi_tx(
                     &mut tx,
                     etab,
@@ -2008,7 +2010,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         if motif_communique.as_deref().is_some_and(|m| m.chars().count() > 1000) {
             return Err(invalide("motif communiqué trop long"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if d.nature != "admission" {
             return Err(conflit(
@@ -2142,7 +2144,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
         let regime = regime_valide(&b.regime)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let pret = match d.nature.as_str() {
             // `admis` : la confirmation (conditions : lot I5) est franchie avant la validation.
@@ -2437,7 +2439,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     ) -> Result<CorrespondancesDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsValider)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let responsables = Self::responsables_tx(&mut tx, etab, id).await?;
         let mut out = CorrespondancesDto {
@@ -2461,7 +2463,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
     /// Choix humains de la validation (D-036) : une ligne `ent_inscription_resolution` pour
     /// l'élève, une par responsable. Remplace celles d'une validation précédente (annulée).
     async fn ecrire_resolutions_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         etab: Uuid,
         dossier: Uuid,
         b: Option<&ValidationBody>,
@@ -2471,7 +2473,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         )
         .bind(etab)
         .bind(dossier)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
         let Some(b) = b else { return Ok(()) };
@@ -2494,7 +2496,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .bind(eleve_id)
             .bind(confirme)
             .bind(Uuid::new_v4())
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
         }
@@ -2522,7 +2524,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .bind(foyer_choix)
             .bind(foyer_id)
             .bind(Uuid::new_v4())
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
         }
@@ -2752,6 +2754,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         let email = normaliser_email(email)?;
         let id = Uuid::new_v4();
         let code = code_six_chiffres();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         sqlx::query(
             "INSERT INTO ent_preinscription_verification (id, etablissement_id, email, code_hash, expire_le)
              VALUES ($1,$2,$3,$4, now() + make_interval(mins => $5::int))",
@@ -2761,9 +2764,10 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
         .bind(&email)
         .bind(empreinte_code(id, &code)?)
         .bind(i32::try_from(CODE_TTL_MINUTES).unwrap_or(15))
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         let envoi = self
             .mailer()
             .send(OutgoingMail {
@@ -2808,7 +2812,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if code.len() != 6 || !code.chars().all(|c| c.is_ascii_digit()) {
             return Err(generique());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(String, i16, DateTime<Utc>, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT code_hash, tentatives, expire_le, verifie_le FROM ent_preinscription_verification
               WHERE etablissement_id = $1 AND id = $2 AND methode = 'code' FOR UPDATE",
@@ -2861,6 +2865,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         user_id: Uuid,
         role: &str,
     ) -> Result<JetonPreinscriptionDto, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // I0 pt 12 : seuls les responsables (profil parent) et les élèves majeurs reçoivent
         // un jeton famille — pas un professeur, un agent ni un élève mineur.
         match Role::parse(role) {
@@ -2876,7 +2881,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 )
                 .bind(etab)
                 .bind(user_id)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 if !majeur {
@@ -2887,7 +2892,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         }
         let (email,): (String,) = sqlx::query_as("SELECT lower(email) FROM ent_user WHERE id = $1")
             .bind(user_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?
             .ok_or(EntDbError::Forbidden)?;
@@ -2902,9 +2907,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .bind(&email)
         .bind(hashed)
         .bind(fin)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(JetonPreinscriptionDto {
             jeton: raw,
             expire_le: fin,
@@ -2920,6 +2926,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(jeton_invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let row: Option<(String,)> = sqlx::query_as(
             "SELECT email FROM ent_preinscription_verification
               WHERE jeton_hash = $1 AND etablissement_id = $2 AND verifie_le IS NOT NULL
@@ -2927,7 +2934,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         )
         .bind(hash_token(jeton.trim()))
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let Some((email,)) = row else {
@@ -2936,7 +2943,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         let user: Option<(Uuid,)> =
             sqlx::query_as("SELECT id FROM ent_user WHERE lower(email) = $1")
                 .bind(&email)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
         Ok(Verifie {
@@ -3011,7 +3018,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         ))
         .bind(etab)
         .bind(nature)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::new();
@@ -3029,6 +3036,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         jeton: &str,
     ) -> Result<EspacePreinscriptionDto, EntDbError> {
         let v = self.resoudre_jeton_preinscription(etab, jeton).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let profil = match v.user_id {
             None => None,
             Some(u) => {
@@ -3037,7 +3045,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                         "SELECT nom, prenom, civilite, telephone, adresse FROM ent_profil_personnel WHERE user_id = $1",
                     )
                     .bind(u)
-                    .fetch_optional(self.pool())
+                    .fetch_optional(&mut *tx)
                     .await
                     .map_err(db)?;
                 match p {
@@ -3052,7 +3060,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                         let (nom,): (Option<String>,) =
                             sqlx::query_as("SELECT display_name FROM ent_user WHERE id = $1")
                                 .bind(u)
-                                .fetch_one(self.pool())
+                                .fetch_one(&mut *tx)
                                 .await
                                 .map_err(db)?;
                         Some(ProfilDto {
@@ -3189,7 +3197,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         ) {
             return Err(conflit("dossier clos"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let n = sqlx::query(
             "UPDATE ent_inscription_piece SET statut = 'deposee', nom_fichier = $4, motif_refus = NULL,
                     maj_par = NULL, maj_le = now()
@@ -3239,7 +3247,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         )
         .bind(user_id)
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let champs = ChampsSensibles::depuis_env();
@@ -3260,13 +3268,14 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         etab: Uuid,
         dossier_id: Uuid,
     ) -> Result<Option<MandatDemandeDto>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r: Option<(Uuid, String, String, String, Option<Uuid>)> = sqlx::query_as(
             "SELECT id, iban, source, statut, mandat_id FROM ent_mandat_sepa_demande
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut IN ('a_signer', 'signe')",
         )
         .bind(etab)
         .bind(dossier_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let Some((id, iban, source, statut, mandat_id)) = r else {
@@ -3279,7 +3288,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             )
             .bind(etab)
             .bind(m)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?
             .map(|r| r.0),
@@ -3367,6 +3376,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
                 (iban, opt(&b.bic), tit, "saisie")
             }
         };
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Foyer payeur : celui du lien du déposant (rang 1) avec l'élève.
         let foyer: Option<(Uuid,)> = sqlx::query_as(
             "SELECT l.foyer_id FROM ent_inscription_responsable r
@@ -3377,7 +3387,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .bind(etab)
         .bind(id)
         .bind(d.eleve_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let foyer = foyer
@@ -3385,7 +3395,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             .0;
         let demande_id = Uuid::new_v4();
         let champs = ChampsSensibles::depuis_env();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_mandat_sepa_demande SET statut = 'annule'
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut = 'a_signer'",
@@ -3449,7 +3459,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     ) -> Result<MandatDemandeDto, EntDbError> {
         let (v, _d) = self.dossier_valide_du_deposant(etab, jeton, id).await?;
         let champs = ChampsSensibles::depuis_env();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r: Option<(Uuid, Uuid, String, Option<String>, String)> = sqlx::query_as(
             "SELECT id, foyer_id, iban, bic, titulaire FROM ent_mandat_sepa_demande
               WHERE etablissement_id = $1 AND dossier_id = $2 AND statut = 'a_signer' FOR UPDATE",
@@ -3563,7 +3573,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(invalide("invitation invalide ou expirée"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let inv: Option<(Uuid, Uuid, Uuid, String)> = sqlx::query_as(
             "SELECT i.id, i.personne_id, i.responsable_id, i.email FROM ent_inscription_invitation i
               WHERE i.jeton_hash = $1 AND i.etablissement_id = $2
@@ -3746,7 +3756,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
     ) -> Result<Vec<ParametreLienDto>, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer)
             .await?;
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let mut out = Vec::new();
         for lien in ["mere", "pere", "tuteur", "autre"] {
             let d = Self::droits_lien_tx(&mut conn, etab, lien, lien != "autre").await?;
@@ -3773,6 +3783,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if !matches!(p.lien.as_str(), "mere" | "pere" | "tuteur" | "autre") {
             return Err(invalide("type de lien inconnu"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         sqlx::query(
             "INSERT INTO ent_inscription_parametre_lien
                 (etablissement_id, lien, peut_voir_notes, peut_voir_vs, peut_justifier_absence,
@@ -3789,9 +3800,10 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .bind(p.peut_justifier_absence)
         .bind(p.peut_autoriser_sorties)
         .bind(actor)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -3800,7 +3812,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         if jeton.trim().is_empty() || jeton.len() > 256 {
             return Err(invalide("invitation invalide ou expirée"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let inv: Option<(Uuid, Uuid, Uuid)> = sqlx::query_as(
             "SELECT id, personne_id, responsable_id FROM ent_inscription_invitation
               WHERE jeton_hash = $1 AND etablissement_id = $2
@@ -3902,7 +3914,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         )
         .bind(etab)
         .bind(actor)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::new();
@@ -3933,7 +3945,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         }
         self.exiger_lien_famille(etab, actor, role, d.eleve_id)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         let (ouverte,): (bool,) = sqlx::query_as(
             "SELECT statut = 'ouverte' FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2",
@@ -4026,7 +4038,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         }
         self.exiger_lien_famille(etab, actor, role, d.eleve_id)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = dossier_tx(&mut tx, etab, id).await?;
         if !matches!(d.statut.as_str(), "brouillon" | "deposee") {
             return Err(conflit("réinscription non modifiable"));

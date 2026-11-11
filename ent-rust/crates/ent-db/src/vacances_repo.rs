@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DomainError, PeriodeVacances, VacancesKind};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgVacancesRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgVacancesRepo {
     }
 
     pub async fn insert(&self, p: &PeriodeVacances) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_periode_vacances (
@@ -29,9 +31,10 @@ impl PgVacancesRepo {
         .bind(p.fin)
         .bind(p.created_by_user_id)
         .bind(p.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -49,7 +52,7 @@ impl PgVacancesRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_periode).collect())
@@ -71,7 +74,7 @@ impl PgVacancesRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_periode).collect())
@@ -82,6 +85,7 @@ impl PgVacancesRepo {
         etablissement_id: Uuid,
         periode_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             r#"
             DELETE FROM ent_periode_vacances
@@ -90,9 +94,10 @@ impl PgVacancesRepo {
         )
         .bind(etablissement_id)
         .bind(periode_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() > 0)
     }
 }

@@ -14,11 +14,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
     Some((ent, cast))
 }
 
@@ -49,7 +45,7 @@ fn lien(personne_id: Uuid, nature: &str, foyer: Option<Uuid>) -> LienSaisie {
 }
 
 async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
-    let (n,): (i64,) = sqlx::query_as(sql).bind(id).fetch_one(ent.pool()).await.unwrap();
+    let (n,): (i64,) = sqlx::query_as(sql).bind(id).fetch_one(ent.pool_verif()).await.unwrap();
     n
 }
 
@@ -113,27 +109,27 @@ async fn reprise_des_liens_idempotente() {
 
     // Simule des liens « d'avant » (sans personne) : la reprise les rattache.
     sqlx::query("ALTER TABLE ent_eleve_lien DISABLE TRIGGER ent_eleve_lien_personne_sync_trg")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     // NOT NULL est réappliqué par la migration rejouée.
     sqlx::query("ALTER TABLE ent_eleve_lien ALTER COLUMN personne_id DROP NOT NULL")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query("UPDATE ent_eleve_lien SET personne_id = NULL WHERE etablissement_id = $1")
         .bind(etab)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query("DELETE FROM ent_personne WHERE etablissement_id = $1 AND source = 'reprise'
                   AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien l WHERE l.personne_id = ent_personne.id)")
         .bind(etab)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query("ALTER TABLE ent_eleve_lien ENABLE TRIGGER ent_eleve_lien_personne_sync_trg")
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     ent.migrate().await.unwrap();
@@ -176,7 +172,7 @@ async fn reprise_des_liens_idempotente() {
     )
     .bind(etab)
     .bind(nouveau.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(src, "compte");
@@ -248,7 +244,7 @@ async fn parent_sans_compte_et_parents_separes() {
     // Un parent sans compte n'ouvre aucun accès : aucun compte n'est rattaché.
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_lien_actif WHERE personne_id = $1 AND user_id IS NOT NULL")
         .bind(pere.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 0);
@@ -385,7 +381,7 @@ async fn suspension_coupe_l_acces_partout() {
                 .bind(etab)
                 .bind(eleve)
                 .bind(parent)
-                .fetch_one(ent.pool())
+                .fetch_one(ent.pool_verif())
                 .await
                 .unwrap();
                 n == 1
@@ -420,7 +416,7 @@ async fn suspension_coupe_l_acces_partout() {
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_metier_event e JOIN ent_outbox o ON o.event_id = e.id WHERE e.etablissement_id = $1 AND e.type = $2")
         .bind(etab)
         .bind(types::LIEN_SUSPENDU)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 1, "fait publié dans l'outbox, en transaction");
@@ -436,7 +432,7 @@ async fn suspension_coupe_l_acces_partout() {
     });
     {
         use crate::outbox::Publier;
-        let mut tx = ent.pool().begin().await.unwrap();
+        let mut tx = ent.pool_verif().begin().await.unwrap();
         tx.publier(ent_events::MetierEventDraft {
             etablissement_id: etab,
             type_name: types::RETARD_DECLARE.into(),
@@ -576,7 +572,7 @@ async fn isolation_entre_etablissements() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
-    let b = ent.seed_labo_cast().await.unwrap();
+    let b = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (da, ra) = dir(&a);
     let (db_, rb) = dir(&b);
     let p = ent
@@ -614,7 +610,7 @@ async fn isolation_entre_etablissements() {
         .bind(b.etablissement_id)
         .bind(b.eleve_lea_id)
         .bind(p.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await;
     assert!(e.is_err());
 }
@@ -630,21 +626,21 @@ async fn etat(ent: &PgEnt, etab: Uuid) -> Etat {
         "SELECT id, eleve_id, personne_id, user_id, lien FROM ent_eleve_lien WHERE etablissement_id = $1 ORDER BY id",
     )
     .bind(etab)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     let contacts = sqlx::query_as(
         "SELECT id, personne_id FROM ent_eleve_contact_urgence WHERE etablissement_id = $1 ORDER BY id",
     )
     .bind(etab)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     let personnes = sqlx::query_as(
         "SELECT id, user_id, fusionnee_dans FROM ent_personne WHERE etablissement_id = $1 ORDER BY id",
     )
     .bind(etab)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     (liens, contacts, personnes)
@@ -739,7 +735,7 @@ async fn fusion_et_defusion_de_personnes() {
     let f2 = ent.fusionner_personnes_for_actor(etab, d, r, dup.id, mere.id, "Doublon").await.unwrap();
     sqlx::query("UPDATE ent_personne_fusion SET fusionne_le = now() - interval '31 days' WHERE id = $1")
         .bind(f2.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(matches!(
@@ -780,7 +776,7 @@ async fn chronologie_filtree_par_les_droits() {
         .bind(Uuid::new_v4())
         .bind(etab)
         .bind(harry)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let chrono_dir = ent.chronologie_eleve_for_actor(etab, d, r, harry, 200).await.unwrap();

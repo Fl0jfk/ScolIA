@@ -5,6 +5,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgInternatRepo {
     pool: PgPool,
@@ -16,6 +17,7 @@ impl PgInternatRepo {
     }
 
     pub async fn insert_chambre(&self, c: &ChambreInternat) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_internat_chambre (
@@ -34,9 +36,10 @@ impl PgInternatRepo {
         .bind(c.actif)
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -55,7 +58,7 @@ impl PgInternatRepo {
         )
         .bind(etablissement_id)
         .bind(chambre_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ChambreRow::into_chambre))
@@ -66,6 +69,7 @@ impl PgInternatRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<ChambreInternat>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, ChambreRow>(
                 r#"
@@ -77,7 +81,7 @@ impl PgInternatRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -91,7 +95,7 @@ impl PgInternatRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -117,13 +121,14 @@ impl PgInternatRepo {
         .bind(etablissement_id)
         .bind(chambre_id)
         .bind(jour)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n as i16)
     }
 
     pub async fn insert_affectation(&self, a: &AffectationInternat) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_internat_affectation (
@@ -141,13 +146,15 @@ impl PgInternatRepo {
         .bind(a.fin)
         .bind(a.created_by_user_id)
         .bind(a.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_affectation_fin(&self, a: &AffectationInternat) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_internat_affectation
@@ -158,9 +165,10 @@ impl PgInternatRepo {
         .bind(a.etablissement_id)
         .bind(a.id)
         .bind(a.fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -179,7 +187,7 @@ impl PgInternatRepo {
         )
         .bind(etablissement_id)
         .bind(affectation_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AffRow::into_aff))
@@ -205,7 +213,7 @@ impl PgInternatRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AffRow::into_aff))
@@ -229,7 +237,7 @@ impl PgInternatRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(AffRow::into_aff).collect())
@@ -249,13 +257,14 @@ impl PgInternatRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n > 0)
     }
 
     pub async fn upsert_presence(&self, p: &PresenceInternat) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_internat_presence (
@@ -280,9 +289,10 @@ impl PgInternatRepo {
         .bind(&p.note)
         .bind(p.actor_user_id)
         .bind(p.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -303,7 +313,7 @@ impl PgInternatRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(PresenceRow::into_presence))
@@ -325,7 +335,7 @@ impl PgInternatRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -335,6 +345,7 @@ impl PgInternatRepo {
     }
 
     pub async fn insert_suivi(&self, s: &SuiviInternat) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_internat_suivi (
@@ -351,9 +362,10 @@ impl PgInternatRepo {
         .bind(s.visible_famille)
         .bind(s.created_by_user_id)
         .bind(s.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -363,6 +375,7 @@ impl PgInternatRepo {
         eleve_id: Uuid,
         famille_seulement: bool,
     ) -> Result<Vec<SuiviInternat>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if famille_seulement {
             sqlx::query_as::<_, SuiviRow>(
                 r#"
@@ -375,7 +388,7 @@ impl PgInternatRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -390,7 +403,7 @@ impl PgInternatRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

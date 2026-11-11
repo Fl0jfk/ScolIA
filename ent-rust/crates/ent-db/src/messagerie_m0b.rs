@@ -28,6 +28,7 @@ use crate::annonce_repo::PgAnnonceRepo;
 use crate::eleve_repo::PgEleveRepo;
 use crate::notifications::{notifier_personne, EnvoiAPlanifier};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Options d'envoi d'un message (M0b, D24).
 #[derive(Debug, Clone, Default)]
@@ -132,7 +133,7 @@ impl PgEnt {
                FROM ent_msg_reglage WHERE etablissement_id = $1",
         )
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await?;
         Ok(l.map(|(plage_calme, debut_heure, fin_heure, weekend, motif)| ReglagePlageCalme {
             plage_calme,
@@ -176,6 +177,7 @@ impl PgEnt {
                 "plage calme réduite ou désactivée : motif obligatoire",
             ));
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_msg_reglage
                 (etablissement_id, plage_calme, plage_debut_heure, plage_fin_heure, plage_weekend,
@@ -196,8 +198,9 @@ impl PgEnt {
         .bind(saisie.weekend)
         .bind(if reduite { motif.clone() } else { None })
         .bind(actor_user_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         self.publier_msg_event(
             etablissement_id,
             types::MSG_REGLAGE,
@@ -265,7 +268,7 @@ impl PgEnt {
               ORDER BY l.created_at",
         )
         .bind(etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await?;
         Ok(rows
             .into_iter()
@@ -298,6 +301,7 @@ impl PgEnt {
         if motif.is_none() {
             return Err(EntDbError::SaisieInvalide("motif de la décision obligatoire"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let eleve: Option<(Uuid,)> = sqlx::query_as(
             "SELECT l.eleve_id FROM ent_eleve_lien l
                JOIN ent_eleve_interdiction i
@@ -308,7 +312,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(lien_id)
         .bind(interdiction_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await?;
         let Some((eleve_id,)) = eleve else {
             return Err(DomainError::NotFound.into());
@@ -327,8 +331,9 @@ impl PgEnt {
         .bind(if confirmer { "confirme" } else { "maintenu_inactif" })
         .bind(&motif)
         .bind(actor_user_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         let _ = r;
         self.publier_msg_event(
             etablissement_id,
@@ -487,6 +492,7 @@ impl PgEnt {
         if !repo.retirer(etablissement_id, annonce_id, actor_user_id, &motif).await? {
             return Err(EntDbError::ConflitDossier("annonce non publiée ou déjà retirée"));
         }
+        let mut txw = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "UPDATE ent_notification_envoi SET statut = 'annule', traite_le = now()
               WHERE etablissement_id = $1 AND source_type = 'systeme' AND source_id = $2
@@ -494,7 +500,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annonce_id)
-        .execute(self.pool())
+        .execute(&mut *txw)
         .await?;
         sqlx::query(
             "DELETE FROM ent_notification
@@ -503,8 +509,9 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annonce_id)
-        .execute(self.pool())
+        .execute(&mut *txw)
         .await?;
+        txw.commit().await?;
         let a = Annonce { statut: StatutAnnonce::Retiree, ..a };
         self.publier_msg_event_annonce(&a, types::ANNONCE_RETIREE, actor_user_id).await?;
         Ok(a)
@@ -556,7 +563,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(libelle)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await?;
         match rows.as_slice() {
             [] => Ok(None),
@@ -594,7 +601,7 @@ impl PgEnt {
                 .bind(etab)
                 .bind(classe_id)
                 .bind(jour)
-                .fetch_all(self.pool())
+                .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
                 .await?;
                 rows.into_iter().map(|(id,)| id).collect()
             }
@@ -622,7 +629,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(&eleves)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         let mut par_eleve: BTreeMap<Uuid, Vec<Uuid>> = BTreeMap::new();
         for (e, u) in rows {
@@ -644,7 +651,7 @@ impl PgEnt {
             }
         }
         let maintenant = Utc::now();
-        let mut c = self.pool().acquire().await?;
+        let mut c = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         for (user, eleve) in premier {
             notifier_personne(
                 &mut c,
@@ -668,6 +675,7 @@ impl PgEnt {
             )
             .await?;
         }
+        c.commit().await?;
         Ok(())
     }
 
@@ -686,7 +694,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }

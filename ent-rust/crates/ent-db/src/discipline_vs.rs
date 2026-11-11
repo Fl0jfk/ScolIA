@@ -17,6 +17,7 @@ use ent_events::{AggregateKind, MetierEventDraft};
 use serde::Serialize;
 use serde_json::json;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 const MAX_TEXTE: usize = 2000;
 
@@ -233,6 +234,7 @@ impl PgEnt {
     }
 
     async fn semer_types_punition_defaut(&self, etablissement_id: Uuid) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         for (code, libelle) in [
             ("excuse", "Excuse orale ou écrite"),
             ("devoir_supplementaire", "Devoir supplémentaire"),
@@ -247,10 +249,11 @@ impl PgEnt {
             .bind(etablissement_id)
             .bind(code)
             .bind(libelle)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
         }
+        tx.commit().await.map_err(db)?;
         Ok(())
     }
 
@@ -263,7 +266,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 ORDER BY code",
         )
         .bind(etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -287,12 +290,13 @@ impl PgEnt {
         if cmd.echeance.is_some_and(|e| e < cmd.jour) {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await?;
         let type_actif: Option<(bool,)> = sqlx::query_as(
             "SELECT actif FROM ent_punition_type WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(cmd.type_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if type_actif != Some((true,)) {
@@ -305,7 +309,7 @@ impl PgEnt {
             .bind(etab)
             .bind(inc)
             .bind(cmd.eleve_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             if ok.is_none() {
@@ -313,7 +317,7 @@ impl PgEnt {
             }
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_punition
                 (id, etablissement_id, eleve_id, type_id, jour, motif, echeance, duree_minutes,
@@ -373,12 +377,13 @@ impl PgEnt {
         if !matches!(statut, "effectuee" | "annulee") {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let p = sqlx::query_as::<_, Punition>(&format!(
             "SELECT {COLONNES_PUNITION} FROM ent_punition WHERE etablissement_id = $1 AND id = $2"
         ))
         .bind(etablissement_id)
         .bind(punition_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
@@ -409,9 +414,10 @@ impl PgEnt {
         .bind(punition_id)
         .bind(statut)
         .bind(acteur)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(Punition {
             statut: statut.to_string(),
             ..p
@@ -451,7 +457,7 @@ impl PgEnt {
         ))
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -475,15 +481,17 @@ impl PgEnt {
         if !CATEGORIES_SANCTION.contains(&categorie) {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let r = sqlx::query(
             "UPDATE ent_sanction_type SET categorie = $3 WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etablissement_id)
         .bind(type_id)
         .bind(categorie)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         if r.rows_affected() == 0 {
             return Err(introuvable());
         }
@@ -502,7 +510,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(categorie)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         Ok(match row {
@@ -533,6 +541,7 @@ impl PgEnt {
             ModeEffacement::DelaiMois(_) => return Err(invalide()),
             ModeEffacement::Jamais => ("jamais", None),
         };
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_regle_effacement (etablissement_id, categorie, mode, delai_mois, updated_at)
              VALUES ($1,$2,$3,$4, now())
@@ -543,9 +552,10 @@ impl PgEnt {
         .bind(categorie)
         .bind(m)
         .bind(delai)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -576,6 +586,7 @@ impl PgEnt {
         au_jour: NaiveDate,
         acteur: Option<Uuid>,
     ) -> Result<EffacementRapport, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let candidates: Vec<(Uuid, Uuid, NaiveDate, String)> = sqlx::query_as(
             "SELECT s.id, s.eleve_id, s.jour, t.categorie
                FROM ent_sanction s
@@ -586,7 +597,7 @@ impl PgEnt {
               ORDER BY s.jour, s.id",
         )
         .bind(etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut rapport = EffacementRapport {
@@ -601,7 +612,7 @@ impl PgEnt {
             if au_jour < due {
                 continue;
             }
-            let mut tx = self.pool().begin().await.map_err(db)?;
+            let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
             let r = sqlx::query(
                 "UPDATE ent_sanction
                     SET effacee_at = now(), effacee_motif = 'delai_reglementaire', note = NULL
@@ -652,6 +663,7 @@ impl PgEnt {
         if !(0..=60).contains(&delai) {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await?;
         if let Some(inc) = cmd.incident_id {
             let ok: Option<(i32,)> = sqlx::query_as(
                 "SELECT 1 FROM ent_incident WHERE etablissement_id = $1 AND id = $2 AND eleve_id = $3",
@@ -659,7 +671,7 @@ impl PgEnt {
             .bind(etab)
             .bind(inc)
             .bind(cmd.eleve_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             if ok.is_none() {
@@ -667,7 +679,7 @@ impl PgEnt {
             }
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_procedure_disciplinaire
                 (id, etablissement_id, eleve_id, incident_id, instance, faits, engagee_le,
@@ -731,7 +743,7 @@ impl PgEnt {
     ) -> Result<ProcedureDisciplinaire, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let p = self
             .lire_procedure_tx(&mut tx, etablissement_id, procedure_id)
             .await?;
@@ -769,7 +781,7 @@ impl PgEnt {
     ) -> Result<ProcedureDisciplinaire, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let p = self
             .lire_procedure_tx(&mut tx, etablissement_id, procedure_id)
             .await?;
@@ -816,7 +828,7 @@ impl PgEnt {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
         let decision = texte(decision, MAX_TEXTE)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let p = self
             .lire_procedure_tx(&mut tx, etablissement_id, procedure_id)
             .await?;
@@ -892,7 +904,7 @@ impl PgEnt {
     ) -> Result<ProcedureDisciplinaire, EntDbError> {
         self.exiger_action_etab(etablissement_id, acteur, role, Action::DisciplineGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let p = self
             .lire_procedure_tx(&mut tx, etablissement_id, procedure_id)
             .await?;
@@ -928,7 +940,7 @@ impl PgEnt {
         ))
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -960,7 +972,7 @@ impl PgEnt {
                 .iter()
                 .filter(|d| d.eleve_id == e.eleve_id && d.non_justifiee)
                 .collect();
-            let mut tx = self.pool().begin().await.map_err(db)?;
+            let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
             // Une proposition déjà décidée n'est pas modifiée (aucune ligne renvoyée).
             let ecrit: Option<(Uuid,)> = sqlx::query_as(
                 "INSERT INTO ent_signalement_assiduite
@@ -1027,7 +1039,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(mois)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -1065,7 +1077,7 @@ impl PgEnt {
             "emettre" => ("valide", "emis"),
             _ => return Err(invalide()),
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let s = sqlx::query_as::<_, SignalementAssiduite>(
             &format!(
                 "{SELECT_SIGNALEMENT}

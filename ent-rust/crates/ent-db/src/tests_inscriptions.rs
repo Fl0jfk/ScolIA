@@ -18,11 +18,7 @@ use uuid::Uuid;
 
 pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_base_de_test()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_mail_dry_run();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_mail_dry_run(); }).await;
     Some((ent, cast))
 }
 
@@ -48,7 +44,7 @@ pub(crate) fn adm(c: &LaboCast) -> (Uuid, &'static str) {
 pub(crate) async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     n
@@ -60,7 +56,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
         "SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante",
     )
     .bind(etab)
-    .fetch_optional(ent.pool())
+    .fetch_optional(ent.pool_verif())
     .await
     .unwrap();
     let annee = match annee {
@@ -77,7 +73,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
             .bind(format!("courante-{}", &a.simple().to_string()[..6]))
             .bind(today - chrono::Duration::days(60))
             .bind(today + chrono::Duration::days(240))
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
             a
@@ -89,7 +85,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
     .bind(etab)
     .bind(annee)
     .bind(code)
-    .fetch_optional(ent.pool())
+    .fetch_optional(ent.pool_verif())
     .await
     .unwrap();
     if let Some((c,)) = c {
@@ -101,7 +97,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
         .bind(etab)
         .bind(annee)
         .bind(code)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     c
@@ -471,7 +467,7 @@ async fn parcours_famille_de_bout_en_bout() {
     let (payload,): (serde_json::Value,) =
         sqlx::query_as("SELECT payload FROM ent_metier_event WHERE id = $1")
             .bind(v.evenement_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     let texte = payload.to_string();
@@ -515,7 +511,7 @@ async fn parcours_famille_de_bout_en_bout() {
     let (statut, classe_eleve): (String, Option<Uuid>) =
         sqlx::query_as("SELECT status, classe_id FROM ent_eleve WHERE id = $1")
             .bind(v.eleve_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!((statut.as_str(), classe_eleve), ("actif", Some(classe)));
@@ -540,7 +536,7 @@ async fn parcours_famille_de_bout_en_bout() {
     );
     let (user2,): (Uuid,) = sqlx::query_as("SELECT id FROM ent_user WHERE email = $1")
         .bind(&second_email)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(ent
@@ -563,18 +559,18 @@ async fn iban_masque_et_nouveau_mandat() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
-    let b = ent.seed_labo_cast().await.unwrap();
+    let b = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     // Dans A, parent_lea a un mandat actif sur son foyer (payeur).
     sqlx::query("UPDATE ent_eleve_lien SET est_payeur = true, part_paiement = 100 WHERE etablissement_id = $1 AND user_id = $2")
         .bind(a.etablissement_id)
         .bind(a.parent_lea.user_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     // Mandats éventuels du jeu de labo retirés : un seul mandat actif connu dans A.
     sqlx::query("UPDATE ent_fac_sepa_mandat SET statut = 'revoke' WHERE etablissement_id = $1")
         .bind(a.etablissement_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     ent.creer_mandat_sepa_for_actor(
@@ -705,7 +701,7 @@ async fn iban_masque_et_nouveau_mandat() {
         "SELECT iban FROM ent_fac_sepa_mandat WHERE etablissement_id = $1 AND statut = 'actif'",
     )
     .bind(b.etablissement_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(iban_b.starts_with("enc:"), "IBAN chiffré au repos");
@@ -1034,7 +1030,7 @@ async fn reinscription_campagne() {
     )
     .bind(etab)
     .bind(c.eleve_tom_id)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert!(types_publies
@@ -1129,7 +1125,7 @@ async fn reactions_idempotentes() {
                 .unwrap();
         (a, i)
     };
-    assert_eq!(etat(ent.pool().clone()).await, (1, 1));
+    assert_eq!(etat(ent.pool_verif().clone()).await, (1, 1));
     for nom in [
         CONSOMMATEUR_AFFECTATION,
         CONSOMMATEUR_INVITATIONS,
@@ -1150,17 +1146,17 @@ async fn reactions_idempotentes() {
     // aucun nouvel envoi.
     sqlx::query("DELETE FROM ent_event_traitement WHERE event_id = $1")
         .bind(v.evenement_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query("UPDATE ent_outbox SET statut = 'a_distribuer', prochaine_tentative = now() WHERE event_id = $1")
         .bind(v.evenement_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     dist.distribuer_tout().await.unwrap();
     ent.expedier_envois_inscriptions(100).await.unwrap();
-    assert_eq!(etat(ent.pool().clone()).await, (1, 1));
+    assert_eq!(etat(ent.pool_verif().clone()).await, (1, 1));
     assert_eq!(
         mails(&ent),
         avant,
@@ -1176,7 +1172,7 @@ async fn reactions_idempotentes() {
         .await
         .unwrap();
     dist.distribuer_tout().await.unwrap();
-    assert_eq!(etat(ent.pool().clone()).await, (1, 1));
+    assert_eq!(etat(ent.pool_verif().clone()).await, (1, 1));
 }
 
 /// Import : prévisualisation, rejets ligne à ligne, application, rejets traités,
@@ -1252,7 +1248,7 @@ Weasley{s};Bill;01/04/2010;M;ZZ;;\n"
     )
     .bind(etab)
     .bind(format!("molly-{s}@exemple.test"))
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 1);
@@ -1329,7 +1325,7 @@ async fn isolation_etablissements() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
-    let b = ent.seed_labo_cast().await.unwrap();
+    let b = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let camp = campagne_ouverte(&ent, &a, "admission", None).await;
     let email = format!("iso-{}@exemple.test", Uuid::new_v4().simple());
     let jeton = verifier(&ent, a.etablissement_id, &email).await;
@@ -1565,7 +1561,7 @@ pub(crate) async fn resp_id(ent: &PgEnt, dossier: Uuid, rang: i16) -> Uuid {
     )
     .bind(dossier)
     .bind(rang)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -1588,7 +1584,7 @@ async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
         sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
             .bind(etab)
             .bind(user)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     p
@@ -1862,7 +1858,7 @@ async fn fratrie_foyer_existant_confirme() {
         "SELECT foyer_id FROM ent_lien_attente WHERE source = 'inscription' AND source_ref IN (SELECT id FROM ent_inscription_responsable WHERE dossier_id = $1)",
     )
     .bind(dossier)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(foyer, Some(c.foyer_lea_id));
@@ -1883,7 +1879,7 @@ async fn ancien_eleve_rattache_a_la_fiche_existante() {
         "SELECT nom, prenom, date_naissance FROM ent_eleve WHERE id = $1",
     )
     .bind(c.eleve_lea_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let mut f = formulaire(camp, &prenom, None);
@@ -1966,7 +1962,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
     let code = code_recu(&ent, &email);
     let (h,): (String,) = sqlx::query_as("SELECT code_hash FROM ent_preinscription_verification WHERE id = $1")
         .bind(demande.demande_id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_ne!(
@@ -2001,7 +1997,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
           WHERE dossier_id = $1 AND kind = 'invitation'",
     )
     .bind(dossier.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((statut.as_str(), tentatives), ("a_envoyer", 1));
@@ -2012,7 +2008,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
     for _ in 0..6 {
         sqlx::query("UPDATE ent_inscription_envoi SET prochain_essai = now() WHERE etablissement_id = $1")
             .bind(etab)
-            .execute(ent.pool())
+            .execute(ent.pool_verif())
             .await
             .unwrap();
         ent.expedier_envois_inscriptions(100).await.unwrap();
@@ -2021,7 +2017,7 @@ async fn echec_d_envoi_trace_et_code_hmac() {
         "SELECT statut FROM ent_inscription_envoi WHERE dossier_id = $1 AND kind = 'invitation'",
     )
     .bind(dossier.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(statut, "echec");
@@ -2077,7 +2073,7 @@ async fn second_parent_ne_pas_solliciter_aucune_invitation() {
                FROM ent_inscription_responsable WHERE id = $1",
         )
         .bind(resp2)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(adresse, None);
@@ -2118,12 +2114,12 @@ async fn second_parent_ne_pas_solliciter_aucune_invitation() {
     // Fiche : « ne pas solliciter » posé, adresse absente, alerte pour la direction.
     let (pid,): (Uuid,) = sqlx::query_as("SELECT personne_id FROM ent_inscription_responsable WHERE id = $1")
         .bind(resp2)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let (adresse,): (Option<String>,) = sqlx::query_as("SELECT adresse FROM ent_personne WHERE id = $1")
         .bind(pid)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(adresse, None);
@@ -2174,7 +2170,7 @@ async fn ne_pas_solliciter_pose_avant_l_envoi_bloque_l_invitation() {
     let resp2 = resp_id(&ent, dossier, 2).await;
     let (pid,): (Uuid,) = sqlx::query_as("SELECT personne_id FROM ent_inscription_responsable WHERE id = $1")
         .bind(resp2)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     ent.definir_ne_pas_solliciter_for_actor(etab, d, dr, pid, true, None)
@@ -2303,7 +2299,7 @@ async fn parent_connecte_confirme_le_lien_d_inscription_en_un_geste() {
     let (voie,): (String,) =
         sqlx::query_as("SELECT confirmation_voie FROM ent_lien_attente WHERE id = $1")
             .bind(ma_demande.id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(voie, "personne_connectee");
@@ -2325,7 +2321,7 @@ async fn classe_annee_future(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
     .bind(format!("future-{}", &a.simple().to_string()[..6]))
     .bind(today + chrono::Duration::days(300))
     .bind(today + chrono::Duration::days(660))
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let c = Uuid::new_v4();
@@ -2334,7 +2330,7 @@ async fn classe_annee_future(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
         .bind(etab)
         .bind(a)
         .bind(code)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     c
@@ -2388,7 +2384,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
     )
     .bind(ia)
     .bind(v.eleve_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(annee, "2027-2028");
@@ -2401,7 +2397,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
     let (trace,): (Option<Uuid>,) =
         sqlx::query_as("SELECT inscription_annuelle_id FROM ent_inscription_dossier WHERE id = $1")
             .bind(dossier)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(trace, Some(ia), "le dossier garde la trace de l'inscription prévue");
@@ -2414,7 +2410,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
     let (st, classe): (String, Option<Uuid>) =
         sqlx::query_as("SELECT status, classe_id FROM ent_eleve WHERE id = $1")
             .bind(v.eleve_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!((st.as_str(), classe), ("preinscrit", None));
@@ -2425,7 +2421,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
     )
     .bind(etab)
     .bind(v.eleve_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 0);
@@ -2434,7 +2430,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
           WHERE eleve_id = $1 AND payload::text ILIKE '%Lovegood%'",
     )
     .bind(v.eleve_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 0);
@@ -2443,7 +2439,7 @@ async fn i1_validation_cree_une_inscription_annuelle_prevue_sans_affectation() {
         "SELECT source, enregistre_par FROM ent_eleve_identite WHERE eleve_id = $1 ORDER BY enregistre_le LIMIT 1",
     )
     .bind(v.eleve_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((src.as_str(), par), ("admission", Some(d)));
@@ -2498,7 +2494,7 @@ async fn i1_arrivee_en_cours_d_annee_affecte_en_classe() {
     let (st, cl): (String, Option<Uuid>) =
         sqlx::query_as("SELECT status, classe_id FROM ent_eleve WHERE id = $1")
             .bind(v.eleve_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!((st.as_str(), cl), ("actif", Some(classe)));
@@ -2518,7 +2514,7 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
     let (nom, prenom, naissance): (String, String, Option<chrono::NaiveDate>) =
         sqlx::query_as("SELECT nom, prenom, date_naissance FROM ent_eleve WHERE id = $1")
             .bind(c.eleve_tom_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     let mut f = formulaire(camp, &prenom, None);
@@ -2540,7 +2536,7 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
     .bind(Uuid::new_v4())
     .bind(etab)
     .bind(c.eleve_tom_id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let corps = valider_corps(
@@ -2561,13 +2557,13 @@ async fn i1_ancien_eleve_inscription_prevue_sur_la_meme_fiche() {
     let (statut,): (String,) =
         sqlx::query_as("SELECT statut FROM ent_inscription_dossier WHERE id = $1")
             .bind(dossier)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(statut, "admis");
     sqlx::query("DELETE FROM ent_eleve_scolarite_annee WHERE eleve_id = $1 AND annee_scolaire = '2027-2028'")
         .bind(c.eleve_tom_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let v = ent
@@ -2596,7 +2592,7 @@ async fn i1_port_inscription_annuelle_idempotent_et_borne() {
     };
     let etab = c.etablissement_id;
     let actor = c.direction.user_id;
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let eleve = creer_eleve_tx(
         &mut tx,
         etab,
@@ -2685,7 +2681,7 @@ async fn i1_import_par_les_ports_sans_lien_vers_un_compte_existant() {
     let (email_parent_connu,): (String,) =
         sqlx::query_as("SELECT email FROM ent_user WHERE id = $1")
             .bind(c.parent_lea.user_id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     let csv = format!(
@@ -2714,7 +2710,7 @@ Intrus{s};Zed;01/04/2014;M;6H;Intrus;{email_parent_connu};pere\n"
     )
     .bind(etab)
     .bind(format!("Granger{s}"))
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((pers, foyers, liens), (1, 1, 2));
@@ -2725,7 +2721,7 @@ Intrus{s};Zed;01/04/2014;M;6H;Intrus;{email_parent_connu};pere\n"
     )
     .bind(etab)
     .bind(format!("Granger{s}"))
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!((src.as_str(), par), ("import", Some(a)));
@@ -2738,7 +2734,7 @@ Intrus{s};Zed;01/04/2014;M;6H;Intrus;{email_parent_connu};pere\n"
     .bind(etab)
     .bind(format!("Intrus{s}"))
     .bind(parent_lea)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(liens_parent, 0, "l'import ne donne aucun accès à un parent existant");
@@ -2749,7 +2745,7 @@ Intrus{s};Zed;01/04/2014;M;6H;Intrus;{email_parent_connu};pere\n"
     )
     .bind(etab)
     .bind(format!("Intrus{s}"))
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(sans_compte, 1);

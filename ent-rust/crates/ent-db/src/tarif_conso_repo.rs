@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DomainError, TarifConso};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgTarifConsoRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgTarifConsoRepo {
     }
 
     pub async fn insert(&self, t: &TarifConso) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, t.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_tarif_conso (
@@ -31,9 +33,10 @@ impl PgTarifConsoRepo {
         .bind(t.actif)
         .bind(t.created_by_user_id)
         .bind(t.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -42,6 +45,7 @@ impl PgTarifConsoRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<TarifConso>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -53,7 +57,7 @@ impl PgTarifConsoRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -67,7 +71,7 @@ impl PgTarifConsoRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -91,7 +95,7 @@ impl PgTarifConsoRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_tarif).collect())

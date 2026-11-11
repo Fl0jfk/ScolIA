@@ -5,6 +5,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgRepasRepo {
     pool: PgPool,
@@ -16,6 +17,7 @@ impl PgRepasRepo {
     }
 
     pub async fn upsert_activite(&self, a: &RepasActivite) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_repas_activite (
@@ -35,9 +37,10 @@ impl PgRepasRepo {
         .bind(&a.libelle)
         .bind(a.kind.as_str())
         .bind(a.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -54,7 +57,7 @@ impl PgRepasRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(ActiviteRow::into_act).collect())
@@ -74,13 +77,14 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(activite_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ActiviteRow::into_act))
     }
 
     pub async fn upsert_grille(&self, g: &EleveGrilleRepas) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, g.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_grille_repas (
@@ -113,9 +117,10 @@ impl PgRepasRepo {
         .bind(g.jours.dim)
         .bind(g.date_debut)
         .bind(g.date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -135,7 +140,7 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(GrilleRow::into_grille).collect())
@@ -155,7 +160,7 @@ impl PgRepasRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(GrilleRow::into_grille).collect())
@@ -169,6 +174,7 @@ impl PgRepasRepo {
         eleve_id: Uuid,
         date_fin: chrono::NaiveDate,
     ) -> Result<u64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             UPDATE ent_eleve_grille_repas
@@ -184,13 +190,15 @@ impl PgRepasRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(res.rows_affected())
     }
 
     pub async fn upsert_bourse_type(&self, t: &BourseType) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, t.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_bourse_type (
@@ -208,9 +216,10 @@ impl PgRepasRepo {
         .bind(&t.code)
         .bind(&t.libelle)
         .bind(t.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -227,7 +236,7 @@ impl PgRepasRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(BourseTypeRow::into_type).collect())
@@ -247,13 +256,14 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(bourse_type_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(BourseTypeRow::into_type))
     }
 
     pub async fn upsert_bourse(&self, b: &EleveBourse) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, b.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_bourse (
@@ -278,9 +288,10 @@ impl PgRepasRepo {
         .bind(b.status.as_str())
         .bind(b.date_debut)
         .bind(b.date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -299,7 +310,7 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(bourse_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(BourseRow::into_bourse))
@@ -321,13 +332,14 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(BourseRow::into_bourse).collect())
     }
 
     pub async fn insert_dispense(&self, d: &EleveDispenseRepas) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             INSERT INTO ent_eleve_dispense_repas (
@@ -343,8 +355,9 @@ impl PgRepasRepo {
         .bind(&d.motif)
         .bind(d.source.as_str())
         .bind(d.annulee)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await;
+        tx.commit().await.map_err(map_sqlx)?;
         match res {
             Ok(_) => Ok(()),
             Err(sqlx::Error::Database(db)) if db.constraint().is_some() => {
@@ -355,6 +368,7 @@ impl PgRepasRepo {
     }
 
     pub async fn update_dispense_annulee(&self, d: &EleveDispenseRepas) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_eleve_dispense_repas
@@ -365,13 +379,14 @@ impl PgRepasRepo {
         .bind(d.etablissement_id)
         .bind(d.id)
         .bind(d.annulee)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
         if n == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -389,7 +404,7 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(dispense_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(DispenseRow::into_dispense))
@@ -401,6 +416,7 @@ impl PgRepasRepo {
         eleve_id: Uuid,
         actives_only: bool,
     ) -> Result<Vec<EleveDispenseRepas>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actives_only {
             sqlx::query_as::<_, DispenseRow>(
                 r#"
@@ -412,7 +428,7 @@ impl PgRepasRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -426,7 +442,7 @@ impl PgRepasRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -457,7 +473,7 @@ impl PgRepasRepo {
         .bind(eleve_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -485,7 +501,7 @@ impl PgRepasRepo {
         .bind(etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -495,6 +511,7 @@ impl PgRepasRepo {
     }
 
     pub async fn insert_passage(&self, p: &PassageRepas) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             INSERT INTO ent_repas_passage (
@@ -510,8 +527,9 @@ impl PgRepasRepo {
         .bind(&p.badge_lu)
         .bind(p.source.as_str())
         .bind(p.annule)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await;
+        tx.commit().await.map_err(map_sqlx)?;
         match res {
             Ok(_) => Ok(()),
             Err(sqlx::Error::Database(db)) if db.constraint().is_some() => {
@@ -540,7 +558,7 @@ impl PgRepasRepo {
         .bind(eleve_id)
         .bind(activite_id)
         .bind(jour)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(n.0 > 0)
@@ -561,7 +579,7 @@ impl PgRepasRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -590,7 +608,7 @@ impl PgRepasRepo {
         .bind(eleve_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -607,6 +625,7 @@ impl PgRepasRepo {
         fin: NaiveDate,
         activite_id: Option<Uuid>,
     ) -> Result<u32, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let n: (i64,) = if let Some(aid) = activite_id {
             sqlx::query_as(
                 r#"
@@ -622,7 +641,7 @@ impl PgRepasRepo {
             .bind(debut)
             .bind(fin)
             .bind(aid)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -638,7 +657,7 @@ impl PgRepasRepo {
             .bind(eleve_id)
             .bind(debut)
             .bind(fin)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

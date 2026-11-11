@@ -62,6 +62,11 @@ async fn preparer() -> Option<Env> {
         let sql = format!("GRANT SELECT, UPDATE ON {table} TO {ROLE}, {ROLE_PERMISSIF}");
         sqlx::query(&sql).execute(&admin).await.unwrap();
     }
+    // Le rechiffrement liste les établissements dans deux tables sans RLS (contexte système nommé).
+    for table in ["ent_etablissement", "ent_membership"] {
+        let sql = format!("GRANT SELECT ON {table} TO {ROLE}, {ROLE_PERMISSIF}");
+        sqlx::query(&sql).execute(&admin).await.unwrap();
+    }
     // Connexion applicative = même base, autre rôle.
     let mut u = url::Url::parse(&url).unwrap();
     u.set_username(ROLE).unwrap();
@@ -385,22 +390,26 @@ async fn rls_strict_depots_sante_psy_chiffrent_avec_l_id_stocke() {
     nettoyer(&e).await;
 }
 
-/// Rechiffrement au démarrage (D3) sous rôle non propriétaire : fonctionne en mode
-/// par défaut (permissif) ; en mode strict de rôle, les tables RLS sont invisibles.
+/// Rechiffrement au démarrage (D3) sous rôle non propriétaire : tâche transverse nommée
+/// (`ContexteSysteme::Rechiffrement`) qui traite **un établissement à la fois**. Il fonctionne
+/// donc aussi bien sous un rôle en mode strict qu'en mode permissif (docs/securite/RLS_STRICTE.md §4).
 #[tokio::test]
-async fn rechiffrement_sous_rls_permissif_et_limite_du_mode_strict() {
+async fn rechiffrement_par_etablissement_sous_rls_strict_et_permissif() {
     use crate::champs_chiffres::{rechiffrer_champs_sensibles, ChampsSensibles};
     let Some(e) = preparer().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let champs = ChampsSensibles::depuis_env();
-    // Rôle en strict : les fiches (en clair hérité) ne sont pas vues, donc pas rechiffrées.
-    rechiffrer_champs_sensibles(&e.app, &champs).await.expect("strict");
-    assert_eq!(brut_fiche(&e, e.fiche_a).await.0, "note A");
-    assert_eq!(brut_fiche(&e, e.fiche_b).await.0, "note B");
-    // Mode par défaut : les deux établissements sont rechiffrés, chacun avec l'id de sa ligne.
-    let rapport = rechiffrer_champs_sensibles(&e.app_permissif, &champs).await.expect("permissif");
-    assert!(rapport.champs_rechiffres >= 2);
+    // Rôle en strict de rôle : `TenantTx` doit poser le contexte (ENT_RLS_MODE=strict ou permissif en production).
+    crate::tenant_tx::forcer_mode_test(Some(RlsMode::Strict));
+    // Les établissements de la tâche : la racine `ent_etablissement` (A existe déjà via le jeu de labo).
+    for (id, slug) in [(e.etab_a, "rls-a"), (e.etab_b, "rls-b")] {
+        sqlx::query("INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, $2 || '-' || substr($1::text, 1, 8), 'RLS') ON CONFLICT (id) DO NOTHING")
+            .bind(id).bind(slug).execute(&e.admin).await.unwrap();
+    }
+    // Rôle en strict : chaque établissement est traité dans son contexte, rien n'est ignoré.
+    let rapport = rechiffrer_champs_sensibles(&e.app, &champs).await.expect("strict");
+    assert!(rapport.champs_rechiffres >= 2, "le rôle strict rechiffre les deux établissements : {rapport:?}");
     for (id, etab, clair) in [(e.fiche_a, e.etab_a, "note A"), (e.fiche_b, e.etab_b, "note B")] {
         assert!(brut_fiche(&e, id).await.0.starts_with("enc:v1:"));
         let mut tx = TenantTx::begin_mode(&e.app, etab, RlsMode::Strict).await.unwrap();
@@ -410,5 +419,9 @@ async fn rechiffrement_sous_rls_permissif_et_limite_du_mode_strict() {
         drop(tx);
         assert_eq!(champs.ouvrir("ent_fiche_sante", "note_confidentielle", id, &stocke).unwrap(), clair);
     }
+    // Idempotent, y compris sous le rôle permissif.
+    let rapport = rechiffrer_champs_sensibles(&e.app_permissif, &champs).await.expect("permissif");
+    assert_eq!(rapport.detail.iter().filter(|(t, _)| t.starts_with("ent_fiche_sante")).count(), 0);
+    crate::tenant_tx::forcer_mode_test(None);
     nettoyer(&e).await;
 }

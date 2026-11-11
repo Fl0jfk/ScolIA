@@ -1,6 +1,7 @@
 use domain_eleve::DomainError;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbsenceMotif {
@@ -23,10 +24,11 @@ impl PgMotifRepo {
         &self,
         etablissement_id: Uuid,
     ) -> Result<Vec<AbsenceMotif>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let globals = sqlx::query_as::<_, MotifRow>(
             r#"SELECT code, libelle, NULL::uuid AS etablissement_id FROM ent_absence_motif ORDER BY code"#,
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
 
@@ -39,7 +41,7 @@ impl PgMotifRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
 
@@ -55,11 +57,12 @@ impl PgMotifRepo {
         etablissement_id: Uuid,
         code: &str,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let (global,): (bool,) = sqlx::query_as(
             r#"SELECT EXISTS(SELECT 1 FROM ent_absence_motif WHERE code = $1)"#,
         )
         .bind(code)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if global {
@@ -75,7 +78,7 @@ impl PgMotifRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         Ok(local)
@@ -87,6 +90,7 @@ impl PgMotifRepo {
         code: &str,
         libelle: &str,
     ) -> Result<AbsenceMotif, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_absence_motif_etab (etablissement_id, code, libelle, created_at)
@@ -97,9 +101,10 @@ impl PgMotifRepo {
         .bind(etablissement_id)
         .bind(code)
         .bind(libelle)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(AbsenceMotif {
             code: code.to_string(),
             libelle: libelle.to_string(),

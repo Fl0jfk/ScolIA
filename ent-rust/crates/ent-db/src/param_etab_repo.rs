@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, ParamEtab};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgParamEtabRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgParamEtabRepo {
     }
 
     pub async fn upsert(&self, p: &ParamEtab) -> Result<ParamEtab, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, Row>(
             r#"
             INSERT INTO ent_param_etab (
@@ -32,9 +34,10 @@ impl PgParamEtabRepo {
         .bind(&p.valeur)
         .bind(p.updated_by_user_id)
         .bind(p.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.into_param())
     }
 
@@ -52,7 +55,7 @@ impl PgParamEtabRepo {
         )
         .bind(etablissement_id)
         .bind(cle)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_param))
@@ -68,7 +71,7 @@ impl PgParamEtabRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_param).collect())

@@ -26,6 +26,7 @@ use ent_events::{AggregateKind, MetierEventDraft};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 fn introuvable() -> EntDbError {
     EntDbError::Domain(domain_eleve::DomainError::NotFound)
@@ -135,12 +136,13 @@ impl PgEnt {
         if titre.is_empty() || titre.chars().count() > 200 {
             return Err(EntDbError::SaisieInvalide("titre invalide"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ok: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_classe WHERE etablissement_id = $1 AND id = $2 AND archivee_le IS NULL",
         )
         .bind(etab)
         .bind(n.classe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if ok.is_none() {
@@ -156,9 +158,10 @@ impl PgEnt {
         .bind(&titre)
         .bind(n.classe_id)
         .bind(acteur)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         self.rencontre(etab, id).await
     }
 
@@ -166,7 +169,7 @@ impl PgEnt {
         sqlx::query_as(&format!("{SELECT_RENCONTRE} WHERE r.etablissement_id = $1 AND r.id = $2"))
             .bind(etab)
             .bind(id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?
             .ok_or_else(introuvable)
@@ -184,7 +187,7 @@ impl PgEnt {
             "{SELECT_RENCONTRE} WHERE r.etablissement_id = $1 ORDER BY r.created_at DESC LIMIT 200"
         ))
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -222,7 +225,7 @@ impl PgEnt {
         if !profs.iter().any(|(id, _, _)| *id == n.enseignant_user_id) {
             return Err(EntDbError::SaisieInvalide("cet enseignant n'a pas la classe en service"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Sérialise les ajouts concurrents pour un même enseignant (chevauchements).
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 9))")
             .bind(n.enseignant_user_id)
@@ -284,7 +287,7 @@ impl PgEnt {
         if r.nb_creneaux == 0 {
             return Err(EntDbError::SaisieInvalide("aucun créneau proposé"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let ouverte = sqlx::query(
             "UPDATE ent_rencontre SET statut = 'ouverte', ouverte_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut = 'brouillon'",
@@ -361,15 +364,17 @@ impl PgEnt {
         rencontre_id: Uuid,
     ) -> Result<Rencontre, EntDbError> {
         self.exiger_rencontres(etab, acteur, role).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = sqlx::query(
             "UPDATE ent_rencontre SET statut = 'close', close_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut <> 'close'",
         )
         .bind(etab)
         .bind(rencontre_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         if r.rows_affected() == 0 {
             // Inexistante ou déjà close : distingue les deux.
             self.rencontre(etab, rencontre_id).await?;
@@ -394,7 +399,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(rencontre_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -412,7 +417,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -441,7 +446,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -479,7 +484,7 @@ impl PgEnt {
         .bind(user_id)
         .bind(eleve_id)
         .bind(r.classe_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         if !ok {
@@ -512,7 +517,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(rencontre_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
             .await
             .map_err(db)?;
         Ok(profs
@@ -556,7 +561,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(creneau_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         let (rencontre_id, enseignant, debut, fin, _) = k.ok_or_else(introuvable)?;
@@ -568,7 +573,7 @@ impl PgEnt {
         if !profs.iter().any(|(id, _, _)| *id == enseignant) {
             return Err(EntDbError::SaisieInvalide("cet enseignant n'a pas votre enfant en classe"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Un responsable ne peut être à deux endroits à la fois.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 10))")
             .bind(user_id)
@@ -650,7 +655,7 @@ impl PgEnt {
         let organisateur = self
             .a_action_etablissement(etab, user_id, role, Action::RencontresGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let k: Option<(Option<Uuid>, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT reserve_par_user_id, eleve_id, statut FROM ent_creneau_rdv
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -705,12 +710,36 @@ impl PgEnt {
         horizon: Duration,
         etablissement: Option<Uuid>,
     ) -> Result<usize, EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        // Job planifié transverse nommé (docs/securite/RLS_STRICTE.md §4) : un passage par
+        // établissement, chacun dans son contexte.
+        let etabs = match etablissement {
+            Some(e) => vec![e],
+            None => crate::tenant_tx::etablissements_systeme(
+                self.pool(),
+                crate::tenant_tx::ContexteSysteme::JobPlanifie("rappels_rdv"),
+            )
+            .await
+            .map_err(db)?,
+        };
+        let mut total = 0;
+        for etab in etabs {
+            total += self.emettre_rappels_rdv_etab(maintenant, horizon, etab).await?;
+        }
+        Ok(total)
+    }
+
+    async fn emettre_rappels_rdv_etab(
+        &self,
+        maintenant: DateTime<Utc>,
+        horizon: Duration,
+        etablissement: Uuid,
+    ) -> Result<usize, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement).await.map_err(db)?;
         let dus: Vec<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT id, etablissement_id FROM ent_creneau_rdv
               WHERE statut = 'reserve' AND rappel_envoye_le IS NULL
                 AND debut > $1 AND debut <= $2
-                AND ($3::uuid IS NULL OR etablissement_id = $3)
+                AND etablissement_id = $3
               ORDER BY debut LIMIT 500
               FOR UPDATE SKIP LOCKED",
         )
@@ -768,7 +797,7 @@ async fn enseignants_de(
     )
     .bind(etab)
     .bind(classe_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
     .await
     .map_err(db)?;
     Ok(rows
@@ -805,7 +834,7 @@ async fn enseignants_de_eleve(
     .bind(etab)
     .bind(classe_id)
     .bind(eleve_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
     .await
     .map_err(db)?;
     Ok(rows

@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{AlerteCpe, AlerteCpeSeverite, AlerteCpeStatut, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgAlerteCpeRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgAlerteCpeRepo {
     }
 
     pub async fn insert(&self, a: &AlerteCpe) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_alerte_cpe (
@@ -36,13 +38,15 @@ impl PgAlerteCpeRepo {
         .bind(a.closed_by_user_id)
         .bind(a.closed_at)
         .bind(&a.cloture_note)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_cloture(&self, a: &AlerteCpe) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_alerte_cpe
@@ -56,9 +60,10 @@ impl PgAlerteCpeRepo {
         .bind(a.closed_by_user_id)
         .bind(a.closed_at)
         .bind(&a.cloture_note)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -78,7 +83,7 @@ impl PgAlerteCpeRepo {
         )
         .bind(etablissement_id)
         .bind(alerte_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(Row::into_alerte))
@@ -101,7 +106,7 @@ impl PgAlerteCpeRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_alerte).collect())
@@ -113,6 +118,7 @@ impl PgAlerteCpeRepo {
         eleve_id: Uuid,
         famille_seulement: bool,
     ) -> Result<Vec<AlerteCpe>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if famille_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -126,7 +132,7 @@ impl PgAlerteCpeRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -142,7 +148,7 @@ impl PgAlerteCpeRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

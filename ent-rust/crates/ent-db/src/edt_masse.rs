@@ -18,6 +18,7 @@ use crate::edt_admin::PlanEdt;
 use crate::edt_remplacement::{ChangementEdt, ClasseTouchee, CmdAnnulationMasse, RapportMasse};
 use crate::ref_commun::{Acteur, conflit, db, introuvable, invalide, publier_agg};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 impl PgEnt {
     /// Séances que le lot annulerait, avec le nombre de séances déjà annulées ou déplacées.
@@ -38,6 +39,7 @@ impl PgEnt {
         {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         // Classes visées.
         let classes: Option<HashSet<Uuid>> = match cmd.portee.as_str() {
             "etablissement" => {
@@ -61,7 +63,7 @@ impl PgEnt {
                 let ids: Vec<Uuid> = sqlx::query_scalar(&sql)
                     .bind(etab)
                     .bind(&cmd.cibles)
-                    .fetch_all(self.pool())
+                    .fetch_all(&mut *tx)
                     .await
                     .map_err(db)?;
                 // Une cible d'un autre établissement n'existe pas ici : 404, jamais ignorée.
@@ -82,7 +84,7 @@ impl PgEnt {
         .bind(etab)
         .bind(cmd.du)
         .bind(cmd.au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?
         .into_iter()
@@ -147,6 +149,7 @@ impl PgEnt {
     ) -> Result<RapportMasse, EntDbError> {
         self.exiger_edt(a, Action::EdtAnnulerMasse).await?;
         let etab = a.etablissement_id;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         // Même clé déjà appliquée : rien de nouveau (double envoi, rejeu réseau).
         if let Some(cle) = cmd.cle.as_deref().filter(|_| !cmd.apercu) {
             let existant: Option<(Uuid, NaiveDate, NaiveDate, String, String, i32, i32)> =
@@ -156,7 +159,7 @@ impl PgEnt {
                 )
                 .bind(etab)
                 .bind(cle)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
             if let Some((id, du, au, portee, motif, nb, nbc)) = existant {
@@ -187,7 +190,7 @@ impl PgEnt {
         }
         let rapport = Self::rapport_masse(&selection, deja, false, None, false);
         let lot_id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 7))")
             .bind(etab)
             .execute(&mut *tx)
@@ -330,7 +333,7 @@ impl PgEnt {
         .bind(au)
         .bind(&classes)
         .bind(&groupes)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?
         .into_iter()

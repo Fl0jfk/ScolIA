@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, Salle};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgSalleRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgSalleRepo {
     }
 
     pub async fn insert(&self, s: &Salle) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_salle (
@@ -30,9 +32,10 @@ impl PgSalleRepo {
         .bind(s.actif)
         .bind(s.created_by_user_id)
         .bind(s.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -51,7 +54,7 @@ impl PgSalleRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_salle))
@@ -72,7 +75,7 @@ impl PgSalleRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_salle))
@@ -83,6 +86,7 @@ impl PgSalleRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<Salle>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -94,7 +98,7 @@ impl PgSalleRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -108,7 +112,7 @@ impl PgSalleRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

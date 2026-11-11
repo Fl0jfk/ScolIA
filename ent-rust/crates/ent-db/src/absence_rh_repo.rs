@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{AbsenceRh, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgAbsenceRhRepo {
     pool: PgPool,
@@ -27,7 +28,7 @@ impl PgAbsenceRhRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_absence))
@@ -52,7 +53,7 @@ impl PgAbsenceRhRepo {
         .bind(etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_absence).collect())

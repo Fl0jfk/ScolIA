@@ -23,12 +23,13 @@ use ent_object::upload::UsageFichier;
 use ent_object::ObjectStore;
 use ent_types::cahier::*;
 use serde_json::json;
-use sqlx::{FromRow, PgConnection, Postgres, Transaction};
+use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use crate::outbox::Publier;
 use crate::ref_commun::{db, introuvable, Acteur};
 use crate::service::{EntDbError, LienFichier, PgEnt, RefusMetier};
+use crate::tenant_tx::TenantTx;
 
 /// Plafond de pièces par travail / contenu de séance / remise.
 const MAX_PIECES: i64 = 10;
@@ -295,7 +296,7 @@ impl PgEnt {
         .bind(etab)
         .bind(cible.classe_id)
         .bind(cible.groupe_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -337,6 +338,7 @@ impl PgEnt {
         {
             return Ok(true);
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if classes {
             let (ok,): (bool,) = sqlx::query_as(
                 "SELECT EXISTS (
@@ -359,7 +361,7 @@ impl PgEnt {
             .bind(a.user_id)
             .bind(cible.classe_id)
             .bind(cible.groupe_id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if ok {
@@ -375,7 +377,7 @@ impl PgEnt {
                 .bind(a.etablissement_id)
                 .bind(a.user_id)
                 .bind(g)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 if ok {
@@ -409,7 +411,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(a.user_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         Ok(r.map(|(e,)| e))
@@ -427,7 +429,7 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(a.user_id)
         .bind(eleve_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -465,7 +467,7 @@ impl PgEnt {
                 )
                 .bind(a.etablissement_id)
                 .bind(eleve)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
                 .await
                 .map_err(db)?;
                 if existe
@@ -490,7 +492,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -511,7 +513,7 @@ impl PgEnt {
         .bind(etab)
         .bind(ids)
         .bind(&genres)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out: HashMap<Uuid, Vec<PieceRow>> = HashMap::new();
@@ -588,7 +590,7 @@ impl PgEnt {
         .bind(t.groupe_id)
         .bind(t.donne_le)
         .bind(t.pour_le)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -614,7 +616,7 @@ impl PgEnt {
             )
             .bind(a.etablissement_id)
             .bind(a.user_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(db)?;
             for (e,) in enfants {
@@ -634,7 +636,7 @@ impl PgEnt {
         sqlx::query_as::<_, SeanceRow>(&format!("{SELECT_SEANCE} AND id = $2"))
             .bind(etab)
             .bind(id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?
             .ok_or_else(introuvable)
@@ -649,7 +651,7 @@ impl PgEnt {
             )
             .bind(s.etablissement_id)
             .bind(sid)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), s.etablissement_id).await?)
             .await
             .map_err(db)?;
             if let Some((Some(g), _)) = g {
@@ -672,7 +674,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(s.id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(SeanceCahierDto {
@@ -699,7 +701,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(seance_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         else {
@@ -743,6 +745,7 @@ impl PgEnt {
         au: NaiveDate,
     ) -> Result<Vec<SeanceCahierDto>, EntDbError> {
         Self::periode(du, au)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let rows: Vec<SeanceRow> = if let Some(c) = classe_id {
             self.exiger_cible(
                 a,
@@ -761,7 +764,7 @@ impl PgEnt {
             .bind(c)
             .bind(du)
             .bind(au)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?
         } else {
@@ -782,7 +785,7 @@ impl PgEnt {
             .bind(a.user_id)
             .bind(du)
             .bind(au)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?
         };
@@ -820,7 +823,7 @@ impl PgEnt {
         } else if !self.cahier_droit_ecrire_global(a).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let existant: Option<ContenuRow> = sqlx::query_as(&format!(
             "{SELECT_CONTENU} AND seance_id = $2 FOR UPDATE"
         ))
@@ -933,7 +936,7 @@ impl PgEnt {
         .bind(eleve)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -1053,7 +1056,7 @@ impl PgEnt {
         };
 
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_travail (id, etablissement_id, seance_id, classe_id, groupe_id, matiere_libelle,
                     auteur_user_id, type, titre, consigne, donne_le, pour_le, duree_estimee_min,
@@ -1120,7 +1123,7 @@ impl PgEnt {
         .bind(etab)
         .bind(groupe)
         .bind(classe)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -1145,6 +1148,7 @@ impl PgEnt {
             None
         };
         let (mut fait, mut vu, mut remise) = (false, false, None);
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if let Some(e) = eleve {
             sqlx::query(
                 "INSERT INTO ent_travail_eleve (travail_id, eleve_id, etablissement_id, vu_le)
@@ -1154,7 +1158,7 @@ impl PgEnt {
             .bind(id)
             .bind(e)
             .bind(a.etablissement_id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
             let (f,): (bool,) = sqlx::query_as(
@@ -1164,7 +1168,7 @@ impl PgEnt {
             .bind(id)
             .bind(e)
             .bind(a.etablissement_id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             fait = f;
@@ -1172,6 +1176,7 @@ impl PgEnt {
             remise = self.remise_de(a.etablissement_id, id, e).await?;
         }
         let travail = self.travaux_dto(a.etablissement_id, vec![row]).await?.remove(0);
+        tx.commit().await?;
         Ok(AgendaItemDto {
             travail,
             fait,
@@ -1192,7 +1197,7 @@ impl PgEnt {
         .bind(etab)
         .bind(travail)
         .bind(eleve)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         match r {
@@ -1223,7 +1228,7 @@ impl PgEnt {
         .bind(cible.groupe_id)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         self.travaux_dto(a.etablissement_id, rows).await
@@ -1254,7 +1259,7 @@ impl PgEnt {
         id: Uuid,
         m: ModifierTravailBody,
     ) -> Result<TravailDto, EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let t: TravailRow = sqlx::query_as(&format!(
             "{SELECT_TRAVAIL} AND t.id = $2 AND t.supprime_le IS NULL FOR UPDATE OF t"
         ))
@@ -1383,7 +1388,7 @@ impl PgEnt {
 
     /// CDT-03 : supprime un travail (suppression logique, historique conservé).
     pub async fn cahier_supprimer_travail(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let t: TravailRow = sqlx::query_as(&format!(
             "{SELECT_TRAVAIL} AND t.id = $2 AND t.supprime_le IS NULL FOR UPDATE OF t"
         ))
@@ -1430,7 +1435,7 @@ impl PgEnt {
 
     async fn deposer_fichier(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut sqlx::PgConnection,
         a: &Acteur<'_>,
         usage: UsageFichier,
         fichier: &FichierDepot,
@@ -1445,7 +1450,7 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(parent)
         .bind(genre)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         if n >= MAX_PIECES {
@@ -1482,16 +1487,16 @@ impl PgEnt {
         .bind(fichier.contenu.len() as i64)
         .bind(&key)
         .bind(a.user_id)
-        .execute(&mut **tx)
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
         let info = self.objects().put(&key, &fichier.contenu)?;
-        crate::objets::enregistrer_objet(&mut **tx, a.etablissement_id, &info, Some(valide.mime))
+        crate::objets::enregistrer_objet(&mut *tx, a.etablissement_id, &info, Some(valide.mime))
             .await?;
         let piece: PieceRow = sqlx::query_as(&format!("{SELECT_PIECE} AND id = $2"))
             .bind(a.etablissement_id)
             .bind(id)
-            .fetch_one(&mut **tx)
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
         Ok(piece)
@@ -1504,6 +1509,7 @@ impl PgEnt {
         parent: ParentPiece,
         fichier: FichierDepot,
     ) -> Result<PieceCahierDto, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let (genre, colonne, parent_id, cible, titulaire) = match parent {
             ParentPiece::Travail(id) => {
                 let t = self.charger_travail(a.etablissement_id, id).await?;
@@ -1516,7 +1522,7 @@ impl PgEnt {
                 )
                 .bind(a.etablissement_id)
                 .bind(contenu_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?
                 .ok_or_else(introuvable)?;
@@ -1533,7 +1539,7 @@ impl PgEnt {
         } else if matches!(parent, ParentPiece::Seance(_)) {
             self.exiger_cible(a, Action::CahierEcrire, cible).await?;
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let piece = self
             .deposer_fichier(&mut tx, a, UsageFichier::PieceCahier, &fichier, genre, colonne, parent_id, &[])
             .await?;
@@ -1563,10 +1569,11 @@ impl PgEnt {
         if !self.presigner().is_enabled() {
             return Err(EntDbError::LiensIndisponibles);
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let p: PieceRow = sqlx::query_as(&format!("{SELECT_PIECE} AND id = $2"))
             .bind(a.etablissement_id)
             .bind(piece_id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?
             .ok_or_else(introuvable)?;
@@ -1583,7 +1590,7 @@ impl PgEnt {
                 )
                 .bind(a.etablissement_id)
                 .bind(p.seance_contenu_id.ok_or_else(introuvable)?)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 self.lire_seance_autorise(a, seance_id).await?;
@@ -1593,7 +1600,7 @@ impl PgEnt {
                 let r: RemiseRow = sqlx::query_as(&format!("{SELECT_REMISE} AND id = $2"))
                     .bind(a.etablissement_id)
                     .bind(rid)
-                    .fetch_one(self.pool())
+                    .fetch_one(&mut *tx)
                     .await
                     .map_err(db)?;
                 self.lire_copie_autorise(a, &r).await?;
@@ -1641,6 +1648,7 @@ impl PgEnt {
             Some(e) => Some(e),
             None => None,
         };
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let enfants: Vec<Uuid> = if eleve.is_some() {
             Vec::new()
         } else if Role::parse(a.role) == Some(Role::Parent) {
@@ -1649,7 +1657,7 @@ impl PgEnt {
             )
             .bind(a.etablissement_id)
             .bind(a.user_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             l.into_iter().map(|(e,)| e).collect()
@@ -1673,7 +1681,7 @@ impl PgEnt {
             .bind(a.etablissement_id)
             .bind(e)
             .bind(seance_id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if ok && (Role::parse(a.role) != Some(Role::Parent) || self.parent_lie(a, e).await?) {
@@ -1720,7 +1728,7 @@ impl PgEnt {
         }
         let maintenant = Utc::now();
         let en_retard = t.date_limite.is_some_and(|l| maintenant > l);
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let existante: Option<RemiseRow> = sqlx::query_as(&format!(
             "{SELECT_REMISE} AND travail_id = $2 AND eleve_id = $3 FOR UPDATE"
         ))
@@ -1808,6 +1816,7 @@ impl PgEnt {
         if !t.rendu_en_ligne {
             return Err(conflit("ce travail n'est pas à rendre en ligne"));
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let eleves: Vec<(Uuid, String, String)> = sqlx::query_as(
             "SELECT DISTINCT e.id, e.nom, e.prenom
                FROM ent_affectation a
@@ -1822,7 +1831,7 @@ impl PgEnt {
         .bind(t.groupe_id)
         .bind(t.donne_le)
         .bind(t.pour_le)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let remises: Vec<RemiseRow> = sqlx::query_as(&format!(
@@ -1830,7 +1839,7 @@ impl PgEnt {
         ))
         .bind(a.etablissement_id)
         .bind(travail_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut par_eleve: HashMap<Uuid, RemiseDto> = self
@@ -1877,7 +1886,7 @@ impl PgEnt {
         if commentaire.is_empty() || commentaire.chars().count() > 4000 {
             return Err(invalide("commentaire de correction vide ou trop long"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let r: RemiseRow = sqlx::query_as(&format!(
             "{SELECT_REMISE} AND id = $2 FOR UPDATE"
         ))
@@ -1957,6 +1966,7 @@ impl PgEnt {
     ) -> Result<Vec<AgendaItemDto>, EntDbError> {
         Self::periode(du, au)?;
         let (eleve, _) = self.cahier_resoudre_eleve(a, eleve_id).await?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let rows: Vec<TravailRow> = sqlx::query_as(&format!(
             "{SELECT_TRAVAIL} AND t.supprime_le IS NULL
                AND t.pour_le BETWEEN $3 AND $4 AND {ELEVE_CONCERNE}
@@ -1966,7 +1976,7 @@ impl PgEnt {
         .bind(eleve)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = rows.iter().map(|r| r.id).collect();
@@ -1977,7 +1987,7 @@ impl PgEnt {
         .bind(eleve)
         .bind(&ids)
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let etats: HashMap<Uuid, (bool, bool)> = etats.into_iter().map(|(t, f, v)| (t, (f, v))).collect();
@@ -1987,7 +1997,7 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(eleve)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut remises: HashMap<Uuid, RemiseDto> = self
@@ -2026,6 +2036,7 @@ impl PgEnt {
         if !self.eleve_concerne(a.etablissement_id, eleve, &t).await? {
             return Err(EntDbError::Forbidden);
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_travail_eleve (travail_id, eleve_id, etablissement_id, fait, fait_le)
              VALUES ($1, $2, $3, $4, CASE WHEN $4 THEN now() END)
@@ -2036,9 +2047,10 @@ impl PgEnt {
         .bind(eleve)
         .bind(a.etablissement_id)
         .bind(fait)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2092,7 +2104,7 @@ impl PgEnt {
         .bind(cible.groupe_id)
         .bind(du)
         .bind(au)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut par_jour: std::collections::BTreeMap<NaiveDate, ChargeJourDto> = Default::default();
@@ -2175,13 +2187,14 @@ impl PgEnt {
         if !self.cible_existe(a.etablissement_id, cible).await? {
             return Err(introuvable());
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if let Some(p) = v.prof_user_id {
             let (ok,): (bool,) = sqlx::query_as(
                 "SELECT EXISTS (SELECT 1 FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2)",
             )
             .bind(a.etablissement_id)
             .bind(p)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if !ok {
@@ -2189,7 +2202,7 @@ impl PgEnt {
             }
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_cdt_visa (id, etablissement_id, classe_id, prof_user_id, du, au, commentaire, vise_par_user_id)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
@@ -2220,7 +2233,7 @@ impl PgEnt {
             sqlx::query_as("SELECT vise_le FROM ent_cdt_visa WHERE etablissement_id = $1 AND id = $2")
                 .bind(a.etablissement_id)
                 .bind(id)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?)
                 .await
                 .map_err(db)?;
         Ok(VisaDto {
@@ -2254,7 +2267,7 @@ impl PgEnt {
             )
             .bind(a.etablissement_id)
             .bind(classe_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(db)?;
         Ok(rows
@@ -2278,12 +2291,13 @@ impl PgEnt {
         a: &Acteur<'_>,
         id: Uuid,
     ) -> Result<Vec<(i32, String, DateTime<Utc>, serde_json::Value)>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let (auteur, classe, groupe): (Uuid, Option<Uuid>, Option<Uuid>) = sqlx::query_as(
             "SELECT auteur_user_id, classe_id, groupe_id FROM ent_travail WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(a.etablissement_id)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
@@ -2304,7 +2318,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)
     }
@@ -2319,7 +2333,7 @@ fn fin_de_journee(jour: NaiveDate) -> DateTime<Utc> {
 }
 
 async fn historiser(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut sqlx::PgConnection,
     a: &Acteur<'_>,
     objet: &str,
     objet_id: Uuid,
@@ -2339,7 +2353,7 @@ async fn historiser(
     .bind(action)
     .bind(a.user_id)
     .bind(instantane)
-    .execute(&mut **tx)
+    .execute(&mut *tx)
     .await
     .map_err(db)?;
     Ok(())
@@ -2347,7 +2361,7 @@ async fn historiser(
 
 /// Publie un fait du cahier dans la transaction de l'écriture (même commit, outbox S2-0).
 async fn publier_cdt(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut sqlx::PgConnection,
     a: &Acteur<'_>,
     type_name: &str,
     aggregate_id: Uuid,

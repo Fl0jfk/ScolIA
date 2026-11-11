@@ -182,7 +182,7 @@ impl PgEnt {
         acteur: Uuid,
     ) -> Result<ParametrageEleve, EntDbError> {
         self.exiger_parametrer(etab, acteur, role).await?;
-        let mut conn = self.pool().acquire().await?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await?;
         Self::lire_parametrage(&mut conn, etab).await
     }
 

@@ -12,16 +12,12 @@ use uuid::Uuid;
 
 pub(super) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
     Some((ent, cast))
 }
 
 pub(super) fn foyers(ent: &PgEnt) -> crate::foyer_repo::PgFoyerRepo {
-    crate::foyer_repo::PgFoyerRepo::new(ent.pool().clone())
+    crate::foyer_repo::PgFoyerRepo::new(ent.pool_verif().clone())
 }
 
 pub(super) fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
@@ -31,7 +27,7 @@ pub(super) fn dir(cast: &LaboCast) -> (Uuid, &'static str) {
 pub(super) async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     n
@@ -47,7 +43,7 @@ pub(super) async fn eleve_neuf(ent: &PgEnt, etab: Uuid, nom: &str) -> Uuid {
     .bind(id)
     .bind(etab)
     .bind(nom)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -63,13 +59,13 @@ pub(super) async fn personne_avec_compte(ent: &PgEnt, etab: Uuid, nom: &str, ema
     .bind(user)
     .bind(email)
     .bind(nom)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     sqlx::query("INSERT INTO ent_membership (user_id, etablissement_id, role, created_at) VALUES ($1,$2,'parent', now())")
         .bind(user)
         .bind(etab)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let p = Uuid::new_v4();
@@ -82,7 +78,7 @@ pub(super) async fn personne_avec_compte(ent: &PgEnt, etab: Uuid, nom: &str, ema
     .bind(nom)
     .bind(email)
     .bind(user)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     (p, user)
@@ -361,7 +357,7 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     );
     let second = declaration("Second", "Sam", Some(&email_compte), 2);
 
-    let mut conn = ent.pool().acquire().await.unwrap();
+    let mut conn = ent.pool_verif().acquire().await.unwrap();
     // Candidat présenté, jamais appliqué seul.
     let cands = correspondances_tx(&mut conn, etab, &second).await.unwrap();
     assert_eq!(cands.len(), 1);
@@ -375,7 +371,7 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     // Sans choix humain : refus net, rien n'est écrit (transaction annulée).
     let personnes = "SELECT count(*) FROM ent_personne WHERE etablissement_id = $1";
     let avant = compter(&ent, personnes, etab).await;
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -391,7 +387,7 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
     assert_eq!(compter(&ent, personnes, etab).await, avant);
 
     // Choix humain : « même personne » → lien EN ATTENTE, aucun accès.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let res = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -446,7 +442,7 @@ async fn second_parent_non_verifie_ne_recoit_aucun_acces() {
         .iter()
         .all(|m| *m != email_compte));
     // Confirmation par la personne (via la commande du socle 4) : accès ouvert.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let liens = dossier_personnes::confirmer_liens_attente_tx(
         &mut tx,
         etab,
@@ -485,7 +481,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     let aine = eleve_neuf(&ent, etab, "Aine").await;
     let cadet = eleve_neuf(&ent, etab, "Cadet").await;
 
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let r1 = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -503,7 +499,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     let nb_foyers = compter(&ent, foyers_etab, etab).await;
 
     // Seconde validation : la mère existe déjà → choix explicite obligatoire (personne, puis foyer).
-    let mut conn = ent.pool().acquire().await.unwrap();
+    let mut conn = ent.pool_verif().acquire().await.unwrap();
     assert_eq!(
         correspondances_tx(&mut conn, etab, &mere)
             .await
@@ -512,7 +508,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
         1
     );
     drop(conn);
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -525,7 +521,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     .await;
     assert!(matches!(e, Err(EntDbError::ConflitDossier(_))), "{e:?}");
     tx.rollback().await.unwrap();
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -547,7 +543,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     tx.rollback().await.unwrap();
     // Le foyer d'une autre famille est refusé.
     let autre = ent.create_foyer(etab, Some("Autre famille")).await.unwrap();
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -566,7 +562,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     tx.rollback().await.unwrap();
     // Choix complet : même personne, même foyer.
     let nb_foyers = nb_foyers + 1; // « Autre famille » ci-dessus
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let r2 = integrer_declaration_tx(
         &mut tx,
         etab,
@@ -596,7 +592,7 @@ async fn fratrie_validee_en_deux_fois_un_seul_foyer() {
     )
     .bind(etab)
     .bind(premiere.personne_id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n_foyers_mere, 1, "un seul foyer pour toute la fratrie");
@@ -724,7 +720,7 @@ async fn jour_metier_europe_paris_bord_de_journee() {
     let (d, r) = dir(&cast);
     let eleve = eleve_neuf(&ent, etab, "Dates").await;
     let (aujourdhui,): (chrono::NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui()")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let un_jour = chrono::Duration::days(1);
@@ -755,7 +751,7 @@ async fn jour_metier_europe_paris_bord_de_journee() {
         let (n,): (i64,) =
             sqlx::query_as("SELECT count(*) FROM ent_eleve_lien_actif WHERE id = $1")
                 .bind(l.lien_id)
-                .fetch_one(ent.pool())
+                .fetch_one(ent.pool_verif())
                 .await
                 .unwrap();
         assert_eq!(n == 1, actif, "{nom}");
@@ -771,7 +767,7 @@ async fn cles_composees_sans_orphelin() {
         return;
     };
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_dossier_orphelins_v")
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert_eq!(n, 0, "orphelins");
@@ -781,7 +777,7 @@ async fn cles_composees_sans_orphelin() {
                             'ent_personne_fusion_source_etab_fk', 'ent_personne_fusion_cible_etab_fk')
             AND NOT convalidated",
     )
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(non_validees, 0);
@@ -827,7 +823,7 @@ async fn demande_deja_en_attente_remplacee_ou_refusee() {
     );
     // Autre origine (inscription) : refus net, rien n'est écrasé.
     let decl = declaration("Doublon", "Dora", None, 1);
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = integrer_declaration_tx(
         &mut tx,
         etab,

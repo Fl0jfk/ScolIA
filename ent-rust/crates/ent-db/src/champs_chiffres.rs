@@ -196,6 +196,28 @@ pub struct RapportRechiffrement {
     pub detail: Vec<(String, u64)>,
 }
 
+/// Connexion d'un lot de rechiffrement : transaction d'établissement, ou connexion du pool.
+enum Conn {
+    Tenant(crate::tenant_tx::TenantTx<'static>),
+    Pool(sqlx::pool::PoolConnection<sqlx::Postgres>),
+}
+
+impl Conn {
+    fn connexion(&mut self) -> &mut sqlx::PgConnection {
+        match self {
+            Self::Tenant(t) => &mut *t,
+            Self::Pool(c) => &mut *c,
+        }
+    }
+
+    async fn valider(self) -> Result<(), sqlx::Error> {
+        match self {
+            Self::Tenant(t) => t.commit().await,
+            Self::Pool(_) => Ok(()),
+        }
+    }
+}
+
 /// Rechiffre toutes les valeurs encore en clair des colonnes de [`CHAMPS_CHIFFRES`].
 /// Idempotent, reprenable (traite par lots de 500), sans verrou long : chaque ligne est
 /// mise à jour seulement si elle n'a pas changé depuis sa lecture. Les noms de table et
@@ -205,59 +227,66 @@ pub async fn rechiffrer_champs_sensibles(
     champs: &ChampsSensibles,
 ) -> Result<RapportRechiffrement, DomainError> {
     let mut rapport = RapportRechiffrement::default();
-    // RLS (C4, migration 100) : ce rattrapage n'ouvre pas de `TenantTx`. En mode
-    // permissif (défaut) il voit toutes les lignes ; si le rôle est en mode strict
-    // (`app.rls_strict`), les tables RLS lui paraissent vides : on le signale au lieu
-    // de conclure en silence qu'il n'y a rien à rechiffrer (docs/RLS_ISOLATION.md, 2.7).
-    let strict: Option<(bool,)> = sqlx::query_as(
-        "SELECT coalesce(current_setting('app.rls_strict', true), '') IN ('on', '1', 'true')",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| crate::pg_err::map_sqlx("champs_chiffres", e))?;
-    if matches!(strict, Some((true,))) {
-        tracing::warn!(
-            "rechiffrement des champs sensibles en mode RLS strict : tables RLS ignorées \
-             (lancer avec un rôle permissif ou établissement par établissement)"
-        );
-    }
+    // RLS stricte (docs/securite/RLS_STRICTE.md §4) : tâche transverse nommée
+    // `ContexteSysteme::Rechiffrement`. Les tables « par établissement » sont traitées **un
+    // établissement à la fois**, dans son contexte (`TenantTx`), avec un filtre explicite sur
+    // `etablissement_id` (le mode `off` ne filtre pas en base). Les tables sans établissement
+    // (aucune aujourd'hui) restent traitées sur le pool.
+    let etabs = crate::tenant_tx::etablissements_systeme(pool, crate::tenant_tx::ContexteSysteme::Rechiffrement)
+        .await
+        .map_err(|e| crate::pg_err::map_sqlx("champs_chiffres", e))?;
+    let err = |e| crate::pg_err::map_sqlx("champs_chiffres", e);
     for (table, colonnes) in CHAMPS_CHIFFRES {
+        let par_etab = crate::registre_donnees::classer(table)
+            .map(|c| c.portee == crate::registre_donnees::Portee::Etablissement)
+            .unwrap_or(true);
+        // `None` : une seule passe sans contexte (table sans établissement).
+        let portees: Vec<Option<Uuid>> = if par_etab { etabs.iter().copied().map(Some).collect() } else { vec![None] };
         for colonne in *colonnes {
             let mut n_col = 0u64;
-            loop {
-                let sql = format!(
-                    "SELECT id, {colonne} FROM {table} \
-                     WHERE {colonne} IS NOT NULL AND {colonne} <> '' \
-                       AND {colonne} NOT LIKE '{SEALED_PREFIX}%' \
-                     ORDER BY id LIMIT 500"
-                );
-                let lignes: Vec<(Uuid, String)> = sqlx::query_as(&sql)
-                    .fetch_all(pool)
-                    .await
-                    .map_err(|e| crate::pg_err::map_sqlx("champs_chiffres", e))?;
-                if lignes.is_empty() {
-                    break;
-                }
-                let mut progres = 0u64;
-                for (id, clair) in lignes {
-                    let scelle = champs.sceller(table, colonne, id, &clair)?;
-                    let upd = format!(
-                        "UPDATE {table} SET {colonne} = $2 WHERE id = $1 AND {colonne} = $3"
+            for portee in &portees {
+                loop {
+                    let filtre = if portee.is_some() { "AND etablissement_id = $1 " } else { "" };
+                    let sql = format!(
+                        "SELECT id, {colonne} FROM {table} \
+                         WHERE {colonne} IS NOT NULL AND {colonne} <> '' \
+                           AND {colonne} NOT LIKE '{SEALED_PREFIX}%' {filtre}\
+                         ORDER BY id LIMIT 500"
                     );
-                    let n = sqlx::query(&upd)
-                        .bind(id)
-                        .bind(&scelle)
-                        .bind(&clair)
-                        .execute(pool)
-                        .await
-                        .map_err(|e| crate::pg_err::map_sqlx("champs_chiffres", e))?
-                        .rows_affected();
-                    progres += n;
-                }
-                n_col += progres;
-                if progres == 0 {
-                    // Lignes modifiées en concurrence : la prochaine exécution les reprendra.
-                    break;
+                    let mut conn = match portee {
+                        Some(e) => Conn::Tenant(crate::tenant_tx::TenantTx::begin(pool, *e).await.map_err(err)?),
+                        None => Conn::Pool(pool.acquire().await.map_err(err)?),
+                    };
+                    let mut q = sqlx::query_as::<_, (Uuid, String)>(&sql);
+                    if let Some(e) = portee {
+                        q = q.bind(*e);
+                    }
+                    let lignes: Vec<(Uuid, String)> = q.fetch_all(conn.connexion()).await.map_err(err)?;
+                    if lignes.is_empty() {
+                        break;
+                    }
+                    let mut progres = 0u64;
+                    for (id, clair) in lignes {
+                        let scelle = champs.sceller(table, colonne, id, &clair)?;
+                        let upd = format!(
+                            "UPDATE {table} SET {colonne} = $2 WHERE id = $1 AND {colonne} = $3"
+                        );
+                        let n = sqlx::query(&upd)
+                            .bind(id)
+                            .bind(&scelle)
+                            .bind(&clair)
+                            .execute(conn.connexion())
+                            .await
+                            .map_err(err)?
+                            .rows_affected();
+                        progres += n;
+                    }
+                    conn.valider().await.map_err(err)?;
+                    n_col += progres;
+                    if progres == 0 {
+                        // Lignes modifiées en concurrence : la prochaine exécution les reprendra.
+                        break;
+                    }
                 }
             }
             if n_col > 0 {

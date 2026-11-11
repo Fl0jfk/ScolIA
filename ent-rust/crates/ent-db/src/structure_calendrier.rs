@@ -3241,12 +3241,13 @@ impl PgEnt {
 
     /// Tâche de fond : exécute les levées échues de tous les établissements.
     pub async fn structure_fermetures_levees_tache(&self) -> Result<usize, EntDbError> {
-        let etabs: Vec<(Uuid,)> = sqlx::query_as(
+        let etabs: Vec<(Uuid,)> = crate::tenant_tx::lire_par_etablissement(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("fermetures_levees"),
             "SELECT DISTINCT etablissement_id FROM ent_calendrier_evenement
               WHERE type = 'fermeture_exceptionnelle' AND annule_le IS NULL
                 AND levee_prevue_le IS NOT NULL AND levee_prevue_le <= now()",
         )
-        .fetch_all(self.pool())
         .await?;
         let mut n = 0;
         for (etab,) in etabs {

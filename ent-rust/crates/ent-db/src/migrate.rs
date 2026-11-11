@@ -234,6 +234,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/585_rls_evaluations_pedagogie.sql"),
     include_str!("../../../migrations/586_rls_inscriptions.sql"),
     include_str!("../../../migrations/587_rls_structure_acces_divers.sql"),
+    include_str!("../../../migrations/600_rls_stricte_adhesion_contexte.sql"),
     include_str!("../../../migrations/601_pieces_vers_objets.sql"),
     include_str!("../../../migrations/640_sortie_coeur.sql"),
     include_str!("../../../migrations/641_sortie_participants.sql"),

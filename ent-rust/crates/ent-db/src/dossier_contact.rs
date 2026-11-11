@@ -547,7 +547,7 @@ impl PgEnt {
             fuseau: Option<String>,
             updated_at: DateTime<Utc>,
         }
-        let mut lecture = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let r = sqlx::query_as::<_, Row>(
             "SELECT langue, canal_email, canal_sms, courrier_papier, accessibilite,
                     CASE WHEN joignable_definie THEN ent_personne_joignable_json(etablissement_id, personne_id) END
@@ -557,7 +557,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(pid)
-        .fetch_optional(&mut *lecture)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let Some(r) = r else {
@@ -567,16 +567,16 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(pid)
-            .fetch_optional(&mut *lecture)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
-            lecture.commit().await.map_err(db)?;
+            tx.commit().await?;
             return Ok(PreferencesPersonne {
                 langue: langue.and_then(|(l,)| l),
                 ..Default::default()
             });
         };
-        lecture.commit().await.map_err(db)?;
+        tx.commit().await?;
         let mut refuses = Vec::new();
         if !r.canal_email {
             refuses.push("email".to_string());
@@ -604,10 +604,11 @@ impl PgEnt {
     ) -> Result<PreferencesPersonne, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
         let n = normaliser_preferences(saisie)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         if let Some(f) = &n.fuseau {
             let (ok,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)")
                 .bind(f)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
             if !ok {
@@ -826,7 +827,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(pid)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -868,7 +869,7 @@ impl PgEnt {
             }
         };
         let reponse = if accorde { "accorde" } else { "refuse" };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -961,7 +962,7 @@ impl PgEnt {
         if !CONSENTEMENTS.iter().any(|(o, _)| *o == objet) {
             return Err(invalide("objet de consentement inconnu"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1085,7 +1086,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(personne_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let masque = |champ: &str, v: &str| {
@@ -1157,7 +1158,7 @@ impl PgEnt {
             return Err(invalide("champ inconnu (email, telephone)"));
         }
         let motif = motif_valide(motif)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1337,7 +1338,7 @@ impl PgEnt {
         let n = identite_normalisee(saisie)?;
         let motif = motif_valide(&Some(motif.to_string()))?
             .ok_or_else(|| refus_invalide("le motif est obligatoire pour corriger ou changer une identité"))?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let avant = personne_tx(&mut tx, etab, personne_id, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1370,12 +1371,13 @@ impl PgEnt {
         personne_id: Uuid,
     ) -> Result<Vec<VersionIdentite>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let (existe,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_personne WHERE etablissement_id = $1 AND id = $2)",
         )
         .bind(etab)
         .bind(personne_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         if !existe {
@@ -1411,7 +1413,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(personne_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut out = Vec::new();
@@ -1476,7 +1478,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(limite.clamp(1, 500))
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -1515,7 +1517,7 @@ impl PgEnt {
                 "une des personnes concerne un dossier où vous êtes en conflit d'intérêts",
             ));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let mut vus = std::collections::HashSet::new();
         for it in items {
             if !vus.insert(it.personne_id) {

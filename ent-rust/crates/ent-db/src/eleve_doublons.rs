@@ -259,14 +259,15 @@ impl PgEnt {
     /// Un échec sur un établissement ne bloque pas les autres. Retourne le nombre
     /// d'établissements traités.
     pub async fn tache_doublons_eleves(&self) -> Result<usize, EntDbError> {
-        let etabs: Vec<(Uuid,)> = sqlx::query_as(
+        let etabs: Vec<(Uuid,)> = crate::tenant_tx::lire_par_etablissement(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::DoublonsEleves,
             "SELECT DISTINCT e.etablissement_id FROM ent_eleve e
               WHERE e.fusionne_dans IS NULL
                 AND NOT EXISTS (SELECT 1 FROM ent_eleve_doublon_passage p
                                  WHERE p.etablissement_id = e.etablissement_id
                                    AND p.dernier_jour >= ent_jour_etablissement(e.etablissement_id))",
         )
-        .fetch_all(self.pool())
         .await?;
         let mut n = 0;
         for (etab,) in etabs {
@@ -306,7 +307,7 @@ impl PgEnt {
         .bind(etab)
         .bind(voit_proteges)
         .bind(limite.clamp(1, 500))
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?;
         let ids: Vec<Uuid> = lignes.iter().flat_map(|l| [l.1, l.2]).collect();
         let eleves: HashMap<Uuid, domain_eleve::Eleve> = PgEleveRepo::new(self.pool().clone())
@@ -336,7 +337,7 @@ impl PgEnt {
             "SELECT count(*) FROM ent_eleve_doublon WHERE etablissement_id = $1 AND statut = 'a_examiner'",
         )
         .bind(etab)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await?)
     }
 

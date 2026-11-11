@@ -31,6 +31,7 @@ use crate::eleve_ports;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 pub const FORMAT_ELEVES_V1: &str = "scolia_eleves_v1";
 /// Colonnes reconnues (en-tête obligatoire, ordre libre, `;` comme séparateur).
@@ -328,7 +329,7 @@ impl PgEnt {
               WHERE c.etablissement_id = $1 AND a.courante AND c.archivee_le IS NULL",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().collect())
@@ -350,13 +351,14 @@ impl PgEnt {
         if !motifs.is_empty() {
             return Ok(("rejet".into(), motifs, None));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if let Some(ine) = &l.ine {
             let r: Option<(Uuid, String, String, Option<NaiveDate>)> = sqlx::query_as(
                 "SELECT id, nom, prenom, date_naissance FROM ent_eleve WHERE etablissement_id = $1 AND ine = $2",
             )
             .bind(etab)
             .bind(ine)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             if let Some((id, nom, prenom, naissance)) = r {
@@ -382,7 +384,7 @@ impl PgEnt {
         .bind(&l.nom)
         .bind(&l.prenom)
         .bind(l.date_naissance)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         Ok(match r {
@@ -409,7 +411,7 @@ impl PgEnt {
         let lignes = lire_csv(&b.contenu)?;
         let classes = self.classes_courantes(etab).await?;
         let lot_id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_import_lot (id, etablissement_id, format, nom_fichier, cree_par)
              VALUES ($1,$2,$3,$4,$5)",
@@ -465,12 +467,13 @@ impl PgEnt {
     }
 
     async fn lot_import(&self, etab: Uuid, lot_id: Uuid) -> Result<LotImportDto, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let lot: Option<(String, String, String)> = sqlx::query_as(
             "SELECT format, nom_fichier, statut FROM ent_import_lot WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(lot_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let (format, nom_fichier, statut) = lot.ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -481,7 +484,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(lot_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let compte = |s: &str| {
@@ -661,7 +664,7 @@ impl PgEnt {
     ) -> Result<LotImportDto, EntDbError> {
         self.exiger_import(etab, actor, role).await?;
         let classes = self.classes_courantes(etab).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let statut: Option<(String,)> = sqlx::query_as(
             "SELECT statut FROM ent_import_lot WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -769,7 +772,7 @@ impl PgEnt {
             }
         }
         let classes = self.classes_courantes(etab).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r: Option<(Uuid, Value, String, String)> = sqlx::query_as(
             "SELECT l.lot_id, ent_import_ligne_donnees(l), l.statut, t.statut FROM ent_import_ligne l
                JOIN ent_import_lot t ON t.id = l.lot_id AND t.etablissement_id = l.etablissement_id
@@ -845,10 +848,11 @@ impl PgEnt {
         })
         .await?;
         tx.commit().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let numero: (i32,) = sqlx::query_as("SELECT numero FROM ent_import_ligne WHERE id = $1 AND etablissement_id = $2")
             .bind(ligne_id)
             .bind(etab)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
         let g = |k: &str| {

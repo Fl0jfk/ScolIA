@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DomainError, MenuCantineJour};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgMenuCantineRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgMenuCantineRepo {
     }
 
     pub async fn upsert(&self, m: &MenuCantineJour) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_menu_cantine (
@@ -40,9 +42,10 @@ impl PgMenuCantineRepo {
         .bind(m.publie)
         .bind(m.updated_by_user_id)
         .bind(m.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -53,6 +56,7 @@ impl PgMenuCantineRepo {
         fin: NaiveDate,
         publies_seulement: bool,
     ) -> Result<Vec<MenuCantineJour>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if publies_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -66,7 +70,7 @@ impl PgMenuCantineRepo {
             .bind(etablissement_id)
             .bind(debut)
             .bind(fin)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -82,7 +86,7 @@ impl PgMenuCantineRepo {
             .bind(etablissement_id)
             .bind(debut)
             .bind(fin)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

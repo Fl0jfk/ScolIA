@@ -38,6 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 /// Objet du consentement dont dépend l'affichage des photos.
 pub const OBJET_DROIT_IMAGE: &str = "droit_image";
@@ -235,7 +236,7 @@ impl PgEnt {
         eleves: &[Uuid],
         objet: &str,
     ) -> Result<HashSet<Uuid>, EntDbError> {
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         Ok(etats_effectifs(&mut conn, etab, eleves, Some(objet), None)
             .await?
             .into_iter()
@@ -291,7 +292,7 @@ impl PgEnt {
         let mut cibles = n.cible_ids.clone();
         cibles.sort();
         cibles.dedup();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         valider_audience(&mut tx, etab, &n.audience, &cibles).await?;
         if let Some(o) = &objet {
             // Les versions d'un même objet se créent en série.
@@ -339,7 +340,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -357,7 +358,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 ORDER BY created_at DESC LIMIT 200"
         ))
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -373,7 +374,7 @@ impl PgEnt {
     ) -> Result<Formulaire, EntDbError> {
         self.exiger_formulaires(etab, acteur, role).await?;
         let f = self.formulaire(etab, id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let publie = sqlx::query(
             "UPDATE ent_formulaire SET statut = 'publie', publie_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut = 'brouillon'",
@@ -461,15 +462,17 @@ impl PgEnt {
         id: Uuid,
     ) -> Result<Formulaire, EntDbError> {
         self.exiger_formulaires(etab, acteur, role).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         sqlx::query(
             "UPDATE ent_formulaire SET statut = 'archive', archive_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut <> 'archive'",
         )
         .bind(etab)
         .bind(id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         self.formulaire(etab, id).await
     }
 
@@ -483,7 +486,7 @@ impl PgEnt {
     ) -> Result<ResultatsFormulaire, EntDbError> {
         self.exiger_formulaires(etab, acteur, role).await?;
         let f = self.formulaire(etab, id).await?;
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let cibles: Vec<Uuid> = eleves_de_audience(
             &mut conn,
             etab,
@@ -522,7 +525,7 @@ impl PgEnt {
     ) -> Result<Vec<ConsentementEleve>, EntDbError> {
         self.exiger_action_etab(etab, acteur, role, Action::ConsentementsLire)
             .await?;
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let eleves: Vec<Uuid> = eleves_de_audience(
             &mut conn,
             etab,
@@ -581,7 +584,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         // Mineur : le responsable signe ; majeur : l'élève signe (et lui seul compte).
@@ -610,11 +613,11 @@ impl PgEnt {
               ORDER BY publie_le DESC LIMIT 100"
         ))
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = enfants.iter().map(|e| e.0).collect();
-        let mut conn = self.pool().acquire().await.map_err(db)?;
+        let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Mes dernières décisions par (élève, objet ou formulaire).
         let miennes: Vec<(Uuid, Option<String>, Uuid, String)> = sqlx::query_as(
             "SELECT DISTINCT ON (eleve_id, COALESCE(objet, formulaire_id::text))
@@ -709,7 +712,7 @@ impl PgEnt {
         let Some((_, _, _, qualite)) = enfants.iter().find(|e| e.0 == r.eleve_id) else {
             return Err(introuvable());
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let cibles = eleves_de_audience(
             &mut tx,
             etab,

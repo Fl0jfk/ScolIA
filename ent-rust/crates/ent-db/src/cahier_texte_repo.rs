@@ -4,6 +4,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{CahierTexteEntree, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgCahierTexteRepo {
     pool: PgPool,
@@ -15,6 +16,7 @@ impl PgCahierTexteRepo {
     }
 
     pub async fn insert(&self, e: &CahierTexteEntree) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_cahier_texte (
@@ -33,9 +35,10 @@ impl PgCahierTexteRepo {
         .bind(e.cree_le)
         .bind(e.created_by_user_id)
         .bind(e.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -62,7 +65,7 @@ impl PgCahierTexteRepo {
         .bind(classe)
         .bind(from)
         .bind(to)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_entree).collect())

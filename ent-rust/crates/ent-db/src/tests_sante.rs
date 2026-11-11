@@ -40,11 +40,7 @@ const TOUS_SENTINELLES: [&str; 9] = [
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
     Some((ent, cast))
 }
 
@@ -99,7 +95,7 @@ fn extras_trousse() -> ExtrasPai {
 }
 
 async fn brut(ent: &PgEnt, sql: &str, id: Uuid) -> String {
-    let (v,): (String,) = sqlx::query_as(sql).bind(id).fetch_one(ent.pool()).await.unwrap();
+    let (v,): (String,) = sqlx::query_as(sql).bind(id).fetch_one(ent.pool_verif()).await.unwrap();
     v
 }
 
@@ -112,7 +108,7 @@ async fn texte_non_sante(ent: &PgEnt, etab: Uuid) -> String {
         "SELECT coalesce(titre,'') || ' ' || coalesce(corps,'') FROM ent_notification WHERE etablissement_id = $1",
         "SELECT coalesce(libelle,'') || ' ' || payload::text FROM ent_journal_modif WHERE etablissement_id = $1",
     ] {
-        let lignes: Vec<(String,)> = sqlx::query_as(sql).bind(etab).fetch_all(ent.pool()).await.unwrap();
+        let lignes: Vec<(String,)> = sqlx::query_as(sql).bind(etab).fetch_all(ent.pool_verif()).await.unwrap();
         for (l,) in lignes {
             out.push_str(&l);
             out.push('\n');
@@ -255,7 +251,7 @@ async fn textes_cliniques_chiffres_en_base() {
     sqlx::query("UPDATE ent_pai SET motif = $2 WHERE id = $1")
         .bind(autre.id)
         .bind(&chiffre)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     assert!(ent.pai_complet_for_actor(etab, i, ri, cast.eleves[3].id).await.is_err());
@@ -315,7 +311,7 @@ async fn minimisation_aucune_donnee_de_sante_dans_evenements_notifications_journ
     let (i, ri) = inf(&cast);
     let parent = (cast.parent_lea.user_id, "parent");
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = false WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool_verif()).await.unwrap();
 
     // Saisie de tous les textes cliniques par tous les chemins.
     ent.upsert_fiche_sante_for_actor(
@@ -434,7 +430,7 @@ async fn texte_evenements_sante(ent: &PgEnt, etab: Uuid) -> String {
                  OR type LIKE 'accompagnement.%')",
     )
     .bind(etab)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap();
     assert!(!l.is_empty(), "des événements de santé étaient attendus");
@@ -548,7 +544,7 @@ async fn passages_famille_informee_sans_detail_et_renvoi_controle() {
     let (pr, rp) = prof(&cast);
     let parent = (cast.parent_lea.user_id, "parent");
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = false WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool_verif()).await.unwrap();
     let nouveau = |motif: &str, issue: &str, visible: bool| NouveauPassage {
         etablissement_id: etab,
         eleve_id: lea,
@@ -632,7 +628,7 @@ async fn passages_famille_informee_sans_detail_et_renvoi_controle() {
         "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'infirmerie.renvoi_domicile'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(evts, 1);
@@ -906,9 +902,9 @@ async fn fiche_d_urgence_niveaux_droits_et_journal() {
     // Journal de consultation : un enregistrement par accès, avec l'acteur réel.
     let (n_compl, n_min): (i64, i64) = (
         sqlx::query_scalar("SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND eleve_id = $2 AND action = 'fiche_urgence' AND actor_user_id = $3 AND libelle LIKE '%complète%'")
-            .bind(etab).bind(lea).bind(i).fetch_one(ent.pool()).await.unwrap(),
+            .bind(etab).bind(lea).bind(i).fetch_one(ent.pool_verif()).await.unwrap(),
         sqlx::query_scalar("SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND eleve_id = $2 AND action = 'fiche_urgence' AND actor_user_id = $3 AND libelle LIKE '%minimale%'")
-            .bind(etab).bind(lea).bind(pr).fetch_one(ent.pool()).await.unwrap(),
+            .bind(etab).bind(lea).bind(pr).fetch_one(ent.pool_verif()).await.unwrap(),
     );
     assert_eq!((n_compl, n_min), (1, 1));
     // Lecture du PAI et des passages journalisée aussi.
@@ -921,7 +917,7 @@ async fn fiche_d_urgence_niveaux_droits_et_journal() {
         .bind(etab)
         .bind(action)
         .bind(i)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
         assert!(n >= 1, "consultation « {action} » non journalisée");
@@ -951,7 +947,7 @@ async fn isolation_des_etablissements_et_rls_des_nouvelles_tables() {
     .unwrap();
 
     // Autre établissement : son infirmière ne voit rien, ne peut rien écrire sur cet élève.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert_ne!(autre.etablissement_id, etab);
     let (ai, ar) = (autre.infirmieres[0].user_id, "infirmerie");
     assert!(ent.fiche_urgence_for_actor(autre.etablissement_id, ai, ar, lea).await.is_err());
@@ -985,7 +981,7 @@ async fn isolation_des_etablissements_et_rls_des_nouvelles_tables() {
     // Id d'une contrainte d'un autre établissement : introuvable.
     let id: Uuid = sqlx::query_scalar("SELECT id FROM ent_contrainte_publiee WHERE etablissement_id = $1 LIMIT 1")
         .bind(etab)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(ent.retirer_contrainte_for_actor(autre.etablissement_id, ai, ar, id).await.is_err());
@@ -1005,13 +1001,13 @@ async fn isolation_des_etablissements_et_rls_des_nouvelles_tables() {
         let (actif, force): (bool, bool) =
             sqlx::query_as("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE relname = $1")
                 .bind(t)
-                .fetch_one(ent.pool())
+                .fetch_one(ent.pool_verif())
                 .await
                 .unwrap();
         assert!(actif && force, "RLS non forcée sur {t}");
         let n: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_policies WHERE tablename = $1 AND policyname = 'ent_rls_etablissement'")
             .bind(t)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
         assert_eq!(n, 1, "politique RLS absente sur {t}");
@@ -1086,7 +1082,7 @@ async fn registre_des_protocoles_versions_droits_et_evenement() {
     )
     .bind(etab)
     .bind(p.id)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(n, 2);

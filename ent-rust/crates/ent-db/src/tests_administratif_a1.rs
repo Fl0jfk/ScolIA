@@ -20,7 +20,7 @@ async fn agent(ent: &PgEnt, etab: Uuid, role: Role, nom: &str) -> (Uuid, Uuid) {
     sqlx::query("UPDATE ent_membership SET role = $2 WHERE user_id = $1")
         .bind(user)
         .bind(role.as_str())
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     (pers, user)
@@ -44,7 +44,7 @@ async fn responsable(
         .bind(pers)
         .bind(tel)
         .bind(adresse)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let mut saisie = lien_saisie(Some(pers), None);
@@ -74,7 +74,7 @@ async fn dir_cast(ent: &PgEnt, etab: Uuid) -> (Uuid, &'static str) {
         "SELECT user_id FROM ent_membership WHERE etablissement_id = $1 AND role = 'direction' LIMIT 1",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     (u, Role::Direction.as_str())
@@ -232,7 +232,7 @@ async fn conflit_d_interet_agent_parent_de_l_eleve() {
     // Sylvie, secrétaire (droits « administratif »), est aussi la mère A : même compte.
     sqlx::query("UPDATE ent_membership SET role = 'administratif' WHERE user_id = $1")
         .bind(dos.user_a)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let sylvie = dos.user_a;
@@ -333,7 +333,7 @@ async fn traces(ent: &PgEnt, etab: Uuid, user: Uuid) -> i64 {
     )
     .bind(etab)
     .bind(user)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     n
@@ -456,7 +456,7 @@ async fn droit_d_acces_d_un_parent_sans_les_donnees_de_l_autre() {
     // B déclare un contact (grand-mère) ; A en déclare un autre ; le secrétariat en saisit un.
     let user_b: Uuid = sqlx::query_scalar("SELECT user_id FROM ent_personne WHERE id = $1")
         .bind(dos.pers_b)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let contact = |nom: &str, tel: &str| ContactSaisie {
@@ -601,7 +601,7 @@ async fn interdiction_de_remise_visible_accueil_et_vie_scolaire() {
         "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'interdiction_motif'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     let v = ent.interdictions_eleve_for_actor(etab, d, r, dos.eleve).await.unwrap();
@@ -610,7 +610,7 @@ async fn interdiction_de_remise_visible_accueil_et_vie_scolaire() {
         "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'interdiction_motif'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(apres, avant + 1);
@@ -682,7 +682,7 @@ async fn interdiction_de_remise_visible_accueil_et_vie_scolaire() {
     // Le motif n'est jamais en clair : ni en base, ni au journal.
     let scelle: String = sqlx::query_scalar("SELECT motif_scelle FROM ent_eleve_interdiction WHERE id = $1")
         .bind(id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     assert!(scelle.starts_with("enc:v1:") && !scelle.contains("Violences"));
@@ -690,7 +690,7 @@ async fn interdiction_de_remise_visible_accueil_et_vie_scolaire() {
         "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND payload::text LIKE '%Violences%'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(fuite, 0);
@@ -768,7 +768,7 @@ async fn interdiction_sur_son_propre_dossier_par_un_collegue() {
     // Une directrice adjointe (profil direction) est la mère A.
     sqlx::query("UPDATE ent_membership SET role = 'direction' WHERE user_id = $1")
         .bind(dos.user_a)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let saisie = InterdictionSaisie {
@@ -816,7 +816,7 @@ async fn conflit_d_interet_personne_liee_a_un_autre_eleve_et_fusion() {
     let autre_eleve = eleve_neuf(&ent, etab, "DemiFrere").await;
     let user_b: Uuid = sqlx::query_scalar("SELECT user_id FROM ent_personne WHERE id = $1")
         .bind(dos.pers_b)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let LienResultat::EnAttente { attente_id, .. } = ent
@@ -830,7 +830,7 @@ async fn conflit_d_interet_personne_liee_a_un_autre_eleve_et_fusion() {
     // Une directrice adjointe est la mère A du premier élève seulement.
     sqlx::query("UPDATE ent_membership SET role = 'direction' WHERE user_id = $1")
         .bind(dos.user_a)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let vue = ent
@@ -893,7 +893,7 @@ async fn les_ecritures_renvoient_la_vue_minimisee() {
         "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'motif_protege'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     ent.responsables_eleve_for_actor(etab, d, r, dos.eleve).await.unwrap();
@@ -901,7 +901,7 @@ async fn les_ecritures_renvoient_la_vue_minimisee() {
         "SELECT count(*) FROM ent_journal_modif WHERE etablissement_id = $1 AND action = 'motif_protege'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(apres, avant + 1);
