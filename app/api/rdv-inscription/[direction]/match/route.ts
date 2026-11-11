@@ -3,6 +3,7 @@ import { clientIpFromRequest, createMemoryRateLimiter } from "@/app/lib/memory-r
 import { matchPublicRdvInscription } from "@/app/lib/rdv-inscription-service";
 import { readRdvEmailGateSession } from "@/app/lib/rdv-inscription-email-gate";
 import { normalizeParentEmail } from "@/app/lib/eleves-parent-emails";
+import { maskParentEmails } from "@/app/lib/mask-email";
 
 /** Strict : matching identité expose des élèves — peu de tentatives. */
 const matchLimiter = createMemoryRateLimiter({
@@ -83,7 +84,10 @@ export async function POST(req: Request, ctx: Ctx) {
     );
 
     return NextResponse.json({
-      candidates: result.candidates,
+      candidates: result.candidates.map((c) => ({
+        ...c,
+        parents: maskParentEmails(c.parents || [], parentEmail),
+      })),
       homeEtablissement: result.homeEtablissement,
       mode: result.mode,
     });

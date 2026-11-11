@@ -7,6 +7,7 @@ import {
   getHomeEtablissementForRdv,
   listChildrenForVerifiedParentEmail,
 } from "@/app/lib/rdv-inscription-eleve";
+import { maskParentEmails } from "@/app/lib/mask-email";
 
 type Ctx = { params: Promise<{ direction: string }> };
 
@@ -31,7 +32,10 @@ export async function GET(_req: Request, ctx: Ctx) {
     return NextResponse.json({
       verified: true,
       email: session.email,
-      candidates,
+      candidates: candidates.map((c) => ({
+        ...c,
+        parents: maskParentEmails(c.parents || [], session.email),
+      })),
       homeEtablissement,
     });
   } catch (e) {

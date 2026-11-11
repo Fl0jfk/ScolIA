@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { lookupInvitationIdentity } from "@/app/lib/invitation-db";
+import { maskEmail } from "@/app/lib/mask-email";
 
 const BodySchema = z.object({
   slug: z.string().min(1).max(80),
@@ -27,7 +28,8 @@ export async function POST(req: Request) {
         ? {
             response: result.existing.response,
             presentCount: result.existing.presentCount,
-            parentEmail: result.existing.parentEmail,
+            // Page publique : l'adresse n'est jamais renvoyée en clair.
+            parentEmailMasked: maskEmail(result.existing.parentEmail),
             diploma: result.existing.diploma,
             situationStatus: result.existing.situationStatus,
             situationDetail: result.existing.situationDetail,

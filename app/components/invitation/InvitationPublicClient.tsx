@@ -194,6 +194,7 @@ export default function InvitationPublicClient({ page }: Props) {
   const [response, setResponse] = useState<InvitationResponse | null>(null);
   const [presentCount, setPresentCount] = useState(2);
   const [parentEmail, setParentEmail] = useState("");
+  const [existingEmailMasked, setExistingEmailMasked] = useState("");
   const [diploma, setDiploma] = useState<InvitationDiploma | "">("");
   const [birthDate, setBirthDate] = useState("");
   const [editingExisting, setEditingExisting] = useState(false);
@@ -279,7 +280,7 @@ export default function InvitationPublicClient({ page }: Props) {
           existing?: {
             response: InvitationResponse;
             presentCount: number;
-            parentEmail: string;
+            parentEmailMasked: string;
             diploma: InvitationDiploma | null;
             situationStatus: InvitationSituationStatus | null;
             situationDetail: string;
@@ -296,7 +297,8 @@ export default function InvitationPublicClient({ page }: Props) {
           );
           setResponse(data.existing.response);
           setPresentCount(data.existing.presentCount || 2);
-          setParentEmail(data.existing.parentEmail || "");
+          setParentEmail("");
+          setExistingEmailMasked(data.existing.parentEmailMasked || "");
           setDiploma(data.existing.diploma || "");
           setSituationStatus(data.existing.situationStatus || "");
           setSituationDetail(data.existing.situationDetail || "");
@@ -896,7 +898,13 @@ export default function InvitationPublicClient({ page }: Props) {
                     className="rounded-xl border px-3 py-2.5 text-sm font-medium"
                     style={{ borderColor: "var(--inv-border)", color: "var(--inv-input-ink)" }}
                     autoComplete="email"
+                    placeholder={existingEmailMasked ? `Adresse enregistrée : ${existingEmailMasked}` : undefined}
                   />
+                  {existingEmailMasked ? (
+                    <span className="font-normal">
+                      Par sécurité, l’adresse enregistrée est masquée ({existingEmailMasked}). Saisissez-la à nouveau pour confirmer.
+                    </span>
+                  ) : null}
                 </label>
 
                 <div className="flex flex-col gap-2">
