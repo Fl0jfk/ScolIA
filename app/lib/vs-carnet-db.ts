@@ -25,6 +25,8 @@ export async function listCarnetEntrees(
     eleveId?: string;
     categorie?: string;
     nonSignees?: boolean;
+    /** NJ-32 : limiter aux entrées écrites par cet utilisateur (professeur). */
+    createdByUserId?: string;
   },
 ) {
   const db = getDb();
@@ -35,6 +37,7 @@ export async function listCarnetEntrees(
     clauses.push(eq(vsCarnetEntree.categorie, opts.categorie));
   }
   if (opts?.nonSignees) clauses.push(isNull(vsCarnetEntree.signeAt));
+  if (opts?.createdByUserId) clauses.push(eq(vsCarnetEntree.createdByUserId, opts.createdByUserId));
 
   return db
     .select({

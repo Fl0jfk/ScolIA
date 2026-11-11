@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
+import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { requireAppUser } from "@/app/lib/app-session";
 import {
   annulerSanction,
@@ -9,6 +10,16 @@ import {
   listSanctions,
   searchElevesForSanction,
 } from "@/app/lib/vs-sanctions-db";
+
+function canPronounceSanction(roles: string[]): boolean {
+  return roles.some(
+    (r) =>
+      r === "admin" ||
+      r === "master" ||
+      r === "cpe" ||
+      (INTRANET_DIRECTION_SLUGS as readonly string[]).includes(r),
+  );
+}
 
 export async function GET(req: Request) {
   const gate = await requireModule("vs-sanctions");
@@ -34,6 +45,10 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const gate = await requireModule("vs-sanctions");
   if (!gate.ok) return gate.response;
+  // NJ-32 : prononcer une sanction = direction, CPE ou admin (pas surveillant ni administratif).
+  if (!canPronounceSanction(gate.ctx.user.roles)) {
+    return NextResponse.json({ error: "Prononcer une sanction est réservé à la direction et au CPE." }, { status: 403 });
+  }
 
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
