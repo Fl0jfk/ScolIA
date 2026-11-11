@@ -460,11 +460,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : clubs, association sportive, études surveillées, garderie, ateliers ; inscriptions et places ; appel (composant du socle 12) ; facturation (24) ; transports scolaires (lignes, abonnements, souvent gérés par la région : import plutôt que saisie [H]).
 - **Dépend de** : 12, 18, 24.
 - **Existant [F]** : groupes et ateliers avec responsables (S2-2).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/43_PERISCOLAIRE_TRANSPORTS.md` et `PERSONAS_43.md`. Une inscription est un engagement daté qui crée une présence attendue ; rien ne retire un élève des attendus sauf le geste d'un adulte qui l'a vu partir ; AS, foyer et maison des lycéens sont des entités distinctes (argent séparé) ; transports importés de l'autorité organisatrice, avis aux usagers et page « état des transports » ; covoiturage refait, désactivé par défaut ; le planning de domaines (EVARS) reste au 19 (AG6b). Lot PS0 = responsabilités de groupe datées. Plage de migrations 2860–2879.
 
 #### 44. Ressources matérielles, prêts et maintenance
-- **Contient** : réservation de salles et de matériel sans conflit avec l'emploi du temps ; prêts (ordinateurs, tablettes, manuels scolaires) avec caution ; inventaire, parc informatique ; demandes d'intervention ; clés.
+- **Contient** : réservation de matériel (la réservation de **salles** est portée par le socle 19, Q-AG1) sans conflit avec l'emploi du temps ; prêts (ordinateurs, tablettes, manuels scolaires) avec caution ; inventaire, parc informatique ; demandes d'intervention ; clés.
 - **Dépend de** : 5, 10.
 - **Existant [F]** : salles (076).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/44_RESSOURCES_MATERIELLES.md` et `PERSONAS_44.md`. Biens, détenteurs et états datés en ajout seul ; prêts qui se soldent (manuels sans caution, barème dégressif voté, suivi en quantité l'année 1) ; demandes d'intervention avec alerte de sécurité et astreinte ; registre de sécurité ; clés ; reprographie reprise de Next.js et cloisonnée ; matériel réservable par le moteur du 19 ; lot RM0 = contrôle de disponibilité des salles (5, 10) ; six défauts de la réservation de salles Next.js relayés au 19. Plage de migrations 2880–2899.
 
 #### 45. CDI et ressources documentaires
 - **Contient** : catalogue, prêts et retours, réservations ; accès aux ressources numériques (GAR, via 9) ; portail documentaire.
