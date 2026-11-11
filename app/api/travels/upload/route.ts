@@ -5,6 +5,7 @@ import { s3Key, sanitizeS3FileName } from "@/app/lib/s3-path";
 import { getTenantDataS3Client } from "@/app/lib/s3-clients";
 import { getBucketName, putObject } from "@/app/lib/s3-storage";
 import { publicS3UrlForKey } from "@/app/lib/travels-s3";
+import { UPLOAD_MAX_BYTES, isRiskyUpload } from "@/app/lib/upload-guard";
 import { requireAuth } from "@/app/lib/intranet-auth";
 
 export const maxDuration = 60;
@@ -21,6 +22,12 @@ async function uploadFromFormData(req: Request) {
     return NextResponse.json({ error: "Fichier manquant." }, { status: 400 });
   }
   const rawName = file.name || "document";
+  if (isRiskyUpload(rawName, file.type)) {
+    return NextResponse.json({ error: "Type de fichier non autorisé." }, { status: 400 });
+  }
+  if (file.size > UPLOAD_MAX_BYTES) {
+    return NextResponse.json({ error: "Fichier trop volumineux (25 Mo max)." }, { status: 413 });
+  }
   const fileKey = buildAttachmentKey(rawName);
   const buffer = Buffer.from(await file.arrayBuffer());
   await putObject(fileKey, buffer, file.type || "application/octet-stream");
@@ -33,6 +40,9 @@ async function uploadFromFormData(req: Request) {
 /** Flux legacy : URL présignée pour PUT navigateur (conservé pour compatibilité). */
 async function uploadPresignedFromJson(req: Request) {
   const { fileName, fileType } = await req.json();
+  if (isRiskyUpload(String(fileName || ""), String(fileType || ""))) {
+    return NextResponse.json({ error: "Type de fichier non autorisé." }, { status: 400 });
+  }
   const fileKey = buildAttachmentKey(String(fileName || "document"));
   const s3Client = await getTenantDataS3Client();
   const bucket = await getBucketName();
