@@ -3,6 +3,9 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socles 17 « informations, annonces et campagnes » et 18 « formulaires, autorisations et consentements » — conception et passes personas (2026-11-11, branche `ent-socle-17-18-conception`, base `ent-mc0hoe`)
+Documentation seulement, **non décidée**, aucun code : `docs/socles/17_ANNONCES.md`, `18_FORMULAIRES.md`, `PERSONAS_17.md`, `PERSONAS_18.md`. Audit de l'existant Rust (086, 191, 193, M0b) et lecture ciblée de Next.js (affiches, actualités du site, invitations, salons ; aucun formulaire ni consentement réel). Défauts urgents : lots **AN0** (17 : publication sans aperçu par `confirmer:true`, élève qui lit les annonces des parents, parent interdit qui lit) et **FO0** (18 : accord de la v1 valable pour la v2, parent interdit qui signe, décision de l'autre parent visible, majeur non prévenu, un seul accord toujours suffisant). Plages de migrations **2340–2359** et **2360–2379** (`docs/socles/MIGRATIONS.md`). Points pour Florian, le DPO et un juriste : `17_ANNONCES.md` §33.2, `18_FORMULAIRES.md` §33.2, `PERSONAS_17.md` §7.2, `PERSONAS_18.md` §7.2. Niveau : **proposé**.
+
 ## Sauvegardes, PRA multi-fournisseur et portabilité par établissement — architecture (2026-11-10, branche `ent-architecture-pra`, base `ent-mc0hoe`)
 Documentation seulement, **proposé, à valider par Florian**, aucun code, aucune ressource cloud : `docs/PRA_SAUVEGARDES.md` (commande §1–§16) et `docs/PORTABILITE_EXPORTS.md` (§17). Décisions proposées D-037 à D-046 ; erreurs F-013 (PITR managé Scaleway et S3 d'`ent-object` supposés, non vérifiés) et F-014 (`BYTEA`, files d'envoi restaurables).
 - Audit : 317/329 tables avec `etablissement_id`, 69/566 FK composites, 163 FK vers `ent_user`, 2 tables `BYTEA`, RLS ≈ 63 tables (mode `off` par défaut), migrations rejouées hors transaction.
