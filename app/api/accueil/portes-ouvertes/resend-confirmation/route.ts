@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireModule } from "@/app/lib/intranet-auth";
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
     process.env.OCR_WORKER_SECRET?.trim() ||
     process.env.TRAVEL_EMAIL_INGEST_SECRET?.trim() ||
     "";
-  const supportOk = Boolean(expected && supportSecret && supportSecret === expected);
+  const supportOk = Boolean(expected && safeSecretEqual(supportSecret, expected));
   if (!supportOk) {
     const gate = await requireModule("accueil-portes-ouvertes");
     if (!gate.ok) return gate.response;

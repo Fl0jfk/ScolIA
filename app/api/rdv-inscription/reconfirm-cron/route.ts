@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { processRdvInscriptionReconfirmMails } from "@/app/lib/rdv-inscription-service";
 
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
       /* body optionnel */
     }
 
-    if (!secret || (bearer !== secret && bodySecret !== secret)) {
+    if (!secret || (!safeSecretEqual(bearer, secret) && !safeSecretEqual(bodySecret, secret))) {
       return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 

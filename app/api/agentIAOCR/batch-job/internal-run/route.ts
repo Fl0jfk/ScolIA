@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { after, NextResponse } from "next/server";
 import { runOcrBatchJob } from "@/app/lib/ocr-batch-process";
 import { ocrTrace } from "@/app/lib/ocr-trace";
@@ -17,7 +18,7 @@ export async function POST(req: Request) {
   if (!secret) {
     return NextResponse.json({ error: "Auto-relance désactivée." }, { status: 503 });
   }
-  if (req.headers.get("x-ocr-worker-secret") !== secret) {
+  if (!safeSecretEqual(req.headers.get("x-ocr-worker-secret"), secret)) {
     return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
   }
 

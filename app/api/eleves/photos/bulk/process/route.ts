@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { requireInternatManage } from "@/app/api/internat/_auth";
 import { requireAnyModule } from "@/app/lib/intranet-auth";
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   const workerSecret =
     process.env.PHOTOS_WORKER_SECRET?.trim() || process.env.OCR_WORKER_SECRET?.trim();
   const provided = req.headers.get("x-photos-worker-secret") || req.headers.get("x-ocr-worker-secret");
-  const isWorker = Boolean(workerSecret && provided && provided === workerSecret);
+  const isWorker = Boolean(safeSecretEqual(provided, workerSecret));
 
   if (!isWorker) {
     const gate = await requirePhotosBulkAccess();

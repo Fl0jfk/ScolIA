@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { deleteTravelFromDb, travelsDbReady } from "@/app/lib/travel-db";
@@ -23,7 +24,7 @@ function supportSecretOk(req: Request): boolean {
     process.env.OCR_WORKER_SECRET?.trim() ||
     process.env.TRAVEL_EMAIL_INGEST_SECRET?.trim() ||
     "";
-  return Boolean(expected && supportSecret && supportSecret === expected);
+  return Boolean(safeSecretEqual(supportSecret, expected));
 }
 
 function isTravelTestJunk(trip: TravelsTrip): boolean {

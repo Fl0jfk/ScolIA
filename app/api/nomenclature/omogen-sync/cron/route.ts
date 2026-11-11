@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { getDb, isDatabaseConfigured } from "@/db/index";
 import { etablissement } from "@/db/schema";
@@ -10,8 +11,8 @@ function authorizeCron(req: Request, body: Record<string, unknown>): boolean {
     req.headers.get("x-omogen-cron-secret") ||
     req.headers.get("authorization") ||
     "";
-  if (header === secret || header === `Bearer ${secret}`) return true;
-  return body.cronSecret === secret;
+  if (safeSecretEqual(header, secret) || safeSecretEqual(header, `Bearer ${secret}`)) return true;
+  return safeSecretEqual(body.cronSecret, secret);
 }
 
 /**

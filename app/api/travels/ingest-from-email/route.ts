@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import {
   ingestSecretFromEnv,
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
     );
   }
   const hdr = (req.headers.get("x-travel-email-ingest-secret") || "").trim();
-  if (hdr !== secret) {
+  if (!safeSecretEqual(hdr, secret)) {
     return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
   }
 

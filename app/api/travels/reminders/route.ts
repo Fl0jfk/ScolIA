@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 
@@ -81,7 +82,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const cronSecret = process.env.TRAVELS_CRON_SECRET;
   const body = await req.json();
-  const isCron = cronSecret && body.cronSecret === cronSecret;
+  const isCron = safeSecretEqual(body.cronSecret, cronSecret);
 
   if (!isCron) {
     const gate = await requireAuth();
