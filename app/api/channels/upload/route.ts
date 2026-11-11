@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireChannelsViewer } from "@/app/lib/channels-gate";
+import { UPLOAD_MAX_BYTES, isRiskyUpload } from "@/app/lib/upload-guard";
 import { putObject } from "@/app/lib/s3-storage";
 import { s3Key, sanitizeS3FileName } from "@/app/lib/s3-path";
 import { publicS3UrlForKey } from "@/app/lib/travels-s3";
@@ -14,6 +15,12 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file") as File;
     if (!file) {
       return NextResponse.json({ error: "Aucun fichier trouvé" }, { status: 400 });
+    }
+    if (isRiskyUpload(file.name, file.type)) {
+      return NextResponse.json({ error: "Type de fichier non autorisé." }, { status: 400 });
+    }
+    if (file.size > UPLOAD_MAX_BYTES) {
+      return NextResponse.json({ error: "Fichier trop volumineux (25 Mo max)." }, { status: 413 });
     }
     const buffer = Buffer.from(await file.arrayBuffer());
     const fileName = `${Date.now()}-${sanitizeS3FileName(file.name).replace(/\s+/g, "_")}`;
