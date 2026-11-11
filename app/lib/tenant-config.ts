@@ -15,10 +15,13 @@ export async function getTenantBucketName(): Promise<string> {
  * (cron poll-email sur scolia.fr = tenant plateforme sans clé en session).
  */
 export async function getMistralApiKey(): Promise<string | undefined> {
+  let borrowFromOtherTenants = true;
   try {
     const tenant = await getTenant();
     const fromSecrets = tenant.secrets?.mistral?.apiKey?.trim();
     if (fromSecrets) return fromSecrets;
+    // NJ-44 : un établissement identifié sans clé n'emprunte pas la clé d'un autre.
+    if (tenant.slug && !isPlatformTenantSlug(tenant.slug)) borrowFromOtherTenants = false;
   } catch {
     /* pas de contexte tenant (script, webhook sans host) */
   }
@@ -27,6 +30,7 @@ export async function getMistralApiKey(): Promise<string | undefined> {
   const fromEnv = (nodeEnv.MISTRAL_API_KEY || nodeEnv.MISTRAL_KEY || "").trim();
   if (fromEnv) return fromEnv;
 
+  if (!borrowFromOtherTenants) return undefined;
   try {
     const { loadAllTenants, loadTenantSecretsFile } = await import("@/app/lib/tenant-registry");
     const tenants = await loadAllTenants();
