@@ -21,7 +21,7 @@ use domain_eleve::{assert_parts_paiement, today_utc, DomainError, DossierSection
 use ent_auth::{Action, Masquage, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use serde_json::{json, Value};
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::outbox::Publier;
