@@ -44,7 +44,7 @@ Méthode : analyse statique du code (hors modules de tests) des accès base exé
 | Transverses sans RLS (identité, sessions, OIDC, outbox…) | 12 | 1 | 92 |
 | **Total** | **123** | **211** | **1 055** |
 
-**Après** (cette branche) : voir §5 (inventaire fichier par fichier). Les accès directs restants hors fichiers transverses sont **13 exceptions déclarées**
+**Après** (cette branche) : voir §5 (inventaire fichier par fichier). Les accès directs restants hors fichiers transverses sont **exceptions déclarées (liste dans `garde_rls_stricte.rs`)**
 dans `ent-db/src/garde_rls_stricte.rs`, chacune motivée (tables sans RLS : `ent_membership`, `ent_user`, `ent_session`, jetons d'invitation et de préinscription,
 `ref_calendrier_officiel`) ou délégant à un assistant qui ouvre son propre contexte.
 
@@ -87,7 +87,7 @@ posent `app.etablissement_id` = établissement **de la ligne** pour la seule tra
 
 ## 5. Inventaire après conversion (fichier par fichier)
 « Accès via contexte » = occurrences de `TenantTx::begin` / `tenant(` / `lire_par_etablissement`. « Accès directs restants » = **détection large** (inclut des
-passages de pool à des assistants qui ouvrent leur propre contexte et les tables sans RLS) ; les vrais résidus sont les 13 exceptions de `garde_rls_stricte.rs`.
+passages de pool à des assistants qui ouvrent leur propre contexte et les tables sans RLS) ; les vrais résidus sont les exceptions de `garde_rls_stricte.rs`.
 
 #### Élèves et responsables
 
@@ -268,7 +268,7 @@ passages de pool à des assistants qui ouvrent leur propre contexte et les table
 
 ## 6. Tests
 1. **Garde statique** `garde_rls_stricte::aucun_acces_direct_au_pool_hors_exception` (sans base) : aucun accès direct au pool dans `ent-db` hors fichiers transverses déclarés
-   et hors 13 exceptions motivées ; une exception inutilisée fait aussi échouer le test. Un nouveau dépôt qui oublie le contexte échoue ici.
+   et hors exceptions motivées ; une exception inutilisée fait aussi échouer le test. Un nouveau dépôt qui oublie le contexte échoue ici.
 2. **Suites de domaine en mode strict** (`tests_rls_stricte.rs`) : `ENT_RLS_MODE=strict` bascule le harnais. La base est migrée et le jeu de labo semé par le **propriétaire**
    (préparation, hors périmètre testé) ; le code testé (`PgEnt` et tous ses dépôts) tourne sur un rôle `ent_suite_stricte` **non propriétaire, NOBYPASSRLS,
    `app.rls_strict = on` au niveau du rôle** : un accès sans contexte voit 0 ligne et ne peut rien écrire. Les vérifications SQL directes des tests passent par
@@ -311,7 +311,8 @@ adaptés (`tests_finances`, `tests_inscriptions*`, `tests_administratif_a0/a1/a2
 - Run 42897077926 (`8b6ab91a`) : rouge, y compris en mode normal. Causes corrigées (vérifiées localement une à une) : exceptions périmées de `isolation_sql_statique`
   (les sondes de `service.rs` filtrent maintenant par établissement) ; rechiffrement sous rôle strict (droits de lecture des deux tables d'établissements + mode de contexte du test) ;
   tâche nocturne élèves (fonction `ent_eleve_statut_recalculer` dont l'écriture n'était pas validée) ; `ent_rattacher_classes` (écriture non validée).
-- Résultat du dernier run : voir l'en-tête du rapport final de la session (numéro de run, SHA).
+- Run 42919925199 (`d8b5d823`) : rouge. Faux positif de la garde (`appeler_par_etablissement`) corrigé ; les autres échecs (scolarité, structure S5/S7, finances, personnels P1, dossier_personnes) étaient des tests sensibles à la date autour de minuit heure de Paris (run lancé vers 23 h UTC).
+- Run 42931027054 (`faffa8b0`, lancé à 00 h 23 UTC) : **vert** (38 jobs sur 38). `MIGRATION_TAG` = `642_sortie_encadrants` après fusion d'`origin/ENT` (e8024660) ; la migration 600 reste avant 601.
 
 ## 10. Exigences E1–E14, D-036, registre
 | Exigence | Effet de ce lot |
