@@ -4,6 +4,7 @@
 **Branche :** `ent-socle-48-49-conception`, partie de `origin/ent-mc0hoe` (`37ce0d3b`).
 > **Révision D-047 (2026-11-11, branche `ent-socle-48-49-revision`)** : Florian confirme D-025 — le **calcul des bulletins et la DSN** sont construits dans ScolIA. **Le §34 l'emporte sur tout le document, §31 compris** ; Q-RH1 est close ; la recommandation du §3.3 (calcul et DSN au logiciel de paie) est abandonnée ; RH11 et RH12 deviennent obligatoires et sont redécoupés (RH11 à RH22). Rien n'a été supprimé.
 > **Révision D-048 (même jour)** : périmètre « light » limité à un établissement scolaire ; **le §35 l'emporte sur le §34** (et donc sur tout le document).
+> **Révision D-055 (même jour, branche `ent-socle-49-regimes`)** : plusieurs régimes (privé sous contrat d'association, privé sous contrat simple, public) ; **le §36 l'emporte sur le §35** et donc sur tout le document. Un seul moteur de paie (OGEC, CCN EPNL) ; les autres régimes passent par un **dossier RH multi-régimes** et des **états vers les payeurs externes** (lots RH23 à RH27). Les §4 et §17 sont remplacés par le §36.3 ; Q-RH41 est close.
 
 **Passe personas :** `docs/socles/PERSONAS_49.md` ; ajouts au **§31**, marqués « ajout personas » ; **en cas de contradiction, le §31 l'emporte**.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` D-009, D-013, D-017, D-019, D-021, D-023, **D-024**, **D-025** (paie dans l'ENT Rust), D-026, **D-027 (A, H)** (dossiers des personnels domaine restreint ; pièces RH exigées par le droit du travail), D-029, **D-031**, **D-034**, **D-035** (précision 2 : la paie et la RH de l'add-on sont des **ébauches à refaire de zéro**), **D-036**, D-041. `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14). `docs/TRANSITION_T0_INVENTAIRE.md` (M05, M06, ligne « Paie »). `docs/SOCLES.md` §49, Q-B, T-04, T-06. Conceptions **`06_PERSONNELS.md`** (engagements, missions R-P11, service fait PRS-145, P26, P47, P57), **`15_ABSENCES_PERSONNELS.md`** (§14.3–14.4, R-15, R-16, Q-AP11), **`48_COMPTABILITE.md`** (journal de paie, R-CG22), `07_DOCUMENTS.md` (coffre de l'agent, signature), `08_NOTIFICATIONS.md`, `IA_COEUR.md`.
@@ -1421,3 +1422,278 @@ Plage **2980–2999 inchangée** ; §34.13 conservé, allégé : pas de grille m
 - **Nouvelle, soumise à Florian** : **Q-RH41** — confirmer que la paie ne couvre **que** les salariés de l'organisme de gestion sous **CCN EPNL (IDCC 3218)**, et dire si l'OGEC pilote a des salariés sous une autre convention, des maîtres sous contrat simple payés par lui, ou un site en Alsace-Moselle (§35.1).
 - **Retirée** : Q-RH34 (dépôt machine à machine).
 - **Restent** : Q-RH5 (juriste, indispensable avant RH12), Q-RH26 à Q-RH33, Q-RH35 à Q-RH38.
+
+---
+
+## 36. Révision D-055 (2026-11-11) — plusieurs régimes : privé sous contrat d'association, privé sous contrat simple, public — **l'emporte sur le §35 et donc sur tout le document**
+
+**Décision.** D-055 (Florian, 2026-11-11, après-midi) **modifie D-048** : la paie ne couvre pas une seule convention mais **les régimes réellement rencontrés dans un établissement scolaire** — privé sous contrat d'association, privé sous contrat simple, public (écoles, collèges, lycées). Elle reste **« light »** au sens de D-048 (seulement ce qui concerne un établissement scolaire ; pas de logiciel de paie généraliste), **hors voie professionnelle, CFA, apprentissage et post-bac** (D-052). Q-RH41 (§35.1, « une seule convention ? ») est **close** par D-055 et remplacée par les questions du §36.11.
+**Branche :** `ent-socle-49-regimes`, partie de `origin/ent-mc0hoe`. Documentation seulement ; aucun fichier de migration écrit ; plage **2980–2999 inchangée**.
+**Numérotation de la révision** (suite des plages du socle ; RHP-313 à RHP-339 restent réservés au §34) : actions **RHP-340 à RHP-379** ; règles **R-RH81 à R-RH96** ; cas limites **CRH-90 à CRH-114** ; questions **Q-RH42 à Q-RH51** ; réglages **S-4936 à S-4945** ; lots **RH23 à RH27** ; manques personas **M-4970 à M-4989** (`PERSONAS_49.md` §9).
+**Conventions de cette section.** **[V]** fait lu sur une source officielle (Légifrance, Tribunal des conflits, BO, IH2EF, Assemblée nationale), date de consultation 2026-11-11 ; **[V-sec]** source académique, syndicale ou d'avocat sérieuse, non officielle au sens strict ; **[NV]** non vérifié ; **[H]** hypothèse ; **[R]** recommandation.
+
+### 36.1 Ce qui change en une phrase par régime
+
+| Régime de l'établissement | Avant (§35) | Après D-055 |
+|---|---|---|
+| Privé sous contrat d'association | paie des salariés de l'OGEC sous CCN EPNL ; maîtres hors paie | **inchangé sur le fond** ; précisé : maîtres = agents publics de l'État (suivi RH sans paie), **sauf** leurs fonctions accessoires payées par l'OGEC (paie) ; chef d'établissement du second degré : salarié de l'OGEC (paie) |
+| Privé sous contrat simple (premier degré seulement) | « à vérifier » (Q-RH8) | les maîtres agréés sont **salariés de l'OGEC** mais **rémunérés par l'État** : **dossier du salarié complet** (droit du travail) ; **aucun calcul du traitement payé par l'État** tant que le circuit de paie réel n'est pas établi (Q-RH42) ; paie ScolIA des seules sommes dues par l'OGEC |
+| Public : EPLE (collèges, lycées) | « pas de paie locale ; états au mutualisateur » (§17) | **suivi RH sans paie** pour tous les agents de l'État et de la collectivité ; **suivi RH complet + état mensuel au payeur** pour les contrats recrutés par l'EPLE (AED, AESH résiduels, PEC, vacataires) ; **paie de droit public par ScolIA non construite** par défaut (recommandation §36.5, Q-RH45) |
+| Public : écoles | non traité | **suivi RH seul** (aucun employeur local) ; AED et AESH des écoles suivis pour leur payeur (EPLE mutualisateur, rectorat) |
+| Hors contrat, enseignement agricole privé | non traité | **hors périmètre V1** (D-052 et D-048), à rouvrir sur demande (Q-RH47) |
+
+### 36.2 Qui paie qui — faits vérifiés [V] et hypothèses [H]
+
+**Privé sous contrat d'association.**
+- [V] **C. éduc. L442-5** (version en vigueur depuis le 26-8-2021, loi n° 2021-1109) : l'enseignement y est confié à des maîtres de l'enseignement public ou à des « maîtres liés à l'Etat par contrat » qui, « en leur qualité d'agent public », ne sont pas liés à l'établissement par un contrat de travail au titre des fonctions pour lesquelles ils sont « employés et rémunérés par l'Etat » ; le même article les fait compter dans les effectifs de l'établissement et les rend électeurs aux institutions représentatives du personnel [V, paraphrase de l'article].
+- [V-sec] Cass. soc., 21-9-2017, n° 16-21.139 (commentaires lus, arrêt non relu) : les fonctions **non rémunérées par l'État** et payées par l'établissement (surveillance, études, fonctions hors contrat) relèvent d'un **contrat de travail de droit privé avec l'organisme de gestion**.
+- [V-sec] L'OGEC est l'employeur des personnels non enseignants, qui relèvent en principe de la **CCN de l'enseignement privé non lucratif (EPNL), IDCC 3218** (§7 RR-03, §34 RR-42).
+- [V] **C. éduc. L917-1** (version du 2-9-2024, loi n° 2024-475) : les AESH sont recrutés par l'État, par les EPLE ou par les établissements privés de l'article L442-1 (après accord du DASEN), et sont « rémunérés par l'Etat » durant le temps scolaire et la pause méridienne. **Conséquence [R]** : un AESH qui accompagne un élève d'un établissement privé est suivi (présence, emploi du temps, absences) mais n'est pas dans la paie de l'OGEC. Le cas d'un AESH **recruté par l'établissement privé lui-même** (pause méridienne) est à vérifier : qui verse le salaire en pratique (CRH-95, Q-RH46).
+- [NV] Chef d'établissement : au second degré, salarié de l'OGEC sous un statut propre à l'enseignement catholique (la CCN EPNL le couvre-t-elle ? à vérifier, Q-RH44) ; au premier degré, maître payé par l'État avec une décharge et des indemnités de direction, plus un complément éventuel de l'OGEC. Une question écrite à l'Assemblée nationale (n° 2853, XVIIe législature) signale des **cotisations URSSAF en double** et des bulletins faux pour certains chefs d'établissement du premier degré [V-sec, question lue en extrait] : cas à traiter avec soin (CRH-93).
+
+**Privé sous contrat simple (premier degré seulement).**
+- [V] **C. éduc. L442-12** (version du 26-8-2021) : le contrat simple concerne les établissements **du premier degré** ; les « maîtres agréés reçoivent de l'Etat leur rémunération », fixée notamment d'après leurs diplômes et les rémunérations du public.
+- [V] **Tribunal des conflits, 5-7-2021, n° C4217** : les maîtres agréés des établissements sous contrat simple « sont des salariés des organismes de gestion de ces établissements, même si leur rémunération est prise en charge par l'Etat » ; la rémunération versée par l'État ne leur confère pas la qualité d'agent public ; leurs litiges relèvent du juge judiciaire ; l'État finance aussi, selon l'article R442-78 cité par la décision, les **charges sociales et fiscales incombant à l'employeur**.
+- [V] **BO n° 34 du 12-9-2024, circulaire MENF2421002C** (cadre de gestion des maîtres délégués) : en contrat simple du premier degré, « l'autorité de recrutement est l'établissement d'enseignement privé », le recteur ou l'IA-DASEN délivrant une autorisation d'enseigner ; en contrat d'association, l'autorité de recrutement est le recteur ou l'IA-DASEN [V, extrait du BO].
+- **[NV] — point bloquant** : **qui établit le bulletin, qui déclare en DSN, qui verse le salaire** des maîtres agréés (DSDEN directement ? OGEC remboursé ?). Aucune source lue ne le dit. Le principe « employeur = OGEC, payeur = État » est établi ; le circuit concret ne l'est pas (Q-RH42).
+
+**Public.**
+- [V] **C. éduc. L213-2-1 et L214-6-1** (versions du 1-1-2005, loi n° 2004-809) : le **département** (collèges) et la **région** (lycées) assurent « le recrutement et la gestion » des personnels techniciens, ouvriers et de service. L'EPLE les encadre au quotidien sans être leur employeur.
+- [V] **C. éduc. L916-1** (version du 18-12-2022, loi n° 2022-1574) : les assistants d'éducation « sont recrutés par les établissements d'enseignement » (EPLE) ; CDD de trois ans au plus, dans la limite de six ans d'engagement ; ils peuvent exercer dans d'autres établissements ou dans des écoles.
+- [V] **C. éduc. L421-10 III** : les EPLE peuvent recruter sur des contrats du **code du travail** (contrats aidés, PEC), les personnes pouvant exercer dans d'autres établissements ou dans des écoles.
+- [V] **IH2EF, « L'établissement scolaire employeur »** (mise à jour du 14-1-2025) : les contrats de droit public sont la règle (AED, AESH, assistants pédagogiques, services civiques), gérés dans l'application nationale **ASSED** ; les contrats de droit privé sont « devenus très rares » (PEC) ; « pour la grande majorité des agents recrutés par le chef d'établissement (assistants d'éducation et AESH) la rémunération (salaires et cotisations diverses) est prise en charge par l'État », le budget de l'établissement n'étant pas touché « sauf pour les établissements mutualisateurs » ; le conseil d'administration autorise les recrutements ; la durée de référence est de 1 607 heures par an (décret n° 2000-815).
+- [V] **Question écrite AN n° 10088 (XVIIe législature), réponse ministérielle** : tous les AESH ont été placés sous plafond d'emplois en 2023 et 2024, leur gestion relevant désormais des rectorats ; la quasi-totalité est payée sur le titre 2 [V-sec, guide SGEN-CFDT 2025, concordant].
+- [V-sec] Académies (Versailles, Paris, Caen, Nancy-Metz « groupement de paye de Dombasle ») : pour les **AED en CDD**, le chef d'établissement est l'employeur et un **EPLE mutualisateur** (souvent un lycée par département) « gère la rémunération », la DSN et la protection sociale complémentaire ; l'EPLE affectataire lui transmet chaque mois l'**état des présences et absences** (service fait). Le texte de 2003 (BO n° 25, MENF0301342C) permet au mutualisateur de confier la paie à la DGFiP (« paye à façon »). Les **AED en CDI** ont, dans au moins une académie, la DSDEN pour employeur et payeur (arrêté de 2023, académie de Bordeaux) [V-sec].
+- [V] **BO n° 38 du 9-10-2025, MENH2516443C** : nouveau cadre de gestion des AED (remplace la circulaire du 11-6-2003) [V, existence et référence ; texte intégral non lu, page refusée (403)] ; selon les résumés académiques et syndicaux [V-sec], il désigne un EPLE mutualisateur pour les AED des écoles.
+- [H] Agents de l'État (enseignants, CPE, direction, administratifs, santé, social, psychologues, contractuels enseignants) : payés par l'État (rectorat), sans rôle de paie pour l'EPLE ; l'EPLE produit seulement des états (HSE, service fait, absences) — déjà au socle 15.
+- [H] Écoles publiques : aucune personnalité morale, donc aucun employeur local ; enseignants payés par l'État ; ATSEM et agents par la commune.
+
+### 36.3 Ce que ScolIA doit faire, régime par régime [R]
+
+Trois traitements seulement : **PAIE** (calcul, bulletin, DSN, paiement, §34–§35) ; **SUIVI + ÉTAT** (dossier, contrat, temps, absences, échéances, puis **état mensuel** remis au payeur externe) ; **SUIVI** (dossier minimal et quotidien, sans aucune donnée de rémunération) ; et **RIEN**.
+
+| # | Population | Employeur | Payeur | Traitement ScolIA | Base |
+|---|---|---|---|---|---|
+| PR-1 | Salariés de l'OGEC (vie scolaire, administratifs, comptables, éducateurs d'internat, agents, ASEM, cuisine en régie, documentaliste de droit privé, animateur en pastorale) | OGEC | OGEC | **PAIE** (CCN EPNL 3218) | §34, §35 |
+| PR-2 | Maître contractuel ou agréé, maître délégué (contrat d'association) — fonctions payées par l'État | État | État | **SUIVI** (service, absences, états au rectorat, socles 6 et 15) ; aucune rémunération stockée | L442-5 [V] |
+| PR-3 | Même maître — fonctions accessoires payées par l'OGEC (surveillance, étude, fonction hors contrat) | OGEC | OGEC | **PAIE** de cet engagement seulement (second engagement, 06 P47) | Cass. soc. 2017 [V-sec] |
+| PR-4 | Maître agréé ou délégué **sous contrat simple** | OGEC | État | **SUIVI + ÉTAT** par défaut : dossier du salarié complet (contrat de travail, registre unique du personnel, médecine du travail, entretiens de parcours), état mensuel au payeur public ; **PAIE** limitée aux sommes dues par l'OGEC ; extension à la paie complète **seulement** si Q-RH42 montre que l'OGEC établit le bulletin et la DSN | L442-12, TC C4217 [V] |
+| PR-5 | Chef d'établissement du second degré (privé) | OGEC [NV] | OGEC | **PAIE** (statut propre à vérifier, Q-RH44) | [NV] |
+| PR-6 | Chef d'établissement du premier degré (privé) | État (maître) + OGEC (complément) [NV] | État + OGEC | **SUIVI** pour la part État, **PAIE** pour le complément OGEC ; contrôle anti-double cotisation (CRH-93) | QE 2853 [V-sec] |
+| PR-7 | AESH accompagnant un élève dans un établissement privé | État (rectorat) | État | **SUIVI** (emploi du temps, présence, absences pour le rectorat) | L917-1 [V] |
+| PU-1 | Agents de l'État dans un EPLE (enseignants, CPE, direction, administratifs, santé, social, PsyEN, contractuels enseignants, assistants de langue) | État | État | **SUIVI** (et états HSE, service fait, absences du socle 15) | [H] |
+| PU-2 | Agents techniques de la collectivité (accueil, entretien, restauration, maintenance) | département (collège) ou région (lycée) | collectivité | **SUIVI** quotidien : planning, congés posés, absences constatées **transmises** à la collectivité, fiche de poste, habilitations, EPI, visites de sécurité ; aucune paie, aucune évaluation tant que la collectivité ne la délègue pas (Q-RH49) | L213-2-1, L214-6-1 [V] |
+| PU-3 | AED en CDD | EPLE (chef d'établissement) | EPLE mutualisateur (ou rectorat selon l'académie) | **SUIVI + ÉTAT** : recrutement (autorisation du CA), contrat, PV d'installation, service sur 1 607 h, crédit d'heures de formation, absences, renouvellement, cap des six ans et passage en CDI, **état mensuel au mutualisateur** | L916-1 [V], IH2EF [V], académies [V-sec] |
+| PU-4 | AED en CDI | rectorat ou DSDEN [V-sec] | idem | **SUIVI + ÉTAT** au service académique | [V-sec] |
+| PU-5 | AESH | rectorat (quasi tous) ; EPLE mutualisateur pour les résiduels | État (titre 2) | **SUIVI + ÉTAT** | L917-1 [V], QE 10088 [V] |
+| PU-6 | Contrat aidé (PEC, CUI-CAE) | EPLE (droit privé) | EPLE mutualisateur [V-sec] | **SUIVI + ÉTAT** ; obligations propres du PEC (tuteur, actions de formation, bilan de sortie) en échéances | L421-10 III [V], IH2EF [V] |
+| PU-7 | Vacataire ou intervenant payé par l'EPLE sur son budget | EPLE | EPLE (agent comptable, mutualisateur ou paye à façon DGFiP) [H] | **SUIVI + ÉTAT** (service fait certifié, 06 PRS-145) | [H] |
+| PU-8 | Volontaire en service civique | — (contrat d'engagement, pas de travail) | indemnité de l'État + prestation de la structure [NV] | **SUIVI** seul (tuteur, mission, dates) ; prestation de subsistance éventuelle au socle 48 | [NV] |
+| EC-1 | Personnels d'une école publique | État, commune | État, commune | **SUIVI** ; AED et AESH comme PU-3 à PU-5 | [H] |
+| EC-2 | ATSEM, agents municipaux | commune | commune | **SUIVI** minimal (planning, présence) ou **RIEN** si la commune refuse le partage | [H] |
+| HP-1 | Apprentis (tout employeur) | — | — | **RIEN dans la paie V1** (D-052) : le profil « apprenti » du §35.3 et le cas CRH-72 sont **retirés** ; le contrat reste saisissable au socle 6 comme engagement non payé par ScolIA | D-052 |
+| HP-2 | Hors contrat (CCN de l'enseignement privé indépendant [NV, IDCC à vérifier]), enseignement agricole privé (IDCC 7520 [V-sec, sources discordantes]), GRETA, CFA | — | — | **RIEN** en V1 | D-048, D-052 |
+
+**Conséquence principale.** Il n'y a toujours qu'**un seul moteur de paie complet** : le droit privé de l'OGEC sous CCN EPNL (PR-1, PR-3, PR-5, part OGEC de PR-4 et PR-6). La pluralité de D-055 se traite par un **dossier RH multi-régimes** et des **états vers des payeurs externes**, pas par un second logiciel de paie. Cela respecte D-048 (« light ») et la vision tout-en-un de D-055 (tout ce que l'établissement doit faire est dans ScolIA ; ce que l'État ou la collectivité calcule n'y est pas recalculé).
+
+### 36.4 Le régime d'un engagement (modèle) [R]
+
+Chaque engagement du socle 6 reçoit, côté 49, un **régime** qui dit ce que ScolIA fait pour lui. Il est **déduit** de la nature et de l'employeur de l'engagement puis **confirmé** par la gestionnaire (jamais deviné en silence) :
+- `regime_juridique` : `droit_prive_ccn` (EPNL), `droit_prive_code_travail` (PEC, sans convention), `droit_public_contractuel` (AED, AESH, vacataire public), `agent_public_etat` (fonctionnaire, maître sous contrat d'association, contractuel de l'État), `fonctionnaire_territorial`, `maitre_agree_contrat_simple`, `volontaire` (service civique), `benevole` ;
+- `payeur_type` : `organisme_gestion`, `etat_rectorat`, `etat_dsden`, `eple_mutualisateur`, `eple_lui_meme`, `dgfip_paye_a_facon`, `collectivite`, `aucun` ; avec l'organisme payeur (socle 4 `ent_organisme`) ;
+- `traitement` : `paie`, `suivi_etat`, `suivi`, `rien` ;
+- `idcc` (seulement si `droit_prive_ccn`, valeur contrôlée `3218`) ; `regime_local_alsace_moselle` (booléen, refusé tant que S-4941 est désactivé).
+
+Règles : un engagement `traitement = paie` exige `payeur_type = organisme_gestion` (V1) ; un engagement `agent_public_etat` ne peut **jamais** porter de rubrique de rémunération (garde de schéma, R-RH81) ; un changement de régime en cours d'engagement **clôt** l'ancien régime à une date et en ouvre un autre (historique, E5), jamais une réécriture.
+
+### 36.5 La paie de droit public : ne pas la construire par défaut [R]
+
+**Ce qu'un EPLE gère encore lui-même [V, IH2EF ; V-sec, académies].** Le recrutement et le contrat des AED et des PEC (le chef d'établissement signe, le CA autorise), leur service, leurs absences et leur état mensuel ; **la paie elle-même** n'est faite que par les **EPLE mutualisateurs** (un par département ou par zone), avec l'application nationale **ASSED** pour les contrats et, selon les académies, un logiciel de paie ou la paye à façon de la DGFiP.
+
+**Recommandation.** ScolIA **ne construit pas** de moteur de paie de droit public (traitement indiciaire, indemnité de résidence, supplément familial, indemnités REP et REP+, IRCANTEC, assurance chômage des employeurs publics en auto-assurance, protection sociale complémentaire des agents de l'État, DSN fonction publique) dans la V1. Raisons : (1) seuls les mutualisateurs paient, soit quelques dizaines d'établissements en France, pour des populations déjà gérées dans un outil national ; (2) un établissement affectataire n'a besoin que de l'**état mensuel juste et à temps** (c'est ce qui conditionne la paie de fin de mois de l'AED) ; (3) ce serait un second moteur réglementaire complet, contraire à D-048. **Ce que ScolIA fait à la place** : un **état mensuel du service fait et des absences** par contrat, contrôlé, validé par le chef d'établissement, remis au payeur dans son format (fichier, démarche en ligne de l'académie, ou PDF signé), avec accusé et relance (RH24). **Si** un lycée mutualisateur devient client et le demande, une étude dédiée (Opus) précède tout lot (Q-RH45) ; le modèle (§36.4) le permet sans refonte.
+
+**Point de vigilance [V-sec].** Le passage de la paie des AESH du mutualisateur au rectorat a parfois entraîné des salaires non versés (SNES, 2025) : ScolIA doit signaler **à l'établissement** tout état non accusé par le payeur avant la date limite (R-RH86), car c'est la paie d'une personne qui en dépend.
+
+### 36.6 Privé sous contrat : ce qui reste à l'établissement pour les maîtres [R]
+
+Même payés par l'État, les maîtres coûtent du travail RH à l'établissement : emploi du temps et service (socle 10, 6), HSE et heures de suppléance, **états de service et absences au rectorat** (15), autorisations d'absence, ordres de mission des sorties (42), formation. ScolIA les fait **sans aucune donnée de traitement** (pas d'indice, d'échelon, de grade, de salaire : minimisation, 06 §13.4). Deux exceptions où le 49 intervient : (1) l'**engagement accessoire** payé par l'OGEC (PR-3), qui est une vraie paie EPNL [NV : la CCN s'applique-t-elle à ces contrats accessoires ? Q-RH43] ; (2) l'**effectif** : un maître sous contrat d'association compte dans les effectifs de l'établissement pour les institutions représentatives (L442-5 [V]) ; le 49 le compte dans les seuils qui en dépendent (CSE, §16), mais **pas** dans l'effectif de la DSN de l'OGEC, qu'il ne figure pas (à confirmer, Q-RH50).
+
+### 36.7 Règles ajoutées (R-RH81 à R-RH96)
+
+| N° | Règle |
+|---|---|
+| R-RH81 | Aucune rubrique, aucun montant de rémunération pour un engagement `agent_public_etat`, `fonctionnaire_territorial`, `volontaire` ou `benevole` ; garde de schéma et test. |
+| R-RH82 | Le régime d'un engagement est confirmé par une personne ; une déduction automatique reste « à confirmer » et bloque l'entrée en paie. |
+| R-RH83 | Un même agent peut avoir plusieurs engagements de régimes différents (maître + accessoire OGEC, AED + vacation) ; chacun a son propre traitement ; aucune donnée d'un régime ne « déborde » dans l'autre (le taux PAS de l'engagement OGEC n'est pas montré au rectorat, l'état du rectorat ne montre rien de la paie OGEC). |
+| R-RH84 | Un état remis à un payeur externe ne contient que ce que ce payeur doit payer : service fait, absences par **nature codée** (jamais de motif médical), dates, quotité ; ni NIR si le format ne l'exige pas, ni coordonnées bancaires. |
+| R-RH85 | Un état est **arrêté** par le signataire habilité (chef d'établissement ou délégataire), horodaté, empreinté (E9), remis, puis immuable ; une erreur se corrige par un état rectificatif. |
+| R-RH86 | Un état non accusé par le payeur à J-3 de sa date limite déclenche une alerte au signataire et à l'adjoint gestionnaire. |
+| R-RH87 | Un établissement ne voit, d'un payeur externe, que ses propres états ; un mutualisateur client ne voit, des établissements affectataires, que les états qui lui sont remis, jamais leur dossier RH (cloisonnement, D-056 organisme). |
+| R-RH88 | Les agents de la collectivité n'ont dans ScolIA que les données du quotidien (planning, présence, congés constatés, habilitations) ; leur dossier de carrière reste chez la collectivité. |
+| R-RH89 | Le cap légal des contrats d'AED (trois ans par contrat, six ans d'engagement, L916-1) et d'AESH (trois ans renouvelables une fois, L917-1) est une échéance calculée, avec alerte à six mois. |
+| R-RH90 | Maîtres sous contrat simple : tout le droit du travail dû par l'OGEC employeur s'applique (registre unique du personnel, médecine du travail, entretien de parcours, procédure disciplinaire de droit privé) même si l'État paie. |
+| R-RH91 | Aucune double déclaration : une même somme versée à une personne n'apparaît que dans la paie d'un seul payeur ; le complément de direction OGEC d'un chef d'établissement du premier degré est contrôlé contre ce que paie l'État (saisie déclarative). |
+| R-RH92 | Le traitement `paie` n'est ouvert qu'aux régimes `droit_prive_ccn` (3218) et à la part OGEC des régimes mixtes ; tout autre régime en paie est refusé en V1 (D-048). |
+| R-RH93 | Les apprentis ne sont jamais en paie ScolIA en V1 (D-052) ; un contrat d'apprentissage saisi au socle 6 est marqué « paie hors ScolIA ». |
+| R-RH94 | Le régime local d'Alsace-Moselle n'est accepté que si S-4941 est activé après recette dédiée. |
+| R-RH95 | Un AESH ou un AED affecté dans plusieurs établissements a un état par établissement affectataire ; l'agrégation appartient au payeur. |
+| R-RH96 | Le budget de masse salariale (48) ne compte que les engagements dont l'OGEC ou l'EPLE est payeur ; les maîtres et agents publics y figurent seulement en effectif, sans coût. |
+
+### 36.8 Actions ajoutées (RHP-340 à RHP-379)
+
+| N° | Action | Acteur · droit | Lot |
+|---|---|---|---|
+| RHP-340 | Voir le régime de chaque engagement et ce que ScolIA fait pour lui (paie, état, suivi, rien) | GP, DIR, GEST · `rh.regime.lire` | RH23 |
+| RHP-341 | Confirmer ou corriger le régime proposé d'un engagement ★ | GP, GEST · `rh.regime.confirmer` | RH23 |
+| RHP-342 | Changer de régime à une date (AED qui passe en CDI, contrat simple qui devient contrat d'association) | GP, GEST | RH23 |
+| RHP-343 | Déclarer les payeurs externes de l'établissement (rectorat, DSDEN, mutualisateur, collectivité, DGFiP) avec leurs formats et dates limites | GEST · `rh.payeur.parametrer` | RH24 |
+| RHP-344 | Préparer l'état mensuel de service fait d'un payeur, depuis les faits (12, 15, 6) | SYS → GEST | RH24 |
+| RHP-345 | Contrôler l'état (absences sans nature, heures sans validation, contrat échu, écart au mois précédent) | SYS | RH24 |
+| RHP-346 | **Arrêter et signer** l'état ★ | DIR ou délégataire · `rh.etat.arreter` | RH24 |
+| RHP-347 | Remettre l'état (fichier, PDF signé, démarche en ligne attestée) et enregistrer l'accusé | GEST | RH24 |
+| RHP-348 | État rectificatif | GEST, DIR | RH24 |
+| RHP-349 | Tableau des états du mois par payeur (préparé, arrêté, remis, accusé, en retard) | GEST, DIR | RH24 |
+| RHP-350 | Demander au CA l'autorisation de recruter (AED, PEC) : délibération liée (socle des instances) | DIR | RH25 |
+| RHP-351 | Recruter un AED : fiche de poste, candidats, entretien, contrat, PV d'installation, transmission au mutualisateur | DIR, GEST | RH25 |
+| RHP-352 | Planifier le service annuel d'un AED (1 607 h, semaines, crédit formation) et suivre le réalisé | CPE, GEST | RH25 |
+| RHP-353 | Suivre le cap des six ans et préparer la proposition de CDI | GEST, DIR | RH25 |
+| RHP-354 | Renouveler un contrat d'AED ou d'AESH dans les délais du payeur (date limite de rentrée) | GEST | RH25 |
+| RHP-355 | Suivre un PEC : tuteur, actions de formation, bilan de sortie, fin d'aide | GEST, tuteur | RH25 |
+| RHP-356 | Suivre un AESH (emploi du temps par élève, présence, absences) pour le rectorat, sans donnée médicale de l'élève | ERH (coordonnateur), GEST | RH25 |
+| RHP-357 | Agents de la collectivité : planning, congés posés et constatés, absences transmises à la collectivité | GEST | RH26 |
+| RHP-358 | Agents de la collectivité : habilitations, EPI, formations de sécurité, accidents de service (déclaration à la collectivité) | GEST | RH26 |
+| RHP-359 | Exporter l'état d'absences mensuel des agents de la collectivité au format demandé | GEST | RH26 |
+| RHP-360 | Maîtres sous contrat d'association : déclarer et payer un engagement accessoire OGEC | GP | RH23 |
+| RHP-361 | Maîtres sous contrat simple : tenir le dossier du salarié (contrat, registre, visites, entretiens) sans traitement | GP, DIR | RH27 |
+| RHP-362 | Maîtres sous contrat simple : état mensuel au payeur public | GP, DIR | RH27 |
+| RHP-363 | Chef d'établissement du premier degré : saisir ce que paie l'État et payer le seul complément OGEC (contrôle R-RH91) | GP, PRES | RH27 |
+| RHP-364 | Mon dossier, mes engagements et qui me paie (vue de l'agent, tous régimes) | AGENT | RH23 |
+| RHP-365 | Mon état de service du mois (AED, AESH, vacataire) avant arrêté, avec contestation | AGENT | RH24 |
+| RHP-366 | Être prévenu si mon état n'est pas remis à temps | AGENT | RH24 |
+| RHP-367 | Revue annuelle des régimes (engagements « à confirmer », régimes incohérents) | GP, GEST | RH23 |
+| RHP-368 | Simuler l'effectif par régime (CSE, DSN, budget) | DIR | RH23 |
+| RHP-369 | Importer les contrats d'AED et d'AESH depuis l'export du mutualisateur ou du rectorat (si disponible) | GEST | RH24 |
+| RHP-370 | Export comptable des sommes avancées ou remboursées entre OGEC et État (contrat simple), si Q-RH42 le révèle | GP → 48 | RH27 |
+| RHP-371 à RHP-379 | réservés (mutualisateur client, Alsace-Moselle) | | |
+
+### 36.9 Cas limites ajoutés (CRH-90 à CRH-114)
+
+| # | Cas | Traitement |
+|---|---|---|
+| CRH-90 | Maître sous contrat d'association qui fait aussi deux heures d'étude payées par l'OGEC | deux engagements (06 R-P1 corrigé) ; paie EPNL de l'étude seulement ; état de service au rectorat sans ces heures |
+| CRH-91 | Établissement du premier degré dont une classe est sous contrat simple et une autre sous contrat d'association [NV, possible] | régime porté par l'engagement, pas par l'établissement ; deux maîtres, deux régimes |
+| CRH-92 | Passage d'un établissement du contrat simple au contrat d'association en cours d'année | changement de régime daté (RHP-342) ; les maîtres agréés deviennent agents publics : fin du contrat de travail avec l'OGEC à traiter avec le juriste |
+| CRH-93 | Chef d'établissement du premier degré cotisé deux fois à l'URSSAF (QE 2853) | contrôle R-RH91 ; alerte ; régularisation avec le juriste et l'URSSAF |
+| CRH-94 | AED d'un collège payé par un lycée mutualisateur qui n'utilise pas ScolIA | état remis au format du mutualisateur (fichier ou démarche en ligne) ; accusé saisi à la main |
+| CRH-95 | AESH recruté par l'établissement privé pour la pause méridienne (L917-1) | régime à confirmer (Q-RH46) ; par défaut `suivi_etat` vers le payeur désigné |
+| CRH-96 | AED affecté dans un collège et une école | un état par lieu affectataire (R-RH95) ; l'école sans ScolIA : état du collège seulement |
+| CRH-97 | AED atteignant six ans d'engagement en cours d'année | alerte à six mois ; CDI proposé ; changement de payeur (DSDEN) daté |
+| CRH-98 | Renouvellement d'AED transmis après la date limite du mutualisateur | alerte J-10 ; si dépassé : avertir l'agent du risque de paie décalée |
+| CRH-99 | Agent de la région en arrêt maladie : l'EPLE voit l'absence, pas le motif | nature « absence à justifier auprès de la collectivité » ; aucun certificat stocké par l'EPLE |
+| CRH-100 | La collectivité exige ses propres formulaires d'absence | export du format demandé ; sinon PDF signé |
+| CRH-101 | PEC dont l'aide de l'État s'arrête avant la fin du contrat | échéance ; décision du CA ; aucun calcul de paie |
+| CRH-102 | Volontaire en service civique traité par erreur comme salarié | régime `volontaire` interdit en paie (R-RH81) |
+| CRH-103 | Établissement privé en Alsace-Moselle | refusé en paie tant que S-4941 est désactivé ; dossier RH et états possibles |
+| CRH-104 | Apprenti embauché par l'OGEC | engagement saisi au 6, « paie hors ScolIA » (R-RH93) |
+| CRH-105 | Établissement hors contrat qui demande ScolIA | hors V1 ; dossier RH possible, paie refusée (Q-RH47) |
+| CRH-106 | Maître sous contrat simple licencié par l'OGEC | procédure de droit privé ; juge judiciaire (TC C4217) ; l'arrêt du traitement versé par l'État est à signaler au payeur public |
+| CRH-107 | Un AESH conteste ses heures sur l'état | contestation avant arrêté (RHP-365) ; après arrêté, état rectificatif |
+| CRH-108 | Mutualisateur client qui voudrait voir les dossiers des AED des autres EPLE | refus (R-RH87) ; seuls les états remis |
+| CRH-109 | Assistant de langue payé par l'État, logé par l'établissement | suivi ; avantage en nature hors paie ScolIA ; logement au socle concerné |
+| CRH-110 | Effectif du CSE de l'OGEC qui inclut les maîtres (L442-5) | seuils calculés avec les maîtres ; DSN sans eux (Q-RH50) |
+| CRH-111 | Personnel de l'OGEC mis à disposition d'un autre établissement du même organisme | un employeur, une paie ; refacturation au 48 |
+| CRH-112 | Cuisine en régie dont l'OGEC applique une autre convention [NV] | refus en paie V1 ; signalé (Q-RH48) |
+| CRH-113 | École publique sans aucun employeur local | aucun écran de paie ; suivi seul |
+| CRH-114 | Changement de payeur des AESH (mutualisateur → rectorat) en cours d'année | payeur daté ; l'état du mois va au bon payeur ; alerte si un mois tombe entre les deux |
+
+### 36.10 Lots et migrations
+
+| Lot | Contenu | Dépend de | Critères de fin |
+|---|---|---|---|
+| **RH23** régimes | régime d'engagement (§36.4), déduction et confirmation, garde R-RH81, vue de l'agent, effectifs par régime, engagement accessoire des maîtres | RH1 ; socle 6 P1 (engagements) | test : aucun montant possible pour un agent public ; chaque engagement a un régime confirmé |
+| **RH24** états vers les payeurs externes | payeurs, formats, préparation, contrôle, arrêté, remise, accusé, rectificatif, alertes | RH23 ; 15 ; 12 | un état AED et un état collectivité recettés avec un établissement pilote public ou une académie |
+| **RH25** contrats de l'EPLE | AED (recrutement, service 1 607 h, cap des six ans, CDI), AESH (suivi), PEC | RH23, RH24 ; 6 ; instances | |
+| **RH26** agents de la collectivité | planning, congés, absences transmises, habilitations, accidents de service | RH23 ; 6 | |
+| **RH27** contrat simple et chefs du premier degré | dossier du salarié payé par l'État, état au payeur, complément OGEC, contrôle de double paiement | RH23, RH24 ; **Q-RH42** | conditionné à Q-RH42 |
+
+**Ordre recommandé.** RH23 et RH24 sont **utiles dès la rentrée 2027 en usage réel**, sans moteur de paie (ils remplacent des tableurs d'état) : ils rejoignent le parcours minimal RH0 → RH6. RH25 et RH26 suivent ; RH27 attend Q-RH42. Le moteur de paie (RH11 → RH22, §34–§35) est **inchangé** : il ne sert que l'OGEC.
+
+**Retraits.** Profil « apprenti » du moteur (§35.3) et CRH-72 : retirés (D-052, R-RH93). Le §17 est remplacé par §36.3 (PU-1 à PU-8) ; RHP-239 (état au mutualisateur) est absorbé par RHP-344 à RHP-347.
+
+**Migrations (plage 2980–2999 inchangée, aucun fichier écrit).** **2993 est étendue** (elle portait déjà « public : compteurs AED/AESH, états ») :
+- `ent_rh_regime_engagement (id, etablissement_id, engagement_id, du, au NULL, regime_juridique CHECK IN (…8 valeurs §36.4), payeur_type CHECK IN (…8 valeurs), payeur_organisme_id NULL, traitement CHECK IN ('paie','suivi_etat','suivi','rien'), idcc NULL CHECK (idcc IS NULL OR idcc = '3218'), alsace_moselle BOOLEAN NOT NULL DEFAULT false, etat CHECK IN ('propose','confirme'), confirme_par NULL, confirme_le NULL)` avec exclusion de recouvrement par engagement et contrainte `traitement = 'paie' ⇒ payeur_type = 'organisme_gestion'` ;
+- `ent_rh_payeur_externe (id, etablissement_id, organisme_id, nature, format CHECK IN ('fichier','pdf_signe','demarche_en_ligne'), jour_limite SMALLINT, actif)` ;
+- `ent_rh_etat_payeur (id, etablissement_id, payeur_id, mois, rang, rectifie_id NULL, etat CHECK IN ('prepare','controle','arrete','remis','accuse'), arrete_par, arrete_le, objet_id, empreinte, remis_le, accuse_le)` et `ent_rh_etat_payeur_ligne (id, etablissement_id, etat_id, engagement_id, nature_code, du, au, heures_centiemes, quantite)` — lignes typées, **aucune colonne JSON ni tableau** (D-036), aucune nature médicale (référentiel codé du 15) ;
+- `ent_rh_contrat_public_suivi (id, etablissement_id, engagement_id, cadre CHECK IN ('aed','aesh','pec','vacation'), autorisation_ca_ref NULL, pv_installation_objet_id NULL, heures_annuelles_ref, credit_formation_heures NULL, anciennete_cumulee_jours, cap_legal_le)`.
+RLS stricte en 2994 comme les autres tables `ent_rh_*` ; E1–E14 inchangés.
+
+### 36.11 Questions (Q-RH42 à Q-RH51)
+
+**Soumises à Florian (à poser à l'établissement, au juriste ou à l'académie)**
+| # | Question | Recommandation |
+|---|---|---|
+| **Q-RH42** | **Contrat simple** : qui établit le bulletin, qui dépose la DSN et qui verse le salaire des maîtres agréés (DSDEN directement, ou OGEC remboursé par l'État) ? L'établissement pilote ou un établissement du premier degré connu de Florian a-t-il un contrat simple ? | demander à une DSDEN et à l'OGEC concerné ; RH27 en attente |
+| **Q-RH43** | Les contrats accessoires des maîtres (études, surveillances) relèvent-ils de la CCN EPNL ? | juriste (avec Q-RH5) |
+| **Q-RH44** | Statut et convention du chef d'établissement du second degré privé (statut de l'enseignement catholique, EPNL ?) | juriste |
+| **Q-RH45** | Construire un jour une **paie de droit public** pour un lycée mutualisateur ? | **non par défaut** (§36.5) ; étude dédiée seulement si un mutualisateur devient client |
+| Q-RH46 | AESH recrutés par l'établissement privé pour la pause méridienne : qui paie en pratique ? | à vérifier avec l'académie |
+| Q-RH47 | Hors contrat et enseignement agricole privé : hors V1 ? | oui |
+| Q-RH48 | L'OGEC pilote a-t-il des salariés sous une autre convention (cuisine, internat, association immobilière) ? | à demander (reprend une partie de Q-RH41) |
+| Q-RH49 | Les collectivités (département, région du pilote public éventuel) acceptent-elles que l'EPLE tienne planning et absences de leurs agents dans ScolIA, et sous quel format les veulent-elles ? | à demander ; convention de traitement à prévoir (DPO) |
+
+**Appliquées par défaut (D-031)**
+| # | Question | Décision |
+|---|---|---|
+| Q-RH41 | Une seule convention ? | **close par D-055** : plusieurs régimes, un seul moteur de paie (EPNL) |
+| Q-RH8 | Maîtres agréés du contrat simple payés par l'OGEC ? | **close sur le principe** (payés par l'État, salariés de l'OGEC, [V] L442-12, TC C4217) ; circuit concret en Q-RH42 |
+| Q-RH11 | Format des états pour le mutualisateur | remplacée par RH24 : un format par payeur, déclaré par l'établissement |
+| Q-RH50 | Les maîtres comptent-ils dans l'effectif DSN de l'OGEC ? | non (ils n'y sont pas déclarés) ; oui pour les seuils des institutions représentatives (L442-5) ; à confirmer par le juriste |
+| Q-RH51 | Alsace-Moselle | hors V1 (S-4941 désactivé) ; variante possible plus tard |
+
+### 36.12 Réglages ajoutés (S-4936 à S-4945)
+
+| N° | Réglage | Défaut |
+|---|---|---|
+| S-4936 | Régime de l'établissement (contrat d'association, contrat simple, public EPLE, école publique) | à saisir à l'ouverture ; propose les régimes des engagements |
+| S-4937 | Alerte d'état non accusé | J-3 de la date limite |
+| S-4938 | Signataire des états | chef d'établissement ; délégation possible à l'adjoint |
+| S-4939 | Alerte de cap des contrats AED et AESH | six mois |
+| S-4940 | Partage des absences des agents de la collectivité | désactivé jusqu'à accord de la collectivité (Q-RH49) |
+| S-4941 | Régime local d'Alsace-Moselle | désactivé |
+| S-4942 | Contestation de son état par l'agent | ouverte jusqu'à l'arrêté |
+| S-4943 | Format de remise par défaut | PDF signé |
+| S-4944 | Afficher « qui me paie » dans la vue de l'agent | oui |
+| S-4945 | Contrôle anti-double paiement des chefs du premier degré | activé |
+
+### 36.13 Effet sur les autres socles
+
+- **Socle 6** (`06_PERSONNELS.md` §26) : nature `contrat_aide` ajoutée ; `maitre_agree` scindé par le régime (contrat simple / contrat d'association, porté par le 49) ; l'employeur `organisme_gestion` des maîtres sous contrat simple est rendu possible ; le payeur n'est **pas** stocké au 6 (il est au 49, §36.4), pour garder le 6 sans information de rémunération.
+- **Socle 15** : les natures d'absence codées servent aux états de tous les payeurs ; la liste « transmise à la collectivité » est une vue, pas un nouveau référentiel.
+- **Socle 48** : la masse salariale ne compte que les engagements payés par l'organisme (R-RH96) ; pour le public, l'EPLE mutualisateur reste hors V1.
+- **Socle 50** (premier degré) : le contrat simple concerne **seulement** le premier degré (L442-12) ; c'est là que RH27 servira.
+- **D-056** (organisme et UAI) : le cloisonnement d'un éventuel service mutualisé suivra le modèle d'organisme qui y sera conçu (R-RH87).
+
+### 36.14 Faits, hypothèses, contradictions
+
+**Faits [V]** : L442-5, L442-12, L916-1, L917-1, L421-10, L213-2-1, L214-6-1 (Légifrance, versions en vigueur au 11-11-2026) ; TC C4217 ; circulaire MENF2421002C (extrait) ; IH2EF « L'établissement scolaire employeur » ; QE AN 10088. **Hypothèses [H]** : circuits des vacataires publics ; payeur des écoles ; absence d'évaluation des agents territoriaux par l'EPLE. **Non vérifié [NV]** : circuit de paie concret du contrat simple (bloquant pour RH27) ; statut du chef d'établissement ; CCN des contrats accessoires ; service civique ; IDCC du hors contrat ; texte intégral du cadre AED de 2025 (page refusée). **Contradictions** : aucune avec les décisions ; D-048 (« une seule convention ») est modifiée par D-055 et le §35.1 est clos ; le §17 et le §4 (lignes AED/AESH et contrat simple) sont remplacés par le §36.3.
+
+### 36.15 Sources de la révision (consultées le 2026-11-11)
+
+- C. éduc. L442-5 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000043982740
+- C. éduc. L442-12 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000043982733
+- C. éduc. L914-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000038952153
+- C. éduc. L916-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000046756214
+- C. éduc. L917-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000049603726
+- C. éduc. L421-10 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000038902323
+- C. éduc. L213-2-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006524535 ; L214-6-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006524573
+- Tribunal des conflits, 5-7-2021, C4217 : https://www.conseil-etat.fr/fr/arianeweb/TC/decision/2021-07-05/C4217
+- BO n° 34 du 12-9-2024 (maîtres délégués) : https://www.education.gouv.fr/bo/2024/Hebdo34/MENF2421002C
+- BO n° 38 du 9-10-2025 (cadre de gestion des AED ; page refusée, référence seulement) : https://www.education.gouv.fr/bo/2025/Hebdo38/MENH2516443C
+- BO n° 25 de 2003 (paye des assistants d'éducation, mutualisateur, DGFiP) : https://www.education.gouv.fr/bo/2003/25/MENF0301342C.htm
+- IH2EF, « L'établissement scolaire employeur » : https://www.ih2ef.gouv.fr/leple-employeur
+- QE AN n° 10088 (AESH sous plafond, gestion rectorale) : https://questions.assemblee-nationale.fr/dyn/17/questions/QANR5L17QE10088.pdf ; QE n° 2853 (chefs d'établissement du premier degré) : https://questions.assemblee-nationale.fr/q17/17-2853QE.htm ; réponses sur contrat simple et contrat d'association : https://www.assemblee-nationale.fr/dyn/14/questions/QANR5L14QE7714.pdf
+- [V-sec] Académie de Versailles, lycée mutualisateur (mode opératoire, kit employeur) : https://lyc-weil-conflans.ac-versailles.fr/IMG/pdf/mode_operatoirev2-2.pdf , https://lyc-weil-conflans.ac-versailles.fr/IMG/pdf/kit_employeur.pdf ; groupement de paye de Dombasle : https://demarche.numerique.gouv.fr/commencer/dombasle-aed-transmission-etat-des-services-faits ; académie de Paris : https://www.ac-paris.fr/media/67641/download ; Caen : https://wordpress.ac-caen.fr/cic/wp-content/uploads/2014/06/fiche-procédure-assistance-éducative.pdf ; Bordeaux : https://ac-bordeaux.fr/media/18966/download
+- [V-sec] Paie des AESH (SGEN-CFDT 2025) : https://sgen-cfdt.fr/contenu/uploads/2025/04/Lire-fiche-de-paie-AESH-avril-2025-compresse.pdf ; SNES : https://www.snes.edu/ma-carriere/non-titulaires/contractuel-les-nouvelle-annee-memes-carences/
+- [V-sec] Cass. soc. 21-9-2017, n° 16-21.139 (commentaire) : https://www.labase-lextenso.fr/jp-commente/cc/2017-09/16-21-139-CC-21092017-16_21139
+- [V-sec] Champ EPNL / CNEAP (accord interbranches) : https://presse.tripalio.fr/wp-content/uploads/2022/06/IDCC-3218-IDCC-7520-Accord-interbranches-formation-developpement-de-competences.pdf
+- **Non lus** : sitecoles.enseignement-catholique.fr (domaine non joignable depuis la session) ; R914-58 (non localisé) ; texte intégral du BO 2025 des AED (403).
