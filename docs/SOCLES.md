@@ -436,6 +436,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : entreprises et tuteurs (accès par lien à usage unique, sans compte) ; conventions signées par les trois parties ; périodes (absences attendues à l'appel) ; visites, évaluation, attestations ; PFMP du lycée professionnel, stages d'observation.
 - **Dépend de** : 7, 12.
 - **Existant [F]** : 082 ; `domain-eleve/src/stage.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/39_STAGES.md` et `PERSONAS_39.md`. **Pas de convention signée, pas de départ** (R-SG1) ; l'élève reste un élève, localisé ailleurs ; signataires calculés (4, 6) et circuit du 7 ; tuteur sans compte par lien ; contrôles horaires des mineurs jour par jour ; travaux réglementés et aptitude ; visites, évaluation, attestation, décompte des semaines ; allocation PFMP calculée au jour (ApLyPro, mode suivi pendant le doublon) ; reprise du module Next.js (37 actions) avec **4 failles critiques ou hautes à signaler à Florian (F-SG1)** ; 240 actions STG-100 à STG-359 ; lots ST0 à ST12 (+ ST3a) ; lot ST0 = 10 correctifs du Rust 082 ; passe personas : 18 personas, 72 manques, 4 bloquants (année N+1 préparée en juin, mise à l'abri sur signalement de violences, convention de l'organisme, attestation). Plage de migrations 2780–2799.
 
 ### Étage J — Services et vie de l'établissement
 
