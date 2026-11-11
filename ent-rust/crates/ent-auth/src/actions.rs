@@ -282,6 +282,15 @@ pub enum Action {
     /// Créer, modifier, clore, annuler les services ; ajouter, terminer, corriger les interventions,
     /// nommer un suppléant, remplacer un agent (aujourd'hui `referentiel.gerer`).
     ServicesGerer,
+    // ── Socle 6, lot P4 : missions et périmètre (`06_PERSONNELS.md` §14.2) ──
+    /// Nommer, terminer, transférer, reconduire les missions (professeur principal, référents…)
+    /// (aujourd'hui `referentiel.gerer`).
+    MissionsGerer,
+    /// Créer les types de missions propres à l'établissement (PRS-64).
+    MissionsTypesGerer,
+    /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
+    /// donne que par qui la détient (anti-escalade).
+    AccesRevue,
 }
 
 /// Sur quoi une action s'applique.
@@ -295,10 +304,18 @@ pub enum Portee {
     MesGroupes,
     /// Élèves de classes ou groupes désignés dans le rôle.
     Designes,
+    /// Socle 6, lot P4 : cibles portées par l'ATTRIBUTION (mission : classe du professeur principal,
+    /// niveaux du CPE référent, élèves de l'AESH…), datées ; un seul modèle de rôle sert à toutes les classes.
+    MonPerimetre,
+    /// Socle 6, lot P4 : l'acteur lui-même (sa fiche, ses services, ses droits). Définie ; aucune action
+    /// ne l'admet encore (la délégation de ses propres missions arrive au lot P6).
+    Moi,
+    /// Socle 6, lot P4 : élèves des SITES désignés dans le rôle (les cibles doivent être des sites).
+    SitesDesignes,
 }
 
 impl Action {
-    pub const TOUTES: [Action; 124] = [
+    pub const TOUTES: [Action; 127] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -431,6 +448,10 @@ impl Action {
         Action::VoyagesBudgetValider,
         Action::VoyagesPorteur,
         Action::VoyagesPrestataires,
+        // Socle 6, lot P4 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::MissionsGerer,
+        Action::MissionsTypesGerer,
+        Action::AccesRevue,
     ];
 
     pub fn code(self) -> &'static str {
@@ -560,6 +581,9 @@ impl Action {
             Self::PersonnelsInviter => "personnels.inviter",
             Self::PersonnelsServicesLire => "personnels.services.lire",
             Self::ServicesGerer => "services.gerer",
+            Self::MissionsGerer => "missions.gerer",
+            Self::MissionsTypesGerer => "missions.types.gerer",
+            Self::AccesRevue => "acces.revue",
         }
     }
 
@@ -692,11 +716,24 @@ impl Action {
             Self::PersonnelsInviter => "Inviter un agent (lien, QR code), relancer, annuler une invitation",
             Self::PersonnelsServicesLire => "Répartition des services d'enseignement et de leurs intervenants",
             Self::ServicesGerer => "Créer et modifier les services d'enseignement et leurs interventions",
+            Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
+            Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
+            Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         Self::TOUTES.into_iter().find(|a| a.code() == s.trim())
+    }
+
+    /// Actions de SAISIE de l'enseignant (lot P4) : avec la portée « mes élèves par l'enseignement »,
+    /// seule une intervention qui saisit EFFECTIVEMENT (titulaire hors suppléance, co-enseignant,
+    /// suppléant) ouvre le droit ; un assistant ou un intervenant lit sans saisir.
+    pub fn est_saisie_enseignement(self) -> bool {
+        matches!(
+            self,
+            Self::NotesSaisir | Self::CompetencesEvaluer | Self::CahierEcrire | Self::AbsencesDeclarer
+        )
     }
 
     /// Actions qui accordent aussi celle-ci : `facturation.gerer` permet de lire.
@@ -818,7 +855,10 @@ impl Action {
             | Self::PersonnelsAccesGerer
             | Self::PersonnelsInviter
             | Self::PersonnelsServicesLire
-            | Self::ServicesGerer => &[Portee::Etablissement],
+            | Self::ServicesGerer
+            | Self::MissionsGerer
+            | Self::MissionsTypesGerer
+            | Self::AccesRevue => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -836,17 +876,22 @@ impl Action {
                 Portee::MesClasses,
                 Portee::MesGroupes,
                 Portee::Designes,
+                Portee::MonPerimetre,
+                Portee::SitesDesignes,
             ],
         }
     }
 }
 
 impl Portee {
-    pub const TOUTES: [Portee; 4] = [
+    pub const TOUTES: [Portee; 7] = [
         Portee::Etablissement,
         Portee::MesClasses,
         Portee::MesGroupes,
         Portee::Designes,
+        Portee::MonPerimetre,
+        Portee::Moi,
+        Portee::SitesDesignes,
     ];
 
     pub fn code(self) -> &'static str {
@@ -855,6 +900,9 @@ impl Portee {
             Self::MesClasses => "mes_classes",
             Self::MesGroupes => "mes_groupes",
             Self::Designes => "designes",
+            Self::MonPerimetre => "mon_perimetre",
+            Self::Moi => "moi",
+            Self::SitesDesignes => "sites_designes",
         }
     }
 
@@ -864,6 +912,9 @@ impl Portee {
             Self::MesClasses => "Mes classes (enseignement)",
             Self::MesGroupes => "Mes groupes et ateliers (responsable)",
             Self::Designes => "Classes, groupes, sites ou niveaux désignés",
+            Self::MonPerimetre => "Mon périmètre (porté par ma mission ou mon attribution)",
+            Self::Moi => "Moi-même",
+            Self::SitesDesignes => "Sites désignés",
         }
     }
 
@@ -910,6 +961,14 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     d.push(etab(PersonnelsServicesLire));
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push(etab(ServicesGerer));
+        // Lot P4 : `missions.gerer` = `referentiel.gerer` (comportement actuel du professeur principal).
+        d.push(etab(MissionsGerer));
+    }
+    if role == Role::Admin {
+        d.push(etab(MissionsTypesGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AccesRevue));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -1538,6 +1597,55 @@ mod tests {
         assert!(PersonnelsAccesGerer.accordee_par().is_empty());
         assert_eq!(Action::parse("services.gerer"), Some(ServicesGerer));
         assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
+    }
+
+    /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :
+    /// Admin seul ; revue des accès : Admin et Direction ; portées nouvelles et saisie d'enseignement.
+    #[test]
+    fn p4_missions_portees_et_actions_de_saisie() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            assert_eq!(
+                a(MissionsGerer),
+                usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif)),
+                "{r:?} missions.gerer"
+            );
+            assert_eq!(a(MissionsTypesGerer), usize::from(r == Role::Admin), "{r:?} missions.types.gerer");
+            assert_eq!(a(AccesRevue), usize::from(matches!(r, Role::Admin | Role::Direction)), "{r:?} acces.revue");
+        }
+        for x in [MissionsGerer, MissionsTypesGerer, AccesRevue] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement], "{x:?} : établissement seulement");
+            assert!(x.accordee_par().is_empty(), "{x:?} : aucune inclusion implicite");
+        }
+        assert_eq!(Action::parse("missions.gerer"), Some(MissionsGerer));
+        assert_eq!(Action::parse("acces.revue"), Some(AccesRevue));
+        // Les actions de saisie de l'enseignant exigent une intervention qui saisit.
+        for x in [NotesSaisir, CompetencesEvaluer, CahierEcrire, AbsencesDeclarer] {
+            assert!(x.est_saisie_enseignement(), "{x:?}");
+        }
+        for x in [NotesLire, CahierLire, DossierLire, AbsencesLire, MissionsGerer] {
+            assert!(!x.est_saisie_enseignement(), "{x:?}");
+        }
+        // Portées : `mon_perimetre` et `sites_designes` s'ajoutent aux actions d'élèves ;
+        // `moi` est définie mais aucune action ne l'admet encore (lot P6).
+        assert!(NotesLire.portees_admises().contains(&Portee::MonPerimetre));
+        assert!(NotesLire.portees_admises().contains(&Portee::SitesDesignes));
+        assert!(Action::TOUTES.iter().all(|x| !x.portees_admises().contains(&Portee::Moi)));
+        assert_eq!(Portee::parse("mon_perimetre"), Some(Portee::MonPerimetre));
+        assert_eq!(Portee::parse("moi"), Some(Portee::Moi));
+        assert_eq!(Portee::parse("sites_designes"), Some(Portee::SitesDesignes));
+        assert_eq!(Portee::TOUTES.len(), 7);
+        // L'anti-escalade ne confond pas les portées nouvelles avec l'établissement.
+        assert!(!Portee::MonPerimetre.couvre(Portee::Etablissement));
+        assert!(!Portee::MonPerimetre.couvre(Portee::MesClasses));
+        assert!(Portee::Etablissement.couvre(Portee::MonPerimetre));
+        // Le modèle d'un professeur ne reçoit AUCUNE de ces portées par défaut.
+        assert!(modele_par_defaut(Role::Prof)
+            .iter()
+            .all(|(_, p)| !matches!(p, Portee::MonPerimetre | Portee::Moi | Portee::SitesDesignes)));
     }
 
     /// E1 : les nouvelles actions « élève » reproduisent exactement les capacités

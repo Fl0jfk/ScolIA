@@ -112,6 +112,7 @@ pub mod acces;
 pub mod personnels;
 pub mod personnels_acces;
 mod personnels_fiche;
+pub mod personnels_missions;
 pub mod personnels_services;
 pub use acces::{AccesEtat, EtatAcces};
 pub use personnels_acces::{CtxSession, ErreurAcceptation, InvitationEmise};
@@ -371,6 +372,8 @@ mod tests_personnels_p1;
 mod tests_personnels_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]

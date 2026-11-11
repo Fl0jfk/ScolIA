@@ -325,7 +325,10 @@ impl PgEnt {
                 Portee::Etablissement => return Ok(true),
                 Portee::MesClasses => classes = true,
                 Portee::MesGroupes => groupes = true,
-                Portee::Designes => designes.extend(d.cibles.iter().copied()),
+                Portee::Designes | Portee::MonPerimetre | Portee::SitesDesignes => {
+                    designes.extend(d.cibles.iter().copied())
+                }
+                Portee::Moi => {}
             }
         }
         if designes
