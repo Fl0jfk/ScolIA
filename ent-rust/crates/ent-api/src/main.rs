@@ -254,6 +254,10 @@ async fn run_api() {
                     {
                         tracing::warn!(error = %e, "rappels de rendez-vous en échec");
                     }
+                    // RD-05 : rendez-vous dont le responsable a perdu son lien avec l'enfant.
+                    if let Err(e) = ent.reviser_rdv_liens_rompus(chrono::Utc::now(), None).await {
+                        tracing::warn!(error = %e, "revue des rendez-vous à lien rompu en échec");
+                    }
                     tokio::time::sleep(std::time::Duration::from_secs(300)).await;
                 }
             })

@@ -46,6 +46,8 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 
 /// Repart d'un état propre pour les tables du lot (la base de test est réutilisée).
 async fn reset(ent: &PgEnt, etab: Uuid) {
+    // Fil des faits des rendez-vous (ajout seul, clé étrangère vers les créneaux) : à vider d'abord.
+    crate::rencontres::vider_faits_rdv_pour_tests(ent.pool(), etab).await;
     for t in [
         "ent_notification_envoi",
         "ent_campagne",
@@ -826,8 +828,8 @@ async fn rencontres_parents_professeurs_de_bout_en_bout() {
     let etats: Vec<&str> = profs_tom.iter().flat_map(|p| p.creneaux.iter()).map(|c| c.etat.as_str()).collect();
     assert!(etats.contains(&"reserve_par_moi") && etats.contains(&"libre"));
     // Annulation : seul le titulaire (ou l'organisateur).
-    assert!(ent.annuler_reservation(etab, tom, "parent", pris.creneau_id).await.is_err());
-    let libre = ent.annuler_reservation(etab, lea, "parent", pris.creneau_id).await.unwrap();
+    assert!(ent.annuler_reservation(etab, tom, "parent", pris.creneau_id, None).await.is_err());
+    let libre = ent.annuler_reservation(etab, lea, "parent", pris.creneau_id, None).await.unwrap();
     assert_eq!(libre.statut, "libre");
     // Rappels : idempotents.
     ent.reserver_creneau(etab, lea, mes_creneaux[2].id, eleve).await.unwrap();

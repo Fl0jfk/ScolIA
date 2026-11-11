@@ -534,6 +534,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_push_device", "communication_technique", Portee::Etablissement).perso().export(),
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
+    t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_recuperation_passkey", "identite_acces", Portee::Technique).perso().neutralise(N_PURGE).avec_etab(),
     t("ent_regle_effacement", "autre", Portee::Etablissement),
     t("ent_reinscription_campagne", "inscriptions", Portee::Etablissement),
