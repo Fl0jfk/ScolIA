@@ -240,6 +240,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : sorties (062–065), passage par badge (036), déclarations de l'accueil (131). Rien pour la mise en sûreté.
 - **Place** : complète la journée (qui entre, qui sort, qui est présent). La liste des présents en cas d'alerte est un argument de sécurité que peu d'ENT couvrent [H].
 - **Faire mieux** : en cas d'alerte, chaque adulte voit sur son téléphone qui il doit avoir avec lui.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/14_ACCUEIL_SURETE.md` et passe personas `docs/socles/PERSONAS_14.md` : 249 actions (ACS-100 à ACS-348), lots AS0 à AS14 dont **AS0 = correctifs urgents de 062–065** ; module accueil de Next.js **partiel** (saisie d'absences, 10 actions reprises) ; « passage par badge (036) » est en fait le self (socle 40). Plage de migrations 2280–2299.
 
 #### 15. Absences des personnels et remplacements
 - **Contient** : déclaration et validation des absences des personnels ; liste automatique des séances touchées ; remplacements de courte durée, suppléances ; information des familles (sans motif) ; décompte des heures supplémentaires effectives ; absences pour formation.
