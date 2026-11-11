@@ -742,7 +742,7 @@ async fn routes_prestataires_devis_et_courrier_du_lot_v0c() {
     assert_eq!(st, StatusCode::CREATED, "{v}");
     assert_eq!(v["adresses"][0]["email"], "http@cars-http.fr");
     let (st, _) = appel(&app, "POST", "/voyages/prestataires", Some(adm), Some(json!({"raison_sociale": "X", "categories": ["transporteur"], "adresses": ["a@b.fr, c@d.fr"]}))).await;
-    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
     // Cloisonnement : l'annuaire d'un autre établissement est vide.
     let (st, v) = appel(&app, "GET", "/voyages/prestataires", Some(b_adm), None).await;
     assert_eq!(st, StatusCode::OK);
