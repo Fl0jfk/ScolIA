@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { listDirectoryMembers } from "@/app/lib/directory-members";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireChannelsViewer } from "@/app/lib/channels-gate";
 
 export async function GET() {
-  const gate = await requireAuth();
+  const gate = await requireChannelsViewer();
   if (!gate.ok) return gate.response;
   try {
     const members = await listDirectoryMembers();

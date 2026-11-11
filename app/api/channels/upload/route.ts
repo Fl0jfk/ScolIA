@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireChannelsViewer } from "@/app/lib/channels-gate";
 import { putObject } from "@/app/lib/s3-storage";
 import { s3Key, sanitizeS3FileName } from "@/app/lib/s3-path";
 import { publicS3UrlForKey } from "@/app/lib/travels-s3";
@@ -7,7 +7,7 @@ import { publicS3UrlForKey } from "@/app/lib/travels-s3";
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  const gate = await requireAuth();
+  const gate = await requireChannelsViewer();
   if (!gate.ok) return gate.response;
     try {
     const formData = await req.formData();
