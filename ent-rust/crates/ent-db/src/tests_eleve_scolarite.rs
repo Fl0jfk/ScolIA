@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::scolarite::*;
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use domain_eleve::{
     statut_derive, ChangeStatus, CodeModalite, CreateEleve, DomainError, EleveStatus,
     EtablissementScolarite, EtatInscription, MotifDerogationRegime, MotifEntree, MotifSortie,
@@ -20,7 +20,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 }
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 fn alea() -> String {

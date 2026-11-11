@@ -377,7 +377,7 @@ async fn champ_verrouille_ou_source_externe_refuse_la_modification_directe() {
                 eleve_id: e.id,
                 nom_usage: Some(Some(nom_unique("Gele"))),
                 prenom_usage: None,
-                effet_du: Some(Utc::now().date_naive() + Duration::days(1)),
+                effet_du: Some(domain_eleve::horloge::jour_paris() + Duration::days(1)),
                 motif_code: None,
                 motif: None,
                 piece_document_id: None,
@@ -435,7 +435,7 @@ async fn import_passe_par_une_proposition_et_la_base_refuse_le_contournement() {
     // Le contournement échoue en base : version de source externe sans proposition décidée.
     let base = {
         let mut conn = ent.pool_verif().acquire().await.unwrap();
-        crate::identite::PgIdentiteRepo::en_vigueur_a(&mut conn, etab, e.id, Utc::now().date_naive())
+        crate::identite::PgIdentiteRepo::en_vigueur_a(&mut conn, etab, e.id, domain_eleve::horloge::jour_paris())
             .await
             .unwrap()
             .unwrap()
@@ -970,7 +970,7 @@ async fn nature_changement_etat_civil_et_usage() {
             champs_acceptes: vec!["nom_naissance".into(), "nom_usage".into()],
             nature: Some(NatureVersion::ChangementEtatCivil),
             motif_code: Some("decision_etat_civil".into()),
-            effet_du: Some(Utc::now().date_naive() + Duration::days(1)),
+            effet_du: Some(domain_eleve::horloge::jour_paris() + Duration::days(1)),
             ..decision(etab, id, secr)
         })
         .await

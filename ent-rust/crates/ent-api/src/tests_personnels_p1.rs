@@ -302,7 +302,7 @@ async fn disponibilite_coupe_puis_retablit_l_acces_sans_cloturer_l_engagement() 
     )
     .await;
     let eng = fiche["engagements"][0]["id"].as_str().unwrap().to_string();
-    let aujourdhui = chrono::Utc::now().date_naive().to_string();
+    let aujourdhui = domain_eleve::horloge::jour_paris().to_string();
     assert!(vivante(&app, &prof.jeton).await);
 
     let (st, e) = appel(

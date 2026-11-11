@@ -738,8 +738,8 @@ async fn interdiction_validation_et_periode() {
         assert!(ent.poser_interdiction_for_actor(etab, d, r, dos.eleve, &s).await.is_err(), "{s:?}");
     }
     // Période : future (pas encore active) puis échue (plus active) ; fin antérieure au début refusée.
-    let demain = chrono::Utc::now().date_naive() + chrono::Duration::days(3);
-    let hier = chrono::Utc::now().date_naive() - chrono::Duration::days(3);
+    let demain = domain_eleve::horloge::jour_paris() + chrono::Duration::days(3);
+    let hier = domain_eleve::horloge::jour_paris() - chrono::Duration::days(3);
     let mut future = ok.clone();
     future.du = Some(demain);
     ent.poser_interdiction_for_actor(etab, d, r, dos.eleve, &future).await.unwrap();

@@ -22,7 +22,7 @@ fn unique(prefixe: &str) -> String {
 }
 
 fn aujourdhui() -> NaiveDate {
-    chrono::Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 async fn nouvel_eleve(ent: &PgEnt, etab: Uuid, nom: &str, acteur: Uuid) -> domain_eleve::Eleve {

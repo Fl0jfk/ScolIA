@@ -1167,7 +1167,7 @@ async fn i2_prolonger_une_echeance_en_masse() {
     let etab = c.etablissement_id;
     let (d, dr) = dir(&c);
     let (a, ar) = adm(&c);
-    let aujourdhui = chrono::Utc::now().date_naive();
+    let aujourdhui = domain_eleve::horloge::jour_paris();
     let limite = aujourdhui + chrono::Duration::days(5);
     let camp = ent
         .creer_campagne_for_actor(etab, d, dr, &CampagneBody {
@@ -1247,7 +1247,7 @@ async fn i2_fermeture_suspend_les_delais_et_les_relances() {
     let j = verifier(&ent, etab, &m).await;
     let doss = ent.deposer_preinscription(etab, &j, &formulaire(camp, "Ferme", None)).await.unwrap();
     ent.changer_statut_for_actor(etab, a, ar, doss.id, &StatutBody { statut: "incomplet".into(), motif: Some("Pièce manquante".into()) }).await.unwrap();
-    let aujourdhui = chrono::Utc::now().date_naive();
+    let aujourdhui = domain_eleve::horloge::jour_paris();
     let (ech,): (Option<chrono::NaiveDate>,) = sqlx::query_as("SELECT echeance_famille FROM ent_inscription_dossier WHERE id = $1").bind(doss.id).fetch_one(ent.pool_verif()).await.unwrap();
     let ech = ech.unwrap();
     // Validité : période cohérente, motif.
@@ -1365,14 +1365,14 @@ async fn i2_isolation_etablissements() {
     assert!(ent.blocage_for_actor(b.etablissement_id, db_, drb, doss.id, &BlocageBody { bloquer: true, motif: "motif long".into() }).await.is_err());
     assert!(ent.ne_pas_solliciter_for_actor(b.etablissement_id, db_, drb, doss.id, &NePasSolliciterBody { rang: 2, motif: "motif long".into() }).await.is_err());
     assert!(ent.annuler_validation_for_actor(b.etablissement_id, db_, drb, doss.id, &AnnulationValidationBody { motif: "motif long".into() }).await.is_err());
-    assert!(ent.prolonger_for_actor(b.etablissement_id, db_, drb, camp, &ProlongationBody { objet: "cloture".into(), nouvelle_date: chrono::Utc::now().date_naive(), motif_public: "motif long".into(), dossiers: vec![] }).await.is_err());
+    assert!(ent.prolonger_for_actor(b.etablissement_id, db_, drb, camp, &ProlongationBody { objet: "cloture".into(), nouvelle_date: domain_eleve::horloge::jour_paris(), motif_public: "motif long".into(), dossiers: vec![] }).await.is_err());
     assert!(ent.changer_statut_campagne_for_actor(b.etablissement_id, db_, drb, camp, "suspendue").await.is_err());
     // Le dossier de A est intact.
     assert_eq!(ent.dossier_for_actor(a.etablissement_id, da, dra, doss.id).await.unwrap().etat, "deposee");
     // Une fermeture de A n'apparaît pas chez B.
     ent.declarer_fermeture_for_actor(a.etablissement_id, da, dra, &FermetureBody {
-        date_debut: chrono::Utc::now().date_naive() - chrono::Duration::days(1),
-        date_fin: chrono::Utc::now().date_naive() + chrono::Duration::days(5),
+        date_debut: domain_eleve::horloge::jour_paris() - chrono::Duration::days(1),
+        date_fin: domain_eleve::horloge::jour_paris() + chrono::Duration::days(5),
         report_jours: None,
         motif_public: "Fermeture de A".into(),
         contact_urgence: None,

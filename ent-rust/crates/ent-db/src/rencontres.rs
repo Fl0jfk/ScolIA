@@ -316,7 +316,7 @@ impl PgEnt {
             etab,
             "classe",
             &[r.classe_id],
-            Utc::now().date_naive(),
+            domain_eleve::horloge::jour_paris(),
         )
         .await?
         .into_iter()
@@ -436,7 +436,7 @@ impl PgEnt {
                JOIN ent_eleve e ON e.id = l.eleve_id AND e.etablissement_id = l.etablissement_id
                JOIN ent_affectation a
                  ON a.eleve_id = l.eleve_id AND a.etablissement_id = l.etablissement_id
-                AND a.date_debut <= current_date AND (a.date_fin IS NULL OR a.date_fin >= current_date)
+                AND a.date_debut <= ent_aujourdhui_etab($1) AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab($1))
                JOIN ent_rencontre r
                  ON r.etablissement_id = a.etablissement_id AND r.classe_id = a.classe_id
                 AND r.statut = 'ouverte'
@@ -476,7 +476,7 @@ impl PgEnt {
                   JOIN ent_affectation a
                     ON a.eleve_id = l.eleve_id AND a.etablissement_id = l.etablissement_id
                    AND a.classe_id = $4
-                   AND a.date_debut <= current_date AND (a.date_fin IS NULL OR a.date_fin >= current_date)
+                   AND a.date_debut <= ent_aujourdhui_etab($1) AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab($1))
                  WHERE l.etablissement_id = $1 AND l.user_id = $2 AND l.eleve_id = $3
                    AND l.autorite_parentale)",
         )
@@ -826,8 +826,8 @@ async fn enseignants_de_eleve(
                      AND EXISTS (SELECT 1 FROM ent_affectation a
                                   WHERE a.etablissement_id = s.etablissement_id
                                     AND a.eleve_id = $3 AND a.groupe_id = s.groupe_id
-                                    AND a.date_debut <= CURRENT_DATE
-                                    AND (a.date_fin IS NULL OR a.date_fin >= CURRENT_DATE))))
+                                    AND a.date_debut <= ent_aujourdhui_etab($1)
+                                    AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab($1)))))
           GROUP BY s.prof_user_id
           ORDER BY max(u.display_name) NULLS LAST, s.prof_user_id",
     )

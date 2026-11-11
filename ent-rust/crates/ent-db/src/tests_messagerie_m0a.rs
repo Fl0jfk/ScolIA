@@ -186,7 +186,7 @@ fn carnet(etab: Uuid, eleve: Uuid, auteur: Uuid, titre: &str) -> CreerCarnetEntr
     CreerCarnetEntree {
         etablissement_id: etab,
         eleve_id: eleve,
-        date_entree: Utc::now().date_naive(),
+        date_entree: domain_eleve::horloge::jour_paris(),
         categorie: CarnetCategorie::Information,
         titre: titre.into(),
         corps: format!("Détail confidentiel — {titre}"),

@@ -10,7 +10,7 @@
 use crate::outbox::{Causalite, Publier};
 use crate::service::{EntDbError, PgEnt};
 use crate::vie_scolaire::{db, introuvable, invalide, types_vs};
-use chrono::{Datelike, Months, NaiveDate, Utc};
+use chrono::{Datelike, Months, NaiveDate};
 use domain_eleve::DomainError;
 use ent_auth::{Action, Role};
 use ent_events::{AggregateKind, MetierEventDraft};
@@ -692,7 +692,7 @@ impl PgEnt {
         .bind(cmd.incident_id)
         .bind(&cmd.instance)
         .bind(&faits)
-        .bind(Utc::now().date_naive())
+        .bind(domain_eleve::horloge::jour_paris())
         .bind(acteur)
         .bind(delai)
         .execute(&mut *tx)

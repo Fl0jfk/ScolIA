@@ -203,7 +203,7 @@ async fn etats_effectifs(
         "SELECT id FROM ent_eleve
           WHERE etablissement_id = $1 AND id = ANY($2)
             AND date_naissance IS NOT NULL
-            AND date_naissance + INTERVAL '18 years' <= current_date",
+            AND date_naissance + INTERVAL '18 years' <= ent_aujourdhui_etab($1)",
     )
     .bind(etab)
     .bind(eleves)
@@ -418,7 +418,7 @@ impl PgEnt {
             etab,
             &f.audience,
             &f.cible_ids,
-            Utc::now().date_naive(),
+            domain_eleve::horloge::jour_paris(),
         )
         .await?
         .into_iter()
@@ -492,7 +492,7 @@ impl PgEnt {
             etab,
             &f.audience,
             &f.cible_ids,
-            Utc::now().date_naive(),
+            domain_eleve::horloge::jour_paris(),
         )
         .await?
         .into_iter()
@@ -531,7 +531,7 @@ impl PgEnt {
             etab,
             "classe",
             &[classe_id],
-            Utc::now().date_naive(),
+            domain_eleve::horloge::jour_paris(),
         )
         .await?
         .into_iter()
@@ -568,7 +568,7 @@ impl PgEnt {
         let rows: Vec<(Uuid, String, bool, String)> = sqlx::query_as(
             "SELECT e.id, e.prenom,
                     (e.date_naissance IS NOT NULL
-                     AND e.date_naissance + INTERVAL '18 years' <= current_date) AS majeur,
+                     AND e.date_naissance + INTERVAL '18 years' <= ent_aujourdhui_etab($1)) AS majeur,
                     'responsable' AS qualite
                FROM ent_eleve_lien_actif l
                JOIN ent_eleve e ON e.id = l.eleve_id AND e.etablissement_id = l.etablissement_id
@@ -576,7 +576,7 @@ impl PgEnt {
              UNION
              SELECT e.id, e.prenom,
                     (e.date_naissance IS NOT NULL
-                     AND e.date_naissance + INTERVAL '18 years' <= current_date),
+                     AND e.date_naissance + INTERVAL '18 years' <= ent_aujourdhui_etab($1)),
                     'eleve_majeur'
                FROM ent_eleve_compte c
                JOIN ent_eleve e ON e.id = c.eleve_id AND e.etablissement_id = c.etablissement_id
@@ -639,7 +639,7 @@ impl PgEnt {
                 etab,
                 &f.audience,
                 &f.cible_ids,
-                Utc::now().date_naive(),
+                domain_eleve::horloge::jour_paris(),
             )
             .await?;
             let concernes: Vec<&(Uuid, String, bool, &str)> =
@@ -718,7 +718,7 @@ impl PgEnt {
             etab,
             &f.audience,
             &f.cible_ids,
-            Utc::now().date_naive(),
+            domain_eleve::horloge::jour_paris(),
         )
         .await?;
         if !cibles.contains(&r.eleve_id) {

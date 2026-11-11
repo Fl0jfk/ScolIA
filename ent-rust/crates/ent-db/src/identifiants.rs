@@ -30,7 +30,7 @@ use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 /// Un identifiant de l'élève, tel que stocké.

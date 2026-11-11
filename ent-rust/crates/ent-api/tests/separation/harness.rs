@@ -660,7 +660,7 @@ impl Monde {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_micros() as i64;
-        let base = chrono::Utc::now().date_naive()
+        let base = domain_eleve::horloge::jour_paris()
             + chrono::Duration::weeks(1 + micros.rem_euclid(2000));
         for decalage in 0..7 {
             let jour = base + chrono::Duration::days(decalage);

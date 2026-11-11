@@ -2110,7 +2110,7 @@ impl PgEnt {
         let Some((nature, statut, ouv, clo, depot, fil)) = c else {
             return Err(introuvable());
         };
-        let today = Utc::now().date_naive();
+        let today = domain_eleve::horloge::jour_paris();
         let limite = if fil { None } else { depot.or(clo) };
         if !matches!(nature.as_str(), "admission" | "en_cours_annee")
             || statut != "ouverte"

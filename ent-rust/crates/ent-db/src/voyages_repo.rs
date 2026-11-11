@@ -3052,8 +3052,8 @@ impl PgEnt {
                 AND (EXISTS (SELECT 1 FROM ent_eleve_lien l
                               WHERE l.etablissement_id = $1 AND l.eleve_id = sp.eleve_id AND l.user_id = $2
                                 AND l.suspendu_le IS NULL
-                                AND (l.date_debut IS NULL OR l.date_debut <= current_date)
-                                AND (l.date_fin IS NULL OR l.date_fin >= current_date))
+                                AND (l.date_debut IS NULL OR l.date_debut <= ent_aujourdhui_etab($1))
+                                AND (l.date_fin IS NULL OR l.date_fin >= ent_aujourdhui_etab($1)))
                   OR EXISTS (SELECT 1 FROM ent_eleve_compte c
                               WHERE c.etablissement_id = $1 AND c.eleve_id = sp.eleve_id AND c.user_id = $2))
               ORDER BY s.debut",

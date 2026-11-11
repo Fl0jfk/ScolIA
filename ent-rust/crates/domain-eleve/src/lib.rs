@@ -8,6 +8,7 @@
 //! Historique daté : [`periode`] — dates d'effet classe / régime / MEF / site.
 
 mod absence;
+pub mod horloge;
 mod annonce;
 mod carnet;
 mod champs;

@@ -533,7 +533,7 @@ impl PgEnt {
                 let lie = self.eleve_id_for_compte(etab, acteur).await?;
                 if lie != Some(cmd.eleve_id)
                     || !self
-                        .eleve_est_majeur(etab, cmd.eleve_id, Utc::now().date_naive())
+                        .eleve_est_majeur(etab, cmd.eleve_id, domain_eleve::horloge::jour_paris())
                         .await?
                 {
                     return Err(EntDbError::Forbidden);
@@ -554,7 +554,7 @@ impl PgEnt {
         cmd: DeclarerAbsence,
     ) -> Result<DeclarationAbsence, EntDbError> {
         let etab = cmd.etablissement_id;
-        let aujourdhui = Utc::now().date_naive();
+        let aujourdhui = domain_eleve::horloge::jour_paris();
         if cmd.fin_jour < cmd.debut_jour
             || (cmd.fin_jour - cmd.debut_jour).num_days() > MAX_DUREE_DECLARATION_JOURS
             || (cmd.debut_jour - aujourdhui).num_days().abs() > FENETRE_DECLARATION_JOURS

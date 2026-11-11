@@ -31,7 +31,7 @@ use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 #[derive(sqlx::FromRow)]
@@ -688,7 +688,8 @@ impl PgEnt {
         .await?
         {
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser(current_date)")
+            let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser($1)")
+                .bind(domain_eleve::horloge::jour_paris())
                 .fetch_one(&mut *tx)
                 .await?;
             tx.commit().await?;

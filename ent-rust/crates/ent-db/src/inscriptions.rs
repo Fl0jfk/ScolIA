@@ -660,8 +660,9 @@ pub(crate) async fn transitionner_tx(
     let garde_echeance = vers == "bloque_desaccord";
     let echeance = match inscriptions_etats::delai_famille_jours(vers, delai) {
         Some(n) => {
-            let jour: NaiveDate = sqlx::query_scalar("SELECT (CURRENT_DATE + $1::int)")
+            let jour: NaiveDate = sqlx::query_scalar("SELECT (ent_aujourdhui_etab($2) + $1::int)")
                 .bind(i32::try_from(n).unwrap_or(8))
+                .bind(etab)
                 .fetch_one(&mut *conn)
                 .await
                 .map_err(db)?;
@@ -3009,8 +3010,8 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         let rows = sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
               WHERE etablissement_id = $1 AND nature = $2 AND statut = 'ouverte'
-                AND (date_ouverture IS NULL OR date_ouverture <= CURRENT_DATE)
-                AND (date_cloture IS NULL OR date_cloture >= CURRENT_DATE)
+                AND (date_ouverture IS NULL OR date_ouverture <= ent_aujourdhui_etab($1))
+                AND (date_cloture IS NULL OR date_cloture >= ent_aujourdhui_etab($1))
               ORDER BY annee_cible, libelle"
         ))
         .bind(etab)

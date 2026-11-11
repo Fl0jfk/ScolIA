@@ -16,7 +16,7 @@ use crate::structure_periodes::{
 };
 use crate::tenant_tx::{RlsMode, TenantTx};
 use crate::tests_d022_bis::labo;
-use chrono::{Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{Duration, NaiveDate, NaiveTime};
 use domain_eleve::DomainError;
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ fn sfx() -> String {
 }
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 fn h(h: u32, m: u32) -> NaiveTime {
