@@ -45,6 +45,7 @@ pub const SOURCES: [&str; 24] = [
     include_str!("../../src/structure_periodes.rs"),
     include_str!("../../src/structure_cours.rs"),
     include_str!("../../src/voyages.rs"),
+    include_str!("../../src/voyages_achats.rs"),
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
@@ -73,6 +74,7 @@ pub const NOMS_SOURCES: [&str; 24] = [
     "structure_periodes.rs",
     "structure_cours.rs",
     "voyages.rs",
+    "voyages_achats.rs",
 ];
 
 pub fn routes() -> Vec<RouteDecl> {
