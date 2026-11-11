@@ -133,7 +133,12 @@ pub fn droits_du_catalogue(saisis: &[DroitDelegue]) -> Result<Vec<Droit>, EntDbE
     for s in saisis {
         let action = Action::parse(&s.action).ok_or_else(invalide)?;
         let portee = Portee::parse(&s.portee).ok_or_else(invalide)?;
-        if NON_DELEGABLES.contains(&action) || !action.portees_admises().contains(&portee) {
+        // Lot P4 : `mon_perimetre`, `moi` et `sites_designes` ne se délèguent pas (leurs cibles viennent
+        // de l'attribution ou du rôle, pas de la délégation).
+        if NON_DELEGABLES.contains(&action)
+            || !action.portees_admises().contains(&portee)
+            || matches!(portee, Portee::MonPerimetre | Portee::Moi | Portee::SitesDesignes)
+        {
             return Err(invalide());
         }
         let cibles = if portee == Portee::Designes {

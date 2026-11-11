@@ -314,6 +314,8 @@ adaptés (`tests_finances`, `tests_inscriptions*`, `tests_administratif_a0/a1/a2
 - Run 42919925199 (`d8b5d823`) : rouge. Faux positif de la garde (`appeler_par_etablissement`) corrigé ; les autres échecs (scolarité, structure S5/S7, finances, personnels P1, dossier_personnes) étaient des tests sensibles à la date autour de minuit heure de Paris (run lancé vers 23 h UTC).
 - Run 42931027054 (`faffa8b0`, lancé à 00 h 23 UTC) : **vert** (38 jobs sur 38). `MIGRATION_TAG` = `642_sortie_encadrants` après fusion d'`origin/ENT` (e8024660) ; la migration 600 reste avant 601.
 
+- Run 42940589672 (`16837cad`, fusion d'ENT e8024660 incluse) : **vert** (38 jobs sur 38). La fusion suivante d'ENT (c96d6375, migration 355) a apporté un accès direct au pool (`droits_repo`, cibles de sites) converti en `TenantTx`.
+
 ## 10. Exigences E1–E14, D-036, registre
 | Exigence | Effet de ce lot |
 |---|---|

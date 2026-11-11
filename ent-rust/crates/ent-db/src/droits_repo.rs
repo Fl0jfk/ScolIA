@@ -92,7 +92,13 @@ impl PgEnt {
         // (retrait, modification) ne donnent plus aucun droit, même dans leurs dates.
         let jour = self.aujourdhui_etablissement(etablissement_id).await?;
         let rows: Vec<(String, String, Vec<Uuid>)> = sqlx::query_as(
-            "SELECT d.action, d.portee, d.cibles
+            "SELECT d.action, d.portee,
+                    CASE WHEN d.portee = 'mon_perimetre'
+                         THEN coalesce((SELECT array_agg(DISTINCT c.cible_id) FROM ent_attribution_cible c
+                                         WHERE c.attribution_id = a.id AND c.etablissement_id = a.etablissement_id
+                                           AND c.annule_le IS NULL AND c.du <= $3 AND (c.au IS NULL OR c.au >= $3)),
+                                       ARRAY[]::uuid[])
+                         ELSE d.cibles END
                FROM ent_role_attribution a
                JOIN ent_role_droit d
                  ON d.role_id = a.role_id AND d.etablissement_id = a.etablissement_id
@@ -165,13 +171,22 @@ impl PgEnt {
                 Portee::Etablissement => return Ok(true),
                 Portee::MesClasses => classes = true,
                 Portee::MesGroupes => groupes = true,
-                Portee::Designes => designes.extend(d.cibles.iter().copied()),
+                Portee::Designes | Portee::MonPerimetre | Portee::SitesDesignes => {
+                    designes.extend(d.cibles.iter().copied())
+                }
+                Portee::Moi => {}
             }
         }
         if classes
             && self
                 .prof_suit_eleve_le(etablissement_id, user_id, eleve_id, jour)
                 .await?
+            // Lot P4 : pour une SAISIE, une intervention sans saisie effective (assistant, titulaire
+            // pendant une suppléance…) ne suffit pas : lecture seule.
+            && !(action.est_saisie_enseignement()
+                && self
+                    .eleve_en_lecture_seule(etablissement_id, user_id, eleve_id, jour)
+                    .await?)
         {
             return Ok(true);
         }
@@ -213,11 +228,22 @@ impl PgEnt {
                 Portee::Etablissement => return Ok(None),
                 Portee::MesClasses => classes = true,
                 Portee::MesGroupes => groupes = true,
-                Portee::Designes => designes.extend(d.cibles.iter().copied()),
+                Portee::Designes | Portee::MonPerimetre | Portee::SitesDesignes => {
+                    designes.extend(d.cibles.iter().copied())
+                }
+                Portee::Moi => {}
             }
         }
         if classes {
             ens.extend(self.eleves_suivis_par_prof(etablissement_id, user_id, jour).await?);
+            if action.est_saisie_enseignement() {
+                for e in self
+                    .eleves_en_lecture_seule_du_prof(etablissement_id, user_id, jour)
+                    .await?
+                {
+                    ens.remove(&e);
+                }
+            }
         }
         if groupes || !designes.is_empty() {
             let rows: Vec<(Uuid,)> = sqlx::query_as(
@@ -229,7 +255,7 @@ impl PgEnt {
                                    AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4)
                     AND (($2 AND a.groupe_id IN (SELECT r.groupe_id FROM ent_groupe_responsable r
                                                   WHERE r.etablissement_id = $1 AND r.user_id = $3))
-                         OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5)
+                         OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5) OR a.eleve_id = ANY($5)
                          OR EXISTS (SELECT 1 FROM ent_classe c
                                      WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
                                        AND (c.site_id = ANY($5) OR c.niveau_id = ANY($5))))",
@@ -285,7 +311,7 @@ impl PgEnt {
             "SELECT EXISTS (
                SELECT 1 FROM ent_affectation a
                 WHERE a.etablissement_id = $1 AND a.eleve_id = $3
-                  AND (a.classe_id = ANY($2) OR a.groupe_id = ANY($2)
+                  AND (a.classe_id = ANY($2) OR a.groupe_id = ANY($2) OR a.eleve_id = ANY($2)
                        OR EXISTS (SELECT 1 FROM ent_classe c
                                    WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
                                      AND (c.site_id = ANY($2) OR c.niveau_id = ANY($2))))
@@ -805,7 +831,7 @@ impl PgEnt {
                 m.action == d.action
                     && m.portee.couvre(d.portee)
                     && (m.portee == Portee::Etablissement
-                        || d.portee != Portee::Designes
+                        || !matches!(d.portee, Portee::Designes | Portee::SitesDesignes)
                         || d.cibles.iter().all(|c| m.cibles.contains(c)))
             });
             if !couvert {
@@ -843,7 +869,23 @@ impl PgEnt {
             let mut cibles = d.cibles.clone();
             cibles.sort();
             cibles.dedup();
-            if d.portee == Portee::Designes {
+            if d.portee == Portee::SitesDesignes {
+                // Lot P4 : les cibles doivent être des SITES de cet établissement.
+                if cibles.is_empty() || cibles.len() > MAX_CIBLES {
+                    return Err(DomainError::ValeurInvalide.into());
+                }
+                let (n,): (i64,) = sqlx::query_as(
+                    "SELECT count(*) FROM ent_site WHERE etablissement_id = $1 AND id = ANY($2)",
+                )
+                .bind(etablissement_id)
+                .bind(&cibles)
+                .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+                .await
+                .map_err(db)?;
+                if n as usize != cibles.len() {
+                    return Err(DomainError::ValeurInvalide.into());
+                }
+            } else if d.portee == Portee::Designes {
                 if cibles.is_empty() || cibles.len() > MAX_CIBLES {
                     return Err(DomainError::ValeurInvalide.into());
                 }
