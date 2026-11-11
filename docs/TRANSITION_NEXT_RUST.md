@@ -2,6 +2,8 @@
 
 Statut : **proposé par le pilote, à valider par Florian** (2026-11-10). Dates des vacances de l'établissement données par Florian. Complète D-034 et D-035. Rien ici n'autorise le pilote à toucher à la production : chaque action sur la prod (base, Next.js, branche `main`) est faite ou autorisée explicitement par Florian.
 
+> **Mise à jour D-057 (2026-11-11)** : Florian veut **une seule bascule complète**, invisible pour les utilisateurs, aux **vacances d'hiver (20 févr. → 8 mars 2027)** — ou aux vacances suivantes si le Rust n'est pas prêt. Pas de bascule module par module ni de double système en production. Noël = démo et répétition hors production. Le tableau ci-dessous est conservé pour l'historique ; D-057 fait foi.
+
 ## 1. Faits
 - [F] Le Next.js de production tourne **en Docker chez Scaleway** (Amplify n'est plus utilisé). Scaleway héberge déjà tout le nécessaire.
 - [F] Sa base est **PostgreSQL**, schéma géré par Drizzle : 78 migrations, environ 178 tables (`drizzle/*.sql`, lisibles dans le dépôt sans accéder à la prod). Exemples : `eleve`, `personnel`, `travel`, `travel_participant`, `request`, `domain_planning_booking`, `personnel_leave`…
