@@ -288,6 +288,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : rendez-vous psy (046) ; iCal de l'emploi du temps.
 - **Place** : attendu par les familles ; sert l'orientation (37), le suivi (36), la visio (33).
 - **Faire mieux** : soirée parents-professeurs planifiée sans tableur.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/19_AGENDA_RDV.md` (agenda **calculé** depuis les socles propriétaires, moteur unique de créneaux pour rendez-vous, rencontres parents-professeurs, sessions, rendez-vous d'inscription du 3 ; réunions et instances avec délais réglementaires ; **réservation de lieux portée par le 19** — reprise du module Next.js fiable, le 44 garde le matériel ; programmes d'interventions (refonte du « planning par domaines ») ; parents séparés et interdictions ; 227 actions AGD-100 à AGD-341 ; lots AG0 à AG12 ; lot AG0 = 11 correctifs de `rencontres.rs`). Passe personas : `docs/socles/PERSONAS_19.md` (70 manques, 4 bloquants). Migrations 2380–2399.
 
 ### Étage E — Apprendre et évaluer
 

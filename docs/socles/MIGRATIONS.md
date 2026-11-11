@@ -331,3 +331,9 @@ Plages **imposées par le pilote** dans la consigne de lancement (sessions de co
 **Abandonnées** : 4700–4799 et 500–519 (réservées pour le socle 17 par `16_MESSAGERIE.md` §27.2) — `500` est déjà pris par `500_objet_registre`.
 **`MIGRATION_TAG`** : ces numéros sont plus hauts que toutes les migrations écrites à ce jour ; le premier lot écrit dans 2340+ deviendra la plus haute migration du répertoire (à intégrer en ordre croissant dans `migrate.rs`).
 **Exceptions D-036** : **aucune** demandée (critères d'audience, attentes, traductions, questions, options, conditions en tables ; réponses en valeurs typées à colonne unique contrôlée — justification : `18_FORMULAIRES.md` §27). Les tableaux `ent_campagne.canaux`, `ent_campagne.cible_ids` (191) et `ent_formulaire.cible_ids` (193) ne sont pas repris : classés « à retirer » au lot de retrait (2359, 2379).
+## Réservation du 2026-11-11 (socle 19, conception, branche `ent-socle-19-conception`)
+Plage **imposée par le pilote** pour éviter les collisions entre les sessions de conception lancées en parallèle le 2026-11-11.
+
+| Plage | Attribution | Branche | État |
+|---|---|---|---|
+| **2380–2399** | socle 19 agenda, réunions et rendez-vous (`docs/socles/19_AGENDA_RDV.md` §28.2) : **2380** AG0 correctifs des rencontres (fil en ajout seul, FK composite élève, `RESTRICT`) ; **2381** événements ; **2382** réunions ; **2383** disponibilités ; **2384** rendez-vous ; **2385** offres et créneaux (`btree_gist`, exclusion) ; **2386** réservations de lieux ; **2387** programmes d'interventions ; **2388** reprise Next.js ; **2389** bascule de 192 ; 2390–2399 réserve | `ent-socle-19-conception` (conception seulement) | **réservée**, aucune migration écrite ; aucune colonne JSON prévue (D-036), aucune exception à déclarer |
