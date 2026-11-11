@@ -88,7 +88,10 @@ async fn rejouer_les_migrations_ne_ressuscite_aucune_colonne_retiree() {
         .fetch_all(ent.pool())
         .await
         .unwrap();
-    assert_eq!(figes.len(), 13, "13 fichiers figés : {figes:?}");
+    assert_eq!(figes.len(), 10, "10 fichiers figés : {figes:?}");
+    for libre in ["250_inscriptions_i0", "275_personne_verification_preferences", "304_inscription_demarche_dossier"] {
+        assert!(!figes.iter().any(|(n,)| n == libre), "{libre} porte une reprise rejouée : ne pas le figer");
+    }
     assert!(figes.iter().any(|(n,)| n == "560_delegation_droits_normalises"));
     assert!(figes.iter().any(|(n,)| n == "667_d036_personne_fusion_normalisee"));
 }
@@ -174,7 +177,7 @@ async fn base_neuve_puis_deux_demarrages_de_suite() {
         assert!(sans_colonnes_retirees(ent.pool()).await, "démarrage {tour} : colonne retirée présente");
     }
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_migration_figee").fetch_one(ent.pool()).await.unwrap();
-    assert_eq!(n, 13);
+    assert_eq!(n, 10);
     drop(ent);
     supprimer_base(&admin, &nom).await;
 }

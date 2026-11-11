@@ -1,7 +1,8 @@
 -- D-036 — fichiers de migration FIGÉS. Les migrations sont rejouées à chaque démarrage ; les fichiers
--- ci-dessous lisent ou recréent les anciennes colonnes JSON retirées par 668 et 669 (reprise des
--- données, `ADD COLUMN IF NOT EXISTS`, déclencheurs) : les rejouer échouerait, ou ressusciterait une
--- colonne retirée. Le lanceur (`migrate.rs`) saute les fichiers listés ici. Sur une base neuve, ils
+-- ci-dessous LISENT les anciennes colonnes JSON retirées par 668 et 669 (reprise des données) : les
+-- rejouer échouerait. (Les fichiers 250, 275 et 304 ne font que recréer une colonne par
+-- `ADD COLUMN IF NOT EXISTS` : on ne les fige PAS, ils portent d'autres reprises rejouées à chaque
+-- démarrage ; 668 et 669 retirent aussitôt la colonne recréée.) Le lanceur (`migrate.rs`) saute les fichiers listés ici. Sur une base neuve, ils
 -- sont joués dans l'ordre (avant 668) ; sur une base existante, ils ont déjà été joués. Aucun fichier
 -- n'est modifié (règle : une migration versée ne se modifie plus).
 --
@@ -14,9 +15,6 @@ CREATE TABLE IF NOT EXISTS ent_migration_figee (
 );
 
 INSERT INTO ent_migration_figee (nom, raison) VALUES
-    ('250_inscriptions_i0', 'ADD COLUMN resolutions (retirée par 668)'),
-    ('275_personne_verification_preferences', 'ADD COLUMN joignable (retirée par 669)'),
-    ('304_inscription_demarche_dossier', 'ADD COLUMN scolarite_actuelle (retirée par 668)'),
     ('560_delegation_droits_normalises', 'reprise lue sur ent_delegation.droits (retirée par 668)'),
     ('561_inscription_resolution', 'reprise lue sur ent_inscription_dossier.resolutions (retirée par 668)'),
     ('562_inscription_scolarite_actuelle', 'reprise lue sur scolarite_actuelle (retirée par 668)'),
