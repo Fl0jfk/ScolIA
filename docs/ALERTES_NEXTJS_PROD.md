@@ -364,6 +364,15 @@ Mesure : faire relire par la comptabilité les factures de cantine et les budget
 
 ---
 
+## 5 bis. Ajouts du 2026-11-11 (conceptions 43 et 44, non classés dans les décomptes ci-dessus)
+
+Source : `43_PERISCOLAIRE_TRANSPORTS.md` et `44_RESSOURCES_MATERIELLES.md` (§2), lecture de code, non testé.
+
+- **NJ-76 (élevé) — Réservation de salles : n'importe quel compte connecté peut annuler ou modifier la réservation d'un autre** (DRM-14, DRM-15). Le serveur vérifie seulement que la session existe, pas que la réservation appartient à l'utilisateur. À reprendre au socle 19.
+- **NJ-77 (moyen) — Photocopies : la file d'attente affiche les demandes de tous les sites** (DRM-01).
+- **NJ-78 (élevé) — Photocopies : on peut rattacher à sa demande le PDF déposé par quelqu'un d'autre** (DRM-02).
+- **NJ-79 (élevé) — Partenariats : l'inscription publique fonctionne sans authentification** (DPS-17).
+
 ## 6. Non vérifié (hypothèses des sources)
 
 Ces points sont présentés par les sources comme **probables**, **à confirmer** ou déduits. Florian doit les faire vérifier avant de décider.
