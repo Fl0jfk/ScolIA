@@ -35,21 +35,21 @@ use crate::voyages::{
     ROLES_ENCADRANT, TYPES_ETAPE,
 };
 
-fn refus(nature: RefusMetier, msg: &'static str) -> EntDbError {
+pub(crate) fn refus(nature: RefusMetier, msg: &'static str) -> EntDbError {
     EntDbError::Refus(nature, msg)
 }
 
-fn interdit() -> EntDbError {
+pub(crate) fn interdit() -> EntDbError {
     EntDbError::Forbidden
 }
 
-async fn tx(e: &PgEnt, a: &Acteur<'_>) -> Result<TenantTx<'static>, EntDbError> {
+pub(crate) async fn tx(e: &PgEnt, a: &Acteur<'_>) -> Result<TenantTx<'static>, EntDbError> {
     TenantTx::begin(e.pool(), a.etablissement_id)
         .await
         .map_err(db)
 }
 
-fn texte(v: &str, max: usize) -> Result<String, EntDbError> {
+pub(crate) fn texte(v: &str, max: usize) -> Result<String, EntDbError> {
     let t = v.trim();
     if t.is_empty() || t.chars().count() > max {
         return Err(invalide());
@@ -57,7 +57,7 @@ fn texte(v: &str, max: usize) -> Result<String, EntDbError> {
     Ok(t.to_string())
 }
 
-fn texte_opt(v: Option<&str>, max: usize) -> Result<Option<String>, EntDbError> {
+pub(crate) fn texte_opt(v: Option<&str>, max: usize) -> Result<Option<String>, EntDbError> {
     match v.map(str::trim).filter(|s| !s.is_empty()) {
         None => Ok(None),
         Some(s) if s.chars().count() > max => Err(invalide()),
@@ -167,7 +167,7 @@ pub struct SortieLigne {
 }
 
 impl SortieLigne {
-    fn contexte(&self) -> Contexte<'_> {
+    pub(crate) fn contexte(&self) -> Contexte<'_> {
         Contexte {
             nature: &self.nature,
             forme: &self.forme,
@@ -339,6 +339,11 @@ pub struct ParamsCommande {
     /// Étape visée (réouverture).
     #[serde(default)]
     pub vers: Option<String>,
+    /// Version de budget lue par la comptabilité (`valider-budget`) : on valide ce qu'on a lu.
+    #[serde(default)]
+    pub budget_numero: Option<i32>,
+    #[serde(default)]
+    pub budget_rev: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -434,23 +439,23 @@ pub struct EnSortie {
 
 // ───────────────────────── Droits ─────────────────────────
 
-struct Acces {
-    porteur: bool,
-    encadrant: bool,
-    d: HashSet<Action>,
+pub(crate) struct Acces {
+    pub(crate) porteur: bool,
+    pub(crate) encadrant: bool,
+    pub(crate) d: HashSet<Action>,
 }
 
 impl Acces {
-    fn a(&self, x: Action) -> bool {
+    pub(crate) fn a(&self, x: Action) -> bool {
         self.d.contains(&x)
     }
 
-    fn detail(&self) -> bool {
+    pub(crate) fn detail(&self) -> bool {
         self.porteur || self.encadrant || self.a(Action::VoyagesLire)
     }
 
     /// Droit « de gestion » : le porteur, ou le droit d'établissement donné.
-    fn gere(&self, x: Action) -> bool {
+    pub(crate) fn gere(&self, x: Action) -> bool {
         self.porteur || self.a(x)
     }
 
@@ -589,7 +594,7 @@ fn commandes_disponibles(s: &SortieLigne, acces: &Acces) -> Vec<CommandeDispo> {
 }
 
 impl PgEnt {
-    async fn voyages_droits(&self, a: &Acteur<'_>) -> Result<HashSet<Action>, EntDbError> {
+    pub(crate) async fn voyages_droits(&self, a: &Acteur<'_>) -> Result<HashSet<Action>, EntDbError> {
         let droits = self
             .droits_effectifs(a.etablissement_id, a.user_id, a.role)
             .await?;
@@ -600,7 +605,7 @@ impl PgEnt {
             .collect())
     }
 
-    async fn voyages_exiger(&self, a: &Acteur<'_>, x: Action) -> Result<(), EntDbError> {
+    pub(crate) async fn voyages_exiger(&self, a: &Acteur<'_>, x: Action) -> Result<(), EntDbError> {
         if self.voyages_droits(a).await?.contains(&x) {
             Ok(())
         } else {
@@ -609,7 +614,7 @@ impl PgEnt {
     }
 }
 
-async fn personne_de(conn: &mut PgConnection, a: &Acteur<'_>) -> Result<Option<Uuid>, EntDbError> {
+pub(crate) async fn personne_de(conn: &mut PgConnection, a: &Acteur<'_>) -> Result<Option<Uuid>, EntDbError> {
     sqlx::query_scalar(
         "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2 AND fusionnee_dans IS NULL",
     )
@@ -687,7 +692,7 @@ async fn charger(
 
 /// Un autre établissement, ou une sortie dont on n'a pas le détail : « introuvable » (jamais de
 /// fuite d'existence, §21.4).
-async fn charger_avec_acces(
+pub(crate) async fn charger_avec_acces(
     e: &PgEnt,
     conn: &mut PgConnection,
     a: &Acteur<'_>,
@@ -705,18 +710,18 @@ async fn charger_avec_acces(
 
 // ───────────────────────── Journal et événements ─────────────────────────
 
-struct Fait<'a> {
-    action: &'a str,
-    etat_avant: Option<&'a str>,
-    etat_apres: Option<&'a str>,
-    champ: Option<&'a str>,
-    avant: Option<String>,
-    apres: Option<String>,
-    motif: Option<&'a str>,
+pub(crate) struct Fait<'a> {
+    pub(crate) action: &'a str,
+    pub(crate) etat_avant: Option<&'a str>,
+    pub(crate) etat_apres: Option<&'a str>,
+    pub(crate) champ: Option<&'a str>,
+    pub(crate) avant: Option<String>,
+    pub(crate) apres: Option<String>,
+    pub(crate) motif: Option<&'a str>,
 }
 
 impl<'a> Fait<'a> {
-    fn simple(action: &'a str) -> Self {
+    pub(crate) fn simple(action: &'a str) -> Self {
         Self {
             action,
             etat_avant: None,
@@ -733,7 +738,7 @@ fn borne(s: Option<String>) -> Option<String> {
     s.map(|t| t.chars().take(2000).collect())
 }
 
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     sortie: Uuid,
@@ -762,7 +767,7 @@ async fn journaliser(
 }
 
 /// Publie un fait `voyages.*` dans la transaction du fait. Aucune identité d'élève.
-async fn publier(
+pub(crate) async fn publier(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     type_name: &str,
@@ -1657,6 +1662,7 @@ impl PgEnt {
         let mut liste = (s.liste_confirmee_le, s.liste_confirmee_par_user_id);
         let mut contournement = s.contournement_devis_motif.clone();
         let mut besoin_car = s.besoin_car;
+        let mut extra: Vec<MetierEvent> = Vec::new();
         let evenement: &str;
         let motif_requis = |m: &Option<String>| -> Result<String, EntDbError> {
             m.clone()
@@ -1767,9 +1773,20 @@ impl PgEnt {
                 evenement = "voyages.passee_aux_finances";
             }
             Commande::ValiderBudget => {
-                // La version de budget validée (R-SV15, R-SV17) est le lot V0b.
                 if !acces.a(Action::VoyagesBudgetValider) {
                     return Err(interdit());
+                }
+                // V0b : on valide la version de budget lue (équilibrée, R-SV15), qui est figée (R-SV17).
+                if let Some(ev) = crate::voyages_budget_repo::valider_pour_commande(
+                    &mut t,
+                    a,
+                    &s,
+                    p.budget_numero,
+                    p.budget_rev,
+                )
+                .await?
+                {
+                    extra.push(ev);
                 }
                 etat = "a_autoriser".into();
                 evenement = "voyages.budget_valide";
@@ -1777,6 +1794,19 @@ impl PgEnt {
             Commande::Autoriser => {
                 if !acces.a(Action::VoyagesAutoriser) {
                     return Err(interdit());
+                }
+                // V0b : un budget validé est exigé, et le prix annoncé aux familles est figé (NX-55).
+                if ctx.a_budget() {
+                    if let Some(ev) = crate::voyages_budget_repo::figer_a_l_autorisation(
+                        &mut t,
+                        a,
+                        &s,
+                        motif.as_deref(),
+                    )
+                    .await?
+                    {
+                        extra.push(ev);
+                    }
                 }
                 etat = crate::voyages::apres_autorisation(s.liste_confirmee_le.is_some()).into();
                 evenement = "voyages.autorisee";
@@ -1877,7 +1907,8 @@ impl PgEnt {
         )
         .await?;
         t.commit().await.map_err(db)?;
-        self.diffuser_apres_commit(&[ev]);
+        extra.push(ev);
+        self.diffuser_apres_commit(&extra);
         Ok(maj)
     }
 
@@ -3070,7 +3101,7 @@ impl PgEnt {
     /// VOY-170 (NX-59), version V0a **sans fichier** : le texte de la circulaire aux familles, généré
     /// depuis les champs du séjour (jamais depuis un texte venu du navigateur). **Corrige le défaut de
     /// Next.js** (génération sans contrôle de droits) : réservé au porteur ou à ceux qui gèrent les
-    /// sorties, et seulement une fois la sortie `ouverte` (R-SV5). Le PDF est le lot V0b.
+    /// sorties, et seulement une fois la sortie `ouverte` (R-SV5). Le PDF est `voyage_circulaire_pdf` (lot V0b).
     pub async fn voyage_circulaire(
         &self,
         a: &Acteur<'_>,
@@ -3087,43 +3118,11 @@ impl PgEnt {
                 "La circulaire aux familles se prépare une fois la sortie autorisée.",
             ));
         }
-        let (debut, fin): (String, String) = sqlx::query_as(
-            "SELECT to_char($1::timestamptz AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY à HH24:MI'),
-                    to_char($2::timestamptz AT TIME ZONE 'Europe/Paris', 'DD/MM/YYYY à HH24:MI')",
-        )
-        .bind(s.debut)
-        .bind(s.fin)
-        .fetch_one(&mut *t)
-        .await
-        .map_err(db)?;
-        let mut corps = format!(
-            "Madame, Monsieur,\n\nNous organisons la sortie « {} ».\n\n",
-            s.titre
-        );
-        corps.push_str(&format!("Départ : {debut}\nRetour : {fin}\n"));
-        if let Some(d) = &s.destination_libelle {
-            corps.push_str(&format!("Destination : {d}\n"));
-        }
-        if let Some(r) = &s.point_rendez_vous {
-            corps.push_str(&format!("Rendez-vous : {r}\n"));
-        }
-        if let Some(o) = &s.objectifs {
-            corps.push_str(&format!("\nObjectifs : {o}\n"));
-        }
-        if let Some(p) = &s.programme_libelle {
-            corps.push_str(&format!("\nProgramme : {p}\n"));
-        }
-        if let Some(c) = &s.consignes_transport {
-            corps.push_str(&format!("\nConsignes : {c}\n"));
-        }
-        if s.nature == "facultative" {
-            corps.push_str("\nCette sortie est facultative : l'autorisation d'un responsable légal est demandée.\n");
-        }
-        corps.push_str("\nNous restons à votre disposition.\n");
+        let (titre, corps) = crate::voyages_budget_repo::composer_circulaire(&mut t, a, &s).await?;
         journaliser(&mut t, a, id, Fait::simple("circulaire_generee")).await?;
         t.commit().await.map_err(db)?;
         Ok(Circulaire {
-            titre: format!("Circulaire — {}", s.titre),
+            titre,
             reference: s.reference,
             corps,
         })

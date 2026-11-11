@@ -239,6 +239,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/640_sortie_coeur.sql"),
     include_str!("../../../migrations/641_sortie_participants.sql"),
     include_str!("../../../migrations/642_sortie_encadrants.sql"),
+    include_str!("../../../migrations/643_sortie_budget.sql"),
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
 ];
 
