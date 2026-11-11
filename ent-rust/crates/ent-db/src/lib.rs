@@ -23,6 +23,7 @@ mod tests_evaluations_v0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
+pub mod agenda;
 pub mod rencontres;
 mod champs_chiffres;
 mod annonce_repo;
@@ -63,6 +64,8 @@ mod tests_l6;
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_agenda_ag1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0a;
 #[cfg(all(test, feature = "labo"))]

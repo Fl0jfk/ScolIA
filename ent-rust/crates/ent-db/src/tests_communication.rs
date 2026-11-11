@@ -47,7 +47,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 /// Repart d'un état propre pour les tables du lot (la base de test est réutilisée).
 async fn reset(ent: &PgEnt, etab: Uuid) {
     // Fil des faits des rendez-vous (ajout seul, clé étrangère vers les créneaux) : à vider d'abord.
-    crate::rencontres::vider_faits_rdv_pour_tests(ent.pool(), etab).await;
+    crate::tests_agenda_ag0::vider_faits_rdv_pour_tests(ent.pool(), etab).await;
     for t in [
         "ent_notification_envoi",
         "ent_campagne",

@@ -1316,26 +1316,6 @@ pub(crate) fn sms_autorise(kind: &str, par_organisateur: bool, avant_debut: Dura
     kind == "rdv_annule" && par_organisateur && avant_debut <= Duration::hours(24)
 }
 
-/// Vide le fil des faits d'un établissement (tests de labo seulement : la table est en ajout seul).
-#[cfg(all(test, feature = "labo"))]
-pub(crate) async fn vider_faits_rdv_pour_tests(pool: &sqlx::PgPool, etab: Uuid) {
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("ALTER TABLE ent_rdv_fait DISABLE TRIGGER ent_rdv_fait_immuable")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM ent_rdv_fait WHERE etablissement_id = $1")
-        .bind(etab)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("ALTER TABLE ent_rdv_fait ENABLE TRIGGER ent_rdv_fait_immuable")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-}
-
 /// Contenu d'un avis de rendez-vous.
 struct AvisRdv<'a> {
     kind: &'static str,

@@ -851,6 +851,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::eleve_fusion::routes());
     // Communication complète (S2-8, module séparé : `communication_s28.rs`).
     let r = r.merge(crate::communication_s28::routes());
+    // Agenda : événements, séries, audience, vue calculée (socle 19, lot AG1 : `agenda.rs`).
+    let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).
     let r = r.merge(crate::finances::routes());
     // Santé et accompagnement (S2-11, module séparé : `sante.rs`).

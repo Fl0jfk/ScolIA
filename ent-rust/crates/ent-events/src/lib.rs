@@ -393,6 +393,8 @@ pub enum AggregateKind {
     Import,
     /// Sortie ou voyage scolaire collectif (socle 42, lot V0a).
     Voyage,
+    /// Événement ou réunion de l'agenda (socle 19, lot AG1). Charge utile : identifiants seulement.
+    AgendaEvenement,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

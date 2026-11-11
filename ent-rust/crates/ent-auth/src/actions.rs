@@ -202,6 +202,18 @@ pub enum Action {
     NotesCorriger,
     /// Exporter les livrets (LSU, LSL), EVA-12.
     LivretsExporter,
+    // ── Socle 19, lot AG1 : agenda (19_AGENDA_RDV.md §21.1) ─────────────────
+    /// Créer des événements et des réunions (brouillon, puis invitations nominatives) : tout le personnel.
+    AgendaEvenementsCreer,
+    /// Publier un événement à une audience (classes, niveau, établissement, personnels) : direction, CPE ;
+    /// un rôle paramétré (D-017) peut l'accorder à un professeur principal pour sa classe.
+    AgendaEvenementsPublier,
+    /// Lire l'agenda d'une classe ou d'un groupe (non nominatif) : tout le personnel.
+    AgendaLireStructure,
+    /// Lire les journaux de l'agenda : direction, administrateur.
+    AgendaJournalLire,
+    /// Paramétrer l'agenda (types d'événements de l'établissement) : administrateur.
+    AgendaParametrer,
     // ── S2-8 : communication complète ───────────────────────────────────────
     /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
     CampagnesLancer,
@@ -315,7 +327,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 132] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -396,6 +408,11 @@ impl Action {
         Action::BulletinsPublier,
         Action::NotesCorriger,
         Action::LivretsExporter,
+        Action::AgendaEvenementsCreer,
+        Action::AgendaEvenementsPublier,
+        Action::AgendaLireStructure,
+        Action::AgendaJournalLire,
+        Action::AgendaParametrer,
         Action::CampagnesLancer,
         Action::RencontresGerer,
         Action::FormulairesGerer,
@@ -547,6 +564,11 @@ impl Action {
             Self::BulletinsPublier => "bulletins.publier",
             Self::NotesCorriger => "notes.corriger",
             Self::LivretsExporter => "livrets.exporter",
+            Self::AgendaEvenementsCreer => "agenda.evenements.creer",
+            Self::AgendaEvenementsPublier => "agenda.evenements.publier",
+            Self::AgendaLireStructure => "agenda.lire_structure",
+            Self::AgendaJournalLire => "agenda.journal.lire",
+            Self::AgendaParametrer => "agenda.parametrer",
             Self::CampagnesLancer => "campagnes.lancer",
             Self::RencontresGerer => "rencontres.gerer",
             Self::FormulairesGerer => "formulaires.gerer",
@@ -680,6 +702,11 @@ impl Action {
             Self::BulletinsPublier => "Générer et publier les bulletins",
             Self::NotesCorriger => "Corriger une note après fermeture de la période",
             Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
+            Self::AgendaEvenementsCreer => "Créer des événements et des réunions dans l'agenda",
+            Self::AgendaEvenementsPublier => "Publier un événement à une audience (classes, niveau, établissement)",
+            Self::AgendaLireStructure => "Consulter l'agenda d'une classe ou d'un groupe (sans noms d'élèves)",
+            Self::AgendaJournalLire => "Consulter les journaux de l'agenda",
+            Self::AgendaParametrer => "Paramétrer l'agenda (types d'événements de l'établissement)",
             Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
             Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
@@ -765,6 +792,10 @@ impl Action {
             | Self::ReferentielLire
             | Self::ReferentielGerer
             | Self::CahierViser
+            | Self::AgendaEvenementsCreer
+            | Self::AgendaLireStructure
+            | Self::AgendaJournalLire
+            | Self::AgendaParametrer
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
@@ -969,6 +1000,20 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
+    // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
+    // direction ; types d'événements de l'établissement : administrateur.
+    d.push(etab(AgendaEvenementsCreer));
+    d.push(etab(AgendaLireStructure));
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(AgendaEvenementsPublier));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaJournalLire));
+    }
+    if role == Role::Admin {
+        d.push(etab(AgendaParametrer));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -2045,6 +2090,37 @@ mod oracle_a1 {
         assert!(modele_par_defaut(Role::Direction).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence));
         // Familles et élèves : aucun droit paramétrable.
         assert!(modele_par_defaut(Role::Parent).is_empty() && modele_par_defaut(Role::Eleve).is_empty());
+    }
+
+    /// Socle 19, lot AG1 : modèles par défaut des actions `agenda.*` (`19_AGENDA_RDV.md` §21.1).
+    #[test]
+    fn agenda_ag1_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        // Créer un événement et lire la structure : tout le personnel, jamais une famille ni un élève.
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            assert!(a(r, AgendaEvenementsCreer), "{r:?} agenda.evenements.creer");
+            assert!(a(r, AgendaLireStructure), "{r:?} agenda.lire_structure");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).is_empty(), "{r:?} : aucun droit paramétrable");
+        }
+        // Publier à une audience : direction et CPE ; pas un professeur ni l'accueil.
+        for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, true), (Role::Prof, false), (Role::Accueil, false), (Role::Administratif, false)] {
+            assert_eq!(a(r, AgendaEvenementsPublier), attendu, "{r:?} publier");
+        }
+        // Journaux : direction ; paramétrage : administrateur seul.
+        for (r, j, p) in [(Role::Admin, true, true), (Role::Direction, true, false), (Role::Cpe, false, false), (Role::Prof, false, false)] {
+            assert_eq!(a(r, AgendaJournalLire), j, "{r:?} journal");
+            assert_eq!(a(r, AgendaParametrer), p, "{r:?} parametrer");
+        }
+        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer] {
+            assert!(x.code().starts_with("agenda."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+        }
+        // Publier accepte la portée « mes classes » (un professeur principal par rôle paramétré).
+        assert!(AgendaEvenementsPublier.portees_admises().contains(&Portee::MesClasses));
+        assert_eq!(AgendaEvenementsCreer.portees_admises(), &[Portee::Etablissement]);
     }
 
     /// Socle 42, lot V0a : modèles par défaut des onze actions `voyages.*` (`42_SORTIES_VOYAGES.md` §21.1).
