@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getJson, putJson, putObject, getObjectBytes, getSignedReadUrl } from "@/app/lib/s3-storage";
+import { keyHasAllowedPrefix } from "@/app/lib/s3-path";
 import { draftDisplayTitle } from "@/app/lib/posters/catalog";
 import type {
   GeneratedPoster,
@@ -165,14 +166,16 @@ export async function resolvePosterDraftAssetUrls(draft: PosterDraft): Promise<{
   let partnerLogoUrl: string | null = null;
   let backgroundImageUrl: string | null = null;
 
-  if (draft.partnerLogoKey) {
+  // NJ-39 : on ne signe que les objets de posters/assets/.
+  const okKey = (k: string | null | undefined): k is string => Boolean(k) && keyHasAllowedPrefix(k as string, ["posters/assets"]);
+  if (okKey(draft.partnerLogoKey)) {
     partnerLogoUrl = (await getSignedReadUrl(draft.partnerLogoKey, 3600)) || null;
   }
-  if (draft.backgroundImageKey) {
+  if (okKey(draft.backgroundImageKey)) {
     backgroundImageUrl = (await getSignedReadUrl(draft.backgroundImageKey, 3600)) || null;
   }
   for (const el of draft.elements) {
-    if (el.imageKey && !imageUrls[el.imageKey]) {
+    if (okKey(el.imageKey) && !imageUrls[el.imageKey]) {
       const url = await getSignedReadUrl(el.imageKey, 3600);
       if (url) imageUrls[el.imageKey] = url;
     }

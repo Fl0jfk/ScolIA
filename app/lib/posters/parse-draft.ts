@@ -1,3 +1,4 @@
+import { keyHasAllowedPrefix } from "@/app/lib/s3-path";
 import {
   clampElementBox,
   defaultPosterDraft,
@@ -37,15 +38,17 @@ function parseElement(raw: unknown): PosterElement | null {
     w: Number.isFinite(w) ? w : 0.2,
     h: Number.isFinite(h) ? h : 0.1,
     text: typeof e.text === "string" ? e.text.slice(0, 800) : undefined,
-    imageKey:
-      typeof e.imageKey === "string" && e.imageKey.trim()
-        ? e.imageKey.trim().slice(0, 500)
-        : e.imageKey === null
-          ? null
-          : undefined,
+    imageKey: safePosterAssetKey(e.imageKey) ?? (e.imageKey === undefined ? undefined : null),
     align: asAlign(e.align),
     fontScale: Number.isFinite(fontScale) ? fontScale : undefined,
   });
+}
+
+/** NJ-39 : une clé d'image d'affiche doit être sous posters/assets/ (jamais un autre objet du stockage). */
+function safePosterAssetKey(v: unknown): string | null {
+  if (typeof v !== "string" || !v.trim()) return null;
+  const k = v.trim().slice(0, 500);
+  return keyHasAllowedPrefix(k, ["posters/assets"]) ? k : null;
 }
 
 /** Parse / normalise un draft client → PosterDraft sûr. */
@@ -75,14 +78,8 @@ export function parsePosterDraft(raw: unknown): PosterDraft {
   draft.textColor = String(b.textColor || draft.textColor).slice(0, 20);
   draft.gradientTo = String(b.gradientTo || draft.gradientTo).slice(0, 20);
 
-  draft.backgroundImageKey =
-    typeof b.backgroundImageKey === "string" && b.backgroundImageKey.trim()
-      ? b.backgroundImageKey.trim().slice(0, 500)
-      : null;
-  draft.partnerLogoKey =
-    typeof b.partnerLogoKey === "string" && b.partnerLogoKey.trim()
-      ? b.partnerLogoKey.trim().slice(0, 500)
-      : null;
+  draft.backgroundImageKey = safePosterAssetKey(b.backgroundImageKey);
+  draft.partnerLogoKey = safePosterAssetKey(b.partnerLogoKey);
 
   const op = Number(b.overlayOpacity);
   draft.overlayOpacity = Number.isFinite(op) ? Math.min(0.85, Math.max(0, op)) : 0.45;
