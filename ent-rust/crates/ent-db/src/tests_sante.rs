@@ -41,6 +41,7 @@ const TOUS_SENTINELLES: [&str; 9] = [
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
+    ent.activer_module_sante_test(cast.etablissement_id).await;
     Some((ent, cast))
 }
 

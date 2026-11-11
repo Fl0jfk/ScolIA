@@ -84,3 +84,21 @@ impl PgEnt {
         }
     }
 }
+
+#[cfg(test)]
+impl PgEnt {
+    /// Tests : active le module santé d'un établissement sans acteur (le verrou D-02 le demande).
+    pub(crate) async fn activer_module_sante_test(&self, etablissement_id: Uuid) {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.expect("tx");
+        sqlx::query(
+            "INSERT INTO ent_module_etablissement (etablissement_id, module, actif)
+             VALUES ($1, 'sante', true)
+             ON CONFLICT (etablissement_id, module) DO UPDATE SET actif = true",
+        )
+        .bind(etablissement_id)
+        .execute(&mut *tx)
+        .await
+        .expect("activation module santé");
+        tx.commit().await.expect("commit");
+    }
+}

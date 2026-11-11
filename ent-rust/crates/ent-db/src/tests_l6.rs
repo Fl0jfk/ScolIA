@@ -124,6 +124,7 @@ async fn consultation_pai_et_fiche_sante_sont_tracees() {
         return;
     };
     let etab = Uuid::new_v4();
+    ent.activer_module_sante_test(etab).await;
     let eleve = ent
         .create_eleve(CreateEleve {
             etablissement_id: etab,
