@@ -18,7 +18,7 @@ Vague 2, lancée à 06:54 UTC :
 | 11 | session_01KZCbFE1mexfeJR425e5jGc | ent-socle-11-conception |
 | 26 | session_01KZCbFHc2WLavoidkFZ7awq | ent-socle-26-conception |
 | 27–28 | session_01KZCbFHGXjrJWJPwzKRromu | ent-socle-27-28-conception  fusionnée 11-11 09:30, archivée |
-| 30–31 | session_01KZCbFGmAAD8eJTMxNuRd7d | ent-socle-30-31-conception |
+| 30–31 | session_01KZCbFGmAAD8eJTMxNuRd7d | ent-socle-30-31-conception  fusionnée 11-11 10:50, archivée |
 | 32–33 | session_01KZCbFFxrb91W7184yjpWgh | ent-socle-32-33-conception |
 | 35–36 | session_01KZCbFEvr1YuoiGKLSYdpSk | ent-socle-35-36-conception |
 | 37–38 | session_01KZCbFHRUzwZuv2qDzBqFe7 | ent-socle-37-38-conception |
@@ -27,7 +27,7 @@ Vague 2, lancée à 06:54 UTC :
 | 45–46 | session_01KZCbFHEwzDDz1fVy6HTh51 | ent-socle-45-46-conception |
 | 47 | session_01KZCbFHBwfr18xyHRXz5eHJ | ent-socle-47-conception |
 | 48–49 | session_01KZCbFGz8FwSLqy4abXtHpU | ent-socle-48-49-conception  fusionnée ; révision D-047/D-048 en cours : session_01KZCbFDTPFFCr98WCcQnQhD (ent-socle-48-49-revision) |
-| 50–51 | session_01KZCbFDDfV5vEsgCiemjMkD | ent-socle-50-51-conception |
+| 50–51 | session_01KZCbFDDfV5vEsgCiemjMkD | ent-socle-50-51-conception  fusionnée 11-11 10:50, archivée |
 
 Après la vague 2, les 51 socles sont conçus.
 
