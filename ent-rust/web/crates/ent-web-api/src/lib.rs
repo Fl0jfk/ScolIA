@@ -30,6 +30,7 @@ mod evaluations;
 mod finances;
 mod inscriptions;
 mod journee_vs;
+mod portail;
 mod referentiel;
 mod referentiel_admin;
 mod roles;
@@ -88,6 +89,7 @@ pub use ent_types::dossier::{
     SectionsDto,
 };
 pub use ent_types::edt::EdtCreneauDto as Creneau;
+pub use ent_types::portail as types_portail;
 /// Types des finances (S2-9), partagés avec `ent-api`.
 pub use ent_types::finances as types_finances;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.

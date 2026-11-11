@@ -1,92 +1,66 @@
-//! Logique de l'accueil (pure, testée) : messages récents.
+//! Logique de l'accueil (pure, testée en natif) : correspondances entre les vues du serveur
+//! (`ent-types::portail`) et l'affichage. Aucune règle de droit ici : le serveur ne renvoie que
+//! les tuiles permises.
 
-use ent_web_api::FilMessages;
+use ent_web_api::types_portail::{ProfilPortail, TonLigne};
+use ent_web_ui::Largeur;
 
-/// Fils non archivés, les plus récents d'abord, et total des messages non lus.
-pub fn fils_recents(mut fils: Vec<FilMessages>, max: usize) -> (Vec<FilMessages>, i64) {
-    fils.retain(|f| !f.archive);
-    let non_lus = fils.iter().map(|f| f.nb_non_lus.max(0)).sum();
-    fils.sort_by(|a, b| b.last_message_at.cmp(&a.last_message_at));
-    fils.truncate(max);
-    (fils, non_lus)
-}
-
-/// « 1 message non lu », « 3 messages non lus », « Aucun message non lu ».
-pub fn libelle_non_lus(n: i64) -> String {
-    match n {
-        0 => "Aucun message non lu".into(),
-        1 => "1 message non lu".into(),
-        n => format!("{n} messages non lus"),
+/// Largeur Bento proposée par le serveur (4, 6, 8, 12) ; toute autre valeur donne 12 colonnes.
+pub fn largeur(colonnes: u8) -> Largeur {
+    match colonnes {
+        4 => Largeur::Quatre,
+        6 => Largeur::Six,
+        8 => Largeur::Huit,
+        _ => Largeur::Douze,
     }
 }
 
-/// « Aucun élève absent », « 1 élève absent », « 7 élèves absents ».
-pub fn libelle_absents(n: usize) -> String {
-    match n {
-        0 => "Aucun élève absent".into(),
-        1 => "1 élève absent".into(),
-        n => format!("{n} élèves absents"),
+/// Classe CSS d'une ligne selon son ton (le sens reste porté par le libellé, pas seulement la couleur).
+pub fn classe_ton(ton: TonLigne) -> &'static str {
+    match ton {
+        TonLigne::Neutre => "ui-liste__element",
+        TonLigne::Attention => "ui-liste__element accueil-ligne--attention",
+        TonLigne::Alerte => "ui-liste__element accueil-ligne--alerte",
     }
 }
 
-/// « Aucune absence à justifier », « 3 absences à justifier ».
-pub fn libelle_a_justifier(n: usize) -> String {
-    match n {
-        0 => "Aucune absence à justifier".into(),
-        1 => "1 absence à justifier".into(),
-        n => format!("{n} absences à justifier"),
+/// « 3 absences à justifier » → « absences à justifier » : le chiffre est affiché à part, en grand.
+pub fn sans_nombre(principal: &str) -> String {
+    let t = principal.trim_start();
+    let reste = t.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start();
+    if reste.len() < t.len() && !reste.is_empty() {
+        reste.to_string()
+    } else {
+        t.to_string()
     }
 }
 
-/// « Aucun justificatif en attente », « 2 justificatifs en attente ».
-pub fn libelle_en_attente(n: usize) -> String {
-    match n {
-        0 => "Aucun justificatif en attente".into(),
-        1 => "1 justificatif en attente".into(),
-        n => format!("{n} justificatifs en attente"),
-    }
+/// Le professeur garde la tuile « Faire l'appel » de la séance en cours.
+pub fn est_professeur(profil: ProfilPortail) -> bool {
+    profil == ProfilPortail::Professeur
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
 
     #[test]
-    fn messages_recents_et_non_lus() {
-        let fil = |sujet: &str, date: &str, non_lus: i64, archive: bool| FilMessages {
-            id: Uuid::from_u128(1),
-            eleve_label: None,
-            sujet: sujet.into(),
-            last_message_at: date.into(),
-            archive,
-            nb_non_lus: non_lus,
-        };
-        let (fils, n) = fils_recents(
-            vec![
-                fil("ancien", "2026-10-01T08:00:00Z", 1, false),
-                fil("récent", "2026-11-02T08:00:00Z", 2, false),
-                fil("archivé", "2026-11-03T08:00:00Z", 5, true),
-            ],
-            1,
-        );
-        assert_eq!(n, 3, "les fils archivés ne comptent pas");
-        assert_eq!(fils.len(), 1);
-        assert_eq!(fils[0].sujet, "récent");
-        assert_eq!(libelle_non_lus(0), "Aucun message non lu");
-        assert_eq!(libelle_non_lus(1), "1 message non lu");
-        assert_eq!(libelle_non_lus(4), "4 messages non lus");
+    fn largeur_connue_ou_pleine() {
+        assert!(matches!(largeur(4), Largeur::Quatre));
+        assert!(matches!(largeur(8), Largeur::Huit));
+        assert!(matches!(largeur(7), Largeur::Douze));
     }
 
     #[test]
-    fn libelles_absences() {
-        assert_eq!(libelle_absents(0), "Aucun élève absent");
-        assert_eq!(libelle_absents(1), "1 élève absent");
-        assert_eq!(libelle_absents(7), "7 élèves absents");
-        assert_eq!(libelle_a_justifier(0), "Aucune absence à justifier");
-        assert_eq!(libelle_a_justifier(1), "1 absence à justifier");
-        assert_eq!(libelle_a_justifier(3), "3 absences à justifier");
-        assert_eq!(libelle_en_attente(0), "Aucun justificatif en attente");
-        assert_eq!(libelle_en_attente(2), "2 justificatifs en attente");
+    fn le_chiffre_est_retire_du_libelle() {
+        assert_eq!(sans_nombre("3 absences à justifier"), "absences à justifier");
+        assert_eq!(sans_nombre("Aucun message"), "Aucun message");
+        assert_eq!(sans_nombre("12"), "12");
+    }
+
+    #[test]
+    fn seul_le_professeur_a_le_bloc_appel() {
+        assert!(est_professeur(ProfilPortail::Professeur));
+        assert!(!est_professeur(ProfilPortail::Famille));
     }
 }
