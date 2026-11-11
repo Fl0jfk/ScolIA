@@ -8030,6 +8030,7 @@ async fn explorer_absence_rh(
     let list = ent
         .list_absences_rh_for_actor(
             cast.etablissement_id,
+            admini,
             Role::Direction.as_str(),
             jour,
             jour + Duration::days(7),

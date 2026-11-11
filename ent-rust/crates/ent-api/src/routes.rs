@@ -6330,7 +6330,7 @@ async fn list_absences_rh(
     let fin = q.fin.unwrap_or(debut);
     let list = state
         .ent
-        .list_absences_rh_for_actor(session.etablissement_id, &session.role, debut, fin)
+        .list_absences_rh_for_actor(session.etablissement_id, session.user_id, &session.role, debut, fin)
         .await
         .map_err(map_db)?;
     Ok(Json(

@@ -9783,9 +9783,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             {
                 continue;
             }
+            // Audit A-03 : une famille ou un élève ne voit que ce qu'il peut lire — l'existence
+            // même d'une pièce restreinte (ou d'une note interne) n'est pas révélée.
+            if !accessible && matches!(parsed, Role::Parent | Role::Eleve) {
+                continue;
+            }
             if !accessible {
                 doc.storage_key = None;
                 doc.mime_type = None;
+                // Le personnel sans droit voit qu'une pièce existe (circuit de demande d'accès),
+                // mais ni son code ni son origine, qui trahissent sa nature.
+                doc.code = None;
+                doc.source = String::new();
                 // RF-15 : le titre d'un document restreint/santé n'est pas révélé.
                 if doc.confidentialite != DocConfidentialite::Standard {
                     doc.titre = "Document à accès restreint".to_string();
@@ -9922,11 +9931,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Ok(false);
         };
         if parsed.is_staff() {
+            // Audit A-02 : `documents.lire` n'ouvre que les documents `standard`. `sante` demande
+            // `documents.lire_sante` (ci-dessous). `restreint` demande en plus
+            // `documents.gerer_droits` (qui traite les demandes d'accès à ces pièces) ; sinon
+            // seul un accès accordé (circuit des grants, plus bas) l'ouvre. Les profils par défaut
+            // (admin, direction, administratif) cumulent les deux droits : rien ne change pour eux.
+            // Un droit dédié `documents.lire_restreint` reste une évolution possible (D-017).
             if self
                 .autoriser_eleve(etablissement_id, actor_user_id, role, Action::DocumentsLire, doc.eleve_id)
                 .await?
             {
-                return Ok(true);
+                match doc.confidentialite {
+                    DocConfidentialite::Standard => return Ok(true),
+                    DocConfidentialite::Restreint => {
+                        if self
+                            .autoriser_eleve(
+                                etablissement_id,
+                                actor_user_id,
+                                role,
+                                Action::DocumentsGererDroits,
+                                doc.eleve_id,
+                            )
+                            .await?
+                        {
+                            return Ok(true);
+                        }
+                    }
+                    DocConfidentialite::Sante => {}
+                }
             }
             if doc.confidentialite == DocConfidentialite::Sante
                 && self
@@ -15363,6 +15395,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     pub async fn list_absences_rh_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
         debut: NaiveDate,
         fin: NaiveDate,
@@ -15371,10 +15404,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !parsed.is_staff() {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self
+        let liste = self
             .absences_rh
             .list_periode(etablissement_id, debut, fin)
-            .await?)
+            .await?;
+        // Audit D-03 : même règle que la déclaration et la validation — seuls la gestion du
+        // personnel (direction, admin, `eleves.gerer`) voit les absences de tous, motif compris.
+        // Tout autre membre du personnel ne voit que les siennes (le motif est parfois médical).
+        let gestion = Self::role_can_manage_eleves(role) || matches!(parsed, Role::Direction | Role::Admin);
+        if gestion {
+            return Ok(liste);
+        }
+        Ok(liste.into_iter().filter(|a| a.user_id == actor_user_id).collect())
     }
 
     /// Affecte prof et/ou salle sur un créneau (conflits prof/salle/classe refusés).
@@ -15963,6 +16004,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: CreerPassageInfirmerie,
     ) -> Result<PassageInfirmerie, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         if !self
             .staff_eleve(
                 cmd.etablissement_id,
@@ -16008,6 +16050,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         eleve_id: Option<Uuid>,
         jour: Option<NaiveDate>,
     ) -> Result<Vec<PassageInfirmerie>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff_saisie = match eleve_id {
             Some(eid) => {
@@ -16083,6 +16126,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: UpsertFicheSante,
     ) -> Result<FicheSante, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = self
             .staff_eleve(
@@ -16140,6 +16184,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 actor_user_id: Some(actor.to_string()),
             })
             .await?;
+        // Audit D-01 : la famille ne reçoit jamais la note confidentielle de l'infirmière, pas
+        // même en retour d'écriture (même vue qu'en lecture).
+        if parent {
+            return Ok(vue_fiche_sante_famille(&fiche));
+        }
         Ok(fiche)
     }
 
@@ -16150,6 +16199,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<FicheSante>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = self
             .staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eleve_id)
@@ -16204,6 +16254,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<Pai>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = self
             .staff_eleve(etablissement_id, actor_user_id, role, Action::SanteLire, eleve_id)
@@ -16267,6 +16318,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: AttacherOrdonnancePai,
     ) -> Result<PaiPiece, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff = self
             .staff_eleve(
@@ -16482,6 +16534,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: CreerEntretienPsy,
     ) -> Result<EntretienPsy, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         if !self
             .staff_eleve(
                 cmd.etablissement_id,
@@ -16528,6 +16581,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         eleve_id: Option<Uuid>,
         jour: Option<NaiveDate>,
     ) -> Result<Vec<EntretienPsy>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff_psy = match eleve_id {
             Some(eid) => {
@@ -16593,6 +16647,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: UpsertDossierPsy,
     ) -> Result<DossierPsy, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         if !self
             .staff_eleve(
                 cmd.etablissement_id,
@@ -16636,6 +16691,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<DossierPsy>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if self
             .staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eleve_id)
@@ -16705,6 +16761,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<u8>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff_psy = self
             .staff_eleve(etablissement_id, actor_user_id, role, Action::PsyLire, eleve_id)
@@ -16757,6 +16814,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         eleve_id: Uuid,
     ) -> Result<usize, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         if !self
             .staff_eleve(etablissement_id, actor_user_id, role, Action::PsySaisir, eleve_id)
             .await?
@@ -16811,6 +16869,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: CreerRdvPsy,
     ) -> Result<RdvPsy, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         if !self
             .staff_eleve(
                 cmd.etablissement_id,
@@ -16856,6 +16915,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: ChangerStatutRdvPsy,
     ) -> Result<RdvPsy, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         self.exiger_action_quelconque(
             cmd.etablissement_id,
             cmd.actor_user_id,
@@ -16908,6 +16968,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         eleve_id: Option<Uuid>,
         jour: Option<NaiveDate>,
     ) -> Result<Vec<RdvPsy>, EntDbError> {
+        self.exiger_module_sante(etablissement_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let staff_psy = match eleve_id {
             Some(eid) => {

@@ -145,7 +145,7 @@ impl PgEnt {
                     avec_budget("inscriptions.instruire", "Inscriptions à instruire", 4, self.tuile_inscriptions(e, u, r)),
                     avec_budget("eleves.propositions", "Coordonnées à valider", 4, self.tuile_propositions(e, u, r)),
                     avec_budget("direction.protections", "Protections à confirmer", 4, self.tuile_protections(e, u, r)),
-                    avec_budget("personnels.absences", "Personnels absents", 4, self.tuile_absences_personnels(e, r, jour, base)),
+                    avec_budget("personnels.absences", "Personnels absents", 4, self.tuile_absences_personnels(e, u, r, jour, base)),
                     avec_budget("messagerie.non_lus", "Messages", 4, self.tuile_messages(e, u, r)),
                     avec_budget("annonces.une", "À la une", 8, self.tuile_annonces_personnel(e, r)),
                 );
@@ -591,11 +591,11 @@ impl PgEnt {
 
     /// Direction : personnels absents aujourd'hui (compte et noms de service ; **jamais le motif**).
     /// Réservé à la direction : la lecture brute du service est ouverte à tout le personnel.
-    async fn tuile_absences_personnels(&self, e: Uuid, r: &str, jour: NaiveDate, base: Role) -> Source {
+    async fn tuile_absences_personnels(&self, e: Uuid, u: Uuid, r: &str, jour: NaiveDate, base: Role) -> Source {
         if !matches!(base, Role::Direction | Role::Admin) {
             return Ok(None);
         }
-        let l = self.list_absences_rh_for_actor(e, r, jour, jour).await?;
+        let l = self.list_absences_rh_for_actor(e, u, r, jour, jour).await?;
         let n = l.iter().filter(|a| a.statut != "annulee" && a.statut != "refusee").count() as i64;
         Ok(Some(tuile_compteur(
             "personnels.absences",

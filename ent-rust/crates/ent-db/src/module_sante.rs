@@ -70,3 +70,17 @@ impl PgEnt {
         Ok(actif)
     }
 }
+
+impl PgEnt {
+    /// Verrou « pas de santé sans HDS » **dans la couche métier** (audit D-02) : toute fonction
+    /// qui lit ou écrit une donnée de santé, d'accompagnement ou de psychologie l'appelle en
+    /// premier, de sorte qu'une nouvelle route HTTP ou un autre module ne puisse pas y échapper.
+    /// Module inactif (ou absent) : `Forbidden`. Erreur de lecture : refus (fermé par défaut).
+    pub async fn exiger_module_sante(&self, etablissement_id: Uuid) -> Result<(), EntDbError> {
+        if self.module_sante_actif(etablissement_id).await? {
+            Ok(())
+        } else {
+            Err(EntDbError::Forbidden)
+        }
+    }
+}
