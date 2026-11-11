@@ -1,3 +1,4 @@
+import { isSafePublicHttpsUrl } from "@/app/lib/ssrf-guard";
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -381,7 +382,9 @@ export async function fetchTravelsPdfBytes(
     }
   }
 
-  const response = await fetch(fileUrl);
+  // NJ-10 : repli HTTP limité aux URL https publiques nommées (pas d'adresse interne ni de métadonnées).
+  if (!isSafePublicHttpsUrl(fileUrl)) throw new Error("Impossible de récupérer le PDF du devis.");
+  const response = await fetch(fileUrl, { redirect: "manual" });
   if (!response.ok) throw new Error("Impossible de récupérer le PDF du devis.");
   return Buffer.from(await response.arrayBuffer());
 }
