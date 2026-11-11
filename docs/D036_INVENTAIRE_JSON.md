@@ -69,4 +69,7 @@ Propriétés communes : reprise **idempotente** (les migrations sont rejouées �
 
 ## Niveau de preuve
 
-Implémenté et **compilé** ; test de garde (liste des exceptions) exécuté en local ; scénario DB `tests_d036` (reprise rejouée deux fois, lecture seule) et compte RLS (+4) validés par la CI (pas de serveur PostgreSQL dans l'environnement de développement local). Non validé par Florian, non pilote.
+- **Lot 1 (560–563)** : implémenté, compilé, validé par la CI.
+- **Lot 2 (661–667)** : implémenté, **compilé, testé en CI** (run 43010995060 sur `c376da46`, ENT `78492105` inclus : 38 jobs verts, dont clippy bloquant, séparation labo/production, 20 tranches avec labo, 12 tranches en RLS stricte, tests sans labo). Scénarios `tests_d036` (reprise rejouée deux fois et lecture seule, pour chacune des 9 colonnes ; garde de dérive des copies de fusion de personnes), registre `registre_donnees` et compte RLS (+10) exécutés aussi en local contre PostgreSQL 16 de labo (jamais la production). Tests de comportement existants (fusions d'élèves et de personnes, préférences, imports, structure) verts en CI.
+- Corrigés au passage par la CI : durées de vie d'un itérateur à travers un `await` (route des préférences), préfixage de colonne d'une liste contenant une fonction (liste des fusions), déclaration des copies de fusion de personnes dans `TABLES_ELEVE` (`Reste`).
+- **Non validé par Florian, non pilote.** Reprise testée sur des lignes synthétiques : à rejouer sur une copie anonymisée avant toute mise en pilote ; le retrait des colonnes reste un lot ultérieur.
