@@ -397,11 +397,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Dépend de** : 7, 20, 6.
 - **Existant** : rien (décision D-006 seulement).
 - **Place** : différenciant, pas une condition de vente.
+- **Conception et passe personas** (2026-11-11, branche `ent-socle-32-33-conception`, non décidées) : `docs/socles/32_BUREAUTIQUE.md`, `docs/socles/PERSONAS_32.md` — espaces **ancrés sur la structure** (membres calculés à la date), versions immuables (`ent_objet`), casier, portfolio propriété de l'élève, travail entre élèves seulement dans des espaces animés par un adulte ; reprise du module Next.js « Espace documents » M19 (22 actions NX32, 20 défauts ND32 dont quota contournable, écrasement par un membre, membres non vérifiés, liens d'une heure) ; « Office » de Next.js vide ; ArtCraft vérifié (**v0.17/0.18 alpha**, MIT/Apache, iframe de même origine, **pas de coédition** : verrou d'édition) → mise à jour de D-006 proposée (Q-ET1) ; conversion `ent-convert` isolée (moteurs ArtCraft serveur, LibreOffice en repli, pas de convt ni de pandoc) ; exception pédagogique CPI L122-5 12° et L122-5-4 ; 145 actions (ETR-100 à ETR-299), lots ET0 à ET14 (ET0 = préalables du noyau, pas de correctifs Rust) ; migrations **2640–2659**.
 
 #### 33. Visioconférence et continuité pédagogique
 - **Contient** : visio intégrée (cours, rendez-vous, conseils) ; solution souveraine ou auto-hébergée à choisir, aucun service externe par défaut ; classe virtuelle ; plan de continuité en cas de fermeture.
 - **Dépend de** : 16, 19, 10.
 - **Existant** : rien.
+- **Conception et passe personas** (2026-11-11, branche `ent-socle-32-33-conception`, non décidées) : `docs/socles/33_VISIO.md`, `docs/socles/PERSONAS_33.md` — salle toujours issue d'un **contexte** (séance, rendez-vous, réunion, conseil, instance, conversation, permanence), jetons courts, salle d'attente, caméra jamais obligatoire, enregistrement désactivé par défaut (accord du 18), pas de visio entre élèves sans adulte ; appels Next.js inventoriés (maillage à 6, **STUN Google** : IP transmise à Google, signalé à Florian, Q-VI4) ; brique recommandée **LiveKit auto-hébergé** (Apache-2.0, TURN intégré), à valider (Q-VI1), client JavaScript isolé en exception à D-002 (Q-VI2) ; **plan de continuité** objet métier (guide éduscol du 2/10/2026 : plan à chaque rentrée, contact hebdomadaire de chaque élève, repère 1/3 – 2/3), fermeture en un geste ; 133 actions (VIS-100 à VIS-299), lots VI0 à VI13 (VI0 = preuve technique) ; migrations **2660–2679**.
 
 ### Étage I — Accompagner chaque élève
 
