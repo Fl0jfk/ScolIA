@@ -4,7 +4,7 @@ Session de correction : session_01KZCbFDpXEDs6D1GX3TCxCF. Branches : `nextjs-cor
 
 **En production (main)** : 2a 7bb6e19a (NJ-04), 2b a6ce007f (NJ-33, NJ-46), 2c 188a1504 (NJ-36, NJ-37), 4a 2c9c7867 (NJ-09, NJ-29, NJ-39), 4c 8d626e9c (NJ-10 partiel).
 
-**Bloqué** : le push sur main a été refusé par la sécurité automatique de Claude Code (déploiement de production). Florian doit choisir : règle de permission, ou fusion par lui-même.
+**Débloqué** : Florian autorise le pilote à pousser sur main (2026-11-11). Poussés : main 0ead5b27 = les 8 invisibles ci-dessous.
 
 **Invisibles, à pousser dans cet ordre (cherry-pick)** : a792f793, 47b5a268, 100457a8, 48f3bf13, 8b5e3eaf, 474718e9, e45fb957, 1194fc1e (6b : les routes refusaient déjà si le secret manque ; aucun changement pour une route qui fonctionne).
 
