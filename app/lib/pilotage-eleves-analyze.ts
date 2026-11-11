@@ -1,6 +1,7 @@
 import "server-only";
 
 import { resolveEleveFolderName } from "@/app/lib/eleves-config";
+import { PILOTAGE_ANALYSE_AUTO_ACTIVE } from "@/app/lib/ia-donnees-eleves-flags";
 import { createOrganizationViewLink, downloadOneDriveFileBytes, listChildFiles } from "@/app/lib/graph-onedrive-folders";
 import { loadElevesActifsRegistry } from "@/app/lib/eleves-registry";
 import { loadMefSecteurMap } from "@/app/lib/mef-secteurs";
@@ -380,6 +381,7 @@ export function schedulePilotageDossierRefresh(params: {
   folderName?: string;
   secteur?: Secteur | null;
 }): void {
+  if (!PILOTAGE_ANALYSE_AUTO_ACTIVE) return; // NJ-01 / NJ-02 : pas d'analyse IA ni de lien OneDrive en arrière-plan
   if (!params.accessToken || !params.folderPath) return;
   void refreshPilotageEleveDossier(params).catch((e) =>
     console.error("[pilotage] refresh dossier:", e),

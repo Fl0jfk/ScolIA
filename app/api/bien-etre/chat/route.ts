@@ -19,6 +19,7 @@ import {
   sealBienEtreSession,
 } from "@/app/lib/bien-etre-session";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
+import { BIEN_ETRE_IA_ACTIVE } from "@/app/lib/ia-donnees-eleves-flags";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,14 @@ export async function POST(req: Request) {
   const config = await getBienEtreConfig();
   if (!config.enabled) {
     return NextResponse.json({ error: "Le bot bien-être n'est pas activé." }, { status: 503 });
+  }
+
+  // NJ-03 : aucun message d'élève n'est envoyé à une IA externe tant que l'AIPD n'est pas faite.
+  if (!BIEN_ETRE_IA_ACTIVE) {
+    return NextResponse.json(
+      { error: "L'écoute automatique est momentanément indisponible. Parle à un adulte de confiance, ou appelle le 3018 ou le 116 111." },
+      { status: 503 },
+    );
   }
 
   const rate = await checkAndIncrementMessageRate(gate.ctx.userId);

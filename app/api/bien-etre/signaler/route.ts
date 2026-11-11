@@ -16,6 +16,7 @@ import {
   summarizeConversationForSignalement,
 } from "@/app/lib/bien-etre-storage";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
+import { BIEN_ETRE_IA_ACTIVE } from "@/app/lib/ia-donnees-eleves-flags";
 import type { BienEtreSignalement } from "@/app/lib/bien-etre-types";
 
 export const runtime = "nodejs";
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
   const jar = await cookies();
   const session = openBienEtreSession(jar.get(bienEtreSessionCookieName())?.value);
   const messages = session?.messages ?? [];
-  const apiKey = await getMistralApiKey();
+  const apiKey = BIEN_ETRE_IA_ACTIVE ? await getMistralApiKey() : null; // NJ-03 : pas de résumé par IA externe
   const summary = apiKey
     ? await summarizeConversationForSignalement(messages, apiKey)
     : "Signalement initié par l'élève.";
