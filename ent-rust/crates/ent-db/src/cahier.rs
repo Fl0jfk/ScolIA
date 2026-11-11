@@ -450,15 +450,38 @@ impl PgEnt {
         let Some((classe_id,)) = classe else {
             return Err(EntDbError::Forbidden);
         };
-        self.exiger_cible(
-            a,
-            action,
-            Cible {
-                classe_id: Some(classe_id),
-                groupe_id: None,
-            },
+        let cible = Cible {
+            classe_id: Some(classe_id),
+            groupe_id: None,
+        };
+        match self.exiger_cible(a, action, cible).await {
+            Err(EntDbError::Forbidden) => {}
+            autre => return autre,
+        }
+        // Repli « classe texte » (socle 6, `ent_repli_texte_actif`) : tant qu'AUCUN cours n'existe pour la classe
+        // (établissement sans services d'enseignement), l'ancien périmètre (RF-04) s'applique, avec le droit du moteur.
+        let (sans_cours,): (bool,) = sqlx::query_as(
+            "SELECT NOT EXISTS (SELECT 1 FROM ent_cours WHERE etablissement_id = $1 AND classe_id = $2)",
         )
+        .bind(a.etablissement_id)
+        .bind(classe_id)
+        .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
+        .map_err(db)?;
+        let droit = if action == Action::CahierEcrire {
+            self.cahier_droit_ecrire_global(a).await?
+        } else {
+            self.droits_effectifs(a.etablissement_id, a.user_id, a.role)
+                .await?
+                .iter()
+                .any(|d| matches!(d.action, Action::CahierLire | Action::CahierEcrire))
+        };
+        if sans_cours && droit {
+            return self
+                .exiger_classe_dans_perimetre(a.etablissement_id, a.user_id, a.role, code)
+                .await;
+        }
+        Err(EntDbError::Forbidden)
     }
 
     /// Responsable habilité à suivre la scolarité de l'élève (lien actif et autorité parentale).
