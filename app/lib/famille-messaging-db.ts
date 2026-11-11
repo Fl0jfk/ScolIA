@@ -259,6 +259,14 @@ async function insertAttachments(
   const db = getDb();
   const rows: FamilleAttachmentRow[] = [];
   for (const att of attachments) {
+    // NJ-29 : la clé S3 vient du navigateur ; seule une clé issue de notre dépôt (même établissement) est admise.
+    if (att.s3Key) {
+      const marker = `famille-messaging/${etablissementId}/`;
+      const k = String(att.s3Key);
+      if (k.includes("..") || !(k.startsWith(marker) || k.includes(`/${marker}`))) {
+        throw new Error("Pièce jointe invalide.");
+      }
+    }
     const [row] = await db
       .insert(familleThreadAttachment)
       .values({

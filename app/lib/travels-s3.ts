@@ -296,6 +296,8 @@ async function discoverTravelsObjectByBasename(
   buckets: string[],
   basename: string,
 ): Promise<TravelsS3ObjectLocation | null> {
+  // NJ-09 : jamais de recherche floue (ex. « .pdf ») ; correspondance exacte sur le nom de fichier.
+  if (basename.length < 8 || basename.startsWith(".") || basename.includes("/")) return null;
   const tsMatch = basename.match(/^(\d{10,})-/);
   const prefixes = [
     tsMatch ? `attachments/${tsMatch[1]}` : null,
@@ -308,7 +310,7 @@ async function discoverTravelsObjectByBasename(
     for (const prefix of prefixes) {
       const keys = await listObjectKeys(bucket, prefix);
       for (const key of keys) {
-        if (!key.endsWith(basename) && !key.includes(basename)) continue;
+        if (key.split("/").pop() !== basename) continue;
         const core = stripBucketOrSlugPrefix(key, bucket, null);
         if (!isAllowedTravelsCoreKey(core)) continue;
         if (await s3ObjectExists(bucket, key)) return { bucket, key };
