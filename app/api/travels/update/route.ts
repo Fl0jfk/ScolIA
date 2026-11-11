@@ -1,7 +1,15 @@
 import { safeCurrentUser } from "@/app/lib/intranet-session";
 import { NextResponse } from 'next/server';
 
-import { isValidTravelsReopenFromValideStatus } from "@/app/lib/travels-direction-permissions";
+import {
+  canEditExistingTravelTrip,
+  canFinalizeTravelTrip,
+  isForbiddenTravelStatusJump,
+  isTripOwner,
+  isValidTravelsReopenFromValideStatus,
+} from "@/app/lib/travels-direction-permissions";
+import { userRoleSlugs } from "@/app/lib/establishment-sign-permissions";
+import { isOrgAdminFromPublicMetadata } from "@/app/lib/intranet-auth-metadata";
 import {
   createTenantTransporter,
   getTenantSmtpConfig,
@@ -59,6 +67,21 @@ export async function POST(req: Request) {
     const existingHit = await getJson<Record<string, unknown>>(tripRel);
     const existingOnS3 = existingHit?.data ?? null;
     const me = await safeCurrentUser();
+    // NJ-07 : contrôle serveur du rôle sur un dossier existant et sur le statut final.
+    if (existingOnS3) {
+      const roles = userRoleSlugs(me);
+      const orgAdmin = isOrgAdminFromPublicMetadata(me?.publicMetadata);
+      const owner = isTripOwner(String(existingOnS3.ownerId || ""), me?.id);
+      if (!canEditExistingTravelTrip({ roles, orgAdmin, isOwner: owner })) {
+        return NextResponse.json(
+          { error: "Seuls le porteur du dossier, la direction, la comptabilité et l'administratif peuvent le modifier." },
+          { status: 403 },
+        );
+      }
+      if (isForbiddenTravelStatusJump(existingOnS3.status, objectToSave.status, canFinalizeTravelTrip({ roles, orgAdmin }))) {
+        return NextResponse.json({ error: "Seule la direction, la comptabilité ou l'administratif peut finaliser un dossier." }, { status: 403 });
+      }
+    }
     const ownerGate = await applyTravelsOwnerAssignment(
       objectToSave as Record<string, unknown>,
       me
