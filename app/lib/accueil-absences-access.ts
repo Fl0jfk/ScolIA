@@ -7,8 +7,17 @@ import type { AccueilBoardKind } from "@/app/lib/accueil-absences-types";
  * Les CPE / direction l’ont par défaut pour consulter ; l’accueil l’active
  * sur les personnes du standard.
  */
-export function canDeclareAccueilAbsence(_roles: string[]): boolean {
-  return true;
+export function canDeclareAccueilAbsence(roles: string[]): boolean {
+  // NJ-34 (D-053) : accueil, vie scolaire (CPE, surveillants), administratif, directions, admin.
+  return (
+    hasGlobalAdminRole(roles) ||
+    hasMasterRole(roles) ||
+    hasRole(roles, "accueil") ||
+    hasRole(roles, "cpe") ||
+    hasRole(roles, "surveillant") ||
+    hasRole(roles, "administratif") ||
+    hasRole(roles, "direction")
+  );
 }
 
 /**

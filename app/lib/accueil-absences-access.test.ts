@@ -1,25 +1,12 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { canSeeAccueilBoardKind } from "./accueil-absences-access";
+import test from "node:test";
+import { canDeclareAccueilAbsence } from "@/app/lib/accueil-absences-access";
 
-test("CPE voit élèves et profs, pas le personnel OGEC", () => {
-  assert.equal(canSeeAccueilBoardKind("eleve", ["cpe"]), true);
-  assert.equal(canSeeAccueilBoardKind("professeur", ["cpe"]), true);
-  assert.equal(canSeeAccueilBoardKind("ogec", ["cpe"]), false);
-});
-
-test("compta et direction voient l’OGEC", () => {
-  assert.equal(canSeeAccueilBoardKind("ogec", ["comptabilite"]), true);
-  assert.equal(canSeeAccueilBoardKind("ogec", ["direction_lycee"]), true);
-  assert.equal(canSeeAccueilBoardKind("ogec", ["surveillant"]), false);
-});
-
-test("admin établissement voit l’OGEC", () => {
-  assert.equal(canSeeAccueilBoardKind("ogec", ["admin"]), true);
-});
-
-test("rôle accueil voit l’OGEC (sinon board vide après déclaration)", () => {
-  assert.equal(canSeeAccueilBoardKind("ogec", ["accueil"]), true);
-  assert.equal(canSeeAccueilBoardKind("eleve", ["accueil"]), true);
-  assert.equal(canSeeAccueilBoardKind("professeur", ["accueil"]), true);
+test("NJ-34 : rôles autorisés à déclarer une absence à l'accueil", () => {
+  for (const r of ["accueil", "cpe", "surveillant", "administratif", "direction_college", "admin"]) {
+    assert.equal(canDeclareAccueilAbsence([r]), true, r);
+  }
+  for (const r of ["professeur", "comptabilite", "infirmerie"]) {
+    assert.equal(canDeclareAccueilAbsence([r]), false, r);
+  }
 });

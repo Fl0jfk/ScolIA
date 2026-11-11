@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { parisDateKey } from "@/app/lib/paris-time";
-import { canSeeAccueilBoardKind } from "@/app/lib/accueil-absences-access";
+import { canDeclareAccueilAbsence, canSeeAccueilBoardKind } from "@/app/lib/accueil-absences-access";
 import {
   cancelAccueilAbsence,
   declareAccueilAbsence,
@@ -48,12 +48,15 @@ export async function GET(req: Request) {
   const date = new URL(req.url).searchParams.get("date")?.trim() || parisDateKey(new Date());
   const rows = await listAccueilBoard(etabId, date);
   const visible = rows.filter((r) => canSeeAccueilBoardKind(r.kind, gate.ctx.user.roles));
-  return NextResponse.json({ date, rows: visible, canDeclare: true });
+  return NextResponse.json({ date, rows: visible, canDeclare: canDeclareAccueilAbsence(gate.ctx.user.roles) });
 }
 
 export async function POST(req: Request) {
   const gate = await requireModule("accueil-absences");
   if (!gate.ok) return gate.response;
+  if (!canDeclareAccueilAbsence(gate.ctx.user.roles)) {
+    return NextResponse.json({ error: "Déclaration réservée à l'accueil, à la vie scolaire, à l'administratif et à la direction." }, { status: 403 });
+  }
 
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
@@ -126,6 +129,9 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const gate = await requireModule("accueil-absences");
   if (!gate.ok) return gate.response;
+  if (!canDeclareAccueilAbsence(gate.ctx.user.roles)) {
+    return NextResponse.json({ error: "Déclaration réservée à l'accueil, à la vie scolaire, à l'administratif et à la direction." }, { status: 403 });
+  }
 
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) return NextResponse.json({ error: "Établissement introuvable." }, { status: 400 });
