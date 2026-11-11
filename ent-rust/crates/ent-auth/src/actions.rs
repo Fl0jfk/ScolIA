@@ -291,6 +291,25 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
+    /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
+    AppelFaire,
+    /// Faire ou reprendre l'appel de n'importe quelle séance de l'établissement.
+    AppelFaireTout,
+    /// Corriger un appel validé, à tout moment, avec motif obligatoire.
+    AppelCorriger,
+    /// Déléguer l'appel d'une de ses séances à un collègue.
+    AppelDeleguer,
+    /// Lire le motif et la nature déclarés d'une absence.
+    AbsencesLireMotif,
+    /// Qualifier une absence (motif légitime, excuse valable, non valable).
+    AbsencesQualifier,
+    /// Proposer une qualification d'absence, sans la décider.
+    AbsencesProposerQualification,
+    /// Localiser un élève (infirmerie, vie scolaire, CDI, entretien).
+    LocalisationPoser,
+    /// Définir la règle d'assiduité de l'établissement (versions datées).
+    AssiduiteRegleGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +334,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 136] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -452,6 +471,15 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        Action::AppelFaire,
+        Action::AppelFaireTout,
+        Action::AppelCorriger,
+        Action::AppelDeleguer,
+        Action::AbsencesLireMotif,
+        Action::AbsencesQualifier,
+        Action::AbsencesProposerQualification,
+        Action::LocalisationPoser,
+        Action::AssiduiteRegleGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -584,6 +612,15 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::AppelFaire => "appel.faire",
+            Self::AppelFaireTout => "appel.faire_tout",
+            Self::AppelCorriger => "appel.corriger",
+            Self::AppelDeleguer => "appel.deleguer",
+            Self::AbsencesLireMotif => "absences.lire_motif",
+            Self::AbsencesQualifier => "absences.qualifier",
+            Self::AbsencesProposerQualification => "absences.proposer_qualification",
+            Self::LocalisationPoser => "localisation.poser",
+            Self::AssiduiteRegleGerer => "assiduite.regle_gerer",
         }
     }
 
@@ -719,6 +756,15 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
+            Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
+            Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
+            Self::AppelDeleguer => "Déléguer l'appel d'une de ses séances à un collègue",
+            Self::AbsencesLireMotif => "Lire le motif et la nature déclarés d'une absence",
+            Self::AbsencesQualifier => "Qualifier une absence (motif légitime, excuse valable, non valable)",
+            Self::AbsencesProposerQualification => "Proposer une qualification d'absence, sans la décider",
+            Self::LocalisationPoser => "Localiser un élève (infirmerie, vie scolaire, CDI, entretien)",
+            Self::AssiduiteRegleGerer => "Définir la règle d'assiduité de l'établissement (versions datées)",
         }
     }
 
@@ -740,6 +786,9 @@ impl Action {
     pub fn accordee_par(self) -> &'static [Action] {
         match self {
             Self::FacturationLire => &[Self::FacturationGerer],
+            // Socle 12 : faire l'appel de tout l'établissement inclut faire celui de ses séances.
+            Self::AppelFaire => &[Self::AppelFaireTout],
+            Self::AbsencesProposerQualification => &[Self::AbsencesQualifier],
             // E1 (§12.2) : seules inclusions explicites des droits « élève ».
             Self::ElevesEtatCivilLire => &[Self::ElevesIdentiteModifier],
             Self::ElevesIdentifiantsLire => &[Self::ElevesIdentifiantsGerer],
@@ -858,7 +907,17 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
-            | Self::AccesRevue => &[Portee::Etablissement],
+            | Self::AccesRevue
+            | Self::AppelFaire
+            | Self::AppelFaireTout
+            | Self::AppelCorriger
+            | Self::AppelDeleguer
+            | Self::AbsencesLireMotif
+            | Self::AbsencesQualifier
+            | Self::AbsencesProposerQualification
+            | Self::LocalisationPoser
+            | Self::AssiduiteRegleGerer
+            => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -969,6 +1028,27 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 12 (AS1, DA-18) : les droits d'appel et d'assiduité sortent des rôles codés en dur.
+    // Le modèle par défaut reproduit exactement `can_faire_appel`, `can_trancher_justificatif`,
+    // `can_annuler_absence_vers_present` et `can_gerer_dispenses_vs` ; un rôle libre (D-017) peut
+    // désormais ouvrir `appel.faire` à un AED ou `absences.proposer_qualification` sans qualifier.
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Prof) {
+        d.push(etab(AppelFaire));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push(etab(AppelDeleguer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie) {
+        d.push(etab(LocalisationPoser));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AssiduiteRegleGerer));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont

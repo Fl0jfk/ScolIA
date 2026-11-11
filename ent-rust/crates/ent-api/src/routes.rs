@@ -839,6 +839,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::dossier::routes());
     // Vie scolaire complète (S2-4, module séparé : `vie_scolaire.rs`).
     let r = r.merge(crate::vie_scolaire::routes());
+    let r = r.merge(crate::assiduite::routes());
     let r = r.merge(crate::portail::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
@@ -8981,7 +8982,6 @@ async fn ouvrir_appel(
     session: EntSession,
     Json(body): Json<OuvrirAppelBody>,
 ) -> Result<(StatusCode, Json<AppelDto>), (StatusCode, String)> {
-    session.require_faire_appel()?;
     let (appel, lignes) = state
         .ent
         .ouvrir_appel(
@@ -9004,7 +9004,6 @@ async fn get_appel(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AppelDto>, (StatusCode, String)> {
-    session.require_faire_appel()?;
     let (appel, lignes) = state
         .ent
         .get_appel(session.etablissement_id, id, session.user_id, &session.role)
@@ -9022,7 +9021,6 @@ async fn marquer_appel_ligne(
     Path(id): Path<Uuid>,
     Json(body): Json<MarquerAppelLigneBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    session.require_faire_appel()?;
     let etat = LigneEtat::parse(&body.etat).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -9049,7 +9047,6 @@ async fn clore_appel(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Result<Json<AppelDto>, (StatusCode, String)> {
-    session.require_faire_appel()?;
     let appel = state
         .ent
         .clore_appel(

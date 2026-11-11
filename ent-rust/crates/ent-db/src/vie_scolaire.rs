@@ -305,30 +305,25 @@ impl PgEnt {
     // Règles d'assiduité
     // -----------------------------------------------------------------------
 
-    /// Règles de l'établissement (valeurs par défaut tant qu'il n'a rien paramétré).
+    /// Règles de l'établissement **à la date du jour** (AS1 : lues dans la règle datée
+    /// `ent_asd_regle`, valeurs par défaut tant qu'il n'a rien paramétré).
     pub async fn regle_assiduite(
         &self,
         etablissement_id: Uuid,
     ) -> Result<RegleAssiduite, EntDbError> {
-        let row: Option<(NaiveTime, i32, i32, i32)> = sqlx::query_as(
-            "SELECT heure_coupure, seuil_minutes, seuil_signalement, delai_verification_minutes
-               FROM ent_vs_regle_assiduite WHERE etablissement_id = $1",
-        )
-        .bind(etablissement_id)
-        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
-        .await
-        .map_err(db)?;
-        Ok(row
-            .map(|(c, s, g, d)| RegleAssiduite {
-                heure_coupure: c,
-                seuil_minutes: s,
-                seuil_signalement: g,
-                delai_verification_minutes: d,
-            })
-            .unwrap_or_default())
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        let r = self.regle_asd_en_vigueur(etablissement_id, jour).await?;
+        Ok(RegleAssiduite {
+            heure_coupure: r.heure_coupure,
+            seuil_minutes: r.seuil_minutes,
+            seuil_signalement: r.seuil_signalement_demi_journees,
+            delai_verification_minutes: r.delai_verification_min,
+        })
     }
 
-    /// Paramètre les règles d'assiduité ([H] à valider sur les textes officiels).
+    /// Ancien paramétrage (`PUT /vs/regle-assiduite`) : pose une **version datée d'aujourd'hui**
+    /// (jamais rétroactive, DA-11) — action de direction `assiduite.regle_gerer`, plus l'action du
+    /// CPE qui propose les signalements. Les autres paramètres de la version en vigueur sont conservés.
     pub async fn definir_regle_assiduite(
         &self,
         etablissement_id: Uuid,
@@ -336,11 +331,34 @@ impl PgEnt {
         role: &str,
         regle: RegleAssiduite,
     ) -> Result<RegleAssiduite, EntDbError> {
-        self.exiger_action_etab(etablissement_id, acteur, role, Action::AssiduiteSignaler)
+        self.exiger_action_etab(etablissement_id, acteur, role, Action::AssiduiteRegleGerer)
             .await?;
         if !regle.valider() {
             return Err(invalide());
         }
+        let jour = self.aujourdhui_etablissement(etablissement_id).await?;
+        let c = self.regle_asd_en_vigueur(etablissement_id, jour).await?;
+        self.ecrire_regle(
+            etablissement_id,
+            acteur,
+            crate::assiduite_as1::SaisieRegle {
+                valide_du: jour,
+                definition_demi_journee: c.definition_demi_journee,
+                seuil_minutes: regle.seuil_minutes,
+                heure_coupure: regle.heure_coupure,
+                type_mois: c.type_mois,
+                profil_id: c.profil_id,
+                seuil_signalement_demi_journees: regle.seuil_signalement,
+                delai_consolidation_min: c.delai_consolidation_min,
+                delai_verification_min: regle.delai_verification_minutes,
+                rythme_relance: c.rythme_relance,
+                seuil_retard_absence_pct: c.seuil_retard_absence_pct,
+                seuil_absences_repetees: c.seuil_absences_repetees,
+                seuil_retards: c.seuil_retards,
+            },
+        )
+        .await?;
+        // Projection de transition pour l'ancienne table (lue par aucun code, gardée pour le retour arrière).
         let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_vs_regle_assiduite
@@ -433,39 +451,52 @@ impl PgEnt {
         creneau_id: Option<Uuid>,
         jour: NaiveDate,
     ) -> Result<bool, EntDbError> {
-        let Some(creneau_id) = creneau_id else {
-            // Appel historique sans créneau : pas d'horaire, l'absence à la journée
-            // reste lue par le repli « demi-journées entières » du décompte.
-            return Ok(false);
+        // Séance de cours : horaires du créneau ; activité sans créneau (permanence, étude…, AS2) :
+        // horaires figés à l'ouverture de l'appel. Appel historique sans horaire : pas d'absence à la
+        // séance, l'absence à la journée reste lue par le repli « demi-journées entières » du décompte.
+        let horaires: Option<(NaiveTime, NaiveTime)> = match creneau_id {
+            Some(c) => sqlx::query_as(
+                "SELECT heure_debut, heure_fin FROM ent_edt_creneau
+                  WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etablissement_id)
+            .bind(c)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?,
+            None => sqlx::query_as(
+                "SELECT heure_debut, heure_fin FROM ent_appel
+                  WHERE etablissement_id = $1 AND id = $2
+                    AND heure_debut IS NOT NULL AND heure_fin IS NOT NULL",
+            )
+            .bind(etablissement_id)
+            .bind(appel_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?,
         };
-        let horaires: Option<(NaiveTime, NaiveTime)> = sqlx::query_as(
-            "SELECT heure_debut, heure_fin FROM ent_edt_creneau
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etablissement_id)
-        .bind(creneau_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
         let Some((debut, fin)) = horaires else {
             return Ok(false);
         };
+        let seance_ref = creneau_id.unwrap_or(appel_id);
+        let seance_source = if creneau_id.is_some() { "edt_creneau" } else { "activite" };
         let seance_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_absence_seance
                 (id, etablissement_id, eleve_id, absence_id, jour, kind, seance_ref,
                  seance_source, heure_debut, heure_fin, appel_id, source)
-             VALUES ($1,$2,$3,$4,$5,'seance',$6,'edt_creneau',$7,$8,$9,'appel')",
+             VALUES ($1,$2,$3,$4,$5,'seance',$6,$10,$7,$8,$9,'appel')",
         )
         .bind(seance_id)
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(absence_id)
         .bind(jour)
-        .bind(creneau_id)
+        .bind(seance_ref)
         .bind(debut)
         .bind(fin)
         .bind(appel_id)
+        .bind(seance_source)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -664,6 +695,25 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // AS2 : la déclaration est aussi une situation connue (pré-remplit l'appel), dans la même
+        // transaction ; le texte libre est séparé (R-AS22).
+        Self::miroir_declaration_situation_tx(
+            &mut tx,
+            etab,
+            id,
+            cmd.eleve_id,
+            source,
+            cmd.debut_jour,
+            cmd.debut_heure,
+            cmd.fin_jour,
+            cmd.fin_heure,
+            &motif,
+            commentaire.as_deref(),
+            declarant_nom.as_deref(),
+            declarant_qualite.as_deref(),
+            acteur,
+        )
+        .await?;
         let evt = tx
             .publier(MetierEventDraft {
                 etablissement_id: etab,
@@ -772,6 +822,16 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(declaration_id)
         .bind(acteur)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_asd_situation SET etat = 'annulee', modifie_le = now()
+              WHERE etablissement_id = $1 AND origine_ref_type = 'ent_absence_declaration'
+                AND origine_ref_id = $2 AND etat = 'active'",
+        )
+        .bind(etablissement_id)
+        .bind(declaration_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
