@@ -2,6 +2,8 @@
 
 **Date :** 2026-11-11. **Statut :** registre de constats. **Rien n'a été vérifié en production ni corrigé.**
 
+**Décision de Florian (D-051, 2026-11-11)** : le Next.js en production reste tel quel jusqu'à la bascule ; **chaque défaut ci-dessous doit être fermé dans la version Rust** (test de non-régression par défaut, PILOTAGE règle 14). Les « urgences » ci-dessous sont des recommandations que Florian n'a pas retenues pour le Next.js.
+
 **Pour qui :** Florian. Il est seul à décider d'une correction, d'une restriction ou d'un arrêt de Next.js. Le pilote n'y touche pas (CLAUDE.md : Next.js est intouchable, aucun accès à la base ni aux secrets de production).
 
 **D'où viennent ces constats.** Les sessions de conception des socles ont lu le code Next.js en lecture seule (`origin/main`, dans le dépôt). Elles n'ont rien exécuté, rien testé et ne se sont connectées à aucune base. Ce document regroupe leurs constats, fusionne les doublons (même défaut relevé par deux socles) et les trie par gravité. Les chemins de fichiers sont ceux que citent les documents sources, relatifs à la racine Next.js.

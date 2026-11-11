@@ -449,3 +449,17 @@ Issues de la mission `docs/missions/MISSION_PRA_SAUVEGARDES.md`. Détail et just
 **Contexte** : la conception 32 (Q-ET2) notait qu'ArtCraft ne permet pas à deux personnes de modifier un document en même temps.
 **Décision** : Florian garde ArtCraft (D-006) et accepte l'absence de coédition en temps réel ; il ne l'a jamais demandée.
 **Conséquences** : Q-ET2 est close. Le modèle de la conception 32 s'applique : verrou d'édition (un rédacteur à la fois, « demander la main »), versions immuables, travail de groupe par parties ou à tour de rôle. Aucune autre suite n'est à étudier pour ce motif.
+
+## D-050 — Comptabilité : réception et lecture automatique des factures fournisseurs (OCR + IA), à la manière de Zeendoc (Florian, 2026-11-11)
+**Contexte** : l'établissement paie aujourd'hui un abonnement Zeendoc (gestion électronique de documents, lecture des factures) en plus de sa comptabilité.
+**Décision** : le socle 48 comprend un « cloud factures ». On y dépose des factures scannées ou des PDF reçus. ScolIA les stocke, les lit par OCR et IA, puis propose : le fournisseur (rapproché du fichier fournisseurs), le numéro, les dates de facture et d'échéance, les montants HT, TVA et TTC, ainsi qu'un classement et une imputation comptable. Un humain valide toujours avant qu'une écriture ou un paiement ne parte. Objectif : pouvoir résilier Zeendoc.
+**Conséquences et cadrage** :
+- Les factures électroniques structurées (Factur-X, UBL, CII), reçues par la plateforme agréée (réception obligatoire depuis le 1-9-2026), sont lues **directement**, sans OCR. L'OCR et l'IA servent aux papiers et aux PDF simples.
+- Moteur d'OCR : brique libre non-AGPL exécutée sur nos serveurs (comme D-005), à choisir après vérification de licence. IA : Mistral prioritaire sous réserve de garanties contractuelles réelles, sans fallback externe non autorisé ; l'IA n'a jamais plus de droits que l'utilisateur.
+- Les factures sont stockées dans ent-object (objets immuables, empreinte SHA-256) ; la piste d'audit fiable et l'archivage légal (D-047) s'appliquent ; le champ lu par la machine est distingué du champ validé par l'humain.
+- Reprise du stock Zeendoc à prévoir (export de l'établissement, avec son accord).
+
+## D-051 — Défauts du Next.js en production : on les laisse, la version Rust les corrige tous (Florian, 2026-11-11)
+**Contexte** : `ALERTES_NEXTJS_PROD.md` recense 79 défauts du Next.js en production. Plusieurs viennent de contournements faute de comptes parents : des parents identifiés par nom, prénom et date de naissance (stages, invitations, rendez-vous), des liens publics, etc.
+**Décision** : Florian laisse le Next.js en production tel quel jusqu'à la bascule. **Chaque défaut du registre doit être corrigé dans la version Rust.** Les modules sont portés pour leurs **actions métier seulement** : aucun contournement d'authentification n'est repris. En Rust, parents et élèves ont de vrais comptes (D-009), donc chaque action se fait depuis le compte connecté, avec les droits contrôlés côté serveur.
+**Conséquences** : tout lot de code qui porte un module Next.js indique, dans son rapport, les défauts NJ-xx du registre qu'il ferme, avec un test de non-régression pour chacun (règle 14 de PILOTAGE). Le pilote le vérifie avant de pousser sur ENT. Ce que le pilote ne fait pas : rien sur le Next.js. Ce qui reste : alerter le DPO de l'établissement reste un choix de Florian.
