@@ -216,6 +216,7 @@ fn a02_documents_lire_n_ouvre_que_les_documents_standard() {
         let role = "prof".to_string();
         let peut = |id: Uuid| {
             let ent = ent.clone();
+            let role = role.clone();
             async move {
                 ent.telecharger_document_bytes_for_actor(etab, user, &role, id)
                     .await
