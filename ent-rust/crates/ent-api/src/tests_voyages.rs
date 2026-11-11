@@ -524,3 +524,171 @@ async fn routes_voyages_droits_cloisonnement_commandes_et_defauts_nextjs() {
         .expect("sortie visible du personnel");
     assert!(!vue.acces_detail && vue.porteur_nom.is_none());
 }
+
+#[tokio::test]
+async fn routes_budget_prix_pdf_rappels_et_apel_du_lot_v0b() {
+    let Some(url) = std::env::var("ENT_DATABASE_URL")
+        .ok()
+        .filter(|u| !u.trim().is_empty())
+    else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let ent = PgEnt::connect(&url).await.unwrap();
+    ent.migrate().await.unwrap();
+    let state = AppState::nouveau(ent);
+    let cast = state.ent.seed_labo_cast().await.expect("cast");
+    let autre = state.ent.seed_labo_cast().await.expect("cast B");
+    let etab = cast.etablissement_id;
+    let annee = state
+        .ent
+        .referentiel_annee_courante_assuree(etab)
+        .await
+        .unwrap();
+    let classe = state
+        .ent
+        .referentiel_classe_par_code(etab, annee.id, "4B")
+        .await
+        .unwrap()
+        .expect("classe 4B du cast");
+    let app = app(state.clone());
+    let (dir, adm, prof, compta, parent) = (
+        cast.direction.token.as_str(),
+        cast.administratif.token.as_str(),
+        cast.prof.token.as_str(),
+        cast.compta.token.as_str(),
+        cast.parent_lea.token.as_str(),
+    );
+    let b_compta = autre.compta.token.as_str();
+
+    // Session obligatoire sur toutes les routes du lot.
+    let f = Uuid::new_v4();
+    for (m, u) in [
+        ("GET", format!("/voyages/{f}/budget")),
+        ("POST", format!("/voyages/{f}/budget/versions")),
+        ("PUT", format!("/voyages/{f}/budget/versions/1")),
+        ("DELETE", format!("/voyages/{f}/budget/versions/1?rev=1")),
+        ("POST", format!("/voyages/{f}/budget/versions/1/lignes")),
+        ("PUT", format!("/voyages/{f}/budget/versions/1/lignes/{f}")),
+        ("DELETE", format!("/voyages/{f}/budget/versions/1/lignes/{f}?rev=1")),
+        ("POST", format!("/voyages/{f}/budget/versions/1/valider-revision")),
+        ("POST", format!("/voyages/{f}/prix/hausse")),
+        ("POST", format!("/voyages/{f}/budget/pdf")),
+        ("POST", format!("/voyages/{f}/circulaire/pdf")),
+        ("GET", format!("/voyages/{f}/documents")),
+        ("GET", format!("/voyages/{f}/documents/{f}")),
+        ("GET", format!("/voyages/{f}/rappels")),
+        ("POST", "/voyages/rappels/traiter".to_string()),
+        ("GET", "/voyages/apel".to_string()),
+        ("GET", "/voyages/apel.csv".to_string()),
+    ] {
+        let (st, _) = appel(&app, m, &u, None, None).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {u}");
+    }
+
+    // Un professeur crée un voyage : il en est le porteur et prépare le budget prévisionnel.
+    let debut = chrono::Utc::now() + chrono::Duration::days(40);
+    let (st, s) = appel(
+        &app,
+        "POST",
+        "/voyages",
+        Some(prof),
+        Some(json!({
+            "titre": "Voyage à Londres", "nature": "facultative", "forme": "voyage",
+            "destination": "france", "destination_libelle": "Londres",
+            "debut": debut.to_rfc3339(), "fin": (debut + chrono::Duration::days(2)).to_rfc3339(),
+            "classes": [classe.id], "effectif_eleves_declare": 4, "point_rendez_vous": "Gare",
+        })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{s}");
+    let id = s["id"].as_str().unwrap().to_string();
+    let base = format!("/voyages/{id}/budget");
+
+    // Lecture : porteur, comptabilité, direction, secrétariat ; ni la famille ni un autre établissement.
+    for t in [prof, compta, dir, adm] {
+        assert_eq!(appel(&app, "GET", &base, Some(t), None).await.0, StatusCode::OK);
+    }
+    for t in [parent, b_compta] {
+        assert_eq!(appel(&app, "GET", &base, Some(t), None).await.0, StatusCode::NOT_FOUND);
+    }
+    // Version 1 : effectif déclaré (4) et marge préréglée (7 %).
+    let (st, b) = appel(&app, "POST", &format!("{base}/versions"), Some(prof), None).await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert_eq!((b["brouillon"]["nb_payants"].as_i64(), b["brouillon"]["marge_pct"].as_i64()), (Some(4), Some(7)));
+    let rev = b["brouillon"]["rev"].as_i64().unwrap();
+    let lignes = format!("{base}/versions/1/lignes");
+    // Format français strict : « 1.350 » refusé (422), motif obligatoire (422), version périmée (409).
+    let ligne = |montant: &str, rev: i64| json!({
+        "rev": rev, "sens": "depense", "poste": "transport", "libelle": "Eurostar", "montant": montant,
+        "motif": "Devis agence",
+    });
+    for faux in ["1.350", "-5", "12 €"] {
+        let (st, _) = appel(&app, "POST", &lignes, Some(prof), Some(ligne(faux, rev))).await;
+        assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "« {faux} »");
+    }
+    let sans_motif = json!({"rev": rev, "sens": "depense", "poste": "transport", "libelle": "x", "montant": "10"});
+    assert_eq!(appel(&app, "POST", &lignes, Some(prof), Some(sans_motif)).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(appel(&app, "POST", &lignes, Some(prof), Some(ligne("10", rev - 1))).await.0, StatusCode::CONFLICT);
+    // Les montants sont des centimes entiers dans la réponse.
+    let (st, b) = appel(&app, "POST", &lignes, Some(prof), Some(ligne("1 350,50", rev))).await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert_eq!(b["brouillon"]["lignes"][0]["montant_centimes"], 135_050);
+    assert_eq!(b["brouillon"]["calcul"]["depenses_total"], 135_050);
+    // Le porteur ne valide rien ; ni lui ni le secrétariat ne rendent la fiche en PDF (pas de version validée).
+    let (st, _) = appel(&app, "POST", &format!("{base}/pdf"), Some(compta), None).await;
+    assert_eq!(st, StatusCode::CONFLICT, "aucune version validée");
+    let (st, _) = appel(&app, "POST", &format!("{base}/pdf"), Some(prof), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // « Valider le budget » est une commande portant la version lue ; ici le dossier n'est pas à cette étape.
+    let (st, _) = appel(
+        &app,
+        "POST",
+        &format!("/voyages/{id}/commandes/valider-budget"),
+        Some(compta),
+        Some(json!({"version": 1, "budget_numero": 1, "budget_rev": 1})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    // La hausse du prix est une décision de la direction : jamais la comptabilité ni le porteur.
+    for t in [compta, prof] {
+        let (st, _) = appel(&app, "POST", &format!("/voyages/{id}/prix/hausse"), Some(t), Some(json!({"motif": "x"}))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // Documents : liste vide, document inconnu introuvable.
+    let (st, v) = appel(&app, "GET", &format!("/voyages/{id}/documents"), Some(prof), None).await;
+    assert_eq!((st, v.as_array().map(Vec::len)), (StatusCode::OK, Some(0)));
+    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}/documents/{f}"), Some(prof), None).await.0, StatusCode::NOT_FOUND);
+    // Version abandonnée (la version d'écritures est exigée).
+    let (_, b) = appel(&app, "GET", &base, Some(compta), None).await;
+    let rev = b["brouillon"]["rev"].as_i64().unwrap();
+    assert_eq!(appel(&app, "DELETE", &format!("{base}/versions/1?rev={}", rev - 1), Some(compta), None).await.0, StatusCode::CONFLICT);
+    let (st, b) = appel(&app, "DELETE", &format!("{base}/versions/1?rev={rev}"), Some(compta), None).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert!(b["brouillon"].is_null());
+
+    // Rappels : le porteur lit les siens ; déclenchement par la direction seule.
+    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}/rappels"), Some(prof), None).await.0, StatusCode::OK);
+    assert_eq!(appel(&app, "GET", &format!("/voyages/{id}/rappels"), Some(parent), None).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(appel(&app, "POST", "/voyages/rappels/traiter", Some(compta), None).await.0, StatusCode::FORBIDDEN);
+    let (st, v) = appel(&app, "POST", "/voyages/rappels/traiter", Some(dir), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(v["crees"].is_number());
+
+    // Synthèse APEL : comptabilité seule ; CSV sans mise en cache.
+    let (st, v) = appel(&app, "GET", "/voyages/apel", Some(compta), None).await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert!(v["lignes"].is_array() && v["total_centimes"].is_number());
+    for t in [dir, adm, prof, parent] {
+        assert_eq!(appel(&app, "GET", "/voyages/apel", Some(t), None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(appel(&app, "GET", "/voyages/apel.csv", Some(t), None).await.0, StatusCode::FORBIDDEN);
+    }
+    let (st, h, corps) = appel_brut(&app, "GET", "/voyages/apel.csv", Some(compta), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(h["content-type"].to_str().unwrap().starts_with("text/csv"));
+    assert_eq!(h["cache-control"], "no-store");
+    assert!(corps.as_str().unwrap().starts_with("Référence;Titre;"));
+    // Année d'un autre établissement : introuvable.
+    let (st, _) = appel(&app, "GET", &format!("/voyages/apel?annee_id={}", Uuid::new_v4()), Some(compta), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+}

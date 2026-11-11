@@ -197,6 +197,11 @@ pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
 pub mod messagerie_m0b;
 pub mod voyages;
+pub mod voyages_budget;
+pub mod voyages_budget_repo;
+pub mod voyages_pdf;
+pub mod voyages_rappels;
+pub mod voyages_reactions;
 pub mod voyages_repo;
 pub use messagerie_m0b::{
     ApercuAnnonce, FilOuvert, LienAVerifier, MessageEnvoye, OptionsEnvoiMessage, PageFils,
@@ -412,6 +417,8 @@ mod tests_eleve_fusion;
 mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_portail_p1;
+#[cfg(test)]
+mod tests_voyages_v0b;
 
 #[cfg(test)]
 mod integration_tests {
