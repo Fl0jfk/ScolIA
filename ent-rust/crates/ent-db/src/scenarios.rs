@@ -1579,7 +1579,8 @@ async fn bascule_statut_sorti_declenche_la_cascade_transverse() {
     .await
     .expect("passage régime INT");
     // Public de la chambre = sexe d'état civil de l'élève (R-IT11).
-    let sexe: Option<String> = sqlx::query_scalar("SELECT sexe FROM ent_eleve WHERE id = $1")
+    let sexe: Option<String> = sqlx::query_scalar("SELECT sexe FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
+        .bind(etab)
         .bind(eleve.id)
         .fetch_one(ent.pool_verif())
         .await
