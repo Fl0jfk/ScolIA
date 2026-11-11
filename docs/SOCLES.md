@@ -488,12 +488,14 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : privé (OGEC) : plan comptable, journaux, écritures générées depuis 24–26, grand livre, balance, clôture, immobilisations, budget prévisionnel, analytique (par activité, par sortie), fournisseurs, commandes, factures fournisseurs, crédits par discipline. Public : interface avec la comptabilité de l'agent comptable [H].
 - **Dépend de** : 24, 25, 26.
 - **Existant [F]** : export OGEC (`facturation_ogec.rs`).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/48_COMPTABILITE.md` et `PERSONAS_48.md`. Recommandation : ScolIA fait budget, achats, fournisseurs, trésorerie, analytique et **toutes les écritures**, le logiciel du cabinet garde la tenue légale (export FEC) ; **Q-CG1 soumise à Florian** (précise D-025). Lot CG0 : dix défauts de l'export comptable existant.
 
 #### 49. Paie et administration du personnel
 - **Contient** : privé : personnels de droit privé de l'organisme de gestion (les enseignants du privé sous contrat sont payés par l'État [H]) ; contrats, éléments variables (heures et absences issues de 15), bulletins, déclarations sociales (DSN) [H], conventions collectives [H], congés, entretiens, formation. Public : peu de paie locale [H].
 - **Dépend de** : 6, 15.
 - **Existant** : rien.
 - **Place** : en fin de carte : réglementation lourde et changeante, utile surtout au privé (voir §8, Q-B).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/49_PAIE.md` et `PERSONAS_49.md`. Recommandation : ScolIA fait l'administration du personnel et **prépare** la paie (variables prouvées et arrêtées), le logiciel de paie de l'OGEC ou du cabinet **calcule et déclare** (DSN) ; bulletins et journal reviennent dans ScolIA ; **Q-RH1 soumise à Florian** (contredit D-025).
 
 ### Étage L — Extensions de périmètre
 
