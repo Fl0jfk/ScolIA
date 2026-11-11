@@ -37,3 +37,6 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 49 régimes | session_01KZCbFHcu695tBBZomvYeGz | ent-socle-49-regimes — fusionnée 11-11 13:20, archivée |
 | D-056 organisme/UAI | session_01KZCbFHWB36Bj9BaCWZTjUd | ent-conception-organisme-uai — fusionnée 11-11 13:15, archivée |
 | V0c voyages | session_01KZCbFG457m9eg5vYvj8Y1H | ent-socle-voyages-v0c (remplace session V0b archivée) |
+| 19 code AG0-AG1 | session_01KZCbFHhtUcrLKPT1g7mDDc | ent-socle-19-code-1 |
+| 39 code ST0-ST1 | session_01KZCbFGfZ4bUMpBKuP4Gd6Q | ent-socle-39-code-1 |
+| D-036 retrait colonnes | session_01KZCbFJ2BZKhM1HPTykzZWF | ent-d036-retrait-colonnes (668–670) |
