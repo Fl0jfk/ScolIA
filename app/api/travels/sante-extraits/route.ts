@@ -11,6 +11,8 @@ import {
 } from "@/app/lib/intranet-auth-metadata";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getTravelTrip } from "@/app/lib/travels-storage";
+import { isTripOwner } from "@/app/lib/travels-direction-permissions";
+import { INTRANET_DIRECTION_SLUGS } from "@/app/lib/intranet-roles";
 import { listVoyageSanteExtraitsForTravel } from "@/app/lib/travels-sante-extraits";
 
 /**
@@ -46,6 +48,21 @@ export async function GET(req: Request) {
 
   const trip = await getTravelTrip(tripId);
   if (!trip) return NextResponse.json({ error: "Voyage introuvable." }, { status: 404 });
+
+  // NJ-14 : données de santé = infirmerie, direction, admin, ou porteur de CE voyage.
+  const canReadSante =
+    orgAdmin ||
+    platformAdmin ||
+    roles.some((r) => r === "admin" || r === "infirmerie" || (INTRANET_DIRECTION_SLUGS as readonly string[]).includes(r));
+  if (!canReadSante) {
+    const me = user ?? (await safeCurrentUser());
+    if (!isTripOwner(trip.ownerId, me?.id)) {
+      return NextResponse.json(
+        { error: "Réservé à l'infirmerie, à la direction et au porteur du voyage.", code: "SANTE_FORBIDDEN" },
+        { status: 403 },
+      );
+    }
+  }
 
   try {
     const extraits = await listVoyageSanteExtraitsForTravel(etabId, tripId);
