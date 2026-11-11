@@ -576,3 +576,24 @@ export async function getAttachmentById(
     .limit(1);
   return row ?? null;
 }
+
+/** Foyer du fil auquel appartient une pièce jointe (NJ-36 : contrôle d'appartenance). */
+export async function getAttachmentFoyerId(
+  etablissementId: string,
+  attachmentId: string,
+): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ foyerId: familleThread.foyerId })
+    .from(familleThreadAttachment)
+    .innerJoin(familleThreadMessage, eq(familleThreadMessage.id, familleThreadAttachment.messageId))
+    .innerJoin(familleThread, eq(familleThread.id, familleThreadMessage.threadId))
+    .where(
+      and(
+        eq(familleThreadAttachment.etablissementId, etablissementId),
+        eq(familleThreadAttachment.id, attachmentId),
+      ),
+    )
+    .limit(1);
+  return row?.foyerId ?? null;
+}
