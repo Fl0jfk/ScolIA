@@ -3,6 +3,13 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 12 « appel et assiduité » — conception et passe personas (2026-11-11, branche `ent-socle-12-conception`, base `ent-mc0hoe` 7467f2d)
+Documentation seulement, **non décidée** (recommandations appliquées par défaut, D-031), aucun code : `docs/socles/12_ASSIDUITE.md` et `docs/socles/PERSONAS_12.md`.
+- **Existant** (audit en lecture seule, constats graves relus) : bon noyau (clôture atomique, demi-journées dérivées et testées, rapprochement des déclarations, signalement mensuel CPE → direction) ; **défauts graves** DA-01 à DA-05 et DA-07 : un professeur déclare, « remet présent » ou retarde n'importe quel élève de l'établissement (contre D-022) ; une absence par séance (avis, justifications et décisions multipliés) ; seuil annuel de 10 absences codé en dur qui écrit aux familles ; RLS inopérante (aucune transaction d'établissement). **Lot AS0** proposé tout de suite.
+- **Réglementaire vérifié** (2026-11-11) : R131-5 à R131-7, L131-8, R312-2, R531-31, D531-12, R624-7, circulaire 2014-159 (abroge 2011-0018) ; demi-journée non définie par les textes.
+- 152 actions, 72 cas limites, 40 règles, 17 lots (AS0–AS16), migrations 2240–2259 ; parcours de la démonstration de décembre : AS0, AS1, AS2, AS3, AS5, écrans AS14a–c.
+- **Signalé à Florian** : deux failles probables dans le module vie scolaire de Next.js en production (lecture seule, non exécuté, non touché).
+
 ## Sauvegardes, PRA multi-fournisseur et portabilité par établissement — architecture (2026-11-10, branche `ent-architecture-pra`, base `ent-mc0hoe`)
 Documentation seulement, **proposé, à valider par Florian**, aucun code, aucune ressource cloud : `docs/PRA_SAUVEGARDES.md` (commande §1–§16) et `docs/PORTABILITE_EXPORTS.md` (§17). Décisions proposées D-037 à D-046 ; erreurs F-013 (PITR managé Scaleway et S3 d'`ent-object` supposés, non vérifiés) et F-014 (`BYTEA`, files d'envoi restaurables).
 - Audit : 317/329 tables avec `etablissement_id`, 69/566 FK composites, 163 FK vers `ent_user`, 2 tables `BYTEA`, RLS ≈ 63 tables (mode `off` par défaut), migrations rejouées hors transaction.
