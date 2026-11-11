@@ -50,7 +50,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | 15 | Absences des personnels et remplacements | C · Journée | 6, 10, 8 | P |
 | 16 | Messagerie et conversations | D · Échanger | 4, 6, 7, 8 | I, L |
 | 17 | Informations, annonces et campagnes | D · Échanger | 8, 16 | P |
-| 18 | Formulaires, autorisations et consentements | D · Échanger | 4, 7, 8 | A |
+| 18 | Formulaires, autorisations et consentements | D · Échanger | 4, 7, 8 | P |
 | 19 | Agenda, réunions et rendez-vous | D · Échanger | 6, 10, 16 | E |
 | 20 | Cahier de textes et travail personnel | E · Apprendre | 10, 7 | E, B |
 | 21 | Évaluations et notes | E · Apprendre | 6, 10, 20 | I |
@@ -270,6 +270,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Place** : même public que la messagerie, autre usage.
 - **Faire mieux** : on sait qui n'a pas lu, et on le relance seul.
 - **Esquisse** (2026-11-09, dans `docs/socles/16_MESSAGERIE.md` §17 et §19.11, non décidée) : une publication (annonce, actualité, lettre, campagne) est un acte éditorial à **audience décrite**, résolue sous les droits de l'auteur ; la **diffusion** (aperçu, coût, confirmation, relance des non-lecteurs) est la mécanique du socle 8 (Q-N2) ; pas de commentaires publics, « poser une question » ouvre un fil ; reprise des annonces (086) et du contenu des campagnes (191) ; 17 actions ANN-100 à ANN-116, lot M15. Conception propre à faire. Plage réservée 4700–4799 (Q-B2) ou 500–519.
+- **Conception et passe personas** (2026-11-11, branche `ent-socle-17-18-conception`, non décidées) : `docs/socles/17_ANNONCES.md`, `docs/socles/PERSONAS_17.md` — huit natures de publication, audience par critères en table (critères sensibles interdits), **publier ≠ notifier**, budget d'attention et résumé hebdomadaire (titres « diffusables » seulement), suivi par famille (touchée / pleinement), campagnes à attentes (18, 7, 19, 25), droit à l'image vérifié au socle 18 avant chaque publication et masquage automatique au retrait, représentants de parents sans validation de fond (D111-9), mode « miroir » pendant l'année de doublon ; **lot AN0** de correctifs (publication sans aperçu par `confirmer:true`, élève qui lit les annonces des parents, parent interdit qui lit, brouillons visibles, absence de portée) ; 171 actions (ANN-100 à ANN-270), lots AN0 à AN13. **Plage de migrations 2340–2359** (remplace 4700–4799 / 500–519).
 
 #### 18. Formulaires, autorisations et consentements
 - **Contient** : moteur de formulaires et de sondages ciblés (anonyme ou nominatif annoncé ; une réponse par responsable ou par foyer) ; autorisations récurrentes (droit à l'image, usage du numérique, sortie, transport) ; **consentements versionnés** avec retrait ; résultats et exports.
@@ -278,6 +279,8 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant** : rien (A).
 - **Place** : avant toutes les fonctions qui exigent un accord (trombinoscope, sorties, élections, activités).
 - **Faire mieux** : contrôle de cohérence automatique entre consentement et usage (A15).
+- **Correction (2026-11-11)** : l'existant n'est pas « rien » : `193_formulaires.sql`, `formulaires.rs`, écrans Leptos `formulaires/` et masquage de la photo du trombinoscope existent [F] (P).
+- **Conception et passe personas** (2026-11-11, branche `ent-socle-17-18-conception`, non décidées) : `docs/socles/18_FORMULAIRES.md`, `docs/socles/PERSONAS_18.md` — quatre natures juridiques (information, collecte, autorisation, consentement), décideurs calculés par les socles 2 et 4 (règles `un` / `tous` / élève, avis de l'enfant pour son image, désaccord, capacité, interdiction, délégataire), droit à l'image par usage et par canal (deux titulaires par défaut, à confirmer par un juriste), port unique « a-t-on le droit ? » jamais vrai par défaut, versions à usages, cohérence accord ↔ usage, moteur de formulaires typé sans JSON, sondages réellement anonymes (tables séparées, lots mélangés, route hors journaux, seuil de 5) ; **lot FO0** de correctifs (accord de la version 1 appliqué à la version 2, parent interdit qui lit et signe, décision de l'autre parent visible, majeur non prévenu, capacité ignorée, un seul accord toujours suffisant) ; 195 actions (FRM-100 à FRM-294), lots FO0 à FO13. **Plage de migrations 2360–2379.**
 
 #### 19. Agenda, réunions et rendez-vous
 - **Contient** : calendrier de l'établissement ; réunions (convocation, présence, compte rendu) ; **rencontres parents-professeurs** (plages proposées automatiquement selon les services) ; prise de rendez-vous ; disponibilités ; iCal ; lien visio (33).
