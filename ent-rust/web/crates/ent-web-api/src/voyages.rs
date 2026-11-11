@@ -2,9 +2,10 @@
 //! les états et les préconditions sont vérifiés par le serveur ; ce client n'en suppose aucun.
 
 use ent_types::voyages::{
-    CandidatsClasseDto, CirculaireDto, EncadrantDto, EtapeDto, EtapeSaisieDto, JournalDto,
-    ParamsCommandeDto, ParticipantDto, ResultatAjoutDto, SortieDetailDto, SortieDto,
-    SortieModifDto, SortieResumeDto, SortieSaisieDto, TableauDirectionDto, VoyageFamilleDto,
+    BudgetDto, CandidatsClasseDto, CirculaireDto, DocumentDto, EncadrantDto, EtapeDto,
+    EtapeSaisieDto, JournalDto, LigneBudgetSaisieDto, ParamsBudgetDto, ParamsCommandeDto,
+    ParticipantDto, RappelDto, ResultatAjoutDto, SortieDetailDto, SortieDto, SortieModifDto,
+    SortieResumeDto, SortieSaisieDto, TableauDirectionDto, VoyageFamilleDto,
 };
 use serde_json::json;
 use uuid::Uuid;
@@ -205,6 +206,200 @@ impl ApiClient {
     ) -> Result<Vec<ent_types::personnels::AgentResumeDto>, ApiError> {
         self.appel(Methode::Get, "/personnels/annuaire?limite=200", None)
             .await
+    }
+}
+
+// ───────────────────────── Lot V0b : budget, prix annoncé, documents, rappels ─────────────────────────
+
+impl ApiClient {
+    /// `GET /voyages/{id}/budget` : versions, lignes, calcul de la part des familles, prix annoncé.
+    pub async fn voyage_budget(&self, id: Uuid) -> Result<BudgetDto, ApiError> {
+        self.appel(Methode::Get, &format!("/voyages/{id}/budget"), None)
+            .await
+    }
+
+    /// `POST /voyages/{id}/budget/versions` : version suivante (révision motivée si une version est validée).
+    pub async fn voyage_budget_version_creer(
+        &self,
+        id: Uuid,
+        motif: Option<&str>,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/voyages/{id}/budget/versions"),
+            Some(json!({ "motif": motif })),
+        )
+        .await
+    }
+
+    /// `DELETE /voyages/{id}/budget/versions/{numero}?rev=` : abandonne le brouillon.
+    pub async fn voyage_budget_abandonner(
+        &self,
+        id: Uuid,
+        numero: i32,
+        rev: i32,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Delete,
+            &format!("/voyages/{id}/budget/versions/{numero}?rev={rev}"),
+            None,
+        )
+        .await
+    }
+
+    /// `PUT /voyages/{id}/budget/versions/{numero}` : effectif payant et marge de sécurité.
+    pub async fn voyage_budget_parametrer(
+        &self,
+        id: Uuid,
+        numero: i32,
+        params: &ParamsBudgetDto,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Put,
+            &format!("/voyages/{id}/budget/versions/{numero}"),
+            Some(corps(params)?),
+        )
+        .await
+    }
+
+    /// `POST …/lignes` : ajoute une dépense ou une recette (montant au format français).
+    pub async fn voyage_budget_ligne_ajouter(
+        &self,
+        id: Uuid,
+        numero: i32,
+        ligne: &LigneBudgetSaisieDto,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/voyages/{id}/budget/versions/{numero}/lignes"),
+            Some(corps(ligne)?),
+        )
+        .await
+    }
+
+    /// `PUT …/lignes/{lid}` : modifie une ligne du brouillon.
+    pub async fn voyage_budget_ligne_modifier(
+        &self,
+        id: Uuid,
+        numero: i32,
+        ligne_id: Uuid,
+        ligne: &LigneBudgetSaisieDto,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Put,
+            &format!("/voyages/{id}/budget/versions/{numero}/lignes/{ligne_id}"),
+            Some(corps(ligne)?),
+        )
+        .await
+    }
+
+    /// `DELETE …/lignes/{lid}?rev=` : supprime une ligne du brouillon.
+    pub async fn voyage_budget_ligne_supprimer(
+        &self,
+        id: Uuid,
+        numero: i32,
+        ligne_id: Uuid,
+        rev: i32,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Delete,
+            &format!("/voyages/{id}/budget/versions/{numero}/lignes/{ligne_id}?rev={rev}"),
+            None,
+        )
+        .await
+    }
+
+    /// `POST …/valider-revision` : valide la version n+1 d'un budget déjà validé.
+    pub async fn voyage_budget_valider_revision(
+        &self,
+        id: Uuid,
+        numero: i32,
+        rev: i32,
+    ) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/voyages/{id}/budget/versions/{numero}/valider-revision"),
+            Some(json!({ "rev": rev })),
+        )
+        .await
+    }
+
+    /// `POST /voyages/{id}/prix/hausse` : décision de la direction d'augmenter le prix annoncé.
+    pub async fn voyage_prix_hausser(&self, id: Uuid, motif: &str) -> Result<BudgetDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/voyages/{id}/prix/hausse"),
+            Some(json!({ "motif": motif })),
+        )
+        .await
+    }
+
+    /// `POST /voyages/{id}/budget/pdf` : rend la fiche budget (version validée) en PDF.
+    pub async fn voyage_budget_pdf(&self, id: Uuid) -> Result<DocumentDto, ApiError> {
+        self.appel(Methode::Post, &format!("/voyages/{id}/budget/pdf"), None)
+            .await
+    }
+
+    /// `POST /voyages/{id}/circulaire/pdf` : rend la circulaire aux familles en PDF.
+    pub async fn voyage_circulaire_pdf(&self, id: Uuid) -> Result<DocumentDto, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/voyages/{id}/circulaire/pdf"),
+            None,
+        )
+        .await
+    }
+
+    /// `GET /voyages/{id}/documents` : documents émis que l'on a le droit de voir.
+    pub async fn voyage_documents(&self, id: Uuid) -> Result<Vec<DocumentDto>, ApiError> {
+        self.appel(Methode::Get, &format!("/voyages/{id}/documents"), None)
+            .await
+    }
+
+    /// `GET /voyages/{id}/rappels` : rappels déjà constatés pour l'organisateur.
+    pub async fn voyage_rappels(&self, id: Uuid) -> Result<Vec<RappelDto>, ApiError> {
+        self.appel(Methode::Get, &format!("/voyages/{id}/rappels"), None)
+            .await
+    }
+}
+
+impl ApiClient {
+    /// `GET /voyages/{id}/documents/{doc}` : octets d'un document émis. Le serveur contrôle le droit
+    /// et l'empreinte à chaque lecture : il n'y a aucune adresse publique du magasin d'objets.
+    pub async fn voyage_document(&self, sortie: Uuid, document: Uuid) -> Result<Vec<u8>, ApiError> {
+        let (statut, octets) = crate::transport::envoyer_octets(
+            &self.url(&format!("/voyages/{sortie}/documents/{document}")),
+            self.auth(),
+        )
+        .await?;
+        if (200..300).contains(&statut) {
+            Ok(octets)
+        } else {
+            Err(ApiError::depuis_statut(
+                statut,
+                String::from_utf8_lossy(&octets).into_owned(),
+            ))
+        }
+    }
+}
+
+impl ApiClient {
+    /// `GET /voyages/{id}/participants.csv` : export de la liste (trace d'accès écrite par le serveur,
+    /// R-SV27 ; cellules neutralisées contre l'injection de formule).
+    pub async fn voyage_participants_csv(&self, id: Uuid) -> Result<Vec<u8>, ApiError> {
+        let (statut, octets) = crate::transport::envoyer_octets(
+            &self.url(&format!("/voyages/{id}/participants.csv")),
+            self.auth(),
+        )
+        .await?;
+        if (200..300).contains(&statut) {
+            Ok(octets)
+        } else {
+            Err(ApiError::depuis_statut(
+                statut,
+                String::from_utf8_lossy(&octets).into_owned(),
+            ))
+        }
     }
 }
 

@@ -251,13 +251,13 @@ pub struct SaisieVoyage {
     pub classes: Vec<Uuid>,
 }
 
-type Erreurs = Vec<(String, String)>;
+pub(super) type Erreurs = Vec<(String, String)>;
 
-fn erreur(e: &mut Erreurs, champ: &str, msg: &str) {
+pub(super) fn erreur(e: &mut Erreurs, champ: &str, msg: &str) {
     e.push((champ.to_string(), msg.to_string()));
 }
 
-fn entier(v: &str) -> Result<Option<i32>, ()> {
+pub(super) fn entier(v: &str) -> Result<Option<i32>, ()> {
     let v = v.trim();
     if v.is_empty() {
         return Ok(None);
@@ -269,13 +269,22 @@ fn entier(v: &str) -> Result<Option<i32>, ()> {
         .ok_or(())
 }
 
-fn opt(v: &str) -> Option<String> {
+pub(super) fn opt(v: &str) -> Option<String> {
     let t = v.trim();
     (!t.is_empty()).then(|| t.to_string())
 }
 
 /// Contrôle de confort avant l'envoi (le serveur revérifie tout) : champs vides, dates, nombres.
 pub fn composer(s: &SaisieVoyage) -> Result<SortieSaisieDto, Erreurs> {
+    composer_public(s, false)
+}
+
+/// Comme [`composer`] ; `a_des_groupes` : le public comprend déjà des groupes (modification d'une
+/// sortie dont le public n'est pas fait que de classes), donc « aucune classe » n'est pas une erreur.
+pub(super) fn composer_public(
+    s: &SaisieVoyage,
+    a_des_groupes: bool,
+) -> Result<SortieSaisieDto, Erreurs> {
     let mut e: Erreurs = Vec::new();
     if s.titre.trim().is_empty() {
         erreur(&mut e, "voy-titre", "Donnez un titre à la sortie.");
@@ -331,7 +340,7 @@ pub fn composer(s: &SaisieVoyage) -> Result<SortieSaisieDto, Erreurs> {
             "Un voyage demande l'effectif d'élèves prévu (devis, budget).",
         );
     }
-    if s.classes.is_empty() {
+    if s.classes.is_empty() && !a_des_groupes {
         erreur(
             &mut e,
             "voy-classes",

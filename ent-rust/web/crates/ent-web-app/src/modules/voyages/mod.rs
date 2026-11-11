@@ -6,7 +6,16 @@
 //! (`SortieDetailDto::commandes`), qui revérifie le droit, l'étape et la version à chaque appel ;
 //! un refus (403/409/422) est affiché tel quel. Les familles ne voient que leur enfant.
 
+mod budget;
+mod edition;
 pub mod modele;
+mod modele_edition;
+mod modele_programme;
+mod modele_serie;
+mod programme;
+mod serie;
+
+pub use serie::PageNouvelleSerie;
 
 use ent_types::voyages::{
     CandidatsClasseDto, CommandeDto, ParamsCommandeDto, SortieDetailDto, SortieResumeDto,
@@ -85,6 +94,7 @@ fn VuePersonnel() -> impl IntoView {
         <div class="voy-barre">
             {move || moteur.get().a("voyages.creer").then(|| view! {
                 <LienBouton href=format!("{}/nouveau", navigation::VOYAGES)>"Nouvelle sortie"</LienBouton>
+                <LienBouton href=format!("{}/serie", navigation::VOYAGES) variante=Variante::Secondaire>"Nouvelle série hebdomadaire"</LienBouton>
             })}
         </div>
         <Tableau/>
@@ -437,8 +447,11 @@ fn Fiche(d: SortieDetailDto, recharger: Callback<()>) -> impl IntoView {
                 {s.objectifs.clone().map(|o| view! { <dt>"Objectifs"</dt><dd>{o}</dd> })}
             </dl>
         </section>
+        {d.acces.modifier.then(|| view! { <edition::Edition d=d.clone() recharger=recharger/> })}
+        <programme::Programme d=d.clone() recharger=recharger/>
         <Encadrants d=d.clone() ecriture=ecriture/>
         <Participants d=d.clone() ecriture=ecriture/>
+        <budget::Budget id=id etat=s.etat.clone() version=s.version recharger=recharger/>
         <Circulaire d=d.clone()/>
         <Journal id=id/>
     }
@@ -453,6 +466,11 @@ fn Commandes(
     commandes: Vec<CommandeDto>,
     ecriture: Ecriture,
 ) -> impl IntoView {
+    // « Valider le budget » porte sur la version de budget lue : elle se lance depuis la section Budget.
+    let commandes: Vec<CommandeDto> = commandes
+        .into_iter()
+        .filter(|c| c.code != "valider-budget")
+        .collect();
     if commandes.is_empty() {
         return ().into_any();
     }
@@ -465,6 +483,7 @@ fn Commandes(
                 version: Some(version),
                 motif: m,
                 vers: v,
+                ..Default::default()
             };
             session::client()
                 .voyage_commande(id, &c.code, &params)
@@ -610,6 +629,7 @@ fn Participants(d: SortieDetailDto, ecriture: Ecriture) -> impl IntoView {
     let liste =
         LocalResource::new(move || async move { session::client().voyage_participants(id).await });
     let motif = RwSignal::new("autre".to_string());
+    let export_erreur = RwSignal::new(None::<String>);
     let options_motif: Vec<(String, String)> = MOTIFS_SORTIE
         .iter()
         .map(|(c, l)| ((*c).to_string(), (*l).to_string()))
@@ -620,6 +640,24 @@ fn Participants(d: SortieDetailDto, ecriture: Ecriture) -> impl IntoView {
             <h2 id="voy-participants" class="vs-section-titre">"Élèves"</h2>
             {peut.then(|| view! {
                 <Selection id="voy-motif-sortie" libelle="Motif pour un désistement ou un retrait" valeur=motif options=options_motif.clone()/>
+            })}
+            {peut.then(|| view! {
+                <div class="voy-actions">
+                    <Bouton variante=Variante::Secondaire
+                        on_click=Callback::new(move |_| {
+                            leptos::task::spawn_local(async move {
+                                match session::client().voyage_participants_csv(id).await {
+                                    Ok(octets) => {
+                                        if let Err(m) = crate::noyau::telechargement::enregistrer_telechargement("participants.csv", "text/csv", &octets) {
+                                            export_erreur.set(Some(m));
+                                        }
+                                    }
+                                    Err(e) => export_erreur.set(Some(e.message_utilisateur())),
+                                }
+                            });
+                        })>"Exporter la liste (CSV)"</Bouton>
+                </div>
+                {move || export_erreur.get().map(|m| view! { <ent_web_ui::Alerte niveau=ent_web_ui::Niveau::Erreur titre=m/> })}
             })}
             {move || match liste.get() {
                 None => view! { <Squelette lignes=3 libelle="Chargement de la liste…"/> }.into_any(),
