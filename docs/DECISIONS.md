@@ -434,3 +434,8 @@ Issues de la mission `docs/missions/MISSION_PRA_SAUVEGARDES.md`. Détail et just
 ## D-046 — Format d'export de portabilité (proposé, à valider par Florian ; avant le lot EXP-1)
 - Archive avec `manifeste.json` signé, vue métier CSV, vue technique JSON Lines (format d'échange, compatible D-036), fichiers originaux, dictionnaire et `LISEZMOI` ; ZIP AES-256 ou `age` (Q-EXP1) ; rétention 7 jours ; bucket d'exports hors réplication.
 
+
+## D-047 — Comptabilité et paie entièrement dans ScolIA : D-025 confirmée (Florian, 2026-11-11)
+**Contexte** : les conceptions des socles 48 et 49 recommandaient un partage (ScolIA prépare ; logiciel du cabinet pour la tenue légale via FEC ; logiciel de paie pour le calcul et la DSN) — questions Q-CG1 et Q-RH1.
+**Décision** : Florian **confirme D-025** : la comptabilité de l'organisme (tenue légale des comptes comprise) et la paie (calcul des bulletins et DSN comprises) sont construites dans ScolIA.
+**Conséquences** : les conceptions 48 et 49 sont révisées en ce sens, avec les exigences propres à ces domaines (conformité de la DSN au cahier technique net-entreprises et tests de recette, mises à jour réglementaires annuelles et en cours d'année, piste d'audit fiable et inaltérabilité des écritures, FEC conforme à l'article A47 A-1 du LPF, archivage légal, facturation électronique en réception depuis le 1er septembre 2026 via une plateforme agréée, sécurité des données des salariés) ; l'export FEC reste disponible pour l'expert-comptable ; une phase de paie et de comptabilité en parallèle (« doublon ») précède toute bascule réelle, comme pour le reste (D-034).
