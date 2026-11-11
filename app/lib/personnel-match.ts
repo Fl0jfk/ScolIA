@@ -81,6 +81,11 @@ async function mistralJson(prompt: string): Promise<Record<string, unknown>> {
   return parseMistralJson(content);
 }
 
+/** NJ-45 : le NIR (13 ou 15 chiffres, espaces tolérés) n'est jamais envoyé au modèle. */
+export function maskNirForAi(text: string): string {
+  return text.replace(/\b[12]\s?\d{2}\s?\d{2}\s?\d{2}\s?\d{3}\s?\d{3}(?:\s?\d{2})?\b/g, "[NIR masqué]");
+}
+
 export async function extractPersonnelFieldsFromText(text: string): Promise<PersonnelExtracted> {
   const prompt = `
 Analyse ce document administratif RH (personnel d'établissement scolaire OGEC).
@@ -91,7 +96,6 @@ Extrais UNIQUEMENT si clairement présent :
 - prenom
 - email
 - poste
-- numero_securite_sociale (NIR / n° sécurité sociale, 13 ou 15 chiffres — souvent sur bulletins de paie, attestations)
 - matricule (matricule interne employeur, souvent sur bulletins de paie)
 
 Si absent, mets "non_trouve" pour le champ.
@@ -99,11 +103,11 @@ Ne devine jamais.
 
 Texte :
 ---
-${text.slice(0, 14_000)}
+${maskNirForAi(text).slice(0, 14_000)}
 ---
 
 Réponds en JSON uniquement :
-{"type_document":"...","date_document":"...","nom":"...","prenom":"...","email":"...","poste":"...","numero_securite_sociale":"...","matricule":"..."}
+{"type_document":"...","date_document":"...","nom":"...","prenom":"...","email":"...","poste":"...","matricule":"..."}
 `;
   const raw = await mistralJson(prompt);
   const val = (k: string) => {
