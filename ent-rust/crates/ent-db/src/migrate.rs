@@ -5,6 +5,9 @@ use thiserror::Error;
 pub enum MigrateError {
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
+    /// `ent_migration_figee` nomme un fichier qui n'existe pas dans `MIGRATIONS` : on ne fige pas à l'aveugle.
+    #[error("ent_migration_figee : fichier de migration inconnu « {0} » (on ne fige qu'un fichier existant)")]
+    FigeInconnu(String),
 }
 
 /// Une migration : (nom du fichier sans extension, texte). Le nom permet au lanceur de **sauter** les
@@ -15,7 +18,7 @@ macro_rules! m {
     };
 }
 
-const MIGRATIONS: &[(&str, &str)] = &[
+pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("001_ent_socle"),
     m!("002_drop_effectif_doublon"),
     m!("003_ent_absence"),
@@ -297,6 +300,7 @@ async fn apply_all(pool: &PgPool) -> Result<(), MigrateError> {
         // Fichier figé : sa reprise a été faite et ses colonnes sources ont été retirées (D-036,
         // migrations 668–670). Le rejouer échouerait, ou ressusciterait une colonne retirée.
         if figees.iter().any(|f| f == nom) {
+            tracing::info!(migration = %nom, "migration figée : sautée (D-036, ent_migration_figee)");
             continue;
         }
         apply_sql_file(pool, sql).await?;
@@ -312,7 +316,28 @@ async fn fichiers_figes(pool: &PgPool) -> Result<Vec<String>, MigrateError> {
     if !existe {
         return Ok(Vec::new());
     }
-    Ok(sqlx::query_scalar("SELECT nom FROM ent_migration_figee").fetch_all(pool).await?)
+    let noms: Vec<String> = sqlx::query_scalar("SELECT nom FROM ent_migration_figee").fetch_all(pool).await?;
+    // On ne fige qu'un fichier qui existe : un nom inconnu (faute de frappe, fichier retiré) est une erreur.
+    if let Some(inconnu) = noms.iter().find(|n| !MIGRATIONS.iter().any(|(m, _)| m == n)) {
+        return Err(MigrateError::FigeInconnu(inconnu.clone()));
+    }
+    Ok(noms)
+}
+
+/// Tests : applique les migrations dans l'ordre **jusqu'à** `dernier` (inclus), sans figeage — reproduit
+/// une base migrée jusqu'à une version donnée avant la mise à niveau.
+#[cfg(test)]
+pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<(), MigrateError> {
+    let mut trouve = false;
+    for (nom, sql) in MIGRATIONS {
+        apply_sql_file(pool, sql).await?;
+        if *nom == dernier {
+            trouve = true;
+            break;
+        }
+    }
+    assert!(trouve, "migration {dernier} inconnue");
+    Ok(())
 }
 
 async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
