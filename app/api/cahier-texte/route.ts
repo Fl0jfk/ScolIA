@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { requireAuth } from "@/app/lib/intranet-auth";
-import { safeCurrentUser } from "@/app/lib/intranet-session";
+import { isOrgAdminFromAppUser } from "@/app/lib/auth-roles-db";
+import { requireModule } from "@/app/lib/intranet-auth";
+import { resolveSession, safeCurrentUser } from "@/app/lib/intranet-session";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   createCahierTexte,
+  getCahierTexteByIds,
   hideCahierTexteFromFamille,
   listCahierTexte,
   listDistinctClasses,
@@ -11,7 +13,7 @@ import {
 } from "@/app/lib/cahier-texte-db";
 
 export async function GET(req: Request) {
-  const gate = await requireAuth();
+  const gate = await requireModule("cahier-texte");
   if (!gate.ok) return gate.response;
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
@@ -29,9 +31,14 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const gate = await requireAuth();
+  const gate = await requireModule("cahier-texte");
   if (!gate.ok) return gate.response;
-  const { userId } = gate.ctx;
+  // Identité de session (comme à la création des entrées), pas businessUserId.
+  const userId = (await resolveSession())?.userId ?? gate.ctx.userId;
+  const roles = gate.ctx.user.roles;
+  const canEditOthers =
+    isOrgAdminFromAppUser(gate.ctx.user) ||
+    roles.some((r) => r === "admin" || r === "master" || r === "direction" || r.startsWith("direction_"));
   const user = await safeCurrentUser();
   const etabId = await resolveCurrentEtablissementId();
   if (!etabId) {
@@ -56,6 +63,13 @@ export async function POST(req: Request) {
     "Enseignant";
 
   try {
+    // NJ-33 : modifier ou masquer une entrée = son auteur, la direction ou l'admin.
+    if ((body.action === "hide" || body.action === "update") && body.id && !canEditOthers) {
+      const [existing] = await getCahierTexteByIds(etabId, [String(body.id)]);
+      if (!existing || existing.enseignantUserId !== userId) {
+        return NextResponse.json({ error: "Seul l'auteur de l'entrée peut la modifier." }, { status: 403 });
+      }
+    }
     if (body.action === "hide" && body.id) {
       const entry = await hideCahierTexteFromFamille(etabId, String(body.id));
       return NextResponse.json({ success: true, entry });

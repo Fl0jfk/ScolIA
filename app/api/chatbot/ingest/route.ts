@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveSession } from "@/app/lib/intranet-session";
+import { requireModule } from "@/app/lib/intranet-auth";
 
 import { appendEntryToKnowledgeFile, readKnowledgeIndex, selectDomainByMessage } from "@/app/lib/knowledge";
 import { getMistralApiKey } from "@/app/lib/tenant-config";
@@ -20,10 +20,9 @@ type LlmUpdate = {
 
 export async function POST(req: Request) {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const session = await resolveSession();
-    const userId = session?.userId;
-    if (!userId) {  return NextResponse.json({ error: "Non autorisé" }, { status: 401 })}
+    // NJ-46 : réservé au module « chatbot-knowledge » (administratif / admin), pas à toute session.
+    const gate = await requireModule("chatbot-knowledge");
+    if (!gate.ok) return gate.response;
     const body = (await req.json()) as IngestRequest;
     const text = (body.text ?? "").trim();
     if (!text) { return NextResponse.json({ error: "text requis" }, { status: 400 })}
