@@ -83,7 +83,7 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | 48 | Comptabilité, budget et achats | K · Organisme | 24, 25, 26 | E |
 | 49 | Paie et administration du personnel | K · Organisme | 6, 15 | A |
 | 50 | Premier degré (écoles) | L · Extensions | 2–29 | E |
-| 51 | Post-bac et apprentissage | L · Extensions | 2–29, 39 | A |
+| 51 | Post-bac et apprentissage | L · Extensions | 2–29, 39 | A — **en attente (D-052, hors périmètre V1)** |
 
 **51 socles.** Fusions possibles sans perte si l'on veut viser 50 : 32 + 33 (travail collaboratif et visio), ou 43 + 44.
 
