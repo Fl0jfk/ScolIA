@@ -2487,14 +2487,15 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             };
             sqlx::query(
                 "INSERT INTO ent_inscription_resolution
-                   (etablissement_id, dossier_id, cible, choix, eleve_id, confirme_responsables_existants)
-                 VALUES ($1,$2,'eleve',$3,$4,$5)",
+                   (id, etablissement_id, dossier_id, cible, choix, eleve_id, confirme_responsables_existants)
+                 VALUES ($6,$1,$2,'eleve',$3,$4,$5)",
             )
             .bind(etab)
             .bind(dossier)
             .bind(nom)
             .bind(eleve_id)
             .bind(confirme)
+            .bind(Uuid::new_v4())
             .execute(&mut *tx)
             .await
             .map_err(db)?;
@@ -2511,9 +2512,9 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             };
             sqlx::query(
                 "INSERT INTO ent_inscription_resolution
-                   (etablissement_id, dossier_id, cible, responsable_id, choix, personne_id,
+                   (id, etablissement_id, dossier_id, cible, responsable_id, choix, personne_id,
                     foyer_choix, foyer_id)
-                 VALUES ($1,$2,'responsable',$3,$4,$5,$6,$7)",
+                 VALUES ($8,$1,$2,'responsable',$3,$4,$5,$6,$7)",
             )
             .bind(etab)
             .bind(dossier)
@@ -2522,6 +2523,7 @@ Vous pouvez les déposer depuis l'espace de préinscription de l'établissement.
             .bind(personne_id)
             .bind(foyer_choix)
             .bind(foyer_id)
+            .bind(Uuid::new_v4())
             .execute(&mut *tx)
             .await
             .map_err(db)?;

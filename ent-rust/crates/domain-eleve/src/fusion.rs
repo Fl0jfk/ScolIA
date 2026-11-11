@@ -145,6 +145,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_pai_piece", &["id"]),
     d("ent_pai_signature", &["id"]),
     d("ent_personne", &["id"]),
+    r("ent_personne_fusion_contact_supprime", &["fusion_id", "id"], "copie d'un contact d'urgence supprimé par une fusion de personnes : trace de restauration, reste sur la fiche où la fusion a eu lieu"),
+    r("ent_personne_fusion_lien_supprime", &["fusion_id", "id"], "copie d'un lien supprimé par une fusion de personnes : trace de restauration, reste sur la fiche où la fusion a eu lieu"),
     d("ent_procedure_disciplinaire", &["id"]),
     d("ent_psy_dossier", &["id"]),
     d("ent_psy_entretien", &["id"]),

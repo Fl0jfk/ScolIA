@@ -47,8 +47,8 @@ CREATE INDEX IF NOT EXISTS ent_inscription_resolution_dossier_idx
 
 -- Reprise : choix sur l'élève.
 INSERT INTO ent_inscription_resolution
-    (etablissement_id, dossier_id, cible, choix, eleve_id, confirme_responsables_existants)
-SELECT d.etablissement_id, d.id, 'eleve',
+    (id, etablissement_id, dossier_id, cible, choix, eleve_id, confirme_responsables_existants)
+SELECT gen_random_uuid(), d.etablissement_id, d.id, 'eleve',
        CASE WHEN d.resolutions -> 'eleve' ->> 'choix' = 'existant' THEN 'existant' ELSE 'nouveau' END,
        CASE WHEN d.resolutions -> 'eleve' ->> 'choix' = 'existant'
                  AND d.resolutions -> 'eleve' ->> 'eleve_id' ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
@@ -66,8 +66,8 @@ ON CONFLICT DO NOTHING;
 
 -- Reprise : choix sur chaque responsable (le responsable doit encore exister).
 INSERT INTO ent_inscription_resolution
-    (etablissement_id, dossier_id, cible, responsable_id, choix, personne_id, foyer_choix, foyer_id)
-SELECT d.etablissement_id, d.id, 'responsable', rs.id,
+    (id, etablissement_id, dossier_id, cible, responsable_id, choix, personne_id, foyer_choix, foyer_id)
+SELECT gen_random_uuid(), d.etablissement_id, d.id, 'responsable', rs.id,
        CASE WHEN x.e -> 'personne' ->> 'choix' = 'existante' THEN 'existant' ELSE 'nouveau' END,
        CASE WHEN x.e -> 'personne' ->> 'choix' = 'existante' THEN (x.e -> 'personne' ->> 'personne_id')::uuid END,
        CASE x.e -> 'foyer' ->> 'choix' WHEN 'existant' THEN 'existant' WHEN 'nouveau' THEN 'nouveau' END,
