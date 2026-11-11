@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { requireAnyModule } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { getTenant } from "@/app/lib/tenant-context";
 import { listAbsencesATraiter } from "@/app/lib/vs-absences-db";
 import { renderAbsencesCpePdfBuffer } from "@/app/lib/vs-absences-pdf";
 
 export async function GET(req: Request) {
-  const gate = await requireAnyModule(["vs-absences", "vs-appels"]);
+  const gate = await requireModule("vs-absences");
   if (!gate.ok) return gate.response;
 
   const etabId = await resolveCurrentEtablissementId();

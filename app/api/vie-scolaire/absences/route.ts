@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAnyModule } from "@/app/lib/intranet-auth";
+import { requireModule } from "@/app/lib/intranet-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { requireAppUser } from "@/app/lib/app-session";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/app/lib/vs-absences-db";
 
 export async function GET(req: Request) {
-  const gate = await requireAnyModule(["vs-absences", "vs-appels"]);
+  const gate = await requireModule("vs-absences");
   if (!gate.ok) return gate.response;
 
   const etabId = await resolveCurrentEtablissementId();
@@ -30,7 +30,7 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const gate = await requireAnyModule(["vs-absences", "vs-appels"]);
+  const gate = await requireModule("vs-absences");
   if (!gate.ok) return gate.response;
 
   const etabId = await resolveCurrentEtablissementId();
