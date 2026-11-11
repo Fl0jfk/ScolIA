@@ -921,15 +921,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "sante",
     pathPrefixes: ["/sante", "/api/sante"],
-    allowedRoles: [
-      ...DIRECTIONS,
-      "admin",
-      "administratif",
-      "cpe",
-      "surveillant",
-      "infirmerie",
-      "psychologue",
-    ],
+    // NJ-15 (D-053) : données de santé = infirmerie (+ admin, implicite). Direction, CPE, surveillants, administratif retirés.
+    allowedRoles: ["admin", "infirmerie"],
     dashboard: {
       id: 52,
       name: "Espace santé",
