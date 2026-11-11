@@ -639,6 +639,26 @@ impl PgEnt {
         }
         let canal_email = !n.canaux_refuses.iter().any(|c| c == "email");
         let canal_sms = !n.canaux_refuses.iter().any(|c| c == "sms");
+        // Plages précalculées (valeurs possédées : rien d'emprunté ne traverse un `await`).
+        let plages: Vec<(i16, Vec<i16>, String, String)> = match &n.joignable {
+            Some(Value::Array(v)) => v
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    let jours = p["jours"]
+                        .as_array()
+                        .map(|a| a.iter().filter_map(|j| j.as_i64().and_then(|j| i16::try_from(j).ok())).collect())
+                        .unwrap_or_default();
+                    (
+                        i16::try_from(i).unwrap_or(i16::MAX),
+                        jours,
+                        p["de"].as_str().unwrap_or_default().to_string(),
+                        p["a"].as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, pid, true)
             .await?
@@ -697,13 +717,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        for (ordre, plage) in n.joignable.iter().flat_map(|v| v.as_array()).flatten().enumerate() {
-            let jours: Vec<i16> = plage["jours"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|j| j.as_i64().and_then(|j| i16::try_from(j).ok())).collect())
-                .unwrap_or_default();
-            let (de, a) = (plage["de"].as_str().unwrap_or_default(), plage["a"].as_str().unwrap_or_default());
-            let ordre = i16::try_from(ordre).unwrap_or(i16::MAX);
+        for (ordre, jours, de, a) in plages {
             sqlx::query(
                 "INSERT INTO ent_personne_plage_joignable (id, etablissement_id, personne_id, ordre, jours, de, a)
                  VALUES ($1,$2,$3,$4,$5,$6::text::time,$7::text::time)",
@@ -713,8 +727,8 @@ impl PgEnt {
             .bind(pid)
             .bind(ordre)
             .bind(&jours)
-            .bind(de)
-            .bind(a)
+            .bind(&de)
+            .bind(&a)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
@@ -728,8 +742,8 @@ impl PgEnt {
             .bind(version_id)
             .bind(ordre)
             .bind(&jours)
-            .bind(de)
-            .bind(a)
+            .bind(&de)
+            .bind(&a)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
