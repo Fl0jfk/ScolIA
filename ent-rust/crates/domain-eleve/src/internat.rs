@@ -438,8 +438,6 @@ pub struct ContexteAffectation {
     pub interdits_sans_derogation: u16,
     /// L'élève a un besoin d'accessibilité (aménagement du socle 35, ou saisie de la direction).
     pub besoin_accessibilite: bool,
-    /// La direction a dérogé à l'accessibilité (R-IT11 lié : chambre non adaptée acceptée).
-    pub lit_disponible: bool,
 }
 
 /// Contrôles d'affectation (R-IT1, R-IT10, R-IT11, R-IT12, §8.3) — **purs**.
@@ -886,7 +884,6 @@ mod tests {
         ContexteAffectation {
             regime: Some(RegimeCode::Interne),
             sexe: Some("M".into()),
-            lit_disponible: true,
             ..Default::default()
         }
     }

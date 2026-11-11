@@ -71,6 +71,8 @@ mod repas_repo;
 mod sanction_repo;
 mod tenant_tx;
 mod sortie_repo;
+mod internat_hebergement;
+mod internat_reactions;
 mod internat_repo;
 mod dispense_vs_repo;
 mod journal_repo;

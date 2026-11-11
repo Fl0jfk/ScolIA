@@ -154,7 +154,7 @@ use domain_eleve::{
     SortieEdtApercu, SortieParamEtab, SortieRegleNiveau, SortieRegleRegime,
     UpsertAutorisationSortie, UpsertSortieParamEtab, UpsertSortieRegleNiveau,
     UpsertSortieRegleRegime,
-    plan_affecter_eleve_internat, plan_clore_affectation_internat, plan_creer_chambre_internat,
+    plan_clore_affectation_internat, plan_creer_chambre_internat,
     plan_creer_suivi_internat, plan_pointer_presence_internat, AffectationInternat,
     AffecterEleveInternat, ChambreInternat, CreerChambreInternat, CreerSuiviInternat,
     PointerPresenceInternat, PresenceInternat, RecapInternatEleve, SuiviInternat,
@@ -670,7 +670,7 @@ pub struct PgEnt {
     continuum: PgContinuumRepo,
     sanctions: PgSanctionRepo,
     sorties: PgSortieRepo,
-    internat: PgInternatRepo,
+    pub(crate) internat: PgInternatRepo,
     dispenses_vs: PgDispenseVsRepo,
     journal: PgJournalRepo,
     alertes_cpe: PgAlerteCpeRepo,
@@ -1129,6 +1129,10 @@ impl PgEnt {
         // S2-9 : facturation par événements (inscription, régime, sortie, absence).
         for c in crate::finances_reactions::consommateurs_finances() {
             d.enregistrer(c).expect("consommateur de facturation au nom unique");
+        }
+        // Socle 41 : séjours d'internat et affectations suivent le régime (R-IT1, RI-05).
+        for c in crate::internat_reactions::consommateurs_internat() {
+            d.enregistrer(c).expect("consommateur d'internat au nom unique");
         }
         d
     }
@@ -5007,6 +5011,8 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 })
                 .await?;
         }
+        // Séjours d'hébergement : fin datée à la sortie (R-IT3, jamais de suppression).
+        self.clore_sejours_internat_depart(etab, eleve_id, veille).await?;
 
         // Accès applicatif élève : délien + sessions révoquées.
         if let Some(user_id) = self.eleve_comptes.unlink_eleve(etab, eleve_id).await? {
@@ -12787,6 +12793,23 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.sorties.list_controles_jour(etablissement_id, jour).await?)
     }
 
+    /// Ferme les séjours d'internat d'un élève à son départ de l'établissement.
+    pub(crate) async fn clore_sejours_internat_depart(
+        &self,
+        etab: Uuid,
+        eleve_id: Uuid,
+        au: NaiveDate,
+    ) -> Result<(), EntDbError> {
+        let mut tx = crate::tenant_tx::TenantTx::begin(&self.pool, etab)
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("internat", e)))?;
+        crate::internat_hebergement::clore_sejours_depart_tx(&mut tx, etab, eleve_id, au).await?;
+        tx.commit()
+            .await
+            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("internat", e)))?;
+        Ok(())
+    }
+
     pub fn role_can_gerer_internat(role: &str) -> bool {
         Self::peut_etablissement(role, Action::InternatGerer)
     }
@@ -12836,6 +12859,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.internat.list_chambres(etablissement_id, true).await?)
     }
 
+    /// Affectation d'un interne à une chambre (INT-116). Toutes les règles (régime daté du socle 2,
+    /// public de la chambre, interdiction de contact, capacité sous verrou, un lit par élève et par
+    /// date) sont appliquées dans UNE transaction par `internat_hebergement` (R-IT1, R-IT10 à R-IT12).
     pub async fn affecter_eleve_internat_for_actor(
         &self,
         role: &str,
@@ -12844,48 +12870,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_gerer_internat(role) {
             return Err(EntDbError::Forbidden);
         }
-        let eleve = self
-            .eleves
-            .get(cmd.etablissement_id, cmd.eleve_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        let chambre = self
-            .internat
-            .get_chambre(cmd.etablissement_id, cmd.chambre_id)
-            .await?
-            .ok_or(DomainError::InternatChambreInvalide)?;
-        let occupants = self
-            .internat
-            .count_occupants_actifs(cmd.etablissement_id, cmd.chambre_id, cmd.debut)
-            .await?;
-        let deja = self
-            .internat
-            .has_affectation_ouverte(cmd.etablissement_id, cmd.eleve_id)
-            .await?;
-        let planned = plan_affecter_eleve_internat(
-            cmd,
-            &chambre,
-            eleve.regime.as_deref(),
-            occupants,
-            deja,
-        )?;
-        self.internat.insert_affectation(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::INTERNAT_AFFECTATION.to_string(),
-                aggregate: AggregateKind::Internat,
-                aggregate_id: planned.id,
-                eleve_id: Some(planned.eleve_id),
-                payload: json!({
-                    "chambre_id": planned.chambre_id,
-                    "debut": planned.debut.to_string(),
-                    "lit": planned.lit,
-                }),
-                actor_user_id: Some(planned.created_by_user_id.to_string()),
-            })
-            .await?;
-        Ok(planned)
+        self.affecter_internat(crate::internat_hebergement::DemandeAffectation::depuis_cmd(cmd))
+            .await
     }
 
     pub async fn clore_affectation_internat_for_actor(
@@ -12923,6 +12909,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(closed)
     }
 
+    /// Pointage d'une nuit (INT, R-IT13) : AJOUTE un fait horodaté, n'écrase jamais l'existant.
+    /// Nuit future refusée ; nuit passée avec motif codé ; élève non hébergé cette nuit-là refusé.
     pub async fn pointer_presence_internat_for_actor(
         &self,
         role: &str,
@@ -12936,8 +12924,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_affectation_active(cmd.etablissement_id, cmd.eleve_id, cmd.jour)
             .await?
             .ok_or(DomainError::InternatAffectationInvalide)?;
-        let planned = plan_pointer_presence_internat(cmd, &aff)?;
-        self.internat.upsert_presence(&planned).await?;
+        let nuit = self.internat.nuit_courante(cmd.etablissement_id).await?;
+        let motif_texte = cmd
+            .motif_correction_texte
+            .as_deref()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .map(str::to_string);
+        let planned = plan_pointer_presence_internat(cmd, &aff, nuit)?;
+        self.internat
+            .insert_presence_fait(&planned, motif_texte.as_deref())
+            .await?;
         let saved = self
             .internat
             .get_presence(planned.etablissement_id, planned.eleve_id, planned.jour)
@@ -12948,16 +12945,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 etablissement_id: saved.etablissement_id,
                 type_name: types::INTERNAT_PRESENCE.to_string(),
                 aggregate: AggregateKind::Internat,
-                aggregate_id: saved.id,
+                aggregate_id: planned.id,
                 eleve_id: Some(saved.eleve_id),
                 payload: json!({
                     "jour": saved.jour.to_string(),
-                    "statut": saved.statut.as_str(),
+                    "statut": planned.statut.as_str(),
+                    "correction": planned.motif_correction_code.is_some(),
                 }),
-                actor_user_id: Some(saved.actor_user_id.to_string()),
+                actor_user_id: Some(planned.actor_user_id.to_string()),
             })
             .await?;
         Ok(saved)
+    }
+
+    /// Historique des faits d'un élève pour une nuit (le plus ancien d'abord) : rien n'est effacé.
+    pub async fn historique_presence_internat_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        eleve_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<PresenceInternat>, EntDbError> {
+        if !Self::role_can_gerer_internat(role) {
+            return Err(EntDbError::Forbidden);
+        }
+        Ok(self
+            .internat
+            .list_presence_faits(etablissement_id, eleve_id, jour)
+            .await?)
     }
 
     pub async fn list_presences_internat_jour_for_actor(
@@ -13030,6 +13045,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(planned)
     }
 
+    /// Fiche d'internat d'un élève. **Seuls** les rôles `internat.gerer` (équipe d'internat, CPE,
+    /// direction, administration) lisent l'hébergement, la présence et les suivis privés (RI-03,
+    /// NJ-16, NJ-21) ; la lecture des suivis privés est journalisée (R-IT38, E7). Professeur,
+    /// infirmerie, psychologue, comptabilité, accueil et personnel de base n'ont aucun accès ; une
+    /// famille ne voit que les suivis publiés dans le bilan, pour son enfant.
     pub async fn get_recap_internat_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -13038,13 +13058,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         eleve_id: Uuid,
         jour: NaiveDate,
     ) -> Result<RecapInternatEleve, EntDbError> {
-        self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        let staff = Self::role_can_gerer_internat(role) || parsed.can_read_all_eleves();
+        let staff = Self::role_can_gerer_internat(role);
         let parent = matches!(parsed, Role::Parent);
         let eleve = matches!(parsed, Role::Eleve);
         if !staff && !parent && !eleve {
             return Err(EntDbError::Forbidden);
+        }
+        if staff {
+            self.exiger_perimetre_prof(etablissement_id, user_id, role, eleve_id).await?;
         }
         if parent
             && self
@@ -13082,10 +13104,21 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .internat
             .get_presence(etablissement_id, eleve_id, jour)
             .await?;
+        // Les suivis privés ne sortent que pour l'équipe habilitée, et la lecture laisse une trace.
         let suivis_famille = self
             .internat
             .list_suivis_eleve(etablissement_id, eleve_id, !staff)
             .await?;
+        if staff {
+            self.journaliser_lecture_internat(
+                etablissement_id,
+                user_id,
+                Some(eleve_id),
+                "lecture_suivis_prives",
+                "Lecture de la fiche d'internat (suivis privés compris)",
+            )
+            .await?;
+        }
         Ok(RecapInternatEleve {
             affectation,
             chambre,
