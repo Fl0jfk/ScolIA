@@ -224,7 +224,8 @@ export function canViewCalendar(roles: string[]) {
 }
 
 export function canAdminIngest(roles: string[]) {
-  return canViewCalendar(roles);
+  // NJ-57 (D-053) : saisie / import d'absences déjà validées = administratif, compta, direction, admin (plus surveillants ni CPE).
+  return canDeclareAbsenceOnBehalf(roles);
 }
 
 /** Administratif, comptabilité, direction et admin établissement — pas CPE, profs, éducation, etc. */
