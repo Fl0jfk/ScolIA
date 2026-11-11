@@ -441,11 +441,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : services, forfaits et grilles ; réservations et annulations ; badges et passages ; menus et allergènes ; régimes alimentaires non médicaux ; alerte minimale PAI au passage ; prévision des effectifs cuisine ; volume facturable ; gaspillage.
 - **Dépend de** : 12, 24, 34.
 - **Existant [F]** : 017, 034, 036, 074 ; `domain-eleve/src/{repas,menu_cantine}.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/40_RESTAURATION.md` et `PERSONAS_40.md`. Une seule règle du droit au repas pour la cuisine, le self, la famille et la facture ; non-repas automatiques à cause codée ; consignes du 34 sans diagnostic ; lot R0 = correctifs urgents du Rust existant ; pas de bascule du self sans niveau N-1 du 34 (ou liste attestée). Plage de migrations 2800–2819.
 
 #### 41. Internat
 - **Contient** : chambres et affectations ; appel du soir ; absences d'internat annoncées (repas annulés) ; suivi ; sorties de week-end ; études du soir ; planning des surveillants.
 - **Dépend de** : 12, 24, 34.
 - **Existant [F]** : 066 ; `domain-eleve/src/internat.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/41_INTERNAT.md` et `PERSONAS_41.md`. Attendu de la nuit calculé, présence en faits horodatés, procédure « non retrouvé » minutée, absences annoncées par les familles, sorties autorisées par les bons titulaires, présents de nuit pour l'évacuation ; le planning des surveillants reste au 6 ; lot I0 = correctifs urgents du Rust existant ; bascule recommandée à l'été 2027. Plage de migrations 2820–2839.
 
 #### 42. Sorties et voyages scolaires
 - **Contient** : projet, budget, validation (direction, conseil d'administration [H]) ; participants ; autorisations et pièces ; paiements et aides ; encadrants (ordres de mission) ; absences, dispenses de repas et cours des encadrants générés ; fiche d'urgence hors ligne ; bilan et solde.
