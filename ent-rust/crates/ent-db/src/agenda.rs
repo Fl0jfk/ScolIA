@@ -235,6 +235,11 @@ async fn valider_saisie(
             return Err(invalide("le dernier jour précède le premier"));
         }
     }
+    if n.type_code == TYPE_FEUILLE_SEMAINE {
+        return Err(invalide(
+            "la feuille de semaine se tient par son propre écran (agenda.semaine.gerer)",
+        ));
+    }
     // Type : intégré, ou type actif de l'établissement.
     let integre = TYPES_INTEGRES.iter().any(|(c, _, _)| *c == n.type_code);
     if !integre {
@@ -1462,11 +1467,17 @@ impl PgEnt {
                 })
             }
         };
+        // Les notes d'une feuille de semaine ne sont lisibles que de leur auteur.
+        let feuille = e.type_code == TYPE_FEUILLE_SEMAINE;
         Ok(EvenementDetail {
             id: e.id,
             type_code: e.type_code,
             titre: e.titre,
-            description: e.description,
+            description: if feuille && !organisateur {
+                None
+            } else {
+                e.description
+            },
             debut: e.debut,
             fin: e.fin,
             jour: e.jour_debut,
@@ -1866,6 +1877,32 @@ impl PgEnt {
                 }
             }
         }
+        if voulue("semaine_etablissement") {
+            match self.source_semaine(etab, du, au).await {
+                Ok(mut v) => elements.append(&mut v),
+                Err(_) => absentes.push(SourceIndisponible {
+                    source: "semaine_etablissement".into(),
+                    raison: "lecture impossible".into(),
+                }),
+            }
+        }
+        for (source, raison) in [
+            (
+                "echeances",
+                "pas encore branchée (travaux du cahier de textes, échéances de l'établissement)",
+            ),
+            (
+                "partages",
+                "pas encore branchée (agendas partagés entre personnes)",
+            ),
+        ] {
+            if voulue(source) {
+                absentes.push(SourceIndisponible {
+                    source: source.into(),
+                    raison: raison.into(),
+                });
+            }
+        }
         if voulue("sorties") {
             // Port du socle 42 : l'adaptateur n'existe pas encore (R-AG1 : on le dit).
             absentes.push(SourceIndisponible {
@@ -1938,6 +1975,7 @@ impl PgEnt {
                      OR (e.statut <> 'brouillon' AND p.user_id IS NOT NULL)
                      OR (e.statut <> 'brouillon' AND e.confidentialite = 'etablissement'))
                 AND ($2::uuid IS NULL OR p.eleve_contexte_id = $2)
+                AND e.type_code <> 'feuille_semaine'
               ORDER BY e.debut LIMIT 1000"
         ))
         .bind(etab)
@@ -1987,6 +2025,128 @@ impl PgEnt {
                 },
             )
             .collect())
+    }
+
+    /// Calque « semaine de l'établissement » : la feuille de semaine tenue par la direction, lisible de
+    /// tout compte de l'établissement ; jamais les notes de l'auteur.
+    async fn source_semaine(
+        &self,
+        etab: Uuid,
+        du: NaiveDate,
+        au: NaiveDate,
+    ) -> Result<Vec<ElementAgenda>, EntDbError> {
+        let (debut, fin) = self.bornes(etab, du, au).await?;
+        let tz = tz_sql("$1");
+        type Ligne = (
+            Uuid,
+            String,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            bool,
+            Option<String>,
+            String,
+            NaiveDate,
+            NaiveDate,
+            Option<NaiveTime>,
+            Option<NaiveTime>,
+        );
+        let rows: Vec<Ligne> = sqlx::query_as(&format!(
+            "SELECT e.id, e.titre, e.debut, e.fin, e.journee_entiere, e.lieu_texte, e.statut,
+                    e.jour_debut, e.jour_fin,
+                    CASE WHEN e.journee_entiere THEN NULL ELSE (e.debut AT TIME ZONE {tz})::time END,
+                    CASE WHEN e.journee_entiere THEN NULL ELSE (e.fin AT TIME ZONE {tz})::time END
+               FROM ent_agenda_evenement e
+              WHERE e.etablissement_id = $1 AND e.type_code = 'feuille_semaine'
+                AND e.statut IN ('publie', 'annule') AND e.debut < $3 AND e.fin > $2
+              ORDER BY e.debut LIMIT 500"
+        ))
+        .bind(etab)
+        .bind(debut)
+        .bind(fin)
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
+        .await
+        .map_err(db)?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(id, titre, d, f, entiere, lieu, statut, jour, jour_fin, hd, hf)| ElementAgenda {
+                    source: "semaine_etablissement".into(),
+                    id: Some(id),
+                    titre,
+                    debut: d,
+                    fin: f,
+                    jour,
+                    jour_fin,
+                    heure_debut: hd,
+                    heure_fin: hf,
+                    journee_entiere: entiere,
+                    lieu,
+                    statut,
+                    nature: TYPE_FEUILLE_SEMAINE.into(),
+                    role: Some("lecteur".into()),
+                    reponse: None,
+                    eleve_id: None,
+                },
+            )
+            .collect())
+    }
+
+    /// Ajoute un créneau à la feuille de semaine (reprise du module Next.js `dashboard-week-sheet`) :
+    /// publié d'emblée, visible de tout l'établissement, sans avis ; réservé à `agenda.semaine.gerer`.
+    /// Le créneau s'annule ensuite comme n'importe quel événement (motif obligatoire, journal).
+    pub async fn agenda_semaine_ajouter(
+        &self,
+        etab: Uuid,
+        acteur: Uuid,
+        role: &str,
+        c: CreneauSemaine,
+    ) -> Result<EvenementCree, EntDbError> {
+        self.exiger_action_etab(etab, acteur, role, Action::AgendaSemaineGerer)
+            .await?;
+        let n = NouvelEvenement {
+            type_code: "reunion".into(),
+            titre: c.titre,
+            description: c.notes,
+            jour: c.jour,
+            jour_fin: None,
+            heure_debut: c.heure_debut,
+            heure_fin: c.heure_fin,
+            salle_id: None,
+            lieu_texte: c.lieu,
+            confidentialite: Some("etablissement".into()),
+            invites: vec![],
+            coupon: None,
+        };
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        valider_saisie(&mut tx, etab, &n).await?;
+        let id = inserer_evenement(&mut tx, etab, acteur, &n, c.jour, None, &[]).await?;
+        sqlx::query(
+            "UPDATE ent_agenda_evenement SET type_code = 'feuille_semaine', statut = 'publie',
+                    publie_le = now(), version = version + 1 WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        let e = charger(&mut tx, etab, id, false).await?;
+        journaliser(
+            &mut tx,
+            etab,
+            "evenement",
+            id,
+            "semaine_ajouter",
+            Some(acteur),
+            None,
+            Some(resume(&e)),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        Ok(EvenementCree {
+            id,
+            serie_id: None,
+            nb_occurrences: 1,
+        })
     }
 
     /// Rendez-vous des rencontres parents-professeurs (192) : ceux du lecteur seulement. L'enseignant

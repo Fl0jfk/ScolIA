@@ -214,6 +214,8 @@ pub enum Action {
     AgendaJournalLire,
     /// Paramétrer l'agenda (types d'événements de l'établissement) : administrateur.
     AgendaParametrer,
+    /// Tenir la feuille de semaine de l'établissement (créneaux visibles de tous) : direction, administrateur.
+    AgendaSemaineGerer,
     // ── S2-8 : communication complète ───────────────────────────────────────
     /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
     CampagnesLancer,
@@ -327,7 +329,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 132] = [
+    pub const TOUTES: [Action; 133] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -413,6 +415,7 @@ impl Action {
         Action::AgendaLireStructure,
         Action::AgendaJournalLire,
         Action::AgendaParametrer,
+        Action::AgendaSemaineGerer,
         Action::CampagnesLancer,
         Action::RencontresGerer,
         Action::FormulairesGerer,
@@ -569,6 +572,7 @@ impl Action {
             Self::AgendaLireStructure => "agenda.lire_structure",
             Self::AgendaJournalLire => "agenda.journal.lire",
             Self::AgendaParametrer => "agenda.parametrer",
+            Self::AgendaSemaineGerer => "agenda.semaine.gerer",
             Self::CampagnesLancer => "campagnes.lancer",
             Self::RencontresGerer => "rencontres.gerer",
             Self::FormulairesGerer => "formulaires.gerer",
@@ -707,6 +711,7 @@ impl Action {
             Self::AgendaLireStructure => "Consulter l'agenda d'une classe ou d'un groupe (sans noms d'élèves)",
             Self::AgendaJournalLire => "Consulter les journaux de l'agenda",
             Self::AgendaParametrer => "Paramétrer l'agenda (types d'événements de l'établissement)",
+            Self::AgendaSemaineGerer => "Tenir la feuille de semaine de l'établissement",
             Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
             Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
@@ -796,6 +801,7 @@ impl Action {
             | Self::AgendaLireStructure
             | Self::AgendaJournalLire
             | Self::AgendaParametrer
+            | Self::AgendaSemaineGerer
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
@@ -1011,6 +1017,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AgendaJournalLire));
+        d.push(etab(AgendaSemaineGerer));
     }
     if role == Role::Admin {
         d.push(etab(AgendaParametrer));
@@ -2114,7 +2121,11 @@ mod oracle_a1 {
             assert_eq!(a(r, AgendaJournalLire), j, "{r:?} journal");
             assert_eq!(a(r, AgendaParametrer), p, "{r:?} parametrer");
         }
-        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer] {
+        // Feuille de semaine : direction et administrateur seulement.
+        for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, false), (Role::Prof, false), (Role::Administratif, false)] {
+            assert_eq!(a(r, AgendaSemaineGerer), attendu, "{r:?} semaine");
+        }
+        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer, AgendaSemaineGerer] {
             assert!(x.code().starts_with("agenda."));
             assert_eq!(Action::parse(x.code()), Some(x));
         }

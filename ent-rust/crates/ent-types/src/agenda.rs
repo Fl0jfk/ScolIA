@@ -14,12 +14,45 @@ pub const TYPES_INTEGRES: &[(&str, &str, &str)] = &[
     ("reunion_parents", "Réunion avec les familles", "reunion"),
     ("formation", "Formation", "reunion"),
     ("evenement", "Événement", "evenement"),
+    (
+        "feuille_semaine",
+        "Feuille de semaine de l'établissement",
+        "evenement",
+    ),
     ("manifestation", "Manifestation", "manifestation"),
     ("journee_banalisee", "Journée banalisée", "journee"),
 ];
 
 /// Sources de la vue agenda (R-AG1 : l'agenda lit les sources, il ne les recopie pas).
-pub const SOURCES: &[&str] = &["evenements", "rendez_vous", "edt", "calendrier", "sorties"];
+pub const SOURCES: &[&str] = &[
+    "evenements",
+    "rendez_vous",
+    "edt",
+    "calendrier",
+    "sorties",
+    "semaine_etablissement",
+    "echeances",
+    "partages",
+];
+
+/// Type d'événement de la feuille de semaine de l'établissement (calque `semaine_etablissement`).
+pub const TYPE_FEUILLE_SEMAINE: &str = "feuille_semaine";
+
+/// Saisie d'un créneau de la feuille de semaine (direction) : toujours publié, visible de tout
+/// l'établissement ; les `notes` ne sont lisibles que de leur auteur.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CreneauSemaine {
+    pub jour: NaiveDate,
+    pub titre: String,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+    #[serde(default)]
+    pub lieu: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
 
 /// Un élément de la vue agenda, **déjà minimisé pour son lecteur** (R-AG5).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

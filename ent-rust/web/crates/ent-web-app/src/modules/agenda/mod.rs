@@ -22,16 +22,16 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 use uuid::Uuid;
 
-use crate::noyau::coquille::use_droits;
+use crate::noyau::coquille::{use_droits, use_droits_moteur};
 use crate::noyau::ecriture::{Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use crate::noyau::temps::aujourdhui;
 use modele::{
-    composer_audience, composer_evenement, est_annule, horaire, libelle_reponse, libelle_semaine,
-    libelle_source, libelle_sources_indisponibles, libelle_statut, lundi_de, peut_repondre,
-    regrouper_par_jour, resume_apercu, semaine_voisine, ton_reponse, ton_statut, SaisieEvenement,
-    AUDIENCES, SOURCES,
+    composer_audience, composer_creneau_semaine, composer_evenement, est_annule, horaire,
+    libelle_reponse, libelle_semaine, libelle_source, libelle_sources_indisponibles,
+    libelle_statut, lundi_de, peut_repondre, regrouper_par_jour, resume_apercu, semaine_voisine,
+    ton_reponse, ton_statut, SaisieEvenement, AUDIENCES, SOURCES,
 };
 
 type Donnees = Result<Option<VueAgenda>, ApiError>;
@@ -39,6 +39,7 @@ type Donnees = Result<Option<VueAgenda>, ApiError>;
 #[component]
 pub fn PageMonAgenda() -> impl IntoView {
     let droits = use_droits();
+    let moteur = use_droits_moteur();
     // La date du jour n'est posée qu'après l'hydratation (jamais dans le HTML du serveur).
     let lundi = RwSignal::new(None::<NaiveDate>);
     Effect::new(move |_| lundi.set(Some(lundi_de(aujourdhui()))));
@@ -160,6 +161,9 @@ pub fn PageMonAgenda() -> impl IntoView {
                 let l = lundi.get_untracked().unwrap_or(vue.du);
                 view! { <SemaineAgenda vue=vue lundi=l ouvrir=ouvrir/> }.into_any()
             }
+        }}
+        {move || {
+            moteur.get().a("agenda.semaine.gerer").then(|| view! { <FormulaireSemaine recharger=recharger/> })
         }}
         <Dialogue ouvert=detail_ouvert titre="Événement" id="agd-detail">
             {move || {
@@ -669,6 +673,58 @@ fn FormulaireEvenement(
                 "Créer le brouillon"
             </Bouton>
         </form>
+    }
+}
+
+/// Feuille de semaine de l'établissement (direction) : un créneau visible de tous, sans avis.
+#[component]
+fn FormulaireSemaine(recharger: Callback<()>) -> impl IntoView {
+    let titre = RwSignal::new(String::new());
+    let jour = RwSignal::new(String::new());
+    let h_debut = RwSignal::new("08:30".to_string());
+    let h_fin = RwSignal::new("09:30".to_string());
+    let lieu = RwSignal::new(String::new());
+    let notes = RwSignal::new(String::new());
+    let erreur = RwSignal::new(None::<String>);
+    let ecriture = Ecriture::nouveau(Callback::new(move |_| recharger.run(())));
+    view! {
+        <details class="agd-semaine-saisie">
+            <summary>"Feuille de semaine de l'établissement"</summary>
+            <RetourEcriture ecriture=ecriture/>
+            <form
+                on:submit=move |ev| {
+                    ev.prevent_default();
+                    match composer_creneau_semaine(
+                        &titre.get_untracked(),
+                        &jour.get_untracked(),
+                        &h_debut.get_untracked(),
+                        &h_fin.get_untracked(),
+                        &lieu.get_untracked(),
+                        &notes.get_untracked(),
+                    ) {
+                        Err(m) => erreur.set(Some(m)),
+                        Ok(c) => {
+                            erreur.set(None);
+                            ecriture.lancer(async move {
+                                session::client().agenda_semaine_ajouter(&c).await?;
+                                Ok("Créneau ajouté à la feuille de semaine.".to_string())
+                            });
+                        }
+                    }
+                }
+            >
+                <ChampTexte id="agd-sem-titre" libelle="Intitulé" valeur=titre requis=true/>
+                <ChampTexte id="agd-sem-jour" libelle="Jour" genre="date" valeur=jour requis=true/>
+                <ChampTexte id="agd-sem-debut" libelle="Début" genre="time" valeur=h_debut requis=true/>
+                <ChampTexte id="agd-sem-fin" libelle="Fin" genre="time" valeur=h_fin requis=true/>
+                <ChampTexte id="agd-sem-lieu" libelle="Lieu" valeur=lieu/>
+                <ChampTexte id="agd-sem-notes" libelle="Notes (visibles de vous seul)" valeur=notes/>
+                {move || erreur.get().map(|m| view! { <p class="ui-champ__erreur" role="alert">{m}</p> })}
+                <Bouton variante=Variante::Primaire soumettre=true en_cours=ecriture.en_cours>
+                    "Ajouter à la feuille"
+                </Bouton>
+            </form>
+        </details>
     }
 }
 

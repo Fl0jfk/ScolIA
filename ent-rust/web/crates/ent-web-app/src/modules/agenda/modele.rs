@@ -17,11 +17,14 @@ use crate::noyau::temps::{date_longue, nom_mois};
 pub const ANNEES_ACCEPTEES: std::ops::RangeInclusive<i32> = 2000..=2100;
 
 /// Sources affichables : (code, libellé du filtre).
-pub const SOURCES: [(&str, &str); 4] = [
+pub const SOURCES: [(&str, &str); 7] = [
     ("evenements", "Événements et réunions"),
     ("rendez_vous", "Rendez-vous"),
-    ("edt", "Cours"),
+    ("edt", "Mes cours"),
+    ("semaine_etablissement", "Semaine de l'établissement"),
     ("calendrier", "Fermetures"),
+    ("echeances", "Échéances"),
+    ("partages", "Agendas partagés"),
 ];
 
 pub fn lundi_de(jour: NaiveDate) -> NaiveDate {
@@ -77,6 +80,9 @@ pub fn libelle_source(code: &str) -> &'static str {
         "rendez_vous" => "Rendez-vous",
         "edt" => "Cours",
         "calendrier" => "Fermeture",
+        "semaine_etablissement" => "Semaine",
+        "echeances" => "Échéance",
+        "partages" => "Agenda partagé",
         "sorties" => "Sortie",
         _ => "Autre",
     }
@@ -204,6 +210,39 @@ pub struct SaisieEvenement<'a> {
     pub heure_fin: &'a str,
     pub lieu: &'a str,
     pub confidentialite: &'a str,
+}
+
+/// Créneau de la feuille de semaine à partir des champs saisis.
+pub fn composer_creneau_semaine(
+    titre: &str,
+    jour: &str,
+    heure_debut: &str,
+    heure_fin: &str,
+    lieu: &str,
+    notes: &str,
+) -> Result<ent_types::agenda::CreneauSemaine, String> {
+    let n = composer_evenement(&SaisieEvenement {
+        type_code: "reunion",
+        titre,
+        jour,
+        jour_fin: "",
+        heure_debut,
+        heure_fin,
+        lieu,
+        confidentialite: "etablissement",
+    })?;
+    let notes = notes.trim();
+    if notes.chars().count() > 4000 {
+        return Err("Les notes sont trop longues (4000 caractères au plus).".into());
+    }
+    Ok(ent_types::agenda::CreneauSemaine {
+        jour: n.jour,
+        titre: n.titre,
+        heure_debut: n.heure_debut,
+        heure_fin: n.heure_fin,
+        lieu: n.lieu_texte,
+        notes: (!notes.is_empty()).then(|| notes.to_string()),
+    })
 }
 
 pub fn composer_evenement(s: &SaisieEvenement<'_>) -> Result<NouvelEvenement, String> {
@@ -527,6 +566,32 @@ mod tests {
             ""
         ))
         .is_ok());
+    }
+
+    #[test]
+    fn creneau_de_la_feuille_de_semaine() {
+        let c = composer_creneau_semaine(
+            " Conseil de direction ",
+            "2026-11-16",
+            "8:30",
+            "9:30",
+            "",
+            " à préparer ",
+        )
+        .unwrap();
+        assert_eq!(
+            (c.titre.as_str(), c.notes.as_deref(), c.lieu),
+            ("Conseil de direction", Some("à préparer"), None)
+        );
+        assert!(composer_creneau_semaine("", "2026-11-16", "08:30", "09:30", "", "").is_err());
+        assert!(composer_creneau_semaine("x", "2026-11-16", "09:30", "08:30", "", "").is_err());
+        assert_eq!(SOURCES.len(), 7);
+        assert!(
+            SOURCES
+                .iter()
+                .all(|(c, _)| ent_types::agenda::SOURCES.contains(c)),
+            "calques connus du serveur"
+        );
     }
 
     #[test]

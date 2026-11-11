@@ -28,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/agenda/types", get(types).post(creer_type))
         .route("/agenda/evenements", post(creer_evenement))
         .route("/agenda/series", post(creer_serie))
+        .route("/agenda/semaine", post(ajouter_semaine))
         .route(
             "/agenda/evenements/{id}",
             get(lire_evenement).put(modifier_evenement),
@@ -169,6 +170,19 @@ async fn creer_evenement(
 ) -> Res<(StatusCode, Json<EvenementCree>)> {
     s.ent
         .agenda_creer_evenement(se.etablissement_id, se.user_id, &se.role, n)
+        .await
+        .map(|c| (StatusCode::CREATED, Json(c)))
+        .map_err(map_db)
+}
+
+/// Feuille de semaine de l'établissement (`agenda.semaine.gerer`).
+async fn ajouter_semaine(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(c): Json<CreneauSemaine>,
+) -> Res<(StatusCode, Json<EvenementCree>)> {
+    s.ent
+        .agenda_semaine_ajouter(se.etablissement_id, se.user_id, &se.role, c)
         .await
         .map(|c| (StatusCode::CREATED, Json(c)))
         .map_err(map_db)

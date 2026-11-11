@@ -1536,3 +1536,112 @@ async fn ag1_aucune_lecture_d_un_autre_etablissement() {
     let _ = (NaiveDate::MIN, DateTime::<Utc>::MIN_UTC, Role::Prof);
     reset(&ent, etab).await;
 }
+
+// ─── AG1-bis : calque « semaine de l'établissement » (feuille de semaine de la direction) ─────
+
+#[tokio::test]
+async fn ag1bis_feuille_de_semaine_calque_lisible_de_tous_notes_reservees() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let etab = cast.etablissement_id;
+    let (adm, role) = dir(&cast);
+    let creneau = |notes: Option<&str>| CreneauSemaine {
+        jour: jour(6),
+        titre: "Conseil de direction".into(),
+        heure_debut: h(8, 30),
+        heure_fin: h(9, 30),
+        lieu: Some("Bureau".into()),
+        notes: notes.map(String::from),
+    };
+    // Réservé à la direction : ni un professeur, ni une famille.
+    for (u, r) in [
+        (cast.prof.user_id, PROF),
+        (cast.cpe.user_id, CPE),
+        (cast.parent_lea.user_id, "parent"),
+    ] {
+        let e = ent.agenda_semaine_ajouter(etab, u, r, creneau(None)).await;
+        assert!(matches!(e, Err(EntDbError::Forbidden)), "{r} : {e:?}");
+    }
+    // Le type ne s'obtient pas par la création générique.
+    let r = ent
+        .agenda_creer_evenement(
+            etab,
+            adm,
+            role,
+            NouvelEvenement {
+                type_code: "feuille_semaine".into(),
+                ..evt("x", 6)
+            },
+        )
+        .await;
+    assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{r:?}");
+    let c = ent
+        .agenda_semaine_ajouter(etab, adm, role, creneau(Some("dossier confidentiel")))
+        .await
+        .unwrap();
+    let (du, au) = (jour(0), jour(10));
+    let semaine = ["semaine_etablissement".to_string()];
+    // Le calque est lisible du personnel et des familles, sans les notes.
+    for (u, r) in [
+        (cast.prof.user_id, PROF),
+        (cast.parent_lea.user_id, "parent"),
+        (adm, role),
+    ] {
+        let v = ent
+            .agenda_vue(etab, u, r, du, au, &semaine, None)
+            .await
+            .unwrap();
+        assert_eq!(v.elements.len(), 1, "{r}");
+        assert_eq!(v.elements[0].titre, "Conseil de direction");
+        let d = ent.agenda_evenement(etab, u, r, c.id).await.unwrap();
+        assert_eq!(
+            d.description.is_some(),
+            r == role,
+            "notes : lisibles de leur auteur seul ({r})"
+        );
+    }
+    // Le calque n'apparaît pas dans « événements » ; les calques non branchés sont dits.
+    let v = ent
+        .agenda_vue(etab, adm, role, du, au, &["evenements".into()], None)
+        .await
+        .unwrap();
+    assert!(v.elements.iter().all(|e| e.titre != "Conseil de direction"));
+    let v = ent
+        .agenda_vue(
+            etab,
+            adm,
+            role,
+            du,
+            au,
+            &["echeances".into(), "partages".into()],
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        v.sources_indisponibles.len(),
+        2,
+        "{:?}",
+        v.sources_indisponibles
+    );
+    // Annulation avec motif : le créneau annulé reste affiché barré.
+    ent.agenda_annuler_evenement(
+        etab,
+        adm,
+        role,
+        c.id,
+        AnnulationEvenement {
+            motif: "Reporté".into(),
+            portee: None,
+        },
+    )
+    .await
+    .unwrap();
+    let v = ent
+        .agenda_vue(etab, cast.prof.user_id, PROF, du, au, &semaine, None)
+        .await
+        .unwrap();
+    assert_eq!(v.elements[0].statut, "annule");
+    reset(&ent, etab).await;
+}

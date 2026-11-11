@@ -3,8 +3,8 @@
 
 use chrono::NaiveDate;
 use ent_types::agenda::{
-    AnnulationEvenement, ApercuPublication, DemandePublication, EvenementCree, EvenementDetail,
-    ModifEvenement, NouvelEvenement, ReponseCoupon, ReponseInvitation, VueAgenda,
+    AnnulationEvenement, ApercuPublication, CreneauSemaine, DemandePublication, EvenementCree,
+    EvenementDetail, ModifEvenement, NouvelEvenement, ReponseCoupon, ReponseInvitation, VueAgenda,
 };
 use uuid::Uuid;
 
@@ -130,5 +130,14 @@ impl ApiClient {
             Some(corps(r)?),
         )
         .await
+    }
+
+    /// `POST /agenda/semaine` : ajoute un créneau à la feuille de semaine (`agenda.semaine.gerer`).
+    pub async fn agenda_semaine_ajouter(
+        &self,
+        c: &CreneauSemaine,
+    ) -> Result<EvenementCree, ApiError> {
+        self.appel(Methode::Post, "/agenda/semaine", Some(corps(c)?))
+            .await
     }
 }
