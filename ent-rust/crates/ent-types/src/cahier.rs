@@ -23,7 +23,8 @@ pub struct PieceCahierDto {
 pub struct SeanceContenuDto {
     pub id: Uuid,
     pub seance_id: Uuid,
-    pub auteur_user_id: Uuid,
+    /// Nom d'affichage de l'intervenant (C-D15) : jamais l'identifiant de compte.
+    pub auteur: String,
     pub contenu: String,
     pub ressources: String,
     pub version: i32,
@@ -57,7 +58,8 @@ pub struct TravailDto {
     /// Libellé lisible de la cible (code de la classe ou du groupe).
     pub cible: String,
     pub matiere_libelle: String,
-    pub auteur_user_id: Uuid,
+    /// Nom d'affichage de l'intervenant (C-D15) : jamais l'identifiant de compte.
+    pub auteur: String,
     pub type_travail: String,
     pub titre: String,
     pub consigne: String,
@@ -239,6 +241,12 @@ pub struct RetourBody {
     pub fichier: Option<FichierDepotBody>,
 }
 
+/// Retrait d'un travail de la diffusion par la direction (C-D10) : le motif est obligatoire.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RetraitBody {
+    pub motif: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FaitBody {
     pub fait: bool,
@@ -268,4 +276,35 @@ pub struct LienCahierDto {
 pub struct TravailCreeDto {
     pub travail: TravailDto,
     pub charge: ChargeJourDto,
+}
+
+// ── Reprise de l'ancien cahier (lot C1, étape M2 du §25) ─────────────────────────────────
+
+/// Compteurs de la reprise pour un objet de l'ancien modèle : tout ancien objet est repris ou en quarantaine.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompteurRepriseDto {
+    /// `seance_contenu`, `travail`, `remise`, `piece`.
+    pub objet: String,
+    pub anciens: i64,
+    pub repris: i64,
+    pub quarantaine: i64,
+}
+
+/// Objet de l'ancien modèle que la reprise n'a pas pu rattacher à un cours ou à un objet du registre.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QuarantaineDto {
+    pub id: Uuid,
+    pub objet: String,
+    pub ancien_id: Uuid,
+    /// `cours_introuvable` ou `objet_absent`.
+    pub raison: String,
+    pub detail: String,
+    pub cree_le: DateTime<Utc>,
+}
+
+/// État de la reprise, pour la direction : compteurs avant / après et quarantaine à décider avant la bascule.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RepriseEtatDto {
+    pub compteurs: Vec<CompteurRepriseDto>,
+    pub quarantaine: Vec<QuarantaineDto>,
 }

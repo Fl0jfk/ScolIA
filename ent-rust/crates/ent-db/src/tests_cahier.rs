@@ -1048,3 +1048,1001 @@ async fn ecriture_et_evenement_dans_une_seule_transaction() {
     // Une fois réparé, la même saisie réussit.
     fx.publier_travail(&fx.prof(), fx.cible_a(), |t| t.titre = "Fantôme".into()).await.unwrap();
 }
+
+// ═════════════════════════ Lot C0 (socle 20) : un test par défaut corrigé ═════════════════════════
+//
+// C-D2 à C-D15 de `docs/socles/20_CAHIER_DE_TEXTES.md` §2.2 (C-D1 : lot T0 du socle 10). Les acteurs :
+// `prof` (titulaire du service de la classe A), `prof2` (sans service sauf mention), direction, CPE,
+// élèves X (classe A), Y (classe B), Z (classe A + groupe G), W (classe A) et leurs responsables.
+
+use ent_types::personnels_services::{NommerSuppleantBody, TerminerInterventionBody};
+
+async fn agent_du_compte(fx: &Fx, user: Uuid) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT a.id FROM ent_agent a JOIN ent_personne p ON p.etablissement_id = a.etablissement_id AND p.id = a.personne_id
+          WHERE a.etablissement_id = $1 AND p.user_id = $2",
+    )
+    .bind(fx.cast.etablissement_id)
+    .bind(user)
+    .fetch_one(fx.ent.pool())
+    .await
+    .expect("agent du compte")
+}
+
+async fn jour(fx: &Fx) -> NaiveDate {
+    fx.ent.jour_etab(fx.cast.etablissement_id).await.unwrap()
+}
+
+/// Travail à rendre en ligne de `prof`, pour la classe A, avec échéance dans trois jours.
+async fn travail_a_rendre(fx: &Fx) -> TravailDto {
+    fx.publier_travail(&fx.prof(), fx.cible_a(), |t| {
+        t.type_travail = "a_rendre".into();
+        t.date_limite = Some(Utc::now() + Duration::days(2));
+    })
+    .await
+    .unwrap()
+    .travail
+}
+
+async fn definir_lien(fx: &Fx, e: &LaboEleve, colonnes: &str) {
+    sqlx::query(&format!(
+        "UPDATE ent_eleve_lien SET {colonnes} WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3"
+    ))
+    .bind(fx.cast.etablissement_id)
+    .bind(e.id)
+    .bind(e.parent.user_id)
+    .execute(fx.ent.pool())
+    .await
+    .unwrap();
+}
+
+async fn peut(fx: &Fx, a: &Acteur<'_>, action: Action, cible: Cible) -> bool {
+    fx.ent.cahier_peut(a, action, cible).await.unwrap()
+}
+
+// ───── C-D2 : portée calculée à la date par les interventions ─────
+
+#[tokio::test]
+async fn c0_cd2_remplacant_d_une_heure_n_a_ni_la_classe_ni_les_copies() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    let auj = jour(&fx).await;
+    let s1 = fx.seance("CDT-A", prof0, Some(fx.service_a), auj).await;
+    let s2 = fx.seance("CDT-A", prof0, Some(fx.service_a), auj + Duration::days(1)).await;
+    sqlx::query("UPDATE ent_edt_seance SET remplacant_user_id = $2 WHERE id = $1")
+        .bind(s1)
+        .bind(prof2)
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+
+    // Le remplaçant écrit SA séance et peut y rattacher du travail…
+    fx.ent.cahier_renseigner_seance(&fx.prof2(), s1, "Remplacement : lecture suivie", "").await.unwrap();
+    let t_rempl = fx
+        .publier_travail(&fx.prof2(), fx.cible_a(), |t| {
+            t.seance_id = Some(s1);
+            t.titre = "Lecture du chapitre 2".into();
+        })
+        .await
+        .expect("travail lié à la séance remplacée")
+        .travail;
+    fx.ent.cahier_modifier_travail(&fx.prof2(), t_rempl.id, ModifierTravailBody { titre: Some("Lecture, chap. 2".into()), ..Default::default() })
+        .await
+        .expect("il modifie son propre travail lié à sa séance");
+
+    // … mais rien d'autre : ni une autre séance de la classe, ni du travail hors séance, ni la classe entière.
+    assert!(est_interdit(&fx.ent.cahier_renseigner_seance(&fx.prof2(), s2, "autre séance", "").await.unwrap_err()));
+    assert!(fx.publier_travail(&fx.prof2(), fx.cible_a(), |_| {}).await.is_err_and(|e| est_interdit(&e)));
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await);
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierLire, fx.cible_a()).await, "plus de lecture de la classe entière");
+
+    // Copies : un remplaçant ne lit ni le suivi, ni une copie, ni ne corrige.
+    let t = travail_a_rendre(&fx).await;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "", Some(pdf("copie.pdf"))).await.unwrap();
+    assert!(est_interdit(&fx.ent.cahier_suivi_travail(&fx.prof2(), t.id).await.unwrap_err()));
+    let remise = fx.ent.cahier_suivi_travail(&fx.prof(), t.id).await.unwrap().lignes.into_iter().find_map(|l| l.remise).unwrap();
+    assert!(est_interdit(&fx.ent.cahier_retour(&fx.prof2(), remise.id, "Corrigé", None, None).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_lien_piece(&fx.prof2(), remise.pieces[0].id).await.unwrap_err()));
+    // Le titulaire, lui, travaille normalement.
+    fx.ent.cahier_retour(&fx.prof(), remise.id, "Bien", None, None).await.unwrap();
+}
+
+#[tokio::test]
+async fn c0_cd2_suppleant_ecrit_des_sa_date_le_titulaire_pas_pendant_la_suppleance_ancien_professeur_plus_du_tout() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    let auj = jour(&fx).await;
+    let seance = fx.seance("CDT-A", prof0, Some(fx.service_a), auj).await;
+    assert!(peut(&fx, &fx.prof(), Action::CahierEcrire, fx.cible_a()).await, "titulaire avant la suppléance");
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await, "suppléant avant sa date");
+
+    let agent2 = agent_du_compte(&fx, prof2).await;
+    let service = fx
+        .ent
+        .nommer_suppleant_for_actor(
+            e,
+            fx.cast.direction.user_id,
+            "direction",
+            fx.service_a,
+            &NommerSuppleantBody { agent_id: agent2, du: auj, au: None, origine: None, origine_ref: None },
+        )
+        .await
+        .unwrap();
+    let supp = service.intervenants.iter().find(|i| i.nature == "suppleant").unwrap().id;
+
+    // Dès sa date, le suppléant écrit (même une séance au nom du titulaire) ; le titulaire n'écrit plus.
+    fx.ent.cahier_renseigner_seance(&fx.prof2(), seance, "Suppléance : démarrage", "").await.unwrap();
+    assert!(est_interdit(&fx.ent.cahier_renseigner_seance(&fx.prof(), seance, "Retour du titulaire", "").await.unwrap_err()));
+    assert!(fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.is_err_and(|e| est_interdit(&e)));
+    assert!(peut(&fx, &fx.prof(), Action::CahierLire, fx.cible_a()).await, "le titulaire lit toujours son cahier");
+
+    // La suppléance finit il y a 3 jours : lecture encore permise (délai de grâce de 7 jours), plus d'écriture.
+    sqlx::query("UPDATE ent_service_intervenant SET du = $2, au = $3 WHERE id = $1")
+        .bind(supp)
+        .bind(auj - Duration::days(20))
+        .bind(auj - Duration::days(3))
+        .execute(fx.ent.pool())
+        .await
+        .unwrap();
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await, "ancien suppléant : plus d'écriture");
+    assert!(peut(&fx, &fx.prof2(), Action::CahierLire, fx.cible_a()).await, "grâce de lecture de 7 jours");
+    // 8 jours après : plus rien. Le titulaire a repris la saisie.
+    sqlx::query("UPDATE ent_service_intervenant SET au = $2 WHERE id = $1").bind(supp).bind(auj - Duration::days(8)).execute(fx.ent.pool()).await.unwrap();
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierLire, fx.cible_a()).await, "ancien professeur : plus de lecture");
+    assert!(peut(&fx, &fx.prof(), Action::CahierEcrire, fx.cible_a()).await, "le titulaire reprend la saisie");
+    let _ = TerminerInterventionBody { au: None };
+}
+
+#[tokio::test]
+async fn c0_cd2_restriction_des_droits_de_l_intervention_aux_cahier() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    let auj = jour(&fx).await;
+    fx.seance("CDT-A", prof0, Some(fx.service_a), auj).await;
+    let agent2 = agent_du_compte(&fx, prof2).await;
+    let service = fx
+        .ent
+        .nommer_suppleant_for_actor(
+            e,
+            fx.cast.direction.user_id,
+            "direction",
+            fx.service_a,
+            &NommerSuppleantBody { agent_id: agent2, du: auj, au: None, origine: None, origine_ref: None },
+        )
+        .await
+        .unwrap();
+    let supp = service.intervenants.iter().find(|i| i.nature == "suppleant").unwrap().id;
+    // Suppléant limité à l'appel : la saisie du cahier lui est refusée.
+    sqlx::query("UPDATE ent_service_intervenant SET droits = ARRAY['appel'] WHERE id = $1").bind(supp).execute(fx.ent.pool()).await.unwrap();
+    assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await);
+    sqlx::query("UPDATE ent_service_intervenant SET droits = ARRAY['appel', 'cahier'] WHERE id = $1").bind(supp).execute(fx.ent.pool()).await.unwrap();
+    assert!(peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await);
+}
+
+// ───── C-D3 : copies et corrections ─────
+
+/// Remise de X telle que la voit `a` dans l'agenda (Err si l'élève n'est pas résolu pour `a`).
+async fn remise_vue(fx: &Fx, a: Acteur<'_>, travail: Uuid, du: NaiveDate, au: NaiveDate) -> Result<Option<RemiseDto>, EntDbError> {
+    let items = fx.ent.cahier_agenda(&a, Some(fx.x.id), du, au).await?;
+    Ok(items.into_iter().find(|i| i.travail.id == travail).and_then(|i| i.remise))
+}
+
+#[tokio::test]
+async fn c0_cd3_cpe_direction_et_autres_professeurs_ne_lisent_aucune_remise() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let t = travail_a_rendre(&fx).await;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "Voici ma copie", Some(pdf("copie.pdf"))).await.unwrap();
+    let remise = fx.ent.cahier_suivi_travail(&fx.prof(), t.id).await.unwrap().lignes.into_iter().find_map(|l| l.remise).unwrap();
+    fx.ent.cahier_retour(&fx.prof(), remise.id, "Correction détaillée", None, Some(pdf("annotee.pdf"))).await.unwrap();
+
+    // Élève et intervenant en saisie : la remise complète.
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap().iter().any(|i| i.remise.as_ref().is_some_and(|r| r.commentaire_eleve == "Voici ma copie")));
+    assert!(remise_vue(&fx, fx.prof(), t.id, du, au).await.unwrap().is_some_and(|r| r.retour_commentaire.is_some() && !r.pieces.is_empty()));
+    // CPE et direction voient l'agenda (travail, échéance) mais jamais la remise : ni commentaire, ni copie, ni retour.
+    assert!(remise_vue(&fx, fx.cpe(), t.id, du, au).await.unwrap().is_none(), "CPE");
+    assert!(remise_vue(&fx, fx.direction(), t.id, du, au).await.unwrap().is_none(), "direction");
+    // Un professeur qui n'enseigne pas à X ne résout même pas l'élève.
+    assert!(remise_vue(&fx, fx.prof2(), t.id, du, au).await.is_err());
+    // Liens de téléchargement : CPE, direction, professeur étranger refusés.
+    let pieces = fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap().remove(0).remise.unwrap().pieces;
+    assert_eq!(pieces.len(), 2);
+    for p in &pieces {
+        for a in [fx.cpe(), fx.direction(), fx.prof2()] {
+            assert!(est_interdit(&fx.ent.cahier_lien_piece(&a, p.id).await.unwrap_err()), "{} refusé pour {}", p.genre, a.user_id);
+        }
+        fx.ent.cahier_lien_piece(&fx.prof(), p.id).await.unwrap();
+        fx.ent.cahier_lien_piece(&fx.eleve(&fx.x), p.id).await.unwrap();
+    }
+    // Le suivi et l'historique du travail sont fermés à la CPE.
+    assert!(est_interdit(&fx.ent.cahier_suivi_travail(&fx.cpe(), t.id).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_suivi_travail(&fx.direction(), t.id).await.unwrap_err()));
+    // Même cloisonnement pour un autre élève de la classe : Z ne voit pas la remise de X.
+    assert!(fx.ent.cahier_lien_piece(&fx.eleve(&fx.z), pieces[0].id).await.is_err());
+}
+
+// ───── C-D4 : droits fins des responsables ─────
+
+#[tokio::test]
+async fn c0_cd4_responsable_sans_autorite_ou_suspendu_ne_voit_rien_et_ne_recoit_rien() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let auj = jour(&fx).await;
+    let seance = fx.seance("CDT-A", fx.cast.profs[0].user_id, Some(fx.service_a), auj).await;
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance, "Cours du jour", "").await.unwrap();
+    let t = fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.unwrap().travail;
+    let parent = fx.parent(&fx.x);
+    assert_eq!(fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap().len(), 1, "responsable habilité");
+
+    // Sans exercice de l'autorité parentale : agenda, cahier et détail interdits.
+    definir_lien(&fx, &fx.x, "autorite_parentale = false").await;
+    assert!(est_interdit(&fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_seances_eleve(&parent, Some(fx.x.id), du, au).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_travail(&parent, t.id).await.unwrap_err()));
+    // Il ne reçoit pas non plus l'avis du nouveau travail ; l'élève, si.
+    let d = fx.ent.distributeur(config(fx.cast.etablissement_id));
+    fx.publier_travail(&fx.prof(), fx.cible_a(), |t| t.titre = "Nouveau".into()).await.unwrap();
+    d.distribuer_tout().await.unwrap();
+    assert_eq!(notifs(&fx, fx.x.parent.user_id, "travail_donne").await, 0, "pas d'avis sans autorité parentale");
+    assert_eq!(notifs(&fx, fx.x.compte.as_ref().unwrap().user_id, "travail_donne").await, 2);
+    definir_lien(&fx, &fx.x, "autorite_parentale = true").await;
+    assert!(fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.is_ok());
+
+    // Lien suspendu (décision de justice) : plus rien.
+    definir_lien(&fx, &fx.x, "suspendu_le = now(), suspension_motif = 'décision du juge'").await;
+    assert!(est_interdit(&fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap_err()));
+    definir_lien(&fx, &fx.x, "suspendu_le = NULL, suspension_motif = NULL").await;
+    // Lien expiré : plus rien.
+    definir_lien(&fx, &fx.x, "date_fin = (now() - interval '3 days')::date").await;
+    assert!(est_interdit(&fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap_err()));
+    definir_lien(&fx, &fx.x, "date_fin = NULL").await;
+}
+
+#[tokio::test]
+async fn c0_cd4_retour_a_note_seulement_avec_le_droit_voir_les_notes_et_jamais_le_depot_de_l_eleve() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let e = fx.cast.etablissement_id;
+    let t = travail_a_rendre(&fx).await;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "Mon commentaire", Some(pdf("depot.pdf"))).await.unwrap();
+    let remise = fx.ent.cahier_suivi_travail(&fx.prof(), t.id).await.unwrap().lignes.into_iter().find_map(|l| l.remise).unwrap();
+    let matiere = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1, $2, 'MATH-C0', 'Maths')")
+        .bind(matiere).bind(e).execute(fx.ent.pool()).await.unwrap();
+    let note = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,14,$5,$6)")
+        .bind(note).bind(e).bind(fx.x.id).bind(matiere).bind(jour(&fx).await).bind(fx.cast.profs[0].user_id)
+        .execute(fx.ent.pool()).await.unwrap();
+    fx.ent.cahier_retour(&fx.prof(), remise.id, "14/20, bon travail", Some(note), Some(pdf("annotee.pdf"))).await.unwrap();
+
+    let parent = fx.parent(&fx.x);
+    let vue_parent = |notes: bool| {
+        let fx = &fx;
+        let parent = fx.parent(&fx.x);
+        async move {
+            definir_lien(fx, &fx.x, &format!("peut_voir_notes = {notes}")).await;
+            fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap().remove(0).remise.unwrap()
+        }
+    };
+    // Sans « voir les notes » : le statut constaté seulement, aucun retour, aucune pièce, jamais le commentaire de l'élève.
+    let r = vue_parent(false).await;
+    assert_eq!((r.statut.as_str(), r.retour_commentaire.as_ref(), r.note_id), ("rendu", None, None));
+    assert!(r.pieces.is_empty() && r.commentaire_eleve.is_empty());
+    // Avec : le retour et la copie annotée, jamais le dépôt de l'élève.
+    let r = vue_parent(true).await;
+    assert_eq!(r.statut, "corrige");
+    assert_eq!(r.note_id, Some(note));
+    assert_eq!(r.pieces.len(), 1);
+    assert_eq!(r.pieces[0].genre, "annotation");
+    assert!(r.commentaire_eleve.is_empty());
+    fx.ent.cahier_lien_piece(&parent, r.pieces[0].id).await.unwrap();
+    let depot = fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap().remove(0).remise.unwrap().pieces.into_iter().find(|p| p.genre == "copie").unwrap();
+    assert!(est_interdit(&fx.ent.cahier_lien_piece(&parent, depot.id).await.unwrap_err()), "dépôt de l'élève : jamais au responsable");
+    // « Fait » et « vu » ne sont jamais montrés à un adulte.
+    fx.ent.cahier_marquer_fait(&fx.eleve(&fx.x), t.id, true).await.unwrap();
+    let item = fx.ent.cahier_agenda(&parent, Some(fx.x.id), du, au).await.unwrap().remove(0);
+    assert!(!item.fait && !item.vu);
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap()[0].fait, "l'élève voit sa propre coche");
+}
+
+// ───── C-D5 : élève parti ─────
+
+#[tokio::test]
+async fn c0_cd5_eleve_parti_ne_voit_plus_ne_rend_plus_ne_recoit_plus_mais_garde_ses_remises() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let auj = jour(&fx).await;
+    let seance = fx.seance("CDT-A", fx.cast.profs[0].user_id, Some(fx.service_a), auj).await;
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance, "Contenu", "").await.unwrap();
+    let t = travail_a_rendre(&fx).await;
+    let t_autre = fx.publier_travail(&fx.prof(), fx.cible_a(), |t| t.titre = "Autre".into()).await.unwrap().travail;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "", Some(pdf("c.pdf"))).await.unwrap();
+    assert!(voit_seance(&fx, &fx.x, seance, du, au).await);
+
+    // X quitte la classe A hier.
+    sqlx::query("UPDATE ent_affectation SET date_debut = $3, date_fin = $4 WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(fx.cast.etablissement_id).bind(fx.x.id).bind(auj - Duration::days(60)).bind(auj - Duration::days(1))
+        .execute(fx.ent.pool()).await.unwrap();
+
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap().is_empty(), "plus aucun travail dans l'agenda");
+    assert!(!voit_seance(&fx, &fx.x, seance, du, au).await, "plus de cahier de la classe");
+    assert!(est_interdit(&fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "complément", Some(pdf("c2.pdf"))).await.unwrap_err()), "plus de dépôt");
+    assert!(est_interdit(&fx.ent.cahier_marquer_fait(&fx.eleve(&fx.x), t_autre.id, true).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_travail(&fx.eleve(&fx.x), t_autre.id).await.unwrap_err()));
+    // Il garde la lecture du travail dont il a une remise.
+    let mien = fx.ent.cahier_travail(&fx.eleve(&fx.x), t.id).await.unwrap();
+    assert!(mien.remise.is_some());
+    // Plus d'avis pour lui ni pour son responsable ; Z et W continuent d'en recevoir.
+    let d = fx.ent.distributeur(config(fx.cast.etablissement_id));
+    fx.publier_travail(&fx.prof(), fx.cible_a(), |t| t.titre = "Après le départ".into()).await.unwrap();
+    d.distribuer_tout().await.unwrap();
+    assert_eq!(notifs(&fx, fx.x.compte.as_ref().unwrap().user_id, "travail_donne").await, 0, "X parti");
+    assert_eq!(notifs(&fx, fx.x.parent.user_id, "travail_donne").await, 0, "responsable de X");
+    assert_eq!(notifs(&fx, fx.w.compte.as_ref().unwrap().user_id, "travail_donne").await, 3);
+}
+
+// ───── C-D6 : séances de groupe ─────
+
+#[tokio::test]
+async fn c0_cd6_la_liste_d_une_classe_ne_montre_pas_les_seances_de_groupe_des_autres() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    let auj = jour(&fx).await;
+    let service_g = fx
+        .ent
+        .referentiel_creer_service(
+            Role::Direction.as_str(),
+            fx.cast.etablissement_id,
+            CreerService { prof_user_id: prof2, matiere_id: None, classe_id: None, groupe_id: Some(fx.groupe_g), professeur_principal: false },
+        )
+        .await
+        .unwrap();
+    let s_groupe = fx.seance("CDT-A", prof2, Some(service_g.id), auj).await;
+    let s_classe = fx.seance("CDT-A", prof0, Some(fx.service_a), auj).await;
+    let ids = |l: Vec<SeanceCahierDto>| l.into_iter().map(|s| s.seance_id).collect::<Vec<_>>();
+
+    let vue_prof0 = ids(fx.ent.cahier_seances(&fx.prof(), Some(fx.classe_a), du, au).await.unwrap());
+    assert!(vue_prof0.contains(&s_classe) && !vue_prof0.contains(&s_groupe), "le professeur de la classe ne voit pas la séance du groupe");
+    let vue_cpe = ids(fx.ent.cahier_seances(&fx.cpe(), Some(fx.classe_a), du, au).await.unwrap());
+    assert!(vue_cpe.contains(&s_classe) && vue_cpe.contains(&s_groupe), "portée d'établissement : tout");
+    // Le professeur du groupe retrouve sa séance dans « mes séances ».
+    assert!(ids(fx.ent.cahier_seances(&fx.prof2(), None, du, au).await.unwrap()).contains(&s_groupe));
+    // Contenu du groupe : illisible du professeur de la classe.
+    fx.ent.cahier_renseigner_seance(&fx.prof2(), s_groupe, "Atelier du groupe", "").await.unwrap();
+    let piece_seance = fx.ent.cahier_seances(&fx.prof2(), None, du, au).await.unwrap().into_iter().find(|s| s.seance_id == s_groupe).unwrap().contenu.unwrap();
+    let p = fx.ent.cahier_joindre_piece(&fx.prof2(), ParentPiece::Seance(piece_seance.id), pdf("atelier.pdf")).await.unwrap();
+    assert!(est_interdit(&fx.ent.cahier_lien_piece(&fx.prof(), p.id).await.unwrap_err()));
+}
+
+// ───── C-D7 + NJ-33 : ancienne route et écriture par n'importe quel connecté ─────
+
+fn cahier_texte(fx: &Fx, classe: &str, auteur: Uuid) -> domain_eleve::CreerCahierTexte {
+    domain_eleve::CreerCahierTexte {
+        etablissement_id: fx.cast.etablissement_id,
+        classe: classe.into(),
+        matiere_libelle: "Maths".into(),
+        titre: "Exercices".into(),
+        consigne: "p. 12".into(),
+        pour_le: today_utc() + Duration::days(2),
+        cree_le: today_utc(),
+        actor_user_id: auteur,
+    }
+}
+
+#[tokio::test]
+async fn c0_cd7_nj33_ancienne_route_ecriture_et_lecture_bornees_par_la_portee() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    // NJ-33 : « tout utilisateur connecté crée, modifie ou masque n'importe quelle entrée » — non.
+    for (role, user) in [
+        ("eleve", fx.x.compte.as_ref().unwrap().user_id),
+        ("parent", fx.x.parent.user_id),
+        ("compta", fx.cast.compta.user_id),
+        ("prof", prof2), // professeur sans cours sur la classe
+        ("cpe", fx.cast.cpe.user_id), // pas de cahier.ecrire : le rôle codé en dur ne suffit plus
+    ] {
+        let r = fx.ent.creer_cahier_texte_for_actor(role, cahier_texte(&fx, "CDT-A", user)).await;
+        assert!(matches!(r, Err(EntDbError::Forbidden)), "{role} : {r:?}");
+    }
+    // Un professeur de groupe seulement n'écrit pas pour toute la classe.
+    let service_g = fx
+        .ent
+        .referentiel_creer_service(
+            Role::Direction.as_str(),
+            e,
+            CreerService { prof_user_id: prof2, matiere_id: None, classe_id: None, groupe_id: Some(fx.groupe_g), professeur_principal: false },
+        )
+        .await
+        .unwrap();
+    let _ = service_g;
+    let r = fx.ent.creer_cahier_texte_for_actor("prof", cahier_texte(&fx, "CDT-A", prof2)).await;
+    assert!(matches!(r, Err(EntDbError::Forbidden)), "professeur d'un groupe : {r:?}");
+    // Classe inconnue : refusée.
+    assert!(matches!(fx.ent.creer_cahier_texte_for_actor("prof", cahier_texte(&fx, "INCONNUE", prof0)).await, Err(EntDbError::Forbidden)));
+    // Le professeur de la classe écrit ; la direction (portée d'établissement) aussi.
+    assert!(fx.ent.creer_cahier_texte_for_actor("prof", cahier_texte(&fx, "CDT-A", prof0)).await.is_ok());
+    assert!(fx.ent.creer_cahier_texte_for_actor("direction", cahier_texte(&fx, "CDT-A", fx.cast.direction.user_id)).await.is_ok());
+
+    // Lecture : le personnel est borné par sa portée à la date.
+    let lire = |role: &'static str, user: Uuid| {
+        let fx = &fx;
+        async move { fx.ent.list_cahier_texte_for_actor(e, user, role, Some("CDT-A".into()), None, None, None).await }
+    };
+    assert!(lire("prof", prof0).await.is_ok());
+    assert!(matches!(lire("prof", prof2).await, Err(EntDbError::Forbidden)), "professeur étranger à la classe");
+    assert!(lire("cpe", fx.cast.cpe.user_id).await.is_ok());
+    // Parent sans autorité parentale : refusé ; avec : lit la classe de son enfant.
+    let lire_parent = || fx.ent.list_cahier_texte_for_actor(e, fx.x.parent.user_id, "parent", None, Some(fx.x.id), None, None);
+    assert!(lire_parent().await.is_ok());
+    definir_lien(&fx, &fx.x, "autorite_parentale = false").await;
+    assert!(matches!(lire_parent().await, Err(EntDbError::Forbidden)));
+}
+
+#[tokio::test]
+async fn c0_nj33_nouvelle_route_ecriture_modification_masquage_refuses_aux_non_autorises() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let t = fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.unwrap().travail;
+    let intrus: Vec<(&str, Acteur<'_>)> = vec![
+        ("élève", fx.eleve(&fx.x)),
+        ("parent", fx.parent(&fx.x)),
+        ("compta", fx.compta()),
+        ("cpe", fx.cpe()),
+        ("professeur étranger", fx.prof2()),
+    ];
+    for (nom, a) in &intrus {
+        assert!(fx.publier_travail(a, fx.cible_a(), |_| {}).await.is_err_and(|e| est_interdit(&e)), "{nom} : création");
+        let modif = fx.ent.cahier_modifier_travail(a, t.id, ModifierTravailBody { titre: Some("Piraté".into()), ..Default::default() }).await;
+        assert!(modif.is_err_and(|e| est_interdit(&e)), "{nom} : modification");
+        assert!(est_interdit(&fx.ent.cahier_supprimer_travail(a, t.id).await.unwrap_err()), "{nom} : masquage");
+        assert!(est_interdit(&fx.ent.cahier_retirer_travail(a, t.id, "motif quelconque").await.unwrap_err()), "{nom} : retrait");
+    }
+    let seance = fx.seance("CDT-A", fx.cast.profs[0].user_id, Some(fx.service_a), jour(&fx).await).await;
+    for (nom, a) in &intrus {
+        assert!(est_interdit(&fx.ent.cahier_renseigner_seance(a, seance, "Piraté", "").await.unwrap_err()), "{nom} : contenu de séance");
+    }
+    // Le travail est intact.
+    assert_eq!(fx.ent.cahier_travail(&fx.prof(), t.id).await.unwrap().travail.titre, "Exercices");
+}
+
+// ───── C-D8 : retour, note liée, historique ─────
+
+#[tokio::test]
+async fn c0_cd8_note_liee_de_la_main_du_correcteur_et_retour_historise() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let t = travail_a_rendre(&fx).await;
+    let t2 = fx.publier_travail(&fx.prof(), fx.cible_a(), |t| {
+        t.type_travail = "a_rendre".into();
+        t.date_limite = Some(Utc::now() + Duration::days(2));
+        t.titre = "Second".into();
+    }).await.unwrap().travail;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t.id, "", Some(pdf("a.pdf"))).await.unwrap();
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), t2.id, "", Some(pdf("b.pdf"))).await.unwrap();
+    let suivi = |tid: Uuid| {
+        let fx = &fx;
+        async move { fx.ent.cahier_suivi_travail(&fx.prof(), tid).await.unwrap().lignes.into_iter().find_map(|l| l.remise).unwrap() }
+    };
+    let (r1, r2) = (suivi(t.id).await, suivi(t2.id).await);
+    let matiere = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_matiere (id, etablissement_id, code, libelle) VALUES ($1, $2, 'MATH-C8', 'Maths')").bind(matiere).bind(e).execute(fx.ent.pool()).await.unwrap();
+    let nouvelle_note = |eleve: Uuid, auteur: Uuid| {
+        let (fx, id) = (&fx, Uuid::new_v4());
+        async move {
+            sqlx::query("INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, date_note, auteur_user_id) VALUES ($1,$2,$3,$4,12,$5,$6)")
+                .bind(id).bind(fx.cast.etablissement_id).bind(eleve).bind(matiere).bind(today_utc()).bind(auteur)
+                .execute(fx.ent.pool()).await.unwrap();
+            id
+        }
+    };
+    let note_prof = nouvelle_note(fx.x.id, fx.cast.profs[0].user_id).await;
+    let note_autre_auteur = nouvelle_note(fx.x.id, fx.cast.profs[1].user_id).await;
+    let note_autre_eleve = nouvelle_note(fx.w.id, fx.cast.profs[0].user_id).await;
+    for n in [note_autre_auteur, note_autre_eleve, Uuid::new_v4()] {
+        let err = fx.ent.cahier_retour(&fx.prof(), r1.id, "Bien", Some(n), None).await.unwrap_err();
+        assert!(est_refus(&err, RefusMetier::Invalide), "note refusée : {err:?}");
+    }
+    fx.ent.cahier_retour(&fx.prof(), r1.id, "Premier retour", Some(note_prof), None).await.unwrap();
+    // Une même note ne peut pas être liée à la remise d'un autre travail.
+    let err = fx.ent.cahier_retour(&fx.prof(), r2.id, "Réutilisation", Some(note_prof), None).await.unwrap_err();
+    assert!(est_refus(&err, RefusMetier::Invalide), "{err:?}");
+    // Historique : un retour corrigé garde l'état précédent.
+    let avant: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_cdt_historique WHERE objet = 'remise' AND objet_id = $1").bind(r1.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(avant, 0);
+    fx.ent.cahier_retour(&fx.prof(), r1.id, "Retour corrigé", None, None).await.unwrap();
+    let (n, instantane): (i64, serde_json::Value) = sqlx::query_as(
+        "SELECT count(*), max(instantane::text)::jsonb FROM ent_cdt_historique WHERE objet = 'remise' AND objet_id = $1",
+    ).bind(r1.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(n, 1);
+    assert_eq!(instantane["retour_commentaire"], "Premier retour");
+    assert_eq!(instantane["note_id"], note_prof.to_string());
+}
+
+// ───── C-D9 : visa ─────
+
+#[tokio::test]
+async fn c0_cd9_visa_individuel_lisible_du_vise_et_de_la_direction_seulement() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (prof0, prof2) = (fx.cast.profs[0].user_id, fx.cast.profs[1].user_id);
+    let (du, au) = (today_utc() - Duration::days(7), today_utc());
+    let visa = |prof: Option<Uuid>, commentaire: &str| VisaBody { classe_id: fx.classe_a, prof_user_id: prof, du, au, commentaire: commentaire.into() };
+    // Un professeur qui n'enseigne pas dans la classe ne peut pas être visé.
+    let err = fx.ent.cahier_viser(&fx.direction(), visa(Some(prof2), "Étranger")).await.unwrap_err();
+    assert!(est_refus(&err, RefusMetier::Invalide), "{err:?}");
+    fx.ent.cahier_viser(&fx.direction(), visa(Some(prof0), "Cahier à compléter pour la semaine 45")).await.unwrap();
+    fx.ent.cahier_viser(&fx.direction(), visa(None, "Visa de classe : RAS")).await.unwrap();
+    let commentaires = |l: Vec<VisaDto>| l.into_iter().map(|v| (v.prof_user_id.is_some(), v.commentaire)).collect::<Vec<_>>();
+    // Le visé et la direction lisent tout ; la CPE ne lit pas le commentaire individuel.
+    for a in [fx.prof(), fx.direction()] {
+        let l = commentaires(fx.ent.cahier_visas(&a, fx.classe_a).await.unwrap());
+        assert!(l.contains(&(true, "Cahier à compléter pour la semaine 45".to_string())), "{}", a.user_id);
+    }
+    let l = commentaires(fx.ent.cahier_visas(&fx.cpe(), fx.classe_a).await.unwrap());
+    assert!(l.contains(&(true, String::new())), "commentaire individuel masqué : {l:?}");
+    assert!(l.contains(&(false, "Visa de classe : RAS".to_string())), "visa de classe lisible");
+}
+
+// ───── C-D10 : la direction retire, ne réécrit plus ─────
+
+#[tokio::test]
+async fn c0_cd10_direction_retire_avec_motif_et_avis_a_l_auteur_sans_modifier() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let t = fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.unwrap().travail;
+    // Plus de modification, de suppression ni de pièce par la direction.
+    let modif = fx.ent.cahier_modifier_travail(&fx.direction(), t.id, ModifierTravailBody { consigne: Some("Réécrit".into()), ..Default::default() }).await;
+    assert!(modif.is_err_and(|e| est_interdit(&e)));
+    assert!(est_interdit(&fx.ent.cahier_supprimer_travail(&fx.direction(), t.id).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_joindre_piece(&fx.direction(), ParentPiece::Travail(t.id), pdf("x.pdf")).await.unwrap_err()));
+    // L'historique reste lisible de l'auteur et de la direction, pas de la CPE.
+    assert!(fx.ent.cahier_historique_travail(&fx.direction(), t.id).await.is_ok());
+    assert!(fx.ent.cahier_historique_travail(&fx.prof(), t.id).await.is_ok());
+    assert!(est_interdit(&fx.ent.cahier_historique_travail(&fx.cpe(), t.id).await.unwrap_err()));
+    // Le retrait exige un motif et le droit de viser ; l'auteur ne « retire » pas, il supprime.
+    assert!(est_refus(&fx.ent.cahier_retirer_travail(&fx.direction(), t.id, "  ").await.unwrap_err(), RefusMetier::Invalide));
+    assert!(est_interdit(&fx.ent.cahier_retirer_travail(&fx.prof(), t.id, "je retire").await.unwrap_err()));
+    fx.ent.cahier_retirer_travail(&fx.direction(), t.id, "Contenu inapproprié pour des élèves de 6e").await.unwrap();
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap().is_empty(), "sorti de la diffusion");
+    let (par, motif, consigne): (Uuid, String, String) = sqlx::query_as("SELECT retire_par_user_id, retire_motif, consigne FROM ent_travail WHERE id = $1")
+        .bind(t.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!((par, motif.as_str(), consigne.as_str()), (fx.cast.direction.user_id, "Contenu inapproprié pour des élèves de 6e", "p. 12 n° 3"));
+    let histo: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_cdt_historique WHERE objet = 'travail' AND objet_id = $1 AND action = 'retrait'").bind(t.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(histo, 1);
+    // L'auteur est averti, avec le motif.
+    fx.ent.distributeur(config(fx.cast.etablissement_id)).distribuer_tout().await.unwrap();
+    assert_eq!(notifs(&fx, fx.cast.profs[0].user_id, "travail_retire").await, 1);
+}
+
+// ───── C-D11 : aucune requête sans contexte d'établissement ─────
+
+#[test]
+fn c0_cd11_toute_requete_du_cahier_passe_par_tenant_tx() {
+    for fichier in ["cahier.rs", "cahier_reactions.rs"] {
+        let src = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join(fichier)).unwrap();
+        let hors_tx = src.matches("self.pool()").count() - src.matches("TenantTx::begin(self.pool()").count();
+        assert_eq!(hors_tx, 0, "{fichier} : une requête utilise le pool sans TenantTx (RLS sans effet)");
+        assert!(!src.contains("fetch_one(self.pool())") && !src.contains("execute(self.pool())") && !src.contains("fetch_all(self.pool())"));
+    }
+}
+
+// ───── C-D12 : pièces ─────
+
+#[tokio::test]
+async fn c0_cd12_retrait_logique_d_une_piece_et_plafond_tenu_sous_concurrence() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let t = fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.unwrap().travail;
+    let erronee = fx.ent.cahier_joindre_piece(&fx.prof(), ParentPiece::Travail(t.id), pdf("erreur.pdf")).await.unwrap();
+    assert!(fx.ent.cahier_lien_piece(&fx.eleve(&fx.x), erronee.id).await.is_ok());
+    // Retrait : par l'auteur seulement.
+    assert!(est_interdit(&fx.ent.cahier_retirer_piece(&fx.prof2(), erronee.id).await.unwrap_err()));
+    assert!(est_interdit(&fx.ent.cahier_retirer_piece(&fx.direction(), erronee.id).await.unwrap_err()));
+    fx.ent.cahier_retirer_piece(&fx.prof(), erronee.id).await.unwrap();
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap()[0].travail.pieces.is_empty());
+    assert!(est_introuvable(&fx.ent.cahier_lien_piece(&fx.eleve(&fx.x), erronee.id).await.unwrap_err()));
+    let (conservee,): (bool,) = sqlx::query_as("SELECT retiree_le IS NOT NULL AND storage_key <> '' FROM ent_cdt_piece WHERE id = $1").bind(erronee.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert!(conservee, "la ligne et l'objet restent");
+    // Plafond de 10 pièces, tenu même avec 12 dépôts simultanés ; un retrait libère une place.
+    let a = fx.prof();
+    let ajouter = |i: usize| fx.ent.cahier_joindre_piece(&a, ParentPiece::Travail(t.id), pdf(&format!("p{i}.pdf")));
+    let (r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11) =
+        tokio::join!(ajouter(0), ajouter(1), ajouter(2), ajouter(3), ajouter(4), ajouter(5), ajouter(6), ajouter(7), ajouter(8), ajouter(9), ajouter(10), ajouter(11));
+    let essais = [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11];
+    let ok = essais.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(ok, 10, "10 pièces actives au plus : {:?}", essais.iter().filter_map(|r| r.as_ref().err()).collect::<Vec<_>>());
+    assert!(essais.iter().filter_map(|r| r.as_ref().err()).all(|e| est_refus(e, RefusMetier::Conflit)));
+    let une = essais.iter().find_map(|r| r.as_ref().ok()).unwrap().id;
+    fx.ent.cahier_retirer_piece(&fx.prof(), une).await.unwrap();
+    fx.ent.cahier_joindre_piece(&fx.prof(), ParentPiece::Travail(t.id), pdf("derniere.pdf")).await.unwrap();
+    // Copie de l'élève : retirable par lui avant correction, pas par un autre.
+    let tr = travail_a_rendre(&fx).await;
+    let remise = fx.ent.cahier_rendre(&fx.eleve(&fx.x), tr.id, "", Some(pdf("mauvaise.pdf"))).await.unwrap();
+    assert!(est_interdit(&fx.ent.cahier_retirer_piece(&fx.eleve(&fx.w), remise.pieces[0].id).await.unwrap_err()));
+    fx.ent.cahier_retirer_piece(&fx.eleve(&fx.x), remise.pieces[0].id).await.unwrap();
+}
+
+// ───── C-D13 : jour et heure de l'établissement ─────
+
+#[tokio::test]
+async fn c0_cd13_fuseau_de_l_etablissement_pour_le_jour_et_la_fin_de_journee() {
+    use chrono::Timelike;
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    // Fuseau à décalage fixe qui place l'établissement un jour AVANT (UTC−12, avant midi UTC) ou APRÈS
+    // (UTC+14, après midi UTC) le jour UTC : le cas de La Réunion (UTC+4) à 23 h UTC, en plus net.
+    let (fuseau, decalage_h) = if Utc::now().hour() < 12 { ("Etc/GMT+12", -12) } else { ("Pacific/Kiritimati", 14) };
+    sqlx::query("INSERT INTO ent_etablissement_parametre (etablissement_id, fuseau) VALUES ($1, $2) ON CONFLICT (etablissement_id) DO UPDATE SET fuseau = $2")
+        .bind(e).bind(fuseau).execute(fx.ent.pool()).await.unwrap();
+    let local = jour(&fx).await;
+    assert_ne!(local, Utc::now().date_naive(), "le fuseau de test doit décaler le jour");
+    // « Pour aujourd'hui » à l'heure de l'établissement est accepté, avec sa fin de journée locale pour échéance.
+    let t = fx
+        .publier_travail(&fx.prof(), fx.cible_a(), |t| {
+            t.type_travail = "a_rendre".into();
+            t.pour_le = local;
+            t.date_limite = None;
+        })
+        .await
+        .expect("le jour local d'aujourd'hui n'est pas « dans le passé »")
+        .travail;
+    let attendu = (local + Duration::days(1)).and_hms_opt(0, 0, 0).unwrap().and_utc() - Duration::hours(decalage_h) - Duration::seconds(1);
+    assert_eq!(t.date_limite, Some(attendu), "23 h 59 min 59 s heure locale");
+    // Lecture d'un élève et appartenance au public : calculées au jour local aussi.
+    assert!(fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, local, local).await.is_ok());
+}
+
+// ───── C-D15 : jamais d'identifiant de compte ─────
+
+#[tokio::test]
+async fn c0_cd15_les_eleves_et_familles_recoivent_le_nom_de_l_intervenant_pas_son_identifiant() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (du, au) = semaine();
+    let prof0 = fx.cast.profs[0].user_id;
+    let seance = fx.seance("CDT-A", prof0, Some(fx.service_a), jour(&fx).await).await;
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance, "Contenu", "").await.unwrap();
+    fx.publier_travail(&fx.prof(), fx.cible_a(), |_| {}).await.unwrap();
+    let json = |v: &dyn Fn() -> String| v();
+    let agenda = fx.ent.cahier_agenda(&fx.eleve(&fx.x), None, du, au).await.unwrap();
+    let cahier = fx.ent.cahier_seances_eleve(&fx.parent(&fx.x), Some(fx.x.id), du, au).await.unwrap();
+    for sortie in [json(&|| serde_json::to_string(&agenda).unwrap()), json(&|| serde_json::to_string(&cahier).unwrap())] {
+        assert!(!sortie.contains(&prof0.to_string()), "identifiant de compte exposé : {sortie}");
+        assert!(!sortie.contains("auteur_user_id"));
+    }
+    assert!(!agenda[0].travail.auteur.trim().is_empty());
+    assert!(!cahier[0].contenu.as_ref().unwrap().auteur.trim().is_empty());
+}
+
+// ═════════════════════════ Lot C1 (socle 20) : modèle, reprise, quarantaine ═════════════════════════
+
+const TABLES_C1: &[&str] = &[
+    "ent_cdt_reglage", "ent_cdt_reglage_format", "ent_cdt_nature",
+    "ent_cdt_entree", "ent_cdt_entree_version", "ent_cdt_entree_notion", "ent_cdt_contribution", "ent_cdt_contribution_version",
+    "ent_cdt_travail", "ent_cdt_travail_version", "ent_cdt_travail_format", "ent_cdt_travail_cible", "ent_cdt_variante",
+    "ent_cdt_variante_eleve", "ent_cdt_echeance_eleve", "ent_cdt_delai_demande", "ent_cdt_groupe", "ent_cdt_groupe_membre",
+    "ent_cdt_note_accompagnement", "ent_cdt_piece_jointe", "ent_cdt_lien",
+    "ent_cdt_remise", "ent_cdt_depot", "ent_cdt_depot_signalement", "ent_cdt_statut", "ent_cdt_coche",
+    "ent_cdt_retour", "ent_cdt_retour_version", "ent_cdt_retour_critere", "ent_cdt_signalement_copie", "ent_cdt_consentement_exemple",
+    "ent_cdt_report", "ent_cdt_continuite", "ent_cdt_continuite_cours",
+    "ent_cdt_visa_element", "ent_cdt_observation", "ent_cdt_observation_reponse", "ent_cdt_consultation", "ent_cdt_alerte_charge",
+    "ent_cdt_archive", "ent_cdt_quarantaine",
+];
+
+#[tokio::test]
+async fn c1_rls_forcee_et_isolation_sur_toutes_les_tables_du_modele() {
+    crate::tests_rls_lots::verifier_tables(TABLES_C1).await;
+}
+
+#[test]
+fn c1_aucune_colonne_json_dans_les_migrations_du_lot() {
+    // D-036 : « grep -i jsonb » vide sur les migrations 2401–2412 (2400 : aucune colonne non plus).
+    let dossier = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations");
+    let mut vus = 0;
+    for e in std::fs::read_dir(dossier).unwrap() {
+        let p = e.unwrap().path();
+        let nom = p.file_name().unwrap().to_string_lossy().to_string();
+        let Some(n) = nom.split('_').next().and_then(|n| n.parse::<u32>().ok()) else { continue };
+        if !(2400..=2419).contains(&n) {
+            continue;
+        }
+        vus += 1;
+        let texte = std::fs::read_to_string(&p).unwrap().to_lowercase();
+        assert!(!texte.contains("jsonb") && !texte.contains(" json"), "{nom} : colonne JSON (D-036)");
+    }
+    assert!(vus >= 11, "migrations du lot trouvées : {vus}");
+}
+
+/// Compteur de lignes dans une table, pour un établissement.
+async fn nb(fx: &Fx, table: &str) -> i64 {
+    sqlx::query_scalar(&format!("SELECT count(*) FROM {table} WHERE etablissement_id = $1"))
+        .bind(fx.cast.etablissement_id)
+        .fetch_one(fx.ent.pool())
+        .await
+        .unwrap()
+}
+
+async fn reprendre(fx: &Fx) -> Vec<(String, i64, i64, i64)> {
+    sqlx::query_as("SELECT objet, anciens, repris, quarantaine FROM ent_cdt_reprise($1)")
+        .bind(fx.cast.etablissement_id)
+        .fetch_all(fx.ent.pool())
+        .await
+        .unwrap()
+}
+
+/// Scénario de l'ancien modèle : contenus (dont un sans cours), travaux (dont un « contrôle » et un sans cours
+/// retrouvable), pièces, remise, retour, coche, historique.
+struct AncienScenario {
+    seance_avec_cours: Uuid,
+    seance_sans_cours: Uuid,
+    travail_avec_seance: TravailDto,
+    controle: TravailDto,
+    travail_orphelin: TravailDto,
+}
+
+async fn ancien_scenario(fx: &Fx) -> AncienScenario {
+    let prof0 = fx.cast.profs[0].user_id;
+    let auj = jour(fx).await;
+    let seance_avec_cours = fx.seance("CDT-A", prof0, Some(fx.service_a), auj).await;
+    // Séance « classe texte » : ni service ni cours (le prof est titulaire, repli de l'ancien modèle).
+    let seance_sans_cours = fx.seance("CDT-A", prof0, None, auj + Duration::days(1)).await;
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance_avec_cours, "Fractions : définition", "Manuel p. 10").await.unwrap();
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance_avec_cours, "Fractions : définition et exemples", "").await.unwrap();
+    fx.ent.cahier_renseigner_seance(&fx.prof(), seance_sans_cours, "Cours sans rattachement", "").await.unwrap();
+    let travail_avec_seance = fx
+        .publier_travail(&fx.prof(), fx.cible_a(), |t| {
+            t.seance_id = Some(seance_avec_cours);
+            t.type_travail = "a_rendre".into();
+            t.date_limite = Some(Utc::now() + Duration::days(2));
+            t.formats_acceptes = vec!["pdf".into()];
+            t.titre = "Rédaction".into();
+        })
+        .await
+        .unwrap()
+        .travail;
+    fx.ent.cahier_modifier_travail(&fx.prof(), travail_avec_seance.id, ModifierTravailBody { titre: Some("Rédaction (v2)".into()), ..Default::default() }).await.unwrap();
+    fx.ent.cahier_joindre_piece(&fx.prof(), ParentPiece::Travail(travail_avec_seance.id), pdf("consigne.pdf")).await.unwrap();
+    let controle = fx
+        .publier_travail(&fx.prof(), fx.cible_a(), |t| {
+            t.seance_id = Some(seance_avec_cours);
+            t.type_travail = "controle".into();
+            t.titre = "Contrôle de fractions".into();
+        })
+        .await
+        .unwrap()
+        .travail;
+    // Sans séance et matière « Maths » : aucun cours de ce libellé pour la classe → quarantaine.
+    let travail_orphelin = fx.publier_travail(&fx.prof(), fx.cible_a(), |t| t.titre = "Sans cours".into()).await.unwrap().travail;
+    fx.ent.cahier_rendre(&fx.eleve(&fx.x), travail_avec_seance.id, "Voici", Some(pdf("copie.pdf"))).await.unwrap();
+    fx.ent.cahier_marquer_fait(&fx.eleve(&fx.x), travail_avec_seance.id, true).await.unwrap();
+    let remise = fx.ent.cahier_suivi_travail(&fx.prof(), travail_avec_seance.id).await.unwrap().lignes.into_iter().find_map(|l| l.remise).unwrap();
+    fx.ent.cahier_retour(&fx.prof(), remise.id, "Très bien", None, Some(pdf("annotee.pdf"))).await.unwrap();
+    AncienScenario { seance_avec_cours, seance_sans_cours, travail_avec_seance, controle, travail_orphelin }
+}
+
+#[tokio::test]
+async fn c1_reprise_compteurs_quarantaine_et_rejouabilite() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let sc = ancien_scenario(&fx).await;
+    let avant: Vec<i64> = vec![nb(&fx, "ent_seance_contenu").await, nb(&fx, "ent_travail").await, nb(&fx, "ent_travail_remise").await, nb(&fx, "ent_cdt_piece").await, nb(&fx, "ent_cdt_historique").await];
+
+    let compteurs = reprendre(&fx).await;
+    let c = |objet: &str| compteurs.iter().find(|c| c.0 == objet).cloned().unwrap();
+    // Chaque ancien objet est repris ou en quarantaine : jamais perdu, jamais compté deux fois.
+    assert_eq!(c("seance_contenu"), ("seance_contenu".into(), 2, 1, 1), "un contenu repris, un en quarantaine (séance sans cours)");
+    assert_eq!(c("travail"), ("travail".into(), 3, 2, 1), "travail et contrôle repris ; le travail sans cours en quarantaine");
+    assert_eq!(c("remise"), ("remise".into(), 1, 1, 0));
+    assert_eq!(c("piece"), ("piece".into(), 3, 3, 0), "ressource, copie, annotation : toutes ont un objet au registre");
+    for (objet, anciens, repris, quarantaine) in &compteurs {
+        assert_eq!(anciens, &(repris + quarantaine), "{objet} : anciens = repris + quarantaine");
+    }
+
+    // Quarantaine : nommée, motivée, visible de la direction seulement.
+    let etat = fx.ent.cahier_reprise_etat(&fx.direction()).await.unwrap();
+    assert_eq!(etat.quarantaine.len(), 2);
+    assert!(etat.quarantaine.iter().any(|q| q.objet == "seance_contenu" && q.raison == "cours_introuvable"));
+    assert!(etat.quarantaine.iter().any(|q| q.objet == "travail" && q.raison == "cours_introuvable"));
+    assert_eq!(etat.compteurs.iter().map(|c| c.anciens).sum::<i64>(), compteurs.iter().map(|c| c.1).sum::<i64>());
+    for a in [fx.prof(), fx.cpe(), fx.eleve(&fx.x), fx.parent(&fx.x)] {
+        assert!(est_interdit(&fx.ent.cahier_reprise_etat(&a).await.unwrap_err()));
+    }
+
+    // Contenu repris : cours, auteur, texte (ressources ajoutées), versions = historique + état courant.
+    let (cours, contenu, version): (Uuid, String, i32) = sqlx::query_as(
+        "SELECT cours_id, contenu, version FROM ent_cdt_entree WHERE etablissement_id = $1 AND seance_id = $2")
+        .bind(e).bind(sc.seance_avec_cours).fetch_one(fx.ent.pool()).await.unwrap();
+    let service_cours: Uuid = sqlx::query_scalar("SELECT cours_id FROM ent_service_enseignement WHERE id = $1").bind(fx.service_a).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!((cours, version), (service_cours, 2));
+    assert!(contenu.contains("exemples"));
+    let nb_versions: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_cdt_entree_version v JOIN ent_cdt_entree e ON e.id = v.entree_id WHERE e.seance_id = $1").bind(sc.seance_avec_cours).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(nb_versions, 2, "version 1 (historique) + version 2 (état courant)");
+    let sans_cours: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_cdt_entree WHERE etablissement_id = $1 AND seance_id = $2").bind(e).bind(sc.seance_sans_cours).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(sans_cours, 0);
+
+    // Travaux : nature, type conservé du contrôle, échéance, formats, versions.
+    let ligne = |ancien: Uuid| {
+        let (fx, e) = (&fx, e);
+        async move {
+            sqlx::query_as::<_, (String, Option<String>, String, String, i32)>(
+                "SELECT na.code, t.ancien_type, t.rendu, t.etat, t.version FROM ent_cdt_travail t
+                   JOIN ent_cdt_nature na ON na.id = t.nature_id WHERE t.etablissement_id = $1 AND t.ancien_id = $2")
+                .bind(e).bind(ancien).fetch_one(fx.ent.pool()).await.unwrap()
+        }
+    };
+    assert_eq!(ligne(sc.travail_avec_seance.id).await, ("dm".into(), None, "en_ligne".into(), "publie".into(), 2));
+    assert_eq!(ligne(sc.controle.id).await, ("revision".into(), Some("controle".into()), "aucun".into(), "publie".into(), 1));
+    let formats: Vec<String> = sqlx::query_scalar("SELECT f.format_code FROM ent_cdt_travail_format f JOIN ent_cdt_travail t ON t.id = f.travail_id WHERE t.ancien_id = $1").bind(sc.travail_avec_seance.id).fetch_all(fx.ent.pool()).await.unwrap();
+    assert_eq!(formats, vec!["pdf".to_string()]);
+    let (echeance, attendue): (chrono::DateTime<Utc>, Option<chrono::DateTime<Utc>>) = sqlx::query_as(
+        "SELECT t.echeance_le, o.date_limite FROM ent_cdt_travail t JOIN ent_travail o ON o.id = t.ancien_id WHERE t.ancien_id = $1")
+        .bind(sc.travail_avec_seance.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(Some(echeance), attendue, "l'échéance reprend la date limite exacte");
+    let versions: Vec<(i32, String)> = sqlx::query_as("SELECT v.version, v.titre FROM ent_cdt_travail_version v JOIN ent_cdt_travail t ON t.id = v.travail_id WHERE t.ancien_id = $1 ORDER BY v.version").bind(sc.travail_avec_seance.id).fetch_all(fx.ent.pool()).await.unwrap();
+    assert_eq!(versions, vec![(1, "Rédaction".to_string()), (2, "Rédaction (v2)".to_string())]);
+
+    // Remise, dépôt n° 1 (empreinte = SHA-256 de la liste des empreintes de fichiers), retour, coche, pièces.
+    let (remise_id, depot_id, nb_fichiers, empreinte): (Uuid, Uuid, i16, String) = sqlx::query_as(
+        "SELECT r.id, d.id, d.nb_fichiers, d.empreinte FROM ent_cdt_remise r JOIN ent_cdt_depot d ON d.remise_id = r.id AND d.numero = 1 WHERE r.etablissement_id = $1")
+        .bind(e).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(nb_fichiers, 1);
+    let sha_copie: String = sqlx::query_scalar("SELECT o.sha256 FROM ent_cdt_piece p JOIN ent_objet o ON o.cle_objet = p.storage_key WHERE p.etablissement_id = $1 AND p.genre = 'copie'").bind(e).fetch_one(fx.ent.pool()).await.unwrap();
+    let attendu: String = sqlx::query_scalar("SELECT encode(sha256(convert_to($1, 'UTF8')), 'hex')").bind(&sha_copie).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(empreinte, attendu);
+    let dernier: Option<Uuid> = sqlx::query_scalar("SELECT dernier_depot_id FROM ent_cdt_remise WHERE id = $1").bind(remise_id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(dernier, Some(depot_id));
+    assert_eq!(nb(&fx, "ent_cdt_retour").await, 1);
+    assert_eq!(nb(&fx, "ent_cdt_coche").await, 1);
+    let porteurs: Vec<String> = sqlx::query_scalar("SELECT porteur FROM ent_cdt_piece_jointe WHERE etablissement_id = $1 ORDER BY porteur").bind(e).fetch_all(fx.ent.pool()).await.unwrap();
+    assert_eq!(porteurs, vec!["depot", "retour", "travail"]);
+    // Le « vu » n'est pas repris (R-C42) et rien n'a changé dans les anciennes tables.
+    let apres: Vec<i64> = vec![nb(&fx, "ent_seance_contenu").await, nb(&fx, "ent_travail").await, nb(&fx, "ent_travail_remise").await, nb(&fx, "ent_cdt_piece").await, nb(&fx, "ent_cdt_historique").await];
+    assert_eq!(avant, apres, "la reprise ne modifie rien dans les tables d'origine");
+
+    // Rejouable : deuxième passage identique ; une nouvelle saisie dans l'ancien modèle est reprise au passage suivant.
+    let copie: Vec<i64> = vec![nb(&fx, "ent_cdt_entree").await, nb(&fx, "ent_cdt_travail").await, nb(&fx, "ent_cdt_remise").await, nb(&fx, "ent_cdt_depot").await, nb(&fx, "ent_cdt_piece_jointe").await, nb(&fx, "ent_cdt_entree_version").await, nb(&fx, "ent_cdt_travail_version").await, nb(&fx, "ent_cdt_quarantaine").await];
+    assert_eq!(reprendre(&fx).await, compteurs);
+    let rejoue: Vec<i64> = vec![nb(&fx, "ent_cdt_entree").await, nb(&fx, "ent_cdt_travail").await, nb(&fx, "ent_cdt_remise").await, nb(&fx, "ent_cdt_depot").await, nb(&fx, "ent_cdt_piece_jointe").await, nb(&fx, "ent_cdt_entree_version").await, nb(&fx, "ent_cdt_travail_version").await, nb(&fx, "ent_cdt_quarantaine").await];
+    assert_eq!(copie, rejoue, "aucune duplication au rejeu");
+    fx.publier_travail(&fx.prof(), fx.cible_a(), |t| {
+        t.seance_id = Some(sc.seance_avec_cours);
+        t.titre = "Ajouté après la première reprise".into();
+    }).await.unwrap();
+    let c2 = reprendre(&fx).await;
+    assert_eq!(c2.iter().find(|c| c.0 == "travail").unwrap(), &("travail".to_string(), 4, 3, 1));
+    // La quarantaine se résorbe quand la cause disparaît : le travail orphelin trouve son cours (libellé aligné).
+    sqlx::query("UPDATE ent_cours SET libelle = 'Maths' WHERE etablissement_id = $1 AND id = $2").bind(e).bind(service_cours).execute(fx.ent.pool()).await.unwrap();
+    let c3 = reprendre(&fx).await;
+    assert_eq!(c3.iter().find(|c| c.0 == "travail").unwrap(), &("travail".to_string(), 4, 4, 0));
+    let _ = sc.travail_orphelin;
+}
+
+#[tokio::test]
+async fn c1_immuabilite_cles_restrict_et_gardes_des_pieces() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let sc = ancien_scenario(&fx).await;
+    reprendre(&fx).await;
+    let refuse = |sql: String| {
+        let fx = &fx;
+        async move { sqlx::query(&sql).execute(fx.ent.pool()).await.is_err() }
+    };
+    // Ajout seul : dépôts, versions, constats, journal.
+    assert!(refuse("UPDATE ent_cdt_depot SET texte = 'réécrit'".into()).await, "dépôt immuable");
+    assert!(refuse("DELETE FROM ent_cdt_depot".into()).await);
+    assert!(refuse("UPDATE ent_cdt_entree_version SET contenu = 'x'".into()).await, "version d'entrée");
+    assert!(refuse("DELETE FROM ent_cdt_travail_version".into()).await, "version de travail");
+    assert!(refuse("UPDATE ent_cdt_retour_version SET commentaire = 'x'".into()).await, "version de retour");
+    // Jamais supprimés : entrées, travaux, remises.
+    assert!(refuse(format!("DELETE FROM ent_cdt_entree WHERE etablissement_id = '{e}'")).await);
+    assert!(refuse(format!("DELETE FROM ent_cdt_travail WHERE etablissement_id = '{e}'")).await);
+    assert!(refuse(format!("DELETE FROM ent_cdt_remise WHERE etablissement_id = '{e}'")).await);
+    // R-C3 : une séance qui porte une entrée ou un travail ne se supprime pas (clés RESTRICT).
+    let seance_travail = fx.publier_travail(&fx.prof(), fx.cible_a(), |t| { t.seance_id = Some(sc.seance_avec_cours); t.titre = "Porteur".into(); }).await.unwrap().travail;
+    reprendre(&fx).await;
+    assert!(refuse(format!("DELETE FROM ent_edt_seance WHERE id = '{}'", sc.seance_avec_cours)).await, "séance porteuse");
+    let _ = seance_travail;
+    // Pièces : l'objet d'une pièce ne change pas, un porteur inexistant est refusé, pas de suppression.
+    assert!(refuse("UPDATE ent_cdt_piece_jointe SET objet_id = gen_random_uuid()".into()).await);
+    assert!(refuse("DELETE FROM ent_cdt_piece_jointe".into()).await);
+    let objet: Uuid = sqlx::query_scalar("SELECT objet_id FROM ent_cdt_piece_jointe WHERE etablissement_id = $1 LIMIT 1").bind(e).fetch_one(fx.ent.pool()).await.unwrap();
+    let orphelin = sqlx::query("INSERT INTO ent_cdt_piece_jointe (id, etablissement_id, objet_id, porteur, porteur_id, nom) VALUES (gen_random_uuid(), $1, $2, 'travail', gen_random_uuid(), 'x.pdf')")
+        .bind(e).bind(objet).execute(fx.ent.pool()).await;
+    assert!(orphelin.is_err(), "porteur inexistant");
+    // Un porteur d'un AUTRE établissement est introuvable aussi.
+    let (autre_etab, travail_ici): (Uuid, Uuid) = (Uuid::new_v4(), sqlx::query_scalar("SELECT id FROM ent_cdt_travail WHERE etablissement_id = $1 LIMIT 1").bind(e).fetch_one(fx.ent.pool()).await.unwrap());
+    let _ = (autre_etab, travail_ici);
+    // Liens : https seulement.
+    let lien = |url: &'static str, travail: Uuid| {
+        let (fx, e) = (&fx, e);
+        async move {
+            sqlx::query("INSERT INTO ent_cdt_lien (id, etablissement_id, porteur, porteur_id, url) VALUES (gen_random_uuid(), $1, 'travail', $2, $3)")
+                .bind(e).bind(travail).bind(url).execute(fx.ent.pool()).await.is_ok()
+        }
+    };
+    assert!(lien("https://exemple.org/doc", travail_ici).await);
+    assert!(!lien("javascript:alert(1)", travail_ici).await);
+    assert!(!lien("http://exemple.org/doc", travail_ici).await);
+    // Remise : une seule par élève et par travail ; groupe : un seul groupe actif par élève et par travail.
+    let remise_dupliquee = sqlx::query("INSERT INTO ent_cdt_remise (id, etablissement_id, travail_id, eleve_id) SELECT gen_random_uuid(), etablissement_id, travail_id, eleve_id FROM ent_cdt_remise WHERE etablissement_id = $1")
+        .bind(e).execute(fx.ent.pool()).await;
+    assert!(remise_dupliquee.is_err());
+}
+
+#[tokio::test]
+async fn c1_vues_de_compatibilite_rendent_l_ancienne_forme() {
+    let Some(fx) = fixture().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let e = fx.cast.etablissement_id;
+    let sc = ancien_scenario(&fx).await;
+    reprendre(&fx).await;
+    // Mêmes identifiants et mêmes valeurs que l'ancien modèle, pour ce qui a été repris.
+    let (type_, rendu, pour_le, titre): (String, bool, NaiveDate, String) = sqlx::query_as(
+        "SELECT type, rendu_en_ligne, pour_le, titre FROM ent_travail_compat WHERE etablissement_id = $1 AND id = $2")
+        .bind(e).bind(sc.travail_avec_seance.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!((type_.as_str(), rendu, titre.as_str()), ("a_rendre", true, "Rédaction (v2)"));
+    assert_eq!(pour_le, sc.travail_avec_seance.pour_le);
+    let type_controle: String = sqlx::query_scalar("SELECT type FROM ent_travail_compat WHERE etablissement_id = $1 AND id = $2").bind(e).bind(sc.controle.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(type_controle, "controle");
+    let n_compat: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_travail_compat WHERE etablissement_id = $1").bind(e).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(n_compat, 2, "seuls les travaux repris (le travail en quarantaine n'y est pas)");
+    let contenu: String = sqlx::query_scalar("SELECT contenu FROM ent_seance_contenu_compat WHERE etablissement_id = $1 AND seance_id = $2").bind(e).bind(sc.seance_avec_cours).fetch_one(fx.ent.pool()).await.unwrap();
+    assert!(contenu.contains("exemples"));
+}

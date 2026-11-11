@@ -9,7 +9,11 @@
 //! | `cahier.travail_donne` / `cahier.travail_a_rendre` | élèves de la cible et responsables liés |
 //! | `cahier.travail_modifie` (si un élève l'avait déjà vu) | idem |
 //! | `cahier.travail_rendu` | professeur auteur du travail |
-//! | `cahier.copie_rendue` (copie corrigée) | l'élève et ses responsables liés |
+//! | `cahier.copie_rendue` (copie corrigée) | l'élève et ses responsables liés (le responsable seulement si son lien exerce l'autorité parentale, et, pour un retour portant une note, a le droit « voir les notes ») |
+//! | `cahier.travail_supprime` (retrait par la direction) | professeur auteur du travail |
+//!
+//! C-D5 : les élèves avertis sont ceux du public **à la date du traitement** (affectation active, élève non
+//! parti). C-D4 : un lien suspendu, hors dates ou sans autorité parentale ne reçoit rien.
 //!
 //! Idempotence : marque du distributeur **et** clé unique (`source_event_id`, destinataire,
 //! `kind`) ; un rejeu ne duplique rien. Aucun envoi externe : consommateur rejouable.
@@ -30,6 +34,7 @@ const TYPES_CAHIER: &[&str] = &[
     types::CAHIER_TRAVAIL_MODIFIE,
     types::CAHIER_TRAVAIL_RENDU,
     types::CAHIER_COPIE_RENDUE,
+    types::CAHIER_TRAVAIL_SUPPRIME,
 ];
 
 fn jour_fr(d: NaiveDate) -> String {
@@ -87,6 +92,7 @@ async fn comptes_eleve(
     tx: &mut PgConnection,
     etab: Uuid,
     eleve: Uuid,
+    pour_note: bool,
 ) -> Result<Vec<Uuid>, String> {
     let rows: Vec<(Uuid,)> = sqlx::query_as(
         r#"
@@ -96,10 +102,12 @@ async fn comptes_eleve(
         SELECT l.user_id FROM ent_eleve_lien_actif l
           JOIN ent_membership m ON m.user_id = l.user_id AND m.etablissement_id = l.etablissement_id
          WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND m.role = 'parent'
+           AND l.autorite_parentale AND (NOT $3 OR l.peut_voir_notes)
         "#,
     )
     .bind(etab)
     .bind(eleve)
+    .bind(pour_note)
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
@@ -143,7 +151,10 @@ async fn traiter_cahier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
                   FROM ent_travail t
                   JOIN ent_affectation a ON a.etablissement_id = t.etablissement_id
                    AND (a.classe_id = t.classe_id OR a.groupe_id = t.groupe_id)
-                   AND a.date_debut <= t.pour_le AND (a.date_fin IS NULL OR a.date_fin >= t.donne_le)
+                   AND a.date_debut <= ent_aujourdhui_etab(t.etablissement_id)
+                   AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab(t.etablissement_id))
+                  JOIN ent_eleve e ON e.etablissement_id = a.etablissement_id AND e.id = a.eleve_id
+                   AND (e.date_sortie IS NULL OR e.date_sortie > ent_aujourdhui_etab(t.etablissement_id))
                  WHERE t.etablissement_id = $1 AND t.id = $2
                 "#,
             )
@@ -158,7 +169,7 @@ async fn traiter_cahier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
                 corps: format!("« {titre} », pour le {}.", jour_fr(pour_le)),
             };
             for (eleve,) in eleves {
-                let dest = comptes_eleve(tx, etab, eleve).await?;
+                let dest = comptes_eleve(tx, etab, eleve, false).await?;
                 inserer(tx, evt, &dest, Some(eleve), &m).await?;
             }
             Ok(())
@@ -202,9 +213,13 @@ async fn traiter_cahier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
             let (Some(travail_id), Some(eleve)) = (payload_uuid(evt, "travail_id"), e.eleve_id) else {
                 return Ok(());
             };
-            let t: Option<(String, String)> = sqlx::query_as(
+            let t: Option<(String, String, bool)> = sqlx::query_as(
                 r#"
-                SELECT t.matiere_libelle, t.titre FROM ent_travail t
+                SELECT t.matiere_libelle, t.titre,
+                       EXISTS (SELECT 1 FROM ent_travail_remise r
+                                WHERE r.etablissement_id = t.etablissement_id AND r.travail_id = t.id
+                                  AND r.eleve_id = e.id AND r.note_id IS NOT NULL)
+                  FROM ent_travail t
                   JOIN ent_eleve e ON e.etablissement_id = t.etablissement_id AND e.id = $3
                  WHERE t.etablissement_id = $1 AND t.id = $2
                 "#,
@@ -215,7 +230,7 @@ async fn traiter_cahier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
             .fetch_optional(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
-            let Some((matiere, titre)) = t else {
+            let Some((matiere, titre, avec_note)) = t else {
                 return Ok(());
             };
             let m = Message {
@@ -223,8 +238,38 @@ async fn traiter_cahier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
                 titre: format!("Copie corrigée en {matiere}"),
                 corps: format!("La correction de « {titre} » est disponible."),
             };
-            let dest = comptes_eleve(tx, etab, eleve).await?;
+            let dest = comptes_eleve(tx, etab, eleve, avec_note).await?;
             inserer(tx, evt, &dest, Some(eleve), &m).await
+        }
+        types::CAHIER_TRAVAIL_SUPPRIME => {
+            // Seul le retrait par la direction avertit l'auteur ; sa propre suppression, non.
+            if e.payload.get("retire_par_direction").and_then(|v| v.as_bool()) != Some(true) {
+                return Ok(());
+            }
+            let Some(travail_id) = payload_uuid(evt, "travail_id") else {
+                return Ok(());
+            };
+            let t: Option<(Uuid, String, Option<String>)> = sqlx::query_as(
+                "SELECT auteur_user_id, titre, retire_motif FROM ent_travail
+                  WHERE etablissement_id = $1 AND id = $2 AND retire_par_user_id IS NOT NULL",
+            )
+            .bind(etab)
+            .bind(travail_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            let Some((auteur, titre, motif)) = t else {
+                return Ok(());
+            };
+            let m = Message {
+                kind: "travail_retire",
+                titre: "Travail retiré de la diffusion".to_string(),
+                corps: format!(
+                    "La direction a retiré « {titre} » de la diffusion. Motif : {}.",
+                    motif.unwrap_or_default()
+                ),
+            };
+            inserer(tx, evt, &[auteur], None, &m).await
         }
         _ => Ok(()),
     }

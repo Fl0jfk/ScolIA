@@ -248,13 +248,24 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
+    include_str!("../../../migrations/2400_cdt_c0_correctifs.sql"),
+    include_str!("../../../migrations/2401_cdt_reglages_natures.sql"),
+    include_str!("../../../migrations/2402_cdt_entrees.sql"),
+    include_str!("../../../migrations/2403_cdt_travaux.sql"),
+    include_str!("../../../migrations/2404_cdt_pieces_liens.sql"),
+    include_str!("../../../migrations/2405_cdt_remises.sql"),
+    include_str!("../../../migrations/2406_cdt_retours.sql"),
+    include_str!("../../../migrations/2409_cdt_reports_continuites.sql"),
+    include_str!("../../../migrations/2410_cdt_visas_charge.sql"),
+    include_str!("../../../migrations/2411_cdt_archives.sql"),
+    include_str!("../../../migrations/2412_cdt_reprise.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2240_assiduite_as0";
+pub const MIGRATION_TAG: &str = "2412_cdt_reprise";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

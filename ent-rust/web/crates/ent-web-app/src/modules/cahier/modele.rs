@@ -482,7 +482,7 @@ mod tests {
             groupe_id: None,
             cible: "4B".into(),
             matiere_libelle: "Maths".into(),
-            auteur_user_id: uid(),
+            auteur: "M. Martin".to_string(),
             type_travail: type_travail.into(),
             titre: "Exercices".into(),
             consigne: "p. 12".into(),

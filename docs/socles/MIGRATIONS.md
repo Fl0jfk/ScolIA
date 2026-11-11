@@ -217,3 +217,24 @@ Ordre : 640 → 641 → 642 → 643, après 587 ; `MIGRATION_TAG` = `643_sortie_
 ## Mise à jour du 2026-11-10 (socle 6, lot P4, `ent-socle-personnels-p4`, base `origin/ENT` après P3)
 **355** `355_missions` (plage du socle 6 : 355 et 367 vérifiées libres sur **toutes** les branches distantes avant écriture ; 356, 358–360, 363–366, 368–369 restent réservées) : `ent_mission_type` (22 types fournis, `etablissement_id` NULL ; types propres), `ent_mission`, `ent_mission_perimetre` (cible contrôlée dans le même établissement, cardinalité, périmètre immuable), `ent_attribution_cible` (cibles datées lues par la portée `mon_perimetre`), source d'attribution `mission`, **bascule du périmètre d'enseignement sur les interventions** (`ent_prof_sur_cours`, `ent_public_cours_jour` redéfinie avec `p_saisie` — l'ancienne signature à 5 arguments est supprimée puis recréée, car 331 et 341 la recréent à chaque démarrage et 355 passe après —, `ent_eleves_lecture_seule`) et `ent_repli_texte_actif`. RLS posée en ligne (`ent_rls_poser` n'existe qu'à partir de 580). Insérée dans `migrate.rs` entre 354 et 357 (ordre croissant). `MIGRATION_TAG` = `642_sortie_encadrants` après fusion de la tête d'ENT (socle 42 : 640–642 ; 355 est plus basse). **367 reste réservée** à la bascule finale des projections (lot P14), 356 à P5, 358 à P5, 359 à P6.
 
+
+## Mise à jour du 2026-11-11 (socle 20, lots C0 et C1, `ent-socle-20-code-1`, base `origin/ENT` a4bcbe0)
+Plage imposée **2400–2419** (conception : `20_CAHIER_DE_TEXTES.md` §26.2, sur `ent-mc0hoe`). `MIGRATION_TAG` = `2412_cdt_reprise` (la plus haute du répertoire). Aucune migration existante modifiée (règle 15).
+| N° | Fichier | Contenu |
+|---|---|---|
+| 2400 | `2400_cdt_c0_correctifs` | **C0** : `ent_cdt_saisie_cours` (saisie effective à la date, `droits ∋ cahier`), `ent_cdt_cours_de_seance`, `ent_cdt_fin_de_journee` (fuseau de l'établissement), `ent_cdt_nom_affichage` ; retrait de pièce (`retiree_le`), retrait de travail par la direction (`retire_par_user_id`, `retire_motif`), historique des retours (`objet` `remise`, `visa`). **Ne pose rien sur `ent_edt_seance`** : C-D1 appartient au lot T0 du socle 10 (`ent-socle-10-code-1`) |
+| 2401 | `2401_cdt_reglages_natures` | gardes communes `ent_cdt_ajout_seul` / `ent_cdt_jamais_supprime` ; `ent_cdt_reglage`, `_format`, `ent_cdt_nature` + `ent_cdt_assurer_natures` |
+| 2402 | `2402_cdt_entrees` | `ent_cdt_entree` (+ `_version` ajout seul, `_notion`), `ent_cdt_contribution` (+ `_version`) ; index uniques cibles des clés composites (`ent_edt_seance`, `ent_objet`, `ent_note`) |
+| 2403 | `2403_cdt_travaux` | `ent_cdt_travail` (+ version, format, cible, variante, variante_eleve, echeance_eleve, delai_demande, groupe, groupe_membre, note_accompagnement) |
+| 2404 | `2404_cdt_pieces_liens` | **`ent_cdt_piece_jointe`** (le nom `ent_cdt_piece` reste à la table de 150 jusqu'à 2419 ; la cible n'a plus de `storage_key` : `objet_id` → `ent_objet`), `ent_cdt_lien` (https seulement) |
+| 2405 | `2405_cdt_remises` | `ent_cdt_remise`, `ent_cdt_depot` (immuable), `_depot_signalement`, `ent_cdt_statut`, `ent_cdt_coche` ; **pas de `ent_cdt_vu`** (R-C42) |
+| 2406 | `2406_cdt_retours` | `ent_cdt_retour` (+ version, critere), `ent_cdt_signalement_copie`, `ent_cdt_consentement_exemple` |
+| 2407, 2408 | — | **réservées** (exercices C10, progressions C9) : non écrites par C1 |
+| 2409 | `2409_cdt_reports_continuites` | `ent_cdt_report`, `ent_cdt_continuite`, `_cours` |
+| 2410 | `2410_cdt_visas_charge` | `ent_cdt_visa` **élargie** (cible cours / classe / agent), `_visa_element` (référence figée), `_observation`, `_observation_reponse`, `ent_cdt_consultation`, `ent_cdt_alerte_charge` |
+| 2411 | `2411_cdt_archives` | `ent_cdt_archive` |
+| 2412 | `2412_cdt_reprise` | `ent_cdt_quarantaine`, `ent_cdt_reprise(etab)` (rejouable), `ent_cdt_reprise_compteurs`, vues `ent_travail_compat` et `ent_seance_contenu_compat` (suffixe `_compat` : les tables d'origine gardent leur nom jusqu'à 2419) ; la reprise est exécutée à chaque démarrage |
+| 2413–2417 | — | réserve (C6 à C12) |
+| 2418, 2419 | — | RLS stricte et retrait des anciennes tables : lot C14, non écrites |
+
+Exceptions D-036 : aucune nouvelle colonne JSON (`grep -i jsonb` vide sur 2400–2412, vérifié par un test) ; `ent_cdt_historique.instantane` reste l'exception déjà déclarée, relue une seule fois par la reprise.
