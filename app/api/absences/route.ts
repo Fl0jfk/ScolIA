@@ -561,6 +561,14 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Action non autorisée." }, { status: 403 });
     }
 
+    // NJ-19 : on ne valide ni ne refuse sa propre absence.
+    if ((action === "VALIDER" || action === "REFUSER") && isOwner) {
+      return NextResponse.json(
+        { error: "Vous ne pouvez pas valider ou refuser votre propre absence." },
+        { status: 403 },
+      );
+    }
+
     let updated: AbsenceRecord = {
       ...current,
       managerNote,
