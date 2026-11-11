@@ -199,6 +199,9 @@ pub mod voyages;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
 pub mod voyages_pdf;
+pub mod voyages_prestataires;
+pub mod voyages_prestataires_repo;
+pub mod voyages_courrier_repo;
 pub mod voyages_rappels;
 pub mod voyages_reactions;
 pub mod voyages_repo;
@@ -416,6 +419,8 @@ mod tests_eleve_fusion;
 mod tests_voyages_v0a;
 #[cfg(test)]
 mod tests_voyages_v0b;
+#[cfg(test)]
+mod tests_voyages_v0c;
 
 #[cfg(test)]
 mod integration_tests {
