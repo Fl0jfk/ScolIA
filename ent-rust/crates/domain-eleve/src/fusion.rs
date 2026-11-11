@@ -128,7 +128,6 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_inscription_suivi", &["id"]),
     d("ent_internat_affectation", &["id"]),
     r("ent_internat_derogation", &["id"], "dérogation de la direction en ajout seul : décision datée qui reste sur la fiche pour laquelle elle a été prise"),
-    r("ent_internat_interdiction_contact", &["id"], "paire d'élèves (a < b) sous mesure de contact : reste sur les fiches désignées, à reprendre à la main après fusion"),
     d("ent_internat_presence", &["id"]),
     r("ent_internat_presence_fait", &["id"], "faits de présence en ajout seul (R-IT13) : l'historique de la nuit reste sur la fiche où il a été écrit"),
     r("ent_internat_sejour", &["id"], "séjour d'hébergement daté, sans chevauchement par élève : reste sur la fiche absorbée (le séjour de la fiche gardée se resynchronise sur le régime)"),

@@ -4979,7 +4979,14 @@ async fn list_affectations_internat(
     session: EntSession,
     Query(q): Query<JourQuery>,
 ) -> Result<Json<Vec<AffectationInternatDto>>, (StatusCode, String)> {
-    let jour = q.jour.unwrap_or_else(today_utc);
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .nuit_courante_internat(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let list = state
         .ent
         .list_affectations_internat_jour_for_actor(session.etablissement_id, &session.role, jour)

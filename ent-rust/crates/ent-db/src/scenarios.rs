@@ -1572,11 +1572,19 @@ async fn bascule_statut_sorti_declenche_la_cascade_transverse() {
         etablissement_id: etab,
         eleve_id: eleve.id,
         nouveau_regime: "INT".into(),
-        date_effet: jour,
+        // Régime interne dès la veille : l'hébergement naît du régime daté (R-IT1).
+        date_effet: la_veille,
         actor_user_id: Some(cast.cpe.user_id.to_string()),
     })
     .await
     .expect("passage régime INT");
+    // Public de la chambre = sexe d'état civil de l'élève (R-IT11).
+    let sexe: Option<String> = sqlx::query_scalar("SELECT sexe FROM ent_eleve WHERE id = $1")
+        .bind(eleve.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .expect("sexe");
+    let public = if sexe.as_deref() == Some("F") { "filles" } else { "garcons" };
     let chambre = ent
         .creer_chambre_internat_for_actor(
             Role::Cpe.as_str(),
@@ -1586,7 +1594,7 @@ async fn bascule_statut_sorti_declenche_la_cascade_transverse() {
                 etage: 1,
                 code: format!("T{}", &eleve.id.simple().to_string()[..4]),
                 capacite: 2,
-                genre: "garcons".into(),
+                genre: public.into(),
                 actor_user_id: cast.cpe.user_id,
             },
         )
