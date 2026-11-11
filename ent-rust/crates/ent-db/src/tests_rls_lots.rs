@@ -86,12 +86,12 @@ pub(crate) const LOTS: &[(&str, &[&str])] = &[
     ]),
 ];
 
-struct Env {
-    admin: PgPool,
-    app: PgPool,
+pub(crate) struct Env {
+    pub(crate) admin: PgPool,
+    pub(crate) app: PgPool,
 }
 
-async fn preparer() -> Option<Env> {
+pub(crate) async fn preparer() -> Option<Env> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
@@ -129,12 +129,17 @@ async fn compter_sous(e: &Env, table: &str, etab: Option<Uuid>) -> i64 {
 
 /// Contrôle commun à toutes les tables d'un lot.
 async fn verifier_lot(nom: &str) {
+    let (_, tables) = LOTS.iter().find(|(n, _)| *n == nom).expect("lot");
+    verifier_tables(tables).await;
+}
+
+/// Contrôle commun à une liste de tables (lots 580–587, et tables des socles suivants).
+pub(crate) async fn verifier_tables(tables: &[&str]) {
     let Some(e) = preparer().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
-    let (_, tables) = LOTS.iter().find(|(n, _)| *n == nom).expect("lot");
     let inconnu = Uuid::new_v4();
-    for table in *tables {
+    for table in tables {
         // 1. RLS activée, forcée, politique présente.
         let (rls, forcee, pol): (bool, bool, i64) = sqlx::query_as(
             "SELECT c.relrowsecurity, c.relforcerowsecurity, \
@@ -184,7 +189,7 @@ async fn verifier_lot(nom: &str) {
 
 /// Lignes réelles de A et de B dans une table représentative : lecture, mise à jour et
 /// suppression **sans filtre d'établissement** n'atteignent que l'établissement du contexte.
-async fn verifier_isolation_concrete(e: &Env, table: &str, ligne: impl Fn(Uuid, Uuid, Uuid) -> String) {
+pub(crate) async fn verifier_isolation_concrete(e: &Env, table: &str, ligne: impl Fn(Uuid, Uuid, Uuid) -> String) {
     let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
     // Les clés étrangères ne sont pas l'objet du test : un rôle de réplication les suspend.
     let mut tx = e.admin.begin().await.unwrap();

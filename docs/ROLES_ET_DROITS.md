@@ -139,3 +139,20 @@ Quinze actions du dossier administratif (`responsables.lire`, `.adresses.lire`, 
 
 ## Actions ajoutées par le socle 6, lot P3 (2026-11-10)
 `personnels.services.lire` (tout le personnel : répartition des services et de leurs intervenants — équivalent de `referentiel.lire` ; **incluse** dans `services.gerer`) et `services.gerer` (Admin, Direction, Administratif : créer, modifier, clore, annuler et ouvrir les services, ajouter, terminer et corriger les interventions, nommer un suppléant, remplacer un agent — équivalent de `referentiel.gerer`). Portée « établissement » seulement. Oracle : `modele_par_defaut` reproduit exactement les profils de `referentiel.lire` / `referentiel.gerer` (test `ent-auth`). « Mes services » est une portée `moi` : aucune action à accorder, il suffit d'être agent de l'établissement ; les familles et les élèves n'ont aucun accès. Les routes (`/personnels/services…`, `/personnels/interventions/…`, `/personnels/moi/services`) ne font qu'un pré-filtre : le service `ent-db` refait le contrôle.
+
+## Actions ajoutées par le socle 42, lot V0a (2026-11-10)
+Onze actions `voyages.*` (portée établissement seulement), pour les sorties et voyages **collectifs** (les actions `sorties.gerer` et `sorties.controler` du socle 14 restent celles des sorties **individuelles**). Au-delà de ces droits, le **porteur** d'une sortie (une fiche de personne) modifie, gère les participants, les encadrants et les prestataires de **sa** sortie sans droit d'établissement, et **un encadrant lit** la sienne ; tout autre profil reçoit « introuvable » (`42_SORTIES_VOYAGES.md` §21).
+
+| Action | Modèle par défaut | Sens |
+|---|---|---|
+| `voyages.annuaire` | tout le personnel | liste minimale des sorties ouvertes (titre, dates, destination) |
+| `voyages.lire` | Admin, Direction, Administratif, Compta | détail de toute sortie, journal, export de la liste |
+| `voyages.creer` | Admin, Direction, Administratif, Prof, CPE | créer une sortie (on en devient le porteur) |
+| `voyages.modifier`, `voyages.participants`, `voyages.porteur` | Admin, Direction, Administratif | modifier, gérer les élèves, attribuer le porteur de toute sortie |
+| `voyages.encadrement` | Admin, Direction | choisir les encadrants de toute sortie |
+| `voyages.valider` | Admin, Direction | valider la pédagogie, refuser, annuler, rouvrir, requalifier |
+| `voyages.autoriser` | Admin, Direction | validation finale ; passage sans devis signé (motif) |
+| `voyages.budget_valider` | Admin, Compta | valider le budget (le contenu du budget est le lot V0b) |
+| `voyages.prestataires` | Admin, Direction, Administratif, Compta | demandes de devis et courriers aux prestataires (envois : lot V0c) |
+
+Un retrait pour raison financière n'est jamais décidé par le porteur ni par le secrétariat : décision motivée de la direction seulement (R-SV19).
