@@ -544,3 +544,16 @@ Pour chaque domaine fonctionnel, préciser absent / prototype / partiel / implé
 ## Finances — lot F0 (2026-11-10, `ent-socle-finances-f0`)
 Correctifs urgents de l'existant, **implémentés et testés** (migration 520, tests `ent-api/tests/recette_finances_f0.rs`), **non validés** par Florian, **non prêts production** : un seul chemin d'encaissement verrouillé, numéro de facture attribué à l'émission, pièces émises immuables et non supprimables (déclencheurs), mandats révoqués exclus, export SEPA en POST avec pré-notification exigée et créancier lu côté serveur, IBAN du créancier chiffré, frais de relance désactivés, droits du secrétariat réduits. RS3-03 soldée. Détail, limites et points ouverts : `docs/recette/RECETTE_FINANCES_F0.md`.
 
+
+## Sorties et voyages — socle 42, lot V0a (2026-11-10, `ent-socle-voyages-v0`)
+**Implémenté et testé en local** (migrations 640–642, `ent-db/src/voyages*.rs`, routes `/voyages/*`, écrans `/web/voyages`) ; **non validé** par Florian, **pas prêt pilote**, rien déployé. Le lot V0 est **découpé en V0a à V0d** (`docs/socles/42_SORTIES_VOYAGES.md` §33) : V0a livre le modèle, les états et commandes serveur, le journal en ajout seul, la RLS (9 tables), les participants par `eleve_id`, les encadrants du socle 6, les projections par rôle, le port « en sortie » et les écrans essentiels. 33 des 86 actions de Next.js sont couvertes (certaines partiellement : voir §33.4). Les deux défauts de sécurité relevés par les personas (circulaire sans contrôle de droits ; envoi aux transporteurs) sont corrigés **côté ScolIA** ; l'envoi aux transporteurs lui-même n'existe pas encore (V0c) et le module Next.js, intouchable, garde ses défauts jusqu'à la bascule.
+
+| Reste à faire | Lot |
+|---|---|
+| Budget en centimes, versions, PDF, synthèse APEL, rappels, avis du socle 8 | V0b |
+| Prestataires, devis, avenants, courrier entrant, signature, bon de commande | V0c |
+| Restauration, journal de voyage, reprise des données, tableau de bascule | V0d |
+| Exigences et autorisations des familles (socle 18), argent, santé, appel de départ (V3) | V1 à V5 |
+| Écrans : export de la liste, modification du projet, programme (étapes), séries, avenants ; essai au navigateur, axe-core, lecteur d'écran | V0b |
+
+Limites connues : le circuit est en code (la table de règles du §32.6 et le vote du conseil d'administration arrivent en V1 et V8) ; la précondition « devis signé » est activée en V0c ; la plage de migrations est 640–659 (600–619 abandonnée) ; `42_SORTIES_VOYAGES.md` est une copie de la conception (`ent-mc0hoe`) avec un §33 ajouté.

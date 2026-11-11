@@ -36,6 +36,7 @@ mod roles;
 mod sante;
 mod securite;
 mod vie_scolaire;
+mod voyages;
 
 pub use cahier::depot_fichier;
 pub use communication::{

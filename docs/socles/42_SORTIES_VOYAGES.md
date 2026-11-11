@@ -2094,3 +2094,51 @@ ent_reprise_nx_attr (lot_id, travel_id TEXT, chemin TEXT, valeur TEXT)  -- zone 
 | Q-V43 [F] | Transferts hors UE (agences, hébergeurs) | DPO ; information des familles dans la circulaire |
 
 À ajouter à Q-V30 : **VD-49 et VD-50** (Next.js), décision et geste de Florian.
+
+---
+
+## 33. Lot V0 découpé en V0a à V0d ; état d'implémentation de V0a (2026-11-10, branche `ent-socle-voyages-v0`)
+
+> **Provenance du fichier.** Ce fichier est la copie de `origin/ent-mc0hoe` (conception de fond, §1 à §32, **inchangés**) à laquelle la branche `ent-socle-voyages-v0` n'ajoute que ce §33. Lors de la fusion avec la conception, garder la version de la conception pour les §1 à §32 et reprendre ce §33 tel quel.
+
+### 33.1 Pourquoi on découpe, et en quoi
+Le lot V0 du §32.10 couvre 86 fonctions de Next.js, un budget en centimes, des PDF, la lecture automatique du courrier, la restauration, le journal de voyage et la reprise de données : c'est trop pour un seul passage. Il est **découpé en quatre**, dans l'ordre déjà annoncé au §27.1 ; chaque sous-lot est livrable et vérifié seul.
+
+| Sous-lot | Contenu | Migrations | État |
+|---|---|---|---|
+| **V0a** | modèle, états et commandes serveur (R-SV1), journal en ajout seul, RLS, participants par `eleve_id`, encadrants du socle 6, projections par rôle, port « en sortie », séries, circulaire (texte), écrans Leptos essentiels | **640, 641, 642** | **implémenté et testé en local** (voir §33.4) |
+| **V0b** | budget en centimes, versions, part familles, prix figé, PDF côté serveur (budget, circulaire, bon de commande), synthèse APEL corrigée, rappels J-30 à J0 et avis du socle 8 | 643 | à faire |
+| **V0c** | prestataires, demandes de devis, avenants, devis manuels, boîte de réception par établissement et file de tri, lecture des devis, signature par le socle 7, bon de commande ; **envoi aux prestataires avec droits** | 644 | à faire |
+| **V0d** | restauration (commande, paniers, avenants), journal de voyage des familles, droit à l'image minimal, reprise des données de Next.js (ombre, bascule, différentielle), tableau de bascule | 645, 646, 647 | à faire |
+
+La **plage de migrations est 640–659** (et non 600–619 ni 7200–7299) : `docs/socles/MIGRATIONS.md`, mise à jour du 2026-11-10.
+
+### 33.2 Décisions appliquées par défaut dans V0a (D-031, à valider par Florian)
+
+| N° | Décision | Pourquoi |
+|---|---|---|
+| V0a-1 | Droits `voyages.*` (11 actions, `ent-auth/src/actions.rs`) et non `sorties.*` | `sorties.gerer` et `sorties.controler` existent déjà pour les sorties **individuelles** du socle 14 |
+| V0a-2 | Le **porteur** (une fiche de personne, VD-19) a, sur sa sortie, les droits de modifier, de gérer participants, encadrants et prestataires, sans droit d'établissement ; **un encadrant lit** sa sortie ; tout autre profil reçoit « introuvable » | §21.1 ; un professeur non porteur ne voit ni le détail ni les brouillons (§21.4) |
+| V0a-3 | Les 11 droits : `voyages.lire`, `.modifier`, `.participants`, `.encadrement`, `.valider`, `.autoriser`, plus `.budget_valider`, `.porteur`, `.prestataires`, `.creer`, `.annuaire` | découpage du §21.1 ; l'annuaire (liste minimale) est ouvert à tout le personnel |
+| V0a-4 | Le circuit est **en code** (`voyages.rs`, fonctions pures testées) : obligatoire sans nuitée sans car = circuit court ; sinon préparation, devis à signer si car, budget si voyage ou car, validation finale. Les règles en tables versionnées (R-SV4) et le contexte public/privé (`vote`) arrivent en V1 et V8 | un seul établissement privé sous contrat à la bascule ; la table de règles n'a pas de valeur avant V8 |
+| V0a-5 | **Journal en texte** (`etat_avant`, `etat_apres`, `champ`, `avant`, `apres`, `motif`) | supprime l'exception `jsonb` du §32.6 : plus aucune exception D-036 pour le socle 42 |
+| V0a-6 | Encadrants **désignés par agent** (l'identifiant de l'annuaire du personnel) et non par personne | c'est l'identifiant que l'annuaire expose ; la personne en est déduite côté serveur |
+| V0a-7 | Désistement et retrait ne passent **jamais** pour « raison financière » sans décision motivée de la direction (R-SV19) ; un retrait rouvre la liste, un désistement non | §9.2, NX-26 |
+| V0a-8 | Passer aux finances **sans devis signé** (NX-07) : direction, motif obligatoire, tracé. Avec un car, on ne saute pas la signature du devis. La précondition « devis signé existe » est activée en V0c | les devis n'existent pas encore |
+| V0a-9 | « En sortie » (R-SV24) : participants d'une sortie `prete` (avant le départ) ou `parti` (sortie `en_cours`). L'appel de départ et l'état `parti` sont le lot V3 | port livré, branchement de l'appel en V3 |
+
+### 33.3 Défauts de sécurité de Next.js relevés par les personas, corrigés côté ScolIA
+1. **Génération de la circulaire sans contrôle de droits** (`api/travels/generate-circular`). Dans ScolIA : `POST /voyages/{id}/circulaire` exige d'être le porteur ou de détenir `voyages.modifier`, refuse tout autre profil (famille, comptabilité, accueil, professeur tiers), et seulement une fois la sortie `ouverte` (R-SV5) ; le texte vient des champs du dossier, jamais du navigateur ; la génération est journalisée. Testé (`tests_voyages_v0a`, `tests_voyages`).
+2. **Envoi aux transporteurs sans contrôle de droits** (VD-14). Dans ScolIA : l'action `voyages.prestataires` est réservée au secrétariat, à la comptabilité et à la direction (et au porteur de la sortie) ; elle est **testée dans le catalogue** (`circulaire_et_envoi_aux_prestataires_controlent_les_droits`) et gardée par la commande `demander-signature`. **Les envois eux-mêmes (e-mails aux transporteurs) sont le lot V0c** : tant que V0c n'existe pas, le défaut reste présent dans Next.js, que personne ne corrige (intouchable), et aucun envoi n'est possible depuis ScolIA.
+
+### 33.4 Ce que V0a couvre des actions de Next.js
+
+**Couvertes (33 actions, certaines partiellement)** : NX-01 (sortie unique ou série hebdomadaire, fériés et vacances écartés et listés), NX-02 (partiel : dates, heures, destination, objectifs, programme en texte, car, point de rendez-vous ; restauration, budget et pièces en V0b et V0d), NX-03 (partiel : événement `voyages.soumise` publié ; avis du socle 8 en V0b), NX-04 (pédagogie, séance ou **série entière, droit vérifié séance par séance**, VD-18), NX-05 (modifications demandées avec note, retour à l'étape d'origine, annulation de la demande, renvoi), NX-06, NX-07, NX-08, NX-09 (réouverture vers les **cinq** étapes amont), NX-10, NX-11 (partiel : l'écriture ; l'avis aux prestataires et à la cuisine en V0c et V0d), NX-12 (partiel : modification avec verrou optimiste et journal champ par champ ; avenants en V0c), NX-13, NX-14, NX-15, NX-17 (liste, recherche, filtres ; la frise par mois est un affichage), NX-18, NX-19, NX-22, NX-23, NX-24, NX-26, NX-27, NX-28 (partiel : la commande de repas automatique en V0d), NX-31, NX-32, NX-35 (partiel : le port ; le branchement de l'appel en V3), NX-56 (partiel : la transition ; le budget en V0b), NX-59 (partiel : le texte, sans PDF), NX-68, NX-79, NX-81, NX-83.
+
+**Restantes (V0b à V0d et lots suivants)** : NX-16 (rappels), NX-20 (purge), NX-21 (image), NX-25 (droit à l'image), NX-29 et NX-30 (liste au transporteur, calendrier), NX-33, NX-34 et NX-80 (journal de voyage), NX-36 et NX-37 (santé, carte d'assistance), NX-38 à NX-40 (restauration), NX-41 à NX-50 et NX-70 à NX-74 (prestataires, devis, signature, bon de commande), NX-51 à NX-55, NX-57 et NX-58 (budget, APEL), NX-60 à NX-62 (GED, ZIP, pièces), NX-63 et NX-64 (fil interne, avis à la comptabilité), NX-65 (IA), NX-66 et NX-67 (réglages, aperçus), NX-69, NX-75 à NX-78, NX-82, NX-84 à NX-86.
+
+### 33.5 Fichiers
+Migrations `640_sortie_coeur.sql`, `641_sortie_participants.sql`, `642_sortie_encadrants.sql` ; `ent-db/src/voyages.rs` (logique pure) et `voyages_repo.rs` (commandes et lectures) ; `ent-api/src/voyages.rs` (routes `/voyages/*`) ; `ent-types/src/voyages.rs` (types partagés) ; `ent-web/crates/*` (module `voyages`, écrans de liste, de création, de détail). Tests : `ent-db/src/tests_voyages_v0a.rs`, `ent-api/src/tests_voyages.rs`, `tests_rls_lots` (RLS), `registre_donnees` (classement des 9 tables), `domain-eleve::fusion` (`ent_sortie_participant` suit l'élève conservé).
+
+### 33.6 Revue indépendante de V0a (2026-11-10) et correctifs appliqués
+Relecture sécurité faite par un second agent (lecture seule). Corrigés et testés (`revue_securite_garde_fous_v0a`) : lien de responsable échu ou suspendu pris en compte dans la vue famille ; validation d'une série réservée à `voyages.valider` (plus de titres ni de dates sans droit) ; nature, forme, destination et car figés pour le porteur après la présentation du dossier (réouverture par la direction) ; désistement « financier » réservé à la direction avec motif, comme le retrait (R-SV19) ; version obligatoire pour autoriser et valider le budget ; modification du programme d'un voyage rouvre la liste confirmée. **Laissé à arbitrer** : portée du registre des élèves pour un porteur (toutes les classes, tracé), motif de désistement visible dans le journal du porteur (R-SV18), `annuler-demande` par la comptabilité sur une demande de la direction, droits du tableau sans `voyages.lire`.

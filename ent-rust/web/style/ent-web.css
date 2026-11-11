@@ -615,3 +615,29 @@
     .fiche-urgence { max-width: none; color: #000; background: #fff; }
     .fiche-urgence a { color: inherit; text-decoration: none; }
 }
+
+/* Sorties et voyages (socle 42, lot V0a) */
+.voy-barre, .voy-filtres, .voy-actions { display: flex; flex-wrap: wrap; gap: var(--esp-3); align-items: end; margin-block: var(--esp-3); }
+.voy-tableau { display: flex; flex-wrap: wrap; gap: var(--esp-4); padding: var(--esp-4); margin-block: var(--esp-3); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); font-variant-numeric: tabular-nums; }
+.voy-tableau p { margin: 0; }
+.voy-tableau__alerte { flex-basis: 100%; font-weight: 600; }
+.voy-mois { margin-block: var(--esp-5); display: grid; gap: var(--esp-3); }
+.voy-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-3); }
+.voy-carte { display: grid; gap: var(--esp-2); padding: var(--esp-4); min-width: 0; background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); overflow-wrap: anywhere; }
+.voy-carte__tete { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; justify-content: space-between; }
+.voy-carte__titre { font-weight: 600; }
+.voy-carte__detail { margin: 0; color: var(--c-attenue); }
+.voy-formulaire { display: grid; gap: var(--esp-3); max-width: 40rem; margin-block: var(--esp-4); }
+.voy-formulaire--ligne { grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); align-items: end; max-width: none; }
+.voy-classes { display: grid; gap: var(--esp-2); border: 1px solid var(--c-ligne); border-radius: var(--rayon); padding: var(--esp-3); }
+.voy-etape { padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); margin-block: var(--esp-4); }
+.voy-note { font-style: italic; }
+.voy-audit, .voy-journal { padding-inline-start: var(--esp-5); display: grid; gap: var(--esp-2); }
+.voy-infos { display: grid; grid-template-columns: max-content 1fr; gap: var(--esp-2) var(--esp-4); }
+.voy-infos dt { color: var(--c-attenue); }
+.voy-infos dd { margin: 0; overflow-wrap: anywhere; }
+.voy-liste--simple { gap: var(--esp-2); }
+.voy-ligne { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; justify-content: space-between; padding-block: var(--esp-2); border-bottom: 1px solid var(--c-ligne); }
+.voy-motif { display: grid; gap: var(--esp-3); max-width: 40rem; padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); margin-block: var(--esp-3); }
+.voy-registre { margin-block: var(--esp-3); }
+.voy-circulaire { white-space: pre-wrap; padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }

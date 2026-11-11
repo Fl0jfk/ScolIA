@@ -35,6 +35,7 @@ pub mod referentiel_admin;
 pub mod sante;
 pub mod scolarite;
 pub mod vie_scolaire;
+pub mod voyages;
 
 #[cfg(test)]
 mod tests;
