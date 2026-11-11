@@ -72,8 +72,10 @@ async function saveIndex(rows: PhotoCopieRecord[]) {
   await putJson(INDEX_KEY, rows);
 }
 
-function isValidDocumentKey(key: string): boolean {
-  return key.startsWith("photocopies-couleur/uploads/") && !key.includes("..");
+/** NJ-78 : la clé de dépôt contient l'identifiant du déposant ; on ne rattache que ses propres PDF. */
+function isValidDocumentKey(key: string, userId: string): boolean {
+  const seg = String(userId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return key.startsWith(`photocopies-couleur/uploads/${seg}/`) && !key.includes("..");
 }
 
 async function loadDocumentAttachments(record: PhotoCopieRecord) {
@@ -102,7 +104,7 @@ async function loadDocumentAttachments(record: PhotoCopieRecord) {
   return out;
 }
 
-function parseDocumentsFromBody(body: Record<string, unknown>): {
+function parseDocumentsFromBody(body: Record<string, unknown>, userId: string): {
   ok: true;
   docs: PhotoCopieDocument[];
 } | { ok: false; error: string } {
@@ -123,7 +125,7 @@ function parseDocumentsFromBody(body: Record<string, unknown>): {
       const fileName = String(row.fileName || row.documentFileName || "").trim();
       const contentType = String(row.contentType || row.documentContentType || "application/pdf").trim();
       if (!key && !fileName) continue;
-      if (!key || !isValidDocumentKey(key)) {
+      if (!key || !isValidDocumentKey(key, userId)) {
         return { ok: false, error: "Document joint invalide." };
       }
       if (!fileName) {
@@ -136,7 +138,7 @@ function parseDocumentsFromBody(body: Record<string, unknown>): {
     const documentFileName = String(body.documentFileName || "").trim();
     const documentContentType = String(body.documentContentType || "application/pdf").trim();
     if (documentKey) {
-      if (!isValidDocumentKey(documentKey)) {
+      if (!isValidDocumentKey(documentKey, userId)) {
         return { ok: false, error: "Document joint invalide." };
       }
       if (!documentFileName) {
@@ -433,7 +435,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Le champ classes / matière est requis." }, { status: 400 });
   }
 
-  const parsedDocs = parseDocumentsFromBody(body);
+  const parsedDocs = parseDocumentsFromBody(body, userId);
   if (!parsedDocs.ok) {
     return NextResponse.json({ error: parsedDocs.error }, { status: 400 });
   }

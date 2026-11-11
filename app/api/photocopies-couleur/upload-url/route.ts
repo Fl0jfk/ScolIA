@@ -33,7 +33,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Accès réservé aux demandeurs." }, { status: 403 });
     }
 
-    const relative = `photocopies-couleur/uploads/${Date.now()}-${safeFileName(String(fileName || "document.pdf"))}`;
+    const uidSeg = String(gate.ctx.userId).replace(/[^a-zA-Z0-9_-]/g, "_");
+    const relative = `photocopies-couleur/uploads/${uidSeg}/${Date.now()}-${safeFileName(String(fileName || "document.pdf"))}`;
     const fileKey = s3Key(relative);
     const s3Client = await getTenantDataS3Client();
     const bucket = await getBucketName();
