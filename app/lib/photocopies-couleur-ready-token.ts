@@ -11,12 +11,16 @@ type ReadyTokenPayload = {
 };
 
 function tokenSecret(): string {
-  return (
+  const secret =
     process.env.PHOTOCOPIES_READY_TOKEN_SECRET?.trim() ||
     process.env.BETTER_AUTH_SECRET?.trim() ||
-    process.env.AUTH_SECRET?.trim() ||
-    "dev-photocopies-ready-token-secret"
-  );
+    process.env.AUTH_SECRET?.trim();
+  if (secret) return secret;
+  // Pas de secret de repli en production : le dépôt est public (D-053).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("PHOTOCOPIES_READY_TOKEN_SECRET requis en production.");
+  }
+  return "dev-photocopies-ready-token-secret";
 }
 
 export function sealPhotocopieReadyToken(id: string): string {

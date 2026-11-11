@@ -37,11 +37,15 @@ export type SupervisionTargetProfile = {
 };
 
 function cookieSecret(): string {
-  return (
+  const secret =
     process.env.BETTER_AUTH_SECRET?.trim() ||
-    process.env.AUTH_SECRET?.trim() ||
-    "dev-supervision-cookie-secret"
-  );
+    process.env.AUTH_SECRET?.trim();
+  if (secret) return secret;
+  // Pas de secret de repli en production : le dépôt est public (D-053).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BETTER_AUTH_SECRET requis en production.");
+  }
+  return "dev-supervision-cookie-secret";
 }
 
 /** Admin établissement, master plateforme, ou rôle direction. */

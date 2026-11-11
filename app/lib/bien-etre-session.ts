@@ -8,11 +8,15 @@ const MAX_MESSAGES = 24;
 const TTL_MS = 2 * 60 * 60 * 1000;
 
 function sessionSecret(): string {
-  return (
+  const secret =
     process.env.BIEN_ETRE_SESSION_SECRET?.trim() ||
-    process.env.AUTH_PARENT_SECRET_FALLBACK?.trim() ||
-    "dev-bien-etre-session-secret"
-  );
+    process.env.AUTH_PARENT_SECRET_FALLBACK?.trim();
+  if (secret) return secret;
+  // Pas de secret de repli en production : le dépôt est public (D-053).
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("BIEN_ETRE_SESSION_SECRET requis en production.");
+  }
+  return "dev-bien-etre-session-secret";
 }
 
 export function sealBienEtreSession(session: BienEtreSession): string {
