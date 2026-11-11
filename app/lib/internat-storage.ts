@@ -336,10 +336,19 @@ export async function listInternatOutings(limit = 100): Promise<InternatOuting[]
   return out;
 }
 
+/** NJ-22 : un lien de décision n'est plus valable le lendemain de la date de sortie. */
+export function isOutingTokenExpired(outingDate: string, now: Date = new Date()): boolean {
+  const d = new Date(`${String(outingDate).slice(0, 10)}T23:59:59Z`);
+  if (Number.isNaN(d.getTime())) return false; // date illisible : on ne bloque pas
+  return now.getTime() > d.getTime() + 24 * 60 * 60 * 1000;
+}
+
 export async function findOutingByToken(token: string): Promise<InternatOuting | null> {
+  if (!token) return null;
   const outings = await listInternatOutings(200);
   for (const outing of outings) {
     if (outing.status === "cancelled") continue;
+    if (isOutingTokenExpired(outing.outingDate)) continue;
     if (outing.directionDecisions.some((d) => d.token === token)) return outing;
     if (outing.participants.some((p) => p.parentToken === token)) return outing;
   }
