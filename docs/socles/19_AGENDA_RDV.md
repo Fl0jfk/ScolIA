@@ -1565,3 +1565,12 @@ Chaque table : `etablissement_id NOT NULL`, RLS stricte, `UNIQUE (etablissement_
 - **AG7** reçoit AGD-331, AGD-336.
 - **AG3** reçoit AGD-332, AGD-338 et la parité couleurs / classe.
 - **AG11** reçoit l'export différentiel et la file des doublons (M19-064, M19-065).
+
+## Ajout D-058 (2026-11-11) — toutes les salles, disponibilité selon l'EDT réel
+Fait foi en cas de contradiction avec le §2.4 point 1 et les lots AG2–AG3. Voir `DECISIONS.md` D-058.
+- **Périmètre** : le planning et la recherche de salles portent sur tout le référentiel des lieux du socle 5 (salles de classe, spécialisées, CDI, gymnase, amphithéâtre, extérieurs), filtrables par site, UAI, capacité, équipements et accessibilité.
+- **Disponibilité calculée** (AG2) : libre = aucune séance prévue (port `edt::occupe`), **ou** séance supprimée par une modification validée du socle 10 (absence d'un personnel non remplacée, socle 15 ; sortie ou voyage, socle 42 ; stage, socle 39 ; examen, socle 38 ; journée banalisée), moins les réservations existantes. Les salles « libérées » sont marquées et expliquées (« cours de 4e B supprimé ce jeudi »), sans motif personnel.
+- **Réglage par salle** : réservable librement / sur validation du responsable / jamais ; plage horaire et publics autorisés ; titulaire prévenu ou non.
+- **Priorité du cours** : un remplacement nommé, un cours rétabli ou déplacé dans cette salle retire la réservation concernée (événement du socle 10) ; notification du demandeur avec motif et salles de rechange proposées ; journal. Pas de réservation d'une salle libérée moins de N minutes avant (réglage) si la décision d'absence n'est pas encore validée.
+- **Cas limites à tester** : absence déclarée puis annulée ; remplaçant nommé après la réservation ; cours déplacé dans la salle réservée ; série hebdomadaire qui croise une semaine B ; deux demandes pour la même salle libérée (premier arrivé ou validation selon le réglage) ; salle libérée pendant un PPMS ou une indisponibilité technique (socle 44).
+- **Lots** : AG2 intègre le calcul (ports 10 et 15) ; AG3 intègre la réservation des salles libérées et le retrait automatique ; tests de bout en bout absence → suppression → proposition → remplacement → retrait.
