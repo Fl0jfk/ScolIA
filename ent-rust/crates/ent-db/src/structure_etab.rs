@@ -90,7 +90,8 @@ pub mod structure {
     ) -> Result<Value, EntDbError> {
         let def = super::definition(cle).ok_or_else(invalide)?;
         let v: Option<Value> = sqlx::query_scalar(
-            "SELECT valeur FROM ent_parametre WHERE etablissement_id = $1 AND cle = $2",
+            "SELECT ent_parametre_valeur_json(p) FROM ent_parametre p
+              WHERE p.etablissement_id = $1 AND p.cle = $2 AND p.type_param IS NOT NULL",
         )
         .bind(etab)
         .bind(cle)
@@ -204,7 +205,8 @@ pub struct Profil {
 
 const COLONNES_PROFIL: &str = "p.etablissement_id, p.nom_officiel, p.nom_usage, p.logo_document_id, p.uai,
     p.secteur, p.contrat_type, p.degres, p.types, p.academie_code, p.departement_code, p.zone_calendrier,
-    p.regime_local, p.tutelle_libelle, p.adresse, p.telephone, p.courriel_contact, p.jours_ouvres,
+    p.regime_local, p.tutelle_libelle, p.adresse, p.telephone, p.courriel_contact,
+    ent_etablissement_jours_ouvres(p.etablissement_id) AS jours_ouvres,
     p.profil_preregle, p.version, p.modifie_par, p.modifie_le,
     COALESCE((SELECT f.fuseau FROM ent_etablissement_parametre f WHERE f.etablissement_id = p.etablissement_id),
              'Europe/Paris') AS fuseau";
@@ -234,6 +236,37 @@ pub struct ProfilSaisie {
     pub jours_ouvres: Option<Value>,
     /// Version lue par l'appelant ; si le profil a changé depuis, refus (conflit).
     pub version_attendue: Option<i32>,
+}
+
+/// Remplace la semaine type de l'établissement (table `ent_etablissement_jour_ouvre`, D-036).
+/// `v` est validée par l'appelant ([`jours_ouvres_valides`]) ; le format est celui de l'API.
+async fn ecrire_jours_ouvres(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    v: &Value,
+) -> Result<(), EntDbError> {
+    sqlx::query("DELETE FROM ent_etablissement_jour_ouvre WHERE etablissement_id = $1")
+        .bind(etab)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    for jour in JOURS {
+        let Some(dj) = v.get(jour).and_then(Value::as_array) else { continue };
+        let a = |d: &str| dj.iter().any(|x| x.as_str() == Some(d));
+        sqlx::query(
+            "INSERT INTO ent_etablissement_jour_ouvre (id, etablissement_id, jour, matin, apres_midi)
+             VALUES ($1,$2,$3,$4,$5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(jour)
+        .bind(a("matin"))
+        .bind(a("apres_midi"))
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+    }
+    Ok(())
 }
 
 /// Semaine type valide : au moins un jour, jours connus, demi-journées connues et sans doublon.
@@ -420,10 +453,8 @@ impl PgEnt {
             "INSERT INTO ent_etablissement_profil
                 (etablissement_id, nom_officiel, nom_usage, logo_document_id, uai, secteur, contrat_type,
                  degres, types, academie_code, departement_code, zone_calendrier, regime_local,
-                 tutelle_libelle, adresse, telephone, courriel_contact, jours_ouvres, modifie_par)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-                     COALESCE($18, '{\"lun\":[\"matin\",\"apres_midi\"],\"mar\":[\"matin\",\"apres_midi\"],\"mer\":[\"matin\"],\"jeu\":[\"matin\",\"apres_midi\"],\"ven\":[\"matin\",\"apres_midi\"]}'::jsonb),
-                     $19)
+                 tutelle_libelle, adresse, telephone, courriel_contact, modifie_par)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
              ON CONFLICT (etablissement_id) DO UPDATE SET
                 nom_officiel = EXCLUDED.nom_officiel, nom_usage = EXCLUDED.nom_usage,
                 logo_document_id = EXCLUDED.logo_document_id, uai = EXCLUDED.uai,
@@ -433,7 +464,6 @@ impl PgEnt {
                 regime_local = EXCLUDED.regime_local, tutelle_libelle = EXCLUDED.tutelle_libelle,
                 adresse = EXCLUDED.adresse, telephone = EXCLUDED.telephone,
                 courriel_contact = EXCLUDED.courriel_contact,
-                jours_ouvres = COALESCE($18, ent_etablissement_profil.jours_ouvres),
                 version = ent_etablissement_profil.version + 1,
                 modifie_par = EXCLUDED.modifie_par, modifie_le = now()",
         )
@@ -454,11 +484,31 @@ impl PgEnt {
         .bind(&v.adresse)
         .bind(&v.telephone)
         .bind(&v.courriel_contact)
-        .bind(&s.jours_ouvres)
         .bind(a.user_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Semaine type (D-036 : table typée) : remplacée si fournie, sinon posée par défaut à la création.
+        match &s.jours_ouvres {
+            Some(j) => ecrire_jours_ouvres(&mut tx, a.etablissement_id, j).await?,
+            None => {
+                let existe: bool = sqlx::query_scalar(
+                    "SELECT EXISTS (SELECT 1 FROM ent_etablissement_jour_ouvre WHERE etablissement_id = $1)",
+                )
+                .bind(a.etablissement_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(db)?;
+                if !existe {
+                    let defaut: Value = sqlx::query_scalar("SELECT ent_etablissement_jours_ouvres($1)")
+                        .bind(a.etablissement_id)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(db)?;
+                    ecrire_jours_ouvres(&mut tx, a.etablissement_id, &defaut).await?;
+                }
+            }
+        }
         let apres = lire_profil(&mut tx, a.etablissement_id, false)
             .await?
             .ok_or_else(introuvable)?;
@@ -649,6 +699,20 @@ pub fn registre() -> Vec<DefinitionParam> {
     ]
 }
 
+/// Nom du type en base (`ent_parametre.type_param`, D-036).
+fn nom_type(t: TypeParam) -> &'static str {
+    match t {
+        TypeParam::Entier => "entier",
+        TypeParam::Booleen => "booleen",
+        TypeParam::Heure => "heure",
+    }
+}
+
+/// Valeur d'échange (déjà validée par [`valider_valeur`]) → colonnes typées : (entier, booléen, heure).
+fn valeur_typee(v: &Value) -> (Option<i64>, Option<bool>, Option<String>) {
+    (v.as_i64(), v.as_bool(), v.as_str().map(str::to_string))
+}
+
 pub(crate) fn definition(cle: &str) -> Option<DefinitionParam> {
     registre().into_iter().find(|d| d.cle == cle)
 }
@@ -694,7 +758,8 @@ impl PgEnt {
             .map_err(db)?;
         type Ligne = (String, Value, i32, Option<Uuid>, DateTime<Utc>);
         let lignes: Vec<Ligne> = sqlx::query_as(
-            "SELECT cle, valeur, version, modifie_par, modifie_le FROM ent_parametre WHERE etablissement_id = $1",
+            "SELECT cle, ent_parametre_valeur_json(p), version, modifie_par, modifie_le FROM ent_parametre p
+              WHERE etablissement_id = $1 AND type_param IS NOT NULL",
         )
         .bind(a.etablissement_id)
         .fetch_all(&mut *tx)
@@ -740,7 +805,8 @@ impl PgEnt {
             .await
             .map_err(db)?;
         let avant: Option<(Value, i32)> = sqlx::query_as(
-            "SELECT valeur, version FROM ent_parametre WHERE etablissement_id = $1 AND cle = $2 FOR UPDATE",
+            "SELECT ent_parametre_valeur_json(p), version FROM ent_parametre p
+              WHERE etablissement_id = $1 AND cle = $2 AND type_param IS NOT NULL FOR UPDATE",
         )
         .bind(a.etablissement_id)
         .bind(cle)
@@ -751,18 +817,25 @@ impl PgEnt {
         if version_attendue.is_some_and(|v| v != version_actuelle) {
             return Err(conflit());
         }
+        let (v_entier, v_booleen, v_heure) = valeur_typee(&valeur);
         let (version, modifie_le): (i32, DateTime<Utc>) = sqlx::query_as(
-            "INSERT INTO ent_parametre (etablissement_id, cle, valeur, version, socle_proprietaire, modifie_par)
-             VALUES ($1,$2,$3,1,$4,$5)
-             ON CONFLICT (etablissement_id, cle) DO UPDATE SET valeur = EXCLUDED.valeur,
+            "INSERT INTO ent_parametre (etablissement_id, cle, type_param, valeur_entier, valeur_booleen,
+                    valeur_heure, version, socle_proprietaire, modifie_par)
+             VALUES ($1,$2,$3,$6,$7,$8::text::time,1,$4,$5)
+             ON CONFLICT (etablissement_id, cle) DO UPDATE SET type_param = EXCLUDED.type_param,
+                    valeur_entier = EXCLUDED.valeur_entier, valeur_booleen = EXCLUDED.valeur_booleen,
+                    valeur_heure = EXCLUDED.valeur_heure,
                     version = ent_parametre.version + 1, modifie_par = EXCLUDED.modifie_par, modifie_le = now()
              RETURNING version, modifie_le",
         )
         .bind(a.etablissement_id)
         .bind(cle)
-        .bind(&valeur)
+        .bind(nom_type(def.type_param))
         .bind(def.socle_proprietaire)
         .bind(a.user_id)
+        .bind(v_entier)
+        .bind(v_booleen)
+        .bind(v_heure)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
@@ -961,32 +1034,36 @@ impl PgEnt {
         }
         // Un contrat n'a de sens que sous contrat : on le retire si le secteur change.
         sqlx::query(
-            "UPDATE ent_etablissement_profil SET secteur = $2, degres = $3, types = $4, jours_ouvres = $5,
-                    profil_preregle = $6, contrat_type = CASE WHEN $2 = 'prive_sous_contrat' THEN contrat_type END,
-                    version = version + 1, modifie_par = $7, modifie_le = now()
+            "UPDATE ent_etablissement_profil SET secteur = $2, degres = $3, types = $4,
+                    profil_preregle = $5, contrat_type = CASE WHEN $2 = 'prive_sous_contrat' THEN contrat_type END,
+                    version = version + 1, modifie_par = $6, modifie_le = now()
               WHERE etablissement_id = $1",
         )
         .bind(a.etablissement_id)
         .bind(pr.secteur)
         .bind(pr.degres.iter().map(|s| s.to_string()).collect::<Vec<_>>())
         .bind(pr.types.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-        .bind(&pr.jours_ouvres)
         .bind(pr.code)
         .bind(a.user_id)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        ecrire_jours_ouvres(&mut tx, a.etablissement_id, &pr.jours_ouvres).await?;
         for (cle, valeur) in &a_poser {
             let def = definition(cle).ok_or_else(invalide)?;
             sqlx::query(
-                "INSERT INTO ent_parametre (etablissement_id, cle, valeur, version, socle_proprietaire, modifie_par)
-                 VALUES ($1,$2,$3,1,$4,$5) ON CONFLICT DO NOTHING",
+                "INSERT INTO ent_parametre (etablissement_id, cle, type_param, valeur_entier, valeur_booleen,
+                        valeur_heure, version, socle_proprietaire, modifie_par)
+                 VALUES ($1,$2,$3,$6,$7,$8::text::time,1,$4,$5) ON CONFLICT DO NOTHING",
             )
             .bind(a.etablissement_id)
             .bind(*cle)
-            .bind(valeur)
+            .bind(nom_type(def.type_param))
             .bind(def.socle_proprietaire)
             .bind(a.user_id)
+            .bind(valeur_typee(valeur).0)
+            .bind(valeur_typee(valeur).1)
+            .bind(valeur_typee(valeur).2)
             .execute(&mut *tx)
             .await
             .map_err(db)?;

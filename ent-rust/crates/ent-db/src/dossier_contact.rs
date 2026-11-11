@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::champs_chiffres::ChampsSensibles;
+use crate::tenant_tx::TenantTx;
 use super::coordonnees::{
     attribuer_tx, classer_telephone, histo_tx, masque_courriel, masque_telephone, motif_valide, refus_conflit,
     refus_invalide, Auteur, Coordonnee,
@@ -54,7 +55,7 @@ pub fn valider_joignable(v: &Value) -> Result<Value, EntDbError> {
     }
     let mut out = Vec::new();
     for p in plages {
-        let jours: Vec<i64> = p
+        let mut jours: Vec<i64> = p
             .get("jours")
             .and_then(Value::as_array)
             .ok_or_else(mal)?
@@ -64,6 +65,13 @@ pub fn valider_joignable(v: &Value) -> Result<Value, EntDbError> {
         if jours.is_empty() {
             return Err(mal());
         }
+        // Un jour ne compte qu'une fois (table typée : `jours` sans doublon).
+        let mut vus = Vec::new();
+        jours.retain(|j| {
+            let nouveau = !vus.contains(j);
+            vus.push(*j);
+            nouveau
+        });
         let de = p.get("de").and_then(Value::as_str).and_then(heure_valide).ok_or_else(mal)?;
         let a = p.get("a").and_then(Value::as_str).and_then(heure_valide).ok_or_else(mal)?;
         if de >= a {
@@ -539,14 +547,17 @@ impl PgEnt {
             fuseau: Option<String>,
             updated_at: DateTime<Utc>,
         }
+        let mut lecture = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = sqlx::query_as::<_, Row>(
-            "SELECT langue, canal_email, canal_sms, courrier_papier, accessibilite, joignable, fuseau,
-                    updated_at
+            "SELECT langue, canal_email, canal_sms, courrier_papier, accessibilite,
+                    CASE WHEN joignable_definie THEN ent_personne_joignable_json(etablissement_id, personne_id) END
+                        AS joignable,
+                    fuseau, updated_at
                FROM ent_personne_preference WHERE etablissement_id = $1 AND personne_id = $2",
         )
         .bind(etab)
         .bind(pid)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *lecture)
         .await
         .map_err(db)?;
         let Some(r) = r else {
@@ -556,14 +567,16 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(pid)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *lecture)
             .await
             .map_err(db)?;
+            lecture.commit().await.map_err(db)?;
             return Ok(PreferencesPersonne {
                 langue: langue.and_then(|(l,)| l),
                 ..Default::default()
             });
         };
+        lecture.commit().await.map_err(db)?;
         let mut refuses = Vec::new();
         if !r.canal_email {
             refuses.push("email".to_string());
@@ -626,20 +639,21 @@ impl PgEnt {
         }
         let canal_email = !n.canaux_refuses.iter().any(|c| c == "email");
         let canal_sms = !n.canaux_refuses.iter().any(|c| c == "sms");
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
         if p.fusionnee_dans.is_some() {
             return Err(refus_conflit("personne fusionnée dans une autre fiche"));
         }
+        // D-036 : les plages sont des lignes typées ; `joignable_definie` distingue « liste vide ».
         sqlx::query(
             "INSERT INTO ent_personne_preference
                 (personne_id, etablissement_id, canal_email, canal_sms, courrier_papier, langue,
-                 accessibilite, joignable, fuseau, updated_by)
+                 accessibilite, joignable_definie, fuseau, updated_by)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
              ON CONFLICT (personne_id) DO UPDATE SET canal_email = $3, canal_sms = $4,
-                courrier_papier = $5, langue = $6, accessibilite = $7, joignable = $8, fuseau = $9,
+                courrier_papier = $5, langue = $6, accessibilite = $7, joignable_definie = $8, fuseau = $9,
                 updated_by = $10, updated_at = now()",
         )
         .bind(pid)
@@ -649,19 +663,26 @@ impl PgEnt {
         .bind(n.courrier_papier)
         .bind(&n.langue)
         .bind(&n.accessibilite)
-        .bind(&n.joignable)
+        .bind(n.joignable.is_some())
         .bind(&n.fuseau)
         .bind(auteur.actor())
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        sqlx::query("DELETE FROM ent_personne_plage_joignable WHERE etablissement_id = $1 AND personne_id = $2")
+            .bind(etab)
+            .bind(pid)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        let version_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_personne_preference_version
                 (id, etablissement_id, personne_id, langue, canal_email, canal_sms, courrier_papier,
-                 accessibilite, joignable, fuseau, via, par)
+                 accessibilite, joignable_definie, fuseau, via, par)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",
         )
-        .bind(Uuid::new_v4())
+        .bind(version_id)
         .bind(etab)
         .bind(pid)
         .bind(&n.langue)
@@ -669,13 +690,50 @@ impl PgEnt {
         .bind(canal_sms)
         .bind(n.courrier_papier)
         .bind(&n.accessibilite)
-        .bind(&n.joignable)
+        .bind(n.joignable.is_some())
         .bind(&n.fuseau)
         .bind(auteur.via())
         .bind(auteur.actor())
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        for (ordre, plage) in n.joignable.iter().flat_map(|v| v.as_array()).flatten().enumerate() {
+            let jours: Vec<i16> = plage["jours"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|j| j.as_i64().and_then(|j| i16::try_from(j).ok())).collect())
+                .unwrap_or_default();
+            let (de, a) = (plage["de"].as_str().unwrap_or_default(), plage["a"].as_str().unwrap_or_default());
+            let ordre = i16::try_from(ordre).unwrap_or(i16::MAX);
+            sqlx::query(
+                "INSERT INTO ent_personne_plage_joignable (id, etablissement_id, personne_id, ordre, jours, de, a)
+                 VALUES ($1,$2,$3,$4,$5,$6::text::time,$7::text::time)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(etab)
+            .bind(pid)
+            .bind(ordre)
+            .bind(&jours)
+            .bind(de)
+            .bind(a)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            sqlx::query(
+                "INSERT INTO ent_personne_preference_version_plage
+                    (id, etablissement_id, version_id, ordre, jours, de, a)
+                 VALUES ($1,$2,$3,$4,$5,$6::text::time,$7::text::time)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(etab)
+            .bind(version_id)
+            .bind(ordre)
+            .bind(&jours)
+            .bind(de)
+            .bind(a)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        }
         journal_tx(
             &mut tx,
             etab,
@@ -698,7 +756,7 @@ impl PgEnt {
             auteur.actor(),
         )
         .await?;
-        commit(tx).await?;
+        tx.commit().await.map_err(db)?;
         self.preferences_lire(etab, auteur, personne_id).await
     }
 

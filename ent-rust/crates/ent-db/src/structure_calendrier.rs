@@ -762,14 +762,12 @@ async fn lire_jours_ouvres_profil(
     conn: &mut PgConnection,
     etab: Uuid,
 ) -> Result<Value, EntDbError> {
-    let v: Option<Value> = sqlx::query_scalar(
-        "SELECT jours_ouvres FROM ent_etablissement_profil WHERE etablissement_id = $1",
-    )
-    .bind(etab)
-    .fetch_optional(conn)
-    .await
-    .map_err(db)?;
-    Ok(v.unwrap_or_else(|| serde_json::from_str(JOURS_OUVRES_DEFAUT).expect("défaut valide")))
+    // D-036 : table `ent_etablissement_jour_ouvre` ; la fonction renvoie la semaine par défaut sans ligne.
+    sqlx::query_scalar("SELECT ent_etablissement_jours_ouvres($1)")
+        .bind(etab)
+        .fetch_one(conn)
+        .await
+        .map_err(db)
 }
 
 async fn lire_semaines(

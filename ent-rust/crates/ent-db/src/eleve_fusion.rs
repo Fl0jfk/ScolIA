@@ -556,7 +556,8 @@ impl LigneFusion {
     }
 }
 
-const COLONNES_FUSION: &str = "id, absorbe_id, conserve_id, motif_code, motif, conflits_resolus, resume,
+const COLONNES_FUSION: &str = "id, absorbe_id, conserve_id, motif_code, motif,
+    ent_eleve_fusion_conflits_json(etablissement_id, id) AS conflits_resolus, resume,
     fusionne_par, fusionne_le, annule_par, annule_le";
 
 #[derive(sqlx::FromRow)]
@@ -810,8 +811,8 @@ impl PgEnt {
         let fusion_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_eleve_fusion (id, etablissement_id, absorbe_id, conserve_id, motif_code, motif,
-                    conflits_resolus, resume, doublons_touches, fusionne_par)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+                    resume, fusionne_par)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
         )
         .bind(fusion_id)
         .bind(etab)
@@ -819,17 +820,64 @@ impl PgEnt {
         .bind(conserve.id)
         .bind(&demande.motif_code)
         .bind(demande.motif.as_deref().map(str::trim).filter(|m| !m.is_empty()))
-        .bind(serde_json::to_value(&conflits).unwrap_or(Value::Null))
         .bind(&resume)
-        .bind(json!(touches.iter().map(|(id, st)| json!({ "id": id, "statut": st })).collect::<Vec<_>>()))
         .bind(acteur)
         .execute(&mut *tx)
         .await?;
-        if !lignes_registre.is_empty() {
+        // D-036 : conflits résolus et doublons touchés sont des lignes typées (plus de JSON stocké).
+        for (ordre, c) in conflits.iter().enumerate() {
+            let conflit_id = Uuid::new_v4();
             sqlx::query(
-                "INSERT INTO ent_eleve_fusion_ligne (fusion_id, etablissement_id, table_nom, cle, empreinte)
-                 SELECT $1, $2, x.table_nom, x.cle, x.empreinte
-                   FROM jsonb_to_recordset($3::jsonb) AS x(table_nom text, cle jsonb, empreinte text)",
+                "INSERT INTO ent_eleve_fusion_conflit (id, etablissement_id, fusion_id, ordre, table_nom, domaine)
+                 VALUES ($1,$2,$3,$4,$5,$6)",
+            )
+            .bind(conflit_id)
+            .bind(etab)
+            .bind(fusion_id)
+            .bind(i32::try_from(ordre).unwrap_or(i32::MAX))
+            .bind(&c.table)
+            .bind(&c.domaine)
+            .execute(&mut *tx)
+            .await?;
+            for (colonne, v) in c.cle.as_object().into_iter().flatten() {
+                sqlx::query(
+                    "INSERT INTO ent_eleve_fusion_conflit_cle (etablissement_id, conflit_id, colonne, valeur)
+                     VALUES ($1,$2,$3,$4)",
+                )
+                .bind(etab)
+                .bind(conflit_id)
+                .bind(colonne)
+                .bind(v.as_str().unwrap_or_default())
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        for (doublon_id, statut_avant) in &touches {
+            sqlx::query(
+                "INSERT INTO ent_eleve_fusion_doublon (id, etablissement_id, fusion_id, doublon_id, statut_avant)
+                 VALUES ($1,$2,$3,$4,$5)",
+            )
+            .bind(Uuid::new_v4())
+            .bind(etab)
+            .bind(fusion_id)
+            .bind(doublon_id)
+            .bind(statut_avant)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !lignes_registre.is_empty() {
+            // Les lignes sont numérotées par la séquence, puis leur clé est éclatée en couples
+            // (colonne, valeur) : le JSON ne sert qu'à passer le lot en paramètre.
+            sqlx::query(
+                "WITH src AS (
+                     SELECT nextval(pg_get_serial_sequence('ent_eleve_fusion_ligne', 'id')) AS id,
+                            x.table_nom, x.cle, x.empreinte
+                       FROM jsonb_to_recordset($3::jsonb) AS x(table_nom text, cle jsonb, empreinte text)),
+                 ins AS (
+                     INSERT INTO ent_eleve_fusion_ligne (id, fusion_id, etablissement_id, table_nom, empreinte)
+                     SELECT id, $1, $2, table_nom, empreinte FROM src)
+                 INSERT INTO ent_eleve_fusion_ligne_cle (etablissement_id, ligne_id, colonne, valeur)
+                 SELECT $2, s.id, k.key, k.value FROM src s, jsonb_each_text(s.cle) k",
             )
             .bind(fusion_id)
             .bind(etab)
@@ -937,7 +985,11 @@ impl PgEnt {
         }
         // Les lignes déplacées, table par table.
         let lignes: Vec<(String, Value, String)> = sqlx::query_as(
-            "SELECT table_nom, cle, empreinte FROM ent_eleve_fusion_ligne WHERE etablissement_id = $1 AND fusion_id = $2 ORDER BY id",
+            "SELECT l.table_nom,
+                    coalesce((SELECT jsonb_object_agg(k.colonne, k.valeur) FROM ent_eleve_fusion_ligne_cle k
+                               WHERE k.etablissement_id = l.etablissement_id AND k.ligne_id = l.id), '{}'::jsonb) AS cle,
+                    l.empreinte
+               FROM ent_eleve_fusion_ligne l WHERE l.etablissement_id = $1 AND l.fusion_id = $2 ORDER BY l.id",
         )
         .bind(etab)
         .bind(fusion_id)
@@ -1026,9 +1078,8 @@ impl PgEnt {
             .execute(&mut *tx)
             .await?;
         let touches: Vec<(Uuid, String)> = sqlx::query_as(
-            "SELECT (x->>'id')::uuid, x->>'statut'
-               FROM ent_eleve_fusion fu, jsonb_array_elements(fu.doublons_touches) x
-              WHERE fu.etablissement_id = $1 AND fu.id = $2",
+            "SELECT doublon_id, statut_avant FROM ent_eleve_fusion_doublon
+              WHERE etablissement_id = $1 AND fusion_id = $2",
         )
         .bind(etab)
         .bind(fusion_id)

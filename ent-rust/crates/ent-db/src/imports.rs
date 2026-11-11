@@ -54,6 +54,35 @@ pub const COLONNES: [&str; 17] = [
     "resp2_lien",
 ];
 pub const LIGNES_MAX: usize = 5000;
+/// Longueur maximale d'une valeur de colonne (contrainte `ent_import_ligne_valeurs_chk`, D-036).
+pub const VALEUR_MAX: usize = 4000;
+
+/// SQL d'écriture d'une ligne dans les colonnes typées de `ent_import_ligne` (D-036) : la ligne
+/// (clés = [`COLONNES`], valeurs textuelles) transite en JSON de paramètre et est éclatée par
+/// `jsonb_to_record` ; rien n'est stocké en JSON.
+fn definition_colonnes() -> String {
+    COLONNES.iter().map(|c| format!("{c} text")).collect::<Vec<_>>().join(", ")
+}
+
+fn sql_insertion_ligne() -> String {
+    format!(
+        "INSERT INTO ent_import_ligne (id, etablissement_id, lot_id, numero, {cols}, statut, motifs, eleve_id)
+         SELECT $1,$2,$3,$4, {dcols}, $6,$7,$8 FROM jsonb_to_record($5::jsonb) AS d({def})",
+        cols = COLONNES.join(", "),
+        dcols = COLONNES.iter().map(|c| format!("d.{c}")).collect::<Vec<_>>().join(", "),
+        def = definition_colonnes()
+    )
+}
+
+fn sql_maj_ligne() -> String {
+    format!(
+        "UPDATE ent_import_ligne AS l SET statut = $2, motifs = $3, eleve_id = $4, {sets},
+                traite_par = $6, traite_le = now()
+           FROM jsonb_to_record($5::jsonb) AS d({def}) WHERE l.id = $1 AND l.etablissement_id = $7",
+        sets = COLONNES.iter().map(|c| format!("{c} = d.{c}")).collect::<Vec<_>>().join(", "),
+        def = definition_colonnes()
+    )
+}
 pub const TAILLE_MAX: usize = 2 * 1024 * 1024;
 
 fn db(err: sqlx::Error) -> EntDbError {
@@ -124,6 +153,9 @@ pub fn lire_csv(contenu: &str) -> Result<Vec<(i32, BTreeMap<String, String>)>, E
         let valeurs = decouper_ligne(l);
         let mut m = BTreeMap::new();
         for (c, v) in entete.iter().zip(valeurs) {
+            if v.chars().count() > VALEUR_MAX {
+                return Err(invalide("valeur trop longue (4000 caractères au plus)"));
+            }
             if !v.is_empty() {
                 m.insert(c.clone(), v);
             }
@@ -404,10 +436,7 @@ impl PgEnt {
             let (statut, motifs, eleve_id) = self.classer_ligne(etab, &l, motifs, &classes).await?;
             let donnees: Map<String, Value> =
                 m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
-            sqlx::query(
-                "INSERT INTO ent_import_ligne (id, etablissement_id, lot_id, numero, donnees, statut, motifs, eleve_id)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-            )
+            sqlx::query(&sql_insertion_ligne())
             .bind(Uuid::new_v4())
             .bind(etab)
             .bind(lot_id)
@@ -446,7 +475,8 @@ impl PgEnt {
         .map_err(db)?;
         let (format, nom_fichier, statut) = lot.ok_or(EntDbError::Domain(DomainError::NotFound))?;
         let lignes = sqlx::query_as::<_, LigneRow>(
-            "SELECT id, numero, donnees, statut, motifs, eleve_id FROM ent_import_ligne
+            "SELECT id, numero, ent_import_ligne_donnees(l) AS donnees, statut, motifs, eleve_id
+               FROM ent_import_ligne l
               WHERE etablissement_id = $1 AND lot_id = $2 ORDER BY numero",
         )
         .bind(etab)
@@ -648,7 +678,8 @@ impl PgEnt {
             _ => {}
         }
         let lignes = sqlx::query_as::<_, LigneRow>(
-            "SELECT id, numero, donnees, statut, motifs, eleve_id FROM ent_import_ligne
+            "SELECT id, numero, ent_import_ligne_donnees(l) AS donnees, statut, motifs, eleve_id
+               FROM ent_import_ligne l
               WHERE etablissement_id = $1 AND lot_id = $2 AND statut = 'a_creer' ORDER BY numero",
         )
         .bind(etab)
@@ -729,6 +760,9 @@ impl PgEnt {
         b: &TraiterLigneBody,
     ) -> Result<LigneImportDto, EntDbError> {
         self.exiger_import(etab, actor, role).await?;
+        if b.corrections.values().any(|v| v.chars().count() > VALEUR_MAX) {
+            return Err(invalide("valeur trop longue (4000 caractères au plus)"));
+        }
         for k in b.corrections.keys() {
             if !COLONNES.contains(&k.as_str()) {
                 return Err(invalide("colonne inconnue dans les corrections"));
@@ -737,7 +771,7 @@ impl PgEnt {
         let classes = self.classes_courantes(etab).await?;
         let mut tx = self.pool().begin().await.map_err(db)?;
         let r: Option<(Uuid, Value, String, String)> = sqlx::query_as(
-            "SELECT l.lot_id, l.donnees, l.statut, t.statut FROM ent_import_ligne l
+            "SELECT l.lot_id, ent_import_ligne_donnees(l), l.statut, t.statut FROM ent_import_ligne l
                JOIN ent_import_lot t ON t.id = l.lot_id AND t.etablissement_id = l.etablissement_id
               WHERE l.etablissement_id = $1 AND l.id = $2 FOR UPDATE OF l",
         )
@@ -789,10 +823,7 @@ impl PgEnt {
         };
         let donnees: Map<String, Value> =
             m.into_iter().map(|(k, v)| (k, Value::String(v))).collect();
-        sqlx::query(
-            "UPDATE ent_import_ligne SET statut = $2, motifs = $3, eleve_id = $4, donnees = $5,
-                    traite_par = $6, traite_le = now() WHERE id = $1 AND etablissement_id = $7",
-        )
+        sqlx::query(&sql_maj_ligne())
         .bind(ligne_id)
         .bind(&nouveau)
         .bind(&motifs)
