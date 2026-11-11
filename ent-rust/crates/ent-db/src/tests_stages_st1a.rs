@@ -4,7 +4,7 @@
 
 use super::*;
 use chrono::NaiveDate;
-use domain_eleve::{CreerEntreprise, StageErreur};
+use domain_eleve::{CreerEntreprise, DomainError, StageErreur};
 use ent_types::stages::*;
 use uuid::Uuid;
 
