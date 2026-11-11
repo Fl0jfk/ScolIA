@@ -270,12 +270,16 @@ async fn rs03_lecture_famille_par_le_lien() {
     assert!(lecture(cast.parent_lea.user_id, cast.eleve_lea_id).await.is_ok());
 
     // Élève majeur : ses parents ne lisent rien (partage décidé par l'élève, absent ici).
+    // L'identité est protégée en écriture directe : on pose la projection de test dans la transaction.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.identite_projection', 'on', true)").execute(&mut *tx).await.unwrap();
     sqlx::query("UPDATE ent_eleve SET date_naissance = DATE '2000-01-01' WHERE etablissement_id = $1 AND id = $2")
         .bind(etab)
         .bind(cast.eleve_lea_id)
-        .execute(&pool)
+        .execute(&mut *tx)
         .await
         .unwrap();
+    tx.commit().await.unwrap();
     let r = lecture(cast.parent_lea.user_id, cast.eleve_lea_id).await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "élève majeur : {r:?}");
 }

@@ -162,7 +162,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_sortie_controle", &["id"]),
     d("ent_sortie_demande", &["id"]),
     d("ent_sortie_participant", &["id"]),
-    d("ent_stage_periode_public", &["periode_id", "eleve_id"]),
+    d("ent_stage_periode_public", &["id"]),
     d("ent_travail_eleve", &["travail_id", "eleve_id"]),
     d("ent_travail_remise", &["id"]),
     d("ent_voeu_inscription", &["id"]),
