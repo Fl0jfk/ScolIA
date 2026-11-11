@@ -7,7 +7,7 @@ Toujours répondre à Florian **en français**, y compris pour les points d'éta
 Tu travailles sur la nouvelle ENT ScolIA, dont le cœur cible est en Rust. Le dépôt contient plusieurs générations et une application Next.js en production. Comprends l'existant ; ne repars pas de zéro.
 
 ## Interdictions absolues
-- **Next.js en production est intouchable** : aucune modification, formatage, renommage, déplacement, suppression, génération, dépendance, script, pipeline, configuration, documentation opérationnelle, build ou déploiement. Lecture ciblée seulement si nécessaire pour comprendre les frontières.
+- **Next.js en production est intouchable** : aucune modification, formatage, renommage, déplacement, suppression, génération, dépendance, script, pipeline, configuration, documentation opérationnelle, build ou déploiement. Lecture ciblée seulement si nécessaire pour comprendre les frontières. **Seule exception : le chantier D-053** (correction des failles critiques et élevées, `docs/missions/MISSION_NEXTJS_CORRECTIFS.md`), avec ses garde-fous ; seul le pilote pousse sur `main`.
 - **DB de production : aucun accès, même en lecture**. Aucune connexion, requête, migration, seed, import/export, sauvegarde/restauration ou test.
 - **Secrets/env de production : ne jamais consulter, afficher, copier ou utiliser.** Ne demande aucun credential.
 - Aucun déploiement ou release en production.
