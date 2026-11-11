@@ -479,11 +479,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : catalogue, prêts et retours, réservations ; accès aux ressources numériques (GAR, via 9) ; portail documentaire.
 - **Dépend de** : 9, 44.
 - **Existant** : rien.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/45_CDI.md` et `PERSONAS_45.md`. Un lieu (présence au CDI = localisation lue par le 12 et le 14), un fonds, un prêt **confidentiel** (lien nominatif délié 30 jours après le retour ; titre visible des parents seulement sous 15 ans ou à la perte), un enseignement (EMI), une porte numérique (le 45 n'affecte rien au GAR ; diagnostic) ; **manuels scolaires au 45**, le 44 réutilise le moteur d'exemplaires et de prêt (inverse la dépendance 45 → 44) ; aucun blocage de documents officiels ; pertes en mode « suivi » pendant le doublon. 193 actions CDI-100 à CDI-292, lots BIB0–BIB13, pas de lot 0 (rien d'existant). Plage de migrations 2900–2919.
 
 #### 46. Instances et vie démocratique
 - **Contient** : élections (délégués, conseil d'administration, CVL, CVC, parents) ; corps électoral calculé ; candidatures ; **vote électronique secret** ; mandats ; convocations et procès-verbaux ; délibérations.
 - **Dépend de** : 4, 6, 18.
 - **Existant** : rien.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/46_INSTANCES.md` et `PERSONAS_46.md`. Compositions datées, mandats clos par événement, élections (papier assisté et correspondance d'abord), délibérations exécutoires lues par les autres socles (42, 24, 45, 48) ; logistique des séances au 19. **Vote électronique : seulement l'élection des parents au CA de l'EPLE public** (R421-30, arrêté du 2-7-2024), après **expertise indépendante** (à Florian) ; jamais pour les personnels ni les élèves. Privé : conseil d'établissement consultatif, instances de l'organisme, délégués facultatifs. Liste électorale jamais affichée en libre accès ; accord exprès des parents pour toute communication aux associations. 205 actions IVD-100 à IVD-305, lots DEM0–DEM13 (DEM0 : mandats saisis pour le 13 et le 23). Plage de migrations 2920–2939.
 
 #### 47. Pilotage et indicateurs
 - **Contient** : tableaux de bord de la direction ; indicateurs documentés et reconstruits depuis les événements ; comparaison d'une année sur l'autre ; remontées de rentrée [H] ; aucun classement nominatif public des personnels.
