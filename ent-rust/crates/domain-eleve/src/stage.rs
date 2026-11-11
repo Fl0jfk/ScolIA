@@ -128,6 +128,7 @@ impl StageErreur {
                 | Self::Chevauchement
                 | Self::ConflitDeVersion
                 | Self::EtatPeriodeInvalide
+                | Self::StatutInvalide
                 | Self::PeriodeDansLeTemps
                 | Self::DispositifInactif
         )
