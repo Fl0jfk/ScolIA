@@ -36,3 +36,4 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | Next.js D-053 | session_01KZCbFDpXEDs6D1GX3TCxCF | nextjs-correctifs-securite (pilote relit et pousse sur main) |
 | 49 régimes | session_01KZCbFHcu695tBBZomvYeGz | ent-socle-49-regimes — fusionnée 11-11 13:20, archivée |
 | D-056 organisme/UAI | session_01KZCbFHWB36Bj9BaCWZTjUd | ent-conception-organisme-uai — fusionnée 11-11 13:15, archivée |
+| V0c voyages | session_01KZCbFG457m9eg5vYvj8Y1H | ent-socle-voyages-v0c (remplace session V0b archivée) |
