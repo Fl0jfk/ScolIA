@@ -59,7 +59,7 @@ fn acces_directs_au_pool(src: &str) -> Vec<(usize, String)> {
         "TenantTx::begin(", "tenant(", "lire_par_etablissement(", "etablissements_systeme(", "::new(",
         "pool.clone()", "pool().clone()", "pool: ", "{ pool }", "fn ", "from_pool(", "pool_verif", "pool.size()", "pool.num_idle()", "pool.options()",
     ];
-    let appelants = ["lire_par_etablissement(", "etablissements_systeme(", "TenantTx::begin(", "tenant("];
+    let appelants = ["lire_par_etablissement(", "appeler_par_etablissement(", "etablissements_systeme(", "TenantTx::begin(", "tenant("];
     // Le code de test commence au premier `#[cfg(test)]` suivi d'un `mod` (d'autres attributs `cfg(test)`
     // isolés, comme un champ réservé aux tests, ne doivent pas tronquer l'analyse du fichier).
     let fin = src
