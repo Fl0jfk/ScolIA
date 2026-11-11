@@ -334,7 +334,8 @@ export const INTRANET_MODULES: IntranetModule[] = [
   {
     id: "channels",
     pathPrefixes: ["/channels", "/api/channels"],
-    allowedRoles: [...ROLES_EXCEPT_PARENT],
+    // Salons du personnel : pas les élèves (comme la messagerie).
+    allowedRoles: [...ROLES_EXCEPT_PARENT].filter((r) => r !== "eleve"),
     dashboard: {
       id: 11,
       name: "Salons",
