@@ -6044,6 +6044,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.foyers.link_parent(cmd).await?)
     }
 
+    pub(crate) fn edt_repo(&self) -> &PgEdtRepo {
+        &self.edt
+    }
+
     pub(crate) fn infirmerie_repo(&self) -> &PgInfirmerieRepo {
         &self.infirmerie
     }
