@@ -22,7 +22,7 @@
 8. **L'IA** relit, résume, rédige un brouillon de PV, explique une décision écrite ; **jamais** une mention, un avis ou une décision (§14).
 9. **152 actions** (BUL-100 à BUL-426), **46 cas limites**, **22 règles**, **16 lots** (B0 à B15), **17 migrations** planifiées dans 2460–2479 (3 en réserve) (§17, §23).
 10. **Pour Florian** : démarche éditeur ; export des archives Next.js ; report actuel des décisions dans Charlemagne ; recommandés ; date de bascule de la fiche de dialogue ; juriste (acceptation réputée, jours ouvrables) ; DPO (§26.2).
-11. **[ajout personas]** voir §28.
+11. **[ajout personas]** §28 : 19 personas, 88 manques ; trois bloquants tranchés (D-031) — **notification et délai d'appel par titulaire** (rien ne court sur un simple dépôt au coffre), **tout titulaire peut faire appel** (définitif à la fin de tous les délais), **actes engageants authentifiés** (passkey, le lien nominatif ne sert qu'à lire) ; actions BUL-430 à 466, règles R-B23 à R-B35, migrations dans la réserve 2474–2476.
 
 ---
 ---
@@ -1085,3 +1085,142 @@ Migrations additives et rejouables (E8) ; ordre croissant dans `migrate.rs` ; `M
 - **C5** `SOCLES.md` §23 mentionne « LSL [H] » : vérifié (R-B12) ; et « recours » : ce sont les **appels** D. 331 (R-B07 à R-B09) et la **contestation** non juridique d'une appréciation (BUL-260 à 262).
 - **C6** Le rapport Next.js écrit « l'élève ne décide pas et ne signe pas » : exact pour la décision, mais D. 331-32 exige que **l'avis** de l'élève mineur soit **recueilli** (NXFD-9).
 - **C7** `05_STRUCTURE.md` §(l. 986) attend « décision de passage (socle 23, nom à fixer) » : nom fixé, port `passage::decision`.
+
+---
+
+## 28. [ajout personas] Ce que change la passe personas (`PERSONAS_23.md`, 2026-11-11)
+
+Dix-neuf personas, **88 manques** (M23-001 à M23-088 : 5 bloquants en trois points, 58 importants, 25 confort). **Ce paragraphe l'emporte** sur le texte qui précède en cas de contradiction ; rien n'est supprimé.
+
+### 28.1 Bloquants tranchés (*appliqué par défaut, D-031*)
+| # | Point | Décision appliquée |
+|---|---|---|
+| **A** | Quand une décision d'orientation ou de redoublement est-elle **notifiée** ? (`orn_decision.notifie_le` unique, acceptation réputée Q-BU5) | **Notification par titulaire** : elle vaut à la première **ouverture authentifiée** du document, à la **remise en main propre émargée**, ou à l'**accusé** d'un recommandé ; le dépôt au coffre et le courrier simple ne font **pas** courir le délai ; date limite **par titulaire** ; **aucune acceptation réputée** sans notification valable ; tâche bloquante au secrétariat à J+5 (R-B23, R-B24). Remplace la note « courrier simple par défaut » de Q-BU13 pour les décisions non conformes : sans compte, **remise en main propre** ou **recommandé**. |
+| **B** | Un titulaire accepte, l'autre veut faire appel (S23-07, Q-BU6) | **Tout titulaire peut faire appel dans son délai** ; une décision n'est **définitive** qu'à l'expiration des délais de chaque titulaire notifié sans appel ; l'acceptation **expresse** d'un titulaire permet seulement la **montée provisoire** (constitution des classes) ; un appel suspend l'acceptation de l'autre, qui en est informé ; seul l'auteur retire son appel (R-B25, R-B26). |
+| **C** | Actes engageants par lien nominatif sans compte (BUL-306, BUL-314) | Dépôt et correction de vœux, confirmation ou contradiction, acceptation, refus, appel, retrait d'appel, maintien : **session authentifiée** du titulaire ; **passkey** (D-009) et **réauthentification de moins de 5 minutes** pour accepter, faire appel ou retirer un appel (`ent_session.authentification_forte_le`, D-041) ; sans compte : **papier signé remis au secrétariat** (BUL-314, pièce obligatoire) ou entretien ; le lien nominatif **ne sert qu'à lire** (R-B27). |
+
+### 28.2 Actions ajoutées
+| Id | Action | Qui · droit | Règles | Événement |
+|---|---|---|---|---|
+| BUL-430 | Enregistrer la notification valable d'un titulaire (ouverture authentifiée, main propre émargée, accusé de recommandé) | SYS, ADF | R-B23 | `orientation.notifie` |
+| BUL-431 | Voir, par décision, l'état de notification de chaque titulaire et sa date limite | DIR, ADF | R-B24 | — |
+| BUL-432 | Recevoir la tâche « notification non valable à J+5 » et choisir la voie (main propre, recommandé, entretien) | ADF | S23-12 | `orientation.notification_a_refaire` |
+| BUL-433 | Remettre une décision en main propre contre émargement (titulaire, jamais l'élève mineur seul) | ADF, DIR | M23-064 | `orientation.notifie` |
+| BUL-434 | Constater la fin des délais de tous les titulaires et rendre la décision définitive | SYS | R-B25 | `orientation.definitive` |
+| BUL-435 | Informer l'autre titulaire d'un appel formé | SYS | R-B25 | `orientation.appel_recu` |
+| BUL-436 | Exiger la réauthentification avant acceptation, appel, retrait d'appel | SYS | R-B27 | — |
+| BUL-437 | Lire une fiche par lien nominatif (lecture seule) | titulaire sans compte | R-B27 | — |
+| BUL-438 | Rapport d'écart du mode doublon (mentions, propositions ScolIA / Charlemagne) | DIR | §12 ; sans nominatif hors direction | — |
+| BUL-439 | Pré-contrôle avant décision en lot (avis de l'élève, confirmation du second titulaire, conflit) | DIR | M23-002 | — |
+| BUL-440 | Déléguer la signature des décisions d'orientation (datée) | chef ★ | M23-003 | `orientation.delegation` |
+| BUL-441 | Tableau des décisions non conformes, délais, appels | DIR, ADF | — | — |
+| BUL-442 | Paramétrer la commission d'appel (privé : nom, séances) et convoquer la famille | DIR, ADF | R-B08 | `orientation.convocation_commission` |
+| BUL-443 | Marquer une décision « reportée dans le logiciel tiers le … par … » | ADF | §9.9 | `echanges.reporte` |
+| BUL-444 | Contrôler un dépôt de bulletins tiers (pages, nom extrait ≠ élève rapproché) | SYS | bloquant | `bulletins.depot_controle` |
+| BUL-445 | Déclarer une campagne « en cours dans l'ancien outil » (bloque une campagne ScolIA du même niveau) | ADF | M23-011 | — |
+| BUL-446 | Suspendre une séance et reprendre (une seule séance ouverte par président) | PRES | M23-016 | `conseils.seance_suspendue` |
+| BUL-447 | Déposer une note au président pour un groupe d'élèves (élèves cochés) | PRF | M23-028 | — |
+| BUL-448 | Déposer les remarques des délégués (sans nominatif), versées au PV | DEL | M23-037 | — |
+| BUL-449 | Avis de l'élève en deux parties : transmis (famille, conseil) / message confidentiel au PP | ELV | M23-051 ; le message n'entre jamais au dossier | `orientation.avis_eleve_recueilli` |
+| BUL-450 | Réexaminer un avis pour l'examen avant l'export du LSL | chef ★ | M23-056 | `lsl.reexamine` |
+| BUL-451 | Afficher l'information art. 13 de la procédure d'orientation | SYS | M23-078 | — |
+| BUL-452 | Procédure « titulaires injoignables » : constat motivé, entretien, courrier | DIR | CB-47 | `orientation.titulaires_injoignables` |
+| BUL-453 | Enregistrer une décision de justice « décide seul de l'orientation » (via socle 4) et recalculer la procédure | ADF ★ | M23-046 | `orientation.demandeur_change` |
+| BUL-454 | Exemplaire « pour information » sans formulaire d'appel (parent sans exercice, service gardien) | SYS | M23-050 | — |
+| BUL-455 | Accès borné de la commission (séance + 7 jours), filigrane, journal | SYS | R-B33 | — |
+| BUL-456 | Marquer une pièce d'appel « santé, sous pli » | ADF | M23-068 | — |
+| BUL-457 | Montée provisoire sur acceptation expresse (constitution des classes) | SYS | R-B25 ; socle 5 | `passage.provisoire` |
+| BUL-458 | Trame « rejet d'une demande de redoublement » avec voies et délais | SYS | M23-060 | — |
+| BUL-459 | Contrôle de compatibilité des spécialités avec l'offre et les barrettes, affiché à la famille | SYS | M23-026 ; non bloquant | — |
+| BUL-460 | Lot d'impression « attendre la fratrie » | ADF | S23-09 | — |
+| BUL-461 | Marque « adresse à vérifier » et suspension des envois postaux suivants | SYS, ADF | M23-034 | — |
+| BUL-462 | Mise en veille d'un geste de la vue projetée | PRES | M23-074 | — |
+| BUL-463 | Proposer automatiquement « délégués sortis » quand l'élève projeté est un délégué ou l'enfant d'un délégué | SYS | R-B30 | — |
+| BUL-464 | Tracer l'acceptation de l'obligation de confidentialité à l'émargement | DEL | R-B03 | `conseils.confidentialite_acceptee` |
+| BUL-465 | Alerte de consultations anormales de dossiers | SYS → DIR | S23-11 | `conseils.consultation_anormale` |
+| BUL-466 | Purger en fin d'année les examens du mode doublon | SYS | R-B35 | `conseils.doublon_purge` |
+
+### 28.3 Règles ajoutées
+| Id | Règle |
+|---|---|
+| R-B23 | Une décision d'orientation ou de redoublement est **notifiée par titulaire** : ouverture authentifiée, remise en main propre émargée ou accusé de recommandé ; ni le dépôt au coffre ni le courrier simple ne valent notification. |
+| R-B24 | Le délai d'appel court **par titulaire** depuis sa notification valable ; aucune acceptation réputée sans notification valable d'au moins un titulaire et expiration de son délai. |
+| R-B25 | Tout titulaire peut faire appel ; la décision n'est définitive qu'à l'expiration des délais de chaque titulaire notifié sans appel ; l'acceptation expresse d'un seul ouvre la montée provisoire. |
+| R-B26 | Une décision en appel est `en_attente_appel` ; la montée provisoire l'accepte, la clôture d'année l'attend ou la signale. |
+| R-B27 | Les actes engageants exigent une session authentifiée (réauthentification passkey de moins de 5 minutes pour accepter, faire appel, retirer un appel) ou un papier signé ; le lien nominatif est en lecture seule ; seul l'auteur retire son appel. |
+| R-B28 | La motivation suit la trame « connaissances, capacités, intérêts » ; jamais de diagnostic, de situation familiale ni de sanction. |
+| R-B29 | Un indicateur « point à voir hors délégués » n'apparaît que sur la tablette du président. |
+| R-B30 | En présence des délégués, l'ordre de passage est alphabétique ; « délégués sortis » est proposé automatiquement pour un délégué ou l'enfant d'un délégué. |
+| R-B31 | La divergence entre l'avis de l'élève et la demande des titulaires n'apparaît qu'en vue complète. |
+| R-B32 | Un compteur de redoublements inconnu n'est jamais lu comme zéro ; la décision exige une déclaration motivée. |
+| R-B33 | La commission d'appel accède au dossier jusqu'à la séance + 7 jours, téléchargement filigrané, consultations journalisées ; les pièces de santé sont transmises sous pli. |
+| R-B34 | Un acte reçu après la clôture de son étape est refusé côté serveur (date de réception, version de la procédure, clé d'idempotence). |
+| R-B35 | Le mode doublon est inscrit au registre des traitements, limité à l'année, ses examens purgés à la fin ; il ne produit aucun document. |
+| R-B20 (complétée) | La fiche commune montre aux deux titulaires les **vœux** ; le **commentaire** libre de chacun n'est visible que du personnel. |
+
+### 28.4 Cas limites ajoutés
+| # | Cas | Règle |
+|---|---|---|
+| CB-47 | Aucun titulaire joignable | constat motivé, entretien proposé, courrier, décision possible sans demande ; jamais d'acceptation réputée |
+| CB-48 | Un titulaire accepte, l'autre fait appel le lendemain | R-B25 |
+| CB-49 | Titulaire qui ouvre la décision après l'échéance de l'autre | son propre délai court (R-B24) |
+| CB-50 | Retrait d'appel par l'autre titulaire | refusé (R-B27) |
+| CB-51 | Décision de justice produite en cours de procédure | BUL-453 |
+| CB-52 | Enfant placé sans délégation d'autorité | la demande reste aux titulaires ; le service est informé [NV, Q-BU15] |
+| CB-53 | Élève délégué examiné | R-B30 |
+| CB-54 | Deux séances qui se chevauchent pour le même président | BUL-446 |
+| CB-55 | Dépôt reçu après la clôture (rejeu) | R-B34 |
+| CB-56 | Arrivant au compteur de redoublements inconnu | R-B32 |
+| CB-57 | Membre de la commission chef de l'établissement d'origine | contrôle automatique, récusation |
+| CB-58 | Pièce médicale dans le dossier d'appel | sous pli (R-B33) |
+| CB-59 | Bulletin tiers découpé avec la page d'un autre élève | bloquant au dépôt (BUL-444) |
+| CB-60 | Lien nominatif ouvert par un tiers (boîte partagée) | lecture seule ; aucun acte possible (R-B27) |
+| CB-61 | Avis de l'élève contraire à la demande | vue complète seulement (R-B31) ; message confidentiel au PP possible |
+| CB-62 | Majorité pendant le délai d'appel | l'élève devient seul à pouvoir faire appel à compter de sa majorité ; les appels déjà formés par les parents restent [H juridique, Q-BU19] |
+
+### 28.5 Questions ajoutées (*appliqué par défaut, D-031*, sauf mention)
+| Id | Question | Recommandation |
+|---|---|---|
+| Q-BU14 | L'ouverture authentifiée d'un document vaut-elle notification d'une décision administrative ? | **Oui** dans ScolIA (R-B23) **[NV : à confirmer par un juriste, F23-6]** |
+| Q-BU15 | Enfant placé : qui demande l'orientation ? | titulaires de l'autorité, sauf délégation **[NV, juriste]** |
+| Q-BU16 | Avis de l'élève visible de ses parents ? | en deux parties (BUL-449) |
+| Q-BU17 | Ordre de passage en présence des délégués | alphabétique (R-B30) |
+| Q-BU18 | Délégation de signature des décisions | permise, datée (BUL-440) |
+| Q-BU19 | Majorité pendant le délai d'appel | CB-62 **[H juridique]** |
+| Q-BU20 | Durée d'accès de la commission | séance + 7 jours (S23-10) |
+| Q-BU21 | Traduction des voies et délais | textes fixes pré-traduits et relus ; jamais une traduction automatique (M23-062) |
+
+### 28.6 Compléments de modèle (réserve **2474–2476**, sans JSON, E1–E14)
+```
+2474  orn_notification      id, etablissement_id, decision_id, titulaire_personne_id, mode ('ouverture_authentifiee','main_propre','recommande'),
+                            notifie_le, date_limite_appel DATE, emargement_objet_id NULL, accuse_objet_id NULL, saisi_par NULL, cree_le
+                            -- remplace l'usage de orn_decision.notifie_le / date_limite_appel (gardées comme « première notification », lecture seule)
+      orn_reponse           + mode ('en_ligne','papier'), reauth_le NULL, piece_objet_id NULL        -- R-B27
+      orn_appel             + depose_par_personne_id obligatoire ; retrait seulement par cet auteur (déclencheur)
+      orn_avis_eleve        + message_pp VARCHAR(1500) NULL (jamais exposé à la famille ni à l'IA, purge fin d'année + 1 an)
+      orn_decision          + etat_definitif ('provisoire','en_attente_appel','definitive'), delegation_signature_id NULL
+2475  orn_delegation_signature  id, etablissement_id, delegant_personne_id, delegue_personne_id, du, au, motif, cree_le
+      orn_campagne_externe      id, etablissement_id, annee_id, niveau_id, outil_libelle, declaree_par, cree_le      -- BUL-445
+      cns_participant       + confidentialite_acceptee_le NULL
+      cns_conseil           + etat 'suspendu'
+2476  bul_depot_controle    id, etablissement_id, import_ligne_id (21 V14), code, gravite, cree_le                    -- BUL-444
+      orn_commission_acces  id, etablissement_id, appel_id, personne_libelle, jusqu_au, cree_le                        -- R-B33
+```
+Toutes : `etablissement_id NOT NULL`, FK composées, UUID, RLS forcée, registre E12, aucune colonne JSON ni BYTEA (pièces dans `ent_objet`).
+
+### 28.7 Lots modifiés
+- **B3** : suspension de séance, ordre alphabétique, sortie automatique des délégués, veille de l'écran, confidentialité tracée.
+- **B6** : contrôle de dépôt tiers (BUL-444), « attendre la fratrie », adresse à vérifier.
+- **B8** : notification par titulaire, actes authentifiés, lien en lecture seule, avis de l'élève en deux parties, titulaires injoignables, décision de justice, campagne « ancien outil », information art. 13 ; **critère de fin ajouté** : scénarios P11, P16, P18 de `PERSONAS_23.md` rejoués en tests.
+- **B9** : délais par titulaire, appel par tout titulaire, commission bornée, pièces de santé sous pli, compteur inconnu, rejet de demande de redoublement.
+- **B10** : montée provisoire / définitive.
+- **B13** : refus IA M23-075, M23-076 au jeu d'évaluation.
+- **Mode doublon** (§12) : registre, purge (R-B35), rapport d'écart (BUL-438).
+
+### 28.8 Nouveaux points pour Florian
+| Id | Point | Pourquoi Florian |
+|---|---|---|
+| F23-8 | **Recommandés** pour les décisions non conformes aux familles sans compte (coût, prestataire) — devenu nécessaire par le bloquant A | coût, contrat |
+| F23-9 | **Juriste** : notification par ouverture authentifiée (Q-BU14), enfant placé (Q-BU15), majorité pendant le délai (Q-BU19), appel d'un seul titulaire | juriste |
+| F23-10 | **Commission d'appel du réseau** (privé) : qui la compose, comment l'établissement la saisit aujourd'hui | connaissance du terrain |
+| F23-11 | **Information art. 13** et **registre** du mode doublon avec le DPO avant l'année 2027-2028 | DPO |
