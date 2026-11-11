@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAuth } from "@/app/lib/intranet-auth";
 import { requireFamilleAccess } from "@/app/lib/famille-auth";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
-import { getAttachmentById } from "@/app/lib/famille-messaging-db";
+import { getAttachmentById, getAttachmentFoyerId } from "@/app/lib/famille-messaging-db";
 import { getSignedReadUrl } from "@/app/lib/s3-storage";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
 import { safeCurrentUser } from "@/app/lib/intranet-session";
@@ -13,7 +13,11 @@ async function resolveAttachmentAccess(attachmentId: string) {
   if (famille.ok) {
     const att = await getAttachmentById(famille.ctx.etablissementId, attachmentId);
     if (!att) return { ok: false as const, status: 404, error: "Pièce introuvable." };
-    // Vérifie foyer via message → thread (léger : attachment lié à etab déjà)
+    // NJ-36 : la pièce doit appartenir à un fil d'un foyer de ce parent.
+    const foyerId = await getAttachmentFoyerId(famille.ctx.etablissementId, attachmentId);
+    if (!foyerId || !famille.ctx.foyers.some((f) => f.id === foyerId)) {
+      return { ok: false as const, status: 404, error: "Pièce introuvable." };
+    }
     return { ok: true as const, att, etabId: famille.ctx.etablissementId };
   }
 

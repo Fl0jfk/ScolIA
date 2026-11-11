@@ -6,6 +6,7 @@ import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import {
   broadcastFamilleMessage,
   createFamilleThreadWithMessage,
+  getFamilleThread,
   getFamilleMessagingSettings,
   listFoyersLight,
   listStaffFamilleThreads,
@@ -44,7 +45,12 @@ export async function GET() {
     foyers = filterFoyersForProfClasses(foyers, assignedClasses);
   }
 
-  const threads = await listStaffFamilleThreads(etabId);
+  let threads = await listStaffFamilleThreads(etabId);
+  if (isProfesseurOnly(roles) && settings.profOwnClassesOnly) {
+    // NJ-37 : un professeur ne voit que les fils des foyers de ses classes.
+    const allowed = new Set(foyers.map((f) => f.id));
+    threads = threads.filter((t) => allowed.has(t.foyerId));
+  }
   return NextResponse.json({
     threads,
     foyers,
@@ -90,8 +96,23 @@ export async function POST(req: Request) {
 
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
 
+  // NJ-37 : professeur limité à ses classes = contrôle côté serveur sur foyerId / foyerIds / threadId.
+  let allowedFoyerIds: Set<string> | null = null;
+  if (isProfesseurOnly(roles) && settings.profOwnClassesOnly) {
+    const classes = await listClassesForTeacherUser(userId);
+    allowedFoyerIds = new Set(
+      filterFoyersForProfClasses(await listFoyersLight(etabId), classes).map((f) => f.id),
+    );
+  }
+  const forbidden = () =>
+    NextResponse.json({ error: "Ce foyer n'est pas dans vos classes." }, { status: 403 });
+
   try {
     if (body.action === "reply") {
+      if (allowedFoyerIds) {
+        const thread = await getFamilleThread(etabId, String(body.threadId || ""));
+        if (!thread || !allowedFoyerIds.has(thread.foyerId)) return forbidden();
+      }
       const result = await replyFamilleThreadMessage(etabId, {
         threadId: String(body.threadId || ""),
         auteurCote: "staff",
@@ -113,6 +134,7 @@ export async function POST(req: Request) {
       let foyerIds = Array.isArray(body.foyerIds)
         ? body.foyerIds.map(String)
         : [];
+      const requestedIds = foyerIds.length > 0;
       if (!foyerIds.length) {
         let foyers = await listFoyersLight(etabId);
         if (isProfesseurOnly(roles) && settings.profOwnClassesOnly) {
@@ -120,6 +142,10 @@ export async function POST(req: Request) {
           foyers = filterFoyersForProfClasses(foyers, classes);
         }
         foyerIds = foyers.map((f) => f.id);
+      }
+      if (allowedFoyerIds && requestedIds) {
+        foyerIds = foyerIds.filter((id) => allowedFoyerIds.has(id));
+        if (!foyerIds.length) return forbidden();
       }
       const created = await broadcastFamilleMessage(etabId, {
         foyerIds,
@@ -137,6 +163,7 @@ export async function POST(req: Request) {
       });
     }
 
+    if (allowedFoyerIds && !allowedFoyerIds.has(String(body.foyerId || ""))) return forbidden();
     const result = await createFamilleThreadWithMessage(etabId, {
       foyerId: String(body.foyerId || ""),
       eleveId: body.eleveId || null,
