@@ -312,7 +312,12 @@ async fn famille_declare_puis_rapprochement_a_l_appel() {
     ));
     // Deux déclarations se recouvrent : annuler l'une garde « prévenue » via l'autre.
     let d3 = ent.declarer_absence_famille(parent.0, parent.1, decl(etab, lea, mar, mar)).await.unwrap();
-    let d4 = ent.declarer_absence_famille(parent.0, parent.1, decl(etab, lea, mar, mar)).await.unwrap();
+    // (Une déclaration strictement identique est idempotente, DA-22 : d4 a donc une plage horaire.)
+    let mut c4 = decl(etab, lea, mar, mar);
+    c4.debut_heure = Some(t(8, 0));
+    c4.fin_heure = Some(t(9, 0));
+    let d4 = ent.declarer_absence_famille(parent.0, parent.1, c4).await.unwrap();
+    assert_ne!(d3.id, d4.id);
     ent.annuler_declaration(etab, d3.id, parent.0, parent.1).await.unwrap();
     assert!(prevenue(&ent, a3.id, lea).await, "d4 couvre encore la séance");
     ent.annuler_declaration(etab, d4.id, parent.0, parent.1).await.unwrap();
