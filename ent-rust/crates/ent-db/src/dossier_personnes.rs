@@ -21,7 +21,7 @@ use domain_eleve::{assert_parts_paiement, today_utc, DomainError, DossierSection
 use ent_auth::{Action, Masquage, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use serde_json::{json, Value};
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::outbox::Publier;
@@ -2139,18 +2139,34 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
         }
-        // Liens : doublons (même élève) retirés et gardés tels quels, autres déplacés.
-        let liens_supprimes: Vec<(Uuid, Value)> = sqlx::query_as(
-            "DELETE FROM ent_eleve_lien l
-              WHERE l.etablissement_id = $1 AND l.personne_id = $2
-                AND EXISTS (SELECT 1 FROM ent_eleve_lien c
-                             WHERE c.etablissement_id = l.etablissement_id
-                               AND c.eleve_id = l.eleve_id AND c.personne_id = $3)
-              RETURNING l.eleve_id, to_jsonb(l.*)",
+        // Liens : doublons (même élève) retirés et copiés tels quels dans la table de fusion
+        // (D-036 : copie typée, colonne pour colonne), autres déplacés. La clé étrangère vers la
+        // fusion est différée : la ligne de fusion est écrite en fin de transaction.
+        let fusion_id = Uuid::new_v4();
+        let liens_supprimes: Vec<(Uuid,)> = sqlx::query_as(
+            "WITH sup AS (
+                 DELETE FROM ent_eleve_lien l
+                  WHERE l.etablissement_id = $1 AND l.personne_id = $2
+                    AND EXISTS (SELECT 1 FROM ent_eleve_lien c
+                                 WHERE c.etablissement_id = l.etablissement_id
+                                   AND c.eleve_id = l.eleve_id AND c.personne_id = $3)
+                  RETURNING l.*)
+             INSERT INTO ent_personne_fusion_lien_supprime
+                 (fusion_id, etablissement_id, id, eleve_id, user_id, foyer_id, lien, peut_voir_notes,
+                  peut_voir_vs, peut_justifier_absence, created_at, peut_autoriser_sorties, est_payeur,
+                  part_paiement, personne_id, autorite_parentale, garde, date_debut, date_fin, suspendu_le,
+                  suspendu_par, suspension_motif, suspension_reference, updated_at)
+             SELECT $4, s.etablissement_id, s.id, s.eleve_id, s.user_id, s.foyer_id, s.lien, s.peut_voir_notes,
+                    s.peut_voir_vs, s.peut_justifier_absence, s.created_at, s.peut_autoriser_sorties, s.est_payeur,
+                    s.part_paiement, s.personne_id, s.autorite_parentale, s.garde, s.date_debut, s.date_fin,
+                    s.suspendu_le, s.suspendu_par, s.suspension_motif, s.suspension_reference, s.updated_at
+               FROM sup s
+             RETURNING eleve_id",
         )
         .bind(etab)
         .bind(source.id)
         .bind(cible.id)
+        .bind(fusion_id)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
@@ -2165,17 +2181,27 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let contacts_supprimes: Vec<(Value,)> = sqlx::query_as(
-            "DELETE FROM ent_eleve_contact_urgence c
-              WHERE c.etablissement_id = $1 AND c.personne_id = $2
-                AND EXISTS (SELECT 1 FROM ent_eleve_contact_urgence d
-                             WHERE d.etablissement_id = c.etablissement_id
-                               AND d.eleve_id = c.eleve_id AND d.personne_id = $3)
-              RETURNING to_jsonb(c.*)",
+        let _contacts_supprimes: Vec<(Uuid,)> = sqlx::query_as(
+            "WITH sup AS (
+                 DELETE FROM ent_eleve_contact_urgence c
+                  WHERE c.etablissement_id = $1 AND c.personne_id = $2
+                    AND EXISTS (SELECT 1 FROM ent_eleve_contact_urgence d
+                                 WHERE d.etablissement_id = c.etablissement_id
+                                   AND d.eleve_id = c.eleve_id AND d.personne_id = $3)
+                  RETURNING c.*)
+             INSERT INTO ent_personne_fusion_contact_supprime
+                 (fusion_id, etablissement_id, id, eleve_id, personne_id, relation, ordre, peut_recuperer,
+                  statut, commentaire, created_at, updated_at, declare_par_personne_id)
+             SELECT $4, s.etablissement_id, s.id, s.eleve_id, s.personne_id, s.relation, s.ordre,
+                    s.peut_recuperer, s.statut, s.commentaire, s.created_at, s.updated_at,
+                    s.declare_par_personne_id
+               FROM sup s
+             RETURNING id",
         )
         .bind(etab)
         .bind(source.id)
         .bind(cible.id)
+        .bind(fusion_id)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
@@ -2202,7 +2228,7 @@ impl PgEnt {
         .map_err(db)?;
         let mut eleves: Vec<Uuid> = liens_supprimes
             .iter()
-            .map(|(e, _)| *e)
+            .map(|(e,)| *e)
             .chain(liens_deplaces.iter().map(|(_, e)| *e))
             .collect();
         eleves.sort();
@@ -2210,31 +2236,43 @@ impl PgEnt {
         for e in &eleves {
             verifier_parts_tx(&mut tx, etab, *e).await?;
         }
-        let instantane = json!({
-            "compte_transfere": compte_transfere,
-            "liens_deplaces": liens_deplaces.iter().map(|(id, _)| id).collect::<Vec<_>>(),
-            "liens_supprimes": liens_supprimes.iter().map(|(_, v)| v).collect::<Vec<_>>(),
-            "contacts_deplaces": contacts_deplaces.iter().map(|(id,)| id).collect::<Vec<_>>(),
-            "contacts_supprimes": contacts_supprimes.iter().map(|(v,)| v).collect::<Vec<_>>(),
-            "agent_deplace": agent_deplace,
-            "agents_fusionnes": agents_geres,
-        });
-        let fusion_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_personne_fusion (id, etablissement_id, source_id, cible_id,
-                    instantane, motif, fusionne_par)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)",
+                    compte_transfere, agent_deplace, agents_fusionnes, detail_normalise, motif, fusionne_par)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,true,$8,$9)",
         )
         .bind(fusion_id)
         .bind(etab)
         .bind(source.id)
         .bind(cible.id)
-        .bind(&instantane)
+        .bind(compte_transfere)
+        .bind(agent_deplace)
+        .bind(agents_geres)
         .bind(motif)
         .bind(actor)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Liens et contacts déplacés (identifiants) : nécessaires pour les remettre à la source.
+        for (nature, ids) in [
+            ("lien", liens_deplaces.iter().map(|(id, _)| *id).collect::<Vec<_>>()),
+            ("contact_urgence", contacts_deplaces.iter().map(|(id,)| *id).collect::<Vec<_>>()),
+        ] {
+            for objet_id in ids {
+                sqlx::query(
+                    "INSERT INTO ent_personne_fusion_objet (id, etablissement_id, fusion_id, nature, objet_id)
+                     VALUES ($1,$2,$3,$4,$5)",
+                )
+                .bind(Uuid::new_v4())
+                .bind(etab)
+                .bind(fusion_id)
+                .bind(nature)
+                .bind(objet_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(db)?;
+            }
+        }
         let payload = json!({ "fusion_id": fusion_id, "source_id": source.id, "cible_id": cible.id });
         journal_tx(
             &mut tx,
@@ -2259,7 +2297,7 @@ impl PgEnt {
         )
         .await?;
         let f = fusion_tx(&mut tx, etab, fusion_id).await?;
-        commit(tx).await?;
+        tx.commit().await.map_err(db)?;
         Ok(f)
     }
 
@@ -2287,9 +2325,10 @@ impl PgEnt {
             self.exiger_pas_de_conflit_personne(etab, actor, role, c).await?;
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let row: Option<(Uuid, Uuid, Value, DateTime<Utc>, Option<DateTime<Utc>>)> =
+        type LigneDefusion = (Uuid, Uuid, Option<Uuid>, Option<Uuid>, bool, DateTime<Utc>, Option<DateTime<Utc>>);
+        let row: Option<LigneDefusion> =
             sqlx::query_as(
-                "SELECT source_id, cible_id, instantane, fusionne_le, annule_le
+                "SELECT source_id, cible_id, compte_transfere, agent_deplace, agents_fusionnes, fusionne_le, annule_le
                    FROM ent_personne_fusion WHERE etablissement_id = $1 AND id = $2
                   FOR UPDATE",
             )
@@ -2298,13 +2337,13 @@ impl PgEnt {
             .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
-        let Some((source_id, cible_id, inst, fusionne_le, annule_le)) = row else {
+        let Some((source_id, cible_id, compte_transfere, agent_deplace, agents_fusionnes, fusionne_le, annule_le)) = row else {
             return Err(EntDbError::Domain(DomainError::NotFound));
         };
         if annule_le.is_some() {
             return Err(EntDbError::ConflitDossier("fusion déjà annulée"));
         }
-        if inst.get("agents_fusionnes").and_then(Value::as_bool).unwrap_or(false) {
+        if agents_fusionnes {
             return Err(EntDbError::ConflitDossier(
                 "fusion liée à une fusion d'agents : non annulable depuis les personnes",
             ));
@@ -2322,22 +2361,17 @@ impl PgEnt {
         let cible = personne_tx(&mut tx, etab, cible_id, false)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
-        let uuids = |cle: &str| -> Vec<Uuid> {
-            inst.get(cle)
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_str().and_then(|s| Uuid::parse_str(s).ok()))
-                        .collect()
-                })
-                .unwrap_or_default()
+        let objets = |nature: &'static str| {
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT objet_id FROM ent_personne_fusion_objet
+                  WHERE etablissement_id = $1 AND fusion_id = $2 AND nature = $3",
+            )
+            .bind(etab)
+            .bind(fusion_id)
+            .bind(nature)
         };
-        let lignes = |cle: &str| -> Vec<Value> {
-            inst.get(cle)
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        };
+        let liens_deplaces: Vec<Uuid> = objets("lien").fetch_all(&mut *tx).await.map_err(db)?;
+        let contacts_deplaces: Vec<Uuid> = objets("contact_urgence").fetch_all(&mut *tx).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_personne SET fusionnee_dans = NULL, updated_at = now() \
               WHERE id = $1 AND etablissement_id = $2",
@@ -2348,11 +2382,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         // Socle 6 : l'agent rattaché à la personne conservée à la fusion revient à la source.
-        if let Some(a) = inst
-            .get("agent_deplace")
-            .and_then(Value::as_str)
-            .and_then(|s| Uuid::parse_str(s).ok())
-        {
+        if let Some(a) = agent_deplace {
             sqlx::query(
                 "UPDATE ent_agent SET personne_id = $3 WHERE etablissement_id = $1 AND id = $2",
             )
@@ -2363,11 +2393,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
-        if let Some(u) = inst
-            .get("compte_transfere")
-            .and_then(Value::as_str)
-            .and_then(|s| Uuid::parse_str(s).ok())
-        {
+        if let Some(u) = compte_transfere {
             if cible.user_id != Some(u) {
                 return Err(EntDbError::ConflitDossier("le compte de la fiche a changé depuis la fusion"));
             }
@@ -2399,29 +2425,39 @@ impl PgEnt {
         .bind(etab)
         .bind(cible_id)
         .bind(source_id)
-        .bind(uuids("liens_deplaces"))
+        .bind(&liens_deplaces)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        for ligne in lignes("liens_supprimes") {
-            let r: Result<(Uuid,), _> = sqlx::query_as(
-                "INSERT INTO ent_eleve_lien
-                 SELECT * FROM jsonb_populate_record(NULL::ent_eleve_lien, $1)
-                 RETURNING eleve_id",
-            )
-            .bind(&ligne)
-            .fetch_one(&mut *tx)
-            .await;
-            match r {
-                Ok(e) => eleves.push(e),
-                Err(e) => {
-                    let d = map_sqlx("dossier_personnes", e);
-                    return Err(if d == DomainError::Conflit {
-                        EntDbError::ConflitDossier("un lien restauré existe déjà")
-                    } else {
-                        EntDbError::Domain(d)
-                    });
-                }
+        // Liens supprimés à la fusion : recréés à l'identique depuis la copie typée.
+        let restaures: Result<Vec<(Uuid,)>, _> = sqlx::query_as(
+            "INSERT INTO ent_eleve_lien
+                 (id, etablissement_id, eleve_id, user_id, foyer_id, lien, peut_voir_notes, peut_voir_vs,
+                  peut_justifier_absence, created_at, peut_autoriser_sorties, est_payeur, part_paiement,
+                  personne_id, autorite_parentale, garde, date_debut, date_fin, suspendu_le, suspendu_par,
+                  suspension_motif, suspension_reference, updated_at)
+             SELECT s.id, s.etablissement_id, s.eleve_id, s.user_id, s.foyer_id, s.lien, s.peut_voir_notes,
+                    s.peut_voir_vs, s.peut_justifier_absence, s.created_at, s.peut_autoriser_sorties,
+                    s.est_payeur, s.part_paiement, s.personne_id, s.autorite_parentale, s.garde, s.date_debut,
+                    s.date_fin, s.suspendu_le, s.suspendu_par, s.suspension_motif, s.suspension_reference,
+                    s.updated_at
+               FROM ent_personne_fusion_lien_supprime s
+              WHERE s.etablissement_id = $1 AND s.fusion_id = $2
+             RETURNING eleve_id",
+        )
+        .bind(etab)
+        .bind(fusion_id)
+        .fetch_all(&mut *tx)
+        .await;
+        match restaures {
+            Ok(v) => eleves.extend(v),
+            Err(e) => {
+                let d = map_sqlx("dossier_personnes", e);
+                return Err(if d == DomainError::Conflit {
+                    EntDbError::ConflitDossier("un lien restauré existe déjà")
+                } else {
+                    EntDbError::Domain(d)
+                });
             }
         }
         sqlx::query(
@@ -2431,23 +2467,28 @@ impl PgEnt {
         .bind(etab)
         .bind(cible_id)
         .bind(source_id)
-        .bind(uuids("contacts_deplaces"))
+        .bind(&contacts_deplaces)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        for ligne in lignes("contacts_supprimes") {
-            sqlx::query(
-                "INSERT INTO ent_eleve_contact_urgence
-                 SELECT * FROM jsonb_populate_record(NULL::ent_eleve_contact_urgence, $1)",
-            )
-            .bind(&ligne)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| match map_sqlx("dossier_personnes", e) {
-                DomainError::Conflit => EntDbError::ConflitDossier("un contact restauré existe déjà"),
-                d => EntDbError::Domain(d),
-            })?;
-        }
+        // Contacts supprimés à la fusion : recréés à l'identique depuis la copie typée.
+        sqlx::query(
+            "INSERT INTO ent_eleve_contact_urgence
+                 (id, etablissement_id, eleve_id, personne_id, relation, ordre, peut_recuperer, statut,
+                  commentaire, created_at, updated_at, declare_par_personne_id)
+             SELECT s.id, s.etablissement_id, s.eleve_id, s.personne_id, s.relation, s.ordre, s.peut_recuperer,
+                    s.statut, s.commentaire, s.created_at, s.updated_at, s.declare_par_personne_id
+               FROM ent_personne_fusion_contact_supprime s
+              WHERE s.etablissement_id = $1 AND s.fusion_id = $2",
+        )
+        .bind(etab)
+        .bind(fusion_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| match map_sqlx("dossier_personnes", e) {
+            DomainError::Conflit => EntDbError::ConflitDossier("un contact restauré existe déjà"),
+            d => EntDbError::Domain(d),
+        })?;
         eleves.sort();
         eleves.dedup();
         for (e,) in &eleves {
@@ -2487,7 +2528,7 @@ impl PgEnt {
         )
         .await?;
         let f = fusion_tx(&mut tx, etab, fusion_id).await?;
-        commit(tx).await?;
+        tx.commit().await.map_err(db)?;
         Ok(f)
     }
 
