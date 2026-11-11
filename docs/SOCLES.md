@@ -414,11 +414,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : PAP, PPS, PPRE, ULIS, élèves allophones [H] ; AESH (affectation, planning) ; aménagements pédagogiques et d'examen visibles des seuls professeurs concernés ; équipes de suivi ; révisions et échéances ; tutorat.
 - **Dépend de** : 34, 6, 23.
 - **Existant [F]** : `ent_eleve_dispositif` (016).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/35_INCLUSION.md` et `PERSONAS_35.md` (mesures en instructions, sans cause, poussées dans la classe ; AESH agent du socle 6 avec planning et périmètre strict ; pas de double saisie du LPI dans le public ; 151 actions INC-100 à INC-331, 48 cas limites, 37 règles, lots IN0–IN12, migrations 2700–2719). Défauts à corriger en premier (lot IN0) : pilotage réservé à la direction et à l'administrateur, liste de tous les élèves aménagés lisible du secrétariat, parents sans contrôle d'autorité ni de majorité, libellé libre du dispositif exposé.
 
 #### 36. Suivi social, psychologique et protection de l'enfance
 - **Contient** : psychologue (entretiens, rendez-vous, dossier cloisonné) ; service social (suivi, aides) ; groupe de prévention du décrochage [H] ; **informations préoccupantes** : rédaction et transmission tracées, accès très restreint [H] ; cellule de veille.
 - **Dépend de** : 2, 4, 19.
 - **Existant [F]** : 041, 046, 051 ; `domain-eleve/src/psy.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/36_SUIVI_SOCIAL.md` et `PERSONAS_36.md` (trois secrets distincts — psychologue, service social, protection — et une obligation commune de protéger ; information préoccupante et signalement dès N-0 ; coordination sans contenu en N-1 après avis du DPO ; contenu clinique seulement au cabinet HDS ; IA exclue ; fonds social anonymisé ; 153 actions SOC-100 à SOC-331, 50 cas limites, 40 règles, lots SO0–SO13, migrations 2720–2739). Défauts à corriger en premier (lot SO0) : direction et administrateur lisent le dossier du psychologue, courrier psychologique envoyé en pièce jointe par courriel, parents sans contrôle d'autorité ni de majorité, événements qui révèlent un entretien de crise. Next.js « bien-être » : risque de production signalé (Q-SOC1).
 
 #### 37. Orientation et parcours
 - **Contient** : parcours Avenir ; intentions et vœux (3e, 2de, terminale) ; avis du conseil et dialogue avec la famille ; Affelnet, Parcoursup (fiche Avenir) [H] ; entretiens ; forums.
