@@ -24,7 +24,7 @@ use uuid::Uuid;
 
 const MDP: &str = "MotDePasse-V0a-Aa9!";
 
-async fn connecter() -> Option<PgEnt> {
+pub(crate) async fn connecter() -> Option<PgEnt> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let ent = PgEnt::connect(&url).await.expect("connect");
@@ -32,7 +32,7 @@ async fn connecter() -> Option<PgEnt> {
     Some(ent)
 }
 
-async fn compte(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
+pub(crate) async fn compte(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
     let email = format!("v0a-{role}-{}@ent.local", Uuid::new_v4().simple());
     ent.register_user(
         &email,
@@ -49,7 +49,7 @@ async fn compte(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
     .id
 }
 
-async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+pub(crate) async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     sqlx::query_scalar("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
         .bind(etab)
         .bind(user)
@@ -58,7 +58,7 @@ async fn personne_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
         .expect("fiche personne du compte")
 }
 
-async fn agent_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
+pub(crate) async fn agent_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     sqlx::query_scalar(
         "SELECT a.id FROM ent_agent a JOIN ent_personne p ON p.etablissement_id = a.etablissement_id AND p.id = a.personne_id
           WHERE a.etablissement_id = $1 AND p.user_id = $2",
@@ -70,23 +70,23 @@ async fn agent_de(ent: &PgEnt, etab: Uuid, user: Uuid) -> Uuid {
     .expect("agent du compte")
 }
 
-struct Cadre {
-    ent: PgEnt,
-    etab: Uuid,
-    dir: Uuid,
-    sec: Uuid,
-    compta: Uuid,
-    prof: Uuid,
-    prof2: Uuid,
-    accueil: Uuid,
-    parent: Uuid,
-    classe: Uuid,
-    eleves: Vec<Uuid>,
-    jour: NaiveDate,
+pub(crate) struct Cadre {
+    pub(crate) ent: PgEnt,
+    pub(crate) etab: Uuid,
+    pub(crate) dir: Uuid,
+    pub(crate) sec: Uuid,
+    pub(crate) compta: Uuid,
+    pub(crate) prof: Uuid,
+    pub(crate) prof2: Uuid,
+    pub(crate) accueil: Uuid,
+    pub(crate) parent: Uuid,
+    pub(crate) classe: Uuid,
+    pub(crate) eleves: Vec<Uuid>,
+    pub(crate) jour: NaiveDate,
 }
 
 impl Cadre {
-    async fn nouveau() -> Option<Cadre> {
+    pub(crate) async fn nouveau() -> Option<Cadre> {
         let ent = connecter().await?;
         let etab = Uuid::new_v4();
         let dir = compte(&ent, etab, "direction").await;
@@ -178,7 +178,7 @@ impl Cadre {
         })
     }
 
-    fn a<'x>(&self, user: Uuid, role: Role) -> Acteur<'x> {
+    pub(crate) fn a<'x>(&self, user: Uuid, role: Role) -> Acteur<'x> {
         Acteur {
             etablissement_id: self.etab,
             user_id: user,
@@ -186,11 +186,11 @@ impl Cadre {
         }
     }
 
-    fn at(&self, h: u32) -> DateTime<Utc> {
+    pub(crate) fn at(&self, h: u32) -> DateTime<Utc> {
         Utc.from_utc_datetime(&self.jour.and_hms_opt(h, 0, 0).unwrap())
     }
 
-    fn saisie(&self, titre: &str, forme: &str) -> SortieSaisie {
+    pub(crate) fn saisie(&self, titre: &str, forme: &str) -> SortieSaisie {
         let fin = if forme == "voyage" {
             self.at(8) + Duration::days(2)
         } else {
@@ -221,14 +221,14 @@ impl Cadre {
         }
     }
 
-    async fn creer(&self, titre: &str, forme: &str) -> SortieLigne {
+    pub(crate) async fn creer(&self, titre: &str, forme: &str) -> SortieLigne {
         self.ent
             .voyage_creer(&self.a(self.prof, Role::Prof), self.saisie(titre, forme))
             .await
             .expect("création")
     }
 
-    async fn cmd(
+    pub(crate) async fn cmd(
         &self,
         user: Uuid,
         role: Role,
@@ -241,6 +241,20 @@ impl Cadre {
             .fetch_one(self.ent.pool())
             .await
             .unwrap();
+        // « Valider le budget » porte sur la version de budget lue : brouillon en cours, sinon validée.
+        let (budget_numero, budget_rev) = if matches!(c, Commande::ValiderBudget) {
+            sqlx::query_as::<_, (i32, i32)>(
+                "SELECT numero, rev FROM ent_sortie_budget_version WHERE sortie_id = $1
+                  ORDER BY (etat = 'brouillon') DESC, numero DESC LIMIT 1",
+            )
+            .bind(id)
+            .fetch_optional(self.ent.pool())
+            .await
+            .unwrap()
+            .map_or((None, None), |(n, r)| (Some(n), Some(r)))
+        } else {
+            (None, None)
+        };
         self.ent
             .voyage_commande(
                 &self.a(user, role),
@@ -248,13 +262,47 @@ impl Cadre {
                 c,
                 ParamsCommande {
                     version: Some(version),
+                    budget_numero,
+                    budget_rev,
                     ..Default::default()
                 },
             )
             .await
     }
 
-    async fn cmd_motif(
+    /// Budget minimal équilibré (V0b) : un car de 1 500 € pour trois payants, saisi par la
+    /// comptabilité. Retourne (numéro, rev) du brouillon.
+    pub(crate) async fn budget_minimal(&self, id: Uuid) -> (i32, i32) {
+        let compta = self.a(self.compta, Role::Compta);
+        let v = self
+            .ent
+            .voyage_budget_version_creer(&compta, id, None)
+            .await
+            .expect("version de budget");
+        let b = v.brouillon.expect("brouillon");
+        let v = self
+            .ent
+            .voyage_budget_ligne_ajouter(
+                &compta,
+                id,
+                b.numero,
+                b.rev,
+                crate::voyages_budget_repo::LigneSaisie {
+                    sens: "depense".into(),
+                    poste: "transport".into(),
+                    libelle: "Car".into(),
+                    montant: "1 500".into(),
+                    motif: Some("Devis agence".into()),
+                    affectation: None,
+                },
+            )
+            .await
+            .expect("ligne");
+        let b = v.brouillon.expect("brouillon");
+        (b.numero, b.rev)
+    }
+
+    pub(crate) async fn cmd_motif(
         &self,
         user: Uuid,
         role: Role,
@@ -272,13 +320,14 @@ impl Cadre {
                     version: None,
                     motif: Some(motif.into()),
                     vers: vers.map(String::from),
+                    ..Default::default()
                 },
             )
             .await
     }
 
     /// Porteur : ajoute un encadrant responsable et les trois élèves ; soumet.
-    async fn preparer_jusqu_a_soumise(&self, id: Uuid) {
+    pub(crate) async fn preparer_jusqu_a_soumise(&self, id: Uuid) {
         let p2 = agent_de(&self.ent, self.etab, self.prof2).await;
         self.ent
             .voyage_encadrant_ajouter(&self.a(self.prof, Role::Prof), id, p2, "responsable")
@@ -290,7 +339,7 @@ impl Cadre {
     }
 
     /// Mène une sortie sans nuitée facultative à `ouverte`.
-    async fn jusqu_a_ouverte(&self, id: Uuid) {
+    pub(crate) async fn jusqu_a_ouverte(&self, id: Uuid) {
         self.preparer_jusqu_a_soumise(id).await;
         self.cmd(self.dir, Role::Direction, id, Commande::ValiderPedagogie)
             .await
@@ -304,23 +353,23 @@ impl Cadre {
     }
 }
 
-fn est_forbidden(e: &EntDbError) -> bool {
+pub(crate) fn est_forbidden(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Forbidden)
 }
 
-fn est_introuvable(e: &EntDbError) -> bool {
+pub(crate) fn est_introuvable(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Domain(domain_eleve::DomainError::NotFound))
 }
 
-fn est_conflit_detail(e: &EntDbError) -> bool {
+pub(crate) fn est_conflit_detail(e: &EntDbError) -> bool {
     matches!(e, EntDbError::ConflitDossierDetail(_))
 }
 
-fn est_refus(e: &EntDbError) -> bool {
+pub(crate) fn est_refus(e: &EntDbError) -> bool {
     matches!(e, EntDbError::Refus(_, _))
 }
 
-async fn actions_journal(c: &Cadre, id: Uuid) -> Vec<String> {
+pub(crate) async fn actions_journal(c: &Cadre, id: Uuid) -> Vec<String> {
     sqlx::query_scalar("SELECT action FROM ent_sortie_journal WHERE sortie_id = $1 ORDER BY a, id")
         .bind(id)
         .fetch_all(c.ent.pool())
@@ -429,6 +478,13 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
         .await
         .unwrap_err();
     assert!(est_forbidden(&e), "{e:?}");
+    // V0b : sans version de budget lue, la comptabilité ne valide rien.
+    let e = c
+        .cmd(c.compta, Role::Compta, s.id, Commande::ValiderBudget)
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e), "{e:?}");
+    c.budget_minimal(s.id).await;
     let s = c
         .cmd(c.compta, Role::Compta, s.id, Commande::ValiderBudget)
         .await

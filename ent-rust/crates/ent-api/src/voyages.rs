@@ -1,4 +1,5 @@
-//! Routes `/voyages/*` du socle 42, lot V0a : sorties et voyages scolaires collectifs.
+//! Routes `/voyages/*` du socle 42, lots V0a (sorties) et V0b (budget, prix annoncé, PDF, rappels,
+//! synthèse APEL) : sorties et voyages scolaires collectifs.
 //!
 //! Aucune règle ici (R-SV1) : droits (`voyages.*` et droits du porteur), états, préconditions,
 //! version, cloisonnement (l'établissement vient de la session, jamais du corps), journal et
@@ -12,6 +13,10 @@ use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use ent_db::voyages::Commande;
 use ent_db::voyages::PointAudit;
+use ent_db::voyages_budget_repo::{
+    BudgetVue, DocumentVue, LigneSaisie, ParamsBudget, SyntheseApel,
+};
+use ent_db::voyages_rappels::RappelVue;
 use ent_db::voyages_repo::{
     CandidatsClasse, Circulaire, EncadrantVue, EtapeSaisie, EtapeVue, FiltreVoyages, JournalVue,
     ParamsCommande, ParticipantVue, ResultatAjout, ResultatSeance, ResultatSerie, SerieSaisie,
@@ -54,6 +59,34 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/encadrants", post(encadrant_ajouter))
         .route("/voyages/{id}/encadrants/{eid}", delete(encadrant_retirer))
         .route("/voyages/{id}/circulaire", post(circulaire))
+        // Lot V0b : budget versionné en centimes, prix annoncé figé, PDF, rappels, synthèse APEL.
+        .route("/voyages/{id}/budget", get(budget))
+        .route("/voyages/{id}/budget/versions", post(budget_version_creer))
+        .route(
+            "/voyages/{id}/budget/versions/{numero}",
+            put(budget_parametrer).delete(budget_version_abandonner),
+        )
+        .route(
+            "/voyages/{id}/budget/versions/{numero}/lignes",
+            post(budget_ligne_ajouter),
+        )
+        .route(
+            "/voyages/{id}/budget/versions/{numero}/lignes/{lid}",
+            put(budget_ligne_modifier).delete(budget_ligne_supprimer),
+        )
+        .route(
+            "/voyages/{id}/budget/versions/{numero}/valider-revision",
+            post(budget_valider_revision),
+        )
+        .route("/voyages/{id}/prix/hausse", post(prix_hausser))
+        .route("/voyages/{id}/budget/pdf", post(budget_pdf))
+        .route("/voyages/{id}/circulaire/pdf", post(circulaire_pdf))
+        .route("/voyages/{id}/documents", get(documents))
+        .route("/voyages/{id}/documents/{doc}", get(document))
+        .route("/voyages/{id}/rappels", get(rappels))
+        .route("/voyages/rappels/traiter", post(rappels_traiter))
+        .route("/voyages/apel", get(apel))
+        .route("/voyages/apel.csv", get(apel_csv))
 }
 
 async fn liste(
@@ -420,5 +453,295 @@ async fn circulaire(
             .voyage_circulaire(&acteur(&session), id)
             .await
             .map_err(map_db)?,
+    ))
+}
+
+// ───────────────────────── Lot V0b : budget, prix annoncé, PDF, rappels, APEL ─────────────────────────
+
+async fn budget(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct VersionBody {
+    #[serde(default)]
+    motif: Option<String>,
+}
+
+async fn budget_version_creer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    body: Option<Json<VersionBody>>,
+) -> Res<(StatusCode, Json<BudgetVue>)> {
+    let b = body.map(|Json(b)| b).unwrap_or_default();
+    let v = s
+        .ent
+        .voyage_budget_version_creer(&acteur(&session), id, b.motif.as_deref())
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(v)))
+}
+
+/// Version d'écritures lue par l'appelant (verrou optimiste du budget).
+#[derive(Debug, Deserialize)]
+struct RevQuery {
+    rev: i32,
+}
+
+async fn budget_version_abandonner(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero)): Path<(Uuid, i32)>,
+    Query(q): Query<RevQuery>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget_version_abandonner(&acteur(&session), id, numero, q.rev)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct ParamsBody {
+    rev: i32,
+    #[serde(flatten)]
+    params: ParamsBudget,
+}
+
+async fn budget_parametrer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero)): Path<(Uuid, i32)>,
+    Json(b): Json<ParamsBody>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget_parametrer(&acteur(&session), id, numero, b.rev, b.params)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct LigneBody {
+    rev: i32,
+    #[serde(flatten)]
+    ligne: LigneSaisie,
+}
+
+async fn budget_ligne_ajouter(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero)): Path<(Uuid, i32)>,
+    Json(b): Json<LigneBody>,
+) -> Res<(StatusCode, Json<BudgetVue>)> {
+    let v = s
+        .ent
+        .voyage_budget_ligne_ajouter(&acteur(&session), id, numero, b.rev, b.ligne)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(v)))
+}
+
+async fn budget_ligne_modifier(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero, lid)): Path<(Uuid, i32, Uuid)>,
+    Json(b): Json<LigneBody>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget_ligne_modifier(&acteur(&session), id, numero, b.rev, lid, b.ligne)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn budget_ligne_supprimer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero, lid)): Path<(Uuid, i32, Uuid)>,
+    Query(q): Query<RevQuery>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget_ligne_supprimer(&acteur(&session), id, numero, q.rev, lid)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct RevBody {
+    rev: i32,
+}
+
+async fn budget_valider_revision(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, numero)): Path<(Uuid, i32)>,
+    Json(b): Json<RevBody>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_budget_valider_revision(&acteur(&session), id, numero, b.rev)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+struct HausseBody {
+    motif: String,
+}
+
+async fn prix_hausser(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<HausseBody>,
+) -> Res<Json<BudgetVue>> {
+    Ok(Json(
+        s.ent
+            .voyage_prix_hausser(&acteur(&session), id, &b.motif)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn budget_pdf(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<(StatusCode, Json<DocumentVue>)> {
+    let d = s
+        .ent
+        .voyage_budget_pdf(&acteur(&session), id)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(d)))
+}
+
+async fn circulaire_pdf(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<(StatusCode, Json<DocumentVue>)> {
+    let d = s
+        .ent
+        .voyage_circulaire_pdf(&acteur(&session), id)
+        .await
+        .map_err(map_db)?;
+    Ok((StatusCode::CREATED, Json(d)))
+}
+
+async fn documents(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<DocumentVue>>> {
+    Ok(Json(
+        s.ent
+            .voyage_documents(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+/// Le document sort **par l'application**, après contrôle du droit et de l'empreinte : jamais
+/// d'URL publique du magasin d'objets (R-SV28).
+async fn document(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((id, doc)): Path<(Uuid, Uuid)>,
+) -> Res<axum::response::Response> {
+    let (nom, octets) = s
+        .ent
+        .voyage_document_lire(&acteur(&session), id, doc)
+        .await
+        .map_err(map_db)?;
+    crate::routes::attachment_response(octets, &nom, "application/pdf")
+}
+
+async fn rappels(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<RappelVue>>> {
+    Ok(Json(
+        s.ent
+            .voyage_rappels(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+#[derive(Debug, serde::Serialize)]
+struct RappelsCrees {
+    crees: usize,
+}
+
+async fn rappels_traiter(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<RappelsCrees>> {
+    let crees = s
+        .ent
+        .voyages_rappels_declencher(&acteur(&session), chrono::Utc::now())
+        .await
+        .map_err(map_db)?;
+    Ok(Json(RappelsCrees { crees }))
+}
+
+#[derive(Debug, Deserialize)]
+struct AnneeQuery {
+    #[serde(default)]
+    annee_id: Option<Uuid>,
+}
+
+async fn apel(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<AnneeQuery>,
+) -> Res<Json<SyntheseApel>> {
+    Ok(Json(
+        s.ent
+            .voyages_synthese_apel(&acteur(&session), q.annee_id)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn apel_csv(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<AnneeQuery>,
+) -> Res<impl IntoResponse> {
+    let csv = s
+        .ent
+        .voyages_synthese_apel_csv(&acteur(&session), q.annee_id)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        [
+            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"synthese-apel.csv\"",
+            ),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        csv,
     ))
 }

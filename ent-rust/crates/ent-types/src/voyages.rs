@@ -1,4 +1,4 @@
-//! Types JSON des routes `/voyages/*` (socle 42, lot V0a : sorties et voyages scolaires).
+//! Types JSON des routes `/voyages/*` (socle 42, lots V0a et V0b : sorties, voyages, budget).
 //!
 //! Le JSON est **identique** à celui qu'`ent-api` produit (mêmes noms de champs) ; un test d'`ent-api`
 //! désérialise de vraies réponses dans ces types. Les états restent des chaînes (`"brouillon"`,
@@ -264,6 +264,11 @@ pub struct ParamsCommandeDto {
     pub motif: Option<String>,
     #[serde(default)]
     pub vers: Option<String>,
+    /// Version de budget lue par la comptabilité (`valider-budget`) : on valide ce qu'on a lu (V0b).
+    #[serde(default)]
+    pub budget_numero: Option<i32>,
+    #[serde(default)]
+    pub budget_rev: Option<i32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -344,4 +349,139 @@ pub struct ResultatSerieDto {
     pub serie_id: Uuid,
     pub sorties: Vec<SortieResumeDto>,
     pub ecartees: Vec<DateEcarteeDto>,
+}
+
+// ───────────────────────── Lot V0b : budget, prix annoncé, documents, rappels ─────────────────────────
+//
+// Tous les montants sont des **centimes entiers** (R-SV16). Le calcul de la part des familles est
+// fait par le serveur ; ces types ne contiennent aucune règle.
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalculBudgetDto {
+    pub nb_payants: i64,
+    pub depenses_total: i64,
+    pub depenses_familles: i64,
+    pub encadrement: i64,
+    pub surcout_handicap: i64,
+    pub recettes_total: i64,
+    pub recettes_encadrement: i64,
+    pub recettes_reduisant_la_part: i64,
+    pub marge_pct: i64,
+    pub marge: i64,
+    pub cout_reel_par_eleve: Option<i64>,
+    pub part_familles: Option<i64>,
+    pub total_familles: i64,
+    pub deficit: i64,
+    pub arrondi_pris_en_charge: i64,
+    pub excedent: i64,
+    pub equilibre: bool,
+    pub causes: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BudgetLigneDto {
+    pub id: Uuid,
+    pub sens: String,
+    pub poste: String,
+    pub libelle: String,
+    pub montant_centimes: i64,
+    pub source: String,
+    pub motif: Option<String>,
+    pub affectation: Option<String>,
+    pub rang: i32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BudgetVersionDto {
+    pub numero: i32,
+    pub etat: String,
+    /// Compteur d'écritures : à renvoyer avec chaque écriture et avec la validation.
+    pub rev: i32,
+    pub nb_payants: i32,
+    pub marge_pct: i32,
+    pub marge_motif: Option<String>,
+    pub motif_revision: Option<String>,
+    pub part_familles_centimes: Option<i64>,
+    pub cree_le: DateTime<Utc>,
+    pub valide_le: Option<DateTime<Utc>>,
+    pub lignes: Vec<BudgetLigneDto>,
+    pub calcul: CalculBudgetDto,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PrixFigeDto {
+    pub rang: i32,
+    pub montant_centimes: i64,
+    pub cause: String,
+    pub motif: Option<String>,
+    pub fige_le: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VersionResumeDto {
+    pub numero: i32,
+    pub etat: String,
+    pub valide_le: Option<DateTime<Utc>>,
+    pub part_familles_centimes: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BudgetDto {
+    pub sortie_id: Uuid,
+    pub a_budget: bool,
+    pub obligatoire: bool,
+    pub marge_prereglee: i32,
+    pub peut_ecrire: bool,
+    pub peut_valider: bool,
+    pub peut_decider_hausse: bool,
+    pub brouillon: Option<BudgetVersionDto>,
+    pub validee: Option<BudgetVersionDto>,
+    pub historique: Vec<VersionResumeDto>,
+    pub prix_fige: Vec<PrixFigeDto>,
+    pub prix_courant_centimes: Option<i64>,
+    pub hausse_en_attente: bool,
+}
+
+/// Ligne de budget envoyée au serveur : le montant est **un texte** au format français (« 1 350,50 »).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LigneBudgetSaisieDto {
+    pub rev: i32,
+    pub sens: String,
+    pub poste: String,
+    pub libelle: String,
+    pub montant: String,
+    pub motif: Option<String>,
+    pub affectation: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ParamsBudgetDto {
+    pub rev: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nb_payants: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marge_pct: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marge_motif: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentDto {
+    pub id: Uuid,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub nom: String,
+    pub taille: i32,
+    pub sha256: String,
+    pub emis_le: DateTime<Utc>,
+    pub version_budget: Option<i32>,
+    pub actuel: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RappelDto {
+    pub code: String,
+    pub jour: String,
+    pub jours_avant: i32,
+    pub message: String,
 }
