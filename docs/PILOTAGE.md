@@ -31,6 +31,7 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 9. **Tout ce qui compte s'écrit dans le dépôt** (décisions, état, leçons), jamais seulement dans une conversation.
 
 13. **Exigences E1–E14 (PRA, D-038 proposé, `PRA_SAUVEGARDES.md` §18.4)** : rappelées dans chaque lancement de session de code et vérifiées à la revue du pilote avant push sur ENT (etablissement_id, références composites, UUID, pas de BYTEA, horodatages, journal, migrations rejouables, files neutralisables à la restauration, pas de JSON-mémoire, clés inventoriées, registre des tables, RLS, pas de donnée d'établissement dans les journaux techniques).
+14. **Défauts Next.js corrigés en Rust (D-051)** : tout lot qui porte un module Next.js liste les défauts NJ-xx de `ALERTES_NEXTJS_PROD.md` qu'il ferme, avec un test de non-régression par défaut ; aucun contournement d'authentification du Next.js n'est repris (les actions passent par le compte connecté). Vérifié par le pilote avant push sur ENT.
 
 ## 3. Cycle d'un socle (D-021)
 Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet) → intégration (file) → recette par personas sur le logiciel (Opus) → relecture de Florian. Un socle n'est « fini » qu'après la recette.

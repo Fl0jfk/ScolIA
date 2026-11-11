@@ -957,7 +957,7 @@ Exceptions D-036 : **aucune**. Contrôle de revue : `grep -i "json\|bytea\|\[\]"
 | N° | Question | Recommandation |
 |---|---|---|
 | Q-ET1 | **Mettre à jour D-006** : versions v0.17 / v0.18 alpha (et non v0.4), dépôts exacts, protocole `craft-web-host` en iframe de même origine, moteurs Rust côté serveur pour les aperçus | Oui ; figer Wordcraft 0.17.0, GridCraft 0.18.0, DeckCraft 0.17.0 au lot ET5 et refaire la recette à chaque mise à jour |
-| Q-ET2 | **Coédition en temps réel** (absente d'ArtCraft) : attendre, contribuer en amont, ou s'en passer en V1 | S'en passer en V1 (verrou, parties, versions) ; observer le projet ; ne pas adopter une autre suite sans votre accord |
+| Q-ET2 | **Coédition en temps réel** — **close (D-049)** : on s'en passe ; verrou, parties, versions | Tranché par Florian le 2026-11-11 |
 | Q-ET3 | **Accessibilité** d'un éditeur rendu en canvas | Audit RGAA au lot ET5 ; alternative accessible garantie (R-ET30) ; si l'audit échoue, l'éditeur reste un « plus » et non le seul moyen |
 | Q-ET4 | Build ScolIA d'ArtCraft sans marques et sans `craft-web-api` | Oui si l'option existe ; sinon CSP et isolement (R-ET29) |
 | Q-ET5 | Édition sur tablette (applis mobiles) | Non en V1 |

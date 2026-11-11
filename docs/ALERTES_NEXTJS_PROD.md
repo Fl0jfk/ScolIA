@@ -2,6 +2,8 @@
 
 **Date :** 2026-11-11. **Statut :** registre de constats. **Rien n'a été vérifié en production ni corrigé.**
 
+**Décision de Florian (D-051, 2026-11-11)** : le Next.js en production reste tel quel jusqu'à la bascule ; **chaque défaut ci-dessous doit être fermé dans la version Rust** (test de non-régression par défaut, PILOTAGE règle 14). Les « urgences » ci-dessous sont des recommandations que Florian n'a pas retenues pour le Next.js.
+
 **Pour qui :** Florian. Il est seul à décider d'une correction, d'une restriction ou d'un arrêt de Next.js. Le pilote n'y touche pas (CLAUDE.md : Next.js est intouchable, aucun accès à la base ni aux secrets de production).
 
 **D'où viennent ces constats.** Les sessions de conception des socles ont lu le code Next.js en lecture seule (`origin/main`, dans le dépôt). Elles n'ont rien exécuté, rien testé et ne se sont connectées à aucune base. Ce document regroupe leurs constats, fusionne les doublons (même défaut relevé par deux socles) et les trie par gravité. Les chemins de fichiers sont ceux que citent les documents sources, relatifs à la racine Next.js.
@@ -73,6 +75,7 @@ Les défauts de calcul financier, qui touchent l'argent des familles sans être 
 - **Preuve :** `app/api/invitation/lookup/route.ts:12-55` ; `app/lib/invitation-db.ts:716-749, 915-942, 976-990` ; `db/schema-invitation.ts:45`.
 - **Source :** `socles/17_ANNONCES.md` §2.4 et §33.2 (PN-01, PN-02) ; `socles/19_AGENDA_RDV.md` §2.3 (ND-30), Q-AG13.
 - **Mesure immédiate :** fermer les pages d'invitation publiques, ou au minimum désactiver la recherche (`lookup`) et exiger la liste d'éligibles. Faire contrôler les réponses modifiées.
+- **Atténué le 2026-11-11 (commit 4457e990 sur main, à la demande de Florian)** : l'e-mail des parents est désormais masqué (« je•••@gm•••.com ») dans les réponses publiques. Le reste du défaut demeure (recherche publique par nom et date de naissance, modification de la réponse d'autrui) ; il est corrigé dans la version Rust (D-051).
 
 ### NJ-06 — Rendez-vous d'inscription : nom complet, classe et e-mails des responsables révélés
 - **Module :** M16, rendez-vous d'inscription (parcours public).
@@ -81,6 +84,7 @@ Les défauts de calcul financier, qui touchent l'argent des familles sans être 
 - **Preuve :** aucun fichier cité ; module `app/(public-rentree)/rdv-inscription/`, `app/lib/rdv-inscription-*.ts` (d'après `03_INSCRIPTIONS.md` §2.4).
 - **Source :** `socles/19_AGENDA_RDV.md` §2.3 (ND-20), Q-AG13 ; `socles/PERSONAS_19.md` (gravité confirmée).
 - **Mesure immédiate :** suspendre le rapprochement automatique avec les enfants dans le parcours public, ou fermer la prise de rendez-vous hors campagne. Faire corriger : aucune donnée nominative ne doit être renvoyée avant un rattachement vérifié.
+- **Atténué le 2026-11-11 (commit 4457e990 sur main, à la demande de Florian)** : l'e-mail des parents est désormais masqué (« je•••@gm•••.com ») dans les réponses publiques. Le reste du défaut demeure (recherche publique par nom et date de naissance, modification de la réponse d'autrui) ; il est corrigé dans la version Rust (D-051).
 
 ### NJ-07 — Voyages : n'importe quel utilisateur du module réécrit n'importe quel dossier, budget validé compris
 - **Module :** Sorties et voyages (`/api/travels/*`).
@@ -363,6 +367,15 @@ Ces défauts ne sont pas comptés ci-dessus, mais ils peuvent faire payer une fa
 Mesure : faire relire par la comptabilité les factures de cantine et les budgets de voyage de l'année.
 
 ---
+
+## 5 bis. Ajouts du 2026-11-11 (conceptions 43 et 44, non classés dans les décomptes ci-dessus)
+
+Source : `43_PERISCOLAIRE_TRANSPORTS.md` et `44_RESSOURCES_MATERIELLES.md` (§2), lecture de code, non testé.
+
+- **NJ-76 (élevé) — Réservation de salles : n'importe quel compte connecté peut annuler ou modifier la réservation d'un autre** (DRM-14, DRM-15). Le serveur vérifie seulement que la session existe, pas que la réservation appartient à l'utilisateur. À reprendre au socle 19.
+- **NJ-77 (moyen) — Photocopies : la file d'attente affiche les demandes de tous les sites** (DRM-01).
+- **NJ-78 (élevé) — Photocopies : on peut rattacher à sa demande le PDF déposé par quelqu'un d'autre** (DRM-02).
+- **NJ-79 (élevé) — Partenariats : l'inscription publique fonctionne sans authentification** (DPS-17).
 
 ## 6. Non vérifié (hypothèses des sources)
 
