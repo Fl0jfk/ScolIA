@@ -380,6 +380,8 @@ mod tests_administratif_a2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i2;
