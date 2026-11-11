@@ -209,6 +209,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/352_agents.sql"),
     include_str!("../../../migrations/353_agents_fonctions.sql"),
     include_str!("../../../migrations/354_services_interventions.sql"),
+    include_str!("../../../migrations/355_missions.sql"),
     include_str!("../../../migrations/357_casquettes_invitations.sql"),
     include_str!("../../../migrations/361_agent_identifiants.sql"),
     include_str!("../../../migrations/362_agent_sujet.sql"),
