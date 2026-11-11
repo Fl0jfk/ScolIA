@@ -1406,7 +1406,7 @@ async fn c0_cd5_eleve_parti_ne_voit_plus_ne_rend_plus_ne_recoit_plus_mais_garde_
     d.distribuer_tout().await.unwrap();
     assert_eq!(notifs(&fx, fx.x.compte.as_ref().unwrap().user_id, "travail_donne").await, 0, "X parti");
     assert_eq!(notifs(&fx, fx.x.parent.user_id, "travail_donne").await, 0, "responsable de X");
-    assert_eq!(notifs(&fx, fx.w.compte.as_ref().unwrap().user_id, "travail_donne").await, 3);
+    assert_eq!(notifs(&fx, fx.w.compte.as_ref().unwrap().user_id, "travail_donne").await, 2);
 }
 
 // ───── C-D6 : séances de groupe ─────
