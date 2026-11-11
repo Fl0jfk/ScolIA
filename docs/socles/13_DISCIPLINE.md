@@ -18,7 +18,7 @@
 | Cas limites | **CD-01**… | |
 | Questions | **Q-DS1**…, **F-DS1**… (Florian) | |
 | Réglages signalés | **S-1301 à S-1340** | plage libre vérifiée (plus haut S pris : S-466) |
-| Manques (passe personas) | **M-1301 à M-1399** | plage libre vérifiée (plus haut M pris : M-2591 ; aucun M-13xx) |
+| Manques (passe personas) | **M-1301 à M-1447** | plage libre vérifiée (plus haut M pris : M-2591 ; aucun M-13xx ni M-14xx) |
 | Lots | **D0 à D14** | |
 
 **Plage de migrations : 2260–2279**, imposée par le pilote, vérifiée libre sur les 124 branches distantes le 2026-11-11 ; inscrite dans `MIGRATIONS.md`.
@@ -38,14 +38,15 @@
 
    | Élément | Volume | Numéros |
    |---|---|---|
-   | Actions | 136 (+ ajouts personas, §32) | DIS-100 à DIS-279 |
-   | Règles réglementaires | 46 | RG-01 à RG-46 |
-   | Règles transverses | 32 (+ personas) | R-DS1 à R-DS32 |
-   | Cas limites | 60 (+ personas) | CD-01 à CD-60 |
-   | Réglages signalés | 20 | S-1301 à S-1320 |
-   | Lots | 15 | D0 à D14 |
+   | Actions | 183 (136 + 47 ajoutées par les personas, §32.5) | DIS-100 à DIS-326 |
+   | Règles réglementaires | 47 | RG-01 à RG-47 (corrigées au §32.2) |
+   | Règles transverses | 52 (dont 20 des personas) | R-DS1 à R-DS52 |
+   | Cas limites | 74 (dont 14 des personas) | CD-01 à CD-74 |
+   | Réglages signalés | 26 | S-1301 à S-1326 |
+   | Lots | 16 | D0 à D14, plus D9-minimal en V1 (§32.8) |
 
-7. **Décisions appliquées par défaut (D-031)** : 20 questions tranchées (§30.1). **Soumis à Florian** (§30.2) : l'usage réel de la discipline au lycée pilote pendant l'année de doublon ; le règlement intérieur du lycée (instance consultative ? recours interne ?) ; la reprise des sanctions depuis Charlemagne (données réelles) ; la recette juridique des trames (coût) ; l'arrêt des écrans Next.js.
+7. **Passe personas** (`PERSONAS_13.md`, §32) : 17 personas, **147 manques dont 39 bloquants**, regroupés en huit sujets — preuve de la notification (l'ouverture dans l'ENT par l'élève qui a le mot de passe de son parent ne vaut rien), obligation d'engager **par auteur**, ENT utilisé comme canal de harcèlement, sûreté et remise de l'élève, personnes exposées par leur position (PPS, allophone, majeur, parent protégé, parent élu), effacement qui survit à une restauration, modèle incomplet (non-réinscription du privé, sanctions « hors ScolIA »), conformité avant usage réel ; tous résolus par défaut au §32.
+8. **Décisions appliquées par défaut (D-031)** : 20 questions tranchées (§30.1). **Soumis à Florian** (§30.2) : l'usage réel de la discipline au lycée pilote pendant l'année de doublon ; le règlement intérieur du lycée (instance consultative ? recours interne ?) ; la reprise des sanctions depuis Charlemagne (données réelles) ; la recette juridique des trames (coût) ; l'arrêt des écrans Next.js.
 
 ---
 
@@ -1457,3 +1458,172 @@ Règles : migrations **additives et rejouables** (E8) ; 2279 est la seule destru
 - Test `actions.rs:1460` (« non-régression R2 ») **fige** un droit contraire au Code (CPE et secrétariat prononcent) : il est modifié par D0, ce n'est pas une régression.
 
 ---
+
+## 32. Ajout personas : preuve de notification, harcèlement par auteur, sûreté, privé, effacement d'exploitation
+
+Source : `docs/socles/PERSONAS_13.md` (17 personas, 147 manques M-1301 à M-1447, dont 39 bloquants). **Ce §32 l'emporte en cas de contradiction** avec les sections précédentes. Les recommandations sont appliquées par défaut (D-031), sauf les points soumis à Florian (§32.9).
+
+### 32.1 Principes ajoutés
+1. **La preuve compte autant que le fond.** Un délai ne court qu'à partir d'un fait **prouvé** : remise contre signature, accusé ou suivi d'un recommandé, ouverture **après authentification forte** du titulaire. Une date déclarée ne fait jamais courir un délai contre l'élève (R-DS33, R-DS34).
+2. **Le harcèlement se traite par auteur, et l'ENT peut en être le canal** : obligation d'engager calculée par impliqué, éloignement jusque dans la messagerie (R-DS36, R-DS37).
+3. **Personne ne doit être exposé par sa position** : victime, témoin, élève avec handicap, famille allophone, élève majeur, parent protégé (R-DS38 à R-DS43).
+4. **L'effacement est aussi un sujet d'exploitation** : restauration, charge de fin d'année, copies hors base (R-DS45 à R-DS47).
+
+### 32.2 Corrections du §5 (vérifiées le 2026-11-11 par la passe indépendante sur le texte consolidé)
+| Règle | Correction |
+|---|---|
+| RG-03 | clauses types de la convention fixées par l'**arrêté du 10 août 2026** (vade-mecum éduscol du 29-10-2026), non l'arrêté de 2011 ; la convention lie **l'établissement et la structure**, un exemplaire est **remis** à l'élève (il ne la signe pas) ; un document distinct de **modalités d'exécution** est signé par le chef, la structure et l'élève ou son représentant ; l'accord sur les périodes est recueilli **dans tous les cas** [R, bonne pratique du vade-mecum] ; le vade-mecum dit « effacée à l'issue de l'année scolaire » pour la responsabilisation, le Code dit N+1 : **le Code prévaut**, divergence signalée au juriste |
+| RG-15 | la remise au représentant légal figure à **D511-33** seulement ; les deux textes exigent une mesure prise « en cas de nécessité » : motivation de la nécessité obligatoire |
+| RG-17 | R421-10-2 est une attribution du chef d'**EPLE** ; l'extension au privé n'est pas dans le texte consolidé [NT] : rappel désactivé dans le profil privé |
+| RG-20 | les **cinq jours** de D511-31 sont comptés en **jours calendaires** (aucune qualification dans le texte) ; `jours_mode` ne concerne que le délai de défense ; le privé fixe les siens dans son règlement (corrige S-1302) |
+| RG-31 | la décision du recteur court « à compter de la **réception** de l'appel » : colonne `recu_le` distincte de `forme_le` |
+| RG-38 | R470-1 couvre aussi les **personnels** et « menace, intimidation, tout incident » : le recueil n'est pas limité au harcèlement entre élèves |
+| RG-41 | R421-12-1 permet de suspendre l'accès « de l'élève **ou** du membre de la famille », 5 jours au plus, **sans procédure disciplinaire** ; « suivi pédagogique, éducatif et social renforcé » dans le nouvel établissement (hors socle) |
+| RG-45 + | **R131-3 II** : les chefs du public **et du privé** fournissent l'état des mutations au maire et au DASEN : tâche sur une exclusion définitive d'un élève soumis à l'obligation scolaire, dans les deux profils (corrige §8.9) |
+| RG-47 (nouvelle) | voies amiables à mentionner en langage simple : médiateur académique, Défenseur des droits [R, pas une obligation] |
+
+### 32.3 Contradictions résolues
+1. En-tête et §0 : `PERSONAS_13.md` et ce §32 existent désormais.
+2. DIS-274 : `ent_dis_procedure.instance` et `etat` admettent `hors_scolia` ; `ent_dis_sanction.motivation` est obligatoire **sauf** si `prononcee_par_instance = 'hors_scolia'` (CHECK conditionnel).
+3. `efface_prevu_le` devient **nullable**, avec `efface_regle TEXT CHECK IN ('date','fin_scolarite')` (exclusion définitive).
+4. Synthèse du conseil de classe (§6.1, §6.3, §12.3, §21.2) : **une seule règle** — sanctions non effacées quelle que soit l'année, **catégorie et date seulement** ; la motivation n'est jamais lue au conseil de classe ; le conseil de discipline lit les antécédents non effacés et leur motivation.
+5. §1.7 et §12.3 contre RG-06 : la **sanction** effacée et ses pièces de procédure disparaissent de toute lecture courante ; les **faits** (incident, rapports) peuvent être conservés selon leur propre durée et pris en compte, mais la suite y est affichée « suite donnée » (jamais « procédure », jamais la sanction) ; un incident lié à une sanction vit au moins jusqu'à l'effacement de celle-ci (R-DS46).
+6. R-DS22 contre R-DS28 : la visibilité `cpe` vaut « **titulaires de la mission CPE référent de l'élève** à la date » ; le relais est tracé ; l'auteur parti perd l'accès.
+7. §13.2 contre §25 : l'indicateur « baisse de moyenne » est **retiré** (disproportionné, AIPD) ; les règles de vigilance ne lisent ni notes ni moyennes.
+8. §8.3 contre §25 : la **confiscation** n'est pas une nature de punition, c'est une mesure (L511-5) tracée dans `ent_dis_confiscation` ; le ramassage nocturne des téléphones à l'internat relève du socle 41.
+9. §0 point 4 (E1–E14) : `modifie_le` ajouté à `ent_dis_implique`, `ent_dis_piece_emise`, `ent_dis_recours`, `ent_dis_responsabilisation`, `ent_dis_situation_etape`, `ent_dis_alerte`, `ent_dis_confiscation`, `ent_dis_mesure`, `ent_dis_suivi` ; `ent_dis_journal.motif` devient un **code** (le texte libre passe par `ent_journal_modif`).
+10. Q-DS1 : appliquée **pour la conception** (§27.1), **soumise à Florian pour son lycée** (F-DS1) ; il n'y a pas de contradiction, la décision d'usage réel lui revient.
+11. §1.5 contre R421-10-1 : la victime est désignée **de la façon la moins identifiante compatible avec la défense** (« une élève de 4ᵉ »), pièces occultées, décision motivée (R-DS37, juriste).
+12. S-1302 et §5.4 : voir RG-20 corrigée.
+13. RG-03 : voir §32.2.
+Petits correctifs : `UNIQUE … WHERE active` de `ent_dis_retenue_affectation` devient un index partiel sur `presence IS DISTINCT FROM 'annulee'` avec une colonne `etat` ; `ent_dis_observation.categorie` devient un code contraint ; `ent_dis_punition.motif_famille` est **NOT NULL** (information écrite due, RG-34), construit à partir d'un motif codé.
+
+### 32.4 Règles ajoutées (R-DS33 à R-DS52)
+| # | Règle |
+|---|---|
+| R-DS33 | **Notification d'une pièce de procédure** : par l'ENT seulement si le titulaire l'ouvre après **authentification forte** (passkey, D-009) ; sinon remise contre signature ou recommandé ; une **exclusion** (temporaire ou définitive) et une mesure conservatoire sont toujours notifiées par remise ou recommandé. |
+| R-DS34 | **Date déclarée** (saisie après coup) : elle ne fait courir un délai qu'avec une pièce (AR scanné, suivi La Poste joint, signature de remise) ; sans pièce, le délai part de la saisie ; le calendrier est **figé** à la notification (une modification ne peut qu'allonger). |
+| R-DS35 | **États de remise** : émise, présentée, avisée, distribuée, non réclamée, retournée, **refusée** (avec un témoin nommé) ; la date retenue pour le délai est calculée par le serveur selon Q-DS2. |
+| R-DS36 | **Obligation d'engager par impliqué** : les catégories de faits sont portées par chaque impliqué ; RG-11 et RG-12 se calculent pour chacun ; dans une situation, `faits_etablis_le` crée la tâche bloquante « engager contre chaque auteur ». |
+| R-DS37 | **Protection de la cible et des témoins dans la défense** : désignation minimale, **version occultée** de chaque pièce partagée, **métadonnées nettoyées** (auteur, EXIF, nom de fichier), seule la version occultée sort du cercle restreint. |
+| R-DS38 | **On ne déplace pas la victime** : toute mesure qui la contraint (classe, sortie, horaire) exige son accord ou celui de sa famille, tracé. |
+| R-DS39 | **Éloignement numérique** : portées `messagerie` et `espaces_partages` appliquées par le socle 16 (écriture de A vers B bloquée, sans message d'explication à A). |
+| R-DS40 | **Notification protégée** : un titulaire visé par une mesure de protection (socle 4) reçoit la sanction **sans dates d'exécution ni lieu d'accueil** ; décision de la direction. |
+| R-DS41 | **Remise contrôlée** : toute remise d'un élève (mesure conservatoire, exclusion, retour anticipé, nuit d'internat) passe par le contrôle du socle 14 ; jamais à une personne interdite. |
+| R-DS42 | **Interprète, jamais l'élève mis en cause** : un interprète (qualité, langue) peut assister à l'entretien, à la consultation, au conseil ; l'élève concerné ne traduit jamais ses propres pièces ; mentions légales **pré-traduites et validées** ; trames **FALC** pour l'élève. |
+| R-DS43 | **Élève avec PPS** : avant une exclusion, tâche « informer l'enseignant référent, proposer une équipe de suivi de la scolarisation » (avertissement non bloquant) ; droit de se taire **expliqué oralement**, tracé. |
+| R-DS44 | **Bascule à 18 ans** : la vue des parents sur le socle 13 est suspendue, historique compris ; un mois avant, l'élève choisit « informer mes parents » (révocable, tracé) ; privé : réglage selon le contrat (S-1324). |
+| R-DS45 | **Rejeu des effacements** : un registre des effacements (identifiants seulement), hors du périmètre restauré, est rejoué après toute restauration (déclaré au registre E12, D-037). |
+| R-DS46 | **Durées liées** : un incident lié à une sanction vit au moins jusqu'à son effacement ; à l'effacement, la suite est affichée « suite donnée » ; durée maximale des faits fixée par le DPO. |
+| R-DS47 | **Copies hors base** : liste fermée (caches mobiles, avis, index de recherche et IA, exports) avec, pour chacune, purge ou expiration ; un export nominatif expire en 7 jours. |
+| R-DS48 | **Catégories descriptives, non pénales** : « atteinte aux biens d'autrui », pas « vol » ; aucune qualification pénale ni mention de poursuites détaillée au dossier disciplinaire (article 10 du RGPD, avis du DPO avant D1). |
+| R-DS49 | **Conflits d'intérêts automatiques** : un personnel titulaire de l'autorité parentale d'un élève impliqué ne traite, ne lit ni ne cherche les incidents où cet élève est impliqué ; déport proposé ; journal. Un membre d'instance peut se déporter lui-même. |
+| R-DS50 | **Contenus non fiables pour l'IA** : défenses écrites, captures et messages des familles et des élèves sont cités entre guillemets, jamais résumés sans lien vers l'original ; aucune appréciation dans un résumé. |
+| R-DS51 | **Contexte « membre d'instance »** distinct du compte famille ou élève : authentification forte, engagement de discrétion daté, lecture seule à l'écran, aucun téléchargement ; membres élèves mineurs : consultation sur place. |
+| R-DS52 | **Sûreté hors ligne** : une exclusion de cours non accusée par le serveur dans les 30 s affiche « exclusion non transmise : appelez la vie scolaire » et produit un bon horodaté. |
+
+### 32.5 Actions ajoutées (DIS-280 à DIS-326)
+| # | Action | Qui | Règles | Lot |
+|---|---|---|---|---|
+| DIS-280 | Prononcer une **non-réinscription pour motif de comportement** (privé) | DIR | entretien préalable, motivation, notification avant la date contractuelle ; jamais en cours d'année comme sanction déguisée ; lien socle 3 ; juriste | D6 |
+| DIS-281 | Rapport hebdomadaire et annuel « **à reporter dans Charlemagne** » (punitions, sanctions, effacements) | DIR, SEC | doublon seulement ; sans texte libre | D13 |
+| DIS-282 | **Informer la tutelle** (DDEC) d'une exclusion définitive ; demander une médiation | DIR (privé) | F-DS7 | D6 |
+| DIS-283 | **État des mutations** au maire et au DASEN après une exclusion définitive d'un élève soumis à l'obligation scolaire | SEC | public et privé (R131-3 II) | D5 |
+| DIS-284 | **Suspendre l'accès** d'un élève ou d'un **parent** (R421-12-1), saisine du DASEN datée | DIR | ≤ 5 jours ; port `acces_interdit` vers 14 ; aucun effet sur le dossier | D4 |
+| DIS-285 | Proposer la **protection fonctionnelle** et l'inscription au **RSST** pour un personnel victime | DIR | tâche transmise au socle 6, sans le contenu | D3 |
+| DIS-286 | Tracer un **signalement externe** (Faits établissement, procureur, information préoccupante, police, équipe mobile de sécurité, retrait de contenu demandé) | DIR | référence et date, sans texte (`ent_dis_signalement_externe`) | D1 |
+| DIS-287 | Planifier l'**accueil des exclus de la classe** (séance, capacité, surveillant) | CPE | même objet que la séance de retenue (`usage`) | D4 |
+| DIS-288 | **Changer un élève de classe** (discipline ou protection) | DIR | motivé, notifié, exécuté par le socle 5 ; R-DS38 | D9 |
+| DIS-289 | **Confier ma file** à un collègue du … au … | CPE | mission temporaire (socle 6) | D1 |
+| DIS-290 | **Noter un contact avec la famille** (appel, message, rendez-vous manqué) | CPE, PP, DIR | date, issue, sans contenu | D1 |
+| DIS-291 | **Fiche de suivi par séance** (appréciation codée sur 3 niveaux, 140 caractères) | PRF (mobile), CPE | désactivée par défaut (S-1325), visible famille au choix | D8 |
+| DIS-292 | **Contester une punition** | FAM, ELV majeur | vers le chef ; réponse motivée sous échéance (RG-34) | D2 |
+| DIS-293 | **Signaler une préoccupation** (non disciplinaire) | tout personnel | vers le socle 36 ; rien n'est stocké au 13 | D1 |
+| DIS-294 | **Recueil « internat et voyages avec nuitées »** (R470-1) ; adulte référent de nuit | internes, AED | avis au référent le matin | D9-minimal |
+| DIS-295 | Désigner l'**astreinte** destinataire des alertes U2 la nuit et le week-end | DIR | mission socle 6 | D1 |
+| DIS-296 | **Remettre un élève** à une personne autorisée | AED, ACC | R-DS41 | D4 |
+| DIS-297 | **Retour anticipé** d'un séjour (mesure de sûreté) | DIR | distincte d'une sanction ; remise contrôlée ; frais selon le séjour (42) | D4 |
+| DIS-298 | Repli mobile « **exclusion non transmise** » et bon horodaté | appli mobile | R-DS52 | D11 |
+| DIS-299 | **Neutraliser une évaluation** après une fraude (« à refaire ») | PRF, socle 21 | jamais zéro | D1 |
+| DIS-300 | **Remise en main propre en fin de séance** du conseil + recommandé à la première levée | président, SEC | écart tracé (RG-26) | D5 |
+| DIS-301 | Enregistrer un **refus de signer** avec un témoin | ACC, SEC | R-DS35 | D3 |
+| DIS-302 | Joindre l'**AR** ou le suivi d'une date déclarée | SEC | R-DS34 | D3 |
+| DIS-303 | Émettre une **notification protégée** | DIR | R-DS40 | D3 |
+| DIS-304 | **Information sur demande** du parent sans exercice de l'autorité parentale | DIR | remplace Q-DS7 ; tracée | D3 |
+| DIS-305 | **Bloquer la messagerie** entre deux élèves (éloignement numérique) | référent, DIR | R-DS39 | D9-minimal |
+| DIS-306 | Constater les **faits établis** d'une situation | référent, DIR | R-DS36 | D9-minimal |
+| DIS-307 | Produire la **version occultée** d'une pièce | CPE, DIR | R-DS37 | D3 |
+| DIS-308 | Poser une **mesure de protection** de la victime (adulte référent, lieu refuge, horaires) | référent | `ent_dis_situation_mesure` | D9 |
+| DIS-309 | **Informer l'enseignant référent et proposer une ESS** (PPS) | DIR | R-DS43 | D3 |
+| DIS-310 | Tracer l'**explication orale** du droit de se taire | DIR, CPE | R-DS43 | D3 |
+| DIS-311 | **Choisir d'informer mes parents** (élève majeur) | ELV | R-DS44 | D3 |
+| DIS-312 | **Accéder en membre d'instance** | membres | R-DS51 | D5 |
+| DIS-313 | **Me déporter** | membre d'instance | suppléant convoqué ; motif non montré | D5 |
+| DIS-314 | Noter un **signalement non fondé** | référent | aucune sanction automatique ; débit limité par compte | D9 |
+| DIS-315 | Voir les **autres situations** d'un auteur | référents | sur la durée de conservation | D9 |
+| DIS-316 | **Joindre une contestation des faits** (rectification) | FAM, ELV majeur | annexée, sans modifier les faits | D7 |
+| DIS-317 | **Rejouer les effacements** après une restauration | système | R-DS45 | D7 |
+| DIS-318 | **Compte « ancien élève restreint »** | système | pièces, bulletins, dépôt d'appel ; jusqu'à la décision du recteur + 2 mois | D5 |
+| DIS-319 | **Désigner un interprète** | CPE, DIR | R-DS42 | D3 |
+| DIS-320 | **Effacement de fin d'année étalé** | système | par établissement, en paquets, avant la date ; événement agrégé ; rapport | D0 (règle), D7 |
+| DIS-321 | Saisir une **demande écrite de saisine** du conseil (D511-30) et y répondre | membre de la communauté éducative ; DIR | avant toute procédure ; réponse motivée sous échéance | D3 |
+| DIS-322 | **Convoquer titulaires et suppléants** à J-5 | DIR, SEC | RG-20 | D5 |
+| DIS-323 | Imprimer la **liste du jour** pour la loge (sans motif ni date de fin) | ACC | 14 | D4 |
+| DIS-324 | Proposer les **deux professeurs et les deux délégués** à auditionner | DIR | D511-38 ; socles 5, 46 | D5 |
+| DIS-325 | **Appel à la vie scolaire** depuis l'appel (élève qui refuse de sortir) | PRF | avis U2 | D2 |
+| DIS-326 | Signaler un **lien personnel** (parent élu, personnel) | membre, personnel | R-DS49 | D5 |
+
+Total après la passe : **183 actions** (136 + 47).
+
+### 32.6 Cas limites ajoutés (CD-61 à CD-74)
+| # | Cas | Réponse |
+|---|---|---|
+| CD-61 | L'élève ouvre l'information préalable avec le compte de sa mère | pas d'authentification forte : la notification n'est pas effective (R-DS33) |
+| CD-62 | Séance du conseil finie à 18 h 40 | remise en main propre sur place, recommandé à la première levée, écart tracé (DIS-300) |
+| CD-63 | Parent qui refuse de signer la remise | refus avec témoin (R-DS35) ; recommandé envoyé |
+| CD-64 | Incident à trois : l'un frappe un professeur, l'autre l'insulte, le troisième regarde | obligation calculée par impliqué : saisine du conseil pour le premier, engagement pour le second, rien d'imposé pour le troisième (R-DS36) |
+| CD-65 | L'auteur harcèle la cible par la messagerie de l'ENT | éloignement numérique (R-DS39) |
+| CD-66 | Captures nommant quatre autres élèves | version occultée seule partagée (R-DS37) |
+| CD-67 | Bagarre à l'internat à 1 h, direction injoignable | astreinte (DIS-295) ; mesure conservatoire au matin par le chef ; remise contrôlée |
+| CD-68 | Père sous ordonnance de protection, titulaire | notification protégée (R-DS40) |
+| CD-69 | Élève avec PPS proposé à l'exclusion | enseignant référent informé, ESS proposée, trames FALC (R-DS43) |
+| CD-70 | Le fils traduit le courrier à sa mère | interprète proposé ; règle R-DS42 rappelée à la CPE |
+| CD-71 | Restauration de la base à J-3 après un incident | rejeu des effacements de J-3 à J (R-DS45) |
+| CD-72 | 100 établissements × 2 000 lignes effacées la même nuit | effacement étalé (DIS-320), test de charge |
+| CD-73 | Professeur dont le fils est impliqué | déport automatique (R-DS49) |
+| CD-74 | Défense écrite contenant une consigne adressée à l'IA | contenu non fiable, cité, résumé refusé (R-DS50) |
+
+### 32.7 Modèle complété (sans JSON, E1–E14)
+Tables ajoutées (dans la réserve **2274–2277**, voir §32.8) :
+- `ent_dis_implique_categorie (etablissement_id, implique_id, categorie_id, PK)` — catégories par impliqué (R-DS36) ;
+- `ent_dis_sanction_jour (etablissement_id, sanction_id, jour DATE, execute BOOLEAN, PK)` — jours d'exclusion exécutés, plafond cumulé de 8 jours (RG-02) ;
+- `ent_dis_situation_mesure (id, etablissement_id, situation_id, type TEXT CHECK IN ('adulte_referent','lieu_refuge','amenagement_horaires','autre'), debut, fin, responsable_agent_id, cree_le, modifie_le)` ;
+- `ent_dis_situation_incident`, `ent_dis_situation_procedure` (liens) ;
+- `ent_dis_signalement_externe (id, etablissement_id, objet_type, objet_id, type TEXT CHECK IN ('faits_etablissement','procureur','information_preoccupante','police','equipe_mobile_securite','retrait_contenu'), fait_le, fait_par, reference_externe TEXT CHECK (<= 80), cree_le)` — sans texte ;
+- `ent_dis_demande_saisine (id, etablissement_id, eleve_id, demandeur_personne_id, demandee_le, reponse TEXT CHECK IN ('saisine','refus_motive'), repondue_le, motif_code, document_id)` ;
+- `ent_dis_contact_famille (id, etablissement_id, eleve_id, objet_type, objet_id, personne_id, canal TEXT CHECK IN ('telephone','message','rendez_vous','courrier'), issue TEXT CHECK IN ('joint','message_laisse','injoignable','rendez_vous_manque'), le, par_agent_id)` ;
+- `ent_dis_fiche_suivi_jour (id, etablissement_id, suivi_id, seance_id, agent_id, niveau SMALLINT CHECK (BETWEEN 1 AND 3), mot TEXT CHECK (<= 140), visible_famille BOOLEAN, cree_le)` ;
+- `ent_dis_personne_externe (id, etablissement_id, libelle TEXT CHECK (<= 80), qualite TEXT CHECK IN ('jeune_exterieur','parent','intrus','autre'), purge_le)` — remplace `personne_externe_libelle` (durée propre, RGPD art. 14) ;
+- `ent_dis_non_reinscription (id, etablissement_id, eleve_id, annee_cible_id, entretien_le, motivation TEXT CHECK (<= 4000), notifiee_le, date_limite_contractuelle, etat TEXT CHECK IN ('envisagee','notifiee','maintenue','renoncee','contestee'), cree_le, modifie_le)` ;
+- `ent_dis_profil_version (etablissement_id, effet_le, …colonnes du profil…, abaissement_decide_par, abaissement_le, abaissement_motif)` — la procédure **fige tous ses délais** à l'engagement ;
+- `ent_dis_bordereau (id, etablissement_id, depose_le, bureau TEXT, cree_le)` + `ent_dis_piece_emise.bordereau_id` ;
+- `ent_dis_suspension_acces (id, etablissement_id, personne_id, eleve_id, debut, fin CHECK (fin - debut <= 5 jours), saisine_dasen_le, motif_code, document_id)` — R421-12-1 ;
+- `ent_dis_registre_effacement (etablissement_id, sanction_id, efface_le, PK)` — rejoué après restauration (R-DS45).
+
+Colonnes ajoutées : `ent_dis_mesure_conservatoire.portee` (`etablissement`, `internat`, `demi_pension`), `remis_a_personne_id`, `remis_le`, `necessite_motif` ; `ent_dis_recours.forme_par_personne_id`, `recu_le` ; `ent_dis_incident_piece.version_occultee_document_id` ; `ent_dis_situation.faits_etablis_le`, `faits_etablis_par`, natures élargies (`menace`, `intimidation`, `sexisme`) et `ent_dis_situation_personne.personne_id` (personnel cible) ; `ent_dis_incident.lieu_detail_id` (chambre, socle 41) ; `ent_dis_piece_emise` : états de R-DS35, `presentee_le`, `distribuee_le`, `refus_temoin_personne_id`, `authentification_forte BOOLEAN`, `cree_le`, `modifie_le` ; `ent_dis_seance_presence.voix` (`deliberative`, `consultative`) ; `ent_dis_effacement.purge_le` ; `ent_dis_procedure.reglement_version_id` (règlement en vigueur **au jour des faits**) ; `ent_dis_defense.interprete_libelle`, `interprete_langue` ; `ent_dis_audition.interprete_libelle` ; `ent_dis_retenue_seance.usage` (`retenue`, `accueil_exclusion`) ; `ent_dis_sanction.efface_regle`, `efface_prevu_le` nullable ; `ent_dis_journal.motif_code`.
+
+### 32.8 Lots et migrations révisés
+- **D0** : ajouter la règle d'**effacement étalé** (DIS-320, paquets par établissement), le **registre des effacements** minimal (rejeu après restauration) et le retrait du motif libre dans les avis existants. Migration **2260** inchangée ; **2261** reçoit le registre des effacements.
+- **D1** : journal des accès dès D1 (et non D7) ; catégories descriptives (R-DS48, après avis du DPO) ; `ent_dis_implique_categorie`, `ent_dis_signalement_externe`, `ent_dis_contact_famille`, `ent_dis_personne_externe`, `ent_dis_profil_version` → **2274**.
+- **D3** : preuve de notification complète (R-DS33 à R-DS35), notification protégée, interprète, PPS, version occultée, demande écrite de saisine, `ent_dis_bordereau`, `ent_dis_demande_saisine` → **2275**.
+- **D4** : `ent_dis_sanction_jour`, `ent_dis_suspension_acces`, portée et remise de la mesure conservatoire, accueil des exclus de la classe → **2276**.
+- **D9-minimal (nouveau, en V1)** : recueil R470-1 (y compris internat et nuitées), situation avec `faits_etablis_le`, éloignement (dont **messagerie**), déclencheur d'engagement ; `ent_dis_situation_mesure`, liens situation ↔ incident ↔ procédure → **2277** (avec les colonnes de 2271 avancées). Raison : R421-10 d et R470-1 sont **en vigueur** et l'usage réel commence à la rentrée 2027.
+- **D6** : non-réinscription (`ent_dis_non_reinscription`) dans **2268**.
+- Parcours minimal révisé : **D0** tout de suite ; **D1, D2, D3, D4, D7, D9-minimal** en V1 ; le reste inchangé.
+- La réserve 2274–2277 est **épuisée** ; un nouvel ajout demandera une nouvelle plage au registre.
+
+### 32.9 Décisions : appliquées par défaut et soumises à Florian
+Appliquées par défaut (D-031) : R-DS33 à R-DS52 ; DIS-280 à DIS-326 (sauf DIS-280 et DIS-282, soumis) ; information du parent sans exercice **sur demande** (remplace Q-DS7) ; indicateur « baisse de moyenne » retiré ; motif du journal codé ; D9-minimal en V1.
+Soumis à Florian (en plus du §30.2) : **F-DS2 étendu** (non-réinscription pour comportement, avocat admis, parents d'un majeur selon le contrat) ; **F-DS6** lettre recommandée électronique qualifiée (eIDAS) comme mode de notification, brique externe et coût ; **F-DS7** information de la tutelle.
+Questions ajoutées : juriste — désignation minimale de la cible, non-réinscription, entretien éducatif antérieur et droit de se taire (Q-DS27), « huit jours » de classe ou calendaires (Q-DS28), terme de la scolarité (Q-DS29), fin de l'année scolaire pour l'effacement (Q-DS30), portée « internat seul » d'une mesure conservatoire (Q-DS31), divergence vade-mecum / code sur la responsabilisation (Q-DS32) ; DPO — fiche de registre et notices (élève, famille, témoin, adulte extérieur) **avant toute donnée réelle**, article 10 et catégories, AIPD des règles de vigilance, copies hors base, réidentification du registre anonymisé (mois au lieu de la date, niveau au lieu de la classe), transfert au nouvel établissement.
+Réglages ajoutés : S-1321 à S-1326 (`PERSONAS_13.md` §8.4).

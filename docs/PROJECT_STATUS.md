@@ -3,6 +3,12 @@
 Date : 2026-11-05 (mise à jour du 2026-11-04). Branche : `ENT` (D-001).
 Sources : audit en lecture seule du 2026-11-02 et prototype Leptos (`docs/LEPTOS_CALL_PROTOTYPE.md`).
 
+## Socle 13 « discipline et suivi éducatif » — conception et passe personas (2026-11-11, branche `ent-socle-13-conception`, base `ent-mc0hoe`)
+- **Statut** : proposé (conception non décidée, recommandations appliquées par défaut, D-031). Documentation seulement : aucun code, aucune migration écrite. Fichiers : `docs/socles/13_DISCIPLINE.md` (§32 = ajouts personas, qui l'emporte), `docs/socles/PERSONAS_13.md` ; plage de migrations **2260–2279** inscrite dans `docs/socles/MIGRATIONS.md`.
+- **Existant (découvert)** : implémenté mais **non conforme** — CPE et secrétariat prononcent des sanctions sans procédure ; effacement trop précoce et jamais déclenché ; aucun délai de défense ; textes internes et SMS de sanction servis aux familles ; RLS inopérante sur la génération S2-4. Module Next.js C07 partiel (perdable).
+- **Proposé** : 183 actions, 47 règles réglementaires vérifiées le 2026-11-11 (dont droit de se taire 2025, harcèlement → procédure obligatoire, arme → conseil obligatoire, décrets 2026-414, 2026-637, 2026-954), 52 règles transverses, 74 cas limites, lots D0 à D14 + D9-minimal. **Lot D0 de correctifs urgents prêt à partir** (migration 2260).
+- **Soumis à Florian** : usage réel au lycée pilote pendant le doublon ; règlement intérieur (instance, recours, non-réinscription) ; reprise Charlemagne ; recette juridique des trames ; lettre recommandée électronique ; information de la tutelle.
+
 ## Sauvegardes, PRA multi-fournisseur et portabilité par établissement — architecture (2026-11-10, branche `ent-architecture-pra`, base `ent-mc0hoe`)
 Documentation seulement, **proposé, à valider par Florian**, aucun code, aucune ressource cloud : `docs/PRA_SAUVEGARDES.md` (commande §1–§16) et `docs/PORTABILITE_EXPORTS.md` (§17). Décisions proposées D-037 à D-046 ; erreurs F-013 (PITR managé Scaleway et S3 d'`ent-object` supposés, non vérifiés) et F-014 (`BYTEA`, files d'envoi restaurables).
 - Audit : 317/329 tables avec `etablissement_id`, 69/566 FK composites, 163 FK vers `ent_user`, 2 tables `BYTEA`, RLS ≈ 63 tables (mode `off` par défaut), migrations rejouées hors transaction.
