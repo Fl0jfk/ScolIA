@@ -1,6 +1,7 @@
 //! D-036 — les 13 colonnes JSON reprises dans des tables typées (lots 1 et 2) ont été **retirées**
-//! (migrations 668 et 669), et les fichiers de reprise devenus caducs sont **figés** (migration 670) :
-//! rejouer les migrations à chaque démarrage ne doit ni échouer ni ressusciter une colonne retirée.
+//! (migrations 668 et 669), et le lanceur tient un **registre des migrations appliquées**
+//! (`ent_migration_appliquee` : nom, empreinte SHA-256, date) : chaque fichier est appliqué une seule
+//! fois, dans une transaction, et un fichier modifié après application est refusé.
 //! Sans `ENT_DATABASE_URL`, les scénarios sont ignorés.
 
 use super::*;
@@ -76,26 +77,6 @@ async fn les_treize_colonnes_json_sont_retirees_et_leurs_declencheurs_aussi() {
     }
 }
 
-#[tokio::test]
-async fn rejouer_les_migrations_ne_ressuscite_aucune_colonne_retiree() {
-    let Some(mut ent) = base().await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    for _ in 0..2 {
-        ent.migrate().await.expect("migrate rejoué sans échec (fichiers de reprise figés)");
-        assert_eq!(colonnes_presentes(&ent).await, Vec::<String>::new());
-    }
-    // Les fichiers figés sont exactement ceux qui lisent ou recréent les colonnes retirées.
-    let figes: Vec<(String,)> = sqlx::query_as("SELECT nom FROM ent_migration_figee ORDER BY nom")
-        .fetch_all(ent.pool())
-        .await
-        .unwrap();
-    assert_eq!(figes.len(), 10, "10 fichiers figés : {figes:?}");
-    for libre in ["250_inscriptions_i0", "275_personne_verification_preferences", "304_inscription_demarche_dossier"] {
-        assert!(!figes.iter().any(|(n,)| n == libre), "{libre} porte une reprise rejouée : ne pas le figer");
-    }
-    assert!(figes.iter().any(|(n,)| n == "560_delegation_droits_normalises"));
-    assert!(figes.iter().any(|(n,)| n == "667_d036_personne_fusion_normalisee"));
-}
-
 /// Garde de dérive : la copie typée d'une ligne supprimée par une fusion de personnes a exactement
 /// les colonnes de la table d'origine (sinon la défusion ne restaurerait plus à l'identique).
 #[tokio::test]
@@ -129,9 +110,9 @@ async fn copies_de_fusion_de_personnes_alignees_sur_les_tables_d_origine() {
     }
 }
 
-// ───────────────────────── Mécanisme des fichiers figés (migration 670) ─────────────────────────
+// ───────────────────────── Registre des migrations appliquées ─────────────────────────
 
-use crate::migrate::{appliquer_jusqu_a, MIGRATIONS};
+use crate::migrate::{appliquer_dans_une_transaction, appliquer_jusqu_a, empreinte, MIGRATIONS};
 
 /// Crée une base jetable (même serveur local que `ENT_DATABASE_URL`) et rend son URL.
 async fn base_jetable(etiquette: &str) -> Option<(String, String, sqlx::PgPool)> {
@@ -166,33 +147,47 @@ async fn sans_colonnes_retirees(pool: &sqlx::PgPool) -> bool {
     true
 }
 
-/// Cas 1 et 2 : base NEUVE (tout est joué dans l'ordre, puis 670 fige), puis DEUX démarrages de suite
-/// sur la même base (les fichiers figés sont sautés : ni échec, ni colonne ressuscitée).
+async fn compte_registre(pool: &sqlx::PgPool) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM ent_migration_appliquee").fetch_one(pool).await.unwrap()
+}
+
+/// Cas 1 et 2 : base NEUVE (tout est appliqué dans l'ordre et inscrit), puis DEUX démarrages de suite
+/// (rien n'est rejoué : le registre ne change pas, aucune colonne retirée ne revient).
 #[tokio::test]
 async fn base_neuve_puis_deux_demarrages_de_suite() {
     let Some((url, nom, admin)) = base_jetable("neuve").await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let mut ent = PgEnt::connect(&url).await.expect("connect");
-    for tour in 1..=3 {
+    ent.migrate().await.expect("premier démarrage");
+    assert_eq!(compte_registre(ent.pool()).await, MIGRATIONS.len() as i64, "chaque fichier est inscrit");
+    let avant: Vec<(String, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("SELECT nom, empreinte, appliquee_le FROM ent_migration_appliquee ORDER BY nom")
+            .fetch_all(ent.pool()).await.unwrap();
+    for tour in 2..=3 {
         ent.migrate().await.unwrap_or_else(|e| panic!("démarrage {tour} : {e}"));
         assert!(sans_colonnes_retirees(ent.pool()).await, "démarrage {tour} : colonne retirée présente");
     }
-    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_migration_figee").fetch_one(ent.pool()).await.unwrap();
-    assert_eq!(n, 10);
+    let apres: Vec<(String, String, chrono::DateTime<chrono::Utc>)> =
+        sqlx::query_as("SELECT nom, empreinte, appliquee_le FROM ent_migration_appliquee ORDER BY nom")
+            .fetch_all(ent.pool()).await.unwrap();
+    assert_eq!(avant, apres, "un démarrage de plus n'applique ni ne ré-inscrit rien");
+    assert!(avant.iter().all(|(n, e, _)| MIGRATIONS.iter().any(|(m, sql)| m == n && empreinte(sql) == *e)));
     drop(ent);
     supprimer_base(&admin, &nom).await;
 }
 
-/// Cas 3 : base DÉJÀ MIGRÉE jusqu'à 667 (anciennes colonnes présentes, avec des lignes « héritées »),
-/// puis passage à 670 : la reprise a lieu une dernière fois, les colonnes disparaissent, les données
-/// vivent dans les tables typées.
+/// Cas 3 : base EXISTANTE, antérieure au registre (migrée jusqu'à 667, anciennes colonnes présentes avec
+/// des lignes « héritées », aucun registre) : le premier démarrage applique tout une dernière fois dans
+/// l'ordre (la reprise a lieu avant le retrait des colonnes) et remplit le registre.
 #[tokio::test]
-async fn base_migree_jusqu_a_667_puis_passage_a_670() {
-    let Some((url, nom, admin)) = base_jetable("mise_a_niveau").await else { return eprintln!("skip: ENT_DATABASE_URL") };
+async fn base_existante_sans_registre_migree_jusqu_a_667() {
+    let Some((url, nom, admin)) = base_jetable("existante").await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     appliquer_jusqu_a(ent.pool(), "667_d036_personne_fusion_normalisee").await.expect("migrations jusqu'à 667");
     assert!(!sans_colonnes_retirees(ent.pool()).await, "à 667 les anciennes colonnes existent encore");
+    let (reg,): (bool,) = sqlx::query_as("SELECT to_regclass('public.ent_migration_appliquee') IS NOT NULL")
+        .fetch_one(ent.pool()).await.unwrap();
+    assert!(!reg, "aucun registre avant le premier démarrage du nouveau lanceur");
     let etab = Uuid::new_v4();
-    // Lignes héritées : paramètre (valeur JSON) et profil (semaine type JSON), déclencheurs suspendus.
     for (table, decl) in [
         ("ent_parametre", "ent_parametre_valeur_lecture_seule"),
         ("ent_etablissement_profil", "ent_profil_jours_ouvres_lecture_seule"),
@@ -204,8 +199,9 @@ async fn base_migree_jusqu_a_667_puis_passage_a_670() {
     sqlx::query("INSERT INTO ent_etablissement_profil (etablissement_id, nom_officiel, jours_ouvres) VALUES ($1, 'Collège mise à niveau', '{\"lun\":[\"matin\"],\"mar\":[\"matin\",\"apres_midi\"]}'::jsonb)")
         .bind(etab).execute(ent.pool()).await.unwrap();
 
-    ent.migrate().await.expect("passage de 667 à 670");
+    ent.migrate().await.expect("premier démarrage du nouveau lanceur");
     assert!(sans_colonnes_retirees(ent.pool()).await, "les 13 colonnes ont disparu");
+    assert_eq!(compte_registre(ent.pool()).await, MIGRATIONS.len() as i64);
     let v: serde_json::Value = sqlx::query_scalar(
         "SELECT ent_parametre_valeur_json(p) FROM ent_parametre p WHERE etablissement_id = $1 AND cle = 'structure.duree_seance_defaut_min'",
     ).bind(etab).fetch_one(ent.pool()).await.unwrap();
@@ -213,46 +209,45 @@ async fn base_migree_jusqu_a_667_puis_passage_a_670() {
     let semaine: serde_json::Value = sqlx::query_scalar("SELECT ent_etablissement_jours_ouvres($1)")
         .bind(etab).fetch_one(ent.pool()).await.unwrap();
     assert_eq!(semaine, serde_json::json!({"lun": ["matin"], "mar": ["matin", "apres_midi"]}));
-    // Et un démarrage de plus (fichiers figés) reste sans effet.
     ent.migrate().await.expect("démarrage suivant");
     assert!(sans_colonnes_retirees(ent.pool()).await);
     drop(ent);
     supprimer_base(&admin, &nom).await;
 }
 
-/// Le lanceur refuse un nom inconnu dans `ent_migration_figee` (on ne fige pas à l'aveugle).
+/// Un fichier de migration modifié après son application est refusé, avant toute écriture.
 #[tokio::test]
-async fn le_lanceur_refuse_de_figer_un_fichier_inconnu() {
-    let Some((url, nom, admin)) = base_jetable("figer_inconnu").await else { return eprintln!("skip: ENT_DATABASE_URL") };
+async fn un_fichier_modifie_apres_application_est_refuse() {
+    let Some((url, nom, admin)) = base_jetable("modifie").await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
-    sqlx::query("INSERT INTO ent_migration_figee (nom, raison) VALUES ('999_fichier_inexistant', 'test')")
+    // Simule « le fichier 560 a changé depuis son application » : l'empreinte enregistrée n'est plus la sienne.
+    sqlx::query("UPDATE ent_migration_appliquee SET empreinte = repeat('0', 64) WHERE nom = '560_delegation_droits_normalises'")
         .execute(ent.pool()).await.unwrap();
-    let err = ent.migrate().await.expect_err("nom inconnu refusé");
-    assert!(err.to_string().contains("999_fichier_inexistant"), "{err}");
-    sqlx::query("DELETE FROM ent_migration_figee WHERE nom = '999_fichier_inexistant'").execute(ent.pool()).await.unwrap();
-    ent.migrate().await.expect("redevient sain une fois la ligne retirée");
+    let err = ent.migrate().await.expect_err("fichier modifié refusé");
+    let msg = err.to_string();
+    assert!(msg.contains("560_delegation_droits_normalises") && msg.contains("modifiée"), "{msg}");
+    // Rétabli : le démarrage redevient sain.
+    let bonne = empreinte(MIGRATIONS.iter().find(|(n, _)| *n == "560_delegation_droits_normalises").unwrap().1);
+    sqlx::query("UPDATE ent_migration_appliquee SET empreinte = $1 WHERE nom = '560_delegation_droits_normalises'")
+        .bind(bonne).execute(ent.pool()).await.unwrap();
+    ent.migrate().await.expect("redevient sain");
     drop(ent);
     supprimer_base(&admin, &nom).await;
 }
 
-/// Figer un fichier qui CRÉE une table ne doit jamais en faire perdre une : toute table créée par un
-/// fichier figé existe après migration (elle a été créée avant le figeage, sur base neuve comme existante).
+/// Une transaction par fichier : un ordre qui échoue ne laisse ni demi-fichier ni inscription.
 #[tokio::test]
-async fn les_tables_creees_par_les_fichiers_figes_existent() {
-    let Some(ent) = base().await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let figes: Vec<(String,)> = sqlx::query_as("SELECT nom FROM ent_migration_figee").fetch_all(ent.pool()).await.unwrap();
-    assert!(!figes.is_empty());
-    for (nom,) in figes {
-        let (_, sql) = MIGRATIONS.iter().find(|(n, _)| *n == nom).expect("fichier connu");
-        for ligne in sql.lines() {
-            let l = ligne.trim_start().to_lowercase();
-            if let Some(reste) = l.strip_prefix("create table if not exists ") {
-                let table = reste.split(|c: char| c.is_whitespace() || c == '(').next().unwrap();
-                let (existe,): (bool,) = sqlx::query_as("SELECT to_regclass($1) IS NOT NULL")
-                    .bind(format!("public.{table}")).fetch_one(ent.pool()).await.unwrap();
-                assert!(existe, "{nom} crée {table}, absente du schéma");
-            }
-        }
-    }
+async fn un_fichier_en_echec_ne_laisse_aucune_trace() {
+    let Some((url, nom, admin)) = base_jetable("echec").await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    ent.migrate().await.expect("migrate");
+    let avant = compte_registre(ent.pool()).await;
+    let r = appliquer_dans_une_transaction(ent.pool(), "999_echec_de_test", "CREATE TABLE ent_d036_trace (a INTEGER);\nSELECT 1 / 0;").await;
+    assert!(r.is_err(), "l'ordre en échec remonte");
+    let (table,): (bool,) = sqlx::query_as("SELECT to_regclass('public.ent_d036_trace') IS NOT NULL").fetch_one(ent.pool()).await.unwrap();
+    assert!(!table, "le premier ordre a été annulé avec le fichier");
+    assert_eq!(compte_registre(ent.pool()).await, avant, "aucune inscription");
+    drop(ent);
+    supprimer_base(&admin, &nom).await;
 }

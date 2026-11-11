@@ -699,7 +699,7 @@ async fn reprise_idempotente_sans_perte_et_perimetre_identique() {
         );
     }
     // Rétablir la clé étrangère retirée par la simulation (la migration la recrée à chaque démarrage).
-    ent.migrate().await.unwrap();
+    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
 }
 
 /// Cloisonnement strict (rôle non propriétaire, RLS forcée) des tables du lot : un établissement

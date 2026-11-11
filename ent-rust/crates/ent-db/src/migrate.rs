@@ -5,13 +5,13 @@ use thiserror::Error;
 pub enum MigrateError {
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
-    /// `ent_migration_figee` nomme un fichier qui n'existe pas dans `MIGRATIONS` : on ne fige pas à l'aveugle.
-    #[error("ent_migration_figee : fichier de migration inconnu « {0} » (on ne fige qu'un fichier existant)")]
-    FigeInconnu(String),
+    /// Une migration déjà appliquée a changé : son empreinte ne correspond plus à celle du registre.
+    #[error("migration « {nom} » modifiée depuis son application (empreinte en base {en_base}, dans le fichier {fichier}) : une migration appliquée ne se modifie plus, ajouter une nouvelle migration")]
+    FichierModifie { nom: String, en_base: String, fichier: String },
 }
 
-/// Une migration : (nom du fichier sans extension, texte). Le nom permet au lanceur de **sauter** les
-/// fichiers « figés » (table `ent_migration_figee`, migration 670).
+/// Une migration : (nom du fichier sans extension, texte). Le nom est la clé du registre des migrations
+/// appliquées (`ent_migration_appliquee`).
 macro_rules! m {
     ($nom:literal) => {
         ($nom, include_str!(concat!("../../../migrations/", $nom, ".sql")))
@@ -260,14 +260,13 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("667_d036_personne_fusion_normalisee"),
     m!("668_d036_retrait_colonnes_lot1"),
     m!("669_d036_retrait_colonnes_lot2"),
-    m!("670_d036_migrations_figees"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "670_d036_migrations_figees";
+pub const MIGRATION_TAG: &str = "669_d036_retrait_colonnes_lot2";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -294,38 +293,63 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
     Ok(())
 }
 
+/// Registre des migrations appliquées : `(nom, empreinte SHA-256 du fichier, date)`. Créé par le lanceur
+/// lui-même (il doit exister avant la première migration) ; classé « Technique » au registre des tables.
+const CREER_REGISTRE: &str = "CREATE TABLE IF NOT EXISTS ent_migration_appliquee (
+    nom TEXT PRIMARY KEY CHECK (nom ~ '^[0-9]{3}_[a-z0-9_]+$' AND length(nom) <= 120),
+    empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
+    appliquee_le TIMESTAMPTZ NOT NULL DEFAULT now())";
+
+/// Empreinte SHA-256 (hexadécimal) du texte d'un fichier de migration.
+pub(crate) fn empreinte(sql: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(sql.as_bytes()).iter().map(|o| format!("{o:02x}")).collect()
+}
+
+/// Applique, dans l'ordre, les migrations **pas encore** enregistrées : une transaction par fichier, un
+/// fichier appliqué une seule fois. Avant toute écriture, l'empreinte de chaque fichier déjà appliqué est
+/// vérifiée : un fichier modifié est refusé (`MigrateError::FichierModifie`). Une base sans registre
+/// (neuve, ou antérieure au registre) applique tout dans l'ordre ; les fichiers sont idempotents.
 async fn apply_all(pool: &PgPool) -> Result<(), MigrateError> {
-    let figees = fichiers_figes(pool).await?;
+    sqlx::query(CREER_REGISTRE).execute(pool).await?;
+    let appliquees: Vec<(String, String)> =
+        sqlx::query_as("SELECT nom, empreinte FROM ent_migration_appliquee").fetch_all(pool).await?;
     for (nom, sql) in MIGRATIONS {
-        // Fichier figé : sa reprise a été faite et ses colonnes sources ont été retirées (D-036,
-        // migrations 668–670). Le rejouer échouerait, ou ressusciterait une colonne retirée.
-        if figees.iter().any(|f| f == nom) {
-            tracing::info!(migration = %nom, "migration figée : sautée (D-036, ent_migration_figee)");
+        if let Some((_, en_base)) = appliquees.iter().find(|(n, _)| n == nom) {
+            let fichier = empreinte(sql);
+            if *en_base != fichier {
+                return Err(MigrateError::FichierModifie { nom: (*nom).to_string(), en_base: en_base.clone(), fichier });
+            }
+        }
+    }
+    for (nom, sql) in MIGRATIONS {
+        if appliquees.iter().any(|(n, _)| n == nom) {
             continue;
         }
-        apply_sql_file(pool, sql).await?;
+        appliquer_dans_une_transaction(pool, nom, sql).await?;
+        tracing::info!(migration = %nom, "migration appliquée");
     }
     Ok(())
 }
 
-/// Noms des fichiers de migration figés (liste vide tant que la migration 670 n'a pas tourné).
-async fn fichiers_figes(pool: &PgPool) -> Result<Vec<String>, MigrateError> {
-    let existe: bool = sqlx::query_scalar("SELECT to_regclass('public.ent_migration_figee') IS NOT NULL")
-        .fetch_one(pool)
+/// Tous les ordres d'un fichier + l'inscription au registre, dans **une** transaction : un échec n'en
+/// laisse aucune trace (ni demi-fichier, ni inscription).
+pub(crate) async fn appliquer_dans_une_transaction(pool: &PgPool, nom: &str, sql: &str) -> Result<(), MigrateError> {
+    let mut tx = pool.begin().await?;
+    for stmt in ordres(sql) {
+        sqlx::query(&stmt).execute(&mut *tx).await?;
+    }
+    sqlx::query("INSERT INTO ent_migration_appliquee (nom, empreinte) VALUES ($1, $2)")
+        .bind(nom)
+        .bind(empreinte(sql))
+        .execute(&mut *tx)
         .await?;
-    if !existe {
-        return Ok(Vec::new());
-    }
-    let noms: Vec<String> = sqlx::query_scalar("SELECT nom FROM ent_migration_figee").fetch_all(pool).await?;
-    // On ne fige qu'un fichier qui existe : un nom inconnu (faute de frappe, fichier retiré) est une erreur.
-    if let Some(inconnu) = noms.iter().find(|n| !MIGRATIONS.iter().any(|(m, _)| m == n)) {
-        return Err(MigrateError::FigeInconnu(inconnu.clone()));
-    }
-    Ok(noms)
+    tx.commit().await?;
+    Ok(())
 }
 
-/// Tests : applique les migrations dans l'ordre **jusqu'à** `dernier` (inclus), sans figeage — reproduit
-/// une base migrée jusqu'à une version donnée avant la mise à niveau.
+/// Tests : applique les migrations dans l'ordre **jusqu'à** `dernier` (inclus), **sans** registre ni
+/// transaction — reproduit une base antérieure au registre, migrée jusqu'à une version donnée.
 #[cfg(test)]
 pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<(), MigrateError> {
     let mut trouve = false;
@@ -340,21 +364,53 @@ pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<()
     Ok(())
 }
 
-async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
-    // Retirer les commentaires **avant** de découper sur `;`
-    // (sinon un `;` dans un commentaire devient une « requête »).
-    let without_comments: String = sql
+/// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
+/// données (« legacy » insérées après coup) que les fichiers de reprise savent absorber.
+#[cfg(test)]
+pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
+    // Ces fichiers (reprises du lot D-036) lisent des colonnes retirées par 668 et 669 : on ne les rejoue
+    // pas (il n'y a plus de ligne « héritée » à reprendre, les colonnes n'existent plus).
+    const LISENT_UNE_COLONNE_RETIREE: &[&str] = &[
+        "560_delegation_droits_normalises",
+        "561_inscription_resolution",
+        "562_inscription_scolarite_actuelle",
+        "563_signalement_assiduite_detail",
+        "662_d036_profil_jours_ouvres",
+        "663_d036_parametre_type",
+        "664_d036_import_ligne_typee",
+        "665_d036_personne_plage_joignable",
+        "666_d036_eleve_fusion_normalisee",
+        "667_d036_personne_fusion_normalisee",
+    ];
+    for (nom, sql) in MIGRATIONS {
+        if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
+            continue;
+        }
+        apply_sql_file(pool, sql).await?;
+    }
+    Ok(())
+}
+
+/// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
+/// commentaire deviendrait une « requête »), blocs `$$ … $$` préservés.
+fn ordres(sql: &str) -> Vec<String> {
+    let sans_commentaires: String = sql
         .lines()
         .filter(|l| !l.trim_start().starts_with("--"))
         .collect::<Vec<_>>()
         .join("\n");
+    split_statements(&sans_commentaires)
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
 
-    for stmt in split_statements(&without_comments) {
-        let cleaned = stmt.trim();
-        if cleaned.is_empty() {
-            continue;
-        }
-        sqlx::query(cleaned).execute(pool).await?;
+/// Applique un fichier ordre par ordre, sans transaction ni registre (tests seulement).
+#[cfg(test)]
+async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
+    for stmt in ordres(sql) {
+        sqlx::query(&stmt).execute(pool).await?;
     }
     Ok(())
 }

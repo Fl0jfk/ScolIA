@@ -453,7 +453,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_membership_casquette", "identite_acces", Portee::Etablissement).perso().export(),
     t("ent_menu_cantine", "vie_pratique", Portee::Etablissement),
     t("ent_metier_event", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des faits métier ; la distribution est pilotée par ent_outbox (neutralisé)")).exc(Exception::SansRls, "journal d'événements lu par le distributeur transverse (jointure avec ent_outbox, tous établissements) ; écrit par les services dans leur transaction"),
-    t("ent_migration_figee", "plateforme", Portee::Technique),
+    t("ent_migration_appliquee", "plateforme", Portee::Technique),
     t("ent_mission", "personnels", Portee::Etablissement).perso().export(),
     t("ent_mission_perimetre", "personnels", Portee::Etablissement).perso().export(),
     t("ent_mission_type", "personnels", Portee::Etablissement).exc(Exception::EtabNullable, "types de missions fournis par ScolIA (etablissement_id NULL autorisé), copiés ou désactivés par établissement"),

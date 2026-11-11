@@ -187,7 +187,7 @@ async fn reprise_de_l_existant_idempotente() {
         .unwrap();
     assert_eq!(n2, 0, "la reprise doit être idempotente");
     // Rejouer les migrations ne crée rien non plus.
-    ent.migrate().await.unwrap();
+    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let (versions,): (i64,) =
         sqlx::query_as("SELECT count(*) FROM ent_eleve_identite WHERE eleve_id = $1")
             .bind(id)
