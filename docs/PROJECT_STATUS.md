@@ -21,6 +21,9 @@ Documentation seulement, **proposé, à valider par Florian**, aucun code, aucun
 - Points clés : base managée Scaleway sans PITR documenté (RPO jusqu'à 24 h) → PostgreSQL autogéré + pgBackRest double dépôt avant le premier usage réel ; `ent-object` à corriger (écriture S3 réelle) ; moteur `ent-extraction` partagé PRA / exports ; double validation par passkey des exports complets.
 - **Exigences E1–E14 à transmettre aux lots en cours** : `PRA_SAUVEGARDES.md` §18.4.
 
+## Socle 15 « absences des personnels et remplacements » — conception et passe personas (2026-11-11, branche `ent-socle-15-conception`, base `ent-mc0hoe` 7467f2d4)
+Documentation seulement, **non décidée** (recommandations appliquées par défaut, D-031), aucun code : `docs/socles/15_ABSENCES_PERSONNELS.md` et `docs/socles/PERSONAS_15.md`. Module Next.js M05 **partiel** (persistance qui perd des champs, `GET` destructeur, motif médical exposé, aucun lien avec l'EDT ni les familles) : repris comme spécification fonctionnelle (58 fonctions). ENT Rust : **lot A0** (motif lisible de tout le personnel, auto-validation, déclarant écrasé, suppressions physiques ; 26 défauts). 200 actions (ABP-100 à ABP-299), 59 règles, 90 cas limites, lots A0 à A15, migrations **2300–2319**. **Soumis à Florian** : défauts de Next.js en production, usage réel de M05 et des remplacements pendant le doublon, circuit rectorat des maîtres, spécification SI-RCD, convention EPNL, durées et AIPD (DPO). Niveau : **proposé**.
+
 ## Socle 42 « sorties et voyages scolaires » — conception (2026-11-10, branche `ent-socle-voyages-conception`, base `ent-mc0hoe` d47cd79b)
 Documentation seulement, **non décidée**, aucun code : `docs/socles/42_SORTIES_VOYAGES.md`. Méthode D-035 :
 - **inventaire du module Next.js en production**, lu seulement sur une copie de `origin/main` : 74 actions métier (NX-01 à NX-74), toutes reprises ;
