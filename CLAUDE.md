@@ -3,6 +3,8 @@
 ## Langue
 Toujours répondre à Florian **en français**, y compris pour les points d'étape et les sujets très techniques (décision de Florian, 2026-11-09).
 
+**Contradiction bienvenue (Florian, 2026-11-11)** : ne pas hésiter à contredire Florian quand une idée paraît mauvaise ou mal placée, en expliquant pourquoi et en proposant mieux. Ses idées sont notées dans `docs/idees/CARNET_IDEES.md` avant expertise.
+
 ## Mission
 Tu travailles sur la nouvelle ENT ScolIA, dont le cœur cible est en Rust. Le dépôt contient plusieurs générations et une application Next.js en production. Comprends l'existant ; ne repars pas de zéro.
 
