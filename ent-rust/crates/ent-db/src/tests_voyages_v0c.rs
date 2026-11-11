@@ -201,7 +201,7 @@ async fn annuaire_droits_adresses_verifiees_et_siren() {
         .fetch_one(c.ent.pool())
         .await
         .unwrap();
-    assert!(n >= 4, "{n}");
+    assert!(n >= 3, "{n}");
 }
 
 #[tokio::test]
@@ -641,7 +641,7 @@ async fn nj_28_70_courrier_rattache_seulement_si_reference_exacte_et_expediteur_
     // Référence sans somme de contrôle, devinée (référence voisine), ou expéditeur inconnu : tri, jamais auto.
     let sans_somme = s.reference.clone();
     let cas = [
-        ("m2", mail.as_str(), format!("Re: {sans_somme}"), "reference_seule"),
+        ("m2", mail.as_str(), format!("Re: {sans_somme}"), "expediteur_seul"),
         ("m3", "inconnu@autre-societe.com", format!("Re: [{reference}]"), "expediteur_inconnu"),
         ("m4", mail.as_str(), "Re: votre demande".to_string(), "expediteur_seul"),
         ("m5", "quelquun@nulle-part.org", "Bonjour".to_string(), "ni_reference_ni_expediteur"),

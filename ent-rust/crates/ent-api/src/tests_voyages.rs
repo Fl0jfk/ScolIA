@@ -692,3 +692,67 @@ async fn routes_budget_prix_pdf_rappels_et_apel_du_lot_v0b() {
     let (st, _) = appel(&app, "GET", &format!("/voyages/apel?annee_id={}", Uuid::new_v4()), Some(compta), None).await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 }
+
+/// Lot V0c (HTTP) : session obligatoire, droits de l'annuaire et du tri, cloisonnement, aucune route
+/// de dépôt de courrier entrant (corrige NJ-28) ni de destinataire libre (corrige NJ-11).
+#[tokio::test]
+async fn routes_prestataires_devis_et_courrier_du_lot_v0c() {
+    let Some(url) = std::env::var("ENT_DATABASE_URL").ok().filter(|u| !u.trim().is_empty()) else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let ent = PgEnt::connect(&url).await.unwrap();
+    ent.migrate().await.unwrap();
+    let state = AppState::nouveau(ent);
+    let cast = state.ent.seed_labo_cast().await.expect("cast");
+    let autre = state.ent.seed_labo_cast().await.expect("cast B");
+    let app = app(state.clone());
+    let (adm, prof, parent) = (cast.administratif.token.as_str(), cast.prof.token.as_str(), cast.parent_lea.token.as_str());
+    let b_adm = autre.administratif.token.as_str();
+    let f = Uuid::new_v4();
+    for (m, u) in [
+        ("GET", "/voyages/prestataires".to_string()),
+        ("POST", "/voyages/prestataires".to_string()),
+        ("PUT", "/voyages/reglage".to_string()),
+        ("POST", "/voyages/envois/traiter".to_string()),
+        ("GET", "/voyages/courrier/tri".to_string()),
+        ("GET", "/voyages/courrier/tri/compte".to_string()),
+        ("POST", format!("/voyages/courrier/{f}/rattacher")),
+        ("GET", format!("/voyages/{f}/achats")),
+        ("GET", format!("/voyages/{f}/prestataires")),
+        ("POST", format!("/voyages/{f}/devis/demandes")),
+        ("POST", format!("/voyages/{f}/devis")),
+        ("POST", format!("/voyages/{f}/commandes/signer-devis")),
+        ("GET", format!("/voyages/{f}/contacts-transport")),
+    ] {
+        let (st, _) = appel(&app, m, &u, None, None).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {u}");
+    }
+    // Annuaire : secrétariat oui ; professeur et famille non.
+    let corps = json!({"raison_sociale": "Cars HTTP", "categories": ["transporteur"], "adresses": ["http@cars-http.fr"]});
+    for t in [prof, parent] {
+        let (st, _) = appel(&app, "POST", "/voyages/prestataires", Some(t), Some(corps.clone())).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "GET", "/voyages/prestataires", Some(t), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "GET", "/voyages/courrier/tri", Some(t), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let (st, v) = appel(&app, "POST", "/voyages/prestataires", Some(adm), Some(corps.clone())).await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    assert_eq!(v["adresses"][0]["email"], "http@cars-http.fr");
+    let (st, _) = appel(&app, "POST", "/voyages/prestataires", Some(adm), Some(json!({"raison_sociale": "X", "categories": ["transporteur"], "adresses": ["a@b.fr, c@d.fr"]}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    // Cloisonnement : l'annuaire d'un autre établissement est vide.
+    let (st, v) = appel(&app, "GET", "/voyages/prestataires", Some(b_adm), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(v.as_array().unwrap().iter().all(|p| p["raison_sociale"] != "Cars HTTP"));
+    // Achats d'une sortie inconnue ou d'un autre établissement : introuvable.
+    let (st, _) = appel(&app, "GET", &format!("/voyages/{f}/achats"), Some(adm), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Aucune route de dépôt de courrier entrant ni de destinataire libre.
+    for (m, u) in [("POST", "/voyages/courrier"), ("POST", "/voyages/courrier/entrant"), ("POST", "/voyages/envois")] {
+        let (st, _) = appel(&app, m, u, Some(adm), Some(json!({"to": "x@y.fr"}))).await;
+        assert!(matches!(st, StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED), "{m} {u} {st}");
+    }
+}
