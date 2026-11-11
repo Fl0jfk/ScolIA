@@ -244,6 +244,8 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Existant [F]** : `ent_absence_rh` (080), `domain-eleve/src/absence_rh.rs` ; exceptions d'emploi du temps avec remplaçant.
 - **Place** : la journée est complète quand un cours sans professeur est remplacé ou annoncé.
 - **Faire mieux** : de l'absence du professeur à la famille prévenue sans saisie intermédiaire.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/15_ABSENCES_PERSONNELS.md` — trois objets (fait RH confidentiel à **nature catégorisée**, sans motif libre ni diagnostic ; **impact** calculé sur les séances, postes et engagements ; **réponse** d'organisation) plus les **heures constatées** ; circuit porté par l'engagement (État / OGEC) ; module Next.js M05 jugé **partiel** (règles reprises comme spécification, NX15-01 à NX15-58 ; 16 défauts AD-, dont motif médical lisible des surveillants et auto-validation, signalés à Florian) ; **lot A0** sur l'ENT Rust (motif lisible de tout le personnel, auto-validation, déclarant écrasé, levées supprimées : AR-01 à AR-26) ; réglementaire : décret 2023-732 (plan RCD), arrêté du 14/08/2023 (remontée hebdomadaire SI-RCD), décret 2023-738 (privé), circulaire 96-248 (familles prévenues, sortie), CNIL 2019-160 ; lots A0 à A15 ; migrations **2300–2319**.
+- **Passe personas** (2026-11-11, non décidée ; bloquants appliqués par défaut, D-031) : `docs/socles/PERSONAS_15.md` (16 personas, 62 manques M-1501 à M-1562) ; bloquants : EDT de référence avant tout effet vers les familles, signalement non confirmé sans effet extérieur (canular), circuit externe (rectorat, DSDEN/PIAL décident), présence visible à qui en a besoin ; 200 actions ABP-100 à ABP-299 au total.
 
 ### Étage D — Échanger
 
