@@ -56,3 +56,10 @@ test("matrice — filtre foyers par classes prof", () => {
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].id, "1");
 });
+
+test("NJ-37 : une classe n'en couvre pas une autre par préfixe", () => {
+  const foyers = [{ eleves: [{ classe: "4B" }] }, { eleves: [{ classe: "4e2" }] }];
+  assert.equal(filterFoyersForProfClasses(foyers, ["4"]).length, 0);
+  assert.equal(filterFoyersForProfClasses(foyers, ["4e"]).length, 0);
+  assert.equal(filterFoyersForProfClasses(foyers, ["4e 2"]).length, 1);
+});

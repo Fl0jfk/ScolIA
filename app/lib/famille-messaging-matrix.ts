@@ -52,12 +52,8 @@ function classeInAssigned(studentClasse: string | undefined, assignedClasses: st
   return assignedClasses.some((c) => {
     const target = classKey(c);
     if (!target) return false;
-    if (student === target) return true;
-    return (
-      student.length >= 2 &&
-      target.length >= 2 &&
-      (student.startsWith(target) || target.startsWith(student))
-    );
+    // NJ-37 (D-053) : égalité stricte, plus de correspondance par préfixe (« 4e » ne couvre plus « 4e2 »).
+    return student === target;
   });
 }
 
