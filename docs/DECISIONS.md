@@ -479,3 +479,17 @@ Issues de la mission `docs/missions/MISSION_PRA_SAUVEGARDES.md`. Détail et just
 ## D-054 — Correctifs Next.js recentrés sur ce qui s'attaque sans connexion (Florian, 2026-11-11 ; précise D-053)
 **Contexte** : les comptes connectés du Next.js sont aujourd'hui quelques personnels et professeurs de confiance ; plusieurs modules signalés (infirmerie, bien-être) sont des essais vides ou inutilisés ; élèves et parents n'ont pas de compte.
 **Décision** : le chantier D-053 ne traite plus que les failles **exploitables de l'extérieur, sans connexion** : pages et API publiques, liens à jeton, e-mails entrants, webhooks et tâches planifiées, fichiers servis sans contrôle, secrets de repli visibles dans le dépôt public. Les corrections « internes » restantes (tableau a–o du 2026-11-11 : rôles entre personnels connectés, IA du pilotage, module santé vide, bien-être inutilisé…) **ne sont pas poussées** sur le Next.js ; elles restent dues dans la version Rust (D-051). Les corrections internes déjà en production restent en place.
+
+## D-055 — Réponses de Florian du 2026-11-11 (après-midi)
+- **SOLTéA / taxe d'apprentissage** : hors sujet (D-052) ; rien à faire.
+- **Zeendoc (précise D-050)** : pas de reprise ni d'export Zeendoc à organiser ; on construit un **équivalent intégré** à la comptabilité ScolIA (une GED de factures qui *est* la compta, sans connecteur, là où Zeendoc a besoin d'un connecteur vers Charlemagne Comptabilité). Module **facultatif** : aucun établissement n'est poussé à y tout déposer. Q-CG40, Q-CG41, Q-CG46 sans objet tant qu'un établissement ne demande pas de reprise.
+- **IA de lecture des factures (Q-CG39)** : **Mistral** (API), sous les conditions habituelles (pas de fallback externe, droits de l'utilisateur).
+- **Vision all-in-one (rappel)** : à terme, **tout** ce qui sert à un établissement scolaire est dans ScolIA, au même endroit ; on évite les connecteurs vers des logiciels tiers.
+- **Paie (modifie D-048)** : plusieurs conventions et régimes, pas une seule : établissements privés (sous contrat d'association et sous contrat simple) **et** établissements publics. À étudier : qui paie qui dans le public (État, collectivités, EPLE employeur des AED/AESH/contractuels…), ce qui reste à gérer en interne (RH, paie des contrats de droit public recrutés par l'établissement), la paie des maîtres sous contrat simple. Reste « light » au sens de D-048 : seulement ce qui concerne un établissement scolaire.
+- **Applis mobiles** : comptes Apple et Google plus tard (coût) ; Florian dispose de Macs.
+- **Exports Charlemagne, inscription éditeur DNE** : plus tard.
+- **`BETTER_AUTH_SECRET`** défini en production ; `PHOTOCOPIES_READY_TOKEN_SECRET` non défini (le jeton photocopies retombe sur `BETTER_AUTH_SECRET`, comportement inchangé).
+
+## D-056 — Adresse des établissements et groupes scolaires (question ouverte, complète D-012)
+**Contexte** : D-012 a fixé un sous-domaine par établissement (ex. `lpnb.scolia.fr`). Florian préférerait le **code UAI (ex-RNE)** pour ne pas inventer de diminutif, mais un **groupe scolaire** (plusieurs UAI au même endroit, qui travaillent ensemble) doit fonctionner comme un tout.
+**À concevoir** (session dédiée) : séparer l'**organisme** (groupe scolaire / organisme de gestion, l'unité de travail et de cloisonnement) des **établissements UAI** qu'il porte ; adresses possibles par UAI, renvoyant toutes vers l'organisme ; effet sur le cloisonnement (`etablissement_id`), les cookies `__Host-`, les passkeys (D-013), les applis mobiles, l'existant `lpnb.scolia.fr`.
