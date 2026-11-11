@@ -21,7 +21,7 @@
 7. **LSU** : déclaration produite par le 22 sur le moteur du socle 9 ; **pré-contrôle huit semaines avant** l'échéance (trou T-28 du marché) et **aide à la saisie** tout de suite ; format officiel **après la démarche éditeur** (C8b, D-032) (§10).
 8. **93 actions** (CMP-100 à CMP-231), **41 cas limites**, **20 règles**, **14 lots** (C0 à C13), **14 migrations** planifiées dans 2440–2459 (6 en réserve) ; **parcours minimal vendable au collège** : C0 à C6 + C8a. Le pilote étant un lycée, son besoin est surtout C7 (échelle LSL, CECRL) et C5 (Pix) (§17, §23).
 9. **Pour Florian** : démarche éditeur (F-06) ; exemples LSU anonymisés ; durées de conservation (DPO) ; référentiels modèles ; un collège pilote (§26.2).
-10. **[ajout personas]** voir §28.
+10. **[ajout personas]** 17 personas, 78 manques, 3 bloquants tranchés (D-031) : publication aux familles suspendue au droit `recevoir_bulletins` du socle 4 (repli et tâche au secrétariat), observations jamais fondées sur un comportement isolé ni sur la discipline, bilan des élèves à deux équipes (ULIS) co-rédigé par le coordonnateur ; 27 actions ajoutées (CMP-240 à 266) ; voir §28.
 
 ---
 ---
@@ -933,3 +933,130 @@ Chaque migration est **additive et rejouable** (E8 : `IF NOT EXISTS`, données d
 - **C4** Réglementation : D. 122-3 dit encore que le DNB « atteste la maîtrise du socle », alors que le décret 2025-328 retire le socle du contrôle continu [V R-C10]. ScolIA garde le bilan de fin de cycle (obligatoire au livret, art. 5) et **ne le relie pas** au DNB.
 - **C5** `21_EVALUATIONS.md` §2.1 situe les écrans sous `ent-web-app/src/modules/evaluations/` ; le chemin réel est `web/crates/ent-web-app/src/modules/evaluations/` [F, sous-agent].
 - **C6** `TRANSITION_T0_INVENTAIRE.md` l. 135 range « compétences » avec les notes Next.js (C06, ébauche perdable) : cohérent avec ce document (rien à reprendre).
+
+---
+
+## 28. [ajout personas] Ce que change la passe personas (`PERSONAS_22.md`, 2026-11-11)
+
+17 personas (dont un **attaquant** et le **DPO**), 78 manques (M22-001 à M22-078) : **3 bloquants**, 48 importants, 24 confort, 2 différenciants. **En cas de contradiction avec les §0 à §27, ce paragraphe l'emporte.**
+
+### 28.1 Bloquants tranchés (*appliqué par défaut, D-031*)
+- **A — `recevoir_bulletins` absent du code** : C6 ne publie à une famille synthèses, bilan et attestations qu'avec ce droit (socle 4, lot A14) ; d'ici là, repli `peut_voir_notes` (comme le V0 du 21) **et** tâche au secrétariat pour chaque lien sans ce droit qui devait recevoir (parent sans exercice, tiers) : courrier ou remise tracée (R-C21).
+- **B — Observation et jugement de comportement** : aucune observation ne se fonde sur un fait disciplinaire (aucune lecture du socle 13) ; aucune observation sans **activité** nommée (projet, oral, travail de groupe, engagement) ; aucun texte libre ; purge fin de cycle + 1 an (R-C22, R-C23).
+- **C — Élève à deux équipes** (ULIS, SEGPA, changement de classe en fin d'année) : bilan proposé et arrêté par la classe de rattachement **à la date du conseil** ; le coordonnateur de dispositif est **co-rédacteur de droit** et invité au point de l'élève ; un changement de classe transfère le bilan avec ses avis (R-C24).
+
+### 28.2 Actions ajoutées
+| Id | Action | Qui · droit | Règles | Manque |
+|---|---|---|---|---|
+| CMP-240 | Saisir un niveau pour toute une ligne (élève) ou toute une colonne (élément) | PRF · `competences.positionner` | puis ajustement case par case | M22-002 |
+| CMP-241 | Lister les élèves « pas assez d'éléments » et ouvrir une observation ciblée avant la clôture | PRF | §7.3 ; R-C22 | M22-003 |
+| CMP-242 | Enregistrer et réutiliser une **évaluation type** (éléments, seuils par exercice) | PRF | entre classes et années | M22-004, M22-007 |
+| CMP-243 | Afficher « en progrès / stable / en recul » par élément (deux derniers positionnements, déterministe) | SYS → PAR, ELV | jamais une couleur seule | M22-005 |
+| CMP-244 | Montrer à la création de l'évaluation ce que la famille verra | SYS → PRF | selon le mode du niveau | M22-006 |
+| CMP-245 | Avertir d'un élément d'une autre discipline que celle du cours | SYS → PRF | non bloquant | M22-009 |
+| CMP-246 | Vue « bilan de classe » (élèves × 8 composantes, proposition et choix, clavier) | PP | — | M22-010 |
+| CMP-247 | Afficher la pièce du LSU antérieur dans le dossier d'appui | PP | origine externe | M22-011 |
+| CMP-248 | Demander à des collègues un positionnement ciblé (élève, composante, échéance) | PP | tâche au professeur ; R-C20 | M22-012 |
+| CMP-249 | Rappeler à J-7 du conseil les composantes vides | SYS → PP, PRF | regroupé au résumé | M22-014 |
+| CMP-250 | Voir les changements d'un bilan entre proposition et arrêt | PP, DIR | historique | M22-015 |
+| CMP-251 | Faire cohabiter deux versions d'un référentiel la même année (par niveau d'entrée ou par cohorte) | CDD | R-C27 | M22-016, M22-040 |
+| CMP-252 | Rattacher un élément à une composante principale et à des composantes secondaires | CDD | R-C26 | M22-017 |
+| CMP-253 | Copier un référentiel vers un autre établissement de l'organisme | CDD (soi) | geste de la personne, jamais lecture croisée (D-013) | M22-018 |
+| CMP-254 | Viser en lot avec filtres (sans non évaluable, sans correction tardive, sans demande ouverte) | chef · `competences.bilans_viser` ★ | liste des exclus | M22-021 |
+| CMP-255 | Paramétrer la date de remontée LSU (pré-contrôle calé) | ADF, DIR | — | M22-024 |
+| CMP-256 | Inscrire une attestation au **journal à reporter** (Pix l'an 1 au pilote) | ADF | R-X24 du 9 | M22-025 |
+| CMP-257 | Saisir une attestation au bord du bassin (mobile, hors ligne, liste) | PRF d'EPS | « non passé » distinct de « dispensé » ; « à repasser » | M22-030, M22-031 |
+| CMP-258 | Rattacher un élément adapté à un élément ordinaire | CDP | §12.3 | M22-035 |
+| CMP-259 | Positionner en CECRL (FLS) à l'arrivée et lever « non évaluable » à la date prévue | PRF UPE2A | rappel | M22-037, M22-038 |
+| CMP-260 | Partager une grille au tuteur et recevoir ses propositions | PRF référent | socle 39 ; auteur « tuteur, validé par » | M22-041 |
+| CMP-261 | Viser le bilan par **chacun** des titulaires (réputé visé dès le premier) | PAR, tiers selon décision | R-V46 : rien de l'autre parent | M22-052, M22-053 |
+| CMP-262 | Donner à un personnel une portée par **mission** (documentaliste, référent) sur les élèves de ses séances | DIR | socle 6 | M22-062 |
+| CMP-263 | Demander un duplicata d'attestation sans compte (ancien élève) | public → ADF | vérification d'identité ; socle 7 | M22-077 |
+| CMP-264 | Purger à fin de cycle + 1 an (positionnements, observations, auto-positionnements, avis internes) avec rapport | SYS, DPO | D-043 pour les sauvegardes | M22-073 |
+| CMP-265 | Produire la fiche de traitement du socle pour le registre (socle 27) | DPO | — | M22-071 |
+| CMP-266 | Contrôle automatique « aucune donnée de compétence dans les journaux applicatifs » | SYS | test E14 | M22-076 |
+
+### 28.3 Règles ajoutées
+| Id | Règle |
+|---|---|
+| R-C21 | Tant que `recevoir_bulletins` n'existe pas, toute publication à une famille suit `peut_voir_notes` et crée une tâche au secrétariat pour chaque lien qui aurait dû recevoir. |
+| R-C22 | Aucune observation ne lit ni ne cite un fait disciplinaire ; aucune observation sans activité nommée ; aucune observation en texte libre. |
+| R-C23 | Les éléments du domaine 3 ne se positionnent que sur une activité pédagogique ou un engagement, jamais sur un comportement isolé. |
+| R-C24 | Le bilan de fin de cycle est proposé et arrêté par la classe de rattachement à la date du conseil ; le coordonnateur de dispositif est co-rédacteur de droit. |
+| R-C25 | L'auto-positionnement est un choix de niveau, sans texte libre, toujours marqué comme tel. |
+| R-C26 | Un élément a une composante principale (seule lue par la proposition du bilan) et des composantes secondaires facultatives. |
+| R-C27 | Plusieurs versions d'un référentiel peuvent coexister la même année, chacune liée à des niveaux ou à une cohorte ; un élève n'en voit qu'une par discipline. |
+| R-C28 | Le visa du bilan par les responsables est individuel ; le bilan est réputé visé dès le premier visa ; aucun responsable ne voit le visa d'un autre. |
+| R-C29 | Seul un lien titulaire (ou tiers selon décision) vise ; une requête de visa est idempotente par (bilan, personne). |
+| R-C30 | Toute lecture par identifiant d'un élève répond de la même façon à « inexistant » et à « interdit ». |
+
+### 28.4 Cas limites ajoutés
+| # | Cas | Règle |
+|---|---|---|
+| CC-42 | Élève d'ULIS dont la classe de référence change en mai | bilan transféré avec ses avis (R-C24) |
+| CC-43 | Coordonnateur absent au conseil | avis déposés lus par le président ; note au président (BUL-124 du 23) |
+| CC-44 | Deux versions de référentiel dans la même classe (redoublant) | l'élève suit la version de sa cohorte (R-C27) |
+| CC-45 | Élément rattaché à deux composantes | seule la principale nourrit la proposition (R-C26) |
+| CC-46 | Observation saisie le jour d'un incident disciplinaire | aucune lecture du 13 ; le contrôle de cohérence ne fait aucun lien (R-C22) |
+| CC-47 | Second titulaire qui vise après le premier | enregistré, aucun effet visible par le premier |
+| CC-48 | Frère majeur sans lien qui tente de viser | refus (R-C29) |
+| CC-49 | Identifiant d'un camarade dans l'URL | même réponse que pour un inexistant (R-C30) |
+| CC-50 | Pix passé dans ScolIA, LSL produit par Charlemagne (an 1) | journal à reporter (CMP-256) |
+| CC-51 | Tuteur qui propose un niveau pour un élève qui n'est pas son stagiaire | refus (socle 39) |
+| CC-52 | Élève allophone dont le « non évaluable » expire | rappel ; jamais converti en niveau |
+| CC-53 | Purge d'un positionnement cité par un bilan visé | le bilan visé garde ses niveaux ; l'appui détaillé disparaît (le bilan est un acte autonome) |
+| CC-54 | Ancien élève qui demande un duplicata d'un établissement fermé | reprise par l'organisme (M22-078) |
+| CC-55 | Demande d'accès d'un parent à un avis interne sur le bilan | communicable au titre du droit d'accès (M22-074), l'écran de saisie de l'avis le dit |
+
+### 28.5 Questions ajoutées
+| Id | Question | Recommandation |
+|---|---|---|
+| Q-CP13 | Visa du bilan : un titulaire ou chacun ? | **chacun peut**, un suffit (R-C28) — *appliqué par défaut* |
+| Q-CP14 | Observations du domaine 3 | **sur activité seulement** (R-C23) — *appliqué par défaut* |
+| Q-CP15 | Pix au pilote l'an 1 | **doublon** + journal à reporter (CMP-256) — *appliqué par défaut* |
+| Q-CP16 | Rattachement multiple d'un élément | **principale + secondaires** (R-C26) — *appliqué par défaut* |
+| Q-CP17 | Auto-positionnement en texte libre ? | **non** (R-C25) — *appliqué par défaut* |
+| Q-CP18 | Base légale du traitement | mission d'intérêt public / obligation légale [H juridique] — **à valider par le DPO** (F22-6) |
+| Q-CP19 | Avis internes communicables ? | **oui** au titre du droit d'accès, l'écran le dit — *appliqué par défaut* |
+
+### 28.6 Compléments de modèle (réserve **2451–2456**, sans JSON, E1–E14)
+```
+2451  cmp_element_composante       etablissement_id, element_id, composante_id, principale BOOLEAN    -- R-C26 ; remplace cmp_element.composante_id
+                                   (colonne gardée en lecture le temps de la reprise)
+      cmp_referentiel_version_niveau  etablissement_id, version_id, niveau_id, cohorte_annee_id NULL  -- R-C27
+2452  cmp_evaluation_type          id, etablissement_id, auteur_personne_id, libelle ; cmp_evaluation_type_element (element_id, seuils)  -- CMP-242
+      cmp_observation_activite     etablissement_id, positionnement_id, nature ('projet','oral','groupe','engagement','tp','autre'),
+                                   projet_id NULL                                                    -- R-C22, R-C23
+2453  cmp_bilan_coredacteur        etablissement_id, bilan_id, personne_id, role ('pp','coordonnateur_dispositif')   -- R-C24
+      cmp_bilan_demande_appui      id, etablissement_id, bilan_id, composante_id, professeur_personne_id, echeance, etat  -- CMP-248
+2454  cmp_tuteur_proposition       id, etablissement_id, eleve_id, element_id, niveau_id, tuteur_libelle, recue_le, validee_par NULL  -- CMP-260
+      cmp_purge_rapport            id, etablissement_id, cycle_fin_annee_id, nb_lignes, execute_le                  -- CMP-264
+```
+`cmp_bilan_prise_connaissance` porte déjà un enregistrement par personne (R-C28) ; contrainte unique `(etablissement_id, bilan_id, personne_id)` ajoutée en 2453 (R-C29). Aucune exception D-036.
+
+### 28.7 Lots modifiés
+- **C2** : + CMP-240 à 245, R-C22, R-C23, R-C25, R-C30 ; table `cmp_observation_activite`.
+- **C4** : + CMP-246 à 250, 254, 261 ; R-C24, R-C28, R-C29 ; co-rédacteurs.
+- **C6** : **dépend du lot A14 du socle 4** (bloquant A) ; repli R-C21 testé.
+- **C1** : + CMP-251 à 253 ; R-C26, R-C27.
+- **C5** : + CMP-256, 257, 263.
+- **C7** : + CMP-258, 259, 262. **C9** : + CMP-260.
+- **Nouveau critère transverse** : la purge (CMP-264) et la fiche de traitement (CMP-265) sont des critères de fin du socle (avec le socle 27).
+
+### 28.7 bis Réglages signalés ajoutés (D-023)
+| Id | Réglage | Recommandation |
+|---|---|---|
+| S22-09 | Seuils de niveau par exercice (évaluation type) | propres au professeur, aucun réglage d'établissement |
+| S22-10 | Limite douce de taille d'un référentiel | avertissement au-delà de 40 items par discipline et cycle |
+| S22-11 | « En progrès / stable / en recul » visible des familles | oui par défaut, désactivable |
+| S22-12 | Avant/après de l'auto-positionnement | désactivé par défaut |
+
+### 28.8 Contradictions levées
+R-C2 (une composante) → **R-C26** ; R-C7 (droit inexistant) → **R-C21** ; CMP-163 (le PP seul) → **R-C24**.
+
+### 28.9 Points pour Florian ajoutés
+| Id | Point |
+|---|---|
+| F22-6 | Base légale et fiche de traitement à faire valider par le **DPO** (Q-CP18) |
+| F22-7 | Le lot A14 du socle 4 (`recevoir_bulletins`) devient un **préalable** de la publication aux familles des compétences et des bulletins (bloquant A) : à placer avant la V1 |
+| F22-8 | Format du relevé de la plateforme Pix (import) : exemple anonymisé à fournir si l'établissement en reçoit un |
