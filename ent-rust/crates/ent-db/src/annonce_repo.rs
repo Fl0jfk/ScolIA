@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{Annonce, AudienceAnnonce, DomainError, StatutAnnonce};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgAnnonceRepo {
     pool: PgPool,
@@ -14,6 +15,7 @@ impl PgAnnonceRepo {
     }
 
     pub async fn insert(&self, a: &Annonce) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_annonce (
@@ -35,9 +37,10 @@ impl PgAnnonceRepo {
         .bind(a.classe_id)
         .bind(a.apercu_nb_eleves)
         .bind(a.apercu_nb_responsables)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -47,7 +50,7 @@ impl PgAnnonceRepo {
         ))
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(AnnonceSql::into_annonce))
@@ -60,6 +63,7 @@ impl PgAnnonceRepo {
         id: Uuid,
         par: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             "UPDATE ent_annonce SET statut = 'publiee', confirmee_par = $3, confirmee_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut = 'apercu'",
@@ -67,9 +71,10 @@ impl PgAnnonceRepo {
         .bind(etablissement_id)
         .bind(id)
         .bind(par)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() == 1)
     }
 
@@ -81,6 +86,7 @@ impl PgAnnonceRepo {
         par: Uuid,
         motif: &str,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             "UPDATE ent_annonce
                 SET statut = 'retiree', retiree_par = $3, retiree_le = now(), retiree_motif = $4
@@ -90,9 +96,10 @@ impl PgAnnonceRepo {
         .bind(id)
         .bind(par)
         .bind(motif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() == 1)
     }
 
@@ -106,7 +113,7 @@ impl PgAnnonceRepo {
         ))
         .bind(etablissement_id)
         .bind(limit.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(AnnonceSql::into_annonce).collect())
@@ -139,7 +146,7 @@ impl PgAnnonceRepo {
         .bind(classe_ids)
         .bind(classe_libelle)
         .bind(limit.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(AnnonceSql::into_annonce).collect())

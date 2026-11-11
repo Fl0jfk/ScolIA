@@ -1,6 +1,7 @@
 use domain_eleve::{DomainError, EleveOption, OptionNature};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgOptionRepo {
     pool: PgPool,
@@ -12,6 +13,7 @@ impl PgOptionRepo {
     }
 
     pub async fn upsert(&self, opt: &EleveOption) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, opt.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_option (
@@ -34,9 +36,10 @@ impl PgOptionRepo {
         .bind(&opt.libelle)
         .bind(opt.date_debut)
         .bind(opt.date_fin)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -55,7 +58,7 @@ impl PgOptionRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(OptRow::into_opt).collect())

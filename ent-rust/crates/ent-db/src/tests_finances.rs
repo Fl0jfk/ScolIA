@@ -20,11 +20,7 @@ const ANNEE: &str = "2030-2031";
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_mail_dry_run();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_mail_dry_run(); }).await;
     Some((ent, cast))
 }
 
@@ -56,14 +52,14 @@ async fn exec(ent: &PgEnt, sql: &str, ids: &[Uuid]) {
     for i in ids {
         q = q.bind(*i);
     }
-    q.execute(ent.pool()).await.unwrap();
+    q.execute(ent.pool_verif()).await.unwrap();
 }
 
 /// Correction de date de **test** sur une pièce figée (F0 : les déclencheurs d'immutabilité
 /// la refuseraient) : on suspend les déclencheurs le temps de l'instruction, comme le
 /// ferait un administrateur de base lors d'une reprise. Jamais utilisé par le code produit.
 async fn exec_corrige(ent: &PgEnt, sql: &str, ids: &[Uuid]) {
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("SET LOCAL session_replication_role = replica")
         .execute(&mut *tx)
         .await
@@ -79,7 +75,7 @@ async fn exec_corrige(ent: &PgEnt, sql: &str, ids: &[Uuid]) {
 async fn compter(ent: &PgEnt, sql: &str, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as(sql)
         .bind(id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     n
@@ -96,7 +92,7 @@ async fn eleve(ent: &PgEnt, etab: Uuid, prenom: &str, naissance: NaiveDate, regi
     .bind(prenom)
     .bind(regime)
     .bind(naissance)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     id
@@ -108,7 +104,7 @@ async fn foyer(ent: &PgEnt, etab: Uuid, libelle: &str) -> Uuid {
         .bind(id)
         .bind(etab)
         .bind(libelle)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     id
@@ -126,7 +122,7 @@ async fn payeur_compte(ent: &PgEnt, etab: Uuid, eleve: Uuid, user: Uuid, foyer: 
     .bind(user)
     .bind(foyer)
     .bind(part)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
 }
@@ -138,7 +134,7 @@ async fn payeur_personne(ent: &PgEnt, etab: Uuid, eleve: Uuid, nom: &str, foyer:
         .bind(p)
         .bind(etab)
         .bind(nom)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query(
@@ -151,7 +147,7 @@ async fn payeur_personne(ent: &PgEnt, etab: Uuid, eleve: Uuid, nom: &str, foyer:
     .bind(p)
     .bind(foyer)
     .bind(part)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
 }
@@ -216,7 +212,7 @@ async fn grille(ent: &PgEnt, c: &LaboCast) -> Grille {
 
 /// Publie `inscription.validee` comme le fait S2-3 (même transaction que la validation).
 async fn inscription_validee(ent: &PgEnt, etab: Uuid, eleve: Uuid) -> Uuid {
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let e = tx
         .publier(MetierEventDraft {
             etablissement_id: etab,
@@ -242,7 +238,7 @@ async fn lignes_foyer(ent: &PgEnt, etab: Uuid, foyer: Uuid) -> Vec<(String, i64,
     )
     .bind(etab)
     .bind(foyer)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap()
 }
@@ -255,7 +251,7 @@ async fn brouillons(ent: &PgEnt, etab: Uuid, foyer: Uuid, type_piece: &str) -> V
     .bind(etab)
     .bind(foyer)
     .bind(type_piece)
-    .fetch_all(ent.pool())
+    .fetch_all(ent.pool_verif())
     .await
     .unwrap()
     .into_iter()
@@ -309,7 +305,7 @@ async fn rentree_facturee_multi_payeurs_idempotente() {
     dist.distribuer_tout().await.unwrap();
     sqlx::query("DELETE FROM ent_event_traitement WHERE consommateur = $1")
         .bind(CONSOMMATEUR_FACTURATION)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     dist.rejouer_consommateur(CONSOMMATEUR_FACTURATION, etab, 0)
@@ -317,7 +313,7 @@ async fn rentree_facturee_multi_payeurs_idempotente() {
         .unwrap();
     dist.distribuer_tout().await.unwrap();
     // Génération annuelle directe (même chemin que FIN-02) : rien de plus.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let r = crate::finances::facturer_annee_eleve(
         &mut tx,
         etab,
@@ -442,7 +438,7 @@ async fn prorata_fratrie_quotient_bourse() {
     .bind(f)
     .bind(ANNEE)
     .bind(u)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     // Bourse acceptée avec procuration, barème 1 200 € (bourses.gerer).
@@ -450,7 +446,7 @@ async fn prorata_fratrie_quotient_bourse() {
     sqlx::query("INSERT INTO ent_bourse_type (id, etablissement_id, code, libelle) VALUES ($1, $2, 'NAT', 'Bourse nationale')")
         .bind(bt)
         .bind(etab)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query(
@@ -461,7 +457,7 @@ async fn prorata_fratrie_quotient_bourse() {
     .bind(etab)
     .bind(aine)
     .bind(bt)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     ent.poser_bareme_bourse_for_actor(
@@ -488,7 +484,7 @@ async fn prorata_fratrie_quotient_bourse() {
     .bind(etab)
     .bind(ANNEE)
     .bind(bt)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     let f_dp = foyer(&ent, etab, "Foyer DP bourse").await;
@@ -506,11 +502,11 @@ async fn prorata_fratrie_quotient_bourse() {
         .bind(el)
         .bind(bt)
         .bind(ech)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     }
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     for el in [dp_petite, dp_grande] {
         crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, el, None, None, Default::default())
             .await
@@ -542,7 +538,7 @@ async fn prorata_fratrie_quotient_bourse() {
         "FD-12 : bourses ({bourses}) au-delà des lignes de restauration/internat ({restauration})"
     );
 
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     // Aîné : année entière. Cadet : entrée le 20 novembre → 8 mois sur 10.
     crate::finances::facturer_annee_eleve(
         &mut tx,
@@ -610,7 +606,7 @@ async fn prorata_fratrie_quotient_bourse() {
     )
     .bind(etab)
     .bind(f)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(total, 600_000 + 480_000 - 48_000);
@@ -692,12 +688,12 @@ async fn avoirs_regime_sortie_absence() {
     // Rejeu de l'événement de régime : rien de plus.
     sqlx::query("DELETE FROM ent_event_traitement WHERE event_id = $1")
         .bind(ev.evenement_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     sqlx::query("UPDATE ent_outbox SET statut = 'a_distribuer' WHERE event_id = $1")
         .bind(ev.evenement_id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     dist.distribuer_tout().await.unwrap();
@@ -768,7 +764,7 @@ async fn avoirs_regime_sortie_absence() {
         "SELECT payload FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'eleve.sortie'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(!payload.to_string().contains("déménagement"));
@@ -780,10 +776,10 @@ async fn avoirs_regime_sortie_absence() {
         .bind(abs)
         .bind(etab)
         .bind(e2)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     tx.publier(MetierEventDraft {
         etablissement_id: etab,
         type_name: types::ELEVE_ABSENCE_JUSTIFIED.into(),
@@ -803,7 +799,7 @@ async fn avoirs_regime_sortie_absence() {
     )
     .bind(etab)
     .bind(abs.to_string())
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     // 3 000 € × 20 jours / 303 jours (1er sept → 30 juin) = 198,01 € (arrondi inférieur).
@@ -817,7 +813,7 @@ async fn eleve_dp_facture(ent: &PgEnt, c: &LaboCast, f: Uuid) -> Uuid {
     let (u, r) = compta(c);
     let e = eleve(ent, etab, "Carla", d(2016, 6, 6), "demi_pension").await;
     payeur_personne(ent, etab, e, "Leroy", f, 100).await;
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, e, None, None, Default::default())
         .await
         .unwrap()
@@ -1281,7 +1277,7 @@ async fn droits_et_isolation() {
     let e = eleve(&ent, etab, "Eva", d(2017, 7, 7), "externe").await;
     let f = foyer(&ent, etab, "Foyer E").await;
     payeur_personne(&ent, etab, e, "Petit", f, 100).await;
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     crate::finances::facturer_annee_eleve(&mut tx, etab, ANNEE, e, None, None, Default::default())
         .await
         .unwrap()
@@ -1351,7 +1347,7 @@ async fn droits_et_isolation() {
     ));
 
     // Autre établissement : rien de A n'est visible ni modifiable.
-    let c2 = ent.seed_labo_cast().await.unwrap();
+    let c2 = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let (u2, r2) = compta(&c2);
     assert!(ent
         .facture_detail_for_actor(c2.etablissement_id, u2, r2, facture)
@@ -1397,7 +1393,7 @@ async fn droits_et_isolation() {
         .is_err());
     // Événement forgé dans B citant l'élève de A : aucune ligne. Depuis la clé composée d'E0
     // (migration 240), la base refuse déjà la publication elle-même.
-    let mut tx = ent.pool().begin().await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
     let forge = tx
         .publier(MetierEventDraft {
         etablissement_id: c2.etablissement_id,
@@ -1456,7 +1452,7 @@ async fn rls_tables_finances() {
         "SELECT count(*) FROM pg_tables t WHERE t.schemaname = 'public' AND t.tablename LIKE 'ent_fin\\_%'
             AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.tablename = t.tablename AND p.policyname = 'ent_rls_etablissement')",
     )
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert_eq!(sans, 0, "table ent_fin_* sans politique RLS");
@@ -1469,7 +1465,7 @@ async fn rls_tables_finances() {
         format!("GRANT SELECT, INSERT ON ent_fin_parametres, ent_fin_article, ent_fin_tarif TO {ROLE}"),
         format!("ALTER ROLE {ROLE} SET app.rls_strict = 'on'"),
     ] {
-        sqlx::query(&sql).execute(ent.pool()).await.unwrap();
+        sqlx::query(&sql).execute(ent.pool_verif()).await.unwrap();
     }
     let mut url = url::Url::parse(&url).unwrap();
     url.set_username(ROLE).unwrap();

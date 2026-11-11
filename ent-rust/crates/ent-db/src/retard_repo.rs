@@ -3,6 +3,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DomainError, Retard};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgRetardRepo {
     pool: PgPool,
@@ -16,7 +17,9 @@ impl PgRetardRepo {
     /// Insère un retard. Idempotent pour un couple (appel, élève) : rejouer la
     /// clôture d'un appel ne crée pas de doublon.
     pub async fn insert(&self, r: &Retard) -> Result<(), DomainError> {
-        Self::insert_sur(&self.pool, r).await
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
+        Self::insert_sur(&mut *tx, r).await?;
+        tx.commit().await.map_err(map_sqlx)
     }
 
     /// Même écriture, dans la transaction de l'appelant (fait + événement).
@@ -77,7 +80,7 @@ impl PgRetardRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(limit.clamp(1, 500))
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(RetardSql::into_retard).collect())
@@ -99,7 +102,7 @@ impl PgRetardRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(depuis)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)

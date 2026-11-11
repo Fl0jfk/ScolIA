@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::champs_chiffres::ChampsSensibles;
+use crate::tenant_tx::TenantTx;
 
 /// Version du contrat `DeclarationResponsables` (champs réservés inclus).
 pub const CONTRAT_DECLARATION_VERSION: i16 = 1;
@@ -433,7 +434,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(eleve_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         Ok(rows
@@ -465,6 +466,7 @@ impl PgEnt {
     ) -> Result<AlertesProtection, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::LiensSuspendre)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let adresses: Vec<(Uuid, Uuid, String, Option<String>, String, DateTime<Utc>)> =
             sqlx::query_as(
                 "SELECT a.id, a.personne_id, p.nom, p.prenom, a.origine, a.created_at
@@ -474,7 +476,7 @@ impl PgEnt {
                   ORDER BY a.created_at",
             )
             .bind(etab)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
         let nps: Vec<(Uuid, String, Option<String>, Option<DateTime<Utc>>)> = sqlx::query_as(
@@ -486,7 +488,7 @@ impl PgEnt {
               ORDER BY r.ne_pas_solliciter_le",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         Ok(AlertesProtection {
@@ -536,7 +538,7 @@ impl PgEnt {
         } else {
             ReserveDeclaree::default()
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, personne_id, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -609,7 +611,7 @@ impl PgEnt {
     ) -> Result<String, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::LiensSuspendre)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, String)> = sqlx::query_as(
             "SELECT personne_id, adresse FROM ent_adresse_protegee
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -680,7 +682,7 @@ impl PgEnt {
     ) -> Result<Option<Uuid>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
             "SELECT a.personne_id, p.fusionnee_dans FROM ent_lien_attente a
                JOIN ent_personne p ON p.id = a.personne_id AND p.etablissement_id = a.etablissement_id
@@ -752,7 +754,7 @@ impl PgEnt {
             "SELECT fuseau FROM ent_etablissement_parametre WHERE etablissement_id = $1",
         )
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(r.map_or_else(|| FUSEAU_DEFAUT.to_string(), |(f,)| f))
@@ -770,16 +772,17 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::ReferentielGerer)
             .await?;
         let fuseau = fuseau.trim();
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let (connu,): (bool,) =
             sqlx::query_as("SELECT EXISTS (SELECT 1 FROM pg_timezone_names WHERE name = $1)")
                 .bind(fuseau)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
         if !connu {
             return Err(invalide("fuseau horaire inconnu (nom IANA attendu, ex. Indian/Reunion)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_etablissement_parametre (etablissement_id, fuseau, updated_by)
              VALUES ($1,$2,$3)

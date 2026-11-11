@@ -1,6 +1,7 @@
 use domain_eleve::DomainError;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone)]
 pub struct Matiere {
@@ -29,6 +30,7 @@ impl PgMatiereRepo {
     }
 
     pub async fn insert(&self, m: &Matiere) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, m.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_matiere (id, etablissement_id, code, libelle, source_nomenclature)
@@ -40,7 +42,7 @@ impl PgMatiereRepo {
         .bind(&m.code)
         .bind(&m.libelle)
         .bind(&m.source_nomenclature)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| match &e {
             sqlx::Error::Database(db) if db.constraint() == Some("ent_matiere_code_uq") => {
@@ -48,6 +50,7 @@ impl PgMatiereRepo {
             }
             _ => map_sqlx(e),
         })?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -65,7 +68,7 @@ impl PgMatiereRepo {
         )
         .bind(etablissement_id)
         .bind(matiere_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(MatiereRow::into_matiere))
@@ -77,6 +80,7 @@ impl PgMatiereRepo {
         matiere_id: Uuid,
         libelle: &str,
     ) -> Result<Option<Matiere>, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, MatiereRow>(
             r#"
             UPDATE ent_matiere
@@ -88,9 +92,10 @@ impl PgMatiereRepo {
         .bind(etablissement_id)
         .bind(matiere_id)
         .bind(libelle.trim())
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.map(MatiereRow::into_matiere))
     }
 
@@ -104,7 +109,7 @@ impl PgMatiereRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(MatiereRow::into_matiere).collect())

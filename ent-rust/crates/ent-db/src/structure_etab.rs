@@ -499,7 +499,7 @@ impl PgEnt {
         // PostgreSQL est la référence des noms IANA : un nom inconnu lève une erreur.
         sqlx::query("SELECT timezone($1, TIMESTAMPTZ '2000-01-01 00:00:00+00')")
             .bind(&fuseau)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(|_| invalide())?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)

@@ -27,6 +27,7 @@ use crate::droits_repo::Droit;
 use crate::outbox::Publier;
 use crate::ref_commun::{Acteur, db, introuvable, invalide, publier_agg};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// Durée maximale d'une délégation (jours) [H : à confirmer par l'établissement].
 pub const DELEGATION_DUREE_MAX_JOURS: i64 = 366;
@@ -180,7 +181,7 @@ pub(crate) async fn charger_droits(
     )
     .bind(etab)
     .bind(ids)
-    .fetch_all(pool)
+    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
     .await
     .map_err(db)?;
     let cibles: Vec<(Uuid, i16, Uuid)> = sqlx::query_as(
@@ -190,7 +191,7 @@ pub(crate) async fn charger_droits(
     )
     .bind(etab)
     .bind(ids)
-    .fetch_all(pool)
+    .fetch_all(&mut *TenantTx::begin(pool, etab).await.map_err(db)?)
     .await
     .map_err(db)?;
     for (deleg, ordre, action, portee) in droits {
@@ -267,7 +268,7 @@ impl PgEnt {
         .bind(etab)
         .bind(user_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = ids.into_iter().map(|(id,)| id).collect();
@@ -318,6 +319,7 @@ impl PgEnt {
             None => return Err(introuvable()),
         }
         let droits = droits_du_catalogue(&s.droits)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         // Cibles « désignées » : classes ou groupes de l'établissement.
         for d in droits.iter().filter(|d| d.portee == Portee::Designes) {
             let (n,): (i64,) = sqlx::query_as(
@@ -326,7 +328,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(&d.cibles)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if n as usize != d.cibles.len() {
@@ -350,7 +352,7 @@ impl PgEnt {
                 },
             })
             .collect();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_delegation
                (id, etablissement_id, delegue_user_id, delegant_user_id, debut, fin, motif)
@@ -404,7 +406,7 @@ impl PgEnt {
         let Some(l) = sqlx::query_as::<_, LigneDelegation>(&sql)
             .bind(etab)
             .bind(id)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?
         else {
@@ -423,7 +425,7 @@ impl PgEnt {
     ) -> Result<Delegation, EntDbError> {
         self.exiger_referentiel(a, Action::DelegationsGerer).await?;
         let etab = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let touche: Option<(Uuid,)> = sqlx::query_as(
             "UPDATE ent_delegation
                 SET statut = 'revoquee', revoquee_le = now(), revoquee_par_user_id = $3
@@ -472,7 +474,7 @@ impl PgEnt {
             .bind(a.etablissement_id)
             .bind(en_cours_seulement)
             .bind(jour)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(db)?;
         self.avec_droits(a.etablissement_id, lignes, jour).await
@@ -489,7 +491,7 @@ impl PgEnt {
         let lignes = sqlx::query_as::<_, LigneDelegation>(&sql)
             .bind(a.etablissement_id)
             .bind(a.user_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
             .await
             .map_err(db)?;
         self.avec_droits(a.etablissement_id, lignes, jour).await
@@ -516,13 +518,30 @@ impl PgEnt {
     /// délégations dont la fin est passée et publie `delegation.expiree` **une seule fois**
     /// (la mise à jour conditionnelle rend le balayage idempotent). Renvoie le nombre expiré.
     pub async fn delegations_balayer(&self, jour: NaiveDate) -> Result<usize, EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        // Job planifié transverse nommé (docs/securite/RLS_STRICTE.md §4) : un balayage par
+        // établissement, chacun dans son contexte.
+        let mut total = 0;
+        for etab in crate::tenant_tx::etablissements_systeme(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("delegations_balayage"),
+        )
+        .await
+        .map_err(db)?
+        {
+            total += self.delegations_balayer_etab(jour, etab).await?;
+        }
+        Ok(total)
+    }
+
+    async fn delegations_balayer_etab(&self, jour: NaiveDate, etab_job: Uuid) -> Result<usize, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab_job).await.map_err(db)?;
         let lignes: Vec<(Uuid, Uuid, Uuid, NaiveDate)> = sqlx::query_as(
             "UPDATE ent_delegation SET statut = 'expiree', expiree_le = now()
-              WHERE statut = 'accordee' AND fin < $1
+              WHERE statut = 'accordee' AND fin < $1 AND etablissement_id = $2
               RETURNING id, etablissement_id, delegue_user_id, fin",
         )
         .bind(jour)
+        .bind(etab_job)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

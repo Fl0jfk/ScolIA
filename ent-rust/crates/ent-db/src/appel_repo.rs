@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use domain_eleve::DomainError;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AppelStatut {
@@ -83,6 +84,7 @@ impl PgAppelRepo {
     }
 
     pub async fn insert_appel(&self, a: &Appel) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_appel (
@@ -99,9 +101,10 @@ impl PgAppelRepo {
         .bind(a.statut.as_str())
         .bind(a.creneau_id)
         .bind(a.matiere_libelle.as_deref())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -120,7 +123,7 @@ impl PgAppelRepo {
         )
         .bind(etablissement_id)
         .bind(appel_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AppelRow::into_appel))
@@ -143,13 +146,14 @@ impl PgAppelRepo {
         .bind(etablissement_id)
         .bind(creneau_id)
         .bind(jour)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AppelRow::into_appel))
     }
 
     pub async fn insert_ligne(&self, l: &AppelLigne) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, l.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_appel_ligne (id, etablissement_id, appel_id, eleve_id, etat)
@@ -162,9 +166,10 @@ impl PgAppelRepo {
         .bind(l.appel_id)
         .bind(l.eleve_id)
         .bind(l.etat.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -182,7 +187,7 @@ impl PgAppelRepo {
         eleve_id: Uuid,
         etat: &LigneEtat,
     ) -> Result<bool, sqlx::Error> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         let statut: Option<(String,)> = sqlx::query_as(
             r#"
             SELECT statut FROM ent_appel
@@ -292,7 +297,7 @@ impl PgAppelRepo {
         )
         .bind(etablissement_id)
         .bind(appel_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LigneRow::into_ligne).collect())

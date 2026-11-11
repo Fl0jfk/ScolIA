@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt, RefusMetier};
+use crate::tenant_tx::TenantTx;
 
 /// Profils dont les fils de messagerie sur un élève seraient lisibles de tout professeur de
 /// l'élève tant que les boîtes à confidentialité propre (socle 16, M3) n'existent pas.
@@ -108,7 +109,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         for (a, p, cibles) in rows {
@@ -264,7 +265,7 @@ impl PgEnt {
             .bind(user_id)
             .bind(jour)
             .bind(&designes)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
             .await
             .map_err(db)?;
             ens.extend(rows.into_iter().map(|(id,)| id));
@@ -293,7 +294,7 @@ impl PgEnt {
         .bind(user_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -322,7 +323,7 @@ impl PgEnt {
         .bind(cibles)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -347,6 +348,7 @@ impl PgEnt {
         etablissement_id: Uuid,
         un: Option<Uuid>,
     ) -> Result<Vec<RoleEtab>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let roles: Vec<(Uuid, String, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT id, nom, description, modele FROM ent_role
               WHERE etablissement_id = $1 AND ($2::uuid IS NULL OR id = $2)
@@ -354,7 +356,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(un)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut out = Vec::with_capacity(roles.len());
@@ -365,7 +367,7 @@ impl PgEnt {
             )
             .bind(etablissement_id)
             .bind(id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             let membres: Vec<(Uuid,)> = sqlx::query_as(
@@ -375,7 +377,7 @@ impl PgEnt {
             )
             .bind(etablissement_id)
             .bind(id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             out.push(RoleEtab {
@@ -411,7 +413,7 @@ impl PgEnt {
             .valider_saisie(etablissement_id, actor_user_id, actor_role, saisie)
             .await?;
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_role (id, etablissement_id, nom, description, modele, created_by_user_id)
              VALUES ($1, $2, $3, $4, $5, $6)",
@@ -449,7 +451,7 @@ impl PgEnt {
         let actuel = self.role_par_id(etablissement_id, role_id).await?;
         self.exiger_couverture(etablissement_id, actor_user_id, actor_role, &actuel.droits)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let res = sqlx::query(
             "UPDATE ent_role SET nom = $3, description = $4, updated_at = now()
               WHERE etablissement_id = $1 AND id = $2",
@@ -490,12 +492,14 @@ impl PgEnt {
         let actuel = self.role_par_id(etablissement_id, role_id).await?;
         self.exiger_couverture(etablissement_id, actor_user_id, actor_role, &actuel.droits)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query("DELETE FROM ent_role WHERE etablissement_id = $1 AND id = $2")
             .bind(etablissement_id)
             .bind(role_id)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         self.audit_compte(
             etablissement_id,
             actor_user_id,
@@ -582,7 +586,7 @@ impl PgEnt {
             return Err(DomainError::ValeurInvalide.into());
         }
 
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         // Une attribution non close dont les dates chevauchent la période demandée.
         let existante: Option<(Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, debut FROM ent_role_attribution
@@ -686,6 +690,7 @@ impl PgEnt {
         let role = self.role_par_id(etablissement_id, role_id).await?;
         self.exiger_couverture(etablissement_id, actor_user_id, actor_role, &role.droits)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let res = sqlx::query(
             "UPDATE ent_role_attribution SET clos_le = now(), clos_par_user_id = $4
               WHERE etablissement_id = $1 AND role_id = $2 AND user_id = $3 AND clos_le IS NULL",
@@ -694,9 +699,10 @@ impl PgEnt {
         .bind(role_id)
         .bind(user_id)
         .bind(actor_user_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         if res.rows_affected() > 0 {
             self.audit_compte(
                 etablissement_id,
@@ -726,12 +732,13 @@ impl PgEnt {
         if responsables.len() > MAX_CIBLES {
             return Err(DomainError::ValeurInvalide.into());
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let (existe,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_groupe WHERE etablissement_id = $1 AND id = $2)",
         )
         .bind(etablissement_id)
         .bind(groupe_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         if !existe {
@@ -751,7 +758,7 @@ impl PgEnt {
                 uniques.push(*u);
             }
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "DELETE FROM ent_groupe_responsable WHERE etablissement_id = $1 AND groupe_id = $2",
         )
@@ -872,7 +879,7 @@ impl PgEnt {
                 )
                 .bind(etablissement_id)
                 .bind(&cibles)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
                 .await
                 .map_err(db)?;
                 if n as usize != cibles.len() {
@@ -892,7 +899,7 @@ impl PgEnt {
                 )
                 .bind(etablissement_id)
                 .bind(&cibles)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
                 .await
                 .map_err(db)?;
                 if n as usize != cibles.len() {
@@ -966,7 +973,7 @@ impl PgEnt {
 }
 
 async fn ecrire_droits(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    tx: &mut crate::tenant_tx::TenantTx<'_>,
     etablissement_id: Uuid,
     role_id: Uuid,
     droits: &[Droit],

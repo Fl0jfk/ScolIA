@@ -103,12 +103,14 @@ impl PgEnt {
         &self,
         maintenant: DateTime<Utc>,
     ) -> Result<usize, EntDbError> {
-        let etabs: Vec<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_etablissement ORDER BY id")
-            .fetch_all(self.pool())
-            .await
-            .map_err(db)?;
+        let etabs = crate::tenant_tx::etablissements_systeme(
+            self.pool(),
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("voyages_rappels"),
+        )
+        .await
+        .map_err(db)?;
         let mut n = 0;
-        for (etab,) in etabs {
+        for etab in etabs {
             n += self.voyages_rappels_traiter(etab, maintenant).await?;
         }
         Ok(n)

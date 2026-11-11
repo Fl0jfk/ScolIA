@@ -254,7 +254,7 @@ pub(crate) async fn notifications_de(
     .bind(etablissement_id)
     .bind(user_id)
     .bind(limite.clamp(1, 200))
-    .fetch_all(pool)
+    .fetch_all(&mut *crate::tenant_tx::TenantTx::begin(pool, etablissement_id).await?)
     .await
 }
 

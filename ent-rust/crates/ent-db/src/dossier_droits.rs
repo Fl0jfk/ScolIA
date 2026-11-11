@@ -19,6 +19,7 @@
 use super::*;
 use crate::champs_chiffres::ChampsSensibles;
 use ent_auth::{vue_personnel, vue_titulaire, DroitsPersonnel, Masquage, VueGroupes};
+use crate::tenant_tx::TenantTx;
 
 const TABLE_INTERDICTION: &str = "ent_eleve_interdiction";
 
@@ -258,7 +259,7 @@ impl PgEnt {
         .bind(etab)
         .bind(actor)
         .bind(eleve_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(match n {
@@ -493,7 +494,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(personne_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         for (e,) in eleves {
@@ -538,7 +539,7 @@ impl PgEnt {
         .bind(etab)
         .bind(actor)
         .bind(ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
@@ -587,7 +588,7 @@ impl PgEnt {
         .bind(etab)
         .bind(eleve_id)
         .bind(lecteur)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -701,12 +702,13 @@ impl PgEnt {
         if motif.map(|m| m.chars().count() > 2000).unwrap_or(false) {
             return Err(invalide("motif trop long (2 000 caractères au plus)"));
         }
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let du = match saisie.du {
             Some(d) => d,
             None => {
                 let (j,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1, now())")
                     .bind(etab)
-                    .fetch_one(self.pool())
+                    .fetch_one(&mut *tx)
                     .await
                     .map_err(db)?;
                 j
@@ -724,7 +726,7 @@ impl PgEnt {
             ),
             None => None,
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if let Some(pid) = saisie.personne_id {
             let p = personne_tx(&mut tx, etab, pid, false)
                 .await?
@@ -783,7 +785,7 @@ impl PgEnt {
         if motif.is_empty() || motif.chars().count() > 300 {
             return Err(invalide("motif de levée obligatoire (300 caractères au plus)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT eleve_id, levee_le FROM ent_eleve_interdiction
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -843,6 +845,7 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let cible = agent_user_id.unwrap_or(actor);
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let origine = if cible == actor {
             // RP2-14 : l'agent ne déclare que pour lui-même, sur un élève de son périmètre
             // (un professeur : un élève qu'il suit) ; sinon refus (pas d'oracle d'existence).
@@ -858,7 +861,7 @@ impl PgEnt {
             )
             .bind(cible)
             .bind(etab)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             match membre.and_then(|(r,)| Role::parse(&r)) {
@@ -872,7 +875,7 @@ impl PgEnt {
             return Err(invalide("nature de conflit d'intérêts inconnue"));
         }
         let _ = self.dossier_exiger_eleve(etab, eleve_id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let id = Uuid::new_v4();
         let inseree: Option<(Uuid,)> = sqlx::query_as(
             "INSERT INTO ent_conflit_interet
@@ -929,7 +932,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::ResponsablesProtegeGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, Uuid, Option<DateTime<Utc>>)> = sqlx::query_as(
             "SELECT user_id, eleve_id, leve_le FROM ent_conflit_interet
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -980,13 +983,14 @@ impl PgEnt {
     ) -> Result<Vec<ConflitInteretVu>, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::ResponsablesProtegeLire)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         #[allow(clippy::type_complexity)]
         let declarations: Vec<(Uuid, Uuid, Uuid, String, String)> = sqlx::query_as(
             "SELECT id, user_id, eleve_id, nature, origine FROM ent_conflit_interet
               WHERE etablissement_id = $1 AND leve_le IS NULL ORDER BY created_at, id",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let acces: Vec<(Uuid, Uuid, i64, Option<DateTime<Utc>>)> = sqlx::query_as(
@@ -998,7 +1002,7 @@ impl PgEnt {
               GROUP BY actor_user_id, eleve_id ORDER BY max(created_at) DESC",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut out: Vec<ConflitInteretVu> = declarations

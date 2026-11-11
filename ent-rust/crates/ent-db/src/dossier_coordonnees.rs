@@ -21,6 +21,7 @@ use super::*;
 use crate::service::RefusMetier;
 use ent_mail::OutgoingMail;
 use ent_sms::OutgoingSms;
+use crate::tenant_tx::TenantTx;
 
 pub const TYPES_COORDONNEE: [&str; 5] = ["email", "mobile", "fixe", "professionnel", "adresse"];
 /// Usages qu'une commande peut poser (`connexion` n'appartient qu'au compte).
@@ -571,6 +572,7 @@ impl PgEnt {
         personne_id: Option<Uuid>,
         ecriture: bool,
     ) -> Result<Uuid, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etab).await?;
         match auteur {
             Auteur::Personnel { actor, role } => {
                 let pid = personne_id.ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -590,7 +592,7 @@ impl PgEnt {
                 )
                 .bind(etab)
                 .bind(pid)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await
                 .map_err(db)?;
                 if !existe {
@@ -608,7 +610,7 @@ impl PgEnt {
                 )
                 .bind(etab)
                 .bind(actor)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
                 r.map(|(id,)| id).ok_or(EntDbError::Domain(DomainError::NotFound))
@@ -658,7 +660,7 @@ impl PgEnt {
             .bind(etab)
             .bind(pid)
             .bind(avec_fermees)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
             .await
             .map_err(db)?;
         if !adresses {
@@ -690,7 +692,7 @@ impl PgEnt {
                 "le changement d'adresse postale passe par une demande au secrétariat",
             ));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -774,7 +776,7 @@ impl PgEnt {
     ) -> Result<Coordonnee, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
         let motif = motif_valide(motif)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let p = personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -892,7 +894,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
         let motif = motif_valide(motif)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -942,7 +944,7 @@ impl PgEnt {
     ) -> Result<Coordonnee, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
         let nouveaux = normaliser_usages(usages)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1024,7 +1026,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(pid)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let famille = auteur.est_personne();
@@ -1058,7 +1060,7 @@ impl PgEnt {
         coord_id: Uuid,
     ) -> Result<VerificationEnvoyee, EntDbError> {
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1186,7 +1188,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             return Err(generique());
         }
         let pid = self.coord_resoudre_personne(etab, auteur, personne_id, true).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         personne_tx(&mut tx, etab, pid, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;

@@ -11,10 +11,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -145,7 +142,7 @@ async fn non_doublon_memorise_jusqu_a_un_changement_d_identite() {
         "SELECT payload FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'eleve.non_doublon_declare'",
     )
     .bind(etab)
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap();
     assert!(!payload.to_string().to_lowercase().contains("lambert"), "{payload}");
@@ -185,7 +182,7 @@ async fn paire_protegee_invisible_sans_g6() {
     )
     .bind(etab)
     .bind(b.id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     assert!(liste(&ent, &cast, Role::Administratif, etab).await.unwrap().is_empty(), "invisible pour le secrétariat");
@@ -204,6 +201,15 @@ async fn paire_protegee_invisible_sans_g6() {
 async fn cloisonnement_et_tache_quotidienne() {
     let Some((ent, cast)) = labo().await else { return };
     let (etab, autre) = (Uuid::new_v4(), Uuid::new_v4());
+    // La tâche parcourt les établissements connus de la plateforme (racine `ent_etablissement`).
+    for (id, slug) in [(etab, "doublons-a"), (autre, "doublons-b")] {
+        sqlx::query("INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, $2 || '-' || substr($1::text, 1, 8), 'Test doublons')")
+            .bind(id)
+            .bind(slug)
+            .execute(ent.pool_verif())
+            .await
+            .unwrap();
+    }
     let a = eleve(&ent, etab, "Perrin", "Mila", jour(2012, 3, 4), None).await;
     let b = eleve(&ent, etab, "Perrin", "Mila", jour(2012, 3, 4), None).await;
     // Même identité dans un autre établissement : jamais rapprochée (D-013).
@@ -218,14 +224,14 @@ async fn cloisonnement_et_tache_quotidienne() {
     let (avant,): (chrono::DateTime<chrono::Utc>,) =
         sqlx::query_as("SELECT passe_le FROM ent_eleve_doublon_passage WHERE etablissement_id = $1")
             .bind(etab)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     ent.tache_doublons_eleves().await.unwrap();
     let (apres,): (chrono::DateTime<chrono::Utc>,) =
         sqlx::query_as("SELECT passe_le FROM ent_eleve_doublon_passage WHERE etablissement_id = $1")
             .bind(etab)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert_eq!(avant, apres, "un seul passage par jour");

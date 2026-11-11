@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::outbox::Publier;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("dossier_personnes", err))
@@ -657,8 +658,8 @@ async fn verifier_parts_tx(
     Ok(())
 }
 
-async fn commit(tx: Transaction<'_, Postgres>) -> Result<(), EntDbError> {
-    tx.commit().await.map_err(db)
+async fn commit(tx: impl crate::tenant_tx::Validable) -> Result<(), EntDbError> {
+    tx.valider().await.map_err(db)
 }
 
 // Ports du socle 4 (lot A0)
@@ -731,7 +732,7 @@ impl PgEnt {
         let rows = sqlx::query_as::<_, ResponsableRow>(&sql)
             .bind(etab)
             .bind(eleve_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
             .await
             .map_err(db)?;
         Ok(rows.into_iter().map(Responsable::from).collect())
@@ -753,7 +754,7 @@ impl PgEnt {
         let rows = sqlx::query_as::<_, ContactRow>(&sql)
             .bind(etab)
             .bind(eleve_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
             .await
             .map_err(db)?;
         Ok(rows
@@ -886,7 +887,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(&ids)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
             .await?;
             lignes
                 .into_iter()
@@ -959,7 +960,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         for (quand, t) in evenements {
@@ -1042,7 +1043,7 @@ impl PgEnt {
         let rows = sqlx::query_as::<_, Row>(&sql)
             .bind(etab)
             .bind(motif)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
             .await
             .map_err(db)?;
         // R-A18 : l'adresse (F2) d'une personne liée à un élève de l'agent est fermée.
@@ -1073,7 +1074,7 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         let mut personne = {
-            let mut conn = self.pool().acquire().await.map_err(db)?;
+            let mut conn = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             personne_tx(&mut conn, etab, personne_id, false)
                 .await?
                 .ok_or(EntDbError::Domain(DomainError::NotFound))?
@@ -1100,7 +1101,7 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         let s = saisie.normaliser()?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let id = self.inserer_personne_tx(&mut tx, etab, &s, actor).await?;
         let p = personne_tx(&mut tx, etab, id, false)
             .await?
@@ -1175,7 +1176,7 @@ impl PgEnt {
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
         let s = saisie.normaliser()?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let avant = personne_tx(&mut tx, etab, personne_id, true)
             .await?
             .ok_or(EntDbError::Domain(DomainError::NotFound))?;
@@ -1295,7 +1296,7 @@ impl PgEnt {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, personne_id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         self.exiger_confirmation_ne_pas_solliciter(
             &mut tx,
             etab,
@@ -1386,7 +1387,7 @@ impl PgEnt {
         if !self.eleve_est_majeur(etab, eleve_id, today_utc()).await? {
             return Err(invalide("l'élève n'est pas majeur (date de naissance)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let existante: Option<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_personne WHERE etablissement_id = $1 AND eleve_id = $2",
         )
@@ -1458,7 +1459,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(lien_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)?;
         let Some((eleve_id,)) = eleve else {
@@ -1489,7 +1490,7 @@ impl PgEnt {
         if soi_meme != (lien == LIEN_ELEVE_MAJEUR) {
             return Err(invalide("lien réservé à l'élève majeur"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         if let Some(f) = saisie.foyer_id {
             self.exiger_foyer_tx(&mut tx, etab, f).await?;
         }
@@ -1578,7 +1579,7 @@ impl PgEnt {
         if avant.suspendu_le.is_some() {
             return Err(EntDbError::ConflitDossier("lien déjà suspendu"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_eleve_lien SET suspendu_le = now(), suspendu_par = $3,
                     suspension_motif = $4, suspension_reference = $5, updated_at = now()
@@ -1637,7 +1638,7 @@ impl PgEnt {
         if avant.suspendu_le.is_none() {
             return Err(EntDbError::ConflitDossier("lien non suspendu"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_eleve_lien SET suspendu_le = NULL, suspendu_par = NULL,
                     suspension_motif = NULL, suspension_reference = NULL, updated_at = now()
@@ -1711,7 +1712,7 @@ impl PgEnt {
                 return Err(invalide("part de paiement entre 1 et 100 %"));
             }
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         sqlx::query(
             "UPDATE ent_eleve_lien SET est_payeur = false, part_paiement = NULL, updated_at = now()
               WHERE etablissement_id = $1 AND eleve_id = $2",
@@ -1781,6 +1782,7 @@ impl PgEnt {
     ) -> Result<ContactUrgence, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let mut declarant: Option<Uuid> = None;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let proposition = if parsed == Role::Parent {
             let Some(lien) = self.lien_parent_eleve(etab, actor, eleve_id).await? else {
                 return Err(EntDbError::Forbidden);
@@ -1795,7 +1797,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(lien.id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             declarant = Some(pid);
@@ -1818,7 +1820,7 @@ impl PgEnt {
         if commentaire.as_ref().is_some_and(|c| c.chars().count() > 500) {
             return Err(invalide("commentaire trop long"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let personne_id = match (&saisie.personne_id, &saisie.nouvelle_personne) {
             (Some(id), None) => {
                 let p = personne_tx(&mut tx, etab, *id, true)
@@ -1918,7 +1920,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid,)> = sqlx::query_as(
             "UPDATE ent_eleve_contact_urgence SET statut = 'valide', updated_at = now()
               WHERE etablissement_id = $1 AND id = $2 AND statut = 'propose'
@@ -1949,7 +1951,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesGerer)
             .await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid,)> = sqlx::query_as(
             "DELETE FROM ent_eleve_contact_urgence WHERE etablissement_id = $1 AND id = $2
               RETURNING eleve_id",
@@ -2042,7 +2044,7 @@ impl PgEnt {
         // R-A18 : fusionner des fiches liées à un élève de l'agent modifie son dossier.
         self.exiger_pas_de_conflit_personne(etab, actor, role, source_id).await?;
         self.exiger_pas_de_conflit_personne(etab, actor, role, cible_id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         self.exiger_confirmation_ne_pas_solliciter(
             &mut tx,
             etab,
@@ -2271,19 +2273,20 @@ impl PgEnt {
     ) -> Result<FusionPersonne, EntDbError> {
         self.dossier_exiger_action(etab, actor, role, Action::PersonnesFusionner)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let liees: Option<(Uuid, Uuid)> = sqlx::query_as(
             "SELECT source_id, cible_id FROM ent_personne_fusion WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etab)
         .bind(fusion_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if let Some((s, c)) = liees {
             self.exiger_pas_de_conflit_personne(etab, actor, role, s).await?;
             self.exiger_pas_de_conflit_personne(etab, actor, role, c).await?;
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let row: Option<(Uuid, Uuid, Value, DateTime<Utc>, Option<DateTime<Utc>>)> =
             sqlx::query_as(
                 "SELECT source_id, cible_id, instantane, fusionne_le, annule_le
@@ -2503,7 +2506,7 @@ impl PgEnt {
               ORDER BY fusionne_le DESC, id LIMIT 100",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await.map_err(db)?)
         .await
         .map_err(db)
     }

@@ -649,6 +649,11 @@ pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
 /// Façade async Postgres — auth + noyau élève (+ périodes + absences) + events + Brain.
 pub struct PgEnt {
     pool: PgPool,
+    /// Tests en mode strict (`ENT_RLS_MODE=strict`) : pool du rôle propriétaire, réservé aux
+    /// vérifications et à la préparation des données ; le code testé passe par `pool` (rôle
+    /// applicatif sans BYPASSRLS, strict). Voir `tests_rls_stricte.rs`.
+    #[cfg(test)]
+    pub(crate) pool_verif: Option<PgPool>,
     eleves: PgEleveRepo,
     absences: PgAbsenceRepo,
     periodes: PgPeriodeRepo,
@@ -830,6 +835,8 @@ impl PgEnt {
             oidc_transport: RwLock::new(Arc::new(HttpOidcTransport::from_env())),
             events: PgEventStore::new(pool.clone()),
             pool,
+            #[cfg(test)]
+            pool_verif: None,
             brain: None,
             mail_dry_run_accepte: cfg!(feature = "labo"),
         }
@@ -950,6 +957,12 @@ impl PgEnt {
     /// fermée ensuite : le rôle applicatif (`ENT_DATABASE_URL`) n'a alors aucun
     /// droit DDL. Sinon : comportement historique (migrations via le pool applicatif).
     pub async fn migrate(&self) -> Result<(), EntDbError> {
+        // Tests en mode strict : les migrations passent par le propriétaire (le rôle applicatif n'a pas de DDL).
+        #[cfg(test)]
+        if let Some(proprietaire) = &self.pool_verif {
+            apply_socle_migrations(proprietaire).await?;
+            return Ok(());
+        }
         match migration_url_from_env() {
             Some(url) => {
                 assert_local_postgres_url(&url)?;
@@ -980,6 +993,12 @@ impl PgEnt {
 
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// Tests : pool des **vérifications** (propriétaire en mode strict, sinon le pool normal).
+    #[cfg(test)]
+    pub(crate) fn pool_verif(&self) -> &PgPool {
+        self.pool_verif.as_ref().unwrap_or(&self.pool)
     }
 
     /// Après commit : informe les observateurs locaux des événements publiés par outbox.
@@ -1032,10 +1051,21 @@ impl PgEnt {
                 .get::<i64, _>("n");
         sondes.push(SondeMetrique::jauge("ent_passkeys_total", &[], passkeys));
 
-        let eleves = sqlx::query("SELECT count(*)::bigint AS n FROM ent_eleve")
-            .fetch_one(&self.pool)
-            .await?
-            .get::<i64, _>("n");
+        // Comptes de plateforme sur des tables sous RLS : un établissement à la fois, dans son contexte
+        // (contexte système nommé, docs/securite/RLS_STRICTE.md §4).
+        let etabs_sondes = crate::tenant_tx::etablissements_systeme(
+            &self.pool,
+            crate::tenant_tx::ContexteSysteme::JobPlanifie("sondes_metriques"),
+        )
+        .await?;
+        let mut eleves = 0i64;
+        for e in &etabs_sondes {
+            eleves += sqlx::query("SELECT count(*)::bigint AS n FROM ent_eleve WHERE etablissement_id = $1")
+                .bind(e)
+                .fetch_one(&mut *TenantTx::begin(&self.pool, *e).await?)
+                .await?
+                .get::<i64, _>("n");
+        }
         sondes.push(SondeMetrique::jauge("ent_eleves_total", &[], eleves));
 
         let etablissements =
@@ -1051,19 +1081,21 @@ impl PgEnt {
 
         // Outbox courrier par statut : `dry_run` = jamais parti (pas de SMTP
         // configuré ou envoi désactivé) — c'est la jauge d'alerte principale.
-        for ligne in sqlx::query(
-            "SELECT status AS statut, count(*)::bigint AS n
-             FROM ent_mail_outbox GROUP BY status ORDER BY status",
-        )
-        .fetch_all(&self.pool)
-        .await?
-        {
-            let statut: String = ligne.get("statut");
-            sondes.push(SondeMetrique::jauge(
-                "ent_mails_outbox",
-                &[("statut", statut.as_str())],
-                ligne.get::<i64, _>("n"),
-            ));
+        let mut par_statut: std::collections::BTreeMap<String, i64> = Default::default();
+        for e in &etabs_sondes {
+            for ligne in sqlx::query(
+                "SELECT status AS statut, count(*)::bigint AS n
+                 FROM ent_mail_outbox WHERE etablissement_id = $1 GROUP BY status",
+            )
+            .bind(e)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, *e).await?)
+            .await?
+            {
+                *par_statut.entry(ligne.get("statut")).or_default() += ligne.get::<i64, _>("n");
+            }
+        }
+        for (statut, n) in &par_statut {
+            sondes.push(SondeMetrique::jauge("ent_mails_outbox", &[("statut", statut.as_str())], *n));
         }
 
         Ok(sondes)
@@ -3948,7 +3980,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         // y être membre. Un client anonyme ne peut donc écrire que pour de vrais
         // comptes d'un vrai établissement, au plus une ligne par 5 minutes chacun.
         let res: Result<(), sqlx::Error> = async {
-            let mut tx = self.pool.begin().await?;
+            let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
             let cle = format!("{etablissement_id}:{action}:{empreinte}");
             sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
                 .bind(&cle)
@@ -5373,7 +5405,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         )
         .bind(etablissement_id)
         .bind(&ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
         .await?;
         Ok(Some(rows.into_iter().map(|(c,)| c).collect()))
     }
@@ -6240,7 +6272,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
         .await?;
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
@@ -7221,7 +7253,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             )
             .bind(cmd.etablissement_id)
             .bind(devoir_id)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *TenantTx::begin(&self.pool, cmd.etablissement_id).await?)
             .await?;
             if grille {
                 return Err(EntDbError::ConflitDossier("devoir de grille : saisir depuis la grille"));
@@ -7594,7 +7626,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         // (élèves et familles prévenus par `d4.notifications_edt`). Le motif libre n'est plus
         // recopié dans l'événement.
         let map = |e: sqlx::Error| EntDbError::Domain(crate::pg_err::map_sqlx("edt_repo", e));
-        let mut tx = self.pool().begin().await.map_err(map)?;
+        let mut tx = TenantTx::begin(self.pool(), ex.etablissement_id).await.map_err(map)?;
         sqlx::query(
             "INSERT INTO ent_edt_exception (
                 id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
@@ -8034,7 +8066,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         )
         .bind(creneau.etablissement_id)
         .bind(creneau.id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, creneau.etablissement_id).await?)
         .await?;
         let mut effectif = self
             .eleves
@@ -8049,7 +8081,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .bind(creneau.etablissement_id)
             .bind(g)
             .bind(jour)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, creneau.etablissement_id).await?)
             .await?;
             let membres: std::collections::HashSet<Uuid> = membres.into_iter().map(|(i,)| i).collect();
             effectif.retain(|e| membres.contains(&e.id));
@@ -8082,20 +8114,24 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             )
             .bind(etablissement_id)
             .bind(g)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
             .await?;
             if !ok {
                 return Err(DomainError::NotFound.into());
             }
         }
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await?;
         let r = sqlx::query(
             "UPDATE ent_edt_creneau SET groupe_id = $3 WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etablissement_id)
         .bind(creneau_id)
         .bind(groupe_id)
-        .execute(&self.pool)
+        .execute(&mut *txw)
         .await?;
+        if r.rows_affected() > 0 {
+            txw.commit().await?;
+        }
         if r.rows_affected() == 0 {
             return Err(DomainError::NotFound.into());
         }
@@ -8162,7 +8198,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         )
         .bind(etablissement_id)
         .bind(creneau.id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
         .await?
         .flatten();
         if let Some(groupe_id) = groupe {
@@ -8174,7 +8210,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .bind(etablissement_id)
             .bind(groupe_id)
             .bind(jour)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
             .await?;
             effectif.retain(|e| membres.contains(&e.id));
         }
@@ -8311,7 +8347,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         // ensemble, ou rien (aucun événement pour un fait annulé, aucun fait sans
         // son événement). Les réactions des autres domaines (notification des
         // responsables…) passent par le distributeur de l'outbox.
-        let mut tx = self.pool.begin().await?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         let lignes = self
             .appels
             .clore_avec_lignes_tx(&mut tx, etablissement_id, appel_id)
@@ -8742,7 +8778,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .ok_or(DomainError::NotFound)?;
         let planned = plan_accepter_justificatif(&current, cmd)?;
         // Socle 2 (S2-0) : décision et événement dans la même transaction (outbox).
-        let mut tx = self.pool.begin().await?;
+        let mut tx = TenantTx::begin(&self.pool, current.etablissement_id).await?;
         self.absences.upsert_tx(&mut tx, &planned.absence).await?;
         let mut publies = Vec::new();
         if let Some(event) = planned.event {
@@ -8764,7 +8800,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .ok_or(DomainError::NotFound)?;
         let planned = plan_refuser_justificatif(&current, cmd)?;
         // Socle 2 (S2-0) : décision et événement dans la même transaction (outbox).
-        let mut tx = self.pool.begin().await?;
+        let mut tx = TenantTx::begin(&self.pool, current.etablissement_id).await?;
         self.absences.upsert_tx(&mut tx, &planned.absence).await?;
         let mut publies = Vec::new();
         if let Some(event) = planned.event {
@@ -15253,7 +15289,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let planned = plan_declarer_absence_rh(cmd)?;
         // S2-5 (RH-02) : l'absence et son événement entrent dans l'outbox dans la même
         // transaction. Le motif (texte libre, parfois médical) n'est jamais dans l'événement.
-        let mut tx = self.pool().begin().await.map_err(|e| {
+        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
             EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
         })?;
         sqlx::query(
@@ -15320,7 +15356,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         }
         let planned = plan_valider_absence_rh(current, actor_user_id)?;
         // S2-5 (RH-03) : validation et événement `rh.absence_validee` dans la même transaction.
-        let mut tx = self.pool().begin().await.map_err(|e| {
+        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
             EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
         })?;
         sqlx::query(
@@ -17618,7 +17654,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             sqlx::query_as("SELECT ent_msg_remise_calme($1, $2)")
                 .bind(etablissement_id)
                 .bind(maintenant)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
                 .await?;
         let Some(remise) = remise else {
             return Ok((None, None));
@@ -17707,6 +17743,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         users.dedup();
         let mut crees = 0usize;
         for u in users {
+            let mut txw = TenantTx::begin(&self.pool, fil.etablissement_id).await?;
             let r = sqlx::query(
                 "INSERT INTO ent_notification_envoi
                     (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
@@ -17723,8 +17760,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .bind(message_id)
             .bind(format!("msg-avis:{message_id}"))
             .bind(quand)
-            .execute(&self.pool)
+            .execute(&mut *txw)
             .await?;
+            txw.commit().await?;
             crees += r.rows_affected() as usize;
         }
         Ok(crees)
@@ -17749,7 +17787,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     &["admin", "direction", "administratif", "cpe"],
                 )
                 .await?;
-            let mut c = self.pool.acquire().await?;
+            let mut c = TenantTx::begin(&self.pool, fil.etablissement_id).await?;
             for u in destinataires {
                 crate::notifications::notifier_personne(
                     &mut c,
@@ -17773,6 +17811,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 )
                 .await?;
             }
+            c.commit().await?;
             Ok(())
         }
         .await;
@@ -17974,6 +18013,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::ConflitDossier("message déjà remis ou introuvable"));
         }
         // L'avis différé, s'il était planifié, n'a plus d'objet.
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await?;
         sqlx::query(
             "UPDATE ent_notification_envoi SET statut = 'annule', traite_le = now()
               WHERE etablissement_id = $1 AND source_type = 'systeme' AND source_id = $2
@@ -17981,8 +18021,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         )
         .bind(etablissement_id)
         .bind(message_id)
-        .execute(&self.pool)
+        .execute(&mut *txw)
         .await?;
+        txw.commit().await?;
         Ok(())
     }
 

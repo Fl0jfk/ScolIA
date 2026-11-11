@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, Filiere, VoeuInscription};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgFiliereRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgFiliereRepo {
     }
 
     pub async fn insert_filiere(&self, f: &Filiere) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, f.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_filiere (
@@ -29,9 +31,10 @@ impl PgFiliereRepo {
         .bind(f.actif)
         .bind(f.created_by_user_id)
         .bind(f.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -50,7 +53,7 @@ impl PgFiliereRepo {
         )
         .bind(etablissement_id)
         .bind(filiere_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(FiliereRow::into_filiere))
@@ -61,6 +64,7 @@ impl PgFiliereRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<Filiere>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, FiliereRow>(
                 r#"
@@ -72,7 +76,7 @@ impl PgFiliereRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -86,7 +90,7 @@ impl PgFiliereRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -94,6 +98,7 @@ impl PgFiliereRepo {
     }
 
     pub async fn upsert_voeu(&self, v: &VoeuInscription) -> Result<VoeuInscription, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, v.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, VoeuRow>(
             r#"
             INSERT INTO ent_voeu_inscription (
@@ -117,9 +122,10 @@ impl PgFiliereRepo {
         .bind(&v.annee_scolaire)
         .bind(v.created_by_user_id)
         .bind(v.created_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.into_voeu())
     }
 
@@ -141,7 +147,7 @@ impl PgFiliereRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(annee_scolaire)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(VoeuRow::into_voeu).collect())
@@ -153,6 +159,7 @@ impl PgFiliereRepo {
         eleve_id: Uuid,
         voeu_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             r#"
             DELETE FROM ent_voeu_inscription
@@ -162,9 +169,10 @@ impl PgFiliereRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(voeu_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() > 0)
     }
 }

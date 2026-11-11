@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, QuotientFoyer};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgQuotientRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgQuotientRepo {
     }
 
     pub async fn upsert(&self, q: &QuotientFoyer) -> Result<QuotientFoyer, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, q.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, Row>(
             r#"
             INSERT INTO ent_foyer_quotient (
@@ -37,9 +39,10 @@ impl PgQuotientRepo {
         .bind(q.parts_x100)
         .bind(q.updated_by_user_id)
         .bind(q.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.into_quotient())
     }
 
@@ -60,7 +63,7 @@ impl PgQuotientRepo {
         .bind(etablissement_id)
         .bind(foyer_id)
         .bind(annee_scolaire)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_quotient))

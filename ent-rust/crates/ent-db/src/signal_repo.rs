@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, SignalAbsence, SignalAbsenceStatut};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgSignalRepo {
     pool: PgPool,
@@ -23,6 +24,7 @@ impl PgSignalRepo {
         compteur: i32,
     ) -> Result<SignalAbsence, DomainError> {
         let id = Uuid::new_v4();
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, SignalRow>(
             r#"
             INSERT INTO ent_absence_signal (
@@ -49,9 +51,10 @@ impl PgSignalRepo {
         .bind(annee_scolaire)
         .bind(seuil)
         .bind(compteur)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         row.into_signal().ok_or(DomainError::NotFound)
     }
 
@@ -63,6 +66,7 @@ impl PgSignalRepo {
         signal_id: Uuid,
         fil_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_absence_signal
@@ -75,10 +79,11 @@ impl PgSignalRepo {
         .bind(etablissement_id)
         .bind(signal_id)
         .bind(fil_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(n > 0)
     }
 
@@ -89,6 +94,7 @@ impl PgSignalRepo {
         signal_id: Uuid,
         dossier_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_absence_signal
@@ -101,10 +107,11 @@ impl PgSignalRepo {
         .bind(etablissement_id)
         .bind(signal_id)
         .bind(dossier_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(n > 0)
     }
 
@@ -123,7 +130,7 @@ impl PgSignalRepo {
         )
         .bind(etablissement_id)
         .bind(signal_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(SignalRow::into_signal))
@@ -137,6 +144,7 @@ impl PgSignalRepo {
         } else {
             None
         };
+        let mut tx = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_absence_signal
@@ -156,10 +164,11 @@ impl PgSignalRepo {
         .bind(s.traite_par_user_id)
         .bind(traite_at)
         .bind(s.commission_dossier_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
+        tx.commit().await.map_err(map_sqlx)?;
         if n == 0 {
             return Err(DomainError::NotFound);
         }
@@ -184,7 +193,7 @@ impl PgSignalRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(SignalRow::into_signal).collect())
@@ -210,7 +219,7 @@ impl PgSignalRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(annee_scolaire)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(SignalRow::into_signal))

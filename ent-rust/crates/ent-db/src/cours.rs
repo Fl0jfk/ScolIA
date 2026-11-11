@@ -30,6 +30,7 @@ use sqlx::PgConnection;
 use crate::ref_commun::{db, introuvable, invalide, publier_ref, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::structure_etab::journaliser;
+use crate::tenant_tx::TenantTx;
 
 /// Ramène un identifiant reçu de l'extérieur au cours : soit déjà un cours de l'établissement,
 /// soit une ligne de service (compatibilité du lot S1) → son cours. Inconnu, d'un autre
@@ -108,7 +109,7 @@ impl PgEnt {
         .bind(cours)
         .bind(prof)
         .bind(eleve)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)
     }
@@ -123,7 +124,7 @@ impl PgEnt {
         jour: NaiveDate,
     ) -> Result<Vec<Uuid>, EntDbError> {
         let cours_id = {
-            let mut c = self.pool().acquire().await.map_err(db)?;
+            let mut c = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
             resoudre_cours(&mut c, a.etablissement_id, cours_id).await?
         };
         // Professeur du cours = titulaire d'un service sur ce cours (co-interventions comprises).
@@ -134,7 +135,7 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(cours_id)
         .bind(a.user_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         if !est_prof {
@@ -167,7 +168,7 @@ impl PgEnt {
     ) -> Result<Vec<CoursMembre>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let cours_id = {
-            let mut c = self.pool().acquire().await.map_err(db)?;
+            let mut c = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
             resoudre_cours(&mut c, a.etablissement_id, cours_id).await?
         };
         sqlx::query_as(&format!(
@@ -176,7 +177,7 @@ impl PgEnt {
         ))
         .bind(a.etablissement_id)
         .bind(cours_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -201,7 +202,7 @@ impl PgEnt {
         {
             return Err(invalide());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let cours_id = resoudre_cours(&mut tx, a.etablissement_id, cours_id).await?;
         let m: CoursMembre = sqlx::query_as(&format!(
             "INSERT INTO ent_cours_membre
@@ -256,7 +257,7 @@ impl PgEnt {
         membre_id: Uuid,
     ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let cours: Option<Uuid> = sqlx::query_scalar(
             "UPDATE ent_cours_membre SET annulee_le = coalesce(annulee_le, now()),
                     annulee_par = coalesce(annulee_par, $3)

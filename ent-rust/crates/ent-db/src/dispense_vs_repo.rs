@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DispenseVs, DispenseVsMotif, DispenseVsStatut, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgDispenseVsRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgDispenseVsRepo {
     }
 
     pub async fn insert(&self, d: &DispenseVs) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_dispense_vs (
@@ -33,13 +35,15 @@ impl PgDispenseVsRepo {
         .bind(d.created_at)
         .bind(d.closed_by_user_id)
         .bind(d.closed_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_cloture(&self, d: &DispenseVs) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_dispense_vs
@@ -52,9 +56,10 @@ impl PgDispenseVsRepo {
         .bind(d.statut.as_str())
         .bind(d.closed_by_user_id)
         .bind(d.closed_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -73,7 +78,7 @@ impl PgDispenseVsRepo {
         )
         .bind(etablissement_id)
         .bind(dispense_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(Row::into_dispense))
@@ -85,6 +90,7 @@ impl PgDispenseVsRepo {
         eleve_id: Uuid,
         actives_seulement: bool,
     ) -> Result<Vec<DispenseVs>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actives_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -97,7 +103,7 @@ impl PgDispenseVsRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -112,7 +118,7 @@ impl PgDispenseVsRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -136,7 +142,7 @@ impl PgDispenseVsRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_dispense).collect())

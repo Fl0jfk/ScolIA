@@ -3,6 +3,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{CompetenceItem, DomainError, EvaluationCompetence, NiveauMaitrise};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgCompetenceRepo {
     pool: PgPool,
@@ -29,6 +30,7 @@ impl PgCompetenceRepo {
 
     /// Crée ou met à jour un item du référentiel (clé : établissement + code).
     pub async fn upsert_item(&self, item: &CompetenceItem) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, item.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_competence_item (
@@ -47,9 +49,10 @@ impl PgCompetenceRepo {
         .bind(&item.libelle)
         .bind(item.ordre)
         .bind(item.actif)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -69,7 +72,7 @@ impl PgCompetenceRepo {
         )
         .bind(etablissement_id)
         .bind(inclure_inactifs)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(ItemRow::into_item).collect())
@@ -89,7 +92,7 @@ impl PgCompetenceRepo {
         )
         .bind(etablissement_id)
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(ItemRow::into_item))
@@ -97,6 +100,7 @@ impl PgCompetenceRepo {
 
     /// Évalue (ou ré-évalue) un item pour un élève sur une période.
     pub async fn upsert_evaluation(&self, e: &EvaluationCompetence) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_competence_evaluation (
@@ -118,9 +122,10 @@ impl PgCompetenceRepo {
         .bind(e.niveau.as_str())
         .bind(&e.commentaire)
         .bind(e.auteur_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -163,7 +168,7 @@ impl PgCompetenceRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(periode_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         rows.into_iter()
@@ -201,7 +206,7 @@ impl PgCompetenceRepo {
         .bind(etablissement_id)
         .bind(periode_id)
         .bind(eleve_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         rows.into_iter()

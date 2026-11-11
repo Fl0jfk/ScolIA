@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("perimetre", err))
@@ -110,7 +111,7 @@ impl PgEnt {
         .bind(eleve_id)
         .bind(jour)
         .bind(FENETRE_REMPLACEMENT_JOURS)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -132,7 +133,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -192,7 +193,7 @@ impl PgEnt {
         .bind(prof_user_id)
         .bind(jour)
         .bind(FENETRE_REMPLACEMENT_JOURS)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(rows.into_iter().map(|(id,)| id).collect())

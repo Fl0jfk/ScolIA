@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, JournalEntree};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgJournalRepo {
     pool: PgPool,
@@ -17,6 +18,7 @@ impl PgJournalRepo {
     /// laisser aucune trace dans le journal de celui-ci). Renvoie `false` dans
     /// ce cas.
     pub async fn insert(&self, e: &JournalEntree) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             r#"
             INSERT INTO ent_journal_modif (
@@ -41,9 +43,10 @@ impl PgJournalRepo {
         .bind(e.visible_famille)
         .bind(e.actor_user_id)
         .bind(e.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() > 0)
     }
 
@@ -54,6 +57,7 @@ impl PgJournalRepo {
         famille_seulement: bool,
         limit: i64,
     ) -> Result<Vec<JournalEntree>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if famille_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -68,7 +72,7 @@ impl PgJournalRepo {
             .bind(etablissement_id)
             .bind(eleve_id)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -85,7 +89,7 @@ impl PgJournalRepo {
             .bind(etablissement_id)
             .bind(eleve_id)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -112,7 +116,7 @@ impl PgJournalRepo {
         .bind(etablissement_id)
         .bind(domaine)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_entree).collect())

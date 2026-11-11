@@ -25,6 +25,7 @@ use uuid::Uuid;
 
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow)]
 pub struct AnneeScolaire {
@@ -219,7 +220,7 @@ impl PgEnt {
              FROM ent_annee_scolaire WHERE etablissement_id = $1 ORDER BY date_debut DESC",
         )
         .bind(etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -238,7 +239,7 @@ impl PgEnt {
         if libelle.is_empty() || libelle.chars().count() > 40 || date_fin <= date_debut {
             return Err(invalide());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(etablissement_id)
             .execute(&mut *tx)
@@ -287,7 +288,7 @@ impl PgEnt {
              FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante",
         )
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -307,7 +308,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         let est_annee_du_jour = annee_scolaire_de(jour) == annee_scolaire_de(today_utc());
@@ -320,6 +321,7 @@ impl PgEnt {
         let (debut, fin) = bornes_annee(jour);
         let libelle = annee_scolaire_de(jour);
         let a_courante = self.referentiel_annee_courante(etablissement_id).await?.is_some();
+        let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
              VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING",
@@ -330,16 +332,17 @@ impl PgEnt {
         .bind(debut)
         .bind(fin)
         .bind(est_annee_du_jour && !a_courante)
-        .execute(self.pool())
+        .execute(&mut *txw)
         .await
         .map_err(db)?;
+        txw.commit().await.map_err(db)?;
         sqlx::query_as::<_, AnneeScolaire>(
             "SELECT id, etablissement_id, libelle, date_debut, date_fin, courante
              FROM ent_annee_scolaire WHERE etablissement_id = $1 AND libelle = $2",
         )
         .bind(etablissement_id)
         .bind(&libelle)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -349,16 +352,19 @@ impl PgEnt {
         etablissement_id: Uuid,
         annee_id: Uuid,
     ) -> Result<AnneeScolaire, EntDbError> {
-        sqlx::query_as::<_, AnneeScolaire>(
+        let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        let r = sqlx::query_as::<_, AnneeScolaire>(
             "UPDATE ent_annee_scolaire SET courante = true
              WHERE etablissement_id = $1 AND id = $2
              RETURNING id, etablissement_id, libelle, date_debut, date_fin, courante",
         )
         .bind(etablissement_id)
         .bind(annee_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *txw)
         .await
-        .map_err(db)
+        .map_err(db);
+        txw.commit().await.map_err(db)?;
+        r
     }
 
     /// Année courante, créée au besoin à partir de la date du jour.
@@ -384,7 +390,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -417,7 +423,8 @@ impl PgEnt {
             .filter(|n| !n.is_empty())
             .map(str::to_string)
             .or_else(|| niveau_de_code(code));
-        sqlx::query_as::<_, Classe>(
+        let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        let r = sqlx::query_as::<_, Classe>(
             "INSERT INTO ent_classe (id, etablissement_id, annee_id, code, libelle, niveau)
              VALUES ($1,$2,$3,$4,$5,$6)
              RETURNING id, etablissement_id, annee_id, code, libelle, niveau",
@@ -428,9 +435,11 @@ impl PgEnt {
         .bind(code)
         .bind(libelle)
         .bind(niveau)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *txw)
         .await
-        .map_err(db)
+        .map_err(db);
+        txw.commit().await.map_err(db)?;
+        r
     }
 
     pub async fn referentiel_classe(
@@ -444,7 +453,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(classe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -463,7 +472,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(annee_id)
         .bind(code.trim())
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -488,7 +497,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(annee.id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -509,7 +518,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(classe_id)
         .bind(jour)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -521,6 +530,7 @@ impl PgEnt {
         prof_user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<ClasseResume>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         // Lecture seule (S0 n° 3) : jamais de création d'année ; aucune année à cette date = liste vide.
         let Some(annee_id): Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_annee_scolaire
@@ -529,7 +539,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         else {
@@ -551,7 +561,7 @@ impl PgEnt {
         .bind(annee_id)
         .bind(jour)
         .bind(prof_user_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)
     }
@@ -573,7 +583,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(classe_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = ids.into_iter().map(|(i,)| i).collect();
@@ -612,7 +622,8 @@ impl PgEnt {
         };
         self.exiger_annee_modifiable(etablissement_id, annee.id).await?;
         let libelle = libelle.map(str::trim).filter(|l| !l.is_empty()).unwrap_or(code);
-        sqlx::query_as::<_, Groupe>(
+        let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        let r = sqlx::query_as::<_, Groupe>(
             "INSERT INTO ent_groupe (id, etablissement_id, annee_id, code, libelle, classe_id)
              VALUES ($1,$2,$3,$4,$5,$6)
              RETURNING id, etablissement_id, annee_id, code, libelle, classe_id",
@@ -623,9 +634,11 @@ impl PgEnt {
         .bind(code)
         .bind(libelle)
         .bind(classe_id)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *txw)
         .await
-        .map_err(db)
+        .map_err(db);
+        txw.commit().await.map_err(db)?;
+        r
     }
 
     pub async fn referentiel_groupes_de_classe(
@@ -639,7 +652,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(classe_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -691,13 +704,14 @@ impl PgEnt {
         date_debut: Option<NaiveDate>,
     ) -> Result<Affectation, EntDbError> {
         exiger_gestion(role)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let groupe = sqlx::query_as::<_, Groupe>(
             "SELECT id, etablissement_id, annee_id, code, libelle, classe_id
              FROM ent_groupe WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etablissement_id)
         .bind(groupe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
@@ -715,13 +729,13 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(groupe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if existe.is_some() {
             return Err(EntDbError::Domain(DomainError::Conflit));
         }
-        sqlx::query_as::<_, Affectation>(
+        let r = sqlx::query_as::<_, Affectation>(
             "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, groupe_id, date_debut, source)
              VALUES ($1,$2,$3,$4,$5,$6,'saisie')
              RETURNING id, etablissement_id, annee_id, eleve_id, classe_id, groupe_id, date_debut, date_fin",
@@ -732,9 +746,12 @@ impl PgEnt {
         .bind(eleve_id)
         .bind(groupe_id)
         .bind(debut)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
-        .map_err(db)
+        .map_err(db);
+        let r = r?;
+        tx.commit().await.map_err(db)?;
+        Ok(r)
     }
 
     /// Élèves membres d'un groupe à la date `jour` (hors élèves sortis), ordre alphabétique.
@@ -755,7 +772,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(groupe_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = ids.into_iter().map(|(i,)| i).collect();
@@ -769,7 +786,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(groupe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -818,6 +835,7 @@ impl PgEnt {
         let g = self.groupe_de(etablissement_id, groupe_id).await?;
         self.exiger_annee_modifiable(etablissement_id, g.annee_id).await?;
         let fin = date_fin.unwrap_or_else(today_utc);
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let ouverte: Option<(Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, date_debut FROM ent_affectation
               WHERE etablissement_id = $1 AND eleve_id = $2 AND groupe_id = $3 AND date_fin IS NULL",
@@ -825,7 +843,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(groupe_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let (id, debut) = ouverte.ok_or_else(introuvable)?;
@@ -833,7 +851,7 @@ impl PgEnt {
             sqlx::query("DELETE FROM ent_affectation WHERE etablissement_id = $1 AND id = $2")
                 .bind(etablissement_id)
                 .bind(id)
-                .execute(self.pool())
+                .execute(&mut *tx)
                 .await
                 .map_err(db)?;
         } else {
@@ -843,7 +861,7 @@ impl PgEnt {
             .bind(etablissement_id)
             .bind(id)
             .bind(fin)
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
         }
@@ -857,6 +875,7 @@ impl PgEnt {
             fin,
         )
         .await;
+        tx.commit().await.map_err(db)?;
         Ok(())
     }
 
@@ -895,7 +914,7 @@ impl PgEnt {
             sqlx::query_as("SELECT id FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
                 .bind(etablissement_id)
                 .bind(eleve_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
                 .await
                 .map_err(db)?;
         ok.map(|_| ()).ok_or_else(introuvable)
@@ -912,7 +931,7 @@ impl PgEnt {
     ) -> Result<Affectation, EntDbError> {
         let etab = annee.etablissement_id;
         let debut = date_effet.max(annee.date_debut);
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), annee.etablissement_id).await.map_err(db)?;
         let ouverte: Option<Affectation> = sqlx::query_as(
             "SELECT id, etablissement_id, annee_id, eleve_id, classe_id, groupe_id, date_debut, date_fin
              FROM ent_affectation
@@ -984,6 +1003,7 @@ impl PgEnt {
             .await?;
         let code = nouvelle_classe.trim();
         if code.is_empty() {
+            let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
             sqlx::query(
                 "UPDATE ent_affectation SET date_fin = GREATEST(date_debut, $4::date - 1)
                  WHERE etablissement_id = $1 AND eleve_id = $2 AND annee_id = $3
@@ -993,9 +1013,10 @@ impl PgEnt {
             .bind(eleve_id)
             .bind(annee.id)
             .bind(date_effet)
-            .execute(self.pool())
+            .execute(&mut *txw)
             .await
             .map_err(db)?;
+            txw.commit().await.map_err(db)?;
             return Ok(());
         }
         let classe = match self
@@ -1004,6 +1025,7 @@ impl PgEnt {
         {
             Some(c) => c,
             None => {
+                let mut txw = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
                 sqlx::query(
                     "INSERT INTO ent_classe (id, etablissement_id, annee_id, code, libelle, niveau)
                      VALUES ($1,$2,$3,$4,$4,$5) ON CONFLICT DO NOTHING",
@@ -1013,9 +1035,10 @@ impl PgEnt {
                 .bind(annee.id)
                 .bind(code)
                 .bind(niveau_de_code(code))
-                .execute(self.pool())
+                .execute(&mut *txw)
                 .await
                 .map_err(db)?;
+                txw.commit().await.map_err(db)?;
                 self.referentiel_classe_par_code(etablissement_id, annee.id, code)
                     .await?
                     .ok_or_else(introuvable)?
@@ -1035,6 +1058,7 @@ impl PgEnt {
         cmd: CreerService,
     ) -> Result<ServiceEnseignement, EntDbError> {
         exiger_gestion(role)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         // Classe XOR groupe, et la cible doit appartenir à l'établissement.
         let (annee_id, classe_id, groupe_id) = match (cmd.classe_id, cmd.groupe_id) {
             (Some(c), None) => {
@@ -1050,7 +1074,7 @@ impl PgEnt {
                 )
                 .bind(etablissement_id)
                 .bind(g)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
                 (a.ok_or_else(introuvable)?.0, None, Some(g))
@@ -1067,7 +1091,7 @@ impl PgEnt {
         )
         .bind(cmd.prof_user_id)
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if !membre.is_some_and(|(r,)| role_peut_lire_referentiel(&r)) {
@@ -1080,14 +1104,14 @@ impl PgEnt {
                 )
                 .bind(etablissement_id)
                 .bind(m)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
                 r.ok_or_else(introuvable)?.0
             }
             None => String::new(),
         };
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         if cmd.professeur_principal {
             sqlx::query(
                 "UPDATE ent_service_enseignement SET professeur_principal = false
@@ -1144,7 +1168,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(classe_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)
     }
@@ -1167,7 +1191,7 @@ impl PgEnt {
         .bind(prof_user_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(ok)
@@ -1185,6 +1209,7 @@ impl PgEnt {
     ) -> Result<RapportAmorcage, EntDbError> {
         let annee = self.referentiel_annee_courante_assuree(etablissement_id).await?;
         let jour = today_utc().clamp(annee.date_debut, annee.date_fin);
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
 
         // 1. Classes.
         let codes: Vec<(String,)> = sqlx::query_as(
@@ -1197,7 +1222,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let mut rapport = RapportAmorcage {
@@ -1215,7 +1240,7 @@ impl PgEnt {
             .bind(annee.id)
             .bind(code)
             .bind(niveau_de_code(code))
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await
             .map_err(db)?;
             rapport.classes_creees += r.rows_affected() as i64;
@@ -1227,7 +1252,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?
         .into_iter()
@@ -1239,7 +1264,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee.id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?
         .into_iter()
@@ -1251,7 +1276,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         for (eleve_id, code, entree) in eleves {
@@ -1277,7 +1302,7 @@ impl PgEnt {
                     .bind(eleve_id)
                     .bind(classe_id)
                     .bind(debut)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(db)?;
                     rapport.affectations_creees += r.rows_affected() as i64;
@@ -1304,9 +1329,10 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee.id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         rapport.services_crees = r.rows_affected() as i64;
         Ok(rapport)
     }
@@ -1322,7 +1348,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(v.into_iter().map(|(c,)| c).collect())

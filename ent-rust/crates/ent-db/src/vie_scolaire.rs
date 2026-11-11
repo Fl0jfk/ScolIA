@@ -32,6 +32,7 @@ use serde_json::json;
 use sqlx::PgConnection;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 /// Types d'événements de la vie scolaire (lot S2-4). Constantes locales : le
 /// catalogue central (`ent_events::types`) est partagé entre lots en parallèle.
@@ -294,7 +295,7 @@ impl PgEnt {
             sqlx::query_as("SELECT 1 FROM ent_eleve WHERE etablissement_id = $1 AND id = $2")
                 .bind(etablissement_id)
                 .bind(eleve_id)
-                .fetch_optional(self.pool())
+                .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
                 .await
                 .map_err(db)?;
         ok.map(|_| ()).ok_or_else(introuvable)
@@ -314,7 +315,7 @@ impl PgEnt {
                FROM ent_vs_regle_assiduite WHERE etablissement_id = $1",
         )
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         Ok(row
@@ -340,6 +341,7 @@ impl PgEnt {
         if !regle.valider() {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         sqlx::query(
             "INSERT INTO ent_vs_regle_assiduite
                 (etablissement_id, heure_coupure, seuil_minutes, seuil_signalement,
@@ -357,9 +359,10 @@ impl PgEnt {
         .bind(regle.seuil_minutes)
         .bind(regle.seuil_signalement)
         .bind(regle.delai_verification_minutes)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         Ok(regle)
     }
 
@@ -382,7 +385,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         let annules: HashSet<Uuid> = exceptions
@@ -570,6 +573,7 @@ impl PgEnt {
         if motif.is_empty() || motif.chars().count() > MAX_MOTIF {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await?;
         // Le motif doit exister pour l'établissement (référentiel de motifs).
         let connu: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_absence_motif m WHERE m.code = $1
@@ -580,7 +584,7 @@ impl PgEnt {
         )
         .bind(&motif)
         .bind(etab)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if connu.is_none() {
@@ -598,7 +602,7 @@ impl PgEnt {
             .bind(etab)
             .bind(cmd.eleve_id)
             .bind(doc)
-            .fetch_optional(self.pool())
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
             if ok.is_none() {
@@ -607,7 +611,7 @@ impl PgEnt {
         }
         let id = Uuid::new_v4();
         let declarant_user = (source == "famille").then_some(acteur);
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_absence_declaration
                 (id, etablissement_id, eleve_id, source, debut_jour, debut_heure, fin_jour,
@@ -685,7 +689,7 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
     ) -> Result<(), EntDbError> {
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let decl = sqlx::query_as::<_, DeclarationAbsence>(&format!(
             "SELECT {COLONNES_DECLARATION} FROM ent_absence_declaration
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
@@ -780,7 +784,7 @@ impl PgEnt {
         ))
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -802,13 +806,14 @@ impl PgEnt {
         let Some(creneau_id) = appel.creneau_id else {
             return Ok(Vec::new());
         };
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let horaires: Option<(NaiveTime, NaiveTime)> = sqlx::query_as(
             "SELECT heure_debut, heure_fin FROM ent_edt_creneau
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(etablissement_id)
         .bind(creneau_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         let Some((debut, fin)) = horaires else {
@@ -825,7 +830,7 @@ impl PgEnt {
             .bind(etablissement_id)
             .bind(&eleves)
             .bind(appel.jour)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
         let mut out: Vec<Uuid> = decls
@@ -854,6 +859,7 @@ impl PgEnt {
         au: NaiveDate,
     ) -> Result<BTreeMap<(Uuid, NaiveDate), Vec<Contribution>>, EntDbError> {
         let mut out: BTreeMap<(Uuid, NaiveDate), Vec<Contribution>> = BTreeMap::new();
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let lignes: Vec<(
             Uuid,
             NaiveDate,
@@ -876,7 +882,7 @@ impl PgEnt {
         .bind(du)
         .bind(au)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         for (e, jour, kind, periode, debut, fin, justifiee) in lignes {
@@ -912,7 +918,7 @@ impl PgEnt {
         .bind(du)
         .bind(au)
         .bind(eleve_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         for (e, jour, justifiee) in anciennes {
@@ -1017,7 +1023,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         let noms: HashMap<Uuid, (String, String)> =
@@ -1076,13 +1082,14 @@ impl PgEnt {
     ) -> Result<VerificationAppels, EntDbError> {
         let regle = self.regle_assiduite(etablissement_id).await?;
         let seances = self.seances_du_jour(etablissement_id, jour).await?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let appels: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
             "SELECT id, creneau_id, statut FROM ent_appel
               WHERE etablissement_id = $1 AND jour = $2 AND creneau_id IS NOT NULL",
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let appel_par_creneau: HashMap<Uuid, (Uuid, String)> = appels
@@ -1095,7 +1102,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let relances: HashMap<Uuid, i64> = relances.into_iter().collect();
@@ -1140,6 +1147,7 @@ impl PgEnt {
         etablissement_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<IncoherenceAppel>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let lignes: Vec<(Uuid, String, String, NaiveTime, NaiveTime, String)> = sqlx::query_as(
             "SELECT l.eleve_id, e.nom, e.prenom, c.heure_debut, c.heure_fin, l.etat
                FROM ent_appel a
@@ -1150,7 +1158,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let decls: Vec<(Uuid, NaiveDate, Option<NaiveTime>, NaiveDate, Option<NaiveTime>)> =
@@ -1162,7 +1170,7 @@ impl PgEnt {
             )
             .bind(etablissement_id)
             .bind(jour)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
         let mut par_eleve: BTreeMap<Uuid, Vec<&(Uuid, String, String, NaiveTime, NaiveTime, String)>> =
@@ -1235,6 +1243,7 @@ impl PgEnt {
             .into_iter()
             .find(|s| s.seance_ref == creneau_id)
             .ok_or_else(introuvable)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let clos: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM ent_appel
               WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND statut = 'clos'",
@@ -1242,7 +1251,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(creneau_id)
         .bind(jour)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
         if clos.is_some() {
@@ -1250,7 +1259,7 @@ impl PgEnt {
             return Err(EntDbError::Domain(DomainError::Conflit));
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_appel_relance
                 (id, etablissement_id, creneau_id, jour, destinataire_user_id, envoyee_par_user_id)
@@ -1309,6 +1318,7 @@ impl PgEnt {
             .await?;
         self.exiger_action_etab(etablissement_id, acteur, role, Action::AppelVerifier)
             .await?;
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let lignes: Vec<(Uuid, String, String, Uuid, String, bool, Option<NaiveTime>, Option<NaiveTime>)> =
             sqlx::query_as(
                 "SELECT a.eleve_id, e.nom, e.prenom, a.id, a.statut, COALESCE(bool_or(s.prevenue), false),
@@ -1323,7 +1333,7 @@ impl PgEnt {
             )
             .bind(etablissement_id)
             .bind(jour)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
         let mut absents: Vec<AbsentDuJour> = Vec::new();
@@ -1363,7 +1373,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_one(self.pool())
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         let retards: Vec<(Uuid, String, String, Option<i32>)> = sqlx::query_as(
@@ -1375,7 +1385,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let decls = sqlx::query_as::<_, DeclarationAbsence>(&format!(
@@ -1386,7 +1396,7 @@ impl PgEnt {
         ))
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = decls.iter().map(|d| d.eleve_id).collect();
@@ -1395,7 +1405,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let noms: HashMap<Uuid, (String, String)> =

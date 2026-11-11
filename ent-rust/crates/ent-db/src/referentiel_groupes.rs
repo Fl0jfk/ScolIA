@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::ref_commun::{db, Acteur};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResponsableGroupe {
@@ -43,6 +44,7 @@ impl PgEnt {
         annee_id: Option<Uuid>,
     ) -> Result<Vec<GroupeAdmin>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielLire).await?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let lignes: Vec<LigneGroupe> = sqlx::query_as(
             "SELECT g.id, g.annee_id, g.code, g.libelle, g.classe_id
                FROM ent_groupe g
@@ -53,7 +55,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(annee_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         let ids: Vec<Uuid> = lignes.iter().map(|l| l.id).collect();
@@ -66,7 +68,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(&ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         Ok(lignes
