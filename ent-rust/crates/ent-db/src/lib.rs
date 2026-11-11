@@ -99,6 +99,8 @@ mod referentiel_seances;
 pub mod edt_admin;
 pub mod edt_remplacement;
 mod edt_masse;
+pub mod edt_ports;
+pub mod edt_versions;
 pub mod delegation;
 mod edt_reactions;
 mod referentiel_classe_id;
@@ -319,6 +321,10 @@ mod tests_referentiel;
 mod tests_referentiel_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t1_t2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
