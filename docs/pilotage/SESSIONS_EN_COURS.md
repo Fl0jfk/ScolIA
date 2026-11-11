@@ -7,8 +7,8 @@ Mis à jour : 2026-11-11 06:55 UTC. ENT = 36e9e3c3 (RLS stricte domaine élèves
 |---|---|---|
 | session_01KZCbFDouGqmNwxWQSBiBcy | ent-socle-voyages-v0b | Socle 42 V0b (643) — vert sur 380e06de, doit refusionner ENT 36e9e3c3 |
 | session_01KZCbFJ2BZKhM1HPTykzZWF | ent-d036-normalisation-json-2 | D-036, 9 colonnes JSON (660+) — CI rouge, en correction |
-| session_01KZCbFESuFckqsjvji5e3X1 | ent-socle-12-code-1 | Socle 12 appel, premier lot (2240–2259) |
-| session_01KZCbFE5jX2y7qybpeVkHRe | ent-socle-29-code-1 | Socle 29 « Aujourd'hui », premier lot (2580–2599) |
+| session_01KZCbFESuFckqsjvji5e3X1 | ent-socle-12-code-1 | Socle 12 appel, premier lot (2240–2259) — lot versé, archivée 11-11 18:35 |
+| session_01KZCbFE5jX2y7qybpeVkHRe | ent-socle-29-code-1 | Socle 29 « Aujourd'hui », premier lot (2580–2599) — lot versé, archivée 11-11 18:35 |
 
 ## Conception (docs seulement ; mission `docs/missions/MISSION_CONCEPTION_SOCLE.md` ; plage = 2000 + 20 × N)
 Vague 1 (12, 13, 14, 15, 17–18, 19, 20, 22–23, 29, 40–41) : **terminée et fusionnée** dans ent-mc0hoe le 11/11 vers 06:55 UTC.
