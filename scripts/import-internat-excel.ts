@@ -110,8 +110,7 @@ async function main() {
   }
   process.env.ENT_CORE_DB = process.env.ENT_CORE_DB || "1";
   process.env.ENT_IMPORT_SCRIPT = "1";
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED =
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED || "0";
+  // NJ-53 : la vérification des certificats n'est plus désactivée par défaut (poser NODE_TLS_REJECT_UNAUTHORIZED=0 explicitement si nécessaire).
 
   const filePath = argValue("file");
   const slug =
