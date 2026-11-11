@@ -1529,7 +1529,7 @@ Ordre recommandé : **P0** (indépendant, immédiatement utile) → P1 → (P2, 
 
 ## 25. État du lot P4 « périmètre, missions, portées » (2026-11-10, branche `ent-socle-personnels-p4`, base `origin/ENT` après P3)
 
-**Niveau : implémenté + testé en local ; CI GitHub (`ent-rust.yml`) : voir la fin de cette section ; non validé par Florian ; aucun écran (les lots P11e « missions » et P11g « revue des accès » les portent).** Migration **355** (`355_missions.sql`, plage du socle 6, vérifiée libre sur toutes les branches distantes) ; `MIGRATION_TAG` reste `601_pieces_vers_objets` (plus haute du répertoire). Les points laissés ouverts par P3 (§24) n'ont pas été tranchés par Florian : **les recommandations de P3 sont appliquées par défaut (D-031)**, listées en « points à valider » ci-dessous.
+**Niveau : implémenté + testé en local ; CI GitHub (`ent-rust.yml`) : voir la fin de cette section ; non validé par Florian ; aucun écran (les lots P11e « missions » et P11g « revue des accès » les portent).** Migration **355** (`355_missions.sql`, plage du socle 6, vérifiée libre sur toutes les branches distantes) ; `MIGRATION_TAG` = `642_sortie_encadrants` (plus haute du répertoire, après fusion de la tête d'ENT). Les points laissés ouverts par P3 (§24) n'ont pas été tranchés par Florian : **les recommandations de P3 sont appliquées par défaut (D-031)**, listées en « points à valider » ci-dessous.
 
 | Exigence du lot | Réalisation | Test (`ent-db/src/tests_personnels_p4.rs`, sauf mention) |
 |---|---|---|

@@ -33,6 +33,28 @@ pub enum Action {
     /// Remettre immédiatement un message pendant la plage calme, pour une urgence, avec motif
     /// tracé (M0b, D24) : la direction.
     MessagerieUrgenceHorsPlage,
+    /// Socle 42, lot V0a : liste minimale des sorties (titre, dates, destination), tout le personnel.
+    VoyagesAnnuaire,
+    /// Détail de toute sortie de l'établissement (direction, administratif, comptabilité). Le porteur et les encadrants lisent la leur sans ce droit.
+    VoyagesLire,
+    /// Créer une sortie : professeurs, CPE, administratif, direction. Le créateur en est le porteur.
+    VoyagesCreer,
+    /// Modifier toute sortie (secrétariat, direction). Le porteur modifie la sienne sans ce droit.
+    VoyagesModifier,
+    /// Choisir et retirer les participants de toute sortie (secrétariat, direction).
+    VoyagesParticipants,
+    /// Choisir les encadrants de toute sortie (direction).
+    VoyagesEncadrement,
+    /// Valider la pédagogie, refuser, annuler, rouvrir, requalifier (direction).
+    VoyagesValider,
+    /// Validation finale d'une sortie (chef d'établissement et ses délégués).
+    VoyagesAutoriser,
+    /// Valider le budget d'un voyage (comptabilité).
+    VoyagesBudgetValider,
+    /// Attribuer ou transférer le porteur (secrétariat de direction).
+    VoyagesPorteur,
+    /// Demandes de devis, avenants et courriers aux prestataires (secrétariat, comptabilité, direction) : corrige le défaut de Next.js (VD-14).
+    VoyagesPrestataires,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -293,7 +315,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 116] = [
+    pub const TOUTES: [Action; 127] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -414,6 +436,18 @@ impl Action {
         // M0b : ajoutées en fin de catalogue (le catalogue historique est repéré par position).
         Action::MessagerieFilsReserves,
         Action::MessagerieUrgenceHorsPlage,
+        // Socle 42, lot V0a.
+        Action::VoyagesAnnuaire,
+        Action::VoyagesLire,
+        Action::VoyagesCreer,
+        Action::VoyagesModifier,
+        Action::VoyagesParticipants,
+        Action::VoyagesEncadrement,
+        Action::VoyagesValider,
+        Action::VoyagesAutoriser,
+        Action::VoyagesBudgetValider,
+        Action::VoyagesPorteur,
+        Action::VoyagesPrestataires,
         // Socle 6, lot P4 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
@@ -432,6 +466,17 @@ impl Action {
             Self::MessagerieEleve => "messagerie.eleve",
             Self::MessagerieFilsReserves => "messagerie.fils_reserves.lire",
             Self::MessagerieUrgenceHorsPlage => "messagerie.urgence_hors_plage",
+            Self::VoyagesAnnuaire => "voyages.annuaire",
+            Self::VoyagesLire => "voyages.lire",
+            Self::VoyagesCreer => "voyages.creer",
+            Self::VoyagesModifier => "voyages.modifier",
+            Self::VoyagesParticipants => "voyages.participants",
+            Self::VoyagesEncadrement => "voyages.encadrement",
+            Self::VoyagesValider => "voyages.valider",
+            Self::VoyagesAutoriser => "voyages.autoriser",
+            Self::VoyagesBudgetValider => "voyages.budget_valider",
+            Self::VoyagesPorteur => "voyages.porteur",
+            Self::VoyagesPrestataires => "voyages.prestataires",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -554,6 +599,17 @@ impl Action {
             Self::MessagerieEleve => "Échanger avec les familles à propos de l'élève",
             Self::MessagerieFilsReserves => "Lire les fils privés des familles et des élèves",
             Self::MessagerieUrgenceHorsPlage => "Remettre un message en urgence pendant la plage calme",
+            Self::VoyagesAnnuaire => "Liste minimale des sorties et voyages de l'établissement (titre, dates, destination)",
+            Self::VoyagesLire => "Consulter le détail de toutes les sorties et voyages",
+            Self::VoyagesCreer => "Créer une sortie ou un voyage (on en devient le porteur)",
+            Self::VoyagesModifier => "Modifier une sortie ou un voyage dont on n'est pas le porteur",
+            Self::VoyagesParticipants => "Gérer les participants d'une sortie dont on n'est pas le porteur",
+            Self::VoyagesEncadrement => "Gérer l'encadrement d'une sortie dont on n'est pas le porteur",
+            Self::VoyagesValider => "Valider la pédagogie, refuser, annuler, rouvrir, requalifier une sortie",
+            Self::VoyagesAutoriser => "Autoriser une sortie (validation finale du chef d'établissement)",
+            Self::VoyagesBudgetValider => "Valider le budget d'un voyage (comptabilité)",
+            Self::VoyagesPorteur => "Attribuer ou transférer le porteur d'une sortie",
+            Self::VoyagesPrestataires => "Demander des devis et écrire aux prestataires d'une sortie dont on n'est pas le porteur",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -715,6 +771,17 @@ impl Action {
             | Self::NotificationsGerer
             | Self::MessagerieFilsReserves
             | Self::MessagerieUrgenceHorsPlage
+            | Self::VoyagesAnnuaire
+            | Self::VoyagesLire
+            | Self::VoyagesCreer
+            | Self::VoyagesModifier
+            | Self::VoyagesParticipants
+            | Self::VoyagesEncadrement
+            | Self::VoyagesValider
+            | Self::VoyagesAutoriser
+            | Self::VoyagesBudgetValider
+            | Self::VoyagesPorteur
+            | Self::VoyagesPrestataires
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -902,6 +969,35 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
+    // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
+    // réservés. Le porteur et les encadrants d'une sortie agissent sur la leur sans droit d'établissement.
+    d.push(etab(VoyagesAnnuaire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Prof | Role::Cpe
+    ) {
+        d.push(etab(VoyagesCreer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [VoyagesModifier, VoyagesParticipants, VoyagesPorteur] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesPrestataires));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [VoyagesEncadrement, VoyagesValider, VoyagesAutoriser] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Compta) {
+        d.push(etab(VoyagesBudgetValider));
     }
     if role.can_gerer_personnels() {
         for a in [
@@ -1949,5 +2045,53 @@ mod oracle_a1 {
         assert!(modele_par_defaut(Role::Direction).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence));
         // Familles et élèves : aucun droit paramétrable.
         assert!(modele_par_defaut(Role::Parent).is_empty() && modele_par_defaut(Role::Eleve).is_empty());
+    }
+
+    /// Socle 42, lot V0a : modèles par défaut des onze actions `voyages.*` (`42_SORTIES_VOYAGES.md` §21.1).
+    #[test]
+    fn voyages_v0a_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        // Tout le personnel (jamais une famille ni un élève) lit la liste minimale.
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            assert!(a(r, VoyagesAnnuaire), "{r:?} voyages.annuaire");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).is_empty(), "{r:?} : aucun droit paramétrable");
+        }
+        // Création : professeurs, CPE, secrétariat, direction ; pas l'accueil ni la comptabilité.
+        for (r, attendu) in [
+            (Role::Prof, true), (Role::Cpe, true), (Role::Administratif, true), (Role::Direction, true),
+            (Role::Admin, true), (Role::Accueil, false), (Role::Compta, false), (Role::Infirmerie, false),
+        ] {
+            assert_eq!(a(r, VoyagesCreer), attendu, "{r:?} voyages.creer");
+        }
+        // Un professeur ne lit ni ne valide, ne modifie pas les sorties des autres, n'écrit pas aux prestataires.
+        for x in [VoyagesLire, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement, VoyagesValider,
+                  VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
+            assert!(!a(Role::Prof, x), "professeur : {x:?}");
+            assert!(!a(Role::Accueil, x), "accueil : {x:?}");
+        }
+        // Validation et autorisation : direction et administrateur seulement ; budget : comptabilité.
+        for (r, v, au, b) in [
+            (Role::Direction, true, true, false), (Role::Admin, true, true, true),
+            (Role::Administratif, false, false, false), (Role::Compta, false, false, true),
+            (Role::Cpe, false, false, false),
+        ] {
+            assert_eq!(a(r, VoyagesValider), v, "{r:?} valider");
+            assert_eq!(a(r, VoyagesAutoriser), au, "{r:?} autoriser");
+            assert_eq!(a(r, VoyagesBudgetValider), b, "{r:?} budget_valider");
+        }
+        // Prestataires (défaut de Next.js corrigé) : secrétariat, comptabilité, direction.
+        for (r, attendu) in [(Role::Administratif, true), (Role::Compta, true), (Role::Direction, true), (Role::Prof, false), (Role::Cpe, false)] {
+            assert_eq!(a(r, VoyagesPrestataires), attendu, "{r:?} prestataires");
+        }
+        // Codes lisibles et uniques ; établissement entier seulement.
+        for x in [VoyagesAnnuaire, VoyagesLire, VoyagesCreer, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement,
+                  VoyagesValider, VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
+            assert!(x.code().starts_with("voyages."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
     }
 }

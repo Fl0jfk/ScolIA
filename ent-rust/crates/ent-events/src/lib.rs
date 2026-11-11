@@ -391,6 +391,8 @@ pub enum AggregateKind {
     Admission,
     /// Lot d'import (S2-3, D23).
     Import,
+    /// Sortie ou voyage scolaire collectif (socle 42, lot V0a).
+    Voyage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
