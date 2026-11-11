@@ -259,6 +259,7 @@ impl PgEnt {
         .fetch_optional(&mut *tx)
         .await
         .map_err(ecriture)?;
+        let creation = actuel.is_none();
         match (actuel, corps.version) {
             (None, _) => {
                 sqlx::query(
@@ -298,7 +299,8 @@ impl PgEnt {
                 etablissement_signe_en_dernier = COALESCE($15, etablissement_signe_en_dernier),
                 accord_titulaires = COALESCE($16, accord_titulaires),
                 stage_famille = COALESCE($17, stage_famille),
-                modifie_par_personne_id = $18, modifie_le = now(), version = version + 1
+                modifie_par_personne_id = $18, modifie_le = now(),
+                version = version + CASE WHEN $19 THEN 0 ELSE 1 END
               WHERE etablissement_id = $1",
         )
         .bind(etab)
@@ -319,6 +321,7 @@ impl PgEnt {
         .bind(cmd.accord_titulaires)
         .bind(cmd.stage_famille)
         .bind(personne)
+        .bind(creation)
         .execute(&mut *tx)
         .await
         .map_err(ecriture)?;

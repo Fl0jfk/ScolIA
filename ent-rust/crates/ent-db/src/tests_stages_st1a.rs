@@ -21,6 +21,7 @@ async fn labo() -> Option<(PgEnt, LaboCast, sqlx::PgPool)> {
 
 fn est_refus<T: std::fmt::Debug>(r: &Result<T, EntDbError>, motif: StageErreur) -> bool {
     matches!(r, Err(EntDbError::Refus(_, m)) if *m == motif.message())
+        || matches!(r, Err(EntDbError::Domain(DomainError::Stage(e))) if *e == motif)
 }
 
 fn d(a: i32, m: u32, j: u32) -> NaiveDate {

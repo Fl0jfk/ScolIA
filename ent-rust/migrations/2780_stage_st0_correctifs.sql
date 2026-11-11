@@ -28,7 +28,17 @@ $$;
 
 UPDATE ent_convention_stage SET statut = 'declaree' WHERE statut = 'active';
 
-ALTER TABLE ent_convention_stage ALTER COLUMN statut SET DEFAULT 'declaree';
+-- Gardes « déjà fait » : une migration rejouée à chaque démarrage ne doit pas reprendre un verrou
+-- exclusif sur des tables en service (interblocages avec le trafic en cours).
+DO $$
+BEGIN
+    IF (SELECT column_default FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'ent_convention_stage' AND column_name = 'statut')
+       IS DISTINCT FROM '''declaree''::text' THEN
+        ALTER TABLE ent_convention_stage ALTER COLUMN statut SET DEFAULT 'declaree';
+    END IF;
+END
+$$;
 
 DO $$
 BEGIN
@@ -43,14 +53,24 @@ END
 $$;
 
 -- ───────────── RS-07 : version et horodatage de modification ─────────────
-ALTER TABLE ent_entreprise
-    ADD COLUMN IF NOT EXISTS modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
-    ADD COLUMN IF NOT EXISTS cree_par_personne_id UUID;
-ALTER TABLE ent_convention_stage
-    ADD COLUMN IF NOT EXISTS modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
-    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
-    ADD COLUMN IF NOT EXISTS cree_par_personne_id UUID;
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'ent_entreprise' AND column_name = 'version') THEN
+        ALTER TABLE ent_entreprise
+            ADD COLUMN modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+            ADD COLUMN cree_par_personne_id UUID;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'ent_convention_stage' AND column_name = 'version') THEN
+        ALTER TABLE ent_convention_stage
+            ADD COLUMN modifie_le TIMESTAMPTZ NOT NULL DEFAULT now(),
+            ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+            ADD COLUMN cree_par_personne_id UUID;
+    END IF;
+END
+$$;
 
 -- ───────────── RS-06 : clés composées (cloisonnement d'établissement garanti en base) ─────────────
 DO $$
@@ -193,5 +213,10 @@ BEGIN
 END
 $$;
 
-CREATE INDEX IF NOT EXISTS ent_convention_stage_statut_idx
-    ON ent_convention_stage (etablissement_id, statut);
+DO $$
+BEGIN
+    IF to_regclass('ent_convention_stage_statut_idx') IS NULL THEN
+        CREATE INDEX ent_convention_stage_statut_idx ON ent_convention_stage (etablissement_id, statut);
+    END IF;
+END
+$$;

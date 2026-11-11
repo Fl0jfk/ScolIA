@@ -81,18 +81,25 @@ CREATE TABLE IF NOT EXISTS ent_stage_dispositif_etab (
 );
 
 -- ───────────── Organismes étendus (STG-110, STG-117) ─────────────
-ALTER TABLE ent_entreprise
-    ADD COLUMN IF NOT EXISTS type TEXT NOT NULL DEFAULT 'entreprise',
-    ADD COLUMN IF NOT EXISTS enseigne TEXT,
-    ADD COLUMN IF NOT EXISTS code_postal TEXT,
-    ADD COLUMN IF NOT EXISTS commune TEXT,
-    ADD COLUMN IF NOT EXISTS pays TEXT NOT NULL DEFAULT 'FR',
-    ADD COLUMN IF NOT EXISTS etat TEXT NOT NULL DEFAULT 'actif',
-    ADD COLUMN IF NOT EXISTS etat_motif_code TEXT,
-    ADD COLUMN IF NOT EXISTS etat_motif_texte TEXT,
-    ADD COLUMN IF NOT EXISTS etat_decide_par_personne_id UUID,
-    ADD COLUMN IF NOT EXISTS etat_decide_le TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS origine TEXT NOT NULL DEFAULT 'saisie';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'ent_entreprise' AND column_name = 'etat') THEN
+        ALTER TABLE ent_entreprise
+            ADD COLUMN type TEXT NOT NULL DEFAULT 'entreprise',
+            ADD COLUMN enseigne TEXT,
+            ADD COLUMN code_postal TEXT,
+            ADD COLUMN commune TEXT,
+            ADD COLUMN pays TEXT NOT NULL DEFAULT 'FR',
+            ADD COLUMN etat TEXT NOT NULL DEFAULT 'actif',
+            ADD COLUMN etat_motif_code TEXT,
+            ADD COLUMN etat_motif_texte TEXT,
+            ADD COLUMN etat_decide_par_personne_id UUID,
+            ADD COLUMN etat_decide_le TIMESTAMPTZ,
+            ADD COLUMN origine TEXT NOT NULL DEFAULT 'saisie';
+    END IF;
+END
+$$;
 
 DO $$
 BEGIN
@@ -133,7 +140,13 @@ BEGIN
 END
 $$;
 
-CREATE INDEX IF NOT EXISTS ent_entreprise_etat_idx ON ent_entreprise (etablissement_id, etat);
+DO $$
+BEGIN
+    IF to_regclass('ent_entreprise_etat_idx') IS NULL THEN
+        CREATE INDEX ent_entreprise_etat_idx ON ent_entreprise (etablissement_id, etat);
+    END IF;
+END
+$$;
 
 -- ───────────── Sites (lieux d'accueil) ─────────────
 CREATE TABLE IF NOT EXISTS ent_entreprise_site (

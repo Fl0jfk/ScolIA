@@ -71,6 +71,7 @@ fn cmd_stage(
 
 fn est_refus(r: &Result<impl std::fmt::Debug, EntDbError>, motif: StageErreur) -> bool {
     matches!(r, Err(EntDbError::Refus(_, m)) if *m == motif.message())
+        || matches!(r, Err(EntDbError::Domain(DomainError::Stage(e))) if *e == motif)
 }
 
 /// RS-01 : un stage créé est `declaree` (jamais `active`) et ne vaut pas convention signée ;
@@ -250,7 +251,7 @@ async fn rs03_lecture_famille_par_le_lien() {
     assert!(lecture(cast.parent_lea.user_id, cast.eleve_lea_id).await.is_ok());
 
     // Lien suspendu : 403.
-    sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = now() WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+    sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = now(), suspension_motif = 'test stage' WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
         .bind(etab)
         .bind(cast.eleve_lea_id)
         .bind(cast.parent_lea.user_id)
@@ -259,7 +260,7 @@ async fn rs03_lecture_famille_par_le_lien() {
         .unwrap();
     let r = lecture(cast.parent_lea.user_id, cast.eleve_lea_id).await;
     assert!(matches!(r, Err(EntDbError::Forbidden)), "lien suspendu : {r:?}");
-    sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = NULL WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
+    sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = NULL, suspension_motif = NULL WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
         .bind(etab)
         .bind(cast.eleve_lea_id)
         .bind(cast.parent_lea.user_id)

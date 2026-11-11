@@ -12517,6 +12517,11 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
             };
             return (code, err.to_string());
         }
+        // Stages : refus typé (RS-10) — 409 pour un conflit d'état, 422 pour une saisie invalide.
+        ent_db::EntDbError::Domain(domain_eleve::DomainError::Stage(e)) => {
+            let code = if e.est_conflit() { StatusCode::CONFLICT } else { StatusCode::UNPROCESSABLE_ENTITY };
+            return (code, e.message().to_string());
+        }
         ent_db::EntDbError::FichierAbsent => return (StatusCode::NOT_FOUND, err.to_string()),
         ent_db::EntDbError::LiensIndisponibles => {
             tracing::error!("liens de fichiers désactivés : ENT_OBJECT_SIGNING_KEY absente ou invalide (fail-closed)");
