@@ -317,9 +317,9 @@ mod outils {
 
     #[test]
     fn le_detecteur_de_tables_distingue_lecture_et_fonctions() {
-        assert!(touche_table_msg("SELECT 1 FROM ent_msg m WHERE x"));
+        assert!(touche_table_msg("SELECT 1 FROM ent_msg m WHERE m.etablissement_id = 1"));
         assert!(touche_table_msg("INSERT INTO ent_msg_participant (a)"));
-        assert!(touche_table_msg("UPDATE ent_msg_fil SET a = 1"));
+        assert!(touche_table_msg("UPDATE ent_msg_fil SET a = 1 -- etablissement_id"));
         assert!(!touche_table_msg("SELECT ent_msg_ajouter_participant($1)"));
         assert!(!touche_table_msg("SELECT ent_msg_remise_calme($1, $2)"));
         assert!(!touche_table_msg("SELECT 1 FROM ent_message_autre"));
