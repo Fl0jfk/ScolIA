@@ -457,6 +457,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_mission_perimetre", "personnels", Portee::Etablissement).perso().export(),
     t("ent_mission_type", "personnels", Portee::Etablissement).exc(Exception::EtabNullable, "types de missions fournis par ScolIA (etablissement_id NULL autorisé), copiés ou désactivés par établissement"),
     t("ent_module_etablissement", "etablissement", Portee::Etablissement),
+    t("ent_migration_figee", "plateforme", Portee::Technique),
     t("ent_msg", "messagerie", Portee::Etablissement).perso().export(),
     t("ent_msg_accuse", "messagerie", Portee::Etablissement).perso().export(),
     t("ent_msg_fil", "messagerie", Portee::Etablissement).perso().export(),
