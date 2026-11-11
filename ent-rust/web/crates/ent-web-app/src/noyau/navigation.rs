@@ -35,6 +35,8 @@ pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const CAHIER: &str = "/web/cahier";
 pub const AGENDA: &str = "/web/agenda";
+/// Sorties et voyages (socle 42, lot V0a) : personnel selon le moteur de droits, familles et élèves.
+pub const VOYAGES: &str = "/web/voyages";
 /// Évaluations, conseils, bulletins (S2-7).
 pub const EVALUATIONS: &str = "/web/evaluations";
 pub const MESSAGES: &str = "/web/messages";
@@ -171,6 +173,11 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.portail_famille {
         v.push(entree("Santé", SANTE_ENFANT, NomIcone::Personne));
     }
+    // Socle 42 : la liste minimale des sorties est ouverte au personnel (`voyages.annuaire`) ; les
+    // familles et les élèves voient les sorties où l'enfant est inscrit.
+    if moteur.a("voyages.annuaire") || droits.portail_famille || droits.mes_absences {
+        v.push(entree("Sorties", VOYAGES, NomIcone::Agenda));
+    }
     if droits.messagerie {
         v.push(entree("Messages", MESSAGES, NomIcone::Messages));
     }
@@ -292,6 +299,7 @@ mod tests {
                 RENDEZ_VOUS,
                 FORMULAIRES,
                 SANTE_ENFANT,
+                VOYAGES,
                 MESSAGES,
                 REINSCRIPTION,
                 MES_FACTURES
@@ -332,6 +340,7 @@ mod tests {
                 EVALUATIONS,
                 ABSENCES,
                 FORMULAIRES,
+                VOYAGES,
                 MESSAGES
             ]
         );
@@ -454,6 +463,7 @@ mod tests {
                 RENDEZ_VOUS,
                 FORMULAIRES,
                 SANTE_ENFANT,
+                VOYAGES,
                 MESSAGES,
                 REINSCRIPTION,
                 MES_FACTURES
@@ -462,6 +472,20 @@ mod tests {
         // Un parent ne voit jamais la comptabilité, même si le moteur répondait par erreur.
         let v = adresses(droits_du_role("parent"), &DroitsMoteur::default());
         assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    #[test]
+    fn sorties_selon_le_moteur_pour_le_personnel_et_pour_les_familles() {
+        // Personnel : l'entrée vient du droit `voyages.annuaire` du moteur (jamais du profil seul).
+        let sans = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!sans.contains(&VOYAGES.to_string()));
+        let avec = DroitsMoteur::new(vec![droit("voyages.annuaire", "etablissement")]);
+        assert!(adresses(droits_du_role("prof"), &avec).contains(&VOYAGES.to_string()));
+        // Familles et élèves : l'écran montre les sorties de leur enfant.
+        for role in ["parent", "eleve"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(v.contains(&VOYAGES.to_string()), "{role}");
+        }
     }
 
     #[test]

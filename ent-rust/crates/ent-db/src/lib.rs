@@ -194,6 +194,8 @@ pub use edt_repo::{jour_semaine_iso, EdtCreneau};
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
 pub mod messagerie_m0b;
+pub mod voyages;
+pub mod voyages_repo;
 pub use messagerie_m0b::{
     ApercuAnnonce, FilOuvert, LienAVerifier, MessageEnvoye, OptionsEnvoiMessage, PageFils,
     ParamsListeFils, ReglagePlageCalme, ReglagePlageCalmeSaisie,
@@ -398,6 +400,8 @@ mod tests_eleve_recherche;
 mod tests_eleve_doublons;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_fusion;
+#[cfg(test)]
+mod tests_voyages_v0a;
 
 #[cfg(test)]
 mod integration_tests {

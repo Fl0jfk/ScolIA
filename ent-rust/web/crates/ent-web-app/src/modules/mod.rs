@@ -34,3 +34,4 @@ pub mod roles;
 pub mod sante_famille;
 pub mod securite;
 pub mod vie_scolaire;
+pub mod voyages;
