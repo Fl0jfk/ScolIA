@@ -33,3 +33,4 @@ Après la vague 2, les 51 socles sont conçus.
 
 ## File d'attente du code
 Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN hors registre de rechiffrement (E11) ; `current_date` restants dans les migrations (F-015) ; RLS stricte des autres domaines (docs/securite/RLS_STRICTE.md §7).
+| Next.js D-053 | session_01KZCbFDpXEDs6D1GX3TCxCF | nextjs-correctifs-securite (pilote relit et pousse sur main) |
