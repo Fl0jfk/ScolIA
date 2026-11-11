@@ -94,7 +94,15 @@ fn BlocProchainCours(jour: chrono::NaiveDate) -> impl IntoView {
 fn TuileServeur(tuile: TuilePortail, on_reessayer: Callback<()>) -> impl IntoView {
     let id = format!("tuile-{}", tuile.code.replace('.', "-"));
     let largeur = modele::largeur(tuile.largeur);
-    let TuilePortail { titre, etat, principal, nombre, lignes, action, .. } = tuile;
+    let TuilePortail {
+        titre,
+        etat,
+        principal,
+        nombre,
+        lignes,
+        action,
+        ..
+    } = tuile;
     let corps = match etat {
         EtatTuile::Indisponible => view! {
             <p class="texte-attenue">"Indisponible pour le moment."</p>
@@ -137,7 +145,10 @@ fn LigneServeur(ligne: LignePortail) -> impl IntoView {
         </span>
     };
     match ligne.lien {
-        Some(href) => view! { <li class=classe><a class="ui-liste__lien" href=href>{contenu}</a></li> }.into_any(),
+        Some(href) => {
+            view! { <li class=classe><a class="ui-liste__lien" href=href>{contenu}</a></li> }
+                .into_any()
+        }
         None => view! { <li class=classe>{contenu}</li> }.into_any(),
     }
 }
@@ -198,4 +209,3 @@ fn TuileProchainCours(
         </Tuile>
     }
 }
-

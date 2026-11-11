@@ -27,7 +27,9 @@ pub fn classe_ton(ton: TonLigne) -> &'static str {
 /// « 3 absences à justifier » → « absences à justifier » : le chiffre est affiché à part, en grand.
 pub fn sans_nombre(principal: &str) -> String {
     let t = principal.trim_start();
-    let reste = t.trim_start_matches(|c: char| c.is_ascii_digit()).trim_start();
+    let reste = t
+        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start();
     if reste.len() < t.len() && !reste.is_empty() {
         reste.to_string()
     } else {
@@ -53,7 +55,10 @@ mod tests {
 
     #[test]
     fn le_chiffre_est_retire_du_libelle() {
-        assert_eq!(sans_nombre("3 absences à justifier"), "absences à justifier");
+        assert_eq!(
+            sans_nombre("3 absences à justifier"),
+            "absences à justifier"
+        );
         assert_eq!(sans_nombre("Aucun message"), "Aucun message");
         assert_eq!(sans_nombre("12"), "12");
     }
