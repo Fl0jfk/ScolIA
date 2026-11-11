@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import {
   getEasytransacTransactionStatus,
@@ -23,7 +24,7 @@ async function verifyWebhookAuth(req: Request): Promise<boolean> {
     return true;
   }
   const header = req.headers.get("x-easytransac-secret") || req.headers.get("authorization");
-  return header === secret || header === `Bearer ${secret}`;
+  return safeSecretEqual(header, secret) || safeSecretEqual(header, `Bearer ${secret}`);
 }
 
 function pick(body: Record<string, unknown>, ...keys: string[]): string {

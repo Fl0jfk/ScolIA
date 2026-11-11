@@ -1,3 +1,4 @@
+import { safeSecretEqual } from "@/app/lib/safe-secret-equal";
 import { NextResponse } from "next/server";
 import { requirePlatformMaster } from "@/app/lib/intranet-auth";
 import { processDunningForAllTenants } from "@/app/lib/tenant-billing";
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
   const cronSecret = process.env.BILLING_CRON_SECRET?.trim();
   if (cronSecret) {
     const header = req.headers.get("x-billing-cron-secret") || req.headers.get("authorization");
-    if (header !== cronSecret && header !== `Bearer ${cronSecret}`) {
+    if (!safeSecretEqual(header, cronSecret) && !safeSecretEqual(header, `Bearer ${cronSecret}`)) {
       return NextResponse.json({ error: "Non autorisé." }, { status: 401 });
     }
   }
