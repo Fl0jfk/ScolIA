@@ -1224,6 +1224,11 @@ Côté socle 23 (attentes, tables à concevoir là-bas) : publication programmé
 
 ---
 
+### 21.2 [ajout socles 22–23, 2026-11-11] Attentes posées au 21 par `22_COMPETENCES.md` et `23_BULLETINS.md`
+- **Instantané d'arrêt normalisé** (D-036) : `eva_instantane.contenu JSONB` est l'entrée du conseil et du bulletin (§6.2), donc **relu comme source** ; il est remplacé, avant d'être écrit, par `eva_instantane` (version, empreinte, motif) + `eva_instantane_ligne` (élève, cours, matière, nature, valeur, statut, appréciation et version, synthèse de compétence du 22, assiduité) — détail : `23_BULLETINS.md` §21 (*appliqué par défaut, D-031*).
+- **Lien évaluation ↔ éléments** : `eva_evaluation_element (etablissement_id, evaluation_id, element_id, ordre, bareme_item_id NULL)`, à créer par le 21 dans sa réserve (468–477), lu par le 22 (`22_COMPETENCES.md` §4.4).
+- **Chemin des écrans** : `web/crates/ent-web-app/src/modules/evaluations/` (et non `ent-web-app/src/…`, §2.1).
+
 ## 22. Plan de migration depuis l'existant (sans casser l'appel, le mobile ni le labo)
 
 | Étape | Contenu | Compatibilité | Contrôle |
