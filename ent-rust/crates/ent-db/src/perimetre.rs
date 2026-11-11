@@ -78,7 +78,7 @@ impl PgEnt {
                              AND ga.groupe_id = c.groupe_id AND ga.eleve_id = e.id
                              AND ga.date_debut <= $4
                              AND (ga.date_fin IS NULL OR ga.date_fin >= $4)))
-                  AND ((NOT EXISTS (
+                  AND ((ent_repli_texte_actif(c.etablissement_id) AND NOT EXISTS (
                           SELECT 1 FROM ent_affectation fa
                             JOIN ent_annee_scolaire fy
                               ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
@@ -161,7 +161,7 @@ impl PgEnt {
                              AND ga.groupe_id = c.groupe_id AND ga.eleve_id = e.id
                              AND ga.date_debut <= $3
                              AND (ga.date_fin IS NULL OR ga.date_fin >= $3)))
-                AND ((NOT EXISTS (
+                AND ((ent_repli_texte_actif(c.etablissement_id) AND NOT EXISTS (
                           SELECT 1 FROM ent_affectation fa
                             JOIN ent_annee_scolaire fy
                               ON fy.id = fa.annee_id AND fy.etablissement_id = fa.etablissement_id
