@@ -247,13 +247,17 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/665_d036_personne_plage_joignable.sql"),
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
+    include_str!("../../../migrations/2820_internat_i0_presence_faits.sql"),
+    include_str!("../../../migrations/2821_internat_i0_regime_parametres.sql"),
+    include_str!("../../../migrations/2822_internat_i1_zones_chambres_lits.sql"),
+    include_str!("../../../migrations/2823_internat_i1_sejours_affectations.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "667_d036_personne_fusion_normalisee";
+pub const MIGRATION_TAG: &str = "2823_internat_i1_sejours_affectations";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -346,7 +350,14 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        noms.sort();
+        // Tri NUMÉRIQUE sur le préfixe : les plages à quatre chiffres (2820–2839, socle 41)
+        // dépassent celles à trois chiffres, ce que le tri alphabétique ne voit pas.
+        noms.sort_by_key(|n| {
+            (
+                n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0),
+                n.clone(),
+            )
+        });
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(
