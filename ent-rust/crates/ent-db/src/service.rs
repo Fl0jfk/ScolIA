@@ -2259,12 +2259,24 @@ impl PgEnt {
         // passe) enrôle sans le redemander. Après une connexion par mot de passe,
         // on le redemande : un jeton d'enrôlement volé ne suffit pas à poser une
         // passkey de l'attaquant.
+        //
+        // Audit Fable 1, S-01 : la passkey vaut pour la personne entière (D-013) ;
+        // un fournisseur SSO, lui, ne fait foi que pour son établissement. Sans mot
+        // de passe, l'enrôlement n'est permis que si l'identité n'appartient qu'à
+        // cet établissement ; sinon le mot de passe actuel est exigé (la personne
+        // en choisit un par « mot de passe oublié » si besoin).
         if portee == PorteeSession::Enrolement
             && assurance == AssuranceSession::Sso
             && current_password.is_empty()
         {
             if !self.auth.is_member(etablissement_id, user_id).await? {
                 return Err(EntDbError::Forbidden);
+            }
+            if !self
+                .identite_propre_a_l_etablissement(etablissement_id, user_id)
+                .await?
+            {
+                return Err(EntDbError::MotDePasseActuelInvalide);
             }
         } else {
             self.verifier_mot_de_passe_actuel(etablissement_id, user_id, current_password)
@@ -2957,6 +2969,42 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
 
     // ---- SSO OIDC ----------------------------------------------------------
 
+    /// `true` si l'identité n'a **aucune** appartenance hors de cet établissement
+    /// (toutes les lignes, quel que soit leur état : une appartenance fermée ou
+    /// suspendue ailleurs compte, par prudence) et en a une ici.
+    pub(crate) async fn identite_propre_a_l_etablissement(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        let appartenances = self.auth.list_memberships_for_user(user_id).await?;
+        Ok(!appartenances.is_empty()
+            && appartenances.iter().all(|(etab, _)| *etab == etablissement_id))
+    }
+
+    /// Audit Fable 1, S-01 (`docs/audits/CORRECTIF_S01_B02.md`, règle T2) :
+    /// rattachement automatique d'un `sub` SSO à une identité trouvée par e-mail.
+    /// Permis seulement si l'identité est membre (ouvert) de l'établissement du
+    /// fournisseur, n'a d'appartenance nulle part ailleurs et n'a pas de passkey
+    /// (la personne a alors ses propres secrets : le rattachement se fait par
+    /// elle, pas par l'établissement).
+    async fn rattachement_sso_par_email_permis(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        if !self.auth.is_member(etablissement_id, user_id).await? {
+            return Ok(false);
+        }
+        if !self
+            .identite_propre_a_l_etablissement(etablissement_id, user_id)
+            .await?
+        {
+            return Ok(false);
+        }
+        Ok(self.passkeys.count_for_user(user_id).await? == 0)
+    }
+
     /// Transport SSO courant (HTTP en production, simulé dans les tests).
     fn oidc_transport(&self) -> Arc<dyn OidcTransport> {
         self.oidc_transport
@@ -3231,6 +3279,9 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
     /// local**. Aucune création automatique : une identité SSO inconnue est
     /// refusée (un administrateur rattache le compte au préalable).
     ///
+    /// Le rattachement automatique par e-mail est borné (S-01) : voir
+    /// [`Self::rattachement_sso_par_email_permis`].
+    ///
     /// Le SSO ne **contourne pas** un 2ᵉ facteur déjà enrôlé : si le compte a
     /// ≥ 1 passkey, une assertion est exigée après l'IdP (`PasskeyRequired`) —
     /// sinon il suffirait de choisir « SSO » pour esquiver sa passkey.
@@ -3324,6 +3375,20 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
                 // RF-01 : pas de rattachement par e-mail pendant le gel qui suit un
                 // changement d'adresse fait par un tiers.
                 if self.email_change.est_gele(candidate).await? {
+                    return Err(EntDbError::OidcCompteInconnu);
+                }
+                // Audit Fable 1, S-01 : le fournisseur ne fait foi que pour SON
+                // établissement. Contrôles AVANT d'écrire le rattachement.
+                if !self
+                    .rattachement_sso_par_email_permis(state.etablissement_id, candidate)
+                    .await?
+                {
+                    // Trace technique sans identifiant ; rien dans le journal de
+                    // l'établissement (D-013 : il ignore les autres appartenances).
+                    tracing::warn!(
+                        provider = %provider.slug,
+                        "SSO : rattachement par e-mail refusé (identité hors du seul établissement du fournisseur ou déjà dotée d'une passkey)"
+                    );
                     return Err(EntDbError::OidcCompteInconnu);
                 }
                 self.oidc

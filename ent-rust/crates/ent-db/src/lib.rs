@@ -342,6 +342,8 @@ mod tests_roles;
 #[cfg(all(test, feature = "labo"))]
 mod tests_sso_securite;
 #[cfg(all(test, feature = "labo"))]
+mod tests_correctif_s01;
+#[cfg(all(test, feature = "labo"))]
 mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;

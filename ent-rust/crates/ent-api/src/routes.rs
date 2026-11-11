@@ -13273,7 +13273,7 @@ async fn list_etablissement_domaines(
     }))
 }
 
-/// Déclare / renomme l'établissement de la session (Admin, journalisé).
+/// Déclare / renomme l'établissement de la session (Admin, journalisé ; slug immuable, B-02).
 async fn put_etablissement_fiche(
     State(state): State<AppState>,
     session: EntSession,
@@ -13293,7 +13293,8 @@ async fn put_etablissement_fiche(
     Ok(Json(info.into()))
 }
 
-/// Rattache un domaine à l'établissement de la session (Admin, journalisé).
+/// Ajout de domaine par l'administrateur : refusé (403, B-02) ; réservé à l'opérateur
+/// (`ent-api plateforme-domaine ajouter`).
 async fn post_etablissement_domaine(
     State(state): State<AppState>,
     session: EntSession,
@@ -13315,7 +13316,7 @@ async fn post_etablissement_domaine(
     ))
 }
 
-/// Retire un domaine de l'établissement de la session (Admin, journalisé).
+/// Retrait de domaine par l'administrateur : refusé (403, B-02) ; réservé à l'opérateur.
 async fn delete_etablissement_domaine(
     State(state): State<AppState>,
     session: EntSession,
