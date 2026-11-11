@@ -51,3 +51,5 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | Audit 1 SSO/domaines | session_01KZCbFE4PujojAWS1VhwY6Q | ent-audit-correctifs-sso (700–709) |
 | 29 code P2-P3 | session_01KZCbFGstxci8Rzs92fxX5m | ent-socle-29-code-2 |
 | 12 code AS1-AS2 | session_01KZCbFGeamDF2fR77eh4pjP | ent-socle-12-code-2 |
+| Audit Fable 2 | session_01KZCbFFrtQe7DYdNRmtpQ5b | ent-audit-fable-2 (docs) |
+| Plan bascule février | session_01KZCbFHD9b6BhYczf79E69Y | ent-plan-bascule-fevrier (docs) |
