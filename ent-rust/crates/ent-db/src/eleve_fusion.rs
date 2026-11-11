@@ -1129,11 +1129,9 @@ impl PgEnt {
                 AND ($2 OR NOT (ent_eleve_confidentiel(f.etablissement_id, f.absorbe_id)
                                 OR ent_eleve_confidentiel(f.etablissement_id, f.conserve_id)))
               ORDER BY f.fusionne_le DESC, f.id LIMIT $3",
+            // Une seule table dans le FROM : les colonnes non qualifiées ne sont pas ambiguës
+            // (la liste contient un appel de fonction, qu'on ne peut pas préfixer colonne par colonne).
             cols = COLONNES_FUSION
-                .split(',')
-                .map(|c| format!("f.{}", c.trim()))
-                .collect::<Vec<_>>()
-                .join(", ")
         ))
         .bind(etab)
         .bind(voit_proteges)
