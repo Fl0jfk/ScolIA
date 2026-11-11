@@ -49,3 +49,5 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | Audit 1 correctifs données | session_01KZCbFDr3zxwCS9CKppHZX2 | ent-audit-correctifs-1 (680–689) |
 | Audit 1 correctifs infra | session_01KZCbFDz1jCrtfXGFESA18R | ent-audit-correctifs-2 (690–699) |
 | Audit 1 SSO/domaines | session_01KZCbFE4PujojAWS1VhwY6Q | ent-audit-correctifs-sso (700–709) |
+| 29 code P2-P3 | session_01KZCbFGstxci8Rzs92fxX5m | ent-socle-29-code-2 |
+| 12 code AS1-AS2 | session_01KZCbFGeamDF2fR77eh4pjP | ent-socle-12-code-2 |

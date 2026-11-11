@@ -6,6 +6,49 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-11 (mercredi soir, 20 h Paris)
+
+### Passé sur `ENT` aujourd'hui (tête `a4bcbe0c`)
+- **RLS stricte, domaine élèves** (`36e9e3c3`, nuit) et **correctif des tests à minuit Paris**.
+- **Voyages V0b** (`78492105`) : budget, prix figés, documents, rappels (migration 643).
+- **D-036 lot 2** (`c376da46`) : 7 colonnes JSON remplacées par des tables typées (661–667).
+- **Portail « Aujourd'hui » P1** (`3e8483aa`) : accueil par profil.
+- **Assiduité AS0** (`a4bcbe0c`) : correctifs urgents de l'appel et des absences (2240) ; fusion pilote sans relance (règle 17), passage de vérification sur ENT en cours.
+
+### Prêt ou presque, pas encore sur ENT
+- **Internat I0–I1** : CI relancée après deux oublis d'inventaire corrigés.
+- **Messagerie M1–M2**, **agenda AG0–AG1** : CI en cours.
+- **Voyages V0c**, **stages ST0–ST1(a)** : CI rouge, correction en cours.
+
+### En cours (14 sessions de code)
+Emploi du temps T0–T2, absences du personnel A0–A1, cahier de textes C0–C1, registre des migrations + retrait des colonnes JSON, portail P2–P3, assiduité AS1–AS2, trois sessions de correctifs de l'audit Fable 1 (données sensibles, infrastructure, SSO/passkeys/domaines).
+
+### Conception
+**Terminée en première version pour tout le périmètre** (50 domaines) ; ajouts du jour : paie multi-régimes (49 §36–37), adresses par UAI et groupes scolaires (`ORGANISME_ADRESSES.md`), cloud factures façon Zeendoc (48 §37), salles libérées (19, D-058), agenda à calques et feuille de semaine (19, D-059).
+
+### Next.js en production
+20 failles fermées ou réduites et en ligne (dont la prise de compte sans e-mail et les secrets de repli) ; le reste est renvoyé à la version Rust (D-054).
+
+### Audit Fable n° 1 (cœur sur ENT)
+Aucun critique ; 21 élevés, 34 moyens, 48 faibles (`docs/audits/AUDIT_FABLE_1.md`) ; correctifs lancés.
+
+### Décisions du jour
+D-047 à D-060 : compta et paie dans ScolIA en version légère (multi-régimes), cloud factures intégré, ArtCraft sans coédition, Next.js corrigé seulement pour l'externe, périmètre écoles/collèges/lycées GT, bascule unique aux vacances d'hiver 2027, tout-en-un, audits Fable réguliers.
+
+### Décisions attendues de Florian (rien de bloquant)
+- Adresses par UAI : Q-O1 à Q-O7 (recommandations appliquées par défaut).
+- Paie : Q-RH42 (contrat simple), Q-RH45 (pas de paie publique), Q-RH50 (part État/OGEC du chef du primaire).
+
+### À fournir par Florian plus tard (rien de nécessaire cette semaine)
+Inscription éditeur DNE (quand il aura le temps) ; hébergement Scaleway de ScolIA avant la répétition de Noël ; exports Charlemagne anonymisés ; comptes Apple et Google ; certificat et DNS des sous-domaines avant la démo.
+
+### Ce qui a coincé
+- **File GitHub saturée** (12 branches) : passages de 1 h 30 à 2 h ; plusieurs passages annulés par des relances → règles 16 (ne pas gaspiller) et 17 (fusion pilote sans relance).
+- **Limite des 5 heures** : sessions arrêtées deux fois, relancées.
+- Le dépôt GitHub est **public** : pris en compte dans les correctifs Next.js.
+
+---
+
 ## 2026-11-10 (mardi soir, 18 h 45 Paris)
 
 ### Passé sur `ENT` aujourd'hui (CI verte à chaque fois ; tête `88c1caae`)
