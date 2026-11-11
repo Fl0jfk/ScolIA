@@ -45,7 +45,7 @@ fn introuvable() -> EntDbError {
     EntDbError::Domain(DomainError::NotFound)
 }
 
-async fn debut(pool: &sqlx::PgPool, etab: Uuid) -> R<TenantTx<'static>> {
+async fn tenant(pool: &sqlx::PgPool, etab: Uuid) -> R<TenantTx<'static>> {
     TenantTx::begin(pool, etab)
         .await
         .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("stage", e)))
@@ -136,7 +136,7 @@ impl PgEnt {
         if !self.peut_lire_stages_etablissement(etab, acteur, role).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let lignes: Vec<(String, String, bool, bool, bool, bool)> = sqlx::query_as(
             "SELECT r.code, r.libelle, r.observation_seule, r.regime_at, r.allocation,
                     COALESCE(d.actif, false)
@@ -173,7 +173,7 @@ impl PgEnt {
         actif: bool,
     ) -> R<()> {
         self.exiger_stage(etab, acteur, role, Action::StagesParametrer).await?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let existe: Option<(String,)> =
             sqlx::query_as("SELECT code FROM ref_stage_dispositif WHERE code = $1")
                 .bind(code)
@@ -221,7 +221,7 @@ impl PgEnt {
         if !self.peut_lire_stages_etablissement(etab, acteur, role).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         lire_parametres(&mut tx, etab).await
     }
 
@@ -250,7 +250,7 @@ impl PgEnt {
             stage_famille: corps.stage_famille,
         })
         .map_err(refus_stage)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let personne = personne_de(&mut tx, etab, acteur).await?;
         let actuel: Option<(i32,)> = sqlx::query_as(
             "SELECT version FROM ent_stage_parametre WHERE etablissement_id = $1 FOR UPDATE",
@@ -354,7 +354,7 @@ impl PgEnt {
         if !gere && !self.a_action_etablissement(etab, acteur, role, Action::StagesLire).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let mut o = lire_organisme(&mut tx, etab, id).await?.ok_or_else(introuvable)?;
         if !gere {
             o.etat_motif_texte = None;
@@ -381,7 +381,7 @@ impl PgEnt {
             pays: corps.pays,
         })
         .map_err(refus_stage)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let r = sqlx::query(
             "UPDATE ent_entreprise SET
                 type = COALESCE($4, type),
@@ -436,7 +436,7 @@ impl PgEnt {
             direction,
         )
         .map_err(refus_stage)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let personne = personne_de(&mut tx, etab, acteur).await?;
         let r = sqlx::query(
             "UPDATE ent_entreprise SET etat = $4, etat_motif_code = $5, etat_motif_texte = $6,
@@ -483,7 +483,7 @@ impl PgEnt {
         if !self.peut_lire_stages_etablissement(etab, acteur, role).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let lignes = sqlx::query_as::<_, SiteRow>(&format!(
             "SELECT {COLS_SITE} FROM ent_entreprise_site
               WHERE etablissement_id = $1 AND entreprise_id = $2 ORDER BY libelle"
@@ -507,7 +507,7 @@ impl PgEnt {
     ) -> R<SiteStageDto> {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
         let s = site_valide(&corps)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         if !organisme_existe(&mut tx, etab, organisme).await? {
             return Err(introuvable());
         }
@@ -549,7 +549,7 @@ impl PgEnt {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
         let version = corps.version.ok_or_else(|| refus_stage(StageErreur::ConflitDeVersion))?;
         let s = site_valide(&corps)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let ligne = sqlx::query_as::<_, SiteRow>(&format!(
             "UPDATE ent_entreprise_site SET libelle = $4, adresse_ligne1 = $5, adresse_ligne2 = $6,
                     code_postal = $7, commune = $8, pays = $9, version = version + 1, modifie_le = now()
@@ -592,7 +592,7 @@ impl PgEnt {
         organisme: Uuid,
     ) -> R<Vec<ContactStageDto>> {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let lignes = sqlx::query_as::<_, ContactRow>(&format!(
             "SELECT {COLS_CONTACT} FROM ent_entreprise_contact
               WHERE etablissement_id = $1 AND entreprise_id = $2 AND actif ORDER BY nom, prenom"
@@ -616,7 +616,7 @@ impl PgEnt {
     ) -> R<ContactStageDto> {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
         let c = contact_valide(&corps)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         if !organisme_existe(&mut tx, etab, organisme).await? {
             return Err(introuvable());
         }
@@ -661,7 +661,7 @@ impl PgEnt {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
         let version = corps.version.ok_or_else(|| refus_stage(StageErreur::ConflitDeVersion))?;
         let c = contact_valide(&corps)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let ligne = sqlx::query_as::<_, ContactRow>(&format!(
             "UPDATE ent_entreprise_contact SET nom = $4, prenom = $5, fonction = $6, email = $7,
                     telephone = $8, est_tuteur = $9, est_signataire = $10, est_rh = $11,
@@ -709,7 +709,7 @@ impl PgEnt {
         version: i32,
     ) -> R<()> {
         self.exiger_stage(etab, acteur, role, Action::StagesOrganismesGerer).await?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let r = sqlx::query(
             "UPDATE ent_entreprise_contact SET actif = false, desactive_le = now(),
                     version = version + 1, modifie_le = now()
@@ -749,7 +749,7 @@ impl PgEnt {
         if !self.peut_lire_stages_etablissement(etab, acteur, role).await? {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let ids: Vec<(Uuid,)> = sqlx::query_as(
             "SELECT id FROM ent_stage_periode
               WHERE etablissement_id = $1
@@ -791,7 +791,7 @@ impl PgEnt {
         })
         .map_err(refus_stage)?;
         let publics = publics_valides(corps.individuelle, &corps.publics)?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let actif: Option<(bool,)> = sqlx::query_as(
             "SELECT COALESCE((SELECT actif FROM ent_stage_dispositif_etab
                                WHERE etablissement_id = $1 AND dispositif_code = r.code), false)
@@ -860,7 +860,7 @@ impl PgEnt {
         corps: ModifierPeriodeStageBody,
     ) -> R<PeriodeStageDto> {
         self.exiger_stage(etab, acteur, role, Action::StagesPeriodesGerer).await?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let actuelle: Option<(String, String, Uuid, i32)> = sqlx::query_as(
             "SELECT etat, type, annee_id, version FROM ent_stage_periode
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -956,7 +956,7 @@ impl PgEnt {
         vers: &str,
     ) -> R<PeriodeStageDto> {
         self.exiger_stage(etab, acteur, role, Action::StagesPeriodesGerer).await?;
-        let mut tx = debut(self.pool(), etab).await?;
+        let mut tx = tenant(self.pool(), etab).await?;
         let actuelle: Option<(String, i32)> = sqlx::query_as(
             "SELECT etat, version FROM ent_stage_periode
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
