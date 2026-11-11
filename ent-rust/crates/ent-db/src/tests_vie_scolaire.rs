@@ -15,11 +15,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    ent.install_brain_p0();
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
     Some((ent, cast))
 }
 
@@ -88,7 +84,7 @@ async fn seance_appel(
 }
 
 async fn compter(ent: &PgEnt, sql: &str, a: Uuid) -> i64 {
-    let (n,): (i64,) = sqlx::query_as(sql).bind(a).fetch_one(ent.pool()).await.unwrap();
+    let (n,): (i64,) = sqlx::query_as(sql).bind(a).fetch_one(ent.pool_verif()).await.unwrap();
     n
 }
 
@@ -98,7 +94,7 @@ async fn permettre_justifier(ent: &PgEnt, cast: &LaboCast, eleve: Uuid, user: Uu
         .bind(eleve)
         .bind(user)
         .bind(oui)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
 }
@@ -123,7 +119,7 @@ async fn prevenue(ent: &PgEnt, appel: Uuid, eleve: Uuid) -> bool {
     let (p,): (bool,) = sqlx::query_as("SELECT prevenue FROM ent_absence_seance WHERE appel_id = $1 AND eleve_id = $2")
         .bind(appel)
         .bind(eleve)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     p
@@ -158,18 +154,18 @@ async fn demi_journees_derivees_des_appels_et_cas_limites() {
 
     // Justification partielle : la première séance justifiée, la seconde non.
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
-        .bind(a1.id).execute(ent.pool()).await.unwrap();
+        .bind(a1.id).execute(ent.pool_verif()).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), lun, lun).await.unwrap();
     assert_eq!((dj[0].minutes, dj[0].minutes_non_justifiees), (120, 60));
     assert!(dj[0].non_justifiee, "60 min non justifiées ≥ seuil");
     // Tout justifié : comptée, plus au décompte réglementaire.
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
-        .bind(a2.id).execute(ent.pool()).await.unwrap();
+        .bind(a2.id).execute(ent.pool_verif()).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), lun, lun).await.unwrap();
     assert!(dj[0].comptee && !dj[0].non_justifiee);
     // Remise « présent » : la séance ne contribue plus.
     sqlx::query("UPDATE ent_absence SET statut = 'annulee_present' WHERE id IN (SELECT absence_id FROM ent_absence_seance WHERE appel_id = ANY($1))")
-        .bind(vec![a1.id, a2.id]).execute(ent.pool()).await.unwrap();
+        .bind(vec![a1.id, a2.id]).execute(ent.pool_verif()).await.unwrap();
     assert!(ent.demi_journees(etab, Some(lea), lun, lun).await.unwrap().is_empty());
 
     // Mardi : séance 11:30–12:30, ventilée 30 / 30 (seuil par défaut 30).
@@ -246,7 +242,7 @@ async fn reprise_des_absences_a_la_journee_et_decompte_mensuel() {
         Err(EntDbError::Forbidden)
     ));
     // Isolation : un autre établissement ne voit rien de cet élève.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let d2 = ent
         .decompte_mensuel_for_actor(autre.etablissement_id, autre.cpe.user_id, "cpe", lun)
         .await
@@ -264,7 +260,7 @@ async fn famille_declare_puis_rapprochement_a_l_appel() {
     let parent = (cast.parent_lea.user_id, "parent");
     permettre_justifier(&ent, &cast, lea, parent.0, true).await;
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = true WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool_verif()).await.unwrap();
     let lun = lundi();
 
     // Déclaration avant : lundi de 08:00 à 09:00 seulement.
@@ -391,7 +387,7 @@ async fn droits_et_validations_des_declarations() {
     ));
 
     // Isolation : l'élève d'un autre établissement est introuvable ici.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let r = ent
         .declarer_absence_accueil(adm.0, adm.1, decl(etab, autre.eleve_lea_id, lun, lun))
         .await;
@@ -399,7 +395,7 @@ async fn droits_et_validations_des_declarations() {
     // Lecture des déclarations : famille liée oui, autre foyer non.
     assert!(!ent.declarations_eleve_for_actor(etab, cast.cpe.user_id, "cpe", lea).await.unwrap().is_empty());
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = true WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(cast.parent_lea.user_id).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(cast.parent_lea.user_id).execute(ent.pool_verif()).await.unwrap();
     assert!(ent.declarations_eleve_for_actor(etab, p.0, p.1, lea).await.is_ok());
     assert!(matches!(
         ent.declarations_eleve_for_actor(etab, cast.parent_tom.user_id, "parent", lea).await,
@@ -513,7 +509,7 @@ async fn verification_des_appels_non_faits_et_relance() {
         .await
         .unwrap();
     sqlx::query("INSERT INTO ent_edt_exception (id, etablissement_id, creneau_id, jour, kind, motif, created_by_user_id) VALUES ($1,$2,$3,$4,'annulation','grève',$5)")
-        .bind(Uuid::new_v4()).bind(etab).bind(c2.id).bind(lun).bind(cast.admin.user_id).execute(ent.pool()).await.unwrap();
+        .bind(Uuid::new_v4()).bind(etab).bind(c2.id).bind(lun).bind(cast.admin.user_id).execute(ent.pool_verif()).await.unwrap();
     let v = ent.verifier_appels_for_actor(etab, cpe.0, cpe.1, lun, at(lun, 12, 0)).await.unwrap();
     assert!(v.seances_sans_appel.iter().all(|s| s.creneau_id != c2.id));
 
@@ -526,7 +522,7 @@ async fn verification_des_appels_non_faits_et_relance() {
         ent.verifier_appels_for_actor(etab, cast.parent_lea.user_id, "parent", lun, at(lun, 9, 0)).await,
         Err(EntDbError::Forbidden)
     ));
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let v = ent
         .verifier_appels_for_actor(autre.etablissement_id, autre.cpe.user_id, "cpe", lun, at(lun + Duration::days(1), 8, 0))
         .await
@@ -625,7 +621,7 @@ async fn punitions_distinctes_des_sanctions() {
     ));
     // Lecture : famille liée (peut_voir_vs) oui, autre foyer non.
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = true WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(cast.parent_lea.user_id).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(cast.parent_lea.user_id).execute(ent.pool_verif()).await.unwrap();
     assert_eq!(ent.punitions_eleve_for_actor(etab, cast.parent_lea.user_id, "parent", lea).await.unwrap().len(), 1);
     assert!(matches!(
         ent.punitions_eleve_for_actor(etab, cast.parent_tom.user_id, "parent", lea).await,
@@ -647,7 +643,7 @@ async fn punitions_distinctes_des_sanctions() {
     // Événement publié en transaction.
     assert!(compter(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = 'vs.punition_donnee'", etab).await >= 2);
     // Isolation : le type d'un autre établissement est refusé.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert!(ent
         .donner_punition(autre.cpe.user_id, "cpe", DonnerPunition { etablissement_id: autre.etablissement_id, eleve_id: autre.eleve_lea_id, type_id: retenue, ..cmd(lea) })
         .await
@@ -720,7 +716,7 @@ async fn effacement_automatique_des_sanctions() {
     assert_eq!(r.effacees, vec![avert]);
     // Idempotent ; le texte libre est vidé ; la sanction disparaît du dossier.
     assert!(ent.effacer_sanctions_echues(etab, d(2027, 9, 1), None).await.unwrap().effacees.is_empty());
-    let (note,): (Option<String>,) = sqlx::query_as("SELECT note FROM ent_sanction WHERE id = $1").bind(avert).fetch_one(ent.pool()).await.unwrap();
+    let (note,): (Option<String>,) = sqlx::query_as("SELECT note FROM ent_sanction WHERE id = $1").bind(avert).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(note.is_none());
     assert!(listes().await.unwrap().iter().all(|s| s.id != avert));
     // Délai en mois (12 mois par défaut pour l'exclusion temporaire) : 12 octobre 2027.
@@ -753,7 +749,7 @@ async fn effacement_automatique_des_sanctions() {
     ));
     assert!(ent.categoriser_type_sanction(etab, dir.0, dir.1, Uuid::new_v4(), "blame").await.is_err());
     // Isolation : une autre école n'efface rien dans celle-ci.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert!(ent.effacer_sanctions_echues(autre.etablissement_id, d(2060, 1, 1), None).await.unwrap().effacees.is_empty());
 }
 
@@ -811,7 +807,7 @@ async fn procedure_disciplinaire_contradictoire_et_conseil() {
     assert_eq!((p.statut.as_str(), p.conseil_le), ("convoquee", Some(envoi + Duration::days(8))));
     // Pas de décision avant la date du conseil (dates ramenées dans le passé en base).
     sqlx::query("UPDATE ent_procedure_disciplinaire SET engagee_le = engagee_le - 30, convocation_envoyee_le = convocation_envoyee_le - 30, conseil_le = conseil_le - 30 WHERE id = $1")
-        .bind(p.id).execute(ent.pool()).await.unwrap();
+        .bind(p.id).execute(ent.pool_verif()).await.unwrap();
     let conseil = envoi + Duration::days(8) - Duration::days(30);
     assert!(matches!(
         ent.decider_procedure(etab, p.id, dir.0, dir.1, "Exclusion", conseil - Duration::days(1), None).await,
@@ -827,7 +823,7 @@ async fn procedure_disciplinaire_contradictoire_et_conseil() {
     let p3 = ent.engager_procedure(dir.0, dir.1, cmd("chef_etablissement")).await.unwrap();
     assert_eq!(ent.classer_procedure(etab, p3.id, dir.0, dir.1).await.unwrap().statut, "close");
     // Isolation.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert!(ent.classer_procedure(autre.etablissement_id, p3.id, autre.direction.user_id, "direction").await.is_err());
 }
 
@@ -875,7 +871,7 @@ async fn signalement_d_assiduite_cpe_propose_direction_decide() {
     assert_eq!(compter(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND type = 'vs.signalement_assiduite_emis'", etab).await, 1);
     // Une proposition décidée n'est plus écrasée par un recalcul.
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id IN (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
-        .bind(appels[0].id).execute(ent.pool()).await.unwrap();
+        .bind(appels[0].id).execute(ent.pool_verif()).await.unwrap();
     let props = ent.proposer_signalements(etab, cpe.0, cpe.1, lun).await.unwrap();
     assert_eq!((props[0].statut.as_str(), props[0].demi_journees), ("emis", 4));
     // Après justification d'une matinée : 3 demi-journées non justifiées, seuil non atteint.
@@ -883,7 +879,7 @@ async fn signalement_d_assiduite_cpe_propose_direction_decide() {
     assert_eq!(d.eleves.iter().find(|x| x.eleve_id == lea).map(|x| (x.demi_journees_non_justifiees, x.seuil_atteint)), Some((3, false)));
     // Liste du mois ; isolation.
     assert_eq!(ent.signalements_for_actor(etab, cpe.0, cpe.1, lun).await.unwrap().len(), 1);
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     assert!(ent.signalements_for_actor(autre.etablissement_id, autre.cpe.user_id, "cpe", lun).await.unwrap().is_empty());
     assert!(ent.decider_signalement(autre.etablissement_id, id, autre.direction.user_id, "direction", "refuser").await.is_err());
 }
@@ -940,7 +936,7 @@ async fn parcours_journee_type_famille_appel_vie_scolaire() {
     assert_eq!(notifs(&ent, etab, parent.0, "absence_constatee").await, 0);
     // 7. La famille voit les demi-journées de son enfant (droit de lire la vie scolaire).
     sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = true WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id = $3")
-        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool()).await.unwrap();
+        .bind(etab).bind(lea).bind(parent.0).execute(ent.pool_verif()).await.unwrap();
     let dj = ent.demi_journees_eleve_for_actor(etab, parent.0, parent.1, lea, lun, lun).await.unwrap();
     assert_eq!(dj.len(), 1);
     assert!(matches!(
@@ -960,7 +956,7 @@ async fn parcours_journee_type_famille_appel_vie_scolaire() {
         .await
         .unwrap();
     // 9. Isolation : le tableau d'un autre établissement est vide de ces absents.
-    let autre = ent.seed_labo_cast().await.unwrap();
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
     let tb2 = ent
         .tableau_du_jour_for_actor(autre.etablissement_id, autre.cpe.user_id, "cpe", lun, at(lun, 9, 0))
         .await

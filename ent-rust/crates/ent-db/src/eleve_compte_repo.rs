@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, Eleve, EleveInvitation, InvitationStatut};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EleveCompte {
@@ -25,6 +26,7 @@ impl PgEleveCompteRepo {
         eleve_id: Uuid,
         user_id: Uuid,
     ) -> Result<EleveCompte, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_compte (etablissement_id, eleve_id, user_id, created_at)
@@ -35,9 +37,10 @@ impl PgEleveCompteRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(EleveCompte {
             etablissement_id,
             eleve_id,
@@ -58,7 +61,7 @@ impl PgEleveCompteRepo {
         )
         .bind(etablissement_id)
         .bind(user_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(|r| r.0))
@@ -77,7 +80,7 @@ impl PgEleveCompteRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.is_some())
@@ -89,6 +92,7 @@ impl PgEleveCompteRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Option<Uuid>, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let row: Option<(Uuid,)> = sqlx::query_as(
             r#"
             DELETE FROM ent_eleve_compte
@@ -98,9 +102,10 @@ impl PgEleveCompteRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         Ok(row.map(|r| r.0))
     }
 
@@ -126,13 +131,14 @@ impl PgEleveCompteRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(SansCompteRow::into_eleve).collect())
     }
 
     pub async fn insert_invitation(&self, inv: &EleveInvitation) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, inv.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_invitation (
@@ -150,9 +156,10 @@ impl PgEleveCompteRepo {
         .bind(inv.activated_user_id)
         .bind(inv.created_at)
         .bind(inv.expires_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -173,7 +180,7 @@ impl PgEleveCompteRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows

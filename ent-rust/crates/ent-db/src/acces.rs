@@ -105,7 +105,7 @@ impl PgEnt {
     ) -> Result<NaiveDate, EntDbError> {
         let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
             .bind(etablissement_id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
             .await
             .map_err(db)?;
         Ok(jour)
@@ -228,7 +228,7 @@ impl PgEnt {
         )
         .await?;
 
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let row: Option<(String, String, Option<NaiveDate>)> = sqlx::query_as(
             "SELECT role, etat, date_fin FROM ent_membership
               WHERE etablissement_id = $1 AND user_id = $2 FOR UPDATE",
@@ -353,7 +353,7 @@ impl PgEnt {
                 ));
             }
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         let row: Option<(String, String, Option<NaiveDate>)> = sqlx::query_as(
             "SELECT role, etat, date_fin FROM ent_membership
               WHERE etablissement_id = $1 AND user_id = $2 FOR UPDATE",
@@ -408,7 +408,7 @@ impl PgEnt {
     /// Existe-t-il, dans l'établissement, un autre administrateur « durable » (profil `admin`,
     /// accès ouvert, sans date de fin) que `sauf_user_id` ?
     async fn autre_administrateur_durable(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::PgConnection,
         etablissement_id: Uuid,
         sauf_user_id: Uuid,
     ) -> Result<bool, EntDbError> {
@@ -421,7 +421,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(sauf_user_id)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(db)?;
         Ok(ok)

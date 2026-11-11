@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::DomainError;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone)]
 pub struct BankRapprochementRow {
@@ -34,6 +35,7 @@ impl BankRepo {
         &self,
         row: &BankRapprochementRow,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, row.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_bank_rapprochement (
@@ -53,9 +55,10 @@ impl BankRepo {
         .bind(&row.status)
         .bind(&row.error)
         .bind(row.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -70,7 +73,7 @@ impl BankRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -89,7 +92,7 @@ impl BankRepo {
         )
         .bind(etablissement_id)
         .bind(status)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)

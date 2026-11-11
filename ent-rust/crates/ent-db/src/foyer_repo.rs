@@ -1,6 +1,7 @@
 use domain_eleve::{assert_parts_paiement, DomainError, LienDossier};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone)]
 pub struct EleveLien {
@@ -80,6 +81,7 @@ impl PgFoyerRepo {
         libelle: Option<&str>,
     ) -> Result<Uuid, DomainError> {
         let id = Uuid::new_v4();
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_foyer (id, etablissement_id, libelle, created_at)
@@ -89,9 +91,10 @@ impl PgFoyerRepo {
         .bind(id)
         .bind(etablissement_id)
         .bind(libelle)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(id)
     }
 
@@ -109,7 +112,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row)
@@ -136,7 +139,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -172,6 +175,7 @@ impl PgFoyerRepo {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| format!("%{s}%"));
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows: Vec<(Uuid, Option<String>, i64)> = if let Some(p) = pattern {
             sqlx::query_as(
                 r#"
@@ -194,7 +198,7 @@ impl PgFoyerRepo {
             .bind(etablissement_id)
             .bind(p)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -212,7 +216,7 @@ impl PgFoyerRepo {
             )
             .bind(etablissement_id)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -246,6 +250,7 @@ impl PgFoyerRepo {
         } else {
             lien
         };
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
 
         sqlx::query(
             r#"
@@ -269,9 +274,10 @@ impl PgFoyerRepo {
         .bind(cmd.peut_autoriser_sorties)
         .bind(cmd.est_payeur)
         .bind(cmd.part_paiement)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
 
         self.get_lien(etablissement_id, lien_id)
             .await?
@@ -315,7 +321,7 @@ impl PgFoyerRepo {
             .collect();
         assert_parts_paiement(&parts)?;
 
-        let mut tx = self.pool.begin().await.map_err(map_sqlx)?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         for (lien_id, cmd) in &cmds {
             let current = by_id.get(lien_id).ok_or(DomainError::NotFound)?;
             let lien = cmd.lien.trim();
@@ -372,6 +378,7 @@ impl PgFoyerRepo {
             .map(|(_, _, p, part)| (p, part))
             .collect();
         assert_parts_paiement(&parts)?;
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             DELETE FROM ent_eleve_lien
@@ -380,12 +387,13 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(lien_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
         if res.rows_affected() == 0 {
             return Err(DomainError::NotFound);
         }
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -405,7 +413,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(lien_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(LienRow::into_lien))
@@ -427,6 +435,7 @@ impl PgFoyerRepo {
         parts.push((cmd.est_payeur, cmd.part_paiement));
         assert_parts_paiement(&parts)?;
 
+        let mut tx = TenantTx::begin(&self.pool, cmd.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_eleve_lien (
@@ -457,9 +466,10 @@ impl PgFoyerRepo {
         .bind(cmd.peut_autoriser_sorties)
         .bind(cmd.est_payeur)
         .bind(cmd.part_paiement)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
 
         // Lecture brute (le lien peut être suspendu : la mise à jour reste visible).
         self.lien_compte_brut(cmd.etablissement_id, cmd.user_id, cmd.eleve_id)
@@ -482,7 +492,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)
     }
@@ -505,7 +515,7 @@ impl PgFoyerRepo {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(LienRow::into_lien))
@@ -539,7 +549,7 @@ impl PgFoyerRepo {
         ))
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LienRow::into_lien).collect())
@@ -572,7 +582,7 @@ impl PgFoyerRepo {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(|r| (LienRow::into_lien(r.lien), r.autorite_parentale)))
@@ -599,7 +609,7 @@ impl PgFoyerRepo {
         .bind(etablissement_id)
         .bind(user_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(LienRow::into_lien))
@@ -637,7 +647,7 @@ impl PgFoyerRepo {
         .bind(eleve_id)
         .bind(createur)
         .bind(lecteur)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(ok)
@@ -661,7 +671,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(foyer_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(e,)| e).collect())
@@ -696,7 +706,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(e,)| e).collect())
@@ -727,7 +737,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|(e,)| e).collect())
@@ -750,7 +760,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LienRow::into_lien).collect())
@@ -776,7 +786,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -827,7 +837,7 @@ impl PgFoyerRepo {
         )
         .bind(etablissement_id)
         .bind(user_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(LienRow::into_lien).collect())

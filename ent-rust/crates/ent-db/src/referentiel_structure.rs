@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::ref_commun::{conflit, db, introuvable, invalide, publier_ref, Acteur};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 // ───────────────────────────── Types ─────────────────────────────
 
@@ -242,7 +243,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 ORDER BY code",
         )
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -266,7 +267,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let uai = uai.as_deref();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let s = sqlx::query_as::<_, Site>(
             "INSERT INTO ent_site (id, etablissement_id, code, libelle, adresse, uai)
              VALUES ($1,$2,$3,$4,$5,$6)
@@ -303,7 +304,7 @@ impl PgEnt {
         actif: Option<bool>,
     ) -> Result<Site, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let s = sqlx::query_as::<_, Site>(
             "UPDATE ent_site SET
                 libelle = coalesce(nullif(btrim($3), ''), libelle),
@@ -343,7 +344,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 ORDER BY ordre, code",
         )
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -353,7 +354,7 @@ impl PgEnt {
     /// classes rattachées).
     pub async fn ref_amorcer_niveaux(&self, a: &Acteur<'_>) -> Result<(i64, i64), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let mut crees = 0;
         for (code, libelle, court, ordre, cycle) in NIVEAUX_NATIONAUX {
             let r = sqlx::query(
@@ -415,7 +416,7 @@ impl PgEnt {
         if code.is_empty() || code.chars().count() > 20 || libelle.is_empty() {
             return Err(invalide());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let n = sqlx::query_as::<_, Niveau>(
             "INSERT INTO ent_niveau (id, etablissement_id, code, libelle, ordre, cycle)
              VALUES ($1,$2,$3,$4,$5,$6)
@@ -444,7 +445,7 @@ impl PgEnt {
                FROM ent_mef WHERE etablissement_id = $1 ORDER BY code_mef",
         )
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -461,17 +462,18 @@ impl PgEnt {
         if !matches!(source, "import_siecle" | "import_bcn" | "saisie") || lignes.len() > 5000 {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let niveaux: HashMap<String, Uuid> = sqlx::query_as::<_, (String, Uuid)>(
             "SELECT code, id FROM ent_niveau WHERE etablissement_id = $1",
         )
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?
         .into_iter()
         .collect();
         let mut rapport = RapportImportMef::default();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         for l in lignes {
             let code = l.code_mef.trim().to_uppercase();
             let rejet = |raison: &str| (code.clone(), raison.to_string());
@@ -570,7 +572,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let annee: Option<(Uuid, bool)> = sqlx::query_as(
             "SELECT c.annee_id, y.cloturee_le IS NOT NULL FROM ent_classe c
                JOIN ent_annee_scolaire y ON y.id = c.annee_id
@@ -657,7 +659,7 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let existe: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = $2",
         )
@@ -760,7 +762,7 @@ impl PgEnt {
     ) -> Result<Vec<Periode>, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let annee: Option<(NaiveDate, NaiveDate, bool)> = sqlx::query_as(
             "SELECT date_debut, date_fin, cloturee_le IS NOT NULL FROM ent_annee_scolaire
@@ -990,6 +992,7 @@ impl PgEnt {
         if fin < debut || (fin - debut).num_days() > 800 {
             return Err(invalide());
         }
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
         let mut out: Vec<JourCalendrier> = sqlx::query_as::<_, (NaiveDate, String, String, Option<Uuid>)>(
             "SELECT jour, kind, libelle, site_id FROM ent_jour_calendrier
               WHERE etablissement_id = $1 AND jour BETWEEN $2 AND $3",
@@ -997,7 +1000,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?
         .into_iter()
@@ -1016,7 +1019,7 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         for (libelle, kind, d, f) in vac {
@@ -1056,7 +1059,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         crate::ref_commun::contexte_etab(&mut tx, e).await?;
         if let Some(s) = site_id {
             let n: i64 = sqlx::query_scalar(
@@ -1112,7 +1115,7 @@ impl PgEnt {
         site_id: Option<Uuid>,
     ) -> Result<(), EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let r = sqlx::query(
             "DELETE FROM ent_jour_calendrier
               WHERE etablissement_id = $1 AND jour = $2 AND site_id IS NOT DISTINCT FROM $3",
@@ -1158,7 +1161,7 @@ impl PgEnt {
             return Err(invalide());
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_periode_vacances
                (id, etablissement_id, libelle, kind, debut, fin, created_by_user_id)
@@ -1203,7 +1206,7 @@ impl PgEnt {
         )
         .bind(a.etablissement_id)
         .bind(site_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -1231,7 +1234,7 @@ impl PgEnt {
                 return Err(invalide());
             }
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         if let Some(s) = site_id {
             let n: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_site WHERE etablissement_id = $1 AND id = $2",

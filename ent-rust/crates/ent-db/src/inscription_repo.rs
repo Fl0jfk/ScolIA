@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, InscriptionEtapeKind, InscriptionSuivi};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgInscriptionRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgInscriptionRepo {
     }
 
     pub async fn upsert_suivi(&self, s: &InscriptionSuivi) -> Result<InscriptionSuivi, DomainError> {
+        let mut txw = TenantTx::begin(&self.pool, s.etablissement_id).await.map_err(map_sqlx)?;
         let row = sqlx::query_as::<_, Row>(
             r#"
             INSERT INTO ent_inscription_suivi (
@@ -39,9 +41,10 @@ impl PgInscriptionRepo {
         .bind(&s.commentaire)
         .bind(s.updated_by_user_id)
         .bind(s.updated_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *txw)
         .await
         .map_err(map_sqlx)?;
+        txw.commit().await.map_err(map_sqlx)?;
         row.into_suivi().ok_or(DomainError::InscriptionSuiviInvalide)
     }
 
@@ -62,7 +65,7 @@ impl PgInscriptionRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(annee_scolaire)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(Row::into_suivi))
@@ -86,7 +89,7 @@ impl PgInscriptionRepo {
         .bind(etablissement_id)
         .bind(annee_scolaire)
         .bind(etape)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_suivi).collect())

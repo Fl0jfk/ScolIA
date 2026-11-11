@@ -1,6 +1,7 @@
 use domain_eleve::{DomainError, EditionVsTemplate};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgEditionVsRepo {
     pool: PgPool,
@@ -12,6 +13,7 @@ impl PgEditionVsRepo {
     }
 
     pub async fn upsert(&self, t: &EditionVsTemplate) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, t.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_edition_vs (
@@ -33,9 +35,10 @@ impl PgEditionVsRepo {
         .bind(&t.corps)
         .bind(t.created_by_user_id)
         .bind(t.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -54,7 +57,7 @@ impl PgEditionVsRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_template))
@@ -75,7 +78,7 @@ impl PgEditionVsRepo {
         )
         .bind(etablissement_id)
         .bind(code)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(Row::into_template))
@@ -95,7 +98,7 @@ impl PgEditionVsRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(Row::into_template).collect())

@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{DocASigner, DocSignerStatut, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgDocSignerRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgDocSignerRepo {
     }
 
     pub async fn insert(&self, d: &DocASigner) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_doc_a_signer (
@@ -34,13 +36,15 @@ impl PgDocSignerRepo {
         .bind(d.echeance)
         .bind(d.signe_at)
         .bind(d.signe_par_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_signature(&self, d: &DocASigner) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_doc_a_signer
@@ -53,9 +57,10 @@ impl PgDocSignerRepo {
         .bind(d.statut.as_str())
         .bind(d.signe_at)
         .bind(d.signe_par_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -66,6 +71,7 @@ impl PgDocSignerRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<u64, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             UPDATE ent_doc_a_signer SET statut = 'annule'
@@ -74,13 +80,15 @@ impl PgDocSignerRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(res.rows_affected())
     }
 
     pub async fn update_statut(&self, d: &DocASigner) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_doc_a_signer SET statut = $3
@@ -90,9 +98,10 @@ impl PgDocSignerRepo {
         .bind(d.etablissement_id)
         .bind(d.id)
         .bind(d.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -111,7 +120,7 @@ impl PgDocSignerRepo {
         )
         .bind(etablissement_id)
         .bind(doc_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(Row::into_doc))
@@ -123,6 +132,7 @@ impl PgDocSignerRepo {
         eleve_id: Uuid,
         a_signer_seulement: bool,
     ) -> Result<Vec<DocASigner>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if a_signer_seulement {
             sqlx::query_as::<_, Row>(
                 r#"
@@ -135,7 +145,7 @@ impl PgDocSignerRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -150,7 +160,7 @@ impl PgDocSignerRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -171,7 +181,7 @@ impl PgDocSignerRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(Row::into_doc).collect())

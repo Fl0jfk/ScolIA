@@ -16,6 +16,7 @@ use uuid::Uuid;
 use crate::ref_commun::{conflit, db, introuvable, invalide, publier_ref, Acteur};
 use crate::referentiel_structure::{verifier_couverture, PeriodeSaisie};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
 pub struct AnneeDetail {
@@ -73,7 +74,7 @@ impl PgEnt {
               WHERE etablissement_id = $1 ORDER BY date_debut DESC"
         ))
         .bind(a.etablissement_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)
     }
@@ -84,7 +85,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(annee_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)
@@ -102,7 +103,7 @@ impl PgEnt {
         )
         .bind(etablissement_id)
         .bind(annee_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
         .await
         .map_err(db)?;
         match cloturee {
@@ -126,7 +127,7 @@ impl PgEnt {
         if libelle.is_empty() || libelle.chars().count() > 40 || date_fin <= date_debut {
             return Err(invalide());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         // Sérialise les créations d'année d'un même établissement.
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(a.etablissement_id)
@@ -194,7 +195,7 @@ impl PgEnt {
     ) -> Result<RapportOuverture, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         crate::ref_commun::contexte_etab(&mut tx, e).await?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))")
             .bind(e)
@@ -334,7 +335,7 @@ impl PgEnt {
     ) -> Result<AnneeDetail, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
         let e = a.etablissement_id;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let statut: Option<String> = sqlx::query_scalar(
             "SELECT statut FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
@@ -422,7 +423,7 @@ impl PgEnt {
             return Err(conflit());
         }
         let decalage = cible.date_debut.year() - source.date_debut.year();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         crate::ref_commun::contexte_etab(&mut tx, e).await?;
         let mut r = RapportReconduction {
             annee_cible_id: cible_id,
@@ -571,7 +572,7 @@ impl PgEnt {
         .bind(a.etablissement_id)
         .bind(debut)
         .bind(fin)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
         .await
         .map_err(db)?;
         let cible = match existante {
@@ -607,7 +608,7 @@ impl PgEnt {
         if annee.statut == "cloturee" {
             return Err(conflit());
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let mut rapport = RapportLot {
             apercu,
             ..Default::default()
@@ -712,6 +713,7 @@ impl PgEnt {
         self.annee_detail(e, source_id).await?;
         self.annee_detail(e, cible_id).await?;
         let mut items: Vec<(Uuid, Uuid)> = Vec::new();
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         for &(src, dst) in correspondances {
             let ok: i64 = sqlx::query_scalar(
                 "SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = $2 AND annee_id = $3",
@@ -719,7 +721,7 @@ impl PgEnt {
             .bind(e)
             .bind(src)
             .bind(source_id)
-            .fetch_one(self.pool())
+            .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
             if ok == 0 {
@@ -733,7 +735,7 @@ impl PgEnt {
             .bind(e)
             .bind(source_id)
             .bind(src)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
             items.extend(eleves.into_iter().map(|(id,)| (id, dst)));

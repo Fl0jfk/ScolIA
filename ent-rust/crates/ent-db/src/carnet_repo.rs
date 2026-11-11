@@ -2,6 +2,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use domain_eleve::{CarnetCategorie, CarnetEntree, DomainError};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgCarnetRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgCarnetRepo {
     }
 
     pub async fn insert(&self, e: &CarnetEntree) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_carnet_entree (
@@ -33,9 +35,10 @@ impl PgCarnetRepo {
         .bind(e.signe_at)
         .bind(e.signe_par_user_id)
         .bind(e.fil_notif_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -45,6 +48,7 @@ impl PgCarnetRepo {
         entree_id: Uuid,
         fil_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let n = sqlx::query(
             r#"
             UPDATE ent_carnet_entree
@@ -55,14 +59,16 @@ impl PgCarnetRepo {
         .bind(etablissement_id)
         .bind(entree_id)
         .bind(fil_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?
         .rows_affected();
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(n > 0)
     }
 
     pub async fn update_signature(&self, e: &CarnetEntree) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, e.etablissement_id).await.map_err(map_sqlx)?;
         let result = sqlx::query(
             r#"
             UPDATE ent_carnet_entree
@@ -74,9 +80,10 @@ impl PgCarnetRepo {
         .bind(e.id)
         .bind(e.signe_at)
         .bind(e.signe_par_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         if result.rows_affected() == 0 {
             return Err(DomainError::NotFound);
         }
@@ -98,7 +105,7 @@ impl PgCarnetRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(EntreeRow::into_entree))
@@ -110,6 +117,7 @@ impl PgCarnetRepo {
         eleve_id: Uuid,
         famille_only: bool,
     ) -> Result<Vec<CarnetEntree>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if famille_only {
             sqlx::query_as::<_, EntreeRow>(
                 r#"
@@ -122,7 +130,7 @@ impl PgCarnetRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -137,7 +145,7 @@ impl PgCarnetRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

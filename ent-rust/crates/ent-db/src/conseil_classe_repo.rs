@@ -4,6 +4,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgConseilClasseRepo {
     pool: PgPool,
@@ -15,6 +16,7 @@ impl PgConseilClasseRepo {
     }
 
     pub async fn insert_conseil(&self, c: &ConseilClasse) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_conseil_classe (
@@ -33,13 +35,15 @@ impl PgConseilClasseRepo {
         .bind(c.statut.as_str())
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_statut(&self, c: &ConseilClasse) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_conseil_classe SET statut = $3
@@ -49,9 +53,10 @@ impl PgConseilClasseRepo {
         .bind(c.etablissement_id)
         .bind(c.id)
         .bind(c.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -70,7 +75,7 @@ impl PgConseilClasseRepo {
         )
         .bind(etablissement_id)
         .bind(conseil_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ConseilRow::into_conseil))
@@ -81,6 +86,7 @@ impl PgConseilClasseRepo {
         etablissement_id: Uuid,
         classe: Option<&str>,
     ) -> Result<Vec<ConseilClasse>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if let Some(cl) = classe {
             sqlx::query_as::<_, ConseilRow>(
                 r#"
@@ -93,7 +99,7 @@ impl PgConseilClasseRepo {
             )
             .bind(etablissement_id)
             .bind(cl)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -107,7 +113,7 @@ impl PgConseilClasseRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -115,6 +121,7 @@ impl PgConseilClasseRepo {
     }
 
     pub async fn insert_dossier(&self, d: &ConseilClasseDossier) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_conseil_classe_dossier (
@@ -134,13 +141,15 @@ impl PgConseilClasseRepo {
         .bind(d.decided_at)
         .bind(d.decided_by_user_id)
         .bind(d.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
     pub async fn update_dossier(&self, d: &ConseilClasseDossier) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_conseil_classe_dossier
@@ -157,9 +166,10 @@ impl PgConseilClasseRepo {
         .bind(d.visible_famille)
         .bind(d.decided_at)
         .bind(d.decided_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -178,7 +188,7 @@ impl PgConseilClasseRepo {
         )
         .bind(etablissement_id)
         .bind(dossier_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(DossierRow::into_dossier))
@@ -200,7 +210,7 @@ impl PgConseilClasseRepo {
         )
         .bind(etablissement_id)
         .bind(conseil_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DossierRow::into_dossier).collect())
@@ -212,6 +222,7 @@ impl PgConseilClasseRepo {
         eleve_id: Uuid,
         famille_seulement: bool,
     ) -> Result<Vec<ConseilClasseDossier>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if famille_seulement {
             sqlx::query_as::<_, DossierRow>(
                 r#"
@@ -225,7 +236,7 @@ impl PgConseilClasseRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -240,7 +251,7 @@ impl PgConseilClasseRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };

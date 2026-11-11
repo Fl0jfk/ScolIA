@@ -88,7 +88,7 @@ pub(crate) async fn fermeture_en_cours(
           ORDER BY date_fin DESC LIMIT 1",
     )
     .bind(etab)
-    .fetch_optional(pool)
+    .fetch_optional(&mut *crate::tenant_tx::TenantTx::begin(pool, etab).await.map_err(db)?)
     .await
     .map_err(db)?;
     Ok(r.map(|r| FermetureDto {
@@ -760,7 +760,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(campagne_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         let mut out = Vec::with_capacity(rows.len());
@@ -785,7 +785,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(offre_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -806,7 +806,7 @@ impl PgEnt {
         ))
         .bind(etab)
         .bind(offre_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?
         .ok_or_else(introuvable)?;
@@ -830,7 +830,7 @@ impl PgEnt {
             return Err(conflit("campagne archivée"));
         }
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let niveau_id: Option<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_niveau WHERE etablissement_id = $1 AND upper(code) = upper($2)",
         )
@@ -902,7 +902,7 @@ impl PgEnt {
     ) -> Result<OffreOccupationDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
         valider_offre(b)?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (campagne_id, niveau, parcours, regime, avant): (Uuid, String, String, Option<String>, Option<i32>) =
             sqlx::query_as(
                 "SELECT campagne_id, niveau_code, parcours_code, regime, capacite FROM ent_inscription_offre
@@ -979,7 +979,7 @@ impl PgEnt {
         offre_id: Uuid,
     ) -> Result<(), EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (utilises,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_inscription_voeu WHERE etablissement_id = $1 AND offre_id = $2",
         )
@@ -1077,7 +1077,7 @@ impl PgEnt {
         vers: &str,
     ) -> Result<CampagneDto, EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (de,): (String,) = sqlx::query_as(
             "SELECT statut FROM ent_inscription_campagne WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
         )
@@ -1157,7 +1157,7 @@ impl PgEnt {
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = inscriptions::dossier_tx(&mut tx, etab, id).await?;
         let vers = match (action, d.nature.as_str()) {
             ("sans_suite", _) => "sans_suite",
@@ -1222,7 +1222,7 @@ impl PgEnt {
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = inscriptions::dossier_tx(&mut tx, etab, id).await?;
         let vers = if b.bloquer {
             "bloque_desaccord".to_string()
@@ -1286,7 +1286,7 @@ impl PgEnt {
         texte: &str,
     ) -> Result<DossierDto, EntDbError> {
         let (v, d0) = self.dossier_du_deposant(etab, jeton, id).await?;
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = inscriptions::dossier_tx(&mut tx, etab, id).await?;
         if d.demarche_id != d0.demarche_id || !matches!(d.nature.as_str(), "admission" | "en_cours_annee") {
             return Err(introuvable());
@@ -1343,7 +1343,7 @@ impl PgEnt {
                 "le déposant est l'interlocuteur du dossier : il ne peut pas être marqué « à ne pas solliciter »",
             ));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = inscriptions::dossier_tx(&mut tx, etab, id).await?;
         let lignes: Vec<(Uuid, Option<String>)> = sqlx::query_as(
             "SELECT r.id, lower(r.email) FROM ent_inscription_responsable r
@@ -1469,7 +1469,7 @@ impl PgEnt {
         if !(3..=1000).contains(&motif.chars().count()) {
             return Err(invalide("motif obligatoire (3 à 1000 caractères)"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = inscriptions::dossier_tx(&mut tx, etab, id).await?;
         if d.etat != "validee" {
             return Err(conflit("seule une inscription validée peut être annulée"));
@@ -1657,7 +1657,7 @@ impl PgEnt {
         if !["date_limite_famille", "cloture", "echeance_dossiers"].contains(&b.objet.as_str()) {
             return Err(invalide("objet : date_limite_famille, cloture ou echeance_dossiers"));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let c = sqlx::query_as::<_, CampagneRow>(&format!(
             "SELECT {COLS_CAMPAGNE} FROM ent_inscription_campagne
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE"
@@ -1890,7 +1890,7 @@ impl PgEnt {
         let contact = bornee(opt(&b.contact_urgence), 200, "contact d'urgence : 200 caractères au plus")?;
         let reouverture = b.date_fin + Duration::days(1 + i64::from(report));
         let id = Uuid::new_v4();
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Dossiers ouverts dont l'échéance tombe pendant la fermeture.
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "UPDATE ent_inscription_dossier SET echeance_famille = $4, updated_at = now()
@@ -1992,7 +1992,7 @@ impl PgEnt {
               ORDER BY date_debut DESC LIMIT 100",
         )
         .bind(etab)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows
@@ -2019,6 +2019,7 @@ impl PgEnt {
         id: Uuid,
     ) -> Result<(), EntDbError> {
         self.ins_exiger(etab, actor, role, Action::InscriptionsGerer).await?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?;
         let r = sqlx::query(
             "UPDATE ent_inscription_fermeture SET annulee_le = now(), annulee_par = $3
               WHERE etablissement_id = $1 AND id = $2 AND annulee_le IS NULL",
@@ -2026,9 +2027,10 @@ impl PgEnt {
         .bind(etab)
         .bind(id)
         .bind(actor)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await
         .map_err(db)?;
+        tx.commit().await?;
         if r.rows_affected() == 0 {
             return Err(introuvable());
         }
@@ -2094,7 +2096,7 @@ impl PgEnt {
             }
             autres.push((r, enfants.cloned().unwrap_or_default()));
         }
-        let mut tx = self.pool().begin().await.map_err(db)?;
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let c: Option<(String, String, Option<NaiveDate>, Option<NaiveDate>, Option<NaiveDate>, bool)> =
             sqlx::query_as(
                 "SELECT nature, statut, date_ouverture, date_cloture, date_cloture_depot, au_fil_de_l_eau
@@ -2332,7 +2334,7 @@ impl PgEnt {
         .bind(etab)
         .bind(id)
         .bind(&v.email)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         ok.ok_or_else(introuvable)?;
@@ -2347,13 +2349,14 @@ impl PgEnt {
     }
 
     pub(crate) async fn demarche_dto(&self, etab: Uuid, id: Uuid) -> Result<DemarcheDto, EntDbError> {
+        let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?;
         let ids: Vec<Uuid> = sqlx::query_scalar(
             "SELECT id FROM ent_inscription_dossier WHERE etablissement_id = $1 AND demarche_id = $2
               ORDER BY created_at, id",
         )
         .bind(etab)
         .bind(id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
         if ids.is_empty() {
@@ -2369,7 +2372,7 @@ impl PgEnt {
             )
             .bind(etab)
             .bind(id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
         Ok(DemarcheDto {
@@ -2406,7 +2409,7 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(ids)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
         Ok(rows

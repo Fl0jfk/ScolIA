@@ -4,7 +4,7 @@
 
 use ent_auth::Action;
 use ent_events::{AggregateKind, MetierEvent, MetierEventDraft};
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::outbox::Publier;
@@ -84,7 +84,7 @@ impl PgEnt {
 
 /// Publie un fait du référentiel dans la transaction de l'écriture (même commit).
 pub(crate) async fn publier_ref(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut sqlx::PgConnection,
     a: &Acteur<'_>,
     type_name: &str,
     aggregate_id: Uuid,
@@ -95,7 +95,7 @@ pub(crate) async fn publier_ref(
 
 /// Variante pour un fait d'un autre agrégat (ex. `edt.seances_generees`).
 pub(crate) async fn publier_agg(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut sqlx::PgConnection,
     a: &Acteur<'_>,
     aggregate: AggregateKind,
     type_name: &str,

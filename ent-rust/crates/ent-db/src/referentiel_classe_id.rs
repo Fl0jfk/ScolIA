@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ref_commun::{db, Acteur};
 use crate::service::{EntDbError, PgEnt};
+use crate::tenant_tx::TenantTx;
 
 /// (table, colonne texte, filtre supplémentaire)
 pub const TABLES_CLASSE: [(&str, &str, &str); 9] = [
@@ -70,7 +71,7 @@ impl PgEnt {
             let (avec_texte, avec_id, sans, incoh, hors): (i64, i64, i64, i64, i64) =
                 sqlx::query_as(&sql)
                     .bind(etablissement_id)
-                    .fetch_one(self.pool())
+                    .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
                     .await
                     .map_err(db)?;
             out.push(ComparaisonClasse {
@@ -108,10 +109,14 @@ impl PgEnt {
         &self,
         etablissement_id: uuid::Uuid,
     ) -> Result<Vec<(String, i64)>, EntDbError> {
-        sqlx::query_as("SELECT o_table, o_rattachees FROM ent_rattacher_classes($1)")
+        // `ent_rattacher_classes` écrit (rattachement des classes) : transaction validée.
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
+        let lignes = sqlx::query_as("SELECT o_table, o_rattachees FROM ent_rattacher_classes($1)")
             .bind(etablissement_id)
-            .fetch_all(self.pool())
+            .fetch_all(&mut *tx)
             .await
-            .map_err(db)
+            .map_err(db)?;
+        tx.commit().await?;
+        Ok(lignes)
     }
 }

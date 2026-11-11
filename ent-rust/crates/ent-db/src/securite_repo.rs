@@ -32,7 +32,7 @@ impl PgEnt {
               WHERE etablissement_id = $1",
         )
         .bind(etablissement_id)
-        .fetch_optional(self.pool())
+        .fetch_optional(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
         .await
         .map_err(db)?;
         Ok(PolitiqueSecurite {
@@ -115,6 +115,7 @@ impl PgEnt {
         if !canon.is_empty() {
             self.passkey_engine()?;
         }
+        let mut txw = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_politique_securite
                  (etablissement_id, passkey_obligatoire_roles, modifie_par_user_id, modifie_at)
@@ -127,9 +128,10 @@ impl PgEnt {
         .bind(etablissement_id)
         .bind(&canon)
         .bind(actor_user_id)
-        .execute(self.pool())
+        .execute(&mut *txw)
         .await
         .map_err(db)?;
+        txw.commit().await.map_err(db)?;
         // Revue E5 : les sessions complètes déjà ouvertes par des comptes
         // désormais soumis et sans passkey sont fermées (la prochaine connexion
         // passe par l'enrôlement). La session de l'acteur est conservée.

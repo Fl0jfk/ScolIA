@@ -4,6 +4,7 @@ use chrono::{DateTime, Datelike, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{DomainError, EdtCalendrierAb, EdtException, EdtExceptionKind, EdtSemaineAb};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdtCreneau {
@@ -33,6 +34,7 @@ impl PgEdtRepo {
     }
 
     pub async fn insert(&self, c: &EdtCreneau) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_edt_creneau (
@@ -53,9 +55,10 @@ impl PgEdtRepo {
         .bind(c.salle.as_deref())
         .bind(&c.site)
         .bind(c.semaine_ab.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -74,7 +77,7 @@ impl PgEdtRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(CreneauRow::into_creneau))
@@ -97,7 +100,7 @@ impl PgEdtRepo {
         )
         .bind(etablissement_id)
         .bind(js)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(CreneauRow::into_creneau).collect())
@@ -110,6 +113,7 @@ impl PgEdtRepo {
         prof_user_id: Uuid,
         salle: Option<&str>,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let res = sqlx::query(
             r#"
             UPDATE ent_edt_creneau
@@ -121,9 +125,10 @@ impl PgEdtRepo {
         .bind(creneau_id)
         .bind(prof_user_id)
         .bind(salle)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         if res.rows_affected() == 0 {
             return Err(DomainError::NotFound);
         }
@@ -147,7 +152,7 @@ impl PgEdtRepo {
         )
         .bind(etablissement_id)
         .bind(creneau_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows
@@ -175,7 +180,7 @@ impl PgEdtRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(CreneauRow::into_creneau).collect())
@@ -192,6 +197,7 @@ impl PgEdtRepo {
         report_json: serde_json::Value,
         created_by_user_id: Uuid,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_edt_import (
@@ -208,9 +214,10 @@ impl PgEdtRepo {
         .bind(conflicts_count)
         .bind(report_json)
         .bind(created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -225,7 +232,7 @@ impl PgEdtRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -252,13 +259,14 @@ impl PgEdtRepo {
         .bind(etablissement_id)
         .bind(prof_user_id)
         .bind(js)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(CreneauRow::into_creneau).collect())
     }
 
     pub async fn upsert_calendrier_ab(&self, c: &EdtCalendrierAb) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_edt_calendrier_ab (
@@ -274,9 +282,10 @@ impl PgEdtRepo {
         .bind(c.reference_lundi)
         .bind(c.created_by_user_id)
         .bind(c.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -292,7 +301,7 @@ impl PgEdtRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(CalendrierAbRow::into_calendrier))
@@ -316,7 +325,7 @@ impl PgEdtRepo {
         .bind(etablissement_id)
         .bind(creneau_id)
         .bind(jour)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ExceptionRow::into_exception))
@@ -339,7 +348,7 @@ impl PgEdtRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows

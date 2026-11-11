@@ -6,6 +6,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgSortieRepo {
     pool: PgPool,
@@ -17,6 +18,7 @@ impl PgSortieRepo {
     }
 
     pub async fn upsert_autorisation(&self, a: &AutorisationSortie) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_autorisation (
@@ -42,9 +44,10 @@ impl PgSortieRepo {
         .bind(a.interdit_etablissement)
         .bind(a.updated_by_user_id)
         .bind(a.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -63,7 +66,7 @@ impl PgSortieRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(AuthRow::into_auth))
@@ -73,6 +76,7 @@ impl PgSortieRepo {
         &self,
         d: &DemandeSortieExceptionnelle,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_demande (
@@ -93,9 +97,10 @@ impl PgSortieRepo {
         .bind(d.decided_at)
         .bind(&d.decision_note)
         .bind(d.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -103,6 +108,7 @@ impl PgSortieRepo {
         &self,
         d: &DemandeSortieExceptionnelle,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             UPDATE ent_sortie_demande SET
@@ -119,9 +125,10 @@ impl PgSortieRepo {
         .bind(d.decided_by_user_id)
         .bind(d.decided_at)
         .bind(&d.decision_note)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -140,7 +147,7 @@ impl PgSortieRepo {
         )
         .bind(etablissement_id)
         .bind(demande_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(DemandeRow::into_demande))
@@ -152,6 +159,7 @@ impl PgSortieRepo {
         eleve_id: Uuid,
         only_ouvertes: bool,
     ) -> Result<Vec<DemandeSortieExceptionnelle>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if only_ouvertes {
             sqlx::query_as::<_, DemandeRow>(
                 r#"
@@ -164,7 +172,7 @@ impl PgSortieRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -179,7 +187,7 @@ impl PgSortieRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -204,7 +212,7 @@ impl PgSortieRepo {
         .bind(etablissement_id)
         .bind(eleve_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DemandeRow::into_demande).collect())
@@ -224,13 +232,14 @@ impl PgSortieRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(DemandeRow::into_demande).collect())
     }
 
     pub async fn insert_controle(&self, c: &ControleSortie) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_controle (
@@ -249,9 +258,10 @@ impl PgSortieRepo {
         .bind(&c.motif)
         .bind(c.actor_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -271,13 +281,14 @@ impl PgSortieRepo {
         )
         .bind(etablissement_id)
         .bind(jour)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(ControleRow::into_controle).collect())
     }
 
     pub async fn upsert_regle_niveau(&self, r: &SortieRegleNiveau) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_regle_niveau (
@@ -303,9 +314,10 @@ impl PgSortieRepo {
         .bind(r.choix_parent_interdit)
         .bind(r.updated_by_user_id)
         .bind(r.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -324,7 +336,7 @@ impl PgSortieRepo {
         )
         .bind(etablissement_id)
         .bind(niveau)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(RegleRow::into_regle))
@@ -344,13 +356,14 @@ impl PgSortieRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(RegleRow::into_regle).collect())
     }
 
     pub async fn upsert_regle_regime(&self, r: &SortieRegleRegime) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, r.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_regle_regime (
@@ -376,9 +389,10 @@ impl PgSortieRepo {
         .bind(r.choix_parent_interdit)
         .bind(r.updated_by_user_id)
         .bind(r.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -397,13 +411,14 @@ impl PgSortieRepo {
         )
         .bind(etablissement_id)
         .bind(regime)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(RegleRegimeRow::into_regle))
     }
 
     pub async fn upsert_param(&self, p: &SortieParamEtab) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_sortie_param (
@@ -419,9 +434,10 @@ impl PgSortieRepo {
         .bind(p.autoriser_changement_site)
         .bind(p.updated_by_user_id)
         .bind(p.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -437,7 +453,7 @@ impl PgSortieRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(ParamRow::into_param))
@@ -457,7 +473,7 @@ impl PgSortieRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().filter_map(RegleRegimeRow::into_regle).collect())

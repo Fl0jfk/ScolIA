@@ -11,10 +11,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let ent = PgEnt::connect(&url).await.expect("connect");
-    ent.migrate().await.expect("migrate");
-    let cast = ent.seed_labo_cast().await.expect("seed cast");
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
     Some((ent, cast))
 }
 
@@ -139,7 +136,7 @@ async fn l_etat_civil_n_est_interrogeable_qu_avec_son_groupe() {
     let (cle, civil): (String, String) =
         sqlx::query_as("SELECT cle_recherche, cle_recherche_civil FROM ent_eleve WHERE id = $1")
             .bind(e.id)
-            .fetch_one(ent.pool())
+            .fetch_one(ent.pool_verif())
             .await
             .unwrap();
     assert!(cle.contains("sam") && !cle.contains("samantha"), "{cle}");
@@ -178,7 +175,7 @@ async fn ine_et_numero_seulement_avec_les_droits() {
     // Numéro d'élève (G1) : début de numéro, secrétariat seulement.
     let (numero,): (String,) = sqlx::query_as("SELECT numero FROM ent_eleve WHERE id = $1")
         .bind(e.id)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let l = chercher(&ent, &cast, Role::Administratif, &numero).await;
@@ -232,7 +229,7 @@ async fn eleve_protege_absent_de_la_recherche_pour_un_tiers() {
     )
     .bind(etab)
     .bind(e.id)
-    .execute(ent.pool())
+    .execute(ent.pool_verif())
     .await
     .unwrap();
     for role in [Role::Administratif, Role::Cpe, Role::Prof] {
@@ -248,7 +245,7 @@ async fn eleve_protege_absent_de_la_recherche_pour_un_tiers() {
     // Mesure levée : il redevient visible.
     sqlx::query("UPDATE ent_eleve_confidentialite SET leve_le = now() WHERE eleve_id = $1")
         .bind(e.id)
-        .execute(ent.pool())
+        .execute(ent.pool_verif())
         .await
         .unwrap();
     let l = chercher(&ent, &cast, Role::Administratif, &nom).await;
@@ -301,7 +298,7 @@ async fn recherche_sous_100_ms_sur_5000_eleves() {
     let etab = Uuid::from_u128(0x5e6e_0000_0000_4000_8000_0000_0000_5000);
     let deja: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_eleve WHERE etablissement_id = $1")
         .bind(etab)
-        .fetch_one(ent.pool())
+        .fetch_one(ent.pool_verif())
         .await
         .unwrap();
     let noms = [
@@ -331,11 +328,11 @@ async fn recherche_sous_100_ms_sur_5000_eleves() {
     .bind(etab)
     .bind(&noms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
     .bind(&prenoms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-    .fetch_one(ent.pool())
+    .fetch_one(ent.pool_verif())
     .await
     .unwrap() };
     assert!(n >= 5000);
-    sqlx::query("ANALYZE ent_eleve").execute(ent.pool()).await.unwrap();
+    sqlx::query("ANALYZE ent_eleve").execute(ent.pool_verif()).await.unwrap();
 
     let requetes = [
         "martin", "martin lea", "mohamed benali", "benali", "lemaitre", "elo", "jean pierre", "mullr", "saint pierre",

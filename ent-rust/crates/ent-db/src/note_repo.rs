@@ -4,6 +4,7 @@ use domain_eleve::{
 };
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone)]
 pub struct Note {
@@ -44,6 +45,7 @@ impl PgNoteRepo {
     }
 
     pub async fn insert_periode(&self, p: &NotePeriode) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, p.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_note_periode (
@@ -58,9 +60,10 @@ impl PgNoteRepo {
         .bind(p.date_debut)
         .bind(p.date_fin)
         .bind(p.statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -70,6 +73,7 @@ impl PgNoteRepo {
         periode_id: Uuid,
         statut: NotePeriodeStatut,
     ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             r#"
             UPDATE ent_note_periode SET statut = $3
@@ -79,9 +83,10 @@ impl PgNoteRepo {
         .bind(etablissement_id)
         .bind(periode_id)
         .bind(statut.as_str())
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         if r.rows_affected() == 0 {
             return Err(DomainError::NotFound);
         }
@@ -102,7 +107,7 @@ impl PgNoteRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(PeriodeRow::into_periode))
@@ -121,13 +126,14 @@ impl PgNoteRepo {
             "#,
         )
         .bind(etablissement_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(PeriodeRow::into_periode).collect())
     }
 
     pub async fn insert_devoir(&self, d: &Devoir) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_devoir (
@@ -146,9 +152,10 @@ impl PgNoteRepo {
         .bind(d.coef)
         .bind(d.sur)
         .bind(d.created_by_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -167,7 +174,7 @@ impl PgNoteRepo {
         )
         .bind(etablissement_id)
         .bind(id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.map(DevoirRow::into_devoir))
@@ -179,6 +186,7 @@ impl PgNoteRepo {
         periode_id: Uuid,
         classe: Option<&str>,
     ) -> Result<Vec<Devoir>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if let Some(c) = classe.map(str::trim).filter(|s| !s.is_empty()) {
             sqlx::query_as::<_, DevoirRow>(
                 r#"
@@ -193,7 +201,7 @@ impl PgNoteRepo {
             .bind(etablissement_id)
             .bind(periode_id)
             .bind(c)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -208,7 +216,7 @@ impl PgNoteRepo {
             )
             .bind(etablissement_id)
             .bind(periode_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -229,7 +237,7 @@ impl PgNoteRepo {
         )
         .bind(etablissement_id)
         .bind(devoir_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -240,6 +248,7 @@ impl PgNoteRepo {
         etablissement_id: Uuid,
         devoir_id: Uuid,
     ) -> Result<bool, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let r = sqlx::query(
             r#"
             DELETE FROM ent_devoir
@@ -248,13 +257,15 @@ impl PgNoteRepo {
         )
         .bind(etablissement_id)
         .bind(devoir_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(r.rows_affected() > 0)
     }
 
     pub async fn insert(&self, n: &Note) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, n.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_note (
@@ -274,9 +285,10 @@ impl PgNoteRepo {
         .bind(&n.libelle)
         .bind(n.devoir_id)
         .bind(n.periode_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -302,7 +314,7 @@ impl PgNoteRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(NoteRow::into_note).collect())
@@ -313,6 +325,7 @@ impl PgNoteRepo {
         &self,
         a: &Appreciation,
     ) -> Result<Appreciation, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, a.etablissement_id).await.map_err(map_sqlx)?;
         let updated = if let Some(matiere_id) = a.matiere_id {
             sqlx::query_as::<_, AppreciationRow>(
                 r#"
@@ -332,7 +345,7 @@ impl PgNoteRepo {
             .bind(matiere_id)
             .bind(&a.texte)
             .bind(a.auteur_user_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -353,11 +366,12 @@ impl PgNoteRepo {
             .bind(a.eleve_id)
             .bind(&a.texte)
             .bind(a.auteur_user_id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
         if let Some(row) = updated {
+            tx.commit().await.map_err(map_sqlx)?;
             return Ok(row.into_appreciation());
         }
         sqlx::query(
@@ -375,9 +389,10 @@ impl PgNoteRepo {
         .bind(a.matiere_id)
         .bind(&a.texte)
         .bind(a.auteur_user_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(a.clone())
     }
 
@@ -387,6 +402,7 @@ impl PgNoteRepo {
         eleve_id: Uuid,
         periode_id: Option<Uuid>,
     ) -> Result<Vec<Appreciation>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if let Some(pid) = periode_id {
             sqlx::query_as::<_, AppreciationRow>(
                 r#"
@@ -400,7 +416,7 @@ impl PgNoteRepo {
             .bind(etablissement_id)
             .bind(eleve_id)
             .bind(pid)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -415,7 +431,7 @@ impl PgNoteRepo {
             )
             .bind(etablissement_id)
             .bind(eleve_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -451,7 +467,7 @@ impl PgNoteRepo {
         .bind(eleve_id)
         .bind(periode_id)
         .bind(matiere_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(|r| (r.valeur, r.sur, r.coef)).collect())

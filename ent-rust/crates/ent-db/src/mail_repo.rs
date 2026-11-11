@@ -2,6 +2,7 @@ use domain_eleve::DomainError;
 use ent_mail::MailSendStatus;
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 #[derive(Debug, Clone)]
 pub struct MailOutboxRow {
@@ -45,6 +46,7 @@ impl PgMailRepo {
     pub async fn insert(&self, row: InsertMailOutbox) -> Result<MailOutboxRow, DomainError> {
         let id = Uuid::new_v4();
         let status = status_str(row.status);
+        let mut tx = TenantTx::begin(&self.pool, row.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_mail_outbox (
@@ -65,9 +67,10 @@ impl PgMailRepo {
         .bind(&row.source_aggregate)
         .bind(row.source_id)
         .bind(&row.message_id)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
 
         Ok(MailOutboxRow {
             id,
@@ -98,7 +101,7 @@ impl PgMailRepo {
         )
         .bind(etablissement_id)
         .bind(kind)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -119,7 +122,7 @@ impl PgMailRepo {
         .bind(etablissement_id)
         .bind(source_id)
         .bind(kind)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.0)
@@ -142,7 +145,7 @@ impl PgMailRepo {
         )
         .bind(etablissement_id)
         .bind(limit)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(MailOutboxSql::into_row).collect())

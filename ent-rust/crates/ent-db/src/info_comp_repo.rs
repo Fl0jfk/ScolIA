@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use domain_eleve::{DomainError, InfoCompChamp, InfoCompType, InfoCompValeur};
 use sqlx::PgPool;
 use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
 
 pub struct PgInfoCompRepo {
     pool: PgPool,
@@ -13,6 +14,7 @@ impl PgInfoCompRepo {
     }
 
     pub async fn insert_champ(&self, c: &InfoCompChamp) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, c.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_info_comp_champ (
@@ -31,9 +33,10 @@ impl PgInfoCompRepo {
         .bind(c.actif)
         .bind(c.created_by_user_id)
         .bind(c.created_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -52,7 +55,7 @@ impl PgInfoCompRepo {
         )
         .bind(etablissement_id)
         .bind(champ_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(row.and_then(ChampRow::into_champ))
@@ -63,6 +66,7 @@ impl PgInfoCompRepo {
         etablissement_id: Uuid,
         actifs_seulement: bool,
     ) -> Result<Vec<InfoCompChamp>, DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
         let rows = if actifs_seulement {
             sqlx::query_as::<_, ChampRow>(
                 r#"
@@ -74,7 +78,7 @@ impl PgInfoCompRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         } else {
@@ -88,7 +92,7 @@ impl PgInfoCompRepo {
                 "#,
             )
             .bind(etablissement_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(map_sqlx)?
         };
@@ -96,6 +100,7 @@ impl PgInfoCompRepo {
     }
 
     pub async fn upsert_valeur(&self, v: &InfoCompValeur) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, v.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
             INSERT INTO ent_info_comp_valeur (
@@ -116,9 +121,10 @@ impl PgInfoCompRepo {
         .bind(&v.valeur)
         .bind(v.updated_by_user_id)
         .bind(v.updated_at)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
 
@@ -137,7 +143,7 @@ impl PgInfoCompRepo {
         )
         .bind(etablissement_id)
         .bind(eleve_id)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(ValRow::into_val).collect())
