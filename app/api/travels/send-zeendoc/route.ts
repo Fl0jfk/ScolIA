@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveSession } from "@/app/lib/intranet-session";
+import { requireModule } from "@/app/lib/intranet-auth";
 
 import { loadAppConfig } from "@/app/lib/app-config";
 import { fetchTravelsPdfBytes } from "@/app/lib/travels-s3";
@@ -10,9 +10,9 @@ import {
 } from "@/app/lib/tenant-mail";
 
 export async function POST(req: Request) {
-  const session = await resolveSession();
-  const userId = session?.userId;
-  if (!userId) return new NextResponse("Non autorisé", { status: 401 });
+  // NJ-11 : module « travels » exigé (et pas seulement une session).
+  const gate = await requireModule("travels");
+  if (!gate.ok) return gate.response;
   const smtp = await getTenantSmtpConfig();
   if (!smtp) {
     return NextResponse.json({ error: "SMTP non configuré." }, { status: 500 });

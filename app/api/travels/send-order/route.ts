@@ -1,3 +1,4 @@
+import { escapeHtml } from "@/app/lib/escape-html";
 import { NextResponse } from "next/server";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -224,6 +225,10 @@ export async function POST(req: Request) {
     if (!toEmail) {
       return NextResponse.json({ error: "Email du transporteur manquant" }, { status: 400 });
     }
+    // NJ-11 : une seule adresse valide, sans séparateur ni saut de ligne.
+    if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(toEmail)) {
+      return NextResponse.json({ error: "Adresse e-mail du transporteur invalide" }, { status: 400 });
+    }
 
     let pdfBuffer: Buffer;
     try {
@@ -271,8 +276,8 @@ export async function POST(req: Request) {
         subject: `Confirmation de commande : ${tripTitle}`,
         html: `
         <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
-          <p>Bonjour <strong>${providerName}</strong>,</p>
-          <p>Nous avons le plaisir de vous confirmer la sélection de votre offre pour le projet : <strong>${tripTitle}</strong>.</p>
+          <p>Bonjour <strong>${escapeHtml(providerName)}</strong>,</p>
+          <p>Nous avons le plaisir de vous confirmer la sélection de votre offre pour le projet : <strong>${escapeHtml(tripTitle)}</strong>.</p>
           <p>Veuillez trouver en pièce jointe la lettre de confirmation ainsi que le <strong>devis signé</strong> valant bon de commande.</p>
           <br />
           <p>Cordialement,</p>
