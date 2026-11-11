@@ -288,3 +288,20 @@ fn finances_aller_retour() {
     };
     assert!(!serde_json::to_string(&e).unwrap().contains("contenu"));
 }
+
+#[test]
+fn portail_aller_retour_et_champs_optionnels_omis() {
+    use crate::portail::*;
+    let mut t = TuilePortail::nouvelle("edt.journee", "Ma journée", 8);
+    t.etat = EtatTuile::Ok;
+    let p = PortailAujourdhui {
+        profil: ProfilPortail::VieScolaire,
+        jour: chrono::NaiveDate::from_ymd_opt(2026, 11, 12).unwrap(),
+        prenom: None,
+        tuiles: vec![t],
+    };
+    let json = serde_json::to_string(&p).unwrap();
+    assert!(json.contains("\"vie_scolaire\"") && json.contains("\"ok\""));
+    assert!(!json.contains("prenom") && !json.contains("principal"));
+    assert_eq!(serde_json::from_str::<PortailAujourdhui>(&json).unwrap(), p);
+}
