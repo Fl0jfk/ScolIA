@@ -56,9 +56,15 @@ export async function GET(req: Request) {
     roles.some((r) => r === "admin" || r === "infirmerie" || (INTRANET_DIRECTION_SLUGS as readonly string[]).includes(r));
   if (!canReadSante) {
     const me = user ?? (await safeCurrentUser());
-    if (!isTripOwner(trip.ownerId, me?.id)) {
+    // Les accompagnateurs enregistrés du voyage (compte annuaire) ont besoin des PAI et allergies pendant la sortie.
+    const tripData = (trip.data ?? {}) as { accompagnateurs?: Array<{ userId?: string }> };
+    const isAccompagnateur =
+      Boolean(me?.id) &&
+      Array.isArray(tripData.accompagnateurs) &&
+      tripData.accompagnateurs.some((a) => a?.userId && a.userId === me?.id);
+    if (!isTripOwner(trip.ownerId, me?.id) && !isAccompagnateur) {
       return NextResponse.json(
-        { error: "Réservé à l'infirmerie, à la direction et au porteur du voyage.", code: "SANTE_FORBIDDEN" },
+        { error: "Réservé à l’infirmerie, à la direction, au porteur et aux accompagnateurs du voyage.", code: "SANTE_FORBIDDEN" },
         { status: 403 },
       );
     }
