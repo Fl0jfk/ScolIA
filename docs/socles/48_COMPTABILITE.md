@@ -2,6 +2,8 @@
 
 **Date :** 2026-11-11 — **Statut :** conception de fond, **non décidée** (à relire par Florian). Rédigée **avant** tout code de ce socle. Aucun code écrit ni modifié ; aucun accès à une base, à un secret ou à un environnement de production. Le code Next.js a été **lu seulement** (fichiers ciblés de `origin/main` par `git show`, rien exécuté, rien construit).
 **Branche :** `ent-socle-48-49-conception`, partie de `origin/ent-mc0hoe` (`37ce0d3b`).
+> **Révision D-047 (2026-11-11, branche `ent-socle-48-49-revision`)** : Florian confirme D-025 — la **tenue légale complète** (livres, clôture, comptes annuels ANC 2018-06, FEC, archivage, facture électronique) est construite dans ScolIA. **Le §35 l'emporte sur tout le document, §33 compris** ; Q-CG1 est close ; la recommandation du §3.3 (tenue légale au logiciel du cabinet) est abandonnée. Rien n'a été supprimé.
+
 **Passe personas :** `docs/socles/PERSONAS_48.md` (même branche). Ses ajouts sont faits **ici**, au **§33**, marqués « ajout personas » ; **en cas de contradiction, le §33 l'emporte** ; rien n'a été supprimé.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` : D-013 (cloisonnement), D-017 (droits portés par les actions), D-019 (public et privé), D-021, D-023 (peu de réglages), **D-024**, **D-025** (comptabilité dans l'ENT Rust), D-026 (briques), **D-027 (E)** (on compense, on ne réémet pas), D-029 (public), **D-031**, **D-034** (doublon 2027-2028, finances dans Charlemagne), **D-035** (précision 2 : la comptabilité de l'add-on est une **ébauche à refaire de zéro**), **D-036** (aucun JSON-mémoire), D-037 à D-046 (PRA). `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14). `docs/TRANSITION_T0_INVENTAIRE.md` (M15, ligne « Comptabilité de l'établissement »). `docs/SOCLES.md` §48, Q-C, T-05. Conceptions **`24_FINANCES.md`** (§5, §6, §12, F9, F13, Q-F17, Q-F18), **`25_PAIEMENTS.md`**, `26` (via 24 §10.5), **`42_SORTIES_VOYAGES.md`** §12 (budget de séjour), `06_PERSONNELS.md` (missions, R-P11), **`49_PAIE.md`** (journal de paie), `07_DOCUMENTS.md` (pièces, PDF/A-3), `08_NOTIFICATIONS.md`, `IA_COEUR.md` §6.2 (niveaux N0–N3). Modèles de forme : `42_SORTIES_VOYAGES.md`, `24_FINANCES.md`, `10_EMPLOI_DU_TEMPS.md`.
 
@@ -20,7 +22,7 @@
 | Lots | **CG0 à CG14** |
 | Migrations | **2960–2979** (plage **imposée par le pilote**, §28.2) |
 
-Sommaire : §0 En bref · §1 Thèse · §2 Existant · **§3 Intégrer ou refaire ?** · §4 Acteurs · §5 L'année · §6 Réglementaire · §7 Branchements · §8 Concepts · §9 Moteur d'écritures · §10 Budget · §11 Achats · §12 Fournisseurs · §13 Factures électroniques reçues · §14 Trésorerie · §15 Immobilisations · §16 Analytique · §17 Clôture · §18 Public (EPLE) · §19 Cas limites · §20 IA · §21 Actions · §22 Règles · §23 Droits, minimisation, conservation · §24 Événements et notifications · §25 Écrans · §26 Modèle de données · §27 Reprise · §28 Lots et migrations · §29 Tests · §30 Réglages · §31 Décisions et questions · §32 Faits, hypothèses, contradictions · §33 Ajout personas · §34 Sources.
+Sommaire : §0 En bref · §1 Thèse · §2 Existant · **§3 Intégrer ou refaire ?** · §4 Acteurs · §5 L'année · §6 Réglementaire · §7 Branchements · §8 Concepts · §9 Moteur d'écritures · §10 Budget · §11 Achats · §12 Fournisseurs · §13 Factures électroniques reçues · §14 Trésorerie · §15 Immobilisations · §16 Analytique · §17 Clôture · §18 Public (EPLE) · §19 Cas limites · §20 IA · §21 Actions · §22 Règles · §23 Droits, minimisation, conservation · §24 Événements et notifications · §25 Écrans · §26 Modèle de données · §27 Reprise · §28 Lots et migrations · §29 Tests · §30 Réglages · §31 Décisions et questions · §32 Faits, hypothèses, contradictions · §33 Ajout personas · §34 Sources · **§35 Révision D-047 (l'emporte)**.
 
 ---
 
@@ -1198,7 +1200,7 @@ Note : 2960–2979 tombe dans le « noyau 1000–2999 » de la proposition Q-B2 
 
 | # | Question | Recommandation |
 |---|---|---|
-| **Q-CG1** | **Périmètre** : option 2 (ScolIA fait la gestion et les écritures, le logiciel du cabinet tient les comptes) ou option 1 (tenue légale complète, CG13) ? **Touche D-025.** | **Option 2**, CG13 en option (§3.3). |
+| **Q-CG1** (**close par D-047**, §35) | **Périmètre** : option 2 (ScolIA fait la gestion et les écritures, le logiciel du cabinet tient les comptes) ou option 1 (tenue légale complète, CG13) ? **Touche D-025.** | **Option 2**, CG13 en option (§3.3). |
 | Q-CG3 | Quel **logiciel** et quel **expert-comptable** pour l'OGEC pilote ? Plan de comptes, format d'import, nomenclature UROGEC | à demander au cabinet ; FEC par défaut |
 | Q-CG4 | **Plateforme agréée** de réception des factures (choix, contrat, coût, API) — l'échéance du 1-9-2026 est passée | à vérifier avec l'expert-comptable **cette semaine** (CCG-60) |
 | Q-CG5 | **Banque** : format des relevés, pain.001, éventuel accès par API ou EBICS | fichiers d'abord |
@@ -1354,3 +1356,345 @@ Recherche par moteur ; les pages officielles marquées [V] ont été lues dans l
 - Forfait d'externat : https://enseignement-catholique.fr/1-forfaits-communaux ; https://www.letudiant.fr/educpros/enquetes/letat-principal-financeur-des-etablissements-scolaires-prives.html
 - Charlemagne Comptabilité et Paie (Aplim) : https://wapt.tranquil.it/store/fr/details/tis-charlemagne-comptabilite_6.9.0.0-10_windows_10.0_PROD.wapt ; https://aplim.fr/ressources/communication/infomag/infomagaplim_202106.pdf ; https://www.crowe.com/fr/groupe-fideliance/industries/ogec
 - Échecs : Légifrance (403 sur accès direct) ; FAQ DGFiP sur la facturation électronique non lue directement ; texte ANC non lu sur anc.gouv.fr.
+
+---
+
+## 35. Révision D-047 (2026-11-11) — tenue légale complète dans ScolIA — **l'emporte sur tout ce qui précède, §33 compris**
+
+**Décision.** D-047 (Florian, 2026-11-11) **confirme D-025** : la comptabilité de l'organisme, **tenue légale comprise**, est construite dans ScolIA. **Q-CG1 est close** : l'option 1 du §3.2 (A + B + C) est retenue ; la recommandation du §3.3 (option 2, tenue légale au logiciel du cabinet) est **abandonnée**. Rien n'est supprimé au-dessus : ce qui suit dit ce qui change, ce qui reste, et ce qui s'ajoute.
+**Méthode.** Mêmes conventions ([F], [V], [V-sec], [NV], [H], [R]). Réglementaire relu sur sources officielles le 2026-11-11 (§35.17). Numérotation de la révision : actions **CGA-330 à CGA-399** ; règles **R-CG55 à R-CG79** (R-CG55 à R-CG75 utilisées) ; cas limites **CCG-79 à CCG-99** ; questions **Q-CG28 à Q-CG40** ; réglages **S-4833 à S-4849** ; lots **CG13 (refondu), CG15 à CG19** ; migrations **dans 2960–2979, plage inchangée** (§35.13).
+
+### 35.1 Ce qui change, ce qui reste
+
+| Passage | Avant | Après D-047 |
+|---|---|---|
+| §0 point 3, §1 point 6, §3.3 | ScolIA produit, le cabinet tient | **ScolIA tient la comptabilité officielle** de l'OGEC : journaux, grand livre, balance, livre d'inventaire, clôture, comptes annuels ANC 2018-06. L'expert-comptable devient **réviseur** (mission de présentation ou d'examen), le CAC **auditeur**, l'un et l'autre dans ScolIA (accès tiers R-CG36) et par le **FEC** |
+| §3.2 option 1 « contre » | « l'expert-comptable ne quittera pas son logiciel » | assumé : le cabinet peut **importer le FEC** de ScolIA dans son outil pour ses propres contrôles et sa liasse ; mais la comptabilité **qui fait foi** est celle de ScolIA (R-CG55) |
+| §17 et lot CG13 « optionnel » | tenue complète non engagée | **CG13 obligatoire**, scindé en CG13 (clôture et à-nouveaux), CG15 (comptes annuels) et CG16 (inaltérabilité, scellement, documentation) |
+| CGA-232 (import des écritures du cabinet) | source des à-nouveaux et des écritures d'inventaire | réservé à la **reprise** et au **doublon** ; après la bascule, les écritures d'inventaire sont **faites dans ScolIA** (proposées, validées par le comptable, revues par le cabinet) et les à-nouveaux sont **générés** par la clôture (CGA-343) |
+| §13 factures électroniques | raccordement optionnel (CG14, Q-CG4) | **CG14 obligatoire** avant toute bascule : la tenue légale exige que les factures reçues entrent par la plateforme agréée et que la piste d'audit relie facture, réception, paiement (§35.6) |
+| §14 rapprochement bancaire | parallèle pendant le doublon, l'outil actuel fait foi | inchangé **pendant** le doublon ; **officiel après** la bascule (état de rapprochement mensuel signé, pièce de la clôture) |
+| §15 immobilisations | dotations proposées ou reçues du cabinet | dotations **calculées et passées** dans ScolIA (plan d'amortissement officiel) ; le cabinet les revoit |
+| R-CG35 | mode parallèle : exports à blanc | renforcé : le doublon devient une **tenue complète à blanc** de l'exercice 2027-2028 (§35.9) |
+| §32 contradiction D-025 | signalée | **levée** |
+| Public (§3.4, §18, R-CG3) | ScolIA ne tient pas la comptabilité publique | **inchangé** : l'agent comptable tient Op@le ; D-047 vise l'OGEC. ScolIA reste l'outil de l'ordonnateur et des services (interface avec l'agent comptable, CG12) |
+
+Tout le reste (moteur d'écritures §9, budget §10, achats §11, fournisseurs §12, trésorerie §14, analytique §16, actions, règles R-CG1 à R-CG54, droits, modèle de données, bloquants A à D des personas) **reste valable** et devient le socle de la tenue légale.
+
+### 35.2 Réglementaire complété (vérifié le 2026-11-11 sur sources officielles)
+
+| # | Règle | Référence | Statut | Conséquence |
+|---|---|---|---|---|
+| RC-30 | **Tenue informatisée** (PCG refondu, Livre IV) : documentation des procédures conservée aussi longtemps que les documents comptables (**1011-2**) ; **piste d'audit** de la pièce aux comptes et des comptes à la pièce (**1011-3**) ; accès à la documentation des traitements pour les tests (**1011-4**) ; livre-journal et grand livre obligatoires, un document informatique en tient lieu s'il est « identifié, numéroté et daté dès son établissement par des moyens offrant toute garantie en matière de preuve » (**1021-1**) ; centralisation au moins mensuelle (1021-2) ; inventaire au moins tous les 12 mois (1021-3) ; partie double (1031-1) ; enregistrement jour par jour ou récapitulation mensuelle (1031-2) ; **procédure de validation** qui interdit toute modification ou suppression (**1031-3**) ; **procédure de clôture** qui fige la chronologie « au plus tard avant l'expiration de la période suivante », opération tardive enregistrée au premier jour de la période ouverte avec sa date réelle (**1031-4**) ; chaque écriture cite sa pièce datée (1032-1, 1032-2) | Règlement ANC 2014-03, recueil PCG au 1-1-2026 | [V] | **corrige** les renvois « PCG 410-x / 420-x » de cette conception et du §6 (RC-02) : dans le PCG en vigueur, 410-1 à 420-8 traitent de la **conversion des devises** ; R-CG8, R-CG10, R-CG13 confirmés ; documentation (R-CG65) et piste d'audit (R-CG63) **obligatoires** |
+| RC-31 | Code de commerce : documentation des procédures (R123-172), journal et grand livre, documents électroniques « identifiés et datés dès leur établissement » (R123-173), enregistrement opération par opération et jour par jour (R123-174), report et centralisation mensuelle (R123-175, R123-176), inventaire annuel (R123-177) ; conservation **10 ans** des documents comptables et pièces (**L123-22**) | C. com. | [V] (R123-172 à 177) ; [V-ext] (L123-22) | même dispositif ; RC-02 passe de [NV] à [V] |
+| RC-32 | **Conservation fiscale** (LPF **L102 B**) : 6 ans aujourd'hui ; **10 ans à partir du 1-1-2027** pour les documents dont le délai expire après cette date (loi n° 2026-534 du 25-6-2026, art. 36 ; ord. 2026-671) ; documentation des traitements conservée jusqu'à la fin de la 3e année suivante | LPF L102 B (version au 1-1-2027) | [V] | **10 ans pour tout** (comptable et fiscal) ; aucune purge avant (R-CG72) |
+| RC-33 | **FEC** : remise dès le début d'une vérification si la comptabilité est informatisée (LPF **L47 A**) ; format (**A47 A-1**, arrêté du 29-7-2013) : fichier à plat ou XML (XSD publié), zones séparées par **tabulation ou « \| »**, première ligne = noms des champs, **18 champs dans l'ordre** (variante Montant + Sens admise), encodage **ASCII, ISO 8859-15 ou UTF-8**, dates AAAAMMJJ, virgule décimale sans séparateur de milliers, nom **`SirenFECAAAAMMJJ`** (date de clôture), découpage possible ; doctrine (**BOI-CF-IOR-60-40-20**, 7-6-2017) : un fichier par exercice, tous journaux, détail ligne à ligne **sans centralisation**, à-nouveaux et écritures d'inventaire inclus, à-nouveaux en **premiers numéros**, numérotation « croissante, sans rupture ni inversion », un numéro par écriture, numérotation **par journal admise si documentée**, ValidDate = date où l'écriture devient définitive, **19e colonne « code établissement »** pour les entités à plusieurs établissements | LPF L47 A, A47 A-1 ; BOI-CF-IOR-60-40-20 | [V] | §35.5 ; numérotation par journal **documentée** (R-CG65) ; 19e colonne utile pour un OGEC à plusieurs établissements (CCG-90) ; **R-CG44 (export centralisé) ne s'applique jamais au FEC** (R-CG73) |
+| RC-34 | **Qui doit le FEC** (BOI-CF-IOR-60-40-10, 15-12-2021) : comptabilité informatisée + obligation comptable imposée par le CGI + vérification ; associations non citées | | [V] ; application à un OGEC non lucratif : **interprétation** (non tenu, sauf secteur lucratif ou obligations de TVA) | produit de toute façon (garantie d'intégrité, format d'échange) ; Q-CG30 |
+| RC-35 | **ANC 2018-06** : homologué par arrêté du 26-12-2018 (JO du 30-12-2018), exercices ouverts **à compter du 1-1-2020**, modifié notamment par 2020-08, 2022-04 et 2023-01 ; champ (111-1) : personnes morales de droit privé non commerçantes à but non lucratif tenues d'établir des comptes annuels, **PCG pour le reste** ; **contributions volontaires en nature** (211-1, 211-2 ; classe 87 : 870, 871, 875 ; classe 86 : 860, 861, 862, 864) si essentielles et recensables ; **fonds dédiés** (132-2 ; 191, 194, 195, 196 ; 689 / 6894, 789 / 7894) ; **fonds propres** (212-1 ; 102, 103 / 1032, 105, 1068, 108) | recueil ANC « secteur non lucratif » au 1-1-2026 | [V] | RC-01 passe de [V-sec] à [V] ; plan pré-chargé et états du CG15 sur ces comptes ; la liste des règlements modificatifs est à tenir à jour (CG19) |
+| RC-36 | **Commissaire aux comptes** (C. com. **L612-4**, version au 1-1-2024) : association recevant chaque année des subventions en numéraire d'autorités administratives ou d'EPIC au-delà du seuil (**153 000 €**, D612-5) : bilan, compte de résultat, annexe, au moins un CAC, **publication** des comptes et du rapport ; sanctions L242-8, publication ordonnée en référé sous astreinte | C. com. L612-4, D612-5 | [V] (L612-4) ; [V-ext] (D612-5) ; modalités de publication DILA [NV] | RC-05 confirmé ; compteur CGA-262 ; paquet de publication CGA-349 |
+| RC-37 | **Recodification** : l'article 289 bis du CGI est abrogé au **1-1-2027** au profit du **code des impositions sur les biens et services (CIBS)** (ord. 2025-1247), avec maintien transitoire | Légifrance | [V] | aucune référence d'article codée en dur dans le logiciel : les références sont des **paramètres datés** (R-CG33 étendue) |
+
+### 35.3 Tenue légale : ce que ScolIA doit faire
+
+**Livres et états** (CG9 étendu, CG13, CG15) :
+1. **Livre-journal** par journal (ventes, achats, banque par compte, caisse, OD, paie, à-nouveaux, inventaire, journal de régularisation de reprise), écritures **numérotées sans trou** par journal et par exercice, en ordre chronologique de validation (R-CG10).
+2. **Grand livre** général et auxiliaires (familles par compte payeur, fournisseurs, salariés pour les avances et notes de frais, financeurs), **balance** générale et âgée, à toute date, **reproductibles à l'identique** (même requête, même résultat à la date donnée, y compris après restauration).
+3. **Livre d'inventaire** de l'exercice (relevé des éléments d'actif et de passif au jour de la clôture : immobilisations, stocks éventuels de la restauration, créances, dettes, trésorerie, fonds dédiés) : document **généré et scellé** à la clôture.
+4. **Comptes annuels ANC 2018-06** (CG15) : bilan, compte de résultat, **annexe** (règles et méthodes, état des immobilisations et des amortissements, état des créances et des dettes par échéance, **tableau de variation des fonds propres**, **tableau de suivi des fonds dédiés**, **contributions volontaires en nature** en pied de compte de résultat ou dans l'annexe, engagements hors bilan, effectif, rémunération des trois plus hauts dirigeants si l'obligation s'applique [NV, C. com. / loi 2006-586 art. 20 à vérifier], **compte de résultat par origine et destination** et compte d'emploi des ressources seulement si l'OGEC fait appel public à la générosité, cas rare [V-sec par ANC 2018-06]). Présentation N / N-1, export PDF/A et tableur, **figés** à l'approbation.
+5. **Affectation du résultat** votée par l'assemblée générale de l'OGEC : écriture d'affectation à partir de la délibération (pièce du socle 7), jamais saisie libre (CGA-347).
+6. **Dossier du CAC et publication** : si le seuil de L612-4 est atteint (RC-05), paquet de publication (comptes annuels + rapport du CAC) prêt pour le dépôt sur le site de la DILA ; ScolIA **ne dépose pas** lui-même (geste humain, CGA-349).
+
+**Clôture** (CG13) — procédure en quatre temps, chacun réversible jusqu'au suivant, sauf le dernier :
+- **Pré-clôture** (juillet–août pour un exercice sept.–août) : liste de contrôle (CGA-340) — banque rapprochée sur tous les comptes, caisse comptée, factures non parvenues (408), avoirs à recevoir, charges et produits constatés d'avance (486, 487 — le 24 fournit les produits constatés d'avance des familles), dotations aux amortissements et provisions (CGA-341), fonds dédiés (report et emploi), congés payés et charges sociales à payer (**le 49 fournit la provision**, §35.4 du 49), taxe sur les salaires de l'exercice, contributions volontaires en nature recensées.
+- **Écritures d'inventaire** dans le journal « inventaire », proposées par ScolIA, validées par le comptable, revues par l'expert-comptable (accès tiers) ; double validation (R-CG56).
+- **Arrêté des comptes** par l'organe compétent (bureau ou conseil d'administration de l'OGEC selon les statuts [H]) : comptes annuels en version « arrêtée », plus aucune écriture sur l'exercice sauf **écritures post-arrêté** motivées et tracées jusqu'à l'approbation.
+- **Clôture définitive** (CGA-343) : après approbation par l'AG (ou à la date fixée par le comptable si l'approbation tarde : l'exercice se clôt, l'affectation viendra en N+1) — verrouillage de l'exercice, **scellement** (§35.5), génération du **FEC définitif** de l'exercice (§35.5), du livre d'inventaire, des **à-nouveaux** de N+1 (classes 1 à 5, soldes détaillés par tiers, journal AN, une écriture par compte ou une écriture globale selon S-4833), contrôle « balance de sortie N = balance d'entrée N+1 » (R-CG58).
+- **Exercice N+1 ouvert avant la clôture de N** : la saisie de septembre se fait pendant la clôture de N ; les à-nouveaux sont **provisoires** (marqués) jusqu'à la clôture définitive puis régénérés à l'identique ou corrigés par une écriture d'à-nouveaux complémentaire datée du premier jour (CCG-79).
+
+**Ce que ScolIA ne fait pas** : la **liasse fiscale** (un OGEC non lucratif n'en dépose pas, sauf secteur lucratif sectorisé soumis à l'IS : alors via le cabinet [NV, Q-CG30]) ; l'**opinion** du CAC ; le dépôt à la DILA.
+
+### 35.4 Inaltérabilité et piste d'audit fiable
+
+**Principe** : une écriture validée ne peut plus être modifiée ni supprimée, par l'application, par un administrateur de ScolIA, ni par une restauration ; et toute tentative est **détectable** a posteriori par un tiers (expert-comptable, CAC, vérificateur) sans faire confiance à ScolIA.
+
+| Niveau | Mesure | Règle |
+|---|---|---|
+| Application | validation = numéro continu + date de validation + empreinte ; brouillard seul modifiable ; correction par contrepassation (R-CG9 à R-CG11) | — |
+| Base | déclencheur refusant `UPDATE`/`DELETE` des écritures validées et de leurs lignes (migration 2964) ; le rôle applicatif n'est **pas propriétaire** des tables `ent_cg_ecriture*` et ne peut ni désactiver le déclencheur ni `TRUNCATE` ; migrations comptables exécutées par un rôle distinct, journalisé | R-CG59 |
+| Chaînage | empreinte SHA-256 de chaque écriture validée (en-tête + lignes en forme canonique, sans champ volatil) chaînée à la précédente du même journal et exercice ; une **empreinte d'exercice** chaîne les journaux | R-CG60 |
+| Scellement externe | chaque jour et à chaque clôture, la tête de chaîne de chaque journal est écrite dans un **objet immuable** (verrouillage d'objet en mode conformité, D-040) hors de la base, avec un **horodatage** (horodatage qualifié RFC 3161 recommandé, Q-CG31) ; le CAC peut vérifier la chaîne avec un **outil de vérification autonome** fourni (CGA-352) | R-CG61 |
+| Restauration (PITR) | après toute restauration, vérification de la chaîne contre les sceaux externes ; une écriture validée présente dans un sceau et absente de la base = **incident** bloquant la saisie (CCG-81) ; une restauration ne peut jamais « faire disparaître » une écriture scellée : elle est réinjectée depuis l'export scellé du jour | R-CG62 |
+| Piste d'audit | toute écriture remonte à sa **pièce** (objet immuable du socle 7, empreinte) et au **fait** du domaine (facture du 24, encaissement du 25, facture fournisseur, bulletin agrégé du 49) ; toute pièce descend à ses écritures ; un écran « d'où vient ce solde ? » remonte d'un solde de compte aux pièces en trois clics (CGA-353) ; pour les factures fournisseurs, piste **facture ↔ commande ↔ réception ↔ paiement ↔ relevé** (le contrôle « piste d'audit fiable » de l'article 289 VII du CGI vise l'authenticité des factures [V-sec] ; la réception par plateforme agréée et la conservation de la facture électronique d'origine la satisfont) | R-CG63 |
+| Journal des actes | validation, contrepassation, clôture, réouverture refusée, export, changement de schéma, de plan, de droit : journal E7 en **ajout seul**, conservé 10 ans comme pièce de l'organisation comptable | R-CG64 |
+| Documentation | **dossier de description des procédures et de l'organisation comptable** (PCG art. 1011-2 et 1011-4, R123-172 C. com. [V, RC-30, RC-31]) généré et versionné : plan de comptes, schémas actifs avec leurs dates, journaux, circuits de validation, droits, méthode de numérotation, de chaînage et de scellement, format du FEC, procédures de clôture et d'archivage ; une version par exercice, scellée | R-CG65, CGA-354 |
+| Pas de réouverture | un exercice clos ne se rouvre pas ; une erreur découverte après la clôture se corrige sur l'exercice ouvert (écriture de correction d'erreur, ANC) ; seule exception : **avant** approbation, un exercice « arrêté » peut recevoir des écritures post-arrêté tracées | R-CG66 |
+
+Ce que ce dispositif **n'est pas** : une certification. Aucune certification de logiciel comptable n'a été trouvée pour la comptabilité générale [recherche du 2026-11-11 ; à confirmer par l'expert-comptable] (l'attestation de l'article 286 I 3° bis du CGI vise les **logiciels et systèmes de caisse**, §35.7) ; la valeur du dispositif se démontre au CAC par la documentation et l'outil de vérification.
+
+### 35.5 FEC conforme (LPF A47 A-1)
+
+- **Généré par ScolIA** pour un exercice clos (définitif) ou en cours (provisoire, marqué), **à la demande** du comptable, du cabinet ou à l'occasion d'un contrôle (CGA-231 étendu, CGA-355).
+- **Contenu** : les **18 champs** de l'article A47 A-1 dans l'ordre réglementaire (JournalCode, JournalLib, EcritureNum, EcritureDate, CompteNum, CompteLib, CompAuxNum, CompAuxLib, PieceRef, PieceDate, EcritureLib, Debit, Credit, EcritureLet, DateLet, ValidDate, Montantdevise, Idevise) ; **toutes** les écritures de l'exercice, **à-nouveaux compris** (en première écriture), à l'exclusion des écritures de centralisation ; écritures classées par ordre chronologique de validation [V, §35.2] ; montants en euros avec la virgule décimale ; dates AAAAMMJJ ; nom `SirenFECAAAAMMJJ` (date de clôture) ; fichier à plat (tabulation ou barre verticale) en UTF-8 ou ISO 8859-15 selon le format retenu (S-4834) ; **pas de nom d'élève ni de famille** dans `CompAuxLib` (R-CG21 : « Payeur C000123 »).
+- **Contrôles avant remise** (CGA-221) : validateur maison des règles A47 A-1 (champs, ordre, continuité, équilibre par écriture et global, dates de validation, cohérence AN = balance de sortie N-1) + passage dans l'outil public **Test Compta Demat** de la DGFiP en recette (CG8, §35.9) [disponibilité à confirmer, §35.2].
+- **Obligation** : le FEC est dû lors d'un contrôle par les **contribuables tenant une comptabilité informatisée** ; l'application à un OGEC non lucratif reste à confirmer (§35.2, Q-CG30) ; **ScolIA le produit de toute façon** (format d'échange avec le cabinet et preuve de la tenue).
+- **Conservation** : le FEC définitif de chaque exercice est un objet immuable conservé **10 ans** (avec l'empreinte et le sceau de clôture).
+
+### 35.6 Archivage légal
+
+| Objet | Format | Durée | Où |
+|---|---|---|---|
+| Écritures, livres, balance, livre d'inventaire, comptes annuels, FEC | base + objets scellés (PDF/A-2 ou A-3, CSV, FEC) | **10 ans** après la clôture (C. com. L123-22) | stockage objet immuable (D-040), deux destinations |
+| Factures reçues et émises | **format d'origine** (Factur-X, UBL, CII) + rendu lisible ; jamais réimprimées puis rescannées | **10 ans** comptable (L123-22) et **10 ans** fiscal à partir du 1-1-2027 (L102 B, RC-32) | objet immuable, lien depuis l'écriture |
+| Factures papier numérisées | copie fidèle selon les conditions de l'article A102 B-2 du LPF [V, §35.2] (numérisation à l'identique, couleurs, empreinte, horodatage, piste) ; **destruction de l'original** seulement si Florian le décide après avis du cabinet (Q-CG22) | 10 ans | idem |
+| Relevés bancaires, états de rapprochement, comptages de caisse | fichier d'origine + PDF signé | 10 ans | idem |
+| Documentation de l'organisation comptable, journal des actes | PDF/A + CSV | 10 ans après le dernier exercice concerné | idem |
+| Sceaux et horodatages | jetons RFC 3161, têtes de chaîne | 10 ans | **destination indépendante** (D-040, D-042) |
+
+- **Réversibilité** : à la fin du contrat ou sur demande, remise d'une **archive comptable complète** (FEC par exercice, livres, comptes annuels, pièces, sceaux, outil de vérification) lisible sans ScolIA (format D-046) ; l'établissement reste propriétaire et responsable de la conservation au-delà (R-CG67).
+- **Restaurabilité** : un exercice archivé se **relit** (livres reproduits à l'identique) même après évolution du schéma de la base : les états sont recalculés **depuis l'archive**, pas depuis le modèle courant, et comparés à leur empreinte (test annuel, CGA-356).
+
+### 35.7 Facturation électronique
+
+1. **Fait réglementaire** (**CGI 289 bis**, version du 21-2-2026 modifiée par la loi de finances pour 2026, art. 123 [V] ; **FAQ DGFiP** « Je découvre la facturation électronique », version du 1-9-2026 [V]) :
+   - depuis le **1-9-2026**, **réception obligatoire** pour toutes les entreprises, quelles que soient leur taille et leur forme juridique ; émission et **e-reporting** au 1-9-2026 (grandes entreprises, ETI) et au **1-9-2027** au plus tard (PME, micro) ;
+   - seules les opérations imposables **et non exonérées au titre des articles 261 à 261 E** entrent dans l'e-invoicing et l'e-reporting ; mais « même si un assujetti réalise exclusivement des opérations n'entrant pas dans le champ du dispositif, il doit être **en capacité de recevoir** les factures électroniques […] et de **choisir une plateforme agréée** » (Q1.2 ; exemple d'un médecin) ;
+   - émission, transmission et réception par une **plateforme agréée** (immatriculée pour 3 ans, renouvelable ; liste sur impots.gouv.fr) ; **annuaire central** de l'État alimenté par les plateformes ; une **« solution compatible »** doit passer par une plateforme agréée ; contrat avec la ou les plateformes de réception désignées dans l'annuaire (Q2.1) ;
+   - formats socle **UBL 2.1, UN/CEFACT CII D22B, Factur-X** (norme EN 16931) [V-ext, version des spécifications non vérifiée] ; rôle résiduel du portail public (PPF) [NV].
+2. **Conséquence pour l'OGEC** [interprétation, à confirmer par l'expert-comptable] : assujetti exonéré (enseignement, CGI 261-4-4° ; cantine, internat et demi-pension étroitement liés à l'enseignement exonérés, BOI-TVA-CHAMP-30-10-20-50 de 2019 à reconfirmer) → **doit recevoir par une plateforme agréée depuis le 1-9-2026** ; ses ventes exonérées sortent de l'émission et de l'e-reporting ; une **activité taxable** (location de salles, prestations à des tiers, ventes) déclenche l'**émission au 1-9-2027** pour les clients assujettis et l'**e-reporting** pour les particuliers. **CCG-60 reste vrai et urgent.**
+3. **Position de ScolIA [R], inchangée et précisée** : ScolIA **n'est pas** plateforme agréée (immatriculation et obligations d'exploitation disproportionnées) ; il est une **solution compatible** raccordée à **la plateforme agréée choisie par l'OGEC** (API ; au moins une plateforme supportée au lancement, une seconde ensuite pour ne pas créer de dépendance) : réception des factures au format structuré **conservées dans leur format d'origine** (archivage §35.6), lecture des données structurées, rapprochement (§11.4), **statuts du cycle de vie** renvoyés (approuvée, en litige, payée…) selon les statuts supportés par la plateforme [NV au détail], **désignation de la plateforme dans l'annuaire** faite par l'OGEC (geste humain, CGA-201 étendu).
+4. **Émission** (CG14) : factures Factur-X / UBL / CII produites par le 24 pour les opérations **taxables** à destination d'assujettis, transmises par la plateforme ; **e-reporting** des opérations taxables avec des particuliers (données agrégées) ; rien pour les opérations exonérées (R-CG74 : le régime de TVA de chaque article du 24 décide du circuit).
+5. **Transition et reprise** : factures reçues hors plateforme après le 1-9-2026 : CCG-86 ; jamais d'impression puis de nouvelle numérisation d'une facture électronique.
+
+### 35.8 Budget, achats, immobilisations, rapprochement bancaire : ce que la tenue légale ajoute
+
+- **Budget (§10)** : inchangé ; le **réalisé** est désormais la comptabilité officielle, plus une lecture de la balance du cabinet (CGA-300 devient un outil du doublon seulement).
+- **Achats (§11)** : la **date de réception** fait naître les **factures non parvenues** à la clôture (408) automatiquement ; une commande « soldée » sans facture au-delà de S-4835 jours est une anomalie de clôture.
+- **Immobilisations (§15)** : plan d'amortissement officiel, **composants** si le cabinet les retient pour les bâtiments propres de l'OGEC [NV, Q-CG32] ; **dépréciations** ; sorties avec écriture de cession ; **tableau des immobilisations et amortissements** de l'annexe généré ; **reprise** du fichier des immobilisations du cabinet à la bascule (valeurs brutes, amortissements cumulés, durée restante) avec contrôle « total = balance » (CGA-358).
+- **Rapprochement bancaire (§14)** : obligatoire à chaque clôture de période ; une période ne se clôt pas avec un compte bancaire non rapproché, sauf dérogation motivée de la direction (R-CG68) ; écarts de plus de 30 jours listés dans le dossier de clôture.
+- **Caisse** : la caisse de l'OGEC (espèces des familles, petites dépenses) relève-t-elle de l'obligation de **logiciel de caisse sécurisé** (CGI 286 I 3° bis) ? **Non, si toutes les recettes encaissées auprès des particuliers sont exonérées** : l'article 286 I 3° bis du CGI (version du 27-6-2026) vise les assujettis qui enregistrent sans facture des ventes ou prestations dans un logiciel de caisse, avec preuve par **certificat** d'un organisme accrédité ou **attestation individuelle de l'éditeur** (rétablie par la loi de finances pour 2026, art. 125) ; **sont dispensés ceux qui réalisent exclusivement des opérations exonérées** (II 2) [V] ; la doctrine (BOI-TVA-DECLA-30-10-30, version du 1-10-2025 [V] ; version du 25-3-2026 non lue) précise qu'un encaissement qui génère automatiquement une écriture comptable sans intervention humaine n'est pas une caisse, mais qu'un **brouillard modifiable** l'est ; seule la fonction caisse d'un logiciel multifonction est visée ; dispense si tous les encaissements passent par une banque ; amende de **7 500 €** par logiciel. **Conséquence [R]** : (1) l'encaissement d'espèces et de chèques au guichet (25) et la caisse du 48 appliquent **dès maintenant** les principes d'inaltérabilité, de sécurisation, de conservation et d'archivage (R-CG75), quel que soit le régime ; (2) si l'OGEC encaisse auprès de particuliers une recette **taxable** (buvette, ventes, séjour taxable), ScolIA devra fournir l'**attestation individuelle d'éditeur** pour sa fonction caisse — engagement d'éditeur à valider par le juriste (Q-CG38).
+
+### 35.9 Recette en parallèle (doublon 2027-2028) et critères chiffrés de bascule
+
+**Principe** (D-034, D-047) : pendant l'exercice **2027-2028**, la comptabilité officielle reste celle de l'outil actuel (logiciel du cabinet ou Charlemagne Comptabilité) ; ScolIA tient en **parallèle la comptabilité complète** de l'exercice, jusqu'à une **clôture à blanc** et des **comptes annuels à blanc** comparés aux comptes officiels. Le bloquant A des personas reste valable (achats et paiements fournisseurs en réel dans ScolIA, journaux `HA-S`, `BQ-S`, exportés au cabinet) ; pour que la tenue parallèle soit **complète**, ScolIA **importe** chaque mois ce qu'il ne produit pas encore en réel : ventes et encaissements des familles (export de Charlemagne, 24 F14), OD et paie de l'outil officiel (FEC ou export mensuel du cabinet), dans des journaux marqués « importé doublon » (R-CG69).
+
+**Jalons**
+| Mois | Jalon |
+|---|---|
+| avant sept. 2027 | reprise **à blanc** : balance d'ouverture 1-9-2027 (à-nouveaux de l'exercice 2026-2027 du cabinet), immobilisations, tiers ; contrôle balance d'ouverture = balance de clôture officielle (écart 0) |
+| sept. 2027 → août 2028 | tenue mensuelle parallèle ; **comparaison mensuelle outillée** (CGA-360) : balance ScolIA / balance officielle par compte |
+| chaque trimestre | FEC provisoire ScolIA passé au validateur et à Test Compta Demat ; revue par l'expert-comptable d'un échantillon de 50 écritures avec leur pièce |
+| sept.–déc. 2028 | **clôture à blanc** de 2027-2028 dans ScolIA, comptes annuels à blanc comparés aux comptes arrêtés officiels ; revue du CAC (si l'OGEC en a un) |
+| décision | **bascule au début d'un exercice** (1-9-2028 au plus tôt si les critères des onze premiers mois sont atteints et la clôture à blanc suit ; sinon 1-9-2029) — jamais en cours d'exercice (R-CG70) |
+
+**Critères chiffrés (tous requis, mesurés sur l'exercice parallèle)**
+| # | Critère | Seuil |
+|---|---|---|
+| K-CG1 | Balance mensuelle ScolIA = balance officielle, par compte, sur les 12 mois | écart **0,00 €** sur 100 % des comptes après explication ; au plus **3** écarts expliqués par mois, tous résorbés à M+1 |
+| K-CG2 | FEC de l'exercice | **0** anomalie au validateur A47 A-1 et à Test Compta Demat ; import dans le logiciel du cabinet **sans retouche** |
+| K-CG3 | Comptes annuels à blanc / comptes officiels arrêtés | **0,00 €** d'écart sur chaque poste du bilan et du compte de résultat ; annexe : 100 % des tableaux chiffrés concordants ; écarts de présentation listés et acceptés par l'expert-comptable |
+| K-CG4 | Continuité et chaînage | **0** trou de numérotation, **0** rupture de chaîne, **0** écart sceau / base sur 12 mois, y compris après **2** restaurations PITR d'exercice |
+| K-CG5 | Exhaustivité | **0** fait comptabilisable sans écriture à chaque clôture de période (contrôle CGA-227) |
+| K-CG6 | Rapprochement bancaire | 100 % des comptes rapprochés à chaque fin de mois ; ≥ **95 %** des lignes de relevé rapprochées automatiquement |
+| K-CG7 | Factures électroniques | 100 % des factures reçues par la plateforme agréée intégrées sans ressaisie ; **0** facture en double |
+| K-CG8 | Délai de clôture mensuelle | ≤ **5 jours ouvrés** après réception du relevé (mesuré les 6 derniers mois) |
+| K-CG9 | Revue | avis écrit favorable de l'expert-comptable (§35.15) et, s'il existe, du CAC sur le dispositif d'inaltérabilité et la piste d'audit |
+| K-CG10 | Sécurité | revue de sécurité du socle sans écart critique ni important ouvert ; test d'intrusion ciblé (droits, export, IBAN) passé |
+
+Un critère manqué **reporte** la bascule d'un exercice, sauf décision écrite de Florian et de l'établissement (R-CG71).
+
+### 35.10 Lots redécoupés
+
+| Lot | Contenu | Dépend de | Critères de fin |
+|---|---|---|---|
+| CG0 à CG12 | inchangés (§28.1, §33.6) | | |
+| **CG8** (étendu) | FEC conforme complet (à-nouveaux, ordre de validation, nommage, encodages), validateur A47 A-1, Test Compta Demat | CG1 | K-CG2 sur un exercice fictif |
+| **CG8b** (étendu) | régimes du doublon + **imports doublon** (ventes Charlemagne, OD et paie de l'outil officiel) + comparaison mensuelle (CGA-360) | CG8 | comparaison sur 3 mois fictifs |
+| **CG9** (étendu) | livres officiels : journal, grand livre, balance, auxiliaires, balances âgées, à toute date, reproductibles | CG8 | reproductibilité après PITR |
+| **CG13** (obligatoire) clôture | pré-clôture, écritures d'inventaire proposées, arrêté, clôture définitive, à-nouveaux, exercice chevauchant, livre d'inventaire | CG9, CG10 ; 24 (PCA) ; 49 (provisions CP) | clôture d'un exercice fictif complet ; AN = balance de sortie |
+| **CG14** (obligatoire) plateforme agréée | raccordement à une plateforme agréée (au moins une, choisie avec l'OGEC pilote), réception, statuts, annuaire, émission pour les opérations taxables selon le calendrier | CG6 ; **Q-CG4** | 100 factures fictives de bout en bout |
+| **CG15** comptes annuels | bilan, compte de résultat, annexe ANC 2018-06 (fonds propres, fonds dédiés, CVN, immobilisations, créances et dettes), N-1, figeage, affectation du résultat, paquet de publication | CG13 | comptes fictifs validés par l'expert-comptable |
+| **CG16** inaltérabilité et documentation | rôles de base, déclencheurs, chaînage d'exercice, sceaux externes horodatés, outil de vérification autonome, dossier de l'organisation comptable, contrôle post-restauration | CG1 ; PRA (D-040) | K-CG4 ; vérification par un tiers avec l'outil seul |
+| **CG17** archivage légal | archive par exercice, numérisation conforme A102 B-2, relecture depuis l'archive, réversibilité | CG13, CG16 ; 7 | relecture d'un exercice après migration de schéma |
+| **CG18** reprise à la bascule | balance d'ouverture, immobilisations, tiers et soldes, fonds dédiés, historique N-1 pour la présentation | CG13 | écart 0 avec la balance de clôture officielle |
+| **CG19** veille réglementaire comptable | paramètres datés (plan ANC, seuils, taux de TVA, formats FEC et facture électronique), notes de version, tests de non-régression des états | tous | calendrier tenu (§35.12) |
+
+**Parcours minimal révisé** : avant le doublon (été 2027) : CG0 → CG9, CG8b, CG14, CG16, CG18 (à blanc) ; pendant le doublon : CG10, CG13, CG15, CG17 (clôture à blanc au plus tard en décembre 2028) ; CG11, CG12, CG19 en continu.
+
+### 35.11 Risques
+
+| # | Risque | Gravité | Parade |
+|---|---|---|---|
+| RK-CG1 | Comptes annuels faux (présentation, fonds dédiés, CVN) engageant les dirigeants de l'OGEC | élevée | recette K-CG3 ; revue annuelle de l'expert-comptable maintenue **après** la bascule (mission d'examen ou de présentation) ; tests de non-régression des états |
+| RK-CG2 | Altération ou perte d'écritures (bogue, restauration, administrateur) | élevée | §35.4 (déclencheurs, rôles, chaîne, sceaux externes) ; K-CG4 |
+| RK-CG3 | Non-conformité facture électronique (réception hors plateforme, perte du format d'origine) | élevée | CG14 obligatoire avant bascule ; conservation du format d'origine |
+| RK-CG4 | Règle mal comprise (forfait d'externat, TVA, secteur lucratif) | moyenne | questions au cabinet (Q-CG6, Q-CG7, Q-CG30) avant CG15 |
+| RK-CG5 | Dépendance à une personne (un seul développeur connaît la clôture) | moyenne | documentation §35.4, tests de propriété, revue de code croisée |
+| RK-CG6 | Retard de la veille (nouveau format, nouveau seuil non appliqué) | moyenne | CG19, calendrier §35.12, paramètres datés R-CG33 |
+| RK-CG7 | Le cabinet refuse de travailler dans ScolIA | moyenne | il garde son outil pour ses contrôles par import du FEC ; ScolIA fait foi |
+| RK-CG8 | Responsabilité d'éditeur (erreur du logiciel à l'origine d'un redressement) | moyenne | conditions contractuelles et assurance responsabilité civile professionnelle d'éditeur (Q-CG33) |
+| RK-CG9 | Charge de clôture dans un OGEC qui la sous-traitait | moyenne | écritures d'inventaire **proposées** par ScolIA ; liste de contrôle ; le cabinet peut continuer à faire la clôture **dans** ScolIA (accès tiers) |
+
+### 35.12 Coûts de maintenance réglementaire assumés [H, à chiffrer par Florian]
+
+| Poste | Fréquence | Charge estimée [H] |
+|---|---|---|
+| Veille : ANC (règlements, recueil des normes), LPF / BOFiP (FEC), CGI (TVA, facture électronique), C. com. (seuils), commande publique (public) | continue | 1 à 2 jours par mois |
+| Mise à jour du plan de comptes et des états (nouveau règlement ANC) | quand il paraît (rare, plusieurs années) | 10 à 30 jours |
+| Facture électronique : formats (Factur-X, UBL, CII et leurs profils), annuaire, statuts, versions des API des plateformes agréées | 1 à 2 fois par an au début de la réforme | 10 à 20 jours par an les trois premières années, puis 5 |
+| Seuils datés (CAC, commande publique, taxe sur les salaires) | annuelle | 1 à 2 jours |
+| Non-régression des états (exercice de référence rejoué) | à chaque version | automatisée ; 1 jour d'analyse |
+| Revue annuelle par un expert-comptable des états et de la documentation | annuelle | prestation externe (Q-CG34) |
+| **Total récurrent** | | environ **0,2 à 0,3 personne à temps plein**, plus la prestation de revue |
+
+### 35.13 Migrations (plage **2960–2979 inchangée**, contenus réaffectés)
+
+Aucun fichier écrit. La plage reste celle du §28.2 ; les nouvelles tables sont regroupées dans les migrations déjà prévues, la réserve 2978 étant prise par les personas :
+| N° | Ajout de la révision |
+|---|---|
+| 2961 | `ent_cg_exercice` : états `arrete`, `clos` distincts (`arrete_le`, `arrete_par`, `approuve_le`, `deliberation_objet_id`), `an_provisoires BOOLEAN` |
+| 2962 | journaux de type `inventaire`, `import_doublon`, `regularisation_reprise` |
+| 2964 | `ent_cg_ecriture.empreinte_canonique_version`, `ent_cg_chaine_tete (etablissement_id, journal_id, exercice_id, numero, empreinte, le)` ; rôle propriétaire distinct ; déclencheurs étendus aux lignes et à l'analytique |
+| 2974 | `ent_cg_provision (id, etablissement_id, exercice_id, nature, compte_id, montant_centimes, ecriture_id)`, composants et dépréciations d'immobilisations |
+| 2975 | `ent_cg_sceau (id, etablissement_id, exercice_id, journal_id NULL, empreinte, objet_id, jeton_horodatage_objet_id NULL, le)` ; `ent_cg_fec (id, etablissement_id, exercice_id, nature CHECK IN ('provisoire','definitif'), objet_id, empreinte, controle_ok BOOLEAN, controle_rapport_objet_id)` ; `ent_cg_import_doublon` |
+| 2976 | (public, inchangé) + `ent_cg_plateforme (id, etablissement_id, operateur, identifiant_annuaire, actif_du, actif_au)` , `ent_cg_facture_statut (id, etablissement_id, facture_id, statut, transmis_le, accuse)` |
+| 2977 | RLS et registre, inchangé ; plus `ent_cg_etat_annuel (id, etablissement_id, exercice_id, nature CHECK IN ('bilan','compte_resultat','annexe','inventaire','documentation'), version, objet_id, empreinte, fige_le)` et `ent_cg_etat_annuel_ligne (id, etablissement_id, etat_id, poste_code, montant_n_centimes, montant_n1_centimes)` — **aucune colonne JSON** (E10, D-036) |
+
+### 35.14 Actions, règles, cas limites ajoutés
+
+**Actions (CGA-330 à CGA-362 ; CGA-363 à CGA-399 réservés)**
+| N° | Action | Acteur · droit | Lot |
+|---|---|---|---|
+| CGA-330 | Ouvrir un exercice (dates, journaux, report des schémas) | COMPTA · `comptabilite.parametrer` | CG13 |
+| CGA-331 | Consulter le **livre-journal** officiel d'une période | COMPTA, CAB, CAC · `comptabilite.lire` | CG9 |
+| CGA-332 | Grand livre général et auxiliaire à une date | idem | CG9 |
+| CGA-333 | Balance générale, auxiliaire, âgée à une date | idem | CG9 |
+| CGA-334 | Remonter d'un solde à ses pièces (« d'où vient ce solde ? ») | idem | CG9 |
+| CGA-340 | **Liste de contrôle de pré-clôture** (banque, caisse, FNP, CCA/PCA, dotations, fonds dédiés, CP, taxe sur les salaires, CVN) | SYS → COMPTA | CG13 |
+| CGA-341 | Proposer les **écritures d'inventaire** (dotations, provisions, FNP, CCA, PCA, fonds dédiés, provision CP depuis le 49) | SYS → COMPTA | CG13 |
+| CGA-342 | **Arrêter** les comptes (version arrêtée, organe, date) ★ | DIR + PRES · `comptabilite.cloturer` | CG13 |
+| CGA-343 | **Clôturer définitivement** un exercice (scellement, FEC définitif, inventaire, AN) ★ | COMPTA + DIR · `comptabilite.cloturer` | CG13 |
+| CGA-344 | Générer, régénérer les **à-nouveaux provisoires** | COMPTA | CG13 |
+| CGA-345 | Passer une écriture **post-arrêté** motivée | COMPTA + second · `comptabilite.cloturer` | CG13 |
+| CGA-346 | Recenser les **contributions volontaires en nature** (bénévolat valorisé, mises à disposition) | COMPTA, DIR | CG15 |
+| CGA-347 | Enregistrer l'**affectation du résultat** depuis la délibération d'AG | COMPTA · `comptabilite.cloturer` | CG15 |
+| CGA-348 | Produire les **comptes annuels** (bilan, CR, annexe, N-1) en brouillon puis figés | COMPTA | CG15 |
+| CGA-349 | Préparer le **paquet de publication** (comptes + rapport CAC) | COMPTA | CG15 |
+| CGA-350 | Ouvrir un **accès réviseur** au cabinet ou au CAC (lecture, commentaires sur écritures, propositions d'OD soumises au comptable) | DIR · `comptabilite.parametrer` | CG13 |
+| CGA-351 | Sceller (quotidien, clôture) et horodater les têtes de chaîne | SYS | CG16 |
+| CGA-352 | **Vérifier** la chaîne et les sceaux (outil autonome téléchargeable) | CAC, CAB, COMPTA | CG16 |
+| CGA-353 | Journal des actes comptables (lecture, export) | CAC, DIR | CG16 |
+| CGA-354 | Générer la **documentation de l'organisation comptable** de l'exercice | SYS, COMPTA | CG16 |
+| CGA-355 | Produire un **FEC** (provisoire / définitif) avec rapport de contrôle | COMPTA · `comptabilite.exporter` | CG8 |
+| CGA-356 | Relire un exercice archivé (états recalculés depuis l'archive, comparés aux empreintes) | SYS (annuel), COMPTA | CG17 |
+| CGA-357 | Numériser une facture papier selon A102 B-2 (copie fidèle, empreinte, horodatage) | ACC, COMPTA | CG17 |
+| CGA-358 | Reprendre balance d'ouverture, immobilisations, tiers à la bascule | COMPTA | CG18 |
+| CGA-359 | Remettre l'**archive comptable** complète (réversibilité) ★ | DIR + COMPTA | CG17 |
+| CGA-360 | **Comparer** chaque mois balance ScolIA / balance officielle (doublon), écarts expliqués | COMPTA | CG8b |
+| CGA-361 | Importer les journaux « doublon » (ventes Charlemagne, OD et paie de l'outil officiel) | COMPTA | CG8b |
+| CGA-362 | Publier les **notes de version réglementaire** (changements de plan, seuils, formats) à l'établissement | SYS | CG19 |
+
+Droit nouveau : **`comptabilite.cloturer`** ★ (arrêté, clôture, post-arrêté, affectation), par défaut Compta + Direction, double validation (R-CG56).
+
+**Règles (R-CG55 à R-CG75)**
+| N° | Règle |
+|---|---|
+| R-CG55 | Après la bascule, la comptabilité de ScolIA fait foi ; aucune écriture officielle n'est tenue ailleurs ; le cabinet travaille dans ScolIA ou sur le FEC, jamais en tenant un second jeu de livres. |
+| R-CG56 | Arrêté, clôture définitive et écritures d'inventaire au-delà de S-4803 : deux personnes distinctes, réauthentification par passkey. |
+| R-CG57 | Un exercice ne se clôt pas tant que la liste de contrôle de pré-clôture a un point bloquant ouvert. |
+| R-CG58 | Balance de sortie de N = balance d'entrée de N+1, contrôlée à chaque génération des à-nouveaux ; écart = blocage. |
+| R-CG59 | Le rôle applicatif n'est pas propriétaire des tables comptables ; il ne peut ni désactiver les déclencheurs ni vider une table. |
+| R-CG60 | Empreinte canonique versionnée ; une évolution du format d'empreinte ouvre une nouvelle version, sans recalcul du passé. |
+| R-CG61 | Têtes de chaîne scellées au moins chaque jour ouvré et à chaque clôture, hors de la base, dans un objet immuable horodaté. |
+| R-CG62 | Après restauration, la saisie reste bloquée tant que la chaîne n'est pas vérifiée contre les sceaux. |
+| R-CG63 | Toute écriture validée a une pièce consultable ou pointe l'écriture d'origine ; toute facture fournisseur reliée à sa commande, sa réception et son paiement, ou marquée « sans commande » avec motif. |
+| R-CG64 | Journal des actes comptables en ajout seul, 10 ans. |
+| R-CG65 | Documentation de l'organisation comptable versionnée et scellée par exercice. |
+| R-CG66 | Un exercice clos ne se rouvre jamais. |
+| R-CG67 | Archive comptable complète remise sur demande, lisible sans ScolIA. |
+| R-CG68 | Pas de clôture de période avec un compte bancaire non rapproché, sauf dérogation motivée de la direction. |
+| R-CG69 | Pendant le doublon, les écritures importées de l'outil officiel sont marquées et ne sont jamais réexportées (R-CG50). |
+| R-CG70 | La bascule de la tenue légale se fait au premier jour d'un exercice. |
+| R-CG71 | Un critère K-CG manqué reporte la bascule d'un exercice, sauf décision écrite de Florian et de l'établissement. |
+| R-CG72 | Conservation de 10 ans pour toutes les pièces et tous les documents comptables (L123-22 ; L102 B au 1-1-2027) ; aucune purge avant. |
+| R-CG73 | Le FEC est toujours au détail, sans écriture de centralisation, à-nouveaux en premiers numéros ; la centralisation de R-CG44 ne vaut que pour les exports d'éditeur. |
+| R-CG74 | Le régime de TVA de chaque article et de chaque ligne décide du circuit de facture électronique : exonéré → hors émission et hors e-reporting ; taxable vers un assujetti → émission par la plateforme ; taxable vers un particulier → e-reporting. |
+| R-CG75 | Les encaissements au guichet et la caisse appliquent l'inaltérabilité, la sécurisation, la conservation et l'archivage de l'article 286 I 3° bis du CGI, même quand l'établissement en est dispensé. |
+
+**Cas limites (CCG-79 à CCG-90)**
+| # | Cas | Traitement |
+|---|---|---|
+| CCG-79 | Saisie de septembre N+1 alors que N n'est pas clos | AN provisoires marqués ; régénération à la clôture ; écart → écriture d'AN complémentaire datée du 1er jour |
+| CCG-80 | Erreur découverte après l'approbation des comptes | correction sur l'exercice ouvert (correction d'erreur), mention dans l'annexe de N+1 ; jamais de réouverture |
+| CCG-81 | Restauration PITR qui « perd » des écritures validées de la journée | blocage ; réinjection depuis l'export scellé ; incident documenté |
+| CCG-82 | L'AG n'approuve pas les comptes | exercice reste « arrêté » ; nouvelles écritures post-arrêté si demandées ; nouvel arrêté |
+| CCG-83 | Exercice de durée différente (changement de date de clôture voté) | exercice de 6 à 18 mois accepté avec délibération ; N-1 non comparable signalé |
+| CCG-84 | Le cabinet propose une OD dans ScolIA | proposition soumise au comptable, jamais validée par le cabinet seul (sauf mandat écrit et droit attribué) |
+| CCG-85 | Vérification fiscale : demande de FEC sous 15 jours | FEC définitif archivé re-téléchargé à l'identique ; FEC d'exercice ouvert en provisoire |
+| CCG-86 | Facture fournisseur reçue hors plateforme agréée (PDF par courriel) après l'obligation | acceptée pour traitement, marquée « hors plateforme », signalement au fournisseur ; le cabinet dit si elle vaut facture (Q-CG35) |
+| CCG-87 | Fonds dédié non utilisé à la fin du délai prévu par le financeur | alerte, reprise ou remboursement décidés par la direction, écriture proposée |
+| CCG-88 | Changement de règlement ANC en cours d'exercice | paramètres datés ; états de l'exercice selon le règlement applicable à sa date d'ouverture, sauf disposition transitoire |
+| CCG-89 | Décès ou départ du seul comptable en pleine clôture | accès réviseur du cabinet élargi par la direction (temporaire, tracé) ; liste de contrôle reprend où elle s'était arrêtée |
+| CCG-90 | Deux établissements d'un même OGEC | une entité comptable par établissement (R-CG4) ; comptes annuels combinés de l'OGEC = **Q13** (groupes), à trancher avant CG15 si le pilote est concerné (Q-CG36) |
+
+**Réglages (S-4833 à S-4840)**
+| N° | Réglage | Défaut |
+|---|---|---|
+| S-4833 | Forme des à-nouveaux | une écriture par compte, détail par tiers |
+| S-4834 | Format du FEC | fichier à plat, séparateur tabulation, UTF-8 (à confirmer avec le cabinet) |
+| S-4835 | Commande soldée sans facture : délai d'anomalie | 60 jours |
+| S-4836 | Fréquence des sceaux | quotidienne + clôtures |
+| S-4837 | Horodatage | qualifié (prestataire à choisir, Q-CG31) ; à défaut horodatage interne signé |
+| S-4838 | Échantillon de revue trimestrielle du doublon | 50 écritures |
+| S-4839 | Organe d'arrêté des comptes | conseil d'administration (selon statuts) |
+| S-4840 | Destruction des originaux papier numérisés | non (Q-CG22) |
+
+### 35.15 À valider par un expert-comptable (et le CAC s'il existe)
+
+1. Plan de comptes ANC 2018-06 pré-chargé et les **schémas** du §9.2 (dont forfait d'externat, aides, régie, paie).
+2. Procédure de **clôture**, liste de contrôle, écritures d'inventaire proposées, **à-nouveaux**, exercice chevauchant.
+3. Modèles des **comptes annuels** et de l'**annexe** (fonds propres, fonds dédiés, CVN, engagements), présentation N-1.
+4. Dispositif d'**inaltérabilité** (chaînage, sceaux, outil de vérification) et **documentation de l'organisation comptable** (PCG 1011-2).
+5. **FEC** : format, encodage, contenu, rapport de contrôle ; acceptation par son logiciel.
+6. Archivage : numérisation conforme, destruction des originaux (Q-CG22).
+7. TVA (prorata, secteur lucratif, sectorisation), taxe sur les salaires, qualification du forfait d'externat (Q-CG6, Q-CG7, Q-CG30).
+8. Critères K-CG1 à K-CG10 et **avis de bascule** (K-CG9).
+9. Facture électronique : obligations de l'OGEC (réception, émission, e-reporting) et choix de la plateforme agréée (Q-CG4).
+
+**À valider par un juriste** (droit des associations, droit fiscal) : responsabilité de l'éditeur et conditions contractuelles (Q-CG33) ; organe compétent pour l'arrêté et l'approbation selon les statuts types d'OGEC ; statut de pouvoir adjudicateur (Q-CG8, inchangé).
+
+### 35.16 Décisions
+
+**Appliquées par défaut (D-031)**
+| # | Question | Décision |
+|---|---|---|
+| Q-CG1 | Périmètre | **Close par D-047** : tenue légale complète. |
+| Q-CG28 | Le cabinet garde-t-il un rôle ? | Oui : réviseur dans ScolIA (accès tiers) et destinataire du FEC ; il ne tient plus de second jeu de livres (R-CG55). |
+| Q-CG29 | Bascule | Au premier jour d'un exercice, après exercice parallèle complet et critères K-CG (R-CG70, R-CG71). |
+
+**Soumis à Florian**
+| # | Question | Recommandation |
+|---|---|---|
+| Q-CG4 (rappel, **urgent**) | Plateforme agréée de l'OGEC pilote | à vérifier avec l'expert-comptable ; ScolIA s'y raccorde (CG14) |
+| Q-CG30 | L'OGEC pilote a-t-il un secteur lucratif soumis aux impôts commerciaux (location, ventes) ? FEC exigible ? | avis du cabinet |
+| Q-CG31 | Prestataire d'**horodatage qualifié** (coût) | oui, faible coût [H] |
+| Q-CG32 | Bâtiments propres de l'OGEC (composants) ou mis à disposition ? | à demander |
+| Q-CG33 | Responsabilité d'éditeur : conditions, assurance RC professionnelle | juriste et assureur |
+| Q-CG34 | Revue annuelle externe des états par un expert-comptable (budget) | oui |
+| Q-CG35 | Facture reçue hors plateforme : valeur | avis du cabinet |
+| Q-CG36 | L'OGEC pilote gère-t-il plusieurs établissements (comptes combinés) ? | à demander |
+| Q-CG37 | Date de bascule visée : 1-9-2028 (si critères) ou 1-9-2029 | 1-9-2028 au plus tôt, sous condition |
+| Q-CG38 | Fournir une **attestation individuelle d'éditeur** (caisse, CGI 286) si l'OGEC encaisse des recettes taxables auprès de particuliers | juriste ; oui si le cas existe |
+
+### 35.17 Sources de la révision (consultées le 2026-11-11)
+
+- PCG refondu (règlement ANC 2014-03, recueil au 1-1-2026), art. 1011-2 à 1032-2 : https://www.anc.gouv.fr/files/anc/files/1_Normes_fran%C3%A7aises/Reglements/Recueils/PCG_janvier2026/PCG--1er-janvier-2026.pdf
+- ANC 2018-06, recueil « secteur non lucratif » 2026 : https://www.anc.gouv.fr/files/anc/files/1_Normes_fran%C3%A7aises/Reglements/Recueils/Recueil_Secteur-non-lucratif/2026/Recueil-non-lucratif-2026.pdf ; fiche : https://www.anc.gouv.fr/reglement-ndeg-2018-06-du-5-decembre-2018
+- C. com. R123-172 à R123-177 : https://www.legifrance.gouv.fr/codes/section_lc/LEGITEXT000005634379/LEGISCTA000006191083/ ; L123-22 : https://www.legifrance.gouv.fr/loda/article_lc/LEGIARTI000006219327 (extrait) ; L612-4 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000043982272 ; D612-5 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000006268871 (extrait)
+- LPF L47 A : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000037526053 ; A47 A-1 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000027804775 ; L102 B (version au 1-1-2027) : https://legifrance.gouv.fr/codes/article_lc/LEGIARTI000053189496/2030-01-01 ; A102 B-2 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000034311685
+- BOFiP FEC : https://bofip.impots.gouv.fr/bofip/9028-PGP.html/identifiant=BOI-CF-IOR-60-40-20-20170607 ; https://bofip.impots.gouv.fr/bofip/9026-PGP.html/identifiant=BOI-CF-IOR-60-40-10-20211215
+- Facturation électronique : CGI 289 bis : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000046195635 ; FAQ DGFiP (1-9-2026) : https://www.impots.gouv.fr/sites/default/files/media/1_metier/2_professionnel/EV/2_gestion/290_facturation_electronique/faq---fe_je-decouvre-la-facturation-electronique.pdf ; plateformes : https://www.impots.gouv.fr/facturation-electronique-et-plateformes-agreees ; fiche : https://www.impots.gouv.fr/sites/default/files/media/1_metier/2_professionnel/EV/2_gestion/290_facturation_electronique/fiches_reforme/fiche-pdp.pdf ; normes : https://www.impots.gouv.fr/factures-norme-afnor
+- TVA enseignement : https://bofip.impots.gouv.fr/bofip/943-PGP.html/identifiant=BOI-TVA-CHAMP-30-10-20-50-20191016
+- Caisse : CGI 286 : https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000051764897 ; https://bofip.impots.gouv.fr/bofip/10691-PGP.html/identifiant=BOI-TVA-DECLA-30-10-30-20251001
+- Copie fiable : C. civ. 1379 : https://www.legifrance.gouv.fr/codes/id/LEGIARTI000032042394/2016-10-01/ ; décret 2016-1673 : https://www.legifrance.gouv.fr/loda/id/JORFTEXT000033538124 (extrait)
+- EPLE : M9.6-Op@le du 19-1-2026 : https://www.education.gouv.fr/bo/2026/Hebdo7/MENF2600269J (403) ; annexe : https://www.education.gouv.fr/sites/default/files/document/Annexe%20%E2%80%93%20Instruction%20codificatrice%20M9.6%20%E2%80%93%20OP@LE-479564.pdf ; décret GBCP 2012-1246 (art. 9 : incompatibilité ordonnateur / comptable) [extrait]
+- **Non vérifié** : article 91 de la loi de finances pour 2024 ; liste à jour des plateformes agréées ; version en vigueur des spécifications de formats et rôle du PPF ; modalités de publication des comptes (DILA) ; versions 2026 de BOI-TVA-DECLA-30-10-30 et BOI-TVA-CHAMP-30-10-20-50 ; doctrine expresse sur le FEC des associations non lucratives (aucune trouvée) ; economie.gouv.fr (403).

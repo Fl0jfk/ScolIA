@@ -2,6 +2,8 @@
 
 **Date :** 2026-11-11 — **Statut :** conception de fond, **non décidée** (à relire par Florian). Rédigée avant tout code de ce socle. Aucun code écrit ni modifié ; aucun accès à une base, à un secret ou à un environnement de production ; Next.js **lu seulement** (fichiers ciblés de `origin/main` par `git show`).
 **Branche :** `ent-socle-48-49-conception`, partie de `origin/ent-mc0hoe` (`37ce0d3b`).
+> **Révision D-047 (2026-11-11, branche `ent-socle-48-49-revision`)** : Florian confirme D-025 — le **calcul des bulletins et la DSN** sont construits dans ScolIA. **Le §34 l'emporte sur tout le document, §31 compris** ; Q-RH1 est close ; la recommandation du §3.3 (calcul et DSN au logiciel de paie) est abandonnée ; RH11 et RH12 deviennent obligatoires et sont redécoupés (RH11 à RH22). Rien n'a été supprimé.
+
 **Passe personas :** `docs/socles/PERSONAS_49.md` ; ajouts au **§31**, marqués « ajout personas » ; **en cas de contradiction, le §31 l'emporte**.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` D-009, D-013, D-017, D-019, D-021, D-023, **D-024**, **D-025** (paie dans l'ENT Rust), D-026, **D-027 (A, H)** (dossiers des personnels domaine restreint ; pièces RH exigées par le droit du travail), D-029, **D-031**, **D-034**, **D-035** (précision 2 : la paie et la RH de l'add-on sont des **ébauches à refaire de zéro**), **D-036**, D-041. `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14). `docs/TRANSITION_T0_INVENTAIRE.md` (M05, M06, ligne « Paie »). `docs/SOCLES.md` §49, Q-B, T-04, T-06. Conceptions **`06_PERSONNELS.md`** (engagements, missions R-P11, service fait PRS-145, P26, P47, P57), **`15_ABSENCES_PERSONNELS.md`** (§14.3–14.4, R-15, R-16, Q-AP11), **`48_COMPTABILITE.md`** (journal de paie, R-CG22), `07_DOCUMENTS.md` (coffre de l'agent, signature), `08_NOTIFICATIONS.md`, `IA_COEUR.md`.
 
@@ -9,7 +11,7 @@
 
 **Numérotation propre au socle 49** (vérifiée libre sur les 134 branches distantes, 2026-11-11) : défauts **HD-01**… ; actions **RHP-100 à RHP-279** ; règles **R-RH1**… ; cas limites **CRH-01**… ; questions **Q-RH1**… ; réglages **S-4900 à S-4949** ; lots **RH0 à RH12** ; migrations **2980–2999** (imposée par le pilote).
 
-Sommaire : §0 En bref · §1 Thèse · §2 Existant · **§3 Construire un moteur de paie ou s'interfacer ?** · §4 Qui est payé par qui · §5 Acteurs · §6 L'année · §7 Réglementaire · §8 Branchements · §9 Concepts · §10 Contrats et dossier du salarié · §11 Temps, congés et éléments variables · §12 Préparation de la paie et échange avec le logiciel de paie · §13 Bulletins, journal, DSN · §14 Santé et sécurité au travail · §15 Entretiens et formation · §16 Obligations collectives · §17 Public (EPLE) · §18 Cas limites · §19 IA · §20 Actions · §21 Règles · §22 Droits, minimisation, conservation · §23 Événements · §24 Écrans · §25 Modèle de données · §26 Reprise · §27 Lots et migrations · §28 Tests · §29 Réglages · §30 Décisions et questions · §31 Ajout personas · §32 Faits, hypothèses, contradictions · §33 Sources.
+Sommaire : §0 En bref · §1 Thèse · §2 Existant · **§3 Construire un moteur de paie ou s'interfacer ?** · §4 Qui est payé par qui · §5 Acteurs · §6 L'année · §7 Réglementaire · §8 Branchements · §9 Concepts · §10 Contrats et dossier du salarié · §11 Temps, congés et éléments variables · §12 Préparation de la paie et échange avec le logiciel de paie · §13 Bulletins, journal, DSN · §14 Santé et sécurité au travail · §15 Entretiens et formation · §16 Obligations collectives · §17 Public (EPLE) · §18 Cas limites · §19 IA · §20 Actions · §21 Règles · §22 Droits, minimisation, conservation · §23 Événements · §24 Écrans · §25 Modèle de données · §26 Reprise · §27 Lots et migrations · §28 Tests · §29 Réglages · §30 Décisions et questions · §31 Ajout personas · §32 Faits, hypothèses, contradictions · §33 Sources · **§34 Révision D-047 (l'emporte)**.
 
 ---
 
@@ -905,7 +907,7 @@ ent_rh_acces_tiers (id, etablissement_id, user_id, organisme, du, au, accorde_pa
 ### 30.2 Soumis à Florian
 | # | Question | Recommandation |
 |---|---|---|
-| **Q-RH1** | **Moteur de paie et DSN dans ScolIA** (option 1, D-025 littéral) ou **préparation et interface** (option 2) ? **Contredit D-025.** | **Option 2** (§3.3) ; RH11–RH12 en option |
+| **Q-RH1** (**close par D-047**, §34) | **Moteur de paie et DSN dans ScolIA** (option 1, D-025 littéral) ou **préparation et interface** (option 2) ? **Contredit D-025.** | **Option 2** (§3.3) ; RH11–RH12 en option |
 | Q-RH2 | Logiciel de paie de l'OGEC pilote, ou cabinet ? Format d'import, coût | à demander ; un adaptateur pour commencer |
 | Q-RH3 | Pendant le doublon, RH et préparation de paie en **réel** ? | oui pour le dossier, les contrats, les échéances ; variables en parallèle trois mois puis réel |
 | Q-RH4 | Des éléments de paie **réels** sont-ils dans Next.js ? Purge du libellé (HD-01) côté Next.js ? | décision et geste de Florian |
@@ -1033,3 +1035,330 @@ Recherche par moteur ; Légifrance renvoie 403 aux accès automatiques.
 - Imports de variables : https://www.absyscyborg.com/fr/services/centre-de-formation-absys-cyborg/formation-sage-paie-importer-les-elements-variables ; https://absyscyborg.com/fr/logiciels/silae/my-silae/saisie-des-evp ; https://factorial.fr/apps/integration/silae
 - Charlemagne Paie (Aplim) : https://aplim.fr/ressources/communication/infomag/infomagaplim_202106.pdf
 - Échecs : Légifrance (403) ; PDF du référentiel CNIL non lu en entier ; CCN non lue sur Légifrance.
+
+---
+
+## 34. Révision D-047 (2026-11-11) — calcul de la paie et DSN dans ScolIA — **l'emporte sur tout ce qui précède, §31 compris**
+
+**Décision.** D-047 (Florian, 2026-11-11) **confirme D-025** : la paie, **calcul des bulletins et DSN compris**, est construite dans ScolIA. **Q-RH1 est close** : l'option 1 du §3.2 est retenue ; la recommandation du §3.3 (option 2, calcul et DSN au logiciel de paie de l'OGEC ou de son cabinet) est **abandonnée**. Les lots RH11 et RH12, « non engagés », deviennent **obligatoires** et sont redécoupés (§34.10). Rien n'est supprimé au-dessus : tout ce qui entoure le calcul (RH0 à RH10, dossier, contrats, temps, variables, échéances, santé au travail, formation, collectif, public, personas) reste valable et devient l'**amont** du moteur.
+**Numérotation de la révision** : actions **RHP-280 à RHP-339** (étend la plage du socle, qui s'arrêtait à RHP-279) ; règles **R-RH51 à R-RH80** ; cas limites **CRH-61 à CRH-89** ; questions **Q-RH26 à Q-RH40** ; réglages **S-4929 à S-4949** ; lots **RH11 à RH22** ; migrations **dans 2980–2999, plage inchangée** (§34.13).
+
+### 34.1 Ce qui change, ce qui reste
+
+| Passage | Avant | Après D-047 |
+|---|---|---|
+| §0 point 3, §1 point 3, §3.3 | ScolIA prépare, le logiciel de paie calcule et déclare | **ScolIA calcule les bulletins, produit et dépose la DSN** (mensuelle et signalements), reçoit les retours (CRM, taux de prélèvement à la source), paie les nets (lot de virement du 48) et produit le journal de paie |
+| §12 (échange avec le logiciel de paie) | format pivot, adaptateur, retour des bulletins | l'**adaptateur** ne sert plus qu'à la **recette en parallèle** (comparer avec le logiciel actuel, RHP-264) et à la **reprise** ; le circuit officiel devient : variables arrêtées → **calcul** → contrôle → **validation** → bulletins, DSN, virements, écritures (§34.4) |
+| §13 | bulletins reçus, DSN jamais produite | bulletins **générés** (modèle clarifié), DSN **générée, contrôlée, déposée** (§34.5, §34.6) |
+| RR-06, RR-07, RR-10 | « argument pour ne pas faire » | obligations **du logiciel** (§34.2) |
+| Q-RH10 | nets payés par le logiciel de paie | **nets payés par le 48** (lot de virement, double validation R-CG27), fichier des nets **non nominatif** pour le 48 au-delà du droit `paie.payer` |
+| R-CG22 (48) | journal de paie agrégé reçu | inchangé dans le 48 (agrégé par rubrique et section) ; le **détail par salarié** reste dans le 49 |
+| RR-17 taxe sur les salaires | calculée par le logiciel de paie | **calculée par ScolIA** (base, taux par tranches, abattement des associations, versements et déclaration annuelle 2502 préparée) [NV au détail des échéances de versement, Q-RH27] |
+| §32 contradiction D-025 | signalée | **levée** |
+| Public (§17, Q-RH18) | états au payeur, aucune paie locale | **inchangé** : AED, AESH et agents publics sont payés par l'État, le rectorat ou l'EPLE mutualisateur ; D-047 vise les **salariés de droit privé de l'OGEC** |
+| Enseignants agents de l'État (§4, RR-01) | jamais payés par ScolIA | **inchangé** |
+
+### 34.2 Réglementaire du moteur (vérifié le 2026-11-11 ; [V] = page officielle lue, [V-ext] = extrait officiel de moteur de recherche, [NV] = non vérifié)
+
+| # | Règle | Référence | Statut | Conséquence |
+|---|---|---|---|---|
+| RR-30 | **Norme DSN 2026 (P26V01)** en production, cahier technique **CT 2026.1.2** du 24-12-2025 ; **norme 2027 (P27V01)** pour janvier 2027, **CT 2027.1.3** du 6-11-2026, avec journal de maintenance, note différentielle et tableaux des types de données ; révisions successives du cahier de l'année suivante publiées dès la fin de l'année N-1 puis jusqu'à l'automne | net-entreprises.fr, « Norme et documentation DSN » (page modifiée le 6-11-2026) | [V] | **une version de norme par année civile** : le moteur DSN est versionné par norme ; la norme N+1 est développée dès la publication de son premier cahier et **livrée avant le 1er janvier** (R-RH54) ; chaque révision du cahier (JMN) est relue |
+| RR-31 | Changements 2027 notables : NAF 2025, suppression des codes APEN/APET, suppression de la « sortie de la DSN » (DSN sans individu à déposer) | note différentielle CT2026.1.2 → CT2027.1.3 | [V-ext] | exemple du travail annuel ; cas « mois sans salarié » à traiter (CRH-61) |
+| RR-32 | **DSN-Val** : outil officiel gratuit de contrôle local (Windows, Linux 64 bits, Java 8 ou 11), version 2026.1.0.18 du 27-10-2026, version 2027.1.0.5 ; la **brique de contrôle** peut être intégrée à un logiciel de paie après signature d'un **protocole** avec le GIP-MDS ; elle **ne délivre aucun certificat de conformité** | net-entreprises.fr, « Outils de contrôle DSN-Val » ; protocole d'utilisation de la brique (oct. 2025) | [V] | contrôle **systématique** de chaque DSN par la brique avant dépôt (R-RH55) ; **protocole à signer** (Q-RH28) ; licence de la brique à analyser avant intégration (CLAUDE.md) |
+| RR-33 | **Trois niveaux de test** : DSN-Val en local ; **DSN de test** déposée sur la production (contrôle du SIRET) ; **plateforme éditeurs test.net-entreprises.fr** (inscription à la déclaration « DSNEDITEUR », tests de bout en bout sans transmission aux organismes, SIRET et NIR **réels** exigés, rétroactivité 12 mois, conservation 13 mois) | guide de la plateforme éditeurs ; guide « émettre une DSN test » | [V-ext] | recette (§34.9) ; les **NIR réels** sur la plateforme de test = traitement de données réelles : **accord écrit de l'établissement et avis du DPO** avant (D-034, Q-RH29) |
+| RR-34 | **Échéances** de la DSN mensuelle : le **5 de M+1** (50 salariés et plus, paie du mois) ou le **15 de M+1** (moins de 50, ou paie décalée), à midi ; report au jour ouvrable suivant | urssaf.fr, « Déclaration sociale nominative » ; CSS L133-5-3 (article réglementaire des dates [NV]) | [V-ext] | calendrier calculé par employeur selon l'effectif (S-4929) ; alerte J-3 ; **pénalités** de retard [NV au montant] |
+| RR-35 | **Signalements d'événements** : arrêt de travail dans les **5 jours** de la connaissance (la DSN mensuelle peut suffire en cas de subrogation), reprise anticipée dans les 5 jours, **fin de contrat de travail unique (FCTU)** dans les 5 jours | net-entreprises, « gestion des DJT » ; ameli.fr formalités employeur | [V-ext] ; délais **à reconfirmer dans le CT 2027** | signalements **générés** depuis les faits du 15 (absence de nature arrêt) et du 49 (sortie) ; tâche R-RH20 devient génération + dépôt + suivi |
+| RR-36 | **Bulletin** : mentions de **R3243-1** et suivants ; **montant net social** (9° bis, décret 2023-1378, en vigueur au 1-1-2024 ; ligne obligatoire depuis le 1-7-2023) ; présentation **clarifiée** (arrêté du 25-2-2016 modifié par les arrêtés du 31-1-2023 et du 25-6-2024) | Légifrance ; boss.gouv.fr ; travail-emploi.gouv.fr | [V] | **modèle de bulletin** conforme à l'arrêté en vigueur, versionné par date d'effet (R-RH56) ; test de présence de chaque mention |
+| RR-37 | **Bulletin électronique** sauf opposition (L3243-2) ; disponibilité **50 ans** ou jusqu'à l'âge de L1237-5 **augmenté de 6 ans** ; consultable **via le compte personnel d'activité** ; **information des salariés 3 mois avant** une fermeture du service (D3243-8, décret 2016-1762) ; double conservé **5 ans** par l'employeur (L3243-4) | Légifrance ; service-public.fr | [V] (D3243-8, L3243-2) ; [V-ext] (L3243-4) | coffre du salarié (§13) ; **raccordement au CPA** : modalités techniques à étudier [NV, Q-RH30] ; engagement de disponibilité **au-delà de la vie du contrat ScolIA** (remise d'archive et préavis de 3 mois, R-RH57) |
+| RR-38 | **Prélèvement à la source** : taux du foyer (CGI 204 H) transmis au collecteur par le **CRM nominatif** de la DSN ; **grille de taux neutre** (204 H III) à défaut ; obligations du collecteur (BOI-IR-PAS-30-10-10) ; **sanctions** du collecteur (CGI 1759-0 A, BOI-IR-PAS-30-10-60) : 5 % (erreur, omission), 10 % (retard), 40 % (manquement délibéré), 80 % (retenue non reversée sciemment), minimum 250 € | impots.gouv.fr ; bofip.impots.gouv.fr | [V-ext] ; barème 2026 de la grille neutre [NV] ; secret du taux (CGI 1753 bis C [NV]) | import automatique des CRM ; grille neutre paramètre daté ; **taux visible du seul salarié et de la gestionnaire de paie** (R-RH58) |
+| RR-39 | **Plafond de la sécurité sociale 2026** : 4 005 € par mois, 48 060 € par an (arrêté du 22-12-2025) ; **SMIC au 1-1-2026** : 12,02 € de l'heure (décret 2025-1228), revalorisation au 1-6-2026 annoncée à 12,31 € [NV] | JO ; info.gouv.fr | [V-sec] (PSS) ; [V] (SMIC 1-1-2026) | **paramètres de plateforme datés** (R-RH53) ; une revalorisation en cours d'année est un **événement** qui relance le calcul des paies concernées |
+| RR-40 | **Réduction générale dégressive unique (RGDU)** au 1-1-2026 : CSS L241-13, D241-7 à D241-11 ; rémunérations < 3 SMIC ; C = Tmin + Tdelta × [½ × (3 × SMIC annuel / rémunération annuelle brute − 1)]^P, P = 1,75, Tmin = 0,0200, Tdelta 0,3781 (< 50 salariés) ou 0,3821 (≥ 50) ; **décret 2026-509 du 12-6-2026** fige le SMIC de référence à sa valeur du 1-1-2026 pour 2026 et crée D241-7-1 (paramètre changeant en cours d'année) | Légifrance ; urssaf.fr | [V] (décret 2026-509) ; paramètres [V-ext] ; **divergence** : un texte issu du décret 2025-887 cite Tdelta 0,3813 [à lever, Q-RH31] | calcul annuel avec **régularisation progressive** mensuelle et régularisation annuelle [NV au détail BOSS] ; jeu de tests de référence par paramètre |
+| RR-41 | **BOSS** (boss.gouv.fr) : doctrine sociale opposable de l'administration | boss.gouv.fr | [V principe] | chaque règle de cotisation du moteur cite sa **référence BOSS** (fiche, paragraphe, date) dans le référentiel (R-RH52) |
+| RR-42 | **CCN de l'enseignement privé non lucratif (EPNL), IDCC 3218, du 13-10-2020** (issue de l'avenant 2020-03, **révisée par l'avenant 2022-2 du 11-4-2022**, texte unique appliqué depuis le 1-9-2022) ; signataires CEPNL, SPELC, FEP-CFDT (puis adhésion CGT) ; **remplace** l'ancienne convention PSAEE (IDCC 2408) et la convention SEP (IDCC 3211) ; chapitre 4 classifications et **salaires minima hiérarchiques** (accord 2022-7 du 12-12-2022 ; accords de salaires 2021-1, 2021-2, 2022-1, 2022-3, 2022-5, avenant 2023-1), CQP classés (EVS, CVS, attaché de gestion) ; chapitre 7 **maintien de salaire** et **protection sociale complémentaire** (prévoyance et frais de santé) ; **extension non établie** (Légifrance n'affiche pas d'arrêté d'extension ; une source secondaire la dit « non étendue ») | Légifrance KALICONT000043874879 ; code.travail.gouv.fr | [V] (identité, chapitres) ; extension, strates, annualisation, internat, surveillance [NV] | **corrige RR-03** (date de la convention : 13-10-2020, révisée le 11-4-2022) ; référentiel CCN **versionné par avenant** (grilles, ancienneté, primes, maintien, prévoyance) ; **lecture intégrale par un juriste en droit social** avant RH12 (Q-RH5) ; application à l'OGEC par adhésion de l'employeur au syndicat signataire à confirmer (Q-RH32) |
+| RR-43 | **Aucune labellisation** officielle des logiciels de paie ; la conformité se constate par les contrôles DSN (brique, dépôt, CRM) ; la **responsabilité** des déclarations et cotisations reste celle de l'**employeur** | net-entreprises (brique sans certificat) | [V] (absence de certificat) ; responsabilité [raisonnement, à confirmer par le juriste] | ScolIA ne peut **rien promettre** de plus que la conformité aux contrôles ; responsabilité contractuelle d'éditeur à cadrer (Q-RH33) |
+| RR-44 | Données des salariés : **référentiel CNIL « gestion du personnel »** (délibération 2019-160, JO du 15-4-2020) ; **référentiel des durées de conservation RH** du 2-4-2026 | cnil.fr | [V] | §22.4 et §34.8 ; décret-cadre NIR [NV] |
+
+### 34.3 Le moteur de paie
+
+**Principes**
+1. **Le calcul est une fonction pure et rejouable** : (variables arrêtées du mois, contrat et rémunération à date, référentiel réglementaire à date, référentiel CCN à date, cumuls de l'année, taux de prélèvement) → bulletin. Mêmes entrées, même bulletin, au centime, aujourd'hui comme dans dix ans (R-RH51). Chaque bulletin conserve l'**identifiant de version** de chaque référentiel utilisé.
+2. **Tout paramètre réglementaire est daté et sourcé** : taux, plafonds, SMIC, tranches, grilles, formules ; jamais codé en dur ; chaque valeur porte sa date d'effet, sa source (texte, BOSS, fiche URSSAF, accord de branche, contrat de prévoyance) et la personne qui l'a saisie et validée (R-RH52, R-RH53). Les paramètres **nationaux** sont saisis une fois par ScolIA (référentiel de plateforme, `globale_reference`) ; les paramètres **de l'employeur** (taux AT/MP notifié, contrats de prévoyance et de mutuelle, taux de versement mobilité selon la commune, effectif) le sont par établissement.
+3. **Rubriques** : catalogue de rubriques de calcul (gains, cotisations salariales et patronales, réductions, retenues, non soumis, informations), chacune avec sa **formule déclarative** (base, assiette, taux, plafond, arrondi, ordre), ses **codes DSN** (types de base assujettie, codes de cotisation individuelle, CTP URSSAF), son **compte comptable** et sa **ligne du bulletin clarifié**. Formules exprimées dans un petit langage déclaratif **interne, versionné, testé** — pas de script libre ni de JSON (D-036 : une rubrique = des lignes de table typées).
+4. **Profils** de cotisation par population (cadre, non-cadre, apprenti, CDD d'usage, temps partiel, salarié de plus de 62 ans [NV], stagiaire gratifié) : le salarié hérite de son profil par son contrat ; aucune case à cocher libre.
+5. **Ordre de calcul** : brut (base contractuelle, ancienneté CCN, heures complémentaires et supplémentaires, primes, avantages en nature, absences et maintien) → assiettes (plafonnée, déplafonnée, CSG-CRDS, tranches Agirc-Arrco, chômage) → cotisations → réductions (RGDU, heures supplémentaires) → **net social** → **net imposable** → **prélèvement à la source** → retenues et acomptes → **net à payer** → coût employeur.
+6. **Absences** (nature codée du 15) : retenue selon la méthode retenue (heures réelles, jours ouvrés ou calendaires selon la CCN et la jurisprudence [NV, juriste]) ; **maintien de salaire** CCN chapitre 7 et légal ; **indemnités journalières** : subrogation (l'employeur avance et reçoit les IJSS : rapprochement du relevé de l'assurance maladie [NV au format]) ou non ; IJ de prévoyance ; **jamais** de motif médical (R-RH6 inchangé).
+7. **Congés payés** : acquisition et prise (déjà RH3), **indemnité** par la comparaison maintien / dixième (R-RH59), provision de congés payés et charges pour la clôture comptable (48 §35.3) ; règles issues de la jurisprudence et de la loi de 2024 sur l'acquisition pendant la maladie [NV, juriste].
+8. **Temps de travail annualisé** (CCN EPNL, personnels d'éducation [NV]) : lissage de la rémunération, régularisation en fin de période d'annualisation ou à la sortie.
+9. **Régularisations** : un fait tardif ou une erreur se corrige sur la **paie suivante** par des rubriques de rappel (période d'origine conservée), jamais en réécrivant un bulletin émis (R-RH15 inchangé, R-RH60) ; la DSN porte les régularisations dans les blocs prévus [à vérifier par norme].
+10. **Sorties** : indemnités de rupture (légale, conventionnelle, rupture conventionnelle, fin de CDD, compensatrice de congés), **solde de tout compte**, **certificat de travail**, **attestation employeur** transmise par la DSN (FCTU) ; modèles relus par le juriste (Q-RH5).
+11. **Taxe sur les salaires** : calculée à partir des rémunérations brutes par tranche, abattement des associations, déclarée et versée selon le calendrier en vigueur (Q-RH27).
+
+**Contrôles avant validation** (RHP-286) : bulletin à net négatif ; net inférieur au SMIC horaire proratisé (hors absences) ; salaire de base inférieur au minimum conventionnel de la classification ; heures au-delà des plafonds légaux ; variation du net de plus de S-4930 % sans variable explicative ; rubrique sans paramètre valide à la date ; cotisation de prévoyance absente pour un salarié couvert ; taux PAS absent depuis plus de 2 mois (grille neutre appliquée) ; cumul annuel incohérent ; salarié sorti payé ; double paie.
+
+### 34.4 Circuit mensuel
+
+| Étape | Qui | Geste |
+|---|---|---|
+| 1. Variables arrêtées | direction (inchangé, §12) | ★ |
+| 2. **Calcul** (pré-paie) | SYS, lancé par la gestionnaire | tous les bulletins en brouillon, rejouables |
+| 3. Contrôles et revue | gestionnaire de paie | anomalies RHP-286 levées ou motivées ; comparaison au mois précédent |
+| 4. **Validation de la paie** | direction ou président (jamais pour sa propre paie, R-RH41) | ★ réauthentification ; bulletins figés et numérotés |
+| 5. Bulletins | SYS | PDF/A au coffre de chaque salarié ou papier (opposition, R-RH42), le jour du paiement |
+| 6. **Virement des nets** | 48 (lot, double validation) | fichier SEPA ; date de paiement S-4931 |
+| 7. **Journal de paie** | SYS → 48 | écritures agrégées (R-CG22) ; contrôle d'égalité avec les bulletins |
+| 8. **DSN mensuelle** | SYS génère et contrôle (brique) ; gestionnaire dépose | ★ avant l'échéance (RR-34) |
+| 9. **Retours** | SYS | accusés, bilans d'anomalies, CRM nominatifs (taux PAS), CRM de cotisations ; anomalies en tâches |
+| 10. **Paiement des organismes** | 48 | prélèvements ou virements URSSAF, retraite complémentaire, prévoyance, DGFiP (PAS) selon les échéances |
+| 11. Clôture de la période | gestionnaire | cumuls figés |
+
+**Dépôt de la DSN** : par défaut le fichier est **déposé par la gestionnaire** sur net-entreprises avec ses propres identifiants (ScolIA ne les connaît jamais) ; le dépôt **machine à machine** (API de net-entreprises) est un lot ultérieur, après étude de l'authentification et du stockage des secrets (jamais de mot de passe d'un déclarant stocké en clair ; Q-RH34) ; les retours sont importés de la même façon.
+
+### 34.5 Bulletins dématérialisés
+
+- Générés par ScolIA en **PDF/A**, modèle clarifié en vigueur à la date de paie (RR-36), **un numéro par bulletin**, empreinte, objet immuable (E5) ; aucune régénération d'un bulletin émis (une correction = bulletin de régularisation du mois suivant, ou bulletin rectificatif **distinct** quand le juriste l'exige [NV], CRH-62).
+- **Explications** en langage simple (RHP-276 conservé) : chaque ligne cliquable (« pourquoi cette retenue ? »), sans jamais révéler le taux PAS à un tiers.
+- **Disponibilité** 50 ans ou jusqu'à l'âge de L1237-5 + 6 ans (RR-37) : coffre du salarié accessible après le départ (compte allégé « mes bulletins », Q-RH9), **archive remise** au départ, et **engagement de continuité** : si ScolIA cesse le service, préavis de 3 mois et remise des archives à chaque salarié (R-RH57) ; raccordement au CPA à étudier (Q-RH30).
+- **Double employeur** conservé 5 ans (L3243-4) puis selon le référentiel CNIL (§22.4).
+
+### 34.6 DSN
+
+- **Génération** : un fichier par SIRET et par mois (mensuelle) et par événement (signalement), conforme à la **norme de l'année** ; blocs individus, contrats, rémunérations, versements, bases, cotisations individuelles, cotisations agrégées par organisme (URSSAF, retraite complémentaire, prévoyance, mutuelle), PAS ; **fichier texte** conforme au cahier technique, stocké en objet chiffré (contient des NIR et des salaires) ; les **données** restent en tables typées (aucun JSON, D-036).
+- **Contrôle** : brique de contrôle intégrée (RR-32) ; aucune DSN déposable avec une anomalie **bloquante** ; anomalies non bloquantes affichées, décision motivée de la gestionnaire (R-RH55).
+- **Signalements** : arrêt de travail, reprise anticipée, FCTU, générés depuis les faits ; délai suivi (RR-35) ; signalement « annule et remplace » quand la règle le prévoit.
+- **Retours** : accusé de réception, bilan d'identification ou d'anomalies, CRM nominatif (taux PAS), CRM de cotisations ; chaque retour rattaché à sa DSN ; anomalie = tâche datée à la gestionnaire.
+- **Annule et remplace** de la DSN mensuelle avant l'échéance ; après l'échéance, correction le mois suivant (R-RH61).
+- **Paramétrage des organismes** : fiches de paramétrage des organismes complémentaires (prévoyance, mutuelle : références de contrat, populations, options) importées ou saisies ; CTP URSSAF ; taux AT/MP **notifié** par le compte AT/MP de l'employeur (saisi, pièce jointe, date d'effet) [sources non relues, §34.2].
+
+### 34.7 Mise à jour réglementaire (au moins annuelle)
+
+| Quand | Quoi | Qui |
+|---|---|---|
+| dès la publication du premier cahier technique N+1 (fin N-1) puis à chaque révision (JMN) | lecture de la note différentielle, développement de la norme N+1, tests DSN-Val N+1 | équipe paie |
+| septembre–décembre | **campagne de fin d'année** : LFSS et décrets (taux, assiettes, réductions), PSS, SMIC, Agirc-Arrco, chômage, versement mobilité, grille de taux neutre ; jeu de référence N+1 calculé et comparé | équipe paie + relecture par un expert paie |
+| 1er janvier | **bascule de norme et de paramètres** ; aucune paie de janvier calculée avec la norme N-1 (R-RH54) | SYS |
+| en cours d'année | revalorisations (SMIC, salaires minima de branche après accord), décrets (ex. décret 2026-509 en juin 2026), avenants CCN, nouveaux taux AT/MP, contrats de prévoyance | équipe paie ; **événement** qui relance les paies concernées |
+| à chaque changement | **notes de version réglementaire** publiées aux établissements, avec la source et les salariés touchés (RHP-300) | SYS |
+| chaque année | **revue externe** du référentiel par un expert paie ou un cabinet (Q-RH35) ; rejeu complet du jeu de référence | externe |
+
+### 34.8 Sécurité des données des salariés et droits très restreints
+
+- **Droits nouveaux** (D-017), tous vides par défaut, attribués nominativement, jamais par rôle générique : `paie.calculer` (lancer le calcul, voir les brouillons), `paie.valider` ★ (valider la paie), `paie.bulletins.lire_tous` ★ (accès individuel journalisé avec motif, jamais en masse hors export légal), `paie.dsn.generer`, `paie.dsn.deposer` ★, `paie.parametrer_employeur` (AT/MP, contrats d'organismes), `paie.referentiel.national` (**plateforme seulement**, jamais un établissement), `paie.payer` (déjà prévu).
+- **Personne ne valide sa propre paie** ni celle d'un proche déclaré (R-RH41 étendu, R-RH62) ; la gestionnaire ne voit sa propre paie que comme salariée.
+- **Chiffrement** (E11) : NIR, IBAN, taux PAS, salaires des bulletins et fichiers DSN en objets chiffrés avec identifiant de clé ; empreinte HMAC des IBAN (R-CG47) ; **aucune** donnée de paie dans les journaux applicatifs (E14) ni dans les notifications (« votre bulletin est disponible », sans montant).
+- **Journalisation** de toute consultation individuelle (bulletin, rémunération, taux PAS), revue trimestrielle par le président (RHP-263) et communication au salarié sur demande (RHP-269).
+- **Fichiers sortants** (DSN, virements, exports) : usage unique, expiration (RHP-279, S-4926), jamais par courriel.
+- **Environnements** : aucun bulletin ni NIR réel hors production ; recette sur données fictives, sauf la plateforme éditeurs (RR-33) avec accord écrit et avis du DPO (Q-RH29).
+- **IA** : peut expliquer un bulletin **au salarié concerné**, repérer des anomalies pour la gestionnaire ; **ne calcule rien d'officiel**, ne valide rien, ne lit aucune nature d'absence au-delà du code, ne voit jamais le taux PAS d'un autre que l'utilisateur (R-RH63).
+- **Analyse d'impact (AIPD)** du traitement de paie à faire avec le DPO avant la recette sur données réelles (Q-RH36).
+
+### 34.9 Recette en parallèle (doublon 2027-2028) et critères chiffrés de bascule
+
+**Principe** : pendant le doublon, la paie **officielle** reste dans le logiciel actuel (ou chez le cabinet). ScolIA calcule **chaque mois toutes les paies** à partir des **mêmes variables** (les siennes, arrêtées en réel selon §31.1, ou celles du logiciel importées par l'adaptateur) et **compare bulletin par bulletin, ligne par ligne** (RHP-264 étendue, RHP-310) ; il **génère** la DSN du mois, la contrôle par la brique et la dépose sur la **plateforme éditeurs** de test (jamais en production : une seule DSN mensuelle officielle par SIRET). Les salariés ne voient **pas** les bulletins parallèles.
+
+**Calendrier recommandé** : le parallèle commence dès que le moteur passe le **jeu de référence** (au plus tard **janvier 2028**, idéalement septembre 2027) ; il doit couvrir **au moins 12 mois consécutifs comprenant un changement d'année civile** (paramètres de janvier, régularisation annuelle de la RGDU, nouvelle norme DSN, CRM de janvier) ; **bascule au 1er janvier** (cumuls annuels civils, réduction générale, PAS) : **1-1-2029** recommandé ; une bascule au 1-9-2028 n'est possible qu'avec reprise certifiée des cumuls de janvier à août et 12 mois de critères atteints (R-RH64, Q-RH26).
+
+**Critères chiffrés (tous requis, sur les 12 derniers mois)**
+| # | Critère | Seuil |
+|---|---|---|
+| K-RH1 | **Net à payer** ScolIA = officiel | **100 %** des bulletins au centime, 12 mois consécutifs |
+| K-RH2 | Chaque ligne de cotisation (base, taux, montant salarial et patronal) | écart ≤ **0,01 €** sur 100 % des lignes ; tout écart expliqué par une erreur **du logiciel officiel** documentée et acceptée par le cabinet |
+| K-RH3 | Brut, net social, net imposable, PAS, coût employeur | **100 %** identiques au centime |
+| K-RH4 | DSN mensuelles | **0** anomalie bloquante à la brique et **0** anomalie au dépôt sur la plateforme éditeurs, 12 mois ; montants agrégés par organisme = DSN officielle au centime |
+| K-RH5 | Signalements | 100 % des arrêts, reprises et fins de contrat du parallèle générés dans le délai et acceptés par la plateforme de test |
+| K-RH6 | Changement d'année | paramètres et norme N+1 en place **avant le 1er janvier** ; paie de janvier conforme (K-RH1 à K-RH4) ; régularisation annuelle de la RGDU identique |
+| K-RH7 | Sorties | 100 % des soldes de tout compte, certificats et attestations du parallèle identiques ou meilleurs (écart expliqué) |
+| K-RH8 | Comptabilité | journal de paie équilibré et égal aux bulletins ; provision de congés payés de la clôture à blanc = officielle à ± 1 € par salarié |
+| K-RH9 | Rejeu | recalcul d'un mois ancien à l'identique après mise à jour des référentiels (fonction pure, R-RH51) |
+| K-RH10 | Validation externe | avis écrit favorable d'un **expert paie** (cabinet ou gestionnaire certifié) sur le référentiel et les bulletins, et d'un **juriste en droit social** sur la CCN, les absences, les sorties (§34.12) |
+| K-RH11 | Sécurité | revue de sécurité sans écart critique ni important ; test des pièges §22.2 étendus ; AIPD faite |
+| K-RH12 | Exploitation | dépôt DSN réalisé par la gestionnaire en moins de 30 min par mois sur les 3 derniers mois ; aucune ressaisie |
+
+Un critère manqué **reporte** la bascule à l'année civile suivante, sauf décision écrite de Florian et de l'établissement (R-RH65).
+
+### 34.10 Lots redécoupés
+
+| Lot | Contenu | Dépend de | Critères de fin |
+|---|---|---|---|
+| RH0 à RH10 | inchangés (§27.1, §31.6) ; RH5 devient « adaptateur de **comparaison** et de reprise » | | |
+| **RH11** référentiels | référentiel national daté et sourcé (PSS, SMIC, taux, tranches, formules), référentiel CCN EPNL par avenant, paramètres employeur (AT/MP, organismes), circuit de saisie et double validation | RH1 | chaque valeur a sa source ; double validation |
+| **RH12** moteur de calcul | rubriques, profils, langage de formules, ordre de calcul, brut → net à payer, cumuls, contrôles, rejeu | RH11, RH4 | **jeu de référence** (au moins 60 cas types : temps plein, partiel, cadre, apprenti, entrée, sortie, absences de chaque nature, heures, primes, plafond, 3 SMIC) au centime, validé par un expert paie |
+| **RH13** absences et maintien | retenues, maintien CCN et légal, IJSS, subrogation, prévoyance, temps partiel thérapeutique | RH12 ; 15 | cas types validés par le juriste |
+| **RH14** congés et annualisation | indemnité (maintien / dixième), provision CP, annualisation et sa régularisation | RH12 ; RH3 | |
+| **RH15** prélèvement à la source | taux, grille neutre, CRM, régularisations | RH12 | |
+| **RH16** bulletins | modèle clarifié versionné, PDF/A, coffre, papier, explication, archive au départ | RH12 ; 7 | 100 % des mentions R3243-1 (test) |
+| **RH17** DSN mensuelle | génération par norme, brique de contrôle, dépôt manuel, annule et remplace | RH12 ; protocole GIP-MDS (Q-RH28) | 0 bloquant sur 12 mois fictifs |
+| **RH18** DSN événementielle et retours | arrêts, reprises, FCTU, import des retours et CRM, tâches | RH17 ; 15 | |
+| **RH19** paiements et comptabilité | nets par le 48, organismes, journal de paie, taxe sur les salaires | RH12 ; 48 CG7 | journal = bulletins |
+| **RH20** sorties | indemnités, STC, certificat, attestation par la DSN | RH12, RH18 ; RH2 | modèles relus par le juriste |
+| **RH21** veille et versions | calendrier annuel, norme N+1, jeu de référence N+1, notes de version, revue externe | RH12, RH17 | campagne de fin d'année tenue |
+| **RH22** recette parallèle et bascule | comparaison bulletin par bulletin, plateforme éditeurs, tableau K-RH, reprise des cumuls | RH12 → RH20 | K-RH1 à K-RH12 |
+| (option) | dépôt machine à machine, DPAE générée, raccordement CPA | RH17 | après Q-RH34, Q-RH30 |
+
+**Parcours** : RH0 → RH4 et RH6 en réel à la rentrée 2027 (inchangé) ; RH11 → RH17 **avant le parallèle** ; RH18 → RH22 pendant ; bascule 1-1-2029 recommandée.
+
+### 34.11 Risques
+
+| # | Risque | Gravité | Parade |
+|---|---|---|---|
+| RK-RH1 | **Salaire faux** versé à une personne | élevée | parallèle 12 mois, K-RH1 à K-RH3, contrôles RHP-286, validation humaine |
+| RK-RH2 | DSN rejetée ou fausse : cotisations mal déclarées, droits des salariés (chômage, retraite, IJ) atteints, pénalités | élevée | brique de contrôle, K-RH4, suivi des retours |
+| RK-RH3 | **Retard de la norme ou des paramètres au 1er janvier** | élevée | RH21, R-RH54 ; plan de secours : DSN par l'outil de saisie de net-entreprises ou par le cabinet pour un mois (Q-RH37) |
+| RK-RH4 | Mauvaise lecture de la CCN EPNL (non étendue, avenants, maintien) | élevée | juriste (Q-RH5), référentiel versionné, revue externe |
+| RK-RH5 | Fuite de données de paie (salaires, NIR, taux PAS) | élevée | §34.8 ; chiffrement ; droits nominatifs ; revue trimestrielle |
+| RK-RH6 | Dépendance à une ou deux personnes qui connaissent la paie | élevée | documentation du référentiel, revue croisée, jeu de référence |
+| RK-RH7 | Coût récurrent sous-estimé | moyenne | §34.12 assumé |
+| RK-RH8 | Responsabilité d'éditeur, recours d'un salarié ou de l'employeur | moyenne | contrat, assurance (Q-RH33) |
+| RK-RH9 | Calendrier D-034 (V1 en février 2027) **incompatible** avec un moteur de paie fiable | moyenne | la V1 de février 2027 couvre RH0–RH10 ; le moteur (RH11–RH17) vise l'été 2027 au mieux et janvier 2028 au plus tard pour le parallèle (contradiction signalée, Q-RH38) |
+
+### 34.12 Coûts de maintenance réglementaire assumés et validations externes
+
+**Coûts [H, à chiffrer par Florian]** : construction RH11 → RH22 de l'ordre de **3 à 5 années-personne** (dont un profil **expert paie** à temps plein ou quasi) ; ensuite **au moins 1 personne à temps plein** pour la veille, la norme annuelle, les paramètres, la campagne de fin d'année et le support aux gestionnaires, avec un **pic de charge d'octobre à janvier** ; plus une **revue externe annuelle** (expert paie) et des consultations juridiques (CCN, sorties, absences). Ce coût est **le même pour 1 ou 100 établissements** : il ne s'amortit qu'avec le nombre d'employeurs servis.
+
+**À valider par un juriste en droit social** (Q-RH5, renforcé) : lecture intégrale de la CCN EPNL et de ses avenants (classifications, minima, ancienneté, primes, annualisation, éducateurs d'internat, surveillants, congés, maintien de salaire, prévoyance) et de son application à l'OGEC (adhésion, extension) ; méthodes de retenue pour absence ; congés payés et maladie ; temps partiel thérapeutique ; ruptures et indemnités ; modèles de bulletin rectificatif ; périodes protégées (R-RH43) ; cumul d'activités (R-RH44) ; responsabilité de l'éditeur.
+**À valider par un expert paie ou un expert-comptable** : référentiel des rubriques et des taux, profils, jeu de référence, cas types des absences et des sorties, provision de congés payés, journal de paie et schéma comptable (48 §9.2), taxe sur les salaires, critères K-RH et avis de bascule (K-RH10).
+**À valider par le DPO** : AIPD (Q-RH36), données réelles sur la plateforme éditeurs (Q-RH29), durées de conservation (Q-RH20).
+
+### 34.13 Migrations (plage **2980–2999 inchangée**, contenus réaffectés)
+
+Aucun fichier écrit. 2980 (réservée à RH0, qui n'a pas de table) et 2996–2998 (réserve) reçoivent le moteur :
+| N° | Contenu | Lot |
+|---|---|---|
+| 2980 | référentiel réglementaire daté : `ent_paie_parametre (id, etablissement_id NULL, code, valeur_num, unite, du, au NULL, source_texte, source_url, saisi_par, valide_par)` ; `ent_paie_ccn_grille (id, idcc, avenant_ref, categorie_id, du, au, minimum_centimes)` ; paramètres employeur (AT/MP, versement mobilité, effectif) | RH11 |
+| 2986 (étendue) | rubriques de calcul : `ent_paie_rubrique_calcul (id, etablissement_id NULL, code, version, du, au, nature, ordre, arrondi)`, `ent_paie_formule_terme (id, rubrique_id, ordre, operande_type, operande_code, operateur)`, codes DSN et comptes, profils et populations | RH12 |
+| 2996 | calcul : `ent_paie_calcul (id, etablissement_id, periode_id, lance_par, versions_referentiels_ref, etat)`, `ent_paie_bulletin (id, etablissement_id, calcul_id, salarie_id, numero, etat CHECK IN ('brouillon','valide','emis','regularise'), net_a_payer_centimes, net_social_centimes, net_imposable_centimes, pas_centimes, cout_employeur_centimes, objet_id NULL, empreinte)`, `ent_paie_bulletin_ligne (id, etablissement_id, bulletin_id, rubrique_id, rubrique_version, base_centimes, taux_pm NULL, montant_sal_centimes, montant_pat_centimes, periode_origine DATE NULL)`, `ent_paie_cumul (etablissement_id, salarie_id, annee, code, montant_centimes)`, organismes et contrats (prévoyance, mutuelle), IJSS et subrogation | RH12 → RH15 |
+| 2997 | DSN : `ent_dsn_declaration (id, etablissement_id, employeur_id, mois, nature CHECK IN ('mensuelle','arret','reprise','fin_contrat'), norme, rang, annule_remplace_id NULL, objet_chiffre_id, empreinte, controle_bloquants INT, controle_non_bloquants INT, etat CHECK IN ('generee','controlee','deposee','acceptee','rejetee'), deposee_le, deposee_par, environnement CHECK IN ('production','test_editeur'))`, `ent_dsn_anomalie (id, declaration_id, code, gravite, libelle, traitee_par NULL)`, `ent_dsn_retour (id, declaration_id, nature CHECK IN ('accuse','bilan','crm_nominatif','crm_cotisations'), objet_id, importe_le)`, `ent_paie_taux_pas (id, etablissement_id, salarie_id, taux_pm, du, source CHECK IN ('crm','neutre'), retour_id NULL)` (chiffré) | RH15, RH17, RH18 |
+| 2998 | taxe sur les salaires, sorties (indemnités, STC, certificats), comparaison du parallèle (`ent_paie_comparaison`, `ent_paie_comparaison_ecart`), notes de version | RH19 → RH22 |
+
+Toutes les colonnes sensibles chiffrées (E11) ; **aucune colonne JSON ni tableau** ; RLS stricte complétée en 2994.
+
+### 34.14 Actions, règles, cas limites ajoutés
+
+**Actions (RHP-280 à RHP-312 ; RHP-313 à RHP-339 réservés)**
+| N° | Action | Acteur · droit | Lot |
+|---|---|---|---|
+| RHP-280 | Saisir ou importer un paramètre national daté avec sa source (double validation) | ÉQUIPE PAIE (plateforme) · `paie.referentiel.national` | RH11 |
+| RHP-281 | Publier une version de la CCN EPNL (grilles, primes, maintien) après accord de branche | idem | RH11 |
+| RHP-282 | Saisir le taux AT/MP notifié, le versement mobilité, les contrats de prévoyance et de mutuelle de l'employeur | GP · `paie.parametrer_employeur` | RH11 |
+| RHP-283 | Affecter un profil de cotisation à un contrat | GP | RH12 |
+| RHP-284 | **Lancer le calcul** de la paie du mois (pré-paie) | GP · `paie.calculer` | RH12 |
+| RHP-285 | Simuler un bulletin (embauche, augmentation, temps partiel) sans effet | GP, DIR | RH12 |
+| RHP-286 | **Contrôles** automatiques avant validation | SYS | RH12 |
+| RHP-287 | Lever ou motiver une anomalie | GP | RH12 |
+| RHP-288 | **Valider la paie** ★ | DIR ou PRES · `paie.valider` | RH12 |
+| RHP-289 | Émettre les bulletins (coffre, papier) | SYS | RH16 |
+| RHP-290 | Préparer le **lot de virement des nets** (48) | GP → 48 | RH19 |
+| RHP-291 | Produire le **journal de paie** et ses écritures | SYS | RH19 |
+| RHP-292 | **Générer la DSN mensuelle** et la contrôler | GP · `paie.dsn.generer` | RH17 |
+| RHP-293 | **Déposer** la DSN (téléchargement du fichier, dépôt sur net-entreprises, attestation) ★ | GP · `paie.dsn.deposer` | RH17 |
+| RHP-294 | DSN « annule et remplace » avant l'échéance | GP | RH17 |
+| RHP-295 | Générer et déposer un **signalement** (arrêt, reprise, fin de contrat) | SYS → GP | RH18 |
+| RHP-296 | Importer les **retours** (accusés, bilans, CRM) | GP | RH18 |
+| RHP-297 | Appliquer les **taux PAS** reçus | SYS | RH15 |
+| RHP-298 | Calculer la **subrogation** et rapprocher les IJSS reçues | GP | RH13 |
+| RHP-299 | Calculer la **provision de congés payés** pour la clôture du 48 | SYS | RH14 |
+| RHP-300 | Publier une **note de version réglementaire** | SYS | RH21 |
+| RHP-301 | Rejouer le **jeu de référence** sur une nouvelle version | SYS | RH21 |
+| RHP-302 | Calculer la **taxe sur les salaires** et préparer sa déclaration | GP | RH19 |
+| RHP-303 | Calculer un **solde de tout compte** et éditer certificat et attestation | GP | RH20 |
+| RHP-304 | Payer les **organismes** (URSSAF, retraite, prévoyance, PAS) | GP → 48 | RH19 |
+| RHP-305 | Régularisation (rappel de salaire, trop-perçu avec échéancier légal de retenue [NV]) | GP | RH12 |
+| RHP-306 | Expliquer son bulletin (salarié), ligne par ligne | SAL | RH16 |
+| RHP-307 | Contester une ligne de bulletin | SAL | RH16 |
+| RHP-308 | Reprendre les **cumuls** de l'année et les compteurs à la bascule | GP | RH22 |
+| RHP-309 | Annualisation : régulariser en fin de période ou à la sortie | SYS → GP | RH14 |
+| RHP-310 | **Comparer** bulletin par bulletin ScolIA / officiel (parallèle) | GP | RH22 |
+| RHP-311 | Déposer une DSN sur la **plateforme éditeurs** (test) | ÉQUIPE PAIE | RH22 |
+| RHP-312 | Tableau des critères **K-RH** et avis de bascule | DIR, PRES | RH22 |
+
+**Règles (R-RH51 à R-RH65)**
+| N° | Règle |
+|---|---|
+| R-RH51 | Le calcul est une fonction pure et rejouable ; chaque bulletin garde les versions des référentiels utilisés. |
+| R-RH52 | Chaque rubrique et chaque paramètre cite sa source (texte, BOSS, accord, contrat) et sa date d'effet. |
+| R-RH53 | Aucun taux, plafond ni montant réglementaire codé en dur ; paramètres datés, double validation. |
+| R-RH54 | Aucune paie d'une année civile calculée ni déclarée avec la norme ou les paramètres de l'année précédente ; la norme N+1 est livrée avant le 1er janvier. |
+| R-RH55 | Aucune DSN déposée avec une anomalie bloquante ; les non bloquantes sont motivées. |
+| R-RH56 | Le modèle de bulletin suit l'arrêté en vigueur à la date de paie ; toutes les mentions R3243-1 sont testées. |
+| R-RH57 | Bulletins disponibles 50 ans ou jusqu'à l'âge légal + 6 ans ; préavis de 3 mois et remise d'archive avant toute fermeture du service. |
+| R-RH58 | Le taux PAS n'est visible que du salarié et de la gestionnaire de paie ; jamais de la direction, du 48, de l'IA d'un tiers. |
+| R-RH59 | L'indemnité de congés payés retient le plus favorable du maintien et du dixième. |
+| R-RH60 | Un bulletin émis n'est jamais modifié ni régénéré. |
+| R-RH61 | Après l'échéance, une DSN se corrige le mois suivant, jamais en silence. |
+| R-RH62 | Personne ne calcule, ne valide ni ne paie sa propre paie ou celle d'un proche déclaré. |
+| R-RH63 | L'IA n'est jamais source d'un montant officiel. |
+| R-RH64 | La bascule de la paie se fait au 1er janvier, sauf reprise certifiée des cumuls. |
+| R-RH65 | Un critère K-RH manqué reporte la bascule à l'année civile suivante, sauf décision écrite de Florian et de l'établissement. |
+
+**Cas limites (CRH-61 à CRH-75)**
+| # | Cas | Traitement |
+|---|---|---|
+| CRH-61 | Mois sans salarié (après la suppression de la « sortie de la DSN » en 2027) | DSN sans individu générée selon la norme |
+| CRH-62 | Erreur découverte sur un bulletin émis | régularisation le mois suivant ; bulletin rectificatif distinct seulement sur avis du juriste |
+| CRH-63 | Revalorisation du SMIC en cours de mois | paramètre daté ; proratisation selon la règle applicable [NV] ; RGDU selon D241-7-1 |
+| CRH-64 | Accord de salaires de branche signé en mars, rétroactif à janvier | rappels sur la paie suivante, période d'origine conservée, DSN selon la norme |
+| CRH-65 | Taux PAS non reçu pour un nouveau salarié | grille neutre ; alerte au 3e mois |
+| CRH-66 | Salarié dont le net serait négatif (absence longue + retenue) | blocage ; report de la retenue selon la règle légale [NV] |
+| CRH-67 | Saisie sur salaire reçue | quotité saisissable selon le barème en vigueur (paramètre daté) [NV] |
+| CRH-68 | Arrêt de travail connu le 4e jour, la gestionnaire absente | tâche au suppléant ; signalement avant J+5 |
+| CRH-69 | DSN rejetée la veille de l'échéance | correction et redépôt ; si impossible, plan de secours (Q-RH37) |
+| CRH-70 | Taux AT/MP notifié en mars, effet au 1er janvier | régularisation des cotisations des mois passés selon la règle URSSAF [NV] |
+| CRH-71 | Salarié à cheval sur deux établissements d'un même OGEC (même SIRET ou non) | un employeur par SIRET ; une DSN par SIRET ; paie unique si même employeur [NV] |
+| CRH-72 | Apprenti mineur | profil apprenti, exonérations applicables à la date [NV] |
+| CRH-73 | Départ en cours de mois avec congés non pris | indemnité compensatrice, STC, FCTU dans le délai |
+| CRH-74 | Bascule en janvier avec un salarié en arrêt et subrogation en cours | reprise des IJSS attendues et du maintien dans la reprise des cumuls |
+| CRH-75 | Nouveau cahier technique publié en novembre avec une rupture | campagne de fin d'année ; si non tenable, plan de secours pour janvier (Q-RH37) |
+
+**Réglages (S-4929 à S-4935)**
+| N° | Réglage | Défaut |
+|---|---|---|
+| S-4929 | Échéance DSN | calculée par l'effectif (5 ou 15 de M+1) |
+| S-4930 | Variation de net déclenchant une anomalie | 10 % |
+| S-4931 | Jour de paiement des nets | dernier jour ouvré du mois |
+| S-4932 | Mode de dépôt DSN | manuel par la gestionnaire |
+| S-4933 | Bulletins parallèles visibles des salariés | non |
+| S-4934 | Jeu de référence minimal | 60 cas types |
+| S-4935 | Revue externe du référentiel | annuelle |
+
+### 34.15 Décisions
+
+**Appliquées par défaut (D-031)**
+| # | Question | Décision |
+|---|---|---|
+| Q-RH1 | Moteur ou interface | **Close par D-047** : moteur et DSN dans ScolIA. |
+| Q-RH10 | Paiement des nets | Par le 48 (lot de virement, double validation). |
+| Q-RH39 | Dépôt de la DSN | Manuel par la gestionnaire d'abord ; machine à machine plus tard. |
+| Q-RH40 | Bulletins du parallèle | Invisibles des salariés (S-4933). |
+
+**Soumis à Florian**
+| # | Question | Recommandation |
+|---|---|---|
+| Q-RH26 | Date de bascule de la paie | **1-1-2029** (parallèle ≥ 12 mois avec un changement d'année) ; 1-9-2028 seulement avec reprise certifiée des cumuls |
+| Q-RH27 | Taxe sur les salaires : échéances de versement et déclaration | à confirmer avec le cabinet |
+| Q-RH28 | Signature du **protocole GIP-MDS** pour la brique de contrôle ; inscription éditeur sur la plateforme de test | oui, avant RH17 |
+| Q-RH29 | NIR et SIRET **réels** sur la plateforme éditeurs | accord écrit de l'établissement et avis du DPO |
+| Q-RH30 | Raccordement des bulletins au CPA | à étudier |
+| Q-RH31 | Divergence Tdelta (0,3781 / 0,3821 / 0,3813) | lever avec le BOSS ou un expert paie avant RH12 |
+| Q-RH32 | Application de la CCN EPNL à l'OGEC pilote (adhésion, extension) | juriste |
+| Q-RH33 | Responsabilité d'éditeur de paie, assurance | juriste et assureur |
+| Q-RH34 | Dépôt machine à machine : authentification et stockage des secrets | étude de sécurité |
+| Q-RH35 | Budget d'une revue externe annuelle (expert paie) | oui |
+| Q-RH36 | AIPD du traitement de paie | DPO, avant toute donnée réelle |
+| Q-RH37 | **Plan de secours** si la DSN de janvier n'est pas prête (cabinet, outil de net-entreprises) | contrat de secours avec un cabinet pour la première année |
+| Q-RH38 | Contradiction avec D-034 (V1 complète en février 2027) | le moteur suit son propre calendrier (parallèle au plus tard janvier 2028) |
+| Q-RH5 (rappel) | Juriste en droit social | **indispensable avant RH12** |
+
+### 34.16 Sources de la révision (consultées le 2026-11-11)
+
+- Norme et documentation DSN (P26V01, CT 2026.1.2 ; P27V01, CT 2027.1.3, note différentielle, JMN) : https://www.net-entreprises.fr/declaration/norme-et-documentation-dsn ; documents : https://www.net-entreprises.fr/media/documentation/
+- DSN-Val et brique de contrôle : https://www.net-entreprises.fr/declaration/outils-de-controle-dsn-val/ ; protocole : https://www.net-entreprises.fr/media/documentation/protocole-utilisation-brique-de-controle.pdf
+- Plateforme éditeurs et DSN de test : https://www.net-entreprises.fr/media/documentation/guide-plateforme-editeurs.pdf ; https://www.net-entreprises.fr/media/documentation/guide-utilisateur/emettre-une-dsn-test.pdf
+- Échéances DSN : https://www.urssaf.fr/accueil/employeur/gerer-entreprise/declaration-sociale-nominative.html
+- Signalements : https://www.net-entreprises.fr/media/documentation/gestion-djt-employeurs.pdf ; https://www.ameli.fr/entreprise/vos-salaries/arret-de-travail/formalites-employeur
+- Bulletin : https://www.legifrance.gouv.fr/codes/id/LEGISCTA000018533808 ; https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000048841718 ; arrêtés : https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000047096915 , https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000049831771 ; net social : https://boss.gouv.fr/portail/accueil/actualites-boss/2023/fevrier/montant-net-social.html , https://travail-emploi.gouv.fr/montant-net-social-et-bulletins-de-paie-documents-utiles
+- Bulletin électronique : https://www.legifrance.gouv.fr/codes/section_lc/LEGITEXT000006072050/LEGISCTA000006178028/ ; https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000033627046/ ; double employeur : https://entreprendre.service-public.gouv.fr/vosdroits/F10029
+- Prélèvement à la source : https://www.impots.gouv.fr/particulier/je-consulte-le-taux-transmis-mes-collecteurs ; https://bofip.impots.gouv.fr/bofip/11166-PGP.html/identifiant=BOI-IR-PAS-30-10-20-20181203 ; https://bofip.impots.gouv.fr/bofip/11164-PGP.html/identifiant=BOI-IR-PAS-30-10-10-20181025 ; https://bofip.impots.gouv.fr/bofip/11471-PGP.html/identifiant=BOI-IR-PAS-30-10-60-20220608
+- PSS 2026 (source secondaire) : https://www.centre-inffo.fr/site-droit-formation/plafond-de-la-securite-sociale-fixation-des-montants-pour-2026 ; SMIC : https://www.info.gouv.fr/actualite/le-smic-revalorise-au-1er-janvier-2026
+- RGDU : https://www.legifrance.gouv.fr/codes/id/LEGISCTA000006185779/ ; décret 2026-509 : https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000054248488 ; https://www.urssaf.fr/accueil/employeur/beneficier-exonerations/reduction-generale-cotisation.html (indisponible, erreur 503, lors de la consultation)
+- CCN EPNL IDCC 3218 : https://www.legifrance.gouv.fr/conv_coll/id/KALICONT000043874879 ; https://code.travail.gouv.fr/convention-collective/3218-enseignement-prive-non-lucratif-epnl ; représentativité : https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000051800628
+- CNIL : https://www.cnil.fr/fr/gestion-du-personnel ; https://www.cnil.fr/sites/cnil/files/atoms/files/referentiel_grh_novembre_2019_0.pdf ; https://cnil.fr/fr/referentiel-durees-conservation-donnees-rh
+- **Non vérifié** : article réglementaire des dates d'échéance DSN ; CGI 1753 bis C ; grille de taux neutre 2026 ; arrêté du PSS au JO ; SMIC au 1-6-2026 ; fiche BOSS de la RGDU et de la régularisation progressive ; CRM, CTP, fiches d'organismes, notification AT/MP ; procédure éditeur détaillée de dsn-info.fr ; extension, strates, annualisation et régimes de prévoyance de la CCN EPNL ; âge exact de D3243-8 ; décret-cadre NIR.

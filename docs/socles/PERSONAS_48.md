@@ -200,3 +200,21 @@ La conception est solide sur le moteur d'écritures et les garde-fous ; elle sou
 
 ## 7. Faits, hypothèses, contradictions
 **Faits** : la conception relue ; aucun code exécuté. **Hypothèses [H]** : pratiques des cuisines scolaires (mercuriale, factures récapitulatives), taille des bureaux d'OGEC, préférences des cabinets. **Contradiction** : R-CG35 (mode parallèle pour toutes les écritures) est **remplacée** pour les achats par le bloquant A (§33 de la conception l'emporte).
+
+---
+
+## 8. Révision D-047 (2026-11-11) — personas de la tenue légale
+
+D-047 fait de ScolIA le **teneur officiel** des comptes de l'OGEC (`48_COMPTABILITE.md` §35, qui l'emporte). La passe est rejouée avec six personas nouveaux ou changés de rôle ; les manques trouvés sont **déjà intégrés au §35** (numéros cités). Numérotation : manques **M-4850 à M-4869**.
+
+| # | Persona | Parcours éprouvé | Manque trouvé | Traitement (§35) |
+|---|---|---|---|---|
+| P04 bis | **Mme Roux, expert-comptable**, devient réviseur | elle ne tient plus le dossier ; elle veut proposer ses OD de clôture et vérifier sans tout ressaisir | M-4850 : pas de rôle « réviseur » qui propose sans valider ; M-4851 : elle veut garder son outil pour sa revue | accès réviseur (CGA-350), propositions soumises au comptable (CCG-84), FEC importable dans son outil (§35.5), revue maintenue après bascule (RK-CG1) |
+| P12 bis | **M. Blanc, commissaire aux comptes** | il doit attester que les écritures n'ont pas été modifiées, sans faire confiance à l'éditeur | M-4852 : aucune preuve indépendante de ScolIA | sceaux externes horodatés et **outil de vérification autonome** (R-CG61, CGA-352), journal des actes (CGA-353), documentation par exercice (R-CG65) |
+| P16 | **Vérificatrice de la DGFiP** (contrôle d'un secteur lucratif) | demande le FEC d'un exercice clos depuis 4 ans, puis d'un exercice en cours | M-4853 : le FEC d'un exercice clos doit être **identique** à celui de la clôture ; M-4854 : centralisation interdite dans le FEC | FEC définitif archivé et re-téléchargé à l'identique (CCG-85), R-CG73 |
+| P17 | **Administrateur système malveillant** (attaquant interne) | tente `UPDATE` direct en base sur une écriture validée, puis restauration PITR d'avant une écriture gênante | M-4855 : le rôle applicatif pouvait désactiver un déclencheur ; M-4856 : une restauration pouvait faire disparaître une écriture | rôle non propriétaire (R-CG59), contrôle post-restauration contre les sceaux et blocage de la saisie (R-CG62, CCG-81) |
+| P18 | **Fournisseur de denrées** passé à la facture électronique | envoie ses factures par sa plateforme ; l'OGEC n'a pas désigné la sienne | M-4857 : la désignation de la plateforme dans l'annuaire est un **préalable** absent du parcours de mise en service | CG14 obligatoire avant bascule, CCG-60 et CCG-86, Q-CG4 urgent |
+| P19 | **Nouveau trésorier**, élu en cours d'exercice, sans formation comptable | doit arrêter les comptes avec le bureau | M-4858 : arrêté et approbation non distingués ; M-4859 : l'AG peut refuser | états `arrete` / `clos` (2961), CGA-342, CCG-82 |
+| P13 bis | **Mme Moreau, DPO** | relit l'archive comptable remise en fin de contrat | M-4860 : l'archive ne doit pas réintroduire de nom de famille dans les auxiliaires | R-CG21 appliquée au FEC (§35.5), table de correspondance séparée dans l'archive, accès décidé par la direction |
+
+**Contradiction relevée** : R-CG44 (export centralisé, bloquant B) ne peut pas s'appliquer au FEC (BOI-CF-IOR-60-40-20 § 60) → R-CG73. **Décisions** : appliquées par défaut au §35.16 ; soumises à Florian : Q-CG4, Q-CG30 à Q-CG38.

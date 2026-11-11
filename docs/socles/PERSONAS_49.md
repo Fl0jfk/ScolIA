@@ -196,3 +196,21 @@ La conception tient sur le principe (préparer, ne pas calculer) ; elle manquait
 
 ## 7. Faits, hypothèses, contradictions
 **Faits** : la conception relue ; aucun code exécuté. **Hypothèses [H]** : effectifs, outils, illettrisme numérique, bulletins multipages, pratiques des cabinets. **Non vérifié [NV]** : détail des protections (maternité, AT, salariés protégés), cumul d'activités des agents publics, travaux réglementés des mineurs, maintien de salaire et subrogation dans la CCN EPNL — **à faire confirmer par un juriste** (Q-RH5). **Contradiction** : aucune avec les décisions, hors Q-RH1 (D-025) déjà signalée.
+
+---
+
+## 8. Révision D-047 (2026-11-11) — personas du moteur de paie et de la DSN
+
+D-047 fait calculer les bulletins et déposer la DSN par ScolIA (`49_PAIE.md` §34, qui l'emporte). Passe rejouée avec sept personas ; manques intégrés au §34. Numérotation : manques **M-4950 à M-4969**.
+
+| # | Persona | Parcours éprouvé | Manque trouvé | Traitement (§34) |
+|---|---|---|---|---|
+| P01 bis | **Mme Lambert, gestionnaire de paie** | 4 janvier : la paie de janvier doit intégrer le nouveau PSS, la nouvelle norme DSN, la RGDU | M-4950 : rien ne garantit que les paramètres de janvier sont prêts ; M-4951 : pas de plan B | R-RH54, campagne de fin d'année (§34.7), K-RH6, **plan de secours** (Q-RH37) |
+| P02 bis | **M. Roux, cabinet de paie**, devient expert externe | doit attester que les bulletins sont justes avant la bascule | M-4952 : aucun critère chiffré ; M-4953 : il n'a pas accès aux références des règles | K-RH1 à K-RH12, chaque rubrique cite sa source BOSS ou son texte (R-RH52), revue annuelle (Q-RH35) |
+| P20 | **Inspecteur du recouvrement (URSSAF)** | contrôle la RGDU de 2026 et un taux AT/MP rectifié en mars | M-4954 : impossible de prouver quel paramètre a servi à un bulletin passé | versions de référentiels conservées par bulletin, rejeu à l'identique (R-RH51, K-RH9), CRH-70 |
+| P21 | **Salarié qui conteste son bulletin** (heures d'étude oubliées) | veut comprendre et faire corriger | M-4955 : correction par réécriture interdite mais non expliquée au salarié | explication ligne par ligne (RHP-306), contestation (RHP-307), régularisation le mois suivant (R-RH60, CRH-62) |
+| P22 | **Gestionnaire qui s'augmente** (attaquant interne) | modifie sa prime puis valide la paie | M-4956 : R-RH41 ne couvrait pas la **validation du calcul** | R-RH62 : jamais de calcul, validation ni paiement de sa propre paie ; revue trimestrielle (RHP-263) |
+| P23 | **Ex-salariée en 2060** | demande ses bulletins de 2028 ; ScolIA a peut-être cessé son activité | M-4957 : continuité au-delà de la vie de l'éditeur non prévue | R-RH57 (préavis de 3 mois, remise d'archive), raccordement CPA à étudier (Q-RH30) |
+| P14 bis | **Mme Moreau, DPO** | découvre que la plateforme éditeurs de net-entreprises exige des **NIR réels** pour les tests | M-4958 : traitement de données réelles hors production non prévu | Q-RH29 (accord écrit et avis DPO), AIPD (Q-RH36), §34.8 |
+
+**Contradiction relevée** : D-034 vise une V1 complète en février 2027 ; un moteur de paie fiable ne peut pas y être (RK-RH9, Q-RH38). **Décisions** : appliquées par défaut au §34.15 ; soumises à Florian : Q-RH5, Q-RH26 à Q-RH38.
