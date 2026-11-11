@@ -918,7 +918,7 @@ async fn sepa_rejets_reglements_relances_export() {
     .unwrap();
 
     // Délai de pré-notification : refusé à J+3.
-    let trop_tot = Utc::now().date_naive() + Duration::days(3);
+    let trop_tot = domain_eleve::horloge::jour_paris() + Duration::days(3);
     assert!(matches!(
         ent.preparer_prelevements_for_actor(
             etab,
@@ -1184,7 +1184,7 @@ async fn sepa_rejets_reglements_relances_export() {
     ));
 
     // Export comptable : période close seulement, équilibré, chaque pièce une fois.
-    let hier = Utc::now().date_naive() - Duration::days(1);
+    let hier = domain_eleve::horloge::jour_paris() - Duration::days(1);
     assert!(matches!(
         ent.exporter_comptabilite_for_actor(
             etab,
@@ -1192,7 +1192,7 @@ async fn sepa_rejets_reglements_relances_export() {
             r,
             &ExportComptableBody {
                 debut: hier,
-                fin: Utc::now().date_naive()
+                fin: domain_eleve::horloge::jour_paris()
             }
         )
         .await,

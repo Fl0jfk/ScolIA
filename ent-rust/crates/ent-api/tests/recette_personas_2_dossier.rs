@@ -97,7 +97,7 @@ fn jour_semaine_courant() -> u32 {
 }
 
 fn aujourdhui() -> String {
-    chrono::Utc::now().date_naive().to_string()
+    domain_eleve::horloge::jour_paris().to_string()
 }
 
 impl Scene {

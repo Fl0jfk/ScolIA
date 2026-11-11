@@ -584,7 +584,7 @@ fn rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement() {
     rt().block_on(async {
         // 1. Déclarer une absence RH dans B (Direction de B, sur le Prof de B).
         let prof_b = *m.b.user_ids.get(&Prof).expect("prof de B");
-        let debut = chrono::Utc::now().date_naive() + chrono::Duration::weeks(30);
+        let debut = domain_eleve::horloge::jour_paris() + chrono::Duration::weeks(30);
         let decl = m
             .appel(
                 "POST",
@@ -603,7 +603,7 @@ fn rs3_04_edt_annulation_absence_rh_d_un_autre_etablissement() {
 
         // 2. Trouver un créneau de A (jeton du Prof de A).
         let prof_a = m.jeton(Prof).to_string();
-        let base = chrono::Utc::now().date_naive() + chrono::Duration::weeks(40);
+        let base = domain_eleve::horloge::jour_paris() + chrono::Duration::weeks(40);
         let mut creneau_a = None;
         let mut jour_a = base;
         for d in 0..7 {
@@ -712,7 +712,7 @@ async fn preparer_prelevement(m: &Monde) -> Option<(Uuid, String)> {
     let foyer = m.a.objets.foyer;
     let dir = m.jeton(Direction).to_string();
     let mandat_id = mandat_actif_ou_cree(m, foyer).await;
-    let jour = chrono::Utc::now().date_naive() + chrono::Duration::days(20);
+    let jour = domain_eleve::horloge::jour_paris() + chrono::Duration::days(20);
     let prev = m
         .appel(
             "POST",
@@ -839,7 +839,7 @@ fn rs3_03_prelevement_historique_refuse_un_foyer_en_paiement_manuel() {
         .expect("mode manuel");
         let dir = m.jeton(Direction).to_string();
         let mandat_id = mandat_actif_ou_cree(m, foyer).await;
-        let jour = chrono::Utc::now().date_naive() + chrono::Duration::days(20);
+        let jour = domain_eleve::horloge::jour_paris() + chrono::Duration::days(20);
         let rep = m
             .appel(
                 "POST",

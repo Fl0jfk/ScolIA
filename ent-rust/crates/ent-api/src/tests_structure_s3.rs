@@ -62,8 +62,8 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
         cast.parent_lea.token.as_str(),
         autre.direction.token.as_str(),
     );
-    let demain = (chrono::Utc::now().date_naive() + chrono::Duration::days(2)).to_string();
-    let apres = (chrono::Utc::now().date_naive() + chrono::Duration::days(3)).to_string();
+    let demain = (domain_eleve::horloge::jour_paris() + chrono::Duration::days(2)).to_string();
+    let apres = (domain_eleve::horloge::jour_paris() + chrono::Duration::days(3)).to_string();
     let a = annee.id;
 
     // Session obligatoire.
@@ -283,7 +283,7 @@ async fn routes_calendrier_droits_apercu_cloisonnement_et_409() {
     // Semaines : règle puis lecture (professeur).
     let lundi = {
         use chrono::Datelike;
-        let t = chrono::Utc::now().date_naive();
+        let t = domain_eleve::horloge::jour_paris();
         (t + chrono::Duration::days(7 - i64::from(t.weekday().num_days_from_monday()))).to_string()
     };
     let (st, s) = appel(&app, "PUT", "/structure/semaines", Some(adm), Some(json!({"annee_id": a, "etiquettes": ["A", "B"], "mode": "alternance_continue", "premiere_semaine": lundi}))).await;

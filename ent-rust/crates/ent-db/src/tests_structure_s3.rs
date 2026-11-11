@@ -59,7 +59,7 @@ async fn etab_fixe(ent: &PgEnt) -> Monde3 {
 
 /// Établissement neuf avec une année qui contient aujourd'hui (fermetures : « à partir d'aujourd'hui »).
 async fn etab_courant(ent: &PgEnt) -> Monde3 {
-    let t = Utc::now().date_naive();
+    let t = domain_eleve::horloge::jour_paris();
     etab_avec_annee(
         ent,
         "courante",
@@ -1043,7 +1043,7 @@ async fn levee_programmee_fuseau_et_un_seul_message() {
         .unwrap();
     // Levée programmée le soir (UTC) du jour X : 22 h/21 h à Paris (après-midi : le matin reste
     // fermé), 00 h 30 le lendemain à La Réunion (la veille est la dernière journée fermée).
-    let x = Utc::now().date_naive() + Duration::days(2);
+    let x = domain_eleve::horloge::jour_paris() + Duration::days(2);
     let instant: DateTime<Utc> = Utc.from_utc_datetime(&x.and_hms_opt(20, 30, 0).unwrap());
     let mut ids = Vec::new();
     for m in [&paris, &re] {

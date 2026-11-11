@@ -199,7 +199,7 @@ async fn finances_http_droits_isolation_famille() {
         .0,
         StatusCode::NOT_FOUND
     );
-    let demain = (chrono::Utc::now().date_naive() + chrono::Duration::days(1)).to_string();
+    let demain = (domain_eleve::horloge::jour_paris() + chrono::Duration::days(1)).to_string();
     assert_eq!(
         appel(
             &app,

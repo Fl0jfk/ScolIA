@@ -362,11 +362,11 @@ impl PgEnt {
                (SELECT count(*) FROM ent_service_enseignement s
                   JOIN ent_annee_scolaire y ON y.id = s.annee_id AND y.etablissement_id = s.etablissement_id
                  WHERE s.etablissement_id = $1 AND s.matiere_id = $2
-                   AND y.cloturee_le IS NULL AND y.date_fin >= current_date),
+                   AND y.cloturee_le IS NULL AND y.date_fin >= ent_aujourdhui_etab($1)),
                (SELECT count(*) FROM ent_offre_enseignement o
                   JOIN ent_annee_scolaire y ON y.id = o.annee_id AND y.etablissement_id = o.etablissement_id
                  WHERE o.etablissement_id = $1 AND o.matiere_id = $2 AND o.ferme_le IS NULL
-                   AND y.cloturee_le IS NULL AND y.date_fin >= current_date),
+                   AND y.cloturee_le IS NULL AND y.date_fin >= ent_aujourdhui_etab($1)),
                (SELECT count(*) FROM ent_matiere c
                  WHERE c.etablissement_id = $1 AND c.parent_id = $2 AND c.archivee_le IS NULL)",
         )

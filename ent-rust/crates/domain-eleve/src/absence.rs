@@ -5,7 +5,7 @@
 //! et le métier les ont croisées — pas parce qu'un exemple oral les imposait.
 
 use crate::DomainError;
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -282,8 +282,11 @@ fn decide(
     })
 }
 
+/// Jour métier courant. **Nom historique** : ce n'est plus la date UTC mais celle de Paris
+/// (fuseau par défaut des établissements, cf. [`crate::horloge`]), pour rester cohérent avec
+/// `ent_aujourdhui_etab` côté base entre 23 h et 0 h UTC.
 pub fn today_utc() -> NaiveDate {
-    Utc::now().date_naive()
+    crate::horloge::jour_paris()
 }
 
 /// Année scolaire FR : 1er septembre → 31 août. Ex. `2026-2027`.

@@ -53,7 +53,7 @@ const PLAFOND_EN_ATTENTE: i64 = 20;
 const PLAFOND_CHAMPS: usize = 20;
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 fn refus_prop(e: ErreurProposition) -> EntDbError {

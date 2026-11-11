@@ -1662,7 +1662,7 @@ impl PgEnt {
             .bind(x),
             None => sqlx::query_as(
                 "SELECT id, libelle FROM ent_annee_scolaire
-                  WHERE etablissement_id = $1 AND date_debut <= CURRENT_DATE AND date_fin >= CURRENT_DATE
+                  WHERE etablissement_id = $1 AND date_debut <= ent_aujourdhui_etab(etablissement_id) AND date_fin >= ent_aujourdhui_etab(etablissement_id)
                   ORDER BY date_debut DESC LIMIT 1",
             )
             .bind(a.etablissement_id),

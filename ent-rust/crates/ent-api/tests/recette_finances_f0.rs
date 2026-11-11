@@ -104,7 +104,7 @@ async fn mandat_actif(m: &Monde) -> Uuid {
 }
 
 fn dans_20_jours() -> String {
-    (chrono::Utc::now().date_naive() + chrono::Duration::days(20)).to_string()
+    (domain_eleve::horloge::jour_paris() + chrono::Duration::days(20)).to_string()
 }
 
 async fn prelever(m: &Monde, facture: Uuid, mandat: Uuid, centimes: i64) -> Rep {
@@ -331,7 +331,7 @@ fn f0_fd04_prelevement_historique_refuse_sur_facture_a_echeances() {
         let dir = m.jeton(Direction).to_string();
         let id = facture_emise(m, 8_000).await;
         let mandat = mandat_actif(m).await;
-        let demain = (chrono::Utc::now().date_naive() + chrono::Duration::days(40)).to_string();
+        let demain = (domain_eleve::horloge::jour_paris() + chrono::Duration::days(40)).to_string();
         let ech = m
             .appel(
                 "POST",
