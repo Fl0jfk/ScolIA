@@ -160,6 +160,7 @@ mod tarif_conso_repo;
 mod absence_rh_repo;
 mod edition_vs_repo;
 mod stage_repo;
+mod stages_st1;
 mod edt_contrainte_repo;
 #[cfg(feature = "labo")]
 mod seed;
@@ -344,6 +345,10 @@ mod tests_sso_securite;
 mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;
+#[cfg(all(test, feature = "labo"))]
+mod tests_stages_st0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_stages_st1a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022;
 #[cfg(all(test, feature = "labo"))]

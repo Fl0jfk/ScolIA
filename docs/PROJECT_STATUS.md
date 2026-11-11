@@ -501,3 +501,25 @@ Correctifs urgents de l'existant, **implémentés et testés** (migration 520, t
 | Écrans : export de la liste, modification du projet, programme (étapes), séries (livrés en V0b, voir ci-dessus) ; avenants (V0c) ; essai au navigateur, axe-core, lecteur d'écran (à faire) | V0b / V0c |
 
 Limites connues : le circuit est en code (la table de règles du §32.6 et le vote du conseil d'administration arrivent en V1 et V8) ; la précondition « devis signé » est activée en V0c ; la plage de migrations est 640–659 (600–619 abandonnée) ; `42_SORTIES_VOYAGES.md` est une copie de la conception (`ent-mc0hoe`) avec un §33 ajouté.
+
+## Stages — socle 39, lots ST0 et ST1 (a) (2026-11-11, `ent-socle-39-code-1`)
+**Implémenté et testé en local** (migrations 2780–2782, `domain-eleve/src/stage*.rs`, `ent-db/src/stage_repo.rs`, `stages_st1.rs`, routes `/entreprises`, `/conventions-stage`, `/stages/*`, types `ent-types/src/stages.rs`), **non validé** par Florian, **pas prêt pilote**, rien déployé. D-052 : stages de collège et de lycée général et technologique seulement (ni PFMP ni apprentissage). D-057 : module Next.js utilisé, à rendre prêt pour la bascule de février.
+
+| Lot | Fait | Reste à faire |
+|---|---|---|
+| **ST0** (RS-01 à RS-10) | stage `declaree` (jamais « signé »), actions D-017 `stages.lire` / `stages.preparer` / `stages.organismes.gerer` (le CPE ne crée plus), lecture famille par le lien (droit du lien, lien actif à la date, interdiction de communication, élève majeur), événement dans la transaction sans nom de tuteur, clés composées RESTRICT, version et `modifie_le`, SIRET avec clé et unicité, chevauchement et année scolaire, erreurs typées (`StageErreur`), commande de changement de statut | — |
+| **ST1 (a)** | dispositifs fournis et activation, paramètres de l'établissement (assurance, délibération, quotas, délais), organismes étendus (type, adresse, état à motif codé), sites, contacts (lecture réservée), périodes (planifier, publier, modifier, fermer, publics) | référents (mission du socle 6), projection « en stage » pour la vie scolaire, propositions d'organismes, changements d'adresse de contact par lien (STG-116), fusion de doublons, **écrans Leptos** ; puis ST1 (b) à (d) |
+
+**Défauts du Next.js fermés (règle 14, D-051)** — chaque ligne a son test :
+| Défaut | Fermé ? | Test |
+|---|---|---|
+| DN-02 (tout parent lit toute convention) | **oui** : lecture par le lien seulement | `rs03_lecture_famille_par_le_lien` (ent-db), `dn01_dn02_lecture_par_le_lien_et_reponse_sans_jeton` (HTTP) |
+| DN-03 (tout utilisateur modifie toute convention) | **oui** pour ce qui existe : déclarer, clôturer, annuler = `stages.preparer`, version lue exigée, statut qui ne revient pas ; la « convention signée immuable » viendra avec la signature (ST1 c) | `rs02_droits_par_action_et_cpe_ne_cree_plus`, `rs06_rs07_cles_composees_restrict_et_version`, `dn03_modification_reservee_au_personnel_habilite` |
+| DN-01 (convention brute avec jetons de signature) | **non atteignable dans ce lot** : aucun jeton, code ni lien n'existe ; la réponse a une forme figée et le schéma est gardé ; à rouvrir quand ST1 (c) ajoute la signature | `dn01_dn02_…` (forme de la réponse), `dn18_assurance_parametree_et_schema_sans_jeton` (aucune colonne de secret) |
+| DN-04 (ancien lien de signature encore valable) | **non atteignable dans ce lot** (aucun lien) ; à fermer par ST1 (c) (un seul lien actif par signataire) | garde de schéma ci-dessus |
+| DN-09 (détail d'offre et contacts ouverts à tout compte) | **oui** pour les organismes et contacts | `st1a_sites_et_contacts_droits_version_et_minimisation`, `dn09_carnet_et_contacts_reserves` |
+| DN-10 (surveillant voit toutes les conventions) | **oui** : le CPE et l'accueil n'ont pas `stages.lire` (projection « en stage » au lot suivant) | `rs02_…` |
+| DN-18 (assurance codée en dur) | **oui** : paramètre de l'établissement, aucun assureur par défaut | `st1a_parametres_assurance_bornes_et_version`, `dn18_…` |
+Aucun contournement d'authentification du Next.js n'est repris : les parents et les élèves agissent depuis leur compte, par le lien.
+
+**Hypothèses à valider** : (1) le droit `voir_scolarite` du lien (socle 4 §…) n'existe pas encore comme colonne : ST0 utilise `peut_voir_vs` (« voir la vie scolaire ») ; (2) un élève majeur dont les parents ne sont pas autorisés n'a pas encore de réglage de partage (socle 18) : par défaut ses parents ne lisent rien ; (3) le professeur ne voit pas le carnet d'organismes (§21.2) ; (4) la direction (et l'administrateur) reçoivent `stages.parametrer` et `stages.periodes.gerer` — le DDFPT les aura par un rôle D-017.

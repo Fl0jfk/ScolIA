@@ -35,6 +35,7 @@ pub mod referentiel;
 pub mod referentiel_admin;
 pub mod sante;
 pub mod scolarite;
+pub mod stages;
 pub mod vie_scolaire;
 pub mod voyages;
 

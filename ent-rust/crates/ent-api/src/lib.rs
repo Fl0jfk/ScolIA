@@ -9,6 +9,7 @@ pub mod client_ip;
 mod dossier;
 mod personnels;
 mod personnels_missions;
+mod stages;
 mod personnels_services;
 mod dto;
 pub mod http_garde;

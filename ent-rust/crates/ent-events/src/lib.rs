@@ -223,6 +223,8 @@ pub mod types {
     pub const EDITION_VS: &str = "vs.edition";
     pub const ENTREPRISE: &str = "stage.entreprise";
     pub const CONVENTION_STAGE: &str = "stage.convention";
+    /// Socle 39, ST0 : changement de statut d'un stage déclaré (identifiants, états, version).
+    pub const CONVENTION_STAGE_STATUT: &str = "stage.convention_statut";
     pub const EDT_CONTRAINTE: &str = "edt.contrainte";
     pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
     /// S2-1 (D-020) : personne (responsable, contact) distincte du compte.
@@ -393,6 +395,9 @@ pub enum AggregateKind {
     Import,
     /// Sortie ou voyage scolaire collectif (socle 42, lot V0a).
     Voyage,
+    /// Stages : paramètres, périodes, sites, contacts (socle 39, lot ST1). Les stages eux-mêmes
+    /// et les organismes gardent `ConventionStage` et `Entreprise`.
+    Stage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

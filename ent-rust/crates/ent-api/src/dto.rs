@@ -3463,7 +3463,20 @@ pub struct ConventionStageDto {
     pub debut: NaiveDate,
     pub fin: NaiveDate,
     pub tuteur_nom: String,
+    /// `declaree` (stage déclaré, **sans convention signée dans ScolIA**), `cloturee` ou `annulee`.
     pub statut: String,
+    /// Texte à afficher avec le statut `declaree` (RS-01) : ce n'est pas une convention signée.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention: Option<&'static str>,
+    /// Version à renvoyer pour modifier (verrou optimiste, RS-07).
+    pub version: i32,
+}
+
+/// Changement de statut d'un stage déclaré : clôture ou annulation, avec la version lue.
+#[derive(Debug, Deserialize)]
+pub struct ChangerStatutConventionStageBody {
+    pub statut: String,
+    pub version: i32,
 }
 
 impl From<&domain_eleve::ConventionStage> for ConventionStageDto {
@@ -3478,6 +3491,8 @@ impl From<&domain_eleve::ConventionStage> for ConventionStageDto {
             fin: c.fin,
             tuteur_nom: c.tuteur_nom.clone(),
             statut: c.statut.clone(),
+            mention: c.mention(),
+            version: c.version,
         }
     }
 }

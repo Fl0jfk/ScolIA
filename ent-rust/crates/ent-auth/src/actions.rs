@@ -291,6 +291,19 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
+    /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
+    StagesLire,
+    /// Socle 39, lot ST0 : déclarer un stage et le clôturer ou l'annuler (corrige RS-02 : le CPE
+    /// ne crée plus).
+    StagesPreparer,
+    /// Socle 39, lot ST0 : tenir le carnet d'organismes (entreprises, administrations, associations).
+    StagesOrganismesGerer,
+    /// Socle 39, lot ST1 (a) : dispositifs, assurance, délibération, quotas, délais de relance
+    /// (direction) ; décider qu'un organisme est « interdit ».
+    StagesParametrer,
+    /// Socle 39, lot ST1 (a) : planifier, modifier, publier et fermer les périodes de stage.
+    StagesPeriodesGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +328,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 132] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -452,6 +465,12 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::StagesLire,
+        Action::StagesPreparer,
+        Action::StagesOrganismesGerer,
+        Action::StagesParametrer,
+        Action::StagesPeriodesGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -584,6 +603,11 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::StagesLire => "stages.lire",
+            Self::StagesPreparer => "stages.preparer",
+            Self::StagesOrganismesGerer => "stages.organismes.gerer",
+            Self::StagesParametrer => "stages.parametrer",
+            Self::StagesPeriodesGerer => "stages.periodes.gerer",
         }
     }
 
@@ -719,6 +743,11 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::StagesLire => "Consulter les stages des élèves",
+            Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
+            Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
+            Self::StagesParametrer => "Paramétrer les stages (dispositifs, assurance, quotas) et interdire un organisme",
+            Self::StagesPeriodesGerer => "Planifier, publier et fermer les périodes de stage",
         }
     }
 
@@ -858,7 +887,14 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
-            | Self::AccesRevue => &[Portee::Etablissement],
+            | Self::AccesRevue
+            | Self::StagesOrganismesGerer
+            | Self::StagesParametrer
+            | Self::StagesPeriodesGerer => &[Portee::Etablissement],
+            // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
+            Self::StagesLire | Self::StagesPreparer => {
+                &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
+            }
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -969,6 +1005,23 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 39, lot ST0 (`39_STAGES.md` §21.1) : le secrétariat et la direction tiennent les stages
+    // et le carnet d'organismes ; le professeur lit les stages de ses élèves ; le CPE ne crée plus
+    // (RS-02) et n'a que la projection « en stage ».
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [StagesLire, StagesPreparer, StagesOrganismesGerer] {
+            d.push(etab(a));
+        }
+    }
+    // Lot ST1 (a) : paramétrage et périodes = direction (le DDFPT les recevra par un rôle D-017).
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [StagesParametrer, StagesPeriodesGerer] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push((StagesLire, Portee::MesClasses));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -1597,6 +1650,40 @@ mod tests {
         assert!(PersonnelsAccesGerer.accordee_par().is_empty());
         assert_eq!(Action::parse("services.gerer"), Some(ServicesGerer));
         assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
+    }
+
+    /// Socle 39, lot ST0 : modèles par défaut des actions de stages (RS-02).
+    #[test]
+    fn st0_stages_modeles_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().find(|(y, _)| *y == x).map(|(_, p)| *p);
+            let gere = matches!(r, Role::Admin | Role::Direction | Role::Administratif);
+            for x in [StagesPreparer, StagesOrganismesGerer] {
+                assert_eq!(a(x).is_some(), gere, "{r:?} {x:?}");
+            }
+            for x in [StagesParametrer, StagesPeriodesGerer] {
+                assert_eq!(a(x).is_some(), matches!(r, Role::Admin | Role::Direction), "{r:?} {x:?}");
+            }
+            let lire = if gere {
+                Some(Portee::Etablissement)
+            } else if r == Role::Prof {
+                Some(Portee::MesClasses)
+            } else {
+                None
+            };
+            assert_eq!(a(StagesLire), lire, "{r:?} stages.lire");
+        }
+        assert_eq!(Action::parse("stages.lire"), Some(StagesLire));
+        assert_eq!(Action::parse("stages.preparer"), Some(StagesPreparer));
+        assert_eq!(Action::parse("stages.organismes.gerer"), Some(StagesOrganismesGerer));
+        assert_eq!(StagesOrganismesGerer.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(Action::parse("stages.parametrer"), Some(StagesParametrer));
+        assert_eq!(Action::parse("stages.periodes.gerer"), Some(StagesPeriodesGerer));
+        assert_eq!(StagesParametrer.portees_admises(), &[Portee::Etablissement]);
+        assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :

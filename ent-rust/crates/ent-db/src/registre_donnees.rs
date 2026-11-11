@@ -353,6 +353,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_eleve_scolarite_ecart", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_email_change", "identite_acces", Portee::Technique).perso().neutralise(N_PURGE).avec_etab(),
     t("ent_entreprise", "dossier_eleve", Portee::Etablissement).perso().export(),
+    t("ent_entreprise_contact", "stages", Portee::Etablissement).perso().export(),
+    t("ent_entreprise_site", "stages", Portee::Etablissement),
     t("ent_equipe_reunion", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_etablissement", "etablissement", Portee::Technique),
     t("ent_etablissement_domaine", "etablissement", Portee::Etablissement).exc(Exception::SansRls, "résolution hôte → établissement (D-012) : lue avant de connaître l'établissement"),
@@ -581,6 +583,10 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_regle_regime", "assiduite", Portee::Etablissement),
     t("ent_sortie_serie", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_serie_exclusion", "sorties_voyages", Portee::Etablissement),
+    t("ent_stage_dispositif_etab", "stages", Portee::Etablissement),
+    t("ent_stage_parametre", "stages", Portee::Etablissement),
+    t("ent_stage_periode", "stages", Portee::Etablissement),
+    t("ent_stage_periode_public", "stages", Portee::Etablissement).perso(),
     t("ent_structure_journal", "emploi_du_temps_structure", Portee::Etablissement).perso(),
     t("ent_systeme_identifiant", "dossier_personnes", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "référentiel global statique (codes de systèmes d'identifiants)"),
     t("ent_tarif_conso", "finances", Portee::Etablissement),
@@ -594,6 +600,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_vs_commission_dossier", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_vs_regle_assiduite", "assiduite", Portee::Etablissement),
     t("ref_calendrier_officiel", "referentiel", Portee::ReferentielGlobal),
+    t("ref_stage_dispositif", "stages", Portee::ReferentielGlobal),
 ];
 
 /// Classement d'une table par nom.

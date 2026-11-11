@@ -61,7 +61,7 @@ use crate::dto::{
     IbanHistoDto, InscriptionSuiviDto, UpsertInscriptionSuiviBody, SmsOutboxDto,
     CreerTarifConsoBody, TarifConsoDto, AbsenceRhDto, DeclarerAbsenceRhBody,
     AffecterEdtCreneauBody, CreerEditionVsBody, EditionVsDto, EditionVsRenduDto,
-    RendreEditionVsBody, ConventionStageDto, CreerConventionStageBody, CreerEntrepriseBody,
+    RendreEditionVsBody, ChangerStatutConventionStageBody, ConventionStageDto, CreerConventionStageBody, CreerEntrepriseBody,
     EntrepriseDto, CreerEdtContrainteBody, EdtContrainteDto,
     CreateFoyerBody, EleveLienDto, FoyerDetailDto, FoyerLienDto, FoyerListItemDto,
     RattacherResponsableFoyerBody, SetEmailBody, SetTelephoneBody, UpdateLienBody, UpdateLiensEleveBody,
@@ -605,6 +605,7 @@ pub fn router() -> Router<AppState> {
             get(list_entreprises).post(creer_entreprise),
         )
         .route("/conventions-stage", post(creer_convention_stage))
+        .route("/conventions-stage/{id}/statut", post(changer_statut_convention_stage))
         .route(
             "/eleves/{id}/conventions-stage",
             get(list_conventions_eleve),
@@ -861,6 +862,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
     let r = r.merge(crate::personnels_missions::routes());
+    // Stages (socle 39, lot ST1 (a) : `stages.rs`).
+    let r = r.merge(crate::stages::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -7459,7 +7462,7 @@ async fn list_entreprises(
 ) -> Result<Json<Vec<EntrepriseDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_entreprises_for_actor(session.etablissement_id, &session.role)
+        .list_entreprises_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(EntrepriseDto::from).collect()))
@@ -7515,6 +7518,33 @@ async fn creer_convention_stage(
     )
     .await?;
     Ok((StatusCode::CREATED, Json(enriched.remove(0))))
+}
+
+async fn changer_statut_convention_stage(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ChangerStatutConventionStageBody>,
+) -> Result<Json<ConventionStageDto>, (StatusCode, String)> {
+    let c = state
+        .ent
+        .changer_statut_convention_stage_for_actor(
+            session.etablissement_id,
+            &session.role,
+            session.user_id,
+            id,
+            body.version,
+            &body.statut,
+        )
+        .await
+        .map_err(map_db)?;
+    let mut enriched = enrich_conventions_stage(
+        &state,
+        session.etablissement_id,
+        vec![ConventionStageDto::from(&c)],
+    )
+    .await?;
+    Ok(Json(enriched.remove(0)))
 }
 
 async fn list_conventions_eleve(

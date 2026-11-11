@@ -69,6 +69,7 @@ mod tarif_conso;
 mod notanet_export;
 mod parcoursup_export;
 mod stage;
+mod stage_param;
 mod edt_contrainte;
 mod absence_rh;
 mod edition_vs;
@@ -268,9 +269,15 @@ pub use notanet_export::{
 pub use parcoursup_export::{
     plan_exporter_parcoursup, render_parcoursup_csv, ExporterParcoursup, LigneParcoursup,
 };
+pub use stage_param::{
+    periode as periode_stage, valider_contact, valider_etat_organisme, valider_organisme,
+    valider_parametres, valider_periode, valider_publics, valider_site, ContactSaisie,
+    ModifierOrganisme, ModifierParametres, PeriodeSaisie, PublicPeriode, SiteSaisie,
+    ETATS_ORGANISME, MOTIFS_ETAT_ORGANISME, TYPES_ORGANISME,
+};
 pub use stage::{
     plan_creer_convention_stage, plan_creer_entreprise, ConventionStage, CreerConventionStage,
-    CreerEntreprise, Entreprise,
+    CreerEntreprise, Entreprise, siret_cle_valide, statut as statut_stage, StageErreur,
 };
 pub use edt_contrainte::{
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte, EdtContrainteKind,
@@ -791,8 +798,8 @@ pub enum DomainError {
     EdtConflit,
     #[error("édition VS invalide")]
     EditionVsInvalide,
-    #[error("stage / entreprise / convention invalide")]
-    StageInvalide,
+    #[error("{}", .0.message())]
+    Stage(crate::stage::StageErreur),
     #[error("contrainte EDT invalide")]
     EdtContrainteInvalide,
     #[error("type ou motif VS inconnu pour cet établissement")]

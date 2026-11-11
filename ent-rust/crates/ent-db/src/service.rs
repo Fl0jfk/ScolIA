@@ -15683,56 +15683,71 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(self.edt_contraintes.list(etablissement_id).await?)
     }
 
+    // -----------------------------------------------------------------------
+    // Stages (socle 39, lot ST0) : actions D-017 `stages.*`, lecture famille par le lien, refus
+    // typés, événement dans la transaction de l'écriture.
+    // -----------------------------------------------------------------------
+
+    /// Carnet d'organismes : création. Action `stages.organismes.gerer` (RS-02).
     pub async fn creer_entreprise_for_actor(
         &self,
         role: &str,
         cmd: CreerEntreprise,
     ) -> Result<Entreprise, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !Self::role_can_manage_eleves(role)
-            && !matches!(parsed, Role::Administratif | Role::Direction | Role::Admin)
+        if !self
+            .a_action_etablissement(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::StagesOrganismesGerer,
+            )
+            .await?
         {
             return Err(EntDbError::Forbidden);
         }
         let planned = plan_creer_entreprise(cmd)?;
+        // Le fait et son événement s'écrivent dans la même transaction (RS-04).
         self.stages.insert_entreprise(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::ENTREPRISE.to_string(),
-                aggregate: AggregateKind::Entreprise,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "raison_sociale": planned.raison_sociale,
-                    "siret": planned.siret,
-                }),
-                actor_user_id: Some(planned.created_by_user_id.to_string()),
-            })
-            .await?;
         Ok(planned)
     }
 
+    /// Carnet d'organismes : lecture. `stages.organismes.gerer`, ou `stages.lire` à
+    /// l'établissement entier. Le professeur (stages de ses élèves seulement) et le CPE ne voient
+    /// pas le carnet : ni organisme ni adresse (`39_STAGES.md` §21.2).
     pub async fn list_entreprises_for_actor(
         &self,
         etablissement_id: Uuid,
+        actor_user_id: Uuid,
         role: &str,
     ) -> Result<Vec<Entreprise>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
+        let peut = self
+            .a_action_etablissement(etablissement_id, actor_user_id, role, Action::StagesOrganismesGerer)
+            .await?
+            || self
+                .a_action_etablissement(etablissement_id, actor_user_id, role, Action::StagesLire)
+                .await?;
+        if !peut {
             return Err(EntDbError::Forbidden);
         }
         Ok(self.stages.list_entreprises(etablissement_id).await?)
     }
 
+    /// Déclare un stage (statut `declaree` : **pas** une convention signée, RS-01). Action
+    /// `stages.preparer` sur l'élève (RS-02). Dates, chevauchement et événement : une transaction.
     pub async fn creer_convention_stage_for_actor(
         &self,
         role: &str,
         cmd: CreerConventionStage,
     ) -> Result<ConventionStage, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !Self::role_can_manage_eleves(role)
-            && !matches!(parsed, Role::Administratif | Role::Direction | Role::Admin | Role::Cpe)
+        if !self
+            .autoriser_eleve(
+                cmd.etablissement_id,
+                cmd.actor_user_id,
+                role,
+                Action::StagesPreparer,
+                cmd.eleve_id,
+            )
+            .await?
         {
             return Err(EntDbError::Forbidden);
         }
@@ -15746,25 +15761,49 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .ok_or(DomainError::NotFound)?;
         let planned = plan_creer_convention_stage(cmd)?;
         self.stages.insert_convention(&planned).await?;
-        self.events
-            .publish(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::CONVENTION_STAGE.to_string(),
-                aggregate: AggregateKind::ConventionStage,
-                aggregate_id: planned.id,
-                eleve_id: Some(planned.eleve_id),
-                payload: json!({
-                    "entreprise_id": planned.entreprise_id,
-                    "debut": planned.debut.to_string(),
-                    "fin": planned.fin.to_string(),
-                    "tuteur": planned.tuteur_nom,
-                }),
-                actor_user_id: Some(planned.created_by_user_id.to_string()),
-            })
-            .await?;
         Ok(planned)
     }
 
+    /// Clôture ou annule un stage déclaré, avec la version lue (verrou optimiste, RS-07).
+    pub async fn changer_statut_convention_stage_for_actor(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        actor_user_id: Uuid,
+        id: Uuid,
+        version: i32,
+        nouveau_statut: &str,
+    ) -> Result<ConventionStage, EntDbError> {
+        let existante = self
+            .stages
+            .get_convention(etablissement_id, id)
+            .await?
+            .ok_or(DomainError::NotFound)?;
+        if !self
+            .autoriser_eleve(
+                etablissement_id,
+                actor_user_id,
+                role,
+                Action::StagesPreparer,
+                existante.eleve_id,
+            )
+            .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
+        self.stages
+            .changer_statut(etablissement_id, id, version, nouveau_statut, actor_user_id)
+            .await
+    }
+
+    /// Lecture des stages d'un élève.
+    /// * Personnel : `stages.lire` sur cet élève (le CPE et l'accueil n'ont pas cette action :
+    ///   projection « en stage » au lot ST1).
+    /// * Élève : les siens.
+    /// * Responsable (RS-03) : lien **actif à la date** (suspension, dates), droit du lien
+    ///   « voir la vie scolaire » (futur `voir_scolarite`), aucune **interdiction** de
+    ///   communication visant cette personne, et élève **non majeur** (un élève majeur décide du
+    ///   partage ; sans consentement enregistré, ses parents ne voient rien).
     pub async fn list_conventions_eleve_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -15772,40 +15811,70 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         actor_user_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<ConventionStage>, EntDbError> {
-        self.exiger_perimetre_prof(etablissement_id, actor_user_id, role, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed.is_staff() {
-            return Ok(self
-                .stages
-                .list_conventions_eleve(etablissement_id, eleve_id)
-                .await?);
-        }
-        if matches!(parsed, Role::Parent) {
-            let lien = self
-                .lien_parent_eleve(etablissement_id, actor_user_id, eleve_id)
-                .await?;
-            if lien.is_none() {
-                return Err(EntDbError::Forbidden);
-            }
-            return Ok(self
-                .stages
-                .list_conventions_eleve(etablissement_id, eleve_id)
-                .await?);
-        }
-        if matches!(parsed, Role::Eleve) {
-            let linked = self
-                .eleve_comptes
+        let autorise = if parsed.is_staff() {
+            self.autoriser_eleve(etablissement_id, actor_user_id, role, Action::StagesLire, eleve_id)
+                .await?
+        } else if parsed == Role::Parent {
+            self.parent_peut_lire_stages(etablissement_id, actor_user_id, eleve_id)
+                .await?
+        } else if parsed == Role::Eleve {
+            self.eleve_comptes
                 .eleve_id_for_user(etablissement_id, actor_user_id)
-                .await?;
-            if linked != Some(eleve_id) {
-                return Err(EntDbError::Forbidden);
-            }
-            return Ok(self
-                .stages
-                .list_conventions_eleve(etablissement_id, eleve_id)
-                .await?);
+                .await?
+                == Some(eleve_id)
+        } else {
+            false
+        };
+        if !autorise {
+            return Err(EntDbError::Forbidden);
         }
-        Err(EntDbError::Forbidden)
+        Ok(self
+            .stages
+            .list_conventions_eleve(etablissement_id, eleve_id)
+            .await?)
+    }
+
+    /// Règle de lecture famille des stages (RS-03) : voir [`Self::list_conventions_eleve_for_actor`].
+    pub(crate) async fn parent_peut_lire_stages(
+        &self,
+        etablissement_id: Uuid,
+        parent_user_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<bool, EntDbError> {
+        if self
+            .eleve_est_majeur(etablissement_id, eleve_id, today_utc())
+            .await?
+        {
+            return Ok(false);
+        }
+        let (ok,): (bool,) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(bool_or(
+                l.peut_voir_vs
+                AND NOT EXISTS (
+                    SELECT 1 FROM ent_eleve_interdiction i
+                     WHERE i.etablissement_id = l.etablissement_id
+                       AND i.eleve_id = l.eleve_id
+                       AND i.personne_id = l.personne_id
+                       AND i.levee_le IS NULL
+                       AND i.du <= ent_aujourdhui_etab(l.etablissement_id)
+                       AND (i.au IS NULL OR i.au >= ent_aujourdhui_etab(l.etablissement_id))
+                       AND 'communication' = ANY (i.objet))
+            ), false)
+              FROM ent_eleve_lien_actif l
+             WHERE l.etablissement_id = $1 AND l.eleve_id = $2 AND l.user_id = $3
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(parent_user_id)
+        .fetch_one(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(|e| {
+            EntDbError::Domain(crate::pg_err::map_sqlx("stage", e))
+        })?)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("stage", e)))?;
+        Ok(ok)
     }
 
     pub async fn exporter_lsun_csv_for_actor(
