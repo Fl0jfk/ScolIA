@@ -65,3 +65,20 @@ export async function requireMobileStaffAccess(): Promise<
     },
   };
 }
+
+/** NJ-31 (D-053) : le personnel mobile doit aussi avoir le module (même matrice que l'intranet). */
+export async function mobileStaffHasModule(
+  ctx: MobileStaffContext,
+  moduleId: string,
+): Promise<boolean> {
+  const { getIntranetModuleById, rolesAllowModule } = await import("@/app/lib/intranet-modules");
+  const { loadModuleAccess } = await import("@/app/lib/module-access-store");
+  const mod = getIntranetModuleById(moduleId);
+  if (!mod) return false;
+  const access = await loadModuleAccess();
+  const isOrgAdmin = ctx.roles.includes("admin") || ctx.roles.includes("master");
+  return rolesAllowModule(ctx.roles, mod, isOrgAdmin, access, {
+    userId: ctx.authUserId,
+    businessUserId: ctx.authUserId,
+  });
+}

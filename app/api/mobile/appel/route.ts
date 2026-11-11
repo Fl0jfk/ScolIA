@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireMobileStaffAccess } from "@/app/lib/mobile-auth";
+import { mobileStaffHasModule, requireMobileStaffAccess } from "@/app/lib/mobile-auth";
 import { getAppelWithLignes, listElevesForClasse, type VsAppelLigneInput } from "@/app/lib/vs-absences-db";
 import {
   closeAppelAction,
@@ -15,6 +15,9 @@ import { resolvePhotoUrlsForEleves } from "@/app/lib/eleve-photos";
 export async function GET(req: Request) {
   const gate = await requireMobileStaffAccess();
   if (!gate.ok) return gate.response;
+  if (!(await mobileStaffHasModule(gate.ctx, "vs-appels"))) {
+    return NextResponse.json({ error: "Accès refusé au module « vs-appels ».", code: "MODULE_FORBIDDEN" }, { status: 403 });
+  }
   const etabId = gate.ctx.etablissementId;
   const url = new URL(req.url);
   const appelId = url.searchParams.get("appelId")?.trim();
@@ -54,6 +57,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const gate = await requireMobileStaffAccess();
   if (!gate.ok) return gate.response;
+  if (!(await mobileStaffHasModule(gate.ctx, "vs-appels"))) {
+    return NextResponse.json({ error: "Accès refusé au module « vs-appels ».", code: "MODULE_FORBIDDEN" }, { status: 403 });
+  }
   const etabId = gate.ctx.etablissementId;
   const body = (await req.json().catch(() => ({}))) as {
     action?: string;
