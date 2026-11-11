@@ -424,11 +424,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : parcours Avenir ; intentions et vœux (3e, 2de, terminale) ; avis du conseil et dialogue avec la famille ; Affelnet, Parcoursup (fiche Avenir) [H] ; entretiens ; forums.
 - **Dépend de** : 23, 19.
 - **Existant [F]** : 077 ; `parcoursup_export.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/37_ORIENTATION.md`, passe personas `PERSONAS_37.md`. Le **circuit de décision et la fiche de dialogue restent au socle 23** (Q-BU1) ; le 37 possède parcours Avenir (plan, activités, entretiens, carnet de l'élève), Affelnet (préparation, cohérence, résultats, inscription effective), Parcoursup (fiche Avenir préparée puis reportée, suivi des admissions), sans-solution, réorientation, devenir ; 166 actions ORI-100 à 399, lots OR0–OR13, migrations 2740–2759. Lot OR0 : écriture libre des vœux par les familles, événements hors transaction. **Défaut de production signalé** (Next.js, invitations) : F37-1.
 
 #### 38. Examens et certifications
 - **Contient** : examens blancs, épreuves, salles, placements, surveillances, convocations ; aménagements (35) ; cours neutralisés (10) ; dépôt sécurisé des sujets ; notes (21) ; résultats officiels (DNB, bac) ; contrôle en cours de formation et oraux [H].
 - **Dépend de** : 10, 21, 35.
 - **Existant [F]** : `notanet_export.rs` seulement.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/38_EXAMENS.md`, passe personas `PERSONAS_38.md`. Un moteur d'épreuve unique (interne, national organisé localement, certifications) ; **décision d'aménagement d'examen au 38**, plan au 35 ; sujets confidentiels journalisés ; notes au 21 ; DNB 2027, EAM, CCF, inscriptions Cyclades préparées et confirmations signées, résultats et diplômes, Pix, ASSR, ASNS, PSC1, cérémonie (reprise de Next.js M17) ; 216 actions EXA-100 à 495, lots EX0–EX18, migrations 2760–2779. Lot EX0 : export « Notanet » trompeur.
 
 #### 39. Stages, PFMP et entreprises
 - **Contient** : entreprises et tuteurs (accès par lien à usage unique, sans compte) ; conventions signées par les trois parties ; périodes (absences attendues à l'appel) ; visites, évaluation, attestations ; PFMP du lycée professionnel, stages d'observation.
