@@ -45,9 +45,11 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
     if e.type_name != types::ELEVE_REGIME_CHANGED {
         return Ok(());
     }
+    // Deux émetteurs, deux formes de charge utile : la scolarité datée du socle 2
+    // (`nouvelle_valeur`) et la facturation (`nouveau`).
     let (Some(eleve), Some(nouveau), Some(effet)) = (
         e.eleve_id,
-        texte(evt, "nouveau"),
+        texte(evt, "nouvelle_valeur").or_else(|| texte(evt, "nouveau")),
         texte(evt, "date_effet").and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()),
     ) else {
         return Ok(());

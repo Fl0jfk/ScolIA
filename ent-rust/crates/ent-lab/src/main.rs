@@ -6275,6 +6275,14 @@ async fn explorer_internat(
 ) -> Result<(), String> {
     println!("# internat — chambres / affectation / présence / suivi");
 
+    // La nuit courante (date du soir, R-IT5) est celle d'hier avant midi : régime, affectation et
+    // pointage de la slice partent de cette nuit-là (on ne pointe pas une nuit future).
+    let jour = ent
+        .nuit_courante_internat(cast.etablissement_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .min(jour);
+
     let harry = &cast.eleves[0];
     let cpe = cast.cpe.user_id;
     let lily = cast.parent_lea.user_id;
@@ -6397,6 +6405,8 @@ async fn explorer_internat(
                 statut: "present".into(),
                 note: String::new(),
                 actor_user_id: cpe,
+                motif_correction_code: None,
+                motif_correction_texte: None,
             },
         )
         .await

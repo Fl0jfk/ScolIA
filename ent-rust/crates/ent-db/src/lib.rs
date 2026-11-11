@@ -405,6 +405,8 @@ mod tests_eleve_identifiants;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_scolarite;
 #[cfg(all(test, feature = "labo"))]
+mod tests_internat;
+#[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;

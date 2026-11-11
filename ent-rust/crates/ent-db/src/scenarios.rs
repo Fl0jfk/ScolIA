@@ -1586,7 +1586,7 @@ async fn bascule_statut_sorti_declenche_la_cascade_transverse() {
                 etage: 1,
                 code: format!("T{}", &eleve.id.simple().to_string()[..4]),
                 capacite: 2,
-                genre: "mixte".into(),
+                genre: "garcons".into(),
                 actor_user_id: cast.cpe.user_id,
             },
         )

@@ -281,6 +281,8 @@ mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_internat;
+#[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p1;
