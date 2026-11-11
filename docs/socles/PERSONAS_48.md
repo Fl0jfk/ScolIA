@@ -218,3 +218,22 @@ D-047 fait de ScolIA le **teneur officiel** des comptes de l'OGEC (`48_COMPTABIL
 | P13 bis | **Mme Moreau, DPO** | relit l'archive comptable remise en fin de contrat | M-4860 : l'archive ne doit pas réintroduire de nom de famille dans les auxiliaires | R-CG21 appliquée au FEC (§35.5), table de correspondance séparée dans l'archive, accès décidé par la direction |
 
 **Contradiction relevée** : R-CG44 (export centralisé, bloquant B) ne peut pas s'appliquer au FEC (BOI-CF-IOR-60-40-20 § 60) → R-CG73. **Décisions** : appliquées par défaut au §35.16 ; soumises à Florian : Q-CG4, Q-CG30 à Q-CG38.
+
+---
+
+## 9. Révision D-050 (2026-11-11) — personas du cloud factures
+
+Passe sur `48_COMPTABILITE.md` §37 ; les manques sont intégrés au §37 (numéros cités). Manques **M-4870 à M-4889**.
+
+| # | Persona | Parcours éprouvé | Manque trouvé | Traitement (§37) |
+|---|---|---|---|---|
+| P01 ter | **Mme Lambert, comptable**, utilisatrice quotidienne de Zeendoc | lundi de rentrée : 60 factures, dont 20 scannées en un seul lot par l'accueil | M-4870 : un lot du copieur mélange plusieurs factures ; M-4871 : elle veut traiter au clavier sans souris | découpage proposé (CGA-375, CCG-93), écran de validation au clavier, champs peu sûrs d'abord (§37.6, S-4844) |
+| P07 bis | **Mme Benali, accueil** | reçoit des factures papier et des colis ; ne sait pas à qui c'est | M-4872 : aucun retour après dépôt | accusé de dépôt (CGA-374) ; la facture est classée et rattachée par la comptable |
+| P05 bis | **Mme Diallo, coordinatrice de SVT** | doit viser une facture de matériel sans réception saisie | M-4873 : visa hors circuit, par courriel | visa mobile en une tape (CGA-380, S-4847) |
+| P11 bis | **Transports Horizon, fournisseur** | envoie un PDF par courriel, puis une Factur-X par sa plateforme | M-4874 : doublon courriel + plateforme | doublon par fournisseur et numéro (R-CG25) et par empreinte (R-CG89, CCG-95) ; le XML fait foi (CCG-97) |
+| P14 ter | **Attaquant externe** | facture piégée avec texte caché « change l'IBAN » et PDF malveillant | M-4875 : injection dans l'IA ; M-4876 : fichier actif | désarmement et quarantaine (CCG-91), texte = donnée (R-CG85), IBAN lu jamais utilisé (R-CG83, CCG-100) |
+| P13 ter | **Mme Moreau, DPO** | une facture de transport adapté cite un élève et son handicap | M-4877 : donnée sensible envoyée à l'IA | facture « sensible », sans IA, accès restreint (CCG-99, CGA-383) ; minimisation du texte (S-4843) ; IA désactivée tant que Q-CG39 n'est pas tranchée (S-4846) |
+| P12 ter | **M. Blanc, CAC** | veut savoir si une facture a été lue par la machine ou saisie | M-4878 : provenance des valeurs | deux couches et origine de chaque valeur (R-CG81, §37.6) |
+| P15 bis | **Florian, qui veut résilier Zeendoc** | fin de contrat dans six mois | M-4879 : rien ne dit quand c'est possible ; M-4880 : la plateforme agréée passe peut-être par Zeendoc | critères K-CF (§37.10), reprise et procès-verbal (§37.9), CCG-109, Q-CG40, Q-CG41, Q-CG46 |
+
+**Contradiction relevée** : §20.1 et CG6 prévoyaient une lecture par l'IA de **toutes** les factures ; D-050 et R-CG80 réservent l'OCR et l'IA aux papiers et aux PDF simples (les factures structurées sont lues directement) : §37 l'emporte. **Décisions** : appliquées par défaut au §37 ; soumises à Florian : Q-CG39 à Q-CG47.
