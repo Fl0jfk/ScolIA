@@ -152,12 +152,14 @@ async fn demi_journees_derivees_des_appels_et_cas_limites() {
     assert_eq!((dj[0].periode, dj[0].minutes), (Periode::Matin, 120));
     assert!(dj[0].non_justifiee);
 
-    // Justification partielle : la première séance justifiée, la seconde non.
+    // Justification de l'absence du jour (rattachée aux deux séances).
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
         .bind(a1.id).execute(ent.pool_verif()).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), lun, lun).await.unwrap();
-    assert_eq!((dj[0].minutes, dj[0].minutes_non_justifiees), (120, 60));
-    assert!(dj[0].non_justifiee, "60 min non justifiées ≥ seuil");
+    // AS0 (DA-05, DA-12) : les deux séances de la journée sont rattachées à une seule
+    // absence ; la justifier couvre ses deux séances (plus de justification ligne par ligne).
+    assert_eq!((dj[0].minutes, dj[0].minutes_non_justifiees), (120, 0));
+    assert!(dj[0].comptee && !dj[0].non_justifiee, "absence justifiée : comptée, plus au décompte");
     // Tout justifié : comptée, plus au décompte réglementaire.
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
         .bind(a2.id).execute(ent.pool_verif()).await.unwrap();

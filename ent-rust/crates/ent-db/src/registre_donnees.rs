@@ -256,7 +256,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_annee_scolaire", "etablissement", Portee::Etablissement),
     t("ent_annonce", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_appel", "assiduite", Portee::Etablissement).perso().export(),
-    t("ent_appel_ligne", "assiduite", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille : daté par l'appel parent (ent_appel)"),
+    t("ent_appel_ligne", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_appel_relance", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_attribution_cible", "personnels", Portee::Etablissement).perso().export(),
     t("ent_bank_rapprochement", "finances", Portee::Etablissement).perso().export(),
