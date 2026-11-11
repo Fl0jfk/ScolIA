@@ -42,3 +42,7 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | D-036 retrait colonnes | session_01KZCbFJ2BZKhM1HPTykzZWF | ent-d036-retrait-colonnes (668–670) |
 | 16 code M1-M2 | session_01KZCbFGwaiE57aMQk2xZ3cz | ent-socle-16-code-1 (482–499) |
 | 41 code I0-I1 | session_01KZCbFHGgvJrnNf1t6MuqXN | ent-socle-41-code-1 (2820–2839) |
+| 10 code T0-T2 | session_01KZCbFF6WgLVjyaLuNosGPw | ent-socle-10-code-1 (440–459) |
+| 15 code A0-A1 | session_01KZCbFEJyFpnDad1p8RgC3R | ent-socle-15-code-1 (2300–2319) |
+| 20 code C0-C1 | session_01KZCbFFMJBNM2hNLCqoQCJo | ent-socle-20-code-1 (2400–2419) |
+| Audit Fable 1 | session_01KZCbFDqp7RCPiqDBK4QSvg | ent-audit-fable-1 (docs) |
