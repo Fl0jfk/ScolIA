@@ -18,6 +18,19 @@ import { getPrevisionRepasDuJour } from "@/app/lib/passages-prevision-db";
 import { isPassageLieu } from "@/app/lib/passages-shared";
 import type { RepasService } from "@/app/lib/passages-prevision-shared";
 
+/** NJ-20 : facturation cantine = direction, administratif, comptabilité, admin (pas surveillant ni accueil). */
+function canManageCantineFacturation(roles: string[]): boolean {
+  return roles.some(
+    (r) =>
+      r === "admin" ||
+      r === "master" ||
+      r === "administratif" ||
+      r === "comptabilite" ||
+      r === "direction" ||
+      r.startsWith("direction_"),
+  );
+}
+
 function parseService(raw: string | null): RepasService | undefined {
   if (raw === "midi" || raw === "soir") return raw;
   return undefined;
@@ -51,6 +64,9 @@ export async function GET(req: Request) {
   }
 
   if (url.searchParams.get("facturation") === "1") {
+    if (!canManageCantineFacturation(gate.ctx.user.roles)) {
+      return NextResponse.json({ error: "Facturation réservée à la direction, à l'administratif et à la comptabilité." }, { status: 403 });
+    }
     const dateDebut = url.searchParams.get("debut")?.trim() || undefined;
     const dateFin = url.searchParams.get("fin")?.trim() || undefined;
     const modeRaw = url.searchParams.get("mode")?.trim();
@@ -90,6 +106,12 @@ export async function POST(req: Request) {
   };
 
   try {
+    if (
+      (body.action === "setCantineFactuMode" || body.action === "createCantineBrouillons") &&
+      !canManageCantineFacturation(gate.ctx.user.roles)
+    ) {
+      return NextResponse.json({ error: "Facturation réservée à la direction, à l'administratif et à la comptabilité." }, { status: 403 });
+    }
     if (body.action === "setCantineFactuMode") {
       if (!body.mode || !isCantineFactuMode(body.mode)) {
         return NextResponse.json({ error: "Mode invalide (forfait | reel)." }, { status: 400 });
