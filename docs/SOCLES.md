@@ -501,11 +501,13 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Contient** : écoles des ensembles scolaires puis écoles publiques : ONDE [H], appel par demi-journée, cahier journal, livret scolaire du premier degré, relation avec la commune (cantine, périscolaire) [H].
 - **Dépend de** : 2 à 29.
 - **Existant [F]** : `onde_export.rs`.
+- **Conception** (2026-11-11, non décidée) : `docs/socles/50_PREMIER_DEGRE.md` et `PERSONAS_50.md`. Le **groupe scolaire** (école + collège + lycée) est **un seul établissement découpé en unités scolaires** (UAI, degré, secteur et contrat datés, direction, entité émettrice ; portée « mon unité » fermée par défaut) ; ScolIA **n'écrit pas dans ONDE**, il importe ses extractions et rapproche ; appel par demi-journée et registre mensuel, seuil de 4 demi-journées par mois civil (tâche, jamais d'envoi automatique), aménagement de petite section (R131-1-1), remise de l'enfant, cahier journal et cahier de liaison, carnet de maternelle et synthèse de GS (droit à l'image par usage), bilans LSU visés par les familles, maintien (D321-6), conseil d'école (D411-1), commune et ATSEM ; 143 actions ECO-, lots EC0–EC13 (EC0 = correctifs de l'export « ONDE » actuel) ; migrations 3000–3019.
 
 #### 51. Post-bac et apprentissage
 - **Contient** : BTS, CPGE, licences professionnelles en lycée (semestres, crédits) ; apprentissage (contrats, organismes financeurs, calendrier d'alternance, facturation) [H] ; taxe d'apprentissage [H].
 - **Dépend de** : 2 à 29, 39.
-- **Existant** : rien.
+- **Existant** : rien (sauf `statut_apprenant` annuel de 284, stages de 082).
+- **Conception** (2026-11-11, non décidée) : `docs/socles/51_POST_BAC_APPRENTISSAGE.md` et `PERSONAS_51.md`. **Statut d'apprenant daté** (scolaire, étudiant, apprenti…) qui commande destinataires, assiduité et facturation ; deux modèles d'apprentissage **par unité** : **M1** UFA rattachée à un CFA (ScolIA alimente le CFA et informe l'employeur, recommandé d'abord) et **M2** ScolIA logiciel du CFA (contrats, OPCO au prorata des jours, certificats de réalisation, Qualiopi, BPF, SIFA) ; BTS (crédits, CCF par candidat), CPGE (inscription parallèle, colles, attestation descriptive), bourses CROUS (procédure contradictoire, étudiant informé avant la liste), mineurs et travaux réglementés (R4153-38 et s.), taxe d'apprentissage (SOLTéA : **dossier d'habilitation 2027 avant le 11 décembre 2026**) ; 122 actions PBA-, lots PBA0–PBA14 ; migrations 3020–3039.
 
 ---
 
