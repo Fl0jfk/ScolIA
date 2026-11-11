@@ -89,8 +89,14 @@ export async function POST(req: NextRequest) {
     const row = await findEleveRow(key, allowed);
     if (!row) return NextResponse.json({ error: "Élève introuvable." }, { status: 404 });
     const basePath = basePathFor(row.secteur);
+    // NJ-49 : le chemin du navigateur n'est accepté que sous le dossier de base de l'établissement.
+    const requestedPath = String(body.folderPath ?? "").trim();
+    const requestedOk =
+      Boolean(basePath) &&
+      requestedPath.startsWith(`${basePath.replace(/\/+$/, "")}/`) &&
+      !requestedPath.split("/").includes("..");
     const folderPath =
-      String(body.folderPath ?? "").trim() ||
+      (requestedOk ? requestedPath : "") ||
       (basePath ? oneDrivePathForEleve(basePath, resolveEleveFolderName(row)) : "");
     if (!folderPath) {
       return NextResponse.json(
