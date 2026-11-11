@@ -3,6 +3,7 @@
 **Date :** 2026-11-11 — **Statut :** conception de fond, **non décidée** (à relire par Florian). Rédigée **avant** tout code de ce socle. Aucun code écrit ni modifié ; aucun accès à une base, à un secret ou à un environnement de production. Le code Next.js a été **lu seulement** (fichiers ciblés de `origin/main` par `git show`, rien exécuté, rien construit).
 **Branche :** `ent-socle-48-49-conception`, partie de `origin/ent-mc0hoe` (`37ce0d3b`).
 > **Révision D-047 (2026-11-11, branche `ent-socle-48-49-revision`)** : Florian confirme D-025 — la **tenue légale complète** (livres, clôture, comptes annuels ANC 2018-06, FEC, archivage, facture électronique) est construite dans ScolIA. **Le §35 l'emporte sur tout le document, §33 compris** ; Q-CG1 est close ; la recommandation du §3.3 (tenue légale au logiciel du cabinet) est abandonnée. Rien n'a été supprimé.
+> **Révision D-048 (même jour)** : périmètre « light » limité à un établissement scolaire ; **le §36 l'emporte sur le §35** (et donc sur tout le document).
 
 **Passe personas :** `docs/socles/PERSONAS_48.md` (même branche). Ses ajouts sont faits **ici**, au **§33**, marqués « ajout personas » ; **en cas de contradiction, le §33 l'emporte** ; rien n'a été supprimé.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` : D-013 (cloisonnement), D-017 (droits portés par les actions), D-019 (public et privé), D-021, D-023 (peu de réglages), **D-024**, **D-025** (comptabilité dans l'ENT Rust), D-026 (briques), **D-027 (E)** (on compense, on ne réémet pas), D-029 (public), **D-031**, **D-034** (doublon 2027-2028, finances dans Charlemagne), **D-035** (précision 2 : la comptabilité de l'add-on est une **ébauche à refaire de zéro**), **D-036** (aucun JSON-mémoire), D-037 à D-046 (PRA). `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14). `docs/TRANSITION_T0_INVENTAIRE.md` (M15, ligne « Comptabilité de l'établissement »). `docs/SOCLES.md` §48, Q-C, T-05. Conceptions **`24_FINANCES.md`** (§5, §6, §12, F9, F13, Q-F17, Q-F18), **`25_PAIEMENTS.md`**, `26` (via 24 §10.5), **`42_SORTIES_VOYAGES.md`** §12 (budget de séjour), `06_PERSONNELS.md` (missions, R-P11), **`49_PAIE.md`** (journal de paie), `07_DOCUMENTS.md` (pièces, PDF/A-3), `08_NOTIFICATIONS.md`, `IA_COEUR.md` §6.2 (niveaux N0–N3). Modèles de forme : `42_SORTIES_VOYAGES.md`, `24_FINANCES.md`, `10_EMPLOI_DU_TEMPS.md`.
@@ -1698,3 +1699,60 @@ Droit nouveau : **`comptabilite.cloturer`** ★ (arrêté, clôture, post-arrêt
 - Copie fiable : C. civ. 1379 : https://www.legifrance.gouv.fr/codes/id/LEGIARTI000032042394/2016-10-01/ ; décret 2016-1673 : https://www.legifrance.gouv.fr/loda/id/JORFTEXT000033538124 (extrait)
 - EPLE : M9.6-Op@le du 19-1-2026 : https://www.education.gouv.fr/bo/2026/Hebdo7/MENF2600269J (403) ; annexe : https://www.education.gouv.fr/sites/default/files/document/Annexe%20%E2%80%93%20Instruction%20codificatrice%20M9.6%20%E2%80%93%20OP@LE-479564.pdf ; décret GBCP 2012-1246 (art. 9 : incompatibilité ordonnateur / comptable) [extrait]
 - **Non vérifié** : article 91 de la loi de finances pour 2024 ; liste à jour des plateformes agréées ; version en vigueur des spécifications de formats et rôle du PPF ; modalités de publication des comptes (DILA) ; versions 2026 de BOI-TVA-DECLA-30-10-30 et BOI-TVA-CHAMP-30-10-20-50 ; doctrine expresse sur le FEC des associations non lucratives (aucune trouvée) ; economie.gouv.fr (403).
+
+---
+
+## 36. Révision D-048 (2026-11-11) — comptabilité « light » d'organisme scolaire — **l'emporte sur le §35**
+
+**Décision** (D-048, Florian, `DECISIONS.md` de `origin/ent-mc0hoe`) : la comptabilité reste dans ScolIA (D-047), mais **limitée aux besoins d'un établissement scolaire**. ScolIA n'est **pas un logiciel comptable généraliste**. On retire ce qui ne sert pas à un OGEC ; on garde les obligations qui s'appliquent quand même.
+
+### 36.1 Ce qui reste dû (inchangé, §35)
+Tenue légale de **l'OGEC** : livres, balance, clôture, à-nouveaux, comptes annuels ANC 2018-06 ; **inaltérabilité et piste d'audit** (§35.4) ; **FEC conforme** (§35.5) ; **archivage 10 ans** (§35.6) ; **réception des factures électroniques** par une plateforme agréée (§35.7, CCG-60 urgent) ; budget, achats, fournisseurs, immobilisations, rapprochement bancaire ; recette en parallèle et critères K-CG (§35.9) ; public inchangé (Op@le).
+
+### 36.2 Ce qui est retiré ou simplifié
+
+| Élément du §35 ou d'avant | Décision D-048 |
+|---|---|
+| Plan de comptes librement paramétrable, schémas comptables définis par l'établissement | **plan unique ANC 2018-06 propre aux OGEC**, livré par ScolIA ; l'établissement ne peut qu'**ajouter des sous-comptes** (et activer ou masquer) ; **schémas comptables fixes**, livrés et maintenus par ScolIA, versionnés (le comptable choisit parmi des variantes prévues, jamais un schéma libre) — R-CG6 simplifiée |
+| Consolidation, comptes combinés d'un OGEC à plusieurs établissements (CCG-90, Q-CG36) | **retirés** : une entité comptable par établissement (R-CG4) ; un OGEC qui gère plusieurs établissements dans une seule comptabilité utilise un **axe analytique « site »** (§16) ; aucune combinaison de comptes |
+| Fiscalité commerciale : secteur lucratif sectorisé, liasse IS, TVA collectée générale, prorata complexe | **retirés** : TVA **non récupérable** par défaut (charge TTC), prorata simple paramétrable seulement si le cabinet l'exige (Q-CG6) ; pas de déclaration de TVA, pas de liasse ; une activité taxable rare (location de salle) est signalée au cabinet, qui la traite |
+| Émission de factures électroniques et e-reporting (§35.7 points 4, R-CG74) | **retirés du périmètre construit** : les ventes de l'OGEC aux familles sont exonérées ; une facture taxable à un assujetti, rare, est émise **depuis le portail de la plateforme agréée** de l'OGEC ; ScolIA ne fait que la **réception**. R-CG74 devient : « une ligne taxable déclenche une alerte au comptable » |
+| Attestation d'éditeur de caisse (Q-CG38) | **retirée** : l'OGEC n'encaisse que des recettes exonérées (dispense de CGI 286 II 2) ; R-CG75 (principes d'inaltérabilité) conservée |
+| Formats d'export d'éditeurs multiples (S-4802) | **FEC seul** (plus le CSV de correspondance des tiers) ; le cabinet importe le FEC |
+| Horodatage qualifié (Q-CG31, S-4837) | **sceau interne signé** par défaut dans un objet immuable ; horodatage qualifié **optionnel** |
+| Immobilisations par composants, dépréciations (§35.8, Q-CG32) | **linéaire par catégorie**, sorties, subventions d'investissement ; composants seulement si le cabinet l'exige pour des bâtiments propres (cas rare, saisie de plusieurs fiches liées) |
+| Devises (R-CG52) | conservé **au minimum** pour les séjours à l'étranger (montant d'origine, taux du relevé) ; pas de comptabilité multidevise |
+| Analytique libre (5 axes, clés de répartition générales) | **axes fixes** : activité, séjour, discipline/pôle, site ; clés de répartition limitées à surface, effectifs, manuelle |
+| Exercice de durée atypique (CCG-83) | conservé (rare mais légal) |
+| Commande publique pour le privé (S-4812, Q-CG8) | désactivé, inchangé ; non construit pour le privé |
+
+### 36.3 Lots réduits
+
+| Lot | Contenu après D-048 |
+|---|---|
+| CG0 | inchangé |
+| **CG1** | moteur d'écritures **avec plan et schémas livrés** (pas d'éditeur de schémas) |
+| CG2 à CG7 | inchangés (budget, demandes, commandes, fournisseurs, factures, paiements et trésorerie) ; CG2 sans simulation multiscénario avancée |
+| **CG8** | **FEC seul**, validateur A47 A-1 ; imports du doublon (ex-CG8b fusionné) |
+| **CG9** | livres officiels (inchangé) |
+| CG10 | immobilisations linéaires, subventions, fonds dédiés |
+| CG11 | analytique à axes fixes, coûts par élève, repas, nuitée ; synthèses séjour et APEL |
+| CG12 | public (inchangé) |
+| **CG13** | clôture, à-nouveaux **et comptes annuels** (ex-CG15 fusionné) |
+| **CG14** | **réception** des factures électroniques seulement |
+| **CG16** | inaltérabilité, sceaux internes, outil de vérification, documentation **et archivage** (ex-CG17 fusionné) |
+| CG18 | reprise à la bascule (inchangé) |
+| CG19 | veille réglementaire réduite au plan ANC, au FEC, aux seuils et aux formats de réception |
+| ~~CG8b, CG15, CG17~~ | fusionnés |
+
+**Total** : 18 lots → **15**. Parcours minimal du doublon inchangé dans l'esprit : CG0 → CG9, CG14, CG16, CG18 avant septembre 2027 ; CG10, CG13 pendant.
+
+### 36.4 Coûts revus [H]
+Maintenance réglementaire comptable : **0,1 à 0,15 personne à temps plein** (contre 0,2 à 0,3 au §35.12), surtout la veille ANC, le FEC et les formats de réception ; plus la revue annuelle externe (Q-CG34, conservée).
+
+### 36.5 Migrations
+Plage **2960–2979 inchangée** ; contenus du §35.13 conservés mais allégés : pas de table d'éditeur de schémas libres (`ent_cg_schema` reste, alimenté par ScolIA, `etablissement_id NULL` en `globale_reference` + variantes choisies par établissement), pas de table de plateforme d'émission ni de statuts d'émission (2976 ne garde que la réception), pas de colonnes de multidevise au-delà de R-CG52.
+
+### 36.6 Questions
+- **Closes ou retirées par D-048** : Q-CG36 (consolidation), Q-CG38 (attestation de caisse), Q-CG31 (devient optionnelle), Q-CG32 (cas rare).
+- **Restent soumises à Florian** : Q-CG4 (**plateforme agréée, urgent**), Q-CG30 (l'OGEC pilote a-t-il une activité taxable ? si oui, combien de factures par an : elle conditionne le choix « portail de la plateforme »), Q-CG33, Q-CG34, Q-CG37.

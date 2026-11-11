@@ -3,6 +3,7 @@
 **Date :** 2026-11-11 — **Statut :** conception de fond, **non décidée** (à relire par Florian). Rédigée avant tout code de ce socle. Aucun code écrit ni modifié ; aucun accès à une base, à un secret ou à un environnement de production ; Next.js **lu seulement** (fichiers ciblés de `origin/main` par `git show`).
 **Branche :** `ent-socle-48-49-conception`, partie de `origin/ent-mc0hoe` (`37ce0d3b`).
 > **Révision D-047 (2026-11-11, branche `ent-socle-48-49-revision`)** : Florian confirme D-025 — le **calcul des bulletins et la DSN** sont construits dans ScolIA. **Le §34 l'emporte sur tout le document, §31 compris** ; Q-RH1 est close ; la recommandation du §3.3 (calcul et DSN au logiciel de paie) est abandonnée ; RH11 et RH12 deviennent obligatoires et sont redécoupés (RH11 à RH22). Rien n'a été supprimé.
+> **Révision D-048 (même jour)** : périmètre « light » limité à un établissement scolaire ; **le §35 l'emporte sur le §34** (et donc sur tout le document).
 
 **Passe personas :** `docs/socles/PERSONAS_49.md` ; ajouts au **§31**, marqués « ajout personas » ; **en cas de contradiction, le §31 l'emporte**.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` D-009, D-013, D-017, D-019, D-021, D-023, **D-024**, **D-025** (paie dans l'ENT Rust), D-026, **D-027 (A, H)** (dossiers des personnels domaine restreint ; pièces RH exigées par le droit du travail), D-029, **D-031**, **D-034**, **D-035** (précision 2 : la paie et la RH de l'add-on sont des **ébauches à refaire de zéro**), **D-036**, D-041. `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14). `docs/TRANSITION_T0_INVENTAIRE.md` (M05, M06, ligne « Paie »). `docs/SOCLES.md` §49, Q-B, T-04, T-06. Conceptions **`06_PERSONNELS.md`** (engagements, missions R-P11, service fait PRS-145, P26, P47, P57), **`15_ABSENCES_PERSONNELS.md`** (§14.3–14.4, R-15, R-16, Q-AP11), **`48_COMPTABILITE.md`** (journal de paie, R-CG22), `07_DOCUMENTS.md` (coffre de l'agent, signature), `08_NOTIFICATIONS.md`, `IA_COEUR.md`.
@@ -1362,3 +1363,61 @@ Toutes les colonnes sensibles chiffrées (E11) ; **aucune colonne JSON ni tablea
 - CCN EPNL IDCC 3218 : https://www.legifrance.gouv.fr/conv_coll/id/KALICONT000043874879 ; https://code.travail.gouv.fr/convention-collective/3218-enseignement-prive-non-lucratif-epnl ; représentativité : https://www.legifrance.gouv.fr/jorf/id/JORFTEXT000051800628
 - CNIL : https://www.cnil.fr/fr/gestion-du-personnel ; https://www.cnil.fr/sites/cnil/files/atoms/files/referentiel_grh_novembre_2019_0.pdf ; https://cnil.fr/fr/referentiel-durees-conservation-donnees-rh
 - **Non vérifié** : article réglementaire des dates d'échéance DSN ; CGI 1753 bis C ; grille de taux neutre 2026 ; arrêté du PSS au JO ; SMIC au 1-6-2026 ; fiche BOSS de la RGDU et de la régularisation progressive ; CRM, CTP, fiches d'organismes, notification AT/MP ; procédure éditeur détaillée de dsn-info.fr ; extension, strates, annualisation et régimes de prévoyance de la CCN EPNL ; âge exact de D3243-8 ; décret-cadre NIR.
+
+---
+
+## 35. Révision D-048 (2026-11-11) — paie « light » d'établissement scolaire — **l'emporte sur le §34**
+
+**Décision** (D-048, Florian, `DECISIONS.md` de `origin/ent-mc0hoe`) : la paie reste dans ScolIA (D-047), mais **limitée à un établissement scolaire** : **une seule convention collective, ou presque**. ScolIA n'est **pas un logiciel de paie généraliste**. On retire le multi-conventions et le paramétrage générique des branches ; on garde les obligations légales.
+
+### 35.1 Hypothèse à confirmer (Q-RH41, **soumise à Florian**)
+La paie ScolIA couvre **les salariés de droit privé de l'organisme de gestion**, relevant de la **CCN de l'enseignement privé non lucratif (EPNL), IDCC 3218** (RR-42) ; **les enseignants sous contrat sont payés par l'État** et restent hors paie (§4, inchangé). Cas à vérifier avant de figer le périmètre :
+- un OGEC emploie-t-il des salariés relevant d'**une autre convention** (cuisine en régie sous une autre convention, association immobilière ou diocèse employeur distinct, animateurs de pastorale) ? Si oui : **hors ScolIA** ou employeur distinct, à trancher ;
+- **maîtres agréés du premier degré sous contrat simple** (Q-RH8) : rémunération par l'État ou par l'OGEC à vérifier ;
+- établissement en **Alsace-Moselle** (régime local d'assurance maladie) : à exclure de la première version ou à prévoir comme seule variante.
+
+### 35.2 Ce qui reste dû (inchangé, §34)
+**Bulletin conforme** (R3243-1, modèle clarifié, net social, dématérialisation et disponibilité) ; **DSN conforme** au cahier technique de l'année, contrôlée par la brique DSN-Val, mensuelle et signalements, retours et taux de prélèvement à la source ; cotisations réelles (URSSAF, Agirc-Arrco, chômage, prévoyance et frais de santé de la branche, AT/MP), réduction générale, prélèvement à la source, taxe sur les salaires des associations ; absences, maintien de salaire CCN, subrogation ; congés payés ; sorties ; mise à jour réglementaire **annuelle** ; sécurité et droits très restreints (§34.8) ; recette en parallèle et critères K-RH (§34.9), bascule au 1-1-2029 recommandée.
+
+### 35.3 Ce qui est retiré ou simplifié
+
+| Élément | Décision D-048 |
+|---|---|
+| Référentiel CCN générique, multi-conventions (`ent_rh_ccn_categorie` avec `idcc` libre, `ent_paie_ccn_grille` multi-IDCC) | **une seule convention, EPNL 3218**, livrée et maintenue par ScolIA (classifications, minima, ancienneté, primes, maintien, prévoyance de branche) ; colonne `idcc` gardée pour la traçabilité, **valeur unique contrôlée** |
+| Langage de formules ouvert, rubriques créées par l'établissement | **catalogue fermé** de rubriques livré par ScolIA (l'établissement choisit, active, saisit des montants) ; les formules restent des tables typées internes, éditées par l'équipe paie de ScolIA seulement |
+| Profils de cotisation génériques | **profils limités** aux populations d'un établissement : non-cadre, cadre, apprenti, CDD (dont remplacement), temps partiel, contrat aidé si utilisé [H], stagiaire gratifié ; tout autre statut (VRP, intermittent, expatrié, journaliste, mandataire, régimes spéciaux) **hors périmètre** |
+| Plusieurs employeurs et SIRET par établissement (CRH-71) | **un employeur** (l'organisme de gestion) et **un SIRET** par établissement ; un salarié partagé entre deux établissements d'un même OGEC sous deux SIRET : deux engagements, deux paies [à valider, cas rare] |
+| Dépôt DSN machine à machine (Q-RH34) | **retiré** : dépôt manuel par la gestionnaire, durablement |
+| DPAE générée, raccordement CPA | DPAE **attestée** (inchangé, RR-10) ; raccordement CPA **question ouverte** (Q-RH30), pas de lot |
+| Simulations générales (RHP-285) | limitées à l'embauche et à l'augmentation d'un salarié de la CCN |
+| Indemnités de rupture complexes (transaction, licenciement économique collectif) | indemnités légales et conventionnelles, rupture conventionnelle, fin de CDD, compensatrice de congés ; **le reste traité avec le juriste**, montant saisi |
+| Saisies sur salaire, pensions (CRH-67) | conservées (obligation), barème daté |
+| Comparateur parallèle multi-éditeurs (adaptateurs RH5) | **un seul adaptateur** : celui du logiciel actuel de l'OGEC pilote (Q-RH2), pour la comparaison et la reprise |
+
+### 35.4 Lots réduits
+
+| Lot | Contenu après D-048 |
+|---|---|
+| RH0 à RH10 | inchangés ; RH5 = un adaptateur |
+| **RH11** | référentiel national daté **et CCN EPNL seule** |
+| **RH12** | moteur, catalogue fermé, profils limités, **prélèvement à la source** (ex-RH15 fusionné) |
+| **RH13** | absences, maintien, IJSS, **congés payés et annualisation** (ex-RH14 fusionné) |
+| **RH16** | bulletins (inchangé) |
+| **RH17** | DSN mensuelle **et signalements, retours** (ex-RH18 fusionné) |
+| **RH19** | paiements, journal de paie, taxe sur les salaires **et sorties** (ex-RH20 fusionné) |
+| **RH21** | veille annuelle réduite : paramètres nationaux, norme DSN, avenants EPNL |
+| **RH22** | recette parallèle et bascule (inchangé) |
+| ~~RH14, RH15, RH18, RH20~~ | fusionnés |
+
+**Total** : 23 lots → **19** (RH0 à RH13, RH16, RH17, RH19, RH21, RH22).
+
+### 35.5 Coûts revus [H, à chiffrer par Florian]
+Construction RH11 → RH22 : **2 à 3 années-personne** (contre 3 à 5), toujours avec un profil **expert paie** ; maintenance : **environ 0,5 personne à temps plein** (norme DSN annuelle, campagne de fin d'année, avenants EPNL, support), avec le pic d'octobre à janvier ; revue externe annuelle conservée (Q-RH35). Le coût reste fixe quel que soit le nombre d'établissements : la réduction vient du périmètre, pas du volume.
+
+### 35.6 Migrations
+Plage **2980–2999 inchangée** ; §34.13 conservé, allégé : pas de grille multi-IDCC (contrainte `idcc = '3218'`), pas de table de règles de formule ouverte à l'établissement, pas de tables de dépôt machine à machine.
+
+### 35.7 Questions
+- **Nouvelle, soumise à Florian** : **Q-RH41** — confirmer que la paie ne couvre **que** les salariés de l'organisme de gestion sous **CCN EPNL (IDCC 3218)**, et dire si l'OGEC pilote a des salariés sous une autre convention, des maîtres sous contrat simple payés par lui, ou un site en Alsace-Moselle (§35.1).
+- **Retirée** : Q-RH34 (dépôt machine à machine).
+- **Restent** : Q-RH5 (juriste, indispensable avant RH12), Q-RH26 à Q-RH33, Q-RH35 à Q-RH38.
