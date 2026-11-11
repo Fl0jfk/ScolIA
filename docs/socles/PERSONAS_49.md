@@ -214,3 +214,31 @@ D-047 fait calculer les bulletins et déposer la DSN par ScolIA (`49_PAIE.md` §
 | P14 bis | **Mme Moreau, DPO** | découvre que la plateforme éditeurs de net-entreprises exige des **NIR réels** pour les tests | M-4958 : traitement de données réelles hors production non prévu | Q-RH29 (accord écrit et avis DPO), AIPD (Q-RH36), §34.8 |
 
 **Contradiction relevée** : D-034 vise une V1 complète en février 2027 ; un moteur de paie fiable ne peut pas y être (RK-RH9, Q-RH38). **Décisions** : appliquées par défaut au §34.15 ; soumises à Florian : Q-RH5, Q-RH26 à Q-RH38.
+
+---
+
+## 9. Révision D-055 (2026-11-11) — personas des régimes multiples (privé sous contrat d'association, contrat simple, public)
+
+D-055 étend la paie et la RH aux trois régimes d'établissement (`49_PAIE.md` §36, qui l'emporte). Passe rejouée avec treize personas, dont un attaquant et une auditrice RGPD. Numérotation : manques **M-4970 à M-4989**. Le persona **P12 (Lucas, apprenti mineur)** sort du périmètre de la paie (D-052, R-RH93) : son contrat reste visible au socle 6, sa paie est hors ScolIA.
+
+| # | Persona | Parcours éprouvé | Manque trouvé | Traitement (§36) |
+|---|---|---|---|---|
+| P30 | **Mme Garcia, adjointe gestionnaire d'un collège public** (8 AED, 2 PEC, 11 agents du département) | le 20 du mois, elle doit envoyer au lycée mutualisateur l'état des présences des AED, et au département les absences des agents | M-4970 : aucun état vers un payeur externe ; M-4971 : deux payeurs, deux formats, deux dates limites | payeurs externes (RHP-343), état préparé depuis les faits (RHP-344), contrôle, arrêté, remise, accusé (RHP-345 à RHP-347), tableau (RHP-349), alerte J-3 (R-RH86) |
+| P31 | **M. Lefèvre, gestionnaire de paie d'un lycée mutualisateur** (paie de 400 AED de 30 établissements) | voudrait que ScolIA calcule la paie de droit public | M-4972 : demande d'un second moteur réglementaire | **refusé par défaut** (§36.5, Q-RH45) : il reçoit des états justes ; étude dédiée s'il devient client |
+| P32 | **Inès, AED en troisième année** | veut savoir combien d'heures il lui reste, si son contrat sera renouvelé à temps, et quand elle atteint six ans | M-4973 : pas de vue « mes heures sur 1 607 » ; M-4974 : cap des six ans non calculé | RHP-352, RHP-353, R-RH89, vue de l'agent (RHP-364, RHP-365) |
+| P33 | **M. Diallo, agent d'entretien de la région, en arrêt** | ne veut pas que le lycée connaisse la raison de son arrêt | M-4975 : risque de stocker un certificat au lycée | nature « à justifier auprès de la collectivité », aucun certificat (CRH-99, R-RH88) |
+| P34 | **Mme Fontaine, cheffe d'une école privée sous contrat simple** | ses maîtres sont-ils ses salariés ? qui fait leur bulletin ? | M-4976 : circuit de paie inconnu ; M-4977 : registre unique et médecine du travail oubliés pour les maîtres | dossier du salarié complet sans traitement (R-RH90, RHP-361) ; **Q-RH42 bloquante** pour toute paie (RH27) |
+| P35 | **M. Bernard, chef d'établissement du premier degré privé** | payé par l'État comme maître, il reçoit un complément de l'OGEC ; il a été cotisé deux fois | M-4978 : double déclaration possible | R-RH91, RHP-363, CRH-93, S-4945 |
+| P36 | **Mme Laurent, professeure de collège privé sous contrat d'association**, fait 3 h d'étude payées par l'OGEC | reçoit un bulletin OGEC et ne veut pas que l'OGEC voie son traitement d'État | M-4979 : mélange des deux engagements | deux engagements, deux régimes (R-RH83, CRH-90, RHP-360) ; aucune donnée de traitement d'État (R-RH81) |
+| P37 | **Sami, AESH de l'État affecté dans un lycée privé** | le lycée doit-il le payer ? | M-4980 : AESH confondu avec un salarié de l'OGEC | régime PR-7 « suivi », payeur État (L917-1) ; pause méridienne : Q-RH46 |
+| P38 | **Mme Petit, directrice d'école publique** | n'est employeur de personne ; deux AESH et une AED du mutualisateur | M-4981 : des écrans de paie inutiles et anxiogènes | aucun écran de paie (CRH-113), suivi seul ; états des AED par le collège mutualisateur (CRH-96) |
+| P39 | **Mme Roche, conseillère RH de la région** | veut un fichier d'absences mensuel au format de la région, et que rien d'autre ne soit tenu | M-4982 : partage non convenu avec la collectivité | S-4940 désactivé par défaut ; convention à prévoir (Q-RH49) ; export au format (RHP-359) |
+| P40 | **Gestionnaire d'un mutualisateur qui cherche à lire les dossiers des AED des autres EPLE** (attaquant interne) | depuis son compte, essaie d'ouvrir les contrats, motifs d'absence et évaluations | M-4983 : le cloisonnement mutualisateur / affectataires n'était pas défini | R-RH87 (seuls les états remis), R-RH84 (états minimaux, aucun motif médical) ; test d'isolation dédié ; modèle d'organisme de D-056 |
+| P41 | **Mme Moreau, DPO** (auditrice RGPD, P14 ter) | demande la base légale de chaque flux d'état et la durée de conservation des états | M-4984 : registre des traitements sans les flux vers les payeurs externes ; M-4985 : données d'agents dont l'établissement n'est pas employeur | un flux par payeur dans le registre (RHP-343), minimisation (R-RH84, R-RH88), durée de conservation des états à aligner sur le référentiel CNIL RH (§22.4, Q-RH20) ; convention avec les collectivités (Q-RH49) |
+| P42 | **Florian, rentrée 2027 avec un établissement public pilote éventuel** | veut savoir ce qui est utilisable tout de suite | M-4986 : la valeur du 49 pour le public n'apparaissait pas avant le moteur | RH23 et RH24 en usage réel dès la rentrée 2027, sans moteur (§36.10) |
+
+**Manques qui relèvent d'autres socles.** M-4987 : la délibération du CA autorisant les recrutements d'AED et de PEC (socle des instances) ; M-4988 : l'emploi du temps des AESH par élève sans donnée médicale de l'élève (socles 10 et 33) ; M-4989 : l'organisme « service de paie mutualisé » et son cloisonnement (D-056).
+
+**Contradictions relevées.** D-048 (« une seule convention ») est modifiée par D-055 : pas de contradiction résiduelle, le moteur reste unique. Le §4 du 49 classait les maîtres sous contrat simple « payés par l'OGEC [NV] » : **faux** (L442-12, TC C4217 [V]), corrigé au §36.3.
+
+**Décisions.** Appliquées par défaut (§36.11) : Q-RH41, Q-RH8 (principe), Q-RH11, Q-RH50, Q-RH51 ; soumises à Florian : **Q-RH42** (circuit du contrat simple, bloquante pour RH27), Q-RH43, Q-RH44, **Q-RH45** (paie de droit public : non par défaut), Q-RH46 à Q-RH49.
