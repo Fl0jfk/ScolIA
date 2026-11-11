@@ -67,6 +67,7 @@ Les défauts de calcul financier, qui touchent l'argent des familles sans être 
 - **Preuve :** `app/api/channels/route.ts:15-79` ; `channels/messages/route.ts:64-125` ; `channels/users/list/route.ts:5-21` ; `channel-access.ts:11-31`.
 - **Source :** `socles/PERSONAS_16.md` §4.3 (NXD-1) ; `socles/17_ANNONCES.md` §2.4 (PN-03) ; `socles/16_MESSAGERIE.md` Q-M29.
 - **Mesure immédiate :** couper les salons, ou les restreindre au seul personnel en attendant une correction. Vérifier qu'aucun compte famille ou élève n'y accède.
+- **Statut D-053 (2026-11-11)** : corrigé sur main — 7bb6e19a (salons : membres, créateur, auteur ; élèves exclus à suivre).
 
 ### NJ-05 — Invitations à un événement : une page publique révèle l'e-mail des parents et permet de modifier la réponse d'une autre famille
 - **Module :** Invitations (`/api/invitation/**`).
@@ -376,6 +377,7 @@ Source : `43_PERISCOLAIRE_TRANSPORTS.md` et `44_RESSOURCES_MATERIELLES.md` (§2)
 - **NJ-77 (moyen) — Photocopies : la file d'attente affiche les demandes de tous les sites** (DRM-01).
 - **NJ-78 (élevé) — Photocopies : on peut rattacher à sa demande le PDF déposé par quelqu'un d'autre** (DRM-02).
 - **NJ-79 (élevé) — Partenariats : l'inscription publique fonctionne sans authentification** (DPS-17).
+- **Statut D-053 (2026-11-11)** : corrigé sur main — sans objet : déjà fermé dans main (canManageRoomReservation).
 
 ## 6. Non vérifié (hypothèses des sources)
 
