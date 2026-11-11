@@ -836,7 +836,7 @@ async fn t2_seances_rattachees_stables_et_ports() {
     // Un jour de travaux sur la salle : indisponible, donc occupée et non libre.
     sqlx::query(
         "INSERT INTO ent_salle_indisponibilite (id, etablissement_id, salle_id, du, au, motif_code, par)
-         VALUES ($1,$2,$3,$4::date + time '12:00', $4::date + time '18:00', 'travaux', $5)",
+         VALUES ($1,$2,$3,($4::date + time '12:00') AT TIME ZONE 'Europe/Paris', ($4::date + time '18:00') AT TIME ZONE 'Europe/Paris', 'travaux', $5)",
     )
     .bind(Uuid::new_v4())
     .bind(e)
