@@ -45,4 +45,7 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 10 code T0-T2 | session_01KZCbFF6WgLVjyaLuNosGPw | ent-socle-10-code-1 (440–459) |
 | 15 code A0-A1 | session_01KZCbFEJyFpnDad1p8RgC3R | ent-socle-15-code-1 (2300–2319) |
 | 20 code C0-C1 | session_01KZCbFFMJBNM2hNLCqoQCJo | ent-socle-20-code-1 (2400–2419) |
-| Audit Fable 1 | session_01KZCbFDqp7RCPiqDBK4QSvg | ent-audit-fable-1 (docs) |
+| Audit Fable 1 | session_01KZCbFDqp7RCPiqDBK4QSvg | ent-audit-fable-1 — fusionné, archivé |
+| Audit 1 correctifs données | session_01KZCbFDr3zxwCS9CKppHZX2 | ent-audit-correctifs-1 (680–689) |
+| Audit 1 correctifs infra | session_01KZCbFDz1jCrtfXGFESA18R | ent-audit-correctifs-2 (690–699) |
+| Audit 1 SSO/domaines | session_01KZCbFE4PujojAWS1VhwY6Q | ent-audit-correctifs-sso (700–709) |
