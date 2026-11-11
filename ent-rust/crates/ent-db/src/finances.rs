@@ -74,30 +74,7 @@ pub(crate) fn aujourd_hui() -> NaiveDate {
     date_paris(Utc::now())
 }
 
-/// Date civile à Paris d'un instant UTC (heure d'été de l'UE : du dernier dimanche
-/// de mars 01:00 UTC au dernier dimanche d'octobre 01:00 UTC).
-pub(crate) fn date_paris(t: chrono::DateTime<Utc>) -> NaiveDate {
-    use chrono::{Datelike, TimeZone, Weekday};
-    fn dernier_dimanche(annee: i32, mois: u32) -> NaiveDate {
-        let dernier_jour = if mois == 12 {
-            NaiveDate::from_ymd_opt(annee + 1, 1, 1)
-        } else {
-            NaiveDate::from_ymd_opt(annee, mois + 1, 1)
-        }
-        .and_then(|d| d.pred_opt())
-        .expect("date valide");
-        let mut d = dernier_jour;
-        while d.weekday() != Weekday::Sun {
-            d = d.pred_opt().expect("date valide");
-        }
-        d
-    }
-    let annee = t.year();
-    let debut_ete = Utc.from_utc_datetime(&dernier_dimanche(annee, 3).and_hms_opt(1, 0, 0).expect("heure"));
-    let fin_ete = Utc.from_utc_datetime(&dernier_dimanche(annee, 10).and_hms_opt(1, 0, 0).expect("heure"));
-    let decalage = if t >= debut_ete && t < fin_ete { 2 } else { 1 };
-    (t + Duration::hours(decalage)).date_naive()
-}
+pub(crate) use domain_eleve::horloge::date_paris;
 
 fn est_doublon(e: &sqlx::Error) -> bool {
     e.as_database_error()

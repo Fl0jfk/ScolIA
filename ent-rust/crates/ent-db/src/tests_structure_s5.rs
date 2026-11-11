@@ -15,7 +15,7 @@ use crate::structure_offre::{
 };
 use crate::tenant_tx::{RlsMode, TenantTx};
 use crate::tests_d022_bis::{labo, monde};
-use chrono::{Duration, NaiveDate, Utc};
+use chrono::{Duration, NaiveDate};
 use domain_eleve::{CreateEleve, DomainError};
 use sqlx::Row;
 use uuid::Uuid;
@@ -33,7 +33,7 @@ fn sfx() -> String {
 }
 
 fn aujourdhui() -> NaiveDate {
-    Utc::now().date_naive()
+    domain_eleve::horloge::jour_paris()
 }
 
 fn est_forbidden<T>(r: &Result<T, EntDbError>) -> bool {

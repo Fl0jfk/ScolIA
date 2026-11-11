@@ -348,7 +348,7 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let mut conn = self.pool().acquire().await.map_err(db)?;
-        let jour = Utc::now().date_naive();
+        let jour = domain_eleve::horloge::jour_paris();
         let cibles = eleves_de_audience(&mut conn, etab, &c.audience, &c.cible_ids, jour).await?;
         let total = cibles.len();
         let autorises: Vec<Uuid> = match &perimetre {

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use Acteur::*;
 
 fn aujourdhui() -> String {
-    chrono::Utc::now().date_naive().to_string()
+    domain_eleve::horloge::jour_paris().to_string()
 }
 
 fn code_unique() -> String {

@@ -7,7 +7,6 @@
 
 use super::*;
 use crate::reprise_bytea::{CauseEchec, OptionsReprise, TablePiece};
-use chrono::Utc;
 use domain_eleve::{AttacherOrdonnancePai, AttacherPiece, OuvrirFil, UpsertPai};
 use ent_auth::Role;
 use ent_object::provider::{FaultyProvider, MemoryProvider, Pannes};
@@ -80,7 +79,7 @@ async fn monde(ent: &PgEnt) -> Monde {
                 mesures_accueil: "Ventoline".into(),
                 protocole_urgence: String::new(),
                 note_interne: String::new(),
-                date_debut: Utc::now().date_naive(),
+                date_debut: domain_eleve::horloge::jour_paris(),
                 date_fin: None,
                 actif: true,
                 actor_user_id: infirmiere,

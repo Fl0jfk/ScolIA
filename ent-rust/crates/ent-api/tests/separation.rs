@@ -139,7 +139,7 @@ fn verifie(att: Attendu, rep: &Rep) -> bool {
 }
 
 fn jour_du_test() -> String {
-    chrono::Utc::now().date_naive().to_string()
+    domain_eleve::horloge::jour_paris().to_string()
 }
 
 /// Joue les spécifications : tous acteurs × cibles, oracle de fuite sur chaque 2xx.
@@ -1712,7 +1712,7 @@ async fn json_de(m: &Monde, jeton: &str, chemin: &str) -> Vec<Value> {
 
 /// Un créneau d'EDT de l'établissement du jeton (essaie les 7 jours de la semaine).
 async fn creneau_de(m: &Monde, jeton: &str) -> Uuid {
-    let base = chrono::Utc::now().date_naive();
+    let base = domain_eleve::horloge::jour_paris();
     for d in 0..7 {
         let jour = base + chrono::Duration::days(d);
         let r = m.appel("GET", &format!("/edt/creneaux?jour={jour}"), Some(jeton), None).await;

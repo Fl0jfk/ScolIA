@@ -37,7 +37,7 @@ async fn routes_historiques_d_ecriture_fermees_et_periode_inchangee() {
     let Some(state) = etat().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let cast = state.ent.seed_labo_cast().await.expect("cast");
     let etab = cast.etablissement_id;
-    let t = chrono::Utc::now().date_naive();
+    let t = domain_eleve::horloge::jour_paris();
     let periode = state
         .ent
         .creer_note_periode(domain_eleve::CreerNotePeriode {
@@ -98,7 +98,7 @@ async fn routes_historiques_d_ecriture_fermees_et_periode_inchangee() {
 async fn reouverture_de_periode_http_motif_obligatoire_et_journal() {
     let Some(state) = etat().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let cast = state.ent.seed_labo_cast().await.expect("cast");
-    let t = chrono::Utc::now().date_naive();
+    let t = domain_eleve::horloge::jour_paris();
     let periode = state
         .ent
         .creer_note_periode(domain_eleve::CreerNotePeriode {

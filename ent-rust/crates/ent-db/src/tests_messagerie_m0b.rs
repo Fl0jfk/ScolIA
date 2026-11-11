@@ -222,7 +222,7 @@ async fn compter(ent: &PgEnt, sql: &str, etab: Uuid, a: Uuid) -> i64 {
 /// Prochain dimanche 21 h (heure de Paris) strictement dans le futur : en plage calme, et la
 /// remise (lundi 7 h) est toujours à venir.
 fn dimanche_21h() -> chrono::DateTime<Utc> {
-    let mut jour = Utc::now().date_naive() + Duration::days(1);
+    let mut jour = domain_eleve::horloge::jour_paris() + Duration::days(1);
     while chrono::Datelike::weekday(&jour) != chrono::Weekday::Sun {
         jour += Duration::days(1);
     }
@@ -382,8 +382,8 @@ async fn m0b_d23_fil_du_personnel_a_l_eleve_majeur_ne_va_pas_aux_parents() {
     let etab = cast.etablissement_id;
     let dir = cast.direction.user_id;
     let eleve = Uuid::new_v4();
-    let naissance = Utc::now().date_naive() - Duration::days(365 * 19 + 10);
-    for (id, nom, ne) in [(eleve, "Yasmine", naissance), (Uuid::new_v4(), "Mineure", Utc::now().date_naive() - Duration::days(365 * 15))] {
+    let naissance = domain_eleve::horloge::jour_paris() - Duration::days(365 * 19 + 10);
+    for (id, nom, ne) in [(eleve, "Yasmine", naissance), (Uuid::new_v4(), "Mineure", domain_eleve::horloge::jour_paris() - Duration::days(365 * 15))] {
         sqlx::query(
             "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, status, date_naissance, created_at, updated_at)
              VALUES ($1,$2,$3,'Test','inscrit',$4, now(), now())",

@@ -834,7 +834,7 @@ impl PgEnt {
         let rows: Vec<AmenagementRow> = sqlx::query_as(
             "SELECT id, eleve_id, code, portee, date_debut, date_fin FROM ent_amenagement
               WHERE etablissement_id = $1 AND eleve_id = $2 AND actif
-                AND date_debut <= CURRENT_DATE AND (date_fin IS NULL OR date_fin >= CURRENT_DATE)
+                AND date_debut <= ent_aujourdhui_etab($1) AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab($1))
               ORDER BY code",
         )
         .bind(etab)
@@ -882,7 +882,7 @@ impl PgEnt {
                FROM ent_amenagement a
                JOIN ent_eleve e ON e.id = a.eleve_id AND e.etablissement_id = a.etablissement_id
               WHERE a.etablissement_id = $1 AND a.actif
-                AND a.date_debut <= CURRENT_DATE AND (a.date_fin IS NULL OR a.date_fin >= CURRENT_DATE)
+                AND a.date_debut <= ent_aujourdhui_etab($1) AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab($1))
               ORDER BY e.nom, e.prenom, a.code",
         )
         .bind(etab)
@@ -940,12 +940,12 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let mut l: Vec<DispositifARevoir> = sqlx::query_as(
             "SELECT d.id AS dispositif_id, d.eleve_id, e.nom, e.prenom, e.classe, d.kind,
-                    d.date_revision, (d.date_revision - CURRENT_DATE)::int AS jours_restants
+                    d.date_revision, (d.date_revision - ent_aujourdhui_etab($1))::int AS jours_restants
                FROM ent_eleve_dispositif d
                JOIN ent_eleve e ON e.id = d.eleve_id AND e.etablissement_id = d.etablissement_id
               WHERE d.etablissement_id = $1 AND d.statut = 'actif' AND d.kind <> 'pai'
                 AND d.date_revision IS NOT NULL
-                AND d.date_revision <= CURRENT_DATE + $2::int
+                AND d.date_revision <= ent_aujourdhui_etab($1) + $2::int
               ORDER BY d.date_revision, e.nom",
         )
         .bind(etab)

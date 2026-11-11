@@ -820,10 +820,10 @@ impl PgEnt {
         let mut tx = tenant(self.pool(), etab).await?;
         let mut liste: Vec<PaiARevoir> = sqlx::query_as(
             "SELECT p.eleve_id, e.nom, e.prenom, e.classe, p.date_revision,
-                    (p.date_revision - CURRENT_DATE)::int AS jours_restants
+                    (p.date_revision - ent_aujourdhui_etab($1))::int AS jours_restants
                FROM ent_pai p JOIN ent_eleve e ON e.id = p.eleve_id AND e.etablissement_id = p.etablissement_id
               WHERE p.etablissement_id = $1 AND p.actif AND p.date_revision IS NOT NULL
-                AND p.date_revision <= CURRENT_DATE + $2::int
+                AND p.date_revision <= ent_aujourdhui_etab($1) + $2::int
               ORDER BY p.date_revision, e.nom, e.prenom",
         )
         .bind(etab)
@@ -1008,7 +1008,7 @@ impl PgEnt {
             "SELECT id, eleve_id, code, audiences, source, date_debut, date_fin
                FROM ent_contrainte_publiee
               WHERE etablissement_id = $1 AND eleve_id = $2 AND actif
-                AND date_debut <= CURRENT_DATE AND (date_fin IS NULL OR date_fin >= CURRENT_DATE)
+                AND date_debut <= ent_aujourdhui_etab($1) AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab($1))
                 AND ($3::text IS NULL OR $3 = ANY(audiences))
               ORDER BY code",
         )
@@ -1047,8 +1047,8 @@ impl PgEnt {
                    FROM ent_contrainte_publiee c
                    JOIN ent_eleve e ON e.id = c.eleve_id AND e.etablissement_id = c.etablissement_id
                   WHERE c.etablissement_id = $1 AND c.actif AND $2 = ANY(c.audiences)
-                    AND c.date_debut <= CURRENT_DATE
-                    AND (c.date_fin IS NULL OR c.date_fin >= CURRENT_DATE)
+                    AND c.date_debut <= ent_aujourdhui_etab($1)
+                    AND (c.date_fin IS NULL OR c.date_fin >= ent_aujourdhui_etab($1))
                   ORDER BY e.nom, e.prenom, c.code",
             )
             .bind(etab)
@@ -1431,7 +1431,7 @@ impl PgEnt {
             "SELECT id, eleve_id, code, audiences, source, date_debut, date_fin
                FROM ent_contrainte_publiee
               WHERE etablissement_id = $1 AND eleve_id = $2 AND actif
-                AND date_debut <= CURRENT_DATE AND (date_fin IS NULL OR date_fin >= CURRENT_DATE)
+                AND date_debut <= ent_aujourdhui_etab($1) AND (date_fin IS NULL OR date_fin >= ent_aujourdhui_etab($1))
                 AND ($3 OR audiences && ARRAY['enseignants', 'sorties']::text[])
               ORDER BY code",
         )

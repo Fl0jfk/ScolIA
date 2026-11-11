@@ -320,7 +320,6 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use chrono::Utc;
     use http_body_util::BodyExt;
     use serde_json::{json, Value};
     use tower::ServiceExt;
@@ -1087,7 +1086,7 @@ mod tests {
             .unwrap();
         assert_eq!(get_other.status(), StatusCode::NOT_FOUND);
 
-        let jour = Utc::now().date_naive();
+        let jour = domain_eleve::horloge::jour_paris();
         let abs = app
             .clone()
             .oneshot(
@@ -1178,7 +1177,7 @@ mod tests {
         };
         let cast = state.ent.seed_labo_cast().await.expect("cast");
         let app = app(state);
-        let jour = Utc::now().date_naive();
+        let jour = domain_eleve::horloge::jour_paris();
 
         // Compta ne crée pas de matière
         let forbid = app
@@ -1304,7 +1303,7 @@ mod tests {
         };
         let cast = state.ent.seed_labo_cast().await.expect("cast");
         let app = app(state);
-        let jour = Utc::now().date_naive().to_string();
+        let jour = domain_eleve::horloge::jour_paris().to_string();
 
         let eleve = cast
             .eleves
@@ -1373,7 +1372,7 @@ mod tests {
         };
         let cast = state.ent.seed_labo_cast().await.expect("cast");
         let app = app(state);
-        let jour = Utc::now().date_naive().to_string();
+        let jour = domain_eleve::horloge::jour_paris().to_string();
 
         // Admini change la classe de l'élève.
         let change = app
@@ -3214,7 +3213,7 @@ mod tests {
         };
         let cast = state.ent.seed_labo_cast().await.expect("cast");
         let app = app(state);
-        let jour = Utc::now().date_naive().to_string();
+        let jour = domain_eleve::horloge::jour_paris().to_string();
         let lire = |uri: String, tok: String| {
             let app = app.clone();
             async move {
@@ -3400,7 +3399,7 @@ mod tests {
         };
         let cast = state.ent.seed_labo_cast().await.expect("cast");
         let app = app(state);
-        let jour = Utc::now().date_naive().to_string();
+        let jour = domain_eleve::horloge::jour_paris().to_string();
         let statut = |req: Request<Body>| {
             let app = app.clone();
             async move { app.oneshot(req).await.unwrap() }
