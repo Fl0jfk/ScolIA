@@ -71,6 +71,9 @@ Ce qu'AG1 pose pour qu'AG3 les ferme, avec le test déjà écrit pour la partie 
 - Écart à signaler : les **élèves** (comptes élèves) ne reçoivent pas d'invitation dans AG1 (audience = responsables) ; l'EDT de l'élève apparaît dans sa vue.
 - Les routes `/agenda/*` n'ont pas de test HTTP dédié ; les services sont testés, les routes ne font que traduire.
 
+## 5 bis. D-058 (message du pilote reçu pendant le lot, non lu dans le dépôt : `ent-mc0hoe` seulement)
+La réservation devra porter sur **toutes** les salles du socle 5, salles de classe comprises, une salle de classe étant réservable quand l'EDT réel la laisse libre (le cours prime ; remplaçant nommé = réservation tombée et demandeur prévenu), par les ports des socles 10 et 15. **Non fait dans AG1** : AG1 ne pose que la FK composite vers `ent_salle` et la lecture de l'EDT par `edt_semaine`. Le port « occupation / disponibilité d'une salle » (socles 10 et 15) n'existe pas sous forme de port : il reste à créer avec AG3, en adaptateur « source absente » testable si nécessaire. À signaler au pilote.
+
 ## 6. À contrôler par le pilote
 
 `grep -i jsonb` sur 2380–2381 (aucune), `ON DELETE` des nouvelles FK (RESTRICT / CASCADE sur les tables filles de l'agenda / SET NULL sur `eleve_*` anonymisables), droits `agenda.*` dans `modele_par_defaut`, registre des tables (+10 tables), `domain-eleve::fusion` (`ent_rdv_fait` reste sur la fiche absorbée).
