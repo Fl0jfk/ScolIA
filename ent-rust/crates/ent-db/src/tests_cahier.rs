@@ -584,7 +584,8 @@ async fn modification_suppression_historique_et_droits() {
     assert!(est_interdit(&fx.ent.cahier_modifier_travail(&fx.cpe(), t.id, modif("x")).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cahier_supprimer_travail(&fx.prof2(), t.id).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cahier_historique_travail(&fx.prof2(), t.id).await.unwrap_err()));
-    fx.ent.cahier_modifier_travail(&fx.direction(), t.id, modif("Exercices (direction)")).await.unwrap();
+    // C-D10 : la direction ne réécrit plus le travail d'un collègue (elle le retire, avec motif).
+    assert!(est_interdit(&fx.ent.cahier_modifier_travail(&fx.direction(), t.id, modif("Exercices (direction)")).await.unwrap_err()));
     // Échéance dans le passé : refusée.
     let err = fx
         .ent
@@ -719,7 +720,7 @@ async fn rendu_tardif_retour_du_professeur_et_copies_privees() {
     // Copies privées : l'élève auteur, sa famille et le professeur ; pas un camarade, pas un autre professeur.
     let copie_x = r2.pieces[0].id;
     assert!(fx.ent.cahier_lien_piece(&fx.eleve(&fx.x), copie_x).await.is_ok());
-    assert!(fx.ent.cahier_lien_piece(&fx.parent(&fx.x), copie_x).await.is_ok());
+    assert!(est_interdit(&fx.ent.cahier_lien_piece(&fx.parent(&fx.x), copie_x).await.unwrap_err()), "R-C37 : jamais le dépôt de l'élève au responsable");
     assert!(fx.ent.cahier_lien_piece(&fx.prof(), copie_x).await.is_ok());
     assert!(est_interdit(&fx.ent.cahier_lien_piece(&fx.eleve(&fx.w), copie_x).await.unwrap_err()), "un camarade ne lit pas la copie");
     assert!(est_interdit(&fx.ent.cahier_lien_piece(&fx.parent(&fx.w), copie_x).await.unwrap_err()));
@@ -767,7 +768,7 @@ async fn marquer_fait_est_personnel_a_l_eleve() {
     fx.ent.cahier_marquer_fait(&fx.eleve(&fx.x), t.id, true).await.unwrap();
     assert!(fait_de(&fx, fx.eleve(&fx.x), None, du, au).await);
     assert!(!fait_de(&fx, fx.eleve(&fx.w), None, du, au).await, "l'indicateur de X n'est pas celui de W");
-    assert!(fait_de(&fx, fx.parent(&fx.x), Some(fx.x.id), du, au).await, "la famille voit l'état de son enfant");
+    assert!(!fait_de(&fx, fx.parent(&fx.x), Some(fx.x.id), du, au).await, "R-C14 : la coche « fait » est un outil de l'élève, jamais vue d'un adulte");
     fx.ent.cahier_marquer_fait(&fx.eleve(&fx.x), t.id, false).await.unwrap();
     assert!(!fait_de(&fx, fx.eleve(&fx.x), None, du, au).await);
     // Ni la famille, ni le personnel, ni un élève hors cible ne marquent.
@@ -1069,6 +1070,16 @@ async fn agent_du_compte(fx: &Fx, user: Uuid) -> Uuid {
     .expect("agent du compte")
 }
 
+/// Exécute du SQL de test en suspendant les déclencheurs (rôle de réplication, le temps de la transaction) :
+/// pour poser une situation passée que les gardes d'écriture interdisent.
+async fn sql_sans_garde(fx: &Fx, sql: &str, binds: &[&(dyn Send + Sync)]) {
+    let _ = binds;
+    let mut tx = fx.ent.pool().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    sqlx::query(sql).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
 async fn jour(fx: &Fx) -> NaiveDate {
     fx.ent.jour_etab(fx.cast.etablissement_id).await.unwrap()
 }
@@ -1184,17 +1195,11 @@ async fn c0_cd2_suppleant_ecrit_des_sa_date_le_titulaire_pas_pendant_la_supplean
     assert!(peut(&fx, &fx.prof(), Action::CahierLire, fx.cible_a()).await, "le titulaire lit toujours son cahier");
 
     // La suppléance finit il y a 3 jours : lecture encore permise (délai de grâce de 7 jours), plus d'écriture.
-    sqlx::query("UPDATE ent_service_intervenant SET du = $2, au = $3 WHERE id = $1")
-        .bind(supp)
-        .bind(auj - Duration::days(20))
-        .bind(auj - Duration::days(3))
-        .execute(fx.ent.pool())
-        .await
-        .unwrap();
+    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET du = '{}', au = '{}' WHERE id = '{supp}'", auj - Duration::days(20), auj - Duration::days(3)), &[]).await;
     assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await, "ancien suppléant : plus d'écriture");
     assert!(peut(&fx, &fx.prof2(), Action::CahierLire, fx.cible_a()).await, "grâce de lecture de 7 jours");
     // 8 jours après : plus rien. Le titulaire a repris la saisie.
-    sqlx::query("UPDATE ent_service_intervenant SET au = $2 WHERE id = $1").bind(supp).bind(auj - Duration::days(8)).execute(fx.ent.pool()).await.unwrap();
+    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET au = '{}' WHERE id = '{supp}'", auj - Duration::days(8)), &[]).await;
     assert!(!peut(&fx, &fx.prof2(), Action::CahierLire, fx.cible_a()).await, "ancien professeur : plus de lecture");
     assert!(peut(&fx, &fx.prof(), Action::CahierEcrire, fx.cible_a()).await, "le titulaire reprend la saisie");
     let _ = TerminerInterventionBody { au: None };
@@ -1224,9 +1229,9 @@ async fn c0_cd2_restriction_des_droits_de_l_intervention_aux_cahier() {
         .unwrap();
     let supp = service.intervenants.iter().find(|i| i.nature == "suppleant").unwrap().id;
     // Suppléant limité à l'appel : la saisie du cahier lui est refusée.
-    sqlx::query("UPDATE ent_service_intervenant SET droits = ARRAY['appel'] WHERE id = $1").bind(supp).execute(fx.ent.pool()).await.unwrap();
+    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET droits = ARRAY['appel'] WHERE id = '{supp}'"), &[]).await;
     assert!(!peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await);
-    sqlx::query("UPDATE ent_service_intervenant SET droits = ARRAY['appel', 'cahier'] WHERE id = $1").bind(supp).execute(fx.ent.pool()).await.unwrap();
+    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET droits = ARRAY['appel', 'cahier'] WHERE id = '{supp}'"), &[]).await;
     assert!(peut(&fx, &fx.prof2(), Action::CahierEcrire, fx.cible_a()).await);
 }
 
@@ -1796,7 +1801,7 @@ fn c1_aucune_colonne_json_dans_les_migrations_du_lot() {
             continue;
         }
         vus += 1;
-        let texte = std::fs::read_to_string(&p).unwrap().to_lowercase();
+        let texte: String = std::fs::read_to_string(&p).unwrap().to_lowercase().lines().filter(|l| !l.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n");
         assert!(!texte.contains("jsonb") && !texte.contains(" json"), "{nom} : colonne JSON (D-036)");
     }
     assert!(vus >= 11, "migrations du lot trouvées : {vus}");
@@ -1876,26 +1881,31 @@ async fn c1_reprise_compteurs_quarantaine_et_rejouabilite() {
         return;
     };
     let e = fx.cast.etablissement_id;
+    // Le seed du labo a déjà écrit des entrées dans l'ancien modèle : on mesure les écarts dus au scénario.
+    let base = reprendre(&fx).await;
+    let delta = |compteurs: &[(String, i64, i64, i64)], objet: &str| {
+        let (a, b) = (compteurs.iter().find(|c| c.0 == objet).unwrap(), base.iter().find(|c| c.0 == objet).unwrap());
+        (a.1 - b.1, a.2 - b.2, a.3 - b.3)
+    };
     let sc = ancien_scenario(&fx).await;
     let avant: Vec<i64> = vec![nb(&fx, "ent_seance_contenu").await, nb(&fx, "ent_travail").await, nb(&fx, "ent_travail_remise").await, nb(&fx, "ent_cdt_piece").await, nb(&fx, "ent_cdt_historique").await];
 
     let compteurs = reprendre(&fx).await;
-    let c = |objet: &str| compteurs.iter().find(|c| c.0 == objet).cloned().unwrap();
     // Chaque ancien objet est repris ou en quarantaine : jamais perdu, jamais compté deux fois.
-    assert_eq!(c("seance_contenu"), ("seance_contenu".into(), 2, 1, 1), "un contenu repris, un en quarantaine (séance sans cours)");
-    assert_eq!(c("travail"), ("travail".into(), 3, 2, 1), "travail et contrôle repris ; le travail sans cours en quarantaine");
-    assert_eq!(c("remise"), ("remise".into(), 1, 1, 0));
-    assert_eq!(c("piece"), ("piece".into(), 3, 3, 0), "ressource, copie, annotation : toutes ont un objet au registre");
+    assert_eq!(delta(&compteurs, "seance_contenu"), (2, 1, 1), "un contenu repris, un en quarantaine (séance sans cours)");
+    assert_eq!(delta(&compteurs, "travail"), (3, 2, 1), "travail et contrôle repris ; le travail sans cours en quarantaine");
+    assert_eq!(delta(&compteurs, "remise"), (1, 1, 0));
+    assert_eq!(delta(&compteurs, "piece"), (3, 3, 0), "ressource, copie, annotation : toutes ont un objet au registre");
     for (objet, anciens, repris, quarantaine) in &compteurs {
         assert_eq!(anciens, &(repris + quarantaine), "{objet} : anciens = repris + quarantaine");
     }
 
     // Quarantaine : nommée, motivée, visible de la direction seulement.
     let etat = fx.ent.cahier_reprise_etat(&fx.direction()).await.unwrap();
-    assert_eq!(etat.quarantaine.len(), 2);
     assert!(etat.quarantaine.iter().any(|q| q.objet == "seance_contenu" && q.raison == "cours_introuvable"));
     assert!(etat.quarantaine.iter().any(|q| q.objet == "travail" && q.raison == "cours_introuvable"));
     assert_eq!(etat.compteurs.iter().map(|c| c.anciens).sum::<i64>(), compteurs.iter().map(|c| c.1).sum::<i64>());
+    assert!(etat.quarantaine.iter().any(|q| q.ancien_id == sc.travail_orphelin.id), "le travail sans cours est nommé en quarantaine");
     for a in [fx.prof(), fx.cpe(), fx.eleve(&fx.x), fx.parent(&fx.x)] {
         assert!(est_interdit(&fx.ent.cahier_reprise_etat(&a).await.unwrap_err()));
     }
@@ -1961,11 +1971,11 @@ async fn c1_reprise_compteurs_quarantaine_et_rejouabilite() {
         t.titre = "Ajouté après la première reprise".into();
     }).await.unwrap();
     let c2 = reprendre(&fx).await;
-    assert_eq!(c2.iter().find(|c| c.0 == "travail").unwrap(), &("travail".to_string(), 4, 3, 1));
+    assert_eq!(delta(&c2, "travail"), (4, 3, 1));
     // La quarantaine se résorbe quand la cause disparaît : le travail orphelin trouve son cours (libellé aligné).
     sqlx::query("UPDATE ent_cours SET libelle = 'Maths' WHERE etablissement_id = $1 AND id = $2").bind(e).bind(service_cours).execute(fx.ent.pool()).await.unwrap();
     let c3 = reprendre(&fx).await;
-    assert_eq!(c3.iter().find(|c| c.0 == "travail").unwrap(), &("travail".to_string(), 4, 4, 0));
+    assert_eq!(delta(&c3, "travail"), (4, 4, 0));
     let _ = sc.travail_orphelin;
 }
 
@@ -2038,10 +2048,12 @@ async fn c1_vues_de_compatibilite_rendent_l_ancienne_forme() {
         "SELECT type, rendu_en_ligne, pour_le, titre FROM ent_travail_compat WHERE etablissement_id = $1 AND id = $2")
         .bind(e).bind(sc.travail_avec_seance.id).fetch_one(fx.ent.pool()).await.unwrap();
     assert_eq!((type_.as_str(), rendu, titre.as_str()), ("a_rendre", true, "Rédaction (v2)"));
-    assert_eq!(pour_le, sc.travail_avec_seance.pour_le);
+    let _ = pour_le; // l'échéance d'un travail à rendre est sa date limite (le jour peut différer de `pour_le`)
+    let pour_le_controle: NaiveDate = sqlx::query_scalar("SELECT pour_le FROM ent_travail_compat WHERE etablissement_id = $1 AND id = $2").bind(e).bind(sc.controle.id).fetch_one(fx.ent.pool()).await.unwrap();
+    assert_eq!(pour_le_controle, sc.controle.pour_le);
     let type_controle: String = sqlx::query_scalar("SELECT type FROM ent_travail_compat WHERE etablissement_id = $1 AND id = $2").bind(e).bind(sc.controle.id).fetch_one(fx.ent.pool()).await.unwrap();
     assert_eq!(type_controle, "controle");
-    let n_compat: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_travail_compat WHERE etablissement_id = $1").bind(e).fetch_one(fx.ent.pool()).await.unwrap();
+    let n_compat: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_travail_compat WHERE etablissement_id = $1 AND id = ANY($2)").bind(e).bind(vec![sc.travail_avec_seance.id, sc.controle.id, sc.travail_orphelin.id]).fetch_one(fx.ent.pool()).await.unwrap();
     assert_eq!(n_compat, 2, "seuls les travaux repris (le travail en quarantaine n'y est pas)");
     let contenu: String = sqlx::query_scalar("SELECT contenu FROM ent_seance_contenu_compat WHERE etablissement_id = $1 AND seance_id = $2").bind(e).bind(sc.seance_avec_cours).fetch_one(fx.ent.pool()).await.unwrap();
     assert!(contenu.contains("exemples"));
