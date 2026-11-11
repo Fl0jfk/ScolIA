@@ -7,7 +7,7 @@ extracteur, CI), il évolue avec les migrations et un test le confronte au sché
 Statut : **implémenté et testé en local** ; D-037 est *proposée* (branche `ent-mc0hoe`), appliquée par défaut car sans
 coût et réversible (D-031). Rétentions : **à définir** pour toutes les tables sauf les états éphémères.
 
-## Ce que le registre classe (une ligne par table, 345 au 2026-11-10, dont les 9 du socle 42)
+## Ce que le registre classe (une ligne par table, 345 au 2026-11-10, dont les 9 du socle 42 ; **+5 le 2026-11-11** : messagerie M1 et M2, `ent_msg_fil_eleve`, `ent_msg_participant`, `ent_msg_reprise_rapport`, `ent_msg_reglage_version`, `ent_msg_version`, toutes par établissement avec RLS ; les deux tables qui portent `eleve_id` sont déclarées dans `TABLES_ELEVE`)
 portée (`Etablissement` / `ReferentielGlobal` / `CompteMultiEtablissement` / `Technique`), présence de `etablissement_id`,
 données personnelles, santé, fichiers (`Aucun` / `Reference` / `Objet` / `ObjetAvecResidu` / `Bytea`), export de portabilité, neutralisation
 à la restauration, rétention, **exceptions déclarées** (avec raison).

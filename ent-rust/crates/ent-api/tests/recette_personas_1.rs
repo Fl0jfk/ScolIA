@@ -1158,6 +1158,13 @@ fn rp1_c11_bis_documents_famille_cloisonnes_par_foyer() {
         .execute(&pool)
         .await
         .expect("fil de relance");
+        // M1 (R-M1) : un fil posé directement en base est un fil « hérité » sans participants ; la
+        // reprise (migration 483, MIG-2) les crée : payeurs actifs du foyer. C'est ce que la
+        // migration fait pour tout fil antérieur à M1.
+        sqlx::query("SELECT ent_msg_m1_reprise()")
+            .execute(&pool)
+            .await
+            .expect("reprise des fils hérités");
         pool.close().await;
         let liste = s.req("GET", "/messages/fils", Some("Lily Potter"), None).await;
         assert!(liste.texte.contains(&fil.to_string()), "Lily ne voit pas sa relance : {}", liste.texte);
