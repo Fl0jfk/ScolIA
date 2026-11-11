@@ -131,7 +131,7 @@ Ne pas stocker secrets ou données personnelles réelles. Ne pas journaliser cha
 - **Risque** : base, WAL et sauvegardes gonflés ; deux circuits de fichiers (base et stockage objet) à exporter et contrôler ; une restauration naïve **renverrait** des messages en attente aux familles.
 - **Correction proposée** : exigences E5 et E9 (`PRA_SAUVEGARDES.md` §18.4) ; reprise des deux tables vers le stockage objet à planifier.
 - **Apprentissage** : décider dès la conception d'une table si elle est « à restaurer » ou « à neutraliser » ; un fichier n'a rien à faire dans la base.
-## F-013 — Tests rouges seulement vers minuit de Paris : « aujourd'hui » calculé en UTC
+## F-015 — Tests rouges seulement vers minuit de Paris : « aujourd'hui » calculé en UTC
 
 - **Date / contexte :** 2026-11-11, branche `ent-tests-fuseau-minuit` ; CI rouge environ une heure par jour (23 h–0 h UTC).
 - **Faits :** entre 23 h et 0 h UTC (hiver ; 22 h–0 h UTC en été) la date UTC précède celle de l'établissement (Europe/Paris, fuseau du profil S2). Reproduit en local (PostgreSQL et binaire de test sous `faketime` à 23 h 30 UTC) : `tests_eleve_scolarite::entree_sortie_reintegration_et_non_chevauchement`, `tests_dossier_personnes::suspension_coupe_l_acces_partout`, `tests_finances::sepa_rejets_reglements_relances_export`, `tests_structure_s5::controle_choix_sans_groupe` échouaient ; S7 et P1 (ent-api) prennent aussi la date UTC.
