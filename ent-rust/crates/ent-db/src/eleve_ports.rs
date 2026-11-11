@@ -16,7 +16,7 @@
 //! * [`affecter_arrivee_en_cours_d_annee_tx`] — affectation initiale en classe, réservée aux
 //!   arrivées en cours d'année (la constitution des classes relève du socle 5).
 
-use chrono::{NaiveDate, Utc};
+use chrono::NaiveDate;
 use domain_eleve::DomainError;
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use serde_json::json;
@@ -461,7 +461,7 @@ pub async fn affecter_arrivee_en_cours_d_annee_tx(
     if !ok {
         return Ok(false);
     }
-    let debut = std::cmp::max(debut_annee, Utc::now().date_naive());
+    let debut = std::cmp::max(debut_annee, domain_eleve::horloge::jour_paris());
     let pose = sqlx::query(
         "INSERT INTO ent_affectation (id, etablissement_id, annee_id, eleve_id, classe_id, date_debut, source)
          VALUES ($1,$2,$3,$4,$5,$6,$7)

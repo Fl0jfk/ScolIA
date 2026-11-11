@@ -98,7 +98,7 @@ impl Cadre {
         let parent = compte(&ent, etab, "parent").await;
         let annee = ent.referentiel_annee_courante_assuree(etab).await.unwrap();
         // Un jour de sortie à l'intérieur de l'année, au plus tôt dans trois jours.
-        let jour = (chrono::Utc::now().date_naive() + Duration::days(3))
+        let jour = (domain_eleve::horloge::jour_paris() + Duration::days(3))
             .clamp(annee.date_debut, annee.date_fin - Duration::days(1));
         let sfx = Uuid::new_v4().simple().to_string()[..6].to_string();
         let classe_texte = format!("V0A{sfx}");

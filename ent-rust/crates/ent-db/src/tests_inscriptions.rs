@@ -67,7 +67,7 @@ async fn classe_courante(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
         Some((a,)) => a,
         None => {
             let a = Uuid::new_v4();
-            let today = chrono::Utc::now().date_naive();
+            let today = domain_eleve::horloge::jour_paris();
             sqlx::query(
                 "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
                  VALUES ($1,$2,$3,$4,$5,true)",
@@ -2315,7 +2315,7 @@ async fn parent_connecte_confirme_le_lien_d_inscription_en_un_geste() {
 
 async fn classe_annee_future(ent: &PgEnt, etab: Uuid, code: &str) -> Uuid {
     let a = Uuid::new_v4();
-    let today = chrono::Utc::now().date_naive();
+    let today = domain_eleve::horloge::jour_paris();
     sqlx::query(
         "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
          VALUES ($1,$2,$3,$4,$5,false)",

@@ -917,7 +917,7 @@ async fn consentement_droit_a_l_image_applique_au_trombinoscope() {
         .execute(ent.pool())
         .await
         .unwrap();
-    let jour = chrono::Utc::now().date_naive();
+    let jour = domain_eleve::horloge::jour_paris();
     assert_eq!(photo_trombi(&ent, etab, harry, jour).await, Some(cle.clone()), "sans décision : la photo reste affichée");
     // Droits : un parent ne crée pas de formulaire ; la direction oui.
     assert!(matches!(ent.creer_formulaire(etab, lea, "parent", consentement(c4b, "texte")).await, Err(EntDbError::Forbidden)));

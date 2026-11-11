@@ -647,7 +647,7 @@ async fn identite_versionnee_changement_sensible_scelle() {
     // Motif obligatoire ; rien à changer ; date future ; droits.
     assert!(refus(ent.modifier_identite_for_actor(etab, d, r, p.id, &id("Identite", "Samy", Some("m")), NatureIdentite::Correction, None, "").await));
     assert!(ent.modifier_identite_for_actor(etab, d, r, p.id, &id("Identite", "Sam", Some("m")), NatureIdentite::Correction, None, "rien changé").await.is_err());
-    let demain = chrono::Utc::now().date_naive() + chrono::Duration::days(3);
+    let demain = domain_eleve::horloge::jour_paris() + chrono::Duration::days(3);
     assert!(ent.modifier_identite_for_actor(etab, d, r, p.id, &id("Identite", "Samy", Some("m")), NatureIdentite::Correction, Some(demain), "futur").await.is_err());
     assert!(matches!(
         ent.modifier_identite_for_actor(etab, cast.prof.user_id, Role::Prof.as_str(), p.id, &id("Identite", "Samy", Some("m")), NatureIdentite::Correction, None, "droits").await,

@@ -263,7 +263,7 @@ async fn routes_cours_droits_cloisonnement_poste_vacant_et_conflits() {
     .await;
     assert_eq!(st, StatusCode::OK, "{m}");
     assert_eq!(m["libelle"], json!("Soutien maths 4e"));
-    let jour = chrono::Utc::now().date_naive();
+    let jour = domain_eleve::horloge::jour_paris();
     let (st, f) = appel(
         &app,
         "POST",
