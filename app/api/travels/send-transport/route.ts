@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
 import { getJson, putJson } from "@/app/lib/s3-storage";
+import { assertTravelsTripAccess } from "@/app/lib/travels-rbac-server";
+import type { TravelsTrip } from "@/app/lib/travels-types";
 import {
   buildInitialTransportQuoteSnapshot,
   sendInitialTransportQuotes,
@@ -20,6 +22,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Données voyage invalides" }, { status: 400 });
     }
 
+    // NJ-11 : sur un dossier existant, seuls le porteur, la direction, la comptabilité et l'admin déclenchent l'envoi.
+    const stored = await getJson<TravelsTrip>(`travels/${String(tripData.id)}.json`);
+    if (stored?.data) {
+      const access = await assertTravelsTripAccess(stored.data, { requireOwnerOrDirection: true });
+      if (!access.ok) {
+        return NextResponse.json({ error: access.error }, { status: access.status });
+      }
+    }
     const result = await sendInitialTransportQuotes({
       tripId: String(tripData.id),
       data,
