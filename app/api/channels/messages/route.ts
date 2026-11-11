@@ -3,7 +3,8 @@ import { NextRequest } from "next/server";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 
-import { requireAuth } from "@/app/lib/intranet-auth";
+import { requireChannelsViewer } from "@/app/lib/channels-gate";
+import { canDeleteChannelMessage, canReadChannel, type ChannelViewer } from "@/app/lib/channels-access";
 import {
   getBucketName,
   getJson,
@@ -14,6 +15,13 @@ import {
 import { getTenantAwsRegion } from "@/app/lib/tenant-config";
 import { isSafeS3RelativeKey } from "@/app/lib/s3-path";
 const FILE_KEY = "chat/messages.json";
+const CHANNELS_KEY = "channels/channels.json";
+
+async function readableChannelIds(viewer: ChannelViewer): Promise<Set<string>> {
+  const hit = await getJson<unknown[]>(CHANNELS_KEY);
+  const list = (Array.isArray(hit?.data) ? hit.data : [{ id: "general", type: "public" }]) as Array<{ id?: string; type?: string }>;
+  return new Set(list.filter((c) => canReadChannel(c, viewer)).map((c) => String(c.id)));
+}
 
 async function readMessagesFromS3( shouldSign: boolean = true) {
   try {
@@ -62,9 +70,11 @@ async function readMessagesFromS3( shouldSign: boolean = true) {
 }
 
 export async function GET() {
-  const gate = await requireAuth();
+  const gate = await requireChannelsViewer();
   if (!gate.ok) return gate.response;
-  const messages = await readMessagesFromS3( true);
+  const allowed = await readableChannelIds(gate.viewer);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const messages = (await readMessagesFromS3( true)).filter((m: any) => allowed.has(String(m.channel)));
   return new Response(JSON.stringify(messages), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -72,9 +82,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireAuth();
+  const gate = await requireChannelsViewer();
   if (!gate.ok) return gate.response;
-  const { userId } = gate.ctx;
+  const { userId } = gate.viewer;
   const session = await resolveSession();
   const authUserId = session?.userId;
   if (!authUserId) return new Response("Non autorisé", { status: 401 });
@@ -82,6 +92,10 @@ export async function POST(req: NextRequest) {
     const { resolveMemberProfileById } = await import("@/app/lib/members-db");
     const profile = await resolveMemberProfileById(userId);
     const body = await req.json();
+    const allowed = await readableChannelIds(gate.viewer);
+    if (!allowed.has(String(body.channel))) {
+      return new Response(JSON.stringify({ error: "Salon inaccessible." }), { status: 403 });
+    }
     const messages = await readMessagesFromS3( false);
     const newMessage = {
       id: Date.now(),
@@ -104,7 +118,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const gate = await requireAuth();
+  const gate = await requireChannelsViewer();
   if (!gate.ok) return gate.response;
     const session = await resolveSession();
     const userId = session?.userId;
@@ -114,6 +128,11 @@ export async function DELETE(req: NextRequest) {
   if (!messageId) return new Response("ID manquant", { status: 400 });
   try {
     const messages = await readMessagesFromS3( false);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const target = messages.find((m: any) => m.id.toString() === messageId) as any;
+    if (target && !canDeleteChannelMessage(target, gate.viewer)) {
+      return new Response(JSON.stringify({ error: "Réservé à l'auteur ou à l'administrateur." }), { status: 403 });
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const filteredMessages = messages.filter((m: any) => m.id.toString() !== messageId);
     await putJson(FILE_KEY, filteredMessages);
