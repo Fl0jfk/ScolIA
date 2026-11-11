@@ -75,6 +75,7 @@ Les défauts de calcul financier, qui touchent l'argent des familles sans être 
 - **Preuve :** `app/api/invitation/lookup/route.ts:12-55` ; `app/lib/invitation-db.ts:716-749, 915-942, 976-990` ; `db/schema-invitation.ts:45`.
 - **Source :** `socles/17_ANNONCES.md` §2.4 et §33.2 (PN-01, PN-02) ; `socles/19_AGENDA_RDV.md` §2.3 (ND-30), Q-AG13.
 - **Mesure immédiate :** fermer les pages d'invitation publiques, ou au minimum désactiver la recherche (`lookup`) et exiger la liste d'éligibles. Faire contrôler les réponses modifiées.
+- **Atténué le 2026-11-11 (commit 4457e990 sur main, à la demande de Florian)** : l'e-mail des parents est désormais masqué (« je•••@gm•••.com ») dans les réponses publiques. Le reste du défaut demeure (recherche publique par nom et date de naissance, modification de la réponse d'autrui) ; il est corrigé dans la version Rust (D-051).
 
 ### NJ-06 — Rendez-vous d'inscription : nom complet, classe et e-mails des responsables révélés
 - **Module :** M16, rendez-vous d'inscription (parcours public).
@@ -83,6 +84,7 @@ Les défauts de calcul financier, qui touchent l'argent des familles sans être 
 - **Preuve :** aucun fichier cité ; module `app/(public-rentree)/rdv-inscription/`, `app/lib/rdv-inscription-*.ts` (d'après `03_INSCRIPTIONS.md` §2.4).
 - **Source :** `socles/19_AGENDA_RDV.md` §2.3 (ND-20), Q-AG13 ; `socles/PERSONAS_19.md` (gravité confirmée).
 - **Mesure immédiate :** suspendre le rapprochement automatique avec les enfants dans le parcours public, ou fermer la prise de rendez-vous hors campagne. Faire corriger : aucune donnée nominative ne doit être renvoyée avant un rattachement vérifié.
+- **Atténué le 2026-11-11 (commit 4457e990 sur main, à la demande de Florian)** : l'e-mail des parents est désormais masqué (« je•••@gm•••.com ») dans les réponses publiques. Le reste du défaut demeure (recherche publique par nom et date de naissance, modification de la réponse d'autrui) ; il est corrigé dans la version Rust (D-051).
 
 ### NJ-07 — Voyages : n'importe quel utilisateur du module réécrit n'importe quel dossier, budget validé compris
 - **Module :** Sorties et voyages (`/api/travels/*`).
