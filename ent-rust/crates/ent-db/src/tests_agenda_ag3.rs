@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 /// Un lundi futur (au moins 9 jours), dans l'année courante du décor.
 fn lundi_futur() -> NaiveDate {
-    let mut j = Utc::now().date_naive() + Duration::days(9);
+    let mut j = domain_eleve::today_utc() + Duration::days(9);
     j += Duration::days((8 - i64::from(j.weekday().number_from_monday())) % 7);
     j
 }
@@ -280,7 +280,7 @@ async fn conflits_serie_a_rapport_et_creneau_passe() {
         2
     );
     // Passé, fin avant début : refusés.
-    let hier = Utc::now().date_naive() - Duration::days(1);
+    let hier = domain_eleve::today_utc() - Duration::days(1);
     assert!(ent
         .agenda_reserver_lieu(&p0, demande(d.salle, hier, 9, 10, "Hier"))
         .await
