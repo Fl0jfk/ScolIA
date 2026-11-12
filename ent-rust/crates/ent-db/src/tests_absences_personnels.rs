@@ -2387,8 +2387,9 @@ async fn a1_reprise_de_l_existant_sans_motif_en_clair() {
     .execute(x.ent.pool())
     .await
     .unwrap();
-    // La migration est rejouable : la rejouer reprend la ligne (E8).
-    x.ent.migrate().await.unwrap();
+    // La migration est rejouable (E8) : le lanceur ne la rejoue plus une fois enregistrée, on rejoue donc
+    // le fichier lui-même, comme le ferait une restauration ou un rejeu manuel.
+    rejouer_2302(&x).await;
     let (etat, zone, motif): (String, Option<String>, String) = sqlx::query_as(
         "SELECT a.etat, a.zone_qualification, r.motif FROM ent_absp_absence a JOIN ent_absence_rh r ON r.id = a.id WHERE a.id = $1",
     )
@@ -2403,10 +2404,17 @@ async fn a1_reprise_de_l_existant_sans_motif_en_clair() {
         "l'ancien motif ne reste pas dans la projection"
     );
     // La reprise ne double pas (rejouée deux fois).
-    x.ent.migrate().await.unwrap();
+    rejouer_2302(&x).await;
     assert_eq!(
         x.compter("SELECT count(*) FROM ent_absp_absence WHERE etablissement_id = $1")
             .await,
         1
     );
+}
+
+async fn rejouer_2302(x: &Cadre) {
+    sqlx::raw_sql(include_str!("../../../migrations/2302_absp_absence.sql"))
+        .execute(x.ent.pool())
+        .await
+        .expect("rejeu de la migration 2302");
 }
