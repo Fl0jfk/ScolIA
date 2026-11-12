@@ -134,6 +134,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("ent_mail_outbox", &["id"], "file d'envoi : messages déjà adressés"),
     r("ent_metier_event", &["id"], "événements déjà publiés : historique immuable"),
     d("ent_msg_fil", &["id"]),
+    d("ent_msg_fil_eleve", &["fil_id", "eleve_id"]),
+    d("ent_msg_participant", &["id"]),
     d("ent_note", &["id"]),
     d("ent_note_appreciation", &["id"]),
     d("ent_note_correction", &["id"]),

@@ -97,10 +97,11 @@ impl Role {
         )
     }
 
+    /// DA-01 / R-AS24 : un professeur ne déclare pas d'absence (il fait l'appel de sa séance).
     pub fn can_declare_absence_staff(self) -> bool {
         matches!(
             self,
-            Self::Admin | Self::Direction | Self::Administratif | Self::Cpe | Self::Prof
+            Self::Admin | Self::Direction | Self::Administratif | Self::Cpe
         )
     }
 
@@ -113,10 +114,11 @@ impl Role {
     }
 
     /// Remettre présent (erreur d'appel) — annule le fait d'absence.
+    /// DA-02 / R-AS24 : réservé à la vie scolaire ; le professeur corrige sa ligne d'appel.
     pub fn can_annuler_absence_vers_present(self) -> bool {
         matches!(
             self,
-            Self::Admin | Self::Direction | Self::Administratif | Self::Cpe | Self::Prof
+            Self::Admin | Self::Direction | Self::Administratif | Self::Cpe
         )
     }
 
@@ -336,7 +338,8 @@ mod tests {
     fn capacites_par_role() {
         assert!(Role::Cpe.can_trancher_justificatif());
         assert!(!Role::Prof.can_trancher_justificatif());
-        assert!(Role::Prof.can_annuler_absence_vers_present());
+        assert!(!Role::Prof.can_annuler_absence_vers_present(), "DA-02 : réservé à la vie scolaire");
+        assert!(Role::Cpe.can_annuler_absence_vers_present());
         assert!(Role::Infirmerie.can_read_all_eleves());
         assert!(!Role::Infirmerie.can_manage_eleves());
         assert!(!Role::Compta.can_saisir_notes());

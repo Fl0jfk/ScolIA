@@ -86,6 +86,32 @@ impl PgAbsenceRepo {
         Ok(())
     }
 
+    /// Absence `a_traiter` de l'élève couvrant ce jour (regroupement par journée, DA-05).
+    pub async fn trouver_a_traiter_jour_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<Uuid>, DomainError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM ent_absence
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'a_traiter'
+              AND debut <= $3 AND fin >= $3
+            ORDER BY created_at, id
+            LIMIT 1
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(jour)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|r| r.0))
+    }
+
     pub async fn get(
         &self,
         etablissement_id: Uuid,
