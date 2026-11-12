@@ -30,6 +30,7 @@ mod evaluations;
 mod finances;
 mod inscriptions;
 mod journee_vs;
+mod portail;
 mod referentiel;
 mod referentiel_admin;
 mod roles;
@@ -93,6 +94,7 @@ pub use ent_types::edt::EdtCreneauDto as Creneau;
 pub use ent_types::finances as types_finances;
 /// Types des inscriptions (S2-3), partagés avec `ent-api`.
 pub use ent_types::inscriptions as types_inscriptions;
+pub use ent_types::portail as types_portail;
 pub use ent_types::referentiel::{
     ClasseDetailDto as ClasseDetailApi, ClasseDto as ClasseApi, EleveClasseDto as EleveClasseApi,
     EnseignementDto as EnseignementApi, RapportAmorcageDto as RapportAmorcageApi,

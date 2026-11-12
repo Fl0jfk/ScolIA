@@ -220,6 +220,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
     include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
     include_str!("../../../migrations/481_msg_m0b_securite_fiabilite.sql"),
+    include_str!("../../../migrations/482_msg_m1_participants.sql"),
+    include_str!("../../../migrations/483_msg_m1_reprise.sql"),
+    include_str!("../../../migrations/484_msg_m2_matrice.sql"),
     include_str!("../../../migrations/500_objet_registre.sql"),
     include_str!("../../../migrations/520_finances_f0_immuabilite.sql"),
     include_str!("../../../migrations/560_delegation_droits_normalises.sql"),
@@ -248,13 +251,14 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/665_d036_personne_plage_joignable.sql"),
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
+    include_str!("../../../migrations/2240_assiduite_as0.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "667_d036_personne_fusion_normalisee";
+pub const MIGRATION_TAG: &str = "2240_assiduite_as0";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -347,7 +351,8 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        noms.sort();
+        // Tri numérique sur le préfixe (2240 > 642) et non lexical.
+        noms.sort_by_key(|n| n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0));
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(

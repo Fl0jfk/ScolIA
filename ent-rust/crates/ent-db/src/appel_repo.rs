@@ -186,6 +186,7 @@ impl PgAppelRepo {
         appel_id: Uuid,
         eleve_id: Uuid,
         etat: &LigneEtat,
+        modifie_par: Uuid,
     ) -> Result<bool, sqlx::Error> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         let statut: Option<(String,)> = sqlx::query_as(
@@ -206,7 +207,7 @@ impl PgAppelRepo {
         let result = sqlx::query(
             r#"
             UPDATE ent_appel_ligne l
-            SET etat = $4
+            SET etat = $4, modifie_par = $5, modifie_le = now()
             WHERE l.etablissement_id = $1 AND l.appel_id = $2 AND l.eleve_id = $3
               AND EXISTS (
                 SELECT 1 FROM ent_appel a
@@ -219,6 +220,7 @@ impl PgAppelRepo {
         .bind(appel_id)
         .bind(eleve_id)
         .bind(etat.as_str())
+        .bind(modifie_par)
         .execute(&mut *tx)
         .await?;
         if result.rows_affected() == 0 {
@@ -238,6 +240,7 @@ impl PgAppelRepo {
         tx: &mut sqlx::PgConnection,
         etablissement_id: Uuid,
         appel_id: Uuid,
+        valide_par: Uuid,
     ) -> Result<Option<Vec<AppelLigne>>, sqlx::Error> {
         let statut: Option<(String,)> = sqlx::query_as(
             r#"
@@ -268,12 +271,13 @@ impl PgAppelRepo {
         let result = sqlx::query(
             r#"
             UPDATE ent_appel
-            SET statut = 'clos', closed_at = now()
+            SET statut = 'clos', closed_at = now(), valide_par = $3, valide_le = now()
             WHERE etablissement_id = $1 AND id = $2 AND statut = 'ouvert'
             "#,
         )
         .bind(etablissement_id)
         .bind(appel_id)
+        .bind(valide_par)
         .execute(&mut *tx)
         .await?;
         if result.rows_affected() == 0 {
