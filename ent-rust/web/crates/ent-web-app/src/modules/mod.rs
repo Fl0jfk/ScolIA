@@ -5,6 +5,7 @@ pub mod absences;
 pub mod accompagnement;
 pub mod accueil;
 pub mod afaire;
+pub mod agenda;
 pub mod amenagements;
 pub mod appel;
 pub mod cahier;

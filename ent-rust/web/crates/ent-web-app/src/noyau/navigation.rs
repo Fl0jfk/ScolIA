@@ -35,6 +35,9 @@ pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const CAHIER: &str = "/web/cahier";
 pub const AGENDA: &str = "/web/agenda";
+/// Mon agenda (socle 19, lot AG1) : événements, rendez-vous, cours et fermetures de la semaine.
+/// (`/web/agenda` reste « Travail à faire », cahier de textes.)
+pub const MON_AGENDA: &str = "/web/mon-agenda";
 /// Sorties et voyages (socle 42, lot V0a) : personnel selon le moteur de droits, familles et élèves.
 pub const VOYAGES: &str = "/web/voyages";
 /// Évaluations, conseils, bulletins (S2-7).
@@ -87,6 +90,9 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     // Socle 29 (P3) : la seule liste transverse de ce que la famille (ou l'élève) doit faire.
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("À faire", A_FAIRE, NomIcone::Annonce));
+    }
+    if droits.personnel || droits.portail_famille || droits.mes_absences {
+        v.push(entree("Mon agenda", MON_AGENDA, NomIcone::Agenda));
     }
     if droits.emploi_du_temps {
         v.push(entree("Emploi du temps", EMPLOI_DU_TEMPS, NomIcone::Agenda));
@@ -252,6 +258,7 @@ mod tests {
             prof,
             [
                 ACCUEIL,
+                MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
                 APPEL,
@@ -270,6 +277,7 @@ mod tests {
             secretariat,
             [
                 ACCUEIL,
+                MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
                 APPEL,
@@ -287,7 +295,7 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, EDT_SEMAINE, CLASSES, DELEGATIONS],
+            [ACCUEIL, MON_AGENDA, EDT_SEMAINE, CLASSES, DELEGATIONS],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -299,6 +307,7 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
                 EVALUATIONS,
@@ -321,6 +330,7 @@ mod tests {
             cpe,
             [
                 ACCUEIL,
+                MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
                 APPEL,
@@ -342,6 +352,7 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -465,6 +476,7 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
                 EVALUATIONS,

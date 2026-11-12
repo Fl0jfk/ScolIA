@@ -47,7 +47,98 @@ fn main() {
         let code = rt.block_on(reprise_pieces(&args[1..]));
         std::process::exit(code);
     }
+    // Opérateur de la plateforme : établissements et domaines (B-02, pas de route HTTP).
+    if args.first().map(String::as_str) == Some("plateforme-domaine") {
+        let code = rt.block_on(plateforme_domaine(&args[1..]));
+        std::process::exit(code);
+    }
     rt.block_on(run_api());
+}
+
+const AIDE_PLATEFORME: &str = "\
+ent-api plateforme-domaine <commande>
+  Outil de l'opérateur ScolIA (accès direct à la base, ENT_DATABASE_URL) : un administrateur
+  d'établissement ne peut ni ajouter ni retirer un domaine (audit Fable 1, B-02).
+
+  lister                                    tous les domaines servis et leur établissement
+  declarer <etablissement-uuid> <slug> <nom>  déclare un établissement ou change son slug/nom
+  ajouter  <etablissement-uuid> <domaine>   rattache un domaine (hôtes réservés refusés,
+                                            domaine d'un autre établissement refusé)
+  retirer  <etablissement-uuid> <domaine>   retire un domaine
+Code de sortie : 0 succès ; 1 erreur.
+";
+
+async fn plateforme_domaine(args: &[String]) -> i32 {
+    let commande = args.first().map(String::as_str).unwrap_or("--aide");
+    if matches!(commande, "--aide" | "--help" | "-h") {
+        print!("{AIDE_PLATEFORME}");
+        return 0;
+    }
+    let etab = |i: usize| args.get(i).and_then(|v| uuid::Uuid::parse_str(v).ok());
+    let Ok(url) = std::env::var("ENT_DATABASE_URL") else {
+        return erreur_plateforme("ENT_DATABASE_URL requis");
+    };
+    let ent = match ent_db::PgEnt::connect(&url).await {
+        Ok(e) => e,
+        Err(e) => return erreur_plateforme(&format!("connexion : {e}")),
+    };
+    let resultat: Result<String, String> = match (commande, args.len()) {
+        ("lister", 1) => ent
+            .lister_domaines_plateforme()
+            .await
+            .map(|l| {
+                l.into_iter()
+                    .map(|(d, e)| format!("{d}\t{e}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .map_err(|e| e.to_string()),
+        ("declarer", 4) => match etab(1) {
+            Some(id) => ent
+                .declarer_etablissement_plateforme(id, &args[2], &args[3])
+                .await
+                .map(|i| format!("établissement {} déclaré : {} ({})", i.id, i.slug, i.nom))
+                .map_err(|e| e.to_string()),
+            None => Err("UUID d'établissement invalide".into()),
+        },
+        ("ajouter", 3) => match etab(1) {
+            Some(id) => ent
+                .ajouter_domaine_plateforme(id, &args[2])
+                .await
+                .map(|d| format!("domaine {d} rattaché à {id}"))
+                .map_err(|e| e.to_string()),
+            None => Err("UUID d'établissement invalide".into()),
+        },
+        ("retirer", 3) => match etab(1) {
+            Some(id) => ent
+                .retirer_domaine_plateforme(id, &args[2])
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|retire| {
+                    if retire {
+                        Ok(format!("domaine retiré de {id}"))
+                    } else {
+                        Err("domaine non servi par cet établissement".into())
+                    }
+                }),
+            None => Err("UUID d'établissement invalide".into()),
+        },
+        _ => Err("commande ou nombre d'arguments invalide (voir --aide)".into()),
+    };
+    match resultat {
+        Ok(msg) => {
+            if !msg.is_empty() {
+                println!("{msg}");
+            }
+            0
+        }
+        Err(e) => erreur_plateforme(&e),
+    }
+}
+
+fn erreur_plateforme(msg: &str) -> i32 {
+    eprintln!("plateforme-domaine : {msg}");
+    1
 }
 
 const AIDE_REPRISE: &str = "\
@@ -253,6 +344,10 @@ async fn run_api() {
                         .await
                     {
                         tracing::warn!(error = %e, "rappels de rendez-vous en échec");
+                    }
+                    // RD-05 : rendez-vous dont le responsable a perdu son lien avec l'enfant.
+                    if let Err(e) = ent.reviser_rdv_liens_rompus(chrono::Utc::now(), None).await {
+                        tracing::warn!(error = %e, "revue des rendez-vous à lien rompu en échec");
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(300)).await;
                 }

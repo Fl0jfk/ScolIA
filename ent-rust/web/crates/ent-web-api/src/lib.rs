@@ -17,6 +17,7 @@ mod transport;
 
 // Services par domaine (méthodes de `ApiClient`).
 mod afaire;
+mod agenda;
 mod appel;
 mod auth;
 mod cahier;
