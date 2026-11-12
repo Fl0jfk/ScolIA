@@ -173,6 +173,7 @@ pub(crate) fn aggregate_str(a: AggregateKind) -> &'static str {
         AggregateKind::Import => "import",
         AggregateKind::Voyage => "voyage",
         AggregateKind::AgendaEvenement => "agenda_evenement",
+        AggregateKind::Stage => "stage",
     }
 }
 
@@ -241,6 +242,7 @@ pub(crate) fn parse_aggregate(s: &str) -> AggregateKind {
         "import" => AggregateKind::Import,
         "voyage" => AggregateKind::Voyage,
         "agenda_evenement" => AggregateKind::AgendaEvenement,
+        "stage" => AggregateKind::Stage,
         _ => AggregateKind::Eleve,
     }
 }

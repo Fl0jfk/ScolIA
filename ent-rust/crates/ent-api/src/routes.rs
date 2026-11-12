@@ -61,7 +61,7 @@ use crate::dto::{
     IbanHistoDto, InscriptionSuiviDto, UpsertInscriptionSuiviBody, SmsOutboxDto,
     CreerTarifConsoBody, TarifConsoDto, AbsenceRhDto, DeclarerAbsenceRhBody,
     AffecterEdtCreneauBody, CreerEditionVsBody, EditionVsDto, EditionVsRenduDto,
-    RendreEditionVsBody, ConventionStageDto, CreerConventionStageBody, CreerEntrepriseBody,
+    RendreEditionVsBody, ChangerStatutConventionStageBody, ConventionStageDto, CreerConventionStageBody, CreerEntrepriseBody,
     EntrepriseDto, CreerEdtContrainteBody, EdtContrainteDto,
     CreateFoyerBody, EleveLienDto, FoyerDetailDto, FoyerLienDto, FoyerListItemDto,
     RattacherResponsableFoyerBody, SetEmailBody, SetTelephoneBody, UpdateLienBody, UpdateLiensEleveBody,
@@ -446,6 +446,14 @@ pub fn router() -> Router<AppState> {
             get(list_presences_internat).post(pointer_presence_internat),
         )
         .route(
+            "/vs/internat/chambres/{id}",
+            axum::routing::patch(modifier_chambre_internat),
+        )
+        .route(
+            "/vs/internat/presences/historique",
+            get(historique_presence_internat),
+        )
+        .route(
             "/eleves/{id}/internat",
             get(get_recap_internat),
         )
@@ -605,6 +613,7 @@ pub fn router() -> Router<AppState> {
             get(list_entreprises).post(creer_entreprise),
         )
         .route("/conventions-stage", post(creer_convention_stage))
+        .route("/conventions-stage/{id}/statut", post(changer_statut_convention_stage))
         .route(
             "/eleves/{id}/conventions-stage",
             get(list_conventions_eleve),
@@ -833,6 +842,9 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::structure_cours::routes());
     // Socle 42, lot V0a : sorties et voyages scolaires collectifs (`voyages.rs`).
     let r = r.merge(crate::voyages::routes());
+    let r = r.merge(crate::internat::routes());
+    // Socle 42, lot V0c : prestataires, devis, commandes, avenants, boîte de réception (`voyages_achats.rs`).
+    let r = r.merge(crate::voyages_achats::routes());
     let r = r.merge(crate::cahier::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
@@ -864,6 +876,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
     let r = r.merge(crate::personnels_missions::routes());
+    // Stages (socle 39, lot ST1 (a) : `stages.rs`).
+    let r = r.merge(crate::stages::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -4973,7 +4987,14 @@ async fn list_affectations_internat(
     session: EntSession,
     Query(q): Query<JourQuery>,
 ) -> Result<Json<Vec<AffectationInternatDto>>, (StatusCode, String)> {
-    let jour = q.jour.unwrap_or_else(today_utc);
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .nuit_courante_internat(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let list = state
         .ent
         .list_affectations_internat_jour_for_actor(session.etablissement_id, &session.role, jour)
@@ -5063,6 +5084,15 @@ async fn pointer_presence_internat(
     session: EntSession,
     Json(body): Json<PointerPresenceInternatBody>,
 ) -> Result<Json<PresenceInternatDto>, (StatusCode, String)> {
+    // La nuit par défaut est celle de l'établissement (date du soir, fuseau local : R-IT5).
+    let jour = match body.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .nuit_courante_internat(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let p = state
         .ent
         .pointer_presence_internat_for_actor(
@@ -5070,10 +5100,12 @@ async fn pointer_presence_internat(
             PointerPresenceInternat {
                 etablissement_id: session.etablissement_id,
                 eleve_id: body.eleve_id,
-                jour: body.jour.unwrap_or_else(today_utc),
+                jour,
                 statut: body.statut,
                 note: body.note,
                 actor_user_id: session.user_id,
+                motif_correction_code: body.motif_correction_code,
+                motif_correction_texte: body.motif_correction_texte,
             },
         )
         .await
@@ -5081,12 +5113,58 @@ async fn pointer_presence_internat(
     Ok(Json(PresenceInternatDto::from(&p)))
 }
 
+#[derive(Debug, Deserialize)]
+struct HistoriquePresenceQuery {
+    eleve_id: Uuid,
+    jour: NaiveDate,
+}
+
+async fn historique_presence_internat(
+    State(state): State<AppState>,
+    session: EntSession,
+    Query(q): Query<HistoriquePresenceQuery>,
+) -> Result<Json<Vec<PresenceInternatDto>>, (StatusCode, String)> {
+    let list = state
+        .ent
+        .historique_presence_internat_for_actor(session.etablissement_id, &session.role, q.eleve_id, q.jour)
+        .await
+        .map_err(map_db)?;
+    Ok(Json(list.iter().map(PresenceInternatDto::from).collect()))
+}
+
+async fn modifier_chambre_internat(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ent_types::internat::ChambreModifDto>,
+) -> Result<Json<ent_types::internat::ChambreEtendueDto>, (StatusCode, String)> {
+    let c = state
+        .ent
+        .modifier_chambre_internat_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            id,
+            &body,
+        )
+        .await
+        .map_err(map_db)?;
+    Ok(Json(c))
+}
+
 async fn list_presences_internat(
     State(state): State<AppState>,
     session: EntSession,
     Query(q): Query<JourQuery>,
 ) -> Result<Json<Vec<PresenceInternatDto>>, (StatusCode, String)> {
-    let jour = q.jour.unwrap_or_else(today_utc);
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .nuit_courante_internat(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let list = state
         .ent
         .list_presences_internat_jour_for_actor(session.etablissement_id, &session.role, jour)
@@ -5108,7 +5186,14 @@ async fn get_recap_internat(
     Path(id): Path<Uuid>,
     Query(q): Query<JourQuery>,
 ) -> Result<Json<RecapInternatDto>, (StatusCode, String)> {
-    let jour = q.jour.unwrap_or_else(today_utc);
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .nuit_courante_internat(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let recap = state
         .ent
         .get_recap_internat_for_actor(
@@ -5183,7 +5268,11 @@ async fn creer_suivi_internat(
         )
         .await
         .map_err(map_db)?;
-    Ok((StatusCode::CREATED, Json(SuiviInternatDto::from(&s))))
+    let mut dto = SuiviInternatDto::from(&s);
+    if domain_eleve::mots_de_sante_detectes(&s.texte) {
+        dto.avertissement = Some("sante".to_string());
+    }
+    Ok((StatusCode::CREATED, Json(dto)))
 }
 
 async fn list_dispenses_vs(
@@ -6332,7 +6421,7 @@ async fn list_absences_rh(
     let fin = q.fin.unwrap_or(debut);
     let list = state
         .ent
-        .list_absences_rh_for_actor(session.etablissement_id, &session.role, debut, fin)
+        .list_absences_rh_pour(session.etablissement_id, &session.role, Some(session.user_id), debut, fin)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -7462,7 +7551,7 @@ async fn list_entreprises(
 ) -> Result<Json<Vec<EntrepriseDto>>, (StatusCode, String)> {
     let list = state
         .ent
-        .list_entreprises_for_actor(session.etablissement_id, &session.role)
+        .list_entreprises_for_actor(session.etablissement_id, session.user_id, &session.role)
         .await
         .map_err(map_db)?;
     Ok(Json(list.iter().map(EntrepriseDto::from).collect()))
@@ -7518,6 +7607,33 @@ async fn creer_convention_stage(
     )
     .await?;
     Ok((StatusCode::CREATED, Json(enriched.remove(0))))
+}
+
+async fn changer_statut_convention_stage(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(body): Json<ChangerStatutConventionStageBody>,
+) -> Result<Json<ConventionStageDto>, (StatusCode, String)> {
+    let c = state
+        .ent
+        .changer_statut_convention_stage_for_actor(
+            session.etablissement_id,
+            &session.role,
+            session.user_id,
+            id,
+            body.version,
+            &body.statut,
+        )
+        .await
+        .map_err(map_db)?;
+    let mut enriched = enrich_conventions_stage(
+        &state,
+        session.etablissement_id,
+        vec![ConventionStageDto::from(&c)],
+    )
+    .await?;
+    Ok(Json(enriched.remove(0)))
 }
 
 async fn list_conventions_eleve(
@@ -8455,15 +8571,18 @@ async fn list_edt_eleve(
     Path(id): Path<Uuid>,
     Query(q): Query<EdtEleveQuery>,
 ) -> Result<Json<Vec<EdtCreneauDto>>, (StatusCode, String)> {
+    // D8 (socle 10 T0) : « aujourd'hui » = jour de l'établissement, pas le jour UTC.
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .aujourdhui_etablissement(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let list = state
         .ent
-        .list_edt_eleve_jour_for_actor(
-            session.etablissement_id,
-            &session.role,
-            session.user_id,
-            id,
-            q.jour.unwrap_or_else(today_utc),
-        )
+        .list_edt_eleve_jour_for_actor(session.etablissement_id, &session.role, session.user_id, id, jour)
         .await
         .map_err(map_db)?;
     Ok(Json(
@@ -8480,10 +8599,10 @@ struct EdtIcalQuery {
 const EDT_ICAL_MAX_DAYS: i64 = 62;
 
 fn resolve_edt_ical_range(
+    today: NaiveDate,
     debut: Option<NaiveDate>,
     fin: Option<NaiveDate>,
 ) -> Result<(NaiveDate, NaiveDate), (StatusCode, String)> {
-    let today = today_utc();
     let (debut, fin) = match (debut, fin) {
         (None, None) => {
             let lundi = domain_eleve::lundi_iso(today);
@@ -8574,7 +8693,12 @@ async fn export_edt_eleve_ics(
     Path(id): Path<Uuid>,
     Query(q): Query<EdtIcalQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    let (debut, fin) = resolve_edt_ical_range(q.debut, q.fin)?;
+    let today = state
+        .ent
+        .aujourdhui_etablissement(session.etablissement_id)
+        .await
+        .map_err(map_db)?;
+    let (debut, fin) = resolve_edt_ical_range(today, q.debut, q.fin)?;
     let occurrences =
         edt_eleve_occurrences_for_range(&state, &session, id, debut, fin).await?;
     let cal_name = format!("EDT élève {debut} — {fin}");
@@ -8588,7 +8712,12 @@ async fn export_mes_creneaux_ics(
     session: EntSession,
     Query(q): Query<EdtIcalQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    let (debut, fin) = resolve_edt_ical_range(q.debut, q.fin)?;
+    let today = state
+        .ent
+        .aujourdhui_etablissement(session.etablissement_id)
+        .await
+        .map_err(map_db)?;
+    let (debut, fin) = resolve_edt_ical_range(today, q.debut, q.fin)?;
     let occurrences = edt_mes_occurrences_for_range(&state, &session, debut, fin).await?;
     let cal_name = format!("Mon EDT {debut} — {fin}");
     let body = render_edt_calendar(&cal_name, &occurrences);
@@ -8696,7 +8825,14 @@ async fn list_mes_creneaux(
     if session.role != "eleve" {
         session.require_faire_appel()?;
     }
-    let jour = q.jour.unwrap_or_else(today_utc);
+    let jour = match q.jour {
+        Some(j) => j,
+        None => state
+            .ent
+            .aujourdhui_etablissement(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     let list = state
         .ent
         .list_mes_creneaux(
@@ -12475,6 +12611,34 @@ async fn enrich_inscriptions_suivi(
     Ok(list)
 }
 
+/// Statut HTTP des refus de règle de l'internat (`None` : autre erreur, classée plus loin).
+fn statut_internat(e: &domain_eleve::DomainError) -> Option<StatusCode> {
+    use domain_eleve::DomainError as D;
+    match e {
+        D::InternatChambrePleine
+        | D::InternatDejaAffecte
+        | D::InternatRegimeRequis
+        | D::InternatPublicIncompatible
+        | D::InternatInterdictionContact
+        | D::InternatChambreFermee
+        | D::InternatAccessibiliteRequise
+        | D::InternatCapaciteSousOccupation
+        | D::InternatChambreOccupee
+        | D::InternatLitIndisponible
+        | D::InternatAffectationDejaClose => Some(StatusCode::CONFLICT),
+        D::InternatNuitFuture
+        | D::InternatMotifRequis
+        | D::InternatChambreInvalide
+        | D::InternatAffectationInvalide
+        | D::InternatPresenceInvalide
+        | D::InternatSuiviInvalide
+        | D::InternatSejourInvalide
+        | D::InternatRythmeInvalide
+        | D::InternatZoneInvalide => Some(StatusCode::UNPROCESSABLE_ENTITY),
+        _ => None,
+    }
+}
+
 pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
     if let Some(r) = erreur_infra(&err) {
         return r;
@@ -12489,6 +12653,11 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
                 ent_db::RefusMetier::Interdit => StatusCode::FORBIDDEN,
             };
             return (code, err.to_string());
+        }
+        // Stages : refus typé (RS-10) — 409 pour un conflit d'état, 422 pour une saisie invalide.
+        ent_db::EntDbError::Domain(domain_eleve::DomainError::Stage(e)) => {
+            let code = if e.est_conflit() { StatusCode::CONFLICT } else { StatusCode::UNPROCESSABLE_ENTITY };
+            return (code, e.message().to_string());
         }
         ent_db::EntDbError::FichierAbsent => return (StatusCode::NOT_FOUND, err.to_string()),
         ent_db::EntDbError::LiensIndisponibles => {
@@ -12526,6 +12695,10 @@ pub(crate) fn map_db(err: ent_db::EntDbError) -> (StatusCode, String) {
         }
         ent_db::EntDbError::Domain(domain_eleve::DomainError::TenantMismatch) => {
             return (StatusCode::FORBIDDEN, err.to_string());
+        }
+        // Internat (socle 41) : refus de règle → 409 (état incompatible) ou 422 (saisie invalide).
+        ent_db::EntDbError::Domain(e) if statut_internat(e).is_some() => {
+            return (statut_internat(e).unwrap_or(StatusCode::BAD_REQUEST), err.to_string());
         }
         // Dossier élève (S2-1) : classement par variante, messages sans donnée personnelle.
         ent_db::EntDbError::SaisieInvalide(_) => return (StatusCode::BAD_REQUEST, err.to_string()),
@@ -13275,7 +13448,7 @@ async fn list_etablissement_domaines(
     }))
 }
 
-/// Déclare / renomme l'établissement de la session (Admin, journalisé).
+/// Déclare / renomme l'établissement de la session (Admin, journalisé ; slug immuable, B-02).
 async fn put_etablissement_fiche(
     State(state): State<AppState>,
     session: EntSession,
@@ -13295,7 +13468,8 @@ async fn put_etablissement_fiche(
     Ok(Json(info.into()))
 }
 
-/// Rattache un domaine à l'établissement de la session (Admin, journalisé).
+/// Ajout de domaine par l'administrateur : refusé (403, B-02) ; réservé à l'opérateur
+/// (`ent-api plateforme-domaine ajouter`).
 async fn post_etablissement_domaine(
     State(state): State<AppState>,
     session: EntSession,
@@ -13317,7 +13491,7 @@ async fn post_etablissement_domaine(
     ))
 }
 
-/// Retire un domaine de l'établissement de la session (Admin, journalisé).
+/// Retrait de domaine par l'administrateur : refusé (403, B-02) ; réservé à l'opérateur.
 async fn delete_etablissement_domaine(
     State(state): State<AppState>,
     session: EntSession,

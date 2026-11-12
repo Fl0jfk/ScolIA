@@ -217,6 +217,11 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/375_msg_fil_prive.sql"),
     include_str!("../../../migrations/376_sepa_unicite_encaissement.sql"),
     include_str!("../../../migrations/377_edt_exception_absence_etab.sql"),
+    include_str!("../../../migrations/440_edt_t0_correctifs.sql"),
+    include_str!("../../../migrations/441_edt_t1_versions.sql"),
+    include_str!("../../../migrations/442_edt_t1_placements.sql"),
+    include_str!("../../../migrations/443_edt_t2_seance_enrichie.sql"),
+    include_str!("../../../migrations/444_edt_t2_seance_lieux_intervenants.sql"),
     include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
     include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
     include_str!("../../../migrations/481_msg_m0b_securite_fiabilite.sql"),
@@ -237,12 +242,15 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/585_rls_evaluations_pedagogie.sql"),
     include_str!("../../../migrations/586_rls_inscriptions.sql"),
     include_str!("../../../migrations/587_rls_structure_acces_divers.sql"),
+    // Socle 10 : RLS des tables EDT créées en 441–444 (ent_rls_poser est définie en 580).
+    include_str!("../../../migrations/452_edt_rls_permissive.sql"),
     include_str!("../../../migrations/600_rls_stricte_adhesion_contexte.sql"),
     include_str!("../../../migrations/601_pieces_vers_objets.sql"),
     include_str!("../../../migrations/640_sortie_coeur.sql"),
     include_str!("../../../migrations/641_sortie_participants.sql"),
     include_str!("../../../migrations/642_sortie_encadrants.sql"),
     include_str!("../../../migrations/643_sortie_budget.sql"),
+    include_str!("../../../migrations/644_sortie_prestataires.sql"),
     include_str!("../../../migrations/661_d036_corrections_lot1.sql"),
     include_str!("../../../migrations/662_d036_profil_jours_ouvres.sql"),
     include_str!("../../../migrations/663_d036_parametre_type.sql"),
@@ -253,13 +261,20 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
     include_str!("../../../migrations/2380_agenda_ag0_rencontres.sql"),
     include_str!("../../../migrations/2381_agenda_evenement.sql"),
+    include_str!("../../../migrations/2780_stage_st0_correctifs.sql"),
+    include_str!("../../../migrations/2781_stage_st1a_parametres_organismes.sql"),
+    include_str!("../../../migrations/2782_stage_st1a_periodes.sql"),
+    include_str!("../../../migrations/2820_internat_i0_presence_faits.sql"),
+    include_str!("../../../migrations/2821_internat_i0_regime_parametres.sql"),
+    include_str!("../../../migrations/2822_internat_i1_zones_chambres_lits.sql"),
+    include_str!("../../../migrations/2823_internat_i1_sejours_affectations.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2381_agenda_evenement";
+pub const MIGRATION_TAG: &str = "2823_internat_i1_sejours_affectations";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -352,8 +367,14 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        // Tri numérique sur le préfixe (2240 > 642) et non lexical.
-        noms.sort_by_key(|n| n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0));
+        // Tri NUMÉRIQUE sur le préfixe : les plages à quatre chiffres (2820–2839, socle 41)
+        // dépassent celles à trois chiffres, ce que le tri alphabétique ne voit pas.
+        noms.sort_by_key(|n| {
+            (
+                n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0),
+                n.clone(),
+            )
+        });
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(

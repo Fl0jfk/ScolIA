@@ -82,6 +82,12 @@ pub struct RapportSeances {
     pub creees: i64,
     pub mises_a_jour: i64,
     pub supprimees: i64,
+    /// Séances « plus attendues » qui portent un contenu de cahier ou un travail : retirées
+    /// (état `retiree`), jamais supprimées (socle 10, D1).
+    pub retirees: i64,
+    /// Séances rattachées à leur placement et à leur version (socle 10, T2) : information, jamais une
+    /// modification du plan.
+    pub rattachees: i64,
     /// Jours de la plage sans séance parce que neutralisés par le calendrier.
     pub jours_neutralises: i64,
     /// Créneaux A/B ignorés faute de calendrier d'alternance (aucune séance inventée).
@@ -214,6 +220,149 @@ pub fn planifier_seances(
     (plans, jours_neutres, ab_ignores.len() as i64)
 }
 
+/// D1 (socle 10) : une séance qui porte un contenu de cahier ou un travail n'est jamais supprimée,
+/// elle est **retirée** (état `retiree`, date, motif) ; une séance vide est supprimée. Retourne
+/// `(retirées, supprimées)`. Toute suppression d'une séance passe par cette fonction.
+pub(crate) async fn retirer_ou_supprimer_seances(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    ids: &[Uuid],
+    motif: &str,
+) -> Result<(i64, i64), EntDbError> {
+    let retirees = sqlx::query(
+        "UPDATE ent_edt_seance s
+            SET statut = 'retiree', retiree_le = now(), retiree_motif = $3, updated_at = now()
+          WHERE s.etablissement_id = $1 AND s.id = ANY($2) AND s.statut <> 'retiree'
+            AND (EXISTS (SELECT 1 FROM ent_seance_contenu c
+                          WHERE c.etablissement_id = s.etablissement_id AND c.seance_id = s.id)
+                 OR EXISTS (SELECT 1 FROM ent_travail t
+                             WHERE t.etablissement_id = s.etablissement_id AND t.seance_id = s.id))",
+    )
+    .bind(etab)
+    .bind(ids)
+    .bind(motif)
+    .execute(&mut **tx)
+    .await
+    .map_err(db)?
+    .rows_affected() as i64;
+    let supprimees = sqlx::query(
+        "DELETE FROM ent_edt_seance s
+          WHERE s.etablissement_id = $1 AND s.id = ANY($2) AND s.statut <> 'retiree'
+            AND NOT EXISTS (SELECT 1 FROM ent_seance_contenu c
+                             WHERE c.etablissement_id = s.etablissement_id AND c.seance_id = s.id)
+            AND NOT EXISTS (SELECT 1 FROM ent_travail t
+                             WHERE t.etablissement_id = s.etablissement_id AND t.seance_id = s.id)",
+    )
+    .bind(etab)
+    .bind(ids)
+    .execute(&mut **tx)
+    .await
+    .map_err(db)?
+    .rows_affected() as i64;
+    Ok((retirees, supprimees))
+}
+
+impl PgEnt {
+    /// Socle 10 (T2) : rattache les séances générées de `[du, au]` à leur placement et à leur version
+    /// (identité stable : la séance du 12 novembre reste la même quand le plan est republié), pose le
+    /// cours et le code de créneau, synchronise les lieux depuis la salle de la séance, et le motif
+    /// PUBLIC des annulations de lot. Idempotent : ne réécrit que ce qui diffère.
+    pub(crate) async fn rattacher_seances(
+        tx: &mut sqlx::PgConnection,
+        etab: Uuid,
+        annee_id: Uuid,
+        du: NaiveDate,
+        au: NaiveDate,
+        version_id: Uuid,
+    ) -> Result<i64, EntDbError> {
+        let rattachees = sqlx::query(
+            "UPDATE ent_edt_seance s
+                SET placement_id = p.id, version_id = p.version_id, cours_id = c.cours_id,
+                    creneau_code = p.creneau_debut_code, calcule_le = now()
+               FROM ent_edt_creneau c
+               JOIN ent_edt_placement p ON p.creneau_id = c.id AND p.etablissement_id = c.etablissement_id
+              WHERE s.etablissement_id = $1 AND s.annee_id = $2 AND s.jour BETWEEN $3 AND $4
+                AND s.creneau_id = c.id AND s.etablissement_id = c.etablissement_id
+                AND p.version_id = $5 AND s.statut <> 'retiree'
+                AND (s.placement_id IS DISTINCT FROM p.id OR s.version_id IS DISTINCT FROM p.version_id
+                     OR s.cours_id IS DISTINCT FROM c.cours_id
+                     OR s.creneau_code IS DISTINCT FROM p.creneau_debut_code)",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .bind(du)
+        .bind(au)
+        .bind(version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?
+        .rows_affected() as i64;
+        // Lieux : la salle (texte) de la séance, résolue dans le référentiel des lieux.
+        sqlx::query(
+            "DELETE FROM ent_edt_seance_lieu l USING ent_edt_seance s
+              WHERE l.etablissement_id = $1 AND s.id = l.seance_id AND s.etablissement_id = l.etablissement_id
+                AND s.annee_id = $2 AND s.jour BETWEEN $3 AND $4
+                AND NOT EXISTS (SELECT 1 FROM ent_salle sa
+                                 WHERE sa.id = l.lieu_id AND sa.etablissement_id = s.etablissement_id
+                                   AND lower(btrim(sa.code)) = lower(btrim(coalesce(s.salle, ''))))",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .bind(du)
+        .bind(au)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "INSERT INTO ent_edt_seance_lieu (seance_id, etablissement_id, lieu_id, principal)
+             SELECT s.id, s.etablissement_id, sa.id, true
+               FROM ent_edt_seance s
+               JOIN ent_salle sa ON sa.etablissement_id = s.etablissement_id
+                AND lower(btrim(sa.code)) = lower(btrim(s.salle))
+              WHERE s.etablissement_id = $1 AND s.annee_id = $2 AND s.jour BETWEEN $3 AND $4
+                AND s.statut <> 'retiree' AND s.source IN ('genere', 'deplacement')
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .bind(du)
+        .bind(au)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        // Motif PUBLIC d'une annulation de lot (jamais le motif interne de l'exception).
+        sqlx::query(
+            "UPDATE ent_edt_seance s SET motif_public = l.motif_public
+               FROM ent_edt_exception x
+               JOIN ent_edt_annulation_masse l ON l.id = x.lot_id AND l.etablissement_id = x.etablissement_id
+              WHERE s.etablissement_id = $1 AND s.annee_id = $2 AND s.jour BETWEEN $3 AND $4
+                AND x.etablissement_id = s.etablissement_id AND x.creneau_id = s.creneau_id AND x.jour = s.jour
+                AND x.kind = 'annulation' AND s.statut = 'annulee'
+                AND s.motif_public IS DISTINCT FROM l.motif_public",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .bind(du)
+        .bind(au)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_edt_seance SET motif_public = NULL
+              WHERE etablissement_id = $1 AND annee_id = $2 AND jour BETWEEN $3 AND $4
+                AND statut <> 'annulee' AND motif_public IS NOT NULL",
+        )
+        .bind(etab)
+        .bind(annee_id)
+        .bind(du)
+        .bind(au)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        Ok(rattachees)
+    }
+}
+
 impl PgEnt {
     /// EDT-06 : génère (ou régénère) les séances datées de l'année sur `[du, au]`
     /// (défaut : de aujourd'hui, borné à l'année, à la fin de l'année).
@@ -242,7 +391,9 @@ impl PgEnt {
         if statut == "cloturee" {
             return Err(conflit());
         }
-        let du = du.unwrap_or_else(|| domain_eleve::today_utc().clamp(debut, fin)).max(debut);
+        // D8 (socle 10 T0) : « aujourd'hui » est le jour de l'établissement, pas le jour UTC.
+        let aujourdhui = self.aujourdhui_etablissement(e).await?;
+        let du = du.unwrap_or_else(|| aujourdhui.clamp(debut, fin)).max(debut);
         let au = au.unwrap_or(fin).min(fin);
         if au < du || (au - du).num_days() > 400 {
             return Err(invalide());
@@ -310,6 +461,9 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        // Socle 10 (T1) : les créneaux sont repris en placements d'une version « reprise » avant de
+        // générer ; les séances sont ensuite rattachées à leur placement (T2). Rejouable.
+        let reprise = Self::reprendre_creneaux_tx(&mut tx, a, annee_id).await?;
         let attendues: HashSet<(Uuid, NaiveDate)> =
             plans.iter().map(|p| (p.creneau_id, p.jour)).collect();
         for p in &plans {
@@ -327,6 +481,7 @@ impl PgEnt {
                     heure_debut = EXCLUDED.heure_debut, heure_fin = EXCLUDED.heure_fin,
                     grille_code = EXCLUDED.grille_code, demi_journee = EXCLUDED.demi_journee,
                     statut = EXCLUDED.statut, remplacant_user_id = EXCLUDED.remplacant_user_id,
+                    retiree_le = NULL, retiree_motif = NULL,
                     updated_at = now()
                   WHERE ent_edt_seance.source = 'genere'
                     AND (ent_edt_seance.classe_id, ent_edt_seance.service_id, ent_edt_seance.prof_user_id,
@@ -368,10 +523,13 @@ impl PgEnt {
             }
         }
         // Séances générées qui ne sont plus attendues (vacances ajoutées, créneau retiré…).
+        // D1 : une séance qui porte un contenu de cahier ou un travail n'est JAMAIS supprimée : elle
+        // est retirée (état `retiree`, ce qui était attaché reste lisible et rattachable). Les autres,
+        // vides, sont supprimées comme avant.
         let existantes: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, creneau_id, jour FROM ent_edt_seance
               WHERE etablissement_id = $1 AND annee_id = $2 AND source = 'genere'
-                AND jour BETWEEN $3 AND $4",
+                AND statut <> 'retiree' AND jour BETWEEN $3 AND $4",
         )
         .bind(e)
         .bind(annee_id)
@@ -380,21 +538,21 @@ impl PgEnt {
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;
-        let a_supprimer: Vec<Uuid> = existantes
+        let a_retirer: Vec<Uuid> = existantes
             .into_iter()
             .filter(|(_, c, j)| !attendues.contains(&(*c, *j)))
             .map(|(id, _, _)| id)
             .collect();
-        if !a_supprimer.is_empty() {
-            rapport.supprimees = sqlx::query(
-                "DELETE FROM ent_edt_seance WHERE etablissement_id = $1 AND id = ANY($2)",
-            )
-            .bind(e)
-            .bind(&a_supprimer)
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?
-            .rows_affected() as i64;
+        if !a_retirer.is_empty() {
+            let (retirees, supprimees) =
+                retirer_ou_supprimer_seances(&mut tx, e, &a_retirer, "plus attendue par le plan")
+                    .await?;
+            rapport.retirees = retirees;
+            rapport.supprimees = supprimees;
+        }
+        if let Some(reprise) = reprise {
+            rapport.rattachees =
+                Self::rattacher_seances(&mut tx, e, annee_id, du, au, reprise.version_id).await?;
         }
         let ev = publier_agg(
             &mut tx,
@@ -403,7 +561,8 @@ impl PgEnt {
             "edt.seances_generees",
             annee_id,
             json!({ "du": du, "au": au, "creees": rapport.creees,
-                    "mises_a_jour": rapport.mises_a_jour, "supprimees": rapport.supprimees }),
+                    "mises_a_jour": rapport.mises_a_jour, "supprimees": rapport.supprimees,
+                    "retirees": rapport.retirees }),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -429,7 +588,7 @@ impl PgEnt {
                     matiere_libelle, salle, heure_debut, heure_fin, grille_code, demi_journee,
                     statut, remplacant_user_id
                FROM ent_edt_seance
-              WHERE etablissement_id = $1 AND jour BETWEEN $2 AND $3
+              WHERE etablissement_id = $1 AND jour BETWEEN $2 AND $3 AND statut <> 'retiree'
                 AND ($4::uuid IS NULL OR classe_id = $4)
                 AND ($5::uuid IS NULL OR prof_user_id = $5 OR remplacant_user_id = $5)
               ORDER BY jour, heure_debut, classe",
