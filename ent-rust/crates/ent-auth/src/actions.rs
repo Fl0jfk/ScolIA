@@ -291,6 +291,8 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    /// Socle 29 : lancer un rapprochement de l'index des tâches et lire son rapport (POR-205).
+    AfaireRapprocher,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +317,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 128] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -452,6 +454,8 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        // Socle 29 (portails), lot P2.
+        Action::AfaireRapprocher,
     ];
 
     pub fn code(self) -> &'static str {
@@ -584,6 +588,7 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::AfaireRapprocher => "afaire.rapprocher",
         }
     }
 
@@ -719,6 +724,7 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
         }
     }
 
@@ -858,7 +864,8 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
-            | Self::AccesRevue => &[Portee::Etablissement],
+            | Self::AccesRevue
+            | Self::AfaireRapprocher => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -969,6 +976,10 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
+    if role == Role::Admin {
+        d.push(etab(AfaireRapprocher));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont

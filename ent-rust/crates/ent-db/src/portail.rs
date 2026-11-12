@@ -315,49 +315,44 @@ impl PgEnt {
     /// où le lien le permet. Sans exercice de l'autorité parentale (`peut_justifier_absence`
     /// faux) : aucune tâche de décision, mention sobre (R-PO8).
     async fn tuile_famille_a_faire(&self, e: Uuid, u: Uuid, r: &str) -> Source {
-        let enfants = self.mes_enfants_for_parent(e, u, r).await?;
+        // Source unique : l'index des tâches, revérifié à la lecture (R-PO3, R-PO4). Une famille ne
+        // voit jamais une pastille concurrente de celle de l'à-faire ; les tâches pas encore visibles
+        // (plage calme, R-PO31) ne sont pas comptées ; un responsable sans exercice de l'autorité
+        // parentale ne reçoit aucune tâche de décision, seulement une mention sobre (R-PO8).
+        let liste = self.a_faire_de(e, u, r, chrono::Utc::now()).await?;
         let mut t = TuilePortail::nouvelle("afaire.famille", "À faire", 4);
-        let (mut a_justifier, mut carnets) = (0_i64, 0_i64);
-        let mut sans_decision = false;
-        for enf in &enfants {
-            if enf.peut_justifier_absence {
-                a_justifier += self.absences_a_justifier_eleve(e, enf.eleve.id).await?.len() as i64;
-            } else {
-                sans_decision = true;
-            }
-            if enf.peut_voir_vs && enf.peut_justifier_absence {
-                carnets += self.carnet_a_signer_eleve(e, enf.eleve.id).await?.len() as i64;
-            }
-        }
-        let total = a_justifier + carnets;
+        let total = liste.compteur;
         t.nombre = Some(total);
-        if a_justifier > 0 {
-            t.lignes.push(LignePortail {
-                libelle: pluriel(a_justifier, "absence à justifier", "absences à justifier"),
-                detail: None,
-                ton: TonLigne::Attention,
-                lien: Some("/web/absences".into()),
-            });
+        let mut par_nature: Vec<(&str, i64)> = Vec::new();
+        for tache in liste.taches.iter().filter(|x| x.etat.est_ouvert()) {
+            match par_nature.iter_mut().find(|(n, _)| *n == tache.nature) {
+                Some((_, c)) => *c += 1,
+                None => par_nature.push((tache.nature.as_str(), 1)),
+            }
         }
-        if carnets > 0 {
+        for (nature, n) in par_nature {
+            let (un, plusieurs, lien) = match nature {
+                "vs.justifier_absence" => ("absence à justifier", "absences à justifier", "/web/a-faire"),
+                "vs.signer_carnet" => ("mot du carnet à signer", "mots du carnet à signer", "/web/a-faire"),
+                "doc.signer" => ("document à signer", "documents à signer", "/web/a-faire"),
+                _ => ("autre démarche", "autres démarches", "/web/a-faire"),
+            };
             t.lignes.push(LignePortail {
-                libelle: pluriel(carnets, "mot du carnet à signer", "mots du carnet à signer"),
+                libelle: pluriel(n, un, plusieurs),
                 detail: None,
                 ton: TonLigne::Attention,
-                lien: Some("/web/cahier".into()),
+                lien: Some(lien.into()),
             });
         }
         if total > 0 {
             t.etat = EtatTuile::Ok;
             t.principal = Some(pluriel(total, "chose à faire", "choses à faire"));
-            t.action = action("Voir et traiter", "/web/absences");
+            t.action = action("Voir et traiter", "/web/a-faire");
         } else {
             t.principal = Some("Rien à faire pour l'instant".into());
         }
-        if sans_decision && total == 0 {
-            t.lignes.push(LignePortail::simple(
-                "Les décisions sont prises par le ou les titulaires de l'autorité parentale.",
-            ));
+        if let Some(m) = liste.mention.filter(|_| total == 0) {
+            t.lignes.push(LignePortail::simple(&m));
         }
         Ok(Some(t))
     }

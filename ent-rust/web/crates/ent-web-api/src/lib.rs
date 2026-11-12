@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 mod transport;
 
 // Services par domaine (méthodes de `ApiClient`).
+mod afaire;
 mod appel;
 mod auth;
 mod cahier;

@@ -228,6 +228,13 @@ const N_SEPA: Neutralisation = Neutralisation::Verification {
     pourquoi: "prélèvements non exécutés : ne jamais exporter vers la banque sans revue humaine après une restauration (double prélèvement)",
 };
 
+/// Index des tâches du socle 29 : les tâches ouvertes sont closes « restauration » ; le rapprochement
+/// les rouvre si la source les dit encore ouvertes (rien n'est jamais rejoué en silence).
+const N_AFAIRE: Neutralisation = Neutralisation::Maj {
+    set: "etat = 'sans_objet', issue = 'restauration', close_le = now()",
+    ou: "etat IN ('ouverte', 'prise', 'en_attente')",
+};
+
 /// Le registre. Ordre alphabétique (aligné sur le catalogue).
 pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absence", "assiduite", Portee::Etablissement).perso().export(),
@@ -240,6 +247,16 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absence_signal", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_adresse_protegee", "dossier_personnes", Portee::Etablissement).perso().export(),
     t("ent_aesh_affectation", "sante", Portee::Etablissement).perso().sante().export(),
+    // Socle 29 (lot P2) : l'index des tâches est une PROJECTION reconstructible (§8.10, R-PO24) :
+    // neutralisé à la restauration (les tâches ouvertes passent « sans objet / restauration »), puis
+    // rebâti par le rapprochement, qui rouvre celles que leur propriétaire dit encore ouvertes.
+    t("ent_afaire", "portails", Portee::Etablissement).perso().neutralise(N_AFAIRE),
+    t("ent_afaire_cle", "portails", Portee::Etablissement),
+    t("ent_afaire_destinataire", "portails", Portee::Etablissement).perso(),
+    t("ent_afaire_etat_personnel", "portails", Portee::Etablissement).perso(),
+    t("ent_afaire_journal", "portails", Portee::Etablissement).perso(),
+    t("ent_afaire_nature_reglage", "portails", Portee::Etablissement),
+    t("ent_afaire_prise", "portails", Portee::Etablissement).perso(),
     t("ent_affectation", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_affectation_supprimee", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_agent", "personnels", Portee::Etablissement).perso().export(),

@@ -248,13 +248,19 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
+    // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
+    // (reprise initiale) sont libérées : le catalogue d'actions est dans le code et la reprise est
+    // faite par le rapprochement, sans donnée copiée (`docs/socles/MIGRATIONS.md`).
+    include_str!("../../../migrations/2580_afaire_index.sql"),
+    include_str!("../../../migrations/2581_afaire_journal_prises.sql"),
+    include_str!("../../../migrations/2582_afaire_reglages.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2240_assiduite_as0";
+pub const MIGRATION_TAG: &str = "2582_afaire_reglages";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

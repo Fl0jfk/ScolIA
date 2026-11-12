@@ -44,6 +44,8 @@ pub const SECURITE: &str = "/web/securite";
 pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 /// Confirmation des liens de responsabilité déclarés par l'établissement (tous les profils connectés).
 pub const MES_LIENS: &str = "/web/mes-liens";
+/// À-faire unifié (socle 29, lot P3) : familles et élèves majeurs.
+pub const A_FAIRE: &str = "/web/a-faire";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -82,6 +84,10 @@ pub fn entrees(droits: Droits) -> Vec<EntreeNav> {
 /// paramétrés compris), dans l'ordre d'affichage. Le serveur revérifie chaque route.
 pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeNav> {
     let mut v = vec![entree("Aujourd'hui", ACCUEIL, NomIcone::Accueil)];
+    // Socle 29 (P3) : la seule liste transverse de ce que la famille (ou l'élève) doit faire.
+    if droits.portail_famille || droits.mes_absences {
+        v.push(entree("À faire", A_FAIRE, NomIcone::Annonce));
+    }
     if droits.emploi_du_temps {
         v.push(entree("Emploi du temps", EMPLOI_DU_TEMPS, NomIcone::Agenda));
     }
@@ -292,6 +298,7 @@ mod tests {
             parent,
             [
                 ACCUEIL,
+                A_FAIRE,
                 CHANGEMENTS_EDT,
                 AGENDA,
                 EVALUATIONS,
@@ -334,6 +341,7 @@ mod tests {
             eleve,
             [
                 ACCUEIL,
+                A_FAIRE,
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -456,6 +464,7 @@ mod tests {
             v,
             [
                 ACCUEIL,
+                A_FAIRE,
                 CHANGEMENTS_EDT,
                 AGENDA,
                 EVALUATIONS,
