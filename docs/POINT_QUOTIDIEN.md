@@ -8,8 +8,9 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-12 (jeudi soir, 18 h 45 Paris)
 
-### Passé sur `ENT` aujourd'hui (tête `22501244`)
+### Passé sur `ENT` aujourd'hui (tête `50f7e0eb`)
 - **Messagerie M1–M2** (`c1ddae6d`, fusion pilote règle 17) : participants, contrôle d'accès, matrice et destinataires (482–484) ; ferme NJ-29, NJ-36, NJ-37, NJ-59 (partiel).
+- **Agenda AG0–AG1-bis** (`50f7e0eb`, fusion pilote) : correctifs, événements et vue à calques, feuille de semaine de la direction (2380–2381).
 - **Stages ST0–ST1(a)** (`22501244`, fusion pilote) : correctifs RS-01 à RS-10, dispositifs, paramètres, organismes, périodes (2780–2782) ; ferme DN-02, DN-03, DN-09, DN-10, DN-18.
 - **Internat I0–I1** (`aa43419c`, fusion pilote) : présence en faits, régime codé, zones, chambres, lits, séjours, affectations (2820–2823) ; ferme NJ-16, NJ-21, NJ-23, NJ-54.
 - **Correctif SSO, passkeys et domaines (S-01, B-02)** (`fc469308`, fusion pilote ; seul rouge : test instable connu) : la faille la plus grave de l’audit Fable 1 fermée.
