@@ -225,8 +225,9 @@ async fn socle1_messagerie_prof_limitee_a_ses_eleves_et_a_ses_fils() {
         .is_ok());
 }
 
-/// Revue E9 : un remplaçant suit les élèves de la classe remplacée pendant la
-/// fenêtre (±14 j), pas au-delà ; un remplaçant hors établissement est refusé.
+/// Revue E9 + D12 (socle 10 T0) : un remplaçant suit les élèves de la classe remplacée **le jour de
+/// la séance remplacée seulement** (plus de fenêtre de ±14 jours) ; un remplaçant hors
+/// établissement est refusé.
 #[tokio::test]
 async fn socle1_remplacant_suit_la_classe_pendant_la_fenetre() {
     use domain_eleve::{EdtExceptionKind, PoserEdtException};
@@ -277,11 +278,14 @@ async fn socle1_remplacant_suit_la_classe_pendant_la_fenetre() {
     ent.poser_edt_exception_for_actor(Role::Direction.as_str(), cmd(remplacant))
         .await
         .unwrap();
-    assert!(ent.prof_suit_eleve(etab, remplacant, draco).await.unwrap(), "pendant la fenêtre");
-    assert!(!ent
-        .prof_suit_eleve_le(etab, remplacant, draco, jour + chrono::Duration::days(30))
-        .await
-        .unwrap(), "hors fenêtre");
+    assert!(ent.prof_suit_eleve_le(etab, remplacant, draco, jour).await.unwrap(), "le jour remplacé");
+    assert!(!ent.prof_suit_eleve(etab, remplacant, draco).await.unwrap(), "pas avant le jour (D12)");
+    for d in [-1, 1, 7, 30] {
+        assert!(!ent
+            .prof_suit_eleve_le(etab, remplacant, draco, jour + chrono::Duration::days(d))
+            .await
+            .unwrap(), "hors du jour remplacé (décalage {d})");
+    }
     assert!(!ent
         .prof_suit_eleve(etab, remplacant, cast.eleve_lea_id)
         .await

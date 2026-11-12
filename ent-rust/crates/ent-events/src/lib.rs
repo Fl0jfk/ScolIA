@@ -198,6 +198,17 @@ pub mod types {
     pub const INTERNAT_AFFECTATION: &str = "internat.affectation";
     pub const INTERNAT_PRESENCE: &str = "internat.presence";
     pub const INTERNAT_SUIVI: &str = "internat.suivi";
+    /// Zone d'internat créée, modifiée, fermée ou rouverte (socle 41, I1).
+    pub const INTERNAT_ZONE: &str = "internat.zone";
+    pub const INTERNAT_LIT: &str = "internat.lit";
+    /// Séjour d'hébergement ouvert ou clos par le régime (R-IT1) ; rythme versionné (R-IT4).
+    pub const INTERNAT_SEJOUR: &str = "internat.sejour";
+    pub const INTERNAT_RYTHME: &str = "internat.rythme";
+    /// Dérogation de la direction (public de la chambre, interdiction de contact).
+    pub const INTERNAT_DEROGATION: &str = "internat.derogation";
+    /// Effet d'un changement de régime sur l'hébergement : affectation close, avis au responsable.
+    pub const INTERNAT_REGIME_EFFET: &str = "internat.regime_effet";
+    pub const INTERNAT_PARAMETRES: &str = "internat.parametres";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";

@@ -3,8 +3,13 @@
 //!
 //! - résolution publique domaine → établissement (normalisation stricte, valeur
 //!   invalide = inconnue) ;
-//! - administration réservée au rôle **Admin**, limitée à **son** établissement
-//!   (celui de la session), journalisée avec l'acteur réel.
+//! - un administrateur d'établissement (rôle **Admin**) déclare son établissement et
+//!   en renomme le nom affiché, journalisé avec l'acteur réel ; le **slug** est
+//!   immuable pour lui ;
+//! - les **domaines** sont validés par la plateforme (audit Fable 1, B-02) : ajout et
+//!   retrait réservés à l'opérateur ScolIA (`ent-api plateforme-domaine …`), jamais à
+//!   un administrateur d'établissement, hôtes réservés de la plateforme refusés.
+//!   Voir `docs/audits/CORRECTIF_S01_B02.md`.
 
 use ent_auth::Role;
 use uuid::Uuid;
@@ -82,6 +87,39 @@ pub struct EtablissementInfo {
     pub actif: bool,
 }
 
+/// Domaine racine de la plateforme (toujours réservé, en plus de `ENT_RP_ID`).
+pub const DOMAINE_PLATEFORME: &str = "scolia.fr";
+
+/// Libellés réservés directement sous le domaine de plateforme
+/// (`docs/socles/ORGANISME_ADRESSES.md` §6.5).
+pub const LIBELLES_RESERVES: &[&str] = &[
+    "www", "admin", "api", "app", "auth", "support", "status", "demo", "aide", "mail",
+    "static", "fichiers",
+];
+
+/// `true` si l'hôte (déjà normalisé) est un hôte de la plateforme qu'aucun
+/// établissement ne peut servir : le domaine de plateforme lui-même ou un de ses
+/// libellés réservés. `rp_id` : valeur de `ENT_RP_ID` si elle est définie.
+pub fn hote_reserve_plateforme(domaine: &str, rp_id: Option<&str>) -> bool {
+    let mut racines = vec![DOMAINE_PLATEFORME.to_string()];
+    if let Some(r) = rp_id.and_then(normaliser_domaine) {
+        if !racines.contains(&r) {
+            racines.push(r);
+        }
+    }
+    racines.iter().any(|racine| {
+        domaine == racine
+            || domaine
+                .strip_suffix(racine.as_str())
+                .and_then(|t| t.strip_suffix('.'))
+                .is_some_and(|libelle| LIBELLES_RESERVES.contains(&libelle))
+    })
+}
+
+fn rp_id_env() -> Option<String> {
+    std::env::var("ENT_RP_ID").ok().filter(|v| !v.trim().is_empty())
+}
+
 fn exiger_admin(actor_role: &str) -> Result<(), EntDbError> {
     if Role::parse(actor_role) == Some(Role::Admin) {
         Ok(())
@@ -130,6 +168,11 @@ impl PgEnt {
     }
 
     /// Déclare (ou renomme) l'établissement **de la session**. Admin seulement.
+    ///
+    /// B-02 : une fois l'établissement déclaré, son **slug est immuable** pour
+    /// l'administrateur (seul le nom affiché change) ; un autre slug → `Forbidden`.
+    /// Le changement de slug passe par l'opérateur
+    /// ([`PgEnt::declarer_etablissement_plateforme`]).
     pub async fn declarer_etablissement_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -144,18 +187,21 @@ impl PgEnt {
         if !slug_valide(&slug) || nom.is_empty() || nom.chars().count() > 200 {
             return Err(EntDbError::Domain(DomainError::ValeurInvalide));
         }
-        let (id, slug, nom, actif): (Uuid, String, String, bool) = sqlx::query_as(
+        let ligne: Option<(Uuid, String, String, bool)> = sqlx::query_as(
             "INSERT INTO ent_etablissement (id, slug, nom)
              VALUES ($1, $2, $3)
-             ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, nom = EXCLUDED.nom
+             ON CONFLICT (id) DO UPDATE SET nom = EXCLUDED.nom
+              WHERE ent_etablissement.slug = EXCLUDED.slug
              RETURNING id, slug, nom, actif",
         )
         .bind(etablissement_id)
         .bind(&slug)
         .bind(nom)
-        .fetch_one(self.pool())
+        .fetch_optional(self.pool())
         .await
         .map_err(db)?;
+        // Aucune ligne : l'établissement existe avec un autre slug (immuable ici).
+        let (id, slug, nom, actif) = ligne.ok_or(EntDbError::Forbidden)?;
         self.audit_compte(
             etablissement_id,
             actor_user_id,
@@ -191,19 +237,123 @@ impl PgEnt {
         Ok(rows.into_iter().map(|(d,)| d).collect())
     }
 
-    /// Rattache un domaine à l'établissement de la session. Admin seulement ;
-    /// l'établissement doit être déclaré ; un domaine déjà servi par un autre
-    /// établissement est refusé (conflit), jamais réattribué. Idempotent.
+    /// Ajout d'un domaine par un administrateur d'établissement : **refusé**
+    /// (audit Fable 1, B-02). Aucune preuve de possession n'était demandée et le
+    /// premier arrivé était servi (`college-b.scolia.fr`, `app.scolia.fr`…). Le
+    /// domaine est validé par la plateforme : [`PgEnt::ajouter_domaine_plateforme`].
+    /// La preuve DNS des domaines personnalisés est à venir
+    /// (`docs/audits/CORRECTIF_S01_B02.md` §2).
     pub async fn ajouter_domaine_for_actor(
         &self,
-        etablissement_id: Uuid,
-        actor_user_id: Uuid,
+        _etablissement_id: Uuid,
+        _actor_user_id: Uuid,
         actor_role: &str,
-        domaine: &str,
+        _domaine: &str,
     ) -> Result<String, EntDbError> {
         exiger_admin(actor_role)?;
+        Err(EntDbError::Forbidden)
+    }
+
+    /// Retrait d'un domaine par un administrateur d'établissement : **refusé**
+    /// (B-02) ; un compte d'administrateur volé ne coupe plus l'adresse de
+    /// l'établissement. Voir [`PgEnt::retirer_domaine_plateforme`].
+    pub async fn retirer_domaine_for_actor(
+        &self,
+        _etablissement_id: Uuid,
+        _actor_user_id: Uuid,
+        actor_role: &str,
+        _domaine: &str,
+    ) -> Result<bool, EntDbError> {
+        exiger_admin(actor_role)?;
+        Err(EntDbError::Forbidden)
+    }
+
+    // ---- Opérateur de la plateforme (B-02) --------------------------------
+    //
+    // Ces fonctions n'ont **aucune route HTTP** : elles sont appelées par l'outil
+    // d'exploitation (`ent-api plateforme-domaine …`, accès direct à la base) et par
+    // le labo. L'acteur est l'opérateur ScolIA, journalisé comme « plateforme ».
+
+    async fn audit_plateforme(&self, etablissement_id: Uuid, action: &str, libelle: &str, payload: serde_json::Value) {
+        if let Err(e) = self
+            .enregistrer_journal_interne(domain_eleve::EnregistrerJournal {
+                etablissement_id,
+                eleve_id: None,
+                domaine: "auth".into(),
+                action: action.into(),
+                libelle: libelle.into(),
+                payload,
+                visible_famille: false,
+                actor_user_id: None,
+            })
+            .await
+        {
+            tracing::error!(action, error = %e, "échec d'écriture du journal d'audit (plateforme)");
+        }
+    }
+
+    /// Déclare un établissement, ou change son slug et son nom (opérateur).
+    /// Un slug déjà pris par un autre établissement → erreur de conflit.
+    pub async fn declarer_etablissement_plateforme(
+        &self,
+        etablissement_id: Uuid,
+        slug: &str,
+        nom: &str,
+    ) -> Result<EtablissementInfo, EntDbError> {
+        let slug = slug.trim().to_ascii_lowercase();
+        let nom = nom.trim();
+        if etablissement_id.is_nil()
+            || !slug_valide(&slug)
+            || nom.is_empty()
+            || nom.chars().count() > 200
+        {
+            return Err(EntDbError::Domain(DomainError::ValeurInvalide));
+        }
+        let (id, slug, nom, actif): (Uuid, String, String, bool) = sqlx::query_as(
+            "INSERT INTO ent_etablissement (id, slug, nom)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (id) DO UPDATE SET slug = EXCLUDED.slug, nom = EXCLUDED.nom
+             RETURNING id, slug, nom, actif",
+        )
+        .bind(etablissement_id)
+        .bind(&slug)
+        .bind(nom)
+        .fetch_one(self.pool())
+        .await
+        .map_err(db)?;
+        self.audit_plateforme(
+            id,
+            "etablissement_declare_plateforme",
+            "Établissement déclaré par la plateforme",
+            serde_json::json!({ "acteur": "plateforme", "slug": slug }),
+        )
+        .await;
+        Ok(EtablissementInfo {
+            id,
+            slug,
+            nom,
+            actif,
+        })
+    }
+
+    /// Rattache un domaine à un établissement **déclaré** (opérateur). Refuse
+    /// une valeur invalide ou un hôte réservé de la plateforme
+    /// (`ValeurInvalide`), un établissement non déclaré (`Forbidden`) et un
+    /// domaine déjà servi par un autre établissement (`Conflit`, jamais de
+    /// réattribution). Idempotent pour le même établissement.
+    pub async fn ajouter_domaine_plateforme(
+        &self,
+        etablissement_id: Uuid,
+        domaine: &str,
+    ) -> Result<String, EntDbError> {
         let domaine =
             normaliser_domaine(domaine).ok_or(EntDbError::Domain(DomainError::ValeurInvalide))?;
+        if hote_reserve_plateforme(&domaine, rp_id_env().as_deref()) {
+            return Err(EntDbError::Domain(DomainError::ValeurInvalide));
+        }
+        if self.etablissement_info(etablissement_id).await?.is_none() {
+            return Err(EntDbError::Forbidden);
+        }
         let inseree: Option<(Uuid,)> = sqlx::query_as(
             "INSERT INTO ent_etablissement_domaine (domaine, etablissement_id)
              VALUES ($1, $2)
@@ -228,27 +378,23 @@ impl PgEnt {
             }
             return Ok(domaine);
         }
-        self.audit_compte(
+        self.audit_plateforme(
             etablissement_id,
-            actor_user_id,
-            actor_role,
             "etablissement_domaine_ajoute",
-            "Domaine rattaché à l'établissement",
-            serde_json::json!({ "domaine": domaine }),
+            "Domaine rattaché à l'établissement par la plateforme",
+            serde_json::json!({ "acteur": "plateforme", "domaine": domaine }),
         )
         .await;
         Ok(domaine)
     }
 
-    /// Retire un domaine de l'établissement de la session. Admin seulement.
-    pub async fn retirer_domaine_for_actor(
+    /// Retire un domaine d'un établissement (opérateur). `false` si le domaine
+    /// n'était pas servi par cet établissement.
+    pub async fn retirer_domaine_plateforme(
         &self,
         etablissement_id: Uuid,
-        actor_user_id: Uuid,
-        actor_role: &str,
         domaine: &str,
     ) -> Result<bool, EntDbError> {
-        exiger_admin(actor_role)?;
         let Some(domaine) = normaliser_domaine(domaine) else {
             return Ok(false);
         };
@@ -263,17 +409,26 @@ impl PgEnt {
         .map_err(db)?
         .rows_affected();
         if n > 0 {
-            self.audit_compte(
+            self.audit_plateforme(
                 etablissement_id,
-                actor_user_id,
-                actor_role,
                 "etablissement_domaine_retire",
-                "Domaine retiré de l'établissement",
-                serde_json::json!({ "domaine": domaine }),
+                "Domaine retiré de l'établissement par la plateforme",
+                serde_json::json!({ "acteur": "plateforme", "domaine": domaine }),
             )
             .await;
         }
         Ok(n > 0)
+    }
+
+    /// Tous les domaines servis, par établissement (opérateur, revue de l'existant).
+    pub async fn lister_domaines_plateforme(&self) -> Result<Vec<(String, Uuid)>, EntDbError> {
+        let rows: Vec<(String, Uuid)> = sqlx::query_as(
+            "SELECT domaine, etablissement_id FROM ent_etablissement_domaine ORDER BY domaine",
+        )
+        .fetch_all(self.pool())
+        .await
+        .map_err(db)?;
+        Ok(rows)
     }
 }
 
@@ -329,6 +484,18 @@ mod tests {
             assert_eq!(normaliser_domaine(invalide), None, "{invalide:?}");
         }
         assert_eq!(normaliser_domaine(&format!("{}.fr", "a".repeat(64))), None);
+    }
+
+    #[test]
+    fn hotes_reserves_de_la_plateforme() {
+        for h in ["scolia.fr", "app.scolia.fr", "www.scolia.fr", "api.scolia.fr", "fichiers.scolia.fr"] {
+            assert!(hote_reserve_plateforme(h, None), "{h}");
+        }
+        assert!(hote_reserve_plateforme("ent.exemple.org", Some("ent.exemple.org")));
+        assert!(hote_reserve_plateforme("app.ent.exemple.org", Some("ENT.exemple.org")));
+        for h in ["lpnb.scolia.fr", "0750001a.scolia.fr", "app.lpnb.scolia.fr", "appscolia.fr", "xapp.scolia.fr"] {
+            assert!(!hote_reserve_plateforme(h, None), "{h}");
+        }
     }
 
     #[test]

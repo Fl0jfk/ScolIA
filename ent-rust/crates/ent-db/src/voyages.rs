@@ -136,6 +136,8 @@ pub enum Commande {
     Renvoyer,
     Refuser,
     DemanderSignature,
+    /// V0c : la direction signe le devis choisi ; commande et bon de commande en une transaction.
+    SignerDevis,
     PasserAuxFinances,
     ValiderBudget,
     Autoriser,
@@ -167,6 +169,7 @@ pub fn etats_de_depart(cmd: Commande) -> &'static [&'static str] {
             "a_autoriser",
         ],
         Commande::DemanderSignature => &["preparation"],
+        Commande::SignerDevis => &["a_signer"],
         Commande::PasserAuxFinances => &["preparation", "a_signer"],
         Commande::ValiderBudget => &["budget_a_valider"],
         Commande::Autoriser => &["a_autoriser"],

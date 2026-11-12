@@ -27,6 +27,7 @@ pub mod fusion;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
+pub mod internat;
 pub mod personnels;
 pub mod personnels_missions;
 pub mod personnels_services;
