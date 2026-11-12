@@ -9784,8 +9784,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 continue;
             }
             // Audit A-03 : une famille ou un élève ne voit que ce qu'il peut lire — l'existence
-            // même d'une pièce restreinte (ou d'une note interne) n'est pas révélée.
-            if !accessible && matches!(parsed, Role::Parent | Role::Eleve) {
+            // même d'une pièce restreinte (ou d'une note interne) n'est pas révélée. Seule
+            // exception voulue (V0 D3c) : un document standard du tiroir famille (typiquement un
+            // bulletin, verrouillé pour un responsable privé de l'accès aux notes) reste listé,
+            // verrouillé.
+            let verrou_famille =
+                doc.tiroir == DocTiroir::Famille && doc.confidentialite == DocConfidentialite::Standard;
+            if !accessible && matches!(parsed, Role::Parent | Role::Eleve) && !verrou_famille {
                 continue;
             }
             if !accessible {
@@ -9793,8 +9798,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 doc.mime_type = None;
                 // Le personnel sans droit voit qu'une pièce existe (circuit de demande d'accès),
                 // mais ni son code ni son origine, qui trahissent sa nature.
-                doc.code = None;
-                doc.source = String::new();
+                if !verrou_famille {
+                    doc.code = None;
+                    doc.source = String::new();
+                }
                 // RF-15 : le titre d'un document restreint/santé n'est pas révélé.
                 if doc.confidentialite != DocConfidentialite::Standard {
                     doc.titre = "Document à accès restreint".to_string();
