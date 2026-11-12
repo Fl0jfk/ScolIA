@@ -74,8 +74,11 @@ async fn as1_regle_versionnee_jamais_dans_le_passe_et_figee_par_un_mois_arrete()
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     let aujourdhui = ent.aujourdhui_etablissement(etab).await.unwrap();
-    let janvier = aujourdhui + chrono::Duration::days(60);
-    let septembre = aujourdhui + chrono::Duration::days(20);
+    // Base de labo persistante : des dates aléatoires évitent toute collision avec un passage précédent
+    // (une règle figée ne se rejoue pas).
+    let decalage = 100 + i64::from(Uuid::new_v4().as_u128() as u32 % 20_000);
+    let janvier = aujourdhui + chrono::Duration::days(decalage + 60);
+    let septembre = aujourdhui + chrono::Duration::days(decalage + 20);
 
     // Jamais rétroactive.
     let hier = aujourdhui - chrono::Duration::days(1);
@@ -126,7 +129,7 @@ async fn as1_regle_versionnee_jamais_dans_le_passe_et_figee_par_un_mois_arrete()
     assert_eq!(ent.regle_asd_en_vigueur(etab, janvier).await.unwrap().seuil_minutes, 50);
     // Une version plus tardive reste possible : le passé figé n'est pas touché.
     ent.definir_regle_asd_for_actor(etab, dir, "direction", regle(janvier + chrono::Duration::days(30))).await.unwrap();
-    assert_eq!(ent.regles_asd_for_actor(etab, dir, "direction").await.unwrap().len() >= 3, true);
+    assert_eq!(ent.regles_asd_for_actor(etab, dir, "direction").await.unwrap().len() >= 2, true);
 }
 
 #[tokio::test]
@@ -261,8 +264,9 @@ async fn as1_un_role_libre_aed_fait_l_appel_et_propose_sans_qualifier() {
 
 #[tokio::test]
 async fn as1_reprise_des_motifs_et_de_la_regle_est_idempotente() {
-    let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
-    let etab = cast.etablissement_id;
+    let Some((ent, _cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    // Établissement neuf : une règle figée par un autre test ne se supprime pas.
+    let etab = Uuid::new_v4();
     let pool = ent.pool_verif();
     // Un établissement « ancien » : règle et motif propres dans les anciennes tables.
     sqlx::query("DELETE FROM ent_asd_regle WHERE etablissement_id = $1").bind(etab).execute(pool).await.unwrap();

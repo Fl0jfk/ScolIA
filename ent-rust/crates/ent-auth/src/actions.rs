@@ -1037,7 +1037,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
         d.push(etab(AppelFaire));
     }
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
-        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier] {
+        // `absences.proposer_qualification` est listée à part (même profils) : l'anti-escalade compare
+        // les actions exactement, la vie scolaire doit donc la détenir pour pouvoir la confier à un rôle libre.
+        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier, AbsencesProposerQualification] {
             d.push(etab(a));
         }
     }

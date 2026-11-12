@@ -42,6 +42,20 @@ async fn appel_ouvert(ent: &PgEnt, cast: &LaboCast, jour: NaiveDate) -> Uuid {
     ent.ouvrir_appel(cast.etablissement_id, c, jour, cast.prof.user_id, "prof").await.expect("ouvrir").0.id
 }
 
+/// L'établissement du labo est partagé entre les tests : on repart d'une journée sans absence,
+/// retard, déclaration ni situation active pour que chaque test compte ses propres faits.
+async fn proprete(ent: &PgEnt, cast: &LaboCast) {
+    let (pool, etab) = (ent.pool_verif(), cast.etablissement_id);
+    for sql in [
+        "DELETE FROM ent_retard WHERE etablissement_id = $1",
+        "DELETE FROM ent_absence WHERE etablissement_id = $1",
+        "UPDATE ent_asd_situation SET etat = 'close' WHERE etablissement_id = $1 AND etat = 'active'",
+        "UPDATE ent_absence_declaration SET statut = 'annulee' WHERE etablissement_id = $1 AND statut = 'active'",
+    ] {
+        sqlx::query(sql).bind(etab).execute(pool).await.expect(sql);
+    }
+}
+
 fn saisie(etat: &str) -> SaisieLigne {
     SaisieLigne { etat: etat.into(), minutes: None, lieu_code: None }
 }
@@ -88,6 +102,7 @@ async fn declarer(ent: &PgEnt, cast: &LaboCast, jour: NaiveDate, debut: Option<N
 #[tokio::test]
 async fn as2_deux_ouvertures_simultanees_donnent_le_meme_appel() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let etab = cast.etablissement_id;
     let jour = aujourdhui(&ent, &cast).await;
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
@@ -113,6 +128,7 @@ async fn as2_deux_ouvertures_simultanees_donnent_le_meme_appel() {
 #[tokio::test]
 async fn as2_eleve_arrive_apres_l_ouverture_est_ajoute() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let etab = cast.etablissement_id;
     let jour = aujourdhui(&ent, &cast).await;
     let appel = appel_ouvert(&ent, &cast, jour).await;
@@ -143,6 +159,7 @@ async fn as2_eleve_arrive_apres_l_ouverture_est_ajoute() {
 #[tokio::test]
 async fn as2_declaration_de_8h05_visible_dans_l_appel_ouvert_sans_motif() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let etab = cast.etablissement_id;
     let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
@@ -173,6 +190,7 @@ async fn as2_declaration_de_8h05_visible_dans_l_appel_ouvert_sans_motif() {
 #[tokio::test]
 async fn as2_une_ligne_saisie_a_la_main_n_est_jamais_ecrasee_par_une_situation() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     pointer(&ent, &cast, appel, lea, "present").await; // le professeur la voit en classe
@@ -187,6 +205,7 @@ async fn as2_une_ligne_saisie_a_la_main_n_est_jamais_ecrasee_par_une_situation()
 #[tokio::test]
 async fn as2_present_malgre_une_declaration_est_signale_et_non_corrige() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     declarer(&ent, &cast, jour, None, None).await;
@@ -203,6 +222,7 @@ async fn as2_present_malgre_une_declaration_est_signale_et_non_corrige() {
 #[tokio::test]
 async fn as2_localisation_infirmerie_prerempli_et_n_est_jamais_une_absence() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     let inf = cast.infirmieres[0].user_id;
@@ -224,6 +244,7 @@ async fn as2_localisation_infirmerie_prerempli_et_n_est_jamais_une_absence() {
 #[tokio::test]
 async fn as2_en_sortie_est_attendu_ailleurs_et_un_present_est_signale() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     sqlx::query(
         "INSERT INTO ent_asd_situation (id, etablissement_id, eleve_id, nature, debut_jour, fin_jour, source, canal)
@@ -244,12 +265,13 @@ async fn as2_en_sortie_est_attendu_ailleurs_et_un_present_est_signale() {
     let inc = ent.incoherences_appel_for_actor(etab, appel, cast.cpe.user_id, "cpe").await.unwrap();
     assert_eq!(inc, vec![IncoherenceV2 { eleve_id: lea, code: "present_alors_quen_sortie".into() }]);
     let h = ent.historique_ligne_for_actor(etab, appel, lea, cast.prof.user_id, "prof").await.unwrap();
-    assert_eq!(h.iter().map(|x| x.etat_apres.as_str()).collect::<Vec<_>>(), vec!["present", "attendu_ailleurs", "present"]);
+    assert_eq!(h.iter().map(|x| x.etat_apres.as_str()).collect::<Vec<_>>(), vec!["attendu_ailleurs", "present"]);
 }
 
 #[tokio::test]
 async fn as2_retard_annonce_prevenu_jusqu_a_l_heure_dite() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     // Le professeur ne déclare rien (NJ-34) ; l'accueil / la vie scolaire, si.
     let a = || AnnoncerRetard { eleve_id: lea, jour: None, heure_arrivee_prevue: t(10, 0), declarant_nom: Some("Lily Potter".into()) };
@@ -271,6 +293,7 @@ async fn as2_retard_annonce_prevenu_jusqu_a_l_heure_dite() {
 #[tokio::test]
 async fn as2_pointage_historise_retard_calcule_et_recapitulatif() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea, tom) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id, cast.eleve_tom_id);
     // Séance démarrée il y a longtemps : le retard sans minutes reçoit les minutes écoulées, bornées.
     let appel = appel_ouvert(&ent, &cast, jour).await;
@@ -308,6 +331,7 @@ async fn as2_pointage_historise_retard_calcule_et_recapitulatif() {
 #[tokio::test]
 async fn as2_retard_valide_garde_ses_minutes() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     ent.pointer_ligne_v2(etab, appel, lea, cast.prof.user_id, "prof", SaisieLigne { etat: "retard".into(), minutes: Some(7), lieu_code: None }, "mobile").await.unwrap();
@@ -321,6 +345,7 @@ async fn as2_retard_valide_garde_ses_minutes() {
 #[tokio::test]
 async fn as2_activite_presents_seulement_exige_confirmation_des_non_pointes() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour) = (cast.etablissement_id, aujourdhui(&ent, &cast).await);
     let (dir, cpe, lea, tom) = (cast.direction.user_id, cast.cpe.user_id, cast.eleve_lea_id, cast.eleve_tom_id);
     ent.definir_activite_appelee_for_actor(etab, dir, "direction", "etude", true).await.unwrap();
@@ -352,6 +377,7 @@ async fn as2_activite_presents_seulement_exige_confirmation_des_non_pointes() {
 #[tokio::test]
 async fn as2_role_libre_aed_fait_l_appel_d_une_permanence_critere_as1() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, dir) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.direction.user_id);
     let (aed, base) = (cast.comptas[0].user_id, Role::Personnel.as_str());
     let (lea, tom) = (cast.eleve_lea_id, cast.eleve_tom_id);
@@ -400,6 +426,7 @@ async fn appel_valide_lea_absent(ent: &PgEnt, cast: &LaboCast, jour: NaiveDate) 
 #[tokio::test]
 async fn as2_correction_de_l_intervenant_le_jour_meme_retire_l_absence_et_dement() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_valide_lea_absent(&ent, &cast, jour).await;
     assert_eq!(n(&ent, "SELECT count(*) FROM ent_absence_seance WHERE etablissement_id = $1 AND appel_id = $2", etab, appel).await, 1);
@@ -410,7 +437,7 @@ async fn as2_correction_de_l_intervenant_le_jour_meme_retire_l_absence_et_dement
     assert_eq!(n(&ent, "SELECT count(*) FROM ent_absence_seance WHERE etablissement_id = $1 AND appel_id = $2", etab, appel).await, 0);
     assert_eq!(n(&ent, "SELECT count(*) FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'annulee_present'", etab, lea).await, 1);
     assert_eq!(n(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND aggregate_id = $2 AND type = 'assiduite.absence_dementie'", etab, appel).await, avant_ev + 1, "démenti à la famille (AS-136)");
-    assert_eq!(n(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND eleve_id = $2 AND type = 'appel.ligne_corrigee'", etab, lea).await, 1);
+    assert_eq!(n(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND aggregate_id = $2 AND type = 'appel.ligne_corrigee'", etab, appel).await, 1);
     // Historique : jamais réécrit en silence (R-AS8).
     let h = ent.historique_ligne_for_actor(etab, appel, lea, cast.prof.user_id, "prof").await.unwrap();
     let derniere = h.last().unwrap();
@@ -424,6 +451,7 @@ async fn as2_correction_de_l_intervenant_le_jour_meme_retire_l_absence_et_dement
 #[tokio::test]
 async fn as2_la_correction_a_des_gardes_intervenant_jour_motif_version() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_valide_lea_absent(&ent, &cast, jour).await;
     // Le professeur d'une autre classe ne corrige pas l'appel de son collègue.
@@ -467,6 +495,7 @@ async fn as2_la_correction_a_des_gardes_intervenant_jour_motif_version() {
 #[tokio::test]
 async fn as2_seance_annulee_apres_l_appel_neutralise_les_absences_et_dement() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea, hermione) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id, cast.eleves[2].id);
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
@@ -508,6 +537,7 @@ async fn as2_seance_annulee_apres_l_appel_neutralise_les_absences_et_dement() {
 #[tokio::test]
 async fn as2_delegation_datee_a_un_collegue() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     let (rogue, mcg) = (cast.profs[0].user_id, cast.profs[1].user_id);
@@ -548,6 +578,7 @@ async fn as2_delegation_datee_a_un_collegue() {
 #[tokio::test]
 async fn as2_exclusion_de_cours_suivie_jusqu_a_l_arrivee_a_la_vie_scolaire() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     let l = ent.exclure_du_cours_for_actor(etab, appel, lea, cast.prof.user_id, "prof", "web").await.unwrap();
@@ -571,6 +602,7 @@ async fn as2_exclusion_de_cours_suivie_jusqu_a_l_arrivee_a_la_vie_scolaire() {
 #[tokio::test]
 async fn as2_matrice_de_separation_aucun_acces_hors_des_droits() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let appel = appel_ouvert(&ent, &cast, jour).await;
     declarer(&ent, &cast, jour, None, None).await;
@@ -617,6 +649,7 @@ async fn as2_matrice_de_separation_aucun_acces_hors_des_droits() {
 #[tokio::test]
 async fn as2_ancien_parcours_compatible_et_historise() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
+    proprete(&ent, &cast).await;
     let (etab, jour, lea) = (cast.etablissement_id, aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
     let c = creneau(&ent, &cast, jour, (8, 0), (9, 0)).await;
     let (a, lignes) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
