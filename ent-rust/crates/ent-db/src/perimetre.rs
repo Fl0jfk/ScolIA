@@ -12,8 +12,9 @@
 //! 2. emploi du temps historique (créneau du professeur sur la classe texte de l'élève),
 //!    **uniquement pour les élèves que le référentiel ne couvre pas encore** : la classe
 //!    texte ignore les groupes et ne doit jamais élargir la portée (D-022) ;
-//! 3. remplacement récent ou prochain (±14 jours) sur un créneau de la classe : le
-//!    remplaçant suit les élèves du **titulaire** remplacé (groupes inclus).
+//! 3. remplacement **le jour même** (D12, socle 10 T0 : plus de fenêtre de ±14 jours) sur un
+//!    créneau de la classe : le remplaçant suit les élèves du **titulaire** remplacé (groupes
+//!    inclus) pendant ce jour seulement.
 //!
 //! Défaut sûr : élève inconnu, sorti, ou d'un autre établissement → `false`.
 //! Les autres personnels (direction, administratif, CPE…) gardent leur périmètre
@@ -30,8 +31,10 @@ fn db(err: sqlx::Error) -> EntDbError {
     EntDbError::Domain(map_sqlx("perimetre", err))
 }
 
-/// Fenêtre (jours) pendant laquelle un remplaçant suit les élèves de la classe.
-const FENETRE_REMPLACEMENT_JOURS: i32 = 14;
+/// Fenêtre (jours) autour de la séance pendant laquelle un remplaçant suit les élèves du titulaire.
+/// D12 (socle 10 T0) : **0** — la portée se limite au jour de la séance remplacée (elle était de
+/// ±14 jours : un remplaçant d'une heure suivait la classe pendant un mois).
+const FENETRE_REMPLACEMENT_JOURS: i32 = 0;
 
 impl PgEnt {
     /// Le professeur suit-il cet élève aujourd'hui ? (voir le module)

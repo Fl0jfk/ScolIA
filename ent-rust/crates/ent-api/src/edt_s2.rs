@@ -92,7 +92,15 @@ async fn semaine(
         "eleve" => CibleEdt::Eleve(q.id.ok_or_else(mauvaise)?),
         _ => return Err(mauvaise()),
     };
-    let jour = q.jour.unwrap_or_else(domain_eleve::today_utc);
+    // D8 (socle 10 T0) : jour de l'établissement (fuseau du paramètre), pas le jour UTC.
+    let jour = match q.jour {
+        Some(j) => j,
+        None => s
+            .ent
+            .aujourdhui_etablissement(session.etablissement_id)
+            .await
+            .map_err(map_db)?,
+    };
     Ok(Json(
         s.ent
             .edt_semaine(&acteur(&session), cible, jour)

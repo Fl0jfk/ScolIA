@@ -104,16 +104,15 @@ async fn monde() -> Option<Monde> {
     .await
     .expect("commun B");
     for (etab, slug, hote) in [(a, "a", &hote_a), (b, "b", &hote_b)] {
-        ent.declarer_etablissement_for_actor(
+        // B-02 : établissement et domaine sont validés par la plateforme.
+        ent.declarer_etablissement_plateforme(
             etab,
-            admin.0,
-            "admin",
             &format!("c2{slug}-{}", &suffixe[..12]),
             &format!("Établissement {slug}"),
         )
         .await
         .expect("déclaration");
-        ent.ajouter_domaine_for_actor(etab, admin.0, "admin", hote)
+        ent.ajouter_domaine_plateforme(etab, hote)
             .await
             .expect("domaine");
     }
@@ -538,81 +537,109 @@ async fn administration_des_domaines() {
         .await;
     assert_eq!(r.statut, StatusCode::FORBIDDEN);
 
-    // Admin : liste, ajout normalisé, conflit avec un autre établissement, invalide.
+    // Audit Fable 1, B-02 : l'administrateur d'établissement LIT ses domaines mais
+    // n'en ajoute ni n'en retire aucun (aucune preuve de possession) ; il ne change
+    // pas non plus son slug. Le domaine est validé par la plateforme.
     let r = m
         .appel("GET", "/etablissement/domaines", &h, Some(&admin), None)
         .await;
     assert_eq!(r.statut, StatusCode::OK);
     assert_eq!(r.corps["domaines"], json!([m.hote_a]));
     let nouveau = format!("alias-{}", m.hote_a);
-    let r = m
-        .appel(
-            "POST",
-            "/etablissement/domaines",
-            &h,
-            Some(&admin),
-            Some(json!({"domaine": format!("{}:443", nouveau.to_uppercase())})),
-        )
-        .await;
-    assert_eq!(r.statut, StatusCode::CREATED, "{:?}", r.corps);
-    assert_eq!(r.corps["domaine"], json!(nouveau));
-    let r = m
-        .appel(
-            "POST",
-            "/etablissement/domaines",
-            &h,
-            Some(&admin),
-            Some(json!({"domaine": m.hote_b})),
-        )
-        .await;
-    assert_eq!(
-        r.statut,
-        StatusCode::CONFLICT,
-        "domaine de B : jamais réattribué"
-    );
-    let r = m
-        .appel(
-            "POST",
-            "/etablissement/domaines",
-            &h,
-            Some(&admin),
-            Some(json!({"domaine": "pas un domaine"})),
-        )
-        .await;
-    assert_eq!(r.statut, StatusCode::BAD_REQUEST);
-    // Le nouvel alias résout A.
-    assert_eq!(m.ent.resoudre_domaine(&nouveau).await.unwrap(), Some(m.a));
-
-    // Retrait : seulement les domaines de son établissement.
-    let r = m
-        .appel(
-            "DELETE",
-            &format!("/etablissement/domaines/{}", m.hote_b),
-            &h,
-            Some(&admin),
-            None,
-        )
-        .await;
-    assert_eq!(r.statut, StatusCode::NOT_FOUND);
-    assert_eq!(m.ent.resoudre_domaine(&m.hote_b).await.unwrap(), Some(m.b));
-    let r = m
-        .appel(
-            "DELETE",
-            &format!("/etablissement/domaines/{nouveau}"),
-            &h,
-            Some(&admin),
-            None,
-        )
-        .await;
-    assert_eq!(r.statut, StatusCode::NO_CONTENT);
+    for domaine in [
+        format!("{}:443", nouveau.to_uppercase()),
+        m.hote_b.clone(),
+        "college-b.scolia.fr".to_string(),
+        "app.scolia.fr".to_string(),
+    ] {
+        let r = m
+            .appel(
+                "POST",
+                "/etablissement/domaines",
+                &h,
+                Some(&admin),
+                Some(json!({ "domaine": domaine })),
+            )
+            .await;
+        assert_eq!(r.statut, StatusCode::FORBIDDEN, "ajout par l'admin : {domaine}");
+    }
     assert_eq!(m.ent.resoudre_domaine(&nouveau).await.unwrap(), None);
+    assert_eq!(m.ent.resoudre_domaine("college-b.scolia.fr").await.unwrap(), None);
+    for domaine in [&m.hote_a, &m.hote_b] {
+        let r = m
+            .appel(
+                "DELETE",
+                &format!("/etablissement/domaines/{domaine}"),
+                &h,
+                Some(&admin),
+                None,
+            )
+            .await;
+        assert_eq!(r.statut, StatusCode::FORBIDDEN, "retrait par l'admin : {domaine}");
+    }
+    assert_eq!(m.ent.resoudre_domaine(&m.hote_a).await.unwrap(), Some(m.a));
+    assert_eq!(m.ent.resoudre_domaine(&m.hote_b).await.unwrap(), Some(m.b));
 
-    // Journalisé avec l'acteur réel.
+    // Slug immuable pour l'admin ; le nom affiché se renomme.
+    let fiche = m.ent.etablissement_info(m.a).await.unwrap().expect("fiche A");
+    let r = m
+        .appel(
+            "PUT",
+            "/etablissement/fiche",
+            &h,
+            Some(&admin),
+            Some(json!({ "slug": "college-b", "nom": "Collège B" })),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::FORBIDDEN, "changement de slug refusé");
+    let r = m
+        .appel(
+            "PUT",
+            "/etablissement/fiche",
+            &h,
+            Some(&admin),
+            Some(json!({ "slug": fiche.slug, "nom": "Établissement A renommé" })),
+        )
+        .await;
+    assert_eq!(r.statut, StatusCode::OK, "{:?}", r.corps);
+    let apres = m.ent.etablissement_info(m.a).await.unwrap().expect("fiche A");
+    assert_eq!(apres.slug, fiche.slug);
+    assert_eq!(apres.nom, "Établissement A renommé");
+
+    // Opérateur de la plateforme : ajout normalisé, conflit, hôtes réservés, retrait.
+    assert_eq!(
+        m.ent
+            .ajouter_domaine_plateforme(m.a, &format!("{}:443", nouveau.to_uppercase()))
+            .await
+            .unwrap(),
+        nouveau
+    );
+    assert_eq!(m.ent.resoudre_domaine(&nouveau).await.unwrap(), Some(m.a));
+    assert!(matches!(
+        m.ent.ajouter_domaine_plateforme(m.a, &m.hote_b).await,
+        Err(ent_db::EntDbError::Domain(domain_eleve::DomainError::Conflit))
+    ));
+    for reserve in ["scolia.fr", "app.scolia.fr", "www.scolia.fr", "pas un domaine"] {
+        assert!(
+            matches!(
+                m.ent.ajouter_domaine_plateforme(m.a, reserve).await,
+                Err(ent_db::EntDbError::Domain(domain_eleve::DomainError::ValeurInvalide))
+            ),
+            "{reserve}"
+        );
+    }
+    assert!(m.ent.retirer_domaine_plateforme(m.a, &nouveau).await.unwrap());
+    assert!(!m.ent.retirer_domaine_plateforme(m.a, &m.hote_b).await.unwrap());
+    assert_eq!(m.ent.resoudre_domaine(&nouveau).await.unwrap(), None);
+    assert_eq!(m.ent.resoudre_domaine(&m.hote_b).await.unwrap(), Some(m.b));
+
+    // Journalisé, acteur « plateforme ».
     let n: (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_journal_modif
           WHERE etablissement_id = $1
             AND action IN ('etablissement_domaine_ajoute', 'etablissement_domaine_retire')
-            AND actor_user_id IS NOT NULL",
+            AND actor_user_id IS NULL
+            AND payload->>'acteur' = 'plateforme'",
     )
     .bind(m.a)
     .fetch_one(&m.pool)
