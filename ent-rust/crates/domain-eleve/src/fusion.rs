@@ -186,6 +186,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_eleve_dispositif", "Suivi et santé (protégé)"),
         ("ent_absence", "Absences et retards"),
         ("ent_appel", "Absences et retards"),
+        ("ent_asd_", "Absences et retards"),
         ("ent_retard", "Absences et retards"),
         ("ent_signalement_assiduite", "Absences et retards"),
         ("ent_alerte_cpe", "Absences et retards"),
