@@ -6,6 +6,7 @@ import { useIsOrgAdmin } from "@/app/hooks/useIsOrgAdmin";
 import { dash } from "@/app/lib/dashboard-brand";
 import { DASH_CHIP_SHELL, DASH_NEWS_WIDTH } from "@/app/lib/dashboard-chip";
 import type { DashboardTodayNewsItem } from "@/app/lib/dashboard-signals";
+import WeekSheetQuickView from "@/app/components/Dashboard/WeekSheetQuickView";
 
 type Props = {
   items: DashboardTodayNewsItem[];
@@ -39,18 +40,22 @@ export default function DashboardTodayNews({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  /** Survol : le carrousel s’arrête ; clic : aperçu de la semaine. */
+  const [hovered, setHovered] = useState(false);
+  const [quickViewOpen, setQuickViewOpen] = useState(false);
+  const paused = hovered || quickViewOpen;
 
   useEffect(() => {
     setIndex(0);
   }, [items.map((i) => i.id).join("|")]);
 
   useEffect(() => {
-    if (items.length <= 1) return;
+    if (items.length <= 1 || paused) return;
     const t = window.setInterval(() => {
       setIndex((i) => (i + 1) % items.length);
     }, 5200);
     return () => window.clearInterval(t);
-  }, [items.length]);
+  }, [items.length, paused]);
 
   useEffect(() => {
     if (!success) return;
@@ -235,7 +240,6 @@ export default function DashboardTodayNews({
       <div
         className="flex w-full items-start gap-2 overflow-hidden px-0.5 py-0"
         aria-label="Actualité du jour"
-        title={error || success || current?.title || "Actualité du jour"}
       >
         {fileInput}
         {isOrgAdmin ? (
@@ -254,10 +258,22 @@ export default function DashboardTodayNews({
             📰
           </span>
         )}
-        <div className="min-w-0 flex-1 overflow-hidden text-[15px]">
+        <button
+          type="button"
+          onClick={() => setQuickViewOpen(true)}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          className="min-w-0 flex-1 cursor-pointer overflow-hidden rounded-lg text-left text-[15px] transition hover:bg-white/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--dash-primary)]"
+          title={error || success || "Voir la feuille de semaine"}
+          aria-label="Voir la feuille de semaine"
+          aria-haspopup="dialog"
+        >
           {/* Titre 2 lignes (2.75em) + méta (~0.83em à 10px) : hauteur figée même à 1 ligne */}
           <div className="min-h-[calc(2.75em+0.833em)]">{body}</div>
-        </div>
+        </button>
+        <WeekSheetQuickView open={quickViewOpen} onClose={() => setQuickViewOpen(false)} />
       </div>
     );
   }
