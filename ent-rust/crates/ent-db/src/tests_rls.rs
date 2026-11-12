@@ -263,8 +263,12 @@ async fn rls_politiques_presentes_et_forcees() {
     // messagerie (M0b, migration 481 : réglage de la plage calme, décisions sur les liens à vérifier)
     // + 9 du socle 42 (lot V0a, migrations 640–642 : sortie, série et exclusions, public, étapes, journal,
     // participants et leur fil, encadrants) + 5 du lot V0b (migration 643 : versions de budget, lignes,
-    // prix annoncé figé, rappels, documents émis) + 13 du socle 15 (A0 : archives de levée d'exception et de déplacement ; A1 : natures, activation, paramètres, règles de circuit, absences, plages, circuit figé, décisions, journal, arrêts, décisions externes) + 10 du lot D-036 2 (migrations 662, 665, 666, 667 : semaine type, plages de joignabilité, tables de fusion).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 13, "tables avec RLS activée et forcée");
+    // prix annoncé figé, rappels, documents émis) + 10 du lot D-036 2 (migrations 662, 665, 666, 667 : semaine type, plages de joignabilité, tables de fusion)
+    // + 4 de la messagerie (M1, migration 482 : versions de message, élèves d'un fil, participants,
+    // rapport de reprise) + 1 de M2 (migration 484 : historique des réglages) + 13 du socle 15 (A0 : archives
+    // de levée d'exception et de déplacement ; A1 : natures, activation, paramètres, règles de circuit,
+    // absences, plages, circuit figé, décisions, journal, arrêts, décisions externes).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 4 + 1 + 13, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
