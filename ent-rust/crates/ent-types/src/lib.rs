@@ -31,6 +31,7 @@ pub mod internat;
 pub mod personnels;
 pub mod personnels_missions;
 pub mod personnels_services;
+pub mod portail;
 pub mod propositions;
 pub mod referentiel;
 pub mod referentiel_admin;

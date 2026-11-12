@@ -131,6 +131,12 @@ pub mod types {
     pub const MSG_ACCUSE: &str = "msg.accuse";
     pub const MSG_PIECE: &str = "msg.piece";
     pub const MSG_DEROGATION_PLAGE: &str = "msg.derogation_plage";
+    // Messagerie, socle 16 (§22) : noms `messagerie.*`, charges sans contenu ni sujet (R-M14).
+    pub const MESSAGERIE_FIL_OUVERT: &str = "messagerie.fil_ouvert";
+    pub const MESSAGERIE_MESSAGE_ENVOYE: &str = "messagerie.message_envoye";
+    pub const MESSAGERIE_PARTICIPANT_AJOUTE: &str = "messagerie.participant_ajoute";
+    pub const MESSAGERIE_PARTICIPANT_RETIRE: &str = "messagerie.participant_retire";
+    pub const MESSAGERIE_FIL_DEDOUBLE: &str = "messagerie.fil_dedouble";
     pub const ANNONCE_APERCU: &str = "annonce.apercu";
     pub const ANNONCE_RETIREE: &str = "annonce.retiree";
     pub const LIEN_VERIFIE: &str = "lien.verifie";

@@ -29,6 +29,7 @@ mod voyages;
 mod edt_s2;
 mod roles;
 mod routes;
+mod portail;
 mod vie_scolaire;
 mod evaluations;
 mod communication_s28;

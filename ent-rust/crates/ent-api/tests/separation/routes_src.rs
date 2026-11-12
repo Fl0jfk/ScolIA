@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels, services d'enseignement). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 25] = [
+pub const SOURCES: [&str; 26] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
@@ -30,6 +30,7 @@ pub const SOURCES: [&str; 25] = [
     include_str!("../../src/referentiel_s2.rs"),
     include_str!("../../src/roles.rs"),
     include_str!("../../src/vie_scolaire.rs"),
+    include_str!("../../src/portail.rs"),
     include_str!("../../src/edt_s2.rs"),
     include_str!("../../src/evaluations.rs"),
     include_str!("../../src/communication_s28.rs"),
@@ -49,7 +50,7 @@ pub const SOURCES: [&str; 25] = [
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 25] = [
+pub const NOMS_SOURCES: [&str; 26] = [
     "routes.rs",
     "cahier.rs",
     "dossier.rs",
@@ -59,6 +60,7 @@ pub const NOMS_SOURCES: [&str; 25] = [
     "referentiel_s2.rs",
     "roles.rs",
     "vie_scolaire.rs",
+    "portail.rs",
     "edt_s2.rs",
     "evaluations.rs",
     "communication_s28.rs",
