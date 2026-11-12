@@ -486,7 +486,9 @@ async fn aucun_etat_civil_dans_les_evenements() {
     .await
     .unwrap();
     assert_eq!(journal.len(), 2);
-    let tout = format!("{evenements:?}{journal:?}");
+    // Les identifiants (UUID aléatoires) peuvent contenir « 2008 » par hasard (≈ 1 passage sur 50) :
+    // on les retire avant de chercher l'année de naissance, le contrôle porte sur l'état civil seul.
+    let tout = sans_uuid(&format!("{evenements:?}{journal:?}"));
     for interdit in [nom.as_str(), prenom_usage.as_str(), "2008", "Quimperl"] {
         assert!(
             !tout.contains(interdit),
@@ -508,6 +510,29 @@ async fn aucun_etat_civil_dans_les_evenements() {
         .filter(|(p, _, vis)| *vis && p["nature"] == "correction")
         .count();
     assert_eq!(correction_visible, 1);
+}
+
+/// Retire de `texte` toute suite de 36 caractères au format UUID (8-4-4-4-12 hexadécimaux).
+fn sans_uuid(texte: &str) -> String {
+    let c: Vec<char> = texte.chars().collect();
+    let est_uuid = |i: usize| -> bool {
+        c.len() >= i + 36
+            && c[i..i + 36].iter().enumerate().all(|(k, ch)| {
+                if matches!(k, 8 | 13 | 18 | 23) { *ch == '-' } else { ch.is_ascii_hexdigit() }
+            })
+    };
+    let mut out = String::with_capacity(c.len());
+    let mut i = 0;
+    while i < c.len() {
+        if est_uuid(i) {
+            out.push('_');
+            i += 36;
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Droits : écriture réservée à `eleves.identite.modifier`, historique à
