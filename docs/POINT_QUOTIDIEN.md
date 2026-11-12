@@ -8,14 +8,15 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-12 (jeudi soir, 18 h 45 Paris)
 
-### Passé sur `ENT` aujourd'hui (tête `3f85e18d`)
+### Passé sur `ENT` aujourd'hui (tête `fc469308`)
 - **Messagerie M1–M2** (`c1ddae6d`, fusion pilote règle 17) : participants, contrôle d'accès, matrice et destinataires (482–484) ; ferme NJ-29, NJ-36, NJ-37, NJ-59 (partiel).
+- **Correctif SSO, passkeys et domaines (S-01, B-02)** (`fc469308`, fusion pilote ; seul rouge : test instable connu) : la faille la plus grave de l’audit Fable 1 fermée.
 - **Voyages V0c** (`3f85e18d`, fusion pilote) : prestataires, devis, signature, courrier (644) ; ferme NJ-07 à NJ-13, NJ-27, NJ-28, NJ-38, NJ-55, NJ-70.
 - **Emploi du temps réel T0–T2** (`efb3e085`) : versions, placements, séances enrichies, lieux et intervenants (440–444, 452) ; ports pour l'agenda, les salles libérées et les absences.
 - Vérification de la fusion pilote d'hier (AS0 + portail) : verte.
 
 ### Code terminé, en file d'attente de la CI (aucun job démarré pour la plupart)
-Internat I0–I1 · absences du personnel A0–A1 · correctif SSO/passkeys/domaines (S-01, B-02 ; un test instable relancé) · correctifs audit « infrastructure » · stages ST0–ST1(a) · cahier de textes C0–C1 · agenda AG0–AG1-bis (feuille de semaine) · registre des migrations + retrait des colonnes JSON · assiduité AS1–AS2 · portail P2–P3.
+Internat I0–I1 · absences du personnel A0–A1 · correctifs audit « infrastructure » · stages ST0–ST1(a) · cahier de textes C0–C1 · agenda AG0–AG1-bis (feuille de semaine) · registre des migrations + retrait des colonnes JSON · assiduité AS1–AS2 · portail P2–P3.
 
 ### En cours
 Correctifs audit « données sensibles » (reprise d'un échec).
