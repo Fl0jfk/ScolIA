@@ -864,3 +864,96 @@ async fn page_de_demonstration_avec_csp_stricte() {
         );
     }
 }
+
+/// Audit B-01 : le relais `/web` doit transmettre `Host` à ent-api, sinon le cloisonnement
+/// par adresse (D-012) est inopérant (souple : tout passe ; strict : tout est refusé).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn le_relais_transmet_l_hote_et_cloisonne_les_etablissements_par_adresse() {
+    let Some(b) = banc().await else { return };
+    let suffixe = Uuid::new_v4().simple().to_string();
+    let (hote_a, hote_b) = (
+        format!("a-{}.test.scolia.fr", &suffixe[..12]),
+        format!("b-{}.test.scolia.fr", &suffixe[..12]),
+    );
+    let (etab_a, email_a) = compte(&b, "prof").await;
+    let (etab_b, email_b) = compte(&b, "prof").await;
+    for (id, slug, hote) in [(etab_a, "a", &hote_a), (etab_b, "b", &hote_b)] {
+        sqlx::query("INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, $2, $3)")
+            .bind(id)
+            .bind(format!("b01{slug}-{}", &suffixe[..12]))
+            .bind(format!("Établissement {slug}"))
+            .execute(&b.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO ent_etablissement_domaine (domaine, etablissement_id) VALUES ($1, $2)",
+        )
+        .bind(hote)
+        .bind(id)
+        .execute(&b.pool)
+        .await
+        .unwrap();
+    }
+    let connexion = |hote: &str, email: &str, etab: Uuid| {
+        nav(&b, reqwest::Method::POST, "/web/session/connexion")
+            .header(header::HOST, hote.to_string())
+            .json(&json!({ "email": email, "password": MDP, "etablissement_id": etab }))
+            .send()
+    };
+    let moi = |hote: &str, jeton: &str| {
+        b.http
+            .get(format!("{}/web/api/auth/me", b.base))
+            .header(header::HOST, hote.to_string())
+            .header(header::COOKIE, format!("{COOKIE}={jeton}"))
+            .send()
+    };
+    for mode in ["souple", "strict"] {
+        std::env::set_var("ENT_TENANT_PAR_HOTE", mode);
+        std::env::remove_var("ENT_TRUST_PROXY");
+        // Connexion de B demandée sur l'adresse de A : refusée, aucun cookie.
+        let r = connexion(&hote_a, &email_b, etab_b).await.unwrap();
+        assert_ne!(
+            r.status(),
+            StatusCode::OK,
+            "{mode} : B ne se connecte pas sur l'hôte de A"
+        );
+        assert!(set_cookie(&r).is_none(), "{mode} : aucun cookie");
+        // Connexion de A sur son adresse : possible (strict : sinon 404 faute de `Host`).
+        let r = connexion(&hote_a, &email_a, etab_a).await.unwrap();
+        assert_eq!(
+            r.status(),
+            StatusCode::OK,
+            "{mode} : A se connecte sur son hôte"
+        );
+        let jeton_a = valeur(&set_cookie(&r).expect("cookie A"));
+        let r = connexion(&hote_b, &email_b, etab_b).await.unwrap();
+        assert_eq!(
+            r.status(),
+            StatusCode::OK,
+            "{mode} : B se connecte sur son hôte"
+        );
+        let jeton_b = valeur(&set_cookie(&r).expect("cookie B"));
+        // Une session ne vaut que sur l'adresse de son établissement.
+        assert_eq!(
+            moi(&hote_a, &jeton_a).await.unwrap().status(),
+            StatusCode::OK,
+            "{mode}"
+        );
+        assert_eq!(
+            moi(&hote_b, &jeton_b).await.unwrap().status(),
+            StatusCode::OK,
+            "{mode}"
+        );
+        assert_eq!(
+            moi(&hote_a, &jeton_b).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED,
+            "{mode} : session de B refusée sur l'hôte de A via /web/api"
+        );
+        assert_eq!(
+            moi(&hote_b, &jeton_a).await.unwrap().status(),
+            StatusCode::UNAUTHORIZED,
+            "{mode} : session de A refusée sur l'hôte de B via /web/api"
+        );
+    }
+    std::env::remove_var("ENT_TENANT_PAR_HOTE");
+}

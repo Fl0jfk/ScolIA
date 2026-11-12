@@ -592,7 +592,17 @@ async fn iban_masque_et_nouveau_mandat() {
 
     // Dans B, la même personne dépose en réutilisant son identité.
     let camp = campagne_ouverte(&ent, &b, "admission", None).await;
-    let jeton = verifier(&ent, b.etablissement_id, &a.parent_lea.email).await;
+    // B-03 : la reprise d'IBAN exige une session authentifiée ; le jeton « code e-mail » ne suffit pas.
+    let jeton_code = verifier(&ent, b.etablissement_id, &a.parent_lea.email).await;
+    let jeton = ent
+        .jeton_preinscription_depuis_session(
+            b.etablissement_id,
+            a.parent_lea.user_id,
+            Role::Parent.as_str(),
+        )
+        .await
+        .unwrap()
+        .jeton;
     let mut f = formulaire(camp, "Rose", None);
     f.utiliser_mes_infos = true;
     f.enregistrer_profil = true;
@@ -657,6 +667,26 @@ async fn iban_masque_et_nouveau_mandat() {
         .unwrap();
     assert_eq!(cb.propositions.len(), 1);
     assert_eq!(cb.propositions[0].iban_masque, "FR76 •••• 0189");
+    // Non-régression B-03 : avec le seul code reçu par e-mail, aucune proposition d'IBAN
+    // d'un autre établissement, et la reprise d'une proposition connue est refusée.
+    let cb_code = ent
+        .coordonnees_bancaires_famille(b.etablissement_id, &jeton_code, dossier.id)
+        .await
+        .unwrap();
+    assert!(cb_code.propositions.is_empty(), "jeton code : aucun IBAN d'ailleurs");
+    assert!(!format!("{cb_code:?}").contains("0189"));
+    assert!(ent
+        .demander_mandat_famille(
+            b.etablissement_id,
+            &jeton_code,
+            dossier.id,
+            &MandatBody {
+                proposition_id: Some(cb.propositions[0].proposition_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .is_err());
     assert!(
         !format!("{cb:?}").contains("30006000011234567890"),
         "IBAN jamais en clair"

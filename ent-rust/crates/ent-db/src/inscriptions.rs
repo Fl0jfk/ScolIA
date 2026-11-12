@@ -550,6 +550,9 @@ fn masquer_email(e: &str) -> String {
 pub struct Verifie {
     pub email: String,
     pub user_id: Option<Uuid>,
+    /// Jeton issu d'une **session authentifiée** (passkey / mot de passe), non d'un simple
+    /// code reçu par e-mail. Seul ce cas ouvre les données d'un autre établissement (B-03).
+    pub par_session: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2927,8 +2930,8 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             return Err(jeton_invalide());
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT email FROM ent_preinscription_verification
+        let row: Option<(String, String)> = sqlx::query_as(
+            "SELECT email, methode FROM ent_preinscription_verification
               WHERE jeton_hash = $1 AND etablissement_id = $2 AND verifie_le IS NOT NULL
                 AND jeton_expire_le > now()",
         )
@@ -2937,7 +2940,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
-        let Some((email,)) = row else {
+        let Some((email, methode)) = row else {
             return Err(jeton_invalide());
         };
         let user: Option<(Uuid,)> =
@@ -2949,6 +2952,7 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         Ok(Verifie {
             email,
             user_id: user.map(|u| u.0),
+            par_session: methode == "session",
         })
     }
 
@@ -3325,7 +3329,9 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         id: Uuid,
     ) -> Result<CoordonneesBancairesDto, EntDbError> {
         let (v, d) = self.dossier_valide_du_deposant(etab, jeton, id).await?;
-        let propositions = match (d.reutilise_identite, v.user_id) {
+        // B-03 : un IBAN d'un autre établissement n'est proposé qu'à une session
+        // authentifiée ; un simple code reçu par e-mail ne suffit jamais.
+        let propositions = match (d.reutilise_identite && v.par_session, v.user_id) {
             (true, Some(u)) => self
                 .ibans_reprenables(etab, u)
                 .await?
@@ -3355,6 +3361,11 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
         let (v, d) = self.dossier_valide_du_deposant(etab, jeton, id).await?;
         let (iban, bic, titulaire, source) = match b.proposition_id {
             Some(pid) => {
+                if !v.par_session {
+                    return Err(invalide(
+                        "reprise d'un IBAN : connectez-vous à votre compte pour la demander",
+                    ));
+                }
                 let (true, Some(u)) = (d.reutilise_identite, v.user_id) else {
                     return Err(introuvable());
                 };

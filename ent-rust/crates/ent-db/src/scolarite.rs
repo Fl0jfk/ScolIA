@@ -1808,32 +1808,40 @@ impl PgEnt {
         for (etab, eleve, sorte, majorite_le, jour, presumee) in dues {
             // Fenêtre de rattrapage : au-delà de 14 jours après le jour des 18 ans (première mise
             // en service, panne longue), on pose le marqueur sans rien publier.
-            let publier = sorte == "proche" || majorite_le > jour - Duration::days(14);
-            let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let pose = sqlx::query(
-                "INSERT INTO ent_eleve_majorite_evenement (etablissement_id, eleve_id, sorte, majorite_le, publie)
-                 VALUES ($1,$2,$3,$4,$5) ON CONFLICT (eleve_id, sorte) DO NOTHING",
-            )
-            .bind(etab)
-            .bind(eleve)
-            .bind(&sorte)
-            .bind(majorite_le)
-            .bind(publier)
-            .execute(&mut *tx)
-            .await?;
-            if pose.rows_affected() == 1 && publier {
-                // Jamais la date : elle révélerait la date de naissance.
-                let (type_name, compteur) = if sorte == "atteinte" {
-                    (types::ELEVE_MAJEUR, &mut bilan.majeurs)
-                } else {
-                    (types::ELEVE_MAJORITE_PROCHE, &mut bilan.majorites_proches)
-                };
-                evenement(&mut tx, etab, eleve, type_name, json!({ "date_presumee": presumee }), None).await?;
-                *compteur += 1;
-            } else if pose.rows_affected() == 1 {
-                bilan.marqueurs_silencieux += 1;
+            // R-09 : une ligne en échec ne bloque ni les autres élèves ni les autres établissements.
+            let r: Result<(), EntDbError> = async {
+                let publier = sorte == "proche" || majorite_le > jour - Duration::days(14);
+                let mut tx = TenantTx::begin(self.pool(), etab).await?;
+                let pose = sqlx::query(
+                    "INSERT INTO ent_eleve_majorite_evenement (etablissement_id, eleve_id, sorte, majorite_le, publie)
+                     VALUES ($1,$2,$3,$4,$5) ON CONFLICT (eleve_id, sorte) DO NOTHING",
+                )
+                .bind(etab)
+                .bind(eleve)
+                .bind(&sorte)
+                .bind(majorite_le)
+                .bind(publier)
+                .execute(&mut *tx)
+                .await?;
+                if pose.rows_affected() == 1 && publier {
+                    // Jamais la date : elle révélerait la date de naissance.
+                    let (type_name, compteur) = if sorte == "atteinte" {
+                        (types::ELEVE_MAJEUR, &mut bilan.majeurs)
+                    } else {
+                        (types::ELEVE_MAJORITE_PROCHE, &mut bilan.majorites_proches)
+                    };
+                    evenement(&mut tx, etab, eleve, type_name, json!({ "date_presumee": presumee }), None).await?;
+                    *compteur += 1;
+                } else if pose.rows_affected() == 1 {
+                    bilan.marqueurs_silencieux += 1;
+                }
+                tx.commit().await?;
+                Ok(())
             }
-            tx.commit().await?;
+            .await;
+            if let Err(e) = r {
+                crate::tenant_tx::signaler_echec_etablissement("tache_nocturne_majorites", &e);
+            }
         }
         Ok(bilan)
     }

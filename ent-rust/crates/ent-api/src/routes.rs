@@ -1446,7 +1446,7 @@ async fn inviter_compte_eleve(
     Json(body): Json<InviterCompteBody>,
 ) -> Result<(StatusCode, Json<CompteProvisionneDto>), (StatusCode, String)> {
     session.require_manage_eleves()?;
-    let (inv, email, mdp) = state
+    let compte = state
         .ent
         .inviter_compte_eleve_for_actor(
             &session.role,
@@ -1456,12 +1456,13 @@ async fn inviter_compte_eleve(
                 email: body.email,
                 actor_user_id: session.user_id,
             },
+            &base_url_publique(),
         )
         .await
-        .map_err(map_db)?;
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
     Ok((
         StatusCode::CREATED,
-        Json(CompteProvisionneDto::from_parts(&inv, &email, &mdp)),
+        Json(CompteProvisionneDto::from_compte(&compte)),
     ))
 }
 
@@ -1476,13 +1477,11 @@ async fn provisionner_comptes_lot(
             session.etablissement_id,
             session.user_id,
             &session.role,
+            &base_url_publique(),
         )
         .await
-        .map_err(map_db)?;
-    let dtos = lot
-        .iter()
-        .map(|(inv, email, mdp)| CompteProvisionneDto::from_parts(inv, email, mdp))
-        .collect();
+        .map_err(|e| map_compte_sensible(&e).unwrap_or_else(|| map_db(e)))?;
+    let dtos = lot.iter().map(CompteProvisionneDto::from_compte).collect();
     Ok((StatusCode::CREATED, Json(dtos)))
 }
 

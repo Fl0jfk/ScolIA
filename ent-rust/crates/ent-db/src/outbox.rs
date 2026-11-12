@@ -229,6 +229,9 @@ pub trait Consommateur: Send + Sync {
     ) -> FutureTraitement<'a>;
 }
 
+/// Durée (secondes) pendant laquelle un lot réservé n'est pas représenté à un autre passage.
+const BAIL_LOT_SECS: f64 = 300.0;
+
 /// Réglages de la boucle de distribution.
 #[derive(Debug, Clone)]
 pub struct ConfigDistribution {
@@ -524,18 +527,46 @@ impl Distributeur {
         .fetch_all(&mut *verrou)
         .await?;
 
+        // R-07 : le lot est RÉSERVÉ (prochaine_tentative repoussée du bail) puis la transaction
+        // est fermée AVANT d'appeler les consommateurs : aucune connexion ni verrou n'est retenu
+        // pendant leur travail, et chaque événement est marqué dans sa propre transaction (un
+        // échec au 40ᵉ ne rejoue pas les 39 premiers). Un processus qui meurt en cours de lot
+        // laisse ses événements se représenter à l'échéance du bail ; l'ordre par agrégat reste
+        // garanti par la clause « prédécesseurs distribués » de la requête.
+        if !lignes.is_empty() {
+            let ids: Vec<Uuid> = lignes.iter().map(|l| l.event_id).collect();
+            let etabs: Vec<Uuid> = lignes.iter().map(|l| l.etablissement_id).collect();
+            sqlx::query(
+                r#"
+                UPDATE ent_outbox o
+                   SET prochaine_tentative = now() + make_interval(secs => $3)
+                  FROM unnest($1::uuid[], $2::uuid[]) AS r(event_id, etablissement_id)
+                 WHERE o.event_id = r.event_id AND o.etablissement_id = r.etablissement_id
+                "#,
+            )
+            .bind(&ids)
+            .bind(&etabs)
+            .bind(BAIL_LOT_SECS)
+            .execute(&mut *verrou)
+            .await?;
+        }
+        verrou.commit().await?;
+
         let mut rapport = RapportLot {
             lus: lignes.len(),
             ..RapportLot::default()
         };
         for ligne in lignes {
             let evt = ligne.into_distribue();
-            match self.distribuer_evenement(&evt).await {
+            let resultat = self.distribuer_evenement(&evt).await;
+            let mut verrou = self.pool.begin().await?;
+            match resultat {
                 Ok(()) => {
                     sqlx::query(
                         r#"
                         UPDATE ent_outbox
                         SET statut = 'distribue', distribue_le = now(),
+                            prochaine_tentative = now(),
                             tentatives = tentatives + 1, derniere_erreur = NULL
                         WHERE event_id = $1 AND etablissement_id = $2
                         "#,
@@ -601,8 +632,8 @@ impl Distributeur {
                     }
                 }
             }
+            verrou.commit().await?;
         }
-        verrou.commit().await?;
         self.metriques.lots.fetch_add(1, Ordering::Relaxed);
         Ok(rapport)
     }

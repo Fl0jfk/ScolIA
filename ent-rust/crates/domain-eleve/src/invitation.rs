@@ -88,15 +88,21 @@ pub fn email_compte_eleve_defaut(eleve: &Eleve) -> String {
     format!("{local}@ent.lab")
 }
 
+/// Secret aléatoire **jamais divulgué** (ni renvoyé, ni journalisé) : il satisfait la colonne
+/// non nulle ; l'élève choisit son mot de passe par le lien d'activation (audit A-01).
 pub fn generer_mot_de_passe_temporaire() -> String {
     let raw = Uuid::new_v4().simple().to_string();
     format!("Eleve{}!", &raw[..12])
 }
 
+/// `adresse_defaut_autorisee` : vrai seulement en labo/test. L'adresse dérivée `@ent.lab`
+/// n'est pas joignable : hors labo, une adresse réelle est obligatoire (audit A-01), car le
+/// lien d'activation à usage unique part vers elle.
 pub fn plan_inviter_compte_eleve(
     eleve: &Eleve,
     deja_compte: bool,
     cmd: InviterCompteEleve,
+    adresse_defaut_autorisee: bool,
 ) -> Result<InvitationPlanifiee, DomainError> {
     if eleve.etablissement_id != cmd.etablissement_id || eleve.id != cmd.eleve_id {
         return Err(DomainError::TenantMismatch);
@@ -115,7 +121,8 @@ pub fn plan_inviter_compte_eleve(
             }
             t
         }
-        None => email_compte_eleve_defaut(eleve),
+        None if adresse_defaut_autorisee => email_compte_eleve_defaut(eleve),
+        None => return Err(DomainError::InvitationEmailInvalide),
     };
     let now = Utc::now();
     let invitation = EleveInvitation {
@@ -181,6 +188,7 @@ mod tests {
                 email: None,
                 actor_user_id: Uuid::new_v4(),
             },
+            true,
         )
         .unwrap_err();
         assert_eq!(err, DomainError::InvitationCompteDejaLie);
@@ -194,6 +202,7 @@ mod tests {
                 email: Some("pas-un-mail".into()),
                 actor_user_id: Uuid::new_v4(),
             },
+            true,
         )
         .unwrap_err();
         assert_eq!(err2, DomainError::InvitationEmailInvalide);
@@ -213,10 +222,32 @@ mod tests {
                 email: None,
                 actor_user_id: Uuid::new_v4(),
             },
+            true,
         )
         .unwrap();
         assert!(plan.email.starts_with("harry.potter-aaaaaaaa@"));
         assert!(plan.mot_de_passe_temporaire.len() >= 10);
         assert_eq!(plan.invitation.statut, InvitationStatut::Provisionne);
+    }
+
+    /// Audit A-01 : hors labo, pas d'adresse `@ent.lab` inventée.
+    #[test]
+    fn hors_labo_une_adresse_reelle_est_obligatoire() {
+        let etab = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let e = eleve_actif(etab, id);
+        let cmd = |email: Option<&str>| InviterCompteEleve {
+            etablissement_id: etab,
+            eleve_id: id,
+            email: email.map(str::to_string),
+            actor_user_id: Uuid::new_v4(),
+        };
+        assert_eq!(
+            plan_inviter_compte_eleve(&e, false, cmd(None), false).unwrap_err(),
+            DomainError::InvitationEmailInvalide
+        );
+        let plan = plan_inviter_compte_eleve(&e, false, cmd(Some("Eleve@Exemple.fr")), false).unwrap();
+        assert_eq!(plan.email, "eleve@exemple.fr");
+        assert!(!plan.email.ends_with("@ent.lab"));
     }
 }

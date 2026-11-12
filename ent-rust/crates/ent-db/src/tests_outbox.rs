@@ -665,3 +665,80 @@ async fn boucle_de_distribution_en_tache_de_fond() {
     assert!(ok, "notification produite par la boucle de fond");
     assert!(d.metriques().lots >= 1);
 }
+
+// ─── R-07 : aucun verrou ni connexion de lot retenus pendant les consommateurs ───
+
+/// Consommateur qui vérifie, depuis une AUTRE connexion, que la ligne d'outbox de l'événement
+/// n'est pas verrouillée par une transaction de lot, et qui échoue pour l'agrégat `echoue`.
+struct SondeVerrou {
+    pool: sqlx::PgPool,
+    echoue: Uuid,
+    verrou_libre: Mutex<Vec<bool>>,
+}
+
+impl Consommateur for SondeVerrou {
+    fn nom(&self) -> &'static str {
+        "test.r07.verrou"
+    }
+    fn types(&self) -> &'static [&'static str] {
+        &["test.r07"]
+    }
+    fn rejouable(&self) -> bool {
+        true
+    }
+    fn traiter<'a>(&'a self, _tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
+        Box::pin(async move {
+            let mut autre = self.pool.begin().await.map_err(|e| e.to_string())?;
+            let libre = sqlx::query("SELECT 1 FROM ent_outbox WHERE event_id = $1 FOR NO KEY UPDATE NOWAIT")
+                .bind(evt.event().id)
+                .fetch_optional(&mut *autre)
+                .await
+                .is_ok();
+            self.verrou_libre.lock().unwrap().push(libre);
+            drop(autre);
+            if evt.event().aggregate_id == self.echoue {
+                return Err("panne simulée".into());
+            }
+            Ok(())
+        })
+    }
+}
+
+#[tokio::test]
+async fn lot_sans_verrou_retenu_et_succes_conserves_malgre_un_echec_suivant() {
+    let Some((ent, etab)) = base().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let (a1, a2) = (Uuid::new_v4(), Uuid::new_v4());
+    let e1 = publier_seul(&ent, brouillon(etab, "test.r07", a1, None)).await;
+    let e2 = publier_seul(&ent, brouillon(etab, "test.r07", a2, None)).await;
+    let sonde = Arc::new(SondeVerrou {
+        pool: ent.pool().clone(),
+        echoue: a2,
+        verrou_libre: Mutex::new(Vec::new()),
+    });
+    let mut d = ent.distributeur(config_test(etab));
+    d.enregistrer(sonde.clone()).unwrap();
+    let r = d.distribuer_un_lot().await.unwrap();
+    assert_eq!((r.lus, r.distribues, r.reprises), (2, 1, 1));
+    assert_eq!(
+        *sonde.verrou_libre.lock().unwrap(),
+        vec![true, true],
+        "la transaction de lot ne retient aucun verrou pendant les consommateurs"
+    );
+    // Le succès de e1 est acquis même si e2 a échoué ensuite (marquage événement par événement).
+    let statut = |id: Uuid| {
+        let pool = ent.pool().clone();
+        async move {
+            let (s,): (String,) = sqlx::query_as("SELECT statut FROM ent_outbox WHERE event_id = $1")
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            s
+        }
+    };
+    assert_eq!(statut(e1.id).await, "distribue");
+    assert_eq!(statut(e2.id).await, "a_distribuer");
+}

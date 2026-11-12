@@ -433,3 +433,104 @@ async fn annuaire_du_personnel_sans_telephone() {
         );
     }
 }
+
+/// Audit A-01 : la création d'un compte élève (unitaire et en lot) ne renvoie plus aucun mot de
+/// passe temporaire ; l'élève active son compte par un lien à usage unique envoyé à son adresse.
+#[tokio::test]
+async fn comptes_eleves_sans_mot_de_passe_renvoye_activation_par_lien() {
+    let Some((state, ent)) = etat().await else {
+        eprintln!("skip A-01: ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let admin = inscrire(&app, etab, "admin").await;
+    let mut ids = vec![];
+    for prenom in ["Ada", "Alan", "Grace"] {
+        let (st, e) = appel(
+            &app,
+            "POST",
+            "/eleves",
+            Some(&admin.jeton),
+            Some(json!({"nom": "Test", "prenom": prenom})),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CREATED, "{e}");
+        ids.push(e["id"].as_str().unwrap().to_string());
+    }
+
+    // Unitaire, avec une adresse réelle : lien envoyé, aucun secret dans la réponse.
+    ent.mailer().clear_receipts();
+    let email = format!("eleve-{}@exemple.fr", Uuid::new_v4().simple());
+    let (st, corps) = appel(
+        &app,
+        "POST",
+        &format!("/eleves/{}/compte/inviter", ids[0]),
+        Some(&admin.jeton),
+        Some(json!({"email": email})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{corps}");
+    assert_eq!(corps["lien_envoye"], true);
+    assert!(corps.get("mot_de_passe_temporaire").is_none(), "{corps}");
+    assert!(!corps.to_string().to_lowercase().contains("eleve1"), "{corps}");
+    let jeton = lien_email(&ent, &email, "/reset-mot-de-passe").expect("lien d'activation");
+    // Aucun mot de passe connu : pas de connexion avant l'activation (ni l'ancien format Eleve…!).
+    for essai in [MDP, "Eleve000000000000!"] {
+        let (st, _) = appel(
+            &app,
+            "POST",
+            "/auth/login",
+            None,
+            Some(json!({"email": email, "password": essai, "etablissement_id": etab})),
+        )
+        .await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED);
+    }
+    let choisi = format!("Choisi-{}-Aa9!", Uuid::new_v4().simple());
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/reset-password",
+        None,
+        Some(json!({"token": jeton, "new_password": choisi})),
+    )
+    .await;
+    assert!(st.is_success(), "{st}");
+    let (st, _) = appel(
+        &app,
+        "POST",
+        "/auth/login",
+        None,
+        Some(json!({"email": email, "password": choisi, "etablissement_id": etab})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+
+    // Lot : aucun secret non plus, un lien par compte.
+    ent.mailer().clear_receipts();
+    let (st, lot) = appel(
+        &app,
+        "POST",
+        "/eleves/comptes/provisionner-lot",
+        Some(&admin.jeton),
+        None,
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{lot}");
+    let lot = lot.as_array().expect("liste");
+    assert_eq!(lot.len(), 2);
+    for c in lot {
+        assert!(c.get("mot_de_passe_temporaire").is_none(), "{c}");
+        assert_eq!(c["lien_envoye"], true);
+    }
+    assert!(!Value::Array(lot.clone()).to_string().to_lowercase().contains("password"));
+    assert_eq!(
+        ent.mailer()
+            .receipts()
+            .iter()
+            .filter(|r| r.subject.contains("Activation"))
+            .count(),
+        2
+    );
+}
