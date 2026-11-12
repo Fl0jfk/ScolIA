@@ -811,28 +811,6 @@ impl ReglagePool {
     }
 }
 
-#[cfg(test)]
-mod tests_reglage_pool {
-    use super::*;
-
-    fn env(paires: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
-        move |n| paires.iter().find(|(k, _)| *k == n).map(|(_, v)| v.to_string())
-    }
-
-    #[test]
-    fn defauts_et_bornes_du_pool_r05() {
-        let d = ReglagePool::depuis(env(&[])).unwrap();
-        assert_eq!(d.max_connexions, 20, "plus le pool figé à 5");
-        assert_eq!(d.delai_acquisition, Duration::from_secs(5));
-        assert_eq!(d.delai_requete_ms, 30_000);
-        let r = ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "50"), ("ENT_DB_STATEMENT_TIMEOUT_MS", "0")])).unwrap();
-        assert_eq!((r.max_connexions, r.delai_requete_ms), (50, 0));
-        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "0")])).is_err());
-        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "beaucoup")])).is_err());
-        assert!(ReglagePool::depuis(env(&[("ENT_DB_ACQUIRE_TIMEOUT_SECS", "0")])).is_err());
-    }
-}
-
 impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
@@ -20779,4 +20757,26 @@ async fn journal_eleve_tx(
     .execute(conn)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests_reglage_pool {
+    use super::*;
+
+    fn env(paires: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |n| paires.iter().find(|(k, _)| *k == n).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn defauts_et_bornes_du_pool_r05() {
+        let d = ReglagePool::depuis(env(&[])).unwrap();
+        assert_eq!(d.max_connexions, 20, "plus le pool figé à 5");
+        assert_eq!(d.delai_acquisition, Duration::from_secs(5));
+        assert_eq!(d.delai_requete_ms, 30_000);
+        let r = ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "50"), ("ENT_DB_STATEMENT_TIMEOUT_MS", "0")])).unwrap();
+        assert_eq!((r.max_connexions, r.delai_requete_ms), (50, 0));
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "0")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "beaucoup")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_ACQUIRE_TIMEOUT_SECS", "0")])).is_err());
+    }
 }

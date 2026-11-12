@@ -141,11 +141,14 @@ pub async fn expedier_envois(
         .await?;
     if !lot.is_empty() {
         let ids: Vec<Uuid> = lot.iter().map(|l| l.0).collect();
+        let etabs: Vec<Uuid> = lot.iter().map(|l| l.1).collect();
         sqlx::query(
-            "UPDATE ent_inscription_envoi SET prochain_essai = now() + interval '10 minutes'
-              WHERE id = ANY($1)",
+            "UPDATE ent_inscription_envoi e SET prochain_essai = now() + interval '10 minutes'
+               FROM unnest($1::uuid[], $2::uuid[]) AS r(id, etablissement_id)
+              WHERE e.id = r.id AND e.etablissement_id = r.etablissement_id",
         )
         .bind(&ids)
+        .bind(&etabs)
         .execute(&mut *tx)
         .await?;
     }
