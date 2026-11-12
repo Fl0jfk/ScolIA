@@ -136,7 +136,11 @@ pub fn droits_du_role(role: &str) -> Droits {
             r,
             Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
         ),
-        annuler_absence_present: faire_appel,
+        // DA-02 / R-AS24 : réservé à la vie scolaire (`Role::can_annuler_absence_vers_present`).
+        annuler_absence_present: matches!(
+            r,
+            Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
+        ),
         portail_famille: r == Role::Parent,
         mes_absences: r == Role::Eleve,
         voir_classes: !matches!(r, Role::Parent | Role::Eleve | Role::Prof),
@@ -186,10 +190,11 @@ mod tests {
         let cpe = droits_du_role("cpe");
         assert!(cpe.lire_vs_absences && cpe.trancher_justificatif && cpe.annuler_absence_present);
         assert!(!cpe.portail_famille && !cpe.mes_absences);
-        // Un enseignant lit les absences et corrige une erreur d'appel, mais ne tranche pas.
+        // Un enseignant lit les absences ; il corrige sa ligne d'appel (AS2), mais ne tranche
+        // pas et ne « remet présent » pas une absence (DA-02).
         let prof = droits_du_role("prof");
         assert!(
-            prof.lire_vs_absences && prof.annuler_absence_present && !prof.trancher_justificatif
+            prof.lire_vs_absences && !prof.annuler_absence_present && !prof.trancher_justificatif
         );
         let parent = droits_du_role("parent");
         assert!(

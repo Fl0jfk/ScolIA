@@ -480,11 +480,8 @@ mod tests {
             [AnnulerPresent]
         );
         assert!(decisions_possibles(StatutAbsence::AnnuleePresent, cpe).is_empty());
-        // Un enseignant ne tranche pas mais peut corriger une erreur d'appel.
-        assert_eq!(
-            decisions_possibles(StatutAbsence::JustificatifEnAttente, prof),
-            [AnnulerPresent]
-        );
+        // Un enseignant ne tranche pas et ne remet pas « présent » (DA-02) : rien à proposer.
+        assert!(decisions_possibles(StatutAbsence::JustificatifEnAttente, prof).is_empty());
         assert!(decisions_possibles(StatutAbsence::NonJustifiee, parent).is_empty());
         assert!(decisions_possibles(StatutAbsence::NonJustifiee, Droits::default()).is_empty());
     }
