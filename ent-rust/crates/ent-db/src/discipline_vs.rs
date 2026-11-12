@@ -979,8 +979,7 @@ impl PgEnt {
                     (id, etablissement_id, eleve_id, mois, demi_journees, seuil, propose_par_user_id)
                  VALUES ($1,$2,$3,$4,$5,$6,$7)
                  ON CONFLICT (etablissement_id, eleve_id, mois) DO UPDATE
-                    SET demi_journees = EXCLUDED.demi_journees, seuil = EXCLUDED.seuil,
-                        dossier = '{}'::jsonb
+                    SET demi_journees = EXCLUDED.demi_journees, seuil = EXCLUDED.seuil
                   WHERE ent_signalement_assiduite.statut = 'propose'
                  RETURNING id",
             )
