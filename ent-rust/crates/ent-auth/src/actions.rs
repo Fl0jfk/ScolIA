@@ -202,6 +202,20 @@ pub enum Action {
     NotesCorriger,
     /// Exporter les livrets (LSU, LSL), EVA-12.
     LivretsExporter,
+    // ── Socle 19, lot AG1 : agenda (19_AGENDA_RDV.md §21.1) ─────────────────
+    /// Créer des événements et des réunions (brouillon, puis invitations nominatives) : tout le personnel.
+    AgendaEvenementsCreer,
+    /// Publier un événement à une audience (classes, niveau, établissement, personnels) : direction, CPE ;
+    /// un rôle paramétré (D-017) peut l'accorder à un professeur principal pour sa classe.
+    AgendaEvenementsPublier,
+    /// Lire l'agenda d'une classe ou d'un groupe (non nominatif) : tout le personnel.
+    AgendaLireStructure,
+    /// Lire les journaux de l'agenda : direction, administrateur.
+    AgendaJournalLire,
+    /// Paramétrer l'agenda (types d'événements de l'établissement) : administrateur.
+    AgendaParametrer,
+    /// Tenir la feuille de semaine de l'établissement (créneaux visibles de tous) : direction, administrateur.
+    AgendaSemaineGerer,
     // ── S2-8 : communication complète ───────────────────────────────────────
     /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
     CampagnesLancer,
@@ -291,6 +305,19 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
+    /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
+    StagesLire,
+    /// Socle 39, lot ST0 : déclarer un stage et le clôturer ou l'annuler (corrige RS-02 : le CPE
+    /// ne crée plus).
+    StagesPreparer,
+    /// Socle 39, lot ST0 : tenir le carnet d'organismes (entreprises, administrations, associations).
+    StagesOrganismesGerer,
+    /// Socle 39, lot ST1 (a) : dispositifs, assurance, délibération, quotas, délais de relance
+    /// (direction) ; décider qu'un organisme est « interdit ».
+    StagesParametrer,
+    /// Socle 39, lot ST1 (a) : planifier, modifier, publier et fermer les périodes de stage.
+    StagesPeriodesGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +342,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 138] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -396,6 +423,12 @@ impl Action {
         Action::BulletinsPublier,
         Action::NotesCorriger,
         Action::LivretsExporter,
+        Action::AgendaEvenementsCreer,
+        Action::AgendaEvenementsPublier,
+        Action::AgendaLireStructure,
+        Action::AgendaJournalLire,
+        Action::AgendaParametrer,
+        Action::AgendaSemaineGerer,
         Action::CampagnesLancer,
         Action::RencontresGerer,
         Action::FormulairesGerer,
@@ -452,6 +485,12 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::StagesLire,
+        Action::StagesPreparer,
+        Action::StagesOrganismesGerer,
+        Action::StagesParametrer,
+        Action::StagesPeriodesGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -547,6 +586,12 @@ impl Action {
             Self::BulletinsPublier => "bulletins.publier",
             Self::NotesCorriger => "notes.corriger",
             Self::LivretsExporter => "livrets.exporter",
+            Self::AgendaEvenementsCreer => "agenda.evenements.creer",
+            Self::AgendaEvenementsPublier => "agenda.evenements.publier",
+            Self::AgendaLireStructure => "agenda.lire_structure",
+            Self::AgendaJournalLire => "agenda.journal.lire",
+            Self::AgendaParametrer => "agenda.parametrer",
+            Self::AgendaSemaineGerer => "agenda.semaine.gerer",
             Self::CampagnesLancer => "campagnes.lancer",
             Self::RencontresGerer => "rencontres.gerer",
             Self::FormulairesGerer => "formulaires.gerer",
@@ -584,6 +629,11 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::StagesLire => "stages.lire",
+            Self::StagesPreparer => "stages.preparer",
+            Self::StagesOrganismesGerer => "stages.organismes.gerer",
+            Self::StagesParametrer => "stages.parametrer",
+            Self::StagesPeriodesGerer => "stages.periodes.gerer",
         }
     }
 
@@ -680,6 +730,12 @@ impl Action {
             Self::BulletinsPublier => "Générer et publier les bulletins",
             Self::NotesCorriger => "Corriger une note après fermeture de la période",
             Self::LivretsExporter => "Exporter les livrets (LSU, LSL)",
+            Self::AgendaEvenementsCreer => "Créer des événements et des réunions dans l'agenda",
+            Self::AgendaEvenementsPublier => "Publier un événement à une audience (classes, niveau, établissement)",
+            Self::AgendaLireStructure => "Consulter l'agenda d'une classe ou d'un groupe (sans noms d'élèves)",
+            Self::AgendaJournalLire => "Consulter les journaux de l'agenda",
+            Self::AgendaParametrer => "Paramétrer l'agenda (types d'événements de l'établissement)",
+            Self::AgendaSemaineGerer => "Tenir la feuille de semaine de l'établissement",
             Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
             Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
@@ -719,6 +775,11 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::StagesLire => "Consulter les stages des élèves",
+            Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
+            Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
+            Self::StagesParametrer => "Paramétrer les stages (dispositifs, assurance, quotas) et interdire un organisme",
+            Self::StagesPeriodesGerer => "Planifier, publier et fermer les périodes de stage",
         }
     }
 
@@ -765,6 +826,11 @@ impl Action {
             | Self::ReferentielLire
             | Self::ReferentielGerer
             | Self::CahierViser
+            | Self::AgendaEvenementsCreer
+            | Self::AgendaLireStructure
+            | Self::AgendaJournalLire
+            | Self::AgendaParametrer
+            | Self::AgendaSemaineGerer
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
@@ -858,7 +924,14 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
-            | Self::AccesRevue => &[Portee::Etablissement],
+            | Self::AccesRevue
+            | Self::StagesOrganismesGerer
+            | Self::StagesParametrer
+            | Self::StagesPeriodesGerer => &[Portee::Etablissement],
+            // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
+            Self::StagesLire | Self::StagesPreparer => {
+                &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
+            }
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -969,6 +1042,38 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
+    // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
+    // direction ; types d'événements de l'établissement : administrateur.
+    d.push(etab(AgendaEvenementsCreer));
+    d.push(etab(AgendaLireStructure));
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(AgendaEvenementsPublier));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaJournalLire));
+        d.push(etab(AgendaSemaineGerer));
+    }
+    if role == Role::Admin {
+        d.push(etab(AgendaParametrer));
+    }
+    // Socle 39, lot ST0 (`39_STAGES.md` §21.1) : le secrétariat et la direction tiennent les stages
+    // et le carnet d'organismes ; le professeur lit les stages de ses élèves ; le CPE ne crée plus
+    // (RS-02) et n'a que la projection « en stage ».
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [StagesLire, StagesPreparer, StagesOrganismesGerer] {
+            d.push(etab(a));
+        }
+    }
+    // Lot ST1 (a) : paramétrage et périodes = direction (le DDFPT les recevra par un rôle D-017).
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [StagesParametrer, StagesPeriodesGerer] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push((StagesLire, Portee::MesClasses));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -1599,6 +1704,40 @@ mod tests {
         assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
     }
 
+    /// Socle 39, lot ST0 : modèles par défaut des actions de stages (RS-02).
+    #[test]
+    fn st0_stages_modeles_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().find(|(y, _)| *y == x).map(|(_, p)| *p);
+            let gere = matches!(r, Role::Admin | Role::Direction | Role::Administratif);
+            for x in [StagesPreparer, StagesOrganismesGerer] {
+                assert_eq!(a(x).is_some(), gere, "{r:?} {x:?}");
+            }
+            for x in [StagesParametrer, StagesPeriodesGerer] {
+                assert_eq!(a(x).is_some(), matches!(r, Role::Admin | Role::Direction), "{r:?} {x:?}");
+            }
+            let lire = if gere {
+                Some(Portee::Etablissement)
+            } else if r == Role::Prof {
+                Some(Portee::MesClasses)
+            } else {
+                None
+            };
+            assert_eq!(a(StagesLire), lire, "{r:?} stages.lire");
+        }
+        assert_eq!(Action::parse("stages.lire"), Some(StagesLire));
+        assert_eq!(Action::parse("stages.preparer"), Some(StagesPreparer));
+        assert_eq!(Action::parse("stages.organismes.gerer"), Some(StagesOrganismesGerer));
+        assert_eq!(StagesOrganismesGerer.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(Action::parse("stages.parametrer"), Some(StagesParametrer));
+        assert_eq!(Action::parse("stages.periodes.gerer"), Some(StagesPeriodesGerer));
+        assert_eq!(StagesParametrer.portees_admises(), &[Portee::Etablissement]);
+        assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
+    }
+
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :
     /// Admin seul ; revue des accès : Admin et Direction ; portées nouvelles et saisie d'enseignement.
     #[test]
@@ -2045,6 +2184,41 @@ mod oracle_a1 {
         assert!(modele_par_defaut(Role::Direction).iter().any(|(a, _)| *a == Action::ResponsablesAccesUrgence));
         // Familles et élèves : aucun droit paramétrable.
         assert!(modele_par_defaut(Role::Parent).is_empty() && modele_par_defaut(Role::Eleve).is_empty());
+    }
+
+    /// Socle 19, lot AG1 : modèles par défaut des actions `agenda.*` (`19_AGENDA_RDV.md` §21.1).
+    #[test]
+    fn agenda_ag1_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        // Créer un événement et lire la structure : tout le personnel, jamais une famille ni un élève.
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil] {
+            assert!(a(r, AgendaEvenementsCreer), "{r:?} agenda.evenements.creer");
+            assert!(a(r, AgendaLireStructure), "{r:?} agenda.lire_structure");
+        }
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).is_empty(), "{r:?} : aucun droit paramétrable");
+        }
+        // Publier à une audience : direction et CPE ; pas un professeur ni l'accueil.
+        for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, true), (Role::Prof, false), (Role::Accueil, false), (Role::Administratif, false)] {
+            assert_eq!(a(r, AgendaEvenementsPublier), attendu, "{r:?} publier");
+        }
+        // Journaux : direction ; paramétrage : administrateur seul.
+        for (r, j, p) in [(Role::Admin, true, true), (Role::Direction, true, false), (Role::Cpe, false, false), (Role::Prof, false, false)] {
+            assert_eq!(a(r, AgendaJournalLire), j, "{r:?} journal");
+            assert_eq!(a(r, AgendaParametrer), p, "{r:?} parametrer");
+        }
+        // Feuille de semaine : direction et administrateur seulement.
+        for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, false), (Role::Prof, false), (Role::Administratif, false)] {
+            assert_eq!(a(r, AgendaSemaineGerer), attendu, "{r:?} semaine");
+        }
+        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer, AgendaSemaineGerer] {
+            assert!(x.code().starts_with("agenda."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+        }
+        // Publier accepte la portée « mes classes » (un professeur principal par rôle paramétré).
+        assert!(AgendaEvenementsPublier.portees_admises().contains(&Portee::MesClasses));
+        assert_eq!(AgendaEvenementsCreer.portees_admises(), &[Portee::Etablissement]);
     }
 
     /// Socle 42, lot V0a : modèles par défaut des onze actions `voyages.*` (`42_SORTIES_VOYAGES.md` §21.1).

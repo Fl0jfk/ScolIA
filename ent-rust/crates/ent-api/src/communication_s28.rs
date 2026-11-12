@@ -59,6 +59,9 @@ pub fn routes() -> Router<AppState> {
         .route("/rencontres/{id}/cloturer", post(cloturer_rencontre))
         .route("/rencontres/creneaux/{id}/reserver", post(reserver))
         .route("/rencontres/creneaux/{id}/annuler", post(annuler_reservation))
+        .route("/rencontres/creneaux/{id}/bloquer", post(bloquer_creneau))
+        .route("/rencontres/creneaux/{id}/presence", post(presence_rdv))
+        .route("/rencontres/creneaux/{id}/fil", get(fil_creneau))
         .route("/famille/rencontres", get(rencontres_famille))
         .route(
             "/famille/rencontres/{id}/enfants/{eleve_id}/creneaux",
@@ -382,13 +385,73 @@ async fn reserver(
         .map_err(map_db)
 }
 
+#[derive(Deserialize, Default)]
+struct AnnulerBody {
+    /// Motif public : obligatoire pour l'organisateur (RD-09), ignoré pour une famille.
+    #[serde(default)]
+    motif: Option<String>,
+}
+
 async fn annuler_reservation(
     State(s): State<AppState>,
     se: EntSession,
     Path(id): Path<Uuid>,
+    body: Option<Json<AnnulerBody>>,
+) -> Res<Json<LignePlanning>> {
+    let motif = body.and_then(|Json(b)| b.motif);
+    ent(&s)
+        .annuler_reservation(se.etablissement_id, se.user_id, &se.role, id, motif.as_deref())
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+#[derive(Deserialize)]
+struct BloquerBody {
+    bloquer: bool,
+}
+
+/// RD-10 : l'enseignant du créneau bloque ou débloque son créneau.
+async fn bloquer_creneau(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<BloquerBody>,
 ) -> Res<Json<LignePlanning>> {
     ent(&s)
-        .annuler_reservation(se.etablissement_id, se.user_id, &se.role, id)
+        .bloquer_creneau(se.etablissement_id, se.user_id, &se.role, id, b.bloquer)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+#[derive(Deserialize)]
+struct PresenceBody {
+    presence: String,
+}
+
+/// RD-10 : présence (honoré / non venu) saisie par l'enseignant du créneau.
+async fn presence_rdv(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<PresenceBody>,
+) -> Res<Json<LignePlanning>> {
+    ent(&s)
+        .marquer_presence_rdv(se.etablissement_id, se.user_id, id, &b.presence)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+/// RD-01 : fil des faits d'un créneau (organisateur ou enseignant du créneau).
+async fn fil_creneau(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<ent_db::rencontres::FaitCreneau>>> {
+    ent(&s)
+        .fil_creneau(se.etablissement_id, se.user_id, &se.role, id)
         .await
         .map(Json)
         .map_err(map_db)

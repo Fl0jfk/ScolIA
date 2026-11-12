@@ -2395,6 +2395,13 @@ pub struct ChambreInternatDto {
     pub capacite: i16,
     pub genre: String,
     pub actif: bool,
+    /// Public de la chambre (R-IT11) ; absent pour une ancienne chambre « mixte » non reclassée.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zone_id: Option<Uuid>,
+    pub etat: String,
+    pub accessible_pmr: bool,
 }
 
 impl From<&domain_eleve::ChambreInternat> for ChambreInternatDto {
@@ -2407,6 +2414,10 @@ impl From<&domain_eleve::ChambreInternat> for ChambreInternatDto {
             capacite: c.capacite,
             genre: c.genre.as_str().to_string(),
             actif: c.actif,
+            public: c.public.map(|p| p.as_str().to_string()),
+            zone_id: c.zone_id,
+            etat: c.etat.as_str().to_string(),
+            accessible_pmr: c.accessible_pmr,
         }
     }
 }
@@ -2460,6 +2471,12 @@ pub struct PointerPresenceInternatBody {
     pub statut: String,
     #[serde(default)]
     pub note: String,
+    /// Obligatoire pour une nuit passée : `oubli`, `erreur_saisie`, `information_tardive`,
+    /// `rattrapage` ou `autre` (R-IT13).
+    #[serde(default)]
+    pub motif_correction_code: Option<String>,
+    #[serde(default)]
+    pub motif_correction_texte: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2471,6 +2488,8 @@ pub struct PresenceInternatDto {
     pub jour: NaiveDate,
     pub statut: String,
     pub note: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub motif_correction_code: Option<String>,
 }
 
 impl From<&domain_eleve::PresenceInternat> for PresenceInternatDto {
@@ -2482,6 +2501,7 @@ impl From<&domain_eleve::PresenceInternat> for PresenceInternatDto {
             jour: p.jour,
             statut: p.statut.as_str().to_string(),
             note: p.note.clone(),
+            motif_correction_code: p.motif_correction_code.clone(),
         }
     }
 }
@@ -2489,7 +2509,10 @@ impl From<&domain_eleve::PresenceInternat> for PresenceInternatDto {
 #[derive(Debug, Deserialize)]
 pub struct CreerSuiviInternatBody {
     pub jour: Option<NaiveDate>,
+    /// 300 caractères au plus ; **aucune information de santé** (R-IT6).
     pub texte: String,
+    /// Ignoré (RI-09) : un suivi n'est plus jamais visible de la famille à la saisie ; la
+    /// publication passe par le bilan de la semaine (lot I7). Champ conservé pour la compatibilité.
     #[serde(default)]
     pub visible_famille: bool,
 }
@@ -2501,6 +2524,10 @@ pub struct SuiviInternatDto {
     pub jour: NaiveDate,
     pub texte: String,
     pub visible_famille: bool,
+    /// `sante` : le texte semble contenir une information de santé, qui n'a pas sa place dans
+    /// l'internat (R-IT6) ; la saisie est conservée, l'auteur est invité à utiliser le module santé.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avertissement: Option<String>,
 }
 
 impl From<&domain_eleve::SuiviInternat> for SuiviInternatDto {
@@ -2511,6 +2538,7 @@ impl From<&domain_eleve::SuiviInternat> for SuiviInternatDto {
             jour: s.jour,
             texte: s.texte.clone(),
             visible_famille: s.visible_famille,
+            avertissement: None,
         }
     }
 }
@@ -3463,7 +3491,20 @@ pub struct ConventionStageDto {
     pub debut: NaiveDate,
     pub fin: NaiveDate,
     pub tuteur_nom: String,
+    /// `declaree` (stage déclaré, **sans convention signée dans ScolIA**), `cloturee` ou `annulee`.
     pub statut: String,
+    /// Texte à afficher avec le statut `declaree` (RS-01) : ce n'est pas une convention signée.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mention: Option<&'static str>,
+    /// Version à renvoyer pour modifier (verrou optimiste, RS-07).
+    pub version: i32,
+}
+
+/// Changement de statut d'un stage déclaré : clôture ou annulation, avec la version lue.
+#[derive(Debug, Deserialize)]
+pub struct ChangerStatutConventionStageBody {
+    pub statut: String,
+    pub version: i32,
 }
 
 impl From<&domain_eleve::ConventionStage> for ConventionStageDto {
@@ -3478,6 +3519,8 @@ impl From<&domain_eleve::ConventionStage> for ConventionStageDto {
             fin: c.fin,
             tuteur_nom: c.tuteur_nom.clone(),
             statut: c.statut.clone(),
+            mention: c.mention(),
+            version: c.version,
         }
     }
 }

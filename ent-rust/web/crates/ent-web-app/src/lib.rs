@@ -96,6 +96,7 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("cahier") view=modules::cahier::PageCahier/>
                     <Route path=path!("cahier/travaux/:id") view=modules::cahier::PageCopies/>
                     <Route path=path!("agenda") view=modules::cahier::PageAgenda/>
+                    <Route path=path!("mon-agenda") view=modules::agenda::PageMonAgenda/>
                     <Route path=path!("voyages") view=modules::voyages::PageVoyages/>
                     <Route path=path!("voyages/nouveau") view=modules::voyages::PageNouveauVoyage/>
                     <Route path=path!("voyages/serie") view=modules::voyages::PageNouvelleSerie/>

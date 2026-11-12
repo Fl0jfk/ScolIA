@@ -5,270 +5,299 @@ use thiserror::Error;
 pub enum MigrateError {
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
+    /// Une migration déjà appliquée a changé : son empreinte ne correspond plus à celle du registre.
+    #[error("migration « {nom} » modifiée depuis son application (empreinte en base {en_base}, dans le fichier {fichier}) : une migration appliquée ne se modifie plus, ajouter une nouvelle migration")]
+    FichierModifie { nom: String, en_base: String, fichier: String },
 }
 
-const MIGRATIONS: &[&str] = &[
-    include_str!("../../../migrations/001_ent_socle.sql"),
-    include_str!("../../../migrations/002_drop_effectif_doublon.sql"),
-    include_str!("../../../migrations/003_ent_absence.sql"),
-    include_str!("../../../migrations/004_absence_reshape.sql"),
-    include_str!("../../../migrations/005_ent_auth.sql"),
-    include_str!("../../../migrations/006_ent_eleve_periodes.sql"),
-    include_str!("../../../migrations/007_ent_foyer_liens.sql"),
-    include_str!("../../../migrations/008_ent_matiere_note.sql"),
-    include_str!("../../../migrations/009_ent_appel.sql"),
-    include_str!("../../../migrations/010_absence_justif.sql"),
-    include_str!("../../../migrations/011_absence_decisions.sql"),
-    include_str!("../../../migrations/012_absence_signal.sql"),
-    include_str!("../../../migrations/013_absence_motif_etab.sql"),
-    include_str!("../../../migrations/014_eleve_compte.sql"),
-    include_str!("../../../migrations/015_dossier_eleve.sql"),
-    include_str!("../../../migrations/016_eleve_documents.sql"),
-    include_str!("../../../migrations/017_eleve_repas_bourses.sql"),
-    include_str!("../../../migrations/018_eleve_continuum.sql"),
-    include_str!("../../../migrations/019_vs_sanctions.sql"),
-    include_str!("../../../migrations/020_vs_carnet.sql"),
-    include_str!("../../../migrations/021_edt_creneau_appel.sql"),
-    include_str!("../../../migrations/022_note_periode_devoir.sql"),
-    include_str!("../../../migrations/023_messagerie.sql"),
-    include_str!("../../../migrations/024_facturation.sql"),
-    include_str!("../../../migrations/025_encaissements.sql"),
-    include_str!("../../../migrations/026_echeances.sql"),
-    include_str!("../../../migrations/027_quittances.sql"),
-    include_str!("../../../migrations/028_reinscription_doc_exigences.sql"),
-    include_str!("../../../migrations/029_reinscription_acompte.sql"),
-    include_str!("../../../migrations/030_sepa.sql"),
-    include_str!("../../../migrations/031_sepa_rejet_motif.sql"),
-    include_str!("../../../migrations/032_fac_rappels.sql"),
-    include_str!("../../../migrations/033_echeance_bourse.sql"),
-    include_str!("../../../migrations/034_repas_dispense.sql"),
-    include_str!("../../../migrations/035_absence_signal_workflow.sql"),
-    include_str!("../../../migrations/036_repas_passage_badge.sql"),
-    include_str!("../../../migrations/037_msg_accuse.sql"),
-    include_str!("../../../migrations/038_msg_piece.sql"),
-    include_str!("../../../migrations/039_eleve_invitation.sql"),
-    include_str!("../../../migrations/040_infirmerie_passage.sql"),
-    include_str!("../../../migrations/041_psy_entretien.sql"),
-    include_str!("../../../migrations/042_edt_exception.sql"),
-    include_str!("../../../migrations/043_absence_signal_alerte_famille.sql"),
-    include_str!("../../../migrations/044_carnet_notif_famille.sql"),
-    include_str!("../../../migrations/045_fiche_sante.sql"),
-    include_str!("../../../migrations/046_psy_rdv.sql"),
-    include_str!("../../../migrations/047_msg_modele_archive.sql"),
-    include_str!("../../../migrations/048_edt_semaine_ab.sql"),
-    include_str!("../../../migrations/049_cahier_texte.sql"),
-    include_str!("../../../migrations/050_msg_priorite_dossier.sql"),
-    include_str!("../../../migrations/051_psy_dossier.sql"),
-    include_str!("../../../migrations/052_pai.sql"),
-    include_str!("../../../migrations/053_pai_piece.sql"),
-    include_str!("../../../migrations/054_vs_commission.sql"),
-    include_str!("../../../migrations/055_mail_outbox.sql"),
-    include_str!("../../../migrations/056_note_appreciation.sql"),
-    include_str!("../../../migrations/057_sms_telephone.sql"),
-    include_str!("../../../migrations/058_push_devices.sql"),
-    include_str!("../../../migrations/059_bank_object.sql"),
-    include_str!("../../../migrations/060_edt_import.sql"),
-    include_str!("../../../migrations/061_signal_commission.sql"),
-    include_str!("../../../migrations/062_sortie_autorisation.sql"),
-    include_str!("../../../migrations/063_sortie_regle_niveau.sql"),
-    include_str!("../../../migrations/064_sortie_regle_regime.sql"),
-    include_str!("../../../migrations/065_sortie_site_edt.sql"),
-    include_str!("../../../migrations/066_internat.sql"),
-    include_str!("../../../migrations/067_dispense_vs.sql"),
-    include_str!("../../../migrations/068_journal_modif.sql"),
-    include_str!("../../../migrations/069_alerte_cpe.sql"),
-    include_str!("../../../migrations/070_doc_a_signer.sql"),
-    include_str!("../../../migrations/071_conseil_classe.sql"),
-    include_str!("../../../migrations/072_info_comp.sql"),
-    include_str!("../../../migrations/073_vacances.sql"),
-    include_str!("../../../migrations/074_menu_cantine.sql"),
-    include_str!("../../../migrations/075_quotient_tva.sql"),
-    include_str!("../../../migrations/076_param_salle.sql"),
-    include_str!("../../../migrations/077_filiere_voeu.sql"),
-    include_str!("../../../migrations/078_inscription_iban.sql"),
-    include_str!("../../../migrations/079_tarif_conso.sql"),
-    include_str!("../../../migrations/080_absence_rh.sql"),
-    include_str!("../../../migrations/081_edition_vs.sql"),
-    include_str!("../../../migrations/082_stage.sql"),
-    include_str!("../../../migrations/083_edt_contrainte.sql"),
-    include_str!("../../../migrations/084_auth_guard.sql"),
-    include_str!("../../../migrations/085_auth_reset.sql"),
-    include_str!("../../../migrations/086_annonce.sql"),
-    include_str!("../../../migrations/087_retard.sql"),
-    include_str!("../../../migrations/088_competence.sql"),
-    include_str!("../../../migrations/089_passkey.sql"),
-    include_str!("../../../migrations/090_oidc.sql"),
-    include_str!("../../../migrations/091_journal_ajout_seul.sql"),
-    include_str!("../../../migrations/092_referentiel_scolaire.sql"),
-    include_str!("../../../migrations/093_passkey_par_personne.sql"),
-    include_str!("../../../migrations/094_limitation_debit.sql"),
-    include_str!("../../../migrations/095_session_assurance.sql"),
-    include_str!("../../../migrations/096_etablissement_domaines.sql"),
-    include_str!("../../../migrations/097_recuperation_passkey.sql"),
-    include_str!("../../../migrations/098_roles_parametrables.sql"),
-    include_str!("../../../migrations/099_oidc_securite.sql"),
-    include_str!("../../../migrations/100_rls_pilote.sql"),
-    include_str!("../../../migrations/102_outbox.sql"),
-    include_str!("../../../migrations/110_referentiel_structure.sql"),
-    include_str!("../../../migrations/111_classe_id.sql"),
-    include_str!("../../../migrations/112_classe_id_rattachement.sql"),
-    include_str!("../../../migrations/120_personne.sql"),
-    include_str!("../../../migrations/121_lien_autorite.sql"),
-    include_str!("../../../migrations/122_contact_urgence.sql"),
-    include_str!("../../../migrations/123_personne_fusion.sql"),
-    include_str!("../../../migrations/130_vs_absence_seance.sql"),
-    include_str!("../../../migrations/131_vs_declaration.sql"),
-    include_str!("../../../migrations/132_vs_verification_appel.sql"),
-    include_str!("../../../migrations/133_vs_punition.sql"),
-    include_str!("../../../migrations/134_vs_discipline.sql"),
-    include_str!("../../../migrations/140_inscription_campagne.sql"),
-    include_str!("../../../migrations/141_inscription_dossier.sql"),
-    include_str!("../../../migrations/142_preinscription_verification.sql"),
-    include_str!("../../../migrations/143_mandat_sepa_demande.sql"),
-    include_str!("../../../migrations/144_import_lot.sql"),
-    include_str!("../../../migrations/145_inscription_invitation.sql"),
-    include_str!("../../../migrations/150_cahier_textes.sql"),
-    include_str!("../../../migrations/170_edt_admin.sql"),
-    include_str!("../../../migrations/171_edt_remplacement.sql"),
-    include_str!("../../../migrations/172_delegation.sql"),
-    include_str!("../../../migrations/180_eva_grille.sql"),
-    include_str!("../../../migrations/181_eva_conseil.sql"),
-    include_str!("../../../migrations/182_eva_bulletin.sql"),
-    include_str!("../../../migrations/190_notifications.sql"),
-    include_str!("../../../migrations/191_campagnes.sql"),
-    include_str!("../../../migrations/192_rencontres.sql"),
-    include_str!("../../../migrations/193_formulaires.sql"),
-    include_str!("../../../migrations/200_fin_parametres_tarifs.sql"),
-    include_str!("../../../migrations/201_fin_sources.sql"),
-    include_str!("../../../migrations/202_fin_sepa.sql"),
-    include_str!("../../../migrations/203_fin_reglements_lettrage.sql"),
-    include_str!("../../../migrations/204_fin_relances.sql"),
-    include_str!("../../../migrations/205_fin_export_comptable.sql"),
-    include_str!("../../../migrations/206_fin_rls.sql"),
-    include_str!("../../../migrations/210_sante_pai_complet.sql"),
-    include_str!("../../../migrations/211_sante_contrainte.sql"),
-    include_str!("../../../migrations/212_accompagnement.sql"),
-    include_str!("../../../migrations/213_infirmerie_passage_suite.sql"),
-    include_str!("../../../migrations/214_sante_protocole.sql"),
-    include_str!("../../../migrations/215_sante_rls.sql"),
-    include_str!("../../../migrations/216_module_sante.sql"),
-    include_str!("../../../migrations/240_eleve_cles_composees.sql"),
-    include_str!("../../../migrations/250_inscriptions_i0.sql"),
-    include_str!("../../../migrations/255_email_confirmation.sql"),
-    include_str!("../../../migrations/260_administratif_a0.sql"),
-    include_str!("../../../migrations/265_etablissement_fuseau.sql"),
-    include_str!("../../../migrations/266_personne_reserve.sql"),
-    include_str!("../../../migrations/267_adresse_protegee.sql"),
-    include_str!("../../../migrations/268_lien_confirmation_voie.sql"),
-    include_str!("../../../migrations/269_inscription_responsable_reserve.sql"),
-    include_str!("../../../migrations/270_conflit_interet.sql"),
-    include_str!("../../../migrations/271_eleve_interdiction.sql"),
-    include_str!("../../../migrations/272_contact_declarant.sql"),
-    include_str!("../../../migrations/273_personne_coordonnee.sql"),
-    include_str!("../../../migrations/274_personne_coordonnee_projection.sql"),
-    include_str!("../../../migrations/275_personne_verification_preferences.sql"),
-    include_str!("../../../migrations/276_personne_version_divergence.sql"),
-    include_str!("../../../migrations/280_eleve_identite_versionnee.sql"),
-    include_str!("../../../migrations/281_eleve_identifiants.sql"),
-    include_str!("../../../migrations/282_eleve_numero.sql"),
-    include_str!("../../../migrations/283_eleve_scolarisation.sql"),
-    include_str!("../../../migrations/284_eleve_inscription.sql"),
-    include_str!("../../../migrations/285_eleve_capacite_majorite.sql"),
-    include_str!("../../../migrations/286_eleve_options.sql"),
-    include_str!("../../../migrations/287_eleve_param_champ.sql"),
-    include_str!("../../../migrations/288_eleve_proposition.sql"),
-    include_str!("../../../migrations/289_eleve_proposition_garde.sql"),
-    include_str!("../../../migrations/290_eleve_recherche.sql"),
-    include_str!("../../../migrations/291_eleve_doublon.sql"),
-    include_str!("../../../migrations/292_eleve_fusion.sql"),
-    include_str!("../../../migrations/293_eleve_fusion_gardes.sql"),
-    include_str!("../../../migrations/294_eleve_fusion_securite.sql"),
-    include_str!("../../../migrations/300_inscription_annuelle_prevue.sql"),
-    include_str!("../../../migrations/301_inscriptions_i1_dossier.sql"),
-    include_str!("../../../migrations/302_inscription_campagne_modele.sql"),
-    include_str!("../../../migrations/303_inscription_offre.sql"),
-    include_str!("../../../migrations/304_inscription_demarche_dossier.sql"),
-    include_str!("../../../migrations/305_inscription_declaration_responsable.sql"),
-    include_str!("../../../migrations/306_inscription_offre_reprise_places.sql"),
-    include_str!("../../../migrations/307_inscription_fermeture_prolongation.sql"),
-    include_str!("../../../migrations/308_inscription_validation_annulee.sql"),
-    include_str!("../../../migrations/309_inscription_envoi_information.sql"),
-    include_str!("../../../migrations/330_structure_garde_fous.sql"),
-    include_str!("../../../migrations/331_cours_membres.sql"),
-    include_str!("../../../migrations/332_structure_profil_parametres.sql"),
-    include_str!("../../../migrations/333_structure_calendrier.sql"),
-    include_str!("../../../migrations/334_structure_fermeture.sql"),
-    include_str!("../../../migrations/335_structure_periodes.sql"),
-    include_str!("../../../migrations/336_structure_grilles.sql"),
-    include_str!("../../../migrations/337_structure_lieux.sql"),
-    include_str!("../../../migrations/338_structure_offre.sql"),
-    include_str!("../../../migrations/340_eleve_enseignement.sql"),
-    include_str!("../../../migrations/341_cours.sql"),
-    include_str!("../../../migrations/350_acces_etat.sql"),
-    include_str!("../../../migrations/351_attributions_datees.sql"),
-    include_str!("../../../migrations/352_agents.sql"),
-    include_str!("../../../migrations/353_agents_fonctions.sql"),
-    include_str!("../../../migrations/354_services_interventions.sql"),
-    include_str!("../../../migrations/355_missions.sql"),
-    include_str!("../../../migrations/357_casquettes_invitations.sql"),
-    include_str!("../../../migrations/361_agent_identifiants.sql"),
-    include_str!("../../../migrations/362_agent_sujet.sql"),
-    include_str!("../../../migrations/370_edt_creneau_groupe.sql"),
-    include_str!("../../../migrations/375_msg_fil_prive.sql"),
-    include_str!("../../../migrations/376_sepa_unicite_encaissement.sql"),
-    include_str!("../../../migrations/377_edt_exception_absence_etab.sql"),
-    include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
-    include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
-    include_str!("../../../migrations/481_msg_m0b_securite_fiabilite.sql"),
-    include_str!("../../../migrations/482_msg_m1_participants.sql"),
-    include_str!("../../../migrations/483_msg_m1_reprise.sql"),
-    include_str!("../../../migrations/484_msg_m2_matrice.sql"),
-    include_str!("../../../migrations/500_objet_registre.sql"),
-    include_str!("../../../migrations/520_finances_f0_immuabilite.sql"),
-    include_str!("../../../migrations/560_delegation_droits_normalises.sql"),
-    include_str!("../../../migrations/561_inscription_resolution.sql"),
-    include_str!("../../../migrations/562_inscription_scolarite_actuelle.sql"),
-    include_str!("../../../migrations/563_signalement_assiduite_detail.sql"),
-    include_str!("../../../migrations/580_rls_eleves_responsables.sql"),
-    include_str!("../../../migrations/581_rls_sante_assiduite.sql"),
-    include_str!("../../../migrations/582_rls_finances.sql"),
-    include_str!("../../../migrations/583_rls_communication.sql"),
-    include_str!("../../../migrations/584_rls_vie_scolaire_discipline.sql"),
-    include_str!("../../../migrations/585_rls_evaluations_pedagogie.sql"),
-    include_str!("../../../migrations/586_rls_inscriptions.sql"),
-    include_str!("../../../migrations/587_rls_structure_acces_divers.sql"),
-    include_str!("../../../migrations/600_rls_stricte_adhesion_contexte.sql"),
-    include_str!("../../../migrations/601_pieces_vers_objets.sql"),
-    include_str!("../../../migrations/640_sortie_coeur.sql"),
-    include_str!("../../../migrations/641_sortie_participants.sql"),
-    include_str!("../../../migrations/642_sortie_encadrants.sql"),
-    include_str!("../../../migrations/643_sortie_budget.sql"),
-    include_str!("../../../migrations/661_d036_corrections_lot1.sql"),
-    include_str!("../../../migrations/662_d036_profil_jours_ouvres.sql"),
-    include_str!("../../../migrations/663_d036_parametre_type.sql"),
-    include_str!("../../../migrations/664_d036_import_ligne_typee.sql"),
-    include_str!("../../../migrations/665_d036_personne_plage_joignable.sql"),
-    include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
-    include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
-    include_str!("../../../migrations/2240_assiduite_as0.sql"),
-    include_str!("../../../migrations/2400_cdt_c0_correctifs.sql"),
-    include_str!("../../../migrations/2401_cdt_reglages_natures.sql"),
-    include_str!("../../../migrations/2402_cdt_entrees.sql"),
-    include_str!("../../../migrations/2403_cdt_travaux.sql"),
-    include_str!("../../../migrations/2404_cdt_pieces_liens.sql"),
-    include_str!("../../../migrations/2405_cdt_remises.sql"),
-    include_str!("../../../migrations/2406_cdt_retours.sql"),
-    include_str!("../../../migrations/2409_cdt_reports_continuites.sql"),
-    include_str!("../../../migrations/2410_cdt_visas_charge.sql"),
-    include_str!("../../../migrations/2411_cdt_archives.sql"),
-    include_str!("../../../migrations/2412_cdt_reprise.sql"),
+/// Une migration : (nom du fichier sans extension, texte). Le nom est la clé du registre des migrations
+/// appliquées (`ent_migration_appliquee`).
+macro_rules! m {
+    ($nom:literal) => {
+        ($nom, include_str!(concat!("../../../migrations/", $nom, ".sql")))
+    };
+}
+
+pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
+    m!("001_ent_socle"),
+    m!("002_drop_effectif_doublon"),
+    m!("003_ent_absence"),
+    m!("004_absence_reshape"),
+    m!("005_ent_auth"),
+    m!("006_ent_eleve_periodes"),
+    m!("007_ent_foyer_liens"),
+    m!("008_ent_matiere_note"),
+    m!("009_ent_appel"),
+    m!("010_absence_justif"),
+    m!("011_absence_decisions"),
+    m!("012_absence_signal"),
+    m!("013_absence_motif_etab"),
+    m!("014_eleve_compte"),
+    m!("015_dossier_eleve"),
+    m!("016_eleve_documents"),
+    m!("017_eleve_repas_bourses"),
+    m!("018_eleve_continuum"),
+    m!("019_vs_sanctions"),
+    m!("020_vs_carnet"),
+    m!("021_edt_creneau_appel"),
+    m!("022_note_periode_devoir"),
+    m!("023_messagerie"),
+    m!("024_facturation"),
+    m!("025_encaissements"),
+    m!("026_echeances"),
+    m!("027_quittances"),
+    m!("028_reinscription_doc_exigences"),
+    m!("029_reinscription_acompte"),
+    m!("030_sepa"),
+    m!("031_sepa_rejet_motif"),
+    m!("032_fac_rappels"),
+    m!("033_echeance_bourse"),
+    m!("034_repas_dispense"),
+    m!("035_absence_signal_workflow"),
+    m!("036_repas_passage_badge"),
+    m!("037_msg_accuse"),
+    m!("038_msg_piece"),
+    m!("039_eleve_invitation"),
+    m!("040_infirmerie_passage"),
+    m!("041_psy_entretien"),
+    m!("042_edt_exception"),
+    m!("043_absence_signal_alerte_famille"),
+    m!("044_carnet_notif_famille"),
+    m!("045_fiche_sante"),
+    m!("046_psy_rdv"),
+    m!("047_msg_modele_archive"),
+    m!("048_edt_semaine_ab"),
+    m!("049_cahier_texte"),
+    m!("050_msg_priorite_dossier"),
+    m!("051_psy_dossier"),
+    m!("052_pai"),
+    m!("053_pai_piece"),
+    m!("054_vs_commission"),
+    m!("055_mail_outbox"),
+    m!("056_note_appreciation"),
+    m!("057_sms_telephone"),
+    m!("058_push_devices"),
+    m!("059_bank_object"),
+    m!("060_edt_import"),
+    m!("061_signal_commission"),
+    m!("062_sortie_autorisation"),
+    m!("063_sortie_regle_niveau"),
+    m!("064_sortie_regle_regime"),
+    m!("065_sortie_site_edt"),
+    m!("066_internat"),
+    m!("067_dispense_vs"),
+    m!("068_journal_modif"),
+    m!("069_alerte_cpe"),
+    m!("070_doc_a_signer"),
+    m!("071_conseil_classe"),
+    m!("072_info_comp"),
+    m!("073_vacances"),
+    m!("074_menu_cantine"),
+    m!("075_quotient_tva"),
+    m!("076_param_salle"),
+    m!("077_filiere_voeu"),
+    m!("078_inscription_iban"),
+    m!("079_tarif_conso"),
+    m!("080_absence_rh"),
+    m!("081_edition_vs"),
+    m!("082_stage"),
+    m!("083_edt_contrainte"),
+    m!("084_auth_guard"),
+    m!("085_auth_reset"),
+    m!("086_annonce"),
+    m!("087_retard"),
+    m!("088_competence"),
+    m!("089_passkey"),
+    m!("090_oidc"),
+    m!("091_journal_ajout_seul"),
+    m!("092_referentiel_scolaire"),
+    m!("093_passkey_par_personne"),
+    m!("094_limitation_debit"),
+    m!("095_session_assurance"),
+    m!("096_etablissement_domaines"),
+    m!("097_recuperation_passkey"),
+    m!("098_roles_parametrables"),
+    m!("099_oidc_securite"),
+    m!("100_rls_pilote"),
+    m!("102_outbox"),
+    m!("110_referentiel_structure"),
+    m!("111_classe_id"),
+    m!("112_classe_id_rattachement"),
+    m!("120_personne"),
+    m!("121_lien_autorite"),
+    m!("122_contact_urgence"),
+    m!("123_personne_fusion"),
+    m!("130_vs_absence_seance"),
+    m!("131_vs_declaration"),
+    m!("132_vs_verification_appel"),
+    m!("133_vs_punition"),
+    m!("134_vs_discipline"),
+    m!("140_inscription_campagne"),
+    m!("141_inscription_dossier"),
+    m!("142_preinscription_verification"),
+    m!("143_mandat_sepa_demande"),
+    m!("144_import_lot"),
+    m!("145_inscription_invitation"),
+    m!("150_cahier_textes"),
+    m!("170_edt_admin"),
+    m!("171_edt_remplacement"),
+    m!("172_delegation"),
+    m!("180_eva_grille"),
+    m!("181_eva_conseil"),
+    m!("182_eva_bulletin"),
+    m!("190_notifications"),
+    m!("191_campagnes"),
+    m!("192_rencontres"),
+    m!("193_formulaires"),
+    m!("200_fin_parametres_tarifs"),
+    m!("201_fin_sources"),
+    m!("202_fin_sepa"),
+    m!("203_fin_reglements_lettrage"),
+    m!("204_fin_relances"),
+    m!("205_fin_export_comptable"),
+    m!("206_fin_rls"),
+    m!("210_sante_pai_complet"),
+    m!("211_sante_contrainte"),
+    m!("212_accompagnement"),
+    m!("213_infirmerie_passage_suite"),
+    m!("214_sante_protocole"),
+    m!("215_sante_rls"),
+    m!("216_module_sante"),
+    m!("240_eleve_cles_composees"),
+    m!("250_inscriptions_i0"),
+    m!("255_email_confirmation"),
+    m!("260_administratif_a0"),
+    m!("265_etablissement_fuseau"),
+    m!("266_personne_reserve"),
+    m!("267_adresse_protegee"),
+    m!("268_lien_confirmation_voie"),
+    m!("269_inscription_responsable_reserve"),
+    m!("270_conflit_interet"),
+    m!("271_eleve_interdiction"),
+    m!("272_contact_declarant"),
+    m!("273_personne_coordonnee"),
+    m!("274_personne_coordonnee_projection"),
+    m!("275_personne_verification_preferences"),
+    m!("276_personne_version_divergence"),
+    m!("280_eleve_identite_versionnee"),
+    m!("281_eleve_identifiants"),
+    m!("282_eleve_numero"),
+    m!("283_eleve_scolarisation"),
+    m!("284_eleve_inscription"),
+    m!("285_eleve_capacite_majorite"),
+    m!("286_eleve_options"),
+    m!("287_eleve_param_champ"),
+    m!("288_eleve_proposition"),
+    m!("289_eleve_proposition_garde"),
+    m!("290_eleve_recherche"),
+    m!("291_eleve_doublon"),
+    m!("292_eleve_fusion"),
+    m!("293_eleve_fusion_gardes"),
+    m!("294_eleve_fusion_securite"),
+    m!("300_inscription_annuelle_prevue"),
+    m!("301_inscriptions_i1_dossier"),
+    m!("302_inscription_campagne_modele"),
+    m!("303_inscription_offre"),
+    m!("304_inscription_demarche_dossier"),
+    m!("305_inscription_declaration_responsable"),
+    m!("306_inscription_offre_reprise_places"),
+    m!("307_inscription_fermeture_prolongation"),
+    m!("308_inscription_validation_annulee"),
+    m!("309_inscription_envoi_information"),
+    m!("330_structure_garde_fous"),
+    m!("331_cours_membres"),
+    m!("332_structure_profil_parametres"),
+    m!("333_structure_calendrier"),
+    m!("334_structure_fermeture"),
+    m!("335_structure_periodes"),
+    m!("336_structure_grilles"),
+    m!("337_structure_lieux"),
+    m!("338_structure_offre"),
+    m!("340_eleve_enseignement"),
+    m!("341_cours"),
+    m!("350_acces_etat"),
+    m!("351_attributions_datees"),
+    m!("352_agents"),
+    m!("353_agents_fonctions"),
+    m!("354_services_interventions"),
+    m!("355_missions"),
+    m!("357_casquettes_invitations"),
+    m!("361_agent_identifiants"),
+    m!("362_agent_sujet"),
+    m!("370_edt_creneau_groupe"),
+    m!("375_msg_fil_prive"),
+    m!("376_sepa_unicite_encaissement"),
+    m!("377_edt_exception_absence_etab"),
+    m!("440_edt_t0_correctifs"),
+    m!("441_edt_t1_versions"),
+    m!("442_edt_t1_placements"),
+    m!("443_edt_t2_seance_enrichie"),
+    m!("444_edt_t2_seance_lieux_intervenants"),
+    m!("460_eva_v0_correctifs"),
+    m!("480_msg_m0a_fuites"),
+    m!("481_msg_m0b_securite_fiabilite"),
+    m!("482_msg_m1_participants"),
+    m!("483_msg_m1_reprise"),
+    m!("484_msg_m2_matrice"),
+    m!("500_objet_registre"),
+    m!("520_finances_f0_immuabilite"),
+    m!("560_delegation_droits_normalises"),
+    m!("561_inscription_resolution"),
+    m!("562_inscription_scolarite_actuelle"),
+    m!("563_signalement_assiduite_detail"),
+    m!("580_rls_eleves_responsables"),
+    m!("581_rls_sante_assiduite"),
+    m!("582_rls_finances"),
+    m!("583_rls_communication"),
+    m!("584_rls_vie_scolaire_discipline"),
+    m!("585_rls_evaluations_pedagogie"),
+    m!("586_rls_inscriptions"),
+    m!("587_rls_structure_acces_divers"),
+    m!("452_edt_rls_permissive"),
+    m!("600_rls_stricte_adhesion_contexte"),
+    m!("601_pieces_vers_objets"),
+    m!("640_sortie_coeur"),
+    m!("641_sortie_participants"),
+    m!("642_sortie_encadrants"),
+    m!("643_sortie_budget"),
+    m!("644_sortie_prestataires"),
+    m!("661_d036_corrections_lot1"),
+    m!("662_d036_profil_jours_ouvres"),
+    m!("663_d036_parametre_type"),
+    m!("664_d036_import_ligne_typee"),
+    m!("665_d036_personne_plage_joignable"),
+    m!("666_d036_eleve_fusion_normalisee"),
+    m!("667_d036_personne_fusion_normalisee"),
+    m!("668_d036_retrait_colonnes_lot1"),
+    m!("669_d036_retrait_colonnes_lot2"),
+    m!("2240_assiduite_as0"),
+    m!("2380_agenda_ag0_rencontres"),
+    m!("2381_agenda_evenement"),
+    m!("2400_cdt_c0_correctifs"),
+    m!("2401_cdt_reglages_natures"),
+    m!("2402_cdt_entrees"),
+    m!("2403_cdt_travaux"),
+    m!("2404_cdt_pieces_liens"),
+    m!("2405_cdt_remises"),
+    m!("2406_cdt_retours"),
+    m!("2409_cdt_reports_continuites"),
+    m!("2410_cdt_visas_charge"),
+    m!("2411_cdt_archives"),
+    m!("2412_cdt_reprise"),
+    m!("2780_stage_st0_correctifs"),
+    m!("2781_stage_st1a_parametres_organismes"),
+    m!("2782_stage_st1a_periodes"),
+    m!("2820_internat_i0_presence_faits"),
+    m!("2821_internat_i0_regime_parametres"),
+    m!("2822_internat_i1_zones_chambres_lits"),
+    m!("2823_internat_i1_sejours_affectations"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2412_cdt_reprise";
+pub const MIGRATION_TAG: &str = "2823_internat_i1_sejours_affectations";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -295,28 +324,124 @@ pub async fn apply_socle_migrations(pool: &PgPool) -> Result<(), MigrateError> {
     Ok(())
 }
 
+/// Registre des migrations appliquées : `(nom, empreinte SHA-256 du fichier, date)`. Créé par le lanceur
+/// lui-même (il doit exister avant la première migration) ; classé « Technique » au registre des tables.
+const CREER_REGISTRE: &str = "CREATE TABLE IF NOT EXISTS ent_migration_appliquee (
+    nom TEXT PRIMARY KEY CHECK (nom ~ '^[0-9]{3,4}_[a-z0-9_]+$' AND length(nom) <= 120),
+    empreinte TEXT NOT NULL CHECK (empreinte ~ '^[0-9a-f]{64}$'),
+    appliquee_le TIMESTAMPTZ NOT NULL DEFAULT now())";
+
+/// Empreinte SHA-256 (hexadécimal) du texte d'un fichier de migration.
+pub(crate) fn empreinte(sql: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(sql.as_bytes()).iter().map(|o| format!("{o:02x}")).collect()
+}
+
+/// Applique, dans l'ordre, les migrations **pas encore** enregistrées : une transaction par fichier, un
+/// fichier appliqué une seule fois. Avant toute écriture, l'empreinte de chaque fichier déjà appliqué est
+/// vérifiée : un fichier modifié est refusé (`MigrateError::FichierModifie`). Une base sans registre
+/// (neuve, ou antérieure au registre) applique tout dans l'ordre ; les fichiers sont idempotents.
 async fn apply_all(pool: &PgPool) -> Result<(), MigrateError> {
-    for sql in MIGRATIONS {
+    sqlx::query(CREER_REGISTRE).execute(pool).await?;
+    let appliquees: Vec<(String, String)> =
+        sqlx::query_as("SELECT nom, empreinte FROM ent_migration_appliquee").fetch_all(pool).await?;
+    for (nom, sql) in MIGRATIONS {
+        if let Some((_, en_base)) = appliquees.iter().find(|(n, _)| n == nom) {
+            let fichier = empreinte(sql);
+            if *en_base != fichier {
+                return Err(MigrateError::FichierModifie { nom: (*nom).to_string(), en_base: en_base.clone(), fichier });
+            }
+        }
+    }
+    for (nom, sql) in MIGRATIONS {
+        if appliquees.iter().any(|(n, _)| n == nom) {
+            continue;
+        }
+        appliquer_dans_une_transaction(pool, nom, sql).await?;
+        tracing::info!(migration = %nom, "migration appliquée");
+    }
+    Ok(())
+}
+
+/// Tous les ordres d'un fichier + l'inscription au registre, dans **une** transaction : un échec n'en
+/// laisse aucune trace (ni demi-fichier, ni inscription).
+pub(crate) async fn appliquer_dans_une_transaction(pool: &PgPool, nom: &str, sql: &str) -> Result<(), MigrateError> {
+    let mut tx = pool.begin().await?;
+    for stmt in ordres(sql) {
+        sqlx::query(&stmt).execute(&mut *tx).await?;
+    }
+    sqlx::query("INSERT INTO ent_migration_appliquee (nom, empreinte) VALUES ($1, $2)")
+        .bind(nom)
+        .bind(empreinte(sql))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Tests : applique les migrations dans l'ordre **jusqu'à** `dernier` (inclus), **sans** registre ni
+/// transaction — reproduit une base antérieure au registre, migrée jusqu'à une version donnée.
+#[cfg(test)]
+pub(crate) async fn appliquer_jusqu_a(pool: &PgPool, dernier: &str) -> Result<(), MigrateError> {
+    let mut trouve = false;
+    for (nom, sql) in MIGRATIONS {
+        apply_sql_file(pool, sql).await?;
+        if *nom == dernier {
+            trouve = true;
+            break;
+        }
+    }
+    assert!(trouve, "migration {dernier} inconnue");
+    Ok(())
+}
+
+/// Tests : rejoue **tous** les fichiers (sans passer par le registre) — simule une reprise d'anciennes
+/// données (« legacy » insérées après coup) que les fichiers de reprise savent absorber.
+#[cfg(test)]
+pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
+    // Ces fichiers (reprises du lot D-036) lisent des colonnes retirées par 668 et 669 : on ne les rejoue
+    // pas (il n'y a plus de ligne « héritée » à reprendre, les colonnes n'existent plus).
+    const LISENT_UNE_COLONNE_RETIREE: &[&str] = &[
+        "560_delegation_droits_normalises",
+        "561_inscription_resolution",
+        "562_inscription_scolarite_actuelle",
+        "563_signalement_assiduite_detail",
+        "662_d036_profil_jours_ouvres",
+        "663_d036_parametre_type",
+        "664_d036_import_ligne_typee",
+        "665_d036_personne_plage_joignable",
+        "666_d036_eleve_fusion_normalisee",
+        "667_d036_personne_fusion_normalisee",
+    ];
+    for (nom, sql) in MIGRATIONS {
+        if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
+            continue;
+        }
         apply_sql_file(pool, sql).await?;
     }
     Ok(())
 }
 
-async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
-    // Retirer les commentaires **avant** de découper sur `;`
-    // (sinon un `;` dans un commentaire devient une « requête »).
-    let without_comments: String = sql
+/// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
+/// commentaire deviendrait une « requête »), blocs `$$ … $$` préservés.
+fn ordres(sql: &str) -> Vec<String> {
+    let sans_commentaires: String = sql
         .lines()
         .filter(|l| !l.trim_start().starts_with("--"))
         .collect::<Vec<_>>()
         .join("\n");
+    split_statements(&sans_commentaires)
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
 
-    for stmt in split_statements(&without_comments) {
-        let cleaned = stmt.trim();
-        if cleaned.is_empty() {
-            continue;
-        }
-        sqlx::query(cleaned).execute(pool).await?;
+/// Applique un fichier ordre par ordre, sans transaction ni registre (tests seulement).
+#[cfg(test)]
+async fn apply_sql_file(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
+    for stmt in ordres(sql) {
+        sqlx::query(&stmt).execute(pool).await?;
     }
     Ok(())
 }
@@ -361,8 +486,14 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        // Tri numérique sur le préfixe (2240 > 642) et non lexical.
-        noms.sort_by_key(|n| n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0));
+        // Tri NUMÉRIQUE sur le préfixe : les plages à quatre chiffres (2820–2839, socle 41)
+        // dépassent celles à trois chiffres, ce que le tri alphabétique ne voit pas.
+        noms.sort_by_key(|n| {
+            (
+                n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0),
+                n.clone(),
+            )
+        });
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(
@@ -379,10 +510,11 @@ mod tests {
     }
 
     /// D-036 : colonnes JSON/JSONB déclarées. `(table, colonne, catégorie, justification)`.
-    /// Catégories : `exception` (permise par D-036), `retrait` (reprise faite dans une table typée,
-    /// colonne conservée en lecture seule jusqu'au lot de retrait), `dette` (à normaliser, lot suivant ;
-    /// voir `docs/D036_INVENTAIRE_JSON.md`). Toute nouvelle colonne JSONB hors de cette liste fait
-    /// échouer `aucune_colonne_json_hors_liste_d036`.
+    /// Catégories : `exception` (permise par D-036) et `dette` (à normaliser, lot suivant ; voir
+    /// `docs/D036_INVENTAIRE_JSON.md`). Les 13 colonnes normalisées (lots 1 et 2) ont été retirées par
+    /// les migrations 668 et 669 : le test retranche les `DROP COLUMN` du schéma net, elles ne figurent
+    /// donc plus ici. Toute nouvelle colonne JSONB hors de cette liste fait échouer
+    /// `aucune_colonne_json_hors_liste_d036`.
     const COLONNES_JSON_D036: &[(&str, &str, &str, &str)] = &[
         ("ent_metier_event", "payload", "exception", "charge utile d'événement (file d'envoi / journal figé)"),
         ("ent_edt_import", "report_json", "exception", "rapport d'import figé, jamais relu comme source"),
@@ -396,20 +528,7 @@ mod tests {
         ("ent_structure_journal", "avant", "exception", "journal de structure en ajout seul (valeur avant)"),
         ("ent_structure_journal", "apres", "exception", "journal de structure en ajout seul (valeur après)"),
         ("ent_eleve_fusion", "resume", "exception", "registre de fusion en ajout seul (résumé figé)"),
-        ("ent_delegation", "droits", "retrait", "repris dans ent_delegation_droit (560)"),
-        ("ent_inscription_dossier", "resolutions", "retrait", "repris dans ent_inscription_resolution (561)"),
-        ("ent_inscription_dossier", "scolarite_actuelle", "retrait", "repris en colonnes scol_* (562)"),
-        ("ent_signalement_assiduite", "dossier", "retrait", "repris dans ent_signalement_assiduite_detail (563)"),
-        ("ent_import_ligne", "donnees", "retrait", "repris en dix-sept colonnes typées (664)"),
-        ("ent_personne_preference", "joignable", "retrait", "repris dans ent_personne_plage_joignable (665)"),
-        ("ent_personne_preference_version", "joignable", "retrait", "repris dans ent_personne_preference_version_plage (665)"),
         ("ent_inscription_campagne", "regle_relance", "dette", "laissée : refonte prévue au socle finances 24-25 (lot F0 en cours)"),
-        ("ent_etablissement_profil", "jours_ouvres", "retrait", "repris dans ent_etablissement_jour_ouvre (662)"),
-        ("ent_parametre", "valeur", "retrait", "repris en colonnes typées type_param/valeur_* (663)"),
-        ("ent_eleve_fusion", "doublons_touches", "retrait", "repris dans ent_eleve_fusion_doublon (666)"),
-        ("ent_eleve_fusion", "conflits_resolus", "retrait", "repris dans ent_eleve_fusion_conflit (666)"),
-        ("ent_eleve_fusion_ligne", "cle", "retrait", "reprise dans ent_eleve_fusion_ligne_cle (666)"),
-        ("ent_personne_fusion", "instantane", "retrait", "repris dans colonnes typées et tables ent_personne_fusion_* (667)"),
     ];
 
     /// Colonnes JSON/JSONB déclarées dans les migrations (`CREATE TABLE` / `ADD COLUMN`).
@@ -423,6 +542,9 @@ mod tests {
             .collect();
         fichiers.sort();
         let mut trouvees = Vec::new();
+        // Colonnes retirées par `ALTER TABLE … DROP COLUMN` (migrations de retrait D-036) : le schéma net
+        // ne les contient plus, elles ne doivent donc plus figurer dans la liste déclarée.
+        let mut retirees: Vec<(String, String)> = Vec::new();
         for f in fichiers {
             let texte = std::fs::read_to_string(&f).unwrap();
             let mut table: Option<String> = None;
@@ -459,6 +581,21 @@ mod tests {
                     table = mots.get(i).map(|t| t.trim_matches('"').to_string());
                 }
                 if let Some(t) = &table {
+                    if let Some(p) = mots.iter().position(|m| *m == "drop") {
+                        if mots.get(p + 1) == Some(&"column") {
+                            let mut i = p + 2;
+                            if mots.get(i) == Some(&"if") {
+                                i += 2; // if exists
+                            }
+                            if let Some(c) = mots.get(i) {
+                                retirees.push((t.clone(), c.trim_end_matches(';').trim_matches('"').to_string()));
+                            }
+                            if l.trim_end().ends_with(';') {
+                                table = None;
+                            }
+                            continue;
+                        }
+                    }
                     let type_json = |m: &str| matches!(m.trim_end_matches(';'), "json" | "jsonb");
                     // `col jsonb …` en tête de ligne, ou `add column [if not exists] col jsonb`.
                     let mut candidat: Option<&str> = None;
@@ -485,6 +622,7 @@ mod tests {
                 }
             }
         }
+        trouvees.retain(|c| !retirees.contains(c));
         trouvees.sort();
         trouvees.dedup();
         trouvees
@@ -508,7 +646,7 @@ mod tests {
         let disparues: Vec<_> = declarees.iter().filter(|c| !trouvees.contains(c)).collect();
         assert!(disparues.is_empty(), "entrée(s) obsolète(s) dans COLONNES_JSON_D036 : {disparues:?}");
         for (t, c, cat, just) in COLONNES_JSON_D036 {
-            assert!(["exception", "retrait", "dette"].contains(cat), "{t}.{c} : catégorie {cat}");
+            assert!(["exception", "dette"].contains(cat), "{t}.{c} : catégorie {cat}");
             assert!(!just.is_empty(), "{t}.{c} : justification manquante");
         }
     }

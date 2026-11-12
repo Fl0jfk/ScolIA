@@ -198,6 +198,17 @@ pub mod types {
     pub const INTERNAT_AFFECTATION: &str = "internat.affectation";
     pub const INTERNAT_PRESENCE: &str = "internat.presence";
     pub const INTERNAT_SUIVI: &str = "internat.suivi";
+    /// Zone d'internat créée, modifiée, fermée ou rouverte (socle 41, I1).
+    pub const INTERNAT_ZONE: &str = "internat.zone";
+    pub const INTERNAT_LIT: &str = "internat.lit";
+    /// Séjour d'hébergement ouvert ou clos par le régime (R-IT1) ; rythme versionné (R-IT4).
+    pub const INTERNAT_SEJOUR: &str = "internat.sejour";
+    pub const INTERNAT_RYTHME: &str = "internat.rythme";
+    /// Dérogation de la direction (public de la chambre, interdiction de contact).
+    pub const INTERNAT_DEROGATION: &str = "internat.derogation";
+    /// Effet d'un changement de régime sur l'hébergement : affectation close, avis au responsable.
+    pub const INTERNAT_REGIME_EFFET: &str = "internat.regime_effet";
+    pub const INTERNAT_PARAMETRES: &str = "internat.parametres";
     pub const DISPENSE_VS: &str = "vs.dispense";
     pub const DISPENSE_VS_CLOTURE: &str = "vs.dispense_cloture";
     pub const JOURNAL_ENTREE: &str = "journal.entree";
@@ -229,6 +240,8 @@ pub mod types {
     pub const EDITION_VS: &str = "vs.edition";
     pub const ENTREPRISE: &str = "stage.entreprise";
     pub const CONVENTION_STAGE: &str = "stage.convention";
+    /// Socle 39, ST0 : changement de statut d'un stage déclaré (identifiants, états, version).
+    pub const CONVENTION_STAGE_STATUT: &str = "stage.convention_statut";
     pub const EDT_CONTRAINTE: &str = "edt.contrainte";
     pub const ANNONCE_PUBLIEE: &str = "annonce.publiee";
     /// S2-1 (D-020) : personne (responsable, contact) distincte du compte.
@@ -399,6 +412,11 @@ pub enum AggregateKind {
     Import,
     /// Sortie ou voyage scolaire collectif (socle 42, lot V0a).
     Voyage,
+    /// Événement ou réunion de l'agenda (socle 19, lot AG1). Charge utile : identifiants seulement.
+    AgendaEvenement,
+    /// Stages : paramètres, périodes, sites, contacts (socle 39, lot ST1). Les stages eux-mêmes
+    /// et les organismes gardent `ConventionStage` et `Entreprise`.
+    Stage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

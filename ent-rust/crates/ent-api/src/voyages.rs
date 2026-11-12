@@ -203,6 +203,7 @@ fn commande_de(code: &str) -> Option<Commande> {
         "renvoyer" => Commande::Renvoyer,
         "refuser" => Commande::Refuser,
         "demander-signature" => Commande::DemanderSignature,
+        "signer-devis" => Commande::SignerDevis,
         "passer-finances" => Commande::PasserAuxFinances,
         "valider-budget" => Commande::ValiderBudget,
         "autoriser" => Commande::Autoriser,

@@ -973,6 +973,17 @@ impl PgEnt {
     ) -> Result<(), EntDbError> {
         let role = Role::parse(a.role).ok_or(EntDbError::Forbidden)?;
         match role {
+            // D2 (socle 10 T0, D-022) : un professeur ne lit l'EDT — donc les groupes (LV2, options,
+            // ULIS) — que des élèves qu'il suit (périmètre unique `prof_suit_eleve`). Refus 403
+            // identique à l'absence de lien : aucune fuite d'existence.
+            Role::Prof => {
+                if !self
+                    .prof_suit_eleve(a.etablissement_id, a.user_id, eleve_id)
+                    .await?
+                {
+                    return Err(EntDbError::Forbidden);
+                }
+            }
             r if r.is_staff() => {}
             Role::Parent => {
                 if self
@@ -1060,6 +1071,11 @@ impl PgEnt {
                 }
             }
         }
+        // D19 (socle 10 T0) : l'EDT détaillé d'un collègue (classes, matières, salles) n'est lu que par
+        // ceux qui gèrent l'emploi du temps ; un autre membre du personnel n'obtient que la présence
+        // (jours et heures, sans classe, matière, salle ni nom).
+        let presence_seule = matches!(&cible, CibleEdt::Personnel(u) if *u != a.user_id)
+            && !Self::role_can_manage_edt(a.role);
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if let CibleEdt::Classe(c) = &cible {
             let (ok,): (bool,) = sqlx::query_as(
@@ -1196,6 +1212,25 @@ impl PgEnt {
         seances.sort_by(|x, y| {
             (x.jour, x.heure_debut, &x.classe).cmp(&(y.jour, y.heure_debut, &y.classe))
         });
+        if presence_seule {
+            for s in &mut seances {
+                s.classe = String::new();
+                s.classe_id = None;
+                s.groupe_id = None;
+                s.matiere_libelle = String::new();
+                s.prof_nom = None;
+                s.prof_user_id = Uuid::nil();
+                s.remplacant_user_id = None;
+                s.remplacant_nom = None;
+                s.salle = None;
+                s.creneau_id = Uuid::nil();
+                s.deplace_vers = None;
+                s.deplace_depuis = None;
+                if !matches!(s.statut.as_str(), "annulee" | "remplacee") {
+                    s.statut = "prevue".to_string();
+                }
+            }
+        }
         let semaine_ab = sqlx::query_scalar::<_, NaiveDate>(
             "SELECT reference_lundi FROM ent_edt_calendrier_ab WHERE etablissement_id = $1",
         )
