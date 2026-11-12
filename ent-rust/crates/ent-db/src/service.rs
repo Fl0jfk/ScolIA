@@ -7532,6 +7532,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::Forbidden);
         }
+        // D2 (socle 10 T0, D-022) : un professeur ne lit que l'EDT des élèves qu'il suit.
+        if matches!(parsed, Role::Prof)
+            && !self
+                .prof_suit_eleve(etablissement_id, actor_user_id, eleve_id)
+                .await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         if matches!(parsed, Role::Eleve) {
             let linked = self
                 .eleve_comptes
@@ -7595,6 +7603,13 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
 
     pub fn role_can_manage_edt(role: &str) -> bool {
         Self::peut_etablissement(role, Action::EdtGerer)
+    }
+
+    /// D3 (socle 10) : motif interne d'une absence ou d'une exception d'EDT (souvent médical) — lu
+    /// par la direction et l'administrateur seulement ; jamais par un professeur, un CPE ou le
+    /// secrétariat, même s'ils gèrent l'emploi du temps.
+    pub fn role_voit_motifs_edt(role: &str) -> bool {
+        matches!(Role::parse(role), Some(Role::Admin | Role::Direction))
     }
 
     pub async fn poser_edt_exception_for_actor(
@@ -7707,6 +7722,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         .await
     }
 
+    /// D9 : tous les identifiants sont membres de l'établissement, sinon « prof_user_id invalide »
+    /// (même message qu'un identifiant mal formé : aucune fuite d'existence d'un compte étranger).
+    async fn exiger_membres_etablissement(
+        &self,
+        etablissement_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<(), EntDbError> {
+        let mut uniques: Vec<Uuid> = ids.to_vec();
+        uniques.sort();
+        uniques.dedup();
+        if uniques.is_empty() {
+            return Ok(());
+        }
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(DISTINCT user_id) FROM ent_membership
+              WHERE etablissement_id = $1 AND user_id = ANY($2)",
+        )
+        .bind(etablissement_id)
+        .bind(&uniques)
+        .fetch_one(&mut *crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?)
+        .await
+        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("edt_import", e)))?;
+        if n as usize != uniques.len() {
+            return Err(EdtImportParseError::Prof.into());
+        }
+        Ok(())
+    }
+
     pub async fn importer_edt_csv_format_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -7756,6 +7799,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         } else {
             parse_edt_import_csv(csv)?
         };
+        // D9 (socle 10 T0) : chaque professeur importé est membre de CET établissement.
+        let profs: Vec<Uuid> = lines.iter().map(|l| l.prof_user_id).collect();
+        self.exiger_membres_etablissement(etablissement_id, &profs)
+            .await?;
         let existing_creneaux = self.edt.list_all(etablissement_id).await?;
         let existing: Vec<EdtImportLigne> = existing_creneaux
             .iter()
@@ -7873,6 +7920,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if demandes.is_empty() {
             return Err(EdtImportParseError::Empty.into());
         }
+        // D9 (socle 10 T0) : chaque professeur demandé est membre de CET établissement.
+        let profs: Vec<Uuid> = demandes.iter().map(|d| d.prof_user_id).collect();
+        self.exiger_membres_etablissement(etablissement_id, &profs)
+            .await?;
         let existing_creneaux = self.edt.list_all(etablissement_id).await?;
         let existing: Vec<EdtImportLigne> = existing_creneaux
             .iter()
@@ -7973,7 +8024,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !Self::role_can_manage_edt(role) && !Self::role_can_faire_appel(role) {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self.edt.list_exceptions_jour(etablissement_id, jour).await?)
+        let mut liste = self.edt.list_exceptions_jour(etablissement_id, jour).await?;
+        // D3 (socle 10 T0) : le motif libre d'une exception (« maladie »…) est interne ; seuls ceux
+        // qui gèrent l'emploi du temps le lisent, un professeur qui fait l'appel ne le reçoit pas.
+        if !Self::role_voit_motifs_edt(role) {
+            for e in &mut liste {
+                e.motif = String::new();
+            }
+        }
+        Ok(liste)
     }
 
     /// Créneaux du jour en tenant compte des exceptions (annulation filtrée).
@@ -15360,6 +15419,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(planned)
     }
 
+    /// Absences de personnel de la période. **D3 (socle 10 T0)** : le motif (souvent médical : donnée
+    /// de santé) n'est lu que par ceux qui gèrent l'emploi du temps (direction, adjoint) ; tout autre
+    /// membre du personnel reçoit la liste **sans motif** (champ vide). Voir
+    /// [`Self::list_absences_rh_pour`] pour l'agent qui consulte ses propres absences.
     pub async fn list_absences_rh_for_actor(
         &self,
         etablissement_id: Uuid,
@@ -15367,14 +15430,34 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         debut: NaiveDate,
         fin: NaiveDate,
     ) -> Result<Vec<AbsenceRh>, EntDbError> {
+        self.list_absences_rh_pour(etablissement_id, role, None, debut, fin)
+            .await
+    }
+
+    /// Variante qui rend aussi, à l'agent concerné, le motif de **ses propres** absences.
+    pub async fn list_absences_rh_pour(
+        &self,
+        etablissement_id: Uuid,
+        role: &str,
+        actor_user_id: Option<Uuid>,
+        debut: NaiveDate,
+        fin: NaiveDate,
+    ) -> Result<Vec<AbsenceRh>, EntDbError> {
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         if !parsed.is_staff() {
             return Err(EntDbError::Forbidden);
         }
-        Ok(self
+        let voit_motifs = Self::role_voit_motifs_edt(role);
+        let mut liste = self
             .absences_rh
             .list_periode(etablissement_id, debut, fin)
-            .await?)
+            .await?;
+        for a in &mut liste {
+            if !voit_motifs && Some(a.user_id) != actor_user_id {
+                a.motif = String::new();
+            }
+        }
+        Ok(liste)
     }
 
     /// Affecte prof et/ou salle sur un créneau (conflits prof/salle/classe refusés).

@@ -268,7 +268,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // devis, signatures, commandes, envois, avenants).
     // + 4 de la messagerie (M1, migration 482 : versions de message, élèves d'un fil, participants,
     // rapport de reprise) + 1 de M2 (migration 484 : historique des réglages).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1, "tables avec RLS activée et forcée");
+    // + 9 du socle 10 (migration 452 : versions, périmètre, besoins, pièces, placements, lieux de placement, lieux, intervenants et fusions de séance).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
