@@ -1094,6 +1094,42 @@ Niveau : **implémenté et testé en local** ; validé par la CI GitHub : voir `
 
 **Reste pour M0b** : D8, D11 à D18, D20 ; l'envoi des carnets et alertes aux seuls parents ayant `peut_voir_vs` (le contenu n'est plus envoyé, seule l'existence d'une entrée l'est) viendra avec les destinataires par nature (socle 8).
 
+### 27.4 État des lots M1 et M2 (implémentés 2026-11-11, branche `ent-socle-16-code-1`, base `ENT` c376da4)
+
+Niveau : **implémenté et testé en local** (PostgreSQL 16, feature `labo`) ; CI GitHub : voir `docs/PROJECT_STATUS.md`, « Messagerie, lots M1 et M2 » ; **non validé par Florian, non prêt pilote**. Migrations **482** (tables et fonctions de participation), **483** (reprise MIG-1 à MIG-4), **484** (sept réglages, historique, majorité). `MIGRATION_TAG` reste la plus haute du répertoire (667) : 482–484 sont dans la plage de repli 480–499.
+
+**M1 — participants et contrôle d'accès (R-M1, R-M2, R-M14)**
+| Élément du §27.1 | État | Où |
+|---|---|---|
+| Fil enrichi (nature, sensibilité, état, origine, ouvreur, jumeau), `ent_msg_fil_eleve`, messages enrichis (type, version, empreinte SHA-256 posée par déclencheur, copie), `ent_msg_version` | **implémenté** | 482 |
+| Participants (`ent_msg_participant`) : côté, qualité, raison **codée**, écriture, dates, suspension, motif de sortie codé | **implémenté** | 482 |
+| Lecture = participation : la fonction `ent_msg_fil_lisible(établissement, compte)` ; la famille ne lit que par participation (lien communicant, vie scolaire, payeur et remise différée relus à chaque lecture) | **implémenté** | 482, `msg_repo.rs` |
+| `peut_lire_fil` / `peut_ecrire_fil` (fil ouvert, participation qui autorise l'écriture) | **implémenté** | `service.rs` |
+| Participants posés à la création et à la première écriture ; avis aux seuls participants | **implémenté** | `msg_repo.rs` |
+| Reprise MIG-1 à MIG-4, dédoublement MIG-3, rapport à la direction (`ent_msg_reprise_rapport`) | **implémenté** | 483 |
+| Garde « aucune lecture hors contrôle » (3 contrôles statiques) | **implémenté** | `garde_messagerie_lecture.rs` |
+| Événements `messagerie.fil_ouvert`, `message_envoye`, `participant_ajoute`, `participant_retire`, `fil_dedouble` (sans contenu ni sujet) | **implémenté** (publiés après la transaction du fait, comme les événements existants ; pas encore dans la même transaction) | `service.rs`, `msg_m2.rs` |
+| Boîtes de service (participant `boite_id`), supervision motivée | **non fait** : M3 et M10 | — |
+| Matrice de séparation « boîtes » | **non fait** (M3) | — |
+
+Écarts assumés au §25 : un participant est une **personne** ou un **élève** (`eleve_id`), car un élève mineur n'a pas toujours de fiche personne ; `boite_id` arrive avec M3. Le **pont des rôles réservés** (D26 : direction, CPE, secrétariat lisent encore sans participer les fils réservés) reste en place, signalé **provisoire jusqu'à M3** : sans lui, la CPE et la direction perdraient la lecture des fils de leurs élèves avant que les boîtes existent. Dès qu'un personnel y écrit, il devient participant. La lecture du personnel n'est donc **pas encore strictement R-M1** ; celle des familles et des élèves l'est.
+
+**M2 — matrice et destinataires (§8, R-M3, R-M5 à R-M8, R-M12)**
+| Élément du §27.1 | État | Où |
+|---|---|---|
+| `peut_ecrire` : tableau §8.2 (11 acteurs × 12 cibles), bornes non paramétrables, refus neutre « destinataire exclu (décision) » sans motif, réponse 15 jours (CM-35) | **implémenté** (logique pure, testée sans base) ; **branché sur la base** pour famille, élève, professeur (périmètre D-022), direction, CPE, secrétariat | `msg_matrice.rs`, `msg_m2.rs` |
+| Sept réglages bornés, colonnes typées, historique en ajout seul | **implémenté** | 484 |
+| Réglages **appliqués** par le serveur | `pieces_familles` (pièces des familles et des élèves) et `secretariat_vers_majeurs` : **appliqués**. Les cinq autres (familles → professeurs, familles → direction, élèves → professeurs, élèves → élèves, AESH → familles) : **stockés et décidés par la matrice, mais sans effet sur un envoi** tant que les cibles nominatives n'existent pas (boîtes M3, élèves M8) : le fil actuel s'adresse à l'établissement, pas à un professeur nommé | — |
+| Fils par foyer (R-M3), **fils jumeaux** (`jumeau_de`) | **implémenté** | `service.rs` |
+| Aperçu des destinataires sans coordonnées, exclusions **agrégées** | **implémenté** | `apercu_destinataires_for_actor` |
+| Interdiction, « ne pas solliciter » (R-M7 : aucun fil ouvert vers la personne), lien suspendu, relus à chaque lecture, écriture et ouverture | **implémenté** | vues 480, `groupes_communicants` |
+| Dédoublement à la séparation (MSG-118, MSG-284, CM-03, CM-04) : le passé reste lisible des deux, l'avenir est séparé | **implémenté** (service `separer_fil_for_actor` ; pas de déclenchement automatique à la création du second foyer : il dépend de `foyer.cree`, socle 4) | 483, `msg_m2.rs` |
+| Majorité (R-M12) | **provisoire** : à la majorité, les responsables sortent des fils ouverts à propos de l'élève par l'établissement ; aucun droit conservé du socle 4 n'existe (Q-A7) | 484, `appliquer_majorite_eleve` (à appeler sur `eleve.majeur`) |
+| Décès (CM-12), tuteur, ASE (CM-13, CM-24) | **non fait** : aucune donnée de décès dans le modèle | — |
+| Ports des socles 5 (fin de cours, CM-35 en base) et 6 (missions, équipes) | **non fait** : adaptateur provisoire sur `autoriser_eleve` ; le délai de 15 jours est dans la matrice pure | — |
+
+**À faire valider (choix faits par défaut, D-031)** : (1) pont des rôles réservés maintenu jusqu'à M3 ; (2) fil de vie scolaire à deux foyers : **un seul fil**, signalé dans le rapport (dédoublement avec le carnet, M7) ; (3) MIG-3 : un fil de l'établissement jamais lu et sans portée est **dédoublé par foyer** (un lecteur seul : l'autre foyer perd le fil, documenté) ; (4) à la séparation, **tout le passé est copié** dans le fil jumeau (les deux parents l'avaient lu) ; (5) la majorité retire les responsables des fils « à propos de lui » ouverts par l'établissement, pas des fils qu'ils ont ouverts ; (6) un responsable « à ne pas solliciter » n'entre dans aucun fil ouvert par l'établissement : si tous les responsables sont dans ce cas, le fil du personnel reste sans destinataire (l'aperçu le montre : « 0 conversation, N exclus ») ; (7) rôle `Personnel` classé « secrétariat » dans la matrice.
+
 ### 27.2 Migrations (registre `MIGRATIONS.md`)
 Vérifié libre le 2026-11-09 sur **toutes les branches distantes** (plus haute migration trouvée : 460, `ent-socle-evaluations-v0`).
 Si Q-B2 est adoptée : **4600** M0a (RLS permissive sur toutes les tables de communication, colonne `audience` provisoire, `prive_user_id` des fils ouverts par un élève, longueurs `NOT VALID`) ; **4601** M0b (index de pagination, réglage de taille) ; **4602** fil enrichi, `fil_eleve`, clés composites ; **4603** participants et reprise (MIG-1 à MIG-4) ; **4604** messages enrichis, versions ; **4605** boîtes, traitement, modèles enrichis ; **4606** lots, envois différés ; **4607** pièces (objet, analyse) ; **4608** carnet (mots, reprise MIG-5) et cartes ; **4609** signalements, gels, restrictions, supervisions, vigilance ; **4610** absences des personnels, paramètres ; **4611** vues filtrées et compatibilité ; 4612–4689 réserve ; **4690–4699** RLS stricte et retrait des anciennes tables et colonnes (`ent_msg_accuse`, `ent_carnet_entree`, `ent_msg_piece.contenu`, `prive_user_id`, `foyer_id`, `archive`, `priorite`, `dossier`) après la durée d'archive.
