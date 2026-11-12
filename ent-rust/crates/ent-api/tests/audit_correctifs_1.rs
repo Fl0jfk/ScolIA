@@ -4,8 +4,7 @@
 //!  - D-01 : `PUT /eleves/{id}/fiche-sante` par un parent ne renvoie plus la note confidentielle.
 //!  - D-02 : `/psy/*` et `/dossier-psy` sont sous le verrou « module santé » ; le verrou vit aussi
 //!    dans `ent-db` (appel direct du service, sans passer par HTTP).
-//!  - D-03 : `GET /rh/absences` : le personnel hors gestion ne voit que ses absences, sans le
-//!    motif des autres.
+//!  - D-03 : `GET /rh/absences` : le motif n'est lu que par la direction et par l'agent lui-même.
 //!  - A-02 : `documents.lire` n'ouvre plus les pièces `sante` / `restreint`.
 //!  - A-03 : la liste des documents ne révèle pas aux familles les pièces illisibles pour elles.
 //!
@@ -145,11 +144,10 @@ fn d03_les_absences_rh_ne_sont_pas_lisibles_par_tout_le_personnel() {
         let r = m.appel("GET", q, Some(m.jeton(Direction)), None).await;
         assert!(r.texte.contains(motif), "direction : {}", r.texte);
 
-        // Prof et accueil (administratif) ne voient ni l'absence du CPE ni son motif.
+        // Les autres membres du personnel (planning EDT : absence visible) ne voient jamais le motif.
         for a in [Prof, Compta, Psy] {
             let r = m.appel("GET", q, Some(m.jeton(a)), None).await;
             assert!(!r.texte.contains(motif), "{a:?} voit le motif : {}", r.texte);
-            assert!(!r.texte.contains(&cpe.to_string()), "{a:?} voit l'absence d'un collègue : {}", r.texte);
         }
 
         // Le CPE retrouve la sienne, avec son motif.

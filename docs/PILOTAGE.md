@@ -27,6 +27,17 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 8. **Archiver une session** dès que son travail est poussé et qu'elle n'attend plus rien.
 9. **Tout ce qui compte s'écrit dans le dépôt** (décisions, état, leçons), jamais seulement dans une conversation.
 
+### Registre des migrations appliquées (D-036, audit Fable 1 R-01 à R-03)
+
+Le lanceur (`ent-db/src/migrate.rs`) tient la table `ent_migration_appliquee` (nom du fichier, **empreinte SHA-256**, date) :
+
+- **chaque fichier est appliqué une seule fois**, dans l'ordre, **dans une transaction** (un ordre qui échoue n'en laisse aucune trace, ni demi-fichier ni inscription) ; les démarrages suivants ne rejouent rien ;
+- **un fichier déjà appliqué dont l'empreinte a changé est refusé**, avant toute écriture (`MigrateError::FichierModifie`) : une migration appliquée ne se modifie plus, toute correction passe par une **nouvelle** migration ;
+- **base neuve** : tout est appliqué dans l'ordre ; **base existante sans registre** (antérieure au registre) : le premier démarrage applique tout dans l'ordre (les fichiers sont idempotents) et remplit le registre — aucune base ScolIA n'est déployée, il n'y a pas d'autre amorçage à prévoir ;
+- **retirer une colonne** : une migration de retrait (`DROP … IF EXISTS`, déclencheurs et fonctions compris) suffit. Les anciens fichiers de reprise ne sont plus rejoués, il n'y a donc rien à « figer » (le mécanisme `ent_migration_figee` essayé en cours de lot 3 est abandonné) ;
+- le test de garde des colonnes JSON (`COLONNES_JSON_D036`) retranche les `ALTER TABLE … DROP COLUMN` du schéma net ; `ent_migration_appliquee` est classée « Technique » au registre des tables ;
+- **tests** : pour simuler une reprise d'anciennes données, `rejouer_tout` (test seulement) rejoue les fichiers hors registre ; `appliquer_jusqu_a` reproduit une base migrée jusqu'à une version donnée. Preuves dans `tests_d036` : base neuve, démarrages successifs, base existante sans registre, fichier modifié refusé, échec sans trace.
+
 ## 3. Cycle d'un socle (D-021)
 Conception (Opus) → personas sur la conception (Opus) → lots de code (Sonnet) → intégration (file) → recette par personas sur le logiciel (Opus) → relecture de Florian. Un socle n'est « fini » qu'après la recette.
 

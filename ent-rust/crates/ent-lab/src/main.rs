@@ -6275,6 +6275,14 @@ async fn explorer_internat(
 ) -> Result<(), String> {
     println!("# internat — chambres / affectation / présence / suivi");
 
+    // La nuit courante (date du soir, R-IT5) est celle d'hier avant midi : régime, affectation et
+    // pointage de la slice partent de cette nuit-là (on ne pointe pas une nuit future).
+    let jour = ent
+        .nuit_courante_internat(cast.etablissement_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .min(jour);
+
     let harry = &cast.eleves[0];
     let cpe = cast.cpe.user_id;
     let lily = cast.parent_lea.user_id;
@@ -6397,6 +6405,8 @@ async fn explorer_internat(
                 statut: "present".into(),
                 note: String::new(),
                 actor_user_id: cpe,
+                motif_correction_code: None,
+                motif_correction_texte: None,
             },
         )
         .await
@@ -8030,7 +8040,6 @@ async fn explorer_absence_rh(
     let list = ent
         .list_absences_rh_for_actor(
             cast.etablissement_id,
-            admini,
             Role::Direction.as_str(),
             jour,
             jour + Duration::days(7),
@@ -8342,7 +8351,7 @@ async fn explorer_stages(
             CreerEntreprise {
                 etablissement_id: cast.etablissement_id,
                 raison_sociale: "Weasleys' Wizard Wheezes".into(),
-                siret: Some("12345678901234".into()),
+                siret: Some("73282932000074".into()),
                 adresse: "93 Diagon Alley".into(),
                 actor_user_id: admini,
             },
@@ -8355,7 +8364,8 @@ async fn explorer_stages(
         ent_co.siret.as_deref().unwrap_or("—")
     ));
 
-    let conv = ent
+    // RS-02 : le CPE ne déclare plus de stage (action `stages.preparer`).
+    let cpe_refuse = ent
         .creer_convention_stage_for_actor(
             Role::Cpe.as_str(),
             CreerConventionStage {
@@ -8368,11 +8378,36 @@ async fn explorer_stages(
                 actor_user_id: cpe,
             },
         )
+        .await;
+    if cpe_refuse.is_ok() {
+        return Err("le CPE ne doit pas déclarer de stage".into());
+    }
+    r.geste("CPE refusé : déclaration de stage (attendu, stages.preparer)");
+
+    let conv = ent
+        .creer_convention_stage_for_actor(
+            Role::Administratif.as_str(),
+            CreerConventionStage {
+                etablissement_id: cast.etablissement_id,
+                eleve_id: cast.eleve_lea_id,
+                entreprise_id: ent_co.id,
+                debut: jour,
+                fin: jour + Duration::days(4),
+                tuteur_nom: "Fred Weasley".into(),
+                actor_user_id: admini,
+            },
+        )
         .await
         .map_err(|e| e.to_string())?;
+    if conv.statut != "declaree" || conv.convention_signee() {
+        return Err("un stage déclaré n'est pas une convention signée (RS-01)".into());
+    }
     r.geste(format!(
-        "CPE crée convention Harry chez {} · tuteur {}",
-        ent_co.raison_sociale, conv.tuteur_nom
+        "admini déclare le stage de Harry chez {} · tuteur {} · statut {} ({})",
+        ent_co.raison_sociale,
+        conv.tuteur_nom,
+        conv.statut,
+        conv.mention().unwrap_or("")
     ));
 
     let list_f = ent
@@ -8390,13 +8425,13 @@ async fn explorer_stages(
     r.geste("Lily lit la convention de stage de Harry");
 
     let entreprises = ent
-        .list_entreprises_for_actor(cast.etablissement_id, Role::Cpe.as_str())
+        .list_entreprises_for_actor(cast.etablissement_id, admini, Role::Administratif.as_str())
         .await
         .map_err(|e| e.to_string())?;
     if !entreprises.iter().any(|e| e.id == ent_co.id) {
         return Err("listing entreprises doit contenir WWW".into());
     }
-    r.geste(format!("CPE liste {} entreprise(s)", entreprises.len()));
+    r.geste(format!("admini liste {} entreprise(s)", entreprises.len()));
 
     r.trou("stages: entreprises + conventions OK — UI /app/stages + lecture famille natives");
     Ok(())
