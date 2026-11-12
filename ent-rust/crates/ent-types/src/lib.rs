@@ -14,6 +14,7 @@
 //!   (`VersDto`), voir la proposition.
 
 pub mod absences_personnels;
+pub mod agenda;
 pub mod appel;
 pub mod auth;
 pub mod cahier;
@@ -28,6 +29,7 @@ pub mod fusion;
 pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
+pub mod internat;
 pub mod personnels;
 pub mod personnels_missions;
 pub mod personnels_services;
@@ -37,6 +39,7 @@ pub mod referentiel;
 pub mod referentiel_admin;
 pub mod sante;
 pub mod scolarite;
+pub mod stages;
 pub mod vie_scolaire;
 pub mod voyages;
 

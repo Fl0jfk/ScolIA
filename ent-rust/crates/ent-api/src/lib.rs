@@ -10,12 +10,14 @@ mod dossier;
 mod personnels;
 mod personnels_missions;
 mod absences_personnels;
+mod stages;
 mod personnels_services;
 mod dto;
 pub mod http_garde;
 mod ical;
 mod finances;
 mod inscriptions;
+mod internat;
 pub mod obs;
 mod referentiel;
 mod cahier;
@@ -26,12 +28,14 @@ mod structure_cours;
 mod structure_offre;
 mod structure_periodes;
 mod voyages;
+mod voyages_achats;
 mod edt_s2;
 mod roles;
 mod routes;
 mod portail;
 mod vie_scolaire;
 mod evaluations;
+mod agenda;
 mod communication_s28;
 mod eleve_propositions;
 mod eleve_fusion;
@@ -281,6 +285,8 @@ pub async fn boot_from_env() -> Result<(AppState, String), String> {
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_l3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p0;
 #[cfg(all(test, feature = "labo"))]

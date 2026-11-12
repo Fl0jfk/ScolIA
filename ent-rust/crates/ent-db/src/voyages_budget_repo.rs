@@ -212,7 +212,7 @@ fn etape_de_preparation(etat: &str) -> bool {
 /// Écriture du budget : la comptabilité tant que le dossier est modifiable ; le porteur et ceux qui
 /// gèrent la sortie pendant la préparation seulement (ensuite le budget est entre les mains de la
 /// comptabilité). Sans budget à valider (ni voyage ni car), aucune écriture.
-fn garde_ecriture(s: &SortieLigne, acces: &Acces) -> Result<(), EntDbError> {
+pub(crate) fn garde_ecriture(s: &SortieLigne, acces: &Acces) -> Result<(), EntDbError> {
     let compta = acces.a(Action::VoyagesBudgetValider);
     if !(compta || acces.gere(Action::VoyagesModifier)) {
         return Err(interdit());
@@ -1430,7 +1430,7 @@ pub(crate) async fn composer_circulaire(
 #[allow(clippy::too_many_arguments)]
 /// Dépose le PDF (clé opaque, empreinte et taille au registre des objets, dans la transaction), puis
 /// inscrit le document en ajout seul.
-async fn emettre_document(
+pub(crate) async fn emettre_document(
     e: &PgEnt,
     conn: &mut PgConnection,
     a: &Acteur<'_>,
@@ -1735,5 +1735,116 @@ impl PgEnt {
             montant_csv(s.total_centimes)
         ));
         Ok(o)
+    }
+}
+
+// ───────────────────────── Alimentation par un devis (V0c, NX-51) ─────────────────────────
+
+impl PgEnt {
+    /// VOY-… (NX-51) : ajoute au **brouillon** du budget une ligne de dépense issue d'un devis dont le
+    /// **montant a été confirmé** par un humain. Mêmes gardes que la saisie d'une ligne ; une seule
+    /// ligne par devis et par version (index unique). La ligne reste modifiable tant que la version
+    /// est un brouillon ; elle porte `devis_signe` si le devis est signé, sinon `devis_recu`.
+    pub async fn voyage_budget_ligne_depuis_devis(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        numero: i32,
+        rev: i32,
+        devis_id: Uuid,
+    ) -> Result<BudgetVue, EntDbError> {
+        let mut t = tx(self, a).await?;
+        let (s, acces) = charger_avec_acces(self, &mut t, a, id, true).await?;
+        garde_ecriture(&s, &acces)?;
+        let v = brouillon_verrouille(&mut t, a.etablissement_id, id, numero, rev).await?;
+        let d: Option<(Option<i64>, String, String, Option<String>)> = sqlx::query_as(
+            "SELECT d.montant_centimes, d.statut, p.raison_sociale, d.reference
+               FROM ent_sortie_devis d
+               JOIN ent_prestataire p ON p.etablissement_id = d.etablissement_id AND p.id = d.prestataire_id
+              WHERE d.etablissement_id = $1 AND d.sortie_id = $2 AND d.id = $3",
+        )
+        .bind(a.etablissement_id)
+        .bind(id)
+        .bind(devis_id)
+        .fetch_optional(&mut *t)
+        .await
+        .map_err(db)?;
+        let (montant, statut, presta, reference) = d.ok_or_else(introuvable)?;
+        let montant = montant.ok_or_else(|| {
+            refus(
+                RefusMetier::Conflit,
+                "Le montant de ce devis n'est pas encore confirmé : confirmez-le avant de l'inscrire au budget.",
+            )
+        })?;
+        if statut == "ecarte" {
+            return Err(refus(RefusMetier::Conflit, "Ce devis a été écarté."));
+        }
+        let (n, rang): (i64, i32) = sqlx::query_as(
+            "SELECT count(*), coalesce(max(rang), 0)::int FROM ent_sortie_budget_ligne
+              WHERE etablissement_id = $1 AND version_id = $2",
+        )
+        .bind(a.etablissement_id)
+        .bind(v.id)
+        .fetch_one(&mut *t)
+        .await
+        .map_err(db)?;
+        if n >= LIGNES_MAX {
+            return Err(refus(RefusMetier::Conflit, "Cent lignes au plus par version de budget : regroupez-en."));
+        }
+        let categorie: Option<String> = sqlx::query_scalar(
+            "SELECT c.categorie FROM ent_sortie_devis d
+               JOIN ent_prestataire_categorie c ON c.etablissement_id = d.etablissement_id AND c.prestataire_id = d.prestataire_id
+              WHERE d.etablissement_id = $1 AND d.id = $2 ORDER BY c.categorie LIMIT 1",
+        )
+        .bind(a.etablissement_id)
+        .bind(devis_id)
+        .fetch_optional(&mut *t)
+        .await
+        .map_err(db)?;
+        let poste = crate::voyages_prestataires::poste_budget(categorie.as_deref().unwrap_or("autre"));
+        let libelle: String = format!("Devis {presta}").chars().take(200).collect();
+        let source = if statut == "signe" { "devis_signe" } else { "devis_recu" };
+        let motif = format!("Devis {}", reference.as_deref().unwrap_or("sans référence"));
+        let r = sqlx::query(
+            "INSERT INTO ent_sortie_budget_ligne
+                 (id, etablissement_id, version_id, sens, poste, libelle, montant_centimes, source, motif,
+                  rang, cree_par_user_id, devis_id)
+             VALUES ($1,$2,$3,'depense',$4,$5,$6,$7,$8,$9,$10,$11)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(a.etablissement_id)
+        .bind(v.id)
+        .bind(poste)
+        .bind(&libelle)
+        .bind(montant)
+        .bind(source)
+        .bind(&motif)
+        .bind(rang + 1)
+        .bind(a.user_id)
+        .bind(devis_id)
+        .execute(&mut *t)
+        .await;
+        if let Err(sqlx::Error::Database(e)) = &r {
+            if e.is_unique_violation() {
+                return Err(refus(RefusMetier::Conflit, "Ce devis est déjà dans cette version du budget."));
+            }
+        }
+        r.map_err(db)?;
+        bump(&mut t, a.etablissement_id, v.id).await?;
+        journaliser(
+            &mut t,
+            a,
+            id,
+            Fait {
+                champ: Some(poste),
+                apres: Some(format!("{libelle} : {} centimes", montant)),
+                motif: Some("ligne issue d'un devis"),
+                ..Fait::simple("budget_ligne_depuis_devis")
+            },
+        )
+        .await?;
+        let vue = assembler(&mut t, a, &s, &acces).await?;
+        t.commit().await.map_err(db)?;
+        Ok(vue)
     }
 }

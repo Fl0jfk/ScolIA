@@ -666,9 +666,10 @@ fn domaine_appel() {
 fn specs_domaine_edt() -> Vec<Spec> {
     vec![
             // S2-5 : l'emploi du temps d'un élève et ses changements ne sortent que pour le
-            // personnel, l'élève lui-même et ses responsables au lien actif.
-            lire("edt-changements", "/eleves/{eleve}/edt/changements?du={jour}&au={jour}", TOUS, STAFF),
-            lire("edt-semaine-eleve", "/edt/semaine?cible=eleve&id={eleve}&jour={jour}", TOUS, STAFF),
+            // personnel, l'élève lui-même et ses responsables au lien actif. Socle 10 (T0, D2, D-022) :
+            // un professeur ne lit que l'EDT des élèves qu'il suit ; hors de son périmètre, 403.
+            lire("edt-changements", "/eleves/{eleve}/edt/changements?du={jour}&au={jour}", TOUS, STAFF_HORS_PROF),
+            lire("edt-semaine-eleve", "/edt/semaine?cible=eleve&id={eleve}&jour={jour}", TOUS, STAFF_HORS_PROF),
             // Administration : gestion de l'EDT seulement (edt.gerer), jamais les familles ni le prof.
             lire("edt-conflits", "/edt/admin/conflits", GESTION_HORS_PROF, &[]),
             lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),

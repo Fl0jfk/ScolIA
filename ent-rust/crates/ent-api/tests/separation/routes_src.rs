@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels, services d'enseignement). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 26] = [
+pub const SOURCES: [&str; 30] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
@@ -40,6 +40,7 @@ pub const SOURCES: [&str; 26] = [
     include_str!("../../src/personnels.rs"),
     include_str!("../../src/personnels_missions.rs"),
     include_str!("../../src/absences_personnels.rs"),
+    include_str!("../../src/stages.rs"),
     include_str!("../../src/personnels_services.rs"),
     include_str!("../../src/structure.rs"),
     include_str!("../../src/structure_offre.rs"),
@@ -47,10 +48,13 @@ pub const SOURCES: [&str; 26] = [
     include_str!("../../src/structure_periodes.rs"),
     include_str!("../../src/structure_cours.rs"),
     include_str!("../../src/voyages.rs"),
+    include_str!("../../src/agenda.rs"),
+    include_str!("../../src/internat.rs"),
+    include_str!("../../src/voyages_achats.rs"),
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 26] = [
+pub const NOMS_SOURCES: [&str; 30] = [
     "routes.rs",
     "cahier.rs",
     "dossier.rs",
@@ -70,6 +74,7 @@ pub const NOMS_SOURCES: [&str; 26] = [
     "personnels.rs",
     "personnels_missions.rs",
     "absences_personnels.rs",
+    "stages.rs",
     "personnels_services.rs",
     "structure.rs",
     "structure_offre.rs",
@@ -77,6 +82,9 @@ pub const NOMS_SOURCES: [&str; 26] = [
     "structure_periodes.rs",
     "structure_cours.rs",
     "voyages.rs",
+    "agenda.rs",
+    "internat.rs",
+    "voyages_achats.rs",
 ];
 
 pub fn routes() -> Vec<RouteDecl> {

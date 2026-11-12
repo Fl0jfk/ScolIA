@@ -367,7 +367,8 @@ impl PgEnt {
         sqlx::query(
             "UPDATE ent_edt_seance SET statut = $4, remplacant_user_id = $5,
                     salle = coalesce($6, salle), updated_at = now()
-              WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND source = 'genere'",
+              WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND source = 'genere'
+                AND statut <> 'retiree'",
         )
         .bind(etab)
         .bind(creneau_id)
@@ -1250,16 +1251,26 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if let Some((_, nouveau)) = depl {
-            sqlx::query(
-                "DELETE FROM ent_edt_seance WHERE etablissement_id = $1 AND creneau_id = $2
+            let ids: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM ent_edt_seance WHERE etablissement_id = $1 AND creneau_id = $2
                     AND jour = $3 AND source = 'deplacement'",
             )
             .bind(etab)
             .bind(creneau_id)
             .bind(nouveau)
-            .execute(&mut *tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
+            if !ids.is_empty() {
+                // D1 : la séance d'arrivée peut déjà porter un cahier : retirée, jamais supprimée.
+                crate::referentiel_seances::retirer_ou_supprimer_seances(
+                    &mut tx,
+                    etab,
+                    &ids,
+                    "déplacement levé",
+                )
+                .await?;
+            }
         }
         // Exception : archivée (qui l'avait posée, quand, par qui levée) puis retirée de la table
         // vivante, que lisent l'EDT, les familles et les droits.
@@ -1275,6 +1286,7 @@ impl PgEnt {
                     salle = c.salle, updated_at = now()
                FROM ent_edt_creneau c
               WHERE s.etablissement_id = $1 AND s.creneau_id = $2 AND s.jour = $3 AND s.source = 'genere'
+                AND s.statut <> 'retiree'
                 AND c.id = s.creneau_id AND c.etablissement_id = s.etablissement_id",
         )
         .bind(etab)
