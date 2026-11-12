@@ -126,12 +126,14 @@ fn pointage(etab: Uuid, eleve: Uuid, jour: NaiveDate, statut: &str, par: Uuid) -
 #[tokio::test]
 async fn regime_code_table_de_correspondance_identique_au_code() {
     let Some((ent, _)) = labo().await else { return };
-    let lignes: Vec<(String, String, String)> = sqlx::query_as(
+    let mut lignes: Vec<(String, String, String)> = sqlx::query_as(
         "SELECT vocabulaire, valeur, code FROM ent_regime_correspondance ORDER BY vocabulaire, valeur",
     )
     .fetch_all(ent.pool_verif())
     .await
     .unwrap();
+    // Tri fait des deux côtés en Rust : la collation de la base ne doit pas décider de l'égalité.
+    lignes.sort();
     let mut code: Vec<(String, String, String)> = CORRESPONDANCES_REGIME
         .iter()
         .map(|(v, x, c)| (v.to_string(), x.to_string(), c.as_str().to_string()))
