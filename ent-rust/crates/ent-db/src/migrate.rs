@@ -261,6 +261,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
     include_str!("../../../migrations/2380_agenda_ag0_rencontres.sql"),
     include_str!("../../../migrations/2381_agenda_evenement.sql"),
+    include_str!("../../../migrations/2386_agenda_reservation_lieu.sql"),
     include_str!("../../../migrations/2780_stage_st0_correctifs.sql"),
     include_str!("../../../migrations/2781_stage_st1a_parametres_organismes.sql"),
     include_str!("../../../migrations/2782_stage_st1a_periodes.sql"),
