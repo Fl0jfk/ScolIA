@@ -478,7 +478,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     tx.commit().await.unwrap();
     assert!(lignes(&ent, ancien).await.is_empty());
     sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool_verif()).await.unwrap();
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let l = lignes(&ent, ancien).await;
     assert!(a_ligne(&l, "fiche.ancienne@exemple.fr", true), "e-mail de la fiche repris");
     assert!(a_ligne(&l, "+33622334455", true), "téléphone normalisé");
@@ -498,7 +498,7 @@ async fn divergences_compte_fiche_rapportees_jamais_ecrasees() {
     // Rejouer la reprise ne change rien (idempotente) : même nombre de lignes.
     let avant = lignes(&ent, ancien).await.len();
     sqlx::query("DELETE FROM ent_coord_reprise_marque WHERE cle = '273_reprise'").execute(ent.pool_verif()).await.unwrap();
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     assert_eq!(lignes(&ent, ancien).await.len(), avant);
 }
 

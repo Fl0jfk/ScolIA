@@ -1609,8 +1609,8 @@ async fn la_reprise_est_rejouable_et_un_service_sans_agent_est_tolere() {
     .fetch_one(c.ent.pool())
     .await
     .unwrap();
-    crate::migrate::rejouer_tout(c.ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
-    crate::migrate::rejouer_tout(c.ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(c.ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(c.ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let apres: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM ent_service_intervenant WHERE etablissement_id = $1",
     )

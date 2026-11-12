@@ -410,9 +410,9 @@ async fn i2_reprise_idempotente() {
             v
         }
     };
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let apres_1 = compter_tout(&ent).await;
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let apres_2 = compter_tout(&ent).await;
     assert_eq!(apres_1, apres_2, "la reprise est idempotente");
     // Chaque dossier a une démarche et une déclaration ; la décision repose sur le motif repris.

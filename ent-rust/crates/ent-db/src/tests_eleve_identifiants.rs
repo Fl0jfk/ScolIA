@@ -486,7 +486,7 @@ async fn reprise_des_identifiants_existants() {
     // Aucun INE perdu : les colonnes héritées sont intactes.
     assert_eq!(colonne(&ent, "SELECT ine FROM ent_eleve WHERE id = $1", e2).await.as_deref(), Some(double.as_str()));
     // Rejouer les migrations ne crée rien non plus.
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let (n3,): (i64,) = sqlx::query_as("SELECT ent_eleve_identifiant_reprendre()")
         .fetch_one(ent.pool_verif())
         .await

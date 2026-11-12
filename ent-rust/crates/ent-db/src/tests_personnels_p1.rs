@@ -2680,8 +2680,8 @@ async fn reprise_de_l_existant_comptes_ferme_professeur_parent_et_rejeu() {
     );
 
     // Rejeu de la migration (idempotente) : la reprise crée ce qui manque, une seule fois.
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     for u in [prof, parti, futur] {
         assert_eq!(
             compter(

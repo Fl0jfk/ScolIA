@@ -529,7 +529,7 @@ async fn reprise_des_scolarisations_existantes() {
     .await
     .unwrap();
     assert_eq!((nb, st.as_deref()), (0, Some("a_venir")));
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
 }
 
 /// ELV-09 : une inscription par année, rattachée à la scolarisation qui couvre l'année ;

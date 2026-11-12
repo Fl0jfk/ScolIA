@@ -224,8 +224,8 @@ async fn reprise_des_absences_a_la_journee_et_decompte_mensuel() {
     assert_eq!(dj.iter().filter(|d| d.non_justifiee).count(), 20);
     assert!(dj.iter().all(|d| d.jour.weekday().number_from_monday() < 6));
     // La migration (reprise) matérialise puis reste idempotente : pas de double compte.
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let lignes = compter(&ent, "SELECT count(*) FROM ent_absence_seance WHERE absence_id = $1", abs.id).await;
     assert_eq!(lignes, 20);
     let dj = ent.demi_journees(etab, Some(tom), lun, lun + Duration::days(13)).await.unwrap();

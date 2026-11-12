@@ -132,13 +132,13 @@ async fn reprise_des_liens_idempotente() {
         .execute(ent.pool_verif())
         .await
         .unwrap();
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     assert_eq!(compter(&ent, sans_personne, etab).await, 0);
     assert_eq!(compter(&ent, doublons, etab).await, 0);
     assert_eq!(compter(&ent, incoherents, etab).await, 0);
     let apres = compter(&ent, personnes, etab).await;
-    crate::migrate::rejouer_tout(ent.pool()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
+    crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     assert_eq!(compter(&ent, personnes, etab).await, apres, "rejouer ne crée rien");
 
     // Code existant : un lien créé par compte reçoit sa personne automatiquement.
