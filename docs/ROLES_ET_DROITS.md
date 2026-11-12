@@ -159,3 +159,17 @@ Un retrait pour raison financière n'est jamais décidé par le porteur ni par l
 
 ## Actions et portées ajoutées par le socle 6, lot P4 (2026-11-10)
 **Actions** (portée « établissement » seulement) : `missions.gerer` (Admin, Direction, Administratif — équivalent de `referentiel.gerer` : nommer, terminer, transférer, annuler, reconduire les missions, professeur principal compris), `missions.types.gerer` (Admin : types de missions propres à l'établissement ; le rôle appliqué doit être couvert par l'acteur, anti-escalade) et `acces.revue` (Admin, Direction : expliquer l'accès d'un agent à un élève, simuler une attribution ; un agent explique ses propres droits sans cette action ; ne se donne que par qui la détient). Lecture des missions : `personnels.services.lire`. Aucune inclusion implicite nouvelle. **Portées** : `mon_perimetre` (cibles portées par l'attribution, datées : un seul rôle « Professeur principal » pour toutes les classes ; la fin de la mission les termine), `sites_designes` (comme « désignés » mais cibles = sites) et `moi` (définie, aucune action ne l'admet avant le lot P6). `mon_perimetre` et `sites_designes` s'ajoutent aux portées admises des actions d'élèves ; **elles ne se délèguent pas** (délégation datée : refus) et ne figurent dans aucun modèle de profil par défaut. **« Mes élèves par l'enseignement » (`mes_classes`)** lit désormais les **interventions** : un suppléant en saisie voit les élèves du service et saisit, le titulaire garde la lecture mais pas la saisie pendant la suppléance, assistants et intervenants lisent sans saisir, le stagiaire observateur ne voit aucun élève ; délai de grâce de 7 jours en lecture après la fin d'une intervention ; un service clos, prévu ou annulé n'ouvre plus d'accès historique. Détail et points à valider : `docs/socles/06_PERSONNELS.md` §25.
+
+## Actions ajoutées par le socle 15, lots A0–A1 (2026-11-11)
+Huit actions `personnels.absences.*` (portée établissement seulement ; la portée « moi » n'existe pas encore : déclarer **sa propre** absence ne demande aucun droit, le service le contrôle). Aucune ne se déduit d'un droit sur les élèves (R-AP11, AR-07).
+
+| Action | Modèle par défaut | Sens |
+|---|---|---|
+| `personnels.absences.declarer` | Direction, Administratif, Compta | déclarer l'absence d'un **autre** agent |
+| `personnels.absences.signaler` | Direction, Administratif, CPE, Accueil | signaler sans nature (aucun effet extérieur avant confirmation) |
+| `personnels.absences.lire_organisation` | Direction, Administratif, CPE | voir les absences pour organiser, **sans la nature** |
+| `personnels.absences.lire_nature` | Direction, Administratif | lire nature, décision, zone de qualification (secrétariat : agents de l'État ; jamais Admin technique, comptabilité hors circuit) |
+| `personnels.absences.valider` | Direction | valider, refuser, rouvrir, annuler ; **jamais sa propre absence** |
+| `personnels.absences.instruire` | Direction, Administratif (État), Compta (OGEC) | réception de l'arrêt, traitement administratif |
+| `personnels.absences.saisir_validee` ★ | Direction, Administratif | réservée (non utilisée en A1) |
+| `personnels.absences.parametrer` ★ | Admin, Direction | règles de circuit |

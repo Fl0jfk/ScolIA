@@ -291,6 +291,23 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    // ── Socle 15, lots A0–A1 : absences des personnels (`15_ABSENCES_PERSONNELS.md` §23.1) ──
+    /// Déclarer l'absence d'un AUTRE agent (secrétariat, comptabilité, direction). Déclarer la sienne ne demande aucun droit (portée « moi » traitée par le service : aucune action n'admet encore `Portee::Moi`).
+    PersonnelsAbsencesDeclarer,
+    /// Signaler une absence sans nature (accueil, vie scolaire, direction) : aucun effet extérieur tant qu'elle n'est pas confirmée (R-AP46).
+    PersonnelsAbsencesSignaler,
+    /// Lire les absences des personnels SANS la nature (adjoint, vie scolaire, direction).
+    PersonnelsAbsencesLireOrganisation,
+    /// Lire la nature, la décision et la zone de qualification : chef d'établissement et secrétariat. Jamais l'administrateur technique, le DPO ni la comptabilité hors circuit (R-AP2).
+    PersonnelsAbsencesLireNature,
+    /// Valider, refuser, requalifier, rouvrir, annuler. Jamais sa propre absence (R-AP10).
+    PersonnelsAbsencesValider,
+    /// Instruire : date de réception de l'arrêt, traitement administratif (secrétariat, comptabilité de l'OGEC).
+    PersonnelsAbsencesInstruire,
+    /// ★ Saisir une absence déjà validée (régularisation, convocation reçue) : droit réservé (AD-05).
+    PersonnelsAbsencesSaisirValidee,
+    /// ★ Natures de l'établissement, règles de circuit, délais (S-1500 à S-1517).
+    PersonnelsAbsencesParametrer,
 }
 
 /// Sur quoi une action s'applique.
@@ -315,7 +332,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 127] = [
+    pub const TOUTES: [Action; 135] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -452,6 +469,15 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::PersonnelsAbsencesDeclarer,
+        Action::PersonnelsAbsencesSignaler,
+        Action::PersonnelsAbsencesLireOrganisation,
+        Action::PersonnelsAbsencesLireNature,
+        Action::PersonnelsAbsencesValider,
+        Action::PersonnelsAbsencesInstruire,
+        Action::PersonnelsAbsencesSaisirValidee,
+        Action::PersonnelsAbsencesParametrer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -584,6 +610,14 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::PersonnelsAbsencesDeclarer => "personnels.absences.declarer",
+            Self::PersonnelsAbsencesSignaler => "personnels.absences.signaler",
+            Self::PersonnelsAbsencesLireOrganisation => "personnels.absences.lire_organisation",
+            Self::PersonnelsAbsencesLireNature => "personnels.absences.lire_nature",
+            Self::PersonnelsAbsencesValider => "personnels.absences.valider",
+            Self::PersonnelsAbsencesInstruire => "personnels.absences.instruire",
+            Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
+            Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
         }
     }
 
@@ -719,6 +753,14 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::PersonnelsAbsencesDeclarer => "Déclarer l'absence d'un collègue (la sienne ne demande aucun droit)",
+            Self::PersonnelsAbsencesSignaler => "Signaler l'absence d'un agent, sans nature (accueil, vie scolaire)",
+            Self::PersonnelsAbsencesLireOrganisation => "Voir les absences des personnels pour organiser la journée (sans la nature)",
+            Self::PersonnelsAbsencesLireNature => "Lire la nature, la décision et la zone de qualification d'une absence de personnel",
+            Self::PersonnelsAbsencesValider => "Valider, refuser, requalifier et rouvrir une absence de personnel",
+            Self::PersonnelsAbsencesInstruire => "Instruire une absence de personnel (réception de l'arrêt, traitement administratif)",
+            Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
+            Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
         }
     }
 
@@ -858,6 +900,14 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
+            | Self::PersonnelsAbsencesDeclarer
+            | Self::PersonnelsAbsencesSignaler
+            | Self::PersonnelsAbsencesLireOrganisation
+            | Self::PersonnelsAbsencesLireNature
+            | Self::PersonnelsAbsencesValider
+            | Self::PersonnelsAbsencesInstruire
+            | Self::PersonnelsAbsencesSaisirValidee
+            | Self::PersonnelsAbsencesParametrer
             | Self::AccesRevue => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
@@ -969,6 +1019,33 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
+    }
+    // Socle 15, lots A0–A1 (§23.2). Tout le personnel peut déclarer SA propre absence sans droit
+    // (le service le contrôle). L'administrateur technique ne reçoit que le paramétrage : jamais la
+    // nature ni la validation ; le DPO et la comptabilité hors circuit ne lisent pas la nature.
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesDeclarer));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push(etab(PersonnelsAbsencesSignaler));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(PersonnelsAbsencesLireOrganisation));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesLireNature));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnelsAbsencesValider));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesInstruire));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesSaisirValidee));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PersonnelsAbsencesParametrer));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -1597,6 +1674,51 @@ mod tests {
         assert!(PersonnelsAccesGerer.accordee_par().is_empty());
         assert_eq!(Action::parse("services.gerer"), Some(ServicesGerer));
         assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
+    }
+
+    /// Socle 15 (A0–A1) : la nature d'une absence ne se lit que par la direction et le secrétariat ;
+    /// l'administrateur technique, l'accueil, la comptabilité, le professeur et les profils de base
+    /// n'ont ni `lire_nature` ni `valider` (R-AP2, R-AP11, AR-01, AR-07). Aucune de ces actions ne se
+    /// déduit d'un droit sur les élèves.
+    #[test]
+    fn absences_personnels_modele_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve] {
+            assert_eq!(
+                a(r, PersonnelsAbsencesLireNature),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} lire_nature"
+            );
+            assert_eq!(a(r, PersonnelsAbsencesValider), r == Role::Direction, "{r:?} valider");
+            assert_eq!(
+                a(r, PersonnelsAbsencesParametrer),
+                matches!(r, Role::Admin | Role::Direction),
+                "{r:?} parametrer"
+            );
+            if !r.is_staff() {
+                for x in [
+                    PersonnelsAbsencesDeclarer,
+                    PersonnelsAbsencesSignaler,
+                    PersonnelsAbsencesLireOrganisation,
+                    PersonnelsAbsencesLireNature,
+                    PersonnelsAbsencesValider,
+                    PersonnelsAbsencesInstruire,
+                    PersonnelsAbsencesSaisirValidee,
+                    PersonnelsAbsencesParametrer,
+                ] {
+                    assert!(!a(r, x), "{r:?} {}", x.code());
+                }
+            }
+        }
+        assert!(!a(Role::Prof, PersonnelsAbsencesLireOrganisation));
+        assert!(a(Role::Accueil, PersonnelsAbsencesSignaler));
+        assert!(!a(Role::Accueil, PersonnelsAbsencesLireNature));
+        assert!(!a(Role::Compta, PersonnelsAbsencesLireNature));
+        for x in [PersonnelsAbsencesLireNature, PersonnelsAbsencesValider] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+            assert!(x.accordee_par().is_empty());
+        }
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :

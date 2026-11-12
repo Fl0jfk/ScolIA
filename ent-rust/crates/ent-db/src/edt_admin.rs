@@ -943,6 +943,31 @@ pub fn lundi_de(jour: NaiveDate) -> NaiveDate {
 }
 
 impl PgEnt {
+    /// Noms **pour les familles et les élèves** (AR-04) : à défaut de nom affiché, jamais l'e-mail
+    /// d'un personnel mais « Un enseignant de l'établissement ».
+    pub(crate) async fn noms_publics(
+        &self,
+        etab: Uuid,
+        ids: &[Uuid],
+    ) -> Result<HashMap<Uuid, String>, EntDbError> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT u.id, coalesce(nullif(btrim(u.display_name), ''), 'Un enseignant de l''établissement')
+               FROM ent_user u JOIN ent_membership m ON m.user_id = u.id
+              WHERE m.etablissement_id = $1 AND u.id = ANY($2)",
+        )
+        .bind(etab)
+        .bind(ids)
+        .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .await
+        .map_err(db)?;
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Noms pour le personnel (l'e-mail sert de repli : il identifie la personne dans les écrans
+    /// de gestion). Ne jamais l'utiliser pour une réponse destinée aux familles ou aux élèves.
     pub(crate) async fn noms(
         &self,
         etab: Uuid,
@@ -1188,7 +1213,8 @@ impl PgEnt {
         }
         ids.sort();
         ids.dedup();
-        let noms = self.noms(etab, &ids).await?;
+        // Cette vue est lue aussi par les familles et les élèves (cible « élève ») : AR-04.
+        let noms = self.noms_publics(etab, &ids).await?;
         for s in &mut seances {
             s.prof_nom = noms.get(&s.prof_user_id).cloned();
             s.remplacant_nom = s.remplacant_user_id.and_then(|r| noms.get(&r).cloned());

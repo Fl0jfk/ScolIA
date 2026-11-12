@@ -276,7 +276,8 @@ pub use edt_contrainte::{
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte, EdtContrainteKind,
 };
 pub use absence_rh::{
-    plan_declarer_absence_rh, plan_valider_absence_rh, AbsenceRh, DeclarerAbsenceRh,
+    plan_annuler_absence_rh, plan_declarer_absence_rh, plan_refuser_absence_rh,
+    plan_valider_absence_rh, AbsenceRh, DeclarerAbsenceRh,
 };
 pub use cahier_texte::{
     plan_creer_cahier_texte, CahierTexteEntree, CreerCahierTexte,
@@ -785,6 +786,8 @@ pub enum DomainError {
     TarifConsoInvalide,
     #[error("absence RH invalide")]
     AbsenceRhInvalide,
+    #[error("personne ne valide ni ne refuse sa propre absence")]
+    AbsenceRhAutoValidation,
     #[error("affectation EDT invalide")]
     EdtAffectationInvalide,
     #[error("conflit EDT (prof / salle / classe)")]

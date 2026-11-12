@@ -538,6 +538,8 @@ pub fn router() -> Router<AppState> {
         )
         .route("/rh/absences", get(list_absences_rh).post(declarer_absence_rh))
         .route("/rh/absences/{id}/valider", post(valider_absence_rh))
+        .route("/rh/absences/{id}/refuser", post(refuser_absence_rh))
+        .route("/rh/absences/{id}/annuler", post(annuler_absence_rh))
         .route("/foyers", get(list_foyers).post(create_foyer))
         .route("/foyers/{id}", get(get_foyer_detail))
         .route(
@@ -858,6 +860,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::sante::routes());
     // Personnels : agents, engagements, fonctions, annuaire (socle 6, lot P1 : `personnels.rs`).
     let r = r.merge(crate::personnels::routes());
+    // Absences des personnels (socle 15, lots A0–A1 : `absences_personnels.rs`).
+    let r = r.merge(crate::absences_personnels::routes());
     // Services d'enseignement et interventions (socle 6, lot P3 : `personnels_services.rs`).
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
@@ -6321,18 +6325,45 @@ struct PeriodeDatesQuery {
     fin: Option<NaiveDate>,
 }
 
+/// `statut` (AR-22) : `a_valider` (= signalée) ou un état exact (`signalee`, `validee`, `refusee`,
+/// `annulee`). Le tableau de bord historique l'envoie ; il était ignoré (le compteur portait sur le jour).
+#[derive(Debug, Deserialize)]
+struct AbsencesRhQuery {
+    debut: Option<NaiveDate>,
+    fin: Option<NaiveDate>,
+    statut: Option<String>,
+}
+
 async fn list_absences_rh(
     State(state): State<AppState>,
     session: EntSession,
-    Query(q): Query<PeriodeDatesQuery>,
+    Query(q): Query<AbsencesRhQuery>,
 ) -> Result<Json<Vec<AbsenceRhDto>>, (StatusCode, String)> {
+    let statut = match q.statut.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        None => None,
+        Some("a_valider") | Some("signalee") => Some("signalee"),
+        Some("validee") => Some("validee"),
+        Some("refusee") => Some("refusee"),
+        Some("annulee") => Some("annulee"),
+        Some(_) => return Err((StatusCode::BAD_REQUEST, "statut inconnu".into())),
+    };
     let debut = q.debut.unwrap_or_else(today_utc);
     let fin = q.fin.unwrap_or(debut);
     let list = state
         .ent
-        .list_absences_rh_for_actor(session.etablissement_id, &session.role, debut, fin)
+        .list_absences_rh_for_actor(
+            session.etablissement_id,
+            session.user_id,
+            &session.role,
+            debut,
+            fin,
+        )
         .await
         .map_err(map_db)?;
+    let list: Vec<_> = list
+        .into_iter()
+        .filter(|a| statut.is_none_or(|s| a.statut == s))
+        .collect();
     Ok(Json(
         enrich_absences_rh(&state, session.etablissement_id, list.iter().map(AbsenceRhDto::from).collect()).await?,
     ))
@@ -6358,6 +6389,8 @@ async fn declarer_absence_rh(
         )
         .await
         .map_err(map_db)?;
+    let mut a = a;
+    a.motif = ent_db::absences_rh::MOTIF_MASQUE.to_string();
     let mut enriched = enrich_absences_rh(&state, session.etablissement_id, vec![AbsenceRhDto::from(&a)]).await?;
     Ok((StatusCode::CREATED, Json(enriched.remove(0))))
 }
@@ -6369,15 +6402,47 @@ async fn valider_absence_rh(
 ) -> Result<Json<AbsenceRhDto>, (StatusCode, String)> {
     let a = state
         .ent
-        .valider_absence_rh_for_actor(
-            session.etablissement_id,
-            &session.role,
-            id,
-            session.user_id,
-        )
+        .valider_absence_rh_for_actor(session.etablissement_id, &session.role, id, session.user_id)
         .await
         .map_err(map_db)?;
-    let mut enriched = enrich_absences_rh(&state, session.etablissement_id, vec![AbsenceRhDto::from(&a)]).await?;
+    reponse_absence_rh(&state, &session, a).await
+}
+
+async fn refuser_absence_rh(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AbsenceRhDto>, (StatusCode, String)> {
+    let a = state
+        .ent
+        .refuser_absence_rh_for_actor(session.etablissement_id, &session.role, id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    reponse_absence_rh(&state, &session, a).await
+}
+
+async fn annuler_absence_rh(
+    State(state): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AbsenceRhDto>, (StatusCode, String)> {
+    let a = state
+        .ent
+        .annuler_absence_rh_for_actor(session.etablissement_id, &session.role, id, session.user_id)
+        .await
+        .map_err(map_db)?;
+    reponse_absence_rh(&state, &session, a).await
+}
+
+/// Réponse d'une décision : le motif n'est jamais rendu ici (le décideur lit la nature par
+/// `GET /rh/absences` s'il y a droit) — R-AP2, AR-01.
+async fn reponse_absence_rh(
+    state: &AppState,
+    session: &EntSession,
+    mut a: domain_eleve::AbsenceRh,
+) -> Result<Json<AbsenceRhDto>, (StatusCode, String)> {
+    a.motif = ent_db::absences_rh::MOTIF_MASQUE.to_string();
+    let mut enriched = enrich_absences_rh(state, session.etablissement_id, vec![AbsenceRhDto::from(&a)]).await?;
     Ok(Json(enriched.remove(0)))
 }
 

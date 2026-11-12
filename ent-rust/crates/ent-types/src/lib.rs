@@ -13,6 +13,7 @@
 //!   avec réexport des noms dans `ent-api/src/dto.rs` et un trait de conversion local
 //!   (`VersDto`), voir la proposition.
 
+pub mod absences_personnels;
 pub mod appel;
 pub mod auth;
 pub mod cahier;

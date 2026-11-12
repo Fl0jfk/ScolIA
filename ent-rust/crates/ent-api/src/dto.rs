@@ -3354,8 +3354,17 @@ pub struct AbsenceRhDto {
     pub user_label: Option<String>,
     pub debut: NaiveDate,
     pub fin: NaiveDate,
+    /// « Absence » pour qui n'a pas `personnels.absences.lire_nature` (R-AP2).
     pub motif: String,
     pub statut: String,
+    /// Auteur de la déclaration, valideur et dates, conservés séparément (R-AP5).
+    pub declare_par_user_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valide_par_user_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valide_le: Option<chrono::DateTime<chrono::Utc>>,
+    /// `false` : signalée par un tiers, pas encore confirmée par l'agent.
+    pub confirmee: bool,
 }
 
 impl From<&domain_eleve::AbsenceRh> for AbsenceRhDto {
@@ -3368,6 +3377,10 @@ impl From<&domain_eleve::AbsenceRh> for AbsenceRhDto {
             fin: a.fin,
             motif: a.motif.clone(),
             statut: a.statut.clone(),
+            declare_par_user_id: a.created_by_user_id,
+            valide_par_user_id: a.valide_par_user_id,
+            valide_le: a.valide_le,
+            confirmee: a.confirmee,
         }
     }
 }

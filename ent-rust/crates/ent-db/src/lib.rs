@@ -159,6 +159,9 @@ mod inscription_repo;
 mod iban_histo_repo;
 mod tarif_conso_repo;
 mod absence_rh_repo;
+pub mod absences_personnels;
+pub mod absences_personnels_ports;
+pub mod absences_rh;
 mod edition_vs_repo;
 mod stage_repo;
 mod edt_contrainte_repo;
@@ -319,6 +322,8 @@ mod tests_referentiel;
 mod tests_referentiel_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_absences_personnels;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

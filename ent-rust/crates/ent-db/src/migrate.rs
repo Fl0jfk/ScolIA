@@ -248,13 +248,17 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
     include_str!("../../../migrations/2240_assiduite_as0.sql"),
+    include_str!("../../../migrations/2300_absp_a0_correctifs.sql"),
+    include_str!("../../../migrations/2301_absp_referentiel.sql"),
+    include_str!("../../../migrations/2302_absp_absence.sql"),
+    include_str!("../../../migrations/2312_absp_personas_circuit_arrets.sql"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2240_assiduite_as0";
+pub const MIGRATION_TAG: &str = "2312_absp_personas_circuit_arrets";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

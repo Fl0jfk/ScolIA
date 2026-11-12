@@ -297,7 +297,9 @@ impl PgEnt {
         Ok(n > 0)
     }
 
-    /// Le personnel est-il absent (déclarée ou validée) ce jour-là ?
+    /// Le personnel est-il absent ce jour-là ? Seule une absence **validée**, ou **déclarée par
+    /// l'agent lui-même**, compte (§28.4 point 4) : une absence annulée, refusée, ou seulement
+    /// signalée par un tiers sans confirmation ne bloque pas la personne comme remplaçante.
     async fn absent_le(
         &self,
         etab: Uuid,
@@ -306,7 +308,8 @@ impl PgEnt {
     ) -> Result<bool, EntDbError> {
         let (n,): (i64,) = sqlx::query_as(
             "SELECT count(*) FROM ent_absence_rh
-              WHERE etablissement_id = $1 AND user_id = $2 AND statut IN ('signalee', 'validee')
+              WHERE etablissement_id = $1 AND user_id = $2
+                AND (statut = 'validee' OR (statut = 'signalee' AND confirmee))
                 AND debut <= $3 AND fin >= $3",
         )
         .bind(etab)
@@ -420,6 +423,35 @@ impl PgEnt {
         .map_err(db)
     }
 
+    /// Copie une exception vivante dans l'archive datée (levée ou remplacée) : rien ne s'efface
+    /// (AR-15, R-AP8). Sans effet si elle n'existe pas.
+    pub(crate) async fn archiver_exception(
+        tx: &mut PgConnection,
+        etab: Uuid,
+        exception_id: Uuid,
+        cause: &str,
+        par: Uuid,
+    ) -> Result<(), EntDbError> {
+        sqlx::query(
+            "INSERT INTO ent_edt_exception_levee
+               (id, etablissement_id, exception_id, creneau_id, jour, kind, nature, remplacant_user_id,
+                nouvelle_salle, absence_rh_id, lot_id, pose_par_user_id, pose_le, cause, levee_par_user_id)
+             SELECT gen_random_uuid(), x.etablissement_id, x.id, x.creneau_id, x.jour, x.kind, x.nature,
+                    x.remplacant_user_id, x.nouvelle_salle, x.absence_rh_id, x.lot_id,
+                    x.created_by_user_id, x.created_at, $3, $4
+               FROM ent_edt_exception x
+              WHERE x.etablissement_id = $1 AND x.id = $2",
+        )
+        .bind(etab)
+        .bind(exception_id)
+        .bind(cause)
+        .bind(par)
+        .execute(tx)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn ecrire_exception(
         tx: &mut PgConnection,
@@ -434,6 +466,10 @@ impl PgEnt {
         lot_id: Option<Uuid>,
         absence_rh_id: Option<Uuid>,
     ) -> Result<Uuid, EntDbError> {
+        // Une décision qui en remplace une autre garde l'état précédent (AR-14, R-AP8).
+        if let Some((precedent, ..)) = Self::exception_existante(tx, etab, creneau_id, jour).await? {
+            Self::archiver_exception(tx, etab, precedent, "remplacee", par).await?;
+        }
         let (id,): (Uuid,) = sqlx::query_as(
             "INSERT INTO ent_edt_exception
                (id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
@@ -442,7 +478,11 @@ impl PgEnt {
              ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
                 kind = EXCLUDED.kind, remplacant_user_id = EXCLUDED.remplacant_user_id,
                 nouvelle_salle = EXCLUDED.nouvelle_salle, created_by_user_id = EXCLUDED.created_by_user_id,
-                created_at = now(), lot_id = EXCLUDED.lot_id, absence_rh_id = EXCLUDED.absence_rh_id,
+                created_at = now(),
+                -- Les liens vers l'absence et le lot ne se perdent pas quand une décision en
+                -- remplace une autre (AR-14) ; une nouvelle valeur explicite les remplace.
+                lot_id = coalesce(EXCLUDED.lot_id, ent_edt_exception.lot_id),
+                absence_rh_id = coalesce(EXCLUDED.absence_rh_id, ent_edt_exception.absence_rh_id),
                 nature = EXCLUDED.nature
              RETURNING id",
         )
@@ -461,6 +501,34 @@ impl PgEnt {
         .await
         .map_err(db)?;
         Ok(id)
+    }
+
+    /// L'absence citée par une organisation doit exister dans l'établissement, être **validée**,
+    /// concerner l'agent en saisie de la séance (titulaire ou remplaçant) et couvrir le jour (AR-11).
+    /// Tout refus est un conflit sans détail : pas d'oracle sur l'absence d'un autre.
+    async fn controler_absence_citee(
+        tx: &mut PgConnection,
+        etab: Uuid,
+        absence_id: Uuid,
+        plan: &PlanEdt,
+        jour: NaiveDate,
+    ) -> Result<(), EntDbError> {
+        let ligne: Option<(Uuid, NaiveDate, NaiveDate, String)> = sqlx::query_as(
+            "SELECT user_id, debut, fin, statut FROM ent_absence_rh
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(absence_id)
+        .fetch_optional(tx)
+        .await
+        .map_err(db)?;
+        let (absent, debut, fin, statut) = ligne.ok_or_else(introuvable)?;
+        let concerne =
+            plan.plan.prof_user_id == absent || plan.plan.remplacant_user_id == Some(absent);
+        if statut != "validee" || !concerne || jour < debut || jour > fin {
+            return Err(conflit());
+        }
+        Ok(())
     }
 }
 
@@ -524,7 +592,7 @@ const SELECT_ABSENCE: &str = "SELECT a.id, a.user_id,
 
 impl PgEnt {
     /// Séances d'un personnel entre deux dates (titulaire ou remplaçant), états compris.
-    async fn seances_du_personnel(
+    pub(crate) async fn seances_du_personnel(
         &self,
         etab: Uuid,
         user_id: Uuid,
@@ -720,6 +788,11 @@ impl PgEnt {
 impl PgEnt {
     /// EDT-05 / RH-04 : valide le remplacement d'une séance. Exception + délégation datée du
     /// remplaçant + événement dans une seule transaction ; idempotent.
+    ///
+    /// **Concurrence (AR-09)** : la transaction prend un verrou consultatif sur la séance **puis** un
+    /// second sur le remplaçant (toujours dans cet ordre : pas d'interblocage), et ne contrôle sa
+    /// disponibilité qu'**après** les avoir obtenus, sur les données validées par les transactions
+    /// précédentes : deux remplacements simultanés du même agent à la même heure, un seul passe.
     pub async fn edt_organiser_remplacement(
         &self,
         a: &Acteur<'_>,
@@ -727,6 +800,32 @@ impl PgEnt {
     ) -> Result<ResultatException, EntDbError> {
         self.exiger_edt(a, Action::EdtGerer).await?;
         let etab = a.etablissement_id;
+        // Le remplaçant : membre de l'établissement (contrôle sans effet de bord, avant les verrous).
+        if self
+            .auth_repo()
+            .role_in(etab, cmd.remplacant_user_id)
+            .await?
+            .is_none()
+        {
+            return Err(introuvable());
+        }
+        let salle = cmd
+            .nouvelle_salle
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
+            .bind(format!("{etab}:{}", cmd.creneau_id))
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
+            .bind(format!("{etab}:remplacant:{}", cmd.remplacant_user_id))
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        // Les verrous sont tenus : l'état de l'emploi du temps lu ici est celui qui fera foi.
         let plans = self.edt_plans(etab, cmd.jour, cmd.jour).await?;
         let plan = plans
             .iter()
@@ -743,29 +842,9 @@ impl PgEnt {
         {
             return Err(conflit()); // le cours a été déplacé : on ne le remplace pas ce jour-là
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         if let Some(abs_id) = cmd.absence_rh_id {
-            let ligne: Option<(Uuid, NaiveDate, NaiveDate, String)> = sqlx::query_as(
-                "SELECT user_id, debut, fin, statut FROM ent_absence_rh
-                  WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(abs_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
-            let (absent, debut, fin, statut) = ligne.ok_or_else(introuvable)?;
-            let concerne =
-                plan.plan.prof_user_id == absent || plan.plan.remplacant_user_id == Some(absent);
-            if statut != "validee" || !concerne || cmd.jour < debut || cmd.jour > fin {
-                return Err(conflit());
-            }
+            Self::controler_absence_citee(&mut tx, etab, abs_id, &plan, cmd.jour).await?;
         }
-        let salle = cmd
-            .nouvelle_salle
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
         if let Some(code) = salle {
             let (ok,): (bool,) = sqlx::query_as(
                 "SELECT EXISTS (SELECT 1 FROM ent_salle WHERE etablissement_id = $1
@@ -780,16 +859,8 @@ impl PgEnt {
                 return Err(introuvable());
             }
         }
-        // Le remplaçant : personnel prof de l'établissement, disponible, sans conflit.
-        if self
-            .auth_repo()
-            .role_in(etab, cmd.remplacant_user_id)
-            .await?
-            .is_none()
-        {
-            return Err(introuvable());
-        }
-        // Le remplaçant déjà en place sur ce cours reste valide (idempotence) ; sinon contrôle.
+        // Le remplaçant déjà en place sur ce cours reste valide (idempotence) ; sinon contrôle
+        // (rôle, absence, chevauchement, indisponibilité), sous les verrous.
         let deja_ce_remplacant = plan.plan.statut == "remplacee"
             && plan.plan.remplacant_user_id == Some(cmd.remplacant_user_id);
         if !deja_ce_remplacant
@@ -808,13 +879,6 @@ impl PgEnt {
                 cibles: vec![cible],
             })
             .collect();
-
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
-            .bind(format!("{etab}:{}", cmd.creneau_id))
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
         let existante = Self::exception_existante(&mut tx, etab, cmd.creneau_id, cmd.jour).await?;
         if let Some((id, kind, rempl, sal)) = &existante {
             if kind == "remplacement"
@@ -831,6 +895,20 @@ impl PgEnt {
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
+                // Même remplaçant, mais l'absence citée est nouvelle : le lien se pose sans autre effet.
+                if let Some(abs_id) = cmd.absence_rh_id {
+                    sqlx::query(
+                        "UPDATE ent_edt_exception SET absence_rh_id = $3
+                          WHERE etablissement_id = $1 AND id = $2 AND absence_rh_id IS DISTINCT FROM $3",
+                    )
+                    .bind(etab)
+                    .bind(id)
+                    .bind(abs_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(db)?;
+                    tx.commit().await.map_err(db)?;
+                }
                 return Ok(ResultatException {
                     exception_id: *id,
                     deja_fait: true,
@@ -939,28 +1017,18 @@ impl PgEnt {
         if self.deplacement_de(etab, creneau_id, jour).await?.is_some() {
             return Err(conflit());
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
-        // RS3-04 : l'absence RH référencée doit appartenir à l'établissement de
-        // l'acteur (refus identique à « introuvable » : pas d'oracle d'UUID).
-        if let Some(abs_id) = absence_rh_id {
-            let existe: Option<(Uuid,)> = sqlx::query_as(
-                "SELECT id FROM ent_absence_rh WHERE etablissement_id = $1 AND id = $2",
-            )
-            .bind(etab)
-            .bind(abs_id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(db)?;
-            if existe.is_none() {
-                return Err(introuvable());
-            }
-        }
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
             .bind(format!("{etab}:{creneau_id}"))
             .execute(&mut *tx)
             .await
             .map_err(db)?;
+        // AR-11 / RS3-04 : l'absence citée doit être de l'établissement, **validée**, concerner l'agent
+        // en saisie de la séance et couvrir le jour (refus identique à « introuvable » / conflit :
+        // pas d'oracle d'UUID).
+        if let Some(abs_id) = absence_rh_id {
+            Self::controler_absence_citee(&mut tx, etab, abs_id, &plan, jour).await?;
+        }
         if let Some((id, kind, _, _)) =
             Self::exception_existante(&mut tx, etab, creneau_id, jour).await?
         {
@@ -999,7 +1067,6 @@ impl PgEnt {
         .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
-        let _ = plan;
         Ok(ResultatException {
             exception_id: exc_id,
             deja_fait: false,
@@ -1160,14 +1227,25 @@ impl PgEnt {
         .await
         .map_err(db)?;
         Self::revoquer_delegations_exception(&mut tx, etab, exc_id, None, a.user_id).await?;
-        // Déplacement : la séance arrivée à la nouvelle date disparaît avec lui.
+        // Déplacement : la séance arrivée à la nouvelle date disparaît avec lui. Rien ne s'efface
+        // pour autant (AR-15, R-AP8) : le déplacement levé est copié dans son archive datée.
         let depl: Option<(Uuid, NaiveDate)> = sqlx::query_as(
-            "DELETE FROM ent_edt_deplacement WHERE etablissement_id = $1 AND creneau_id = $2 AND jour_origine = $3
+            "WITH archive AS (
+                 INSERT INTO ent_edt_deplacement_leve
+                   (id, etablissement_id, deplacement_id, creneau_id, jour_origine, nouveau_jour,
+                    nouvelle_heure_debut, nouvelle_heure_fin, nouvelle_salle, levee_par_user_id)
+                 SELECT gen_random_uuid(), d.etablissement_id, d.id, d.creneau_id, d.jour_origine,
+                        d.nouveau_jour, d.nouvelle_heure_debut, d.nouvelle_heure_fin, d.nouvelle_salle, $4
+                   FROM ent_edt_deplacement d
+                  WHERE d.etablissement_id = $1 AND d.creneau_id = $2 AND d.jour_origine = $3
+             )
+             DELETE FROM ent_edt_deplacement WHERE etablissement_id = $1 AND creneau_id = $2 AND jour_origine = $3
              RETURNING id, nouveau_jour",
         )
         .bind(etab)
         .bind(creneau_id)
         .bind(jour)
+        .bind(a.user_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(db)?;
@@ -1183,6 +1261,9 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        // Exception : archivée (qui l'avait posée, quand, par qui levée) puis retirée de la table
+        // vivante, que lisent l'EDT, les familles et les droits.
+        Self::archiver_exception(&mut tx, etab, exc_id, "levee", a.user_id).await?;
         sqlx::query("DELETE FROM ent_edt_exception WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
             .bind(exc_id)

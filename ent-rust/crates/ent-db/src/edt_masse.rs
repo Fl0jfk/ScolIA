@@ -227,6 +227,21 @@ impl PgEnt {
         }
         for p in &selection {
             let pl = &p.plan;
+            // Une décision antérieure sur cette séance (remplacement, changement de salle…) est
+            // gardée dans l'archive datée avant d'être remplacée (R-AP8).
+            let precedent: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM ent_edt_exception
+                  WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 FOR UPDATE",
+            )
+            .bind(etab)
+            .bind(pl.creneau_id)
+            .bind(pl.jour)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+            if let Some(pid) = precedent {
+                Self::archiver_exception(&mut tx, etab, pid, "remplacee", a.user_id).await?;
+            }
             let exc = sqlx::query_scalar::<_, Uuid>(
                 "INSERT INTO ent_edt_exception
                    (id, etablissement_id, creneau_id, jour, kind, motif, created_by_user_id,
@@ -313,7 +328,7 @@ impl PgEnt {
                     btrim(c.classe) AS classe, c.heure_debut, c.heure_fin,
                     x.nouvelle_salle,
                     CASE WHEN x.kind = 'remplacement'
-                         THEN coalesce(nullif(btrim(u.display_name), ''), u.email) END AS remplacant_nom,
+                         THEN coalesce(nullif(btrim(u.display_name), ''), 'Un enseignant de l''établissement') END AS remplacant_nom,
                     d.nouveau_jour, d.nouvelle_heure_debut, d.nouvelle_heure_fin,
                     l.motif_public, x.created_at AS enregistre_le
                FROM ent_edt_exception x

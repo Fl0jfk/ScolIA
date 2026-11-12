@@ -1,0 +1,275 @@
+//! Absences des personnels (socle 15, lots A0–A1) : types JSON des routes
+//! `ent-api/src/absences_personnels.rs` (préfixe `/personnels/absences`).
+//! Conception : `docs/socles/15_ABSENCES_PERSONNELS.md`. Aucune logique métier.
+//!
+//! Deux niveaux de lecture, **deux types distincts** (R-AP3, §23.4 point 3) :
+//! * [`AbsenceOrganisationDto`] : ce que voient ceux qui organisent la journée. Il n'a **aucun champ de
+//!   nature, de traitement ni de décision** : la projection « organisation » est une structure
+//!   différente, pas un filtre d'affichage ; un test parcourt le JSON pour le vérifier ;
+//! * [`AbsenceDto`] : le cercle RH (l'agent lui-même, direction, secrétariat, circuit), avec la nature.
+//!
+//! Les codes (état, traitement, nature, employeur…) restent des chaînes : la liste fermée vit dans
+//! `ent-db` et dans la base.
+
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Une plage d'une absence discontinue (ABP-115).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlageBody {
+    pub debut: NaiveDate,
+    pub fin: NaiveDate,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+}
+
+/// `POST /personnels/absences` (ABP-100, 101, 106 à 109, 114 à 117). Sans `agent_id` : l'agent connecté.
+/// Les dates sont **inclusives** et en jour de l'établissement ; sans heures : journée entière.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DeclarerAbsenceBody {
+    #[serde(default)]
+    pub agent_id: Option<Uuid>,
+    /// Code d'une nature active et permise pour l'engagement ; absent = « je préciserai » (`inconnue`).
+    #[serde(default)]
+    pub nature_code: Option<String>,
+    pub debut: NaiveDate,
+    pub fin: NaiveDate,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+    /// Absence discontinue : si présent, remplace `debut` / `fin` (qui deviennent l'enveloppe).
+    #[serde(default)]
+    pub plages: Vec<PlageBody>,
+    /// 200 caractères, natures non sensibles seulement (R-AP1) ; refusé sinon.
+    #[serde(default)]
+    pub texte_libre: Option<String>,
+    /// « Je prolongerai » : la fin est une estimation.
+    #[serde(default)]
+    pub fin_provisoire: bool,
+    /// Préférence de traitement exprimée par l'agent (ABP-107) : proposée au valideur, jamais imposée.
+    #[serde(default)]
+    pub preference_traitement: Option<String>,
+    /// Double engagement : limite la déclaration à cet engagement (ABP-106).
+    #[serde(default)]
+    pub engagement_id: Option<Uuid>,
+}
+
+/// `POST /personnels/absences/signalements` (ABP-102, 103) : **sans nature**, aucun effet extérieur tant
+/// qu'elle n'est pas confirmée (R-AP46).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SignalerAbsenceBody {
+    pub agent_id: Uuid,
+    pub debut: NaiveDate,
+    pub fin: NaiveDate,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+}
+
+/// Corps commun des décisions (valider, refuser, rouvrir, annuler, traiter, clore).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionBody {
+    /// Valider : traitement des heures (§9.3) ; imposé par la nature si elle est non discrétionnaire.
+    #[serde(default)]
+    pub traitement: Option<String>,
+    /// Code court (`erreur_saisie`, `non_conforme`, …) ; jamais un diagnostic.
+    #[serde(default)]
+    pub raison_code: Option<String>,
+    /// Note de 1000 caractères, visible des seuls instructeurs ; contrôlée comme un texte sortant (R-AP41).
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Traiter : voie de transmission (`rectorat`, `dsden`, `paie`, `comptabilite`, `autre`).
+    #[serde(default)]
+    pub voie_transmission: Option<String>,
+}
+
+/// `POST /personnels/absences/{id}/requalifier` (ABP-128).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequalifierBody {
+    pub nature_code: String,
+    #[serde(default)]
+    pub raison_code: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// `POST /personnels/absences/{id}/confirmer` (ABP-112) : l'agent confirme une absence signalée et peut
+/// en préciser la nature (ABP-117 : « je préciserai plus tard » devient une nature).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmerBody {
+    #[serde(default)]
+    pub nature_code: Option<String>,
+}
+
+/// `POST /personnels/absences/{id}/arret-recu` (ABP-131) : l'instructeur note la réception de l'arrêt
+/// (échéance de 48 h, R-AP16 ; ScolIA ne sanctionne pas).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArretRecuBody {
+    /// Sans identifiant : le dernier arrêt non encore reçu.
+    #[serde(default)]
+    pub arret_id: Option<Uuid>,
+}
+
+/// `POST /personnels/absences/{id}/prolonger` (ABP-110) ou `/ecourter` (ABP-111) : nouvelle dernière
+/// journée (inclusive).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangerFinBody {
+    pub fin: NaiveDate,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+}
+
+/// `POST /personnels/absences/{id}/decision-externe` (ABP-288, 289) : l'employeur décide, l'établissement
+/// enregistre.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionExterneBody {
+    /// `rectorat`, `dsden`, `employeur_mutualisateur`, `autre`.
+    pub employeur: String,
+    /// `accordee`, `refusee`, `requalifiee`.
+    pub decision: String,
+    /// Requise si `requalifiee`.
+    #[serde(default)]
+    pub nature_code: Option<String>,
+    pub le: NaiveDate,
+}
+
+/// `POST /personnels/absences/circuit-regles` (ABP-259 : règle de valideur ou d'instructeur).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreerRegleCircuitBody {
+    /// `etat`, `ogec` ou `tous`.
+    pub employeur: String,
+    #[serde(default)]
+    pub famille: Option<String>,
+    /// `valideur`, `instructeur`, `informe`.
+    pub role: String,
+    pub agent_id: Uuid,
+    #[serde(default)]
+    pub rang: Option<i16>,
+}
+
+/// Une ligne du circuit figé d'une absence (ABP-120).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CircuitLigneDto {
+    pub role: String,
+    pub agent_id: Uuid,
+    pub rang: i16,
+    /// `regle`, `responsable_fonctionnel`, `defaut`, `delegation`.
+    pub source: String,
+}
+
+/// Une absence vue par le **cercle RH** : l'agent lui-même, la direction, le secrétariat. La nature n'y
+/// figure que si l'appelant a le droit de la lire (`nature_code` absent sinon).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AbsenceDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
+    pub etat: String,
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+    pub fin_provisoire: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nature_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nature_libelle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texte_libre: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traitement: Option<String>,
+    /// `interne` : la direction décide ; `externe` : l'établissement prend en compte, l'employeur décide.
+    pub decision: String,
+    /// `agent`, `rappel`, ou absent (signalée, non confirmée).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmee_par: Option<String>,
+    /// L'absence regroupe un second engagement (double engagement, R-AP4).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absence_liee_id: Option<Uuid>,
+    #[serde(default)]
+    pub circuit: Vec<CircuitLigneDto>,
+}
+
+/// Une absence vue par **ceux qui organisent** (R-AP3) : **aucun champ de nature**, de traitement, de
+/// décision, de texte libre ni de circuit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AbsenceOrganisationDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+    /// `true` : confirmée par l'agent ou par un rappel tracé ; `false` : signalée seulement, à ne pas
+    /// annoncer à l'extérieur (R-AP46).
+    pub confirmee: bool,
+}
+
+/// Une réponse de déclaration : une absence par engagement touché, et les chevauchements à confirmer
+/// (proposition seulement, jamais un blocage : AD-06, ABP-108).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeclarationDto {
+    pub absences: Vec<AbsenceDto>,
+    #[serde(default)]
+    pub chevauchements: Vec<Uuid>,
+}
+
+/// Une nature proposée à l'agent pour son engagement (liste courte, dans ses mots).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NatureDto {
+    pub code: String,
+    pub libelle: String,
+    pub famille: String,
+    /// Le texte libre est permis pour cette nature (jamais pour une nature sensible).
+    pub texte_libre_permis: bool,
+    pub piece_attendue: String,
+}
+
+/// Un fait du journal d'une absence (ABP-134) : cercle RH seulement.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JournalAbsenceDto {
+    pub le: DateTime<Utc>,
+    pub action: String,
+    pub auteur_user_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colonne: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valeur_avant: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub valeur_apres: Option<String>,
+}
+
+/// Une règle de circuit (paramétrage).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegleCircuitDto {
+    pub id: Uuid,
+    pub employeur: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub famille: Option<String>,
+    pub role: String,
+    pub agent_id: Uuid,
+    pub rang: i16,
+}
+
+/// **Port « absences validées non remplacées »** (socles 10 et 19, D-058) : une séance dont l'enseignant
+/// est absent (absence validée ou prise en compte) et qui n'a pas de remplaçant. Aucun motif, aucune
+/// nature, aucun nom d'agent (donnée personnelle) : seulement ce qu'il faut pour dire « cours de 4ᵉ B
+/// supprimé » et libérer la salle.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeanceSansEnseignantDto {
+    pub absence_id: Uuid,
+    pub creneau_id: Uuid,
+    pub jour: NaiveDate,
+    pub classe: String,
+    pub matiere_libelle: String,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salle: Option<String>,
+    /// `non_remplacee` (aucun remplaçant nommé) ou `annulee` (la séance est supprimée).
+    pub statut: String,
+}
