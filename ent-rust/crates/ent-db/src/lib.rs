@@ -54,6 +54,11 @@ mod sms_repo;
 mod push_repo;
 mod bank_repo;
 mod msg_repo;
+#[cfg(test)]
+mod garde_messagerie_lecture;
+pub mod msg_matrice;
+mod msg_m2;
+pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
 mod note_repo;
 pub mod cahier;
 pub mod cahier_reactions;
@@ -70,6 +75,10 @@ mod tests_communication;
 mod tests_messagerie_m0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0b;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m2;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -103,6 +112,8 @@ mod referentiel_seances;
 pub mod edt_admin;
 pub mod edt_remplacement;
 mod edt_masse;
+pub mod edt_ports;
+pub mod edt_versions;
 pub mod delegation;
 mod edt_reactions;
 mod referentiel_classe_id;
@@ -323,6 +334,10 @@ mod tests_referentiel;
 mod tests_referentiel_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t1_t2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
