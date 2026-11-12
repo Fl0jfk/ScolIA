@@ -263,7 +263,14 @@ async fn panne_outbox_annule_la_cloture_d_appel() {
         .await
         .expect("clore après réparation");
     assert!(ent.eleve_est_absent(etab, cast.eleve_lea_id, jour).await.unwrap());
-    assert_eq!(compter(&ent, absences_harry, cast.eleve_lea_id).await, avant + 1);
+    // AS0 (DA-05) : le jeu de labo a déjà une absence `a_traiter` du jour pour cet élève ;
+    // la séance s'y rattache au lieu de créer une ligne (une journée = une absence).
+    assert!(compter(&ent, absences_harry, cast.eleve_lea_id).await >= avant);
+    assert_eq!(
+        compter(&ent, "SELECT count(*) FROM ent_absence_seance WHERE appel_id = $1", appel.id).await,
+        1,
+        "fait enregistré avec sa séance"
+    );
     assert_eq!(
         compter(&ent, "SELECT count(*) FROM ent_outbox WHERE aggregate_id = $1 AND type = 'appel.closed'", appel.id).await,
         1

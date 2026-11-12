@@ -641,6 +641,12 @@
 .voy-motif { display: grid; gap: var(--esp-3); max-width: 40rem; padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); margin-block: var(--esp-3); }
 .voy-registre { margin-block: var(--esp-3); }
 .voy-circulaire { white-space: pre-wrap; padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }
+.accueil-principal { font-weight: var(--graisse-forte); }
+.accueil-ligne--attention .ui-liste__detail { color: var(--c-avert, var(--c-acc)); font-weight: var(--graisse-forte); }
+.accueil-ligne--alerte .ui-liste__titre { font-weight: var(--graisse-titre); }
+.accueil-ligne--alerte .ui-liste__detail { color: var(--c-mal, var(--c-acc)); font-weight: var(--graisse-forte); }
+.ui-liste__lien { display: block; color: inherit; text-decoration: none; }
+.ui-liste__lien:hover .ui-liste__titre, .ui-liste__lien:focus-visible .ui-liste__titre { text-decoration: underline; }
 .voy-formulaire--large { max-width: 60rem; }
 .voy-etape-ligne { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: var(--esp-3); align-items: end; border: 0; margin: 0; padding: 0; min-width: 0; }
 .voy-etape-ligne legend { font-weight: 600; padding: 0; margin-bottom: var(--esp-2); }

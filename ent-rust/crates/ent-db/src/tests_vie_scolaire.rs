@@ -152,12 +152,14 @@ async fn demi_journees_derivees_des_appels_et_cas_limites() {
     assert_eq!((dj[0].periode, dj[0].minutes), (Periode::Matin, 120));
     assert!(dj[0].non_justifiee);
 
-    // Justification partielle : la première séance justifiée, la seconde non.
+    // Justification de l'absence du jour (rattachée aux deux séances).
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
         .bind(a1.id).execute(ent.pool_verif()).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), lun, lun).await.unwrap();
-    assert_eq!((dj[0].minutes, dj[0].minutes_non_justifiees), (120, 60));
-    assert!(dj[0].non_justifiee, "60 min non justifiées ≥ seuil");
+    // AS0 (DA-05, DA-12) : les deux séances de la journée sont rattachées à une seule
+    // absence ; la justifier couvre ses deux séances (plus de justification ligne par ligne).
+    assert_eq!((dj[0].minutes, dj[0].minutes_non_justifiees), (120, 0));
+    assert!(dj[0].comptee && !dj[0].non_justifiee, "absence justifiée : comptée, plus au décompte");
     // Tout justifié : comptée, plus au décompte réglementaire.
     sqlx::query("UPDATE ent_absence SET statut = 'justifiee' WHERE id = (SELECT absence_id FROM ent_absence_seance WHERE appel_id = $1)")
         .bind(a2.id).execute(ent.pool_verif()).await.unwrap();
@@ -310,7 +312,12 @@ async fn famille_declare_puis_rapprochement_a_l_appel() {
     ));
     // Deux déclarations se recouvrent : annuler l'une garde « prévenue » via l'autre.
     let d3 = ent.declarer_absence_famille(parent.0, parent.1, decl(etab, lea, mar, mar)).await.unwrap();
-    let d4 = ent.declarer_absence_famille(parent.0, parent.1, decl(etab, lea, mar, mar)).await.unwrap();
+    // (Une déclaration strictement identique est idempotente, DA-22 : d4 a donc une plage horaire.)
+    let mut c4 = decl(etab, lea, mar, mar);
+    c4.debut_heure = Some(t(8, 0));
+    c4.fin_heure = Some(t(9, 0));
+    let d4 = ent.declarer_absence_famille(parent.0, parent.1, c4).await.unwrap();
+    assert_ne!(d3.id, d4.id);
     ent.annuler_declaration(etab, d3.id, parent.0, parent.1).await.unwrap();
     assert!(prevenue(&ent, a3.id, lea).await, "d4 couvre encore la séance");
     ent.annuler_declaration(etab, d4.id, parent.0, parent.1).await.unwrap();

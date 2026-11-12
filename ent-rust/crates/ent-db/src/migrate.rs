@@ -220,6 +220,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/460_eva_v0_correctifs.sql"),
     include_str!("../../../migrations/480_msg_m0a_fuites.sql"),
     include_str!("../../../migrations/481_msg_m0b_securite_fiabilite.sql"),
+    include_str!("../../../migrations/482_msg_m1_participants.sql"),
+    include_str!("../../../migrations/483_msg_m1_reprise.sql"),
+    include_str!("../../../migrations/484_msg_m2_matrice.sql"),
     include_str!("../../../migrations/500_objet_registre.sql"),
     include_str!("../../../migrations/520_finances_f0_immuabilite.sql"),
     include_str!("../../../migrations/560_delegation_droits_normalises.sql"),
@@ -247,6 +250,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../../../migrations/665_d036_personne_plage_joignable.sql"),
     include_str!("../../../migrations/666_d036_eleve_fusion_normalisee.sql"),
     include_str!("../../../migrations/667_d036_personne_fusion_normalisee.sql"),
+    include_str!("../../../migrations/2240_assiduite_as0.sql"),
     include_str!("../../../migrations/2380_agenda_ag0_rencontres.sql"),
     include_str!("../../../migrations/2381_agenda_evenement.sql"),
 ];
@@ -348,11 +352,8 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        // Tri numérique sur le préfixe (« 667_… » < « 2380_… ») : le tri lexicographique placerait
-        // les numéros à quatre chiffres avant ceux à trois (plage 2380–2399 du socle 19).
-        noms.sort_by_key(|n| {
-            (n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0), n.clone())
-        });
+        // Tri numérique sur le préfixe (2240 > 642) et non lexical.
+        noms.sort_by_key(|n| n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0));
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(
