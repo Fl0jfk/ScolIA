@@ -949,6 +949,7 @@ async fn isolation_des_etablissements_et_rls_des_nouvelles_tables() {
 
     // Autre établissement : son infirmière ne voit rien, ne peut rien écrire sur cet élève.
     let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    ent.activer_module_sante_test(autre.etablissement_id).await;
     assert_ne!(autre.etablissement_id, etab);
     let (ai, ar) = (autre.infirmieres[0].user_id, "infirmerie");
     assert!(ent.fiche_urgence_for_actor(autre.etablissement_id, ai, ar, lea).await.is_err());
