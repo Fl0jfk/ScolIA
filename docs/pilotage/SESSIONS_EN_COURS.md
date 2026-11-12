@@ -40,7 +40,7 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 19 code AG0-AG1 | session_01KZCbFHhtUcrLKPT1g7mDDc | ent-socle-19-code-1 |
 | 39 code ST0-ST1 | session_01KZCbFGfZ4bUMpBKuP4Gd6Q | ent-socle-39-code-1 |
 | D-036 retrait colonnes | session_01KZCbFJ2BZKhM1HPTykzZWF | ent-d036-retrait-colonnes (668–670) |
-| 16 code M1-M2 | session_01KZCbFGwaiE57aMQk2xZ3cz | ent-socle-16-code-1 (482–499) |
+| 16 code M1-M2 | session_01KZCbFGwaiE57aMQk2xZ3cz | ent-socle-16-code-1 (482–499) — M1-M2 versés sur ENT (c1ddae6d, 12-11 07:15), archivée |
 | 41 code I0-I1 | session_01KZCbFHGgvJrnNf1t6MuqXN | ent-socle-41-code-1 (2820–2839) |
 | 10 code T0-T2 | session_01KZCbFF6WgLVjyaLuNosGPw | ent-socle-10-code-1 (440–459) |
 | 15 code A0-A1 | session_01KZCbFEJyFpnDad1p8RgC3R | ent-socle-15-code-1 (2300–2319) |
@@ -52,4 +52,4 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 29 code P2-P3 | session_01KZCbFGstxci8Rzs92fxX5m | ent-socle-29-code-2 |
 | 12 code AS1-AS2 | session_01KZCbFGeamDF2fR77eh4pjP | ent-socle-12-code-2 |
 | Audit Fable 2 | session_01KZCbFFrtQe7DYdNRmtpQ5b | ent-audit-fable-2 (docs) |
-| Plan bascule février | session_01KZCbFHD9b6BhYczf79E69Y | ent-plan-bascule-fevrier (docs) |
+| Plan bascule février | session_01KZCbFHD9b6BhYczf79E69Y | ent-plan-bascule-fevrier (docs) — fusionné, archivé |
