@@ -131,7 +131,8 @@ const MOTS_EXCLUS: &[&str] = &[
 ];
 
 fn replier(s: &str) -> String {
-    s.chars()
+    s.to_lowercase()
+        .chars()
         .map(|c| match c {
             'à' | 'â' | 'ä' | 'á' => 'a',
             'é' | 'è' | 'ê' | 'ë' => 'e',
@@ -325,10 +326,16 @@ async fn nature_par_code(
 
 async fn nature_par_id(
     conn: &mut PgConnection,
+    etab: Uuid,
     id: Uuid,
 ) -> Result<Option<NatureLigne>, EntDbError> {
-    let sql = format!("SELECT {NATURE_COLONNES} FROM ent_absp_nature n WHERE n.id = $1");
+    // Nature fournie (établissement NULL) ou propre à l'établissement courant : jamais celle d'un autre.
+    let sql = format!(
+        "SELECT {NATURE_COLONNES} FROM ent_absp_nature n
+          WHERE n.id = $2 AND (n.etablissement_id = $1 OR n.etablissement_id IS NULL)"
+    );
     sqlx::query_as::<_, NatureLigne>(&sql)
+        .bind(etab)
         .bind(id)
         .fetch_optional(conn)
         .await
@@ -1272,7 +1279,7 @@ async fn vue_absence(
 ) -> Result<AbsenceDto, EntDbError> {
     let l = charger(conn, etab, id, false).await?;
     let nature = match l.nature_id {
-        Some(n) => nature_par_id(conn, n).await?,
+        Some(n) => nature_par_id(conn, etab, n).await?,
         None => None,
     };
     let (label, fin_provisoire, confirmee_par): (Option<String>, bool, Option<String>) = sqlx::query_as(
@@ -1418,7 +1425,7 @@ impl PgEnt {
             .peut_instruire_abs(&mut tx, etab, actor, role, &a)
             .await?;
         let nature = match a.nature_id {
-            Some(n) => nature_par_id(&mut tx, n).await?,
+            Some(n) => nature_par_id(&mut tx, etab, n).await?,
             None => None,
         };
         // Droits par commande. Personne ne valide ni ne refuse sa propre absence (R-AP10), même s'il
@@ -1932,7 +1939,7 @@ impl PgEnt {
             return Err(invalide("Cette nature ne s'applique pas à cet employeur."));
         }
         let ancienne = match a.nature_id {
-            Some(n) => nature_par_id(&mut tx, n).await?,
+            Some(n) => nature_par_id(&mut tx, etab, n).await?,
             None => None,
         };
         if ancienne.as_ref().map(|n| n.id) == Some(nouvelle.id) {
@@ -2128,7 +2135,7 @@ impl PgEnt {
             }
             // Nature à arrêt : la prolongation est un nouvel arrêt (R-AP16).
             let attend_arret = match a.nature_id {
-                Some(n) => nature_par_id(&mut tx, n)
+                Some(n) => nature_par_id(&mut tx, etab, n)
                     .await?
                     .is_some_and(|n| n.piece_attendue == "arret"),
                 None => false,
@@ -2310,7 +2317,7 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let nature = match a.nature_id {
-            Some(n) => nature_par_id(&mut tx, n).await?,
+            Some(n) => nature_par_id(&mut tx, etab, n).await?,
             None => None,
         };
         if mode_decision(nature.as_ref(), &a.employeur) != "externe"
