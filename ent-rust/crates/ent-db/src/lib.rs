@@ -108,6 +108,8 @@ mod referentiel_seances;
 pub mod edt_admin;
 pub mod edt_remplacement;
 mod edt_masse;
+pub mod edt_ports;
+pub mod edt_versions;
 pub mod delegation;
 mod edt_reactions;
 mod referentiel_classe_id;
@@ -209,6 +211,9 @@ pub mod voyages;
 pub mod voyages_budget;
 pub mod voyages_budget_repo;
 pub mod voyages_pdf;
+pub mod voyages_prestataires;
+pub mod voyages_prestataires_repo;
+pub mod voyages_courrier_repo;
 pub mod voyages_rappels;
 pub mod voyages_reactions;
 pub mod voyages_repo;
@@ -328,6 +333,10 @@ mod tests_referentiel;
 mod tests_referentiel_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t1_t2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
@@ -432,6 +441,8 @@ mod tests_voyages_v0a;
 mod tests_portail_p1;
 #[cfg(test)]
 mod tests_voyages_v0b;
+#[cfg(test)]
+mod tests_voyages_v0c;
 
 #[cfg(test)]
 mod integration_tests {

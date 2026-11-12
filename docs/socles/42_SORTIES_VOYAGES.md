@@ -2193,3 +2193,62 @@ Les écrans livrés étendent les actions déjà couvertes : budget (NX-51, NX-5
 5. **Écarts de périmètre** : bon de commande en V0c ; synthèse APEL sans écran (API JSON et CSV) ; réglage S-428 (bascule APEL au 15 juillet) non implémenté, l'année est celle du socle 5.
 6. **Avis** : les rôles paramétrables ne sont pas pris en compte pour les destinataires (V0b-7).
 7. **Non testé** : navigateur (clavier, mobile 375 px, axe-core, lecteur d'écran), recette sur export réel de Next.js ; **pas prêt pilote** avant ces essais et la relecture de Florian.
+
+### 33.8 Lot V0c : prestataires, devis, signature, bon de commande, avenants, courrier entrant (2026-11-11, branche `ent-socle-voyages-v0c`)
+
+> **Statut : implémenté et testé en local ; non validé par Florian, pas prêt pilote, pas prêt production.** Faits (code et tests) séparés des décisions appliquées par défaut (à valider) et des questions. Aucun accès à la base de production, aucune modification de Next.js.
+
+#### 33.8.1 Périmètre
+Migration **644** (`644_sortie_prestataires.sql`, 11 tables, RLS, clés composites, aucun JSON ni BYTEA) ; `ent-db/src/voyages_prestataires.rs` (règles pures), `voyages_prestataires_repo.rs` (commandes et lectures), `voyages_courrier_repo.rs` (boîte de réception et tri), commande `signer-devis` de l'automate (`voyages.rs`, `voyages_repo.rs`), alimentation du budget par un devis (`voyages_budget_repo.rs`), routes `ent-api/src/voyages_achats.rs`.
+
+| Action | Où | Droit |
+|---|---|---|
+| VOY-155 annuaire des prestataires (NX-41) | `prestataire_creer/modifier`, `prestataire_adresse_ajouter/desactiver`, `prestataires_liste` | `voyages.prestataires` d'établissement (secrétariat, comptabilité, direction) |
+| VOY-156, NX-74 demande de devis (PDF serveur, aperçu et confirmation) | `voyage_devis_demander` | porteur ou `voyages.prestataires`, étape préparation ou devis à signer |
+| VOY-158, NX-43 relance | `voyage_devis_relancer` | idem |
+| VOY-161, NX-72 devis saisi à la main | `voyage_devis_ajouter` | idem |
+| VOY-162 montant proposé puis **confirmé par un humain** (NX-70, NX-71) | `voyage_devis_confirmer_montant` ; lecture du texte : `montant_ttc_propose` | idem |
+| VOY-165, NX-48 choix du devis | `voyage_devis_choisir` | idem |
+| VOY-166, NX-49 signature | commande `signer-devis` | **direction seule** (`voyages.autoriser`) |
+| VOY-167, NX-50 bon de commande + copie comptabilité, **commande atomique** (VD-28) | même commande | automatique, après la signature |
+| VOY-157, NX-44 avenant numéroté « annule et remplace » | `voyage_avenant_emettre` | porteur ou `voyages.prestataires` |
+| NX-45, §13.3 confirmation du prestataire, conducteur et téléphone | `voyage_commande_confirmer`, `voyage_contacts_transport` | gestion : idem ; lecture des contacts : **encadrants et porteur seuls** |
+| VOY-163, VOY-164, NX-46, NX-47 boîte de réception par établissement, file de tri | `courrier_entrant_deposer` (service), `courrier_tri_liste`, `courrier_rattacher`, `courrier_ignorer`, `courrier_nouveau_prestataire`, `courrier_piece_lire` | tri : `voyages.prestataires` d'établissement |
+| NX-51 alimentation du budget par un devis (partielle V0b) | `voyage_budget_ligne_depuis_devis` | mêmes gardes que la saisie d'une ligne |
+| VOY-168, NX-07 | inchangé (V0a) : la direction passe sans devis signé avec motif ; **avec un devis signé, la commande `signer-devis` remplace ce passage** | — |
+
+**Actions de Next.js nouvellement couvertes (V0c)** : NX-41, NX-42, NX-43, NX-44, NX-45 (confirmation et conducteur ; pas de réponse libre au prestataire), NX-46, NX-47, NX-48, NX-49, NX-50, NX-51 (complète : alimentation par devis), NX-64 (avis « pour la liste » : **non** ; reste à faire), NX-70 (lecture du **texte du message** seulement, voir V0c-6), NX-71, NX-72, NX-74. **Restent** : NX-29 et NX-30 (liste au transporteur), NX-52, NX-60 à NX-63, NX-65 à NX-67, NX-69, NX-73 (réponse libre au prestataire), restauration (V0d), journal de voyage (V0d), reprise des données (V0d).
+
+#### 33.8.2 Règles appliquées (chacune a un test, `tests_voyages_v0c.rs`)
+* **Le destinataire est toujours une adresse de l'annuaire, vérifiée par un humain** ; la file d'envoi ne contient qu'un identifiant d'adresse, garanti par une clé étrangère composite `(établissement, prestataire, adresse)`. Aucune route ne prend un destinataire. Une adresse désactivée ne reçoit plus rien. Les messages sont du **texte brut** ; objets sans saut de ligne ; référence de correspondance non devinable (référence lisible + somme de contrôle liée à l'établissement et à l'identifiant interne).
+* **Droits** : l'annuaire complet est réservé à `voyages.prestataires` d'établissement ; le porteur choisit parmi les noms (sans adresses) ; accueil, famille et professeur tiers ne voient rien (« introuvable ») ; l'encadrant non porteur lit le dossier mais pas les achats. Demande et relance exigent une **confirmation expresse** après l'aperçu.
+* **Signature** : direction seule, sur le devis **choisi**, la **version lue** (`rev`) et l'**empreinte lue** de la pièce (SHA-256 relu au magasin d'objets et comparé) ; une autre empreinte, l'absence de confirmation ou une pièce changée refusent. La signature est en **ajout seul** (déclencheur de base) et ne se remplace pas. Signature, devis « signé », commande, bon de commande PDF, mise en file de l'envoi et passage à l'étape suivante sont **une seule transaction**.
+* **Montant** : saisi au format français strict ; la lecture du texte d'un courrier ne fait que **proposer** un montant (uniquement le nombre qui suit « TTC », rien si plusieurs montants différents ou aucun libellé) ; sans confirmation, le devis ne peut être ni choisi ni inscrit au budget.
+* **Courrier entrant** : rattachement automatique **seulement** si la référence exacte (somme comprise) d'une sortie **de cet établissement** et un expéditeur de l'annuaire **à qui une demande est partie pour cette sortie** sont réunis ; sinon file de tri. Un courrier n'est **jamais** marqué traité sans geste humain tracé (contraintes de base) ; domaine voisin d'un prestataire connu : alerte d'hameçonnage ; pièces passées par la politique de dépôt commune (type détecté sur les octets, plafond, antivirus) ; **aucun contenu envoyé à une IA** ; le dépôt n'est exposé par **aucune route HTTP**.
+* **Copie comptabilité** : boîte de **l'établissement** (réglage `ent_sortie_reglage`, saisi par la direction ou la comptabilité), jamais une valeur codée en dur ; sans réglage, aucune copie.
+* **Conducteur et téléphone** : champs dédiés de la commande, jamais recopiés dans un PDF ni un message, lisibles des encadrants et du porteur, **effacés** quand le dossier est clos, refusé ou annulé.
+* **Avenant** : numéroté, motivé, PDF « annule et remplace » au prestataire de la commande ; la signature précédente reste, la commande repasse « à confirmer ».
+* **Environnement de test** : les tests utilisent le mode « dry-run » de la messagerie ; en production, un reçu `DryRun` n'est jamais pris pour un envoi (`envoi_reussi`).
+
+#### 33.8.3 Décisions appliquées par défaut dans V0c (D-031, à valider par Florian)
+| N° | Décision | Pourquoi |
+|---|---|---|
+| V0c-1 | **Signature de niveau S1** (session authentifiée, empreinte de la pièce, intention, horodatage) ; le niveau figure dans la preuve. **S2 (passkey, socle 7, D1) non implémenté** : le moteur de signature du socle 7 n'existe pas encore dans le code | le §13.2 prévoit S2 ou S3 selon le montant ; à faire quand le socle 7 livre sa brique de signature (aucune migration à prévoir : `niveau` accepte `S2`) |
+| V0c-2 | La signature du devis est un geste de la **direction** (`voyages.autoriser`) ; il n'existe pas d'action `sorties.signer` distincte | une action de plus sans usage avant le socle 7 |
+| V0c-3 | Les envois partent **immédiatement après la validation** du geste (essai best-effort), puis sont rejouables par `POST /voyages/envois/traiter` ; trois essais, puis état « échec » (visible) | pas d'ordonnanceur branché ; un échec d'envoi ne fait jamais échouer le geste métier |
+| V0c-4 | Une seule adresse active est utilisée par prestataire (la plus ancienne vérifiée) ; plusieurs adresses sont conservées | simplicité ; le choix d'une adresse par envoi est une évolution |
+| V0c-5 | Effectifs de la commande : ceux **déclarés au dossier**, à défaut les participants inscrits et encadrants | NX-50 |
+| V0c-6 | **Pas d'OCR ni d'IA** : le montant proposé vient du texte brut du message ; les PDF joints ne sont pas lus | l'IA N1 sur les devis (VOY-214) dépend de la brique IA du socle ; le montant reste de toute façon confirmé par un humain |
+| V0c-7 | Un devis reçu **après** une commande signée passe en « après commande » (jamais choisi) | VD-45 |
+| V0c-8 | Les changements d'annuaire et de réglage sont tracés dans `ent_journal_modif` (domaine `voyages_annuaire`) | E7 |
+
+#### 33.8.4 Défauts de Next.js fermés (règle 14, D-051) et test de non-régression
+Voir `docs/ALERTES_NEXTJS_PROD.md`. **V0a et V0b** : NJ-07 (écriture de tout dossier, budget validé modifiable, APEL ouverte), NJ-08 (lecture par tout rôle, accueil compris), NJ-24 (élève désisté « en sortie »), NJ-27 (dossier d'un autre établissement), NJ-52 (rappels par secret partagé : ici une route authentifiée, direction seule). **V0c** : NJ-07, NJ-08 (achats), NJ-09, NJ-10, NJ-11, NJ-12, NJ-13, NJ-27, NJ-28, NJ-38 (devis), NJ-55, NJ-70 (rattachement et perte silencieuse des courriers). Aucun contournement d'authentification de Next.js n'est repris : chaque action passe par le compte connecté. Tableau complet défaut → test : rapport de fin de lot.
+
+#### 33.8.5 Points pour Florian
+1. **Signature S1 seulement** (V0c-1) : à valider tant que le socle 7 n'a pas livré S2 ; juriste pour la valeur des engagements de l'établissement.
+2. **Outil de relevé de la boîte** (Q-V7, IMAP OVH ou courrier entrant Scaleway) : non branché ; `courrier_entrant_deposer` est la porte de service prête à être appelée.
+3. **Pièces d'annuaire** (licence de transporteur, attestation d'assurance, §13.1) : tables non créées ; à faire avec le dépôt du socle 7.
+4. **Liste au transporteur** (NX-29, Q-V11) : non faite.
+5. **Écrans Leptos** : voir `PROJECT_STATUS.md` (état des écrans de ce lot).
+6. **Non testé** : navigateur, SMTP réel, relevé réel d'une boîte, recette sur export réel de Next.js.

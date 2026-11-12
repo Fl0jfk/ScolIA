@@ -634,7 +634,7 @@ async fn remplacement_d_une_seance_le_remplacant_suit_les_eleves_du_titulaire() 
     assert!(!c.suit(c.p2_user, c.autre, c.jour).await);
     assert!(
         !c.suit(c.p2_user, c.e1, c.j(40)).await,
-        "fenêtre de ±14 jours"
+        "hors du jour remplacé (D12 : plus de fenêtre de ±14 jours)"
     );
 }
 
