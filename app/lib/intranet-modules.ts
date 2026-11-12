@@ -97,6 +97,11 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
   "/api/weather",
   "/api/dashboard",
   /**
+   * Fenêtre « Anniversaires du jour » (layout admin) — hors matrice « Droits modules ».
+   * La route vérifie elle-même session, rôle interne, établissement et supervision.
+   */
+  "/api/anniversaires",
+  /**
    * OneDrive partagé (stages, OCR, pilotage) — auth session dans la route.
    * Sans ça : 403 MODULE_FORBIDDEN car aucun module ne déclare /api/onedrive.
    */
