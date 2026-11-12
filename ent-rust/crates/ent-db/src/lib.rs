@@ -9,6 +9,7 @@ pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
+pub mod portail;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
 pub mod evaluations;
 mod evaluations_bulletin;
@@ -394,6 +395,8 @@ mod tests_administratif_a2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i2;
@@ -423,6 +426,8 @@ mod tests_eleve_doublons;
 mod tests_eleve_fusion;
 #[cfg(test)]
 mod tests_voyages_v0a;
+#[cfg(all(test, feature = "labo"))]
+mod tests_portail_p1;
 #[cfg(test)]
 mod tests_voyages_v0b;
 

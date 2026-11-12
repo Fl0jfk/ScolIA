@@ -609,9 +609,37 @@ impl PgEnt {
                 return Err(invalide());
             }
         }
+        // DA-22 : une déclaration active identique (même élève, source, période, motif) est
+        // idempotente : on renvoie l'existante, sans second événement (l'index unique de la
+        // migration 2240 protège la course).
+        let existante: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT id FROM ent_absence_declaration
+              WHERE etablissement_id = $1 AND eleve_id = $2 AND source = $3 AND statut = 'active'
+                AND debut_jour = $4 AND fin_jour = $5 AND motif = $6
+                AND COALESCE(debut_heure, '00:00'::time) = COALESCE($7, '00:00'::time)
+                AND COALESCE(fin_heure, '23:59'::time) = COALESCE($8, '23:59'::time)
+              ORDER BY created_at LIMIT 1",
+        )
+        .bind(etab)
+        .bind(cmd.eleve_id)
+        .bind(source)
+        .bind(cmd.debut_jour)
+        .bind(cmd.fin_jour)
+        .bind(&motif)
+        .bind(cmd.debut_heure)
+        .bind(cmd.fin_heure)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        if let Some((existant,)) = existante {
+            let decl = lire_declaration_tx(&mut tx, etab, existant)
+                .await?
+                .ok_or_else(introuvable)?;
+            tx.commit().await.map_err(db)?;
+            return Ok(decl);
+        }
         let id = Uuid::new_v4();
         let declarant_user = (source == "famille").then_some(acteur);
-        let mut tx = TenantTx::begin(self.pool(), cmd.etablissement_id).await.map_err(db)?;
         sqlx::query(
             "INSERT INTO ent_absence_declaration
                 (id, etablissement_id, eleve_id, source, debut_jour, debut_heure, fin_jour,
