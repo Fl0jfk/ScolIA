@@ -1727,7 +1727,7 @@ async fn c0_cd13_fuseau_de_l_etablissement_pour_le_jour_et_la_fin_de_journee() {
     sqlx::query("INSERT INTO ent_etablissement_parametre (etablissement_id, fuseau) VALUES ($1, $2) ON CONFLICT (etablissement_id) DO UPDATE SET fuseau = $2")
         .bind(e).bind(fuseau).execute(fx.ent.pool()).await.unwrap();
     let local = jour(&fx).await;
-    assert_ne!(local, Utc::now().date_naive(), "le fuseau de test doit décaler le jour");
+    assert_ne!(local, Utc::now().naive_utc().date(), "le fuseau de test doit décaler le jour");
     // « Pour aujourd'hui » à l'heure de l'établissement est accepté, avec sa fin de journée locale pour échéance.
     let t = fx
         .publier_travail(&fx.prof(), fx.cible_a(), |t| {
