@@ -68,6 +68,8 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_alerte_cpe", &["id"]),
     d("ent_amenagement", &["id"]),
     d("ent_appel_ligne", &["id"]),
+    r("ent_appel_ligne_histo", &["id"], "historique des lignes d'appel en ajout seul (déclencheur) : trace du geste, reste sur la fiche où il a eu lieu"),
+    d("ent_asd_situation", &["id"]),
     d("ent_bilan_cycle", &["id"]),
     r("ent_bulletin", &["id"], "bulletin émis : document figé (contenu et élève immuables)"),
     d("ent_campagne_destinataire", &["campagne_id", "user_id"]),
