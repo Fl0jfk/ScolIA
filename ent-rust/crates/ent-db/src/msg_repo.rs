@@ -9,14 +9,18 @@ use uuid::Uuid;
 
 /// Prédicat de lisibilité d'un fil pour un personnel (alias `f`) ; paramètres `$3` = compte,
 /// `$4` = `reserve_ok`, `$5` = `foyer_ok` (voir [`PgMsgRepo::fils_lisibles_personnel`]).
+///
+/// M1 (R-M1) : **lire = participer**. Le premier terme est la participation
+/// (`ent_msg_fil_lisible`, l'unique vue de lecture) ; elle couvre l'ouvreur et tout personnel qui a
+/// écrit. Les trois termes suivants sont le **pont des rôles réservés**, provisoire jusqu'à M3
+/// (boîtes de service) : un personnel qui détient le droit lit encore, sans être participant, les
+/// fils de vie scolaire, les relances (`foyer_ok`) et les fils réservés (`reserve_ok`). Dès qu'il y
+/// écrit, il devient participant.
 const PREDICAT_LISIBLE_PERSONNEL: &str = "(
-       (f.foyer_id IS NULL AND f.vie_scolaire)
+       f.id IN (SELECT l.fil_id FROM ent_msg_fil_lisible($1, $3) l)
+    OR (f.foyer_id IS NULL AND f.vie_scolaire)
     OR (f.foyer_id IS NOT NULL AND $5)
-    OR (f.foyer_id IS NULL AND NOT f.vie_scolaire AND $4)
-    OR f.created_by_user_id = $3
-    OR EXISTS (SELECT 1 FROM ent_msg m
-                WHERE m.etablissement_id = f.etablissement_id
-                  AND m.fil_id = f.id AND m.auteur_user_id = $3))";
+    OR (f.foyer_id IS NULL AND NOT f.vie_scolaire AND $4))";
 
 /// Échappe `\`, `%` et `_` d'une recherche libre pour `ILIKE ... ESCAPE '\'`.
 fn echapper_like(r: &str) -> String {
@@ -187,6 +191,57 @@ impl PgMsgRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        // M1 : nature, origine et participation du fil, dans la même transaction (R-M1, R-M14).
+        // `reprise_m1_le` : un fil créé après M1 n'est jamais retraité par la reprise (483).
+        sqlx::query(
+            r#"
+            UPDATE ent_msg_fil f SET
+                nature = CASE WHEN f.audience = 'eleve' THEN 'eleve'
+                              WHEN f.foyer_id IS NOT NULL OR f.vie_scolaire THEN 'systeme'
+                              ELSE 'famille' END,
+                origine = CASE WHEN (SELECT mb.role FROM ent_membership mb
+                                      WHERE mb.user_id = f.created_by_user_id
+                                        AND mb.etablissement_id = f.etablissement_id) = 'eleve' THEN 'eleve'
+                               WHEN (SELECT mb.role FROM ent_membership mb
+                                      WHERE mb.user_id = f.created_by_user_id
+                                        AND mb.etablissement_id = f.etablissement_id) = 'parent' THEN 'famille'
+                               WHEN f.foyer_id IS NOT NULL OR f.vie_scolaire THEN 'systeme'
+                               ELSE 'personnel' END,
+                ouvert_par_personne_id = (SELECT pe.id FROM ent_personne pe
+                                           WHERE pe.etablissement_id = f.etablissement_id
+                                             AND pe.user_id = f.created_by_user_id
+                                             AND pe.fusionnee_dans IS NULL),
+                reprise_m1_le = now()
+             WHERE f.etablissement_id = $1 AND f.id = $2
+            "#,
+        )
+        .bind(fil.etablissement_id)
+        .bind(fil.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        sqlx::query(
+            "INSERT INTO ent_msg_fil_eleve (etablissement_id, fil_id, eleve_id)
+             VALUES ($1,$2,$3) ON CONFLICT DO NOTHING",
+        )
+        .bind(fil.etablissement_id)
+        .bind(fil.id)
+        .bind(fil.eleve_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        // Famille et élève selon la portée ; puis l'ouvreur (personnel : participant « auteur »).
+        sqlx::query("SELECT ent_msg_peupler_famille($1)")
+            .bind(fil.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
+        sqlx::query("SELECT ent_msg_ajouter_participant($1, $2, 'auteur', 'auteur')")
+            .bind(fil.id)
+            .bind(fil.created_by_user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }
@@ -208,47 +263,16 @@ impl PgMsgRepo {
         if fil_ids.is_empty() {
             return Ok(Vec::new());
         }
+        // M1 (R-M1, R-M2) : un compte famille ne lit que les fils où il participe, vus par l'unique
+        // fonction `ent_msg_fil_lisible` (participation active, lien communicant relu, vie scolaire,
+        // payeur, remise différée). `est_parent` n'intervient plus : le côté du participant décide.
+        let _ = est_parent;
         let rows: Vec<(Uuid,)> = sqlx::query_as(
-            r#"
-            SELECT f.id
-              FROM ent_msg_fil f
-             WHERE f.etablissement_id = $1 AND f.id = ANY($2)
-               AND (f.prive_user_id IS NULL OR f.prive_user_id = $3)
-               -- M0b (D22) : un fil du personnel à un foyer n'est lu que de ce foyer.
-               AND (f.foyer_lecteur_id IS NULL OR NOT $4
-                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
-                                WHERE l.etablissement_id = f.etablissement_id
-                                  AND l.eleve_id = f.eleve_id AND l.user_id = $3
-                                  AND l.foyer_id = f.foyer_lecteur_id))
-               -- M0b (D24) : un fil dont aucun message n'est encore remis n'existe pas pour la
-               -- famille (sauf pour son propre auteur).
-               AND (NOT EXISTS (SELECT 1 FROM ent_msg m
-                                 WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id)
-                    OR EXISTS (SELECT 1 FROM ent_msg m
-                                WHERE m.etablissement_id = f.etablissement_id AND m.fil_id = f.id
-                                  AND (m.remise_prevue_le IS NULL OR m.remise_prevue_le <= now()
-                                       OR m.auteur_user_id = $3)))
-               AND (f.foyer_id IS NULL
-                    OR EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
-                                WHERE l.etablissement_id = f.etablissement_id
-                                  AND l.eleve_id = f.eleve_id AND l.user_id = $3
-                                  AND l.foyer_id = f.foyer_id AND l.est_payeur))
-               AND CASE WHEN $4 THEN
-                        f.audience IN ('famille', 'responsables')
-                        AND EXISTS (SELECT 1 FROM ent_eleve_lien_communicant l
-                                     WHERE l.etablissement_id = f.etablissement_id
-                                       AND l.eleve_id = f.eleve_id AND l.user_id = $3
-                                       AND (NOT f.vie_scolaire
-                                            OR (l.peut_voir_vs AND l.autorite_parentale)))
-                    ELSE
-                        f.audience IN ('famille', 'eleve') AND f.foyer_id IS NULL
-                    END
-            "#,
+            "SELECT l.fil_id FROM ent_msg_fil_lisible($1, $3) l WHERE l.fil_id = ANY($2)",
         )
         .bind(etablissement_id)
         .bind(fil_ids)
         .bind(user_id)
-        .bind(est_parent)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
         .await
         .map_err(map_sqlx)?;
@@ -439,13 +463,13 @@ impl PgMsgRepo {
         bases: &[&str],
     ) -> Result<Vec<Uuid>, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        // M1 : les personnels participants du fil (ils ont ouvert le fil ou y ont écrit), hors `sauf`.
         let ont_ecrit: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT DISTINCT m.auteur_user_id
-               FROM ent_msg m
-               JOIN ent_membership mb ON mb.etablissement_id = m.etablissement_id
-                                     AND mb.user_id = m.auteur_user_id
-              WHERE m.etablissement_id = $1 AND m.fil_id = $2 AND m.auteur_user_id <> $3
-                AND mb.role NOT IN ('parent', 'eleve')",
+            "SELECT DISTINCT pe.user_id
+               FROM ent_msg_participant p
+               JOIN ent_personne pe ON pe.etablissement_id = p.etablissement_id AND pe.id = p.personne_id
+              WHERE p.etablissement_id = $1 AND p.fil_id = $2 AND p.au IS NULL AND p.suspendu_le IS NULL
+                AND p.cote = 'etablissement' AND pe.user_id IS NOT NULL AND pe.user_id <> $3",
         )
         .bind(etablissement_id)
         .bind(fil_id)
@@ -486,71 +510,105 @@ impl PgMsgRepo {
         etablissement_id: Uuid,
         fil_id: Uuid,
     ) -> Result<Option<Vec<Uuid>>, DomainError> {
+        // M1 (R-M1) : les destinataires d'un avis sont les participants **famille** actifs du fil,
+        // jamais « tous les liens de l'élève » ; un fil d'élève (côté `eleve`) n'est jamais annoncé
+        // à un parent. L'interdiction, « ne pas solliciter » et la suspension sont relues ensuite
+        // par l'appelant (`list_liens_eleve_actifs`).
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
-        #[allow(clippy::type_complexity)]
-        let row: Option<(Option<Uuid>, Option<Uuid>, Uuid, String, bool, Option<Uuid>)> =
-            sqlx::query_as(
-                "SELECT prive_user_id, foyer_id, eleve_id, audience, vie_scolaire, foyer_lecteur_id
-               FROM ent_msg_fil WHERE etablissement_id = $1 AND id = $2",
-            )
+        let ids: Vec<(Uuid,)> = sqlx::query_as(
+            "SELECT DISTINCT pe.user_id
+               FROM ent_msg_participant p
+               JOIN ent_personne pe ON pe.etablissement_id = p.etablissement_id AND pe.id = p.personne_id
+              WHERE p.etablissement_id = $1 AND p.fil_id = $2 AND p.au IS NULL AND p.suspendu_le IS NULL
+                AND p.cote = 'famille' AND pe.user_id IS NOT NULL",
+        )
         .bind(etablissement_id)
         .bind(fil_id)
-        .fetch_optional(&mut *tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(map_sqlx)?;
-        let Some((prive, foyer, eleve, audience, vie_scolaire, foyer_lecteur)) = row else {
-            return Ok(Some(Vec::new()));
-        };
-        if audience == "eleve" {
-            // Le fil d'un élève n'est jamais annoncé à un parent.
-            return Ok(Some(Vec::new()));
-        }
-        if let Some(u) = prive {
-            return Ok(Some(vec![u]));
-        }
-        if let Some(fid) = foyer_lecteur {
-            // M0b (D22) : le fil d'un foyer n'est annoncé qu'aux responsables de ce foyer.
-            let ids: Vec<(Uuid,)> = sqlx::query_as(
-                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
-                    WHERE etablissement_id = $1 AND eleve_id = $2 AND foyer_id = $3
-                      AND user_id IS NOT NULL"#,
-            )
-            .bind(etablissement_id)
-            .bind(eleve)
-            .bind(fid)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
-        }
-        if let Some(fid) = foyer {
-            let ids: Vec<(Uuid,)> = sqlx::query_as(
-                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
-                    WHERE etablissement_id = $1 AND eleve_id = $2 AND foyer_id = $3
-                      AND est_payeur AND user_id IS NOT NULL"#,
-            )
-            .bind(etablissement_id)
-            .bind(eleve)
-            .bind(fid)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
-        }
-        if vie_scolaire {
-            let ids: Vec<(Uuid,)> = sqlx::query_as(
-                r#"SELECT DISTINCT user_id FROM ent_eleve_lien_communicant
-                    WHERE etablissement_id = $1 AND eleve_id = $2
-                      AND peut_voir_vs AND autorite_parentale AND user_id IS NOT NULL"#,
-            )
-            .bind(etablissement_id)
-            .bind(eleve)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(map_sqlx)?;
-            return Ok(Some(ids.into_iter().map(|(u,)| u).collect()));
-        }
-        Ok(None)
+        Ok(Some(ids.into_iter().map(|(u,)| u).collect()))
+    }
+
+    /// Peut-on écrire dans ce fil ? (R-M2 : `peut_ecrire_fil`, volet participation.) Faux si le fil
+    /// est clos ou gelé, ou si la participation active du compte lui retire l'écriture. Un compte
+    /// sans participation (personnel venu par le pont des rôles réservés) peut écrire : il devient
+    /// participant à son premier message. La lecture reste jugée par `ent_msg_fil_lisible`.
+    pub async fn peut_ecrire_fil(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        fil_id: Uuid,
+    ) -> Result<bool, DomainError> {
+        let ok: Option<(bool,)> = sqlx::query_as(
+            r#"
+            SELECT f.etat = 'ouvert'
+                   AND COALESCE((
+                        SELECT bool_and(p.peut_ecrire)
+                          FROM ent_msg_participant p
+                         WHERE p.etablissement_id = f.etablissement_id AND p.fil_id = f.id
+                           AND p.au IS NULL AND p.suspendu_le IS NULL
+                           AND (p.personne_id IN (SELECT pe.id FROM ent_personne pe
+                                                   WHERE pe.etablissement_id = f.etablissement_id
+                                                     AND pe.user_id = $3)
+                                OR p.eleve_id IN (SELECT c.eleve_id FROM ent_eleve_compte c
+                                                   WHERE c.etablissement_id = f.etablissement_id
+                                                     AND c.user_id = $3))), true)
+              FROM ent_msg_fil f
+             WHERE f.etablissement_id = $1 AND f.id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .bind(user_id)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(ok.is_some_and(|(b,)| b))
+    }
+
+    /// Nombre de participants actifs d'un fil par côté `(famille, établissement, élève)` : charge
+    /// des événements `messagerie.*` (R-M14 : des comptes, jamais de contenu ni de nom).
+    pub async fn compter_participants(
+        &self,
+        etablissement_id: Uuid,
+        fil_id: Uuid,
+    ) -> Result<(i64, i64, i64), DomainError> {
+        let (f, e, l): (i64, i64, i64) = sqlx::query_as(
+            "SELECT count(*) FILTER (WHERE cote = 'famille'),
+                    count(*) FILTER (WHERE cote = 'etablissement'),
+                    count(*) FILTER (WHERE cote = 'eleve')
+               FROM ent_msg_participant
+              WHERE etablissement_id = $1 AND fil_id = $2 AND au IS NULL",
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok((f, e, l))
+    }
+
+    /// Marque `fil_id` comme jumeau de `premier` (R-M3 : un fil par foyer pour un même envoi).
+    pub async fn marquer_jumeau(
+        &self,
+        etablissement_id: Uuid,
+        fil_id: Uuid,
+        premier: Uuid,
+    ) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?;
+        sqlx::query(
+            "UPDATE ent_msg_fil SET jumeau_de = $3
+              WHERE etablissement_id = $1 AND id = $2 AND $2 <> $3",
+        )
+        .bind(etablissement_id)
+        .bind(fil_id)
+        .bind(premier)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        tx.commit().await.map_err(map_sqlx)?;
+        Ok(())
     }
 
     pub async fn set_fil_archive(
@@ -690,7 +748,7 @@ impl PgMsgRepo {
     }
 
     pub async fn insert_message(&self, msg: &Message) -> Result<(), DomainError> {
-        self.insert_message_remise(msg, None, None).await
+        self.insert_message_remise(msg, None, None).await.map(|_| ())
     }
 
     /// Insère un message ; `remise` = instant de remise différée par la plage calme (M0b, D24),
@@ -700,7 +758,7 @@ impl PgMsgRepo {
         msg: &Message,
         remise: Option<DateTime<Utc>>,
         derogation: Option<(&str, Uuid)>,
-    ) -> Result<(), DomainError> {
+    ) -> Result<bool, DomainError> {
         let mut tx = TenantTx::begin(&self.pool, msg.etablissement_id).await.map_err(map_sqlx)?;
         sqlx::query(
             r#"
@@ -722,8 +780,29 @@ impl PgMsgRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        // M1 : qui écrit dans un fil y participe (un personnel venu par le pont des rôles réservés
+        // devient participant) ; la fiche personne de l'auteur est posée sur le message.
+        let (nouveau,): (bool,) =
+            sqlx::query_as("SELECT ent_msg_ajouter_participant($1, $2, 'ajoute', 'a_ecrit')")
+                .bind(msg.fil_id)
+                .bind(msg.auteur_user_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_sqlx)?;
+        sqlx::query(
+            "UPDATE ent_msg m SET auteur_personne_id = pe.id
+               FROM ent_personne pe
+              WHERE m.etablissement_id = $1 AND m.id = $2
+                AND pe.etablissement_id = m.etablissement_id AND pe.user_id = m.auteur_user_id
+                AND pe.fusionnee_dans IS NULL",
+        )
+        .bind(msg.etablissement_id)
+        .bind(msg.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
         tx.commit().await.map_err(map_sqlx)?;
-        Ok(())
+        Ok(nouveau)
     }
 
     pub async fn touch_fil_last(
@@ -1010,16 +1089,26 @@ impl PgMsgRepo {
 
     /// Liens communicants de l'élève groupés par foyer (`None` = lien sans foyer) : un fil du
     /// personnel est créé par groupe (M0b, D22). Ordre stable (foyers par identifiant).
+    ///
+    /// M2 (R-M7) : avec `sollicitables_seulement`, les responsables « à ne pas solliciter » sont
+    /// exclus (aucun fil ouvert par l'établissement vers eux) ; sans, tous les liens communicants
+    /// (lecture et réponse dans les fils qu'ils ont eux-mêmes ouverts).
     pub async fn groupes_communicants(
         &self,
         etablissement_id: Uuid,
         eleve_id: Uuid,
+        sollicitables_seulement: bool,
     ) -> Result<Vec<(Option<Uuid>, Vec<Uuid>)>, DomainError> {
-        let rows: Vec<(Option<Uuid>, Uuid)> = sqlx::query_as(
-            "SELECT DISTINCT foyer_id, user_id FROM ent_eleve_lien_communicant
+        let vue = if sollicitables_seulement {
+            "ent_eleve_lien_sollicitable"
+        } else {
+            "ent_eleve_lien_communicant"
+        };
+        let rows: Vec<(Option<Uuid>, Uuid)> = sqlx::query_as(&format!(
+            "SELECT DISTINCT foyer_id, user_id FROM {vue}
               WHERE etablissement_id = $1 AND eleve_id = $2 AND user_id IS NOT NULL
-              ORDER BY foyer_id NULLS LAST, user_id",
-        )
+              ORDER BY foyer_id NULLS LAST, user_id"
+        ))
         .bind(etablissement_id)
         .bind(eleve_id)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)

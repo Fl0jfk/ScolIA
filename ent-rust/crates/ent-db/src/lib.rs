@@ -50,6 +50,11 @@ mod sms_repo;
 mod push_repo;
 mod bank_repo;
 mod msg_repo;
+#[cfg(test)]
+mod garde_messagerie_lecture;
+pub mod msg_matrice;
+mod msg_m2;
+pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
 mod note_repo;
 pub mod cahier;
 pub mod cahier_reactions;
@@ -66,6 +71,10 @@ mod tests_communication;
 mod tests_messagerie_m0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0b;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m2;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
