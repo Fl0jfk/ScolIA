@@ -344,6 +344,16 @@ pub struct ParamsCommande {
     pub budget_numero: Option<i32>,
     #[serde(default)]
     pub budget_rev: Option<i32>,
+    /// `signer-devis` (V0c) : le devis choisi, la version lue, l'empreinte de la pièce lue et la
+    /// confirmation expresse. La direction signe ce qu'elle a lu, jamais autre chose.
+    #[serde(default)]
+    pub devis_id: Option<Uuid>,
+    #[serde(default)]
+    pub devis_rev: Option<i32>,
+    #[serde(default)]
+    pub empreinte: Option<String>,
+    #[serde(default)]
+    pub confirme: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1642,7 +1652,9 @@ impl PgEnt {
                 ));
             }
         }
-        if matches!(cmd, Commande::Autoriser | Commande::ValiderBudget) && p.version.is_none() {
+        if matches!(cmd, Commande::Autoriser | Commande::ValiderBudget | Commande::SignerDevis)
+            && p.version.is_none()
+        {
             return Err(refus(
                 RefusMetier::Invalide,
                 "Une décision porte sur la version du dossier que vous avez lue : rechargez-le.",
@@ -1663,6 +1675,7 @@ impl PgEnt {
         let mut contournement = s.contournement_devis_motif.clone();
         let mut besoin_car = s.besoin_car;
         let mut extra: Vec<MetierEvent> = Vec::new();
+        let mut signature_faite = false;
         let evenement: &str;
         let motif_requis = |m: &Option<String>| -> Result<String, EntDbError> {
             m.clone()
@@ -1744,6 +1757,21 @@ impl PgEnt {
                 }
                 etat = "a_signer".into();
                 evenement = "voyages.signature_demandee";
+            }
+            Commande::SignerDevis => {
+                if !acces.a(Action::VoyagesAutoriser) {
+                    return Err(interdit());
+                }
+                let evs = crate::voyages_prestataires_repo::signer_devis(self, &mut t, a, &s, &p).await?;
+                extra.extend(evs);
+                signature_faite = true;
+                etat = if ctx.a_budget() {
+                    "budget_a_valider"
+                } else {
+                    "a_autoriser"
+                }
+                .into();
+                evenement = "voyages.passee_aux_finances";
             }
             Commande::PasserAuxFinances => {
                 if s.etat == "a_signer" {
@@ -1906,9 +1934,16 @@ impl PgEnt {
             json!({ "avant": s.etat, "apres": etat }),
         )
         .await?;
+        // Clôture, refus ou annulation : le conducteur et son téléphone sont effacés (NJ-28).
+        if est_terminal(&etat) {
+            crate::voyages_prestataires_repo::effacer_contacts_chauffeur(&mut t, a.etablissement_id, id).await?;
+        }
         t.commit().await.map_err(db)?;
         extra.push(ev);
         self.diffuser_apres_commit(&extra);
+        if signature_faite {
+            self.voyages_envois_apres_signature(a.etablissement_id).await;
+        }
         Ok(maj)
     }
 

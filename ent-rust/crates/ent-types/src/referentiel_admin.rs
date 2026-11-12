@@ -199,6 +199,9 @@ pub struct RapportSeancesDto {
     pub creees: i64,
     pub mises_a_jour: i64,
     pub supprimees: i64,
+    /// Séances porteuses (cahier, travail) retirées au lieu d'être supprimées (socle 10, D1).
+    #[serde(default)]
+    pub retirees: i64,
     pub jours_neutralises: i64,
     pub creneaux_ab_ignores: i64,
 }
