@@ -6,6 +6,36 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-12 (jeudi soir, 18 h 45 Paris)
+
+### Passé sur `ENT` aujourd'hui (tête `efb3e085`)
+- **Messagerie M1–M2** (`c1ddae6d`, fusion pilote règle 17) : participants, contrôle d'accès, matrice et destinataires (482–484) ; ferme NJ-29, NJ-36, NJ-37, NJ-59 (partiel).
+- **Emploi du temps réel T0–T2** (`efb3e085`) : versions, placements, séances enrichies, lieux et intervenants (440–444, 452) ; ports pour l'agenda, les salles libérées et les absences.
+- Vérification de la fusion pilote d'hier (AS0 + portail) : verte.
+
+### Code terminé, en file d'attente de la CI (aucun job démarré pour la plupart)
+Internat I0–I1 · absences du personnel A0–A1 · correctif SSO/passkeys/domaines (S-01, B-02 ; un test instable relancé) · correctifs audit « infrastructure » · voyages V0c · stages ST0–ST1(a) · cahier de textes C0–C1 · agenda AG0–AG1-bis (feuille de semaine) · registre des migrations + retrait des colonnes JSON · assiduité AS1–AS2 · portail P2–P3.
+
+### En cours
+Correctifs audit « données sensibles » (reprise d'un échec).
+
+### Plan de bascule
+`docs/PLAN_BASCULE_FEVRIER.md` fusionné : ≈ 195 lots pour la bascule, vagues jusqu'au 18 février, 12 critères go/no-go, jour J du 19 au 25 février ; 20 février jugé tenable (risque moyen).
+
+### Décisions attendues de Florian
+- Q-PB1 à Q-PB8 du plan de bascule, dont **Q-PB2 avant le 27 novembre** (usage réel de M03, M07, M14, P07 ; maturité des absences du personnel).
+- Allègement de la CI (recommandé) et GitHub Pro pour un mois (au choix).
+- Adresses par UAI (Q-O1 à Q-O7) et paie (Q-RH42, Q-RH45, Q-RH50), recommandations appliquées par défaut.
+
+### À fournir par Florian plus tard
+Hébergement Scaleway de ScolIA (le plan le vise pour le 14 décembre) ; export anonymisé pour la répétition de Noël (anonymiseur livré début décembre) ; accord écrit de l'établissement et avis du DPO avant le 31 janvier ; inscription éditeur DNE ; comptes Apple et Google.
+
+### Ce qui a coincé
+- **File GitHub saturée** : 2 runs occupent les 20 machines, une dizaine attendent depuis 2 à 5 h ; une panne GitHub d'artefacts a fait échouer à tort une partie des tests SSO.
+- **Quota** : l'audit Fable n° 2 a vidé la limite des 5 heures (≈ 183 $) ; Fable suspendu (règle 20).
+
+---
+
 ## 2026-11-11 (mercredi soir, 20 h Paris)
 
 ### Passé sur `ENT` aujourd'hui (tête `a4bcbe0c`)
