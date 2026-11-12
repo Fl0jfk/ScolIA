@@ -2179,6 +2179,9 @@ impl PgEnt {
         const SUIVI_NEVILLE: &str = "Seed audit — bonne soirée étude";
         if let Some(neville) = labo_eleve_prenom(eleves, "Neville") {
             let role_cpe = Role::Cpe.as_str();
+            // La nuit courante (date du soir, R-IT5) peut être celle d'hier avant midi : le régime,
+            // l'affectation et le pointage de labo partent de cette nuit-là.
+            let nuit = self.nuit_courante_internat(etab).await?.min(jour);
             let regime = self
                 .get_eleve(etab, neville.id)
                 .await?
@@ -2192,7 +2195,7 @@ impl PgEnt {
                     etablissement_id: etab,
                     eleve_id: neville.id,
                     nouveau_regime: "INT".into(),
-                    date_effet: jour,
+                    date_effet: nuit,
                     actor_user_id: Some(cpe.user_id.to_string()),
                 })
                 .await?;
@@ -2223,7 +2226,7 @@ impl PgEnt {
                 }
             };
             let affectations = self
-                .list_affectations_internat_jour_for_actor(etab, role_cpe, jour)
+                .list_affectations_internat_jour_for_actor(etab, role_cpe, nuit)
                 .await?;
             if !affectations
                 .iter()
@@ -2237,14 +2240,14 @@ impl PgEnt {
                             eleve_id: neville.id,
                             chambre_id: chambre.id,
                             lit: Some("A".into()),
-                            debut: jour,
+                            debut: nuit,
                             actor_user_id: cpe.user_id,
                         },
                     )
                     .await;
             }
             let presences = self
-                .list_presences_internat_jour_for_actor(etab, role_cpe, jour)
+                .list_presences_internat_jour_for_actor(etab, role_cpe, nuit)
                 .await?;
             if !presences.iter().any(|p| p.eleve_id == neville.id) {
                 let _ = self
@@ -2253,10 +2256,12 @@ impl PgEnt {
                         PointerPresenceInternat {
                             etablissement_id: etab,
                             eleve_id: neville.id,
-                            jour,
+                            jour: nuit,
                             statut: "present".into(),
                             note: "Seed audit internat".into(),
                             actor_user_id: cpe.user_id,
+                            motif_correction_code: None,
+                            motif_correction_texte: None,
                         },
                     )
                     .await;
@@ -2267,7 +2272,7 @@ impl PgEnt {
                     cpe.user_id,
                     role_cpe,
                     neville.id,
-                    jour,
+                    nuit,
                 )
                 .await?;
             if !recap

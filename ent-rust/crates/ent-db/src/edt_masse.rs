@@ -261,7 +261,8 @@ impl PgEnt {
             .map_err(db)?;
             sqlx::query(
                 "UPDATE ent_edt_seance SET statut = 'annulee', remplacant_user_id = NULL, updated_at = now()
-                  WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND source = 'genere'",
+                  WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND source = 'genere'
+                AND statut <> 'retiree'",
             )
             .bind(etab)
             .bind(pl.creneau_id)

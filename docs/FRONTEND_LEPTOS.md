@@ -120,3 +120,11 @@ Dans chaque module métier :
 - **Aperçu avant écriture** : quand le serveur offre un aperçu (montée), n'appliquer que ce qui a été prévisualisé (toute modification des choix invalide l'aperçu) ; sinon décrire les effets dans la confirmation.
 - **Tests contre le backend** : une base PostgreSQL locale de nom `*test*`, `ENT_DATABASE_URL`, `ENT_ENV=lab`, `ENT_ALLOW_LABO=1`, `LEPTOS_OUTPUT_NAME=ent-web`, `LEPTOS_SITE_PKG_DIR=pkg` ; les écritures du test ne doivent pas modifier l'année courante (utiliser une année de test lointaine, idempotente).
 
+## 13. Conventions issues de « Mon agenda » (socle 19, 2026-11-11)
+
+- **Le serveur donne le jour et l'heure de l'établissement** (`ElementAgenda.jour`, `heure_debut`…, `EvenementDetail.jour`…) : l'écran n'a aucun fuseau à deviner et ne convertit pas d'instant UTC (le fuseau d'un établissement peut ne pas être Paris). Les écrans plus anciens qui utilisent `a_paris` gardent cette limite.
+- **Une source absente est dite** : la vue renvoie `sources_indisponibles` et l'écran l'affiche (`Alerte` d'information), jamais un silence.
+- **Publier à une audience** : aperçu (rien n'est écrit), puis confirmation avec l'**empreinte** de l'aperçu ; toute modification des choix invalide l'aperçu (même règle que la montée de classes).
+- **Téléchargement iCal** : simple lien `GET` (cookie de session, aucun jeton dans la page).
+- Une route `/web/agenda` existait déjà (« Travail à faire », cahier de textes) : « Mon agenda » est sur `/web/mon-agenda`.
+

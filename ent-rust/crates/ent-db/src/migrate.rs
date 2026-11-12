@@ -228,6 +228,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("375_msg_fil_prive"),
     m!("376_sepa_unicite_encaissement"),
     m!("377_edt_exception_absence_etab"),
+    m!("440_edt_t0_correctifs"),
+    m!("441_edt_t1_versions"),
+    m!("442_edt_t1_placements"),
+    m!("443_edt_t2_seance_enrichie"),
+    m!("444_edt_t2_seance_lieux_intervenants"),
     m!("460_eva_v0_correctifs"),
     m!("480_msg_m0a_fuites"),
     m!("481_msg_m0b_securite_fiabilite"),
@@ -248,12 +253,14 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("585_rls_evaluations_pedagogie"),
     m!("586_rls_inscriptions"),
     m!("587_rls_structure_acces_divers"),
+    m!("452_edt_rls_permissive"),
     m!("600_rls_stricte_adhesion_contexte"),
     m!("601_pieces_vers_objets"),
     m!("640_sortie_coeur"),
     m!("641_sortie_participants"),
     m!("642_sortie_encadrants"),
     m!("643_sortie_budget"),
+    m!("644_sortie_prestataires"),
     m!("661_d036_corrections_lot1"),
     m!("662_d036_profil_jours_ouvres"),
     m!("663_d036_parametre_type"),
@@ -264,13 +271,22 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("668_d036_retrait_colonnes_lot1"),
     m!("669_d036_retrait_colonnes_lot2"),
     m!("2240_assiduite_as0"),
+    m!("2380_agenda_ag0_rencontres"),
+    m!("2381_agenda_evenement"),
+    m!("2780_stage_st0_correctifs"),
+    m!("2781_stage_st1a_parametres_organismes"),
+    m!("2782_stage_st1a_periodes"),
+    m!("2820_internat_i0_presence_faits"),
+    m!("2821_internat_i0_regime_parametres"),
+    m!("2822_internat_i1_zones_chambres_lits"),
+    m!("2823_internat_i1_sejours_affectations"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2240_assiduite_as0";
+pub const MIGRATION_TAG: &str = "2823_internat_i1_sejours_affectations";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -459,8 +475,14 @@ mod tests {
             .map(|e| e.file_name().to_string_lossy().to_string())
             .filter(|n| n.ends_with(".sql"))
             .collect();
-        // Tri numérique sur le préfixe (2240 > 642) et non lexical.
-        noms.sort_by_key(|n| n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0));
+        // Tri NUMÉRIQUE sur le préfixe : les plages à quatre chiffres (2820–2839, socle 41)
+        // dépassent celles à trois chiffres, ce que le tri alphabétique ne voit pas.
+        noms.sort_by_key(|n| {
+            (
+                n.split('_').next().and_then(|p| p.parse::<u32>().ok()).unwrap_or(0),
+                n.clone(),
+            )
+        });
         let dernier = noms.last().expect("au moins une migration");
         let dernier = dernier.trim_end_matches(".sql");
         assert_eq!(

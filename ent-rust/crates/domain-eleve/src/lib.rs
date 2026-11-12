@@ -69,6 +69,7 @@ mod tarif_conso;
 mod notanet_export;
 mod parcoursup_export;
 mod stage;
+mod stage_param;
 mod edt_contrainte;
 mod absence_rh;
 mod edition_vs;
@@ -190,11 +191,14 @@ pub use sortie::{
     UpsertSortieParamEtab, UpsertSortieRegleNiveau, UpsertSortieRegleRegime,
 };
 pub use internat::{
-    normalize_regime_internat, plan_affecter_eleve_internat, plan_clore_affectation_internat,
-    plan_creer_chambre_internat, plan_creer_suivi_internat, plan_pointer_presence_internat,
-    AffectationInternat, AffecterEleveInternat, ChambreGenre, ChambreInternat, CreerChambreInternat,
-    CreerSuiviInternat, PointerPresenceInternat, PresenceInternat, PresenceInternatStatut,
-    RecapInternatEleve, SuiviInternat,
+    mots_de_sante_detectes, nuit_paris, pic_occupation, plan_affecter_eleve_internat,
+    plan_clore_affectation_internat, plan_creer_chambre_internat, plan_creer_suivi_internat,
+    plan_modifier_chambre_internat, plan_pointer_presence_internat, rythme_en_vigueur,
+    AffectationInternat, AffecterEleveInternat, ChambreGenre, ChambreInternat, ContexteAffectation,
+    CreerChambreInternat, CreerSuiviInternat, EtatChambre, ModifierChambreInternat,
+    PointerPresenceInternat, PresenceInternat, PresenceInternatStatut, PublicChambre,
+    RecapInternatEleve, RegimeCode, Rythme, SuiviInternat, CAPACITE_MAX_CHAMBRE,
+    CORRESPONDANCES_REGIME, MOTIFS_AFFECTATION, MOTIFS_CORRECTION, SUIVI_MAX_CARACTERES,
 };
 pub use dispense_vs::{
     dispense_vs_couvre, plan_clore_dispense_vs, plan_poser_dispense_vs, DispenseVs, DispenseVsMotif,
@@ -268,9 +272,15 @@ pub use notanet_export::{
 pub use parcoursup_export::{
     plan_exporter_parcoursup, render_parcoursup_csv, ExporterParcoursup, LigneParcoursup,
 };
+pub use stage_param::{
+    periode as periode_stage, valider_contact, valider_etat_organisme, valider_organisme,
+    valider_parametres, valider_periode, valider_publics, valider_site, ContactSaisie,
+    ModifierOrganisme, ModifierParametres, PeriodeSaisie, PublicPeriode, SiteSaisie,
+    ETATS_ORGANISME, MOTIFS_ETAT_ORGANISME, TYPES_ORGANISME,
+};
 pub use stage::{
     plan_creer_convention_stage, plan_creer_entreprise, ConventionStage, CreerConventionStage,
-    CreerEntreprise, Entreprise,
+    CreerEntreprise, Entreprise, siret_cle_valide, statut as statut_stage, StageErreur,
 };
 pub use edt_contrainte::{
     plan_creer_edt_contrainte, CreerEdtContrainte, EdtContrainte, EdtContrainteKind,
@@ -739,6 +749,30 @@ pub enum DomainError {
     InternatPresenceInvalide,
     #[error("suivi internat invalide")]
     InternatSuiviInvalide,
+    #[error("nuit future : on ne pointe pas une nuit qui n'a pas eu lieu")]
+    InternatNuitFuture,
+    #[error("nuit passée : un motif de correction est obligatoire")]
+    InternatMotifRequis,
+    #[error("public de la chambre incompatible avec l'élève (R-IT11) : dérogation de la direction requise")]
+    InternatPublicIncompatible,
+    #[error("interdiction de contact entre deux élèves de la chambre (R-IT12) : dérogation de la direction requise")]
+    InternatInterdictionContact,
+    #[error("chambre fermée ou retirée à cette date")]
+    InternatChambreFermee,
+    #[error("chambre non accessible : besoin d'accessibilité de l'élève")]
+    InternatAccessibiliteRequise,
+    #[error("capacité inférieure à l'occupation actuelle ou prévue")]
+    InternatCapaciteSousOccupation,
+    #[error("chambre occupée : reloger les occupants d'abord")]
+    InternatChambreOccupee,
+    #[error("lit indisponible à cette date")]
+    InternatLitIndisponible,
+    #[error("séjour d'internat invalide")]
+    InternatSejourInvalide,
+    #[error("rythme d'internat invalide")]
+    InternatRythmeInvalide,
+    #[error("zone d'internat invalide")]
+    InternatZoneInvalide,
     #[error("dispense VS invalide")]
     DispenseVsInvalide,
     #[error("dispense VS déjà close")]
@@ -791,8 +825,8 @@ pub enum DomainError {
     EdtConflit,
     #[error("édition VS invalide")]
     EditionVsInvalide,
-    #[error("stage / entreprise / convention invalide")]
-    StageInvalide,
+    #[error("{}", .0.message())]
+    Stage(crate::stage::StageErreur),
     #[error("contrainte EDT invalide")]
     EdtContrainteInvalide,
     #[error("type ou motif VS inconnu pour cet établissement")]

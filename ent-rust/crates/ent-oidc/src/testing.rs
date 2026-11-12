@@ -170,6 +170,9 @@ pub struct FakeOidcTransport {
     break_discovery: AtomicBool,
     email_verified: Mutex<Option<bool>>,
     last_client_secret: Mutex<Option<String>>,
+    /// `sub` et `email` affirmés ensuite (`None` = ceux du `TestIdp`).
+    subject: Mutex<Option<String>>,
+    email: Mutex<Option<String>>,
 }
 
 impl FakeOidcTransport {
@@ -182,7 +185,19 @@ impl FakeOidcTransport {
             break_discovery: AtomicBool::new(false),
             email_verified: Mutex::new(Some(true)),
             last_client_secret: Mutex::new(None),
+            subject: Mutex::new(None),
+            email: Mutex::new(None),
         }
+    }
+
+    /// `sub` affirmé dans les `id_token` émis ensuite (IdP contrôlé par un tiers).
+    pub fn set_subject(&self, sub: &str) {
+        *self.subject.lock().unwrap() = Some(sub.to_string());
+    }
+
+    /// Adresse affirmée dans les `id_token` émis ensuite (IdP contrôlé par un tiers).
+    pub fn set_email(&self, email: &str) {
+        *self.email.lock().unwrap() = Some(email.to_string());
     }
 
     /// Valeur du claim `email_verified` émis ensuite (`None` = claim absent).
@@ -273,10 +288,17 @@ impl OidcTransport for FakeOidcTransport {
             .unwrap()
             .clone()
             .unwrap_or_else(|| "nonce-non-arme".to_string());
+        let mut idp = self.idp.clone();
+        if let Some(sub) = self.subject.lock().unwrap().clone() {
+            idp.subject = sub;
+        }
+        if let Some(email) = self.email.lock().unwrap().clone() {
+            idp.email = email;
+        }
         Ok(serde_json::json!({
             "access_token": "at",
             "token_type": "Bearer",
-            "id_token": self.idp.sign_id_token_with(
+            "id_token": idp.sign_id_token_with(
                 &nonce,
                 FAR_FUTURE_EXP,
                 *self.email_verified.lock().unwrap(),
