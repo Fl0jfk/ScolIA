@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_file_palier (
     apres_jours SMALLINT NOT NULL CHECK (apres_jours BETWEEN 0 AND 60),
     vers TEXT NOT NULL CHECK (vers IN ('responsable_file', 'direction', 'file')),
     vers_file_id UUID,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_dem_file_palier_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_dem_file_palier_rang_uq UNIQUE (etablissement_id, file_id, rang),
     CONSTRAINT ent_dem_file_palier_file_cfk FOREIGN KEY (etablissement_id, file_id)

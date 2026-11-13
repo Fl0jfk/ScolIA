@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_nature_public (
         CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
     nature_code TEXT NOT NULL,
     public_code TEXT NOT NULL CHECK (public_code IN ('personnel', 'responsable', 'eleve_majeur', 'eleve_mineur')),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (etablissement_id, nature_code, public_code),
     CONSTRAINT ent_dem_nature_public_nature_cfk FOREIGN KEY (etablissement_id, nature_code)
         REFERENCES ent_dem_nature_etab (etablissement_id, nature_code) ON DELETE RESTRICT

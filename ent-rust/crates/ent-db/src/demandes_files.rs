@@ -250,12 +250,13 @@ fn ligne_file(l: LigneFile) -> FileLigne {
 }
 
 const SELECT_FILE: &str = "SELECT id, code, libelle, role_traitant, type, site_id, service_calendrier, delai_vise_jours,
-                                  message_accueil, file_repli_id FROM ent_dem_file";
+                                  message_accueil, file_repli_id FROM ent_dem_file
+                            WHERE etablissement_id = $1 AND actif ORDER BY code";
 
 /// Charge les files actives et leurs membres à `jour`.
 pub(crate) async fn charger_graphe(conn: &mut PgConnection, etab: Uuid, jour: NaiveDate) -> Result<Graphe, RefusDemande> {
     let files: Vec<LigneFile> =
-        sqlx::query_as(&format!("{SELECT_FILE} WHERE etablissement_id = $1 AND actif ORDER BY code")).bind(etab).fetch_all(&mut *conn).await?;
+        sqlx::query_as(SELECT_FILE).bind(etab).fetch_all(&mut *conn).await?;
     let mut g = Graphe::default();
     for l in files {
         let f = ligne_file(l);
