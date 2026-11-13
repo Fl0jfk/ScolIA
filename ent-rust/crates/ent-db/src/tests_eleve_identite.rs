@@ -219,15 +219,19 @@ async fn reprise_de_l_existant_idempotente() {
         (1, Some("X")),
         "valeur d'origine conservée dans le rapport"
     );
-    // Égalité projection ↔ version pour tous les élèves.
+    // Égalité projection ↔ version pour l'élève repris. (La vérification portait sur toute la base :
+    // sur la base partagée d'une tranche de CI, d'autres tests y laissent des élèves volontairement
+    // incohérents, et le test échouait sans rapport avec la reprise.)
     let (ecarts,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_eleve e
          LEFT JOIN ent_eleve_identite v ON v.id = e.identite_version_id
-         WHERE v.id IS NULL
+         WHERE e.id = $1
+           AND (v.id IS NULL
             OR e.nom IS DISTINCT FROM coalesce(v.nom_usage, v.nom_naissance)
             OR e.nom_naissance IS DISTINCT FROM v.nom_naissance
-            OR e.date_naissance IS DISTINCT FROM v.date_naissance",
+            OR e.date_naissance IS DISTINCT FROM v.date_naissance)",
     )
+    .bind(id)
     .fetch_one(ent.pool_verif())
     .await
     .unwrap();
