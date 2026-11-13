@@ -116,6 +116,11 @@ pub async fn expedier_envois(
         mailer: mailer.clone(),
         dry_run_accepte,
     };
+    // R-07 : le lot est RÉSERVÉ dans une transaction courte (verrous relâchés avant tout envoi),
+    // puis chaque message est envoyé hors transaction et marqué dans sa propre transaction.
+    // Réservation = `prochain_essai` repoussé de 10 min : un processus qui meurt en cours de
+    // route laisse les lignes se représenter plus tard, sans jamais bloquer ni rejouer le lot
+    // entier (avant : un échec au 40ᵉ message annulait la transaction et renvoyait les 39 premiers).
     let mut tx = pool.begin().await?;
     let lot: Vec<(Uuid, Uuid, Option<Uuid>, String, String, String, String, i32)> =
         sqlx::query_as(
@@ -134,6 +139,20 @@ pub async fn expedier_envois(
         .bind(limite)
         .fetch_all(&mut *tx)
         .await?;
+    if !lot.is_empty() {
+        let ids: Vec<Uuid> = lot.iter().map(|l| l.0).collect();
+        let etabs: Vec<Uuid> = lot.iter().map(|l| l.1).collect();
+        sqlx::query(
+            "UPDATE ent_inscription_envoi e SET prochain_essai = now() + interval '10 minutes'
+               FROM unnest($1::uuid[], $2::uuid[]) AS r(id, etablissement_id)
+              WHERE e.id = r.id AND e.etablissement_id = r.etablissement_id",
+        )
+        .bind(&ids)
+        .bind(&etabs)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
     let mut traites = 0;
     for (id, etab, invitation_id, kind, to, sujet, corps, tentatives) in lot {
         let corps = match (kind.as_str(), invitation_id) {
@@ -154,6 +173,8 @@ pub async fn expedier_envois(
             Ok(corps) => envoi.envoyer(&to, sujet, corps).await,
             Err(e) => Err(format!("jeton d'invitation non dérivable : {e}")),
         };
+        // Marquage du résultat de CE message, dans sa propre transaction.
+        let mut tx = pool.begin().await?;
         match res {
             Ok(()) => {
                 sqlx::query(
@@ -209,9 +230,9 @@ pub async fn expedier_envois(
                 }
             }
         }
+        tx.commit().await?;
         traites += 1;
     }
-    tx.commit().await?;
     Ok(traites)
 }
 

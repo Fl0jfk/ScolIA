@@ -16,7 +16,8 @@ use crate::cahier_texte_repo::PgCahierTexteRepo;
 use crate::edt_repo::{jour_semaine_iso, EdtCreneau, PgEdtRepo};
 use crate::eleve_compte_repo::{EleveCompte, PgEleveCompteRepo};
 use crate::eleve_repo::PgEleveRepo;
-use crate::tenant_tx::TenantTx;
+use crate::tenant_tx::{RlsMode, TenantTx};
+use std::time::Duration;
 use crate::event_store::PgEventStore;
 use crate::foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
 use crate::mail_repo::{InsertMailOutbox, MailOutboxRow, PgMailRepo};
@@ -362,6 +363,15 @@ pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
     };
     (nom, mime.to_string())
 }
+/// Compte élève provisionné (A-01) : jamais de secret ; `lien_envoye` dit si le lien
+/// d'activation est parti.
+#[derive(Debug, Clone)]
+pub struct CompteEleveProvisionne {
+    pub invitation: EleveInvitation,
+    pub email: String,
+    pub lien_envoye: bool,
+}
+
 /// Contrôles de démarrage fail-closed (hors labo/test).
 struct RpConfigCheck;
 
@@ -416,6 +426,9 @@ pub enum EntDbError {
     /// 2ᵉ facteur (passkey) requis pour ce compte
     #[error("2ᵉ facteur (passkey) requis pour ce compte")]
     PasskeyRequis,
+    /// Configuration de démarrage invalide (variable d'environnement) : refus de démarrer.
+    #[error("configuration invalide : {0}")]
+    Configuration(String),
     #[error("accès refusé pour ce rôle")]
     Forbidden,
     /// Saisie refusée par une règle du dossier élève (message sans donnée personnelle).
@@ -743,6 +756,67 @@ fn migration_url_from_env() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Réglage du pool applicatif (audit R-05) : taille, délai d'attente d'une connexion et
+/// durée maximale d'une requête, par variables d'environnement. Valeurs hors bornes ou
+/// illisibles → refus de démarrer (jamais un repli silencieux).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReglagePool {
+    pub max_connexions: u32,
+    pub delai_acquisition: Duration,
+    /// `0` = pas de limite (déconseillé).
+    pub delai_requete_ms: u64,
+}
+
+impl ReglagePool {
+    pub const MAX_DEFAUT: u32 = 20;
+    pub const ACQUISITION_DEFAUT_S: u64 = 5;
+    pub const REQUETE_DEFAUT_MS: u64 = 30_000;
+
+    /// `lire(nom)` rend la valeur de la variable (testable sans toucher l'environnement).
+    pub fn depuis(lire: impl Fn(&str) -> Option<String>) -> Result<Self, EntDbError> {
+        fn nombre(
+            lire: &impl Fn(&str) -> Option<String>,
+            nom: &str,
+            defaut: u64,
+            min: u64,
+            max: u64,
+        ) -> Result<u64, EntDbError> {
+            let Some(v) = lire(nom).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+                return Ok(defaut);
+            };
+            v.parse::<u64>()
+                .ok()
+                .filter(|n| (min..=max).contains(n))
+                .ok_or_else(|| {
+                    EntDbError::Configuration(format!(
+                        "{nom} doit être un entier entre {min} et {max}"
+                    ))
+                })
+        }
+        Ok(Self {
+            max_connexions: nombre(&lire, "ENT_DB_POOL_MAX", Self::MAX_DEFAUT as u64, 1, 200)? as u32,
+            delai_acquisition: Duration::from_secs(nombre(
+                &lire,
+                "ENT_DB_ACQUIRE_TIMEOUT_SECS",
+                Self::ACQUISITION_DEFAUT_S,
+                1,
+                120,
+            )?),
+            delai_requete_ms: nombre(
+                &lire,
+                "ENT_DB_STATEMENT_TIMEOUT_MS",
+                Self::REQUETE_DEFAUT_MS,
+                0,
+                600_000,
+            )?,
+        })
+    }
+
+    pub fn depuis_env() -> Result<Self, EntDbError> {
+        Self::depuis(|n| std::env::var(n).ok())
+    }
+}
+
 impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
@@ -752,9 +826,29 @@ impl PgEnt {
         if !ent_auth::env_non_prod() {
             RpConfigCheck::verifier()?;
         }
+        // B-04 : le mode RLS est validé et journalisé ; hors labo, seul `strict` démarre.
+        let mode_rls = RlsMode::verifier_demarrage(
+            std::env::var("ENT_RLS_MODE").ok().as_deref(),
+            ent_auth::env_non_prod(),
+        )
+        .map_err(EntDbError::Configuration)?;
+        tracing::info!(mode = ?mode_rls, "mode RLS effectif (ENT_RLS_MODE)");
+        // R-05 : taille du pool, délai d'acquisition et durée maximale d'une requête.
+        let reglage = ReglagePool::depuis_env()?;
+        tracing::info!(
+            max = reglage.max_connexions,
+            acquisition_s = reglage.delai_acquisition.as_secs(),
+            requete_ms = reglage.delai_requete_ms,
+            "pool de connexions"
+        );
+        let mut options: sqlx::postgres::PgConnectOptions = database_url.parse()?;
+        if reglage.delai_requete_ms > 0 {
+            options = options.options([("statement_timeout", reglage.delai_requete_ms.to_string())]);
+        }
         let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(database_url)
+            .max_connections(reglage.max_connexions)
+            .acquire_timeout(reglage.delai_acquisition)
+            .connect_with(options)
             .await?;
         let mut ent = Self::from_pool(pool);
         // Production : le stockage d'objets est S3 ou rien (F-013, PRA §18.4) ; sans
@@ -977,7 +1071,17 @@ impl PgEnt {
                 owner_pool.close().await;
                 r?;
             }
-            None => apply_socle_migrations(&self.pool).await?,
+            None => {
+                // Pas de durée maximale de requête pour les migrations (R-05) : une
+                // reprise de données longue ne doit pas être coupée par `statement_timeout`.
+                let options = (*self.pool.connect_options())
+                    .clone()
+                    .options([("statement_timeout", "0")]);
+                let mig = PgPoolOptions::new().max_connections(2).connect_with(options).await?;
+                let r = apply_socle_migrations(&mig).await;
+                mig.close().await;
+                r?;
+            }
         }
         Ok(())
     }
@@ -9439,15 +9543,25 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(compte)
     }
 
-    /// Résultat d'un provisionnement : invitation + e-mail + mdp temporaire (une fois).
+    /// Provisionne le compte d'un élève (audit A-01). **Aucun mot de passe n'est produit ni
+    /// renvoyé** : le compte naît avec un secret aléatoire que personne ne connaît, et l'élève
+    /// reçoit à son adresse un lien d'activation à usage unique (7 jours) pour choisir le sien
+    /// (même mécanisme que le personnel, socle 6 P0). Hors labo, l'adresse est obligatoire
+    /// (plus d'`@ent.lab` inventé). Messagerie non prête → `EnvoiImpossible` **avant** toute
+    /// création. Un échec d'envoi après création n'annule pas le compte : `lien_envoye = false`,
+    /// à renvoyer par la réinitialisation du mot de passe.
     pub async fn inviter_compte_eleve_for_actor(
         &self,
         role: &str,
         cmd: InviterCompteEleve,
-    ) -> Result<(EleveInvitation, String, String), EntDbError> {
+        public_base_url: &str,
+    ) -> Result<CompteEleveProvisionne, EntDbError> {
         if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
+        }
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
         }
         let eleve = self
             .eleves
@@ -9458,7 +9572,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .eleve_comptes
             .has_compte(cmd.etablissement_id, cmd.eleve_id)
             .await?;
-        let mut plan = plan_inviter_compte_eleve(&eleve, deja, cmd)?;
+        let mut plan =
+            plan_inviter_compte_eleve(&eleve, deja, cmd, ent_auth::env_non_prod())?;
         let user = self
             .register_user(
                 &plan.email,
@@ -9478,6 +9593,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.eleve_comptes
             .insert_invitation(&plan.invitation)
             .await?;
+        // Pas d'adresse e-mail dans la charge utile de l'événement (minimisation).
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: plan.invitation.etablissement_id,
@@ -9487,17 +9603,26 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 eleve_id: Some(plan.invitation.eleve_id),
                 payload: json!({
                     "invitation_id": plan.invitation.id,
-                    "email": plan.email,
                     "user_id": user.id,
                 }),
                 actor_user_id: Some(plan.invitation.invited_by_user_id.to_string()),
             })
             .await?;
-        Ok((
-            plan.invitation,
-            plan.email,
-            plan.mot_de_passe_temporaire,
-        ))
+        let lien_envoye = self
+            .envoyer_lien_reinitialisation(
+                user.id,
+                public_base_url,
+                7 * 24 * 60,
+                "Activation de votre compte ENT",
+                "Un compte vient de vous être ouvert sur l'ENT de votre établissement.\nPour choisir votre mot de passe et activer votre accès, ouvrez ce lien (valable 7 jours)",
+            )
+            .await
+            .is_ok();
+        Ok(CompteEleveProvisionne {
+            invitation: plan.invitation,
+            email: plan.email,
+            lien_envoye,
+        })
     }
 
     pub async fn list_eleves_sans_compte_for_actor(
@@ -9521,7 +9646,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         role: &str,
-    ) -> Result<Vec<(EleveInvitation, String, String)>, EntDbError> {
+        public_base_url: &str,
+    ) -> Result<Vec<CompteEleveProvisionne>, EntDbError> {
         let sans = self
             .list_eleves_sans_compte_for_actor(etablissement_id, role)
             .await?;
@@ -9536,6 +9662,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         email: None,
                         actor_user_id,
                     },
+                    public_base_url,
                 )
                 .await?;
             out.push(res);
@@ -18795,7 +18922,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .as_deref()
             .filter(|k| document_storage_key_is_owned(&doc, k))
             .ok_or(EntDbError::FichierAbsent)?;
-        if !self.objects.existe(key)? {
+        if !self.objet_existe(key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let (nom, mime) = nom_fichier_document(&doc);
@@ -18838,7 +18965,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         else {
             return Ok(None);
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Ok(None);
         }
         // La route de téléchargement sert toujours « image/jpeg ».
@@ -18877,7 +19004,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
             _ => return Err(EntDbError::FichierAbsent),
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let lien = self.emettre_lien(
@@ -18928,7 +19055,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
             None => return Err(EntDbError::FichierAbsent),
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let lien = self.emettre_lien(
@@ -20816,4 +20943,26 @@ async fn journal_eleve_tx(
     .execute(conn)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests_reglage_pool {
+    use super::*;
+
+    fn env(paires: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |n| paires.iter().find(|(k, _)| *k == n).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn defauts_et_bornes_du_pool_r05() {
+        let d = ReglagePool::depuis(env(&[])).unwrap();
+        assert_eq!(d.max_connexions, 20, "plus le pool figé à 5");
+        assert_eq!(d.delai_acquisition, Duration::from_secs(5));
+        assert_eq!(d.delai_requete_ms, 30_000);
+        let r = ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "50"), ("ENT_DB_STATEMENT_TIMEOUT_MS", "0")])).unwrap();
+        assert_eq!((r.max_connexions, r.delai_requete_ms), (50, 0));
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "0")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "beaucoup")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_ACQUIRE_TIMEOUT_SECS", "0")])).is_err());
+    }
 }

@@ -1134,6 +1134,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // R-07 : la demande est validée AVANT l'envoi (aucune connexion ni verrou retenu pendant
+        // un SMTP/SMS lent) ; si l'envoi échoue, la demande est annulée dans une transaction à part.
+        commit(tx).await?;
         // Aucun contenu qui nomme l'établissement ou un enfant : un code ne révèle rien.
         let envoi_ok = if canal == "email" {
             let r = self
@@ -1161,11 +1164,21 @@ Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.\n"
             matches!(r, Ok(ref r) if self.sms_envoi_reussi(r))
         };
         if !envoi_ok {
-            // Rien n'a été envoyé : aucune demande en attente ne reste (transaction non validée).
+            // Rien n'a été envoyé : la demande validée est annulée, aucun code en attente ne reste.
             tracing::warn!(canal, "vérification de coordonnée : code non envoyé");
+            let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+            sqlx::query(
+                "UPDATE ent_coordonnee_verification SET statut = 'annulee'
+                  WHERE id = $1 AND etablissement_id = $2 AND statut = 'envoye'",
+            )
+            .bind(id)
+            .bind(etab)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+            commit(tx).await?;
             return Err(EntDbError::EnvoiImpossible);
         }
-        commit(tx).await?;
         Ok(VerificationEnvoyee {
             coordonnee_id: c.id,
             canal,

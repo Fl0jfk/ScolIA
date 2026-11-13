@@ -45,7 +45,10 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 |---|---|---|
 | `ENT_DATABASE_URL` | — (requis) | Postgres `ent_*`. Local uniquement hors prod. |
 | `ENT_DATABASE_MIGRATION_URL` | — (facultatif) | URL du rôle **propriétaire** des tables, utilisée seulement pour les migrations (connexion dédiée, fermée ensuite). Absente : les migrations passent par `ENT_DATABASE_URL` (comportement historique). Si définie, `ENT_DATABASE_URL` doit être un rôle applicatif non propriétaire (`docs/RLS_ISOLATION.md`). Local uniquement hors prod. |
-| `ENT_RLS_MODE` | `off` | RLS PostgreSQL pilote (C4) : `off` (rien posé, politiques permissives), `permissif` (pose `app.etablissement_id` dans les transactions des repos santé, psy, sanctions, facturation), `strict` (pose aussi `app.rls_strict`). Recommandé en prod à terme : `strict` + `ALTER ROLE ent_app SET app.rls_strict = 'on'`. Voir `docs/RLS_ISOLATION.md` avant activation. |
+| `ENT_RLS_MODE` | `off` en labo/test ; **`strict` obligatoire hors labo** | RLS PostgreSQL pilote (C4) : `off`, `permissif` ou `strict` (pose `app.etablissement_id` puis `app.rls_strict`). Audit B-04 : une valeur inconnue (ex. `stricte`) **refuse le démarrage** ; hors `ENT_ENV` non productif, tout mode autre que `strict` le refuse aussi ; le mode effectif est journalisé au démarrage. Avec `strict` : `ALTER ROLE ent_app SET app.rls_strict = 'on'`. Voir `docs/RLS_ISOLATION.md`. |
+| `ENT_DB_POOL_MAX` | `20` (1–200) | Taille du pool de connexions applicatif (audit R-05 ; avant : 5 figé). Valeur hors bornes → refus de démarrer. |
+| `ENT_DB_ACQUIRE_TIMEOUT_SECS` | `5` (1–120) | Attente maximale d'une connexion libre avant erreur. |
+| `ENT_DB_STATEMENT_TIMEOUT_MS` | `30000` (0–600000 ; 0 = aucune limite) | Durée maximale d'une requête SQL (`statement_timeout`). Les migrations s'exécutent sans cette limite. |
 | `ENT_API_BIND` | `127.0.0.1:8088` | Adresse d'écoute. En conteneur : `0.0.0.0:8088`. |
 | `ENT_ENV` | *(vide)* | Fail-closed : portes de dev ouvertes seulement pour `lab`/`labo`/`dev`/`local`/`test` ; vide, `prod`, `production` ou inconnu → fermées (voir ci-dessous). Mettre `prod` en production. |
 | `ENT_ALLOW_REGISTRATION` | — | `1` → réautorise `POST /auth/register` même en prod (provisioning contrôlé). |

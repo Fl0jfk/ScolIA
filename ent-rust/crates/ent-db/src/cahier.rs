@@ -1490,7 +1490,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let info = self.objects().put(&key, &fichier.contenu)?;
+        let info = self.objet_put(&key, &fichier.contenu).await?;
         crate::objets::enregistrer_objet(&mut *tx, a.etablissement_id, &info, Some(valide.mime))
             .await?;
         let piece: PieceRow = sqlx::query_as(&format!("{SELECT_PIECE} AND id = $2"))
@@ -1623,7 +1623,7 @@ impl PgEnt {
                 PresignError::Disabled => EntDbError::LiensIndisponibles,
                 _ => EntDbError::FichierAbsent,
             })?;
-        if !self.objects().existe(&p.storage_key)? {
+        if !self.objet_existe(&p.storage_key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         self.tracer_acces_sensible(

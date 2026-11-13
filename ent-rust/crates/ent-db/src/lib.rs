@@ -278,6 +278,8 @@ pub use champs_chiffres::{
 pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
+pub use service::CompteEleveProvisionne;
+pub use service::ReglagePool;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_ctx::DroitsActeur;

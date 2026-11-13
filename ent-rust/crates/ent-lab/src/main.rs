@@ -4930,7 +4930,7 @@ async fn explorer_face_eleve(
         return Err("lab attend des élèves sans compte avant invitation".into());
     }
     let cible = sans_avant[0].clone();
-    let (inv, email, mdp) = ent
+    let compte = ent
         .inviter_compte_eleve_for_actor(
             Role::Administratif.as_str(),
             InviterCompteEleve {
@@ -4939,15 +4939,14 @@ async fn explorer_face_eleve(
                 email: None,
                 actor_user_id: cast.administratif.user_id,
             },
+            "http://localhost:3000",
         )
         .await
         .map_err(|e| e.to_string())?;
+    let (inv, email) = (compte.invitation, compte.email);
     r.geste(format!(
-        "admini invite {} {} → {} (mdp temporaire {}…)",
-        cible.prenom,
-        cible.nom,
-        email,
-        &mdp[..6.min(mdp.len())]
+        "admini invite {} {} → {} (lien d'activation envoyé : {})",
+        cible.prenom, cible.nom, email, compte.lien_envoye
     ));
 
     // Le nouvel élève lit ses notes
@@ -4976,6 +4975,7 @@ async fn explorer_face_eleve(
                 email: None,
                 actor_user_id: cast.administratif.user_id,
             },
+            "http://localhost:3000",
         )
         .await;
     if dup.is_ok() {
@@ -4988,6 +4988,7 @@ async fn explorer_face_eleve(
             cast.etablissement_id,
             cast.administratif.user_id,
             Role::Administratif.as_str(),
+            "http://localhost:3000",
         )
         .await
         .map_err(|e| e.to_string())?;

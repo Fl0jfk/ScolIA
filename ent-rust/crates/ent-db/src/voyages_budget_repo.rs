@@ -1442,7 +1442,7 @@ pub(crate) async fn emettre_document(
 ) -> Result<(DocumentVue, MetierEvent), EntDbError> {
     let doc = Uuid::new_v4();
     let cle = ObjectStore::key_for(a.etablissement_id, "voyages", doc, "pdf");
-    let info = e.objects().put(&cle, pdf)?;
+    let info = e.objet_put(&cle, pdf).await?;
     crate::objets::enregistrer_objet(&mut *conn, a.etablissement_id, &info, Some("application/pdf"))
         .await?;
     sqlx::query(
