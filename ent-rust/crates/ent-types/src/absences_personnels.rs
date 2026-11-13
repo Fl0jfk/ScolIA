@@ -273,3 +273,138 @@ pub struct SeanceSansEnseignantDto {
     /// `non_remplacee` (aucun remplaçant nommé) ou `annulee` (la séance est supprimée).
     pub statut: String,
 }
+
+// ───────────────────────── Lot A2 : pièces, fil, conservation ─────────────────────────
+// Ces DTO ne sont lisibles que du cercle RH (l'agent, le circuit, l'instructeur, la direction) : aucun ne
+// porte un nom de fichier (minimisation) ni, hors fil, un texte libre. Aucun DTO du niveau « organisation »
+// n'en dérive.
+
+/// Dépôt d'une pièce : le fichier est envoyé en base64 comme les pièces du cahier de textes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeposerPieceBody {
+    /// `arret` | `justificatif` | `convocation` | `autre`.
+    pub type_piece: String,
+    pub fichier: crate::cahier::FichierDepotBody,
+    /// Pour un arrêt : l'agent confirme n'avoir déposé que les volets 2 et 3, jamais le volet 1 (R-08).
+    #[serde(default)]
+    pub volet_1_exclu: bool,
+}
+
+/// Une pièce d'une absence (sans nom de fichier).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceAbsenceDto {
+    pub id: Uuid,
+    pub absence_id: Uuid,
+    pub type_piece: String,
+    /// `deposee` | `retiree` | `purgee`.
+    pub etat: String,
+    pub taille_octets: i64,
+    pub mime: String,
+    pub deposee_par_user_id: Uuid,
+    pub deposee_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retiree_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_prevue_le: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purgee_le: Option<DateTime<Utc>>,
+}
+
+/// Lien pré-signé court vers une pièce (5 minutes au plus), émis après contrôle du droit.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LienPieceDto {
+    pub url: String,
+    pub expires_at: i64,
+}
+
+/// Qui a lu une pièce, et quand (ABP-144 : l'agent voit les lectures de SES pièces).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LecturePieceDto {
+    pub piece_id: Uuid,
+    pub lecteur_user_id: Uuid,
+    pub le: DateTime<Utc>,
+}
+
+/// Un message du fil de l'absence (ajout seul, 4 000 caractères, jamais de pièce jointe).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageAbsenceDto {
+    pub id: Uuid,
+    pub auteur_user_id: Uuid,
+    /// `agent` | `valideur` | `instructeur` | `direction` (jamais saisi par le client).
+    pub role_affiche: String,
+    pub texte: String,
+    pub le: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PosterMessageBody {
+    pub texte: String,
+}
+
+/// Gel de conservation (contentieux) : suspend la purge de l'absence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GelDto {
+    pub id: Uuid,
+    pub absence_id: Uuid,
+    pub motif: String,
+    pub du: NaiveDate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub au: Option<NaiveDate>,
+    pub pose_par_user_id: Uuid,
+    pub pose_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leve_le: Option<DateTime<Utc>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PoserGelBody {
+    pub motif: String,
+    pub du: NaiveDate,
+    #[serde(default)]
+    pub au: Option<NaiveDate>,
+}
+
+/// Purge d'une pièce à la demande (ABP-161) : un **code** de motif, jamais un texte libre.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurgerPieceBody {
+    /// `demande_agent` | `erreur_depot` | `contentieux_clos` | `autre`.
+    pub motif_code: String,
+}
+
+/// Une purge à venir (ABP-162) : la pièce, sa date, et si un gel la suspend.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurgeAVenirDto {
+    pub absence_id: Uuid,
+    pub piece_id: Uuid,
+    pub type_piece: String,
+    pub etat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub purge_prevue_le: Option<NaiveDate>,
+    pub gelee: bool,
+}
+
+/// Résultat d'un passage de la purge programmée (ABP-160).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanPurgeDto {
+    pub dates_calculees: u32,
+    pub pieces_purgees: u32,
+    pub messages_supprimes: u32,
+    /// Pièces dont la date est échue mais suspendue par un gel.
+    pub pieces_gelees: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfidentialiteBody {
+    pub renforcee: bool,
+}
+
+/// Une échéance à suivre par l'instructeur (ABP-147) : arrêt non encore reçu, pièce attendue manquante.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EcheanceAbsenceDto {
+    pub absence_id: Uuid,
+    /// `arret_a_recevoir` | `piece_manquante`.
+    pub genre: String,
+    pub echeance_le: DateTime<Utc>,
+    /// Nombre de relances déjà faites (plafonné par S-1502).
+    pub relances: u32,
+}

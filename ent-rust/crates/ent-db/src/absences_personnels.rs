@@ -51,6 +51,9 @@ use crate::personnels::{agent_du_user_tx, conflit, db, ecriture, introuvable, in
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
 
+/// Lot A2 : pièces, fil, conservation (migration 2303).
+pub mod pieces;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------
@@ -2601,6 +2604,12 @@ impl PgEnt {
         if au < du || (au - du).num_days() > 92 {
             return Err(invalide("Période invalide (92 jours au plus)."));
         }
+        // Confidentialité renforcée (ABP-164) : une absence ainsi marquée n'est visible que de la direction et
+        // des valideurs ; la vie scolaire ne voit plus l'agent (elle voit « séance à couvrir » à l'impact, A3).
+        let voit_renforcee = matches!(Role::parse(role), Some(Role::Direction))
+            || self
+                .a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesValider)
+                .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         // Colonnes explicites : aucune colonne de nature n'est lue (R-AP3).
         let rows: Vec<(Uuid, Uuid, Option<String>, DateTime<Utc>, DateTime<Utc>, bool)> = sqlx::query_as(
@@ -2610,6 +2619,7 @@ impl PgEnt {
                JOIN ent_agent ag ON ag.etablissement_id = a.etablissement_id AND ag.id = a.agent_id
                JOIN ent_personne p ON p.etablissement_id = ag.etablissement_id AND p.id = ag.personne_id
               WHERE a.etablissement_id = $1 AND a.cause = 'rh' AND a.etat = ANY($4)
+                AND (NOT a.confidentialite_renforcee OR $5)
                 AND (a.debut AT TIME ZONE COALESCE((SELECT fuseau FROM ent_etablissement_parametre
                         WHERE etablissement_id = $1), 'Europe/Paris'))::date <= $3
                 AND ((a.fin - interval '1 microsecond') AT TIME ZONE COALESCE((SELECT fuseau FROM ent_etablissement_parametre
@@ -2620,6 +2630,7 @@ impl PgEnt {
         .bind(du)
         .bind(au)
         .bind(ETATS_COMPTANT.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        .bind(voit_renforcee)
         .fetch_all(&mut *tx)
         .await
         .map_err(db)?;

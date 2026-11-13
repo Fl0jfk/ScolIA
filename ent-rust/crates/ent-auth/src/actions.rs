@@ -333,6 +333,9 @@ pub enum Action {
     PersonnelsAbsencesSaisirValidee,
     /// ★ Natures de l'établissement, règles de circuit, délais (S-1500 à S-1517).
     PersonnelsAbsencesParametrer,
+    /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
+    /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
+    PersonnelsAbsencesConserver,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -389,7 +392,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 160] = [
+    pub const TOUTES: [Action; 161] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -561,6 +564,7 @@ impl Action {
         Action::PersonnelsAbsencesInstruire,
         Action::PersonnelsAbsencesSaisirValidee,
         Action::PersonnelsAbsencesParametrer,
+        Action::PersonnelsAbsencesConserver,
     ];
 
     pub fn code(self) -> &'static str {
@@ -712,6 +716,7 @@ impl Action {
             Self::PersonnelsAbsencesInstruire => "personnels.absences.instruire",
             Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
             Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
+            Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -880,6 +885,7 @@ impl Action {
             Self::PersonnelsAbsencesInstruire => "Instruire une absence de personnel (réception de l'arrêt, traitement administratif)",
             Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
             Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
+            Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1054,6 +1060,7 @@ impl Action {
             | Self::PersonnelsAbsencesInstruire
             | Self::PersonnelsAbsencesSaisirValidee
             | Self::PersonnelsAbsencesParametrer
+            | Self::PersonnelsAbsencesConserver
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::StagesOrganismesGerer
@@ -1210,6 +1217,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(PersonnelsAbsencesParametrer));
+    }
+    // Conservation (gel, purge, confidentialité renforcée) : la direction seule ; jamais l'administrateur
+    // technique (R-AP2 : il ne lit rien du niveau RH).
+    if role == Role::Direction {
+        d.push(etab(PersonnelsAbsencesConserver));
     }
     // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
     // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
@@ -1921,6 +1933,7 @@ mod tests {
                 "{r:?} lire_nature"
             );
             assert_eq!(a(r, PersonnelsAbsencesValider), r == Role::Direction, "{r:?} valider");
+            assert_eq!(a(r, PersonnelsAbsencesConserver), r == Role::Direction, "{r:?} conserver");
             assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
@@ -1936,6 +1949,7 @@ mod tests {
                     PersonnelsAbsencesInstruire,
                     PersonnelsAbsencesSaisirValidee,
                     PersonnelsAbsencesParametrer,
+                    PersonnelsAbsencesConserver,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }
