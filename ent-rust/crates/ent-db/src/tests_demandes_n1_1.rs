@@ -79,7 +79,9 @@ impl Ctx {
         self.engager(qui).await;
         sqlx::query(
             "INSERT INTO ent_agent_fonction (id, etablissement_id, agent_id, fonction_id, principale, du)
-             SELECT gen_random_uuid(), $1, $2, id, false, $3 FROM ent_fonction WHERE code = $4 AND etablissement_id IS NULL",
+             SELECT gen_random_uuid(), $1, $2, f.id, false, $3 FROM ent_fonction f WHERE f.code = $4 AND f.etablissement_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM ent_agent_fonction x WHERE x.etablissement_id = $1 AND x.agent_id = $2
+                                   AND x.fonction_id = f.id AND x.annule_le IS NULL)",
         )
         .bind(self.m.etab)
         .bind(qui.agent.expect("agent"))
@@ -88,6 +90,26 @@ impl Ctx {
         .execute(self.ent.pool_verif())
         .await
         .unwrap();
+    }
+
+    /// Fin de tous les engagements de l'agent à `au` (le début recule si besoin : un engagement du labo commence aujourd'hui).
+    async fn partir(&self, qui: &Acteur, au: NaiveDate) {
+        sqlx::query("UPDATE ent_agent_engagement SET du = LEAST(du, $3), au = $3, motif_fin = 'mutation' WHERE etablissement_id = $1 AND agent_id = $2")
+            .bind(self.m.etab)
+            .bind(qui.agent.expect("agent"))
+            .bind(au)
+            .execute(self.ent.pool_verif())
+            .await
+            .unwrap();
+    }
+
+    /// Les règles de membres par défaut datent d'aujourd'hui : on les antidate pour lire des dates passées.
+    async fn antidater_regles(&self) {
+        sqlx::query("UPDATE ent_dem_file_membre_regle SET du = du - 400 WHERE etablissement_id = $1")
+            .bind(self.m.etab)
+            .execute(self.ent.pool_verif())
+            .await
+            .unwrap();
     }
 
     async fn mission(&self, qui: &Acteur, code: &str, du: NaiveDate, au: Option<NaiveDate>) -> Uuid {
@@ -348,6 +370,7 @@ async fn t_rdm7_aucune_file_tout_le_personnel() {
 async fn t_nj94_membres_calcules_du_socle_6() {
     let Some(c) = ctx().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     c.init().await;
+    c.antidater_regles().await;
     let numerique = c.fid("numerique").await;
     let j = c.jour;
     let membres = |date: Option<NaiveDate>| {
@@ -380,13 +403,7 @@ async fn t_nj94_membres_calcules_du_socle_6() {
     assert_eq!(apres[0].personne_id, c.m.cpe.personne);
     assert!(membres(Some(j - chrono::Duration::days(5))).await.iter().any(|x| x.personne_id == c.m.prof.personne));
     // Un agent sans engagement actif n'est jamais membre (départ) : fin de l'engagement du cpe.
-    sqlx::query("UPDATE ent_agent_engagement SET au = $3 WHERE etablissement_id = $1 AND agent_id = $2")
-        .bind(c.m.etab)
-        .bind(c.m.cpe.agent.unwrap())
-        .bind(j - chrono::Duration::days(1))
-        .execute(c.ent.pool_verif())
-        .await
-        .unwrap();
+    c.partir(&c.m.cpe, j - chrono::Duration::days(1)).await;
     assert!(membres(None).await.is_empty(), "un agent parti n'est plus membre");
     // Désignation d'un agent, datée : membre à partir de sa date, pas avant.
     c.engager(&c.m.compta).await;
@@ -454,13 +471,7 @@ async fn t_nj94_depart_rend_les_demandes() {
     assert!(c.ma_file(&c.m.prof).await.iter().any(|d| d.numero == a.numero));
     assert!(c.ma_file(&c.m.cpe).await.iter().all(|d| d.numero != a.numero), "le cpe n'est pas de la file du numérique");
     // Départ : fin de l'engagement du prof. La file n'a plus de membre actif.
-    sqlx::query("UPDATE ent_agent_engagement SET au = $3, motif_fin = 'mutation' WHERE etablissement_id = $1 AND agent_id = $2")
-        .bind(c.m.etab)
-        .bind(c.m.prof.agent.unwrap())
-        .bind(j - chrono::Duration::days(1))
-        .execute(c.ent.pool_verif())
-        .await
-        .unwrap();
+    c.partir(&c.m.prof, j - chrono::Duration::days(1)).await;
     // La demande n'est pas orpheline : elle revient aux membres de la file de repli (le tri), le jour même…
     assert!(c.ma_file(&c.m.cpe).await.iter().any(|d| d.numero == a.numero), "demande orpheline après le départ");
     assert!(c.ma_file(&c.m.prof).await.iter().all(|d| d.numero != a.numero), "l'agent parti garde un accès");
