@@ -54,6 +54,9 @@ use crate::tenant_tx::TenantTx;
 /// Lot A2 : pièces, fil, conservation (migration 2303).
 pub mod pieces;
 
+/// Lot A3 : impact, tableaux, files (migration 2304).
+pub mod impact;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------
@@ -1156,6 +1159,9 @@ impl PgEnt {
         for id in &ids {
             absences.push(vue_absence(&mut tx, etab, *id, montrer).await?);
         }
+        for id in &ids {
+            self.recalculer_impact_tolerant(&mut tx, etab, *id, actor).await;
+        }
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evenements);
         Ok(DeclarationDto {
@@ -1233,6 +1239,9 @@ impl PgEnt {
         let mut absences = Vec::new();
         for id in &ids {
             absences.push(vue_absence(&mut tx, etab, *id, false).await?);
+        }
+        for id in &ids {
+            self.recalculer_impact_tolerant(&mut tx, etab, *id, actor).await;
         }
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evenements);
@@ -1679,6 +1688,8 @@ impl PgEnt {
             }
         }
         let vue = vue_absence(&mut tx, etab, id, lire_nature || suis_absent).await?;
+        // Impact : une validation, un refus, une réouverture ou une annulation changent ce que l'absence touche.
+        self.recalculer_impact_tolerant(&mut tx, etab, id, actor).await;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evenements);
         Ok(vue)
@@ -2219,6 +2230,8 @@ impl PgEnt {
         )
         .await?;
         let v = vue_absence(&mut tx, etab, id, lire_nature || suis_absent).await?;
+        // Impact : la fin change, les séances touchées aussi.
+        self.recalculer_impact_tolerant(&mut tx, etab, id, actor).await;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
         Ok(v)

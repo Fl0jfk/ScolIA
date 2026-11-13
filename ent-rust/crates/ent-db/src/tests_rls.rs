@@ -280,7 +280,8 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 13 du socle 15 (A0 : archives de levée d'exception et de déplacement ; A1 : natures, activation,
     // paramètres, règles de circuit, absences, plages, circuit figé, décisions, journal, arrêts, décisions externes).
     // + 4 du socle 15 (A2, migration 2303 : pièces, lectures de pièces, fil de messages, gels de conservation).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 4, "tables avec RLS activée et forcée");
+    // + 2 du socle 15 (A3, migration 2304 : impacts et réponses).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 4 + 2, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

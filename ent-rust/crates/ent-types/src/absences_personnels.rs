@@ -408,3 +408,148 @@ pub struct EcheanceAbsenceDto {
     /// Nombre de relances déjà faites (plafonné par S-1502).
     pub relances: u32,
 }
+
+// ───────────────────────────── Lot A3 : impact, tableaux, files ─────────────────────────────
+// Niveau « organisation » (§18.1) : AUCUN de ces DTO ne porte la nature, le motif, un traitement, une
+// décision ni une pièce. L'agent n'y est nommé que dans le tableau, et jamais pour une absence en
+// confidentialité renforcée vue d'un profil qui n'y a pas droit.
+
+/// La séance (socle 10) touchée par une absence.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeanceImpactDto {
+    pub seance_id: Uuid,
+    pub creneau_id: Uuid,
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub classe: String,
+    pub matiere_libelle: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub salle: Option<String>,
+}
+
+/// Un impact : ce qu'une absence touche, et où en est son traitement.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpactDto {
+    pub id: Uuid,
+    pub absence_id: Uuid,
+    /// `seance` (poste et engagement : ports des autres socles, non branchés).
+    pub type_impact: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seance: Option<SeanceImpactDto>,
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+    /// `a_traiter` · `propose` · `sollicite` · `remplace` · `autre_cours` · `deplace` · `continuite` · `annule`
+    /// · `supplee` · `sans_objet` · `non_assure` (§10.2).
+    pub etat: String,
+    /// CAP-46 : la séance a disparu d'une nouvelle version d'EDT alors qu'une réponse y était posée.
+    pub a_revoir: bool,
+}
+
+/// Compte d'impacts par état (tableau et tableau de bord).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompteursImpactDto {
+    pub a_traiter: u32,
+    pub propose: u32,
+    pub sollicite: u32,
+    pub remplace: u32,
+    pub autre_cours: u32,
+    pub deplace: u32,
+    pub continuite: u32,
+    pub annule: u32,
+    pub supplee: u32,
+    pub sans_objet: u32,
+    pub non_assure: u32,
+}
+
+impl CompteursImpactDto {
+    pub fn ajouter(&mut self, etat: &str) {
+        match etat {
+            "a_traiter" => self.a_traiter += 1,
+            "propose" => self.propose += 1,
+            "sollicite" => self.sollicite += 1,
+            "remplace" => self.remplace += 1,
+            "autre_cours" => self.autre_cours += 1,
+            "deplace" => self.deplace += 1,
+            "continuite" => self.continuite += 1,
+            "annule" => self.annule += 1,
+            "supplee" => self.supplee += 1,
+            "sans_objet" => self.sans_objet += 1,
+            "non_assure" => self.non_assure += 1,
+            _ => {}
+        }
+    }
+}
+
+/// Un impact dans le tableau, avec l'agent (masqué en confidentialité renforcée).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImpactTableauDto {
+    pub impact: ImpactDto,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_label: Option<String>,
+}
+
+/// Une heure du tableau : les séances qui commencent à cette heure.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LigneTableauDto {
+    pub heure_debut: NaiveTime,
+    pub impacts: Vec<ImpactTableauDto>,
+}
+
+/// Tableau « ce matin » / « demain » (§10.4) : absents du jour, impacts par heure et par état.
+/// Les effectifs attendus, les salles libres et les familles prévenues viennent des lots A4 et du socle 10.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableauJourDto {
+    pub jour: NaiveDate,
+    pub absents: Vec<AbsenceOrganisationDto>,
+    pub lignes: Vec<LigneTableauDto>,
+    pub compteurs: CompteursImpactDto,
+}
+
+/// Compteurs du tableau de bord (ABP-174).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompteursTableauDeBordDto {
+    pub a_valider: u32,
+    pub a_traiter: u32,
+    pub seances_a_couvrir_aujourdhui: u32,
+}
+
+/// « Prochaine étape » d'une absence : qui doit agir, et quoi (ABP-172).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProchaineEtapeDto {
+    /// `agent` | `valideur` | `instructeur` | `employeur` | `personne`.
+    pub acteur: String,
+    /// Code court : `confirmer` · `valider` · `instruire` · `traiter` · `decision_externe` · `clore` · `rien`.
+    pub action: String,
+}
+
+/// Présence d'un agent (ABP-155) : jamais la nature ni le lieu.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PresenceDto {
+    pub agent_id: Uuid,
+    /// `oui` | `non` | `inconnu`.
+    pub statut: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdtReferenceBody {
+    pub actif: bool,
+}
+
+/// Interrupteur « EDT de référence » (R-AP45, ABP-272) : conditionne tout effet vers les familles.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdtReferenceDto {
+    pub actif: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pose_par_user_id: Option<Uuid>,
+}
+
+/// Bilan d'un recalcul d'impacts (tâche planifiée, ABP-151).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanImpactDto {
+    pub absences: u32,
+    pub impacts: u32,
+    pub a_revoir: u32,
+}

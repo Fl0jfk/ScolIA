@@ -10,6 +10,7 @@ mod dossier;
 mod personnels;
 mod personnels_missions;
 mod absences_personnels;
+mod absences_personnels_impact;
 mod absences_personnels_pieces;
 mod stages;
 mod personnels_services;
