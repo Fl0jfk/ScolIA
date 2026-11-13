@@ -336,7 +336,7 @@ async fn a2_fil_en_ajout_seul_borne_et_reserve_au_cercle() {
     let m2 = x.ent.poster_message_absence_for_actor(x.etab, x.sec, "administratif", abs, "Bien reçu.").await.unwrap();
     assert_eq!(m2.role_affiche, "instructeur");
     let m3 = x.ent.poster_message_absence_for_actor(x.etab, x.dir, "direction", abs, "Validé.").await.unwrap();
-    assert!(["valideur", "direction"].contains(&m3.role_affiche.as_str()), "{}", m3.role_affiche);
+    assert_eq!(m3.role_affiche, "direction");
     let fil = x.ent.fil_absence_for_actor(x.etab, x.prof, "prof", abs).await.unwrap();
     assert_eq!(fil.len(), 3);
     assert_eq!(fil[0].id, m1.id);

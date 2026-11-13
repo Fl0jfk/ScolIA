@@ -88,6 +88,7 @@ pub fn date_purge_piece(
 
 struct Acces {
     absence: AbsenceLigne,
+    direction: bool,
     suis_absent: bool,
     valideur: bool,
     instructeur: bool,
@@ -101,6 +102,8 @@ impl Acces {
     fn role_affiche(&self) -> &'static str {
         if self.suis_absent {
             "agent"
+        } else if self.direction {
+            "direction"
         } else if self.instructeur {
             "instructeur"
         } else if self.valideur {
@@ -182,8 +185,8 @@ async fn date_purge_calculee(
     a: &AbsenceLigne,
 ) -> Result<Option<NaiveDate>, EntDbError> {
     let (jours_etat, annees_ogec): (i16, i16) = sqlx::query_as(
-        "SELECT COALESCE((SELECT purge_piece_etat_jours FROM ent_absp_param WHERE etablissement_id = $1), 30),
-                COALESCE((SELECT purge_piece_ogec_annees FROM ent_absp_param WHERE etablissement_id = $1), 3)",
+        "SELECT COALESCE((SELECT purge_piece_etat_jours FROM ent_absp_param WHERE etablissement_id = $1), 30)::smallint,
+                COALESCE((SELECT purge_piece_ogec_annees FROM ent_absp_param WHERE etablissement_id = $1), 3)::smallint",
     )
     .bind(etab)
     .fetch_one(&mut *conn)
@@ -290,7 +293,7 @@ impl PgEnt {
         };
         let instructeur = self.peut_instruire_abs(&mut tx, etab, actor, role, &a).await?;
         let lecteur_nature = lire_nature && (matches!(r, Role::Direction) || instruit(r, &a.employeur));
-        let acces = Acces { absence: a, suis_absent, valideur, instructeur, lecteur_nature };
+        let acces = Acces { absence: a, direction: r == Role::Direction, suis_absent, valideur, instructeur, lecteur_nature };
         if !acces.cercle() {
             return Err(introuvable());
         }
@@ -555,7 +558,7 @@ impl PgEnt {
             return Err(conflit("une pièce est déjà déposée"));
         }
         let (max,): (i16,) = sqlx::query_as(
-            "SELECT COALESCE((SELECT relances_piece_max FROM ent_absp_param WHERE etablissement_id = $1), 3)",
+            "SELECT COALESCE((SELECT relances_piece_max FROM ent_absp_param WHERE etablissement_id = $1), 3)::smallint",
         )
         .bind(etab)
         .fetch_one(&mut *tx)
