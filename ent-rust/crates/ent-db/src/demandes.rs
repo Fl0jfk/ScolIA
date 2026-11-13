@@ -20,7 +20,7 @@
 //! [`SourcesDemandes`] : tant qu'elles sont absentes ([`SourcesAbsentes`]), **aucune** file n'existe, donc personne
 //! ne traite rien et aucun dépôt n'aboutit (R-DM6, R-DM7 : jamais « tout le personnel »).
 //!
-//! Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais `CURRENT_DATE` ni le jour UTC.
+//! Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais la date du serveur ni le jour UTC.
 
 use crate::champs_chiffres::ChampsSensibles;
 use crate::finances::publier;
@@ -974,7 +974,7 @@ impl PgEnt {
         };
         let pour_compte = demandeur != deposant;
 
-        // Année et jour métier de l'établissement (jamais CURRENT_DATE ni le jour UTC).
+        // Année et jour métier de l'établissement (jamais la date du serveur ni le jour UTC).
         let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1, now())").bind(etab).fetch_one(&mut *tx).await?;
         let annee: Option<(Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, date_debut FROM ent_annee_scolaire
