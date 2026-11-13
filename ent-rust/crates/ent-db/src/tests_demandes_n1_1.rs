@@ -1076,6 +1076,14 @@ async fn monde_rh(c: &Ctx) {
     c.fonction(&c.m.compta, "gestionnaire").await; // repli RH : attaché de gestion
     c.fonction(&c.m.direction, "chef_etablissement").await; // repli RH et direction
     c.activer("rh.demande_agent").await;
+    // Le jeu de labo a d'autres agents dotés de fonctions : on les écarte pour que les files du test soient exactes.
+    let agents: Vec<Uuid> = [&c.m.prof, &c.m.cpe, &c.m.compta, &c.m.direction].iter().filter_map(|a| a.agent).collect();
+    sqlx::query("UPDATE ent_agent_fonction SET annule_le = now() WHERE etablissement_id = $1 AND NOT (agent_id = ANY($2)) AND annule_le IS NULL")
+        .bind(c.m.etab)
+        .bind(&agents)
+        .execute(c.ent.pool_verif())
+        .await
+        .unwrap();
 }
 
 fn sim_rh(vises: Vec<Uuid>) -> SimulationRoutage {
