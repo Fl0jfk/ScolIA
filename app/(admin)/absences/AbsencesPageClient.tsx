@@ -1,5 +1,6 @@
 "use client";
 
+import { ouvrirUrlSecurisee } from "@/app/lib/open-secure-url";
 import { useMemo, useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
@@ -793,27 +794,24 @@ export default function AbsencesPageClient({
   };
 
   const openAbsenceDocument = async (absenceId: string, docIndex = 0) => {
-    const newWindow = window.open("", "_blank");
     try {
-      const res = await fetch(
-        `/api/absences/document-url?id=${encodeURIComponent(absenceId)}&index=${encodeURIComponent(String(docIndex))}`,
-        { cache: "no-store" },
-      );
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data || typeof data !== "object" || !("url" in data) || !data?.url) {
-        throw new Error(
-          data && typeof data === "object" && data && "error" in data && typeof (data as { error?: unknown }).error === "string"
-            ? (data as { error: string }).error
-            : "Impossible d'ouvrir le justificatif.",
+      // iPhone / iPad / application installée : pas d'onglet vide (il restait sur about:blank).
+      await ouvrirUrlSecurisee(async () => {
+        const res = await fetch(
+          `/api/absences/document-url?id=${encodeURIComponent(absenceId)}&index=${encodeURIComponent(String(docIndex))}`,
+          { cache: "no-store" },
         );
-      }
-      if (newWindow) {
-        newWindow.location.href = String((data as { url: string }).url);
-      } else {
-        window.location.href = String((data as { url: string }).url);
-      }
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || typeof data !== "object" || !("url" in data) || !data?.url) {
+          throw new Error(
+            data && typeof data === "object" && data && "error" in data && typeof (data as { error?: unknown }).error === "string"
+              ? (data as { error: string }).error
+              : "Impossible d'ouvrir le justificatif.",
+          );
+        }
+        return String((data as { url: string }).url);
+      });
     } catch (e: unknown) {
-      if (newWindow) newWindow.close();
       alert(e instanceof Error ? e.message : "Erreur d'accès au justificatif.");
     }
   };

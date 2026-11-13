@@ -1,5 +1,6 @@
 "use client";
 
+import { ouvrirUrlSecurisee } from "@/app/lib/open-secure-url";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import dynamic from "next/dynamic";
 import { useState, useEffect, useRef, useCallback, useMemo, type Dispatch, type SetStateAction } from "react";
@@ -222,26 +223,22 @@ export function TripDetailsLoaded({ trip, setTrip }: TripDetailsLoadedProps) {
   }, [trip, remindersFocus]);
 
   const openSecureFile = async (fileUrl: string, s3Key?: string | null) => {
-    const newWindow = window.open("", "_blank");
     try {
-      const res = await fetch("/api/travels/download", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileUrl, s3Key: s3Key || undefined }),
+      // iPhone / iPad / application installée : pas d'onglet vide (il restait sur about:blank).
+      await ouvrirUrlSecurisee(async () => {
+        const res = await fetch("/api/travels/download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileUrl, s3Key: s3Key || undefined }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.signedUrl) {
+          throw new Error(data?.error || "Impossible d'ouvrir le document.");
+        }
+        return String(data.signedUrl);
       });
-      const data = await res.json();
-      if (!res.ok || !data.signedUrl) {
-        throw new Error(data?.error || "Impossible d'ouvrir le document.");
-      }
-      if (newWindow) {
-        newWindow.location.href = data.signedUrl;
-        newWindow.focus();
-      } else {
-        window.location.href = data.signedUrl;
-      }
     } catch (err) {
       console.error(err);
-      if (newWindow) newWindow.close();
       alert(err instanceof Error ? err.message : "Erreur lors de l'ouverture du fichier.");
     }
   };
