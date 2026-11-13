@@ -216,6 +216,17 @@ pub enum Action {
     AgendaParametrer,
     /// Tenir la feuille de semaine de l'établissement (créneaux visibles de tous) : direction, administrateur.
     AgendaSemaineGerer,
+    /// Rechercher une salle libre et lire le planning des salles (sans élèves) : tout le personnel.
+    AgendaLieuxLire,
+    /// Réserver une salle (soi, ou pour un collègue) : tout le personnel.
+    AgendaLieuxReserver,
+    /// Valider ou refuser les demandes des salles « sur validation » : direction, administrateur (un valideur
+    /// est aussi désigné salle par salle).
+    AgendaLieuxValider,
+    /// Gérer toutes les réservations (annuler celle d'un autre avec motif) : direction, administrateur, secrétariat.
+    AgendaLieuxGerer,
+    /// Paramétrer les règles d'une salle (réservable toujours, sur validation, jamais ; délais, durée, horizon).
+    AgendaLieuxParametrer,
     // ── S2-8 : communication complète ───────────────────────────────────────
     /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
     CampagnesLancer,
@@ -361,7 +372,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 147] = [
+    pub const TOUTES: [Action; 152] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -448,6 +459,11 @@ impl Action {
         Action::AgendaJournalLire,
         Action::AgendaParametrer,
         Action::AgendaSemaineGerer,
+        Action::AgendaLieuxLire,
+        Action::AgendaLieuxReserver,
+        Action::AgendaLieuxValider,
+        Action::AgendaLieuxGerer,
+        Action::AgendaLieuxParametrer,
         Action::CampagnesLancer,
         Action::RencontresGerer,
         Action::FormulairesGerer,
@@ -620,6 +636,11 @@ impl Action {
             Self::AgendaJournalLire => "agenda.journal.lire",
             Self::AgendaParametrer => "agenda.parametrer",
             Self::AgendaSemaineGerer => "agenda.semaine.gerer",
+            Self::AgendaLieuxLire => "agenda.lieux.lire",
+            Self::AgendaLieuxReserver => "agenda.lieux.reserver",
+            Self::AgendaLieuxValider => "agenda.lieux.valider",
+            Self::AgendaLieuxGerer => "agenda.lieux.gerer",
+            Self::AgendaLieuxParametrer => "agenda.lieux.parametrer",
             Self::CampagnesLancer => "campagnes.lancer",
             Self::RencontresGerer => "rencontres.gerer",
             Self::FormulairesGerer => "formulaires.gerer",
@@ -773,6 +794,11 @@ impl Action {
             Self::AgendaJournalLire => "Consulter les journaux de l'agenda",
             Self::AgendaParametrer => "Paramétrer l'agenda (types d'événements de l'établissement)",
             Self::AgendaSemaineGerer => "Tenir la feuille de semaine de l'établissement",
+            Self::AgendaLieuxLire => "Rechercher une salle libre et consulter le planning des salles",
+            Self::AgendaLieuxReserver => "Réserver une salle",
+            Self::AgendaLieuxValider => "Valider ou refuser les demandes de salles",
+            Self::AgendaLieuxGerer => "Gérer toutes les réservations de salles",
+            Self::AgendaLieuxParametrer => "Paramétrer les règles de réservation des salles",
             Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
             Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
@@ -880,6 +906,11 @@ impl Action {
             | Self::AgendaJournalLire
             | Self::AgendaParametrer
             | Self::AgendaSemaineGerer
+            | Self::AgendaLieuxLire
+            | Self::AgendaLieuxReserver
+            | Self::AgendaLieuxValider
+            | Self::AgendaLieuxGerer
+            | Self::AgendaLieuxParametrer
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
@@ -1107,6 +1138,17 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     // direction ; types d'événements de l'établissement : administrateur.
     d.push(etab(AgendaEvenementsCreer));
     d.push(etab(AgendaLireStructure));
+    // Réservation de lieux (AG3) : lire le planning et réserver, tout le personnel ; gérer : direction,
+    // administrateur, secrétariat ; valider et paramétrer : direction, administrateur.
+    d.push(etab(AgendaLieuxLire));
+    d.push(etab(AgendaLieuxReserver));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(AgendaLieuxGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaLieuxValider));
+        d.push(etab(AgendaLieuxParametrer));
+    }
     if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
         d.push(etab(AgendaEvenementsPublier));
     }
@@ -2294,7 +2336,41 @@ mod oracle_a1 {
         for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, false), (Role::Prof, false), (Role::Administratif, false)] {
             assert_eq!(a(r, AgendaSemaineGerer), attendu, "{r:?} semaine");
         }
-        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer, AgendaSemaineGerer] {
+        // Réservation de lieux : lire et réserver pour tout le personnel ; gérer ajoute le secrétariat.
+        for r in [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Prof,
+            Role::Accueil,
+        ] {
+            assert!(a(r, AgendaLieuxLire) && a(r, AgendaLieuxReserver), "{r:?}");
+        }
+        for (r, g, v) in [
+            (Role::Admin, true, true),
+            (Role::Direction, true, true),
+            (Role::Administratif, true, false),
+            (Role::Prof, false, false),
+            (Role::Cpe, false, false),
+        ] {
+            assert_eq!(a(r, AgendaLieuxGerer), g, "{r:?} gerer");
+            assert_eq!(a(r, AgendaLieuxValider), v, "{r:?} valider");
+            assert_eq!(a(r, AgendaLieuxParametrer), v, "{r:?} parametrer");
+        }
+        for x in [
+            AgendaEvenementsCreer,
+            AgendaEvenementsPublier,
+            AgendaLireStructure,
+            AgendaJournalLire,
+            AgendaParametrer,
+            AgendaSemaineGerer,
+            AgendaLieuxLire,
+            AgendaLieuxReserver,
+            AgendaLieuxValider,
+            AgendaLieuxGerer,
+            AgendaLieuxParametrer,
+        ] {
             assert!(x.code().starts_with("agenda."));
             assert_eq!(Action::parse(x.code()), Some(x));
         }

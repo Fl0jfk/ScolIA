@@ -16,7 +16,7 @@ use domain_eleve::today_utc;
 use ent_auth::Role;
 use uuid::Uuid;
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
     let mut ent = PgEnt::connect(&url).await.expect("connect");
@@ -26,7 +26,7 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
     Some((ent, cast))
 }
 
-fn acteur(cast: &LaboCast, user: Uuid, role: Role) -> Acteur<'static> {
+pub(crate) fn acteur(cast: &LaboCast, user: Uuid, role: Role) -> Acteur<'static> {
     Acteur {
         etablissement_id: cast.etablissement_id,
         user_id: user,
@@ -34,20 +34,20 @@ fn acteur(cast: &LaboCast, user: Uuid, role: Role) -> Acteur<'static> {
     }
 }
 
-fn dir(cast: &LaboCast) -> Acteur<'static> {
+pub(crate) fn dir(cast: &LaboCast) -> Acteur<'static> {
     acteur(cast, cast.direction.user_id, Role::Direction)
 }
 
-fn adm(cast: &LaboCast) -> Acteur<'static> {
+pub(crate) fn adm(cast: &LaboCast) -> Acteur<'static> {
     acteur(cast, cast.administratif.user_id, Role::Administratif)
 }
 
-fn h(a: u32, m: u32) -> NaiveTime {
+pub(crate) fn h(a: u32, m: u32) -> NaiveTime {
     NaiveTime::from_hms_opt(a, m, 0).unwrap()
 }
 
 /// Salle de test (une salle est toujours rattachée à un site de son établissement, migration 337).
-async fn creer_salle(ent: &PgEnt, etab: Uuid, user: Uuid, code: &str) -> Uuid {
+pub(crate) async fn creer_salle(ent: &PgEnt, etab: Uuid, user: Uuid, code: &str) -> Uuid {
     sqlx::query(
         "INSERT INTO ent_site (id, etablissement_id, code, libelle) VALUES ($1,$2,'edt-t12','Site EDT T1T2')
          ON CONFLICT DO NOTHING",
@@ -73,17 +73,17 @@ async fn creer_salle(ent: &PgEnt, etab: Uuid, user: Uuid, code: &str) -> Uuid {
 }
 
 /// Cours de la classe 4B (ouvert depuis le début de l'année) et salle de test.
-struct Decor {
-    annee_id: Uuid,
-    annee_debut: NaiveDate,
-    annee_fin: NaiveDate,
-    classe_4b: Uuid,
-    cours: Uuid,
-    cours2: Uuid,
-    salle: Uuid,
+pub(crate) struct Decor {
+    pub(crate) annee_id: Uuid,
+    pub(crate) annee_debut: NaiveDate,
+    pub(crate) annee_fin: NaiveDate,
+    pub(crate) classe_4b: Uuid,
+    pub(crate) cours: Uuid,
+    pub(crate) cours2: Uuid,
+    pub(crate) salle: Uuid,
 }
 
-async fn decor(ent: &PgEnt, cast: &LaboCast) -> Decor {
+pub(crate) async fn decor(ent: &PgEnt, cast: &LaboCast) -> Decor {
     let e = cast.etablissement_id;
     let annee = ent.referentiel_annee_courante_assuree(e).await.unwrap();
     ent.ref_amorcer_grille(&adm(cast)).await.unwrap();
@@ -125,7 +125,7 @@ async fn decor(ent: &PgEnt, cast: &LaboCast) -> Decor {
     }
 }
 
-async fn creneau(
+pub(crate) async fn creneau(
     ent: &PgEnt,
     cast: &LaboCast,
     cours: Option<Uuid>,

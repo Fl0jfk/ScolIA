@@ -273,10 +273,11 @@ async fn rls_politiques_presentes_et_forcees() {
     // zones, lits, séjours, rythmes, dérogations, interdictions de contact).
     // + 10 du socle 19 (AG0 : fil des faits de rendez-vous ; AG1 : types, séries, jours, événements, audience,
     // participants, coupon et réponses, journal).
+    // + 3 du socle 19 (AG3, migration 2386 : règles par salle, réservations, faits de réservation).
     // + 6 du socle 39 (lots ST1 a, migrations 2781-2782 : paramètres, dispositifs activés, sites, contacts, périodes et leurs publics).
     // + 9 du socle 12 (AS1 et AS2, migrations 2241–2243 : motifs et leurs versions, règle datée, activités
     // appelées, historique des lignes d'appel, délégations, situations, textes et versions de situation).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9, "tables avec RLS activée et forcée");
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();
