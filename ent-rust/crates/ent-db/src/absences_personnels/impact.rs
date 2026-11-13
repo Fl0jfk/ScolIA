@@ -592,12 +592,12 @@ impl PgEnt {
 
     // ───────────────────────────── Lectures ─────────────────────────────
 
-    async fn voit_renforcees(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<bool, EntDbError> {
+    pub(super) async fn voit_renforcees(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<bool, EntDbError> {
         Ok(matches!(Role::parse(role), Some(Role::Direction))
             || self.a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesValider).await?)
     }
 
-    async fn peut_lire_organisation(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<bool, EntDbError> {
+    pub(super) async fn peut_lire_organisation(&self, etab: Uuid, actor: Uuid, role: &str) -> Result<bool, EntDbError> {
         Ok(self.a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesLireOrganisation).await?
             || self.a_droit_abs(etab, actor, role, Action::PersonnelsAbsencesLireNature).await?)
     }

@@ -553,3 +553,78 @@ pub struct BilanImpactDto {
     pub impacts: u32,
     pub a_revoir: u32,
 }
+
+// ───────────────────────────── Lot A4 : réponse et sollicitation ─────────────────────────────
+// Niveau « organisation » : aucun de ces DTO ne porte la nature, le motif ni un texte libre de l'absence ;
+// les contraintes d'un collègue ne sont jamais nommées à un autre (D-033 B, R-AP37).
+
+/// Un remplaçant possible pour un impact, avec ses raisons affichées (§11.2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PropositionDto {
+    pub agent_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nom: Option<String>,
+    /// Enseigne déjà la matière de la séance.
+    pub meme_discipline: bool,
+    /// Séances déjà tenues ce jour-là (charge de la journée).
+    pub seances_ce_jour: u32,
+    /// Équité : remplacements déjà acceptés sur l'année (les moins sollicités d'abord).
+    pub remplacements_faits: u32,
+    /// Demandes refusées ou expirées sur l'année (comptées dans l'équité).
+    pub demandes_sans_suite: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SolliciterBody {
+    pub agent_id: Uuid,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppelVolontairesBody {
+    pub agents: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefuserSollicitationBody {
+    /// Motif légitime codé : `absent` · `autre_service` · `delai` · `autre` (jamais un texte libre).
+    #[serde(default)]
+    pub refus_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnulerSeanceBody {
+    /// Sortie anticipée des élèves : refusée tant que les familles n'ont pas été prévenues (R-13, R-AP24).
+    #[serde(default)]
+    pub sortie_anticipee: bool,
+}
+
+/// Une sollicitation ou une désignation, vue de l'agent concerné (ABP-158) ou de l'organisation.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SollicitationDto {
+    pub id: Uuid,
+    pub impact_id: Uuid,
+    pub agent_id: Uuid,
+    /// `sollicitation` | `designation` | `appel_volontaires`.
+    pub mode: String,
+    /// `envoyee` · `acceptee` · `refusee` · `expiree` · `annulee` · `designee`.
+    pub etat: String,
+    pub envoyee_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expire_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repondue_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuse_le: Option<DateTime<Utc>>,
+    /// La séance à couvrir (jamais la nature de l'absence).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seance: Option<SeanceImpactDto>,
+    /// Message neutre prêt à afficher ou à envoyer : aucune nature, aucun mot exclu (R-AP41).
+    pub message: String,
+}
+
+/// Bilan d'un passage des tâches de sollicitation (expiration, alertes).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanSollicitationsDto {
+    pub expirees: u32,
+    pub accuses_manquants: u32,
+}

@@ -880,6 +880,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::absences_personnels::routes());
     let r = r.merge(crate::absences_personnels_pieces::routes());
     let r = r.merge(crate::absences_personnels_impact::routes());
+    let r = r.merge(crate::absences_personnels_reponse::routes());
     // Services d'enseignement et interventions (socle 6, lot P3 : `personnels_services.rs`).
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).

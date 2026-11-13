@@ -57,6 +57,9 @@ pub mod pieces;
 /// Lot A3 : impact, tableaux, files (migration 2304).
 pub mod impact;
 
+/// Lot A4 : réponse et sollicitation (migration 2305).
+pub mod reponse;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------
