@@ -57,6 +57,7 @@ const SEGMENTS_ELEVE_SANTE: &[&str] = &[
     "reunions",
     "amenagements",
     "contraintes",
+    "dossier-psy",
 ];
 
 /// Ce chemin donne-t-il accès à une donnée de santé ou d'accompagnement ? Seul
@@ -73,6 +74,8 @@ pub fn chemin_de_sante(chemin: &str) -> bool {
         || chemin == "/infirmerie"
         || chemin.starts_with("/infirmerie/")
         || chemin.starts_with("/pai/")
+        || chemin == "/psy"
+        || chemin.starts_with("/psy/")
     {
         return true;
     }

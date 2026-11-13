@@ -29,6 +29,7 @@ struct Cadre {
 async fn cadre() -> Option<Cadre> {
     let ent = connect_local().await?;
     let etab = Uuid::new_v4();
+    ent.activer_module_sante_test(etab).await;
     let eleve = ent
         .create_eleve(CreateEleve {
             etablissement_id: etab,

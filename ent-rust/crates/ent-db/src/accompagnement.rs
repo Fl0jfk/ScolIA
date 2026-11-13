@@ -298,6 +298,7 @@ impl PgEnt {
         role: &str,
         cmd: OuvrirDispositif,
     ) -> Result<DispositifVue, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         if !KINDS_DISPOSITIF.contains(&cmd.kind.as_str()) {
             return Err(invalide());
@@ -382,6 +383,7 @@ impl PgEnt {
         nouvelle_revision: Option<NaiveDate>,
         clore: bool,
     ) -> Result<DispositifVue, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let d = lire_dispositif(&mut tx, etab, dispositif_id).await?;
         if !self.peut_gerer_accompagnement(etab, acteur, role, d.eleve_id).await? {
@@ -450,6 +452,7 @@ impl PgEnt {
         role: &str,
         cmd: DefinirAmenagement,
     ) -> Result<Amenagement, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_accompagnement(etab, acteur, role, cmd.eleve_id).await?;
         if amenagement_du_catalogue(&cmd.code).is_none()
@@ -522,6 +525,7 @@ impl PgEnt {
         role: &str,
         amenagement_id: Uuid,
     ) -> Result<(), EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let l: Option<(Uuid,)> = sqlx::query_as(
             "SELECT eleve_id FROM ent_amenagement WHERE etablissement_id = $1 AND id = $2 AND actif",
@@ -565,6 +569,7 @@ impl PgEnt {
         role: &str,
         cmd: AffecterAesh,
     ) -> Result<AeshAffectation, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_accompagnement(etab, acteur, role, cmd.eleve_id).await?;
         let nom = court(&cmd.aesh_nom, 120)?;
@@ -616,6 +621,7 @@ impl PgEnt {
         role: &str,
         cmd: PlanifierReunion,
     ) -> Result<ReunionEquipe, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_accompagnement(etab, acteur, role, cmd.eleve_id).await?;
         if !["equipe_educative", "equipe_suivi"].contains(&cmd.kind.as_str()) {
@@ -669,6 +675,7 @@ impl PgEnt {
         reunion_id: Uuid,
         compte_rendu: &str,
     ) -> Result<(), EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let cr = court(compte_rendu, 8000)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let l: Option<(Uuid,)> = sqlx::query_as(
@@ -721,6 +728,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<DossierAccompagnement, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
         let gestion = self.peut_gerer_accompagnement(etab, acteur, role, eleve_id).await?;
         if !gestion
@@ -816,6 +824,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Vec<Amenagement>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let autorise = match parsed {
@@ -854,6 +863,7 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
     ) -> Result<Vec<AmenagementsEleve>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !self
             .a_action_quelconque(etab, acteur, role, Action::AmenagementsLire)
             .await?
@@ -928,6 +938,7 @@ impl PgEnt {
         role: &str,
         horizon_jours: i32,
     ) -> Result<Vec<DispositifARevoir>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !self
             .a_action_quelconque(etab, acteur, role, Action::AccompagnementGerer)
             .await?
