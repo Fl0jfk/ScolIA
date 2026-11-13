@@ -556,7 +556,12 @@ async fn a2_echeances_de_l_instructeur_cloisonnees_par_employeur() {
     // Une fois la pièce déposée, l'échéance disparaît.
     x.deposer(x.prof, "prof", etat, "arret").await;
     let sec = echeances(x.sec, "administratif").await.unwrap();
-    assert!(sec.iter().all(|e| e.absence_id != etat));
+    assert!(
+        sec.iter().all(|e| !(e.absence_id == etat && e.genre == "piece_manquante")),
+        "la pièce est déposée : plus de pièce manquante ({sec:?})"
+    );
+    // L'arrêt, lui, reste « à recevoir » tant que l'instructeur n'a pas noté sa réception (R-AP16).
+    assert!(sec.iter().any(|e| e.absence_id == etat && e.genre == "arret_a_recevoir"), "{sec:?}");
 }
 
 // ───────────────────────────────── Confidentialité renforcée ─────────────────────────────────

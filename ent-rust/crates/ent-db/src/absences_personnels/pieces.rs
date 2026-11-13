@@ -158,7 +158,9 @@ async fn jour_etab(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, Ent
     Ok(j)
 }
 
-/// Un gel actif suspend toute purge de l'absence (R-AP21).
+/// Un gel actif suspend toute purge de l'absence (R-AP21) : dès qu'il est posé et jusqu'à sa levée ou à sa
+/// date de fin. `du` date le début du litige, il ne retarde pas l'effet du gel (on ne détruit jamais une pièce
+/// sous contentieux).
 async fn gel_actif(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -167,7 +169,7 @@ async fn gel_actif(
 ) -> Result<bool, EntDbError> {
     let (b,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM ent_absp_gel WHERE etablissement_id = $1 AND absence_id = $2
-                          AND leve_le IS NULL AND du <= $3 AND (au IS NULL OR au >= $3))",
+                          AND leve_le IS NULL AND (au IS NULL OR au >= $3))",
     )
     .bind(etab)
     .bind(absence_id)
@@ -920,7 +922,7 @@ impl PgEnt {
         let rows: Vec<(Uuid, Uuid, String, String, Option<NaiveDate>, bool)> = sqlx::query_as(
             "SELECT p.absence_id, p.id, p.type_piece, p.etat, p.purge_prevue_le,
                     EXISTS (SELECT 1 FROM ent_absp_gel g WHERE g.etablissement_id = p.etablissement_id
-                              AND g.absence_id = p.absence_id AND g.leve_le IS NULL AND g.du <= $3
+                              AND g.absence_id = p.absence_id AND g.leve_le IS NULL
                               AND (g.au IS NULL OR g.au >= $3))
                FROM ent_absp_piece p
               WHERE p.etablissement_id = $1 AND p.etat <> 'purgee'
