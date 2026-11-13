@@ -403,6 +403,13 @@ pub enum Action {
     LocalisationPoser,
     /// Définir la règle d'assiduité de l'établissement (versions datées).
     AssiduiteRegleGerer,
+    // ── Socle 12, lot AS3 : justificatifs et autorisations (`12_ASSIDUITE.md` §10.3, §15.1, AS-125) ──
+    /// Lire les justificatifs d'absence **non médicaux** (mot des parents, convocation, attestation).
+    AbsencesJustificatifLire,
+    /// Lire les justificatifs d'absence **médicaux** (certificat) ; chaque lecture est journalisée (E7).
+    AbsencesJustificatifMedicalLire,
+    /// Décider d'une demande d'autorisation d'absence (accorder, refuser, transmettre au DASEN).
+    AbsencesAutorisationDecider,
 }
 
 /// Sur quoi une action s'applique.
@@ -427,7 +434,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 178] = [
+    pub const TOUTES: [Action; 181] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -608,6 +615,9 @@ impl Action {
         Action::AbsencesProposerQualification,
         Action::LocalisationPoser,
         Action::AssiduiteRegleGerer,
+        Action::AbsencesJustificatifLire,
+        Action::AbsencesJustificatifMedicalLire,
+        Action::AbsencesAutorisationDecider,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::PersonnelsAbsencesDeclarer,
         Action::PersonnelsAbsencesSignaler,
@@ -801,6 +811,9 @@ impl Action {
             Self::AbsencesProposerQualification => "absences.proposer_qualification",
             Self::LocalisationPoser => "localisation.poser",
             Self::AssiduiteRegleGerer => "assiduite.regle_gerer",
+            Self::AbsencesJustificatifLire => "absences.justificatif_lire",
+            Self::AbsencesJustificatifMedicalLire => "absences.justificatif_medical_lire",
+            Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
         }
     }
 
@@ -987,6 +1000,9 @@ impl Action {
             Self::AbsencesProposerQualification => "Proposer une qualification d'absence, sans la décider",
             Self::LocalisationPoser => "Localiser un élève (infirmerie, vie scolaire, CDI, entretien)",
             Self::AssiduiteRegleGerer => "Définir la règle d'assiduité de l'établissement (versions datées)",
+            Self::AbsencesJustificatifLire => "Lire les justificatifs d'absence non médicaux",
+            Self::AbsencesJustificatifMedicalLire => "Lire les justificatifs d'absence médicaux (lecture journalisée)",
+            Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
         }
     }
 
@@ -1011,6 +1027,8 @@ impl Action {
             // Socle 12 : faire l'appel de tout l'établissement inclut faire celui de ses séances.
             Self::AppelFaire => &[Self::AppelFaireTout],
             Self::AbsencesProposerQualification => &[Self::AbsencesQualifier],
+            // Socle 12 (AS3) : lire une pièce médicale permet de lire les pièces non médicales.
+            Self::AbsencesJustificatifLire => &[Self::AbsencesJustificatifMedicalLire],
             // E1 (§12.2) : seules inclusions explicites des droits « élève ».
             Self::ElevesEtatCivilLire => &[Self::ElevesIdentiteModifier],
             Self::ElevesIdentifiantsLire => &[Self::ElevesIdentifiantsGerer],
@@ -1183,6 +1201,9 @@ impl Action {
             | Self::AbsencesProposerQualification
             | Self::LocalisationPoser
             | Self::AssiduiteRegleGerer
+            | Self::AbsencesJustificatifLire
+            | Self::AbsencesJustificatifMedicalLire
+            | Self::AbsencesAutorisationDecider
             => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
@@ -1793,6 +1814,19 @@ fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AssiduiteRegleGerer));
+    }
+    // AS3 : pièces justificatives. Les pièces non médicales sont lues de la vie scolaire (comme la
+    // qualification) ; les pièces **médicales** (C3) seulement de la direction et du CPE : ni le
+    // secrétariat ni l'administrateur technique. Le professeur n'en lit aucune, jamais (R-AS19).
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(AbsencesJustificatifLire));
+    }
+    if matches!(role, Role::Direction | Role::Cpe) {
+        d.push(etab(AbsencesJustificatifMedicalLire));
+    }
+    // Décision d'autorisation d'absence (R131-5) : chef d'établissement.
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AbsencesAutorisationDecider));
     }
 }
 

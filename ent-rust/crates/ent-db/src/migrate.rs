@@ -277,6 +277,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2241_assiduite_as1_referentiels"),
     m!("2242_assiduite_as2_appel_v2"),
     m!("2243_assiduite_as2_situations"),
+    m!("2244_assiduite_as3_episodes"),
+    m!("2245_assiduite_as3_justificatifs_demandes"),
     m!("2300_absp_a0_correctifs"),
     m!("2301_absp_referentiel"),
     m!("2302_absp_absence"),

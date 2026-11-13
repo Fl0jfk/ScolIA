@@ -1113,7 +1113,7 @@ impl PgEnt {
             self.retirer_retard_tx(&mut tx, etablissement_id, appel_id, eleve_id).await?;
         }
         if avant_etat == LigneEtat::Absent && etat != LigneEtat::Absent {
-            self.retirer_absence_appel_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies).await?;
+            self.retirer_absence_appel_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies, "correction").await?;
         }
         if etat == LigneEtat::Absent && avant_etat != LigneEtat::Absent {
             self.appliquer_absent_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies).await?;
@@ -1161,8 +1161,19 @@ impl PgEnt {
         actor_user_id: &Option<String>,
         suite: Causalite,
         publies: &mut Vec<ent_events::MetierEvent>,
+        cause: &'static str,
     ) -> Result<(), EntDbError> {
         let etablissement_id = appel.etablissement_id;
+        // AS3 : les séances de l'épisode sont retirées (jamais supprimées) avant l'ancien circuit.
+        self.episode_retirer_appel_tx(
+            tx,
+            etablissement_id,
+            appel.id,
+            eleve_id,
+            cause,
+            actor_user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
+        )
+        .await?;
         let touchees: Vec<(Uuid,)> = sqlx::query_as(
             "DELETE FROM ent_absence_seance
               WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3 AND kind = 'seance'
@@ -1307,7 +1318,7 @@ impl PgEnt {
             .map_err(db)?;
             for (ligne_id, eleve_id, e) in lignes {
                 if e == "absent" {
-                    self.retirer_absence_appel_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies).await?;
+                    self.retirer_absence_appel_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies, "neutralisation").await?;
                 } else {
                     self.retirer_retard_tx(&mut tx, etablissement_id, appel_id, eleve_id).await?;
                 }
@@ -2038,7 +2049,7 @@ impl PgEnt {
 
     /// Actualise les appels encore ouverts d'un élève pour ce jour (une localisation posée à 8 h 05
     /// apparaît dans l'appel de 8 h encore ouvert).
-    async fn rafraichir_appels_ouverts_eleve(
+    pub(crate) async fn rafraichir_appels_ouverts_eleve(
         &self,
         etablissement_id: Uuid,
         eleve_id: Uuid,
