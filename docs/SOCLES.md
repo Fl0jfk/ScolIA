@@ -84,8 +84,9 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 | 49 | Paie et administration du personnel | K · Organisme | 6, 15 | A |
 | 50 | Premier degré (écoles) | L · Extensions | 2–29 | E |
 | 51 | Post-bac et apprentissage | L · Extensions | 2–29, 39 | A — **en attente (D-052, hors périmètre V1)** |
+| **N1** | **Demandes et flux de travail** (guichet unique, routage, prise en charge, HSE, reprographie) | G · Premier établissement (transverse ; requis pour la bascule de février, D-057) | 4, 6, 7, 8, 15, 29 | A (conception 2026-11-13) |
 
-**51 socles.** Fusions possibles sans perte si l'on veut viser 50 : 32 + 33 (travail collaboratif et visio), ou 43 + 44.
+**51 socles**, plus le socle nouveau **N1** (trou T-01, T-02 de la matrice, §10). Fusions possibles sans perte si l'on veut viser 50 : 32 + 33 (travail collaboratif et visio), ou 43 + 44.
 
 ---
 
@@ -380,6 +381,14 @@ Un socle est **un domaine métier entier, conçu en profondeur avant d'être cod
 - **Conception** (2026-11-11, non décidée) : `docs/socles/29_PORTAILS.md` — le 29 ne possède aucune donnée métier : **index des tâches** revérifié à chaque lecture et reconstructible (natures déclarées par chaque socle dans son kit, ouvertes et closes dans la transaction du fait), **composition** des accueils par un contrat de tuile unique (partagé avec la fiche 360° du socle 2), **recherche fédérée** et **palette** sur le registre des capacités de l'IA ; frontière avis (8) / tâche (29) ; files de travail laissées à leurs socles ; neutralité totale entre parents ; réunion multi-établissements sur l'appareil seulement ; plage calme de l'**arrêté du 7/09/2026** (20 h–7 h, week-end) appliquée à l'affichage ; 167 actions POR-100 à POR-266, 86 cas limites, 38 règles, lots P0 à P16 ; **lot P0** (annonces jamais visibles des familles sur l'accueil, accueil famille sans emploi du temps, une requête par enfant et notes téléchargées pour un compteur, tuiles commandées par le rôle fixe au lieu de D-017, profils administratifs renvoyés à `ui.rs`) et **lot P1** « démo de décembre » sans migration. Plage de migrations 2580–2599.
 - **Passe personas** (2026-11-11, non décidée ; bloquants appliqués par défaut, D-031) : `docs/socles/PERSONAS_29.md` (16 personas, 48 manques M-2900 à M-2947) ; **bloquants** : purge et expiration du cache hors ligne d'un parent au lien suspendu (R-PO33), compteurs multi-établissements par le guichet central et jamais par CORS (R-PO34), alerte de restriction de remise visible en mode discret (R-PO35), démo écrite sur le contrat de tuile (R-PO36) ; ajouts : neutralité temporelle entre parents (R-PO38), ajustements préparés de la plage calme (R-PO37), information des « choix importants » au parent sans exercice de l'autorité.
 
+#### N1. Demandes et flux de travail (socle nouveau, trous T-01 et T-02)
+- **Contient** : guichet unique « Faire une demande » (personnels, familles, élèves) ; **natures déclarées par les briques** (comme les natures d'avis du 8) et raccourcis vers les circuits déjà possédés (absences 15, salles 19, sorties 42, justificatifs 12) ; routage déterministe vers une personne, des porteurs d'action ou une **file de service** aux membres calculés depuis les missions du 6 ; file de tri désignée ; prise en charge unique, délégation, transfert, consultation, escalade ; absences (15) et départs (6) ; échanges au demandeur et notes internes ; pièces par le 7 ; délais en jours ouvrés, relances en résumé, décision implicite (EPLE, CRPA [NV]) ; confidentialité par nature (C0–C3) ; faits chaînés et dossier de preuve ; natures intégrées **HSE** (autorisation, décision, service fait attesté, heures au 15, lien futur 49 RH4) et **reprographie** (modèle du 44 §15, file par site).
+- **Dépend de** : 4, 6, 7, 8, 15, 29 (adaptateurs « source absente » prévus).
+- **Existant [F]** : rien dans le Rust ; module Next.js M04 + M08 en usage (défauts NJ-80 à NJ-95).
+- **Place** : **risque n° 1 du plan de bascule** (M04, M08, RK-1, Q-PB5) ; lots N1-0 à N1-5 avant le 20 février 2027.
+- **Faire mieux** : « qui s'en occupe et pour quand » visible du demandeur ; rien ne dort ; personne ne lit ce qui ne le regarde pas.
+- **Conception et passe personas** (2026-11-13, branche `ent-socle-N1-conception`, non décidées) : `docs/socles/N1_DEMANDES.md`, `docs/socles/PERSONAS_N1.md` — 235 actions (DEM-100 à DEM-383), 52 règles, 72 cas limites ; 16 défauts Next.js nouveaux (NJ-80 à NJ-95, dont 6 élevés : commentaire et lecture de toute demande par tout compte, détournement d'une demande d'une autre file, notes internes lues par le demandeur, pièces de toutes les files, identité du demandeur saisie par le client, contenu intégral par e-mail et à l'IA) plus NJ-77 et NJ-78 ; bloquants de la passe : conflit d'intérêts dans une file (R-DM47), restriction de dépôt (R-DM48), avis de reprise unique (R-DM49) ; lots **N1-0** (modèle et garde-fous), **N1-1** (natures et routage), **N1-2** (prise en charge, délégation, pièces), **N1-3** (HSE et reprographie), **N1-4** (écrans Leptos), **N1-5** (reprise R9), puis N1-6 à N1-9 après la bascule. **Plage de migrations 3040–3059** (la plage 3000–3019 proposée par le plan de bascule est déjà réservée au socle 50).
+
 ### Étage H — Au-dessus des domaines (ancien « socle 3 » de la roadmap)
 
 #### 30. Assistant IA et « chat first »
@@ -642,7 +651,7 @@ Ajout du 2026-11-06 (branche `ent-matrice-charlemagne`). Source : `docs/MATRICE_
 
 | Trou | Objet | Où l'ajouter [R] |
 |---|---|---|
-| T-01, T-02 | Guichet de demandes internes et familles (routage, prise en charge, délégation) ; demandes de reprographie et d'heures supplémentaires | **Nouveau socle N1** « Demandes et flux de travail » (à défaut : 29 + 31) |
+| T-01, T-02 | Guichet de demandes internes et familles (routage, prise en charge, délégation) ; demandes de reprographie et d'heures supplémentaires | **Nouveau socle N1** « Demandes et flux de travail » (à défaut : 29 + 31) — **conçu le 2026-11-13** : `docs/socles/N1_DEMANDES.md` |
 | T-03 | Construction de l'emploi du temps (génération avec contraintes) : module Emploi du temps de Charlemagne | Socle 10 (lot) ou **nouveau socle N2** ; à décider avec Q-F, **avant** J5 vu D-024. **Proposition du 2026-11-09** : socle 10, lots T6–T8b (`10_EMPLOI_DU_TEMPS.md` §11, Q-EDT1) |
 | T-04, T-05 | Paie et comptabilité d'organisme : modules Paie et Comptabilité de Charlemagne | Socles 49 et 48 conservés ; Q-B et Q-C à trancher plus tôt (la checklist les classait « DROP ») |
 | T-06 | Santé et sécurité au travail (registre, médecine du travail, habilitations obligatoires) | Socle 49 (sous-domaine) |
