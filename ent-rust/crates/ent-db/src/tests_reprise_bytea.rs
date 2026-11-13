@@ -69,6 +69,7 @@ async fn monde(ent: &PgEnt) -> Monde {
         )
         .await
         .expect("fil");
+    ent.activer_module_sante_test(etab).await;
     let pai = ent
         .upsert_pai_for_actor(
             Role::Infirmerie.as_str(),

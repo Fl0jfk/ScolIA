@@ -41,6 +41,7 @@ const TOUS_SENTINELLES: [&str; 9] = [
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { e.install_brain_p0(); }).await;
+    ent.activer_module_sante_test(cast.etablissement_id).await;
     Some((ent, cast))
 }
 
@@ -948,6 +949,7 @@ async fn isolation_des_etablissements_et_rls_des_nouvelles_tables() {
 
     // Autre établissement : son infirmière ne voit rien, ne peut rien écrire sur cet élève.
     let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    ent.activer_module_sante_test(autre.etablissement_id).await;
     assert_ne!(autre.etablissement_id, etab);
     let (ai, ar) = (autre.infirmieres[0].user_id, "infirmerie");
     assert!(ent.fiche_urgence_for_actor(autre.etablissement_id, ai, ar, lea).await.is_err());

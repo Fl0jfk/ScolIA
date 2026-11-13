@@ -128,6 +128,27 @@ impl PgEnt {
     /// Crée un établissement jetable + école dense qui se teste entre elle.
     pub async fn seed_labo_cast(&self) -> Result<LaboCast, EntDbError> {
         let etab = Uuid::new_v4();
+        // Le semis joue des gestes de santé / psychologie : le verrou « module santé » (D-02,
+        // audit n° 1) est levé le temps du semis, puis l'établissement revient à l'état par
+        // défaut (désactivé) — ce que les tests de refus par défaut supposent.
+        let regler = |actif: bool| async move {
+            sqlx::query(
+                "INSERT INTO ent_module_etablissement (etablissement_id, module, actif)
+                 VALUES ($1, 'sante', $2)
+                 ON CONFLICT (etablissement_id, module) DO UPDATE SET actif = EXCLUDED.actif",
+            )
+            .bind(etab)
+            .bind(actif)
+            .execute(self.pool())
+            .await
+        };
+        regler(true).await?;
+        let r = self.seed_labo_cast_etab(etab).await;
+        regler(false).await?;
+        r
+    }
+
+    async fn seed_labo_cast_etab(&self, etab: Uuid) -> Result<LaboCast, EntDbError> {
         let suffix = etab.simple().to_string();
         let short = &suffix[..8];
         // Messagerie (M0b, D24) : le labo reste déterministe à toute heure ; la plage calme

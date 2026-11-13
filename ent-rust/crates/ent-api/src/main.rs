@@ -413,6 +413,12 @@ async fn run_api() {
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_secs(90)).await;
             loop {
+                // Impact des absences à venir : rattrape une nouvelle version d'EDT (CAP-46).
+                match ent.recalculer_impacts_a_venir().await {
+                    Ok(b) if b.a_revoir > 0 => tracing::info!(?b, "impacts d'absences à revoir"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("recalcul des impacts d'absences : {e}"),
+                }
                 match ent.purger_echeances(None).await {
                     Ok(b) if b.pieces_purgees > 0 || b.messages_supprimes > 0 => {
                         tracing::info!(?b, "purge des pièces d'absences de personnel")

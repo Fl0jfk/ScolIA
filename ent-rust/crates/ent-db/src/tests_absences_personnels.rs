@@ -2418,3 +2418,437 @@ async fn rejouer_2302(x: &Cadre) {
         .await
         .expect("rejeu de la migration 2302");
 }
+
+// ═══════════════════════════════════════════════ LOT A3 : IMPACT ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : impact juste sur CAP-05, 06, 25, 26, 27 et 46 ; tableau « ce matin » ; le 15
+// n'écrit jamais dans les tables du 10 (il lit le port `edt_seances`).
+
+impl Cadre {
+    /// Une séance datée du socle 10 pour `creneau`, le jour ISO `iso` de la semaine du cadre (insérée comme le
+    /// ferait la génération : le test ne dépend pas de la chaîne de reprise de l'EDT).
+    async fn seance(&self, creneau: Uuid, prof: Uuid, iso: i64, d: (u32, u32), f: (u32, u32), etat: &str) -> Uuid {
+        let annee: Uuid = sqlx::query_scalar(
+            "SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 ORDER BY date_debut DESC LIMIT 1",
+        )
+        .bind(self.etab)
+        .fetch_one(self.ent.pool())
+        .await
+        .unwrap();
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_edt_seance (id, etablissement_id, annee_id, creneau_id, jour, classe_id, classe, prof_user_id,
+                    matiere_libelle, heure_debut, heure_fin, etat, statut, origine)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Mathématiques',$9,$10,$11,'prevue','plan')
+             ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET prof_user_id = $8, etat = $11, id = ent_edt_seance.id",
+        )
+        .bind(id)
+        .bind(self.etab)
+        .bind(annee)
+        .bind(creneau)
+        .bind(self.jour(iso))
+        .bind(self.classe_id)
+        .bind(&self.classe)
+        .bind(prof)
+        .bind(t(d.0, d.1))
+        .bind(t(f.0, f.1))
+        .bind(etat)
+        .execute(self.ent.pool())
+        .await
+        .expect("séance");
+        sqlx::query_scalar("SELECT id FROM ent_edt_seance WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3")
+            .bind(self.etab)
+            .bind(creneau)
+            .bind(self.jour(iso))
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap()
+    }
+
+    /// Pose l'état d'une séance comme le feront les lots T3/T4 du socle 10 (`neutralisee`, `non_assuree`…) : le
+    /// déclencheur historique dérive `etat` de `statut`, on l'écarte le temps de l'écriture.
+    async fn forcer_etat_seance(&self, id: Uuid, etat: &str) {
+        let mut tx = self.ent.pool_verif().begin().await.unwrap();
+        sqlx::query("ALTER TABLE ent_edt_seance DISABLE TRIGGER ent_edt_seance_derive_tg")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE ent_edt_seance SET etat = $2 WHERE id = $1")
+            .bind(id)
+            .bind(etat)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("ALTER TABLE ent_edt_seance ENABLE TRIGGER ent_edt_seance_derive_tg")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    async fn impacts(&self, absence: Uuid) -> Vec<ImpactDto> {
+        self.ent
+            .impact_absence_for_actor(self.etab, self.dir, "direction", absence)
+            .await
+            .unwrap_or_else(|e| panic!("impact refusé : {e:?}"))
+    }
+}
+
+fn heures(i: &[ImpactDto]) -> Vec<(u32, u32)> {
+    use chrono::Timelike;
+    let mut v: Vec<(u32, u32)> = i
+        .iter()
+        .filter_map(|x| x.seance.as_ref())
+        .map(|s| (s.heure_debut.hour(), s.heure_debut.minute()))
+        .collect();
+    v.sort();
+    v
+}
+
+/// CAP-05 : absence d'une demi-journée seulement : ne touche que les séances de l'après-midi. Le DTO ne porte
+/// ni nature ni motif ; l'organisation et l'agent le lisent, un collègue non.
+#[tokio::test]
+async fn a3_cap05_absence_d_apres_midi_ne_touche_que_l_apres_midi() {
+    let x = cadre!();
+    for (iso_h, f) in [((9, 0), (10, 0)), ((14, 0), (15, 0)), ((16, 0), (17, 0))] {
+        let c = x.creneau(&x.classe, x.prof, 1, iso_h, f).await;
+        x.seance(c, x.prof, 1, iso_h, f, "prevue").await;
+    }
+    let d = x
+        .ent
+        .declarer_absence_for_actor(
+            x.etab,
+            x.prof,
+            "prof",
+            &DeclarerAbsenceBody {
+                nature_code: Some("maladie".into()),
+                debut: x.jour(1),
+                fin: x.jour(1),
+                heure_debut: Some(t(13, 30)),
+                heure_fin: Some(t(17, 0)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let abs = d.absences[0].id;
+    let i = x.impacts(abs).await;
+    assert_eq!(heures(&i), vec![(14, 0), (16, 0)], "{i:?}");
+    assert!(i.iter().all(|x| x.etat == "a_traiter" && !x.a_revoir));
+    let json = serde_json::to_string(&i).unwrap();
+    for interdit in ["maladie", "nature", "motif", "traitement"] {
+        assert!(!json.contains(interdit), "« {interdit} » dans l'impact : {json}");
+    }
+    // Lecture : l'organisation (CPE), l'agent ; pas un collègue ni l'administrateur technique.
+    assert!(x.ent.impact_absence_for_actor(x.etab, x.cpe, "cpe", abs).await.is_ok());
+    assert!(x.ent.impact_absence_for_actor(x.etab, x.prof, "prof", abs).await.is_ok());
+    for (u, r) in [(x.prof2, "prof"), (x.admin, "admin")] {
+        let e = x.ent.impact_absence_for_actor(x.etab, u, r, abs).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{r} : {e:?}");
+    }
+}
+
+/// CAP-06 : absence discontinue (un rendez-vous chaque lundi matin pendant un mois) : une absence, quatre
+/// plages ; seules les séances de ces plages sont touchées — ni les autres jours, ni l'après-midi.
+#[tokio::test]
+async fn a3_cap06_absence_discontinue_touche_l_union_des_plages() {
+    let x = cadre!();
+    let lundi_matin = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let mardi = x.creneau(&x.classe, x.prof, 2, (9, 0), (10, 0)).await;
+    let lundi_pm = x.creneau(&x.classe, x.prof, 1, (14, 0), (15, 0)).await;
+    for semaine in 0..4i64 {
+        // La séance du lundi matin de chaque semaine, celle du lundi après-midi et celle du mardi.
+        x.seance(lundi_matin, x.prof, 1 + 7 * semaine, (9, 0), (10, 0), "prevue").await;
+        x.seance(lundi_pm, x.prof, 1 + 7 * semaine, (14, 0), (15, 0), "prevue").await;
+        x.seance(mardi, x.prof, 2 + 7 * semaine, (9, 0), (10, 0), "prevue").await;
+    }
+    let plages: Vec<PlageBody> = (0..4i64)
+        .map(|s| PlageBody { debut: x.jour(1 + 7 * s), fin: x.jour(1 + 7 * s), heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 0)) })
+        .collect();
+    let d = x
+        .ent
+        .declarer_absence_for_actor(
+            x.etab,
+            x.prof,
+            "prof",
+            &DeclarerAbsenceBody {
+                nature_code: Some("maladie".into()),
+                debut: x.jour(1),
+                fin: x.jour(22),
+                plages,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(d.absences.len(), 1, "une seule absence, quatre plages");
+    let i = x.impacts(d.absences[0].id).await;
+    assert_eq!(i.len(), 4, "{i:?}");
+    assert!(heures(&i).iter().all(|h| *h == (9, 0)));
+    let jours: Vec<NaiveDate> = i.iter().map(|x| x.seance.as_ref().unwrap().jour).collect();
+    assert!((0..4i64).all(|s| jours.contains(&x.jour(1 + 7 * s))), "{jours:?}");
+    // Rien n'est écrit dans les tables du socle 10 : les séances sont inchangées.
+    let touchees: i64 = x.compter("SELECT count(*) FROM ent_edt_seance WHERE etablissement_id = $1 AND etat <> 'prevue'").await;
+    assert_eq!(touchees, 0, "le 15 n'écrit jamais dans le 10");
+}
+
+/// CAP-25 : absence d'un co-enseignant : la séance n'est pas touchée si l'autre intervenant en saisie est
+/// présent (R-AP25) ; elle l'est si l'autre est absent lui aussi.
+#[tokio::test]
+async fn a3_cap25_co_enseignement_l_autre_intervenant_present_suffit() {
+    let x = cadre!();
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let s = x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    let co = x.agent(x.prof2).await;
+    sqlx::query(
+        "INSERT INTO ent_edt_seance_intervenant (seance_id, etablissement_id, agent_id, nature, saisie) VALUES ($1,$2,$3,'ajoute',true)",
+    )
+    .bind(s)
+    .bind(x.etab)
+    .bind(co)
+    .execute(x.ent.pool())
+    .await
+    .unwrap();
+    let a1 = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    assert!(x.impacts(a1).await.is_empty(), "le co-enseignant est présent : séance non touchée");
+    // Le co-enseignant est absent à son tour : la séance n'a plus personne.
+    let a2 = x.declarer(x.prof2, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    x.valider(a2).await;
+    let i = x.impacts(a1).await;
+    assert_eq!(i.len(), 1, "{i:?}");
+    // Et l'inverse : le titulaire est absent (validé) ; l'impact du co-enseignant porte la séance.
+    x.valider(a1).await;
+    assert_eq!(x.impacts(a2).await.len(), 1);
+}
+
+/// CAP-26 : séance neutralisée par le 10 (sortie de toute la classe) : impact « sans objet », pas à couvrir.
+/// CAP-27 : pendant les vacances (aucune séance) : aucun impact, mais l'absence existe (organisation, paie).
+#[tokio::test]
+async fn a3_cap26_cap27_sortie_de_la_classe_et_vacances() {
+    let x = cadre!();
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let s = x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    x.forcer_etat_seance(s, "neutralisee").await;
+    let a = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    let i = x.impacts(a).await;
+    assert_eq!(i.len(), 1);
+    assert_eq!(i[0].etat, "sans_objet", "CAP-26 : {i:?}");
+    // CAP-27 : un jour sans séance (vacances) : aucun impact ; l'absence reste visible de l'organisation.
+    let v = x.declarer(x.prof2, "prof", Some("maladie"), 3, 3).await.absences[0].id;
+    assert!(x.impacts(v).await.is_empty());
+    let org = x.ent.absences_organisation_for_actor(x.etab, x.dir, "direction", x.jour(3), x.jour(3)).await.unwrap();
+    assert!(org.iter().any(|o| o.id == v), "l'absence existe pour la paie et l'organisation");
+}
+
+/// CAP-46 : nouvelle version d'EDT : le recalcul conserve l'état et la réponse des séances qui ont gardé leur
+/// identité ; celles qui ont disparu avec une réponse posée sont SIGNALÉES ; une séance sans réponse disparue
+/// est simplement retirée ; une séance nouvelle devient « à traiter ».
+#[tokio::test]
+async fn a3_cap46_nouvelle_version_d_edt_conserve_signale_et_recalcule() {
+    let x = cadre!();
+    let c1 = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let c2 = x.creneau(&x.classe, x.prof, 1, (10, 0), (11, 0)).await;
+    let c3 = x.creneau(&x.classe, x.prof, 1, (11, 0), (12, 0)).await;
+    let s1 = x.seance(c1, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    let s2 = x.seance(c2, x.prof, 1, (10, 0), (11, 0), "prevue").await;
+    let _s3 = x.seance(c3, x.prof, 1, (11, 0), (12, 0), "prevue").await;
+    let a = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    assert_eq!(x.impacts(a).await.len(), 3);
+    // Réponses posées (le lot A4 les posera ; ici on les simule en base) : s1 sollicitée, s2 en continuité
+    // avec une réponse active.
+    sqlx::query("UPDATE ent_absp_impact SET etat = 'sollicite' WHERE etablissement_id = $1 AND seance_id = $2")
+        .bind(x.etab)
+        .bind(s1)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let imp2: Uuid = sqlx::query_scalar("SELECT id FROM ent_absp_impact WHERE etablissement_id = $1 AND seance_id = $2")
+        .bind(x.etab)
+        .bind(s2)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    let rep = Uuid::new_v4();
+    sqlx::query("INSERT INTO ent_absp_reponse (id, etablissement_id, impact_id, type, posee_par_user_id) VALUES ($1,$2,$3,'continuite',$4)")
+        .bind(rep).bind(x.etab).bind(imp2).bind(x.dir).execute(x.ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_absp_impact SET etat = 'continuite', reponse_active_id = $3 WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab).bind(imp2).bind(rep).execute(x.ent.pool()).await.unwrap();
+    // Nouvelle version d'EDT : s1 garde son identité ; s2 et s3 disparaissent (retirées) ; une séance nouvelle
+    // apparaît à 14 h.
+    for s in [s2, _s3] {
+        sqlx::query("UPDATE ent_edt_seance SET etat = 'retiree', statut = 'retiree', retiree_le = now() WHERE id = $1")
+            .bind(s).execute(x.ent.pool()).await.unwrap();
+    }
+    let c4 = x.creneau(&x.classe, x.prof, 1, (14, 0), (15, 0)).await;
+    x.seance(c4, x.prof, 1, (14, 0), (15, 0), "prevue").await;
+    let i = x.impacts(a).await;
+    let par_heure = |h: (u32, u32)| i.iter().find(|x| x.seance.as_ref().is_some_and(|s| (s.heure_debut.hour(), s.heure_debut.minute()) == h));
+    use chrono::Timelike;
+    assert_eq!(par_heure((9, 0)).map(|x| (x.etat.as_str(), x.a_revoir)), Some(("sollicite", false)), "{i:?}");
+    assert_eq!(par_heure((14, 0)).map(|x| (x.etat.as_str(), x.a_revoir)), Some(("a_traiter", false)), "{i:?}");
+    // La séance retirée avec une réponse posée est conservée et signalée ; sans réponse, elle disparaît.
+    let signalee: Option<(String, bool)> =
+        sqlx::query_as("SELECT etat, a_revoir FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+            .bind(x.etab).bind(imp2).fetch_optional(x.ent.pool()).await.unwrap();
+    assert_eq!(signalee, Some(("continuite".to_string(), true)), "réponse conservée et signalée");
+    let restantes: i64 = x
+        .compter("SELECT count(*) FROM ent_absp_impact WHERE etablissement_id = $1")
+        .await;
+    assert_eq!(restantes, 3, "s1, s2 (signalée), s4 : la séance retirée sans réponse a disparu");
+    // Idempotent : un second recalcul ne change rien.
+    let avant = x.impacts(a).await;
+    let apres = x.impacts(a).await;
+    assert_eq!(avant, apres);
+}
+
+/// Reprise des liens : un remplacement posé par l'écran existant (exception liée à l'absence) donne l'état
+/// « remplacé » et une réponse reprise ; la levée de l'exception rend la séance « à traiter ».
+#[tokio::test]
+async fn a3_un_remplacement_deja_pose_est_repris_comme_reponse() {
+    let x = cadre!();
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    let a = x.declarer(x.prof, "prof", Some("convenance"), 1, 1).await.absences[0].id;
+    x.valider(a).await;
+    assert_eq!(x.impacts(a).await[0].etat, "a_traiter");
+    x.ent
+        .edt_organiser_remplacement(
+            &x.d(),
+            &CmdRemplacement {
+                creneau_id: c,
+                jour: x.jour(1),
+                remplacant_user_id: x.prof2,
+                absence_rh_id: Some(a),
+                nouvelle_salle: None,
+            },
+        )
+        .await
+        .unwrap();
+    let i = x.impacts(a).await;
+    assert_eq!(i[0].etat, "remplace", "{i:?}");
+    let (n, ref_ok): (i64, bool) = sqlx::query_as(
+        "SELECT count(*), bool_and(modification_edt_ref IS NOT NULL AND type = 'remplacement') FROM ent_absp_reponse
+          WHERE etablissement_id = $1 AND etat = 'active'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((n, ref_ok), (1, true));
+    // Idempotent : pas de seconde réponse.
+    x.impacts(a).await;
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_reponse WHERE etablissement_id = $1").await, 1);
+    // L'exception disparaît (levée) : la réponse reprise est levée, la séance redevient à traiter.
+    assert!(x.ent.edt_lever_exception(&x.d(), c, x.jour(1)).await.unwrap());
+    let i = x.impacts(a).await;
+    assert_eq!(i[0].etat, "a_traiter", "{i:?}");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_reponse WHERE etablissement_id = $1 AND etat = 'active'").await, 0);
+}
+
+/// Tableau « ce matin » : impacts par heure et par état, absents du jour ; confidentialité renforcée : la
+/// vie scolaire voit « séance à couvrir » sans le nom ; aucune nature nulle part ; compteurs du tableau de bord.
+#[tokio::test]
+async fn a3_tableau_ce_matin_compteurs_et_confidentialite() {
+    let x = cadre!();
+    let c1 = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let c2 = x.creneau(&x.classe, x.prof2, 1, (10, 0), (11, 0)).await;
+    x.seance(c1, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    x.seance(c2, x.prof2, 1, (10, 0), (11, 0), "prevue").await;
+    let a1 = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    let a2 = x.declarer(x.prof2, "prof", Some("convenance"), 1, 1).await.absences[0].id;
+    let jour = x.jour(1);
+    let tab = x.ent.tableau_jour_for_actor(x.etab, x.cpe, "cpe", jour).await.unwrap();
+    assert_eq!(tab.lignes.len(), 2, "deux heures : 9 h et 10 h");
+    assert_eq!(tab.lignes.iter().map(|l| l.impacts.len()).sum::<usize>(), 2);
+    assert_eq!(tab.compteurs.a_traiter, 2);
+    assert_eq!(tab.absents.len(), 2);
+    assert!(tab.lignes.iter().flat_map(|l| &l.impacts).all(|i| i.agent_label.is_some()));
+    let json = serde_json::to_string(&tab).unwrap();
+    for interdit in ["maladie", "convenance", "nature", "motif"] {
+        assert!(!json.contains(interdit), "« {interdit} » dans le tableau : {json}");
+    }
+    // Confidentialité renforcée sur a1 : le CPE ne voit plus le nom, ni l'absent ; la direction voit tout.
+    x.ent.definir_confidentialite_renforcee_for_actor(x.etab, x.dir, "direction", a1, true).await.unwrap();
+    let tab = x.ent.tableau_jour_for_actor(x.etab, x.cpe, "cpe", jour).await.unwrap();
+    assert_eq!(tab.lignes.iter().map(|l| l.impacts.len()).sum::<usize>(), 2, "la séance reste à couvrir");
+    let sans_nom = tab.lignes.iter().flat_map(|l| &l.impacts).filter(|i| i.agent_label.is_none()).count();
+    assert_eq!(sans_nom, 1, "un seul impact sans nom : celui de l'absence renforcée");
+    assert_eq!(tab.absents.len(), 1);
+    assert!(x.ent.impact_absence_for_actor(x.etab, x.cpe, "cpe", a1).await.is_err());
+    let tab = x.ent.tableau_jour_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert!(tab.lignes.iter().flat_map(|l| &l.impacts).all(|i| i.agent_label.is_some()));
+    // Droits : ni le professeur, ni l'accueil ; fenêtre bornée.
+    for (u, r) in [(x.prof, "prof"), (x.accueil, "accueil")] {
+        let e = x.ent.tableau_jour_for_actor(x.etab, u, r, jour).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    let e = x.ent.tableau_jour_for_actor(x.etab, x.dir, "direction", today_utc() + Duration::days(60)).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    // Compteurs : la direction voit les absences à valider.
+    let c = x.ent.compteurs_tableau_de_bord_for_actor(x.etab, x.dir, "direction").await.unwrap();
+    assert!(c.a_valider >= 1, "{c:?}");
+    // File à traiter (instructeur de l'État) : la maladie d'un agent de l'État, une fois prise en compte.
+    x.valider(a1).await;
+    let f = x.ent.file_a_traiter_for_actor(x.etab, x.sec, "administratif").await.unwrap();
+    assert!(f.iter().any(|a| a.id == a1), "{f:?}");
+    assert!(x.ent.file_a_traiter_for_actor(x.etab, x.prof, "prof").await.is_err());
+    let _ = a2;
+}
+
+/// ABP-172 « prochaine étape », ABP-189 « sans objet », ABP-272 interrupteur « EDT de référence ».
+#[tokio::test]
+async fn a3_prochaine_etape_sans_objet_et_interrupteur_edt() {
+    let x = cadre!();
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    let a = x.declarer(x.prof, "prof", Some("convenance"), 1, 1).await.absences[0].id;
+    let e = x.ent.prochaine_etape_for_actor(x.etab, x.prof, "prof", a).await.unwrap();
+    assert_eq!((e.acteur.as_str(), e.action.as_str()), ("valideur", "valider"));
+    assert!(x.ent.prochaine_etape_for_actor(x.etab, x.prof2, "prof", a).await.is_err(), "hors cercle");
+    // « Sans objet » : à traiter seulement, droit d'organiser l'EDT + lecture d'organisation, journalisé.
+    let imp = x.impacts(a).await[0].id;
+    for (u, r) in [(x.prof, "prof"), (x.admin, "admin"), (x.accueil, "accueil")] {
+        let e = x.ent.marquer_impact_sans_objet_for_actor(x.etab, u, r, imp).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    let r = x.ent.marquer_impact_sans_objet_for_actor(x.etab, x.dir, "direction", imp).await.unwrap();
+    assert_eq!(r.etat, "sans_objet");
+    let e = x.ent.marquer_impact_sans_objet_for_actor(x.etab, x.dir, "direction", imp).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "déjà sans objet : {e:?}");
+    // Interrupteur : refusé sans le droit ; à la pose, l'EDT doit avoir des séances dans les 14 jours.
+    let e = x.ent.definir_edt_reference_for_actor(x.etab, x.sec, "administratif", true).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    assert!(!x.ent.edt_reference_for_actor(x.etab, x.dir, "direction").await.unwrap().actif);
+    sqlx::query("UPDATE ent_edt_seance SET jour = ent_aujourdhui_etab($1, now()) + 60 WHERE etablissement_id = $1")
+        .bind(x.etab).execute(x.ent.pool()).await.unwrap();
+    let e = x.ent.definir_edt_reference_for_actor(x.etab, x.dir, "direction", true).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "aucune séance dans les 14 jours : {e:?}");
+    sqlx::query("UPDATE ent_edt_seance SET jour = ent_aujourdhui_etab($1, now()) + 2 WHERE etablissement_id = $1")
+        .bind(x.etab).execute(x.ent.pool()).await.unwrap();
+    let r = x.ent.definir_edt_reference_for_actor(x.etab, x.dir, "direction", true).await.unwrap();
+    assert!(r.actif && r.pose_par_user_id == Some(x.dir));
+    assert!(x.ent.edt_reference_for_actor(x.etab, x.cpe, "cpe").await.unwrap().actif);
+    assert!(!x.ent.definir_edt_reference_for_actor(x.etab, x.dir, "direction", false).await.unwrap().actif);
+}
+
+/// Cloisonnement d'établissement et tâche planifiée : l'impact d'un établissement n'est lisible d'aucun autre ;
+/// le recalcul planifié passe sur les absences à venir sans erreur et est idempotent.
+#[tokio::test]
+async fn a3_cloisonnement_et_recalcul_planifie() {
+    let x = cadre!();
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    let a = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    let autre = Uuid::new_v4();
+    let dir_b = compte(&x.ent, autre, "direction").await;
+    let e = x.ent.impact_absence_for_actor(autre, dir_b, "direction", a).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    assert!(x.ent.tableau_jour_for_actor(autre, dir_b, "direction", x.jour(1)).await.unwrap().lignes.is_empty());
+    let b1 = x.ent.recalculer_impacts_a_venir().await.unwrap();
+    assert!(b1.absences >= 1, "{b1:?}");
+    let avant = x.impacts(a).await;
+    x.ent.recalculer_impacts_a_venir().await.unwrap();
+    assert_eq!(x.impacts(a).await, avant, "idempotent");
+    // Une absence annulée ne touche plus rien : ses impacts sans réponse disparaissent.
+    x.ent.annuler_absence_for_actor(x.etab, x.prof, "prof", a, &DecisionBody::default()).await.unwrap();
+    assert!(x.impacts(a).await.is_empty());
+}

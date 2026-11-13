@@ -262,6 +262,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absp_decision", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_decision_externe", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_gel", "personnels_absences", Portee::Etablissement).perso().export(),
+    t("ent_absp_impact", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_journal", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_message", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_nature", "personnels_absences", Portee::Etablissement).exc(Exception::EtabNullable, "natures fournies par ScolIA (etablissement_id NULL autorisé, aucune donnée de personne), propres à l'établissement sinon"),
@@ -270,6 +271,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absp_piece", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_piece_lecture", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_plage", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_reponse", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_adresse_protegee", "dossier_personnes", Portee::Etablissement).perso().export(),
     t("ent_aesh_affectation", "sante", Portee::Etablissement).perso().sante().export(),
     // Socle 29 (lot P2) : l'index des tâches est une PROJECTION reconstructible (§8.10, R-PO24) :

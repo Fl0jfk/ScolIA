@@ -507,6 +507,7 @@ impl PgEnt {
         cmd: UpsertPai,
         extras: Option<ExtrasPai>,
     ) -> Result<Pai, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let (etab, acteur, eleve_id, actif) =
             (cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id, cmd.actif);
         self.exiger_sante(etab, acteur, role, Action::SanteSaisir, eleve_id)
@@ -600,6 +601,7 @@ impl PgEnt {
         partie: &str,
         signataire_nom: Option<&str>,
     ) -> Result<PaiComplet, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         self.signer_pai_version_for_actor(etab, acteur, role, eleve_id, partie, signataire_nom, None)
             .await
     }
@@ -618,6 +620,7 @@ impl PgEnt {
         signataire_nom: Option<&str>,
         version_attendue: Option<i32>,
     ) -> Result<PaiComplet, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !PARTIES_PAI.contains(&partie) {
             return Err(invalide());
         }
@@ -747,6 +750,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<Option<PaiComplet>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let Some(pai) = self.get_pai_for_actor(etab, acteur, role, eleve_id).await? else {
             return Ok(None);
         };
@@ -812,6 +816,7 @@ impl PgEnt {
         role: &str,
         horizon_jours: i32,
     ) -> Result<Vec<PaiARevoir>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !self.a_action_quelconque(etab, acteur, role, Action::SanteLire).await? {
             return Err(EntDbError::Forbidden);
         }
@@ -859,6 +864,7 @@ impl PgEnt {
         role: &str,
         cmd: PublierContrainte,
     ) -> Result<ContraintePubliee, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_sante(etab, acteur, role, Action::SanteSaisir, cmd.eleve_id)
             .await?;
@@ -910,6 +916,7 @@ impl PgEnt {
         role: &str,
         contrainte_id: Uuid,
     ) -> Result<(), EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let mut tx = tenant(self.pool(), etab).await?;
         let ligne: Option<(Uuid,)> = sqlx::query_as(
             "SELECT eleve_id FROM ent_contrainte_publiee
@@ -983,6 +990,7 @@ impl PgEnt {
         eleve_id: Uuid,
         audience: Option<Audience>,
     ) -> Result<Vec<ContraintePubliee>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
         let sante = self
             .est_personnel_sante(etab, acteur, role, Action::SanteLire, eleve_id)
@@ -1031,6 +1039,7 @@ impl PgEnt {
         role: &str,
         audience: Audience,
     ) -> Result<Vec<ContraintesEleve>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !self.audience_autorisee(etab, acteur, role, audience).await? {
             return Err(EntDbError::Forbidden);
         }
@@ -1103,6 +1112,7 @@ impl PgEnt {
         role: &str,
         cmd: NouveauPassage,
     ) -> Result<PassageSante, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_sante(etab, acteur, role, Action::SanteSaisir, cmd.eleve_id)
             .await?;
@@ -1170,6 +1180,7 @@ impl PgEnt {
         role: &str,
         cmd: ClorePassage,
     ) -> Result<PassageSante, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         let courant = self.lire_passage(etab, cmd.passage_id).await?;
         self.exiger_sante(etab, acteur, role, Action::SanteSaisir, courant.eleve_id)
@@ -1248,6 +1259,7 @@ impl PgEnt {
         role: &str,
         passage_id: Uuid,
     ) -> Result<PassageSante, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let p = self.lire_passage(etab, passage_id).await?;
         self.exiger_sante(etab, acteur, role, Action::SanteSaisir, p.eleve_id)
             .await?;
@@ -1316,6 +1328,7 @@ impl PgEnt {
         eleve_id: Option<Uuid>,
         jour: Option<NaiveDate>,
     ) -> Result<Vec<PassageSante>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let personnel = match eleve_id {
             Some(e) => self.est_personnel_sante(etab, acteur, role, Action::SanteLire, e).await?,
@@ -1396,6 +1409,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
     ) -> Result<FicheUrgence, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         self.exiger_eleve_existe(etab, eleve_id).await?;
         let complet = self
             .est_personnel_sante(etab, acteur, role, Action::SanteLire, eleve_id)
@@ -1528,6 +1542,7 @@ impl PgEnt {
         acteur: Uuid,
         role: &str,
     ) -> Result<Vec<ProtocoleSante>, EntDbError> {
+        self.exiger_module_sante(etab).await?;
         if !self.a_action_etablissement(etab, acteur, role, Action::SanteLire).await? {
             return Err(EntDbError::Forbidden);
         }
@@ -1550,6 +1565,7 @@ impl PgEnt {
         role: &str,
         cmd: EnregistrerProtocole,
     ) -> Result<ProtocoleSante, EntDbError> {
+        self.exiger_module_sante(cmd.etablissement_id).await?;
         let etab = cmd.etablissement_id;
         self.exiger_action_etab(etab, acteur, role, Action::SanteSaisir).await?;
         let titre = texte(&cmd.titre, 120)?;

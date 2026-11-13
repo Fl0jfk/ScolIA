@@ -70,3 +70,35 @@ impl PgEnt {
         Ok(actif)
     }
 }
+
+impl PgEnt {
+    /// Verrou « pas de santé sans HDS » **dans la couche métier** (audit D-02) : toute fonction
+    /// qui lit ou écrit une donnée de santé, d'accompagnement ou de psychologie l'appelle en
+    /// premier, de sorte qu'une nouvelle route HTTP ou un autre module ne puisse pas y échapper.
+    /// Module inactif (ou absent) : `Forbidden`. Erreur de lecture : refus (fermé par défaut).
+    pub async fn exiger_module_sante(&self, etablissement_id: Uuid) -> Result<(), EntDbError> {
+        if self.module_sante_actif(etablissement_id).await? {
+            Ok(())
+        } else {
+            Err(EntDbError::Forbidden)
+        }
+    }
+}
+
+#[cfg(test)]
+impl PgEnt {
+    /// Tests : active le module santé d'un établissement sans acteur (le verrou D-02 le demande).
+    pub(crate) async fn activer_module_sante_test(&self, etablissement_id: Uuid) {
+        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.expect("tx");
+        sqlx::query(
+            "INSERT INTO ent_module_etablissement (etablissement_id, module, actif)
+             VALUES ($1, 'sante', true)
+             ON CONFLICT (etablissement_id, module) DO UPDATE SET actif = true",
+        )
+        .bind(etablissement_id)
+        .execute(&mut *tx)
+        .await
+        .expect("activation module santé");
+        tx.commit().await.expect("commit");
+    }
+}
