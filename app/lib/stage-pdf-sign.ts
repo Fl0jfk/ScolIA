@@ -211,6 +211,29 @@ async function saveConventionPdfBytes(convention: StageConvention, pdfBytes: Uin
 }
 
 /**
+ * Copie le PDF principal actuel à côté (…-avant-papier-<date>.pdf) avant qu'il soit remplacé.
+ * Renvoie la clé de la copie, ou null s'il n'y avait pas de PDF.
+ */
+export async function backupConventionPdf(convention: StageConvention): Promise<string | null> {
+  const key = convention.uploadedPdf?.s3Key;
+  if (!key) return null;
+  const bytes = await loadConventionPdfBytes(convention);
+  if (!bytes) return null;
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupKey = `${key.replace(/\.pdf$/i, "")}-avant-papier-${stamp}.pdf`;
+  const s3Client = await getTenantDataS3Client();
+  await s3Client.send(
+    new PutObjectCommand({
+      Bucket: await getBucketName(),
+      Key: backupKey,
+      Body: bytes,
+      ContentType: "application/pdf",
+    }),
+  );
+  return backupKey;
+}
+
+/**
  * Adopte le scan papier comme PDF principal de la convention :
  * conserve les pages manuscrites, ajoute la page « Validation et signatures »
  * pour les paraphes électroniques suivants (direction, prof, etc.).
@@ -219,12 +242,20 @@ export async function adoptPaperSignedPdfAsConventionBase(params: {
   convention: StageConvention;
   paperPdfBytes: Uint8Array;
   fileName: string;
+  /**
+   * false : le papier porte déjà toutes les signatures — on le garde tel quel,
+   * sans ajouter la page « Validation et signatures ».
+   */
+  withAnnex?: boolean;
 }): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
   try {
     const pdfDoc = await PDFDocument.load(params.paperPdfBytes);
-    const rolesOnDoc = params.convention.signatures.map((s) => s.role);
-    await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
-    const outBytes = await pdfDoc.save();
+    let outBytes: Uint8Array = params.paperPdfBytes;
+    if (params.withAnnex !== false) {
+      const rolesOnDoc = params.convention.signatures.map((s) => s.role);
+      await ensureElectronicSignatureAnnex(pdfDoc, rolesOnDoc);
+      outBytes = await pdfDoc.save();
+    }
 
     const safeName =
       (params.fileName.replace(/[^a-zA-Z0-9._-]/g, "_") || "convention-signee.pdf").replace(

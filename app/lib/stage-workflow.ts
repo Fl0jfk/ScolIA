@@ -15,6 +15,7 @@ import {
   stampSignatureOnConventionPdf,
   annotateSignatureStatusOnConventionPdf,
   adoptPaperSignedPdfAsConventionBase,
+  backupConventionPdf,
   syncElectronicSignaturesOntoConventionPdf,
   roleStampsPdf,
 } from "@/app/lib/stage-pdf-sign";
@@ -1994,14 +1995,24 @@ export async function removeConventionSignatory(params: {
 }
 
 /** Validation manuelle (ex. papier hors plateforme) — invalide le lien. */
+const MANUAL_PAPER_MAX_BYTES = 15 * 1024 * 1024;
+
 export async function markConventionSignatureManual(params: {
   conventionId: string;
   signatureId: string;
   byName: string;
   note?: string;
+  /** Document rendu (PDF, JPG ou PNG) — devient le document principal de la convention. */
+  paperPdfBase64?: string;
+  paperFileName?: string;
+  /** Autres signataires dont la signature figure déjà sur ce document. */
+  presentOnPaperSignatureIds?: string[];
 }): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
   const convention = await getStageConvention(params.conventionId);
   if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (isStageConventionCancelled(convention)) {
+    return { ok: false, error: "Ce stage a été supprimé." };
+  }
 
   const sig = convention.signatures.find((s) => s.id === params.signatureId);
   if (!sig) return { ok: false, error: "Signature introuvable." };
@@ -2009,27 +2020,99 @@ export async function markConventionSignatureManual(params: {
     return { ok: false, error: "Déjà signée et validée." };
   }
 
-  if (sig.signToken) await deleteSignTokenRef(sig.signToken);
+  // Document rendu à la main (facultatif).
+  let paperPdf: Uint8Array | null = null;
+  const paperFileName = params.paperFileName?.trim() || "convention-signee.pdf";
+  if (params.paperPdfBase64?.trim()) {
+    const raw = parsePaperUploadBase64(params.paperPdfBase64);
+    if (!raw) return { ok: false, error: "Fichier PDF ou image invalide." };
+    if (raw.length > MANUAL_PAPER_MAX_BYTES) {
+      return { ok: false, error: "Fichier trop lourd (15 Mo maximum)." };
+    }
+    paperPdf = await normalizePaperUploadToPdf(raw);
+    if (!paperPdf) {
+      return { ok: false, error: "Fichier non accepté : PDF, JPG ou PNG uniquement." };
+    }
+    // Vérifie que le PDF s'ouvre (chiffré / abîmé) AVANT tout effet de bord.
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      await PDFDocument.load(paperPdf);
+    } catch {
+      return {
+        ok: false,
+        error: "Ce PDF ne peut pas être ouvert (protégé ou abîmé). Enregistrez-le à nouveau ou envoyez une photo.",
+      };
+    }
+  }
+
+  // Signatures déjà présentes sur le papier : seulement avec un document, jamais la ligne elle-même.
+  const knownIds = new Set(convention.signatures.map((s) => s.id));
+  const presentIds = new Set(
+    paperPdf
+      ? (params.presentOnPaperSignatureIds ?? []).filter((id) => id !== sig.id && knownIds.has(id))
+      : [],
+  );
 
   const now = new Date().toISOString();
-  const signatures = convention.signatures.map((s) =>
-    s.id === sig.id
-      ? {
-          ...s,
-          status: "signe" as const,
-          signedAt: now,
-          signedBy: params.byName,
-          signMethod: "paper_upload" as const,
-          reviewStatus: "accepted" as const,
-          reviewNote: params.note?.trim() || "Validée manuellement (papier / hors plateforme)",
-          reviewedAt: now,
-          reviewedBy: params.byName,
-          signToken: undefined,
-          signConfirmCode: undefined,
-          signConfirmCodeSentAt: undefined,
-        }
-      : s,
-  );
+  let paperUploadS3Key: string | undefined;
+  if (paperPdf) {
+    paperUploadS3Key = await savePaperSignedPdf(
+      convention.id,
+      sig.id,
+      paperFileName,
+      Buffer.from(paperPdf),
+    );
+  }
+
+  const othersMarked: StageSignature[] = [];
+  const alreadySignedAlsoOnPaper: StageSignature[] = [];
+  const tokensToDelete: string[] = [];
+  for (const s of convention.signatures) {
+    const markOther = presentIds.has(s.id) && !isStageSignatureFullyValidated(s);
+    if ((s.id === sig.id || markOther) && s.signToken) tokensToDelete.push(s.signToken);
+    if (markOther) othersMarked.push(s);
+    else if (presentIds.has(s.id)) alreadySignedAlsoOnPaper.push(s);
+  }
+
+  const signatures = convention.signatures.map((s): StageSignature => {
+    if (s.id === sig.id) {
+      return {
+        ...s,
+        status: "signe",
+        signedAt: now,
+        signedBy: params.byName,
+        signMethod: "paper_upload",
+        paperUploadS3Key: paperUploadS3Key ?? s.paperUploadS3Key,
+        paperUploadFileName: paperPdf ? paperFileName : s.paperUploadFileName,
+        reviewStatus: "accepted",
+        reviewNote: params.note?.trim() || "Validée manuellement (papier / hors plateforme)",
+        reviewedAt: now,
+        reviewedBy: params.byName,
+        signToken: undefined,
+        signConfirmCode: undefined,
+        signConfirmCodeSentAt: undefined,
+      };
+    }
+    if (othersMarked.some((o) => o.id === s.id)) {
+      return {
+        ...s,
+        status: "signe",
+        signedAt: now,
+        signedBy: s.label,
+        signMethod: "paper_upload",
+        paperUploadS3Key,
+        paperUploadFileName: paperFileName,
+        reviewStatus: "accepted",
+        reviewNote: `Signature présente sur le document papier déposé par ${params.byName}`,
+        reviewedAt: now,
+        reviewedBy: params.byName,
+        signToken: undefined,
+        signConfirmCode: undefined,
+        signConfirmCodeSentAt: undefined,
+      };
+    }
+    return s;
+  });
 
   const allValidated = conventionAllSignaturesValidated(signatures);
   let next: StageConvention = {
@@ -2039,7 +2122,43 @@ export async function markConventionSignatureManual(params: {
     updatedAt: now,
   };
   next = pushHistory(next, params.byName, "SIGNATURE_MANUELLE", sig.role);
-  if (isScoliaGeneratedConventionPdf(next)) {
+  for (const o of othersMarked) {
+    next = pushHistory(next, params.byName, "SIGNATURE_SUR_PAPIER", o.role);
+  }
+  for (const o of alreadySignedAlsoOnPaper) {
+    next = pushHistory(next, params.byName, "SIGNATURE_AUSSI_SUR_PAPIER", o.role);
+  }
+
+  if (paperPdf) {
+    // Page « Validation et signatures » seulement s'il reste des signatures hors de ce papier.
+    const covered = new Set([sig.id, ...presentIds]);
+    const needsAnnex =
+      !allValidated || signatures.some((s) => s.status === "signe" && !covered.has(s.id));
+    // Copie de secours du document actuel avant remplacement (mauvais fichier déposé…).
+    const backupKey = await backupConventionPdf(next).catch((e) => {
+      console.warn("[stages] copie de secours PDF:", e);
+      return null;
+    });
+    if (backupKey) {
+      next = pushHistory(next, params.byName, "PDF_COPIE_SECOURS", backupKey);
+    }
+    const adopted = await adoptPaperSignedPdfAsConventionBase({
+      convention: next,
+      paperPdfBytes: paperPdf,
+      fileName: paperFileName,
+      withAnnex: needsAnnex,
+    });
+    if (!adopted.ok) return { ok: false, error: adopted.error };
+    next = pushHistory(
+      adopted.convention,
+      params.byName,
+      "PDF_PAPIER_ADOPTE",
+      needsAnnex
+        ? "Document principal = papier rendu + annexe signatures"
+        : "Document principal = papier rendu (toutes les signatures présentes)",
+    );
+    if (needsAnnex) await syncElectronicSignaturesOntoConventionPdf(next);
+  } else if (isScoliaGeneratedConventionPdf(next)) {
     next = await generateAndStoreConventionPdf(next);
   } else {
     const updated = signatures.find((s) => s.id === sig.id);
@@ -2051,6 +2170,7 @@ export async function markConventionSignatureManual(params: {
       if (!ann.ok) console.warn("[stages] annotate preuve manuelle:", ann.error);
     }
   }
+  for (const t of tokensToDelete) await deleteSignTokenRef(t);
   await saveStageConvention(next);
   if (allValidated) {
     void import("@/app/lib/stage-eleve-dossier-filing").then((m) =>

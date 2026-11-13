@@ -610,6 +610,11 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
         signatureId,
         byName: displayName(user),
         note: String(body.note ?? "").trim() || undefined,
+        paperPdfBase64: String(body.paperPdfBase64 ?? "").trim() || undefined,
+        paperFileName: String(body.paperFileName ?? "").trim().slice(0, 200) || undefined,
+        presentOnPaperSignatureIds: Array.isArray(body.presentOnPaperSignatureIds)
+          ? body.presentOnPaperSignatureIds.map((v: unknown) => String(v)).slice(0, 20)
+          : undefined,
       });
       if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
       return NextResponse.json({ success: true, convention: result.convention });

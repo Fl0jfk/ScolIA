@@ -14,6 +14,9 @@ import StagesBoardPanel, {
   resolveBoardQuickReviewKind,
 } from "@/app/components/stages/StagesBoardPanel";
 import StageOfflineCreateModal from "@/app/components/stages/StageOfflineCreateModal";
+import StageManualSignatureModal, {
+  type ManualSignaturePayload,
+} from "@/app/components/stages/StageManualSignatureModal";
 import StagePlatformCreateModal from "@/app/components/stages/StagePlatformCreateModal";
 import StageSignaturesDrawer, {
   type StageSignaturePanelData,
@@ -35,6 +38,15 @@ const StagesClassePanel = dynamic(() => import("@/app/components/stages/StagesCl
   ssr: false,
   loading: () => <ModuleTabFallback />,
 });
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible."));
+    reader.readAsDataURL(file);
+  });
+}
+
 const StagesSettingsPanel = dynamic(() => import("@/app/components/stages/StagesSettingsPanel"), {
   ssr: false,
   loading: () => <ModuleTabFallback />,
@@ -102,6 +114,7 @@ function StagesContent() {
     () => searchParams.get("className")?.trim() || null,
   );
   const [busy, setBusy] = useState(false);
+  const [manualSignatureId, setManualSignatureId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [hasStoredSignature, setHasStoredSignature] = useState<boolean | undefined>(undefined);
@@ -914,30 +927,33 @@ function StagesContent() {
     }
   }
 
-  async function markSignatureManual(signatureId: string) {
+  async function markSignatureManual(signatureId: string, payload: ManualSignaturePayload) {
     if (!detail) return;
-    const note =
-      window.prompt(
-        "Valider manuellement (papier / hors plateforme). Note optionnelle :",
-        "Signé hors plateforme",
-      ) ?? undefined;
-    if (note === undefined) return;
     setBusy(true);
     setError(null);
     try {
+      const paperPdfBase64 = payload.file ? await readFileAsDataUrl(payload.file) : undefined;
       const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "mark_signature_manual",
           signatureId,
-          note: note.trim() || undefined,
+          note: payload.note,
+          paperPdfBase64,
+          paperFileName: payload.file?.name,
+          presentOnPaperSignatureIds: payload.presentOnPaperSignatureIds,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Erreur");
+      setManualSignatureId(null);
       setDetail({ ...detail, convention: data.convention });
-      setMsg("Signature validée manuellement — lien invalidé.");
+      setMsg(
+        payload.file
+          ? "Signature validée — document rendu enregistré comme convention principale."
+          : "Signature validée manuellement — lien invalidé.",
+      );
       await loadDetail(detail.convention.id);
       await load();
     } catch (e: unknown) {
@@ -1148,7 +1164,7 @@ function StagesContent() {
                 onAdminSave={() => void adminSavePreconvention()}
                 onResendSignatures={() => void resendSignatures()}
                 onResendSignature={(id) => void resendSignature(id)}
-                onMarkSignatureManual={(id) => void markSignatureManual(id)}
+                onMarkSignatureManual={(id) => setManualSignatureId(id)}
                 onRemoveSignatory={(id) => void removeSignatory(id)}
                 onRevokeSignature={(id) => void revokeSignature(id)}
                 onAddSignatory={() => void addSignatory()}
@@ -1221,6 +1237,16 @@ function StagesContent() {
           if (id) void loadDetail(id);
         }}
       />
+
+      {detail && manualSignatureId ? (
+        <StageManualSignatureModal
+          convention={detail.convention}
+          signatureId={manualSignatureId}
+          busy={busy}
+          onCancel={() => setManualSignatureId(null)}
+          onSubmit={(payload) => void markSignatureManual(manualSignatureId, payload)}
+        />
+      ) : null}
 
       <StageOfflineCreateModal
         open={offlineModalOpen}
