@@ -106,6 +106,12 @@ const INTRANET_ALWAYS_ALLOWED_PREFIXES = [
    * Sans ça : 403 MODULE_FORBIDDEN car aucun module ne déclare /api/onedrive.
    */
   "/api/onedrive",
+  /**
+   * Notifications navigateur de la messagerie (config, préférences, abonnement).
+   * Sans ça : 403 MODULE_FORBIDDEN car aucun module ne déclare /api/push.
+   * Chaque route vérifie elle-même session, personnel, établissement et supervision.
+   */
+  "/api/push",
   /** Retour OAuth MSAL (popup / redirect) — doit rester accessible hors module OCR. */
   "/agentIAOCR/msal-callback",
   "/onboarding",
