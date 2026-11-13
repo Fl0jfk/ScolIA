@@ -1031,17 +1031,7 @@ async fn restauration_suspend_les_echeances() {
     let Some((ent, cast)) = labo().await else { return eprintln!("skip: ENT_DATABASE_URL") };
     let m = monde(&ent, &cast).await;
     let a = une_demande(&ent, &m, &m.cpe).await;
-    let ouvertes = |ent: &PgEnt| {
-        sqlx::query_as::<_, (i64, i64)>(
-            "SELECT count(*) FILTER (WHERE traitee_le IS NULL AND suspendue_depuis IS NULL),
-                    count(*) FILTER (WHERE suspendue_depuis IS NOT NULL)
-               FROM ent_dem_echeance WHERE etablissement_id = $1 AND demande_id = $2",
-        )
-        .bind(m.etab)
-        .bind(a.id)
-        .fetch_one(ent.pool_verif())
-    };
-    assert_eq!(ouvertes(&ent).await.unwrap(), (2, 0));
+    assert_eq!(ouvertes(&ent, m.etab, a.id).await.unwrap(), (2, 0));
     let mut conn = ent.pool_verif().acquire().await.unwrap();
     let rapport = crate::registre_donnees::neutraliser_files_restauration(
         &mut conn,
@@ -1052,5 +1042,17 @@ async fn restauration_suspend_les_echeances() {
     assert!(rapport.tables.iter().any(|t| t.table == "ent_dem_echeance" && t.lignes == 2), "{:?}", rapport.tables);
     drop(conn);
     // Suspendues, jamais supprimées ; un second passage ne trouve plus rien.
-    assert_eq!(ouvertes(&ent).await.unwrap(), (0, 2));
+    assert_eq!(ouvertes(&ent, m.etab, a.id).await.unwrap(), (0, 2));
+}
+
+async fn ouvertes(ent: &PgEnt, etab: Uuid, demande: Uuid) -> Result<(i64, i64), sqlx::Error> {
+    sqlx::query_as::<_, (i64, i64)>(
+        "SELECT count(*) FILTER (WHERE traitee_le IS NULL AND suspendue_depuis IS NULL),
+                count(*) FILTER (WHERE suspendue_depuis IS NOT NULL)
+           FROM ent_dem_echeance WHERE etablissement_id = $1 AND demande_id = $2",
+    )
+    .bind(etab)
+    .bind(demande)
+    .fetch_one(ent.pool_verif())
+    .await
 }
