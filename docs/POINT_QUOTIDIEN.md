@@ -8,10 +8,11 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-13 (vendredi, nuit, 5 h 15 Paris)
 
-### Passé sur `ENT` cette nuit (tête `99f0ca75`)
+### Passé sur `ENT` cette nuit (tête `b2d05491`)
 - **Correctif du jour d'identité** (migration **295**) : le déclencheur de projection de l'identité prenait `current_date` (jour UTC du serveur ; sqlx impose `TimeZone=UTC`) alors que le Rust date au jour de Paris. Entre minuit et 1 h (2 h l'été), la version du jour n'était pas projetée sur la fiche. C'est la cause du rouge d'ENT `51c23382` et des rouges « élève » des sessions 15 et audit 2 (toutes leurs tâches rouges ont tourné entre 23 h et minuit UTC). Reproduit en SQL, puis corrigé avec `ent_aujourdhui_etab` (265). Le registre des migrations n'y était pour rien.
 - **Socle 12, lots AS1 et AS2** (`bf340ef`) : référentiels d'assiduité, règle datée, appel v2 ; 2241–2243 ; ferme NJ-30, NJ-31, NJ-34, NJ-35. Fusion pilote : un entrelacement automatique faux dans `modele_par_defaut` a été corrigé à la main.
 - **Correctifs d'audit 2** (`714bf2d3`, CI 43365111358 verte) : B-01 (relais /web et en-tête Host), B-03 (IBAN réservé à une session authentifiée), B-04 (démarrage refusé hors RLS stricte), A-01 (plus de mot de passe renvoyé : lien d'activation à usage unique), R-05 (pool de connexions borné), R-06, R-07 (envois hors transaction), R-09 (un établissement en erreur n'arrête pas les autres). Limites : A-01 en plusieurs écritures, pas de cache des droits, R-08 (pg_dump sous FORCE RLS) non traité, `ui.rs` affiche « undefined » à la place du mot de passe (non modifié, F-001).
+- **Socle 15, lot A2** (`b2d05491`, CI 43416972017 verte, avance rapide) : pièces des absences du personnel lisibles du seul cercle RH, lecture journalisée, lien de 5 min ; fil en ajout seul ; purge à la date de conservation (agent de l'État : 30 j après transmission ; OGEC : fin d'année + 3 ans), jamais sous gel de contentieux ; aucun nom de fichier stocké. Limites : purge **logique** (l'effacement physique des octets relève du cycle de vie du seau et du DPO, Q-AP12) ; export de ses propres données (ABP-149) attend le socle 27.
 - **Socle 15, lots A0 et A1** (`e6218f17`, CI 43368874049 verte) : absences du personnel ; fusion pilote sans conflit sur `601d05bc`. Suite : A2+ (brancher le port `edt_seances_touchees`).
 - **Socle 19, lots AG3 et AG2 réduit** (`ef8d8e6e`) : réservation de toutes les salles (D-058), libre/occupé, créneau commun ; 2386 ; ferme NJ-62, NJ-76.
 
