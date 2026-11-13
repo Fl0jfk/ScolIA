@@ -16,8 +16,10 @@ import { getTenantAppUrl, tenantAbsolutePath } from "@/app/lib/tenant-context";
 import {
   deleteRequestFromDb,
   ensureRequestsMigratedFromCollection,
+  listOpenRequestBoardRowsFromDb,
   requestsDbReady,
   upsertRequestInDb,
+  type RequestBoardRow,
 } from "@/app/lib/request-db";
 
 export type RequestStatus = "NOUVELLE" | "EN_COURS" | "EN_ATTENTE" | "TERMINEE";
@@ -340,6 +342,13 @@ export async function getRequestsIndex(): Promise<RequestRecord[]> {
   const etabId = await requestsDbReady();
   if (!etabId) return [];
   return ensureRequestsMigratedFromCollection(etabId);
+}
+
+/** Demandes non terminées, champs minimaux — pour les compteurs du tableau de bord. */
+export async function getOpenRequestsForBoard(): Promise<RequestBoardRow[]> {
+  const etabId = await requestsDbReady();
+  if (!etabId) return [];
+  return listOpenRequestBoardRowsFromDb(etabId);
 }
 
 /** Upsert unitaire de chaque fiche — ne supprime jamais les absents de la liste. */

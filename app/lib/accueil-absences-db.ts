@@ -681,10 +681,10 @@ export async function cancelAccueilAbsence(
 ): Promise<boolean> {
   const eleveOk = await cancelAccueilEleveAbsence(etablissementId, id, noteCpe);
   if (eleveOk) {
-    const { invalidateDashboardSignalsForEstablishment } = await import(
+    const { invalidateDashboardSignalsAfterAccueilAbsence } = await import(
       "@/app/lib/dashboard-signals-invalidate"
     );
-    await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+    await invalidateDashboardSignalsAfterAccueilAbsence(etablissementId, "eleve").catch((err) => {
       console.warn("[accueil-absences] invalidate dashboard signals cache", err);
     });
     return true;
@@ -722,10 +722,10 @@ export async function cancelAccueilAbsence(
     ],
   };
   await saveAbsenceRecord(updated);
-  const { invalidateDashboardSignalsForEstablishment } = await import(
+  const { invalidateDashboardSignalsAfterAccueilAbsence } = await import(
     "@/app/lib/dashboard-signals-invalidate"
   );
-  await invalidateDashboardSignalsForEstablishment(etablissementId).catch((err) => {
+  await invalidateDashboardSignalsAfterAccueilAbsence(etablissementId, "personnel").catch((err) => {
     console.warn("[accueil-absences] invalidate dashboard signals cache", err);
   });
   return true;

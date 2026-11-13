@@ -195,6 +195,27 @@ export async function countAbsencesInDb(etablissementId: string): Promise<number
   return rows.length;
 }
 
+/**
+ * Version légère pour les compteurs du tableau de bord : fiches seules, sans
+ * historique ni fil de messages (non utilisés par les filtres des compteurs).
+ * Évite de relire deux tables entières à chaque rafraîchissement.
+ */
+export async function listAbsenceSummariesFromDb(
+  etablissementId: string,
+): Promise<AbsenceRecord[]> {
+  const db = getDb();
+  const mains = await db.select().from(absence).where(eq(absence.etablissementId, etablissementId));
+  const out: AbsenceRecord[] = [];
+  for (const m of mains) {
+    try {
+      out.push(rowsToAbsenceRecord(m, [], []));
+    } catch (e) {
+      console.error(`[absence-db] skip row ${m.id}`, e);
+    }
+  }
+  return out;
+}
+
 export async function listAbsencesFromDb(etablissementId: string): Promise<AbsenceRecord[]> {
   const db = getDb();
   const mains = await db.select().from(absence).where(eq(absence.etablissementId, etablissementId));

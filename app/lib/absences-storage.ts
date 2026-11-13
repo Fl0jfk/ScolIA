@@ -14,6 +14,7 @@ import {
   appendAbsenceMessageInDb,
   deleteAbsenceFromDb,
   getAbsenceFromDb,
+  listAbsenceSummariesFromDb,
   listAbsencesFromDb,
   upsertAbsenceInDb,
 } from "@/app/lib/absence-db";
@@ -32,6 +33,17 @@ export async function getAbsenceIndex(): Promise<AbsenceRecord[]> {
   const etabId = await absencesDbReady();
   if (!etabId) return [];
   const rows = await listAbsencesFromDb(etabId);
+  return attachOgecValidatorsFromPersonnel(rows);
+}
+
+/**
+ * Index allégé (sans historique ni messages) pour les compteurs du tableau de bord.
+ * Ne pas utiliser pour afficher ou modifier un dossier : `history` et `messages` y sont vides.
+ */
+export async function getAbsenceIndexForDashboard(): Promise<AbsenceRecord[]> {
+  const etabId = await absencesDbReady();
+  if (!etabId) return [];
+  const rows = await listAbsenceSummariesFromDb(etabId);
   return attachOgecValidatorsFromPersonnel(rows);
 }
 

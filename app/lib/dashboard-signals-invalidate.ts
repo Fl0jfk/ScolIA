@@ -32,3 +32,32 @@ export async function invalidateDashboardSignalsForEstablishment(
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:abs-index:${etabId}:`),
   ]);
 }
+
+/**
+ * Purge ciblée après une annulation d’absence à l’accueil.
+ * Ne touche ni stages, ni demandes : inutile de faire tout recalculer à tout le monde.
+ * - élève : compteurs vie scolaire + agrégat ;
+ * - personnel : en plus index absences RH, « en ce moment » du planning et créneaux vides.
+ */
+export async function invalidateDashboardSignalsAfterAccueilAbsence(
+  etablissementId: string,
+  kind: "eleve" | "personnel",
+): Promise<void> {
+  const etabId = etablissementId.trim();
+  if (!etabId) return;
+
+  await bumpDashboardSignalsBundleGeneration(etabId);
+
+  const prefixes = [
+    valkeyPrefixDashboardSignalsEtab(etabId),
+    `${NS}:dash:sig-src:vs:${etabId}:`,
+  ];
+  if (kind === "personnel") {
+    prefixes.push(
+      `${NS}:dash:sig-src:abs-index:${etabId}:`,
+      `${NS}:dash:sig-src:rh-now:${etabId}:`,
+      valkeyPrefixDashboardSignalsCreneaux(etabId),
+    );
+  }
+  await Promise.all(prefixes.map((p) => valkeyDeleteByPrefix(p)));
+}

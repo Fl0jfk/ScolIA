@@ -9,7 +9,7 @@ import {
   isAbsencePendingForProcessor,
   viewerIsAbsenceProcessor,
 } from "@/app/lib/absences-admin-access";
-import { getAbsenceIndex } from "@/app/lib/absences-storage";
+import { getAbsenceIndexForDashboard } from "@/app/lib/absences-storage";
 import { getJson } from "@/app/lib/s3-storage";
 import { loadAppConfig } from "@/app/lib/app-config";
 import { loadWeekSheetData } from "@/app/lib/dashboard-week-sheet-storage";
@@ -19,7 +19,7 @@ import { conventionVisibleToUser } from "@/app/lib/stage-referent";
 import { resolveStageViewerRole } from "@/app/lib/stage-access";
 import { canAccessHseModule, canViewHseDemand } from "@/app/lib/demandes-hse-access";
 import { canAccessRequestsStaffBoardForUser } from "@/app/lib/requests-staff-access";
-import { getRequestsIndex, isLeaderForRequestBranch } from "@/app/lib/requests";
+import { getOpenRequestsForBoard, isLeaderForRequestBranch } from "@/app/lib/requests";
 import { getAllBranchStaffEmailsFromRouting } from "@/app/lib/requests-routing-config";
 import { isVisibleOnStaffBoard } from "@/app/lib/requests-board";
 import {
@@ -446,7 +446,7 @@ async function loadRhPlanningNow(
           }));
       }
       try {
-        const absIndex = await getAbsenceIndex();
+        const absIndex = await getAbsenceIndexForDashboard();
         const absenceSpans = absencesToLeaveSpans(absIndex, {
           personnelId: leavePersonnelId || null,
           userId,
@@ -574,7 +574,7 @@ async function loadDemandesSource(ctx: DashboardSignalsLoadContext): Promise<Dem
       ttlSeconds: VALKEY_TTL.dashboardSignalsRequestsBoard,
       loader: async () => {
         const board: DemandesSourceValue["requestsBoard"] = [];
-        const index = await getRequestsIndex();
+        const index = await getOpenRequestsForBoard();
         const allStaff = await getAllBranchStaffEmailsFromRouting();
         for (const r of index) {
           const isLeader = await isLeaderForRequestBranch(
@@ -675,7 +675,7 @@ async function loadAbsencesSource(ctx: DashboardSignalsLoadContext): Promise<Abs
         ctx.signalsBundleGeneration,
       ),
       ttlSeconds: VALKEY_TTL.dashboardSignalsAbsenceIndex,
-      loader: () => getAbsenceIndex().catch(() => [] as AbsenceRecord[]),
+      loader: () => getAbsenceIndexForDashboard().catch(() => [] as AbsenceRecord[]),
     });
   }
 

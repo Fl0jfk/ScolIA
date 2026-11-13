@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import {
   request,
@@ -181,6 +181,70 @@ async function hydrateRequest(
     history: historyOut,
     ...(m.purgeAt ? { purgeAt: m.purgeAt.toISOString() } : { purgeAt: null }),
   };
+}
+
+export type RequestBoardRow = Pick<RequestRecord, "id" | "status" | "subject" | "requester" | "assignedTo">;
+
+/**
+ * Demandes non terminées, réduites aux champs de la file du tableau de bord.
+ * 2 requêtes au total (fiches + attributs), au lieu de 4 requêtes par demande
+ * enchaînées une à une sur tout l’historique (`listRequestsFromDb`).
+ */
+export async function listOpenRequestBoardRowsFromDb(
+  etablissementId: string,
+): Promise<RequestBoardRow[]> {
+  const db = getDb();
+  const mains = await db
+    .select()
+    .from(request)
+    .where(and(eq(request.etablissementId, etablissementId), ne(request.status, "TERMINEE")));
+  if (mains.length === 0) return [];
+
+  const attrs = await db
+    .select()
+    .from(requestAttr)
+    .where(
+      and(
+        eq(requestAttr.etablissementId, etablissementId),
+        inArray(
+          requestAttr.requestId,
+          mains.map((m) => m.id),
+        ),
+      ),
+    );
+  const attrsByRequest = new Map<string, Array<{ path: string; value: (typeof attrs)[number]["value"] }>>();
+  for (const a of attrs) {
+    const list = attrsByRequest.get(a.requestId) ?? [];
+    list.push({ path: a.path, value: a.value });
+    attrsByRequest.set(a.requestId, list);
+  }
+
+  return mains.map((m) => {
+    const blob = inflateFromAttrs(attrsByRequest.get(m.id) ?? []) as AttrBlob;
+    const extras = blob.assignedExtras ?? {};
+    return {
+      id: m.id,
+      status: m.status as RequestRecord["status"],
+      subject: m.subject,
+      requester: {
+        firstName: m.requesterFirstName,
+        lastName: m.requesterLastName,
+        fullName: m.requesterFullName,
+        email: m.requesterEmail,
+        phone: m.requesterPhone,
+        ...(m.requesterUserId ? { userId: m.requesterUserId } : {}),
+      },
+      assignedTo: {
+        ...(m.assignedRouteId ? { routeId: m.assignedRouteId } : {}),
+        unit: m.assignedUnit,
+        roleLabel: m.assignedRoleLabel,
+        email: m.assignedEmail,
+        ...(extras.ccEmails?.length ? { ccEmails: extras.ccEmails } : {}),
+        ...(extras.poolEmails?.length ? { poolEmails: extras.poolEmails } : {}),
+        ...(extras.claimedBy !== undefined ? { claimedBy: extras.claimedBy } : {}),
+      },
+    };
+  });
 }
 
 export async function listRequestsFromDb(etablissementId: string): Promise<RequestRecord[]> {
