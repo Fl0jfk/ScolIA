@@ -4,7 +4,8 @@
 //!  - D-01 : `PUT /eleves/{id}/fiche-sante` par un parent ne renvoie plus la note confidentielle.
 //!  - D-02 : `/psy/*` et `/dossier-psy` sont sous le verrou « module santé » ; le verrou vit aussi
 //!    dans `ent-db` (appel direct du service, sans passer par HTTP).
-//!  - D-03 : `GET /rh/absences` : le motif n'est lu que par la direction et par l'agent lui-même.
+//!  - D-03 : `GET /rh/absences` : le motif déclaré n'est jamais rendu aux autres membres du
+//!    personnel (depuis le socle 15, ni en clair à la direction : il va en zone de qualification).
 //!  - A-02 : `documents.lire` n'ouvre plus les pièces `sante` / `restreint`.
 //!  - A-03 : la liste des documents ne révèle pas aux familles les pièces illisibles pour elles.
 //!
@@ -140,19 +141,24 @@ fn d03_les_absences_rh_ne_sont_pas_lisibles_par_tout_le_personnel() {
         assert!(r.est_succes(), "déclaration : {}", r.texte);
         let q = "/rh/absences?debut=2031-03-01&fin=2031-03-31";
 
-        // Direction (gestion) : tout, motif compris.
+        // Direction : voit l'absence du CPE (identifiant, statut) ; depuis le socle 15 le texte libre
+        // déclaré n'est plus rendu dans `motif` (il va en zone de qualification) : on n'exige donc
+        // pas de le retrouver, seulement que la liste de gestion soit complète.
         let r = m.appel("GET", q, Some(m.jeton(Direction)), None).await;
-        assert!(r.texte.contains(motif), "direction : {}", r.texte);
+        assert!(r.est_succes(), "direction : {}", r.texte);
+        assert!(r.texte.contains(&cpe.to_string()), "direction : {}", r.texte);
 
-        // Les autres membres du personnel (planning EDT : absence visible) ne voient jamais le motif.
-        for a in [Prof, Compta, Psy] {
+        // Garantie D-03 : aucun autre membre du personnel ne lit jamais le motif déclaré.
+        for a in [Prof, Compta, Psy, Administratif, Infirmiere] {
             let r = m.appel("GET", q, Some(m.jeton(a)), None).await;
             assert!(!r.texte.contains(motif), "{a:?} voit le motif : {}", r.texte);
         }
 
-        // Le CPE retrouve la sienne, avec son motif.
+        // Le CPE retrouve sa propre absence ; sans droit de lecture de la nature, le motif libre
+        // n'est de toute façon plus rendu par cette route.
         let r = m.appel("GET", q, Some(m.jeton(Cpe)), None).await;
-        assert!(r.texte.contains(motif), "le CPE voit sa propre absence : {}", r.texte);
+        assert!(r.est_succes(), "cpe : {}", r.texte);
+        assert!(r.texte.contains(&cpe.to_string()), "le CPE voit sa propre absence : {}", r.texte);
     });
 }
 
