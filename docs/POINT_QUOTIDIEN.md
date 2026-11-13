@@ -6,6 +6,59 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-13 (vendredi soir, 18 h 50 Paris) — point du jour
+
+### Passé sur `ENT` aujourd'hui (validé par la CI ; tête `60b57184`)
+De `51c23382` (rouge hier soir) à `60b57184`, 13 versements :
+- **Correctif du jour d'identité** (295) puis **lot « jour d'établissement »** (296, 342) : tout le socle élève compte le jour au fuseau de l'établissement, et non plus au jour UTC. Cause du rouge d'hier soir.
+- **Socle 12** AS1 + AS2 (appel v2, assiduité) ; **socle 19** AG3 + AG2 réduit (réservation de toutes les salles, D-058).
+- **Socle 15** (absences du personnel) A0, A1, A2 (pièces, fil, conservation) et A3 (impact sur les séances, tableaux, files).
+- **Correctifs d'audit 1** (santé verrouillée, documents par niveau, motifs des absences RH) et **d'audit 2** (8 constats d'infrastructure).
+- **Socle 20** C0 + C1 (cahier de textes) et **socle 29** P2 (index des tâches).
+- **Règle 21** : droits par défaut, une fonction par socle (deux fusions de suite les avaient cassés).
+- **Trois tests instables corrigés** (vérifications sur « toute la base » ou code aléatoire trop court, sur la base partagée de CI).
+
+### Prêt mais pas encore sur `ENT`
+- Rien.
+
+### En cours
+- **Socle 15, lot A4** (réponse et sollicitation, 2305) — session 15, depuis `60b57184`.
+- Sessions actives : 1 sur 3 (socle 15). Sessions 20 et 29 en pause, prêtes pour leur lot suivant ; sessions d'audit 1 et 2 et de conception N1 terminées et archivées.
+
+### Conçu mais pas codé
+- **Socle N1 « Demandes »** : conception complète et deux passes personas (251 actions, lots N1-0 à N1-5, plage 3040–3059), D-061 (module complet familles comprises, HSE en heures validées par la direction, file de repli RH paramétrable).
+- Les conceptions déjà listées les jours précédents (plan de bascule, vagues 1 à 3).
+
+### Avancement par socle (lots versés sur `ENT`)
+| Socle | Versé | Suivant |
+|---|---|---|
+| 12 Assiduité | AS0, AS1, AS2 | AS3 (épisodes, qualification) |
+| 15 Absences du personnel | A0, A1, A2, A3 | A4 (en cours) |
+| 19 Agenda | AG0, AG1, AG2 réduit, AG3 | — |
+| 20 Cahier de textes | C0, C1 | C2 |
+| 29 Portails | P2 | P3 (à-faire famille) |
+| N1 Demandes | conception | N1-0 |
+
+### Décisions attendues de Florian
+- **Allègement de la CI** (tester l'interface web seulement quand elle change) ou GitHub Pro un mois : la file reste très lente (une CI attend souvent plus d'une heure).
+- **Q-PB2** du plan de bascule, **avant le 27 novembre**.
+- Plan de bascule Q-PB1 à Q-PB8, adresses Q-O1 à Q-O7, paie Q-RH42, Q-RH45, Q-RH50.
+- **DPO** : en identifier un (réseau ou direction diocésaine) ; son avis est une condition de la bascule (31 janvier).
+- Nom de l'application académique de déclaration des HSE (« ASIE » ? à vérifier).
+
+### À fournir par Florian plus tard (`A_FOURNIR_PAR_FLORIAN.md`)
+- F-01 à F-05, F-07 : exports **anonymisés** Charlemagne (EDT, élèves, familles, notes), liste des échanges SIECLE/STS, exemples XML — **le premier export anonymisé est attendu le 18 décembre** (plan de bascule, reprise R0–R3).
+- F-06 : démarche éditeur auprès de la DNE (plus tard).
+- **F-08 : hébergement Scaleway de production de ScolIA (conteneur et base PostgreSQL séparés) — prêt le 14 décembre**, c'est le plus proche.
+
+### Ce qui a coincé
+- **Bogue de date entre minuit et 1 h** (jour UTC contre jour de Paris) : trouvé, corrigé partout dans le socle élève. Restent les défauts de colonne et la résolution de classe (111, 112), petit lot à faire.
+- **Fusions automatiques fautives** dans `modele_par_defaut` (deux fois) : corrigé structurellement (règle 21).
+- **Répertoire de compilation partagé** entre copies de travail : faux résultats locaux possibles (règle 22).
+- **Pushs sur `main` (Next.js)** cet après-midi, signés Claude, sans lien avec les sessions du pilote ; **PR n° 92** ouverte depuis `ent-mc0hoe` : à vérifier par Florian (le pilote n'y touche pas).
+
+---
+
 ## 2026-11-13 (vendredi, nuit, 5 h 15 Paris)
 
 ### Passé sur `ENT` cette nuit (tête `b2d05491`)
