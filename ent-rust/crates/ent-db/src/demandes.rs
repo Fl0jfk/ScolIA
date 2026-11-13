@@ -268,7 +268,7 @@ pub struct NatureDecl {
     pub file_defaut: &'static str,
 }
 
-const fn champ(code: &'static str, type_: ChampType, obligatoire: bool) -> ChampDecl {
+pub(crate) const fn champ(code: &'static str, type_: ChampType, obligatoire: bool) -> ChampDecl {
     ChampDecl { code, type_, obligatoire, rangs_max: 1 }
 }
 
@@ -363,7 +363,7 @@ pub const NATURES: &[NatureDecl] = &[
 
 /// La nature déclarée sous ce code.
 pub fn nature(code: &str) -> Option<&'static NatureDecl> {
-    NATURES.iter().find(|n| n.code == code)
+    crate::demandes_catalogue::nature_declaree(code)
 }
 
 fn code_valide(s: &str, max: usize) -> bool {
@@ -534,6 +534,46 @@ pub trait SourcesDemandes: Send + Sync {
     fn files_de(&self, etab: Uuid, personne_id: Uuid) -> Vec<Uuid>;
     /// Un responsable légal ou un élève (selon `role`) peut-il déposer une demande pour cet élève ?
     fn peut_deposer_famille(&self, etab: Uuid, user_id: Uuid, role: Role, eleve_id: Option<Uuid>) -> bool;
+    /// Routage complet (N1-1) : file, raison, calendrier et délais effectifs. Par défaut : la file de
+    /// [`Self::file_de_depot`], sans raison tracée ni délai propre (adaptateurs de test du lot N1-0).
+    fn routage_de_depot(&self, etab: Uuid, nature_code: &str) -> Option<RoutageResolu> {
+        self.file_de_depot(etab, nature_code).map(RoutageResolu::simple)
+    }
+    /// Phrase publique si la nature n'est **pas proposée** à ce public dans l'établissement (nature non activée,
+    /// public fermé : CDM-07). `None` : rien à redire (ou source sans notion d'activation).
+    fn refus_nature(&self, _etab: Uuid, _nature_code: &str) -> Option<&'static str> {
+        None
+    }
+}
+
+/// Résultat du routage déterministe d'une demande (§10.1) : la destination, **pourquoi**, et ce qui borne les
+/// échéances. La raison n'est jamais lisible du demandeur (il voit le service, pas la règle).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutageResolu {
+    pub file_id: Uuid,
+    /// `regle` · `file_de_la_nature` · `defaut_nature` · `tri_du_site` · `repli_file_vide` · `repli_personne_visee`.
+    /// `None` : source sans trace de routage.
+    pub motif: Option<&'static str>,
+    /// Règle de routage appliquée, ou file initialement visée quand un repli a pris le relais.
+    pub ref_id: Option<Uuid>,
+    pub service_calendrier: String,
+    pub delai_prise_jours: Option<u16>,
+    pub delai_traitement_jours: Option<u16>,
+    pub site_id: Option<Uuid>,
+}
+
+impl RoutageResolu {
+    pub fn simple(file_id: Uuid) -> Self {
+        Self {
+            file_id,
+            motif: None,
+            ref_id: None,
+            service_calendrier: "secretariat".into(),
+            delai_prise_jours: None,
+            delai_traitement_jours: None,
+            site_id: None,
+        }
+    }
 }
 
 /// Aucune source : aucune file, aucun droit de famille. Comportement par défaut tant que N1-1 n'est pas versé.
@@ -756,7 +796,7 @@ enum Lien {
     Traitant,
 }
 
-struct FaitNouveau<'a> {
+pub(crate) struct FaitNouveau<'a> {
     demande_id: Uuid,
     type_: &'a str,
     auteur_personne: Option<Uuid>,
@@ -768,6 +808,7 @@ struct FaitNouveau<'a> {
     agent_avant: Option<Uuid>,
     agent_apres: Option<Uuid>,
     motif: Option<&'a str>,
+    ref_id: Option<Uuid>,
 }
 
 impl<'a> FaitNouveau<'a> {
@@ -784,17 +825,18 @@ impl<'a> FaitNouveau<'a> {
             agent_avant: None,
             agent_apres: None,
             motif: None,
+            ref_id: None,
         }
     }
 }
 
 /// Ajoute un fait. Le rang, l'empreinte précédente et l'empreinte sont posés par la base (migration 3040).
-async fn ajouter_fait(conn: &mut PgConnection, etab: Uuid, f: FaitNouveau<'_>) -> Result<(), RefusDemande> {
+pub(crate) async fn ajouter_fait(conn: &mut PgConnection, etab: Uuid, f: FaitNouveau<'_>) -> Result<(), RefusDemande> {
     sqlx::query(
         "INSERT INTO ent_dem_fait (id, etablissement_id, demande_id, type, auteur_personne_id, auteur_tache,
                                    statut_avant, statut_apres, file_avant_id, file_apres_id,
-                                   agent_avant_id, agent_apres_id, motif_code)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+                                   agent_avant_id, agent_apres_id, motif_code, ref_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)
@@ -809,6 +851,7 @@ async fn ajouter_fait(conn: &mut PgConnection, etab: Uuid, f: FaitNouveau<'_>) -
     .bind(f.agent_avant)
     .bind(f.agent_apres)
     .bind(f.motif)
+    .bind(f.ref_id)
     .execute(conn)
     .await?;
     Ok(())
@@ -833,7 +876,7 @@ async fn publier_enveloppe(
 }
 
 /// La personne (non fusionnée) du compte dans l'établissement. Sans fiche de personne : aucun accès.
-async fn personne_du_user(conn: &mut PgConnection, etab: Uuid, user_id: Uuid) -> Result<Uuid, RefusDemande> {
+pub(crate) async fn personne_du_user(conn: &mut PgConnection, etab: Uuid, user_id: Uuid) -> Result<Uuid, RefusDemande> {
     let r: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM ent_personne
           WHERE etablissement_id = $1 AND user_id = $2 AND fusionnee_dans IS NULL
@@ -847,7 +890,7 @@ async fn personne_du_user(conn: &mut PgConnection, etab: Uuid, user_id: Uuid) ->
 }
 
 /// Ajoute `n` jours ouvrés (hors week-end) ; les fermetures et jours fériés du site viennent avec N1-1 (R-DM22).
-fn ajouter_jours_ouvres(depart: NaiveDate, n: u16) -> NaiveDate {
+pub(crate) fn ajouter_jours_ouvres(depart: NaiveDate, n: u16) -> NaiveDate {
     let (mut d, mut restant) = (depart, n);
     while restant > 0 {
         d = d.succ_opt().unwrap_or(d);
@@ -856,6 +899,18 @@ fn ajouter_jours_ouvres(depart: NaiveDate, n: u16) -> NaiveDate {
         }
     }
     d
+}
+
+/// Échéance en jours ouvrés du service (calendrier du socle 5). Si le calendrier est illisible, repli sur les seuls
+/// week-ends (journalisé) : une échéance approximative vaut mieux qu'un dépôt refusé.
+pub(crate) async fn echeance_ouvree(conn: &mut PgConnection, etab: Uuid, depuis: NaiveDate, n: u16, service: &str) -> NaiveDate {
+    match crate::structure_calendrier::calendrier::echeance_jours_ouvres(conn, etab, depuis, u32::from(n), service).await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!(error = %e, "demandes : calendrier illisible, échéance sans fermetures");
+            ajouter_jours_ouvres(depuis, n)
+        }
+    }
 }
 
 impl PgEnt {
@@ -943,10 +998,15 @@ impl PgEnt {
             }
         }
         // R-DM6 : une demande a toujours une file. Sans file, pas de dépôt (jamais « tout le personnel »).
-        let Some(file_id) = sources.file_de_depot(etab, decl.code) else {
+        // CDM-07 : nature non (ou plus) proposée à ce public → phrase claire, aucune demande créée.
+        if let Some(phrase) = sources.refus_nature(etab, decl.code) {
+            return Err(RefusDemande::Invalide(phrase));
+        }
+        let Some(routage) = sources.routage_de_depot(etab, decl.code) else {
             tracing::error!(nature = decl.code, "demandes : aucune file de dépôt (source absente)");
             return Err(RefusDemande::Indisponible);
         };
+        let file_id = routage.file_id;
         let canal = match depot.canal.unwrap_or(Canal::Web) {
             c @ (Canal::Web | Canal::Mobile) => c,
             // Les canaux comptoir, téléphone, courrier… viennent avec leurs lots, et toujours par une session.
@@ -1007,8 +1067,8 @@ impl PgEnt {
         sqlx::query(
             "INSERT INTO ent_dem_demande (id, etablissement_id, numero, annee_id, nature_code, nature_version, statut,
                     confidentialite, urgence, demandeur_personne_id, deposant_personne_id, canal_depot, eleve_id,
-                    objet, texte, texte_scelle, file_id, depose_le)
-             VALUES ($1, $2, $3, $4, $5, $6, 'deposee', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())",
+                    objet, texte, texte_scelle, file_id, site_id, depose_le)
+             VALUES ($1, $2, $3, $4, $5, $6, 'deposee', $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, now())",
         )
         .bind(id)
         .bind(etab)
@@ -1026,6 +1086,7 @@ impl PgEnt {
         .bind(texte_stocke.as_deref())
         .bind(scelle && texte_stocke.is_some())
         .bind(file_id)
+        .bind(routage.site_id)
         .execute(&mut *tx)
         .await?;
 
@@ -1034,8 +1095,16 @@ impl PgEnt {
         }
 
         // Échéances : prise en charge et traitement (jours ouvrés ; fermetures du site en N1-1).
-        for (type_, jours) in [("prise_en_charge", decl.delai_prise_jours), ("traitement", decl.delai_traitement_jours)] {
-            let due = ajouter_jours_ouvres(jour, jours);
+        // Jours ouvrés du calendrier du service de la file : fermetures et jours fériés exclus ; un dépôt pendant une
+        // fermeture voit son délai partir à la réouverture (R-DM22). Les délais effectifs ne dépassent jamais ceux
+        // que la nature déclare (l'établissement raccourcit, il ne rallonge pas).
+        let delai_prise = routage.delai_prise_jours.map_or(decl.delai_prise_jours, |d| d.min(decl.delai_prise_jours));
+        let delai_traitement = routage
+            .delai_traitement_jours
+            .map_or(decl.delai_traitement_jours, |d| d.min(decl.delai_traitement_jours))
+            .max(delai_prise);
+        for (type_, jours) in [("prise_en_charge", delai_prise), ("traitement", delai_traitement)] {
+            let due = echeance_ouvree(&mut tx, etab, jour, jours, &routage.service_calendrier).await;
             sqlx::query(
                 "INSERT INTO ent_dem_echeance (id, etablissement_id, demande_id, type, due_le)
                  VALUES ($1, $2, $3, $4,
@@ -1058,6 +1127,15 @@ impl PgEnt {
         fait.file_apres = Some(file_id);
         fait.motif = pour_compte.then_some("pour_le_compte");
         ajouter_fait(&mut tx, etab, fait).await?;
+        // La raison du routage est un fait : lisible des membres de la file, jamais du demandeur (§10.1).
+        if let Some(motif) = routage.motif {
+            let mut r = FaitNouveau::nouveau(id, "routage");
+            r.auteur_tache = Some("routage_deterministe");
+            r.file_apres = Some(file_id);
+            r.motif = Some(motif);
+            r.ref_id = routage.ref_id;
+            ajouter_fait(&mut tx, etab, r).await?;
+        }
 
         let env = EnveloppeNeutre::nouvelle(id, &numero, decl.code, "deposee");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_DEPOSEE, &env, Some(user_id)).await?;
