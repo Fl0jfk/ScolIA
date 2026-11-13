@@ -1191,132 +1191,14 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
     }
-    // Socle 15, lots A0–A1 (§23.2). Tout le personnel peut déclarer SA propre absence sans droit
-    // (le service le contrôle). L'administrateur technique ne reçoit que le paramétrage : jamais la
-    // nature ni la validation ; le DPO et la comptabilité hors circuit ne lisent pas la nature.
-    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(PersonnelsAbsencesDeclarer));
-    }
-    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
-        d.push(etab(PersonnelsAbsencesSignaler));
-    }
-    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
-        d.push(etab(PersonnelsAbsencesLireOrganisation));
-    }
-    if matches!(role, Role::Direction | Role::Administratif) {
-        d.push(etab(PersonnelsAbsencesLireNature));
-    }
-    if role == Role::Direction {
-        d.push(etab(PersonnelsAbsencesValider));
-    }
-    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(PersonnelsAbsencesInstruire));
-    }
-    if matches!(role, Role::Direction | Role::Administratif) {
-        d.push(etab(PersonnelsAbsencesSaisirValidee));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        d.push(etab(PersonnelsAbsencesParametrer));
-    }
-    // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
-    // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
-    // direction ; types d'événements de l'établissement : administrateur.
-    d.push(etab(AgendaEvenementsCreer));
-    d.push(etab(AgendaLireStructure));
-    // Réservation de lieux (AG3) : lire le planning et réserver, tout le personnel ; gérer : direction,
-    // administrateur, secrétariat ; valider et paramétrer : direction, administrateur.
-    d.push(etab(AgendaLieuxLire));
-    d.push(etab(AgendaLieuxReserver));
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
-        d.push(etab(AgendaLieuxGerer));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        d.push(etab(AgendaLieuxValider));
-        d.push(etab(AgendaLieuxParametrer));
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
-        d.push(etab(AgendaEvenementsPublier));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        d.push(etab(AgendaJournalLire));
-        d.push(etab(AgendaSemaineGerer));
-    }
-    if role == Role::Admin {
-        d.push(etab(AgendaParametrer));
-    }
-    // Socle 39, lot ST0 (`39_STAGES.md` §21.1) : le secrétariat et la direction tiennent les stages
-    // et le carnet d'organismes ; le professeur lit les stages de ses élèves ; le CPE ne crée plus
-    // (RS-02) et n'a que la projection « en stage ».
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
-        for a in [StagesLire, StagesPreparer, StagesOrganismesGerer] {
-            d.push(etab(a));
-        }
-    }
-    // Lot ST1 (a) : paramétrage et périodes = direction (le DDFPT les recevra par un rôle D-017).
-    if matches!(role, Role::Admin | Role::Direction) {
-        for a in [StagesParametrer, StagesPeriodesGerer] {
-            d.push(etab(a));
-        }
-    }
-    if role == Role::Prof {
-        d.push((StagesLire, Portee::MesClasses));
-    }
-    // Socle 12 (AS1, DA-18) : les droits d'appel et d'assiduité sortent des rôles codés en dur.
-    // Le modèle par défaut reproduit exactement `can_faire_appel`, `can_trancher_justificatif`,
-    // `can_annuler_absence_vers_present` et `can_gerer_dispenses_vs` ; un rôle libre (D-017) peut
-    // désormais ouvrir `appel.faire` à un AED ou `absences.proposer_qualification` sans qualifier.
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Prof) {
-        d.push(etab(AppelFaire));
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
-        // `absences.proposer_qualification` est listée à part (même profils) : l'anti-escalade compare
-        // les actions exactement, la vie scolaire doit donc la détenir pour pouvoir la confier à un rôle libre.
-        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier, AbsencesProposerQualification] {
-            d.push(etab(a));
-        }
-    }
-    if role == Role::Prof {
-        d.push(etab(AppelDeleguer));
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie) {
-        d.push(etab(LocalisationPoser));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        d.push(etab(AssiduiteRegleGerer));
-    }
-    // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
-    if role == Role::Admin {
-        d.push(etab(AfaireRapprocher));
-    }
-    // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
-    // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
-    // réservés. Le porteur et les encadrants d'une sortie agissent sur la leur sans droit d'établissement.
-    d.push(etab(VoyagesAnnuaire));
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(VoyagesLire));
-    }
-    if matches!(
-        role,
-        Role::Admin | Role::Direction | Role::Administratif | Role::Prof | Role::Cpe
-    ) {
-        d.push(etab(VoyagesCreer));
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
-        for a in [VoyagesModifier, VoyagesParticipants, VoyagesPorteur] {
-            d.push(etab(a));
-        }
-    }
-    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
-        d.push(etab(VoyagesPrestataires));
-    }
-    if matches!(role, Role::Admin | Role::Direction) {
-        for a in [VoyagesEncadrement, VoyagesValider, VoyagesAutoriser] {
-            d.push(etab(a));
-        }
-    }
-    if matches!(role, Role::Admin | Role::Compta) {
-        d.push(etab(VoyagesBudgetValider));
-    }
+    // Modèles des socles récents : une fonction par socle (voir plus bas). Un nouveau socle ajoute
+    // sa fonction et UNE ligne ici, dans l'ordre des lots ; l'ordre de la liste est conservé.
+    socle_15_absences_personnels(role, &mut d);
+    socle_19_agenda(role, &mut d);
+    socle_39_stages(role, &mut d);
+    socle_12_assiduite(role, &mut d);
+    socle_29_afaire(role, &mut d);
+    socle_42_voyages(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1684,6 +1566,171 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     d
 }
+
+// ── Modèles par défaut, un bloc par socle (appelés par `modele_par_defaut`, dans l'ordre) ──
+
+/// Socle 15 (absences des personnels), lots A0–A1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 15, lots A0–A1 (§23.2). Tout le personnel peut déclarer SA propre absence sans droit
+    // (le service le contrôle). L'administrateur technique ne reçoit que le paramétrage : jamais la
+    // nature ni la validation ; le DPO et la comptabilité hors circuit ne lisent pas la nature.
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesDeclarer));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push(etab(PersonnelsAbsencesSignaler));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(PersonnelsAbsencesLireOrganisation));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesLireNature));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnelsAbsencesValider));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesInstruire));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesSaisirValidee));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PersonnelsAbsencesParametrer));
+    }
+}
+
+/// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_19_agenda(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
+    // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
+    // direction ; types d'événements de l'établissement : administrateur.
+    d.push(etab(AgendaEvenementsCreer));
+    d.push(etab(AgendaLireStructure));
+    // Réservation de lieux (AG3) : lire le planning et réserver, tout le personnel ; gérer : direction,
+    // administrateur, secrétariat ; valider et paramétrer : direction, administrateur.
+    d.push(etab(AgendaLieuxLire));
+    d.push(etab(AgendaLieuxReserver));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(AgendaLieuxGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaLieuxValider));
+        d.push(etab(AgendaLieuxParametrer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(AgendaEvenementsPublier));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaJournalLire));
+        d.push(etab(AgendaSemaineGerer));
+    }
+    if role == Role::Admin {
+        d.push(etab(AgendaParametrer));
+    }
+}
+
+/// Socle 39 (stages), lots ST0 et ST1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_39_stages(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 39, lot ST0 (`39_STAGES.md` §21.1) : le secrétariat et la direction tiennent les stages
+    // et le carnet d'organismes ; le professeur lit les stages de ses élèves ; le CPE ne crée plus
+    // (RS-02) et n'a que la projection « en stage ».
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [StagesLire, StagesPreparer, StagesOrganismesGerer] {
+            d.push(etab(a));
+        }
+    }
+    // Lot ST1 (a) : paramétrage et périodes = direction (le DDFPT les recevra par un rôle D-017).
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [StagesParametrer, StagesPeriodesGerer] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push((StagesLire, Portee::MesClasses));
+    }
+}
+
+/// Socle 12 (appel et assiduité), lots AS1 et AS2. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 12 (AS1, DA-18) : les droits d'appel et d'assiduité sortent des rôles codés en dur.
+    // Le modèle par défaut reproduit exactement `can_faire_appel`, `can_trancher_justificatif`,
+    // `can_annuler_absence_vers_present` et `can_gerer_dispenses_vs` ; un rôle libre (D-017) peut
+    // désormais ouvrir `appel.faire` à un AED ou `absences.proposer_qualification` sans qualifier.
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Prof) {
+        d.push(etab(AppelFaire));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        // `absences.proposer_qualification` est listée à part (même profils) : l'anti-escalade compare
+        // les actions exactement, la vie scolaire doit donc la détenir pour pouvoir la confier à un rôle libre.
+        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier, AbsencesProposerQualification] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push(etab(AppelDeleguer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie) {
+        d.push(etab(LocalisationPoser));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AssiduiteRegleGerer));
+    }
+}
+
+/// Socle 29 (portails, index des tâches), lot P2. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
+    if role == Role::Admin {
+        d.push(etab(AfaireRapprocher));
+    }
+}
+
+/// Socle 42 (sorties et voyages), lot V0a. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
+    // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
+    // réservés. Le porteur et les encadrants d'une sortie agissent sur la leur sans droit d'établissement.
+    d.push(etab(VoyagesAnnuaire));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesLire));
+    }
+    if matches!(
+        role,
+        Role::Admin | Role::Direction | Role::Administratif | Role::Prof | Role::Cpe
+    ) {
+        d.push(etab(VoyagesCreer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        for a in [VoyagesModifier, VoyagesParticipants, VoyagesPorteur] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(VoyagesPrestataires));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        for a in [VoyagesEncadrement, VoyagesValider, VoyagesAutoriser] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Admin | Role::Compta) {
+        d.push(etab(VoyagesBudgetValider));
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
