@@ -8695,6 +8695,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 appel.jour,
             )
             .await?;
+        // AS3 (§8.3) : la séance est aussi rattachée à un épisode (contiguïté, déclarations rapprochées),
+        // dans la même transaction que l'ancien circuit.
+        self.episode_rattacher_seance_tx(tx, appel, eleve_id, absence.id, actor_user_id, publies)
+            .await?;
         if regroupee && (prevenue || deja_avis) {
             return Ok(());
         }

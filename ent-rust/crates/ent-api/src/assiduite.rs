@@ -8,15 +8,20 @@
 //! **Aucun contrôle de rôle codé en dur ici** (DA-18) : une route ne répond que ce que le service
 //! autorise, et une référence d'un autre établissement ou inexistante donne la même réponse (R-AS35).
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{DefaultBodyLimit, Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use chrono::NaiveDate;
+use base64::Engine;
+use ent_db::cahier::FichierDepot;
 use ent_db::{
-    ActiviteAppelee, AnnoncerRetard, AppelV2, CorrectionLigne, HistoLigne, IncoherenceV2,
+    ActiviteAppelee, AnnoncerRetard, ApercuMasse, AppelV2, BilanMasse, CorrectionLigne, DecisionDemande,
+    DemandeAsd, DemandeAutorisation, DepotJustificatif, DetailEpisode, EpisodeAsd, EpisodeVueFamille,
+    EpisodeVueProfesseur, FiltreEpisodes, HistoLigne, IncoherenceV2, JustificatifAsd, LienJustificatif,
     LigneAppelV2, MotifAsd, NatureMotif, OuvrirActivite, PoserLocalisation, ProfilAcademique,
-    RegleAsd, SaisieLigne, SaisieMotif, SaisieRegle, SituationAsd, ValidationAppel, VersionMotif,
+    ProposerQualification, PropositionAsd, QualifierEpisode, RegleAsd, RequalifierEpisode, SaisieLigne,
+    SaisieMotif, SaisieRegle, SelectionMasse, SituationAsd, ValidationAppel, VersionMotif,
 };
 use serde::Deserialize;
 use uuid::Uuid;
@@ -56,6 +61,28 @@ pub fn routes() -> Router<AppState> {
         .route("/assiduite/situations/retard-annonce", post(annoncer_retard))
         .route("/assiduite/situations/{id}/lever", post(lever_situation))
         .route("/assiduite/situations/{id}/texte", get(texte_situation))
+        // Épisodes, qualification, justificatifs, demandes (AS3)
+        .route("/assiduite/episodes", get(episodes))
+        .route("/assiduite/episodes/masse/apercu", post(apercu_masse))
+        .route("/assiduite/episodes/masse", post(qualifier_masse))
+        .route("/assiduite/episodes/{id}", get(episode))
+        .route("/assiduite/episodes/{id}/qualification", post(qualifier))
+        .route("/assiduite/episodes/{id}/requalification", post(requalifier))
+        .route("/assiduite/episodes/{id}/propositions", post(proposer))
+        .route("/assiduite/mes-episodes", get(mes_episodes))
+        .route("/assiduite/eleves/{eleve_id}/episodes", get(episodes_famille))
+        .route("/assiduite/episodes/{id}/justificatifs", get(justificatifs).post(deposer_justificatif).layer(corps_fichier()))
+        .route("/assiduite/episodes/{id}/justificatifs/lectures", get(lectures_justificatifs))
+        .route("/assiduite/episodes/{id}/justificatifs/{jid}/lien", post(lien_justificatif))
+        .route("/assiduite/episodes/{id}/justificatifs/{jid}/retirer", post(retirer_justificatif))
+        .route("/assiduite/demandes", get(demandes).post(demander_autorisation))
+        .route("/assiduite/demandes/{id}/decision", post(decider_demande))
+        .route("/assiduite/demandes/{id}/retirer", post(retirer_demande))
+}
+
+fn corps_fichier() -> DefaultBodyLimit {
+    let up = ent_db::upload::PolitiqueFichiers::depuis_env();
+    DefaultBodyLimit::max(up.limite_corps_base64(ent_db::upload::UsageFichier::Document))
 }
 
 /// Canal de saisie de la session : web ou mobile (le hors ligne est annoncé par le client, AS10).
@@ -249,4 +276,126 @@ async fn lever_situation(State(state): State<AppState>, session: EntSession, Pat
 
 async fn texte_situation(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<String>>> {
     state.ent.texte_situation_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(Json).map_err(map_db)
+}
+
+// ─── AS3 : épisodes, qualification, justificatifs, demandes ──────────────────
+
+async fn avec_noms_episodes(state: &AppState, etab: Uuid, mut v: Vec<EpisodeAsd>) -> Res<Json<Vec<EpisodeAsd>>> {
+    let ids: Vec<Uuid> = v.iter().map(|e| e.eleve_id).collect();
+    let noms = state.ent.eleve_labels(etab, &ids).await.map_err(map_db)?;
+    for e in &mut v {
+        e.eleve_label = noms.get(&e.eleve_id).cloned();
+    }
+    Ok(Json(v))
+}
+
+async fn episodes(State(state): State<AppState>, session: EntSession, Query(f): Query<FiltreEpisodes>) -> Res<Json<Vec<EpisodeAsd>>> {
+    let v = state.ent.episodes_for_actor(session.etablissement_id, session.user_id, &session.role, f).await.map_err(map_db)?;
+    avec_noms_episodes(&state, session.etablissement_id, v).await
+}
+
+async fn episode(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<DetailEpisode>> {
+    state.ent.episode_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(Json).map_err(map_db)
+}
+
+async fn qualifier(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>, Json(q): Json<QualifierEpisode>) -> Res<Json<EpisodeAsd>> {
+    state.ent.qualifier_episode_for_actor(session.etablissement_id, session.user_id, &session.role, id, q).await.map(Json).map_err(map_db)
+}
+
+async fn requalifier(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>, Json(q): Json<RequalifierEpisode>) -> Res<Json<EpisodeAsd>> {
+    state.ent.requalifier_episode_for_actor(session.etablissement_id, session.user_id, &session.role, id, q).await.map(Json).map_err(map_db)
+}
+
+async fn proposer(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>, Json(p): Json<ProposerQualification>) -> Res<(StatusCode, Json<PropositionAsd>)> {
+    state.ent.proposer_qualification_for_actor(session.etablissement_id, session.user_id, &session.role, id, p).await.map(|r| (StatusCode::CREATED, Json(r))).map_err(map_db)
+}
+
+async fn apercu_masse(State(state): State<AppState>, session: EntSession, Json(s): Json<SelectionMasse>) -> Res<Json<ApercuMasse>> {
+    state.ent.apercu_masse_for_actor(session.etablissement_id, session.user_id, &session.role, &s).await.map(Json).map_err(map_db)
+}
+
+async fn qualifier_masse(State(state): State<AppState>, session: EntSession, Json(s): Json<SelectionMasse>) -> Res<Json<BilanMasse>> {
+    state.ent.qualifier_masse_for_actor(session.etablissement_id, session.user_id, &session.role, s).await.map(Json).map_err(map_db)
+}
+
+/// Vue du professeur : l'état de régularisation des épisodes de ses séances, sans motif (R-AS21).
+async fn mes_episodes(State(state): State<AppState>, session: EntSession, Query(q): Query<JourQuery>) -> Res<Json<Vec<EpisodeVueProfesseur>>> {
+    let depuis = match q.jour {
+        Some(j) => j,
+        None => state.ent.aujourdhui_etablissement(session.etablissement_id).await.map_err(map_db)? - chrono::Duration::days(14),
+    };
+    state.ent.episodes_de_mes_seances_for_actor(session.etablissement_id, session.user_id, &session.role, depuis).await.map(Json).map_err(map_db)
+}
+
+async fn episodes_famille(State(state): State<AppState>, session: EntSession, Path(eleve_id): Path<Uuid>) -> Res<Json<Vec<EpisodeVueFamille>>> {
+    state.ent.episodes_famille_for_actor(session.etablissement_id, session.user_id, &session.role, eleve_id).await.map(Json).map_err(map_db)
+}
+
+async fn justificatifs(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<JustificatifAsd>>> {
+    state.ent.justificatifs_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(Json).map_err(map_db)
+}
+
+#[derive(Deserialize)]
+struct FichierJson {
+    nom: String,
+    mime_type: String,
+    contenu_base64: String,
+}
+
+#[derive(Deserialize)]
+struct DeposerJustificatifBody {
+    texte: Option<String>,
+    medical: Option<bool>,
+    #[serde(default)]
+    vu_non_conserve: bool,
+    fichier: Option<FichierJson>,
+}
+
+/// Dépôt d'un justificatif : le type et la clé d'objet sont décidés par le serveur, jamais par le client.
+async fn deposer_justificatif(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>, Json(b): Json<DeposerJustificatifBody>) -> Res<(StatusCode, Json<JustificatifAsd>)> {
+    let fichier = match b.fichier {
+        Some(f) => Some(FichierDepot {
+            nom: f.nom,
+            mime_type: f.mime_type,
+            contenu: base64::engine::general_purpose::STANDARD
+                .decode(f.contenu_base64.trim())
+                .map_err(|_| (StatusCode::BAD_REQUEST, "contenu_base64 invalide".to_string()))?,
+        }),
+        None => None,
+    };
+    let depot = DepotJustificatif { texte: b.texte, medical: b.medical, vu_non_conserve: b.vu_non_conserve };
+    state.ent.deposer_justificatif_for_actor(session.etablissement_id, session.user_id, &session.role, id, depot, fichier).await.map(|j| (StatusCode::CREATED, Json(j))).map_err(map_db)
+}
+
+async fn lien_justificatif(State(state): State<AppState>, session: EntSession, Path((id, jid)): Path<(Uuid, Uuid)>) -> Res<Json<LienJustificatif>> {
+    state.ent.lien_justificatif_for_actor(session.etablissement_id, session.user_id, &session.role, id, jid).await.map(Json).map_err(map_db)
+}
+
+async fn retirer_justificatif(State(state): State<AppState>, session: EntSession, Path((id, jid)): Path<(Uuid, Uuid)>) -> Res<Json<JustificatifAsd>> {
+    state.ent.retirer_justificatif_for_actor(session.etablissement_id, session.user_id, &session.role, id, jid).await.map(Json).map_err(map_db)
+}
+
+async fn lectures_justificatifs(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<(Uuid, Uuid, bool, chrono::DateTime<chrono::Utc>)>>> {
+    state.ent.lectures_justificatifs_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(Json).map_err(map_db)
+}
+
+#[derive(Deserialize)]
+struct DemandesQuery {
+    eleve_id: Option<Uuid>,
+}
+
+async fn demandes(State(state): State<AppState>, session: EntSession, Query(q): Query<DemandesQuery>) -> Res<Json<Vec<DemandeAsd>>> {
+    state.ent.demandes_for_actor(session.etablissement_id, session.user_id, &session.role, q.eleve_id).await.map(Json).map_err(map_db)
+}
+
+async fn demander_autorisation(State(state): State<AppState>, session: EntSession, Json(d): Json<DemandeAutorisation>) -> Res<(StatusCode, Json<DemandeAsd>)> {
+    state.ent.demander_autorisation_for_actor(session.etablissement_id, session.user_id, &session.role, d).await.map(|r| (StatusCode::CREATED, Json(r))).map_err(map_db)
+}
+
+async fn decider_demande(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>, Json(d): Json<DecisionDemande>) -> Res<Json<DemandeAsd>> {
+    state.ent.decider_demande_for_actor(session.etablissement_id, session.user_id, &session.role, id, d).await.map(Json).map_err(map_db)
+}
+
+async fn retirer_demande(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<DemandeAsd>> {
+    state.ent.retirer_demande_for_actor(session.etablissement_id, session.user_id, id).await.map(Json).map_err(map_db)
 }
