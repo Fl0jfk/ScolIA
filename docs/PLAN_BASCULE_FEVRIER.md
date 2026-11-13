@@ -185,7 +185,7 @@ Statut : ✅ sur ENT · ⏳ en cours · ○ à faire. « Unités » = estimation
 | S7 | 15–19 févr. | dernières corrections ; **go/no-go jeudi 18 février, 18 h** | préparation du jour J | **décision go/no-go** ; autorisation écrite pour la base (D-057) | — |
 | J | **sam. 20 févr. → lun. 8 mars** | aucun lot fonctionnel ; correctifs d'urgence seulement | bascule (§5.2) | — | — |
 
-**Contraintes de CI prises en compte** [R] : au plus 3–4 branches de code à la fois ; lots du même socle enchaînés sur une seule branche quand ils se suivent (moins de refusions) ; fusion par le pilote sans relance quand il n'y a pas de chevauchement (règle 17) ; pas de relance inutile (règle 16) ; les plages de migrations sont réservées d'avance (`MIGRATIONS.md`) pour N1 (proposition : **3000–3019**) et pour les reprises (2564–2577, déjà prévues).
+**Contraintes de CI prises en compte** [R] : au plus 3–4 branches de code à la fois ; lots du même socle enchaînés sur une seule branche quand ils se suivent (moins de refusions) ; fusion par le pilote sans relance quand il n'y a pas de chevauchement (règle 17) ; pas de relance inutile (règle 16) ; les plages de migrations sont réservées d'avance (`MIGRATIONS.md`) pour N1 (**3040–3059** : la proposition initiale 3000–3019 était déjà réservée au socle 50) et pour les reprises (2564–2577, déjà prévues).
 
 ---
 
@@ -291,7 +291,7 @@ Tous sont **bloquants**. Un seul critère rouge = report aux vacances de printem
 | Q-PB2 | Usage réel de M03 (planning par domaines), M07 (registre SST), M14 (passages de cantine), P07 (messagerie familles) ; maturité des absences du personnel (Q-T0-14) | réponse avant le 27 novembre |
 | Q-PB3 | E-mail sortant de l'ENT Rust : Scaleway TEM (déjà utilisé par le Next.js), ou autre ? | Scaleway TEM, en France, déjà connu |
 | Q-PB4 | Confirmer que l'infirmerie (M13) et le bien-être (M18) du Next.js ne contiennent aucune donnée réelle | si des données existent : export chiffré hors ligne, sans reprise |
-| Q-PB5 | Créer le socle N1 « Demandes et flux de travail » (Q-T0-04, Q-PO3) et le concevoir tout de suite | oui, plage 3000–3019 |
+| Q-PB5 | Créer le socle N1 « Demandes et flux de travail » (Q-T0-04, Q-PO3) et le concevoir tout de suite | oui, plage 3040–3059 (3000–3019 était déjà prise par le socle 50) — conception faite le 2026-11-13 (`N1_DEMANDES.md`) |
 | Q-PB6 | Calendrier du jour J : gel le vendredi 19 février au soir, ouverture aux personnels le jeudi 25 février | oui |
 | Q-PB7 | Sur la base de production, l'autorisation de D-057 sert-elle seulement à **lire et exporter** ? On ne modifie pas la base Next.js, pour garder un retour arrière trivial | oui, lecture et export seulement ; la lecture seule est mise par Florian |
 | Q-PB8 | Pour l'EDT réel : import depuis le logiciel d'EDT de l'établissement (10 T10) ou reprise des copies du Next.js (C04) ? | reprise C04 pour février ; T10 avant la rentrée |
