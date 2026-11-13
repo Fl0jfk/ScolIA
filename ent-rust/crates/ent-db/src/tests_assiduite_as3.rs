@@ -385,7 +385,7 @@ async fn as3_qualification_projetee_sur_l_ancien_statut_et_requalification_trace
     assert_eq!(n(&ent, "SELECT count(*) FROM ent_outbox WHERE etablissement_id = $1 AND aggregate_id = $2 AND type = 'assiduite.absence_requalifiee'", etab, ep.id).await, 1);
     // Le passage « valable » → « non valable » est annoncé comme changement de sens (avis à la famille, AS5).
     let (sens,): (bool,) = sqlx::query_as(
-        "SELECT (payload->>'sens_change')::bool FROM ent_outbox WHERE etablissement_id = $1 AND aggregate_id = $2 AND type = 'assiduite.absence_requalifiee'",
+        "SELECT (payload->>'sens_change')::bool FROM ent_metier_event WHERE etablissement_id = $1 AND aggregate_id = $2 AND type = 'assiduite.absence_requalifiee'",
     )
     .bind(etab).bind(ep.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert!(sens);
