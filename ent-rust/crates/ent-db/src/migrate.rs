@@ -309,13 +309,16 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2821_internat_i0_regime_parametres"),
     m!("2822_internat_i1_zones_chambres_lits"),
     m!("2823_internat_i1_sejours_affectations"),
+    // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
+    m!("3040_demandes_n1_0_coeur"),
+    m!("3041_demandes_n1_0_droits"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "2823_internat_i1_sejours_affectations";
+pub const MIGRATION_TAG: &str = "3041_demandes_n1_0_droits";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

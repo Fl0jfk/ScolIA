@@ -185,6 +185,12 @@ impl ClasseTable {
 }
 
 const N_PURGE: Neutralisation = Neutralisation::Purge;
+/// Échéances de demandes (N1) : une base restaurée ne doit déclencher ni relance ni escalade ; elles sont
+/// suspendues (jamais supprimées) et un humain les reprend (R-DM20 : une échéance suspendue ne court plus).
+const N_DEM_ECHEANCE: Neutralisation = Neutralisation::Maj {
+    set: "suspendue_depuis = now()",
+    ou: "traitee_le IS NULL AND suspendue_depuis IS NULL",
+};
 const N_OUTBOX: Neutralisation = Neutralisation::Maj {
     set: "statut = 'echec', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_distribuer'",
@@ -399,6 +405,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_delegation", "identite_acces", Portee::Etablissement).perso().export(),
     t("ent_delegation_droit", "identite_acces", Portee::Etablissement).perso().export(),
     t("ent_delegation_droit_cible", "identite_acces", Portee::Etablissement).perso().export(),
+    t("ent_dem_demande", "demandes", Portee::Etablissement).perso().export(),
+    t("ent_dem_echeance", "demandes", Portee::Etablissement).neutralise(N_DEM_ECHEANCE),
+    t("ent_dem_fait", "demandes", Portee::Etablissement).perso().export(),
+    t("ent_dem_numerotation", "demandes", Portee::Etablissement),
+    t("ent_dem_valeur", "demandes", Portee::Etablissement).perso().export(),
     t("ent_devoir", "evaluations_pedagogie", Portee::Etablissement).perso().export(),
     t("ent_dispense_vs", "assiduite", Portee::Etablissement).perso().sante().export(),
     t("ent_disponibilite", "emploi_du_temps_structure", Portee::Etablissement),

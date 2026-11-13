@@ -351,6 +351,39 @@ pub enum Action {
     StagesParametrer,
     /// Socle 39, lot ST1 (a) : planifier, modifier, publier et fermer les périodes de stage.
     StagesPeriodesGerer,
+    // ── Socle N1 : demandes et flux de travail (`N1_DEMANDES.md` §24.1, D-017) ──
+    /// Déposer une demande à l'établissement au nom de soi (natures ouvertes au personnel).
+    DemandesDeposer,
+    /// Déposer une demande au nom d'une autre personne (accueil, secrétariat, direction) : le déposant est tracé.
+    DemandesDeposerPourCompte,
+    /// Traiter les demandes des files dont on est membre (membres calculés ; aucun modèle ne le donne à tout un rôle).
+    DemandesTraiter,
+    /// Réattribuer, déléguer et reporter l'échéance des demandes des files dont on est responsable.
+    DemandesFileRepartir,
+    /// Superviser les files : compteurs, délais, retards, contenu C0–C1.
+    DemandesFileSuperviser,
+    /// Lire les demandes C0–C1 de l'établissement (chef d'établissement).
+    DemandesLireToutes,
+    /// Superviser, de façon motivée et tracée, une file de demandes C2 et plus (geste exceptionnel).
+    DemandesSuperviserConfidentiel,
+    /// Décider les heures supplémentaires effectives (HSE) demandées par les personnels.
+    DemandesHseDecider,
+    /// Attester le service fait des HSE (circuit facultatif, désactivé par défaut).
+    DemandesHseAttester,
+    /// Gérer l'enveloppe d'HSE (en heures) par année et par site.
+    DemandesHseEnveloppeGerer,
+    /// Valider les tirages en couleur et les gros volumes de reprographie.
+    DemandesReproValider,
+    /// Tenir la file d'impression des sites désignés (réceptionnaire de reprographie).
+    DemandesReproImprimer,
+    /// Paramétrer les natures, files, règles de routage et réponses types des demandes.
+    DemandesParametrer,
+    /// Lire les journaux de paramétrage et d'accès des demandes.
+    DemandesJournalLire,
+    /// Lire les indicateurs agrégés des demandes.
+    DemandesIndicateursLire,
+    /// Lancer la reprise des demandes de l'ancienne application.
+    DemandesReprise,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -394,7 +427,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 162] = [
+    pub const TOUTES: [Action; 178] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -550,6 +583,22 @@ impl Action {
         Action::StagesOrganismesGerer,
         Action::StagesParametrer,
         Action::StagesPeriodesGerer,
+        Action::DemandesDeposer,
+        Action::DemandesDeposerPourCompte,
+        Action::DemandesTraiter,
+        Action::DemandesFileRepartir,
+        Action::DemandesFileSuperviser,
+        Action::DemandesLireToutes,
+        Action::DemandesSuperviserConfidentiel,
+        Action::DemandesHseDecider,
+        Action::DemandesHseAttester,
+        Action::DemandesHseEnveloppeGerer,
+        Action::DemandesReproValider,
+        Action::DemandesReproImprimer,
+        Action::DemandesParametrer,
+        Action::DemandesJournalLire,
+        Action::DemandesIndicateursLire,
+        Action::DemandesReprise,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -727,6 +776,22 @@ impl Action {
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
             Self::StagesParametrer => "stages.parametrer",
             Self::StagesPeriodesGerer => "stages.periodes.gerer",
+            Self::DemandesDeposer => "demandes.deposer",
+            Self::DemandesDeposerPourCompte => "demandes.deposer_pour_compte",
+            Self::DemandesTraiter => "demandes.traiter",
+            Self::DemandesFileRepartir => "demandes.file.repartir",
+            Self::DemandesFileSuperviser => "demandes.file.superviser",
+            Self::DemandesLireToutes => "demandes.lire_toutes",
+            Self::DemandesSuperviserConfidentiel => "demandes.superviser_confidentiel",
+            Self::DemandesHseDecider => "demandes.hse.decider",
+            Self::DemandesHseAttester => "demandes.hse.attester",
+            Self::DemandesHseEnveloppeGerer => "demandes.hse.enveloppe.gerer",
+            Self::DemandesReproValider => "demandes.repro.valider",
+            Self::DemandesReproImprimer => "demandes.repro.imprimer",
+            Self::DemandesParametrer => "demandes.parametrer",
+            Self::DemandesJournalLire => "demandes.journal.lire",
+            Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
+            Self::DemandesReprise => "demandes.reprise",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -897,6 +962,22 @@ impl Action {
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
             Self::StagesParametrer => "Paramétrer les stages (dispositifs, assurance, quotas) et interdire un organisme",
             Self::StagesPeriodesGerer => "Planifier, publier et fermer les périodes de stage",
+            Self::DemandesDeposer => "Déposer une demande à l'établissement au nom de soi (natures ouvertes au personnel)",
+            Self::DemandesDeposerPourCompte => "Déposer une demande au nom d'une autre personne (accueil, secrétariat, direction) : le déposant est tracé",
+            Self::DemandesTraiter => "Traiter les demandes des files dont on est membre (membres calculés ; aucun modèle ne le donne à tout un rôle)",
+            Self::DemandesFileRepartir => "Réattribuer, déléguer et reporter l'échéance des demandes des files dont on est responsable",
+            Self::DemandesFileSuperviser => "Superviser les files : compteurs, délais, retards, contenu C0–C1",
+            Self::DemandesLireToutes => "Lire les demandes C0–C1 de l'établissement (chef d'établissement)",
+            Self::DemandesSuperviserConfidentiel => "Superviser, de façon motivée et tracée, une file de demandes C2 et plus (geste exceptionnel)",
+            Self::DemandesHseDecider => "Décider les heures supplémentaires effectives (HSE) demandées par les personnels",
+            Self::DemandesHseAttester => "Attester le service fait des HSE (circuit facultatif, désactivé par défaut)",
+            Self::DemandesHseEnveloppeGerer => "Gérer l'enveloppe d'HSE (en heures) par année et par site",
+            Self::DemandesReproValider => "Valider les tirages en couleur et les gros volumes de reprographie",
+            Self::DemandesReproImprimer => "Tenir la file d'impression des sites désignés (réceptionnaire de reprographie)",
+            Self::DemandesParametrer => "Paramétrer les natures, files, règles de routage et réponses types des demandes",
+            Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
+            Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
+            Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1072,7 +1153,23 @@ impl Action {
             | Self::AfaireRapprocher
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
-            | Self::StagesPeriodesGerer => &[Portee::Etablissement],
+            | Self::StagesPeriodesGerer
+            | Self::DemandesDeposer
+            | Self::DemandesDeposerPourCompte
+            | Self::DemandesTraiter
+            | Self::DemandesFileRepartir
+            | Self::DemandesFileSuperviser
+            | Self::DemandesLireToutes
+            | Self::DemandesSuperviserConfidentiel
+            | Self::DemandesHseDecider
+            | Self::DemandesHseAttester
+            | Self::DemandesHseEnveloppeGerer
+            | Self::DemandesReproValider
+            | Self::DemandesReproImprimer
+            | Self::DemandesParametrer
+            | Self::DemandesJournalLire
+            | Self::DemandesIndicateursLire
+            | Self::DemandesReprise => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -1206,6 +1303,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_12_assiduite(role, &mut d);
     socle_29_afaire(role, &mut d);
     socle_42_voyages(role, &mut d);
+    socle_n1_demandes(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1743,6 +1841,46 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle N1 (demandes et flux de travail), lot N1-0 (`N1_DEMANDES.md` §24.1). Bloc de `modele_par_defaut`, isolé
+/// pour que les fusions de branches ne s'y croisent pas (règle 21 de PILOTAGE.md).
+///
+/// * `demandes.traiter` : **aucun** modèle ne la donne à tout un rôle — l'appartenance à une file (membres calculés
+///   depuis les missions et fonctions du socle 6) ouvre l'accès, jamais le rôle (R-DM7, R-DM8, NJ-85).
+/// * `demandes.file.repartir`, `demandes.repro.imprimer` : portés par la file ou la mission, pas par le rôle.
+/// * `demandes.hse.attester` : l'attestation du service fait est un réglage facultatif **désactivé par défaut**
+///   (D-061) ; aucun profil ne l'a tant que l'établissement ne l'a pas activée et paramétrée.
+/// * Familles et élèves : aucune action de rôle (D-017) ; leurs droits viennent des publics de la nature.
+fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    // Tout le personnel dépose pour lui-même (la nature ouvre ou non le public « personnel »).
+    d.push(etab(DemandesDeposer));
+    if matches!(role, Role::Accueil | Role::Administratif | Role::Compta | Role::Direction) {
+        d.push(etab(DemandesDeposerPourCompte));
+    }
+    if role == Role::Direction {
+        for a in [
+            DemandesFileSuperviser,
+            DemandesLireToutes,
+            DemandesSuperviserConfidentiel,
+            DemandesHseDecider,
+            DemandesReproValider,
+            DemandesIndicateursLire,
+        ] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Direction | Role::Compta) {
+        d.push(etab(DemandesHseEnveloppeGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(DemandesParametrer));
+        d.push(etab(DemandesJournalLire));
+    }
+    if role == Role::Admin {
+        d.push(etab(DemandesReprise));
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -2575,6 +2713,47 @@ mod oracle_a1 {
     }
 
     /// Socle 42, lot V0a : modèles par défaut des onze actions `voyages.*` (`42_SORTIES_VOYAGES.md` §21.1).
+    #[test]
+    fn demandes_n1_0_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        // Aucun rôle ne reçoit `demandes.traiter` ni `demandes.file.repartir` : la file ouvre l'accès (R-DM8).
+        let tous = [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                    Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve];
+        for r in tous {
+            assert!(!a(r, DemandesTraiter), "{r:?} ne doit pas avoir demandes.traiter");
+            assert!(!a(r, DemandesFileRepartir), "{r:?} ne doit pas avoir demandes.file.repartir");
+            // L'attestation du service fait est désactivée par défaut (D-061) ; l'impression vient d'une mission.
+            assert!(!a(r, DemandesHseAttester), "{r:?} hse.attester");
+            assert!(!a(r, DemandesReproImprimer), "{r:?} repro.imprimer");
+        }
+        // Familles et élèves : aucune action (D-017).
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).iter().all(|(x, _)| !x.code().starts_with("demandes.")), "{r:?}");
+        }
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel] {
+            assert!(a(r, DemandesDeposer), "{r:?} dépose pour lui-même");
+        }
+        for (r, pour_compte, lire_toutes, hse, param) in [
+            (Role::Direction, true, true, true, true), (Role::Admin, false, false, false, true),
+            (Role::Administratif, true, false, false, false), (Role::Compta, true, false, false, false),
+            (Role::Accueil, true, false, false, false), (Role::Prof, false, false, false, false),
+            (Role::Cpe, false, false, false, false), (Role::Personnel, false, false, false, false),
+        ] {
+            assert_eq!(a(r, DemandesDeposerPourCompte), pour_compte, "{r:?} pour_compte");
+            assert_eq!(a(r, DemandesLireToutes), lire_toutes, "{r:?} lire_toutes");
+            assert_eq!(a(r, DemandesHseDecider), hse, "{r:?} hse.decider");
+            assert_eq!(a(r, DemandesParametrer), param, "{r:?} parametrer");
+        }
+        assert!(a(Role::Admin, DemandesReprise) && !a(Role::Direction, DemandesReprise));
+        for x in Action::TOUTES.into_iter().filter(|x| x.code().starts_with("demandes.")) {
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+        assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("demandes.")).count(), 16);
+    }
+
     #[test]
     fn voyages_v0a_modeles_par_defaut() {
         use Action::*;

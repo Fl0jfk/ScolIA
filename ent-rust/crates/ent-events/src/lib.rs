@@ -339,6 +339,13 @@ pub mod types {
     /// S2-3 (D23) : import en lot, rejets traités.
     pub const IMPORT_LOT_APPLIQUE: &str = "import.lot_applique";
     pub const IMPORT_REJET_TRAITE: &str = "import.rejet_traite";
+    /// Socle N1 (demandes) : événements du cœur. Charge utile : identifiants, numéro et codes SEULEMENT
+    /// (« enveloppe neutre », R-DM27, NJ-86) — jamais l'objet, le texte, un nom ni une adresse.
+    pub const DEMANDE_DEPOSEE: &str = "demande.deposee";
+    pub const DEMANDE_PRISE: &str = "demande.prise";
+    pub const DEMANDE_RELACHEE: &str = "demande.relachee";
+    pub const DEMANDE_CLOSE: &str = "demande.close";
+    pub const DEMANDE_PURGEE: &str = "demande.purgee";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,6 +426,8 @@ pub enum AggregateKind {
     /// Stages : paramètres, périodes, sites, contacts (socle 39, lot ST1). Les stages eux-mêmes
     /// et les organismes gardent `ConventionStage` et `Entreprise`.
     Stage,
+    /// Demande du socle N1 (cœur : dépôt, prise, clôture). Charge utile : enveloppe neutre.
+    Demande,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
