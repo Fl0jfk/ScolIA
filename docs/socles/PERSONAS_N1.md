@@ -329,3 +329,87 @@ Les trois bloquants (A, B, C) et tous les ajouts du §7.2.
 ## 9. Faits, hypothèses, contradictions
 
 **Faits** : lecture de la conception et du module Next.js cité. **Hypothèses** : toutes les journées des personas [H] ; existence d'un référent harcèlement chez l'organisme de gestion [H] ; pratique de la délégation de signature des attestations [H]. **Contradictions** : la conception (§9.5) montrait les doublons au déposant pour le compte (corrigé par R-DM51) ; la conception (§10.2) prévoyait une file de repli unique « secrétariat de direction » par défaut, inadaptée à la maintenance (corrigé §36.5).
+
+---
+
+## 10. Seconde passe (2026-11-13, après les précisions de Florian relayées par le pilote) — sur `N1_DEMANDES.md` §37
+
+**Pourquoi** : Florian a précisé le fil directeur (« certitude d'être traité », « plus simple et mieux », porte unique « Écrire à l'établissement » près de la messagerie). La conception a été complétée (§37) ; cette seconde passe la met à l'épreuve avec six personas choisies pour **mordre** sur ces points. Ses corrections sont **dans** le §37 (cas limites CDM-79 à CDM-86, actions DEM-391, DEM-398, DEM-399, règle R-DM57 sur les mineurs) et au **§37.11**.
+
+### P13 — Mme Ferreira, mère pressée et inquiète (fils en 5ᵉ)
+
+**Sa situation.** 7 h 40, au travail dans une heure : son fils a perdu son carnet et sa carte de cantine, et la veille il est rentré triste « à cause de garçons ». Elle tape un seul message qui mêle tout. Elle renvoie le même texte deux fois parce que rien ne se passe à l'écran.
+**Ce qu'elle redoute** : que personne ne lise ; qu'on traite la carte et pas le reste.
+**Ce qui la ravirait** : savoir que c'est **vu**, par **qui**, et être **rappelée**.
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-110 | **important** | Un texte qui mêle démarche et inquiétude : l'aiguillage doit proposer **les deux** (la carte → demande ; « garçons », « triste » ne sont pas des mots d'alerte forts → « écrire à la vie scolaire ») et accepter deux envois depuis un seul texte → CDM-73, §37.2 |
+| MN1-111 | important | Double envoi par impatience → doublon montré avec « vu par la vie scolaire à 8 h 02 » → CDM-80, R-DM53 |
+| MN1-112 | important | « **Je préfère être rappelée** » au numéro de la fiche → §37.11.1 |
+| MN1-113 | confort | Accusé qui dit **quand** elle aura une réponse, pas seulement « sous 3 jours ouvrés » (« au plus tard jeudi ») → date calculée affichée, §37.1 |
+
+### P14 — M. Haddad, père qui lit mal le français
+
+**Sa situation.** Il veut une attestation de scolarité pour la caisse d'allocations familiales ; il écrit en arabe sur son téléphone, ou en français phonétique (« atestasion pour la caf »).
+**Ce qu'il redoute** : se tromper, avoir honte au guichet.
+**Ce qui le ravirait** : une image à toucher, une réponse qu'il comprend.
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-120 | **important** | Mots-clés seulement en français correct : tolérance aux fautes (déjà §9.1) **et** catalogue traduit quand rien n'est trouvé → CDM-79, DEM-391 |
+| MN1-121 | important | **Vignettes avec pictogramme** pour les huit démarches les plus fréquentes, dictée vocale native → §37.11.2 |
+| MN1-122 | important | Réponse du secrétariat traduite (relue) et attestation produite **en français** (document officiel) avec une phrase traduite d'explication dans l'avis → DEM-209 précisé |
+| MN1-123 | — | Aucune IA nécessaire pour l'aiguiller (R-DM57) : tient ; l'IA de traduction reste facultative et pseudonymisée |
+
+### P15 — Inès, 13 ans, timide
+
+**Sa situation.** Elle n'ose pas aller au bureau de la vie scolaire. Elle voudrait un casier, et elle voudrait dire qu'on se moque d'elle dans le bus. Ses parents ont un compte.
+**Ce qu'elle redoute** : que ses parents ou ses camarades sachent ; qu'un adulte « en fasse une affaire ».
+**Ce qui la ravirait** : écrire au calme, être sûre qu'un adulte précis l'a lu.
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-130 | **bloquant** | La conception (§14.2.5) rend certaines demandes d'élève visibles des parents ; rien ne garantissait que le **passage par le canal protégé** (« parler à un adulte ») restait invisible des parents → **corrigé** §37.11.3 (jamais visible des responsables) ; appliqué par défaut (D-031) |
+| MN1-131 | important | « Vue par » et prénom de l'adulte qui la prend : rassurant, **gardé** (R-DM53) ; pour le canal protégé, c'est le 36 qui répond (hors N1) |
+| MN1-132 | important | Le casier (demande N1 visible des parents si payant) et la moquerie (canal protégé) partent **séparément** depuis le même texte, l'élève voyant pour chacun « tes parents verront / ne verront pas » → §37.11.3, CDM-74 |
+| MN1-133 | — | Aucune IA sur son texte (mineure, mot d'alerte possible) : tient (R-DM57) |
+
+### P02 bis — M. Dubois, agent de maintenance, téléphone en main
+
+Il teste le **signalement par photo** (DEM-385) dans une salle sans QR et le « résolu ? » à la clôture.
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-140 | important | Lieu proposé quand il n'a **pas de séance** (agent) : dernière salle choisie, puis liste des salles du bâtiment le plus proche de sa dernière intervention ; jamais la position du téléphone → CDM-85 |
+| MN1-141 | important | « Non, toujours un problème » cliqué par un **appui** (pas le demandeur) : rouvre aussi (tout abonné peut dire que ce n'est pas réglé) → DEM-394 précisé |
+| MN1-142 | confort | Il veut **voir** l'indicateur « résolu du premier coup » de sa file : oui pour les membres de la file (agrégé), jamais par agent → DEM-395 précisé |
+
+### P01 bis — Mme Lefèvre, secrétaire débordée, avec la boîte de service et la file de demandes
+
+Avant le §37, elle avait **deux** boîtes : les messages des familles (16) et les demandes (N1). Elle teste l'**Accueil du service**.
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-150 | **bloquant** (levé) | Deux boîtes concurrentes : **levé** par le jumelage et l'écran unique (R-DM58, DEM-396, DEM-397) |
+| MN1-151 | important | Filtrer par type, par famille ; « ce qui attend une réponse de nous » en premier ; classer d'un geste un simple « merci » → §37.11.4 |
+| MN1-152 | important | Convertir sans ressaisir : le texte du message pré-remplit la demande (champ « précision »), le fil est rattaché → DEM-318 (tient) |
+
+### P10 bis — M. Petit, principal, qui veut voir ce qui traîne
+
+| Manque | Gravité | Traitement |
+|---|---|---|
+| MN1-160 | important | « Vues mais non prises » (on a lu, personne ne s'en occupe) : le signal le plus parlant du malaise d'un service → DEM-399 |
+| MN1-161 | important | Ne pas transformer le tableau en surveillance des agents : aucun classement nominatif, effectifs < 5 masqués (R-DM58, DEM-395) |
+| MN1-162 | confort | Lien du tableau vers la file, sans contenu C2+ (titres neutres) : tient |
+
+### 10.1 Synthèse de la seconde passe
+
+| Gravité | Nombre | Numéros |
+|---|---|---|
+| bloquant | 2 (dont 1 levé par le §37) | MN1-130 (appliqué par défaut), MN1-150 (levé) |
+| important | 14 | MN1-110 à 112, 120 à 122, 131, 132, 140, 141, 151, 152, 160, 161 |
+| confort | 3 | MN1-113, 142, 162 |
+| règle confirmée | 2 | MN1-123, MN1-133 |
+
+**Ce que la seconde passe a montré** : la porte unique tient si elle **n'oblige jamais** (R-DM55) et si elle **sépare** proprement, depuis un même texte, ce qui va en demande, en message et au canal protégé, avec pour chaque envoi ce que verront les parents. Le risque principal n'était pas l'aiguillage mais la **visibilité familiale du canal protégé** (MN1-130), corrigée.
