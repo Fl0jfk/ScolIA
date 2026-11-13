@@ -3,7 +3,7 @@
 **Date :** 2026-11-13 — **Statut :** conception de fond, **non décidée** (à relire par Florian) ; les recommandations s'appliquent par défaut (D-031), sauf ce qui engage l'établissement à l'extérieur (§34.2). Aucun code écrit ni modifié. Aucun accès à une base, à un secret ou à un environnement de production. Le code Next.js a été **lu seulement** (fichiers de `app/api/requests/*`, `app/api/assistance`, `app/api/demandes-hse/*`, `app/api/photocopies-couleur/*`, `app/api/settings/requests-*`, `app/lib/requests*.ts`, `app/lib/request-*.ts`, `app/lib/demandes-hse-access.ts`, `app/lib/hse-acceptance-pdf.ts`, `app/lib/photocopies-couleur-*.ts`, `app/lib/assistance.ts`, `db/schema-ent-relational.ts`), rien exécuté, rien construit, rien modifié.
 **Branche :** `ent-socle-N1-conception`, partie de `origin/ent-mc0hoe` (`699275d`).
 **Pourquoi maintenant :** risque n° 1 du plan de bascule (`docs/PLAN_BASCULE_FEVRIER.md`, lignes M04 et M08, RK-1, Q-PB5) : les personnels utilisent chaque jour, dans le Next.js en production, le module de demandes (assistance, demandes internes et leur routage, HSE, photocopies). Sans N1, rien ne le remplace le 20 février 2027.
-**Passe personas :** `docs/socles/PERSONAS_N1.md` ; ses ajouts sont faits **ici**, au **§36**, qui **l'emporte** en cas de contradiction. Rien n'a été supprimé.
+**Passe personas :** `docs/socles/PERSONAS_N1.md` ; ses ajouts sont faits **ici**, au **§36**, qui **l'emporte** en cas de contradiction. **Précisions de Florian relayées par le pilote** et seconde passe : **§37**, qui l'emporte sur tout le reste. Rien n'a été supprimé.
 **À lire avec :** `CLAUDE.md` ; `docs/DECISIONS.md` (D-009, D-017, D-021, D-022, D-023, D-026, D-028, D-031, D-035, **D-036**, D-037 à D-041, **D-048**, **D-051**, **D-055**, **D-057**, **D-059**) ; `docs/PLAN_BASCULE_FEVRIER.md` ; `docs/SOCLES.md` (§10 : trous T-01, T-02) ; `docs/MATRICE_CHARLEMAGNE.md` (DEM-01 à DEM-04, PER-15, PIL-10) ; `docs/TRANSITION_T0_INVENTAIRE.md` (M04, M08, R9, Q-T0-04) ; `docs/ALERTES_NEXTJS_PROD.md` (NJ-01 à NJ-79) ; `docs/PILOTAGE.md` (règles 13, 14, 16) ; conceptions `06_PERSONNELS.md` (missions, équipes, délégations, pouvoirs de signature), `07_DOCUMENTS.md` (`ServiceDocuments`, dépôts, jetons courts), `08_NOTIFICATIONS.md` (§6 : déclaration des natures d'avis), `15_ABSENCES_PERSONNELS.md` (§14 : heures constatées, état mensuel), `16_MESSAGERIE.md` (§11.1, §19.3 : boîtes de service), `19_AGENDA_RDV.md` (modèle de forme), `29_PORTAILS.md` (§8 : à-faire, P4 : files des personnels ; A4, A5, A13), `44_RESSOURCES_MATERIELLES.md` (§12 : interventions, §15 : reprographie, DRM-01 à DRM-13), `49_PAIE.md` (RH4, RHP-252), `IA_COEUR.md` ; `docs/FRONTEND_LEPTOS.md` ; `docs/PRA_SAUVEGARDES.md` §18.4 (E1–E14).
 
 **Conventions.**
@@ -61,7 +61,8 @@ Sommaire :
 9. **Reprographie** (§18) : nature intégrée conforme à la conception du socle 44 (§15) : deux circuits (noir et blanc direct sous un seuil, couleur ou gros volume validés par la direction **du site**), file d'impression **cloisonnée par site** (NJ-77), PDF déposés au socle 7 et liés au déposant (NJ-78), « prête » par un geste authentifié, rappel des plafonds CFC. Le socle 44 reprendra plus tard compteurs, copieurs et déclaration CFC sans reprise de données.
 10. **Familles et élèves** (§19) : de vrais comptes (D-009, D-051) ; une famille dépose une demande cataloguée (attestation, duplicata, changement de régime, demande au secrétariat…) ; une **question libre** reste une conversation du socle 16. Une conversation peut **devenir** une demande (et le fil se ferme en le disant) : jamais les deux à la fois. Plus de page publique sans compte rattachant des enfants par l'adresse e-mail (NJ-88).
 11. **Existant** : Next.js a un module riche mais fragile (routage par IA, corbeille, file partagée, délégation, page parents, HSE, photocopies) et **16 défauts nouveaux** (NJ-80 à NJ-95), dont 6 élevés : n'importe quel compte peut commenter et lire n'importe quelle demande, détourner une demande d'une autre file, lire toutes les pièces, usurper l'identité du demandeur ; le demandeur lit les notes internes ; le texte intégral et des identifiants d'élèves partent à l'IA. Le Rust n'a **rien** : tout est à construire, sans dette à corriger.
-12. **Taille et plan** : **235 actions** (DEM-100 à DEM-357 et DEM-360 à DEM-383, dont 24 de la passe personas), **52 règles** (R-DM1 à R-DM52), **72 cas limites** (CDM-01 à CDM-72), 17 réglages signalés, 16 questions ; **6 lots pour la bascule** (N1-0 modèle et garde-fous ; N1-1 natures et routage ; N1-2 prise en charge, délégation, pièces ; N1-3 HSE et reprographie ; N1-4 écrans Leptos ; N1-5 reprise R9), puis N1-6 à N1-9 après février (mobile, IA, indicateurs, RLS stricte et natures des autres briques). Migrations **3040–3059**. Calendrier du plan : N1-0 semaine du 7 décembre, N1-1 du 14, N1-2 du 11 janvier, N1-3 à N1-5 du 25 janvier (`PLAN_BASCULE_FEVRIER.md` §4).
+12. **Taille et plan** : **251 actions** (DEM-100 à DEM-357 et DEM-360 à DEM-399, dont 24 de la passe personas et 16 des précisions de Florian, §37), **58 règles** (R-DM1 à R-DM58), **86 cas limites** (CDM-01 à CDM-86), 19 réglages signalés, 17 questions ; **6 lots pour la bascule** (N1-0 modèle et garde-fous ; N1-1 natures et routage ; N1-2 prise en charge, délégation, pièces ; N1-3 HSE et reprographie ; N1-4 écrans Leptos ; N1-5 reprise R9), puis N1-6 à N1-9 après février (mobile, IA, indicateurs, RLS stricte et natures des autres briques). Migrations **3040–3059**. Calendrier du plan : N1-0 semaine du 7 décembre, N1-1 du 14, N1-2 du 11 janvier, N1-3 à N1-5 du 25 janvier (`PLAN_BASCULE_FEVRIER.md` §4).
+14. **Précisions de Florian (§37, l'emporte)** : la **certitude d'être traité** devient la promesse centrale — trois preuves visibles du demandeur (envoyée avec service, rôle et délai ; **vue** par le service ; **prise** par une personne nommée par son prénom), retard toujours montré ; une **porte unique « Écrire à l'établissement »** pour familles et élèves, qui aiguille par règles déclarées (sans IA obligatoire) vers une demande suivie, un raccourci ou un message du 16, sans jamais bloquer ; conversion message ↔ demande ; **file N1 et boîte du 16 jumelées** (mêmes membres, un seul écran « Accueil du service ») plutôt que fusionnées ; « Résolu ? Oui / Non » retenu, notes d'agents écartées ; seconde passe personas (`PERSONAS_N1.md` §10).
 13. **[personas] Ce que la passe ajoute (`PERSONAS_N1.md`, §36)** : trois bloquants tranchés par défaut — **conflit d'intérêts** dans une file (la personne visée par une demande RH ou une question à la direction en est exclue, file de repli hors service, R-DM47), **restriction de dépôt** contre le harcèlement par le guichet (R-DM48), **avis de reprise unique** à l'ouverture de la bascule (R-DM49) ; puis attestation HSE fondée sur l'appel ou une déclaration sur l'honneur (R-DM50), accueil qui ne voit aucune demande d'autrui (R-DM51), copies multi-classes et récurrentes, tournée de maintenance, enveloppe prévisionnelle, délégation de signature des attestations, décisions implicites à venir.
 
 ---
@@ -1816,3 +1817,142 @@ Action ajoutée au catalogue D-017 : `demandes.restreindre` (établissement, che
 ### 36.8 Réglages ajoutés
 
 SN1-14 (plafond d'une restriction, 3 par semaine), SN1-15 (échantillon de contrôle HSE, 10 %), SN1-16 (heure de l'avis de reprise, 8 h), SN1-17 (seuil de validation d'un remboursement de frais, 150 €).
+
+---
+
+## 37. Précisions de Florian relayées par le pilote (2026-11-13) — « certitude d'être traité » et « Écrire à l'établissement »
+
+**Source** : deux messages du pilote (session de pilotage) qui résument les mots de Florian ; ils ne sont pas une décision écrite de Florian dans `DECISIONS.md`. Ils sont traités ici comme **fil directeur** et passés à l'épreuve par une seconde passe personas (`PERSONAS_N1.md` §10). Ce §37 **l'emporte** sur les §0 à §36 en cas de contradiction.
+
+### 37.1 Le fil directeur
+
+1. **Partir de ce qui marche.** Florian a conçu le module Next.js et le juge « pas trop mal ». La conception garde ce qui fait son succès : file partagée et « le premier qui prend », corbeille de tri, indicateur « direction », dépôt pour un collègue, deux circuits de photocopies (§2.4). Ce qu'elle change : la sécurité (NJ-80 à NJ-95) et la preuve. **Plus simple et mieux** : le demandeur ne voit que **quatre états** en mots simples (« envoyée », « vue par le secrétariat », « en cours », « terminée ») plus « on attend votre réponse » quand c'est le cas ; les dix états du §11.1 restent internes.
+2. **La certitude d'être traité est la promesse centrale.** Elle tient en trois preuves visibles du demandeur, dans cet ordre :
+   - **envoyée** : accusé immédiat avec le **service** qui traite, le **rôle** de la personne (« le secrétariat des élèves ») et un **délai indicatif** ;
+   - **vue** : **nouveau fait `vue_par_service`** — la première ouverture par un membre de la file est montrée au demandeur (« vue par le secrétariat mardi à 10 h 12 ») ; c'est la réponse au « est-ce que quelqu'un l'a lue ? » (R-DM53) ;
+   - **prise** : le **prénom et l'initiale** de la personne qui traite dès la prise en charge (« Mme L. s'en occupe »), pour les personnels **et** les familles (modifie SN1-02 : le défaut devient « prénom + initiale » pour tous ; le service seul reste possible par file, pour les files confidentielles et à la demande d'un agent exposé).
+   **Ce que j'écarte** : nommer une personne **dès l'accusé**, avant la prise. Le routage va à une file ; nommer « Mme L. » à 22 h alors qu'elle est absente demain trahirait la promesse. L'accusé dit le rôle ; le nom vient avec la prise, qui notifie aussitôt (avis `demandes.prise_en_charge`, désormais **activé par défaut** pour toutes les natures).
+3. **Rien ne dort, et ça se voit.** « Personne n'a répondu depuis X jours » remonte seul (escalade, §13.3, déjà là) **et** le demandeur le voit : passé le délai indicatif, son écran dit « en retard de 2 jours — la direction du service est prévenue » (R-DM54). Le retard n'est jamais caché au demandeur.
+
+### 37.2 Une seule porte pour les familles et les élèves : « Écrire à l'établissement »
+
+**Avis franc** : je **rejoins** l'idée de Florian et la recommandation du pilote, avec trois garde-fous. Pour une famille, la plupart des écrits vers l'établissement sont des **démarches** (attestation, régime, rendez-vous, absence prévue, carte perdue) ; les traiter comme des messages libres est précisément ce qui crée l'incertitude. Mais je **ne recommande pas** que les demandes « remplacent » la messagerie : l'échange avec un professeur, le mot au PP, la discussion avec le CPE restent des **conversations** (16), et les formaliser en demandes alourdirait sans rien garantir de plus. D'où une porte unique, et deux destinations.
+
+**Le parcours** (web et mobile, bouton principal de l'accueil famille et élève) :
+1. **J'écris librement** (« Mon fils a perdu sa carte de cantine » / « Je voudrais parler au professeur de maths de Léa »), pour **un enfant** choisi (ou pour moi, élève). Le texte reste **local** tant que rien n'est envoyé.
+2. **ScolIA propose un aiguillage**, calculé **sur le serveur, avec les droits de la personne**, par **règles explicites** : mots-clés et expressions **déclarés par chaque nature** (et par les raccourcis des autres briques), puis catégories de boîtes du 16. Au plus **trois propositions**, en mots simples :
+   - « **C'est une démarche** : *Carte d'élève ou de cantine perdue* — traitée par la vie scolaire, réponse sous 3 jours » → formulaire pré-rempli avec le texte ;
+   - « **C'est une démarche gérée ailleurs** : *Prévenir d'une absence* » → raccourci vers le 12 ;
+   - « **C'est une question ou un échange** : écrire à *la vie scolaire* / *au professeur principal de Léa* » → message (16), destinataire calculé par la matrice du 16 ;
+   - et **toujours** : « **Envoyer simplement comme message** » (au service le plus probable, ou au secrétariat).
+3. **La personne valide ou garde un message**, sans jamais être bloquée (R-DM55). Le choix est un geste ; ScolIA n'envoie rien seul.
+4. **Signal grave** (mots d'alerte déterministes : harcèlement, frappé, menace, idées noires, suicide…) : en tête des propositions, **sans** bloquer l'envoi, « Parler à un adulte de confiance / signaler une situation » (canal protégé du 36 ou du 13) et les numéros d'urgence (3018, 119) ; si la personne envoie quand même un message, il part à la **boîte vie scolaire** avec l'urgence déterministe du 16 (CM-44), jamais à une file N1 ordinaire (R-DM31 tient).
+5. **IA** : **jamais nécessaire**. Elle peut, si l'établissement l'active (N1-6), proposer une nature quand les règles ne trouvent rien, sur le texte **pseudonymisé**, avec les droits de l'utilisateur, par le service métier ; **jamais** sur le texte d'un **élève mineur** par défaut (SN1-18 : désactivé), jamais sur un texte où un mot d'alerte a été repéré.
+
+**Ce que la porte unique change à la conception** :
+- Le catalogue « Faire une demande » (§9.1) reste pour les personnels et comme **second chemin** des familles (« voir toutes les démarches ») ; pour les familles, **la porte par défaut est l'écriture libre**.
+- L'**aiguilleur** est un service de N1 (`demandes::aiguiller(acteur, texte, eleve) → [Proposition]`) qui interroge les déclarations des natures **et** un port du 16 (`messagerie::destinataires_probables(acteur, eleve, categorie)`) ; il ne stocke rien (texte non conservé, aucun journal du texte, E14) ; il ne propose **que** ce que la personne a le droit de faire (une nature non activée, non ouverte à ce public ou fermée par le lien n'apparaît pas — R-DM56).
+- Une **nature non activée** par l'établissement n'est jamais une impasse : l'aiguillage propose alors le message au service correspondant (« Le secrétariat vous répondra »).
+
+### 37.3 Côté établissement : conversion dans les deux sens, une seule boîte de travail
+
+1. **Message → demande** en un geste (DEM-318, déjà là) : le fil d'origine est rattaché, la famille est prévenue en mots simples (« Votre message est devenu une demande suivie : … »), le fil est clos. **Demande → message** (DEM-192) : la demande est close avec l'issue `transmise_conversation`, la conversation reprend le contexte.
+2. **Pas deux boîtes concurrentes pour le personnel** (question du pilote) : **recommandation** [R] — la **file de demandes** (N1) et la **boîte de service** (16) d'un même service sont **jumelées** :
+   - **mêmes membres** : la règle de membres est définie **une fois**, par les missions du socle 6 (la boîte du 16 rattache déjà ses membres par mission, MSG-161) ; une file N1 peut déclarer `boite_jumelee_id` et **hérite** alors des membres de la boîte (ou l'inverse), jamais deux listes à tenir ;
+   - **un seul écran de travail** « **Accueil du service** » (lot N1-4, composé par lecture des deux ports, sans fusion des données) : une liste unique triée par urgence et échéance, chaque ligne marquée *Demande* ou *Message*, mêmes gestes de prise en charge (« Paul s'en occupe »), conversion en un clic ; les compteurs de la tuile de file du 29 additionnent les deux ;
+   - **pourquoi pas une fusion des modèles** : une conversation n'a ni nature, ni champs, ni décision, ni délai d'engagement ; une demande en a ; fusionner les tables forcerait l'un des deux modèles à porter les contraintes de l'autre (et reviendrait au sac d'attributs du Next.js, NJ-90). Jumeler les **personnes** et l'**écran** donne au personnel une seule boîte sans perdre les garanties.
+3. **Familles qui écrivent « n'importe où »** (au PP, à un professeur, à la mauvaise boîte) : le destinataire **transmet** au bon service (16 MSG-164 pour un message, DEM-176 pour une demande), la famille voit « transmis au secrétariat », jamais un silence.
+
+### 37.4 Mobile (socle 11)
+
+Bouton principal **« Écrire à l'établissement »** ; onglet **« Mes demandes »** à côté de **« Messages »** ; statut en quatre mots simples (§37.1) ; un avis à chaque **étape utile** (envoyée, vue, prise, réponse attendue, terminée) et rien d'autre, regroupé par le socle 8, hors plage calme ; la pastille d'application compte les **réponses attendues de moi** (29 R-PO4), pas les demandes en cours.
+
+### 37.5 Pistes du pilote : retenues, adaptées, écartées
+
+| Piste | Décision | Pourquoi |
+|---|---|---|
+| Accusé immédiat avec nom ou rôle et délai | **retenue, adaptée** : rôle + délai à l'accusé, nom à la prise, « vue par » entre les deux (R-DM53) | nommer avant la prise promettrait une personne peut-être absente |
+| Statut en mots simples | **retenue** (quatre états visibles, §37.1) | — |
+| « Personne n'a répondu depuis X jours » qui remonte seul | **retenue** (déjà §13.3) et **montrée au demandeur** (R-DM54) | la certitude passe aussi par l'aveu du retard |
+| Réaffectation en un geste quand le destinataire est absent | **retenue** : le responsable de file réaffecte **toutes** les demandes d'un agent absent en un geste, vers un membre ou vers la file (DEM-384) ; toujours pas de réaffectation **silencieuse** | un geste humain garde la responsabilité claire (29 §8.9) |
+| Demande sur photo depuis le téléphone (maintenance) | **retenue** : photo d'abord, lieu proposé (QR de la salle, sinon salle de la séance en cours du demandeur au 10, sinon dernière salle choisie), catégorie en un geste (DEM-385) ; aucune géolocalisation | rapide sur le terrain ; la géolocalisation n'apporte rien dans un bâtiment et serait une donnée de trop |
+| Modèles de demandes fréquentes | **retenue** : « demandes toutes prêtes » de l'établissement (« Ampoule grillée », « Vidéoprojecteur ne s'allume pas », « Attestation pour la CAF ») = une nature + des valeurs pré-remplies, au plus 20 par établissement (DEM-386, SN1-19) ; et « refaire comme la dernière fois » (DEM-366) | gain de temps réel, aucun formulaire libre |
+| Satisfaction en un clic à la clôture | **retenue en partie** : « **Résolu ?** Oui / Non, toujours un problème » (Non rouvre la demande, DEM-129) ; un indicateur agrégé **par file** pour la direction, effectifs < 5 masqués. **Écartée** : la note en étoiles et toute satisfaction **par agent nommé** | une note individuelle devient une évaluation du personnel hors de tout cadre (et un levier de pression des familles) ; ce qui compte pour la promesse est « est-ce réglé ? » |
+| Tableau de bord des retards de la direction, sans rien de confidentiel | **retenue** (déjà DEM-181, DEM-230) : compteurs par file et par nature, plus ancienne demande, médiane, demandes « vues mais non prises » ; titres neutres ; aucun contenu C2+ | — |
+| Demandes qui « remplacent presque » la messagerie | **adaptée** : porte unique, deux destinations (§37.2) | les échanges pédagogiques restent des conversations |
+
+### 37.6 Cas limites ajoutés (CDM-73 à CDM-86)
+
+| N° | Situation | Traitement |
+|---|---|---|
+| CDM-73 | Le parent écrit un texte qui mêle une démarche et une plainte contre un professeur | aiguillage : la démarche **et** « écrire à la direction » ; le parent choisit ; aucune nature n'est déduite d'une plainte (R-DM31) |
+| CDM-74 | Message sensible d'un élève (« on me frappe dans les vestiaires ») | proposition en tête : canal protégé + 3018, 119 ; envoi possible à la vie scolaire avec urgence ; jamais une demande N1 ordinaire ; jamais d'IA sur ce texte |
+| CDM-75 | Élève mineur écrit « je veux changer de régime de cantine » | la nature n'est pas ouverte aux mineurs : proposition « en parler à tes responsables » et message à la vie scolaire ; aucune démarche engageant l'argent |
+| CDM-76 | Parent sous interdiction (socle 4) tape « envoyez-moi le bulletin de Léa » | seules les natures que son lien lui ouvre apparaissent ; sinon « Envoyer comme message au secrétariat », traité par le secrétariat selon le 4 ; l'aiguillage ne révèle rien de l'autre parent ni de la mesure |
+| CDM-77 | Élève qui devient majeur alors qu'un parent a une demande ouverte le concernant | la demande reste au parent jusqu'à la clôture ; l'aiguillage du parent n'offre plus que les natures que le socle 4 lui laisse ; l'élève majeur voit les siennes |
+| CDM-78 | La nature « Attestation » n'est pas activée dans l'établissement | aucune proposition de nature ; « Envoyer comme message au secrétariat » ; le secrétariat peut le convertir en demande d'une autre nature activée |
+| CDM-79 | Parent qui écrit en arabe ou en portugais | les mots-clés français ne trouvent rien : l'aiguillage propose le **catalogue traduit** (libellés des natures dans sa langue, socle 8 N4) et « envoyer comme message » ; traduction par IA seulement si activée, sur texte pseudonymisé |
+| CDM-80 | Parent pressé qui envoie trois fois le même texte en cinq minutes | doublon signalé avant l'envoi (« vous l'avez déjà envoyé à 8 h 02, il est vu par la vie scolaire ») ; envoi possible quand même, fusion par la file |
+| CDM-81 | Le demandeur voit « vue par le secrétariat » mais rien ne bouge pendant 4 jours | passé le délai indicatif : « en retard de 1 jour — le responsable du service est prévenu » (R-DM54) |
+| CDM-82 | « Vue par » : un membre ouvre la demande par erreur depuis la recherche | le fait `vue_par_service` est posé à la **première ouverture du détail** par un membre de la file de destination, pas par un consulté ni par une recherche qui n'affiche que le titre |
+| CDM-83 | L'agent qui a pris la demande est absent depuis 3 jours | le responsable réaffecte en un geste (DEM-384) ; le demandeur voit le nouveau prénom |
+| CDM-84 | Un agent exposé (conflit avec une famille) ne veut pas que son prénom apparaisse | réglage par file ou par agent : « service seul » (SN1-02 modifié), sans justification à donner |
+| CDM-85 | Panne signalée en photo pendant un cours dans une salle sans QR | lieu proposé = salle de la séance en cours du demandeur (10), modifiable ; jamais la localisation du téléphone |
+| CDM-86 | « Non, toujours un problème » cliqué un mois après la clôture | hors délai de réouverture : nouvelle demande pré-remplie avec le lien vers l'ancienne |
+
+### 37.7 Règles ajoutées (R-DM53 à R-DM58)
+
+| N° | Règle |
+|---|---|
+| R-DM53 | **Trois preuves visibles** du demandeur : envoyée (service, rôle, délai indicatif), **vue** (première ouverture du détail par un membre de la file, datée), **prise** (prénom et initiale, sauf « service seul »). |
+| R-DM54 | Un **retard** est montré au demandeur, avec l'information que le responsable du service est prévenu ; il n'est jamais caché. |
+| R-DM55 | L'aiguillage **propose**, la personne **choisit** ; « envoyer comme message » est toujours possible ; rien n'est envoyé ni déposé sans geste. |
+| R-DM56 | L'aiguillage ne propose que ce que la personne a le droit de faire (nature activée, ouverte à son public, permise par son lien) et ne révèle rien d'un tiers ni d'une mesure. |
+| R-DM57 | Le texte saisi avant l'envoi n'est **ni conservé ni journalisé** ; l'aiguillage est calculé sur le serveur par règles déclarées ; l'IA n'y est jamais nécessaire, jamais appliquée au texte d'un mineur par défaut ni à un texte porteur d'un mot d'alerte. |
+| R-DM58 | Une file N1 et une boîte du 16 jumelées ont **une seule** définition de membres ; le personnel les traite dans un **seul** écran ; aucune satisfaction n'est rattachée à un agent nommé. |
+
+### 37.8 Actions ajoutées (DEM-384 à DEM-399)
+
+| N° | Action | Qui · droit | Règles | Lot |
+|---|---|---|---|---|
+| DEM-384 | **Réaffecter en un geste** toutes les demandes prises par un agent absent (vers un membre ou la file) | RF | §37.5 ; CDM-83 | N1-2 |
+| DEM-385 | **Signaler par photo** : photo d'abord, lieu proposé (QR, séance en cours, dernière salle), catégorie | PER | CDM-85 | N1-4 (web mobile), N1-7 (natif) |
+| DEM-386 | Gérer les **demandes toutes prêtes** de l'établissement (au plus 20) | ADM | SN1-19 | N1-1 |
+| DEM-387 | **« Écrire à l'établissement »** : saisie libre pour un enfant ou pour soi | RESP, ELV, MAJ | §37.2 | N1-4 |
+| DEM-388 | **Aiguiller** : proposer au plus trois destinations (nature, raccourci, message) par règles déclarées | SYS | R-DM55, R-DM56, R-DM57 | N1-1 |
+| DEM-389 | Choisir une proposition ou « envoyer comme message » | RESP, ELV, MAJ | | N1-4 |
+| DEM-390 | Proposer en tête le canal protégé et les numéros d'urgence sur un mot d'alerte | SYS | CDM-74 | N1-1 |
+| DEM-391 | Voir le **catalogue traduit** quand l'aiguillage ne trouve rien | RESP | CDM-79 | N1-4 |
+| DEM-392 | Poser le fait **« vue par le service »** à la première ouverture du détail | SYS | R-DM53 ; CDM-82 | N1-2 |
+| DEM-393 | Montrer au demandeur les **quatre états simples** et le retard | demandeur | R-DM54 | N1-4 |
+| DEM-394 | Répondre **« Résolu ? Oui / Non »** à la clôture (Non rouvre) | demandeur | CDM-86 | N1-2 |
+| DEM-395 | Voir l'indicateur **« résolu du premier coup »** par file (agrégé) | DIR | effectifs < 5 masqués | N1-8 |
+| DEM-396 | **Jumeler** une file N1 et une boîte du 16 (membres hérités) | ADM | R-DM58 | N1-1 |
+| DEM-397 | Travailler dans l'**Accueil du service** (demandes et messages, une liste) | membres | R-DM58 | N1-4 |
+| DEM-398 | Choisir « service seul » pour ne pas montrer son prénom | agent ; RF pour la file | CDM-84 | N1-2 |
+| DEM-399 | Voir les demandes **« vues mais non prises »** depuis plus d'un jour | DIR, RF | tableau des retards | N1-2 |
+
+### 37.9 Ce que cela change pour le socle 16 (à signaler, sans modifier sa conception)
+
+1. **Port à exposer** par le 16 : `messagerie::destinataires_probables(acteur, eleve, categorie)` pour l'aiguilleur (destinataires calculés par sa matrice §8, aucune liste libre).
+2. **Jumelage** boîte ↔ file : champ `file_jumelee_id` (ou équivalent) côté boîte, membres hérités d'une seule règle par mission ; lecture des fils de la boîte par l'écran « Accueil du service » de N1 par un port de lecture (`messagerie::boite_lister`), sans accès aux tables.
+3. **Conversion** : MSG-176 « convertir en demande » (DEM-318) et réception d'une demande transformée en conversation (DEM-192).
+4. **Composeur famille** : le bouton « Écrire » du 16 côté famille devient « Écrire à l'établissement » de N1 (ou l'appelle) ; une seule porte, pas deux boutons concurrents.
+5. **Restriction** : aligner la restriction de dépôt (R-DM48) et MSG-226 (une décision, deux effets).
+6. **Mots d'alerte** : la liste déterministe du 16 (CM-44) est **partagée** avec l'aiguilleur (une seule liste, tenue au 16 ou au 36).
+
+### 37.10 Lots et réglages révisés
+
+- **N1-1** : + aiguilleur (DEM-388, DEM-390), demandes toutes prêtes (DEM-386), jumelage (DEM-396).
+- **N1-2** : + « vue par » (DEM-392), réaffectation en un geste (DEM-384), « Résolu ? » (DEM-394), « service seul » (DEM-398), « vues mais non prises » (DEM-399).
+- **N1-4** : + « Écrire à l'établissement » (DEM-387, DEM-389, DEM-391), quatre états (DEM-393), signalement par photo (DEM-385), **Accueil du service** (DEM-397). Si Q-DM2 garde les familles hors de février, l'écran famille est livré mais **désactivé** ; l'Accueil du service sert dès février aux personnels.
+- **Réglages** : SN1-02 modifié (défaut « prénom + initiale » pour tous, « service seul » par file ou par agent) ; **SN1-18** IA sur le texte d'un élève mineur (désactivée) ; **SN1-19** nombre de demandes toutes prêtes (20 au plus).
+- **Question nouvelle** : **Q-DM17** — Florian valide-t-il que les échanges pédagogiques (professeur, PP, CPE) **restent** des conversations du 16, la porte unique n'envoyant en demande suivie que les démarches ? Recommandation : oui.
+
+### 37.11 Corrections de la seconde passe personas (`PERSONAS_N1.md` §10)
+
+1. **« Je préfère être rappelé »** : case sur les natures familles et sur « Écrire à l'établissement » ; le numéro est celui de la fiche (socle 4), jamais saisi ; le service voit « rappel souhaité » et le rappel est un fait (« appelé le … ») (P13).
+2. **Lecture difficile** : les huit démarches les plus fréquentes de l'établissement sont proposées en **grandes vignettes avec pictogramme** sous la zone d'écriture ; la dictée vocale du téléphone (native, rien n'est envoyé à ScolIA avant la validation) est mise en avant (P14).
+3. **Élève timide** : l'entrée « Parler à un adulte de confiance » et tout passage par le canal protégé n'apparaissent **jamais** dans ce que les responsables voient (y compris quand la nature d'une demande de l'élève est visible des parents, R-DM33) ; l'élève est prévenu de ce que ses parents verront **avant** chaque envoi (P15).
+4. **Secrétaire débordée** : l'Accueil du service filtre par type (demandes, messages), par enfant ou par famille, et propose « tout ce qui attend une réponse de nous » en premier ; les messages de simple information (« merci ») se classent d'un geste sans réponse (P01 bis).
+5. **Direction** : le tableau des retards ajoute les demandes « vues mais non prises » (DEM-399) et la part « résolu du premier coup » par file (DEM-395) ; jamais par agent (P10 bis).
