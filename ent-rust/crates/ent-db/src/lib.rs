@@ -367,6 +367,8 @@ mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_absences_personnels;
 #[cfg(all(test, feature = "labo"))]
+mod tests_absences_personnels_pieces;
+#[cfg(all(test, feature = "labo"))]
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t1_t2;

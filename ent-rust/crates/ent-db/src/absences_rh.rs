@@ -421,6 +421,27 @@ impl PgEnt {
         if !organisation {
             liste.retain(|a| a.user_id == actor_user_id);
         }
+        // Confidentialité renforcée (socle 15, ABP-164) : visible de la seule direction, des valideurs et de
+        // l'agent lui-même ; la vie scolaire et le reste du personnel ne voient plus l'absence.
+        let voit_renforcees = parsed == Role::Direction
+            || self
+                .droit_absences(
+                    etablissement_id,
+                    actor_user_id,
+                    role,
+                    Action::PersonnelsAbsencesValider,
+                )
+                .await?;
+        if !voit_renforcees {
+            let renforcees: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM ent_absp_absence WHERE etablissement_id = $1 AND confidentialite_renforcee",
+            )
+            .bind(etablissement_id)
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?)
+            .await
+            .map_err(db)?;
+            liste.retain(|a| a.user_id == actor_user_id || !renforcees.contains(&a.id));
+        }
         if !nature {
             for a in &mut liste {
                 if a.user_id != actor_user_id {

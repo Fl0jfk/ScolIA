@@ -405,6 +405,26 @@ async fn run_api() {
         })
     });
 
+    // Socle 15 (A2) : purge programmée des pièces et du fil des absences de personnel à leur date de
+    // conservation (jamais sous gel), une fois par heure et par établissement (le jour dépend du fuseau de
+    // chaque établissement). Idempotente. Désactivable (`ENT_TACHES_ABSENCES=0`).
+    let taches_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            loop {
+                match ent.purger_echeances(None).await {
+                    Ok(b) if b.pieces_purgees > 0 || b.messages_supprimes > 0 => {
+                        tracing::info!(?b, "purge des pièces d'absences de personnel")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des pièces d'absences de personnel : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -421,6 +441,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = rapprochement_afaire {
+        t.abort();
+    }
+    if let Some(t) = taches_absences {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {
