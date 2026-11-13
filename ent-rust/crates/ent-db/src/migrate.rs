@@ -217,6 +217,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("338_structure_offre"),
     m!("340_eleve_enseignement"),
     m!("341_cours"),
+    m!("342_eleve_enseignement_jour_etablissement"),
     m!("350_acces_etat"),
     m!("351_attributions_datees"),
     m!("352_agents"),
