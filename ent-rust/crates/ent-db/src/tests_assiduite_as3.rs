@@ -877,9 +877,13 @@ async fn as3_reprise_des_absences_anciennes_est_fidele_et_idempotente() {
         anciennes.push(id);
     }
     // La reprise est rejouée deux fois : aucun doublon (E8).
+    // On rejoue seulement la section de reprise (les INSERT idempotents) : rejouer le DDL (déclencheurs,
+    // verrous exclusifs) en parallèle d'autres tests de la même base provoquerait des interblocages.
     let script = include_str!("../../../migrations/2244_assiduite_as3_episodes.sql");
+    let debut = script.find("-- ── Reprise des absences anciennes").expect("section de reprise");
+    let fin = script.find("-- ── Projection de l'ancien circuit").expect("section de projection");
     for _ in 0..2 {
-        sqlx::raw_sql(script).execute(pool).await.expect("migration rejouable (E8)");
+        sqlx::raw_sql(&script[debut..fin]).execute(pool).await.expect("reprise rejouable (E8)");
     }
     // Mêmes séances et mêmes demi-journées avant et après.
     let avant: Vec<(Uuid, NaiveDate, String, Option<String>, Option<NaiveTime>, Option<NaiveTime>)> = sqlx::query_as(

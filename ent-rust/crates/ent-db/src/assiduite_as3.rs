@@ -1365,6 +1365,9 @@ impl PgEnt {
         let note = court(q.note_interne, MAX_NOTE)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let ep = Self::episode_ligne(&mut tx, etab, absence_id, true).await?;
+        if ep.version != q.version {
+            return Err(conflit("l'épisode a été modifié entre-temps : relire avant de qualifier"));
+        }
         if !matches!(ep.etat.as_str(), "ouvert" | "a_qualifier") {
             return Err(conflit("épisode déjà qualifié ou retiré : utiliser la requalification"));
         }
@@ -1463,6 +1466,9 @@ impl PgEnt {
         let ep = Self::episode_ligne(&mut tx, etab, absence_id, true).await?;
         if ep.etat != "qualifie" {
             return Err(conflit("seul un épisode qualifié se requalifie"));
+        }
+        if ep.version != q.version {
+            return Err(conflit("l'épisode a été modifié entre-temps : relire avant de requalifier"));
         }
         if ep.qualification == q.qualification {
             return Err(conflit("la qualification demandée est déjà celle de l'épisode"));
