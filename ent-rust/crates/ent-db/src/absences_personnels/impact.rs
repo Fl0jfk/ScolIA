@@ -35,10 +35,11 @@ use crate::edt_ports::{CibleSeances, SeanceEdt};
 use crate::ref_commun::Acteur;
 use crate::tenant_tx::{etablissements_systeme, ContexteSysteme};
 
-/// Une absence annulée ou refusée ne touche plus l'organisation ; toutes les autres comptent (une absence
-/// seulement signalée est calculée en interne mais n'a aucun effet extérieur avant confirmation, R-AP46).
+/// Une absence annulée ne touche plus l'organisation ; toutes les autres comptent, **refusée comprise** :
+/// l'agent n'était pas là, les élèves n'ont pas leur cours (R-AP15). Une absence seulement signalée est
+/// calculée en interne mais n'a aucun effet extérieur avant confirmation (R-AP46).
 pub fn touche_l_organisation(etat: &str) -> bool {
-    !matches!(etat, "annulee" | "refusee")
+    etat != "annulee"
 }
 
 /// États posés par le lot A4 (propositions, sollicitations, autres réponses) : conservés au recalcul tant que
@@ -549,7 +550,7 @@ impl PgEnt {
                 "SELECT DISTINCT a.id, a.saisie_par_user_id FROM ent_absp_absence a
                    JOIN ent_absp_plage pl ON pl.etablissement_id = a.etablissement_id AND pl.absence_id = a.id
                                          AND pl.retiree_le IS NULL
-                  WHERE a.etablissement_id = $1 AND a.cause = 'rh' AND a.etat NOT IN ('annulee', 'refusee')
+                  WHERE a.etablissement_id = $1 AND a.cause = 'rh' AND a.etat <> 'annulee'
                     AND pl.fin > now() - interval '1 day'
                   LIMIT 2000",
             )
@@ -649,7 +650,7 @@ impl PgEnt {
             "SELECT DISTINCT a.id, a.saisie_par_user_id FROM ent_absp_absence a
                JOIN ent_absp_plage pl ON pl.etablissement_id = a.etablissement_id AND pl.absence_id = a.id
                                      AND pl.retiree_le IS NULL
-              WHERE a.etablissement_id = $1 AND a.cause = 'rh' AND a.etat NOT IN ('annulee', 'refusee')
+              WHERE a.etablissement_id = $1 AND a.cause = 'rh' AND a.etat <> 'annulee'
                 AND ent_aujourdhui_etab($1, pl.debut) <= $2 AND ent_aujourdhui_etab($1, pl.fin - interval '1 microsecond') >= $2
               LIMIT 300",
         )
@@ -671,7 +672,7 @@ impl PgEnt {
                JOIN ent_absp_absence a ON a.etablissement_id = i.etablissement_id AND a.id = i.absence_id
                JOIN ent_agent ag ON ag.etablissement_id = a.etablissement_id AND ag.id = a.agent_id
                JOIN ent_personne p ON p.etablissement_id = ag.etablissement_id AND p.id = ag.personne_id
-              WHERE i.etablissement_id = $1 AND s.jour = $2 AND a.etat NOT IN ('annulee', 'refusee')
+              WHERE i.etablissement_id = $1 AND s.jour = $2 AND a.etat <> 'annulee'
               ORDER BY s.heure_debut, s.classe, i.id",
         )
         .bind(etab)
@@ -752,7 +753,7 @@ impl PgEnt {
                    JOIN ent_edt_seance s ON s.etablissement_id = i.etablissement_id AND s.id = i.seance_id
                    JOIN ent_absp_absence a ON a.etablissement_id = i.etablissement_id AND a.id = i.absence_id
                   WHERE i.etablissement_id = $1 AND s.jour = $2 AND i.etat IN ('a_traiter', 'non_assure')
-                    AND a.etat NOT IN ('annulee', 'refusee') AND (NOT a.confidentialite_renforcee OR $3)",
+                    AND a.etat <> 'annulee' AND (NOT a.confidentialite_renforcee OR $3)",
             )
             .bind(etab)
             .bind(jour)
@@ -1172,10 +1173,10 @@ mod tests_purs {
     }
 
     #[test]
-    fn une_absence_annulee_ou_refusee_ne_touche_plus() {
+    fn seule_une_absence_annulee_ne_touche_plus() {
         assert!(touche_l_organisation("signalee"));
         assert!(touche_l_organisation("validee"));
+        assert!(touche_l_organisation("refusee"), "l'agent n'était pas là (R-AP15)");
         assert!(!touche_l_organisation("annulee"));
-        assert!(!touche_l_organisation("refusee"));
     }
 }
