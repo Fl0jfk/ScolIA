@@ -51,6 +51,8 @@ pub fn routes() -> Router<AppState> {
             post(piece_seance).layer(corps_fichier.clone()),
         )
         .route("/cahier/pieces/{id}/lien", post(lien_piece))
+        .route("/cahier/pieces/{id}", axum::routing::delete(retirer_piece))
+        .route("/cahier/travaux/{id}/retrait", post(retirer_travail))
         .route(
             "/cahier/travaux/{id}/remise",
             post(rendre).layer(corps_fichier.clone()),
@@ -62,6 +64,7 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/agenda", get(agenda))
         .route("/cahier/charge", get(charge))
         .route("/cahier/visas", get(visas).post(viser))
+        .route("/cahier/reprise", get(reprise_etat))
 }
 
 fn decoder(f: FichierDepotBody) -> Res<FichierDepot> {
@@ -290,6 +293,36 @@ async fn piece_seance(
         .await
         .map_err(map_db)?;
     Ok((StatusCode::CREATED, Json(p)))
+}
+
+/// Lot C1 : état de la reprise de l'ancien cahier (direction).
+async fn reprise_etat(State(s): State<AppState>, session: EntSession) -> Res<Json<RepriseEtatDto>> {
+    Ok(Json(s.ent.cahier_reprise_etat(&acteur(&session)).await.map_err(map_db)?))
+}
+
+async fn retirer_piece(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    s.ent
+        .cahier_retirer_piece(&acteur(&session), id)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn retirer_travail(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RetraitBody>,
+) -> Res<StatusCode> {
+    s.ent
+        .cahier_retirer_travail(&acteur(&session), id, &b.motif)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn lien_piece(

@@ -228,6 +228,26 @@ Plage imposée **2300–2319** (consigne du pilote). Écrites : **2300** `absp_a
 - **2312** : `ent_absp_arret`, `ent_absp_decision_externe`, paramètres (EDT de référence, clôture des variables, durée de conservation de la reprise).
 Contrôle des collisions : aucune migration 2xxx n'existe sur `origin/ENT` hors 2240 (socle 12).
 
+## Mise à jour du 2026-11-11 (socle 20, lots C0 et C1, `ent-socle-20-code-1`, base `origin/ENT` a4bcbe0)
+Plage imposée **2400–2419** (conception : `20_CAHIER_DE_TEXTES.md` §26.2, sur `ent-mc0hoe`). `MIGRATION_TAG` reste celui d’ENT (la plus haute du répertoire : 2823 après fusion ; 2412 est la plus haute de la plage 2400–2419). Aucune migration existante modifiée (règle 15).
+| N° | Fichier | Contenu |
+|---|---|---|
+| 2400 | `2400_cdt_c0_correctifs` | **C0** : `ent_cdt_saisie_cours` (saisie effective à la date, `droits ∋ cahier`), `ent_cdt_cours_de_seance`, `ent_cdt_fin_de_journee` (fuseau de l'établissement), `ent_cdt_nom_affichage` ; retrait de pièce (`retiree_le`), retrait de travail par la direction (`retire_par_user_id`, `retire_motif`), historique des retours (`objet` `remise`, `visa`). **Ne pose rien sur `ent_edt_seance`** : C-D1 appartient au lot T0 du socle 10 (`ent-socle-10-code-1`) |
+| 2401 | `2401_cdt_reglages_natures` | gardes communes `ent_cdt_ajout_seul` / `ent_cdt_jamais_supprime` ; `ent_cdt_reglage`, `_format`, `ent_cdt_nature` + `ent_cdt_assurer_natures` |
+| 2402 | `2402_cdt_entrees` | `ent_cdt_entree` (+ `_version` ajout seul, `_notion`), `ent_cdt_contribution` (+ `_version`) ; index uniques cibles des clés composites (`ent_edt_seance`, `ent_objet`, `ent_note`) |
+| 2403 | `2403_cdt_travaux` | `ent_cdt_travail` (+ version, format, cible, variante, variante_eleve, echeance_eleve, delai_demande, groupe, groupe_membre, note_accompagnement) |
+| 2404 | `2404_cdt_pieces_liens` | **`ent_cdt_piece_jointe`** (le nom `ent_cdt_piece` reste à la table de 150 jusqu'à 2419 ; la cible n'a plus de `storage_key` : `objet_id` → `ent_objet`), `ent_cdt_lien` (https seulement) |
+| 2405 | `2405_cdt_remises` | `ent_cdt_remise`, `ent_cdt_depot` (immuable), `_depot_signalement`, `ent_cdt_statut`, `ent_cdt_coche` ; **pas de `ent_cdt_vu`** (R-C42) |
+| 2406 | `2406_cdt_retours` | `ent_cdt_retour` (+ version, critere), `ent_cdt_signalement_copie`, `ent_cdt_consentement_exemple` |
+| 2407, 2408 | — | **réservées** (exercices C10, progressions C9) : non écrites par C1 |
+| 2409 | `2409_cdt_reports_continuites` | `ent_cdt_report`, `ent_cdt_continuite`, `_cours` |
+| 2410 | `2410_cdt_visas_charge` | `ent_cdt_visa` **élargie** (cible cours / classe / agent), `_visa_element` (référence figée), `_observation`, `_observation_reponse`, `ent_cdt_consultation`, `ent_cdt_alerte_charge` |
+| 2411 | `2411_cdt_archives` | `ent_cdt_archive` |
+| 2412 | `2412_cdt_reprise` | `ent_cdt_quarantaine`, `ent_cdt_reprise(etab)` (rejouable), `ent_cdt_reprise_compteurs`, vues `ent_travail_compat` et `ent_seance_contenu_compat` (suffixe `_compat` : les tables d'origine gardent leur nom jusqu'à 2419) ; la reprise est exécutée à chaque démarrage |
+| 2413–2417 | — | réserve (C6 à C12) |
+| 2418, 2419 | — | RLS stricte et retrait des anciennes tables : lot C14, non écrites |
+
+Exceptions D-036 : aucune nouvelle colonne JSON (`grep -i jsonb` vide sur 2400–2412, vérifié par un test) ; `ent_cdt_historique.instantane` reste l'exception déjà déclarée, relue une seule fois par la reprise.
 ## Mise à jour du 2026-11-11 (socle 41 internat, lots I0 et I1, branche `ent-socle-41-code-1`, base `origin/ENT` c376da46)
 Plage imposée **2820–2839** (conception `41_INTERNAT.md` §25.3). Écrites : **2820** `internat_i0_presence_faits` (`modifie_le` et `UNIQUE (etablissement_id, id)` sur les tables 066, clés composites NOT VALID puis validées, fonction `ent_nuit_etab`, `ent_internat_presence_fait` en ajout seul avec garde de date, reprise des lignes 066 sous leur identifiant, ancienne table en lecture seule, capacité atomique par verrou de ligne), **2821** `internat_i0_regime_parametres` (`ent_regime_code`, `ent_regime_correspondance`, `ent_regime_vers_code`, borne de 300 caractères sur les suivis posée NOT VALID, `ent_internat_parametres`, `ent_internat_type_appel_actif`), **2822** `internat_i1_zones_chambres_lits` (index unique composite sur `ent_batiment`, `ent_internat_zone`, colonnes de chambre étendues, `ent_internat_lit` avec un lit par place reprise), **2823** `internat_i1_sejours_affectations` (`ent_internat_sejour` avec exclusion de chevauchement, `ent_internat_rythme` en ajout seul, colonnes `sejour_id`/`lit_id`/`motif_code` sur l'affectation et exclusion lit × dates, `ent_internat_derogation` en ajout seul, `ent_internat_interdiction_contact` = **port provisoire** de la mesure du socle 13). `MIGRATION_TAG` = `2823_internat_i1_sejours_affectations`.
 **Test `migration_tag_suit_la_derniere_migration` rendu numérique** : l'ordre alphabétique plaçait `667_…` après `2823_…` ; le tri se fait désormais sur le préfixe numérique (toute plage à quatre chiffres suit la même règle). Aucune migration existante n'est modifiée. Aucune colonne JSON (D-036). Hors 2824–2839 : non utilisées par ces deux lots (2821 contient déjà les paramètres et les types d'appel prévus).

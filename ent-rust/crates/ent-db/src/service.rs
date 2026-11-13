@@ -17413,12 +17413,15 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         cmd: CreerCahierTexte,
     ) -> Result<CahierTexteEntree, EntDbError> {
-        if !Self::role_can_ecrire_cahier_texte(role) {
-            return Err(EntDbError::Forbidden);
-        }
-        // RF-04 (g) : un professeur n'écrit que dans le cahier de ses classes.
-        self.exiger_classe_dans_perimetre(cmd.etablissement_id, cmd.actor_user_id, role, &cmd.classe)
-            .await?;
+        // C-D7 : plus de rôle codé en dur ni de « classe texte » libre. Même contrôle que la commande
+        // `cahier` : droit `cahier.ecrire` et **intervention en saisie à la date** sur un cours de la classe
+        // (un professeur de groupe n'écrit pas pour toute la classe ; un ancien professeur n'écrit plus).
+        let acteur = crate::ref_commun::Acteur {
+            etablissement_id: cmd.etablissement_id,
+            user_id: cmd.actor_user_id,
+            role,
+        };
+        self.exiger_classe_texte(&acteur, &cmd.classe, Action::CahierEcrire).await?;
         let entree = plan_creer_cahier_texte(cmd)?;
         self.cahier_texte.insert(&entree).await?;
         self.events
@@ -17454,11 +17457,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let Some(parsed) = Role::parse(role) else {
             return Err(EntDbError::Forbidden);
         };
-        let classe_cible = if Self::role_can_ecrire_cahier_texte(role) {
-            classe
+        let classe_cible = if parsed.is_staff() {
+            // C-D7 : la lecture du personnel est bornée par le périmètre (à la date), comme l'écriture.
+            let classe = classe
                 .map(|c| c.trim().to_string())
                 .filter(|c| !c.is_empty())
-                .ok_or(EntDbError::Forbidden)?
+                .ok_or(EntDbError::Forbidden)?;
+            let acteur = crate::ref_commun::Acteur {
+                etablissement_id,
+                user_id: actor_user_id,
+                role,
+            };
+            self.exiger_classe_texte(&acteur, &classe, Action::CahierLire).await?;
+            classe
         } else if parsed == Role::Parent || parsed == Role::Eleve {
             let eid = if let Some(eid) = eleve_id {
                 eid
@@ -17474,6 +17485,17 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .get_eleve_for_actor(etablissement_id, actor_user_id, role, eid)
                 .await?
                 .ok_or(EntDbError::Forbidden)?;
+            if parsed == Role::Parent {
+                // C-D4 : lien actif ET exercice de l'autorité parentale (suivre la scolarité).
+                let acteur = crate::ref_commun::Acteur {
+                    etablissement_id,
+                    user_id: actor_user_id,
+                    role,
+                };
+                if !self.parent_suit_scolarite(&acteur, eid).await? {
+                    return Err(EntDbError::Forbidden);
+                }
+            }
             eleve.classe.ok_or(DomainError::CahierTexteInvalide)?
         } else {
             return Err(EntDbError::Forbidden);
