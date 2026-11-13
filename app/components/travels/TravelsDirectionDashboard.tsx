@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { TravelsDirectionDashboard } from "@/app/lib/travels-direction-dashboard";
 import { TRAVELS_STATUS_LABELS } from "@/app/lib/travels-types";
 

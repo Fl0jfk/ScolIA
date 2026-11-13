@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useMemo } from "react";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import DashboardThemeRoot from "@/app/components/Dashboard/DashboardThemeRoot";

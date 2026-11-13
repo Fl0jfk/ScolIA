@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useRouter } from "next/navigation";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
 import {

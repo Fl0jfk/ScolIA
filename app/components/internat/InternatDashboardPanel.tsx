@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { InternatDashboardStats } from "@/app/lib/internat-stats";
 import { studentInternLink } from "@/app/lib/internat-room-insights";
 

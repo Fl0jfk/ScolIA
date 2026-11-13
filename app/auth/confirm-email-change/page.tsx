@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 
 function ConfirmEmailChangeInner() {
   const searchParams = useSearchParams();

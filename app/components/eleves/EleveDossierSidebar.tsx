@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { rankEleveSearch } from "@/app/components/shell/rankEleveSearch";
 
 type Classmate = { id: string; nom: string; prenom: string };

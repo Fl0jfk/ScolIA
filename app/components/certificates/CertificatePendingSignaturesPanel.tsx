@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useEffect, useState } from "react";
 import { STUDENT_AWARD_STATUS_LABELS } from "@/app/lib/certificates-types";
 

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { ToolboxConfig, TarifsNiveau } from "@/app/lib/toolbox-types";
 
 const NIVEAUX: TarifsNiveau[] = ["maternelle", "elementaire", "college", "lycee"];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { DashboardQuickLink } from "@/app/lib/dashboard-quick-links";
 import { dash } from "@/app/lib/dashboard-brand";
 import { normalizePublicImageUrl } from "@/app/lib/scola-image";

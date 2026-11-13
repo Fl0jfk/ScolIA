@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import FaireUneDemandeForm from "@/app/components/requests/FaireUneDemandeForm";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 

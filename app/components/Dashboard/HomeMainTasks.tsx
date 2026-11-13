@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { HomeMainTask } from "@/app/lib/home-main-tasks";
 
 type Props = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import { dash } from "@/app/lib/dashboard-brand";
 

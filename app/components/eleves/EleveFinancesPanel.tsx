@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { formatEncoursMontant, formatFoyerPayeurDetail } from "@/app/lib/foyer-display";
 
 type FoyerFinance = {

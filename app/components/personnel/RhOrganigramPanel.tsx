@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import {
   PERSONNEL_CATEGORY_LABELS,
   type PersonnelCategory,

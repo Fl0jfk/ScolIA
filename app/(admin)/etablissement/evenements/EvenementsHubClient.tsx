@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import RequireModuleAccess from "@/app/components/RequireModuleAccess";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";

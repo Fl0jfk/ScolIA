@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useMemo } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useRouter, useSearchParams } from "next/navigation";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 import RentreeSubmissionCard from "@/app/components/rentree/RentreeSubmissionCard";

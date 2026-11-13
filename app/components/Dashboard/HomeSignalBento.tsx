@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import { HOME_SIGNAL_TILE_LINK_CLASS } from "@/app/components/Dashboard/home-signal-tile-link";
 import {

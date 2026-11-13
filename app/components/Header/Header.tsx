@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef, type CSSProperties } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";

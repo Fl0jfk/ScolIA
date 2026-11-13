@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSearchParams } from "next/navigation";
 import type { InternatBuilding, InternatRoom, InternatStudent } from "@/app/lib/internat-types";
 import { roomLocationLabel, studentDisplayName } from "@/app/lib/internat-types";

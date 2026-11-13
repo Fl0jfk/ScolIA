@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { PersonnelIndexEntry } from "@/app/lib/personnel-types";
 import RhDriveLinkPanel from "@/app/components/personnel/RhDriveLinkPanel";
 

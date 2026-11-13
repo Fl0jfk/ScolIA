@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { motion } from "framer-motion";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import PartnerBadges from "@/app/components/landing/PartnerBadges";

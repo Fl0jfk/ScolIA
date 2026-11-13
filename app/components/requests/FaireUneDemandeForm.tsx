@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { ABSENCE_REDIRECT_CODE } from "@/app/lib/request-absence-detect";
 

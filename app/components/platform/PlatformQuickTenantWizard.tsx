@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";
 
 type WizardData = {

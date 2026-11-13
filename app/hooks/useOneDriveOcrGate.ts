@@ -170,9 +170,22 @@ export function useOneDriveOcrGate(enabled: boolean): OneDriveOcrGate {
   useEffect(() => {
     if (!enabled || !assigned) return;
     void refreshSuivi();
-    const t = window.setInterval(() => void refreshSuivi(), 20000);
-    return () => window.clearInterval(t);
-  }, [enabled, assigned, refreshSuivi]);
+    // Toutes les 20 s seulement si un lot OCR tourne ; sinon toutes les 2 min.
+    // Jamais quand l'onglet est caché : chaque appel relit le suivi de 8 lots côté serveur.
+    const delay = suivi.activeCount > 0 ? 20_000 : 120_000;
+    const t = window.setInterval(() => {
+      if (document.hidden) return;
+      void refreshSuivi();
+    }, delay);
+    const onVisible = () => {
+      if (!document.hidden) void refreshSuivi();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [enabled, assigned, refreshSuivi, suivi.activeCount]);
 
   const connect = useCallback(async () => {
     if (!ready || !configured || !assigned) return;

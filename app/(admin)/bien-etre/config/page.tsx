@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { BienEtreConfig } from "@/app/lib/bien-etre-types";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 
 export function ClassAllocationShell({
   title,

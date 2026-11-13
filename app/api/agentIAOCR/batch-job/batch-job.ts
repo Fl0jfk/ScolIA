@@ -243,10 +243,7 @@ export async function registerBatchJobForUser(userId: string, jobId: string) {
 
 export async function listRecentBatchJobsForUser(userId: string, limit = 5): Promise<OcrBatchJob[]> {
   const index = await readUserJobIndex(userId);
-  const jobs: OcrBatchJob[] = [];
-  for (const jobId of index.jobIds.slice(0, limit)) {
-    const job = await readBatchJob(jobId);
-    if (job && job.userId === userId) jobs.push(job);
-  }
-  return jobs;
+  // Lectures en parallèle (auparavant une après l'autre : ~2 s par appel de suivi).
+  const read = await Promise.all(index.jobIds.slice(0, limit).map((jobId) => readBatchJob(jobId)));
+  return read.filter((job): job is OcrBatchJob => Boolean(job && job.userId === userId));
 }

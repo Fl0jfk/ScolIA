@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useOneDriveOcrGate } from "@/app/hooks/useOneDriveOcrGate";
 import {
   pollSidebarOcrJobStatus,

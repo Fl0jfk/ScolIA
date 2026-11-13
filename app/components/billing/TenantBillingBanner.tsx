@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { MARKETING } from "@/app/lib/marketing-site";
 
 type BillingInfo = {

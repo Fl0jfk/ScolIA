@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import RequireModuleAccess from "@/app/components/RequireModuleAccess";
 
 type Pair = { giver: string; receiver: string };

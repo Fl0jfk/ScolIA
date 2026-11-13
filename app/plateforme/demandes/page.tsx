@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import RequirePlatformMaster from "@/app/components/RequirePlatformMaster";
 import { SCOLA_GRADIENT_TEXT } from "@/app/lib/marketing-theme";

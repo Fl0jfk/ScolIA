@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ClassAllocationAlert,

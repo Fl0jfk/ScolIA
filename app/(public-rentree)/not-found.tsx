@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 
 export default function PublicRentreeNotFound() {

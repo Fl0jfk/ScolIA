@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";
 
 export const metadata: Metadata = {

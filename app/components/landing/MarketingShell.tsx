@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Image from "next/image";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { usePathname } from "next/navigation";
 import { MARKETING } from "@/app/lib/marketing-site";
 import { SCOLA, SCOLA_GRADIENT_TEXT, SCOLA_HEADER_ACCENT, SCOLA_HEADER_SHELL } from "@/app/lib/marketing-theme";

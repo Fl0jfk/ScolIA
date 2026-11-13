@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useSignOutWithPortalReset } from "@/app/hooks/useSignOutWithPortalReset";
 import { useIsPlatformMaster } from "@/app/hooks/useIsPlatformMaster";

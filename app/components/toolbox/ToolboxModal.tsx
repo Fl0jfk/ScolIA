@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useRouter } from "next/navigation";
 import type { ToolboxToolId } from "@/app/lib/toolbox-types";
 import { TOOLBOX_ADMIN_LINKS, TOOLBOX_HUB_LINKS, type ToolboxAdminLinkMeta, type ToolboxHubLinkMeta } from "@/app/lib/toolbox-tools";

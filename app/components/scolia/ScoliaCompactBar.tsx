@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import ScoliaAiMark from "@/app/components/ScoliaAiMark";
 import { askScolia, openScolia } from "@/app/lib/brain-ai/scolia-ask";
 import { SCOLIA_AI_NAME } from "@/app/lib/brain-ai/scolia-memory";

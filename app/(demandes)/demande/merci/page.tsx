@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import RentreePublicHeader from "@/app/components/RentreePublicHeader";

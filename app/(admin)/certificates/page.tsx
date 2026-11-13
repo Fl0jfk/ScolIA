@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useEffect, useState } from "react";
 import CertificatePendingSignaturesPanel from "@/app/components/certificates/CertificatePendingSignaturesPanel";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";

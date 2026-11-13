@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { motion } from "framer-motion";
 import PartnerBadges from "@/app/components/landing/PartnerBadges";
 import MicrosoftEducationCard from "@/app/components/landing/MicrosoftEducationCard";

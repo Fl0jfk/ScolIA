@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { WeekGrid } from "@/app/components/personnel/RhPlanningEditors";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";
 import { dash } from "@/app/lib/dashboard-brand";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import ClassPlanningPanel from "@/app/components/personnel/ClassPlanningPanel";
 import ModulePageHeader from "@/app/components/module-chrome/ModulePageHeader";
 import ModulePageShell from "@/app/components/module-chrome/ModulePageShell";

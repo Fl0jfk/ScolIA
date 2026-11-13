@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { rolesFromUserLike } from "@/app/lib/intranet-roles";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import StaffDossier from "@/app/components/personnel/StaffDossier";
 import {

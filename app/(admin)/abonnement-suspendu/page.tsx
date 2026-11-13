@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { MARKETING } from "@/app/lib/marketing-site";
 
 export default function AbonnementSuspenduPage() {

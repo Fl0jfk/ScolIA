@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useSearchParams } from "next/navigation";
 import type { BienEtreSignalement, BienEtreSignalementIndexEntry } from "@/app/lib/bien-etre-types";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";

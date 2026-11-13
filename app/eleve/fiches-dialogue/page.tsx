@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { redirect } from "next/navigation";
 import { requireAppUser } from "@/app/lib/app-session";
 import {

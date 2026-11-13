@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useParams, useRouter } from "next/navigation";
 import { useSessionUser } from "@/app/hooks/useAppUser";
 import { useCallback, useEffect, useMemo, useState } from "react";

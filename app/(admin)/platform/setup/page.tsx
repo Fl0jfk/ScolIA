@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import RequirePlatformMaster from "@/app/components/RequirePlatformMaster";
 import PlatformTenantEditor from "@/app/components/platform/PlatformTenantEditor";
 

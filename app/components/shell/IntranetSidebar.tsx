@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Image from "next/image";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { usePathname } from "next/navigation";
 import { useAppUser, useSessionUser } from "@/app/hooks/useAppUser";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";

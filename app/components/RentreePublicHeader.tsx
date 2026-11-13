@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import Logo from "../../public/Logo header.png";

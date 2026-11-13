@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import FamillePortailChrome from "@/app/components/famille/FamillePortailChrome";
 import { quotidienHref } from "@/app/lib/quotidien-portal";
 

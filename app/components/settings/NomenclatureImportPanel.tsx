@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 
 type CountRow = { type: string; n: number };
 type LogRow = {

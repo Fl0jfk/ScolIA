@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import type { TripReminder } from "@/app/lib/travels-trip-helpers";
 import { TripAlert, TripButton } from "@/app/components/travels/TripDetailUI";
 

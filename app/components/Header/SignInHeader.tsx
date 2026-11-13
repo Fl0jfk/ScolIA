@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import Image from "next/image";
 import { useAdminBootstrap } from "@/app/contexts/admin-bootstrap";
 import Logo from "../../../public/Logo header.png";

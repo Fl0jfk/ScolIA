@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import StaffRhSummary from "@/app/components/personnel/StaffRhSummary";
 import { RhField, RhInput, RhModalShell, RhTextarea } from "@/app/components/personnel/RhFormModals";
 import RhStaffProfileFields from "@/app/components/personnel/RhStaffProfileFields";

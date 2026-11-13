@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import CertificateMySignatureBlock from "@/app/components/certificates/CertificateMySignatureBlock";
 
 export default function CertificateMySignaturePage() {

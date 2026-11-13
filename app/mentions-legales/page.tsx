@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import MarketingShell from "@/app/components/landing/MarketingShell";
 import { MARKETING, RGPD_HIGHLIGHTS } from "@/app/lib/marketing-site";
 

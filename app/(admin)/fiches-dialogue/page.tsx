@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ModuleButton from "@/app/components/module-chrome/ModuleButton";
 import ModuleCard from "@/app/components/module-chrome/ModuleCard";

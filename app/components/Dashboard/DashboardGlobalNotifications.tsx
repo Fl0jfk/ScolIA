@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/app/components/ui/AppLink";
 import { useEffect, useId, useRef, useState } from "react";
 import NotificationCountBadge, {
   DASHBOARD_COUNTER_UNAVAILABLE_TITLE,
