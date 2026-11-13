@@ -308,7 +308,7 @@ async fn t_nj84_demandeur_de_session() {
     .unwrap();
     assert_eq!(colonnes, 0, "aucune colonne d'adresse ou de téléphone dans les tables de demandes");
     // Un compte sans fiche de personne dans l'établissement ne dépose rien.
-    let sans_fiche = deposer(&ent, &m, &Acteur { user: cast.administratif.user_id, personne: Uuid::nil(), agent: None, role: "administratif" }, depot("secretariat.demande_interne")).await;
+    let sans_fiche = deposer(&ent, &m, &Acteur { user: Uuid::new_v4(), personne: Uuid::nil(), agent: None, role: "administratif" }, depot("secretariat.demande_interne")).await;
     assert_eq!(sans_fiche.unwrap_err(), RefusDemande::Interdit);
 }
 
