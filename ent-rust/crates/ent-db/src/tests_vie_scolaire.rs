@@ -176,24 +176,28 @@ async fn demi_journees_derivees_des_appels_et_cas_limites() {
     assert_eq!(dj.len(), 2);
     assert!(dj.iter().all(|d| d.minutes == 30 && d.comptee));
 
-    // Règle paramétrable (cpe : assiduite.signaler) : seuil 31 → ni l'une ni l'autre.
-    let cpe = (cast.cpe.user_id, Role::Cpe.as_str());
+    // Règle paramétrable (direction : assiduite.regle_gerer, DA-11) : seuil 31 → ni l'une ni l'autre.
+    let dir = (cast.direction.user_id, Role::Direction.as_str());
     let regle = RegleAssiduite { seuil_minutes: 31, ..RegleAssiduite::default() };
-    ent.definir_regle_assiduite(etab, cpe.0, cpe.1, regle).await.unwrap();
+    ent.definir_regle_assiduite(etab, dir.0, dir.1, regle).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), mar, mar).await.unwrap();
     assert!(dj.iter().all(|d| !d.comptee));
-    // Prof : pas le droit de paramétrer ; valeurs hors bornes refusées.
+    // Prof et CPE : pas le droit de paramétrer la règle (DA-11) ; valeurs hors bornes refusées.
+    assert!(matches!(
+        ent.definir_regle_assiduite(etab, cast.cpe.user_id, "cpe", regle).await,
+        Err(EntDbError::Forbidden)
+    ));
     assert!(matches!(
         ent.definir_regle_assiduite(etab, cast.prof.user_id, "prof", regle).await,
         Err(EntDbError::Forbidden)
     ));
     assert!(ent
-        .definir_regle_assiduite(etab, cpe.0, cpe.1, RegleAssiduite { seuil_minutes: 0, ..regle })
+        .definir_regle_assiduite(etab, dir.0, dir.1, RegleAssiduite { seuil_minutes: 0, ..regle })
         .await
         .is_err());
     // Coupure à 12:30 : la séance 11:30–12:30 est tout entière le matin (60 min).
     let regle = RegleAssiduite { heure_coupure: t(12, 30), ..RegleAssiduite::default() };
-    ent.definir_regle_assiduite(etab, cpe.0, cpe.1, regle).await.unwrap();
+    ent.definir_regle_assiduite(etab, dir.0, dir.1, regle).await.unwrap();
     let dj = ent.demi_journees(etab, Some(lea), mar, mar).await.unwrap();
     assert_eq!(dj.len(), 1);
     assert_eq!((dj[0].periode, dj[0].minutes), (Periode::Matin, 60));
@@ -561,7 +565,9 @@ async fn incoherences_entre_appels() {
     // Absent à 8h, présent à 9h (séance suivante) ; présent à 10h malgré la déclaration.
     seance_appel(&ent, &cast, lun, (8, 0), (9, 0), &[(lea, LigneEtat::Absent)], true).await;
     seance_appel(&ent, &cast, lun, (9, 0), (10, 0), &[], true).await;
-    seance_appel(&ent, &cast, lun, (10, 0), (11, 0), &[], true).await;
+    // AS2 : la déclaration pré-remplit désormais l'appel (absent prévenu) ; le professeur qui voit l'élève
+    // en classe le marque présent explicitement, ce qui est l'incohérence à signaler.
+    seance_appel(&ent, &cast, lun, (10, 0), (11, 0), &[(lea, LigneEtat::Present)], true).await;
     let v = ent.verifier_appels_for_actor(etab, cpe.0, cpe.1, lun, at(lun, 12, 0)).await.unwrap();
     let mes: Vec<_> = v.incoherences.iter().filter(|i| i.eleve_id == lea).collect();
     assert!(mes.iter().any(|i| i.kind == "absent_puis_present"));

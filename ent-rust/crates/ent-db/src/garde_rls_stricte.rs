@@ -42,12 +42,13 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("inscriptions_reactions", "pool.begin()", "worker d'envoi des e-mails d'inscription : ent_inscription_envoi et ent_inscription_invitation, tables sans RLS (relève les envois de tous les établissements)"),
     ("champs_chiffres", "Conn::Pool(pool.acquire()", "tables sans établissement (branche `None`, aucune aujourd'hui) ; les tables par établissement passent par TenantTx"),
     ("delegation", "charger_droits(self.pool(), etab", "l'assistant ouvre son propre contexte d'établissement"),
-    ("service", "apply_socle_migrations(&self.pool)", "migrations : rôle propriétaire (ou pool de test propriétaire)"),
     ("service", "SELECT 1", "sonde de vie de la base"),
     ("service", ".fetch_one(&self.pool)", "sondes : ent_session, ent_passkey_credential, ent_membership (tables sans RLS)"),
     ("service", "&self.pool", "accesseur `pool()` de la façade"),
+    ("service", "(*self.pool.connect_options())", "migrations sans statement_timeout : copie des options de connexion, aucune requête (R-05)"),
     ("sante_acc", ".fetch_optional(self.pool())", "ent_user : table d'identité sans RLS"),
     ("securite_repo", ".execute(self.pool())", "ent_session / ent_membership : tables sans RLS"),
+    ("assiduite_as1", ".fetch_all(self.pool())", "ref_asd_nature_motif, ref_asd_profil_academique, ref_asd_profil_niveau : référentiels globaux sans établissement ni RLS (socle 12, AS1)"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
 ];
 

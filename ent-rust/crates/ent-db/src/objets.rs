@@ -49,7 +49,50 @@ pub(crate) async fn enregistrer_objet<'e, E: PgExecutor<'e>>(
     Ok(())
 }
 
+/// Exécute un appel de stockage (client S3 **synchrone**, 60 s × 3 tentatives) sur le pool
+/// des tâches bloquantes de Tokio : un S3 lent ne fige plus les fils qui servent l'API (R-06).
+async fn hors_runtime<T, F>(store: &ent_object::ObjectStore, f: F) -> Result<T, EntDbError>
+where
+    T: Send + 'static,
+    F: FnOnce(ent_object::ObjectStore) -> Result<T, ent_object::ObjectStoreError> + Send + 'static,
+{
+    let store = store.clone();
+    tokio::task::spawn_blocking(move || f(store))
+        .await
+        .map_err(|_| {
+            EntDbError::Object(ent_object::ObjectStoreError::Backend(
+                "tâche de stockage interrompue".into(),
+            ))
+        })?
+        .map_err(EntDbError::from)
+}
+
 impl PgEnt {
+    /// Écriture synchrone du magasin, hors des fils de l'API (R-06).
+    pub(crate) async fn objet_put(&self, key: &str, bytes: &[u8]) -> Result<ObjectInfo, EntDbError> {
+        let (key, bytes) = (key.to_string(), bytes.to_vec());
+        hors_runtime(self.objects(), move |s| s.put(&key, &bytes)).await
+    }
+
+    pub(crate) async fn objet_get(&self, key: &str) -> Result<Vec<u8>, EntDbError> {
+        let key = key.to_string();
+        hors_runtime(self.objects(), move |s| s.get(&key)).await
+    }
+
+    pub(crate) async fn objet_get_attendu(
+        &self,
+        key: &str,
+        attendu: ObjectAttendu,
+    ) -> Result<Vec<u8>, EntDbError> {
+        let key = key.to_string();
+        hors_runtime(self.objects(), move |s| s.get_attendu(&key, &attendu)).await
+    }
+
+    pub(crate) async fn objet_existe(&self, key: &str) -> Result<bool, EntDbError> {
+        let key = key.to_string();
+        hors_runtime(self.objects(), move |s| s.existe(&key)).await
+    }
+
     /// Écrit un objet immuable (empreinte vérifiée) puis l'enregistre en base.
     /// Toute erreur — stockage ou base — remonte ; il n'y a pas de mode « au mieux ».
     pub(crate) async fn stocker_objet(
@@ -59,7 +102,7 @@ impl PgEnt {
         mime: Option<&str>,
         bytes: &[u8],
     ) -> Result<ObjectInfo, EntDbError> {
-        let info = self.objects().put(key, bytes)?;
+        let info = self.objet_put(key, bytes).await?;
         let mut tx = crate::tenant_tx::TenantTx::begin(self.pool(), etablissement_id).await?;
         enregistrer_objet(&mut *tx, etablissement_id, &info, mime).await?;
         tx.commit().await?;
@@ -92,8 +135,8 @@ impl PgEnt {
         key: &str,
     ) -> Result<Vec<u8>, EntDbError> {
         Ok(match self.objet_attendu(etablissement_id, key).await? {
-            Some(a) => self.objects().get_attendu(key, &a)?,
-            None => self.objects().get(key)?,
+            Some(a) => self.objet_get_attendu(key, a).await?,
+            None => self.objet_get(key).await?,
         })
     }
 
@@ -124,10 +167,63 @@ impl PgEnt {
         mime: Option<&str>,
         bytes: &[u8],
     ) -> Result<(), EntDbError> {
-        if !self.objects().existe(key)? {
+        if !self.objet_existe(key).await? {
             self.stocker_objet(etablissement_id, key, mime, bytes)
                 .await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests_non_bloquant {
+    use super::*;
+    use ent_object::provider::{ObjectHead, StorageProvider, StoredObject};
+    use ent_object::{ObjectStore, ObjectStoreError};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    /// Fournisseur synchrone très lent (comme un S3 qui répond mal).
+    #[derive(Default)]
+    struct Lent(ent_object::provider::MemoryProvider);
+    impl StorageProvider for Lent {
+        fn nom(&self) -> &'static str {
+            "lent"
+        }
+        fn uri(&self, key: &str) -> String {
+            format!("lent://{key}")
+        }
+        fn put(&self, key: &str, bytes: &[u8], sha: &str) -> Result<(), ObjectStoreError> {
+            std::thread::sleep(Duration::from_millis(600));
+            self.0.put(key, bytes, sha)
+        }
+        fn get(&self, key: &str) -> Result<StoredObject, ObjectStoreError> {
+            self.0.get(key)
+        }
+        fn head(&self, key: &str) -> Result<Option<ObjectHead>, ObjectStoreError> {
+            self.0.head(key)
+        }
+    }
+
+    /// Audit R-06 : un stockage lent ne fige pas l'exécuteur. Runtime à UN seul fil : si l'appel
+    /// synchrone s'exécutait sur lui, aucune autre tâche ne progresserait pendant 600 ms.
+    #[tokio::test(flavor = "current_thread")]
+    async fn un_stockage_lent_ne_bloque_pas_les_autres_taches() {
+        let store = ObjectStore::with_provider(Arc::new(Lent::default()));
+        let ticker = tokio::spawn(async {
+            let debut = Instant::now();
+            let mut ticks = 0;
+            while debut.elapsed() < Duration::from_millis(400) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                ticks += 1;
+            }
+            ticks
+        });
+        let info = hors_runtime(&store, |s| s.put("etab/test/cle.bin", b"contenu"))
+            .await
+            .expect("écriture");
+        assert_eq!(info.taille, 7);
+        let ticks = ticker.await.unwrap();
+        assert!(ticks >= 10, "l'exécuteur doit rester disponible pendant l'écriture : {ticks} tours");
     }
 }

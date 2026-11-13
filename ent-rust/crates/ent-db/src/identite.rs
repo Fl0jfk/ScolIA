@@ -688,8 +688,9 @@ impl PgEnt {
         .await?
         {
             let mut tx = TenantTx::begin(self.pool(), etab).await?;
-            let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser($1)")
-                .bind(domain_eleve::horloge::jour_paris())
+            // Sans argument : chaque élève est resynchronisé au jour de SON établissement (fuseau de
+            // l'établissement, migration 296), pas à un jour global de serveur.
+            let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_identite_resynchroniser()")
                 .fetch_one(&mut *tx)
                 .await?;
             tx.commit().await?;

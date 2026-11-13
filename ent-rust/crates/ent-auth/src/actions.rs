@@ -216,6 +216,17 @@ pub enum Action {
     AgendaParametrer,
     /// Tenir la feuille de semaine de l'établissement (créneaux visibles de tous) : direction, administrateur.
     AgendaSemaineGerer,
+    /// Rechercher une salle libre et lire le planning des salles (sans élèves) : tout le personnel.
+    AgendaLieuxLire,
+    /// Réserver une salle (soi, ou pour un collègue) : tout le personnel.
+    AgendaLieuxReserver,
+    /// Valider ou refuser les demandes des salles « sur validation » : direction, administrateur (un valideur
+    /// est aussi désigné salle par salle).
+    AgendaLieuxValider,
+    /// Gérer toutes les réservations (annuler celle d'un autre avec motif) : direction, administrateur, secrétariat.
+    AgendaLieuxGerer,
+    /// Paramétrer les règles d'une salle (réservable toujours, sur validation, jamais ; délais, durée, horizon).
+    AgendaLieuxParametrer,
     // ── S2-8 : communication complète ───────────────────────────────────────
     /// Préparer, prévisualiser et lancer des campagnes d'information (COM-05).
     CampagnesLancer,
@@ -305,6 +316,23 @@ pub enum Action {
     /// Expliquer l'accès d'un agent à un élève et simuler une attribution (PRS-101, 102). Ne se
     /// donne que par qui la détient (anti-escalade).
     AccesRevue,
+    // ── Socle 15, lots A0–A1 : absences des personnels (`15_ABSENCES_PERSONNELS.md` §23.1) ──
+    /// Déclarer l'absence d'un AUTRE agent (secrétariat, comptabilité, direction). Déclarer la sienne ne demande aucun droit (portée « moi » traitée par le service : aucune action n'admet encore `Portee::Moi`).
+    PersonnelsAbsencesDeclarer,
+    /// Signaler une absence sans nature (accueil, vie scolaire, direction) : aucun effet extérieur tant qu'elle n'est pas confirmée (R-AP46).
+    PersonnelsAbsencesSignaler,
+    /// Lire les absences des personnels SANS la nature (adjoint, vie scolaire, direction).
+    PersonnelsAbsencesLireOrganisation,
+    /// Lire la nature, la décision et la zone de qualification : chef d'établissement et secrétariat. Jamais l'administrateur technique, le DPO ni la comptabilité hors circuit (R-AP2).
+    PersonnelsAbsencesLireNature,
+    /// Valider, refuser, requalifier, rouvrir, annuler. Jamais sa propre absence (R-AP10).
+    PersonnelsAbsencesValider,
+    /// Instruire : date de réception de l'arrêt, traitement administratif (secrétariat, comptabilité de l'OGEC).
+    PersonnelsAbsencesInstruire,
+    /// ★ Saisir une absence déjà validée (régularisation, convocation reçue) : droit réservé (AD-05).
+    PersonnelsAbsencesSaisirValidee,
+    /// ★ Natures de l'établissement, règles de circuit, délais (S-1500 à S-1517).
+    PersonnelsAbsencesParametrer,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -318,6 +346,25 @@ pub enum Action {
     StagesParametrer,
     /// Socle 39, lot ST1 (a) : planifier, modifier, publier et fermer les périodes de stage.
     StagesPeriodesGerer,
+    // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
+    /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
+    AppelFaire,
+    /// Faire ou reprendre l'appel de n'importe quelle séance de l'établissement.
+    AppelFaireTout,
+    /// Corriger un appel validé, à tout moment, avec motif obligatoire.
+    AppelCorriger,
+    /// Déléguer l'appel d'une de ses séances à un collègue.
+    AppelDeleguer,
+    /// Lire le motif et la nature déclarés d'une absence.
+    AbsencesLireMotif,
+    /// Qualifier une absence (motif légitime, excuse valable, non valable).
+    AbsencesQualifier,
+    /// Proposer une qualification d'absence, sans la décider.
+    AbsencesProposerQualification,
+    /// Localiser un élève (infirmerie, vie scolaire, CDI, entretien).
+    LocalisationPoser,
+    /// Définir la règle d'assiduité de l'établissement (versions datées).
+    AssiduiteRegleGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -342,7 +389,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 138] = [
+    pub const TOUTES: [Action; 160] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -429,6 +476,11 @@ impl Action {
         Action::AgendaJournalLire,
         Action::AgendaParametrer,
         Action::AgendaSemaineGerer,
+        Action::AgendaLieuxLire,
+        Action::AgendaLieuxReserver,
+        Action::AgendaLieuxValider,
+        Action::AgendaLieuxGerer,
+        Action::AgendaLieuxParametrer,
         Action::CampagnesLancer,
         Action::RencontresGerer,
         Action::FormulairesGerer,
@@ -491,6 +543,24 @@ impl Action {
         Action::StagesOrganismesGerer,
         Action::StagesParametrer,
         Action::StagesPeriodesGerer,
+        Action::AppelFaire,
+        Action::AppelFaireTout,
+        Action::AppelCorriger,
+        Action::AppelDeleguer,
+        Action::AbsencesLireMotif,
+        Action::AbsencesQualifier,
+        Action::AbsencesProposerQualification,
+        Action::LocalisationPoser,
+        Action::AssiduiteRegleGerer,
+        // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::PersonnelsAbsencesDeclarer,
+        Action::PersonnelsAbsencesSignaler,
+        Action::PersonnelsAbsencesLireOrganisation,
+        Action::PersonnelsAbsencesLireNature,
+        Action::PersonnelsAbsencesValider,
+        Action::PersonnelsAbsencesInstruire,
+        Action::PersonnelsAbsencesSaisirValidee,
+        Action::PersonnelsAbsencesParametrer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -592,6 +662,11 @@ impl Action {
             Self::AgendaJournalLire => "agenda.journal.lire",
             Self::AgendaParametrer => "agenda.parametrer",
             Self::AgendaSemaineGerer => "agenda.semaine.gerer",
+            Self::AgendaLieuxLire => "agenda.lieux.lire",
+            Self::AgendaLieuxReserver => "agenda.lieux.reserver",
+            Self::AgendaLieuxValider => "agenda.lieux.valider",
+            Self::AgendaLieuxGerer => "agenda.lieux.gerer",
+            Self::AgendaLieuxParametrer => "agenda.lieux.parametrer",
             Self::CampagnesLancer => "campagnes.lancer",
             Self::RencontresGerer => "rencontres.gerer",
             Self::FormulairesGerer => "formulaires.gerer",
@@ -629,11 +704,28 @@ impl Action {
             Self::MissionsGerer => "missions.gerer",
             Self::MissionsTypesGerer => "missions.types.gerer",
             Self::AccesRevue => "acces.revue",
+            Self::PersonnelsAbsencesDeclarer => "personnels.absences.declarer",
+            Self::PersonnelsAbsencesSignaler => "personnels.absences.signaler",
+            Self::PersonnelsAbsencesLireOrganisation => "personnels.absences.lire_organisation",
+            Self::PersonnelsAbsencesLireNature => "personnels.absences.lire_nature",
+            Self::PersonnelsAbsencesValider => "personnels.absences.valider",
+            Self::PersonnelsAbsencesInstruire => "personnels.absences.instruire",
+            Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
+            Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
             Self::StagesParametrer => "stages.parametrer",
             Self::StagesPeriodesGerer => "stages.periodes.gerer",
+            Self::AppelFaire => "appel.faire",
+            Self::AppelFaireTout => "appel.faire_tout",
+            Self::AppelCorriger => "appel.corriger",
+            Self::AppelDeleguer => "appel.deleguer",
+            Self::AbsencesLireMotif => "absences.lire_motif",
+            Self::AbsencesQualifier => "absences.qualifier",
+            Self::AbsencesProposerQualification => "absences.proposer_qualification",
+            Self::LocalisationPoser => "localisation.poser",
+            Self::AssiduiteRegleGerer => "assiduite.regle_gerer",
         }
     }
 
@@ -736,6 +828,11 @@ impl Action {
             Self::AgendaJournalLire => "Consulter les journaux de l'agenda",
             Self::AgendaParametrer => "Paramétrer l'agenda (types d'événements de l'établissement)",
             Self::AgendaSemaineGerer => "Tenir la feuille de semaine de l'établissement",
+            Self::AgendaLieuxLire => "Rechercher une salle libre et consulter le planning des salles",
+            Self::AgendaLieuxReserver => "Réserver une salle",
+            Self::AgendaLieuxValider => "Valider ou refuser les demandes de salles",
+            Self::AgendaLieuxGerer => "Gérer toutes les réservations de salles",
+            Self::AgendaLieuxParametrer => "Paramétrer les règles de réservation des salles",
             Self::CampagnesLancer => "Lancer des campagnes d'information (e-mail, SMS, push)",
             Self::RencontresGerer => "Organiser les rencontres parents-professeurs",
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
@@ -775,11 +872,28 @@ impl Action {
             Self::MissionsGerer => "Nommer, terminer et transférer les missions (professeur principal, référents…)",
             Self::MissionsTypesGerer => "Créer les types de missions propres à l'établissement",
             Self::AccesRevue => "Expliquer l'accès d'un agent à un élève et simuler une attribution",
+            Self::PersonnelsAbsencesDeclarer => "Déclarer l'absence d'un collègue (la sienne ne demande aucun droit)",
+            Self::PersonnelsAbsencesSignaler => "Signaler l'absence d'un agent, sans nature (accueil, vie scolaire)",
+            Self::PersonnelsAbsencesLireOrganisation => "Voir les absences des personnels pour organiser la journée (sans la nature)",
+            Self::PersonnelsAbsencesLireNature => "Lire la nature, la décision et la zone de qualification d'une absence de personnel",
+            Self::PersonnelsAbsencesValider => "Valider, refuser, requalifier et rouvrir une absence de personnel",
+            Self::PersonnelsAbsencesInstruire => "Instruire une absence de personnel (réception de l'arrêt, traitement administratif)",
+            Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
+            Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
             Self::StagesParametrer => "Paramétrer les stages (dispositifs, assurance, quotas) et interdire un organisme",
             Self::StagesPeriodesGerer => "Planifier, publier et fermer les périodes de stage",
+            Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
+            Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
+            Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
+            Self::AppelDeleguer => "Déléguer l'appel d'une de ses séances à un collègue",
+            Self::AbsencesLireMotif => "Lire le motif et la nature déclarés d'une absence",
+            Self::AbsencesQualifier => "Qualifier une absence (motif légitime, excuse valable, non valable)",
+            Self::AbsencesProposerQualification => "Proposer une qualification d'absence, sans la décider",
+            Self::LocalisationPoser => "Localiser un élève (infirmerie, vie scolaire, CDI, entretien)",
+            Self::AssiduiteRegleGerer => "Définir la règle d'assiduité de l'établissement (versions datées)",
         }
     }
 
@@ -801,6 +915,9 @@ impl Action {
     pub fn accordee_par(self) -> &'static [Action] {
         match self {
             Self::FacturationLire => &[Self::FacturationGerer],
+            // Socle 12 : faire l'appel de tout l'établissement inclut faire celui de ses séances.
+            Self::AppelFaire => &[Self::AppelFaireTout],
+            Self::AbsencesProposerQualification => &[Self::AbsencesQualifier],
             // E1 (§12.2) : seules inclusions explicites des droits « élève ».
             Self::ElevesEtatCivilLire => &[Self::ElevesIdentiteModifier],
             Self::ElevesIdentifiantsLire => &[Self::ElevesIdentifiantsGerer],
@@ -831,6 +948,11 @@ impl Action {
             | Self::AgendaJournalLire
             | Self::AgendaParametrer
             | Self::AgendaSemaineGerer
+            | Self::AgendaLieuxLire
+            | Self::AgendaLieuxReserver
+            | Self::AgendaLieuxValider
+            | Self::AgendaLieuxGerer
+            | Self::AgendaLieuxParametrer
             | Self::RencontresGerer
             | Self::FormulairesGerer
             | Self::ConsentementsLire
@@ -924,6 +1046,15 @@ impl Action {
             | Self::ServicesGerer
             | Self::MissionsGerer
             | Self::MissionsTypesGerer
+            | Self::PersonnelsAbsencesDeclarer
+            | Self::PersonnelsAbsencesSignaler
+            | Self::PersonnelsAbsencesLireOrganisation
+            | Self::PersonnelsAbsencesLireNature
+            | Self::PersonnelsAbsencesValider
+            | Self::PersonnelsAbsencesInstruire
+            | Self::PersonnelsAbsencesSaisirValidee
+            | Self::PersonnelsAbsencesParametrer
+            | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
@@ -932,6 +1063,16 @@ impl Action {
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
             }
+            | Self::AppelFaire
+            | Self::AppelFaireTout
+            | Self::AppelCorriger
+            | Self::AppelDeleguer
+            | Self::AbsencesLireMotif
+            | Self::AbsencesQualifier
+            | Self::AbsencesProposerQualification
+            | Self::LocalisationPoser
+            | Self::AssiduiteRegleGerer
+            => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
             | Self::InscriptionsDecider
@@ -1043,11 +1184,49 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AccesRevue));
     }
+    // Socle 15, lots A0–A1 (§23.2). Tout le personnel peut déclarer SA propre absence sans droit
+    // (le service le contrôle). L'administrateur technique ne reçoit que le paramétrage : jamais la
+    // nature ni la validation ; le DPO et la comptabilité hors circuit ne lisent pas la nature.
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesDeclarer));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push(etab(PersonnelsAbsencesSignaler));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(PersonnelsAbsencesLireOrganisation));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesLireNature));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnelsAbsencesValider));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsAbsencesInstruire));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesSaisirValidee));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(PersonnelsAbsencesParametrer));
+    }
     // Socle 19, lot AG1 (`19_AGENDA_RDV.md` §21.1) : créer un événement et lire l'agenda d'une classe
     // sont ouverts à tout le personnel ; publier à une audience : direction et CPE ; journaux :
     // direction ; types d'événements de l'établissement : administrateur.
     d.push(etab(AgendaEvenementsCreer));
     d.push(etab(AgendaLireStructure));
+    // Réservation de lieux (AG3) : lire le planning et réserver, tout le personnel ; gérer : direction,
+    // administrateur, secrétariat ; valider et paramétrer : direction, administrateur.
+    d.push(etab(AgendaLieuxLire));
+    d.push(etab(AgendaLieuxReserver));
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push(etab(AgendaLieuxGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AgendaLieuxValider));
+        d.push(etab(AgendaLieuxParametrer));
+    }
     if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
         d.push(etab(AgendaEvenementsPublier));
     }
@@ -1074,6 +1253,29 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if role == Role::Prof {
         d.push((StagesLire, Portee::MesClasses));
+    }
+    // Socle 12 (AS1, DA-18) : les droits d'appel et d'assiduité sortent des rôles codés en dur.
+    // Le modèle par défaut reproduit exactement `can_faire_appel`, `can_trancher_justificatif`,
+    // `can_annuler_absence_vers_present` et `can_gerer_dispenses_vs` ; un rôle libre (D-017) peut
+    // désormais ouvrir `appel.faire` à un AED ou `absences.proposer_qualification` sans qualifier.
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Prof) {
+        d.push(etab(AppelFaire));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        // `absences.proposer_qualification` est listée à part (même profils) : l'anti-escalade compare
+        // les actions exactement, la vie scolaire doit donc la détenir pour pouvoir la confier à un rôle libre.
+        for a in [AppelFaireTout, AppelCorriger, AbsencesLireMotif, AbsencesQualifier, AbsencesProposerQualification] {
+            d.push(etab(a));
+        }
+    }
+    if role == Role::Prof {
+        d.push(etab(AppelDeleguer));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Infirmerie) {
+        d.push(etab(LocalisationPoser));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AssiduiteRegleGerer));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
@@ -1704,6 +1906,51 @@ mod tests {
         assert_eq!(PersonnelsServicesLire.accordee_par(), &[ServicesGerer]);
     }
 
+    /// Socle 15 (A0–A1) : la nature d'une absence ne se lit que par la direction et le secrétariat ;
+    /// l'administrateur technique, l'accueil, la comptabilité, le professeur et les profils de base
+    /// n'ont ni `lire_nature` ni `valider` (R-AP2, R-AP11, AR-01, AR-07). Aucune de ces actions ne se
+    /// déduit d'un droit sur les élèves.
+    #[test]
+    fn absences_personnels_modele_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve] {
+            assert_eq!(
+                a(r, PersonnelsAbsencesLireNature),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} lire_nature"
+            );
+            assert_eq!(a(r, PersonnelsAbsencesValider), r == Role::Direction, "{r:?} valider");
+            assert_eq!(
+                a(r, PersonnelsAbsencesParametrer),
+                matches!(r, Role::Admin | Role::Direction),
+                "{r:?} parametrer"
+            );
+            if !r.is_staff() {
+                for x in [
+                    PersonnelsAbsencesDeclarer,
+                    PersonnelsAbsencesSignaler,
+                    PersonnelsAbsencesLireOrganisation,
+                    PersonnelsAbsencesLireNature,
+                    PersonnelsAbsencesValider,
+                    PersonnelsAbsencesInstruire,
+                    PersonnelsAbsencesSaisirValidee,
+                    PersonnelsAbsencesParametrer,
+                ] {
+                    assert!(!a(r, x), "{r:?} {}", x.code());
+                }
+            }
+        }
+        assert!(!a(Role::Prof, PersonnelsAbsencesLireOrganisation));
+        assert!(a(Role::Accueil, PersonnelsAbsencesSignaler));
+        assert!(!a(Role::Accueil, PersonnelsAbsencesLireNature));
+        assert!(!a(Role::Compta, PersonnelsAbsencesLireNature));
+        for x in [PersonnelsAbsencesLireNature, PersonnelsAbsencesValider] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+            assert!(x.accordee_par().is_empty());
+        }
+    }
+
     /// Socle 39, lot ST0 : modèles par défaut des actions de stages (RS-02).
     #[test]
     fn st0_stages_modeles_par_defaut() {
@@ -2212,7 +2459,41 @@ mod oracle_a1 {
         for (r, attendu) in [(Role::Admin, true), (Role::Direction, true), (Role::Cpe, false), (Role::Prof, false), (Role::Administratif, false)] {
             assert_eq!(a(r, AgendaSemaineGerer), attendu, "{r:?} semaine");
         }
-        for x in [AgendaEvenementsCreer, AgendaEvenementsPublier, AgendaLireStructure, AgendaJournalLire, AgendaParametrer, AgendaSemaineGerer] {
+        // Réservation de lieux : lire et réserver pour tout le personnel ; gérer ajoute le secrétariat.
+        for r in [
+            Role::Admin,
+            Role::Direction,
+            Role::Administratif,
+            Role::Cpe,
+            Role::Prof,
+            Role::Accueil,
+        ] {
+            assert!(a(r, AgendaLieuxLire) && a(r, AgendaLieuxReserver), "{r:?}");
+        }
+        for (r, g, v) in [
+            (Role::Admin, true, true),
+            (Role::Direction, true, true),
+            (Role::Administratif, true, false),
+            (Role::Prof, false, false),
+            (Role::Cpe, false, false),
+        ] {
+            assert_eq!(a(r, AgendaLieuxGerer), g, "{r:?} gerer");
+            assert_eq!(a(r, AgendaLieuxValider), v, "{r:?} valider");
+            assert_eq!(a(r, AgendaLieuxParametrer), v, "{r:?} parametrer");
+        }
+        for x in [
+            AgendaEvenementsCreer,
+            AgendaEvenementsPublier,
+            AgendaLireStructure,
+            AgendaJournalLire,
+            AgendaParametrer,
+            AgendaSemaineGerer,
+            AgendaLieuxLire,
+            AgendaLieuxReserver,
+            AgendaLieuxValider,
+            AgendaLieuxGerer,
+            AgendaLieuxParametrer,
+        ] {
             assert!(x.code().starts_with("agenda."));
             assert_eq!(Action::parse(x.code()), Some(x));
         }

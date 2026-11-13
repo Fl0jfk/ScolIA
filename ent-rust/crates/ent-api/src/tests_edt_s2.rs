@@ -283,6 +283,17 @@ async fn edt_routes_conflits_remplacement_masse_delegations_et_isolation() {
         .unwrap()
         .parse()
         .unwrap();
+    // Socle 15 (R-AP46) : saisie par un tiers = « signalée » ; la direction la confirme par un rappel
+    // tracé avant de la valider.
+    let (st, txt) = appel(
+        &app,
+        "POST",
+        &format!("/personnels/absences/{abs_id}/rappel-confirme"),
+        dir,
+        Some(json!({})),
+    )
+    .await;
+    assert!(st.is_success(), "{st} {txt}");
     let (st, _) = appel(
         &app,
         "POST",

@@ -677,6 +677,8 @@ pub struct BilanExpedition {
     pub plafonnes: usize,
     pub regroupes: usize,
     pub interrompus: usize,
+    /// Établissements dont le passage a échoué (R-09) : les suivants ont été traités.
+    pub etablissements_en_echec: usize,
 }
 
 pub struct Expediteur {
@@ -762,7 +764,15 @@ impl Expediteur {
         };
         let mut total = BilanExpedition::default();
         for etab in etabs {
-            let b = self.expedier_etab(etab, maintenant).await?;
+            // R-09 : un établissement en erreur ne bloque pas l'expédition des suivants.
+            let b = match self.expedier_etab(etab, maintenant).await {
+                Ok(b) => b,
+                Err(e) => {
+                    crate::tenant_tx::signaler_echec_etablissement("expedition_notifications", &e);
+                    total.etablissements_en_echec += 1;
+                    continue;
+                }
+            };
             total.reclames += b.reclames;
             total.envoyes += b.envoyes;
             total.simules += b.simules;

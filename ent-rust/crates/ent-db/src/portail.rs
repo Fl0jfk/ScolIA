@@ -591,12 +591,12 @@ impl PgEnt {
 
     /// Direction : personnels absents aujourd'hui (compte et noms de service ; **jamais le motif**).
     /// Réservé à la direction : la lecture brute du service est ouverte à tout le personnel.
-    async fn tuile_absences_personnels(&self, e: Uuid, r: &str, jour: NaiveDate, base: Role) -> Source {
+    async fn tuile_absences_personnels(&self, e: Uuid, _r: &str, jour: NaiveDate, base: Role) -> Source {
         if !matches!(base, Role::Direction | Role::Admin) {
             return Ok(None);
         }
-        let l = self.list_absences_rh_for_actor(e, r, jour, jour).await?;
-        let n = l.iter().filter(|a| a.statut != "annulee" && a.statut != "refusee").count() as i64;
+        // Compte seulement (jamais la nature ni un nom) : lecture interne, le profil est contrôlé ci-dessus.
+        let n = self.nombre_absents_rh_le(e, jour).await?;
         Ok(Some(tuile_compteur(
             "personnels.absences",
             "Personnels absents",

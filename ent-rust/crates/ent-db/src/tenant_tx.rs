@@ -31,13 +31,49 @@ impl RlsMode {
         }
     }
 
+    /// Lecture stricte : une valeur présente mais inconnue (faute de frappe : `stricte`,
+    /// `strcit`…) est une erreur, jamais un `off` silencieux (audit B-04). Absent ou vide
+    /// = `off` ici ; c'est `verifier_demarrage` qui l'interdit hors labo.
+    pub fn try_parse(v: Option<&str>) -> Result<Self, String> {
+        match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("") | Some("off") | Some("0") => Ok(Self::Off),
+            Some("strict") => Ok(Self::Strict),
+            Some("permissif") | Some("on") | Some("1") => Ok(Self::Permissif),
+            Some(autre) => Err(format!(
+                "ENT_RLS_MODE={autre:?} inconnu (valeurs : strict, permissif, off)"
+            )),
+        }
+    }
+
+    /// Garde de démarrage (audit B-04) : valeur inconnue → refus partout ; hors
+    /// environnement non productif (`ENT_ENV` absent ou inconnu = production), seul
+    /// `strict` est accepté. Renvoie le mode effectif, que l'appelant journalise.
+    pub fn verifier_demarrage(v: Option<&str>, non_prod: bool) -> Result<Self, String> {
+        let mode = Self::try_parse(v)?;
+        if !non_prod && mode != Self::Strict {
+            return Err(format!(
+                "ENT_RLS_MODE doit valoir `strict` hors labo/test (mode lu : {mode:?}) : \
+                 sans cela les politiques RLS restent permissives"
+            ));
+        }
+        Ok(mode)
+    }
+
     pub fn from_env() -> Self {
         #[cfg(test)]
         if let Some(m) = MODE_TEST.with(|c| c.get()) {
             return m;
         }
         static MODE: OnceLock<RlsMode> = OnceLock::new();
-        *MODE.get_or_init(|| Self::parse(std::env::var("ENT_RLS_MODE").ok().as_deref()))
+        *MODE.get_or_init(|| {
+            let brut = std::env::var("ENT_RLS_MODE").ok();
+            Self::try_parse(brut.as_deref()).unwrap_or_else(|e| {
+                // `PgEnt::connect` refuse déjà de démarrer ; ce repli ne sert qu'aux
+                // usages hors serveur (outils, tests) et ne doit pas être silencieux.
+                tracing::error!("{e} : traité comme `off`");
+                Self::Off
+            })
+        })
     }
 }
 
@@ -174,6 +210,26 @@ premiere_colonne_etab!(A, B, C);
 premiere_colonne_etab!(A, B, C, D);
 premiere_colonne_etab!(A, B, C, D, E);
 
+static ECHECS_ETABLISSEMENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Nombre cumulé (depuis le démarrage) de passages de tâche de fond qui ont échoué pour un
+/// établissement sans empêcher les suivants (audit R-09). À exposer en métrique / alerte.
+pub fn echecs_par_etablissement() -> u64 {
+    ECHECS_ETABLISSEMENT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Enregistre l'échec d'un établissement : compteur + journal technique **sans identifiant
+/// d'établissement ni donnée** (E14), seulement le contexte et la nature de l'erreur.
+pub fn signaler_echec_etablissement(contexte: &str, erreur: &dyn std::fmt::Display) {
+    ECHECS_ETABLISSEMENT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    tracing::error!(
+        target: "ent_tache_fond",
+        contexte,
+        erreur = %erreur,
+        "tâche de fond en échec pour un établissement ; les autres établissements continuent"
+    );
+}
+
 /// Exécute une requête de sélection **sans paramètre**, dont la première colonne est
 /// `etablissement_id`, une fois par établissement, dans le contexte de celui-ci. Les lignes
 /// d'un autre établissement sont écartées (en mode `off` la base ne filtre pas : sans cela chaque
@@ -188,12 +244,20 @@ where
 {
     let mut tout = Vec::new();
     for etab in etablissements_systeme(pool, contexte).await? {
-        let mut tx = TenantTx::begin(pool, etab).await?;
-        let mut lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
-        lignes.retain(|l| l.etablissement() == etab);
-        // Validation : la sélection peut appeler une fonction SQL qui écrit (ex. `ent_eleve_statut_recalculer()`).
-        tx.commit().await?;
-        tout.extend(lignes);
+        // R-09 : une erreur chez un établissement ne bloque pas ceux qui le suivent.
+        let r: Result<Vec<T>, sqlx::Error> = async {
+            let mut tx = TenantTx::begin(pool, etab).await?;
+            let mut lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
+            lignes.retain(|l| l.etablissement() == etab);
+            // Validation : la sélection peut appeler une fonction SQL qui écrit (ex. `ent_eleve_statut_recalculer()`).
+            tx.commit().await?;
+            Ok(lignes)
+        }
+        .await;
+        match r {
+            Ok(lignes) => tout.extend(lignes),
+            Err(e) => signaler_echec_etablissement(contexte.nom(), &e),
+        }
     }
     Ok(tout)
 }
@@ -212,10 +276,17 @@ where
 {
     let mut tout = Vec::new();
     for etab in etablissements_systeme(pool, contexte).await? {
-        let mut tx = TenantTx::begin(pool, etab).await?;
-        let lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
-        tx.commit().await?;
-        tout.extend(lignes);
+        let r: Result<Vec<T>, sqlx::Error> = async {
+            let mut tx = TenantTx::begin(pool, etab).await?;
+            let lignes: Vec<T> = sqlx::query_as(sql).fetch_all(&mut *tx).await?;
+            tx.commit().await?;
+            Ok(lignes)
+        }
+        .await;
+        match r {
+            Ok(lignes) => tout.extend(lignes),
+            Err(e) => signaler_echec_etablissement(contexte.nom(), &e),
+        }
     }
     Ok(tout)
 }
@@ -260,7 +331,71 @@ mod tests {
         assert_eq!(RlsMode::parse(None), RlsMode::Off);
         assert_eq!(RlsMode::parse(Some("")), RlsMode::Off);
         assert_eq!(RlsMode::parse(Some("bizarre")), RlsMode::Off);
+        // Audit B-04 : la lecture stricte ne laisse plus passer une faute de frappe.
+        assert!(RlsMode::try_parse(Some("stricte")).is_err());
+        assert!(RlsMode::try_parse(Some("strcit")).is_err());
+        assert_eq!(RlsMode::try_parse(Some(" Strict ")), Ok(RlsMode::Strict));
+        assert_eq!(RlsMode::try_parse(None), Ok(RlsMode::Off));
+        // Hors labo : seul `strict` démarre ; en labo tout mode valide passe.
+        assert!(RlsMode::verifier_demarrage(None, false).is_err());
+        assert!(RlsMode::verifier_demarrage(Some("permissif"), false).is_err());
+        assert!(RlsMode::verifier_demarrage(Some("stricte"), true).is_err());
+        assert_eq!(RlsMode::verifier_demarrage(Some("strict"), false), Ok(RlsMode::Strict));
+        assert_eq!(RlsMode::verifier_demarrage(None, true), Ok(RlsMode::Off));
         assert_eq!(RlsMode::parse(Some("Permissif")), RlsMode::Permissif);
         assert_eq!(RlsMode::parse(Some(" STRICT ")), RlsMode::Strict);
+    }
+
+    /// Audit R-09 : un établissement en erreur ne bloque pas les suivants.
+    #[tokio::test]
+    async fn un_etablissement_en_erreur_ne_bloque_pas_les_suivants() {
+        let Some(url) = crate::url_guard::url_labo_ou_echec() else {
+            return;
+        };
+        let pool = sqlx::PgPool::connect(&url).await.expect("pool");
+        let mut ent = crate::PgEnt::from_pool(pool.clone());
+        ent.migrate().await.expect("migrations");
+        // Deux établissements (UUID triés : le premier échoue, le second doit être traité).
+        let (mut a, mut b) = (Uuid::new_v4(), Uuid::new_v4());
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        for e in [a, b] {
+            sqlx::query("INSERT INTO ent_etablissement (id, slug, nom) VALUES ($1, $2, 'R09')")
+                .bind(e)
+                .bind(format!("r09-{}", e.simple()))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        forcer_mode_test(Some(RlsMode::Permissif));
+        // Erreur (division par zéro) uniquement dans le contexte de l'établissement `a`.
+        let sql: &'static str = Box::leak(
+            format!(
+                "SELECT id AS etablissement_id, \
+                        1 / (CASE WHEN current_setting('app.etablissement_id', true) = '{a}' THEN 0 ELSE 1 END) \
+                   FROM ent_etablissement WHERE id IN ('{a}', '{b}')"
+            )
+            .into_boxed_str(),
+        );
+        let avant = echecs_par_etablissement();
+        let lignes: Vec<(Uuid, i32)> =
+            lire_par_etablissement(&pool, ContexteSysteme::JobPlanifie("test_r09"), sql)
+                .await
+                .expect("le passage global réussit malgré l'échec d'un établissement");
+        let appels: Vec<(Uuid, i32)> =
+            appeler_par_etablissement(&pool, ContexteSysteme::JobPlanifie("test_r09"), sql)
+                .await
+                .expect("idem pour les fonctions qui écrivent");
+        forcer_mode_test(None);
+        assert!(lignes.iter().any(|l| l.0 == b), "l'établissement suivant est traité");
+        assert!(lignes.iter().all(|l| l.0 != a), "l'établissement en erreur est écarté");
+        assert!(appels.iter().any(|l| l.0 == b));
+        assert!(echecs_par_etablissement() >= avant + 2, "échecs comptés");
+        sqlx::query("DELETE FROM ent_etablissement WHERE id = ANY($1)")
+            .bind(vec![a, b])
+            .execute(&pool)
+            .await
+            .unwrap();
     }
 }

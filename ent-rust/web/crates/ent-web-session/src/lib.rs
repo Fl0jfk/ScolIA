@@ -209,7 +209,7 @@ async fn transmettre(etat: &Etat, req: Request, chemin: &str, jeton: Option<&str
         .body(corps)
         .expect("requête interne");
     for (nom, valeur) in parties.headers.iter() {
-        if nom != header::COOKIE && nom != header::AUTHORIZATION && nom != header::HOST {
+        if nom != header::COOKIE && nom != header::AUTHORIZATION {
             nouvelle.headers_mut().append(nom.clone(), valeur.clone());
         }
     }

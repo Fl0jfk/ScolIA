@@ -4930,7 +4930,7 @@ async fn explorer_face_eleve(
         return Err("lab attend des élèves sans compte avant invitation".into());
     }
     let cible = sans_avant[0].clone();
-    let (inv, email, mdp) = ent
+    let compte = ent
         .inviter_compte_eleve_for_actor(
             Role::Administratif.as_str(),
             InviterCompteEleve {
@@ -4939,15 +4939,14 @@ async fn explorer_face_eleve(
                 email: None,
                 actor_user_id: cast.administratif.user_id,
             },
+            "http://localhost:3000",
         )
         .await
         .map_err(|e| e.to_string())?;
+    let (inv, email) = (compte.invitation, compte.email);
     r.geste(format!(
-        "admini invite {} {} → {} (mdp temporaire {}…)",
-        cible.prenom,
-        cible.nom,
-        email,
-        &mdp[..6.min(mdp.len())]
+        "admini invite {} {} → {} (lien d'activation envoyé : {})",
+        cible.prenom, cible.nom, email, compte.lien_envoye
     ));
 
     // Le nouvel élève lit ses notes
@@ -4976,6 +4975,7 @@ async fn explorer_face_eleve(
                 email: None,
                 actor_user_id: cast.administratif.user_id,
             },
+            "http://localhost:3000",
         )
         .await;
     if dup.is_ok() {
@@ -4988,6 +4988,7 @@ async fn explorer_face_eleve(
             cast.etablissement_id,
             cast.administratif.user_id,
             Role::Administratif.as_str(),
+            "http://localhost:3000",
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -7989,7 +7990,9 @@ async fn explorer_absence_rh(
     println!("# absences RH personnel");
 
     let rogue = cast.prof.user_id;
-    let admini = cast.administratifs[0].user_id;
+    // Valider une absence de personnel est le droit `personnels.absences.valider` (direction par
+    // défaut, AR-07) : plus celui du secrétariat, qui instruit seulement.
+    let valideur = cast.direction.user_id;
 
     let abs = ent
         .declarer_absence_rh_for_actor(
@@ -8026,20 +8029,21 @@ async fn explorer_absence_rh(
     let validee = ent
         .valider_absence_rh_for_actor(
             cast.etablissement_id,
-            Role::Administratif.as_str(),
+            Role::Direction.as_str(),
             abs.id,
-            admini,
+            valideur,
         )
         .await
         .map_err(|e| e.to_string())?;
     if validee.statut != "validee" {
         return Err(format!("statut attendu validee, got {}", validee.statut));
     }
-    r.geste("admini valide l'absence RH de Rogue");
+    r.geste("la direction valide l'absence RH de Rogue");
 
     let list = ent
         .list_absences_rh_for_actor(
             cast.etablissement_id,
+            valideur,
             Role::Direction.as_str(),
             jour,
             jour + Duration::days(7),

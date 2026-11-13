@@ -9,6 +9,7 @@ pub mod client_ip;
 mod dossier;
 mod personnels;
 mod personnels_missions;
+mod absences_personnels;
 mod stages;
 mod personnels_services;
 mod dto;
@@ -32,6 +33,7 @@ mod edt_s2;
 mod roles;
 mod routes;
 mod portail;
+mod assiduite;
 mod vie_scolaire;
 mod evaluations;
 mod agenda;
@@ -294,6 +296,8 @@ mod tests_personnels_p1;
 mod tests_personnels_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_absences_personnels;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]
@@ -2857,7 +2861,12 @@ mod tests {
         assert!(valeur_metrique(&texte, "ent_http_requetes_en_cours ") >= 1.0, "{texte}");
 
         // Sondes base + info de build.
-        assert!(texte.contains("ent_db_pool_connexions{etat=\"maximum\"} 5"), "{texte}");
+        // R-05 : taille du pool configurable (20 par défaut, plus le 5 figé d'avant).
+        let max_pool = ent_db::ReglagePool::depuis_env().expect("réglage du pool").max_connexions;
+        assert!(
+            texte.contains(&format!("ent_db_pool_connexions{{etat=\"maximum\"}} {max_pool}")),
+            "{texte}"
+        );
         assert!(valeur_metrique(&texte, "ent_sessions_actives ") >= 0.0, "{texte}");
         assert!(valeur_metrique(&texte, "ent_sondes_erreur ") == 0.0, "{texte}");
         assert!(

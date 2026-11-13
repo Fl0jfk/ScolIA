@@ -302,3 +302,196 @@ pub struct EvenementCree {
     pub serie_id: Option<Uuid>,
     pub nb_occurrences: usize,
 }
+
+// ───────────────────────────── Réservation de lieux (AG3) et disponibilités (AG2) ─────────────────────────────
+
+/// Mode de réservation d'une salle (D-058) : réglage **par salle**, salles de classe comprises.
+pub const MODES_LIEU: [&str; 3] = ["toujours", "sur_validation", "jamais"];
+
+/// Recherche d'une salle libre sur un créneau (jour et heures murales de l'établissement).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RechercheSalle {
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    #[serde(default)]
+    pub capacite_min: Option<i32>,
+    #[serde(default)]
+    pub type_salle: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SalleDispo {
+    pub salle_id: Uuid,
+    pub code: String,
+    pub libelle: String,
+    pub capacite: Option<i32>,
+    pub type_salle: String,
+    pub site: Option<String>,
+    /// `toujours` ou `sur_validation` (la demande est alors soumise au valideur).
+    pub mode: String,
+    /// Pourquoi une salle de classe est libre (« cours de 4B supprimé »), jamais le motif d'absence.
+    pub raison_libre: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SerieReservation {
+    /// 1 = lundi … 7 = dimanche.
+    pub jours_semaine: Vec<i16>,
+    #[serde(default)]
+    pub intervalle_semaines: Option<i16>,
+    pub au: NaiveDate,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NouvelleReservation {
+    pub salle_id: Uuid,
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub intitule: String,
+    /// `enseignement`, `reunion`, `evenement` ou `autre` (défaut).
+    #[serde(default)]
+    pub motif_categorie: Option<String>,
+    #[serde(default)]
+    pub effectif: Option<i32>,
+    #[serde(default)]
+    pub mise_en_place: Option<String>,
+    /// Lisible du demandeur, du bénéficiaire et du gestionnaire seulement.
+    #[serde(default)]
+    pub commentaire: Option<String>,
+    /// Réservation pour un collègue (il est prévenu).
+    #[serde(default)]
+    pub pour_user_id: Option<Uuid>,
+    #[serde(default)]
+    pub serie: Option<SerieReservation>,
+    /// Série : accepter d'écrire les occurrences libres quand d'autres sont en conflit.
+    #[serde(default)]
+    pub confirmer_partiel: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OccurrenceReservation {
+    pub jour: NaiveDate,
+    pub reservation_id: Option<Uuid>,
+    /// `confirmee` ou `demandee` quand écrite.
+    pub statut: Option<String>,
+    /// Pourquoi l'occurrence n'est pas possible (qui occupe, hors horizon…).
+    pub conflit: Option<String>,
+}
+
+/// Rapport **par occurrence** (ND-02) : rien n'est perdu en silence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RapportReservation {
+    /// Faux quand une série en conflit attend la confirmation de l'auteur : rien n'a été écrit.
+    pub ecrit: bool,
+    pub occurrences: Vec<OccurrenceReservation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ReservationVue {
+    pub id: Uuid,
+    pub salle_id: Uuid,
+    pub salle_libelle: String,
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub intitule: String,
+    pub motif_categorie: String,
+    pub demandeur_nom: Option<String>,
+    pub pour_nom: Option<String>,
+    pub statut: String,
+    pub effectif: Option<i32>,
+    pub mise_en_place: Option<String>,
+    /// Absent pour qui n'est ni demandeur, ni bénéficiaire, ni gestionnaire.
+    #[serde(default)]
+    pub commentaire: Option<String>,
+    pub je_suis_demandeur: bool,
+    pub serie_id: Option<Uuid>,
+    pub motif_decision: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CoursSalleVue {
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    /// Classe seulement : ni intervenant, ni motif.
+    pub classe: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LibereeVue {
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    /// « cours de 4B supprimé » : jamais le motif d'absence du professeur.
+    pub raison: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlanningSalle {
+    pub salle_id: Uuid,
+    pub salle_libelle: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    pub reservations: Vec<ReservationVue>,
+    pub cours: Vec<CoursSalleVue>,
+    pub liberees: Vec<LibereeVue>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnnulationReservation {
+    /// Obligatoire pour le gestionnaire qui annule la réservation d'un autre.
+    #[serde(default)]
+    pub motif: Option<String>,
+    /// `occurrence` (défaut) ou `serie` (les occurrences à venir).
+    #[serde(default)]
+    pub portee: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DecisionReservation {
+    pub accepter: bool,
+    /// Obligatoire pour un refus.
+    #[serde(default)]
+    pub motif: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RegleLieu {
+    pub mode: String,
+    #[serde(default)]
+    pub valideur_user_id: Option<Uuid>,
+    pub delai_min_heures: i32,
+    pub duree_max_minutes: i32,
+    pub horizon_jours: i32,
+}
+
+impl Default for RegleLieu {
+    fn default() -> Self {
+        Self {
+            mode: "toujours".into(),
+            valideur_user_id: None,
+            delai_min_heures: 0,
+            duree_max_minutes: 600,
+            horizon_jours: 56,
+        }
+    }
+}
+
+/// Disponibilité d'une personne sur un créneau (AG2) : libre / occupé, **jamais** le motif (R-AG6).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DisponibilitePersonne {
+    pub user_id: Uuid,
+    pub nom: Option<String>,
+    /// `libre`, `occupe` ou `non_communique` (santé, social : occupation protégée, R-AG37).
+    pub etat: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlageCommune {
+    pub jour: NaiveDate,
+    pub debut: NaiveTime,
+    pub fin: NaiveTime,
+}

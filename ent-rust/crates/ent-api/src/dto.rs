@@ -88,24 +88,22 @@ pub struct CompteProvisionneDto {
     pub invitation_id: Uuid,
     pub eleve_id: Uuid,
     pub email: String,
-    pub mot_de_passe_temporaire: String,
     pub statut: String,
     pub user_id: Option<Uuid>,
+    /// `true` : un lien d'activation à usage unique a été envoyé à `email`. Aucun mot de passe
+    /// n'est jamais renvoyé (audit A-01).
+    pub lien_envoye: bool,
 }
 
 impl CompteProvisionneDto {
-    pub fn from_parts(
-        inv: &domain_eleve::EleveInvitation,
-        email: &str,
-        mdp: &str,
-    ) -> Self {
+    pub fn from_compte(c: &ent_db::CompteEleveProvisionne) -> Self {
         Self {
-            invitation_id: inv.id,
-            eleve_id: inv.eleve_id,
-            email: email.to_string(),
-            mot_de_passe_temporaire: mdp.to_string(),
-            statut: inv.statut.as_str().to_string(),
-            user_id: inv.activated_user_id,
+            invitation_id: c.invitation.id,
+            eleve_id: c.invitation.eleve_id,
+            email: c.email.clone(),
+            statut: c.invitation.statut.as_str().to_string(),
+            user_id: c.invitation.activated_user_id,
+            lien_envoye: c.lien_envoye,
         }
     }
 }
@@ -3382,8 +3380,17 @@ pub struct AbsenceRhDto {
     pub user_label: Option<String>,
     pub debut: NaiveDate,
     pub fin: NaiveDate,
+    /// « Absence » pour qui n'a pas `personnels.absences.lire_nature` (R-AP2).
     pub motif: String,
     pub statut: String,
+    /// Auteur de la déclaration, valideur et dates, conservés séparément (R-AP5).
+    pub declare_par_user_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valide_par_user_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valide_le: Option<chrono::DateTime<chrono::Utc>>,
+    /// `false` : signalée par un tiers, pas encore confirmée par l'agent.
+    pub confirmee: bool,
 }
 
 impl From<&domain_eleve::AbsenceRh> for AbsenceRhDto {
@@ -3396,6 +3403,10 @@ impl From<&domain_eleve::AbsenceRh> for AbsenceRhDto {
             fin: a.fin,
             motif: a.motif.clone(),
             statut: a.statut.clone(),
+            declare_par_user_id: a.created_by_user_id,
+            valide_par_user_id: a.valide_par_user_id,
+            valide_le: a.valide_le,
+            confirmee: a.confirmee,
         }
     }
 }
@@ -3970,6 +3981,6 @@ impl From<&ent_db::Annonce> for AnnonceDto {
 }
 
 // `Debug` masqué : mot de passe / identité de connexion (voir `masque.rs`).
-debug_masque!(CompteProvisionneDto { invitation_id, eleve_id, statut, user_id } masque { email, mot_de_passe_temporaire });
+debug_masque!(CompteProvisionneDto { invitation_id, eleve_id, statut, user_id, lien_envoye } masque { email });
 debug_masque!(RattacherResponsableFoyerBody { eleve_id } masque { email });
 debug_masque!(SetEmailBody {} masque { email, current_password });

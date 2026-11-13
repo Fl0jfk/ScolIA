@@ -146,7 +146,6 @@ async fn attendus_absents(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<Vec<Uuid>>> {
-    session.require_faire_appel()?;
     ent(&state)
         .attendus_absents_appel(session.etablissement_id, id, session.user_id, &session.role)
         .await

@@ -349,6 +349,13 @@ async fn run_api() {
                     if let Err(e) = ent.reviser_rdv_liens_rompus(chrono::Utc::now(), None).await {
                         tracing::warn!(error = %e, "revue des rendez-vous à lien rompu en échec");
                     }
+                    // D-058 : un cours rétabli dans la salle fait tomber la réservation.
+                    if let Err(e) = ent
+                        .agenda_reviser_reservations_edt(chrono::Utc::now(), None)
+                        .await
+                    {
+                        tracing::warn!(error = %e, "revue des réservations de lieux en échec");
+                    }
                     tokio::time::sleep(std::time::Duration::from_secs(300)).await;
                 }
             })

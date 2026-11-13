@@ -372,6 +372,101 @@ pub fn resume_apercu(a: &ApercuPublication) -> String {
     p.join(" ")
 }
 
+// ---------------------------------------------------------------------------
+// Réservation de salles (lot AG3)
+// ---------------------------------------------------------------------------
+
+/// Saisie brute d'une réservation (champs du formulaire).
+pub struct SaisieReservation<'a> {
+    pub salle_id: Uuid,
+    pub jour: &'a str,
+    pub heure_debut: &'a str,
+    pub heure_fin: &'a str,
+    pub intitule: &'a str,
+    pub commentaire: &'a str,
+}
+
+/// Compose une réservation unitaire. Les contrôles de fond (conflit, délai, horizon, durée, droits) sont
+/// ceux du serveur ; ici seulement la forme, pour un message immédiat.
+pub fn composer_reservation(
+    s: &SaisieReservation<'_>,
+) -> Result<ent_types::agenda::NouvelleReservation, String> {
+    let jour = NaiveDate::parse_from_str(s.jour.trim(), "%Y-%m-%d")
+        .map_err(|_| "Indiquez le jour de la réservation.".to_string())?;
+    let debut = NaiveTime::parse_from_str(s.heure_debut.trim(), "%H:%M")
+        .map_err(|_| "Indiquez l'heure de début.".to_string())?;
+    let fin = NaiveTime::parse_from_str(s.heure_fin.trim(), "%H:%M")
+        .map_err(|_| "Indiquez l'heure de fin.".to_string())?;
+    if fin <= debut {
+        return Err("L'heure de fin doit suivre l'heure de début.".to_string());
+    }
+    let intitule = s.intitule.trim();
+    if intitule.is_empty() {
+        return Err("Indiquez l'objet de la réservation.".to_string());
+    }
+    let commentaire = s.commentaire.trim();
+    Ok(ent_types::agenda::NouvelleReservation {
+        salle_id: s.salle_id,
+        jour,
+        heure_debut: debut,
+        heure_fin: fin,
+        intitule: intitule.to_string(),
+        motif_categorie: None,
+        effectif: None,
+        mise_en_place: None,
+        commentaire: (!commentaire.is_empty()).then(|| commentaire.to_string()),
+        pour_user_id: None,
+        serie: None,
+        confirmer_partiel: false,
+    })
+}
+
+pub fn libelle_statut_reservation(statut: &str) -> &'static str {
+    match statut {
+        "demandee" => "En attente de validation",
+        "confirmee" => "Confirmée",
+        "refusee" => "Refusée",
+        "annulee" => "Annulée",
+        "tombee" => "Annulée : le cours est rétabli",
+        _ => "—",
+    }
+}
+
+pub fn ton_statut_reservation(statut: &str) -> TonEtat {
+    match statut {
+        "confirmee" => TonEtat::Ok,
+        "demandee" => TonEtat::Avertissement,
+        _ => TonEtat::Neutre,
+    }
+}
+
+/// Résumé du rapport d'une réservation : ce qui est écrit, ce qui est en conflit (dit par date).
+pub fn resume_rapport(r: &ent_types::agenda::RapportReservation) -> String {
+    let ecrites = r
+        .occurrences
+        .iter()
+        .filter(|o| o.reservation_id.is_some())
+        .count();
+    let conflits: Vec<String> = r
+        .occurrences
+        .iter()
+        .filter_map(|o| {
+            o.conflit
+                .as_ref()
+                .map(|c| format!("{} : {c}", o.jour.format("%d/%m/%Y")))
+        })
+        .collect();
+    match (r.ecrit, conflits.is_empty()) {
+        (true, true) if ecrites <= 1 => "Salle réservée.".to_string(),
+        (true, true) => format!("{ecrites} dates réservées."),
+        (true, false) => format!(
+            "{ecrites} dates réservées ; non réservées — {}",
+            conflits.join(" ; ")
+        ),
+        (false, _) => format!("Rien n'est réservé — {}", conflits.join(" ; ")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -640,5 +735,65 @@ mod tests {
         assert_eq!(libelle_statut("annule"), Some("Annulé"));
         assert_eq!(libelle_statut("publie"), None);
         assert!(!est_annule(&el("x", d(2026, 1, 1), d(2026, 1, 1), None)));
+    }
+
+    #[test]
+    fn reservation_composee_ou_refusee_avec_message() {
+        let id = Uuid::nil();
+        let base = SaisieReservation {
+            salle_id: id,
+            jour: "2026-11-23",
+            heure_debut: "14:00",
+            heure_fin: "15:30",
+            intitule: " Soutien ",
+            commentaire: " ",
+        };
+        let n = composer_reservation(&base).unwrap();
+        assert_eq!(n.intitule, "Soutien");
+        assert!(n.commentaire.is_none());
+        let inverse = SaisieReservation {
+            heure_fin: "13:00",
+            ..base
+        };
+        assert!(composer_reservation(&inverse).unwrap_err().contains("fin"));
+        let sans_objet = SaisieReservation {
+            intitule: "  ",
+            heure_fin: "15:00",
+            ..inverse
+        };
+        assert!(composer_reservation(&sans_objet)
+            .unwrap_err()
+            .contains("objet"));
+    }
+
+    #[test]
+    fn rapport_de_reservation_dit_les_conflits() {
+        use ent_types::agenda::{OccurrenceReservation, RapportReservation};
+        let occ = |j: u32, id: Option<Uuid>, c: Option<&str>| OccurrenceReservation {
+            jour: d(2026, 11, j),
+            reservation_id: id,
+            statut: id.map(|_| "confirmee".to_string()),
+            conflit: c.map(str::to_string),
+        };
+        let r = RapportReservation {
+            ecrit: false,
+            occurrences: vec![
+                occ(16, None, None),
+                occ(23, None, Some("occupée par un cours de 4B")),
+            ],
+        };
+        assert!(
+            resume_rapport(&r).contains("Rien n'est réservé")
+                && resume_rapport(&r).contains("23/11/2026")
+        );
+        let ok = RapportReservation {
+            ecrit: true,
+            occurrences: vec![occ(16, Some(Uuid::nil()), None)],
+        };
+        assert_eq!(resume_rapport(&ok), "Salle réservée.");
+        assert_eq!(
+            libelle_statut_reservation("tombee"),
+            "Annulée : le cours est rétabli"
+        );
     }
 }

@@ -964,6 +964,12 @@ async fn absence_remplacement_delegation_et_notifications() {
         (ligne.absence.statut.as_str(), ligne.a_traiter),
         ("signalee", 0)
     );
+    // Socle 15 (R-AP46) : une absence saisie par un tiers n'est « signalée » que tant que l'agent ne
+    // l'a pas confirmée ; la direction la confirme ici par un rappel tracé avant de la valider.
+    x.ent
+        .confirmer_absence_for_actor(x.e(), d.user_id, d.role, abs_decl.id, &Default::default(), true)
+        .await
+        .unwrap();
     x.ent
         .valider_absence_rh_for_actor(x.e(), d.role, abs_decl.id, d.user_id)
         .await

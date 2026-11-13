@@ -440,7 +440,7 @@ impl PgEnt {
             let id = Uuid::new_v4();
             let pdf = rendre_pdf_lignes(&lignes_bulletin(&contenu));
             let key = ObjectStore::key_for(etab, "bulletins", id, "pdf");
-            let info = self.objects().put(&key, &pdf)?;
+            let info = self.objet_put(&key, &pdf).await?;
             crate::objets::enregistrer_objet(&mut *tx, etab, &info, Some("application/pdf")).await?;
             let json = serde_json::to_value(&contenu).map_err(|_| refus("bulletin non sérialisable"))?;
             sqlx::query(

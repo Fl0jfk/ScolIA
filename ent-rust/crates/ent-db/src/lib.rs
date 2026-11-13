@@ -5,6 +5,8 @@
 
 mod absence_repo;
 mod assiduite;
+mod assiduite_as1;
+mod assiduite_as2;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -25,6 +27,7 @@ pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
 pub mod agenda;
+pub mod agenda_lieux;
 pub mod rencontres;
 mod champs_chiffres;
 mod annonce_repo;
@@ -72,6 +75,8 @@ mod tests_communication;
 mod tests_agenda_ag0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_agenda_ag3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0a;
 #[cfg(all(test, feature = "labo"))]
@@ -177,6 +182,9 @@ mod inscription_repo;
 mod iban_histo_repo;
 mod tarif_conso_repo;
 mod absence_rh_repo;
+pub mod absences_personnels;
+pub mod absences_personnels_ports;
+pub mod absences_rh;
 mod edition_vs_repo;
 mod stage_repo;
 mod stages_st1;
@@ -205,6 +213,15 @@ pub use vie_scolaire::{
     types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
     DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
     SeanceSansAppel, TableauJour, VerificationAppels,
+};
+pub use assiduite_as1::{
+    types_asd, ActiviteAppelee, MotifAsd, NatureMotif, ProfilAcademique, ProfilNiveau, RegleAsd, SaisieMotif,
+    SaisieRegle, VersionMotif, MOTIF_TECHNIQUE_APPEL, TYPES_ACTIVITE_APPELEE,
+};
+pub use assiduite_as2::{
+    etat_propose, libelle_court, meilleure_situation, situation_couvre, types_appel, AnnoncerRetard, AppelV2,
+    CorrectionLigne, HistoLigne, IncoherenceV2, LigneAppelV2, OuvrirActivite, PoserLocalisation, RecapAppel,
+    SaisieLigne, SituationAsd, ValidationAppel, LIEUX_LOCALISATION,
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
@@ -261,6 +278,8 @@ pub use champs_chiffres::{
 pub use sms_repo::SmsOutboxRow;
 pub use push_repo::PushDevice;
 pub use service::EnfantFamille;
+pub use service::CompteEleveProvisionne;
+pub use service::ReglagePool;
 pub use matiere_repo::{CreateMatiere, Matiere};
 pub use securite_repo::PolitiqueSecurite;
 pub use droits_ctx::DroitsActeur;
@@ -342,6 +361,8 @@ mod tests_referentiel_s2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_s2;
 #[cfg(all(test, feature = "labo"))]
+mod tests_absences_personnels;
+#[cfg(all(test, feature = "labo"))]
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t1_t2;
@@ -420,6 +441,10 @@ mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as0;
 #[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as2;
+#[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i2;
@@ -435,6 +460,8 @@ mod tests_eleve_socle;
 mod tests_eleve_identite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_identifiants;
+#[cfg(all(test, feature = "labo"))]
+mod tests_eleve_jour_etablissement;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_scolarite;
 #[cfg(all(test, feature = "labo"))]

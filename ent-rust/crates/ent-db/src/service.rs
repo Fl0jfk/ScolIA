@@ -16,7 +16,8 @@ use crate::cahier_texte_repo::PgCahierTexteRepo;
 use crate::edt_repo::{jour_semaine_iso, EdtCreneau, PgEdtRepo};
 use crate::eleve_compte_repo::{EleveCompte, PgEleveCompteRepo};
 use crate::eleve_repo::PgEleveRepo;
-use crate::tenant_tx::TenantTx;
+use crate::tenant_tx::{RlsMode, TenantTx};
+use std::time::Duration;
 use crate::event_store::PgEventStore;
 use crate::foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
 use crate::mail_repo::{InsertMailOutbox, MailOutboxRow, PgMailRepo};
@@ -183,7 +184,6 @@ use domain_eleve::{
     plan_creer_tarif_conso, CreerTarifConso, TarifConso,
     plan_exporter_notanet, render_notanet_csv, ExporterNotanet, LigneNotanet,
     plan_exporter_parcoursup, render_parcoursup_csv, ExporterParcoursup, LigneParcoursup,
-    plan_declarer_absence_rh, plan_valider_absence_rh, AbsenceRh, DeclarerAbsenceRh,
     plan_affecter_edt_creneau, AffecterEdtCreneau,
     plan_creer_edition_vs, rendre_edition_vs, CreerEditionVs, EditionVsTemplate, RendreEditionVs,
     plan_exporter_lsun, render_lsun_csv, ExporterLsun, LigneLsun,
@@ -363,6 +363,15 @@ pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
     };
     (nom, mime.to_string())
 }
+/// Compte élève provisionné (A-01) : jamais de secret ; `lien_envoye` dit si le lien
+/// d'activation est parti.
+#[derive(Debug, Clone)]
+pub struct CompteEleveProvisionne {
+    pub invitation: EleveInvitation,
+    pub email: String,
+    pub lien_envoye: bool,
+}
+
 /// Contrôles de démarrage fail-closed (hors labo/test).
 struct RpConfigCheck;
 
@@ -417,6 +426,9 @@ pub enum EntDbError {
     /// 2ᵉ facteur (passkey) requis pour ce compte
     #[error("2ᵉ facteur (passkey) requis pour ce compte")]
     PasskeyRequis,
+    /// Configuration de démarrage invalide (variable d'environnement) : refus de démarrer.
+    #[error("configuration invalide : {0}")]
+    Configuration(String),
     #[error("accès refusé pour ce rôle")]
     Forbidden,
     /// Saisie refusée par une règle du dossier élève (message sans donnée personnelle).
@@ -647,6 +659,13 @@ pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
 }
 
 /// Façade async Postgres — auth + noyau élève (+ périodes + absences) + events + Brain.
+/// Droits d'appel d'un acteur (moteur D-017) : voir `PgEnt::droits_appel`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DroitsAppel {
+    pub faire: bool,
+    pub tout: bool,
+}
+
 pub struct PgEnt {
     pool: PgPool,
     /// Tests en mode strict (`ENT_RLS_MODE=strict`) : pool du rôle propriétaire, réservé aux
@@ -687,7 +706,7 @@ pub struct PgEnt {
     inscriptions: PgInscriptionRepo,
     iban_histo: PgIbanHistoRepo,
     tarifs: PgTarifConsoRepo,
-    absences_rh: PgAbsenceRhRepo,
+    pub(crate) absences_rh: PgAbsenceRhRepo,
     editions_vs: PgEditionVsRepo,
     stages: PgStageRepo,
     edt_contraintes: PgEdtContrainteRepo,
@@ -737,6 +756,67 @@ fn migration_url_from_env() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Réglage du pool applicatif (audit R-05) : taille, délai d'attente d'une connexion et
+/// durée maximale d'une requête, par variables d'environnement. Valeurs hors bornes ou
+/// illisibles → refus de démarrer (jamais un repli silencieux).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReglagePool {
+    pub max_connexions: u32,
+    pub delai_acquisition: Duration,
+    /// `0` = pas de limite (déconseillé).
+    pub delai_requete_ms: u64,
+}
+
+impl ReglagePool {
+    pub const MAX_DEFAUT: u32 = 20;
+    pub const ACQUISITION_DEFAUT_S: u64 = 5;
+    pub const REQUETE_DEFAUT_MS: u64 = 30_000;
+
+    /// `lire(nom)` rend la valeur de la variable (testable sans toucher l'environnement).
+    pub fn depuis(lire: impl Fn(&str) -> Option<String>) -> Result<Self, EntDbError> {
+        fn nombre(
+            lire: &impl Fn(&str) -> Option<String>,
+            nom: &str,
+            defaut: u64,
+            min: u64,
+            max: u64,
+        ) -> Result<u64, EntDbError> {
+            let Some(v) = lire(nom).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+                return Ok(defaut);
+            };
+            v.parse::<u64>()
+                .ok()
+                .filter(|n| (min..=max).contains(n))
+                .ok_or_else(|| {
+                    EntDbError::Configuration(format!(
+                        "{nom} doit être un entier entre {min} et {max}"
+                    ))
+                })
+        }
+        Ok(Self {
+            max_connexions: nombre(&lire, "ENT_DB_POOL_MAX", Self::MAX_DEFAUT as u64, 1, 200)? as u32,
+            delai_acquisition: Duration::from_secs(nombre(
+                &lire,
+                "ENT_DB_ACQUIRE_TIMEOUT_SECS",
+                Self::ACQUISITION_DEFAUT_S,
+                1,
+                120,
+            )?),
+            delai_requete_ms: nombre(
+                &lire,
+                "ENT_DB_STATEMENT_TIMEOUT_MS",
+                Self::REQUETE_DEFAUT_MS,
+                0,
+                600_000,
+            )?,
+        })
+    }
+
+    pub fn depuis_env() -> Result<Self, EntDbError> {
+        Self::depuis(|n| std::env::var(n).ok())
+    }
+}
+
 impl PgEnt {
     /// Connexion **uniquement** si l'URL est localhost / 127.0.0.1.
     pub async fn connect(database_url: &str) -> Result<Self, EntDbError> {
@@ -746,9 +826,29 @@ impl PgEnt {
         if !ent_auth::env_non_prod() {
             RpConfigCheck::verifier()?;
         }
+        // B-04 : le mode RLS est validé et journalisé ; hors labo, seul `strict` démarre.
+        let mode_rls = RlsMode::verifier_demarrage(
+            std::env::var("ENT_RLS_MODE").ok().as_deref(),
+            ent_auth::env_non_prod(),
+        )
+        .map_err(EntDbError::Configuration)?;
+        tracing::info!(mode = ?mode_rls, "mode RLS effectif (ENT_RLS_MODE)");
+        // R-05 : taille du pool, délai d'acquisition et durée maximale d'une requête.
+        let reglage = ReglagePool::depuis_env()?;
+        tracing::info!(
+            max = reglage.max_connexions,
+            acquisition_s = reglage.delai_acquisition.as_secs(),
+            requete_ms = reglage.delai_requete_ms,
+            "pool de connexions"
+        );
+        let mut options: sqlx::postgres::PgConnectOptions = database_url.parse()?;
+        if reglage.delai_requete_ms > 0 {
+            options = options.options([("statement_timeout", reglage.delai_requete_ms.to_string())]);
+        }
         let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(database_url)
+            .max_connections(reglage.max_connexions)
+            .acquire_timeout(reglage.delai_acquisition)
+            .connect_with(options)
             .await?;
         let mut ent = Self::from_pool(pool);
         // Production : le stockage d'objets est S3 ou rien (F-013, PRA §18.4) ; sans
@@ -971,7 +1071,17 @@ impl PgEnt {
                 owner_pool.close().await;
                 r?;
             }
-            None => apply_socle_migrations(&self.pool).await?,
+            None => {
+                // Pas de durée maximale de requête pour les migrations (R-05) : une
+                // reprise de données longue ne doit pas être coupée par `statement_timeout`.
+                let options = (*self.pool.connect_options())
+                    .clone()
+                    .options([("statement_timeout", "0")]);
+                let mig = PgPoolOptions::new().max_connections(2).connect_with(options).await?;
+                let r = apply_socle_migrations(&mig).await;
+                mig.close().await;
+                r?;
+            }
         }
         Ok(())
     }
@@ -7457,69 +7567,102 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .unwrap_or(false)
     }
 
-    /// Staff hors titulaire qui peut ouvrir un appel (remplacement / CPE / direction).
-    fn role_peut_ouvrir_appel_remplacant(role: &str) -> bool {
-        Role::parse(role)
-            .map(|r| {
-                matches!(
-                    r,
-                    Role::Admin | Role::Direction | Role::Administratif | Role::Cpe
-                )
-            })
-            .unwrap_or(false)
+    pub(crate) fn repo_appels(&self) -> &PgAppelRepo {
+        &self.appels
     }
 
-    /// Règle d'accès à un appel (ouverture, lecture, pointage, clôture) :
-    /// titulaire du créneau (sans remplaçant ce jour), remplaçant désigné par
-    /// l'exception du jour, ou rôle de supervision.
+    pub(crate) fn repo_edt(&self) -> &PgEdtRepo {
+        &self.edt
+    }
+
+    pub(crate) fn repo_auth(&self) -> &PgAuthRepo {
+        &self.auth
+    }
+
+    /// Droits d'appel de l'acteur selon le moteur D-017 (socle 12, AS1, DA-18) : `faire` =
+    /// `appel.faire` (qu'`appel.faire_tout` inclut) ; `tout` = `appel.faire_tout` (supervision :
+    /// remplacement, CPE, direction). Plus aucun rôle codé en dur : un rôle libre « AED » peut
+    /// recevoir `appel.faire` pour ses permanences.
+    pub(crate) async fn droits_appel(
+        &self,
+        etablissement_id: Uuid,
+        acteur: Uuid,
+        role: &str,
+    ) -> Result<DroitsAppel, EntDbError> {
+        let droits = self.droits_effectifs(etablissement_id, acteur, role).await?;
+        let a = |x: Action| {
+            droits
+                .iter()
+                .any(|d| d.action == x && d.portee == ent_auth::Portee::Etablissement)
+        };
+        let tout = a(Action::AppelFaireTout);
+        Ok(DroitsAppel {
+            faire: tout || a(Action::AppelFaire),
+            tout,
+        })
+    }
+
+    /// Règle d'accès à un appel de cours : titulaire du créneau (sans remplaçant ce jour),
+    /// remplaçant désigné par l'exception du jour, ou supervision (`appel.faire_tout`).
     fn autoriser_acteur_appel(
         creneau: &EdtCreneau,
         exception: Option<&EdtException>,
         acteur_user_id: Uuid,
-        role: &str,
+        supervision: bool,
     ) -> Result<(), EntDbError> {
         let remplacant = exception.and_then(|e| e.remplacant_user_id);
         let est_remplacant = remplacant.is_some_and(|r| r == acteur_user_id);
         let est_titulaire = creneau.prof_user_id == acteur_user_id && remplacant.is_none();
-        if est_titulaire || est_remplacant || Self::role_peut_ouvrir_appel_remplacant(role) {
+        if est_titulaire || est_remplacant || supervision {
             Ok(())
         } else {
             Err(EntDbError::Forbidden)
         }
     }
 
-    /// Contrôle d'accès à un appel **existant** (même règle que l'ouverture).
-    /// Un appel sans créneau (historique) n'est accessible qu'à son auteur
-    /// ou à la supervision.
-    async fn autoriser_acces_appel(
+    /// Contrôle d'accès à un appel **existant** (ouverture, lecture, pointage, validation) :
+    /// supervision, délégué de la séance (AS-105), intervenant du créneau ou, pour une activité sans
+    /// créneau (permanence, étude…), l'auteur de l'appel.
+    pub(crate) async fn autoriser_acces_appel(
         &self,
         appel: &Appel,
         acteur_user_id: Uuid,
         role: &str,
     ) -> Result<(), EntDbError> {
-        if !Self::role_can_faire_appel(role) {
+        let d = self
+            .droits_appel(appel.etablissement_id, acteur_user_id, role)
+            .await?;
+        if !d.faire {
             return Err(EntDbError::Forbidden);
         }
-        let superviseur = Self::role_peut_ouvrir_appel_remplacant(role);
+        if d.tout {
+            return Ok(());
+        }
+        let delegue: Option<(Option<Uuid>,)> = sqlx::query_as(
+            "SELECT delegue_a FROM ent_appel WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(appel.etablissement_id)
+        .bind(appel.id)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, appel.etablissement_id).await?)
+        .await?;
+        if delegue.and_then(|(d,)| d) == Some(acteur_user_id) {
+            return Ok(());
+        }
         let Some(creneau_id) = appel.creneau_id else {
-            return if appel.auteur_user_id == acteur_user_id || superviseur {
+            return if appel.auteur_user_id == acteur_user_id {
                 Ok(())
             } else {
                 Err(EntDbError::Forbidden)
             };
         };
         let Some(creneau) = self.edt.get(appel.etablissement_id, creneau_id).await? else {
-            return if superviseur {
-                Ok(())
-            } else {
-                Err(EntDbError::Forbidden)
-            };
+            return Err(EntDbError::Forbidden);
         };
         let exception = self
             .edt
             .get_exception(appel.etablissement_id, creneau_id, appel.jour)
             .await?;
-        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), acteur_user_id, role)
+        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), acteur_user_id, false)
     }
 
     pub async fn creer_edt_creneau(&self, c: EdtCreneau) -> Result<EdtCreneau, EntDbError> {
@@ -7683,6 +7826,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         matches!(Role::parse(role), Some(Role::Admin | Role::Direction))
     }
 
+    /// Route historique `POST /edt/exceptions` (AR-08, AR-14, AR-18). **Aucune écriture propre** :
+    /// elle ne fait que valider la forme de la demande puis appelle les commandes de
+    /// `edt_remplacement.rs`, qui contrôlent la disponibilité du remplaçant (rôle, absence,
+    /// chevauchement, indisponibilité) dans la transaction, posent la délégation d'un jour, révoquent
+    /// celle d'un remplaçant précédent, synchronisent la séance et gardent le lien absence → séance.
+    /// Le motif libre n'est plus conservé : il n'est ni recopié ni relu (AR-02, R-AP1).
     pub async fn poser_edt_exception_for_actor(
         &self,
         role: &str,
@@ -7704,72 +7853,54 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 if rid == creneau.prof_user_id {
                     return Err(DomainError::EdtExceptionInvalide.into());
                 }
-                // Socle 1 (C1) : le remplaçant doit être membre de l'établissement.
-                if !self.auth.is_member(cmd.etablissement_id, rid).await? {
-                    return Err(DomainError::EdtExceptionInvalide.into());
-                }
             }
         }
-        let actor = cmd.actor_user_id;
+        // Valide la forme (type, remplaçant requis, salle) comme avant.
+        let (etab, creneau_id, jour, actor) =
+            (cmd.etablissement_id, cmd.creneau_id, cmd.jour, cmd.actor_user_id);
         let ex = plan_poser_edt_exception(cmd)?;
-        // S2-5 : l'exception et son événement entrent dans l'outbox dans la même transaction
-        // (élèves et familles prévenus par `d4.notifications_edt`). Le motif libre n'est plus
-        // recopié dans l'événement.
-        let map = |e: sqlx::Error| EntDbError::Domain(crate::pg_err::map_sqlx("edt_repo", e));
-        let mut tx = TenantTx::begin(self.pool(), ex.etablissement_id).await.map_err(map)?;
-        sqlx::query(
-            "INSERT INTO ent_edt_exception (
-                id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
-                motif, created_by_user_id, created_at, nature
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$5)
-             ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
-                kind = EXCLUDED.kind, remplacant_user_id = EXCLUDED.remplacant_user_id,
-                nouvelle_salle = EXCLUDED.nouvelle_salle, motif = EXCLUDED.motif,
-                created_by_user_id = EXCLUDED.created_by_user_id, created_at = EXCLUDED.created_at,
-                lot_id = NULL, absence_rh_id = NULL, nature = EXCLUDED.nature
-             RETURNING id",
-        )
-        .bind(ex.id)
-        .bind(ex.etablissement_id)
-        .bind(ex.creneau_id)
-        .bind(ex.jour)
-        .bind(ex.kind.as_str())
-        .bind(ex.remplacant_user_id)
-        .bind(ex.nouvelle_salle.as_deref())
-        .bind(&ex.motif)
-        .bind(ex.created_by_user_id)
-        .bind(ex.created_at)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map)?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            let type_name = if ex.kind == EdtExceptionKind::Remplacement {
-                "edt.remplacement_organise"
-            } else {
-                types::EDT_EXCEPTION
-            };
-            conn.publier(MetierEventDraft {
-                etablissement_id: ex.etablissement_id,
-                type_name: type_name.to_string(),
-                aggregate: AggregateKind::Edt,
-                aggregate_id: ex.creneau_id,
-                eleve_id: None,
-                payload: json!({
-                    "exception_id": ex.id,
-                    "creneau_id": ex.creneau_id,
-                    "jour": ex.jour.to_string(),
-                    "nature": ex.kind.as_str(),
-                    "remplacant_user_id": ex.remplacant_user_id,
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?
+        let acteur = crate::ref_commun::Acteur {
+            etablissement_id: etab,
+            user_id: actor,
+            role,
         };
-        tx.commit().await.map_err(map)?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(ex)
+        match ex.kind {
+            EdtExceptionKind::Remplacement => {
+                let remplacant = ex
+                    .remplacant_user_id
+                    .ok_or(DomainError::EdtExceptionInvalide)?;
+                self.edt_organiser_remplacement(
+                    &acteur,
+                    &crate::edt_remplacement::CmdRemplacement {
+                        creneau_id,
+                        jour,
+                        remplacant_user_id: remplacant,
+                        absence_rh_id: None,
+                        nouvelle_salle: None,
+                    },
+                )
+                .await?;
+            }
+            EdtExceptionKind::Annulation => {
+                self.edt_annuler_seance(&acteur, creneau_id, jour, None).await?;
+            }
+            EdtExceptionKind::ChangementSalle => {
+                let salle = ex.nouvelle_salle.clone().unwrap_or_default();
+                self.edt_changer_salle(&acteur, creneau_id, jour, &salle).await?;
+            }
+        }
+        let mut pose = self
+            .edt
+            .get_exception(etab, creneau_id, jour)
+            .await?
+            .ok_or(EntDbError::AppelInvalide)?;
+        pose.motif = String::new();
+        // Socle 12 (DA-09, R-AS12) : une séance annulée APRÈS son appel neutralise les constats
+        // (absences retirées, démenti), au lieu de continuer à compter.
+        if ex.kind == EdtExceptionKind::Annulation {
+            self.neutraliser_appel_seance(etab, creneau_id, jour, "annulation_seance", Some(actor)).await?;
+        }
+        Ok(pose)
     }
 
     /// Import CSV EDT — `format` = `native` (UUID prof) ou `pronote` (e-mail enseignant).
@@ -8092,12 +8223,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<EdtException>, EntDbError> {
-        if !Self::role_can_manage_edt(role) && !Self::role_can_faire_appel(role) {
+        let gere = Self::role_can_manage_edt(role);
+        if !gere && !Self::role_can_faire_appel(role) {
             return Err(EntDbError::Forbidden);
         }
         let mut liste = self.edt.list_exceptions_jour(etablissement_id, jour).await?;
-        // D3 (socle 10 T0) : le motif libre d'une exception (« maladie »…) est interne ; seuls ceux
-        // qui gèrent l'emploi du temps le lisent, un professeur qui fait l'appel ne le reçoit pas.
+        // AR-02 / D3 (socle 10) : le motif libre d'une exception (« maladie »…) est interne ; il n'est lu
+        // que par le cercle habilité (direction, administrateur). Un professeur qui fait l'appel, un CPE ou
+        // le secrétariat apprennent l'exception, jamais son motif. Une seule règle pour les deux défauts.
         if !Self::role_voit_motifs_edt(role) {
             for e in &mut liste {
                 e.motif = String::new();
@@ -8193,7 +8326,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         creneau: &EdtCreneau,
         jour: NaiveDate,
         acteur_user_id: Uuid,
-        role: &str,
+        supervision: bool,
     ) -> Result<Vec<Eleve>, EntDbError> {
         let (groupe,): (Option<Uuid>,) = sqlx::query_as(
             "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
@@ -8220,7 +8353,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             let membres: std::collections::HashSet<Uuid> = membres.into_iter().map(|(i,)| i).collect();
             effectif.retain(|e| membres.contains(&e.id));
         }
-        if !Self::role_peut_ouvrir_appel_remplacant(role) {
+        if !supervision {
             let suivis: std::collections::HashSet<Uuid> = self
                 .eleves_suivis_par_prof(creneau.etablissement_id, acteur_user_id, jour)
                 .await?
@@ -8272,6 +8405,51 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(())
     }
 
+    /// Élèves attendus à l'appel d'un cours à une date (D-022) : élèves de la classe à la date, bornés
+    /// au groupe du créneau quand il en a un ; hors supervision, bornés aux élèves que l'intervenant
+    /// suit. Sert à l'ouverture et à l'actualisation de l'effectif (AS2, DA-19).
+    pub(crate) async fn effectif_cours(
+        &self,
+        creneau: &EdtCreneau,
+        jour: NaiveDate,
+        acteur_user_id: Uuid,
+        supervision: bool,
+    ) -> Result<Vec<Eleve>, EntDbError> {
+        let etablissement_id = creneau.etablissement_id;
+        let mut effectif = self
+            .effectif_appel(creneau, jour, acteur_user_id, supervision)
+            .await?;
+        // D-022 (recette personas 1, RP1-24) : l'appel d'un cours de groupe ne porte que sur
+        // les élèves affectés au groupe à la date, jamais sur toute la classe.
+        let groupe: Option<Uuid> = sqlx::query_scalar(
+            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etablissement_id)
+        .bind(creneau.id)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
+        .await?
+        .flatten();
+        if let Some(groupe_id) = groupe {
+            let membres: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT eleve_id FROM ent_affectation
+                  WHERE etablissement_id = $1 AND groupe_id = $2
+                    AND date_debut <= $3 AND (date_fin IS NULL OR date_fin >= $3)",
+            )
+            .bind(etablissement_id)
+            .bind(groupe_id)
+            .bind(jour)
+            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
+            .await?;
+            effectif.retain(|e| membres.contains(&e.id));
+        }
+        Ok(effectif)
+    }
+
+    /// Ouvre l'appel d'un **créneau** au jour J (effectif = dates d'effet). Titulaire, remplaçant
+    /// nominatif, ou supervision (`appel.faire_tout`). **Atomique et idempotent** (AS2, DA-08) :
+    /// l'appel, ses lignes et l'événement entrent ensemble ; deux ouvertures simultanées renvoient le
+    /// même appel. Les situations connues (déclarations, localisations, sorties…) pré-remplissent les
+    /// lignes (§9.3) sans jamais créer d'absence.
     pub async fn ouvrir_appel(
         &self,
         etablissement_id: Uuid,
@@ -8280,7 +8458,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         auteur_user_id: Uuid,
         role: &str,
     ) -> Result<(Appel, Vec<AppelLigne>), EntDbError> {
-        if !Self::role_can_faire_appel(role) {
+        let d = self.droits_appel(etablissement_id, auteur_user_id, role).await?;
+        if !d.faire {
             return Err(EntDbError::Forbidden);
         }
         let creneau = self
@@ -8308,47 +8487,20 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         {
             return Err(EntDbError::AppelInvalide);
         }
-        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), auteur_user_id, role)?;
+        Self::autoriser_acteur_appel(&creneau, exception.as_ref(), auteur_user_id, d.tout)?;
 
         if let Some(existing) = self
             .appels
             .get_by_creneau_jour(etablissement_id, creneau_id, jour)
             .await?
         {
-            let lignes = self
-                .appels
-                .list_lignes(etablissement_id, existing.id)
-                .await?;
+            let lignes = self.appels.list_lignes(etablissement_id, existing.id).await?;
             return Ok((existing, lignes));
         }
 
-        let mut effectif = self
-            .effectif_appel(&creneau, jour, auteur_user_id, role)
+        let effectif = self
+            .effectif_cours(&creneau, jour, auteur_user_id, d.tout)
             .await?;
-        // D-022 (recette personas 1, RP1-24) : l'appel d'un cours de groupe ne porte que sur
-        // les élèves affectés au groupe à la date, jamais sur toute la classe.
-        let groupe: Option<Uuid> = sqlx::query_scalar(
-            "SELECT groupe_id FROM ent_edt_creneau WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etablissement_id)
-        .bind(creneau.id)
-        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
-        .await?
-        .flatten();
-        if let Some(groupe_id) = groupe {
-            let membres: Vec<Uuid> = sqlx::query_scalar(
-                "SELECT eleve_id FROM ent_affectation
-                  WHERE etablissement_id = $1 AND groupe_id = $2
-                    AND date_debut <= $3 AND (date_fin IS NULL OR date_fin >= $3)",
-            )
-            .bind(etablissement_id)
-            .bind(groupe_id)
-            .bind(jour)
-            .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await?)
-            .await?;
-            effectif.retain(|e| membres.contains(&e.id));
-        }
-
         let appel = Appel {
             id: Uuid::new_v4(),
             etablissement_id,
@@ -8359,23 +8511,30 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             creneau_id: Some(creneau.id),
             matiere_libelle: Some(creneau.matiere_libelle.clone()),
         };
-        self.appels.insert_appel(&appel).await?;
+        let lignes: Vec<AppelLigne> = effectif
+            .iter()
+            .map(|e| AppelLigne::nouvelle(etablissement_id, appel.id, e.id, LigneEtat::Present))
+            .collect();
+        let ext = crate::appel_repo::AppelExt::cours(creneau.heure_debut, creneau.heure_fin, d.tout);
 
-        let mut lignes = Vec::new();
-        for e in &effectif {
-            let ligne = AppelLigne {
-                id: Uuid::new_v4(),
-                etablissement_id,
-                appel_id: appel.id,
-                eleve_id: e.id,
-                etat: LigneEtat::Present,
-            };
-            self.appels.insert_ligne(&ligne).await?;
-            lignes.push(ligne);
+        let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
+        let cree = self
+            .appels
+            .inserer_atomique_tx(&mut tx, &appel, &ext, &lignes)
+            .await?;
+        if !cree {
+            // Une autre ouverture a gagné : on relit son appel (déjà validé avec toutes ses lignes).
+            drop(tx);
+            let existing = self
+                .appels
+                .get_by_creneau_jour(etablissement_id, creneau_id, jour)
+                .await?
+                .ok_or(EntDbError::AppelInvalide)?;
+            let lignes = self.appels.list_lignes(etablissement_id, existing.id).await?;
+            return Ok((existing, lignes));
         }
-
-        self.events
-            .publish(MetierEventDraft {
+        let ev = tx
+            .publier(MetierEventDraft {
                 etablissement_id,
                 type_name: types::APPEL_OPENED.to_string(),
                 aggregate: AggregateKind::Appel,
@@ -8391,7 +8550,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 actor_user_id: Some(auteur_user_id.to_string()),
             })
             .await?;
-
+        self.preremplir_appel_tx(&mut tx, etablissement_id, appel.id).await?;
+        tx.commit().await?;
+        self.events.diffuser_locaux(&[ev]);
+        let lignes = self.appels.list_lignes(etablissement_id, appel.id).await?;
         Ok((appel, lignes))
     }
 
@@ -8465,6 +8627,156 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         actor_user_id: Option<String>,
     ) -> Result<Appel, EntDbError> {
+        self.clore_appel_canal(etablissement_id, appel_id, acteur_user_id, role, actor_user_id, "web")
+            .await
+    }
+
+    /// Effets d'un élève **absent** dans la transaction de l'appelant (validation ou correction) :
+    /// rattachement à l'absence du jour (DA-05, R-AS3), absence à la séance, rapprochement des
+    /// déclarations, événement d'avis (sauf séance déjà annoncée ou déjà avisée).
+    pub(crate) async fn appliquer_absent_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        appel: &Appel,
+        eleve_id: Uuid,
+        actor_user_id: &Option<String>,
+        suite: Causalite,
+        publies: &mut Vec<ent_events::MetierEvent>,
+    ) -> Result<(), EntDbError> {
+        let etablissement_id = appel.etablissement_id;
+        // DA-05 / R-AS3 : une journée d'absence = une absence. Si l'élève a déjà une
+        // absence `a_traiter` couvrant ce jour (appel précédent, déclaration), la séance
+        // y est rattachée : pas de nouvelle ligne, pas de nouvel avis immédiat.
+        let existante = self
+            .absences
+            .trouver_a_traiter_jour_tx(tx, etablissement_id, eleve_id, appel.jour)
+            .await?;
+        let regroupee = existante.is_some();
+        let absence = Absence {
+            id: existante.unwrap_or_else(Uuid::new_v4),
+            etablissement_id,
+            eleve_id,
+            debut: appel.jour,
+            fin: appel.jour,
+            motif: "appel".into(),
+            statut: AbsenceStatut::ATraiter,
+            motif_justif: None,
+            justifie_par_user_id: None,
+            decision_note: None,
+            decision_par_user_id: None,
+        };
+        if !regroupee {
+            self.absences.upsert_tx(tx, &absence).await?;
+        }
+        // Un avis a-t-il déjà été émis pour cette absence (séance non annoncée) ?
+        let deja_avis: bool = if regroupee {
+            let (b,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM ent_absence_seance
+                  WHERE etablissement_id = $1 AND absence_id = $2 AND NOT prevenue)",
+            )
+            .bind(etablissement_id)
+            .bind(absence.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            b
+        } else {
+            false
+        };
+        // S2-4 (D-020) : l'absence est aussi enregistrée à la séance et rapprochée
+        // des déclarations (accueil, famille) — même transaction.
+        let prevenue = self
+            .enregistrer_absence_seance_tx(
+                tx,
+                etablissement_id,
+                eleve_id,
+                absence.id,
+                appel.id,
+                appel.creneau_id,
+                appel.jour,
+            )
+            .await?;
+        if regroupee && (prevenue || deja_avis) {
+            return Ok(());
+        }
+        publies.push(
+            tx.publier_avec(
+                MetierEventDraft {
+                    etablissement_id,
+                    type_name: types::ELEVE_ABSENCE_DECLARED.to_string(),
+                    aggregate: AggregateKind::Absence,
+                    aggregate_id: absence.id,
+                    eleve_id: Some(eleve_id),
+                    payload: json!({
+                        "debut": absence.debut.to_string(),
+                        "fin": absence.fin.to_string(),
+                        "statut": absence.statut.as_str(),
+                        "source": "appel",
+                        "appel_id": appel.id,
+                        "prevenue": prevenue,
+                    }),
+                    actor_user_id: actor_user_id.clone(),
+                },
+                suite,
+            )
+            .await?,
+        );
+        Ok(())
+    }
+
+    /// Effets d'un élève **en retard** : fait VS canonique (persistant, distinct de l'absence).
+    pub(crate) async fn appliquer_retard_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        appel: &Appel,
+        eleve_id: Uuid,
+        minutes: Option<i32>,
+        actor_user_id: &Option<String>,
+        suite: Causalite,
+        publies: &mut Vec<ent_events::MetierEvent>,
+    ) -> Result<(), EntDbError> {
+        let r = plan_declarer_retard(DeclarerRetard {
+            etablissement_id: appel.etablissement_id,
+            eleve_id,
+            jour: appel.jour,
+            minutes,
+            motif: None,
+            source_appel_id: Some(appel.id),
+            actor_user_id: actor_user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
+        })?;
+        self.retards.insert_tx(tx, &r).await?;
+        publies.push(
+            tx.publier_avec(
+                MetierEventDraft {
+                    etablissement_id: r.etablissement_id,
+                    type_name: types::RETARD_DECLARE.to_string(),
+                    aggregate: AggregateKind::Retard,
+                    aggregate_id: r.id,
+                    eleve_id: Some(r.eleve_id),
+                    payload: json!({
+                        "jour": r.jour.to_string(),
+                        "minutes": r.minutes,
+                        "motif": r.motif,
+                        "source_appel_id": r.source_appel_id,
+                    }),
+                    actor_user_id: r.auteur_user_id.map(|u| u.to_string()),
+                },
+                suite,
+            )
+            .await?,
+        );
+        Ok(())
+    }
+
+    /// Validation d'un appel (clôture) avec le canal de saisie (web, mobile, hors ligne).
+    pub(crate) async fn clore_appel_canal(
+        &self,
+        etablissement_id: Uuid,
+        appel_id: Uuid,
+        acteur_user_id: Uuid,
+        role: &str,
+        actor_user_id: Option<String>,
+        canal: &str,
+    ) -> Result<Appel, EntDbError> {
         let appel = self
             .appels
             .get(etablissement_id, appel_id)
@@ -8484,7 +8796,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         let mut tx = TenantTx::begin(&self.pool, etablissement_id).await?;
         let lignes = self
             .appels
-            .clore_avec_lignes_tx(&mut tx, etablissement_id, appel_id, acteur_user_id)
+            .clore_avec_lignes_tx(&mut tx, etablissement_id, appel_id, acteur_user_id, canal)
             .await?
             .ok_or(EntDbError::AppelInvalide)?;
         let absents: Vec<Uuid> = lignes
@@ -8492,10 +8804,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .filter(|l| l.etat == LigneEtat::Absent)
             .map(|l| l.eleve_id)
             .collect();
-        let retards: Vec<Uuid> = lignes
+        let retards: Vec<(Uuid, Option<i32>)> = lignes
             .iter()
             .filter(|l| l.etat == LigneEtat::Retard)
-            .map(|l| l.eleve_id)
+            .map(|l| (l.eleve_id, l.minutes_retard))
             .collect();
 
         let evt_appel = tx
@@ -8509,7 +8821,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     "classe": appel.classe,
                     "jour": appel.jour.to_string(),
                     "absents": absents.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-                    "retards": retards.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+                    "retards": retards.iter().map(|(id, _)| id.to_string()).collect::<Vec<_>>(),
+                    "canal": canal,
                 }),
                 actor_user_id: actor_user_id.clone(),
             })
@@ -8520,117 +8833,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         // Intra-domaine (D5) : les absents deviennent des absences canoniques
         // (`ent_absence`, une vérité pour VS / cantine / famille).
         for &eleve_id in &absents {
-            // DA-05 / R-AS3 : une journée d'absence = une absence. Si l'élève a déjà une
-            // absence `a_traiter` couvrant ce jour (appel précédent, déclaration), la séance
-            // y est rattachée : pas de nouvelle ligne, pas de nouvel avis immédiat.
-            let existante = self
-                .absences
-                .trouver_a_traiter_jour_tx(&mut tx, etablissement_id, eleve_id, appel.jour)
+            self.appliquer_absent_tx(&mut tx, &appel, eleve_id, &actor_user_id, suite, &mut publies)
                 .await?;
-            let regroupee = existante.is_some();
-            let absence = Absence {
-                id: existante.unwrap_or_else(Uuid::new_v4),
-                etablissement_id,
-                eleve_id,
-                debut: appel.jour,
-                fin: appel.jour,
-                motif: "appel".into(),
-                statut: AbsenceStatut::ATraiter,
-                motif_justif: None,
-                justifie_par_user_id: None,
-                decision_note: None,
-                decision_par_user_id: None,
-            };
-            if !regroupee {
-                self.absences.upsert_tx(&mut tx, &absence).await?;
-            }
-            // Un avis a-t-il déjà été émis pour cette absence (séance non annoncée) ?
-            let deja_avis: bool = if regroupee {
-                let (b,): (bool,) = sqlx::query_as(
-                    "SELECT EXISTS (SELECT 1 FROM ent_absence_seance
-                      WHERE etablissement_id = $1 AND absence_id = $2 AND NOT prevenue)",
-                )
-                .bind(etablissement_id)
-                .bind(absence.id)
-                .fetch_one(&mut *tx)
-                .await?;
-                b
-            } else {
-                false
-            };
-            // S2-4 (D-020) : l'absence est aussi enregistrée à la séance et rapprochée
-            // des déclarations (accueil, famille) — même transaction.
-            let prevenue = self
-                .enregistrer_absence_seance_tx(
-                    &mut tx,
-                    etablissement_id,
-                    eleve_id,
-                    absence.id,
-                    appel_id,
-                    appel.creneau_id,
-                    appel.jour,
-                )
-                .await?;
-            if regroupee && (prevenue || deja_avis) {
-                continue;
-            }
-            publies.push(
-                tx.publier_avec(
-                    MetierEventDraft {
-                        etablissement_id,
-                        type_name: types::ELEVE_ABSENCE_DECLARED.to_string(),
-                        aggregate: AggregateKind::Absence,
-                        aggregate_id: absence.id,
-                        eleve_id: Some(eleve_id),
-                        payload: json!({
-                            "debut": absence.debut.to_string(),
-                            "fin": absence.fin.to_string(),
-                            "statut": absence.statut.as_str(),
-                            "source": "appel",
-                            "appel_id": appel_id,
-                            "prevenue": prevenue,
-                        }),
-                        actor_user_id: actor_user_id.clone(),
-                    },
-                    suite,
-                )
-                .await?,
-            );
         }
-
-        // Les retards pointés à l'appel deviennent un fait VS **canonique**
-        // (persistant, distinct de l'absence) — sinon l'info disparaît avec l'appel.
-        for eleve_id in retards {
-            let r = plan_declarer_retard(DeclarerRetard {
-                etablissement_id,
-                eleve_id,
-                jour: appel.jour,
-                minutes: None,
-                motif: None,
-                source_appel_id: Some(appel_id),
-                actor_user_id: actor_user_id.as_deref().and_then(|s| Uuid::parse_str(s).ok()),
-            })?;
-            self.retards.insert_tx(&mut tx, &r).await?;
-            publies.push(
-                tx.publier_avec(
-                    MetierEventDraft {
-                        etablissement_id: r.etablissement_id,
-                        type_name: types::RETARD_DECLARE.to_string(),
-                        aggregate: AggregateKind::Retard,
-                        aggregate_id: r.id,
-                        eleve_id: Some(r.eleve_id),
-                        payload: json!({
-                            "jour": r.jour.to_string(),
-                            "minutes": r.minutes,
-                            "motif": r.motif,
-                            "source_appel_id": r.source_appel_id,
-                        }),
-                        actor_user_id: r.auteur_user_id.map(|u| u.to_string()),
-                    },
-                    suite,
-                )
-                .await?,
-            );
+        for (eleve_id, minutes) in retards {
+            self.appliquer_retard_tx(&mut tx, &appel, eleve_id, minutes, &actor_user_id, suite, &mut publies)
+                .await?;
         }
         tx.commit().await?;
         self.events.diffuser_locaux(&publies);
@@ -8793,7 +9001,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
     }
 
     /// Après toute écriture d'absence active : compteur année scolaire → signal VS si seuil.
-    async fn apres_absence_ecrite(
+    pub(crate) async fn apres_absence_ecrite(
         &self,
         etablissement_id: Uuid,
         eleve_id: Uuid,
@@ -9335,15 +9543,25 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(compte)
     }
 
-    /// Résultat d'un provisionnement : invitation + e-mail + mdp temporaire (une fois).
+    /// Provisionne le compte d'un élève (audit A-01). **Aucun mot de passe n'est produit ni
+    /// renvoyé** : le compte naît avec un secret aléatoire que personne ne connaît, et l'élève
+    /// reçoit à son adresse un lien d'activation à usage unique (7 jours) pour choisir le sien
+    /// (même mécanisme que le personnel, socle 6 P0). Hors labo, l'adresse est obligatoire
+    /// (plus d'`@ent.lab` inventé). Messagerie non prête → `EnvoiImpossible` **avant** toute
+    /// création. Un échec d'envoi après création n'annule pas le compte : `lien_envoye = false`,
+    /// à renvoyer par la réinitialisation du mot de passe.
     pub async fn inviter_compte_eleve_for_actor(
         &self,
         role: &str,
         cmd: InviterCompteEleve,
-    ) -> Result<(EleveInvitation, String, String), EntDbError> {
+        public_base_url: &str,
+    ) -> Result<CompteEleveProvisionne, EntDbError> {
         if !Self::role_can_manage_eleves(role)
         {
             return Err(EntDbError::Forbidden);
+        }
+        if public_base_url.trim().is_empty() || !self.mailer.is_ready() {
+            return Err(EntDbError::EnvoiImpossible);
         }
         let eleve = self
             .eleves
@@ -9354,7 +9572,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .eleve_comptes
             .has_compte(cmd.etablissement_id, cmd.eleve_id)
             .await?;
-        let mut plan = plan_inviter_compte_eleve(&eleve, deja, cmd)?;
+        let mut plan =
+            plan_inviter_compte_eleve(&eleve, deja, cmd, ent_auth::env_non_prod())?;
         let user = self
             .register_user(
                 &plan.email,
@@ -9374,6 +9593,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         self.eleve_comptes
             .insert_invitation(&plan.invitation)
             .await?;
+        // Pas d'adresse e-mail dans la charge utile de l'événement (minimisation).
         self.events
             .publish(MetierEventDraft {
                 etablissement_id: plan.invitation.etablissement_id,
@@ -9383,17 +9603,26 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 eleve_id: Some(plan.invitation.eleve_id),
                 payload: json!({
                     "invitation_id": plan.invitation.id,
-                    "email": plan.email,
                     "user_id": user.id,
                 }),
                 actor_user_id: Some(plan.invitation.invited_by_user_id.to_string()),
             })
             .await?;
-        Ok((
-            plan.invitation,
-            plan.email,
-            plan.mot_de_passe_temporaire,
-        ))
+        let lien_envoye = self
+            .envoyer_lien_reinitialisation(
+                user.id,
+                public_base_url,
+                7 * 24 * 60,
+                "Activation de votre compte ENT",
+                "Un compte vient de vous être ouvert sur l'ENT de votre établissement.\nPour choisir votre mot de passe et activer votre accès, ouvrez ce lien (valable 7 jours)",
+            )
+            .await
+            .is_ok();
+        Ok(CompteEleveProvisionne {
+            invitation: plan.invitation,
+            email: plan.email,
+            lien_envoye,
+        })
     }
 
     pub async fn list_eleves_sans_compte_for_actor(
@@ -9417,7 +9646,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         etablissement_id: Uuid,
         actor_user_id: Uuid,
         role: &str,
-    ) -> Result<Vec<(EleveInvitation, String, String)>, EntDbError> {
+        public_base_url: &str,
+    ) -> Result<Vec<CompteEleveProvisionne>, EntDbError> {
         let sans = self
             .list_eleves_sans_compte_for_actor(etablissement_id, role)
             .await?;
@@ -9432,6 +9662,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                         email: None,
                         actor_user_id,
                     },
+                    public_base_url,
                 )
                 .await?;
             out.push(res);
@@ -15429,174 +15660,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         Ok(render_parcoursup_csv(&lignes))
     }
 
-    pub async fn declarer_absence_rh_for_actor(
-        &self,
-        role: &str,
-        cmd: DeclarerAbsenceRh,
-    ) -> Result<AbsenceRh, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        // Soi-même ou admin RH.
-        let self_or_rh = cmd.user_id == cmd.actor_user_id
-            || Self::role_can_manage_eleves(role)
-            || matches!(parsed, Role::Direction | Role::Admin);
-        if !self_or_rh {
-            return Err(EntDbError::Forbidden);
-        }
-        // Socle 1 (C1) : la personne absente doit être membre de l'établissement.
-        if !self.auth.is_member(cmd.etablissement_id, cmd.user_id).await? {
-            return Err(EntDbError::Forbidden);
-        }
-        let planned = plan_declarer_absence_rh(cmd)?;
-        // S2-5 (RH-02) : l'absence et son événement entrent dans l'outbox dans la même
-        // transaction. Le motif (texte libre, parfois médical) n'est jamais dans l'événement.
-        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
-            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
-        })?;
-        sqlx::query(
-            "INSERT INTO ent_absence_rh (
-                id, etablissement_id, user_id, debut, fin, motif, statut,
-                created_by_user_id, created_at
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        )
-        .bind(planned.id)
-        .bind(planned.etablissement_id)
-        .bind(planned.user_id)
-        .bind(planned.debut)
-        .bind(planned.fin)
-        .bind(&planned.motif)
-        .bind(&planned.statut)
-        .bind(planned.created_by_user_id)
-        .bind(planned.created_at)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            conn.publier(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::ABSENCE_RH.to_string(),
-                aggregate: AggregateKind::AbsenceRh,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "user_id": planned.user_id,
-                    "debut": planned.debut.to_string(),
-                    "fin": planned.fin.to_string(),
-                }),
-                actor_user_id: Some(planned.created_by_user_id.to_string()),
-            })
-            .await?
-        };
-        tx.commit()
-            .await
-            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(planned)
-    }
-
-    pub async fn valider_absence_rh_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        absence_id: Uuid,
-        actor_user_id: Uuid,
-    ) -> Result<AbsenceRh, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !Self::role_can_manage_eleves(role) && !matches!(parsed, Role::Direction | Role::Admin) {
-            return Err(EntDbError::Forbidden);
-        }
-        let current = self
-            .absences_rh
-            .get(etablissement_id, absence_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        if current.statut == "validee" {
-            return Ok(current); // idempotent : pas de second événement
-        }
-        let planned = plan_valider_absence_rh(current, actor_user_id)?;
-        // S2-5 (RH-03) : validation et événement `rh.absence_validee` dans la même transaction.
-        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
-            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
-        })?;
-        sqlx::query(
-            "UPDATE ent_absence_rh SET statut = $3, created_by_user_id = $4
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(planned.etablissement_id)
-        .bind(planned.id)
-        .bind(&planned.statut)
-        .bind(planned.created_by_user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            conn.publier(MetierEventDraft {
-                etablissement_id,
-                type_name: types::ABSENCE_RH_VALIDEE.to_string(),
-                aggregate: AggregateKind::AbsenceRh,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "statut": planned.statut,
-                    "user_id": planned.user_id,
-                    "debut": planned.debut.to_string(),
-                    "fin": planned.fin.to_string(),
-                }),
-                actor_user_id: Some(actor_user_id.to_string()),
-            })
-            .await?
-        };
-        tx.commit()
-            .await
-            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(planned)
-    }
-
-    /// Absences de personnel de la période. **D3 (socle 10 T0)** : le motif (souvent médical : donnée
-    /// de santé) n'est lu que par ceux qui gèrent l'emploi du temps (direction, adjoint) ; tout autre
-    /// membre du personnel reçoit la liste **sans motif** (champ vide). Voir
-    /// [`Self::list_absences_rh_pour`] pour l'agent qui consulte ses propres absences.
-    pub async fn list_absences_rh_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        debut: NaiveDate,
-        fin: NaiveDate,
-    ) -> Result<Vec<AbsenceRh>, EntDbError> {
-        self.list_absences_rh_pour(etablissement_id, role, None, debut, fin)
-            .await
-    }
-
-    /// Variante qui rend aussi, à l'agent concerné, le motif de **ses propres** absences.
-    pub async fn list_absences_rh_pour(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        actor_user_id: Option<Uuid>,
-        debut: NaiveDate,
-        fin: NaiveDate,
-    ) -> Result<Vec<AbsenceRh>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
-            return Err(EntDbError::Forbidden);
-        }
-        let voit_motifs = Self::role_voit_motifs_edt(role);
-        let mut liste = self
-            .absences_rh
-            .list_periode(etablissement_id, debut, fin)
-            .await?;
-        for a in &mut liste {
-            if !voit_motifs && Some(a.user_id) != actor_user_id {
-                a.motif = String::new();
-            }
-        }
-        Ok(liste)
-    }
-
     /// Affecte prof et/ou salle sur un créneau (conflits prof/salle/classe refusés).
     pub async fn affecter_edt_creneau_for_actor(
         &self,
@@ -18918,7 +18981,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .as_deref()
             .filter(|k| document_storage_key_is_owned(&doc, k))
             .ok_or(EntDbError::FichierAbsent)?;
-        if !self.objects.existe(key)? {
+        if !self.objet_existe(key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let (nom, mime) = nom_fichier_document(&doc);
@@ -18961,7 +19024,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         else {
             return Ok(None);
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Ok(None);
         }
         // La route de téléchargement sert toujours « image/jpeg ».
@@ -19000,7 +19063,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
             _ => return Err(EntDbError::FichierAbsent),
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let lien = self.emettre_lien(
@@ -19051,7 +19114,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
             None => return Err(EntDbError::FichierAbsent),
         };
-        if !self.objects.existe(&key)? {
+        if !self.objet_existe(&key).await? {
             return Err(EntDbError::FichierAbsent);
         }
         let lien = self.emettre_lien(
@@ -20939,4 +21002,26 @@ async fn journal_eleve_tx(
     .execute(conn)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests_reglage_pool {
+    use super::*;
+
+    fn env(paires: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |n| paires.iter().find(|(k, _)| *k == n).map(|(_, v)| v.to_string())
+    }
+
+    #[test]
+    fn defauts_et_bornes_du_pool_r05() {
+        let d = ReglagePool::depuis(env(&[])).unwrap();
+        assert_eq!(d.max_connexions, 20, "plus le pool figé à 5");
+        assert_eq!(d.delai_acquisition, Duration::from_secs(5));
+        assert_eq!(d.delai_requete_ms, 30_000);
+        let r = ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "50"), ("ENT_DB_STATEMENT_TIMEOUT_MS", "0")])).unwrap();
+        assert_eq!((r.max_connexions, r.delai_requete_ms), (50, 0));
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "0")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_POOL_MAX", "beaucoup")])).is_err());
+        assert!(ReglagePool::depuis(env(&[("ENT_DB_ACQUIRE_TIMEOUT_SECS", "0")])).is_err());
+    }
 }
