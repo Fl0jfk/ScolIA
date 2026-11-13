@@ -44,6 +44,27 @@ pub fn routes() -> Router<AppState> {
         .route("/agenda/evenements/{id}/coupon", post(repondre_coupon))
         .route("/agenda/evenements/{id}/historique", get(historique))
         .route("/agenda/evenements/{id}/ics", get(ics))
+        // Lots AG2/AG3 : lieux, réservations, disponibilités.
+        .route("/agenda/lieux/recherche", post(lieux_recherche))
+        .route("/agenda/lieux/{salle_id}/planning", get(lieux_planning))
+        .route(
+            "/agenda/lieux/{salle_id}/regle",
+            get(lieux_regle).put(lieux_parametrer),
+        )
+        .route(
+            "/agenda/reservations",
+            get(reservations_miennes).post(reserver),
+        )
+        .route(
+            "/agenda/reservations/{id}/annuler",
+            post(reservation_annuler),
+        )
+        .route(
+            "/agenda/reservations/{id}/decision",
+            post(reservation_decider),
+        )
+        .route("/agenda/disponibilites", post(disponibilites))
+        .route("/agenda/creneau-commun", post(creneau_commun))
 }
 
 #[derive(Deserialize)]
@@ -351,4 +372,160 @@ async fn ics(State(s): State<AppState>, se: EntSession, Path(id): Path<Uuid>) ->
         HeaderValue::from_static("private, no-store"),
     );
     Ok(res)
+}
+
+// ───────────────────────── Lots AG2 / AG3 ─────────────────────────
+
+fn acteur(se: &EntSession) -> ent_db::Acteur<'_> {
+    ent_db::Acteur {
+        etablissement_id: se.etablissement_id,
+        user_id: se.user_id,
+        role: &se.role,
+    }
+}
+
+async fn lieux_recherche(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(q): Json<RechercheSalle>,
+) -> Res<Json<Vec<SalleDispo>>> {
+    s.ent
+        .agenda_rechercher_salles(&acteur(&se), q)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn lieux_planning(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(salle): Path<Uuid>,
+    Query(q): Query<PlageQuery>,
+) -> Res<Json<PlanningSalle>> {
+    s.ent
+        .agenda_planning_salle(&acteur(&se), salle, q.du, q.au)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn lieux_regle(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(salle): Path<Uuid>,
+) -> Res<Json<RegleLieu>> {
+    s.ent
+        .agenda_regle_lieu(&acteur(&se), salle)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn lieux_parametrer(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(salle): Path<Uuid>,
+    Json(r): Json<RegleLieu>,
+) -> Res<Json<RegleLieu>> {
+    s.ent
+        .agenda_parametrer_lieu(&acteur(&se), salle, r)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn reservations_miennes(
+    State(s): State<AppState>,
+    se: EntSession,
+    Query(q): Query<PlageQuery>,
+) -> Res<Json<Vec<ReservationVue>>> {
+    s.ent
+        .agenda_mes_reservations(&acteur(&se), q.du, q.au)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn reserver(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(n): Json<NouvelleReservation>,
+) -> Res<Json<RapportReservation>> {
+    s.ent
+        .agenda_reserver_lieu(&acteur(&se), n)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn reservation_annuler(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(a): Json<AnnulationReservation>,
+) -> Res<Json<usize>> {
+    s.ent
+        .agenda_annuler_reservation(&acteur(&se), id, a)
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+async fn reservation_decider(
+    State(s): State<AppState>,
+    se: EntSession,
+    Path(id): Path<Uuid>,
+    Json(d): Json<DecisionReservation>,
+) -> Res<StatusCode> {
+    s.ent
+        .agenda_decider_reservation(&acteur(&se), id, d)
+        .await
+        .map_err(map_db)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct DispoBody {
+    personnes: Vec<Uuid>,
+    jour: NaiveDate,
+    heure_debut: chrono::NaiveTime,
+    heure_fin: chrono::NaiveTime,
+}
+
+async fn disponibilites(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(b): Json<DispoBody>,
+) -> Res<Json<Vec<DisponibilitePersonne>>> {
+    s.ent
+        .agenda_libre_occupe(
+            &acteur(&se),
+            &b.personnes,
+            b.jour,
+            b.heure_debut,
+            b.heure_fin,
+        )
+        .await
+        .map(Json)
+        .map_err(map_db)
+}
+
+#[derive(Deserialize)]
+struct CommunBody {
+    personnes: Vec<Uuid>,
+    du: NaiveDate,
+    au: NaiveDate,
+    duree_min: i64,
+}
+
+async fn creneau_commun(
+    State(s): State<AppState>,
+    se: EntSession,
+    Json(b): Json<CommunBody>,
+) -> Res<Json<Vec<PlageCommune>>> {
+    s.ent
+        .agenda_creneau_commun(&acteur(&se), &b.personnes, b.du, b.au, b.duree_min)
+        .await
+        .map(Json)
+        .map_err(map_db)
 }

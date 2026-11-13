@@ -7,6 +7,7 @@
 //! absentes sont **dites** (R-AG1). La date du jour n'est posée qu'après l'hydratation.
 
 pub mod modele;
+pub mod salles;
 
 use chrono::NaiveDate;
 use ent_types::agenda::{
@@ -130,6 +131,9 @@ pub fn PageMonAgenda() -> impl IntoView {
             <h2 class="agd-semaine-titre">{move || titre_semaine.get()}</h2>
             {move || {
                 droits.get().personnel.then(|| view! {
+                    <a class=classes_bouton(Variante::Secondaire, Taille::Compacte) href="/web/salles">
+                        "Réserver une salle"
+                    </a>
                     <Bouton
                         variante=Variante::Primaire
                         taille=Taille::Compacte

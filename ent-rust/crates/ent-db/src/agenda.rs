@@ -52,7 +52,7 @@ fn invalide(m: &'static str) -> EntDbError {
     EntDbError::SaisieInvalide(m)
 }
 
-fn tz_sql(param: &str) -> String {
+pub(crate) fn tz_sql(param: &str) -> String {
     format!(
         "COALESCE((SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = {param}), 'Europe/Paris')"
     )
@@ -60,7 +60,7 @@ fn tz_sql(param: &str) -> String {
 
 /// Heure murale de l'établissement → instants UTC. `jour_fin` inclus ; sans heures : journée entière
 /// (de minuit local au minuit suivant la dernière journée).
-async fn instants(
+pub(crate) async fn instants(
     conn: &mut sqlx::PgConnection,
     etab: Uuid,
     jour: NaiveDate,
@@ -92,7 +92,7 @@ async fn instants(
     Ok((debut, fin, entiere))
 }
 
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut sqlx::PgConnection,
     etab: Uuid,
     objet: &str,
@@ -121,7 +121,7 @@ async fn journaliser(
     Ok(())
 }
 
-fn nettoyer(t: &str, max: usize, msg: &'static str) -> Result<String, EntDbError> {
+pub(crate) fn nettoyer(t: &str, max: usize, msg: &'static str) -> Result<String, EntDbError> {
     let t = t.trim();
     if t.is_empty() || t.chars().count() > max {
         return Err(invalide(msg));
