@@ -122,9 +122,11 @@ async fn episodes(ent: &PgEnt, cast: &LaboCast, eleve: Uuid) -> Vec<EpisodeAsd> 
 }
 
 async fn legacy_statut(ent: &PgEnt, cast: &LaboCast, eleve: Uuid) -> Vec<(Uuid, String)> {
-    sqlx::query_as("SELECT id, statut FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 ORDER BY created_at, id")
+    let jour = aujourdhui(ent, cast).await;
+    sqlx::query_as("SELECT id, statut FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 AND debut = $3 ORDER BY created_at, id")
         .bind(cast.etablissement_id)
         .bind(eleve)
+        .bind(jour)
         .fetch_all(ent.pool_verif())
         .await
         .unwrap()
@@ -177,6 +179,8 @@ async fn aed(ent: &PgEnt, cast: &LaboCast) -> (Uuid, &'static str) {
 }
 
 async fn declarer_texte(ent: &PgEnt, cast: &LaboCast, jour: NaiveDate) {
+    // Amorçage des motifs d'un établissement neuf (le motif « maladie » reçoit sa nature).
+    ent.motifs_famille(cast.etablissement_id).await.unwrap();
     ent.declarer_absence_accueil(cast.cpe.user_id, "cpe", DeclarerAbsence {
         etablissement_id: cast.etablissement_id,
         eleve_id: cast.eleve_lea_id,
@@ -425,7 +429,7 @@ async fn as3_episode_multi_seances_justifie_couvre_ses_seances() {
     )
     .bind(etab).bind(lea).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!((nb, qualifiees), (3, 3));
-    assert_eq!(n(&ent, "SELECT count(*) FROM ent_absence WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'a_traiter'", etab, lea).await, 0);
+    assert!(legacy_statut(&ent, &cast, lea).await.iter().all(|(_, s)| s == "justifiee"));
     assert_eq!(episodes(&ent, &cast, lea).await.len(), 1);
 }
 
@@ -643,7 +647,6 @@ async fn as3_justificatif_medical_lu_de_la_vie_scolaire_seule_avec_journal() {
     assert!(cle.starts_with(&format!("{etab}/assiduite/")), "{cle}");
     assert!(!cle.contains("certificat") && !cle.contains("martin"), "aucun nom de fichier dans la clé");
     assert_eq!(sha.len(), 64);
-    assert_eq!(n(&ent, "SELECT count(*) FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2", etab, Uuid::nil()).await, 0);
     let (reg,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2")
         .bind(etab).bind(&cle).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(reg, 1);
@@ -677,7 +680,7 @@ async fn as3_justificatif_medical_lu_de_la_vie_scolaire_seule_avec_journal() {
     assert_eq!(ent.justificatifs_for_actor(etab, secretariat, "administratif", ep.id).await.unwrap().len(), 1);
     assert_eq!(ent.justificatifs_for_actor(etab, aed_id, base, ep.id).await.unwrap().len(), 1);
     ent.lien_justificatif_for_actor(etab, secretariat, "administratif", ep.id, j2.id).await.unwrap();
-    assert_eq!(n(&ent, "SELECT count(*) FROM ent_asd_justificatif_lecture WHERE etablissement_id = $1 AND medical = $2", etab, Uuid::nil()).await, 0);
+    assert_eq!(n(&ent, "SELECT count(*) FROM ent_asd_justificatif_lecture WHERE etablissement_id = $1 AND medical = false AND lecteur_user_id = $2", etab, secretariat).await, 1);
 }
 
 #[tokio::test]
@@ -880,11 +883,11 @@ async fn as3_reprise_des_absences_anciennes_est_fidele_et_idempotente() {
     }
     // Mêmes séances et mêmes demi-journées avant et après.
     let avant: Vec<(Uuid, NaiveDate, String, Option<String>, Option<NaiveTime>, Option<NaiveTime>)> = sqlx::query_as(
-        "SELECT id, jour, kind, periode, heure_debut, heure_fin FROM ent_absence_seance WHERE etablissement_id = $1 ORDER BY id",
-    ).bind(etab).fetch_all(pool).await.unwrap();
+        "SELECT id, jour, kind, periode, heure_debut, heure_fin FROM ent_absence_seance WHERE etablissement_id = $1 AND absence_id = ANY($2) ORDER BY id",
+    ).bind(etab).bind(&anciennes).fetch_all(pool).await.unwrap();
     let apres: Vec<(Uuid, NaiveDate, String, Option<String>, Option<NaiveTime>, Option<NaiveTime>)> = sqlx::query_as(
-        "SELECT id, jour, kind, periode, heure_debut, heure_fin FROM ent_asd_absence_seance WHERE etablissement_id = $1 ORDER BY id",
-    ).bind(etab).fetch_all(pool).await.unwrap();
+        "SELECT id, jour, kind, periode, heure_debut, heure_fin FROM ent_asd_absence_seance WHERE etablissement_id = $1 AND absence_id IN (SELECT id FROM ent_asd_absence WHERE absence_legacy_id = ANY($2)) ORDER BY id",
+    ).bind(etab).bind(&anciennes).fetch_all(pool).await.unwrap();
     assert_eq!(avant.len(), 3 + 6);
     assert_eq!(avant, apres, "séances et demi-journées reprises à l'identique");
     let demi = |l: &[(Uuid, NaiveDate, String, Option<String>, Option<NaiveTime>, Option<NaiveTime>)]| {
@@ -896,12 +899,12 @@ async fn as3_reprise_des_absences_anciennes_est_fidele_et_idempotente() {
     assert_eq!(demi(&avant), demi(&apres));
     assert_eq!(demi(&apres), 6);
     // Un épisode par absence ancienne, statut → état.
-    let eps = episodes(&ent, &cast, cast.eleve_lea_id).await;
+    let eps: Vec<EpisodeAsd> = episodes(&ent, &cast, cast.eleve_lea_id).await.into_iter().filter(|e| e.jour_debut == jour).collect();
     assert_eq!(eps.len(), 1);
     assert_eq!((eps[0].etat.as_str(), eps[0].source.as_str(), eps[0].prevenue), ("a_qualifier", "reprise", true));
     let lignes: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT absence_legacy_id, etat, qualification FROM ent_asd_absence WHERE etablissement_id = $1 ORDER BY absence_legacy_id",
-    ).bind(etab).fetch_all(pool).await.unwrap();
+        "SELECT absence_legacy_id, etat, qualification FROM ent_asd_absence WHERE etablissement_id = $1 AND absence_legacy_id = ANY($2) ORDER BY absence_legacy_id",
+    ).bind(etab).bind(&anciennes).fetch_all(pool).await.unwrap();
     assert_eq!(lignes.len(), 4, "une seule fois malgré deux rejeux");
     let de = |id: Uuid| lignes.iter().find(|l| l.0 == id).map(|l| (l.1.as_str(), l.2.as_str())).unwrap();
     assert_eq!(de(anciennes[0]), ("a_qualifier", "en_attente"));
@@ -912,5 +915,6 @@ async fn as3_reprise_des_absences_anciennes_est_fidele_et_idempotente() {
     let ep = &eps[0];
     let r = ent.qualifier_episode_for_actor(etab, cast.cpe.user_id, "cpe", ep.id, qualifier("excuse_valable", ep.version)).await.unwrap();
     assert_eq!(r.qualification, "excuse_valable");
-    assert_eq!(legacy_statut(&ent, &cast, cast.eleve_lea_id).await[0].1, "justifiee");
+    let (st,): (String,) = sqlx::query_as("SELECT statut FROM ent_absence WHERE id = $1").bind(anciennes[0]).fetch_one(pool).await.unwrap();
+    assert_eq!(st, "justifiee");
 }
