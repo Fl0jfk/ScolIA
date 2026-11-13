@@ -8,7 +8,7 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-13 (vendredi, nuit, 5 h 15 Paris)
 
-### Passé sur `ENT` cette nuit (tête `cd12a6d2`)
+### Passé sur `ENT` cette nuit (tête `99f0ca75`)
 - **Correctif du jour d'identité** (migration **295**) : le déclencheur de projection de l'identité prenait `current_date` (jour UTC du serveur ; sqlx impose `TimeZone=UTC`) alors que le Rust date au jour de Paris. Entre minuit et 1 h (2 h l'été), la version du jour n'était pas projetée sur la fiche. C'est la cause du rouge d'ENT `51c23382` et des rouges « élève » des sessions 15 et audit 2 (toutes leurs tâches rouges ont tourné entre 23 h et minuit UTC). Reproduit en SQL, puis corrigé avec `ent_aujourdhui_etab` (265). Le registre des migrations n'y était pour rien.
 - **Socle 12, lots AS1 et AS2** (`bf340ef`) : référentiels d'assiduité, règle datée, appel v2 ; 2241–2243 ; ferme NJ-30, NJ-31, NJ-34, NJ-35. Fusion pilote : un entrelacement automatique faux dans `modele_par_defaut` a été corrigé à la main.
 - **Correctifs d'audit 2** (`714bf2d3`, CI 43365111358 verte) : B-01 (relais /web et en-tête Host), B-03 (IBAN réservé à une session authentifiée), B-04 (démarrage refusé hors RLS stricte), A-01 (plus de mot de passe renvoyé : lien d'activation à usage unique), R-05 (pool de connexions borné), R-06, R-07 (envois hors transaction), R-09 (un établissement en erreur n'arrête pas les autres). Limites : A-01 en plusieurs écritures, pas de cache des droits, R-08 (pg_dump sous FORCE RLS) non traité, `ui.rs` affiche « undefined » à la place du mot de passe (non modifié, F-001).
@@ -16,7 +16,7 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 - **Socle 19, lots AG3 et AG2 réduit** (`ef8d8e6e`) : réservation de toutes les salles (D-058), libre/occupé, créneau commun ; 2386 ; ferme NJ-62, NJ-76.
 
 ### Reste à faire (repéré cette nuit)
-- **Autres `current_date` du socle élève** (280 reprise et resynchronisation, 281 identifiants, 282 numéro, 284 inscription, 286 options) : même risque entre minuit et 1 h. Petit lot à faire (une migration qui passe au jour d'établissement).
+- ~~Autres `current_date` du socle élève~~ : **corrigé et versé** (ENT `99f0ca75`, migrations 296 et 342, 5 tests avec des établissements à UTC+14 et UTC−11, garde-fou « aucune fonction `ent_eleve_*` ne contient `current_date` »). Reste pour un lot à part : défauts de colonne `current_date` (340 `choisi_le`, 098 `debut`, 353 `du`) et résolution de classe (111, 112, socle structure).
 - ~~Test instable~~ `tests_eleve_scolarite::inscription_annuelle_et_pont_avec_l_ancienne_table` : **corrigé et versé** (ENT `601d05bc`, CI 187 verte 39/39). La reprise étant globale, l'idempotence se vérifie désormais sur l'établissement du test.
 - Lots verts ou presque, qui doivent fusionner ENT puis relancer une CI : audit correctifs 1, 20 cahier, 29.
 
