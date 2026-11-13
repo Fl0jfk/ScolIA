@@ -249,6 +249,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_convention_stage", "Stages"),
         ("ent_stage_periode_public", "Stages"),
         ("ent_sortie_participant", "Sorties et voyages"),
+        ("ent_dem_demande", "Demandes"),
         ("ent_doc_a_signer", "Documents"),
         ("ent_eleve_document", "Documents"),
         ("ent_eleve_identite", "Identité"),
