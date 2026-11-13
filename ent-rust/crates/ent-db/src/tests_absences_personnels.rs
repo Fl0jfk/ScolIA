@@ -2852,3 +2852,357 @@ async fn a3_cloisonnement_et_recalcul_planifie() {
     x.ent.annuler_absence_for_actor(x.etab, x.prof, "prof", a, &DecisionBody::default()).await.unwrap();
     assert!(x.impacts(a).await.is_empty());
 }
+
+// ═══════════════════════════════════════════════ LOT A4 : RÉPONSE ET SOLLICITATION ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : jamais deux plages acceptées qui se chevauchent (test de concurrence) ; sortie
+// anticipée refusée sans information (R-AP24) ; aucune nature dans les messages (R-AP41). + AR-10, AR-26.
+
+impl Cadre {
+    /// Une absence validée (nature « convenance » : décision interne) de `prof` sur le jour ISO 1, avec une
+    /// séance `(d, f)` ; renvoie (absence, créneau, impact).
+    async fn absence_avec_seance(&self, prof: Uuid, classe: &str, d: (u32, u32), f: (u32, u32)) -> (Uuid, Uuid, Uuid) {
+        let c = self.creneau(classe, prof, 1, d, f).await;
+        self.seance(c, prof, 1, d, f, "prevue").await;
+        let a = self.declarer(prof, "prof", Some("convenance"), 1, 1).await.absences[0].id;
+        self.valider(a).await;
+        let impact = self.impacts(a).await.into_iter().find(|i| i.seance.as_ref().is_some_and(|s| s.creneau_id == c)).expect("impact").id;
+        (a, c, impact)
+    }
+
+    async fn agent_user(&self, user: Uuid) -> Uuid {
+        self.agent(user).await
+    }
+
+    async fn etat_impact(&self, impact: Uuid) -> String {
+        sqlx::query_scalar("SELECT etat FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+            .bind(self.etab)
+            .bind(impact)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap()
+    }
+
+    async fn etat_sollicitation(&self, id: Uuid) -> String {
+        sqlx::query_scalar("SELECT etat FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND id = $2")
+            .bind(self.etab)
+            .bind(id)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap()
+    }
+}
+
+/// Parcours nominal : propositions (avec raisons), sollicitation (message neutre, événement sans nature),
+/// acceptation (le remplacement est appliqué à l'emploi du temps et repris comme réponse), puis levée.
+#[tokio::test]
+async fn a4_proposer_solliciter_accepter_puis_lever() {
+    let x = cadre!();
+    // prof2 enseigne déjà la matière (un créneau un autre jour) : il est « même discipline ».
+    x.creneau(&x.classe, x.prof2, 3, (14, 0), (15, 0)).await;
+    let (abs, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    let props = x.ent.propositions_impact_for_actor(x.etab, x.dir, "direction", impact).await.unwrap();
+    let p2 = props.iter().find(|p| p.agent_id == ag2).expect("prof2 proposé");
+    assert!(p2.meme_discipline, "{props:?}");
+    let ag_absent = x.agent_user(x.prof).await;
+    assert!(props.iter().all(|p| p.agent_id != ag_absent), "l'absent n'est jamais proposé");
+    let json = serde_json::to_string(&props).unwrap();
+    for interdit in ["convenance", "maladie", "nature", "motif", "age", "anciennete"] {
+        assert!(!json.contains(interdit), "« {interdit} » dans les propositions : {json}");
+    }
+    // Sollicitation : message neutre, événement sans nature, impact « sollicité ».
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    assert_eq!((s.etat.as_str(), s.mode.as_str()), ("envoyee", "sollicitation"));
+    assert!(s.message.contains("Mathématiques"), "{}", s.message);
+    for interdit in ["convenance", "maladie", "absent", "absence"] {
+        assert!(!s.message.to_lowercase().contains(interdit), "« {interdit} » dans le message : {}", s.message);
+    }
+    assert_eq!(x.etat_impact(impact).await, "sollicite");
+    let payload: String = sqlx::query_scalar(
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type_name = 'absence_personnel.sollicitation_envoyee'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    for interdit in ["convenance", "maladie", "nature", "motif"] {
+        assert!(!payload.contains(interdit), "« {interdit} » dans l'événement : {payload}");
+    }
+    // Une seule demande ouverte par séance.
+    let ag3 = x.agent_user(x.prof3).await;
+    let e = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag3).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    // ABP-158 : le remplaçant voit sa demande ; personne d'autre.
+    let mes = x.ent.mes_sollicitations_for_actor(x.etab, x.prof2, "prof").await.unwrap();
+    assert_eq!(mes.len(), 1);
+    assert!(x.ent.mes_sollicitations_for_actor(x.etab, x.prof3, "prof").await.unwrap().is_empty());
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "demande d'un autre : {e:?}");
+    // Acceptation : le remplacement est appliqué, l'impact devient « remplacé » avec une réponse reprise.
+    let ok = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap();
+    assert_eq!(ok.etat, "acceptee");
+    assert_eq!(x.etat_impact(impact).await, "remplace");
+    let (n, lie): (i64, bool) = sqlx::query_as(
+        "SELECT count(*), bool_and(s.reponse_id IS NOT NULL) FROM ent_absp_sollicitation s WHERE s.etablissement_id = $1 AND s.etat = 'acceptee'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!((n, lie), (1, true));
+    let rem: Option<Uuid> = sqlx::query_scalar("SELECT remplacant_user_id FROM ent_edt_exception WHERE etablissement_id = $1")
+        .bind(x.etab)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(rem, Some(x.prof2), "l'emploi du temps connaît le remplaçant");
+    // Levée : l'exception est levée (délégation révoquée), la demande retenue annulée, la séance à traiter.
+    let r = x.ent.lever_reponse_for_actor(x.etab, x.dir, "direction", impact).await.unwrap();
+    assert_eq!(r.etat, "a_traiter");
+    assert_eq!(x.etat_sollicitation(s.id).await, "annulee");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_edt_exception WHERE etablissement_id = $1").await, 0);
+    let h = x.ent.historique_absence_for_actor(x.etab, x.dir, "direction", abs).await.unwrap();
+    for a in ["sollicitation_envoyee", "sollicitation_acceptee", "reponse_levee"] {
+        assert!(h.iter().any(|j| j.action == a), "{a} non journalisé");
+    }
+}
+
+/// CAP-31 / R-AP19 / AR-09 : un agent n'a jamais deux séances acceptées qui se chevauchent — **test de
+/// concurrence** : deux acceptations simultanées, une seule passe ; et la base refuse tout contournement.
+#[tokio::test]
+async fn a4_cap31_deux_acceptations_simultanees_qui_se_chevauchent() {
+    let x = cadre!();
+    let classe_b = x.classe_bis().await;
+    let (_a1, _c1, i1) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let (_a2, _c2, i2) = x.absence_avec_seance(x.prof3, &classe_b, (9, 30), (10, 30)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    let s1 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i1, ag2).await.unwrap();
+    let s2 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i2, ag2).await.unwrap();
+    let (r1, r2) = tokio::join!(
+        x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s1.id),
+        x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s2.id),
+    );
+    let gagnants = [r1.is_ok(), r2.is_ok()].iter().filter(|b| **b).count();
+    assert_eq!(gagnants, 1, "une seule acceptation passe : {r1:?} / {r2:?}");
+    let perdant = if r1.is_ok() { r2 } else { r1 };
+    assert!(matches!(perdant, Err(EntDbError::Refus(..))), "refus lisible, pas une panne : {perdant:?}");
+    let acceptees: i64 = x
+        .compter("SELECT count(*) FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND etat IN ('acceptee', 'designee')")
+        .await;
+    assert_eq!(acceptees, 1);
+    // La base refuse tout contournement : forcer la seconde en « acceptée » viole l'exclusion.
+    let (id_perdant,): (Uuid,) = sqlx::query_as(
+        "SELECT id FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND etat = 'envoyee' ORDER BY id LIMIT 1",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    let force = sqlx::query("UPDATE ent_absp_sollicitation SET etat = 'acceptee' WHERE id = $1").bind(id_perdant).execute(x.ent.pool()).await;
+    assert!(force.is_err(), "deux plages acceptées qui se chevauchent ont été acceptées par la base");
+    // Une désignation sur la plage déjà prise est refusée de la même façon.
+    let autre = if r1_est(&x, i1).await { i2 } else { i1 };
+    let e = x.ent.designer_for_actor(x.etab, x.dir, "direction", autre, ag2).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+}
+
+async fn r1_est(x: &Cadre, impact: Uuid) -> bool {
+    x.etat_impact(impact).await == "remplace"
+}
+
+/// ABP-169, 178, 247 : désignation d'urgence (la plage est réservée, le remplacement appliqué), accusé de
+/// réception du seul remplaçant, alerte quand il manque une heure avant la séance (une seule fois).
+#[tokio::test]
+async fn a4_designation_accuse_de_reception_et_alerte() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    // Le droit d'organiser : ni un professeur, ni l'administrateur technique, ni l'accueil.
+    for (u, r) in [(x.prof, "prof"), (x.admin, "admin"), (x.accueil, "accueil")] {
+        let e = x.ent.designer_for_actor(x.etab, u, r, impact, ag2).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    // L'absent ne peut pas être désigné pour sa propre séance.
+    let ag_absent = x.agent_user(x.prof).await;
+    assert!(x.ent.designer_for_actor(x.etab, x.dir, "direction", impact, ag_absent).await.is_err());
+    let d = x.ent.designer_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    assert_eq!((d.etat.as_str(), d.mode.as_str()), ("designee", "designation"));
+    assert_eq!(x.etat_impact(impact).await, "remplace");
+    // Une seconde désignation sur la séance déjà pourvue est refusée.
+    let ag3 = x.agent_user(x.prof3).await;
+    assert!(x.ent.designer_for_actor(x.etab, x.dir, "direction", impact, ag3).await.is_err());
+    // Accusé de réception : le remplaçant seul ; idempotent.
+    let e = x.ent.accuser_reception_for_actor(x.etab, x.prof3, "prof", d.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    // Alerte : sans accusé, une heure avant la séance (la plage est avancée en base pour le test).
+    sqlx::query("UPDATE ent_absp_sollicitation SET plage = tstzrange(now() + interval '30 minutes', now() + interval '90 minutes') WHERE id = $1")
+        .bind(d.id)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let b = x.ent.traiter_sollicitations().await.unwrap();
+    assert!(b.accuses_manquants >= 1, "{b:?}");
+    assert_eq!(x.nb_events("absence_personnel.accuse_manquant").await, 1);
+    let b = x.ent.traiter_sollicitations().await.unwrap();
+    assert_eq!(b.accuses_manquants, 0, "une seule alerte par désignation");
+    let a = x.ent.accuser_reception_for_actor(x.etab, x.prof2, "prof", d.id).await.unwrap();
+    assert!(a.accuse_le.is_some());
+    let a2 = x.ent.accuser_reception_for_actor(x.etab, x.prof2, "prof", d.id).await.unwrap();
+    assert_eq!(a.accuse_le, a2.accuse_le, "idempotent");
+}
+
+/// Expiration (S-1505), refus libre et sans motif, acceptation périmée refusée proprement (ABP-299).
+#[tokio::test]
+async fn a4_expiration_refus_et_acceptation_perimee() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    assert!(s.expire_le.is_some());
+    sqlx::query("UPDATE ent_absp_sollicitation SET expire_le = now() - interval '1 minute' WHERE id = $1")
+        .bind(s.id)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    // Acceptation tardive, avant même la tâche : refus propre, la demande est marquée expirée.
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)) && format!("{e:?}").contains("expiré"), "{e:?}");
+    assert_eq!(x.etat_sollicitation(s.id).await, "expiree");
+    // La tâche : une demande échue expire, la séance redevient à traiter, la suivante peut être proposée.
+    let s2 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    sqlx::query("UPDATE ent_absp_sollicitation SET expire_le = now() - interval '1 minute' WHERE id = $1")
+        .bind(s2.id)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let b = x.ent.traiter_sollicitations().await.unwrap();
+    assert!(b.expirees >= 1, "{b:?}");
+    assert_eq!(x.etat_sollicitation(s2.id).await, "expiree");
+    assert_eq!(x.etat_impact(impact).await, "a_traiter");
+    assert_eq!(x.nb_events("absence_personnel.sollicitation_expiree").await, 1);
+    // Refus : libre et sans motif ; un motif inconnu est refusé ; la séance redevient à traiter.
+    let s3 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    let e = x.ent.refuser_sollicitation_for_actor(x.etab, x.prof2, "prof", s3.id, Some("parce que")).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    let e = x.ent.refuser_sollicitation_for_actor(x.etab, x.prof3, "prof", s3.id, None).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    let r = x.ent.refuser_sollicitation_for_actor(x.etab, x.prof2, "prof", s3.id, None).await.unwrap();
+    assert_eq!(r.etat, "refusee");
+    assert_eq!(x.etat_impact(impact).await, "a_traiter");
+    // Séance déjà pourvue : une demande restée ouverte est refusée proprement à l'acceptation.
+    let s4 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    sqlx::query("UPDATE ent_absp_impact SET etat = 'remplace' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(impact)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s4.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    assert_eq!(x.etat_sollicitation(s4.id).await, "annulee");
+}
+
+/// ABP-185 : appel à volontaires — le premier qui accepte est retenu, les autres sont annulés (« prise »).
+#[tokio::test]
+async fn a4_appel_a_volontaires_premier_accord_retenu() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let (ag2, ag3) = (x.agent_user(x.prof2).await, x.agent_user(x.prof3).await);
+    assert!(x.ent.appel_volontaires_for_actor(x.etab, x.dir, "direction", impact, &[ag2]).await.is_err(), "au moins deux");
+    let v = x.ent.appel_volontaires_for_actor(x.etab, x.dir, "direction", impact, &[ag2, ag3]).await.unwrap();
+    assert_eq!(v.len(), 2);
+    let s2 = v.iter().find(|s| s.agent_id == ag2).unwrap().id;
+    let s3 = v.iter().find(|s| s.agent_id == ag3).unwrap().id;
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s2).await.unwrap();
+    assert_eq!(x.etat_sollicitation(s3).await, "annulee", "prévenu : la séance est prise");
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    assert_eq!(x.etat_impact(impact).await, "remplace");
+}
+
+/// R-AP24 : aucune sortie anticipée sans information préalable des familles ; annuler sans sortie anticipée
+/// est possible (surveillance dans les horaires habituels) et rend l'état « annulé ».
+#[tokio::test]
+async fn a4_r_ap24_pas_de_sortie_anticipee_sans_information() {
+    let x = cadre!();
+    let (_a, c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let e = x.ent.annuler_seance_for_actor(x.etab, x.dir, "direction", impact, true).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)) && format!("{e:?}").contains("information préalable"), "{e:?}");
+    assert_eq!(x.etat_impact(impact).await, "a_traiter", "rien n'a été écrit");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_edt_exception WHERE etablissement_id = $1").await, 0);
+    for (u, r) in [(x.prof, "prof"), (x.accueil, "accueil")] {
+        let e = x.ent.annuler_seance_for_actor(x.etab, u, r, impact, false).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    let r = x.ent.annuler_seance_for_actor(x.etab, x.dir, "direction", impact, false).await.unwrap();
+    assert_eq!(r.etat, "annule");
+    let kind: String = sqlx::query_scalar("SELECT kind FROM ent_edt_exception WHERE etablissement_id = $1 AND creneau_id = $2")
+        .bind(x.etab)
+        .bind(c)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(kind, "annulation");
+    // Levée : la séance redevient normale.
+    assert_eq!(x.ent.lever_reponse_for_actor(x.etab, x.dir, "direction", impact).await.unwrap().etat, "a_traiter");
+    assert!(x.ent.lever_reponse_for_actor(x.etab, x.dir, "direction", impact).await.is_err(), "rien à lever");
+}
+
+/// Confidentialité renforcée et cloisonnement : une absence en confidentialité renforcée n'est répondable que
+/// de la direction ; un autre établissement ne voit rien ; l'absent ne peut pas être sollicité pour lui-même.
+#[tokio::test]
+async fn a4_confidentialite_cloisonnement_et_nature_absente() {
+    let x = cadre!();
+    let (a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    x.ent.definir_confidentialite_renforcee_for_actor(x.etab, x.dir, "direction", a, true).await.unwrap();
+    // Le secrétariat (droit d'organiser l'EDT ? non : edt.gerer) ou la vie scolaire ne répondent pas à une
+    // absence renforcée ; la direction oui.
+    for (u, r) in [(x.sec, "administratif"), (x.cpe, "cpe")] {
+        let e = x.ent.propositions_impact_for_actor(x.etab, u, r, impact).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden | EntDbError::Domain(DomainError::NotFound)), "{r} : {e:?}");
+    }
+    assert!(x.ent.propositions_impact_for_actor(x.etab, x.dir, "direction", impact).await.is_ok());
+    // Autre établissement : introuvable.
+    let autre = Uuid::new_v4();
+    let dir_b = compte(&x.ent, autre, "direction").await;
+    let e = x.ent.solliciter_for_actor(autre, dir_b, "direction", impact, ag2).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    // Nature absente de tout ce que voit le remplaçant, y compris sur une nature sensible.
+    let m = x.declarer(x.prof3, "prof", Some("maladie"), 1, 1).await.absences[0].id;
+    let c3 = x.creneau(&x.classe_bis().await, x.prof3, 1, (11, 0), (12, 0)).await;
+    x.seance(c3, x.prof3, 1, (11, 0), (12, 0), "prevue").await;
+    let i3 = x.impacts(m).await[0].id;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i3, ag2).await.unwrap();
+    let mes = serde_json::to_string(&x.ent.mes_sollicitations_for_actor(x.etab, x.prof2, "prof").await.unwrap()).unwrap();
+    for interdit in ["maladie", "nature", "motif", "arrêt", "convenance"] {
+        assert!(!mes.contains(interdit), "« {interdit} » dans ce que voit le remplaçant : {mes}");
+    }
+    assert!(!s.message.to_lowercase().contains("maladie"));
+}
+
+/// AR-10 : un cours déplacé vers un jour occupe celui qui l'ASSURE — son remplaçant, pas son titulaire.
+#[tokio::test]
+async fn a4_ar10_un_cours_deplace_occupe_son_remplacant() {
+    let x = cadre!();
+    // Le cours de `prof` (lundi 9 h) est déplacé au mardi 14 h, où `prof2` le remplace.
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    sqlx::query(
+        "INSERT INTO ent_edt_deplacement (id, etablissement_id, creneau_id, jour_origine, nouveau_jour, nouvelle_heure_debut, nouvelle_heure_fin, cree_par_user_id)
+         VALUES ($1,$2,$3,$4,$5,'14:00','15:00',$6)",
+    )
+    .bind(Uuid::new_v4()).bind(x.etab).bind(c).bind(x.jour(1)).bind(x.jour(2)).bind(x.dir)
+    .execute(x.ent.pool()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO ent_edt_exception (id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, motif, created_by_user_id)
+         VALUES ($1,$2,$3,$4,'remplacement',$5,'x',$6)",
+    )
+    .bind(Uuid::new_v4()).bind(x.etab).bind(c).bind(x.jour(2)).bind(x.prof2).bind(x.dir)
+    .execute(x.ent.pool()).await.unwrap();
+    // Un autre cours, le mardi 14 h : qui est proposé pour le remplacer ?
+    let cible = x.creneau(&x.classe_bis().await, x.prof3, 2, (14, 0), (15, 0)).await;
+    let candidats = x.ent.edt_candidats_remplacants(&x.d(), cible, x.jour(2), true).await.unwrap();
+    let users: Vec<Uuid> = candidats.iter().map(|c| c.user_id).collect();
+    assert!(!users.contains(&x.prof2), "le remplaçant du cours déplacé est occupé : {users:?}");
+    assert!(users.contains(&x.prof), "le titulaire, lui, est libre ce jour-là : {users:?}");
+}
