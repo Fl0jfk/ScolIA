@@ -8,13 +8,14 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-13 (vendredi soir, 18 h 50 Paris) — point du jour
 
-### Passé sur `ENT` aujourd'hui (validé par la CI ; tête `60b57184`)
+### Passé sur `ENT` aujourd'hui (validé par la CI ; tête `f3b99902`)
 De `51c23382` (rouge hier soir) à `60b57184`, 13 versements :
 - **Correctif du jour d'identité** (295) puis **lot « jour d'établissement »** (296, 342) : tout le socle élève compte le jour au fuseau de l'établissement, et non plus au jour UTC. Cause du rouge d'hier soir.
 - **Socle 12** AS1 + AS2 (appel v2, assiduité) ; **socle 19** AG3 + AG2 réduit (réservation de toutes les salles, D-058).
 - **Socle 15** (absences du personnel) A0, A1, A2 (pièces, fil, conservation) et A3 (impact sur les séances, tableaux, files).
 - **Correctifs d'audit 1** (santé verrouillée, documents par niveau, motifs des absences RH) et **d'audit 2** (8 constats d'infrastructure).
 - **Socle 20** C0 + C1 (cahier de textes) et **socle 29** P2 (index des tâches).
+- **Socle N1 « Demandes », lot N1-0** (`f3b99902`, CI 43500465936 verte, 22 h 30) : modèle (demande, valeurs typées sans JSON, faits en ajout seul chaînés, échéances, numérotation ; 3040, 3041), 16 actions, garde d'accès unique ; ferme NJ-72, 80, 82, 84, 86, 88, 89, 90, 93, chacun avec un test. Limites : files et routage en N1-1 (aucun dépôt n'aboutit sans file, par prudence), jours fériés en N1-1, aucune route HTTP encore, durées de conservation à valider (DPO).
 - **Règle 21** : droits par défaut, une fonction par socle (deux fusions de suite les avaient cassés).
 - **Trois tests instables corrigés** (vérifications sur « toute la base » ou code aléatoire trop court, sur la base partagée de CI).
 
