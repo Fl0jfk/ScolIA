@@ -2861,12 +2861,37 @@ impl Cadre {
     /// Une absence validée (nature « convenance » : décision interne) de `prof` sur le jour ISO 1, avec une
     /// séance `(d, f)` ; renvoie (absence, créneau, impact).
     async fn absence_avec_seance(&self, prof: Uuid, classe: &str, d: (u32, u32), f: (u32, u32)) -> (Uuid, Uuid, Uuid) {
+        self.horloge_de_service().await;
         let c = self.creneau(classe, prof, 1, d, f).await;
         self.seance(c, prof, 1, d, f, "prevue").await;
         let a = self.declarer(prof, "prof", Some("convenance"), 1, 1).await.absences[0].id;
         self.valider(a).await;
         let impact = self.impacts(a).await.into_iter().find(|i| i.seance.as_ref().is_some_and(|s| s.creneau_id == c)).expect("impact").id;
         (a, c, impact)
+    }
+
+    /// La plage calme (§11.3) retient toute sollicitation hors de 6 h 30 – 20 h, heure de l'établissement : un
+    /// test ne doit pas dépendre de l'heure où on le lance. On règle donc le fuseau de l'établissement de test
+    /// sur un décalage fixe (`Etc/GMT±N`) qui met l'heure locale vers midi, à n'importe quelle heure UTC.
+    async fn horloge_de_service(&self) {
+        self.horloge_locale(12).await;
+    }
+
+    /// Fuseau fixe qui met l'heure locale de l'établissement vers `heure` (0..24), quelle que soit l'heure UTC.
+    async fn horloge_locale(&self, heure: i32) {
+        use chrono::Timelike;
+        let decalage = (heure - chrono::Utc::now().hour() as i32).rem_euclid(24);
+        let decalage = if decalage > 12 { decalage - 24 } else { decalage }; // -11 ..= 12
+        let fuseau = if decalage >= 0 { format!("Etc/GMT-{decalage}") } else { format!("Etc/GMT+{}", -decalage) };
+        sqlx::query(
+            "INSERT INTO ent_etablissement_parametre (etablissement_id, fuseau) VALUES ($1, $2)
+             ON CONFLICT (etablissement_id) DO UPDATE SET fuseau = $2",
+        )
+        .bind(self.etab)
+        .bind(&fuseau)
+        .execute(self.ent.pool())
+        .await
+        .unwrap_or_else(|e| panic!("fuseau {fuseau} : {e}"));
     }
 
     async fn agent_user(&self, user: Uuid) -> Uuid {
@@ -3205,4 +3230,42 @@ async fn a4_ar10_un_cours_deplace_occupe_son_remplacant() {
     let users: Vec<Uuid> = candidats.iter().map(|c| c.user_id).collect();
     assert!(!users.contains(&x.prof2), "le remplaçant du cours déplacé est occupé : {users:?}");
     assert!(users.contains(&x.prof), "le titulaire, lui, est libre ce jour-là : {users:?}");
+}
+
+/// Plage calme (§11.3, Q-AP14) : la nuit, la sollicitation n'est ni visible ni acceptable avant 6 h 30 ; dans la
+/// fenêtre de service, elle part tout de suite. Le test règle le fuseau pour ne pas dépendre de l'heure réelle.
+#[tokio::test]
+async fn a4_plage_calme_differe_l_envoi_de_nuit() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    // En service (12 h locale) : envoyée tout de suite.
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    let diff: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT envoi_prevu_le FROM ent_absp_sollicitation WHERE id = $1")
+        .bind(s.id).fetch_one(x.ent.pool()).await.unwrap();
+    assert!(diff.is_none(), "dans la fenêtre de service, l'envoi n'est pas différé");
+    x.ent.refuser_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id, None).await.unwrap();
+    // La nuit (23 h locale) : l'envoi attend 6 h 30 ; la demande n'est ni visible ni acceptable.
+    x.horloge_locale(23).await;
+    let n = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    let (prevu, expire): (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+        "SELECT envoi_prevu_le, expire_le FROM ent_absp_sollicitation WHERE id = $1",
+    )
+    .bind(n.id).fetch_one(x.ent.pool()).await.unwrap();
+    let local: chrono::NaiveTime = sqlx::query_scalar(
+        "SELECT (envoi_prevu_le AT TIME ZONE (SELECT fuseau FROM ent_etablissement_parametre WHERE etablissement_id = $1))::time
+           FROM ent_absp_sollicitation WHERE id = $2",
+    )
+    .bind(x.etab).bind(n.id).fetch_one(x.ent.pool()).await.unwrap();
+    assert_eq!(local, t(6, 30), "envoi à 6 h 30 locale");
+    assert!(expire > prevu, "l'expiration court à partir de l'envoi, pas de la demande");
+    assert!(x.ent.mes_sollicitations_for_actor(x.etab, x.prof2, "prof").await.unwrap().is_empty(), "pas encore visible");
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", n.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "pas encore acceptable : {e:?}");
+    assert_eq!(x.nb_events("absence_personnel.sollicitation_envoyee").await, 1, "aucun événement n'est parti la nuit (seule la demande de jour)");
+    // 6 h 30 venue : visible et acceptable.
+    sqlx::query("UPDATE ent_absp_sollicitation SET envoi_prevu_le = now() - interval '1 minute', expire_le = now() + interval '20 minutes' WHERE id = $1")
+        .bind(n.id).execute(x.ent.pool()).await.unwrap();
+    assert_eq!(x.ent.mes_sollicitations_for_actor(x.etab, x.prof2, "prof").await.unwrap().len(), 1);
+    assert_eq!(x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", n.id).await.unwrap().etat, "acceptee");
 }
