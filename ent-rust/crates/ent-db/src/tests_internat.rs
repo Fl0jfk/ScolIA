@@ -72,7 +72,9 @@ async fn chambre(ent: &PgEnt, etab: Uuid, cpe: Uuid, public: &str, capacite: i16
             etablissement_id: etab,
             batiment: "Tour test".into(),
             etage: 1,
-            code: format!("T{}", alea()),
+            // 12 caractères aléatoires : sur la base partagée d'une tranche de CI, 6 caractères (7 lettres
+            // possibles) entraient en collision de temps en temps (« Conflit » à la création).
+            code: format!("T{}{}", alea(), alea()),
             capacite,
             genre: public.into(),
             actor_user_id: cpe,
