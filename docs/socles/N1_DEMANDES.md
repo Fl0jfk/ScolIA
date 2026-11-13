@@ -1956,3 +1956,10 @@ Bouton principal **« Écrire à l'établissement »** ; onglet **« Mes demande
 3. **Élève timide** : l'entrée « Parler à un adulte de confiance » et tout passage par le canal protégé n'apparaissent **jamais** dans ce que les responsables voient (y compris quand la nature d'une demande de l'élève est visible des parents, R-DM33) ; l'élève est prévenu de ce que ses parents verront **avant** chaque envoi (P15).
 4. **Secrétaire débordée** : l'Accueil du service filtre par type (demandes, messages), par enfant ou par famille, et propose « tout ce qui attend une réponse de nous » en premier ; les messages de simple information (« merci ») se classent d'un geste sans réponse (P01 bis).
 5. **Direction** : le tableau des retards ajoute les demandes « vues mais non prises » (DEM-399) et la part « résolu du premier coup » par file (DEM-395) ; jamais par agent (P10 bis).
+
+## §38 — Décisions de Florian du 2026-11-13 (D-061) — **l'emportent sur tout le reste du document, §37 compris**
+- **Q-DM2, Q-DM11** : la page parents du Next.js n'a jamais été ouverte. **Module complet dès le départ**, natures **familles et élèves comprises**, porte unique incluse. Pas de version réduite : ce qui ne sert pas encore est désactivable par établissement, mais existe et est testé dans les lots N1-0 à N1-5.
+- **Q-DM6** : l'enveloppe d'HSE et toutes les saisies se comptent **en heures**. Les euros sont calculés par l'application académique, pas par ScolIA (export en heures par type d'heure ; nom de l'application à vérifier [NV]).
+- **Q-DM10** : circuit HSE **demande du professeur (heures faites ou prévues) → validation par la direction**, rien d'autre. **Pas d'attestation séparée du service fait** : l'acceptation vaut confiance. L'étape « service fait attesté » devient un réglage facultatif, **désactivé par défaut**. Les heures sont transmises au socle 15 à la validation.
+- **Q-DM14** : file de repli RH = **attaché de gestion ou direction**, jamais le président de l'OGEC.
+- **Q-DM1, Q-DM4** : pas de DPO identifié ; questions ouvertes (voir D-061).
