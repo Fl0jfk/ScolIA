@@ -322,33 +322,29 @@ async fn d3_motifs_internes_reserves_a_la_direction() {
         .unwrap();
     assert!(l.iter().any(|x| x.motif.contains("Maladie")));
 
-    // Absences de personnel : un collègue (professeur) voit la ligne sans motif ; la direction le lit ;
-    // l'agent concerné retrouve le motif de SES absences seulement.
-    let l = ent
-        .list_absences_rh_for_actor(e, "prof", jour, jour)
-        .await
-        .unwrap();
-    assert!(l.iter().any(|a| a.id == absence));
-    assert!(l.iter().all(|a| a.motif.is_empty()), "{l:?}");
-    let l = ent
-        .list_absences_rh_for_actor(e, "direction", jour, jour)
-        .await
-        .unwrap();
-    assert!(l
-        .iter()
-        .any(|a| a.id == absence && a.motif == "Chimiothérapie"));
+    // Absences de personnel (socle 15, A0 : AR-01) : un collègue (professeur) ne voit AUCUNE ligne d'autrui
+    // — la route n'est plus ouverte à tout le personnel ; la direction lit le motif ; l'agent concerné
+    // retrouve le motif de SES absences seulement. Une seule règle : le cercle habilité.
     let autre_prof = cast
         .profs
         .iter()
         .find(|p| p.user_id != cast.prof.user_id)
         .unwrap();
     let l = ent
-        .list_absences_rh_pour(e, "prof", Some(autre_prof.user_id), jour, jour)
+        .list_absences_rh_for_actor(e, autre_prof.user_id, "prof", jour, jour)
         .await
         .unwrap();
-    assert!(l.iter().all(|a| a.motif.is_empty()));
+    assert!(l.iter().all(|a| a.id != absence), "{l:?}");
+    assert!(l.iter().all(|a| a.motif.is_empty() || a.motif == "Absence"), "{l:?}");
     let l = ent
-        .list_absences_rh_pour(e, "prof", Some(cast.prof.user_id), jour, jour)
+        .list_absences_rh_for_actor(e, cast.direction.user_id, "direction", jour, jour)
+        .await
+        .unwrap();
+    assert!(l
+        .iter()
+        .any(|a| a.id == absence && a.motif == "Chimiothérapie"));
+    let l = ent
+        .list_absences_rh_for_actor(e, cast.prof.user_id, "prof", jour, jour)
         .await
         .unwrap();
     assert!(l

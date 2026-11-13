@@ -68,6 +68,9 @@ struct Actions {
     retablir: Callback<(Uuid, SeanceToucheeDto)>,
     valider: Callback<(Uuid, String)>,
     peut_ecrire: Signal<bool>,
+    /// Valider une absence de personnel : action `personnels.absences.valider`, pas `edt.gerer`
+    /// (AR-21 : le serveur renvoyait 403 aux professeurs et CPE qui voyaient le bouton).
+    peut_valider: Signal<bool>,
 }
 
 type Absences = Result<Option<Vec<AbsenceSeancesDto>>, ApiError>;
@@ -151,6 +154,7 @@ fn Contenu() -> impl IntoView {
             ouvert_validation.set(true);
         }),
         peut_ecrire: Signal::derive(move || moteur.get().peut_gerer_edt()),
+        peut_valider: Signal::derive(move || moteur.get().peut_valider_absence_personnel()),
     };
 
     let designer = Callback::new(move |_| {
@@ -395,7 +399,7 @@ fn CarteAbsence(absence: AbsenceSeancesDto, actions: Actions) -> impl IntoView {
             <p class="rpl-carte__resume">{resume}</p>
             {(!validee).then(|| view! {
                 <div class="rpl-carte__actions">
-                    {move || actions.peut_ecrire.get().then(|| {
+                    {move || actions.peut_valider.get().then(|| {
                         let nom = nom_valider.clone();
                         view! {
                             <Bouton

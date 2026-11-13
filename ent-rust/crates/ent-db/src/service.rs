@@ -183,7 +183,6 @@ use domain_eleve::{
     plan_creer_tarif_conso, CreerTarifConso, TarifConso,
     plan_exporter_notanet, render_notanet_csv, ExporterNotanet, LigneNotanet,
     plan_exporter_parcoursup, render_parcoursup_csv, ExporterParcoursup, LigneParcoursup,
-    plan_declarer_absence_rh, plan_valider_absence_rh, AbsenceRh, DeclarerAbsenceRh,
     plan_affecter_edt_creneau, AffecterEdtCreneau,
     plan_creer_edition_vs, rendre_edition_vs, CreerEditionVs, EditionVsTemplate, RendreEditionVs,
     plan_exporter_lsun, render_lsun_csv, ExporterLsun, LigneLsun,
@@ -694,7 +693,7 @@ pub struct PgEnt {
     inscriptions: PgInscriptionRepo,
     iban_histo: PgIbanHistoRepo,
     tarifs: PgTarifConsoRepo,
-    absences_rh: PgAbsenceRhRepo,
+    pub(crate) absences_rh: PgAbsenceRhRepo,
     editions_vs: PgEditionVsRepo,
     stages: PgStageRepo,
     edt_contraintes: PgEdtContrainteRepo,
@@ -7723,6 +7722,12 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         matches!(Role::parse(role), Some(Role::Admin | Role::Direction))
     }
 
+    /// Route historique `POST /edt/exceptions` (AR-08, AR-14, AR-18). **Aucune écriture propre** :
+    /// elle ne fait que valider la forme de la demande puis appelle les commandes de
+    /// `edt_remplacement.rs`, qui contrôlent la disponibilité du remplaçant (rôle, absence,
+    /// chevauchement, indisponibilité) dans la transaction, posent la délégation d'un jour, révoquent
+    /// celle d'un remplaçant précédent, synchronisent la séance et gardent le lien absence → séance.
+    /// Le motif libre n'est plus conservé : il n'est ni recopié ni relu (AR-02, R-AP1).
     pub async fn poser_edt_exception_for_actor(
         &self,
         role: &str,
@@ -7744,84 +7749,54 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 if rid == creneau.prof_user_id {
                     return Err(DomainError::EdtExceptionInvalide.into());
                 }
-                // Socle 1 (C1) : le remplaçant doit être membre de l'établissement.
-                if !self.auth.is_member(cmd.etablissement_id, rid).await? {
-                    return Err(DomainError::EdtExceptionInvalide.into());
-                }
             }
         }
-        let actor = cmd.actor_user_id;
+        // Valide la forme (type, remplaçant requis, salle) comme avant.
+        let (etab, creneau_id, jour, actor) =
+            (cmd.etablissement_id, cmd.creneau_id, cmd.jour, cmd.actor_user_id);
         let ex = plan_poser_edt_exception(cmd)?;
-        // S2-5 : l'exception et son événement entrent dans l'outbox dans la même transaction
-        // (élèves et familles prévenus par `d4.notifications_edt`). Le motif libre n'est plus
-        // recopié dans l'événement.
-        let map = |e: sqlx::Error| EntDbError::Domain(crate::pg_err::map_sqlx("edt_repo", e));
-        let mut tx = TenantTx::begin(self.pool(), ex.etablissement_id).await.map_err(map)?;
-        sqlx::query(
-            "INSERT INTO ent_edt_exception (
-                id, etablissement_id, creneau_id, jour, kind, remplacant_user_id, nouvelle_salle,
-                motif, created_by_user_id, created_at, nature
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$5)
-             ON CONFLICT (etablissement_id, creneau_id, jour) DO UPDATE SET
-                kind = EXCLUDED.kind, remplacant_user_id = EXCLUDED.remplacant_user_id,
-                nouvelle_salle = EXCLUDED.nouvelle_salle, motif = EXCLUDED.motif,
-                created_by_user_id = EXCLUDED.created_by_user_id, created_at = EXCLUDED.created_at,
-                lot_id = NULL, absence_rh_id = NULL, nature = EXCLUDED.nature
-             RETURNING id",
-        )
-        .bind(ex.id)
-        .bind(ex.etablissement_id)
-        .bind(ex.creneau_id)
-        .bind(ex.jour)
-        .bind(ex.kind.as_str())
-        .bind(ex.remplacant_user_id)
-        .bind(ex.nouvelle_salle.as_deref())
-        .bind(&ex.motif)
-        .bind(ex.created_by_user_id)
-        .bind(ex.created_at)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map)?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            let type_name = if ex.kind == EdtExceptionKind::Remplacement {
-                "edt.remplacement_organise"
-            } else {
-                types::EDT_EXCEPTION
-            };
-            conn.publier(MetierEventDraft {
-                etablissement_id: ex.etablissement_id,
-                type_name: type_name.to_string(),
-                aggregate: AggregateKind::Edt,
-                aggregate_id: ex.creneau_id,
-                eleve_id: None,
-                payload: json!({
-                    "exception_id": ex.id,
-                    "creneau_id": ex.creneau_id,
-                    "jour": ex.jour.to_string(),
-                    "nature": ex.kind.as_str(),
-                    "remplacant_user_id": ex.remplacant_user_id,
-                }),
-                actor_user_id: Some(actor.to_string()),
-            })
-            .await?
+        let acteur = crate::ref_commun::Acteur {
+            etablissement_id: etab,
+            user_id: actor,
+            role,
         };
-        tx.commit().await.map_err(map)?;
-        self.diffuser_apres_commit(&[ev]);
+        match ex.kind {
+            EdtExceptionKind::Remplacement => {
+                let remplacant = ex
+                    .remplacant_user_id
+                    .ok_or(DomainError::EdtExceptionInvalide)?;
+                self.edt_organiser_remplacement(
+                    &acteur,
+                    &crate::edt_remplacement::CmdRemplacement {
+                        creneau_id,
+                        jour,
+                        remplacant_user_id: remplacant,
+                        absence_rh_id: None,
+                        nouvelle_salle: None,
+                    },
+                )
+                .await?;
+            }
+            EdtExceptionKind::Annulation => {
+                self.edt_annuler_seance(&acteur, creneau_id, jour, None).await?;
+            }
+            EdtExceptionKind::ChangementSalle => {
+                let salle = ex.nouvelle_salle.clone().unwrap_or_default();
+                self.edt_changer_salle(&acteur, creneau_id, jour, &salle).await?;
+            }
+        }
+        let mut pose = self
+            .edt
+            .get_exception(etab, creneau_id, jour)
+            .await?
+            .ok_or(EntDbError::AppelInvalide)?;
+        pose.motif = String::new();
         // Socle 12 (DA-09, R-AS12) : une séance annulée APRÈS son appel neutralise les constats
         // (absences retirées, démenti), au lieu de continuer à compter.
         if ex.kind == EdtExceptionKind::Annulation {
-            self.neutraliser_appel_seance(
-                ex.etablissement_id,
-                ex.creneau_id,
-                ex.jour,
-                "annulation_seance",
-                Some(actor),
-            )
-            .await?;
+            self.neutraliser_appel_seance(etab, creneau_id, jour, "annulation_seance", Some(actor)).await?;
         }
-        Ok(ex)
+        Ok(pose)
     }
 
     /// Import CSV EDT — `format` = `native` (UUID prof) ou `pronote` (e-mail enseignant).
@@ -8144,12 +8119,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         jour: NaiveDate,
     ) -> Result<Vec<EdtException>, EntDbError> {
-        if !Self::role_can_manage_edt(role) && !Self::role_can_faire_appel(role) {
+        let gere = Self::role_can_manage_edt(role);
+        if !gere && !Self::role_can_faire_appel(role) {
             return Err(EntDbError::Forbidden);
         }
         let mut liste = self.edt.list_exceptions_jour(etablissement_id, jour).await?;
-        // D3 (socle 10 T0) : le motif libre d'une exception (« maladie »…) est interne ; seuls ceux
-        // qui gèrent l'emploi du temps le lisent, un professeur qui fait l'appel ne le reçoit pas.
+        // AR-02 / D3 (socle 10) : le motif libre d'une exception (« maladie »…) est interne ; il n'est lu
+        // que par le cercle habilité (direction, administrateur). Un professeur qui fait l'appel, un CPE ou
+        // le secrétariat apprennent l'exception, jamais son motif. Une seule règle pour les deux défauts.
         if !Self::role_voit_motifs_edt(role) {
             for e in &mut liste {
                 e.motif = String::new();
@@ -15515,174 +15492,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             }
         }
         Ok(render_parcoursup_csv(&lignes))
-    }
-
-    pub async fn declarer_absence_rh_for_actor(
-        &self,
-        role: &str,
-        cmd: DeclarerAbsenceRh,
-    ) -> Result<AbsenceRh, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        // Soi-même ou admin RH.
-        let self_or_rh = cmd.user_id == cmd.actor_user_id
-            || Self::role_can_manage_eleves(role)
-            || matches!(parsed, Role::Direction | Role::Admin);
-        if !self_or_rh {
-            return Err(EntDbError::Forbidden);
-        }
-        // Socle 1 (C1) : la personne absente doit être membre de l'établissement.
-        if !self.auth.is_member(cmd.etablissement_id, cmd.user_id).await? {
-            return Err(EntDbError::Forbidden);
-        }
-        let planned = plan_declarer_absence_rh(cmd)?;
-        // S2-5 (RH-02) : l'absence et son événement entrent dans l'outbox dans la même
-        // transaction. Le motif (texte libre, parfois médical) n'est jamais dans l'événement.
-        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
-            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
-        })?;
-        sqlx::query(
-            "INSERT INTO ent_absence_rh (
-                id, etablissement_id, user_id, debut, fin, motif, statut,
-                created_by_user_id, created_at
-             ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
-        )
-        .bind(planned.id)
-        .bind(planned.etablissement_id)
-        .bind(planned.user_id)
-        .bind(planned.debut)
-        .bind(planned.fin)
-        .bind(&planned.motif)
-        .bind(&planned.statut)
-        .bind(planned.created_by_user_id)
-        .bind(planned.created_at)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            conn.publier(MetierEventDraft {
-                etablissement_id: planned.etablissement_id,
-                type_name: types::ABSENCE_RH.to_string(),
-                aggregate: AggregateKind::AbsenceRh,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "user_id": planned.user_id,
-                    "debut": planned.debut.to_string(),
-                    "fin": planned.fin.to_string(),
-                }),
-                actor_user_id: Some(planned.created_by_user_id.to_string()),
-            })
-            .await?
-        };
-        tx.commit()
-            .await
-            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(planned)
-    }
-
-    pub async fn valider_absence_rh_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        absence_id: Uuid,
-        actor_user_id: Uuid,
-    ) -> Result<AbsenceRh, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !Self::role_can_manage_eleves(role) && !matches!(parsed, Role::Direction | Role::Admin) {
-            return Err(EntDbError::Forbidden);
-        }
-        let current = self
-            .absences_rh
-            .get(etablissement_id, absence_id)
-            .await?
-            .ok_or(DomainError::NotFound)?;
-        if current.statut == "validee" {
-            return Ok(current); // idempotent : pas de second événement
-        }
-        let planned = plan_valider_absence_rh(current, actor_user_id)?;
-        // S2-5 (RH-03) : validation et événement `rh.absence_validee` dans la même transaction.
-        let mut tx = TenantTx::begin(self.pool(), planned.etablissement_id).await.map_err(|e| {
-            EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e))
-        })?;
-        sqlx::query(
-            "UPDATE ent_absence_rh SET statut = $3, created_by_user_id = $4
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(planned.etablissement_id)
-        .bind(planned.id)
-        .bind(&planned.statut)
-        .bind(planned.created_by_user_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        let ev = {
-            use crate::outbox::Publier;
-            let conn: &mut sqlx::PgConnection = &mut tx;
-            conn.publier(MetierEventDraft {
-                etablissement_id,
-                type_name: types::ABSENCE_RH_VALIDEE.to_string(),
-                aggregate: AggregateKind::AbsenceRh,
-                aggregate_id: planned.id,
-                eleve_id: None,
-                payload: json!({
-                    "statut": planned.statut,
-                    "user_id": planned.user_id,
-                    "debut": planned.debut.to_string(),
-                    "fin": planned.fin.to_string(),
-                }),
-                actor_user_id: Some(actor_user_id.to_string()),
-            })
-            .await?
-        };
-        tx.commit()
-            .await
-            .map_err(|e| EntDbError::Domain(crate::pg_err::map_sqlx("absence_rh", e)))?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(planned)
-    }
-
-    /// Absences de personnel de la période. **D3 (socle 10 T0)** : le motif (souvent médical : donnée
-    /// de santé) n'est lu que par ceux qui gèrent l'emploi du temps (direction, adjoint) ; tout autre
-    /// membre du personnel reçoit la liste **sans motif** (champ vide). Voir
-    /// [`Self::list_absences_rh_pour`] pour l'agent qui consulte ses propres absences.
-    pub async fn list_absences_rh_for_actor(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        debut: NaiveDate,
-        fin: NaiveDate,
-    ) -> Result<Vec<AbsenceRh>, EntDbError> {
-        self.list_absences_rh_pour(etablissement_id, role, None, debut, fin)
-            .await
-    }
-
-    /// Variante qui rend aussi, à l'agent concerné, le motif de **ses propres** absences.
-    pub async fn list_absences_rh_pour(
-        &self,
-        etablissement_id: Uuid,
-        role: &str,
-        actor_user_id: Option<Uuid>,
-        debut: NaiveDate,
-        fin: NaiveDate,
-    ) -> Result<Vec<AbsenceRh>, EntDbError> {
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if !parsed.is_staff() {
-            return Err(EntDbError::Forbidden);
-        }
-        let voit_motifs = Self::role_voit_motifs_edt(role);
-        let mut liste = self
-            .absences_rh
-            .list_periode(etablissement_id, debut, fin)
-            .await?;
-        for a in &mut liste {
-            if !voit_motifs && Some(a.user_id) != actor_user_id {
-                a.motif = String::new();
-            }
-        }
-        Ok(liste)
     }
 
     /// Affecte prof et/ou salle sur un créneau (conflits prof/salle/classe refusés).

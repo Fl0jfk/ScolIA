@@ -73,6 +73,13 @@ impl DroitsMoteur {
         self.a("edt.gerer")
     }
 
+    /// Valider, refuser ou annuler une absence de personnel (`personnels.absences.valider`, socle 15) :
+    /// droit distinct de `edt.gerer` (AR-07, AR-21). Un CPE qui organise les remplacements peut
+    /// ne pas avoir ce droit : le bouton n'est alors pas proposé.
+    pub fn peut_valider_absence_personnel(&self) -> bool {
+        self.a("personnels.absences.valider")
+    }
+
     /// Annuler en masse les cours d'une période (grève, fermeture) : `edt.annuler_masse`.
     pub fn peut_annuler_masse(&self) -> bool {
         self.a("edt.annuler_masse")

@@ -9,6 +9,7 @@ pub mod client_ip;
 mod dossier;
 mod personnels;
 mod personnels_missions;
+mod absences_personnels;
 mod stages;
 mod personnels_services;
 mod dto;
@@ -295,6 +296,8 @@ mod tests_personnels_p1;
 mod tests_personnels_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_absences_personnels;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]

@@ -241,9 +241,24 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absence_motif", "assiduite", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "référentiel statique (code, libellé), jamais modifié par un établissement"),
     t("ent_absence_motif_etab", "assiduite", Portee::Etablissement),
     t("ent_absence_rapprochement", "assiduite", Portee::Etablissement).perso().export(),
-    t("ent_absence_rh", "assiduite", Portee::Etablissement).perso().export(),
+    // AR-03 (socle 15) : le motif d'une absence de personnel peut être médical ; la table sort du domaine
+    // « assiduité » des élèves et porte la marque santé.
+    t("ent_absence_rh", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absence_seance", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_absence_signal", "assiduite", Portee::Etablissement).perso().export(),
+    // Socle 15 (absences des personnels, lots A0–A1) : la nature d'une absence est une donnée de santé
+    // ou d'opinion (art. 9) ; seules ces tables la portent.
+    t("ent_absp_absence", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_arret", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_circuit", "personnels_absences", Portee::Etablissement).perso().export(),
+    t("ent_absp_circuit_regle", "personnels_absences", Portee::Etablissement),
+    t("ent_absp_decision", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_decision_externe", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_journal", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_nature", "personnels_absences", Portee::Etablissement).exc(Exception::EtabNullable, "natures fournies par ScolIA (etablissement_id NULL autorisé, aucune donnée de personne), propres à l'établissement sinon"),
+    t("ent_absp_nature_etab", "personnels_absences", Portee::Etablissement),
+    t("ent_absp_param", "personnels_absences", Portee::Etablissement),
+    t("ent_absp_plage", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_adresse_protegee", "dossier_personnes", Portee::Etablissement).perso().export(),
     t("ent_aesh_affectation", "sante", Portee::Etablissement).perso().sante().export(),
     t("ent_affectation", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
@@ -332,7 +347,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_edt_contrainte", "emploi_du_temps_structure", Portee::Etablissement),
     t("ent_edt_creneau", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_deplacement", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    // Archive datée des déplacements levés (A0, AR-15) : rien ne s'efface.
+    t("ent_edt_deplacement_leve", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_exception", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    // Archive datée des exceptions levées ou remplacées (A0, AR-15) : rien ne s'efface.
+    t("ent_edt_exception_levee", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_import", "emploi_du_temps_structure", Portee::Etablissement),
     t("ent_edt_piece", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_placement", "emploi_du_temps_structure", Portee::Etablissement).export(),
