@@ -25,7 +25,10 @@ export async function invalidateDashboardSignalsForEstablishment(
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:rh-now:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:stages-pend:${etabId}:`),
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:req-board:${etabId}:`),
-    valkeyDeleteByPrefix(`${NS}:dash:sig-bundle:${etabId}:`),
+    // On garde volontairement `dash:sig-bundle:*` (dernière valeur connue par source) :
+    // l'effacer à chaque saisie d'absence faisait afficher « Compteur indisponible »
+    // dès qu'une source dépassait le délai. Le bump de génération ci-dessus empêche
+    // déjà d'y réécrire une valeur calculée avant l'invalidation.
     valkeyDeleteByPrefix(`${NS}:dash:sig-src:abs-index:${etabId}:`),
   ]);
 }
