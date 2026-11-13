@@ -461,6 +461,8 @@ mod tests_eleve_identite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_identifiants;
 #[cfg(all(test, feature = "labo"))]
+mod tests_eleve_jour_etablissement;
+#[cfg(all(test, feature = "labo"))]
 mod tests_eleve_scolarite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
