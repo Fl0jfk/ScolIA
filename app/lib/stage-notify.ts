@@ -20,11 +20,42 @@ async function studentLink(token: string) {
   return tenantAbsolutePath(`/stages/eleve?token=${encodeURIComponent(token)}`);
 }
 
-async function mailer() {
+const EMAIL_RE = /^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/;
+
+/**
+ * Adresse(s) de réponse des e-mails Stages : le secrétariat stages de l'établissement
+ * (celui qui reçoit déjà les alertes), selon le cycle de l'élève si on le connaît.
+ * Sans ça, les réponses (ex. convention signée renvoyée par un tuteur) tombent dans
+ * la boîte plateforme et personne ne les traite. Voir docs/COURRIER_ENTRANT.md (étape 0).
+ */
+async function stageReplyTo(convention?: StageConvention): Promise<string | undefined> {
+  try {
+    const emails = await resolveStagesAdminEmails(
+      convention?.student.level,
+      convention?.student.className,
+    );
+    const valid = [
+      ...new Set(emails.map((e) => String(e || "").trim().toLowerCase()).filter((e) => EMAIL_RE.test(e))),
+    ].slice(0, 5);
+    return valid.length ? valid.join(", ") : undefined;
+  } catch (err) {
+    console.warn("[stages] adresse de réponse:", err);
+    return undefined;
+  }
+}
+
+async function mailer(convention?: StageConvention) {
   const smtp = await getTenantSmtpConfig();
   if (!smtp) return null;
-  const transporter = await createTenantTransporter();
-  if (!transporter) return null;
+  const base = await createTenantTransporter();
+  if (!base) return null;
+  const replyTo = await stageReplyTo(convention);
+  type SendOptions = Parameters<typeof base.sendMail>[0];
+  // Ajoute le Reply-To sauf si l'appelant en fixe déjà un.
+  const transporter = {
+    sendMail: (options: SendOptions) =>
+      base.sendMail(replyTo && !options.replyTo ? { ...options, replyTo } : options),
+  };
   return { smtp, transporter };
 }
 
@@ -33,7 +64,7 @@ function studentLabel(c: StageConvention) {
 }
 
 export async function notifyStagePreconventionSubmitted(convention: StageConvention) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const recipients = await resolveStagesAdminEmails(
@@ -72,7 +103,7 @@ export async function notifyStagePreconventionSubmitted(convention: StageConvent
 
 /** Alerte secrétariat : une demande d'avenant (dates / horaires) est en attente. */
 export async function notifyStageScheduleChangeRequested(convention: StageConvention) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const recipients = await resolveStagesAdminEmails(
@@ -130,7 +161,7 @@ export async function notifyStageScheduleChangeRequested(convention: StageConven
  * et qu'elles peuvent discuter / répondre sur le lien.
  */
 export async function notifyStageAmendmentProposed(convention: StageConvention) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const req = convention.scheduleChangeRequest;
@@ -189,7 +220,7 @@ export async function notifyStageDiscussionMessage(
   convention: StageConvention,
   message: { authorLabel: string; body: string; authorRole: string },
 ) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const bundle = await loadAppConfig();
@@ -240,7 +271,7 @@ export async function notifyStageDiscussionMessage(
 
 /** Refus par l'administration d'un dépôt PDF. */
 export async function notifyStageDepositAdminRejected(convention: StageConvention, note?: string) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const recipients = await resolveDepositFinalRecipients(convention);
@@ -275,7 +306,7 @@ export async function notifyStageDepositAdminRejected(convention: StageConventio
 
 /** Refus définitif d'un dépôt (doublon, non recevable…) : rien à corriger, motif communiqué. */
 export async function notifyStageAdminRefused(convention: StageConvention, reason: string) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   // Famille uniquement (fiche élève comprise pour les dépôts PDF) : l'entreprise n'est pas prévenue.
@@ -325,7 +356,7 @@ export async function notifyStageAdminRefused(convention: StageConvention, reaso
 }
 
 export async function notifyStageAdminRejected(convention: StageConvention, note?: string) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const recipients = uniqueContactEmails(
@@ -379,7 +410,7 @@ async function notifyStageSignatureRequest(
   convention: StageConvention,
   signature: StageSignature,
 ): Promise<{ sent: boolean; reason?: string; error?: string }> {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" };
 
   const to = signature.signEmail?.trim();
@@ -577,7 +608,7 @@ export async function notifyStageSignatureRejected(
   signature: StageSignature,
   note?: string,
 ) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
   const to = signature.signEmail?.trim();
   if (!to || !signature.signToken) return { sent: false, reason: "no_email" as const };
@@ -622,7 +653,7 @@ export async function notifyParentTutorEmailFailed(
   tutorEmail: string,
   smtpError?: string,
 ) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const recipients = uniqueContactEmails(
@@ -734,7 +765,7 @@ function uniqueEmails(...lists: Array<string | undefined | null>): string[] {
 }
 
 export async function notifyStageFullySigned(convention: StageConvention) {
-  const m = await mailer();
+  const m = await mailer(convention);
   if (!m) return { sent: false, reason: "smtp" as const };
 
   const isDepositFlow = Boolean(convention.uploadedPdf?.s3Key);
