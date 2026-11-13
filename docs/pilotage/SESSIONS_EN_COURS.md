@@ -53,3 +53,14 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 12 code AS1-AS2 | session_01KZCbFGeamDF2fR77eh4pjP | ent-socle-12-code-2 |
 | Audit Fable 2 | session_01KZCbFFrtQe7DYdNRmtpQ5b | ent-audit-fable-2 (docs) |
 | Plan bascule février | session_01KZCbFHD9b6BhYczf79E69Y | ent-plan-bascule-fevrier (docs) — fusionné, archivé |
+
+## État au 2026-11-13 soir (3 sessions actives au plus, règle 20)
+| Session | Id | Branche | État |
+|---|---|---|---|
+| **15 code A4** | session_01KZCbFEJyFpnDad1p8RgC3R | ent-socle-15-code-4 (2305) | **active** — A0 à A3 versés |
+| **12 code AS3** | session_01KZCbFGeamDF2fR77eh4pjP | ent-socle-12-code-3 | **active** — AS1-AS2 versés |
+| **N1 code N1-0** | session_01KZCbFFybUu3szup9cqD9bL | ent-socle-N1-code-0 (3040–3041) | **active** — nouvelle |
+| 20 code | session_01KZCbFFMJBNM2hNLCqoQCJo | — | en pause, C0-C1 versés ; prochain : C2 |
+| 29 code | session_01KZCbFGstxci8Rzs92fxX5m | — | en pause, P2 versé ; prochain : P3 |
+| 19 code | session_01KZCbFHhtUcrLKPT1g7mDDc | — | en pause, AG3 + AG2 réduit versés |
+| Audit 1 correctifs données, infra ; conception N1 | — | — | terminées, archivées |
