@@ -195,6 +195,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("293_eleve_fusion_gardes"),
     m!("294_eleve_fusion_securite"),
     m!("295_eleve_identite_jour_etablissement"),
+    m!("296_eleve_jour_etablissement"),
     m!("300_inscription_annuelle_prevue"),
     m!("301_inscriptions_i1_dossier"),
     m!("302_inscription_campagne_modele"),
