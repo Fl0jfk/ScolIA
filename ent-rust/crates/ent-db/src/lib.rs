@@ -5,6 +5,8 @@
 
 mod absence_repo;
 mod assiduite;
+mod assiduite_as1;
+mod assiduite_as2;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -25,6 +27,7 @@ pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
 pub mod agenda;
+pub mod agenda_lieux;
 pub mod rencontres;
 mod champs_chiffres;
 mod annonce_repo;
@@ -72,6 +75,8 @@ mod tests_communication;
 mod tests_agenda_ag0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_agenda_ag3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m0a;
 #[cfg(all(test, feature = "labo"))]
@@ -205,6 +210,15 @@ pub use vie_scolaire::{
     types_vs, AbsentDuJour, DeclarationAbsence, DeclarationDuJour, DeclarerAbsence, DecompteEleve,
     DecompteMois, DemiJourneeEleve, IncoherenceAppel, RelanceAppel, RetardDuJour, Seance,
     SeanceSansAppel, TableauJour, VerificationAppels,
+};
+pub use assiduite_as1::{
+    types_asd, ActiviteAppelee, MotifAsd, NatureMotif, ProfilAcademique, ProfilNiveau, RegleAsd, SaisieMotif,
+    SaisieRegle, VersionMotif, MOTIF_TECHNIQUE_APPEL, TYPES_ACTIVITE_APPELEE,
+};
+pub use assiduite_as2::{
+    etat_propose, libelle_court, meilleure_situation, situation_couvre, types_appel, AnnoncerRetard, AppelV2,
+    CorrectionLigne, HistoLigne, IncoherenceV2, LigneAppelV2, OuvrirActivite, PoserLocalisation, RecapAppel,
+    SaisieLigne, SituationAsd, ValidationAppel, LIEUX_LOCALISATION,
 };
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
@@ -421,6 +435,10 @@ mod tests_administratif_a2;
 mod tests_vie_scolaire;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

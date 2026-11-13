@@ -414,6 +414,8 @@ pub enum AggregateKind {
     Voyage,
     /// Événement ou réunion de l'agenda (socle 19, lot AG1). Charge utile : identifiants seulement.
     AgendaEvenement,
+    /// Réservation de lieu (socle 19, lot AG3). Charge utile : identifiants seulement.
+    AgendaReservation,
     /// Stages : paramètres, périodes, sites, contacts (socle 39, lot ST1). Les stages eux-mêmes
     /// et les organismes gardent `ConventionStage` et `Entreprise`.
     Stage,

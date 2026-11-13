@@ -3,8 +3,10 @@
 
 use chrono::NaiveDate;
 use ent_types::agenda::{
-    AnnulationEvenement, ApercuPublication, CreneauSemaine, DemandePublication, EvenementCree,
-    EvenementDetail, ModifEvenement, NouvelEvenement, ReponseCoupon, ReponseInvitation, VueAgenda,
+    AnnulationEvenement, AnnulationReservation, ApercuPublication, CreneauSemaine,
+    DemandePublication, EvenementCree, EvenementDetail, ModifEvenement, NouvelEvenement,
+    NouvelleReservation, PlanningSalle, RapportReservation, RechercheSalle, ReponseCoupon,
+    ReponseInvitation, ReservationVue, SalleDispo, VueAgenda,
 };
 use uuid::Uuid;
 
@@ -139,5 +141,68 @@ impl ApiClient {
     ) -> Result<EvenementCree, ApiError> {
         self.appel(Methode::Post, "/agenda/semaine", Some(corps(c)?))
             .await
+    }
+}
+
+impl ApiClient {
+    /// `POST /agenda/lieux/recherche` : salles libres sur un créneau (règle, emploi du temps, réservations).
+    pub async fn agenda_rechercher_salles(
+        &self,
+        q: &RechercheSalle,
+    ) -> Result<Vec<SalleDispo>, ApiError> {
+        self.appel(Methode::Post, "/agenda/lieux/recherche", Some(corps(q)?))
+            .await
+    }
+
+    /// `GET /agenda/lieux/{id}/planning?du=&au=` : plage de 42 jours au plus.
+    pub async fn agenda_planning_salle(
+        &self,
+        salle: Uuid,
+        du: NaiveDate,
+        au: NaiveDate,
+    ) -> Result<PlanningSalle, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/agenda/lieux/{salle}/planning?du={du}&au={au}"),
+            None,
+        )
+        .await
+    }
+
+    /// `GET /agenda/reservations?du=&au=` : mes réservations.
+    pub async fn agenda_mes_reservations(
+        &self,
+        du: NaiveDate,
+        au: NaiveDate,
+    ) -> Result<Vec<ReservationVue>, ApiError> {
+        self.appel(
+            Methode::Get,
+            &format!("/agenda/reservations?du={du}&au={au}"),
+            None,
+        )
+        .await
+    }
+
+    /// `POST /agenda/reservations` : réserve (unitaire ou série) ; conflits dits par occurrence.
+    pub async fn agenda_reserver_lieu(
+        &self,
+        n: &NouvelleReservation,
+    ) -> Result<RapportReservation, ApiError> {
+        self.appel(Methode::Post, "/agenda/reservations", Some(corps(n)?))
+            .await
+    }
+
+    /// `POST /agenda/reservations/{id}/annuler`.
+    pub async fn agenda_annuler_reservation(
+        &self,
+        id: Uuid,
+        a: &AnnulationReservation,
+    ) -> Result<usize, ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/agenda/reservations/{id}/annuler"),
+            Some(corps(a)?),
+        )
+        .await
     }
 }

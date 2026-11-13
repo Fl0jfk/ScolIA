@@ -48,6 +48,7 @@ const EXCEPTIONS_ACCES_DIRECTS: &[(&str, &str, &str)] = &[
     ("service", "(*self.pool.connect_options())", "migrations sans statement_timeout : copie des options de connexion, aucune requête (R-05)"),
     ("sante_acc", ".fetch_optional(self.pool())", "ent_user : table d'identité sans RLS"),
     ("securite_repo", ".execute(self.pool())", "ent_session / ent_membership : tables sans RLS"),
+    ("assiduite_as1", ".fetch_all(self.pool())", "ref_asd_nature_motif, ref_asd_profil_academique, ref_asd_profil_niveau : référentiels globaux sans établissement ni RLS (socle 12, AS1)"),
     ("structure_calendrier", "self.pool().begin()", "ref_calendrier_officiel : référentiel global sans établissement (fonction de plateforme)"),
 ];
 
