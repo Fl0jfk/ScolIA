@@ -80,25 +80,48 @@ struct Monde {
 
 async fn fiche(ent: &PgEnt, etab: Uuid, user: Uuid, role: &'static str, agent: bool) -> Acteur {
     let pool = ent.pool_verif();
-    let personne = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, user_id, source) VALUES ($1, $2, $3, $4, 'compte')")
-        .bind(personne)
+    // Le jeu de labo crée déjà une fiche par compte : on la réutilise, sinon on la crée.
+    let existante: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
         .bind(etab)
-        .bind(format!("Test{}", &Uuid::new_v4().simple().to_string()[..8]))
         .bind(user)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
         .unwrap();
+    let personne = match existante {
+        Some((id,)) => id,
+        None => {
+            let id = Uuid::new_v4();
+            sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, user_id, source) VALUES ($1, $2, $3, $4, 'compte')")
+                .bind(id)
+                .bind(etab)
+                .bind(format!("Test{}", &Uuid::new_v4().simple().to_string()[..8]))
+                .bind(user)
+                .execute(pool)
+                .await
+                .unwrap();
+            id
+        }
+    };
     let agent = if agent {
-        let id = Uuid::new_v4();
-        sqlx::query("INSERT INTO ent_agent (id, etablissement_id, personne_id, source) VALUES ($1, $2, $3, 'saisie')")
-            .bind(id)
+        let existant: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2")
             .bind(etab)
             .bind(personne)
-            .execute(pool)
+            .fetch_optional(pool)
             .await
             .unwrap();
-        Some(id)
+        if let Some((id,)) = existant {
+            Some(id)
+        } else {
+            let id = Uuid::new_v4();
+            sqlx::query("INSERT INTO ent_agent (id, etablissement_id, personne_id, source) VALUES ($1, $2, $3, 'saisie')")
+                .bind(id)
+                .bind(etab)
+                .bind(personne)
+                .execute(pool)
+                .await
+                .unwrap();
+            Some(id)
+        }
     } else {
         None
     };
