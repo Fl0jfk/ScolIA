@@ -14,6 +14,7 @@
 //!   (`VersDto`), voir la proposition.
 
 pub mod absences_personnels;
+pub mod afaire;
 pub mod agenda;
 pub mod appel;
 pub mod auth;

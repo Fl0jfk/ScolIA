@@ -32,6 +32,7 @@ mod voyages_achats;
 mod edt_s2;
 mod roles;
 mod routes;
+mod afaire;
 mod portail;
 mod assiduite;
 mod vie_scolaire;
@@ -300,6 +301,8 @@ mod tests_personnels_p3;
 mod tests_absences_personnels;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]

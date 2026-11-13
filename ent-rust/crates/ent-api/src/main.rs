@@ -387,6 +387,24 @@ async fn run_api() {
         })
     });
 
+    // Socle 29 (P2) : rapprochement de l'index des tâches (reprise initiale, appels non faits,
+    // réparation des événements perdus). Idempotent, toutes les 10 minutes ; l'affichage ne dépend
+    // jamais de lui (revérification à la lecture, R-PO3). Désactivable (`ENT_AFAIRE_RAPPROCHEMENT=0`).
+    let rapprochement_afaire = (std::env::var("ENT_AFAIRE_RAPPROCHEMENT").as_deref() != Ok("0")).then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            loop {
+                match ent.rapprocher_afaire_tous(chrono::Utc::now()).await {
+                    Ok(n) if n > 0 => tracing::info!(ecarts = n, "rapprochement de l'index des tâches"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("rapprochement de l'index des tâches : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -400,6 +418,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = taches_eleves {
+        t.abort();
+    }
+    if let Some(t) = rapprochement_afaire {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

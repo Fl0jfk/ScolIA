@@ -333,6 +333,8 @@ pub enum Action {
     PersonnelsAbsencesSaisirValidee,
     /// ★ Natures de l'établissement, règles de circuit, délais (S-1500 à S-1517).
     PersonnelsAbsencesParametrer,
+    /// Socle 29 : lancer un rapprochement de l'index des tâches et lire son rapport (POR-205).
+    AfaireRapprocher,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -389,7 +391,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 160] = [
+    pub const TOUTES: [Action; 161] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -537,6 +539,8 @@ impl Action {
         Action::MissionsGerer,
         Action::MissionsTypesGerer,
         Action::AccesRevue,
+        // Socle 29 (portails), lot P2.
+        Action::AfaireRapprocher,
         // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::StagesLire,
         Action::StagesPreparer,
@@ -712,6 +716,7 @@ impl Action {
             Self::PersonnelsAbsencesInstruire => "personnels.absences.instruire",
             Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
             Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
+            Self::AfaireRapprocher => "afaire.rapprocher",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -880,6 +885,7 @@ impl Action {
             Self::PersonnelsAbsencesInstruire => "Instruire une absence de personnel (réception de l'arrêt, traitement administratif)",
             Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
             Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
+            Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1056,6 +1062,7 @@ impl Action {
             | Self::PersonnelsAbsencesParametrer
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
+            | Self::AfaireRapprocher
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
             | Self::StagesPeriodesGerer => &[Portee::Etablissement],
@@ -1276,6 +1283,9 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AssiduiteRegleGerer));
+    // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
+    if role == Role::Admin {
+        d.push(etab(AfaireRapprocher));
     }
     // Socle 42, lot V0a (`42_SORTIES_VOYAGES.md` §21.1) : sorties et voyages collectifs. La liste
     // minimale est ouverte à tout le personnel ; le détail, la gestion et les validations sont
