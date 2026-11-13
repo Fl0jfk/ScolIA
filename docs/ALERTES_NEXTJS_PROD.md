@@ -379,6 +379,29 @@ Source : `43_PERISCOLAIRE_TRANSPORTS.md` et `44_RESSOURCES_MATERIELLES.md` (§2)
 - **NJ-79 (élevé) — Partenariats : l'inscription publique fonctionne sans authentification** (DPS-17).
 - **Statut D-053 (2026-11-11)** : corrigé sur main — sans objet : déjà fermé dans main (canManageRoomReservation).
 
+## 5 ter. Ajouts du 2026-11-13 (conception du socle N1 « Demandes », non classés dans les décomptes ci-dessus)
+
+Source : `docs/socles/N1_DEMANDES.md` §2.3 (lecture de code du module « Demandes » M04, de l'assistance, des HSE et des photocopies M08 ; non testé). Chaque défaut y est rattaché à un lot N1 et à un test (règle 14 de `PILOTAGE.md`).
+
+| ID | Gravité | Module | Ce qui se passe | Preuve | Mesure immédiate (décision de Florian) |
+|---|---|---|---|---|---|
+| NJ-80 | **élevé** | Demandes | Tout compte connecté peut commenter n'importe quelle demande (et faire partir un e-mail de l'établissement au demandeur avec un texte libre) ; la réponse renvoie la demande entière | `app/api/requests/update/route.ts:379-443` | restreindre le module aux personnels |
+| NJ-81 | **élevé** | Demandes | Une demande déjà prise peut être reprise par tout personnel « habilité au tableau », hors de sa file ; transmission à la direction ouverte à tous | `update/route.ts:208-298` | — |
+| NJ-82 | **élevé** | Demandes | Le demandeur reçoit la fiche complète : notes internes, hypothèse de l'IA, adresses du personnel | `app/api/requests/list/route.ts:34-41` | ne rien écrire de sensible en note interne |
+| NJ-83 | **élevé** | Demandes | Toute pièce de toute demande lisible de tout personnel du tableau (lien d'une heure) | `app/api/requests/attachment-url/route.ts:33-41` | — |
+| NJ-84 | **élevé** | Demandes | Identité du demandeur saisie par le client (même connecté) ; e-mails envoyés à l'adresse saisie ; rattachement par égalité d'e-mail | `app/api/requests/create/route.ts:96-290` | — |
+| NJ-85 | moyen | Demandes | Corbeille visible de tout le personnel de toutes les files | `app/lib/requests-board.ts:54` | — |
+| NJ-86 | **élevé** | Demandes, HSE, photocopies | Contenu intégral et coordonnées du demandeur dans les e-mails ; pièces et PDF joints aux e-mails | `app/lib/requests.ts:799-906` ; `photocopies-couleur/route.ts:165-215` | demander de ne mettre aucune donnée d'élève ni RH sensible dans une demande |
+| NJ-87 | **élevé** | Demandes | Texte intégral, et élèves reconnus (INE, nom, prénom), envoyés à Mistral pour router | `requests.ts:602-640` ; `requests-routing-config.ts:440-505` ; `requests-eleve-context.ts` | — |
+| NJ-88 | moyen | Demandes (page parents) | Page publique sans compte ; enfants rattachés par égalité d'e-mail ; fichiers stockés avant confirmation ; confirmation par GET | `app/api/requests/parent-portal/route.ts:113-120` ; `confirm/route.ts:13` | désactiver la page si elle n'est pas utilisée |
+| NJ-89 | moyen | Demandes | Historique, échanges et pièces effacés 30 jours après clôture, par une purge déclenchée par la lecture ; suppression en cascade | `requests.ts:205-265` | — |
+| NJ-90 | moyen | Demandes, HSE, photocopies | Écritures perdues (relecture-réécriture sans version) ; index JSON uniques en stockage objet (D-036) ; attributs « chemin / valeur » | `demandes-hse/route.ts:63-70` ; `photocopies-couleur/route.ts:44-70` | — |
+| NJ-91 | moyen | HSE | Adresse nominative codée en dur comme destinataire des HSE acceptées ; « signature » par image apposée automatiquement ; aucun service fait ; dépôt pour le compte sans trace du déposant | `app/api/demandes-hse/route.ts:28-31, 155-178, 455-480` ; `app/lib/hse-acceptance-pdf.ts:133` | définir `HSE_OPS_EMAIL` vers une adresse de service |
+| NJ-92 | moyen | Photocopies | « Marquer comme prête » par lien public (GET sans session) valable 30 jours | `mark-ready/route.ts:55-100` ; `photocopies-couleur-ready-token.ts:5` | — |
+| NJ-93 | faible | Demandes | Messages d'exception internes renvoyés au client | `create/route.ts:289` | — |
+| NJ-94 | moyen | Demandes | Organisation (files, responsables, délégations) en listes d'adresses e-mail dans du JSON ; départs et changements d'adresse → demandes orphelines | `requests-routing-config.ts:36` ; `requests-org-config.ts:32` | relire l'organigramme à chaque départ |
+| NJ-95 | faible | Assistance | Ticket = un e-mail sans suivi ; nom de l'utilisateur non échappé dans le HTML | `app/lib/assistance.ts:83, 119` | — |
+
 ## 6. Non vérifié (hypothèses des sources)
 
 Ces points sont présentés par les sources comme **probables**, **à confirmer** ou déduits. Florian doit les faire vérifier avant de décider.

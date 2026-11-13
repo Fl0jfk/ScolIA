@@ -61,7 +61,8 @@ Sommaire :
 9. **Reprographie** (§18) : nature intégrée conforme à la conception du socle 44 (§15) : deux circuits (noir et blanc direct sous un seuil, couleur ou gros volume validés par la direction **du site**), file d'impression **cloisonnée par site** (NJ-77), PDF déposés au socle 7 et liés au déposant (NJ-78), « prête » par un geste authentifié, rappel des plafonds CFC. Le socle 44 reprendra plus tard compteurs, copieurs et déclaration CFC sans reprise de données.
 10. **Familles et élèves** (§19) : de vrais comptes (D-009, D-051) ; une famille dépose une demande cataloguée (attestation, duplicata, changement de régime, demande au secrétariat…) ; une **question libre** reste une conversation du socle 16. Une conversation peut **devenir** une demande (et le fil se ferme en le disant) : jamais les deux à la fois. Plus de page publique sans compte rattachant des enfants par l'adresse e-mail (NJ-88).
 11. **Existant** : Next.js a un module riche mais fragile (routage par IA, corbeille, file partagée, délégation, page parents, HSE, photocopies) et **16 défauts nouveaux** (NJ-80 à NJ-95), dont 6 élevés : n'importe quel compte peut commenter et lire n'importe quelle demande, détourner une demande d'une autre file, lire toutes les pièces, usurper l'identité du demandeur ; le demandeur lit les notes internes ; le texte intégral et des identifiants d'élèves partent à l'IA. Le Rust n'a **rien** : tout est à construire, sans dette à corriger.
-12. **Taille et plan** : **235 actions** (DEM-100 à DEM-369, dont 25 de la passe personas), **52 règles**, **72 cas limites** ; **6 lots pour la bascule** (N1-0 modèle et garde-fous ; N1-1 natures et routage ; N1-2 prise en charge, délégation, pièces ; N1-3 HSE et reprographie ; N1-4 écrans Leptos ; N1-5 reprise R9), puis N1-6 à N1-9 après février (mobile, IA, indicateurs, RLS stricte et natures des autres briques). Migrations **3040–3059**. Calendrier du plan : N1-0 semaine du 7 décembre, N1-1 du 14, N1-2 du 11 janvier, N1-3 à N1-5 du 25 janvier (`PLAN_BASCULE_FEVRIER.md` §4).
+12. **Taille et plan** : **235 actions** (DEM-100 à DEM-357 et DEM-360 à DEM-383, dont 24 de la passe personas), **52 règles** (R-DM1 à R-DM52), **72 cas limites** (CDM-01 à CDM-72), 17 réglages signalés, 16 questions ; **6 lots pour la bascule** (N1-0 modèle et garde-fous ; N1-1 natures et routage ; N1-2 prise en charge, délégation, pièces ; N1-3 HSE et reprographie ; N1-4 écrans Leptos ; N1-5 reprise R9), puis N1-6 à N1-9 après février (mobile, IA, indicateurs, RLS stricte et natures des autres briques). Migrations **3040–3059**. Calendrier du plan : N1-0 semaine du 7 décembre, N1-1 du 14, N1-2 du 11 janvier, N1-3 à N1-5 du 25 janvier (`PLAN_BASCULE_FEVRIER.md` §4).
+13. **[personas] Ce que la passe ajoute (`PERSONAS_N1.md`, §36)** : trois bloquants tranchés par défaut — **conflit d'intérêts** dans une file (la personne visée par une demande RH ou une question à la direction en est exclue, file de repli hors service, R-DM47), **restriction de dépôt** contre le harcèlement par le guichet (R-DM48), **avis de reprise unique** à l'ouverture de la bascule (R-DM49) ; puis attestation HSE fondée sur l'appel ou une déclaration sur l'honneur (R-DM50), accueil qui ne voit aucune demande d'autrui (R-DM51), copies multi-classes et récurrentes, tournée de maintenance, enveloppe prévisionnelle, délégation de signature des attestations, décisions implicites à venir.
 
 ---
 
@@ -1613,7 +1614,8 @@ Critère go/no-go (plan de bascule) : 100 % des demandes ouvertes reprises et at
 | **3046** | `demandes_n1_3_hse` | N1-3 | `ent_dem_hse`, `ent_dem_hse_public`, `ent_dem_hse_seance`, `ent_dem_hse_enveloppe`, `ent_dem_hse_enveloppe_mvt` |
 | **3047** | `demandes_n1_3_reprographie` | N1-3 | `ent_dem_repro`, `ent_dem_repro_document`, `ent_dem_repro_cible`, `ent_dem_repro_oeuvre`, `ent_dem_repro_site_reglage`, `ent_dem_repro_lieu_retrait` |
 | **3048** | `demandes_n1_5_reprise` | N1-5 | `ent_dem_reprise_correspondance` (classée « reprise », purgeable après décision) |
-| 3049–3055 | réserve | ajouts personas (§36), N1-6 à N1-9 | — |
+| **3049** | `demandes_exclusions_restrictions` | N1-2 | **attribuée par la passe personas** (§36.6) : exclusions pour conflit d'intérêts, restrictions de dépôt, compléments HSE et reprographie |
+| 3050–3055 | réserve | N1-6 à N1-9 | — |
 | **3056** | réserve | supervision confidentielle, journal d'accès (N1-8) | — |
 | 3057 | réserve | — | — |
 | **3058** | `demandes_rls_stricte` | N1-9 | bascule en RLS stricte (`app.rls_strict`) des tables `ent_dem_*` |
@@ -1708,3 +1710,109 @@ Critère go/no-go (plan de bascule) : 100 % des demandes ouvertes reprises et at
 4. **Prise en charge** : `29_PORTAILS.md` possède les prises en charge des tâches collectives (`ent_afaire_prise`, POR-152) ; pour les natures de N1, la prise est un fait de N1 et le 29 la reflète (R-DM9) — à inscrire dans le 29 comme précision de l'arbitrage A4.
 5. **Socle 15 : port à ajouter** : `heures::constater` (§17.6) n'est pas dans la liste des ports du 15 (§6.2) ; à ajouter par le pilote ou au lot A7.
 6. **Socle 16** : la conversion « fil → demande » (DEM-318) est une action nouvelle pour le 16 (§19.3 du 16) ; à ajouter à sa liste (MSG-176 proposé).
+
+---
+
+## 36. Ajout personas (`PERSONAS_N1.md`, 2026-11-13) — l'emporte en cas de contradiction
+
+### 36.1 Les trois bloquants et leur traitement (appliqués par défaut, D-031)
+
+| # | Bloquant | Traitement |
+|---|---|---|
+| A | La personne visée lit la demande qui la vise (file RH à un seul membre, question qui concerne le chef) | **R-DM47** : exclusion pour conflit d'intérêts ; file de repli **hors service** obligatoire pour chaque file confidentielle et pour la file direction |
+| B | Le guichet devient un canal de harcèlement | **R-DM48** : restriction de dépôt motivée, datée, réexaminée, symétrique de la restriction du 16 |
+| C | Avalanche d'avis à l'ouverture de la bascule | **R-DM49** : avis de reprise unique par personne, différé à l'ouverture ; reprises hors des résumés « nouvelles » |
+
+### 36.2 Actions ajoutées (DEM-360 à DEM-383)
+
+| N° | Action | Qui · droit | Règles | Lot |
+|---|---|---|---|---|
+| DEM-360 | Indiquer « cette demande concerne une personne de ce service » (choix parmi les membres, sans motif) | demandeur (natures C1+) | R-DM47 | N1-2 |
+| DEM-361 | Router hors de la personne concernée ; file de repli hors service si la file devient vide ; orientation hors ScolIA si le chef est visé | SYS | R-DM47 ; CDM-57 à CDM-59 | N1-2 |
+| DEM-362 | **Restreindre le dépôt** d'une personne (plafond hebdomadaire ou dépôt par l'accueil seulement), motivé, daté, avec date de réexamen | chef d'établissement · `demandes.restreindre` | R-DM48 ; SN1-14 | N1-2 |
+| DEM-363 | Voir, réexaminer, lever les restrictions actives | chef d'établissement | trace | N1-2 |
+| DEM-364 | Envoyer **un** avis de reprise par personne, regroupé, le jour d'ouverture à 8 h | SYS | R-DM49 ; SN1-16 | N1-5 |
+| DEM-365 | Afficher l'indisponibilité du guichet pendant la bascule, avec consigne (« appelez l'accueil ») | ADM | CDM-62 | N1-5 |
+| DEM-366 | **Dupliquer** une demande (reprographie, fournitures) | demandeur | R-DM52 | N1-3 |
+| DEM-367 | Préparer une demande **récurrente** (brouillon chaque semaine + rappel, jamais de dépôt automatique) | demandeur | R-DM52 | N1-3 |
+| DEM-368 | Reprographie **multi-classes** : exemplaires et lieu de retrait par cible | demandeur | | N1-3 |
+| DEM-369 | Vue « **ma tournée** » : demandes par site, bâtiment, étage ; urgences en tête | MF maintenance, entretien | | N1-4 |
+| DEM-370 | Joindre une **photo avant / après** à la clôture d'une intervention | traitant | pièce `photo_lieu` | N1-2 |
+| DEM-371 | Clore « **hors de notre ressort** » (prestataire, collectivité, organisme de gestion) avec destinataire codé et texte au demandeur | traitant | issue `transmise_hors_scolia` ; volet du 44 plus tard | N1-2 |
+| DEM-372 | **Transférer ou requalifier en masse** depuis la file de tri | membres de la file de tri | aperçu ; un fait par demande | N1-2 |
+| DEM-373 | Mettre « en attente de la direction » sans transmettre (tâche de lecture au chef) | MF secrétariat de direction | | N1-2 |
+| DEM-374 | Attestation HSE **pré-cochée par l'appel** d'une séance créée au 10 | SYS → attestant | R-DM50 ; CDM-66 | N1-3 |
+| DEM-375 | Attester sur **déclaration sur l'honneur** de l'enseignant, avec contrôle par échantillon | attestant | R-DM50 ; SN1-15 ; CDM-65 | N1-3 |
+| DEM-376 | Saisir une **enveloppe prévisionnelle** avant notification | DIR | mouvement `prevision` ; CDM-67 | N1-3 |
+| DEM-377 | Voir la **répartition** des HSE accordées par agent sur l'année (équité) | décideur, chef | jamais visible des collègues | N1-3 |
+| DEM-378 | Émettre une attestation **signée par délégation** (habilitation de signature du 6) | secrétariat habilité | `peut_signer` ; CDM-68 | N1-2 |
+| DEM-379 | Accueil : proposer de **rappeler au numéro connu** avant de déposer pour un appelant | ACC | R-DM51 | N1-1 |
+| DEM-380 | Accueil : recherche de la personne **sans** montrer ses demandes existantes | ACC | R-DM51 ; CDM-69 | N1-1 |
+| DEM-381 | Élève mineur : déposer sans pièce ; la vie scolaire complète (photo prise au bureau) | ELV ; vie scolaire | | N1-1 |
+| DEM-382 | Payer la carte d'élève (lien vers le 25) avant remise ; décision de la vie scolaire sans payeur actif | payeur ; vie scolaire | CDM-70 | N1-9 |
+| DEM-383 | Voir les **décisions implicites à venir** sur 30 jours (EPLE) | chef d'établissement | R-DM21 | N1-2 |
+
+### 36.3 Règles ajoutées (R-DM47 à R-DM52)
+
+| N° | Règle |
+|---|---|
+| R-DM47 | **Conflit d'intérêts** : une personne désignée par le demandeur comme concernée est exclue de la demande (lecture, prise, supervision, escalade, consultation), y compris si elle est responsable de la file ou membre de la direction ; chaque file confidentielle et la file direction ont une **file de repli hors service** ; si le chef d'établissement est visé, la nature oriente vers l'autorité compétente hors ScolIA et ne crée pas de demande. L'exclusion est tracée ; la personne exclue n'est pas informée de la demande. |
+| R-DM48 | **Restriction de dépôt** : décidée par le chef d'établissement, motivée, datée, réexaminée au plus tard après 3 mois ; plafond hebdomadaire ou dépôt par l'accueil seulement ; les demandes en cours et les informations dues continuent ; la personne en est informée sans motif détaillé. |
+| R-DM49 | **Avis de reprise** : un seul par personne, quel que soit le nombre de demandes reprises, envoyé le jour d'ouverture ; les demandes reprises n'entrent pas dans les résumés « nouvelles » ; aucun avis à un demandeur non rapproché. |
+| R-DM50 | **Attestation HSE fondée** : sur un indice (séance au 10 et appel du 12, ou séance confirmée par un tiers) ou sur une déclaration sur l'honneur de l'enseignant avec contrôle par échantillon ; une attestation en masse sans indice exige conf. 2. |
+| R-DM51 | **Accueil** : la recherche d'une personne pour un dépôt pour son compte ne montre aucune demande existante ; un appelant non vérifié est rappelé au numéro connu avant toute information ; le doublon n'est signalé qu'à la file. |
+| R-DM52 | **Duplication et récurrence** : une demande dupliquée reprend les valeurs non sensibles de la demande du même auteur, jamais ses pièces ni celles d'un autre ; une récurrence prépare un brouillon et un rappel, jamais un dépôt automatique. |
+
+### 36.4 Cas limites ajoutés (CDM-57 à CDM-72)
+
+| N° | Situation | Traitement |
+|---|---|---|
+| CDM-57 | Une salariée se plaint de la gestionnaire RH, seule membre de la file RH | R-DM47 : exclusion, file de repli hors service (président de l'organisme de gestion, Q-DM14) |
+| CDM-58 | Une famille d'un EPLE conteste une décision du principal par `direction.question` | ce n'est pas une demande N1 : rappel des voies de recours ; si la famille maintient, la demande va au secrétariat **sans** être transmise au principal pour décision sur lui-même |
+| CDM-59 | Petite école : la secrétaire cumule RH et direction | sa qualité de membre ouvre la lecture (tracée) ; R-DM47 s'applique si elle est visée |
+| CDM-60 | Un parent dépose 15 demandes injurieuses en une journée | R-DM48 ; les messages restent au journal ; la direction peut porter plainte hors ScolIA |
+| CDM-61 | Ouverture de la bascule : 40 demandeurs de demandes ouvertes | R-DM49 : 40 avis, un par personne, à 8 h le jour d'ouverture |
+| CDM-62 | Fuite d'eau pendant la lecture seule du guichet | consigne affichée (accueil) ; demande saisie à l'ouverture par l'accueil, datée de l'appel |
+| CDM-63 | Mêmes copies chaque semaine pour quatre classes | une demande multi-classes (DEM-368), dupliquée ou préparée en récurrence (DEM-366, DEM-367) |
+| CDM-64 | Collège public : la panne relève des agents de la collectivité | DEM-371 : `transmise_hors_scolia` (collectivité), texte au demandeur ; envoi qualifié par le 44 plus tard |
+| CDM-65 | HSE de préparation d'un concours, sans élèves | déclaration sur l'honneur, contrôle par échantillon (R-DM50) |
+| CDM-66 | HSE de soutien en 3ᵉB : séances créées au 10, appel fait | attestation pré-cochée (DEM-374) |
+| CDM-67 | Septembre : enveloppe pas encore notifiée | enveloppe prévisionnelle (DEM-376), remplacée par la dotation |
+| CDM-68 | La délégation de signature de la secrétaire a expiré pendant qu'elle émettait des attestations | `peut_signer` refusé à l'émission : attestation non signée, renvoyée au chef ; aucune attestation déjà émise n'est modifiée |
+| CDM-69 | Un père appelle l'accueil pour connaître « la demande de mon ex » | R-DM51 : l'accueil ne voit rien et ne dit rien ; il propose au père ses propres démarches |
+| CDM-70 | Élève mineure, carte perdue, aucun payeur actif | la vie scolaire décide : remise sans paiement ou attente ; rien n'est facturé à un responsable sans lien payeur |
+| CDM-71 | Élève majeur : relevé de notes nécessaire avant une date proche | champ « pour le » : ordonne la file, n'engage pas un délai plus court que celui de la nature ; urgence `haute` si la nature la permet |
+| CDM-72 | Le seul agent de maintenance est absent une semaine | file de repli **métier** (intendance, qui appelle un prestataire), pas le secrétariat de direction (§36.5) |
+
+### 36.5 Précisions (catalogue, préréglages, modèle, écrans)
+
+1. **Réponses types** : une réponse type peut être restreinte à une nature (MN1-012) ; « vue par » interne visible des membres de la file seulement (MN1-014).
+2. **Préréglage des files de repli** : maintenance et entretien → intendance ; reprographie → intendance ; RH → **hors service** (Q-DM14) ; direction → **hors service** pour les demandes qui visent le chef ; les autres → secrétariat de direction (MN1-033).
+3. **Comptabilité** : `comptabilite.demande_interne` déclare des **pièces exigées par type** (remboursement de frais : justificatif), un circuit **avec validation** par la direction au-delà d'un seuil (SN1-17, défaut 150 €), le doublon par montant, date et demandeur, et **refuse** tout champ de coordonnées bancaires (le RIB est tenu par le 25 et le 49) (MN1-050 à MN1-054).
+4. **RH** : la nature `rh.demande_agent` affiche, quand le motif « conflit, harcèlement » est choisi, les voies propres (référent de l'employeur, représentants du personnel, inspection du travail) [NV] et ne force pas le dépôt (MN1-061) ; le cumul direction + RH ne donne aucune lecture par la supervision (MN1-062).
+5. **Familles** : champ « pour le » sur les natures familles (MN1-080) ; dépôt pour le compte d'une **personne de confiance** seulement si le socle 4 lui ouvre le droit `deposer_demandes` (MN1-072) ; l'accusé imprimé ne porte rien de l'autre parent (MN1-073).
+6. **Décisions groupées** : l'action groupée (DEM-190) s'applique aux HSE de même motif et même volume (MN1-043).
+7. **Effectifs pré-remplis** : jamais corrigés des élèves absents de longue durée (MN1-025, refusé : donnée de santé déduite).
+8. **Bascule** : rapport « adresses non retrouvées » dès la répétition de Noël ; désignations provisoires datées (source `agent`) acceptées pour le jour J, à convertir en missions avant la rentrée 2027 (MN1-090) ; note aux personnels sur les trois changements voulus (MN1-091, Q-DM15) ; tableau de reprise par statut, par file, demandes sans file, pièces non copiées (MN1-094).
+9. **Direction** : résumé hebdomadaire de direction (volumes, retards, décisions implicites) au lieu d'avis unitaires (MN1-098).
+10. **Personnel sans accès** (mot de passe perdu) : il dépose par un collègue ou l'accueil (`numerique.acces_compte`, MN1-024).
+
+### 36.6 Modèle (compléments, plage 3040–3059)
+
+| N° | Nom | Lot | Contenu |
+|---|---|---|---|
+| **3049** | `demandes_exclusions_restrictions` | N1-2 | `ent_dem_exclusion` (demande_id, personne_id exclue, origine `declaration_demandeur` / `systeme`, le) ; `ent_dem_restriction` (personne_id, type `plafond_hebdo` / `accueil_seulement`, plafond, motif TEXT, du, au, reexamen_le, decide_par, levee_le) ; `ent_dem_repro_cible` reçoit `retrait_lieu_id` ; `ent_dem_hse_seance` reçoit `fondement CHECK (appel|tiers|declaration_honneur)` et `echantillon BOOL` ; `ent_dem_hse_enveloppe_mvt.type` accepte `prevision` |
+
+Action ajoutée au catalogue D-017 : `demandes.restreindre` (établissement, chef d'établissement).
+
+### 36.7 Lots révisés
+
+- **N1-1** : + DEM-379, DEM-380, DEM-381 (accueil, élève mineur).
+- **N1-2** : + exclusions et restrictions (3049), DEM-360 à DEM-363, DEM-370 à DEM-373, DEM-378, DEM-383 ; critère : pièges « conflit d'intérêts », « restriction », « accueil sans doublon d'autrui ».
+- **N1-3** : + DEM-366 à DEM-368, DEM-374 à DEM-377 ; critère : R-DM50.
+- **N1-4** : + DEM-369 (tournée).
+- **N1-5** : + DEM-364, DEM-365 ; critère go/no-go : un seul avis par personne à l'ouverture.
+
+### 36.8 Réglages ajoutés
+
+SN1-14 (plafond d'une restriction, 3 par semaine), SN1-15 (échantillon de contrôle HSE, 10 %), SN1-16 (heure de l'avis de reprise, 8 h), SN1-17 (seuil de validation d'un remboursement de frais, 150 €).
