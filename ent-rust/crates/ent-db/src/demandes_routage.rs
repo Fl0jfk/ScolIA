@@ -75,6 +75,7 @@ struct NatureEtab {
 }
 
 async fn charger_natures_etab(conn: &mut PgConnection, etab: Uuid) -> Result<BTreeMap<String, NatureEtab>, RefusDemande> {
+    #[allow(clippy::type_complexity)]
     let l: Vec<(String, bool, Option<i16>, Option<i16>, Option<Uuid>)> = sqlx::query_as(
         "SELECT nature_code, actif, delai_prise_jours, delai_traitement_jours, file_defaut_id
            FROM ent_dem_nature_etab WHERE etablissement_id = $1",
@@ -115,7 +116,6 @@ pub struct NouvelleRegleRoutage {
 #[derive(Debug, Clone)]
 struct RegleRoutage {
     id: Uuid,
-    nature_code: String,
     categorie: Option<String>,
     site_id: Option<Uuid>,
     niveau: Option<String>,
@@ -139,9 +139,8 @@ async fn charger_regles(conn: &mut PgConnection, etab: Uuid, nature_code: &str, 
     .fetch_all(conn)
     .await?;
     Ok(l.into_iter()
-        .map(|(id, nature_code, categorie, site_id, niveau, public, urgence, destination, ordre)| RegleRoutage {
+        .map(|(id, _nature, categorie, site_id, niveau, public, urgence, destination, ordre)| RegleRoutage {
             id,
-            nature_code,
             categorie,
             site_id,
             niveau,
@@ -795,6 +794,7 @@ impl PgEnt {
         .bind(demande_id)
         .fetch_one(&mut *tx)
         .await?;
+        #[allow(clippy::type_complexity)]
         let f: Option<(String, Option<String>, String, String, Option<String>)> = sqlx::query_as(
             "SELECT libelle, role_traitant, service_calendrier, type, message_accueil FROM ent_dem_file WHERE etablissement_id = $1 AND id = $2",
         )
