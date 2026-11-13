@@ -369,6 +369,24 @@ impl PgEnt {
             seances.extend(self.edt_seances(&soi, CibleSeances::Intervenant(user), d, f).await?);
             d = f + Duration::days(1);
         }
+        // Co-enseignant en saisie : le port ne retourne que titulaires et remplaçants ; les séances où l'agent
+        // est un intervenant ajouté (socle 10, `ent_edt_seance_intervenant`) se lisent en plus, en lecture seule.
+        let ids_co: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT s.id FROM ent_edt_seance_intervenant i
+               JOIN ent_edt_seance s ON s.etablissement_id = i.etablissement_id AND s.id = i.seance_id
+              WHERE i.etablissement_id = $1 AND i.agent_id = $2 AND i.nature = 'ajoute' AND i.saisie
+                AND s.jour BETWEEN $3 AND $4 AND s.etat <> 'retiree'",
+        )
+        .bind(etab)
+        .bind(agent_id)
+        .bind(premier)
+        .bind(dernier)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?;
+        let deja: HashSet<Uuid> = seances.iter().map(|s| s.id).collect();
+        let ids_co: Vec<Uuid> = ids_co.into_iter().filter(|i| !deja.contains(i)).collect();
+        seances.extend(self.edt_seances_par_ids(etab, &ids_co).await?);
         if seances.is_empty() {
             return Ok(Vec::new());
         }

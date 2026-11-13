@@ -359,6 +359,30 @@ impl PgEnt {
             .collect())
     }
 
+    /// Lecture **interne** de séances par identifiant, sans portée d'appelant : l'autre socle a déjà contrôlé
+    /// le droit de sa propre commande (le socle 15 lit ainsi les séances d'un co-enseignant, que le port
+    /// `edt_seances(Intervenant)` ne retourne pas puisqu'il n'est ni titulaire ni remplaçant). Lecture seule ;
+    /// les séances `retiree` ne sortent jamais.
+    pub(crate) async fn edt_seances_par_ids(
+        &self,
+        etablissement_id: Uuid,
+        ids: &[Uuid],
+    ) -> Result<Vec<SeanceEdt>, EntDbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "{SELECT_SEANCE} WHERE s.etablissement_id = $1 AND s.id = ANY($2) AND s.etat <> 'retiree'
+              ORDER BY s.jour, s.heure_debut, s.classe, s.id"
+        );
+        sqlx::query_as::<_, SeanceEdt>(&sql)
+            .bind(etablissement_id)
+            .bind(ids)
+            .fetch_all(&mut *TenantTx::begin(self.pool(), etablissement_id).await?)
+            .await
+            .map_err(db)
+    }
+
     /// Occupation anonymisée d'un lieu sur une plage (D-058).
     pub async fn edt_occupation_lieu(
         &self,

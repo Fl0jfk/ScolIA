@@ -2464,6 +2464,27 @@ impl Cadre {
             .unwrap()
     }
 
+    /// Pose l'état d'une séance comme le feront les lots T3/T4 du socle 10 (`neutralisee`, `non_assuree`…) : le
+    /// déclencheur historique dérive `etat` de `statut`, on l'écarte le temps de l'écriture.
+    async fn forcer_etat_seance(&self, id: Uuid, etat: &str) {
+        let mut tx = self.ent.pool_verif().begin().await.unwrap();
+        sqlx::query("ALTER TABLE ent_edt_seance DISABLE TRIGGER ent_edt_seance_derive_tg")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE ent_edt_seance SET etat = $2 WHERE id = $1")
+            .bind(id)
+            .bind(etat)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("ALTER TABLE ent_edt_seance ENABLE TRIGGER ent_edt_seance_derive_tg")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+    }
+
     async fn impacts(&self, absence: Uuid) -> Vec<ImpactDto> {
         self.ent
             .impact_absence_for_actor(self.etab, self.dir, "direction", absence)
@@ -2605,7 +2626,8 @@ async fn a3_cap25_co_enseignement_l_autre_intervenant_present_suffit() {
 async fn a3_cap26_cap27_sortie_de_la_classe_et_vacances() {
     let x = cadre!();
     let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
-    x.seance(c, x.prof, 1, (9, 0), (10, 0), "neutralisee").await;
+    let s = x.seance(c, x.prof, 1, (9, 0), (10, 0), "prevue").await;
+    x.forcer_etat_seance(s, "neutralisee").await;
     let a = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
     let i = x.impacts(a).await;
     assert_eq!(i.len(), 1);
@@ -2716,11 +2738,7 @@ async fn a3_un_remplacement_deja_pose_est_repris_comme_reponse() {
     x.impacts(a).await;
     assert_eq!(x.compter("SELECT count(*) FROM ent_absp_reponse WHERE etablissement_id = $1").await, 1);
     // L'exception disparaît (levée) : la réponse reprise est levée, la séance redevient à traiter.
-    sqlx::query("DELETE FROM ent_edt_exception WHERE etablissement_id = $1")
-        .bind(x.etab)
-        .execute(x.ent.pool())
-        .await
-        .unwrap();
+    assert!(x.ent.edt_lever_exception(&x.d(), c, x.jour(1)).await.unwrap());
     let i = x.impacts(a).await;
     assert_eq!(i[0].etat, "a_traiter", "{i:?}");
     assert_eq!(x.compter("SELECT count(*) FROM ent_absp_reponse WHERE etablissement_id = $1 AND etat = 'active'").await, 0);
@@ -2732,18 +2750,18 @@ async fn a3_un_remplacement_deja_pose_est_repris_comme_reponse() {
 async fn a3_tableau_ce_matin_compteurs_et_confidentialite() {
     let x = cadre!();
     let c1 = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
-    let c2 = x.creneau(&x.classe, x.prof2, 1, (9, 0), (10, 0)).await;
+    let c2 = x.creneau(&x.classe, x.prof2, 1, (10, 0), (11, 0)).await;
     x.seance(c1, x.prof, 1, (9, 0), (10, 0), "prevue").await;
-    x.seance(c2, x.prof2, 1, (9, 0), (10, 0), "prevue").await;
+    x.seance(c2, x.prof2, 1, (10, 0), (11, 0), "prevue").await;
     let a1 = x.declarer(x.prof, "prof", Some("maladie"), 1, 1).await.absences[0].id;
     let a2 = x.declarer(x.prof2, "prof", Some("convenance"), 1, 1).await.absences[0].id;
     let jour = x.jour(1);
     let tab = x.ent.tableau_jour_for_actor(x.etab, x.cpe, "cpe", jour).await.unwrap();
-    assert_eq!(tab.lignes.len(), 1, "une heure : 9 h");
-    assert_eq!(tab.lignes[0].impacts.len(), 2);
+    assert_eq!(tab.lignes.len(), 2, "deux heures : 9 h et 10 h");
+    assert_eq!(tab.lignes.iter().map(|l| l.impacts.len()).sum::<usize>(), 2);
     assert_eq!(tab.compteurs.a_traiter, 2);
     assert_eq!(tab.absents.len(), 2);
-    assert!(tab.lignes[0].impacts.iter().all(|i| i.agent_label.is_some()));
+    assert!(tab.lignes.iter().flat_map(|l| &l.impacts).all(|i| i.agent_label.is_some()));
     let json = serde_json::to_string(&tab).unwrap();
     for interdit in ["maladie", "convenance", "nature", "motif"] {
         assert!(!json.contains(interdit), "« {interdit} » dans le tableau : {json}");
@@ -2751,13 +2769,13 @@ async fn a3_tableau_ce_matin_compteurs_et_confidentialite() {
     // Confidentialité renforcée sur a1 : le CPE ne voit plus le nom, ni l'absent ; la direction voit tout.
     x.ent.definir_confidentialite_renforcee_for_actor(x.etab, x.dir, "direction", a1, true).await.unwrap();
     let tab = x.ent.tableau_jour_for_actor(x.etab, x.cpe, "cpe", jour).await.unwrap();
-    assert_eq!(tab.lignes[0].impacts.len(), 2, "la séance reste à couvrir");
-    let sans_nom = tab.lignes[0].impacts.iter().filter(|i| i.agent_label.is_none()).count();
+    assert_eq!(tab.lignes.iter().map(|l| l.impacts.len()).sum::<usize>(), 2, "la séance reste à couvrir");
+    let sans_nom = tab.lignes.iter().flat_map(|l| &l.impacts).filter(|i| i.agent_label.is_none()).count();
     assert_eq!(sans_nom, 1, "un seul impact sans nom : celui de l'absence renforcée");
     assert_eq!(tab.absents.len(), 1);
     assert!(x.ent.impact_absence_for_actor(x.etab, x.cpe, "cpe", a1).await.is_err());
     let tab = x.ent.tableau_jour_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
-    assert!(tab.lignes[0].impacts.iter().all(|i| i.agent_label.is_some()));
+    assert!(tab.lignes.iter().flat_map(|l| &l.impacts).all(|i| i.agent_label.is_some()));
     // Droits : ni le professeur, ni l'accueil ; fenêtre bornée.
     for (u, r) in [(x.prof, "prof"), (x.accueil, "accueil")] {
         let e = x.ent.tableau_jour_for_actor(x.etab, u, r, jour).await.unwrap_err();
@@ -2800,6 +2818,8 @@ async fn a3_prochaine_etape_sans_objet_et_interrupteur_edt() {
     let e = x.ent.definir_edt_reference_for_actor(x.etab, x.sec, "administratif", true).await.unwrap_err();
     assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
     assert!(!x.ent.edt_reference_for_actor(x.etab, x.dir, "direction").await.unwrap().actif);
+    sqlx::query("UPDATE ent_edt_seance SET jour = ent_aujourdhui_etab($1, now()) + 60 WHERE etablissement_id = $1")
+        .bind(x.etab).execute(x.ent.pool()).await.unwrap();
     let e = x.ent.definir_edt_reference_for_actor(x.etab, x.dir, "direction", true).await.unwrap_err();
     assert!(matches!(e, EntDbError::Refus(..)), "aucune séance dans les 14 jours : {e:?}");
     sqlx::query("UPDATE ent_edt_seance SET jour = ent_aujourdhui_etab($1, now()) + 2 WHERE etablissement_id = $1")

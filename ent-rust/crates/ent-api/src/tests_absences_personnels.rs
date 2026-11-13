@@ -185,3 +185,109 @@ async fn absences_des_personnels_pieces_fil_et_conservation() {
     let (st, _) = appel(&app, "PUT", &format!("/personnels/absences/{id}/confidentialite"), Some(&dir.jeton), Some(json!({"renforcee": true}))).await;
     assert_eq!(st, StatusCode::NO_CONTENT);
 }
+
+/// Lot A3 : impact, tableaux, files, présence, interrupteur — côté HTTP. 401 sans jeton ; 403 selon la matrice
+/// de droits ; 404 uniforme hors du cercle ; aucune nature dans les réponses d'organisation.
+#[tokio::test]
+async fn absences_des_personnels_impact_tableaux_et_files() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip A15 A3 : ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let cpe = inscrire(&app, etab, "cpe").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let prof2 = inscrire(&app, etab, "prof").await;
+    let accueil = inscrire(&app, etab, "accueil").await;
+    let parent = inscrire(&app, etab, "parent").await;
+    let jour = (chrono::Utc::now() + Duration::days(3)).date_naive().to_string();
+    let (st, b) = appel(
+        &app,
+        "POST",
+        "/personnels/absences",
+        Some(&prof.jeton),
+        Some(json!({"nature_code": "maladie", "debut": jour, "fin": jour})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    let id = b["absences"][0]["id"].as_str().unwrap().to_string();
+    let agent = b["absences"][0]["agent_id"].as_str().unwrap().to_string();
+    let base = "/personnels/absences";
+    // 401 sans jeton.
+    for chemin in [format!("{base}/tableau"), format!("{base}/compteurs"), format!("{base}/{id}/impact")] {
+        let (st, _) = appel(&app, "GET", &chemin, None, None).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{chemin}");
+    }
+    // Impact : l'agent, l'organisation ; 404 pour un collègue ; 403 pour un parent. Aucune nature.
+    let impact = format!("{base}/{id}/impact");
+    for c in [&prof, &cpe, &dir] {
+        let (st, b) = appel(&app, "GET", &impact, Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::OK, "{b}");
+        assert!(b.is_array());
+        assert!(!b.to_string().contains("maladie"));
+    }
+    let (st, _) = appel(&app, "GET", &impact, Some(&prof2.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, _) = appel(&app, "GET", &impact, Some(&parent.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // Tableau et compteurs : organisation seulement ; fenêtre bornée (422).
+    let tableau = format!("{base}/tableau?jour={jour}");
+    for c in [&cpe, &dir] {
+        let (st, b) = appel(&app, "GET", &tableau, Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::OK, "{b}");
+        assert!(b["lignes"].is_array() && b["compteurs"].is_object());
+        assert!(!b.to_string().contains("maladie"), "{b}");
+    }
+    for c in [&prof, &accueil, &parent] {
+        let (st, _) = appel(&app, "GET", &tableau, Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let loin = (chrono::Utc::now() + Duration::days(90)).date_naive();
+    let (st, _) = appel(&app, "GET", &format!("{base}/tableau?jour={loin}"), Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY);
+    let (st, b) = appel(&app, "GET", &format!("{base}/compteurs"), Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert!(b["a_valider"].as_u64().unwrap() >= 1);
+    let (st, _) = appel(&app, "GET", &format!("{base}/compteurs"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // Files : « à traiter » réservée à l'instructeur ; « prochaine étape » du cercle RH.
+    let (st, b) = appel(&app, "GET", &format!("{base}/a-traiter"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b.is_array()), (StatusCode::OK, true), "{b}");
+    let (st, _) = appel(&app, "GET", &format!("{base}/a-traiter"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, b) = appel(&app, "GET", &format!("{base}/{id}/prochaine-etape"), Some(&prof.jeton), None).await;
+    assert_eq!((st, &b["acteur"], &b["action"]), (StatusCode::OK, &json!("valideur"), &json!("valider")), "{b}");
+    let (st, _) = appel(&app, "GET", &format!("{base}/{id}/prochaine-etape"), Some(&prof2.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Retour : l'agent seul.
+    let (st, _) = appel(&app, "GET", &format!("{base}/{id}/retour"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _) = appel(&app, "GET", &format!("{base}/{id}/retour"), Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Présence : accueil et organisation ; jamais un parent ni un collègue ; « inconnu » / « oui » seulement.
+    let pres = format!("{base}/presence/{agent}");
+    let (st, b) = appel(&app, "GET", &pres, Some(&accueil.jeton), None).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    assert!(["oui", "non", "inconnu"].contains(&b["statut"].as_str().unwrap()));
+    assert!(!b.to_string().contains("maladie"));
+    for c in [&prof2, &parent] {
+        let (st, _) = appel(&app, "GET", &pres, Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // Interrupteur « EDT de référence » : lisible de l'organisation, posé par la direction après contrôle.
+    let sw = format!("{base}/edt-reference");
+    let (st, b) = appel(&app, "GET", &sw, Some(&cpe.jeton), None).await;
+    assert_eq!((st, &b["actif"]), (StatusCode::OK, &json!(false)), "{b}");
+    let (st, _) = appel(&app, "PUT", &sw, Some(&cpe.jeton), Some(json!({"actif": true}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "PUT", &sw, Some(&dir.jeton), Some(json!({"actif": true}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "aucune séance dans les 14 jours : EDT non à jour");
+    // Sans objet : jamais sans le droit d'organiser l'EDT ; impact inconnu : 404.
+    let faux = Uuid::new_v4();
+    let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/sans-objet"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/sans-objet"), Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+}
