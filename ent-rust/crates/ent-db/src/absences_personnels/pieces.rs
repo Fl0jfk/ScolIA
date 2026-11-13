@@ -327,6 +327,7 @@ impl PgEnt {
     /// Dépose une pièce : l'agent pour lui-même, ou l'instructeur. Type et taille contrôlés par signature
     /// binaire (D2) ; le fichier part dans `ent-object` (objet immuable, empreinte) ; **aucun nom de fichier
     /// n'est conservé**. Pour un arrêt, l'agent atteste n'avoir déposé que les volets 2 et 3 (R-08).
+    #[allow(clippy::too_many_arguments)]
     pub async fn deposer_piece_absence_for_actor(
         &self,
         etab: Uuid,
@@ -786,6 +787,7 @@ impl PgEnt {
 
     /// Pose un gel (contentieux) : suspend la purge des pièces et du fil de cette absence. Motif obligatoire,
     /// journalisé ; l'événement (identifiants seulement) signale le gel au DPO.
+    #[allow(clippy::too_many_arguments)]
     pub async fn poser_gel_absence_for_actor(
         &self,
         etab: Uuid,
