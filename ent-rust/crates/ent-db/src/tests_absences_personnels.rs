@@ -2907,8 +2907,8 @@ async fn a4_proposer_solliciter_accepter_puis_lever() {
     let ag_absent = x.agent_user(x.prof).await;
     assert!(props.iter().all(|p| p.agent_id != ag_absent), "l'absent n'est jamais proposé");
     let json = serde_json::to_string(&props).unwrap();
-    for interdit in ["convenance", "maladie", "nature", "motif", "age", "anciennete"] {
-        assert!(!json.contains(interdit), "« {interdit} » dans les propositions : {json}");
+    for interdit in ["convenance", "maladie", "nature", "motif", "\"age\"", "anciennete", "sante", "temps_partiel"] {
+        assert!(!json.contains(interdit), "« {interdit} » dans les propositions (R-AP37) : {json}");
     }
     // Sollicitation : message neutre, événement sans nature, impact « sollicité ».
     let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
@@ -2919,7 +2919,7 @@ async fn a4_proposer_solliciter_accepter_puis_lever() {
     }
     assert_eq!(x.etat_impact(impact).await, "sollicite");
     let payload: String = sqlx::query_scalar(
-        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type_name = 'absence_personnel.sollicitation_envoyee'",
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.sollicitation_envoyee'",
     )
     .bind(x.etab)
     .fetch_one(x.ent.pool())

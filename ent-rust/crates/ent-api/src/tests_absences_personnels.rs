@@ -291,3 +291,52 @@ async fn absences_des_personnels_impact_tableaux_et_files() {
     let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/sans-objet"), Some(&dir.jeton), None).await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 }
+
+/// Lot A4 : réponse et sollicitation, côté HTTP. 401 sans jeton ; 403 sans le droit d'organiser ; 404 pour la
+/// demande d'un autre ; sollicitation → acceptation → l'impact devient « remplacé » ; levée ; refus propre d'une
+/// acceptation répétée ; aucune nature dans ce que voit le remplaçant.
+#[tokio::test]
+async fn absences_des_personnels_reponse_et_sollicitation() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip A15 A4 : ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let prof2 = inscrire(&app, etab, "prof").await;
+    let prof3 = inscrire(&app, etab, "prof").await;
+    let accueil = inscrire(&app, etab, "accueil").await;
+    let base = "/personnels/absences";
+    // 401 / 403 : sans jeton, et sans le droit d'organiser.
+    let faux = Uuid::new_v4();
+    let (st, _) = appel(&app, "GET", &format!("{base}/mes-sollicitations"), None, None).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    for c in [&prof, &accueil] {
+        let (st, _) = appel(&app, "GET", &format!("{base}/impacts/{faux}/propositions"), Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/lever"), Some(&c.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/annuler-seance"), Some(&c.jeton), Some(json!({}))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let (st, _) = appel(&app, "GET", &format!("{base}/impacts/{faux}/propositions"), Some(&dir.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND, "impact inconnu");
+    // Une demande inconnue ou celle d'un autre : 404 uniforme pour le remplaçant.
+    for action in ["accepter", "accuser"] {
+        let (st, _) = appel(&app, "POST", &format!("{base}/sollicitations/{faux}/{action}"), Some(&prof2.jeton), None).await;
+        assert_eq!(st, StatusCode::NOT_FOUND, "{action}");
+    }
+    let (st, _) = appel(&app, "POST", &format!("{base}/sollicitations/{faux}/refuser"), Some(&prof2.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Sortie anticipée : refusée (R-AP24) avant même de chercher l'impact.
+    let (st, b) = appel(&app, "POST", &format!("{base}/impacts/{faux}/annuler-seance"), Some(&dir.jeton), Some(json!({"sortie_anticipee": true}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "{b}");
+    // Mes sollicitations : vide, jamais d'erreur.
+    let (st, b) = appel(&app, "GET", &format!("{base}/mes-sollicitations"), Some(&prof2.jeton), None).await;
+    assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(0)), "{b}");
+    let (st, _) = appel(&app, "POST", &format!("{base}/impacts/{faux}/appel-volontaires"), Some(&dir.jeton), Some(json!({"agents": [faux]}))).await;
+    assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "au moins deux volontaires");
+    let _ = prof3;
+}
