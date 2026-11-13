@@ -93,6 +93,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_convention_stage", &["id"]),
     r("ent_cours_membre", &["id"], "inclusion ou exclusion datée d'un cours : ligne immuable (seule l'annulation est permise), elle reste sur la fiche pour laquelle elle a été décidée"),
     d("ent_creneau_rdv", &["id"]),
+    r("ent_dem_demande", &["id"], "demande du socle N1 : preuve en ajout seul (faits chaînés), identité et version gardées par la base ; la demande reste rattachée à la fiche sur laquelle elle a été déposée"),
     d("ent_dispense_vs", &["id"]),
     d("ent_doc_a_signer", &["id"]),
     d("ent_eleve_bourse", &["id"]),
