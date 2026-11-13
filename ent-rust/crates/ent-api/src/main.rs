@@ -431,6 +431,25 @@ async fn run_api() {
         })
     });
 
+    // Socle 15 (A4) : expiration des sollicitations de remplacement (20 minutes le jour même), envoi de celles
+    // que la plage calme avait différées, alerte d'accusé manquant. Chaque minute, idempotente.
+    let sollicitations_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(45)).await;
+            loop {
+                match ent.traiter_sollicitations().await {
+                    Ok(b) if b.expirees > 0 || b.accuses_manquants > 0 => {
+                        tracing::info!(?b, "sollicitations de remplacement")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("sollicitations de remplacement : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -450,6 +469,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = taches_absences {
+        t.abort();
+    }
+    if let Some(t) = sollicitations_absences {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

@@ -252,12 +252,18 @@ impl PgEnt {
                 out.push((pl.heure_debut, pl.heure_fin));
             }
         }
-        // Cours déplacés vers ce jour, assurés par ce personnel.
+        // Cours déplacés vers ce jour, assurés par ce personnel. AR-10 : l'occupation est celle de qui ASSURE le
+        // cours déplacé — son remplaçant si un remplacement est posé (sur le jour d'origine ou le nouveau jour),
+        // pas seulement le titulaire : sinon le remplaçant paraissait libre et le titulaire occupé à tort.
         let arrivants: Vec<(NaiveTime, NaiveTime)> = sqlx::query_as(
             "SELECT d.nouvelle_heure_debut, d.nouvelle_heure_fin
                FROM ent_edt_deplacement d
                JOIN ent_edt_creneau c ON c.id = d.creneau_id AND c.etablissement_id = d.etablissement_id
-              WHERE d.etablissement_id = $1 AND d.nouveau_jour = $2 AND c.prof_user_id = $3",
+              WHERE d.etablissement_id = $1 AND d.nouveau_jour = $2
+                AND COALESCE((SELECT e.remplacant_user_id FROM ent_edt_exception e
+                               WHERE e.etablissement_id = d.etablissement_id AND e.creneau_id = d.creneau_id
+                                 AND e.kind = 'remplacement' AND e.jour IN (d.jour_origine, d.nouveau_jour)
+                               ORDER BY e.created_at DESC LIMIT 1), c.prof_user_id) = $3",
         )
         .bind(etab)
         .bind(jour)
@@ -773,15 +779,19 @@ impl PgEnt {
                 seances_ce_jour: charge,
             });
         }
-        out.sort_by(|x, y| {
-            (!x.competent, x.seances_ce_jour, &x.nom).cmp(&(
-                !y.competent,
-                y.seances_ce_jour,
-                &y.nom,
-            ))
-        });
+        trier_candidats(&mut out);
         Ok(out)
     }
+}
+
+/// Ordre des candidats (AR-26) : compétents d'abord, puis les moins chargés ce jour-là, puis le nom.
+pub(crate) fn trier_candidats(candidats: &mut [Candidat]) {
+    candidats.sort_by(|x, y| {
+        y.competent
+            .cmp(&x.competent)
+            .then(x.seances_ce_jour.cmp(&y.seances_ce_jour))
+            .then_with(|| x.nom.cmp(&y.nom))
+    });
 }
 
 // ───────────────────────────── Remplacement (EDT-05) ─────────────────────────────
@@ -1634,5 +1644,23 @@ impl PlanEdt {
         .await
         .map(|o| o.flatten())
         .map_err(db)
+    }
+}
+
+#[cfg(test)]
+mod tests_tri_candidats {
+    use super::*;
+
+    fn c(nom: &str, competent: bool, charge: usize) -> Candidat {
+        Candidat { user_id: Uuid::new_v4(), nom: Some(nom.into()), competent, seances_ce_jour: charge }
+    }
+
+    /// AR-26 : l'ordre des candidats — compétents d'abord, puis les moins chargés, puis le nom.
+    #[test]
+    fn ar26_ordre_des_candidats() {
+        let mut v = vec![c("Zoé", false, 0), c("Yann", true, 3), c("Adèle", true, 1), c("Bruno", true, 1), c("Alice", false, 0)];
+        trier_candidats(&mut v);
+        let noms: Vec<&str> = v.iter().map(|x| x.nom.as_deref().unwrap()).collect();
+        assert_eq!(noms, vec!["Adèle", "Bruno", "Yann", "Alice", "Zoé"]);
     }
 }
