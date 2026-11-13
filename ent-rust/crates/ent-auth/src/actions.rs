@@ -1283,6 +1283,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AssiduiteRegleGerer));
+    }
     // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
     if role == Role::Admin {
         d.push(etab(AfaireRapprocher));
