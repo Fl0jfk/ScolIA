@@ -611,8 +611,28 @@ async fn inscription_annuelle_et_pont_avec_l_ancienne_table() {
         .await
         .unwrap();
     assert_eq!(illisible, 1);
-    let (n,): (i64,) = sqlx::query_as("SELECT ent_eleve_inscription_reprendre()").fetch_one(ent.pool_verif()).await.unwrap();
-    assert_eq!(n, 0, "reprise idempotente");
+    // La reprise est globale (toute la base) : sur la base partagée d'une tranche de CI, d'autres tests
+    // ont pu laisser des lignes héritées. L'idempotence se vérifie donc sur **cet** établissement.
+    let inscriptions = || {
+        let pool = ent.pool_verif().clone();
+        async move {
+            let (c,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_inscription WHERE etablissement_id = $1")
+                .bind(etab)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            c
+        }
+    };
+    let avant = inscriptions().await;
+    let _: (i64,) = sqlx::query_as("SELECT ent_eleve_inscription_reprendre()").fetch_one(ent.pool_verif()).await.unwrap();
+    assert_eq!(inscriptions().await, avant, "reprise idempotente : rien de nouveau pour cet établissement");
+    let (illisible,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_eleve_inscription_a_traiter WHERE eleve_id = $1 AND cause = 'annee_illisible'")
+        .bind(e2.id)
+        .fetch_one(ent.pool_verif())
+        .await
+        .unwrap();
+    assert_eq!(illisible, 1, "la ligne illisible reste « à traiter », sans doublon");
     // Année où l'élève n'est pas scolarisé : refusée.
     let (passee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, (current_date - interval '5 years')::date)")
         .bind(etab)
