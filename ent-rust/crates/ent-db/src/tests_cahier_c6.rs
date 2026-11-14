@@ -217,10 +217,10 @@ async fn annulation_en_masse_un_ecran_traitement_en_lot_et_entree_non_ecrasee() 
         annuler(&fx, *s).await;
     }
     let l = fx.ent.cdt_reports_lister(&fx.prof()).await.unwrap();
-    assert_eq!(l.nb_ouvertes, 3);
+    assert_eq!(l.nb_ouvertes, 4, "trois travaux attendus et une entrée prévue");
     // Chaque séance annulée a pour cible la séance suivante **non annulée** du cours.
     assert!(l.propositions.iter().all(|p| p.vers.as_ref().is_some_and(|v| v.seance_id == seances[3])), "{:?}", l.propositions);
-    let lot = fx.ent.cdt_reports_lot(&fx.prof(), ReportsLotBody { ids: l.propositions.iter().map(|p| p.id).collect(), decision: "accepter".into() }).await.unwrap();
+    let lot = fx.ent.cdt_reports_lot(&fx.prof(), ReportsLotBody { ids: l.propositions.iter().filter(|p| p.objet == "travail").map(|p| p.id).collect(), decision: "accepter".into() }).await.unwrap();
     assert_eq!((lot.appliques, lot.refuses, lot.ignores.len()), (3, 0, 0));
     for t in &travaux {
         assert_eq!(echeance_seance(&fx, *t).await.0, Some(seances[3]));
