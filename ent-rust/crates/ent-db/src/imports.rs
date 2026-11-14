@@ -751,6 +751,76 @@ impl PgEnt {
         self.lot_import(etab, lot_id).await
     }
 
+    /// MSE-D02 (socle 28, MS0) : annule un lot **prévisualisé** (jamais appliqué). Les lignes
+    /// restantes passent à « ignorée » et ne pourront plus être appliquées. Un lot déjà
+    /// **appliqué** est refusé : ses élèves existent dans plusieurs socles (dossier, scolarité,
+    /// liens) et ne se retirent pas par ce moteur ; la correction passe par les commandes du
+    /// socle 2 (fusion annulable, archivage).
+    pub async fn annuler_import_for_actor(
+        &self,
+        etab: Uuid,
+        actor: Uuid,
+        role: &str,
+        lot_id: Uuid,
+    ) -> Result<LotImportDto, EntDbError> {
+        self.exiger_import(etab, actor, role).await?;
+        let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        let statut: Option<(String,)> = sqlx::query_as(
+            "SELECT statut FROM ent_import_lot WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
+        )
+        .bind(etab)
+        .bind(lot_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?;
+        match statut {
+            None => return Err(EntDbError::Domain(DomainError::NotFound)),
+            Some((s,)) if s == "applique" => {
+                return Err(EntDbError::ConflitDossier(
+                    "lot déjà appliqué : l'annulation d'un lot appliqué n'est pas prise en charge",
+                ))
+            }
+            Some((s,)) if s == "annule" => {
+                return Err(EntDbError::ConflitDossier("lot déjà annulé"))
+            }
+            _ => {}
+        }
+        sqlx::query(
+            "UPDATE ent_import_ligne SET statut = 'ignoree', traite_par = $3, traite_le = $4
+              WHERE etablissement_id = $1 AND lot_id = $2 AND statut IN ('a_creer', 'existant', 'rejet')",
+        )
+        .bind(etab)
+        .bind(lot_id)
+        .bind(actor)
+        .bind(Utc::now())
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_import_lot SET statut = 'annule', annule_par = $3, annule_le = $4
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(lot_id)
+        .bind(actor)
+        .bind(Utc::now())
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        tx.publier(MetierEventDraft {
+            etablissement_id: etab,
+            type_name: types::IMPORT_LOT_ANNULE.into(),
+            aggregate: AggregateKind::Import,
+            aggregate_id: lot_id,
+            eleve_id: None,
+            payload: json!({ "lot_id": lot_id, "format": FORMAT_ELEVES_V1 }),
+            actor_user_id: Some(actor.to_string()),
+        })
+        .await?;
+        tx.commit().await.map_err(db)?;
+        self.lot_import(etab, lot_id).await
+    }
+
     /// IOP-04 : traiter un rejet. `ignorer` : la ligne est écartée ; `corriger` :
     /// les valeurs données remplacent celles du fichier, la ligne est revalidée
     /// et, si le lot est déjà appliqué, l'élève est créé aussitôt.
