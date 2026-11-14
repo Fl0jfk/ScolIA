@@ -356,6 +356,14 @@ pub mod types {
     pub const DEMANDE_CONSULTEE: &str = "demande.consultee";
     pub const DEMANDE_EN_RETARD: &str = "demande.en_retard";
     pub const DEMANDE_ROUVERTE: &str = "demande.rouverte";
+    /// Lot N1-3 : HSE (décision, heures transmises, rien déclaré) et reprographie (prête, rappel de retrait). Mêmes
+    /// règles : enveloppe neutre, aucun nom, aucun volume, aucun texte.
+    pub const DEMANDE_HSE_DECIDEE: &str = "demande.hse_decidee";
+    pub const DEMANDE_HSE_TRANSMISE: &str = "demande.hse_transmise";
+    pub const DEMANDE_HSE_RIEN_DECLARE: &str = "demande.hse_rien_declare";
+    pub const DEMANDE_REPRO_VALIDEE: &str = "demande.repro_validee";
+    pub const DEMANDE_REPRO_PRETE: &str = "demande.repro_prete";
+    pub const DEMANDE_REPRO_RAPPEL: &str = "demande.repro_rappel";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

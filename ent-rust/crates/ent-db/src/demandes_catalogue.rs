@@ -274,6 +274,64 @@ pub const NATURES_BASCULE: &[NatureDecl] = &[
         conservation: Conservation::Comptable,
         file_defaut: "comptabilite",
     },
+    NatureDecl {
+        code: "rh.hse",
+        version: 1,
+        libelle: "Demande d'heures supplémentaires effectives (HSE)",
+        mots_cles: &["HSE", "heures supplémentaires", "soutien", "atelier", "heures faites", "accompagnement"],
+        publics: PERS,
+        confidentialite: Confidentialite::C1,
+        champs: &[
+            champ(
+                "motif",
+                ChampType::Liste(&[
+                    "soutien",
+                    "atelier",
+                    "accompagnement_sortie",
+                    "stage_reussite",
+                    "preparation_concours",
+                    "tutorat",
+                    "autre",
+                ]),
+                true,
+            ),
+            // Quarts d'heure : D-061, les HSE se comptent en heures, jamais en euros.
+            champ("volume_quarts", ChampType::Entier { min: 1, max: 1600 }, true),
+            champ("periode_du", ChampType::Date, true),
+            champ("periode_au", ChampType::Date, true),
+            champ("lieu", ChampType::Texte { max: 120 }, false),
+        ],
+        texte_max: Some(2000),
+        eleve_requis: false,
+        delai_prise_jours: 2,
+        delai_traitement_jours: 10,
+        conservation: Conservation::Rh,
+        file_defaut: "direction",
+    },
+    NatureDecl {
+        code: "reprographie.tirage",
+        version: 1,
+        libelle: "Demande de copies (reprographie)",
+        mots_cles: &["photocopies", "copies", "reprographie", "imprimer", "tirage", "polycopiés"],
+        publics: PERS,
+        confidentialite: Confidentialite::C1,
+        champs: &[
+            champ("format", ChampType::Liste(&["a4", "a3"]), true),
+            champ("couleur", ChampType::Bool, true),
+            champ("recto_verso", ChampType::Bool, false),
+            champ("agrafage", ChampType::Bool, false),
+            champ("exemplaires", ChampType::Entier { min: 1, max: 5000 }, true),
+            champ("pour_le", ChampType::Date, true),
+            champ("pour_heure", ChampType::Heure, false),
+            champ("oeuvres_protegees", ChampType::Bool, false),
+        ],
+        texte_max: Some(1000),
+        eleve_requis: false,
+        delai_prise_jours: 1,
+        delai_traitement_jours: 3,
+        conservation: Conservation::Reprographie,
+        file_defaut: "reprographie",
+    },
 ];
 
 /// Raccourcis : la démarche a un circuit chez une brique ; le guichet y mène, il ne crée rien (R-DM1).
@@ -402,6 +460,9 @@ pub const METAS: &[NatureMeta] = &[
     meta!("scolarite.carte_eleve", "n1", Some("objet_perdu"), false),
     meta!("secretariat.demande_famille", "n1", None, false),
     meta!("comptabilite.demande_famille", "24", Some("type_demande"), true),
+    meta!("rh.hse", "n1", Some("motif"), false),
+    // Le socle 44 reprendra la déclaration (même code, mêmes tables, R-DM45).
+    meta!("reprographie.tirage", "n1", Some("format"), false),
 ];
 
 /// Toutes les natures N1 (cœur et bascule), dans un ordre stable.
@@ -588,6 +649,18 @@ pub const FILES_DEFAUT: &[FileDecl] = &[
         repli: Some("tri"),
         membres: &[fonction("cpe", true, 1), fonction("aed", false, 2), fonction("surveillant", false, 2)],
         message_accueil: None,
+    },
+    FileDecl {
+        code: "reprographie",
+        libelle: "Reprographie",
+        role_traitant: "la reprographie",
+        type_: "service",
+        service_calendrier: "secretariat",
+        repli: Some("tri"),
+        // Passerelle de la demande ; la file d'IMPRESSION est tenue par SITE (désignation du réceptionnaire,
+        // `ent_dem_repro_receptionnaire`, NJ-77), jamais par un rôle entier.
+        membres: &[fonction("gestionnaire", true, 1), fonction("secretaire_direction", false, 2)],
+        message_accueil: Some("La reprographie a besoin d'un délai : indiquez pour quand vous avez besoin des copies."),
     },
     FileDecl {
         code: "rh",

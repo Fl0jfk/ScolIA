@@ -47,6 +47,16 @@ pub trait PortDocuments: Send + Sync {
     fn document_depose_par(&self, etab: Uuid, document_id: Uuid, personne_id: Uuid) -> bool;
     /// Jeton de lecture **court, lié à la session** (socle 7 §17.3), émis seulement après le contrôle de droit de N1.
     fn jeton_lecture(&self, etab: Uuid, document_id: Uuid, user_id: Uuid) -> Option<String>;
+    /// Nombre de pages du PDF, **lu par le socle 7** (jamais saisi par le demandeur : reprographie, N1-3).
+    /// `None` : illisible ou inconnu, la demande de copies est alors refusée (fail-closed).
+    fn pages_pdf(&self, _etab: Uuid, _document_id: Uuid) -> Option<i32> {
+        None
+    }
+    /// Efface le fichier au socle 7 (reprographie : 30 jours après le retrait, §18.5). `true` seulement si le socle 7
+    /// confirme l'effacement ; sinon N1 ne marque rien et recommence au prochain passage.
+    fn effacer(&self, _etab: Uuid, _document_id: Uuid) -> bool {
+        false
+    }
 }
 
 /// Socle 7 absent : aucune pièce n'est acceptée ni lue (fail-closed, jamais de stockage direct de secours).
