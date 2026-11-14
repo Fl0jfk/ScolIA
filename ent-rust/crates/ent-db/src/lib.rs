@@ -37,6 +37,7 @@ pub mod demandes_routage;
 /// Socle 7 (documents, pièces et signatures), lots D2 et D3 : types, natures et ports de la brique.
 pub mod documents;
 /// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
+pub mod documents_natures;
 pub mod documents_repo;
 mod evaluations_conseil;
 pub mod module_sante;
@@ -514,6 +515,8 @@ mod tests_demandes_n1_1;
 mod tests_demandes_n1_2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

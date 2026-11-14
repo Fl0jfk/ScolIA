@@ -821,6 +821,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
     ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
+    // Vérification publique des documents (socle 7, D3) : le code (60 bits) ou l'empreinte du fichier fait foi ;
+    // l'établissement vient de l'adresse, réponses identiques pour inconnu et autre établissement.
+    ("GET", "/verifier/{code}"),
+    ("POST", "/verifier"),
     // Préinscription (S2-3, D-014) : e-mail vérifié par code, invitation par jeton.
     ("POST", "/preinscription/demarrer"),
     ("POST", "/preinscription/verifier"),

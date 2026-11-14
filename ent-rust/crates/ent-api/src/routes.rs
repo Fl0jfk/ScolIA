@@ -889,6 +889,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_missions::routes());
     // Stages (socle 39, lot ST1 (a) : `stages.rs`).
     let r = r.merge(crate::stages::routes());
+    // Socle 7, lot D3 : vérification publique des documents (routes SANS session, liste fermée de la matrice).
+    let r = r.merge(crate::documents_verif::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))

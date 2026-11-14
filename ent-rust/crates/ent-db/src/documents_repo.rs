@@ -178,6 +178,7 @@ pub struct NouvelleEntite {
 
 // ───────────────────────── Accès internes ─────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 async fn journaliser(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
@@ -244,10 +245,7 @@ struct LigneDocument {
     id: Uuid,
     nature_code: String,
     entite_id: Uuid,
-    sujet_type: String,
     eleve_id: Option<Uuid>,
-    personne_id: Option<Uuid>,
-    agent_id: Option<Uuid>,
     sensibilite: String,
     domaine: String,
     titre: String,
@@ -257,24 +255,19 @@ struct LigneDocument {
     numero_annee: Option<i32>,
     numero: Option<i32>,
     version_courante: i32,
-    verification_publique: String,
     cree_le: DateTime<Utc>,
 }
 
-const COLONNES_DOCUMENT: &str =
-    "id, nature_code, entite_id, sujet_type, eleve_id, personne_id, agent_id, sensibilite, domaine,
+const COLONNES_DOCUMENT: &str = "id, nature_code, entite_id, eleve_id, sensibilite, domaine,
      titre, titre_neutre, etat, serie_code, numero_annee, numero, version_courante,
-     verification_publique, cree_le";
+     cree_le";
 
 fn ligne_document(r: &sqlx::postgres::PgRow) -> LigneDocument {
     LigneDocument {
         id: r.get("id"),
         nature_code: r.get("nature_code"),
         entite_id: r.get("entite_id"),
-        sujet_type: r.get("sujet_type"),
         eleve_id: r.get("eleve_id"),
-        personne_id: r.get("personne_id"),
-        agent_id: r.get("agent_id"),
         sensibilite: r.get("sensibilite"),
         domaine: r.get("domaine"),
         titre: r.get("titre"),
@@ -284,7 +277,6 @@ fn ligne_document(r: &sqlx::postgres::PgRow) -> LigneDocument {
         numero_annee: r.get("numero_annee"),
         numero: r.get("numero"),
         version_courante: r.get("version_courante"),
-        verification_publique: r.get("verification_publique"),
         cree_le: r.get("cree_le"),
     }
 }
@@ -365,7 +357,7 @@ impl PgEnt {
     }
 
     /// Droit sur le sujet d'un document : l'action est exercée sur l'élève (portée) ou sur l'établissement.
-    async fn doc_peut_sur_sujet(
+    pub(crate) async fn doc_peut_sur_sujet(
         &self,
         a: &Acteur<'_>,
         action: Action,
@@ -1615,11 +1607,14 @@ struct ObjetRendu {
     identite_version: i32,
 }
 
+/// (style, couleur principale, mentions de pied, fenêtre d'enveloppe, version).
+type LigneIdentiteDocs = (String, Option<String>, Option<String>, String, i32);
+
 async fn lire_identite(
     conn: &mut PgConnection,
     etab: Uuid,
 ) -> Result<(IdentiteDocuments, i32), EntDbError> {
-    let r: Option<(String, Option<String>, Option<String>, String, i32)> = sqlx::query_as(
+    let r: Option<LigneIdentiteDocs> = sqlx::query_as(
         "SELECT style_code, couleur_principale, mentions_pied, fenetre_enveloppe, version
            FROM ent_doc_identite WHERE etablissement_id = $1",
     )

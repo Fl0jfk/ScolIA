@@ -30,9 +30,12 @@ use uuid::Uuid;
 
 /// Moteur de rendu de test : octets déterministes qui contiennent tout ce que le moteur a reçu, pour que les tests
 /// vérifient ce qui est imprimé (numéro, destinataire, adresse) sans PDF réel (D1 n'est pas sur ENT).
+/// (destinataire, adresse, numéro de version) reçus par le moteur.
+type AppelRendu = (Option<String>, Option<String>, i32);
+
 #[derive(Default)]
 struct RenduTest {
-    appels: Mutex<Vec<(Option<String>, Option<String>, i32)>>,
+    appels: Mutex<Vec<AppelRendu>>,
     echec: bool,
 }
 
@@ -1292,7 +1295,8 @@ async fn t_parametrage_identite_et_natures() {
         .await
         .is_err());
     // Le style et les textes choisis sont ceux que reçoit le moteur ; le style de la nature déroge à celui de l'identité.
-    struct Espion(Mutex<Vec<(String, Vec<(String, String)>)>>);
+    type Vue = (String, Vec<(String, String)>);
+    struct Espion(Mutex<Vec<Vue>>);
     impl RenduDocument for Espion {
         fn rendre(&self, d: &DemandeRendu<'_>) -> Result<DocumentRendu, ErreurRendu> {
             self.0
