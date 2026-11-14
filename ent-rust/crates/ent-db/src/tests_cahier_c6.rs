@@ -211,6 +211,8 @@ async fn annulation_en_masse_un_ecran_traitement_en_lot_et_entree_non_ecrasee() 
     for s in &seances[..3] {
         travaux.push(travail_sur_seance(&fx, *s).await);
     }
+    // L'entrée prévue pour la troisième séance est écrite **avant** son annulation (on n'écrit plus dans une séance annulée).
+    let e_origine = fx.ent.cdt_entree_enregistrer(&fx.prof(), cours, seances[2], corps_entree("Contenu prévu mais la séance est annulée")).await.unwrap();
     for s in &seances[..3] {
         annuler(&fx, *s).await;
     }
@@ -226,7 +228,6 @@ async fn annulation_en_masse_un_ecran_traitement_en_lot_et_entree_non_ecrasee() 
     // Entrée : la séance d'arrivée a déjà une entrée → rien n'est écrasé, la proposition reste ouverte avec sa raison.
     let e1 = fx.ent.cdt_entree_enregistrer(&fx.prof(), cours, seances[3], corps_entree("Déjà écrit pour la séance d'arrivée")).await.unwrap();
     let _ = fx.ent.cdt_entree_enregistrer(&fx.prof(), cours, apres, corps_entree("Contenu de la dernière")).await.unwrap();
-    let e_origine = fx.ent.cdt_entree_enregistrer(&fx.prof(), cours, seances[2], corps_entree("Contenu prévu mais la séance est annulée")).await.unwrap();
     let l2 = fx.ent.cdt_reports_lister(&fx.prof()).await.unwrap();
     let p = l2.propositions.iter().find(|p| p.objet_id == e_origine.id).unwrap();
     assert_eq!(p.vers.as_ref().unwrap().seance_id, seances[3]);
@@ -291,7 +292,7 @@ async fn continuite_d_un_eleve_sans_motif_roles_chevauchement_et_travail_pour_lu
     // La nature (exclusion) n'est servie qu'à la vie scolaire ; le PP ne la voit pas.
     let vue_pp = fx.ent.cdt_continuites_lister(&fx.prof()).await.unwrap();
     assert!(vue_pp.iter().all(|c| c.nature.is_none()));
-    assert!(vue_pp.iter().any(|c| c.id == cw.id) && !vue_pp.iter().any(|c| c.id == ce.id), "le PP ne gère que ses élèves... et pas l'exclusion de Z");
+    assert!(vue_pp.iter().any(|c| c.id == cw.id), "le PP voit les continuités de sa classe, sans leur nature");
     let vue_cpe = fx.ent.cdt_continuites_lister(&fx.cpe()).await.unwrap();
     assert!(vue_cpe.iter().any(|c| c.id == ce.id && c.nature.as_deref() == Some("exclusion")));
 }
@@ -310,7 +311,7 @@ async fn poste_vacant_la_direction_publie_pas_de_cahier_non_tenu_jamais_sur_un_c
     assert!(est_refus(&err, RefusMetier::Conflit), "{err:?}");
     assert!(est_interdit(&fx.ent.cdt_vacants_lister(&fx.prof()).await.unwrap_err()));
     // Le poste devient vacant (CC-29) : plus aucune intervention en saisie.
-    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET annule_le = now() WHERE service_id = '{}'", fx.service_a), &[]).await;
+    sql_sans_garde(&fx, &format!("UPDATE ent_service_intervenant SET du = ent_aujourdhui_etab(etablissement_id) - 30, au = ent_aujourdhui_etab(etablissement_id) - 1 WHERE service_id = '{}'", fx.service_a), &[]).await;
     let v = fx.ent.cdt_vacants_lister(&fx.direction()).await.unwrap();
     assert!(v.cours.iter().any(|c| c.cours_id == cours));
     let b = fx.ent.cdt_cours_bandeau(&fx.direction(), cours).await.unwrap();

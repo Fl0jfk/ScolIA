@@ -984,7 +984,7 @@ impl PgEnt {
                FROM ent_cdt_remise r
                JOIN ent_cdt_piece_jointe p ON p.etablissement_id = r.etablissement_id AND p.porteur = 'depot' AND p.porteur_id = r.dernier_depot_id AND p.retiree_le IS NULL
                JOIN ent_eleve e ON e.etablissement_id = r.etablissement_id
-                AND e.id = COALESCE(r.eleve_id, (SELECT min(m.eleve_id) FROM ent_cdt_groupe_membre m WHERE m.etablissement_id = r.etablissement_id AND m.groupe_id = r.groupe_id))
+                AND e.id = COALESCE(r.eleve_id, (SELECT m.eleve_id FROM ent_cdt_groupe_membre m WHERE m.etablissement_id = r.etablissement_id AND m.groupe_id = r.groupe_id ORDER BY m.eleve_id LIMIT 1))
               WHERE r.etablissement_id = $1 AND r.travail_id = $2 AND r.dernier_depot_id IS NOT NULL
               ORDER BY e.nom, e.prenom, p.ordre, p.id",
         )

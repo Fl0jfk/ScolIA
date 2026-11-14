@@ -213,7 +213,7 @@ async fn pastilles_et_majoration_du_delai_apercu_puis_application_motif_jamais_s
     }
     // Travail donné 2 jours avant l'échéance : +50 % = +24 h pour X seul.
     let t = travail(&fx, "en_ligne").await;
-    sqlx::query("UPDATE ent_cdt_travail SET visible_a = echeance_le - interval '2 days' WHERE id = $1").bind(t).execute(fx.ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_cdt_travail SET visible_a = now() - interval '1 minute', echeance_le = now() - interval '1 minute' + interval '2 days' WHERE id = $1").bind(t).execute(fx.ent.pool()).await.unwrap();
     let base: DateTime<Utc> = sqlx::query_scalar("SELECT echeance_le FROM ent_cdt_travail WHERE id = $1").bind(t).fetch_one(fx.ent.pool()).await.unwrap();
     let apercu = fx.ent.cdt_amenagements_appliquer(&fx.prof(), t, false).await.unwrap();
     assert!(!apercu.applique);
