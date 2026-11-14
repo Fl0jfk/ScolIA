@@ -1784,7 +1784,7 @@ async fn publications_famille_notifient_les_responsables() {
         .expect("publication document à signer");
 
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .expect("lecture outbox mail");
     assert!(
@@ -2288,7 +2288,7 @@ async fn competences_lues_par_la_famille_et_export_lsu_reel() {
         .expect("lecture famille après publication");
     assert!(!publiees.is_empty());
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .expect("outbox");
     assert!(
@@ -2833,7 +2833,7 @@ async fn facture_et_bourse_notifient_les_responsables() {
     .expect("décision bourse");
 
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .expect("lecture outbox mail");
     assert!(
@@ -2950,7 +2950,7 @@ async fn decision_conseil_classe_publiee_notifie_la_famille() {
     .expect("décision publiée");
 
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .expect("lecture outbox mail");
     assert!(
