@@ -8,7 +8,7 @@
 
 use super::catalogue::NATURES;
 use super::contrat::*;
-use super::destinataires::{responsables_de_l_eleve, Candidat};
+use super::destinataires::{personnes_de_l_eleve, planifier_canaux, sujet_gele, Destinations};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -21,6 +21,8 @@ pub enum RefusAvis {
     NatureDesactivee,
     #[error("sujet élève manquant")]
     SujetManquant,
+    #[error("sujet gelé (décès de l'élève) : aucun avis automatique")]
+    SujetGele,
     #[error("une brique n'émet que ses natures")]
     BriqueEtrangere,
     #[error("paramètre « {0} » refusé (valeur trop longue)")]
@@ -135,6 +137,11 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
     if n.sujet == TypeSujet::Eleve && d.eleve_id.is_none() {
         return Err(RefusAvis::SujetManquant);
     }
+    if let (TypeSujet::Eleve, Some(eleve)) = (n.sujet, d.eleve_id) {
+        if sujet_gele(conn, d.etablissement_id, "eleve", eleve).await? {
+            return Err(RefusAvis::SujetGele);
+        }
+    }
     let urgence = match d.urgence_plus {
         Some(plus) => n.urgence.plus(plus, if n.brique_u3_autorisee { Urgence::U3 } else { Urgence::U2 }),
         None => n.urgence,
@@ -197,28 +204,56 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
         .execute(&mut *conn)
         .await?;
     }
-    let candidats: Vec<Candidat> = match (n.sujet, d.eleve_id) {
-        (TypeSujet::Eleve, Some(eleve)) => responsables_de_l_eleve(conn, d.etablissement_id, eleve, n.droit_requis).await?,
+    let personnes = match (n.sujet, d.eleve_id) {
+        (TypeSujet::Eleve, Some(eleve)) => {
+            personnes_de_l_eleve(conn, d.etablissement_id, eleve, n.droit_requis, d.effet_le).await?
+        }
         _ => Vec::new(),
     };
+    let sms_u2_actif: bool = sqlx::query_scalar("SELECT sms_u2_actif FROM ent_ntf_parametre WHERE etablissement_id = $1")
+        .bind(d.etablissement_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .unwrap_or(false);
     let mut retenus = Vec::new();
-    for c in candidats {
+    let mut exclus = Vec::new();
+    let mut destinations = Destinations::default();
+    let raison = |compte: bool| if compte { "responsable_lien_actif" } else { "responsable_sans_compte" };
+    for p in personnes {
         let dest_id = Uuid::new_v4();
-        sqlx::query(
-            "INSERT INTO ent_ntf_destinataire (id, etablissement_id, avis_id, compte_id, raison_code, retenu)
-             VALUES ($1,$2,$3,$4,$5,true) ON CONFLICT DO NOTHING",
+        let l = &p.ligne;
+        // Un destinataire par personne, retenu ou exclu avec sa raison (relue à chaque remise, R-N1).
+        let inseree = sqlx::query(
+            "INSERT INTO ent_ntf_destinataire
+                (id, etablissement_id, avis_id, compte_id, personne_id, foyer_id, raison_code, retenu, exclusion_code)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING",
         )
         .bind(dest_id)
         .bind(d.etablissement_id)
         .bind(avis_id)
-        .bind(c.compte_id)
-        .bind(c.raison_code)
+        .bind(l.compte_id)
+        .bind(l.personne_id)
+        .bind(l.foyer_id)
+        .bind(raison(l.compte_id.is_some()))
+        .bind(p.exclusion.is_none())
+        .bind(p.exclusion)
         .execute(&mut *conn)
         .await?;
-        for canal in n.canaux_defaut {
+        if inseree.rows_affected() == 0 {
+            continue;
+        }
+        if let Some(code) = p.exclusion {
+            exclus.push((Some(l.personne_id), code.to_string()));
+            continue;
+        }
+        let plan = planifier_canaux(n, l, sms_u2_actif);
+        for canal in &plan.canaux {
+            // Une seule remise par destination et par avis : les suivantes sont tracées, jamais envoyées (CN-33).
+            let nouveau = destinations.reserver(*canal, l);
             sqlx::query(
-                "INSERT INTO ent_ntf_remise (id, etablissement_id, destinataire_id, canal, planifiee_pour, motif_planification)
-                 VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (destinataire_id, canal) DO NOTHING",
+                "INSERT INTO ent_ntf_remise
+                    (id, etablissement_id, destinataire_id, canal, planifiee_pour, motif_planification, statut, motif)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (destinataire_id, canal) DO NOTHING",
             )
             .bind(Uuid::new_v4())
             .bind(d.etablissement_id)
@@ -226,12 +261,27 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
             .bind(canal.code())
             .bind(confirme_apres.max(d.effet_le))
             .bind(if delai > Duration::zero() { "delai_confirmation" } else { "immediat" })
+            .bind(if nouveau { "planifiee" } else { "ignoree" })
+            .bind(if nouveau { None } else { Some("doublon_destination") })
+            .execute(&mut *conn)
+            .await?;
+        }
+        if plan.a_prevenir {
+            // Aucun canal n'atteint cette personne alors que la nature l'exige : tâche manuelle (§9.2).
+            sqlx::query(
+                "INSERT INTO ent_ntf_a_prevenir (id, etablissement_id, destinataire_id, echeance)
+                 VALUES ($1,$2,$3,$4) ON CONFLICT (destinataire_id) DO NOTHING",
+            )
+            .bind(Uuid::new_v4())
+            .bind(d.etablissement_id)
+            .bind(dest_id)
+            .bind(confirme_apres + Duration::hours(24))
             .execute(&mut *conn)
             .await?;
         }
         retenus.push(dest_id);
     }
-    Ok(AvisCree { avis_id, cree: true, retenus, exclus: Vec::new() })
+    Ok(AvisCree { avis_id, cree: true, retenus, exclus })
 }
 
 /// Issue d'une annulation.

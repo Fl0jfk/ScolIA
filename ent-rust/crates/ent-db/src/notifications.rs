@@ -802,6 +802,24 @@ impl Expediteur {
         // 0. Socle 8 N1 : avis échus (délai de confirmation écoulé), remis dans l'ENT ; les canaux externes sont
         // transmis à l'ancien moteur, expédié aux étapes suivantes du même passage.
         crate::ntf::expedition::expedier_avis_dus(&self.pool, etab, maintenant).await?;
+        // 0b. N2 : personnes sans compte (e-mail direct, adresse lue dans leur fiche au dernier moment).
+        let directes = crate::ntf::expedition::reserver_remises_sans_compte(
+            &self.pool,
+            etab,
+            maintenant,
+            self.config.taille_lot,
+        )
+        .await?;
+        for r in directes {
+            let issue = self.envoyer_remise_directe(&r).await;
+            match &issue {
+                crate::ntf::expedition::IssueDirecte::Envoye => bilan.envoyes += 1,
+                crate::ntf::expedition::IssueDirecte::Simule => bilan.simules += 1,
+                crate::ntf::expedition::IssueDirecte::Ignore(_) => bilan.ignores += 1,
+                crate::ntf::expedition::IssueDirecte::Echec(_) => bilan.echecs += 1,
+            }
+            crate::ntf::expedition::finaliser_remise_directe(&self.pool, etab, r.remise_id, issue, maintenant).await?;
+        }
         // 1. Lignes abandonnées en cours d'envoi : échec (jamais renvoyées).
         let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(db)?;
         let perimes = sqlx::query(
@@ -906,6 +924,51 @@ impl Expediteur {
             }
         }
         Ok(bilan)
+    }
+
+    /// N2 : envoi d'une remise à une personne sans compte (e-mail ; l'adresse vient de sa fiche).
+    async fn envoyer_remise_directe(
+        &self,
+        r: &crate::ntf::expedition::RemiseDirecte,
+    ) -> crate::ntf::expedition::IssueDirecte {
+        use crate::ntf::expedition::IssueDirecte;
+        if !self.mailer.is_ready() {
+            return IssueDirecte::Ignore("canal_non_configure");
+        }
+        let recu = self
+            .mailer
+            .send(OutgoingMail {
+                to: r.destination.clone(),
+                subject: r.sujet.clone(),
+                body_text: r.corps.clone(),
+                attachments: Vec::new(),
+            })
+            .await;
+        let (statut, erreur, mid) = match recu {
+            Ok(x) => (x.status, x.error, x.message_id),
+            Err(err) => (MailSendStatus::Failed, Some(err.to_string()), None),
+        };
+        let _ = crate::mail_repo::PgMailRepo::new(self.pool.clone())
+            .insert(crate::mail_repo::InsertMailOutbox {
+                etablissement_id: r.etablissement_id,
+                eleve_id: r.eleve_id,
+                kind: r.kind.clone(),
+                to_email: r.destination.clone(),
+                subject: r.sujet.clone(),
+                body_text: r.corps.clone(),
+                status: statut,
+                error: erreur.clone(),
+                source_aggregate: Some("ntf_remise".into()),
+                source_id: Some(r.remise_id),
+                message_id: mid,
+            })
+            .await;
+        match statut {
+            MailSendStatus::Sent => IssueDirecte::Envoye,
+            MailSendStatus::DryRun => IssueDirecte::Simule,
+            MailSendStatus::SkippedNoConfig => IssueDirecte::Ignore("canal_non_configure"),
+            MailSendStatus::Failed => IssueDirecte::Echec(erreur.unwrap_or_else(|| "échec d'envoi".into())),
+        }
     }
 
     async fn droit_toujours_valide(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {

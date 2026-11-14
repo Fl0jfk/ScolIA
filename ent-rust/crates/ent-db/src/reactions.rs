@@ -277,6 +277,46 @@ impl Consommateur for ConsommateurArretDeces {
             .execute(&mut *tx)
             .await
             .map_err(|err| err.to_string())?;
+            // Socle 8 N2 (CN-13) : gel tracé du sujet, puis annulation des avis et remises de la brique.
+            let ok = |r: Result<sqlx::postgres::PgQueryResult, sqlx::Error>| r.map(|_| ()).map_err(|err| err.to_string());
+            ok(sqlx::query(
+                "INSERT INTO ent_ntf_gel (id, etablissement_id, sujet_type, sujet_id, motif_code)
+                 VALUES ($1, $2, 'eleve', $3, 'deces') ON CONFLICT DO NOTHING",
+            )
+            .bind(Uuid::new_v4())
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_remise SET statut = 'annulee', motif = 'deces'
+                  WHERE etablissement_id = $1 AND statut IN ('planifiee', 'reservee')
+                    AND destinataire_id IN (SELECT d.id FROM ent_ntf_destinataire d
+                                              JOIN ent_ntf_avis a ON a.etablissement_id = d.etablissement_id AND a.id = d.avis_id
+                                             WHERE a.etablissement_id = $1 AND a.eleve_id = $2)",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_destinataire SET statut = 'annule'
+                  WHERE etablissement_id = $1 AND statut = 'a_remettre'
+                    AND avis_id IN (SELECT id FROM ent_ntf_avis WHERE etablissement_id = $1 AND eleve_id = $2)",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_avis SET statut = 'annule', annule_le = $3, annule_motif = 'deces'
+                  WHERE etablissement_id = $1 AND eleve_id = $2 AND statut IN ('planifie', 'en_cours')",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .bind(e.created_at)
+            .execute(&mut *tx)
+            .await)?;
             Ok(())
         })
     }

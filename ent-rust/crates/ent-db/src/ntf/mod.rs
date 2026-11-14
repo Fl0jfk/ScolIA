@@ -6,7 +6,8 @@
 //! - `destinataires` : qui prévenir (adaptateur provisoire N1, personnes en N2).
 //! - `service` : `aviser`, `annuler_avis`, `etat`.
 //! - `consommateur` : `notifications.avis`.
-//! - `expedition` : planificateur et remise des avis échus.
+//! - `expedition` : planificateur et remise des avis échus (ENT, ancien moteur, personnes sans compte).
+//! - `liens` : liens nominatifs (jeton haché, expirant, à ouvertures limitées).
 
 pub mod assemblage;
 pub mod catalogue;
@@ -14,4 +15,5 @@ pub mod consommateur;
 pub mod contrat;
 pub mod destinataires;
 pub mod expedition;
+pub mod liens;
 pub mod service;

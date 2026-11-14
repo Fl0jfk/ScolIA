@@ -326,13 +326,15 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("3800_ntf_parametres"),
     m!("3801_ntf_avis"),
     m!("3802_ntf_remises"),
+    // Lot N2 (destinataires = personnes).
+    m!("3808_ntf_gels_liens_a_prevenir"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "3802_ntf_remises";
+pub const MIGRATION_TAG: &str = "3808_ntf_gels_liens_a_prevenir";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
