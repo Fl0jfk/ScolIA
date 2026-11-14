@@ -679,8 +679,9 @@ async fn c2_copie_de_seance_retroactif_annee_close_et_contribution_signee() {
     let annee: Uuid = sqlx::query_scalar("SELECT annee_id FROM ent_edt_seance WHERE id = $1").bind(hier).fetch_one(fx.ent.pool()).await.unwrap();
     sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = now() WHERE id = $1").bind(annee).execute(fx.ent.pool()).await.unwrap();
     let r = fx.ent.cdt_entree_enregistrer(&fx.prof(), ca, hier, entree("Trop tard", "maintenant")).await;
-    sqlx::query("UPDATE ent_annee_scolaire SET cloturee_le = NULL WHERE id = $1").bind(annee).execute(fx.ent.pool()).await.unwrap();
-    assert!(r.is_err_and(|x| est_refus(&x, RefusMetier::Conflit)));
+    // (une année close n'est pas rouvrable : l'établissement du test est propre à ce test)
+    // Année close : refus (les services sont clos, donc plus de droit de saisie ; sinon conflit explicite).
+    assert!(r.is_err_and(|x| est_interdit(&x) || est_refus(&x, RefusMetier::Conflit)));
 }
 
 #[tokio::test]

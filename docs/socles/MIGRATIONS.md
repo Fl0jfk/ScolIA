@@ -228,6 +228,8 @@ Plage imposée **2300–2319** (consigne du pilote). Écrites : **2300** `absp_a
 - **2312** : `ent_absp_arret`, `ent_absp_decision_externe`, paramètres (EDT de référence, clôture des variables, durée de conservation de la reprise).
 Contrôle des collisions : aucune migration 2xxx n'existe sur `origin/ENT` hors 2240 (socle 12).
 
+## Mise à jour du 2026-11-14 (socle 20, lot C2, `ent-socle-20-code-2`)
+**2413** `2413_cdt_c2_saisie_publication` : fonctions `ent_cdt_jour_ferme`, `ent_cdt_visible_a`, `ent_cdt_instant_local`, `ent_cdt_heure_locale` ; colonnes `sans_avis` (versions d'entrée et de travail) et `copie_de_id` ; index d'échéance. Aucune table ni colonne JSON ; `MIGRATION_TAG` inchangé (3043) ; 2414–2419 restent réservées. Vérifiée libre sur toutes les branches distantes.
 ## Mise à jour du 2026-11-11 (socle 20, lots C0 et C1, `ent-socle-20-code-1`, base `origin/ENT` a4bcbe0)
 Plage imposée **2400–2419** (conception : `20_CAHIER_DE_TEXTES.md` §26.2, sur `ent-mc0hoe`). `MIGRATION_TAG` reste celui d’ENT (la plus haute du répertoire : 2823 après fusion ; 2412 est la plus haute de la plage 2400–2419). Aucune migration existante modifiée (règle 15).
 | N° | Fichier | Contenu |
