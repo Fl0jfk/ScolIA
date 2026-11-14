@@ -33,7 +33,7 @@ pub fn sha256_dossier(d: &Path) -> Res<String> {
         h.update(f.to_string_lossy().replace('\\', "/").as_bytes());
         h.update([0u8]);
         h.update(sha256_fichier(&d.join(&f))?.as_bytes());
-        h.update([b'\n']);
+        h.update(b"\n");
     }
     Ok(hex::encode(h.finalize()))
 }

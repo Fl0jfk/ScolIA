@@ -33,7 +33,7 @@ impl Cle {
 
     pub fn depuis_texte(t: &str) -> Res<Cle> {
         let octets = if t.len() >= 2 * TAILLE_MIN
-            && t.len() % 2 == 0
+            && t.len().is_multiple_of(2)
             && t.chars().all(|c| c.is_ascii_hexdigit())
         {
             hex::decode(t).map_err(|_| err!("clé hexadécimale invalide"))?

@@ -187,10 +187,8 @@ pub fn analyser_copy(ligne: &str) -> Option<(String, String, Vec<String>)> {
             let r2 = r2.trim_start();
             if let Some(r3) = r2.strip_prefix(',') {
                 r = r3;
-            } else if let Some(r3) = r2.strip_prefix(')') {
-                break r3;
             } else {
-                return None;
+                break r2.strip_prefix(')')?;
             }
         }
     } else {

@@ -269,7 +269,7 @@ fn valeur(
                     "timestamp with time zone" => format!("2026-09-{:02} 08:30:00+00", 1 + n % 28),
                     "date" => format!("2026-09-{:02}", 1 + n % 28),
                     "integer" | "bigint" => (n + 1).to_string(),
-                    "boolean" => (if n % 2 == 0 { "t" } else { "f" }).to_string(),
+                    "boolean" => (if n.is_multiple_of(2) { "t" } else { "f" }).to_string(),
                     "numeric" => format!("{}.50", 10 + n),
                     "double precision" => "0.5".to_string(),
                     "jsonb" => "{}".to_string(),

@@ -223,8 +223,6 @@ fn meme_forme(cle: &Cle, etiquette: &str, v: &str) -> String {
                 f.chiffre()
             } else if c.is_ascii_uppercase() {
                 f.lettre_minuscule().to_ascii_uppercase()
-            } else if c.is_ascii_lowercase() {
-                f.lettre_minuscule()
             } else if c.is_alphabetic() {
                 f.lettre_minuscule()
             } else {

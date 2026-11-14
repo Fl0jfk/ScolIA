@@ -393,7 +393,7 @@ fn verifier_declare(
     }
 }
 
-fn supprimer_sorties(dossier: &PathBuf) {
+fn supprimer_sorties(dossier: &std::path::Path) {
     for f in [
         "dump.sql",
         "objets_s3.tsv",
