@@ -199,6 +199,7 @@ mod etablissement_repo;
 mod oidc_repo;
 mod pra;
 pub mod conservation;
+pub mod extrait_personne;
 pub mod registre_donnees;
 mod objets;
 pub mod reprise_bytea;
