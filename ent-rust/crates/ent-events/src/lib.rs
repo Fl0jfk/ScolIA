@@ -443,6 +443,9 @@ pub enum AggregateKind {
     Stage,
     /// Demande du socle N1 (cœur : dépôt, prise, clôture). Charge utile : enveloppe neutre.
     Demande,
+    /// Document émis du socle 7 (brique `documents`) : émission, remplacement, annulation, ouverture. Charge utile :
+    /// identifiants, nature et sensibilité seulement, jamais de titre ni de contenu.
+    Documents,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

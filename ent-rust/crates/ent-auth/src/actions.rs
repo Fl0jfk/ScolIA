@@ -400,6 +400,21 @@ pub enum Action {
     DemandesIndicateursLire,
     /// Lancer la reprise des demandes de l'ancienne application.
     DemandesReprise,
+    // ── Socle 7, lot D2 : documents émis, registre, domaines restreints (`07_DOCUMENTS.md` §18) ──
+    /// Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne.
+    DocumentsEmettre,
+    /// Annuler un document émis par erreur (motif obligatoire, journalisé).
+    DocumentsAnnuler,
+    /// Lire le registre des documents émis et le journal de leurs consultations.
+    DocumentsRegistreLire,
+    /// Paramétrer l'identité des documents, les entités émettrices et les natures activées.
+    DocumentsModelesParametrer,
+    /// Lire les documents restreints du domaine justice (jugements, pièces judiciaires).
+    DocumentsRestreintsLire,
+    /// Lire les documents du domaine financier (avis d'imposition, quotient, bourses).
+    DocumentsFinancierLire,
+    /// Lire les dossiers documentaires des agents (domaine rh).
+    DocumentsPersonnelsLire,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -455,7 +470,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 189] = [
+    pub const TOUTES: [Action; 196] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -657,6 +672,14 @@ impl Action {
         Action::PersonnelsAbsencesSuppleer,
         Action::PersonnelsRcdGerer,
         Action::PersonnelsRcdRemontee,
+        // Socle 7, lot D2 (en fin de catalogue).
+        Action::DocumentsEmettre,
+        Action::DocumentsAnnuler,
+        Action::DocumentsRegistreLire,
+        Action::DocumentsModelesParametrer,
+        Action::DocumentsRestreintsLire,
+        Action::DocumentsFinancierLire,
+        Action::DocumentsPersonnelsLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -837,6 +860,13 @@ impl Action {
             Self::DemandesJournalLire => "demandes.journal.lire",
             Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
             Self::DemandesReprise => "demandes.reprise",
+            Self::DocumentsEmettre => "documents.emettre",
+            Self::DocumentsAnnuler => "documents.annuler",
+            Self::DocumentsRegistreLire => "documents.registre.lire",
+            Self::DocumentsModelesParametrer => "documents.modeles.parametrer",
+            Self::DocumentsRestreintsLire => "documents.restreints.lire",
+            Self::DocumentsFinancierLire => "documents.financier.lire",
+            Self::DocumentsPersonnelsLire => "documents.personnels.lire",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1034,6 +1064,13 @@ impl Action {
             Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
             Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
             Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
+            Self::DocumentsEmettre => "Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne",
+            Self::DocumentsAnnuler => "Annuler un document émis par erreur (motif obligatoire, journalisé)",
+            Self::DocumentsRegistreLire => "Lire le registre des documents émis et le journal de leurs consultations",
+            Self::DocumentsModelesParametrer => "Paramétrer l'identité des documents, les entités émettrices et les natures activées",
+            Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
+            Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
+            Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1238,7 +1275,14 @@ impl Action {
             | Self::DemandesParametrer
             | Self::DemandesJournalLire
             | Self::DemandesIndicateursLire
-            | Self::DemandesReprise => &[Portee::Etablissement],
+            | Self::DemandesReprise
+            | Self::DocumentsEmettre
+            | Self::DocumentsAnnuler
+            | Self::DocumentsRegistreLire
+            | Self::DocumentsModelesParametrer
+            | Self::DocumentsRestreintsLire
+            | Self::DocumentsFinancierLire
+            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -1377,6 +1421,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_07_documents(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2001,6 +2046,31 @@ fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if role == Role::Admin {
         d.push(etab(DemandesReprise));
+    }
+}
+
+/// Socle 7 (documents), lot D2 : droits par défaut (`07_DOCUMENTS.md` §18.2). Moindre privilège : les domaines
+/// restreints (justice, financier, rh) ne s'ouvrent qu'à ceux que la conception nomme ; ni les familles, ni les
+/// élèves, ni les professeurs n'émettent de document officiel (D-017, D-022).
+fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Administratif | Role::Cpe | Role::Direction | Role::Compta) {
+        d.push(etab(DocumentsEmettre));
+    }
+    if matches!(role, Role::Administratif | Role::Direction) {
+        d.push(etab(DocumentsAnnuler));
+        d.push(etab(DocumentsRegistreLire));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(DocumentsModelesParametrer));
+    }
+    if role == Role::Direction {
+        d.push(etab(DocumentsRestreintsLire));
+        d.push(etab(DocumentsPersonnelsLire));
+    }
+    if role == Role::Compta {
+        d.push(etab(DocumentsFinancierLire));
     }
 }
 
@@ -2932,6 +3002,40 @@ mod oracle_a1 {
         for x in [VoyagesAnnuaire, VoyagesLire, VoyagesCreer, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement,
                   VoyagesValider, VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
             assert!(x.code().starts_with("voyages."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+
+    #[test]
+    fn documents_d2_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for (r, emettre, annuler, registre, param, restreint, financier, rh) in [
+            (Role::Direction, true, true, true, true, true, false, true),
+            (Role::Administratif, true, true, true, false, false, false, false),
+            (Role::Cpe, true, false, false, false, false, false, false),
+            (Role::Compta, true, false, false, false, false, true, false),
+            (Role::Admin, false, false, false, true, false, false, false),
+            (Role::Prof, false, false, false, false, false, false, false),
+            (Role::Accueil, false, false, false, false, false, false, false),
+            (Role::Infirmerie, false, false, false, false, false, false, false),
+        ] {
+            assert_eq!(a(r, DocumentsEmettre), emettre, "{r:?} emettre");
+            assert_eq!(a(r, DocumentsAnnuler), annuler, "{r:?} annuler");
+            assert_eq!(a(r, DocumentsRegistreLire), registre, "{r:?} registre");
+            assert_eq!(a(r, DocumentsModelesParametrer), param, "{r:?} modeles");
+            assert_eq!(a(r, DocumentsRestreintsLire), restreint, "{r:?} restreints");
+            assert_eq!(a(r, DocumentsFinancierLire), financier, "{r:?} financier");
+            assert_eq!(a(r, DocumentsPersonnelsLire), rh, "{r:?} personnels");
+        }
+        // Familles et élèves : aucune action documentaire nouvelle (D-017).
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).iter().all(|(x, _)| !x.code().starts_with("documents.emettre")), "{r:?}");
+        }
+        for x in [DocumentsEmettre, DocumentsAnnuler, DocumentsRegistreLire, DocumentsModelesParametrer,
+                  DocumentsRestreintsLire, DocumentsFinancierLire, DocumentsPersonnelsLire] {
+            assert!(x.code().starts_with("documents."));
             assert_eq!(Action::parse(x.code()), Some(x));
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
