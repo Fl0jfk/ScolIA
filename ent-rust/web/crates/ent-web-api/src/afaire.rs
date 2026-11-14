@@ -5,6 +5,7 @@ use ent_types::afaire::{
     AFaire, ApercuAction, CorpsPrise, CorpsReattribution, ExecutionAction, FileAfaire, MesFiles,
     NiveauPrise, Orpheline, ResultatAction, Supervision,
 };
+use ent_types::recherche::{BlocageRecherche, CorpsDeblocageSoi, ReponseRecherche};
 use uuid::Uuid;
 
 use crate::{ApiClient, ApiError, Methode};
@@ -111,5 +112,39 @@ impl ApiClient {
             None,
         )
         .await
+    }
+
+    /// `GET /recherche?q=` (lot P5) : recherche globale côté serveur, 10 résultats par source, 40 au total.
+    /// `429` quand la recherche est suspendue (texte fixe, aucun chiffre).
+    pub async fn rechercher(&self, q: &str) -> Result<ReponseRecherche, ApiError> {
+        let chemin = format!(
+            "/recherche?q={}",
+            crate::communication::encoder_requete(q.trim())
+        );
+        self.appel(Methode::Get, &chemin, None).await
+    }
+
+    /// `GET /recherche/blocages` : qui est bloqué aujourd'hui (administrateur).
+    pub async fn recherche_blocages(&self) -> Result<Vec<BlocageRecherche>, ApiError> {
+        self.appel(Methode::Get, "/recherche/blocages", None).await
+    }
+
+    /// `POST /recherche/{compte}/debloquer` : lever un blocage (`recherche.debloquer`).
+    pub async fn recherche_debloquer(&self, compte: Uuid) -> Result<(), ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/recherche/{compte}/debloquer"),
+            None,
+        )
+        .await
+    }
+
+    /// `POST /recherche/debloquer-moi` : se débloquer soi-même, une fois par jour, motif de liste fermée.
+    pub async fn recherche_debloquer_moi(&self, motif: &str) -> Result<(), ApiError> {
+        let c = corps(&CorpsDeblocageSoi {
+            motif: motif.to_string(),
+        })?;
+        self.appel(Methode::Post, "/recherche/debloquer-moi", Some(c))
+            .await
     }
 }
