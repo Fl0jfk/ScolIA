@@ -1,0 +1,318 @@
+use chrono::NaiveDate;
+use domain_eleve::{Absence, AbsenceStatut, DomainError};
+use sqlx::PgPool;
+use uuid::Uuid;
+use crate::tenant_tx::TenantTx;
+
+pub struct PgAbsenceRepo {
+    pool: PgPool,
+}
+
+impl PgAbsenceRepo {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn upsert(&self, absence: &Absence) -> Result<(), DomainError> {
+        let mut tx = TenantTx::begin(&self.pool, absence.etablissement_id).await.map_err(map_sqlx)?;
+        Self::upsert_sur(&mut *tx, absence).await?;
+        tx.commit().await.map_err(map_sqlx)
+    }
+
+    /// Même écriture, dans la transaction de l'appelant (fait + événement).
+    pub async fn upsert_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        absence: &Absence,
+    ) -> Result<(), DomainError> {
+        Self::upsert_sur(tx, absence).await
+    }
+
+    async fn upsert_sur<'e, E: sqlx::PgExecutor<'e>>(
+        executor: E,
+        absence: &Absence,
+    ) -> Result<(), DomainError> {
+        sqlx::query(
+            r#"
+            INSERT INTO ent_absence (
+                id, etablissement_id, eleve_id, debut, fin, motif, statut,
+                motif_justif, justifie_par_user_id, justifie_at,
+                decision_note, decision_par_user_id, decision_at, created_at
+            ) VALUES (
+                $1,$2,$3,$4,$5,$6,$7,$8,$9,
+                CASE WHEN $7 = 'justifiee' THEN now() ELSE NULL END,
+                $10,$11,
+                CASE WHEN $7 IN ('justifiee','refusee','annulee_present') THEN now() ELSE NULL END,
+                now()
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                debut = EXCLUDED.debut,
+                fin = EXCLUDED.fin,
+                motif = EXCLUDED.motif,
+                statut = EXCLUDED.statut,
+                motif_justif = EXCLUDED.motif_justif,
+                justifie_par_user_id = EXCLUDED.justifie_par_user_id,
+                decision_note = EXCLUDED.decision_note,
+                decision_par_user_id = EXCLUDED.decision_par_user_id,
+                justifie_at = CASE
+                    WHEN EXCLUDED.statut = 'justifiee'
+                         AND ent_absence.statut IS DISTINCT FROM 'justifiee'
+                    THEN now()
+                    ELSE ent_absence.justifie_at
+                END,
+                decision_at = CASE
+                    WHEN EXCLUDED.statut IN ('justifiee','refusee','annulee_present')
+                         AND ent_absence.statut IS DISTINCT FROM EXCLUDED.statut
+                    THEN now()
+                    ELSE ent_absence.decision_at
+                END
+            WHERE ent_absence.etablissement_id = EXCLUDED.etablissement_id
+            "#,
+        )
+        .bind(absence.id)
+        .bind(absence.etablissement_id)
+        .bind(absence.eleve_id)
+        .bind(absence.debut)
+        .bind(absence.fin)
+        .bind(&absence.motif)
+        .bind(absence.statut.as_str())
+        .bind(&absence.motif_justif)
+        .bind(absence.justifie_par_user_id)
+        .bind(&absence.decision_note)
+        .bind(absence.decision_par_user_id)
+        .execute(executor)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(())
+    }
+
+    /// Absence `a_traiter` de l'élève couvrant ce jour (regroupement par journée, DA-05).
+    pub async fn trouver_a_traiter_jour_tx(
+        &self,
+        tx: &mut sqlx::PgConnection,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Option<Uuid>, DomainError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM ent_absence
+            WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'a_traiter'
+              AND debut <= $3 AND fin >= $3
+            ORDER BY created_at, id
+            LIMIT 1
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(jour)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(|r| r.0))
+    }
+
+    pub async fn get(
+        &self,
+        etablissement_id: Uuid,
+        absence_id: Uuid,
+    ) -> Result<Option<Absence>, DomainError> {
+        let row = sqlx::query_as::<_, AbsenceRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, debut, fin, motif, statut,
+                   motif_justif, justifie_par_user_id, decision_note, decision_par_user_id
+            FROM ent_absence
+            WHERE etablissement_id = $1 AND id = $2
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(absence_id)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.map(AbsenceRow::into_absence))
+    }
+
+    pub async fn list_for_eleve(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<Vec<Absence>, DomainError> {
+        let rows = sqlx::query_as::<_, AbsenceRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, debut, fin, motif, statut,
+                   motif_justif, justifie_par_user_id, decision_note, decision_par_user_id
+            FROM ent_absence
+            WHERE etablissement_id = $1 AND eleve_id = $2
+            ORDER BY debut DESC, created_at DESC
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(AbsenceRow::into_absence).collect())
+    }
+
+    pub async fn list_a_traiter_jour(
+        &self,
+        etablissement_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<Vec<Absence>, DomainError> {
+        let rows = sqlx::query_as::<_, AbsenceRow>(
+            r#"
+            SELECT id, etablissement_id, eleve_id, debut, fin, motif, statut,
+                   motif_justif, justifie_par_user_id, decision_note, decision_par_user_id
+            FROM ent_absence
+            WHERE etablissement_id = $1
+              AND statut = 'a_traiter'
+              AND debut <= $2
+              AND fin >= $2
+            ORDER BY debut, eleve_id
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(jour)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows.into_iter().map(AbsenceRow::into_absence).collect())
+    }
+
+    pub async fn count_actives_depuis(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        depuis: NaiveDate,
+    ) -> Result<i64, DomainError> {
+        let (n,): (i64,) = sqlx::query_as(
+            r#"
+            SELECT COUNT(*)::bigint FROM ent_absence
+            WHERE etablissement_id = $1
+              AND eleve_id = $2
+              AND debut >= $3
+              AND statut <> 'annulee_present'
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(depuis)
+        .fetch_one(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(n)
+    }
+
+    /// Absences **non justifiées** (`statut = 'a_traiter'`) depuis une date,
+    /// agrégées par élève — base du copilote « qui manque le plus ? ».
+    /// `classe` optionnelle : filtre la classe à la date `jour` (période `classe`).
+    /// Retourne `(eleve_id, nom, prenom, total)` décroissant sur `total`.
+    pub async fn count_a_traiter_par_eleve_depuis(
+        &self,
+        etablissement_id: Uuid,
+        depuis: NaiveDate,
+        classe: Option<&str>,
+        jour: NaiveDate,
+    ) -> Result<Vec<(Uuid, String, String, i64)>, DomainError> {
+        let rows: Vec<(Uuid, String, String, i64)> = sqlx::query_as(
+            r#"
+            SELECT e.id, e.nom, e.prenom, COUNT(a.id)::bigint AS total
+            FROM ent_eleve e
+            INNER JOIN ent_absence a
+                ON a.etablissement_id = e.etablissement_id
+               AND a.eleve_id = e.id
+            WHERE e.etablissement_id = $1
+              AND a.debut >= $2
+              AND a.statut = 'a_traiter'
+              AND (e.date_sortie IS NULL OR e.date_sortie > $4)
+              AND (
+                $3::text IS NULL
+                OR EXISTS (
+                    SELECT 1 FROM ent_eleve_periode p
+                    WHERE p.etablissement_id = e.etablissement_id
+                      AND p.eleve_id = e.id
+                      AND p.kind = 'classe'
+                      AND p.valeur = $3
+                      AND p.date_debut <= $4
+                      AND (p.date_fin IS NULL OR p.date_fin >= $4)
+                )
+              )
+            GROUP BY e.id, e.nom, e.prenom
+            ORDER BY total DESC, e.nom, e.prenom
+            LIMIT 200
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(depuis)
+        .bind(classe)
+        .bind(jour)
+        .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(rows)
+    }
+
+    pub async fn est_absent(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        jour: NaiveDate,
+    ) -> Result<bool, DomainError> {
+        let row: Option<(Uuid,)> = sqlx::query_as(
+            r#"
+            SELECT id FROM ent_absence
+            WHERE etablissement_id = $1
+              AND eleve_id = $2
+              AND debut <= $3
+              AND fin >= $3
+              AND statut <> 'annulee_present'
+            LIMIT 1
+            "#,
+        )
+        .bind(etablissement_id)
+        .bind(eleve_id)
+        .bind(jour)
+        .fetch_optional(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
+        .await
+        .map_err(map_sqlx)?;
+        Ok(row.is_some())
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct AbsenceRow {
+    id: Uuid,
+    etablissement_id: Uuid,
+    eleve_id: Uuid,
+    debut: NaiveDate,
+    fin: NaiveDate,
+    motif: String,
+    statut: String,
+    motif_justif: Option<String>,
+    justifie_par_user_id: Option<Uuid>,
+    decision_note: Option<String>,
+    decision_par_user_id: Option<Uuid>,
+}
+
+impl AbsenceRow {
+    fn into_absence(self) -> Absence {
+        Absence {
+            id: self.id,
+            etablissement_id: self.etablissement_id,
+            eleve_id: self.eleve_id,
+            debut: self.debut,
+            fin: self.fin,
+            motif: self.motif,
+            statut: AbsenceStatut::parse(&self.statut),
+            motif_justif: self.motif_justif,
+            justifie_par_user_id: self.justifie_par_user_id,
+            decision_note: self.decision_note,
+            decision_par_user_id: self.decision_par_user_id,
+        }
+    }
+}
+
+fn map_sqlx(err: sqlx::Error) -> DomainError {
+    crate::pg_err::map_sqlx("absence_repo", err)
+}

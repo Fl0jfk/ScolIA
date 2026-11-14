@@ -1,0 +1,15 @@
+[package]
+name = "domain-eleve"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Socle élève au centre — commandes + invariants + émission d'événements"
+
+[dependencies]
+chrono = { workspace = true }
+ent-events = { path = "../ent-events" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

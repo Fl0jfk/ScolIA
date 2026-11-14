@@ -88,7 +88,8 @@ async function main() {
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL manquant");
 
-  const dir = process.argv[2] || "/home/ubuntu/.cursor/projects/workspace/uploads";
+  const dir = process.argv[2];
+  if (!dir) throw new Error("Usage : import-siecle-fixtures <dossier contenant les XML SIECLE>");
   const sql = postgres(url, { max: 1 });
   const db = drizzle(sql);
 

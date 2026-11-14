@@ -1,0 +1,12 @@
+{
+  "name": "ent-api-ui",
+  "private": true,
+  "scripts": {
+    "css:build": "tailwindcss -i ./styles/input.css -o ./static/css/app.css --minify",
+    "css:watch": "tailwindcss -i ./styles/input.css -o ./static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.13",
+    "tailwindcss": "^4.1.13"
+  }
+}

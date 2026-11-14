@@ -1,0 +1,30 @@
+[package]
+name = "ent-web-session"
+description = "PROTOTYPE ISOLÉ (D-016) : session web par cookie HttpOnly devant ent-api, sans le modifier"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "proto-session-cookie"
+path = "src/main.rs"
+
+[dependencies]
+ent-api = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { version = "0.5", features = ["util"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+ent-db = { workspace = true }
+reqwest = { workspace = true }
+uuid = { workspace = true }
+# Tests : simulation du temps en base de test locale (last_seen_at / expires_at).
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres", "uuid", "chrono"] }
+# Authentificateur logiciel (déjà utilisé par les tests d'ent-api) ; MPL-2.0, exception D-016.
+webauthn-authenticator-rs = { version = "=0.5.5", features = ["softpasskey"] }
+webauthn-rs-proto = "=0.5.5"

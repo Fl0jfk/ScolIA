@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prototype session · ScolIA</title>
+<script type="module" src="/web/_session.js"></script>
+</head>
+<body>
+<main>
+<h1>Prototype : session par cookie</h1>
+<p>Page de test isolée (D-016). Données de labo uniquement.</p>
+<p id="etat" role="status" aria-live="polite">Vérification…</p>
+
+<form id="connexion">
+  <p><label for="email">E-mail</label><br><input id="email" type="email" autocomplete="username webauthn" required></p>
+  <p><label for="mdp">Mot de passe</label><br><input id="mdp" type="password" autocomplete="current-password"></p>
+  <p><label for="etab">Établissement</label><br><input id="etab" required></p>
+  <p><button type="submit" id="btn-connexion">Se connecter</button>
+     <button type="button" id="btn-passkey">Se connecter avec une passkey</button></p>
+</form>
+
+<section id="connecte" hidden>
+  <p><button type="button" id="btn-moi">Recharger mon profil</button>
+     <button type="button" id="btn-enroler">Ajouter une passkey</button>
+     <button type="button" id="btn-deconnexion">Se déconnecter</button></p>
+  <pre id="moi"></pre>
+</section>
+</main>
+</body>
+</html>

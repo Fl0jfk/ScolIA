@@ -1,0 +1,4 @@
+# ui.rs embarque ~1.5 Mo de HTML/JS : les workers Tokio overflowent le stack Windows
+# par défaut (~2 Mo). Sans ceci, `cargo run -p ent-api` peut planter (0xc00000fd).
+[env]
+RUST_MIN_STACK = "16777216"

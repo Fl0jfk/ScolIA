@@ -1,0 +1,22 @@
+# cargo audit — exceptions documentées (D-015). Aucune exception sans raison ni date de revue.
+# Utilisé pour les deux workspaces : copie dans `web/.cargo/audit.toml`.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071 — crate `rsa` (attaque « Marvin »), pas de version corrigée.
+    # `rsa` n'est présent dans Cargo.lock que via `sqlx-mysql` (pilote MySQL de sqlx),
+    # recensé par le lockfile mais jamais activé ni compilé : l'ENT n'utilise que
+    # PostgreSQL. Vérifié le 2026-11-03 : `cargo tree -i rsa` vide, aucun artefact
+    # `librsa` compilé, `cargo deny` (graphe réellement compilé) : « advisories ok ».
+    # À revoir si un pilote MySQL est activé ou quand sqlx retire la dépendance.
+    # Revue : 2027-02-01.
+    "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0459 — `libsqlite3-sys` 0.30.1 (CVE-2026-119375 dans le SQLite C embarqué).
+    # Version corrigée >= 0.39.0, mais `sqlx-sqlite` 0.8.6 (dernière 0.8.x) exige
+    # `libsqlite3-sys < 0.31` : `cargo update --precise 0.39.0` est refusé. La crate n'est
+    # présente que via le pilote SQLite de sqlx, jamais activé (l'ENT n'utilise que PostgreSQL) :
+    # `cargo tree -i libsqlite3-sys --target all -e all` est vide dans les deux workspaces,
+    # donc aucun code SQLite n'est compilé ni lié. Constaté le 2026-11-09 ; À FAIRE RELIRE.
+    # À revoir à la montée de sqlx (>= 0.9) ou si SQLite est activé. Revue : 2027-02-01.
+    "RUSTSEC-2026-0459",
+]

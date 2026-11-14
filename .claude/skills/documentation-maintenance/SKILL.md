@@ -1,0 +1,2 @@
+# Maintenance documentaire
+Lire les documents existants avant création ; préserver les idées utiles ; fusionner les doublons après comparaison ; ne pas supprimer l'historique sans validation ; distinguer faits/hypothèses/recommandations/arbitrages ; ajouter chemins de code comme preuves ; maintenir PROJECT_STATUS, DECISIONS et DECISIONS_AND_FAILURES ; ne pas documenter une fonction comme disponible sans preuve.

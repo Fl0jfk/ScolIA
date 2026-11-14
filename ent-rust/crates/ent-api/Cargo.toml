@@ -1,0 +1,86 @@
+[package]
+name = "ent-api"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "API HTTP ENT — auth+tenant dès le 1er endpoint, lit le noyau central"
+
+[[bin]]
+name = "ent-api"
+path = "src/main.rs"
+
+# Matrice de séparation (L8) : s'appuie sur /labo/bootstrap, donc sur la feature `labo`.
+[[test]]
+name = "separation"
+required-features = ["labo"]
+
+# Référentiel scolaire : même harnais (bootstrap labo).
+[[test]]
+name = "referentiel"
+required-features = ["labo"]
+
+# Liens courts de fichiers : même harnais (bootstrap labo).
+[[test]]
+name = "fichiers_liens"
+required-features = ["labo"]
+
+# Recette personas 1 (RF-16) : même bootstrap labo.
+[[test]]
+name = "recette_personas_rf16"
+required-features = ["labo"]
+
+# Recette personas 1 : tests d'attaque (failles RP1-xx), même bootstrap labo.
+[[test]]
+name = "recette_personas_1"
+required-features = ["labo"]
+
+# Recette personas 2 (jalon P1) : socles 2 à 4, même bootstrap labo.
+[[test]]
+name = "recette_personas_2"
+required-features = ["labo"]
+
+[[test]]
+name = "recette_personas_2_ouvertes"
+required-features = ["labo"]
+
+[[test]]
+name = "recette_personas_2_dossier"
+required-features = ["labo"]
+
+# Recette de sécurité 3 : cloisonnement multi-établissements, attaquants réels.
+[[test]]
+name = "recette_securite_3"
+required-features = ["labo"]
+
+[features]
+# Labo (L4) : /labo/bootstrap, /auth/register libre, aide labo de /login,
+# mot de passe public. DÉSACTIVÉE par défaut, jamais dans l'image de production.
+labo = ["ent-db/labo"]
+
+[dependencies]
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+chrono = { workspace = true }
+domain-eleve = { path = "../domain-eleve" }
+ent-auth = { path = "../ent-auth" }
+ent-db = { path = "../ent-db" }
+ent-sms = { path = "../ent-sms" }
+ent-obs = { path = "../ent-obs" }
+ent-types = { path = "../ent-types" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "fs", "cors", "limit", "catch-panic", "set-header", "request-id", "timeout"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+ent-oidc = { path = "../ent-oidc" }
+http-body-util = "0.1"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "postgres"] }
+tower = { version = "0.5", features = ["util"] }
+webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
