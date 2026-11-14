@@ -7,7 +7,7 @@
 //!    désactivable) ;
 //! 2. des **envois** par canal e-mail / SMS / push (`ent_notification_envoi`),
 //!    planifiés selon les **préférences** de la personne : canal choisi, résumé
-//!    quotidien (regroupement), heures calmes (heure de Paris).
+//!    quotidien (regroupement), heures calmes (fuseau de l'établissement).
 //!
 //! Les envois sont ensuite expédiés par l'[`Expediteur`] (boucle tokio ou appel
 //! direct en test). L'effet externe est **hors** de la transaction du
@@ -27,7 +27,6 @@
 //!   les plafonds, jamais au-delà, même avec plusieurs expéditeurs.
 //! - *SMS* : désactivé par défaut (consentement explicite), jamais regroupé.
 
-use crate::assiduite::heure_paris;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
 use chrono::{DateTime, Duration, NaiveDateTime, NaiveTime, Utc};
@@ -48,7 +47,7 @@ pub(crate) fn db(err: sqlx::Error) -> EntDbError {
 
 pub const CANAUX: [&str; 3] = ["email", "sms", "push"];
 
-/// Heure d'envoi des résumés quotidiens (heure de Paris), en minutes.
+/// Heure d'envoi des résumés quotidiens (fuseau de l'établissement), en minutes.
 pub const HEURE_RESUME_MIN: u16 = 7 * 60 + 30;
 
 /// Longueur maximale d'un SMS composé (3 segments de 7 bits).
@@ -66,7 +65,7 @@ pub struct Preferences {
     pub push: bool,
     /// `immediat` ou `quotidien` (résumé unique, e-mail et push seulement).
     pub resume: String,
-    /// Heures calmes, en minutes depuis minuit (heure de Paris).
+    /// Heures calmes, en minutes depuis minuit (fuseau de l'établissement).
     pub calme_debut: Option<u16>,
     pub calme_fin: Option<u16>,
 }
@@ -149,7 +148,7 @@ fn a_minute(date: chrono::NaiveDate, minute: u16) -> NaiveDateTime {
     )
 }
 
-/// Instant local (heure de Paris) auquel un envoi doit partir : résumé quotidien
+/// Instant local (fuseau de l'établissement) auquel un envoi doit partir : résumé quotidien
 /// pour un message regroupable, puis report hors des heures calmes.
 pub fn echeance_locale(
     pref: &Preferences,
@@ -345,7 +344,19 @@ pub(crate) async fn planifier_envois(
         contacts.telephone.is_some(),
         contacts.push,
     );
-    let local = heure_paris(maintenant);
+    // Socle 8 N0b (E8) : heures locales dans le fuseau de l'établissement (Europe/Paris par
+    // défaut), plus en dur : résumé à 7 h 30 et heures calmes sont ceux de l'établissement.
+    let (fuseau, local): (String, NaiveDateTime) = sqlx::query_as(
+        "SELECT f.fuseau, ($2::timestamptz AT TIME ZONE f.fuseau)
+           FROM (SELECT COALESCE(
+                    (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $1),
+                    'Europe/Paris') AS fuseau) f",
+    )
+    .bind(e.etablissement_id)
+    .bind(maintenant)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
     let mut crees = 0usize;
     for canal in canaux {
         let regroupable = e.regroupable && canal != "sms";
@@ -357,7 +368,7 @@ pub(crate) async fn planifier_envois(
                  planifie_pour)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                      CASE WHEN $15::timestamp = $16::timestamp THEN $17::timestamptz
-                          ELSE $15::timestamp AT TIME ZONE 'Europe/Paris' END)
+                          ELSE $15::timestamp AT TIME ZONE $18 END)
              ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
         )
         .bind(Uuid::new_v4())
@@ -377,6 +388,7 @@ pub(crate) async fn planifier_envois(
         .bind(cible)
         .bind(local)
         .bind(maintenant)
+        .bind(&fuseau)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
@@ -1145,12 +1157,15 @@ impl Expediteur {
             .await
             .map_err(db)?;
         let plafonds = plafonds_de(&mut tx, e.etablissement_id).await?;
-        // Début du jour (Paris) → instant UTC.
+        // Début du jour de l'établissement → instant UTC.
         let (debut_jour,): (DateTime<Utc>,) = sqlx::query_as(
-            "SELECT (date_trunc('day', $1::timestamptz AT TIME ZONE 'Europe/Paris')
-                     AT TIME ZONE 'Europe/Paris')",
+            "WITH f AS (SELECT COALESCE(
+                    (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $2),
+                    'Europe/Paris') AS z)
+             SELECT (date_trunc('day', $1::timestamptz AT TIME ZONE f.z) AT TIME ZONE f.z) FROM f",
         )
         .bind(maintenant)
+        .bind(e.etablissement_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;

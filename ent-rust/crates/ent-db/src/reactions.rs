@@ -43,6 +43,7 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
 pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
     vec![
         Arc::new(ConsommateurNotifications),
+        Arc::new(ConsommateurArretDeces),
         Arc::new(ConsommateurRelanceAppel),
         Arc::new(crate::cahier_reactions::ConsommateurCahier),
         Arc::new(crate::edt_reactions::ConsommateurNotificationsEdt),
@@ -193,7 +194,13 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
                 source_type: "evenement",
                 source_id: evt.event().id,
                 cle_dedup: format!("evt:{}:{}", evt.event().id, m.kind),
-                droit_requis: Some("peut_voir_vs"),
+                // Avis d'infirmerie : destinataires choisis sans `peut_voir_vs` (« la famille doit savoir ») ;
+                // l'envoi ne doit donc pas non plus l'exiger (socle 8 N0b, E6).
+                droit_requis: if evt.event().type_name == "infirmerie.famille_informee" {
+                    Some("lien")
+                } else {
+                    Some("peut_voir_vs")
+                },
                 regroupable: m.regroupable,
                 canaux_voulus: &["email", "sms", "push"],
             },
@@ -221,6 +228,47 @@ impl Consommateur for ConsommateurNotifications {
         evt: &'a EvenementDistribue,
     ) -> FutureTraitement<'a> {
         Box::pin(notifier(tx, evt))
+    }
+}
+
+/// Socle 8 N0b (E14) : le décès d'un élève arrête tout envoi automatique qui le concerne.
+/// Les envois `en_attente` (résumé du lendemain, relance planifiée…) passent à `annule` avec
+/// le motif `deces` ; rien n'est supprimé (preuve), rien n'est envoyé. Rejouable : idempotent.
+pub const CONSOMMATEUR_ARRET_DECES: &str = "d0.notifications_deces";
+
+pub struct ConsommateurArretDeces;
+
+impl Consommateur for ConsommateurArretDeces {
+    fn nom(&self) -> &'static str {
+        CONSOMMATEUR_ARRET_DECES
+    }
+
+    fn types(&self) -> &'static [&'static str] {
+        &[types::ELEVE_DECEDE]
+    }
+
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
+        Box::pin(async move {
+            let e = evt.event();
+            let Some(eleve_id) = e.eleve_id else {
+                return Ok(());
+            };
+            sqlx::query(
+                "UPDATE ent_notification_envoi
+                    SET statut = 'annule', motif = 'deces', traite_le = now()
+                  WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'en_attente'",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| err.to_string())?;
+            Ok(())
+        })
     }
 }
 

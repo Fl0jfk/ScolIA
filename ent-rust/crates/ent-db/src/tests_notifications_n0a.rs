@@ -50,6 +50,14 @@ async fn n0a_sms_sanction_neutre_et_evenements_sans_coordonnees() {
         eprintln!("skip: ENT_DATABASE_URL");
         return;
     };
+    // N0b : le SMS de sanction relit `peut_voir_vs` ; un autre test peut l'avoir retiré au parent
+    // de Léa dans le jeu partagé : on le remet à l'état de référence avant de prononcer.
+    sqlx::query("UPDATE ent_eleve_lien SET peut_voir_vs = true WHERE etablissement_id = $1 AND eleve_id = $2")
+        .bind(cast.etablissement_id)
+        .bind(cast.eleve_lea_id)
+        .execute(&pool)
+        .await
+        .expect("droit de référence");
     let san = sanction_lea(&ent, &cast).await;
 
     let sms: Vec<(Uuid, String, String)> = sqlx::query_as(
