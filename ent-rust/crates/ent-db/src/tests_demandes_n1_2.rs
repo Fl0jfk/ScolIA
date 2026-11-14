@@ -587,7 +587,7 @@ async fn t_echanges_visibilites_correction_masquage() {
     let (etab, eg) = (w.m.etab, &w.ent);
     let au_demandeur = w.ecrire(&prof, &docs, e.id, Fil::Demandeur, "Bonjour, nous passons demain.").await.unwrap();
     let interne = w.ecrire(&prof, &docs, e.id, Fil::Interne, "Note interne : attention, famille difficile.").await.unwrap();
-    let reponse = w.ecrire(&compta, &docs, e.id, Fil::Demandeur, "Merci, c'est le couloir du 2e.").await.unwrap();
+    let _reponse = w.ecrire(&compta, &docs, e.id, Fil::Demandeur, "Merci, c'est le couloir du 2e.").await.unwrap();
     // Le demandeur ne lit JAMAIS la note interne (NJ-82), ni dans le texte ni dans le compte.
     let vu = w.messages(&compta, e.id).await.unwrap();
     assert_eq!(vu.len(), 2);

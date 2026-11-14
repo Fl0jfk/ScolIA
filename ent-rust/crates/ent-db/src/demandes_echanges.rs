@@ -729,6 +729,7 @@ impl PgEnt {
     /// du **même élève** ; jamais pour un élève (le canal de l'élève reste invisible des parents), jamais un
     /// responsable sans lien actif (interdiction : refusé, R-DM17). **Copie interne** (DEM-208) : un membre de la file
     /// tient un collègue informé ; jamais sur une demande C2+.
+    #[allow(clippy::too_many_arguments)]
     pub async fn ajouter_abonne_for_actor(
         &self,
         etab: Uuid,

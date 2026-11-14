@@ -938,6 +938,7 @@ impl PgEnt {
         let (demande_id, question, partage, echeance, repondue, numero, objet, texte, scelle, _) =
             c.ok_or(RefusDemande::Introuvable)?;
         let (objet, texte) = if partage { (objet, ouvrir_texte(demande_id, texte, scelle)?) } else { (None, None) };
+        #[allow(clippy::type_complexity)]
         let ms: Vec<(Uuid, DateTime<Utc>, Uuid, String, String, bool, String)> = sqlx::query_as(
             "SELECT id, cree_le, auteur_personne_id, genre, texte, texte_scelle, visibilite
                FROM ent_dem_message WHERE etablissement_id = $1 AND consultation_id = $2 AND masque_le IS NULL
@@ -1078,6 +1079,7 @@ impl PgEnt {
     /// (garde d'accès) ; si elle la portait, la demande retourne dans la file ; si plus personne du service ne peut la
     /// traiter, elle passe à la file de repli, puis à la direction (R-DM47, CDM-57 à CDM-59). Aucun motif demandé,
     /// aucune trace lisible de la personne visée.
+    #[allow(clippy::too_many_arguments)]
     pub async fn designer_personne_visee_for_actor(
         &self,
         etab: Uuid,
@@ -1203,6 +1205,7 @@ impl PgEnt {
     /// la nouvelle nature. Par celui qui a la main. Une demande ne devient **jamais moins confidentielle** ; en
     /// devenant C2+, ses textes déjà écrits sont **scellés** et elle quitte la file (l'ancienne file ne la voit plus
     /// ; l'historique de lecture reste). Le demandeur n'est averti que si le délai change.
+    #[allow(clippy::too_many_arguments)]
     pub async fn requalifier_for_actor(
         &self,
         etab: Uuid,
@@ -1393,6 +1396,7 @@ impl PgEnt {
     /// « Résolu ? Oui / Non » à la clôture (DEM-394, DEM-130, CDM-86). **Non** rouvre la **même** demande dans le délai
     /// de réouverture (SN1-05) ; hors délai, une nouvelle demande est conseillée, liée à l'ancienne. La réponse est
     /// un fait de la demande : **jamais une note d'agent**, jamais rattachée à une personne nommée (§37.5).
+    #[allow(clippy::too_many_arguments)]
     pub async fn repondre_resolu_for_actor(
         &self,
         etab: Uuid,
