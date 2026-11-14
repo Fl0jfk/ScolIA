@@ -415,6 +415,8 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
+    /// Régler les repères de charge de travail de l'établissement (lot C4, S20-10).
+    CahierParametrer,
 }
 
 /// Sur quoi une action s'applique.
@@ -439,7 +441,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 183] = [
+    pub const TOUTES: [Action; 184] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -625,6 +627,7 @@ impl Action {
         Action::AbsencesAutorisationDecider,
         Action::CahierRetirer,
         Action::CahierContribuer,
+        Action::CahierParametrer,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::PersonnelsAbsencesDeclarer,
         Action::PersonnelsAbsencesSignaler,
@@ -823,6 +826,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
+            Self::CahierParametrer => "cahier.parametrer",
         }
     }
 
@@ -1014,6 +1018,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
+            Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
         }
     }
 
@@ -1904,6 +1909,7 @@ fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     if matches!(role, Role::Admin | Role::Direction) {
         d.push((CahierRetirer, Portee::Etablissement));
+        d.push((CahierParametrer, Portee::Etablissement));
     }
     if role == Role::Prof {
         d.push((CahierRetirer, Portee::MesClasses));

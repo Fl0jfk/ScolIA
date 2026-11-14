@@ -303,6 +303,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2412_cdt_reprise"),
     m!("2413_cdt_c2_saisie_publication"),
     m!("2414_cdt_c3_agenda_cahier_famille"),
+    m!("2415_cdt_c4_charge"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),

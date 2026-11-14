@@ -28,9 +28,9 @@ const HEURE_ECHEANCE_DEFAUT: NaiveTime = match NaiveTime::from_hms_opt(19, 0, 0)
 };
 
 #[derive(Debug, FromRow)]
-struct TravailRow {
+pub(crate) struct TravailRow {
     id: Uuid,
-    cours_id: Uuid,
+    pub(crate) cours_id: Uuid,
     relie_id: Option<Uuid>,
     seance_donnee_id: Option<Uuid>,
     donne_le: NaiveDate,
@@ -50,7 +50,7 @@ struct TravailRow {
     publie_a: Option<DateTime<Utc>>,
     visible_a: Option<DateTime<Utc>>,
     retire_motif: Option<String>,
-    auteur_user_id: Option<Uuid>,
+    pub(crate) auteur_user_id: Option<Uuid>,
     version: i32,
     ancien_id: Option<Uuid>,
     modifie_le: DateTime<Utc>,
@@ -367,7 +367,7 @@ impl PgEnt {
         Ok(())
     }
 
-    async fn cdt_charger_travail(
+    pub(crate) async fn cdt_charger_travail(
         &self,
         a: &Acteur<'_>,
         id: Uuid,

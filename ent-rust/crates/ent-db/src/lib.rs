@@ -76,6 +76,8 @@ pub mod cahier;
 pub mod cahier_c2;
 mod cahier_c2_travaux;
 pub mod cahier_c3;
+pub mod cahier_c4;
+mod charge_calcul;
 mod evaluations_calendrier;
 pub mod cahier_reactions;
 pub mod outbox;
