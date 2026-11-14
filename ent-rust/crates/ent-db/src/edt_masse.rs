@@ -286,6 +286,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        crate::edt_modif::pont_lot(&mut tx, etab, a.user_id, lot_id).await?;
         let ev = publier_agg(
             &mut tx,
             a,

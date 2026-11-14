@@ -53,6 +53,19 @@ pub fn routes() -> Router<AppState> {
         .route("/edt/deplacements", post(deplacer_seance))
         .route("/edt/exceptions-levee", delete(lever_exception))
         .route("/edt/annulation-masse", post(annulation_masse))
+        // Socle 10, lot T3 : modifier le réel (journal, lots, grève, salle fermée, correction du passé).
+        .route("/edt/modifications", get(t3_modifications).post(t3_modifier))
+        .route("/edt/modifications/{id}", delete(t3_lever))
+        .route("/edt/corrections-passe", post(t3_corriger_passe))
+        .route("/edt/lots/apercu", post(t3_lot_apercu))
+        .route("/edt/lots", post(t3_lot_appliquer))
+        .route("/edt/lots/{id}", delete(t3_lot_lever))
+        .route("/edt/greve/candidats", get(t3_greve_candidats))
+        .route("/edt/greve", post(t3_greve))
+        .route("/edt/salles/{id}/fermeture/propositions", get(t3_salle_fermee_propositions))
+        .route("/edt/salles/{id}/fermeture", post(t3_salle_fermee_appliquer))
+        .route("/edt/seances/{id}/rattrapage", get(t3_rattrapage))
+        .route("/edt/seances-non-assurees", get(t3_non_assurees))
         // Délégations datées (ADM-04).
         .route("/delegations", get(delegations).post(accorder_delegation))
         .route("/delegations/mes", get(mes_delegations))
@@ -529,4 +542,181 @@ async fn revoquer_delegation(
             .await
             .map_err(map_db)?,
     ))
+}
+
+// ───── Socle 10, lot T3 : modifier le réel ─────
+//
+// L'autorité est `ent-db` (`edt.modifier`, `edt.modifier_lieu`, `edt.lot_appliquer`, `edt.corriger_passe`,
+// `edt.forcer_conflit`, `edt.modifications_lire`, `edt.motif_interne_lire`) : ces routes traduisent HTTP ↔ service.
+// Un conflit dur répond **409** avec la liste des conflits (codes, décomptes, séance en face : aucun nom).
+
+use ent_db::edt_lots::{
+    ApercuLot, CandidatGreve, CmdGreve, CmdLot, CmdSalleFermee, DemiJournee, PropositionLieu, ResultatLeveeLot,
+    ResultatLot, ResultatSalleFermee,
+};
+use ent_db::edt_modif::{CmdModifierSeance, ResultatModif};
+use ent_db::edt_modif_ops::{
+    CmdCorrectionPasse, FiltreModifications, ModificationVue, PlageRattrapage, ResultatCorrection, ResultatLevee,
+    SeanceNonAssuree,
+};
+
+async fn t3_modifier(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(cmd): Json<CmdModifierSeance>,
+) -> Res<(StatusCode, Json<ResultatModif>)> {
+    let r = s.ent.edt_modifier_seance(&acteur(&session), &cmd).await.map_err(map_db)?;
+    let code = if r.apercu || r.deja_fait {
+        StatusCode::OK
+    } else if r.applique {
+        StatusCode::CREATED
+    } else {
+        StatusCode::CONFLICT
+    };
+    Ok((code, Json(r)))
+}
+
+async fn t3_lever(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<ResultatLevee>> {
+    Ok(Json(s.ent.edt_lever_modification(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn t3_modifications(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(f): Query<FiltreModifications>,
+) -> Res<Json<Vec<ModificationVue>>> {
+    Ok(Json(s.ent.edt_modifications(&acteur(&session), &f).await.map_err(map_db)?))
+}
+
+async fn t3_corriger_passe(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(cmd): Json<CmdCorrectionPasse>,
+) -> Res<(StatusCode, Json<ResultatCorrection>)> {
+    let r = s.ent.edt_corriger_seance_passee(&acteur(&session), &cmd).await.map_err(map_db)?;
+    Ok((if r.deja_fait { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+}
+
+async fn t3_lot_apercu(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(cmd): Json<CmdLot>,
+) -> Res<Json<ApercuLot>> {
+    Ok(Json(s.ent.edt_lot_apercu(&acteur(&session), &cmd).await.map_err(map_db)?))
+}
+
+async fn t3_lot_appliquer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(cmd): Json<CmdLot>,
+) -> Res<(StatusCode, Json<ResultatLot>)> {
+    let r = s.ent.edt_lot_appliquer(&acteur(&session), &cmd).await.map_err(map_db)?;
+    Ok((if r.apercu || r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+}
+
+async fn t3_lot_lever(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<ResultatLeveeLot>> {
+    Ok(Json(s.ent.edt_lot_lever(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct GreveQuery {
+    jour: NaiveDate,
+    #[serde(default = "demi_journee_defaut")]
+    demi_journee: DemiJournee,
+}
+
+fn demi_journee_defaut() -> DemiJournee {
+    DemiJournee::Matin
+}
+
+async fn t3_greve_candidats(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<GreveQuery>,
+) -> Res<Json<Vec<CandidatGreve>>> {
+    Ok(Json(s.ent.edt_greve_candidats(&acteur(&session), q.jour, q.demi_journee).await.map_err(map_db)?))
+}
+
+async fn t3_greve(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(cmd): Json<CmdGreve>,
+) -> Res<(StatusCode, Json<ResultatLot>)> {
+    let r = s.ent.edt_greve_du_jour(&acteur(&session), &cmd).await.map_err(map_db)?;
+    Ok((if r.apercu || r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+}
+
+#[derive(Debug, Deserialize)]
+struct PlageQuery {
+    du: NaiveDate,
+    au: NaiveDate,
+}
+
+async fn t3_salle_fermee_propositions(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<PlageQuery>,
+) -> Res<Json<Vec<PropositionLieu>>> {
+    Ok(Json(s.ent.edt_salle_fermee_propositions(&acteur(&session), id, q.du, q.au).await.map_err(map_db)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct SalleFermeeBody {
+    du: NaiveDate,
+    au: NaiveDate,
+    propositions: Vec<(Uuid, Uuid)>,
+    #[serde(default)]
+    motif_public_code: Option<String>,
+    #[serde(default)]
+    motif_public: Option<String>,
+    #[serde(default)]
+    motif_interne: Option<String>,
+    #[serde(default)]
+    cle: Option<String>,
+}
+
+async fn t3_salle_fermee_appliquer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<SalleFermeeBody>,
+) -> Res<(StatusCode, Json<ResultatSalleFermee>)> {
+    let cmd = CmdSalleFermee {
+        salle_id: id,
+        du: b.du,
+        au: b.au,
+        propositions: b.propositions,
+        motif_public_code: b.motif_public_code.unwrap_or_else(|| "travaux".to_string()),
+        motif_public: b.motif_public,
+        motif_interne: b.motif_interne,
+        cle: b.cle,
+    };
+    let r = s.ent.edt_salle_fermee_appliquer(&acteur(&session), &cmd).await.map_err(map_db)?;
+    Ok((if r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+}
+
+async fn t3_rattrapage(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<PlageQuery>,
+) -> Res<Json<Vec<PlageRattrapage>>> {
+    Ok(Json(s.ent.edt_rattrapage_propositions(&acteur(&session), id, q.du, q.au).await.map_err(map_db)?))
+}
+
+async fn t3_non_assurees(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<PlageQuery>,
+) -> Res<Json<Vec<SeanceNonAssuree>>> {
+    Ok(Json(s.ent.edt_seances_non_assurees(&acteur(&session), q.du, q.au).await.map_err(map_db)?))
 }

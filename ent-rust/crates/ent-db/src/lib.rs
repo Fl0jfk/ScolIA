@@ -138,6 +138,9 @@ mod referentiel_annee;
 mod referentiel_seances;
 pub mod edt_admin;
 pub mod edt_remplacement;
+pub mod edt_modif;
+pub mod edt_modif_ops;
+pub mod edt_lots;
 mod edt_masse;
 pub mod edt_ports;
 pub mod edt_versions;
@@ -398,6 +401,8 @@ mod tests_absences_personnels_pieces;
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t1_t2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t3;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

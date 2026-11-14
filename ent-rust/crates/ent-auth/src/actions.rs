@@ -354,6 +354,22 @@ pub enum Action {
     /// Remontée hebdomadaire RCD (A6, ABP-229 à 231) : préparer, contrôler, laisser partir, exporter le tableau
     /// équivalent. Direction et secrétariat. La remontée ne porte jamais de nom ni de nature fine.
     PersonnelsRcdRemontee,
+    /// Socle 10 (emploi du temps), lot T3 (EDT-160 à 168, 173) : modifier le réel d'une séance (annuler, déplacer,
+    /// changer l'horaire, ajouter, fusionner, changer l'intervenant) et lever une modification. Direction et secrétariat.
+    EdtModifier,
+    /// Socle 10, lot T3 (EDT-162) : changer le lieu d'une séance ou d'une série. Direction, secrétariat, vie scolaire.
+    EdtModifierLieu,
+    /// Socle 10, lot T3 (EDT-169 à 171) : lots (annulation en masse, grève du jour, salle fermée) avec aperçu serveur.
+    EdtLotAppliquer,
+    /// Socle 10, lot T3 (EDT-173) : corriger une séance passée (motif obligatoire, effets en aval signalés). Direction.
+    EdtCorrigerPasse,
+    /// Socle 10, lot T3 : lire le motif INTERNE d'une modification (jamais diffusé). Direction et secrétariat.
+    EdtMotifInterneLire,
+    /// Socle 10, lot T3 : lire le journal des modifications (motif public seulement). Personnel d'encadrement.
+    EdtModificationsLire,
+    /// Socle 10, lot T3 (§9.3) : forcer un conflit dur d'emploi du temps avec un motif journalisé (cas réel : deux
+    /// demi-groupes fusionnés dans la même salle). Direction seule : le secrétariat propose, il ne force pas.
+    EdtForcerConflit,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -455,7 +471,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 189] = [
+    pub const TOUTES: [Action; 196] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -657,6 +673,13 @@ impl Action {
         Action::PersonnelsAbsencesSuppleer,
         Action::PersonnelsRcdGerer,
         Action::PersonnelsRcdRemontee,
+        Action::EdtModifier,
+        Action::EdtModifierLieu,
+        Action::EdtLotAppliquer,
+        Action::EdtCorrigerPasse,
+        Action::EdtMotifInterneLire,
+        Action::EdtModificationsLire,
+        Action::EdtForcerConflit,
     ];
 
     pub fn code(self) -> &'static str {
@@ -816,6 +839,13 @@ impl Action {
             Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
             Self::PersonnelsRcdGerer => "personnels.rcd.gerer",
             Self::PersonnelsRcdRemontee => "personnels.rcd.remontee",
+            Self::EdtModifier => "edt.modifier",
+            Self::EdtModifierLieu => "edt.modifier_lieu",
+            Self::EdtLotAppliquer => "edt.lot_appliquer",
+            Self::EdtCorrigerPasse => "edt.corriger_passe",
+            Self::EdtMotifInterneLire => "edt.motif_interne_lire",
+            Self::EdtModificationsLire => "edt.modifications_lire",
+            Self::EdtForcerConflit => "edt.forcer_conflit",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -1013,6 +1043,13 @@ impl Action {
             Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
             Self::PersonnelsRcdGerer => "Tenir le plan de remplacement de courte durée et le vivier des volontaires",
             Self::PersonnelsRcdRemontee => "Préparer, contrôler et transmettre la remontée hebdomadaire du remplacement de courte durée",
+            Self::EdtModifier => "Modifier le réel de l'emploi du temps (annuler, déplacer, changer l'horaire, ajouter, fusionner, lever)",
+            Self::EdtModifierLieu => "Changer le lieu d'une séance ou d'une série de séances",
+            Self::EdtLotAppliquer => "Appliquer un lot de modifications de l'emploi du temps (grève, fermeture, salle fermée) après aperçu",
+            Self::EdtCorrigerPasse => "Corriger une séance passée de l'emploi du temps (motif obligatoire, journalisé)",
+            Self::EdtMotifInterneLire => "Lire le motif interne d'une modification de l'emploi du temps",
+            Self::EdtModificationsLire => "Lire le journal des modifications de l'emploi du temps",
+            Self::EdtForcerConflit => "Forcer un conflit dur de l'emploi du temps avec un motif journalisé",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1214,6 +1251,13 @@ impl Action {
             | Self::PersonnelsAbsencesSuppleer
             | Self::PersonnelsRcdGerer
             | Self::PersonnelsRcdRemontee
+            | Self::EdtModifier
+            | Self::EdtModifierLieu
+            | Self::EdtLotAppliquer
+            | Self::EdtCorrigerPasse
+            | Self::EdtMotifInterneLire
+            | Self::EdtModificationsLire
+            | Self::EdtForcerConflit
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1377,6 +1421,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_10_edt(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1748,6 +1793,27 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
 // ── Modèles par défaut, un bloc par socle (appelés par `modele_par_defaut`, dans l'ordre) ──
 
 /// Socle 15 (absences des personnels), lots A0–A1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Socle 10 (emploi du temps), lot T3 : modifier le réel (règle 21 du pilotage : une fonction par socle).
+/// Le professeur n'a aucun de ces droits : il demande (T13), il ne modifie pas ; le motif interne n'est lu que
+/// par la direction et le secrétariat.
+fn socle_10_edt(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Direction | Role::Administratif) {
+        for a in [EdtModifier, EdtLotAppliquer, EdtMotifInterneLire] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(EdtModifierLieu));
+        d.push(etab(EdtModificationsLire));
+    }
+    if role == Role::Direction {
+        d.push(etab(EdtCorrigerPasse));
+        d.push(etab(EdtForcerConflit));
+    }
+}
+
 fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);
@@ -2294,6 +2360,27 @@ mod tests {
         for x in [PersonnelsAbsencesLireNature, PersonnelsAbsencesValider] {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
             assert!(x.accordee_par().is_empty());
+        }
+    }
+
+    /// Socle 10, lot T3 : droits de modification du réel. Le professeur, les familles et les profils sans
+    /// encadrement n'en ont aucun ; le motif interne reste à la direction et au secrétariat.
+    #[test]
+    fn edt_t3_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve] {
+            let dir_adm = matches!(r, Role::Direction | Role::Administratif);
+            assert_eq!(a(r, EdtModifier), dir_adm, "{r:?} edt.modifier");
+            assert_eq!(a(r, EdtLotAppliquer), dir_adm, "{r:?} edt.lot_appliquer");
+            assert_eq!(a(r, EdtMotifInterneLire), dir_adm, "{r:?} motif interne");
+            assert_eq!(a(r, EdtModifierLieu), dir_adm || r == Role::Cpe, "{r:?} lieu");
+            assert_eq!(a(r, EdtModificationsLire), dir_adm || r == Role::Cpe, "{r:?} journal");
+            assert_eq!(a(r, EdtCorrigerPasse), r == Role::Direction, "{r:?} correction du passé");
+            assert_eq!(a(r, EdtForcerConflit), r == Role::Direction, "{r:?} forcer");
+        }
+        for x in [EdtModifier, EdtModifierLieu, EdtLotAppliquer, EdtCorrigerPasse, EdtMotifInterneLire, EdtModificationsLire] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
     }
 
