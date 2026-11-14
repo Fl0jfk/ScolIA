@@ -63,7 +63,8 @@ pub const AVIS_CAHIER: &[AvisDeclare] = &[
         evenement: types::CAHIER_RESUME_HEBDOMADAIRE,
         categorie: "Notes et devoirs",
         destinataires: "responsables_habilites, eleve_majeur",
-        gabarit: "La semaine du {lundi} : {nb_travaux} travaux, {nb_evaluations} évaluations annoncées.",
+        gabarit:
+            "La semaine du {lundi} : {nb_travaux} travaux, {nb_evaluations} évaluations annoncées.",
         desactivable: true,
     },
 ];
@@ -196,7 +197,12 @@ pub(crate) async fn lignes_agenda(
     let mut lignes: Vec<AgendaLigneDto> = travaux
         .into_iter()
         .map(|t| AgendaLigneDto {
-            genre: if t.est_evaluation { GENRE_EVALUATION } else { GENRE_TRAVAIL }.to_string(),
+            genre: if t.est_evaluation {
+                GENRE_EVALUATION
+            } else {
+                GENRE_TRAVAIL
+            }
+            .to_string(),
             id: t.id,
             cours_id: Some(t.cours_id),
             matiere: t.matiere,
@@ -275,8 +281,20 @@ pub(crate) async fn lignes_agenda(
         _ => 3,
     };
     lignes.sort_by(|a, b| {
-        (a.jour, a.heure.as_deref().unwrap_or(""), rang(&a.genre), &a.titre, a.id)
-            .cmp(&(b.jour, b.heure.as_deref().unwrap_or(""), rang(&b.genre), &b.titre, b.id))
+        (
+            a.jour,
+            a.heure.as_deref().unwrap_or(""),
+            rang(&a.genre),
+            &a.titre,
+            a.id,
+        )
+            .cmp(&(
+                b.jour,
+                b.heure.as_deref().unwrap_or(""),
+                rang(&b.genre),
+                &b.titre,
+                b.id,
+            ))
     });
     Ok(lignes)
 }
@@ -316,7 +334,10 @@ impl PgEnt {
         let role = Role::parse(a.role);
         let (eleve, vue) = match role {
             Some(Role::Eleve) => {
-                let propre = self.eleve_du_compte(a).await?.ok_or(EntDbError::Forbidden)?;
+                let propre = self
+                    .eleve_du_compte(a)
+                    .await?
+                    .ok_or(EntDbError::Forbidden)?;
                 if eleve_id.is_some_and(|e| e != propre) {
                     return Err(EntDbError::Forbidden);
                 }
@@ -372,7 +393,9 @@ impl PgEnt {
         let (eleve, vue) = self.cdt_lecteur(a, eleve_id).await?;
         self.cdt_projeter_echus(a.etablissement_id).await?;
         let aujourdhui = self.jour_etab(a.etablissement_id).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let lignes = lignes_agenda(
             &mut tx,
             a.etablissement_id,
@@ -494,7 +517,9 @@ impl PgEnt {
                     .collect(),
             });
         }
-        out.sort_by(|x, y| (x.jour, &x.heure_debut, x.seance_id).cmp(&(y.jour, &y.heure_debut, y.seance_id)));
+        out.sort_by(|x, y| {
+            (x.jour, &x.heure_debut, x.seance_id).cmp(&(y.jour, &y.heure_debut, y.seance_id))
+        });
         Ok(ManqueDto {
             eleve_id: eleve,
             du,
@@ -505,7 +530,12 @@ impl PgEnt {
 
     /// CDT-09, 163 : l'élève coche (ou décoche) « fait ». Outil **personnel** : jamais servi à un adulte (R-C14), sans
     /// aucun effet sur le statut constaté. Réservé à l'élève lui-même, pour un travail qu'il peut lire.
-    pub async fn cdt_cocher(&self, a: &Acteur<'_>, travail_id: Uuid, fait: bool) -> Result<(), EntDbError> {
+    pub async fn cdt_cocher(
+        &self,
+        a: &Acteur<'_>,
+        travail_id: Uuid,
+        fait: bool,
+    ) -> Result<(), EntDbError> {
         if Role::parse(a.role) != Some(Role::Eleve) {
             return Err(EntDbError::Forbidden);
         }
@@ -573,7 +603,15 @@ impl PgEnt {
         let aujourdhui = self.jour_etab(etab).await?;
         let lundi = lundi_de(semaine.unwrap_or(aujourdhui));
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        resume_de(&mut tx, etab, eleve, lundi, aujourdhui, vue == LecteurC3::Eleve).await
+        resume_de(
+            &mut tx,
+            etab,
+            eleve,
+            lundi,
+            aujourdhui,
+            vue == LecteurC3::Eleve,
+        )
+        .await
     }
 
     // ───────────────────────────── Abonnement au calendrier ─────────────────────────────
@@ -658,8 +696,14 @@ impl PgEnt {
     }
 
     /// Révoque un abonnement de l'acteur (celui d'un autre compte n'existe pas pour lui).
-    pub async fn cdt_abonnement_revoquer(&self, a: &Acteur<'_>, id: Uuid) -> Result<(), EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+    pub async fn cdt_abonnement_revoquer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let n = sqlx::query(
             "UPDATE ent_cdt_abonnement SET revoque_le = now()
               WHERE etablissement_id = $1 AND id = $2 AND user_id = $3 AND revoque_le IS NULL",
@@ -681,7 +725,10 @@ impl PgEnt {
     /// Flux du calendrier pour un jeton (route publique, sans session). Les droits du **compte abonné** sont relus à chaque
     /// lecture : un abonnement révoqué, un lien suspendu, un élève devenu majeur ou parti ne donne plus rien (404).
     /// Renvoie le nom du calendrier et les lignes **sans consigne** (socle 9), de la veille à +120 jours.
-    pub async fn cdt_calendrier_par_jeton(&self, jeton: &str) -> Result<(String, Vec<AgendaLigneDto>), EntDbError> {
+    pub async fn cdt_calendrier_par_jeton(
+        &self,
+        jeton: &str,
+    ) -> Result<(String, Vec<AgendaLigneDto>), EntDbError> {
         let (etab, secret) = decouper_jeton(jeton).ok_or_else(introuvable)?;
         let (user, eleve): (Uuid, Uuid) = sqlx::query_as(
             "SELECT user_id, eleve_id FROM ent_cdt_abonnement
@@ -709,7 +756,10 @@ impl PgEnt {
             role: role.as_str(),
         };
         // Les droits du compte sont relus : tout refus devient « introuvable » (le jeton ne dit rien de plus).
-        let (lu, _) = self.cdt_lecteur(&acteur, Some(eleve)).await.map_err(|_| introuvable())?;
+        let (lu, _) = self
+            .cdt_lecteur(&acteur, Some(eleve))
+            .await
+            .map_err(|_| introuvable())?;
         self.cdt_projeter_echus(etab).await?;
         let aujourdhui = self.jour_etab(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
@@ -741,7 +791,11 @@ impl PgEnt {
     /// Prépare les résumés hebdomadaires d'une semaine : un seul envoi par élève et par semaine (même sous passages
     /// concurrents), et seulement si la semaine contient au moins une échéance. L'événement ne porte que des décomptes ;
     /// le consommateur d'avis (socle 8) choisit les destinataires habilités et les canaux. Renvoie le nombre d'élèves.
-    pub async fn cdt_resumes_preparer(&self, etab: Uuid, lundi: NaiveDate) -> Result<usize, EntDbError> {
+    pub async fn cdt_resumes_preparer(
+        &self,
+        etab: Uuid,
+        lundi: NaiveDate,
+    ) -> Result<usize, EntDbError> {
         if lundi.weekday().num_days_from_monday() != 0 {
             return Err(invalide("la semaine est identifiée par son lundi"));
         }
@@ -804,9 +858,12 @@ impl PgEnt {
     /// Tâche de fond : chaque dimanche à partir de 17 h (jour et heure de l'établissement), prépare le résumé de la semaine
     /// qui commence le lendemain. Idempotente : rejouable à chaque passage sans doublon d'avis.
     pub async fn cdt_resumes_tache(&self) -> Result<usize, EntDbError> {
-        let etabs = etablissements_systeme(self.pool(), ContexteSysteme::JobPlanifie("cahier_resume_hebdomadaire"))
-            .await
-            .map_err(db)?;
+        let etabs = etablissements_systeme(
+            self.pool(),
+            ContexteSysteme::JobPlanifie("cahier_resume_hebdomadaire"),
+        )
+        .await
+        .map_err(db)?;
         let mut n = 0;
         for etab in etabs {
             let (jour, heure): (NaiveDate, String) = match sqlx::query_as(
@@ -825,7 +882,10 @@ impl PgEnt {
             if jour.weekday().num_days_from_monday() != 6 || heure.as_str() < "17:00" {
                 continue;
             }
-            match self.cdt_resumes_preparer(etab, jour + Duration::days(1)).await {
+            match self
+                .cdt_resumes_preparer(etab, jour + Duration::days(1))
+                .await
+            {
                 Ok(k) => n += k,
                 Err(e) => tracing::warn!(error = %e, "résumés hebdomadaires non préparés"),
             }
@@ -887,7 +947,10 @@ mod tests {
         for k in 0..7 {
             assert_eq!(lundi_de(lundi + Duration::days(k)), lundi);
         }
-        assert_eq!(lundi_de(lundi + Duration::days(7)), lundi + Duration::days(7));
+        assert_eq!(
+            lundi_de(lundi + Duration::days(7)),
+            lundi + Duration::days(7)
+        );
     }
 
     #[test]
@@ -915,15 +978,35 @@ mod tests {
         assert_eq!(AVIS_CAHIER.len(), 4);
         let mut vus = HashSet::new();
         for a in AVIS_CAHIER {
-            assert!(vus.insert(a.evenement), "un seul avis par événement : {}", a.evenement);
+            assert!(
+                vus.insert(a.evenement),
+                "un seul avis par événement : {}",
+                a.evenement
+            );
             assert!(a.evenement.starts_with("cahier."));
             assert_eq!(a.categorie, "Notes et devoirs");
-            for interdit in ["{consigne}", "{note}", "{motif}", "{nom}", "{prenom}", "{titre}", "{contenu}", "{adresse}"] {
-                assert!(!a.gabarit.contains(interdit), "gabarit « {} » : {interdit} interdit", a.gabarit);
+            for interdit in [
+                "{consigne}",
+                "{note}",
+                "{motif}",
+                "{nom}",
+                "{prenom}",
+                "{titre}",
+                "{contenu}",
+                "{adresse}",
+            ] {
+                assert!(
+                    !a.gabarit.contains(interdit),
+                    "gabarit « {} » : {interdit} interdit",
+                    a.gabarit
+                );
             }
             assert!(a.gabarit.len() <= 120, "avis court");
             // Un responsable n'est jamais destinataire sans passer par l'habilitation du lien.
-            assert!(!a.destinataires.contains("responsables,") && !a.destinataires.ends_with("responsables"));
+            assert!(
+                !a.destinataires.contains("responsables,")
+                    && !a.destinataires.ends_with("responsables")
+            );
         }
     }
 
