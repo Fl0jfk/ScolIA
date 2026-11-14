@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 /// Minutes dans une demi-journée « entière » (absence historique à la journée) :
 /// toujours au-dessus de tout seuil admis (≤ 600).
-const MINUTES_DEMI_JOURNEE_ENTIERE: i64 = 24 * 60;
+pub(crate) const MINUTES_DEMI_JOURNEE_ENTIERE: i64 = 24 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -98,15 +98,15 @@ pub struct DemiJournee {
     pub non_justifiee: bool,
 }
 
-type Intervalle = (i64, i64); // secondes depuis minuit, [début, fin)
+pub(crate) type Intervalle = (i64, i64); // secondes depuis minuit, [début, fin)
 
-fn secondes(t: NaiveTime) -> i64 {
+pub(crate) fn secondes(t: NaiveTime) -> i64 {
     use chrono::Timelike;
     i64::from(t.num_seconds_from_midnight())
 }
 
 /// Union d'intervalles, longueur totale en minutes (arrondie à l'inférieur).
-fn minutes_union(mut v: Vec<Intervalle>) -> i64 {
+pub(crate) fn minutes_union(mut v: Vec<Intervalle>) -> i64 {
     v.retain(|(d, f)| f > d);
     v.sort_unstable();
     let mut total = 0i64;
@@ -128,7 +128,7 @@ fn minutes_union(mut v: Vec<Intervalle>) -> i64 {
 }
 
 /// Découpe `[debut, fin)` selon la coupure : (partie matin, partie après-midi).
-fn ventiler(debut: i64, fin: i64, coupure: i64) -> (Option<Intervalle>, Option<Intervalle>) {
+pub(crate) fn ventiler(debut: i64, fin: i64, coupure: i64) -> (Option<Intervalle>, Option<Intervalle>) {
     let matin = (debut.min(coupure), fin.min(coupure));
     let apres = (debut.max(coupure), fin.max(coupure));
     (

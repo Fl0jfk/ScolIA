@@ -1406,7 +1406,10 @@ impl PgEnt {
         let mut v = self.composer_episodes(&mut tx, etab, vec![ligne], true).await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&publies);
-        Ok(v.remove(0))
+        let r = v.remove(0);
+        // AS4 : si le mois de l'épisode est arrêté, l'écart de décompte est inscrit en rectification.
+        self.rectifier_apres_changement(etab, r.eleve_id, r.jour_debut, r.jour_fin, "requalification", Some(absence_id)).await;
+        Ok(r)
     }
 
     async fn controler_nature_motif(
@@ -1494,7 +1497,9 @@ impl PgEnt {
         let mut v = self.composer_episodes(&mut tx, etab, vec![ligne], true).await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&publies);
-        Ok(v.remove(0))
+        let r = v.remove(0);
+        self.rectifier_apres_changement(etab, r.eleve_id, r.jour_debut, r.jour_fin, "requalification", Some(absence_id)).await;
+        Ok(r)
     }
 
     /// Aperçu d'une qualification en masse (AS-122, AS-213) : épisodes retenus, écartés avec la raison, et
@@ -1596,6 +1601,7 @@ impl PgEnt {
         }
         let mut publies = Vec::new();
         let mut qualifies = Vec::new();
+        let mut touches = Vec::new();
         for id in &apercu.retenus {
             let ep = Self::episode_ligne(&mut tx, etab, *id, false).await?;
             self.appliquer_qualification_tx(
@@ -1614,9 +1620,13 @@ impl PgEnt {
             )
             .await?;
             qualifies.push(*id);
+            touches.push((ep.eleve_id, ep.jour_debut, ep.jour_fin, *id));
         }
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&publies);
+        for (eleve, du, au, id) in touches {
+            self.rectifier_apres_changement(etab, eleve, du, au, "requalification", Some(id)).await;
+        }
         Ok(BilanMasse { qualifies })
     }
 

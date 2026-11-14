@@ -8,6 +8,7 @@ mod assiduite;
 mod assiduite_as1;
 mod assiduite_as2;
 mod assiduite_as3;
+mod assiduite_as4;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -236,6 +237,10 @@ pub use assiduite_as3::{
     FiltreEpisodes, JustificatifAsd, LienJustificatif, ProposerQualification, PropositionAsd, QualifierEpisode,
     RequalifierEpisode, SeanceEpisode, SelectionMasse, LIBELLES_FAMILLE, MOTIFS_REQUALIFICATION, QUALIFICATIONS,
 };
+pub use assiduite_as4::{
+    deriver_jour, expliquer, ArretMois, DemiJourneeCalc, DemiJourneeCalculee, Definition, EleveMoisArrete, Ouverture,
+    ParamsJour, Raison, Rectification, ResumeRecalcul, CAUSES_RECTIFICATION,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -461,6 +466,8 @@ mod tests_assiduite_as1;
 mod tests_assiduite_as2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

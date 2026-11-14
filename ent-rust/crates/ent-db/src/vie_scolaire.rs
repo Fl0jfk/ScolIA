@@ -17,7 +17,7 @@
 //! `vs.appel_relance`.
 
 use crate::assiduite::{
-    bornes_mois, deriver_demi_journees, heure_paris, seance_couverte, Contribution, Periode,
+    bornes_mois, heure_paris, seance_couverte, Periode,
     RegleAssiduite,
 };
 use crate::outbox::Publier;
@@ -142,6 +142,10 @@ pub struct DemiJourneeEleve {
     pub minutes_non_justifiees: i64,
     pub comptee: bool,
     pub non_justifiee: bool,
+    /// Pourquoi la demi-journée compte ou non (liste fermée, AS4).
+    pub raison: &'static str,
+    /// Phrase d'explication tirée des champs codés (jamais le motif ni la note).
+    pub explication: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -160,6 +164,9 @@ pub struct DecompteMois {
     pub mois: NaiveDate,
     pub seuil_signalement: i32,
     pub eleves: Vec<DecompteEleve>,
+    /// Le mois est arrêté (AS4) : les chiffres sont figés ; les corrections postérieures sont des
+    /// rectifications listées à part.
+    pub arrete: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -937,88 +944,8 @@ impl PgEnt {
     // Décompte en demi-journées
     // -----------------------------------------------------------------------
 
-    /// Contributions d'absence par (élève, jour) sur `[du, au]` inclus : lignes à
-    /// la séance + repli sur les absences à la journée qui n'ont aucune ligne.
-    async fn contributions(
-        &self,
-        etablissement_id: Uuid,
-        eleve_id: Option<Uuid>,
-        du: NaiveDate,
-        au: NaiveDate,
-    ) -> Result<BTreeMap<(Uuid, NaiveDate), Vec<Contribution>>, EntDbError> {
-        let mut out: BTreeMap<(Uuid, NaiveDate), Vec<Contribution>> = BTreeMap::new();
-        let mut tx = TenantTx::begin(self.pool(), etablissement_id).await?;
-        let lignes: Vec<(
-            Uuid,
-            NaiveDate,
-            String,
-            Option<String>,
-            Option<NaiveTime>,
-            Option<NaiveTime>,
-            bool,
-        )> = sqlx::query_as(
-            "SELECT s.eleve_id, s.jour, s.kind, s.periode, s.heure_debut, s.heure_fin,
-                    (a.statut = 'justifiee')
-               FROM ent_absence_seance s
-               JOIN ent_absence a
-                 ON a.id = s.absence_id AND a.etablissement_id = s.etablissement_id
-              WHERE s.etablissement_id = $1 AND s.jour BETWEEN $2 AND $3
-                AND ($4::uuid IS NULL OR s.eleve_id = $4)
-                AND a.statut <> 'annulee_present'",
-        )
-        .bind(etablissement_id)
-        .bind(du)
-        .bind(au)
-        .bind(eleve_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        for (e, jour, kind, periode, debut, fin, justifiee) in lignes {
-            let c = match (kind.as_str(), periode.as_deref().and_then(Periode::parse), debut, fin) {
-                ("demi_journee", Some(p), _, _) => Contribution::DemiJournee {
-                    periode: p,
-                    justifiee,
-                },
-                ("seance", _, Some(d), Some(f)) => Contribution::Seance {
-                    debut: d,
-                    fin: f,
-                    justifiee,
-                },
-                _ => continue,
-            };
-            out.entry((e, jour)).or_default().push(c);
-        }
-        // Repli : absences à la journée sans aucune ligne (créées par l'ancien
-        // chemin ou appels sans créneau) = journées ouvrées entières.
-        let anciennes: Vec<(Uuid, NaiveDate, bool)> = sqlx::query_as(
-            "SELECT a.eleve_id, d::date, (a.statut = 'justifiee')
-               FROM ent_absence a
-               CROSS JOIN LATERAL generate_series(
-                    GREATEST(a.debut, $2)::timestamp, LEAST(a.fin, $3)::timestamp, interval '1 day') d
-              WHERE a.etablissement_id = $1
-                AND a.fin >= $2 AND a.debut <= $3
-                AND ($4::uuid IS NULL OR a.eleve_id = $4)
-                AND a.statut <> 'annulee_present'
-                AND EXTRACT(ISODOW FROM d) < 6
-                AND NOT EXISTS (SELECT 1 FROM ent_absence_seance s WHERE s.absence_id = a.id)",
-        )
-        .bind(etablissement_id)
-        .bind(du)
-        .bind(au)
-        .bind(eleve_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
-        for (e, jour, justifiee) in anciennes {
-            let v = out.entry((e, jour)).or_default();
-            for periode in [Periode::Matin, Periode::ApresMidi] {
-                v.push(Contribution::DemiJournee { periode, justifiee });
-            }
-        }
-        Ok(out)
-    }
-
-    /// Demi-journées dérivées sur une période (sans contrôle d'accès : usage interne).
+    /// Demi-journées dérivées sur une période (sans contrôle d'accès : usage interne). **AS4** : calculées
+    /// à partir des épisodes, selon la règle du jour et le calendrier (`assiduite_as4`).
     pub(crate) async fn demi_journees(
         &self,
         etablissement_id: Uuid,
@@ -1026,25 +953,24 @@ impl PgEnt {
         du: NaiveDate,
         au: NaiveDate,
     ) -> Result<Vec<DemiJourneeEleve>, EntDbError> {
-        let regle = self.regle_assiduite(etablissement_id).await?;
-        let contribs = self
-            .contributions(etablissement_id, eleve_id, du, au)
+        let lignes = self
+            .calculer_demi_journees(etablissement_id, eleve_id, du, au)
             .await?;
-        let mut out = Vec::new();
-        for ((eleve, jour), cs) in contribs {
-            for dj in deriver_demi_journees(&cs, &regle) {
-                out.push(DemiJourneeEleve {
-                    eleve_id: eleve,
-                    jour,
-                    periode: dj.periode,
-                    minutes: dj.minutes,
-                    minutes_non_justifiees: dj.minutes_non_justifiees,
-                    comptee: dj.comptee,
-                    non_justifiee: dj.non_justifiee,
-                });
-            }
-        }
-        Ok(out)
+        Ok(lignes
+            .into_iter()
+            .filter(|d| d.jour >= du && d.jour <= au)
+            .map(|d| DemiJourneeEleve {
+                eleve_id: d.eleve_id,
+                jour: d.jour,
+                periode: d.periode,
+                minutes: d.minutes_manquees,
+                minutes_non_justifiees: d.minutes_non_justifiees,
+                comptee: d.compte,
+                non_justifiee: d.non_justifiee,
+                raison: d.raison,
+                explication: crate::assiduite_as4::expliquer(&d),
+            })
+            .collect())
     }
 
     /// Demi-journées d'absence d'un élève sur `[du, au]` (inclus). Mêmes droits que
@@ -1091,20 +1017,38 @@ impl PgEnt {
         etablissement_id: Uuid,
         mois: NaiveDate,
     ) -> Result<DecompteMois, EntDbError> {
-        let regle = self.regle_assiduite(etablissement_id).await?;
         let (debut, suivant) = bornes_mois(mois);
         let dernier = suivant - Duration::days(1);
-        let dj = self
-            .demi_journees(etablissement_id, None, debut, dernier)
-            .await?;
         let mut par_eleve: BTreeMap<Uuid, (i64, i64)> = BTreeMap::new();
-        for d in dj.iter().filter(|d| d.comptee) {
-            let e = par_eleve.entry(d.eleve_id).or_default();
-            e.0 += 1;
-            if d.non_justifiee {
-                e.1 += 1;
+        // AS4 : un mois arrêté se lit dans le décompte figé (jamais recalculé) ; sinon le décompte vivant,
+        // avec le seuil de la règle en vigueur le dernier jour déjà écoulé du mois.
+        let (arrete, seuil_signalement) = if let Some(figes) = self.mois_arrete(etablissement_id, debut).await? {
+            for f in &figes {
+                par_eleve.insert(f.eleve_id, (i64::from(f.demi_journees), i64::from(f.non_justifiees)));
             }
-        }
+            let seuil = match figes.first() {
+                Some(f) => f.seuil_signalement,
+                None => self.regle_asd_en_vigueur(etablissement_id, dernier).await?.seuil_signalement_demi_journees,
+            };
+            (true, seuil)
+        } else {
+            let aujourdhui = self.aujourdhui_etablissement(etablissement_id).await?;
+            let seuil = self
+                .regle_asd_en_vigueur(etablissement_id, dernier.min(aujourdhui))
+                .await?
+                .seuil_signalement_demi_journees;
+            let dj = self
+                .demi_journees(etablissement_id, None, debut, dernier)
+                .await?;
+            for d in dj.iter().filter(|d| d.comptee) {
+                let e = par_eleve.entry(d.eleve_id).or_default();
+                e.0 += 1;
+                if d.non_justifiee {
+                    e.1 += 1;
+                }
+            }
+            (false, seuil)
+        };
         let ids: Vec<Uuid> = par_eleve.keys().copied().collect();
         let noms: Vec<(Uuid, String, String)> = sqlx::query_as(
             "SELECT id, nom, prenom FROM ent_eleve WHERE etablissement_id = $1 AND id = ANY($2)",
@@ -1126,7 +1070,7 @@ impl PgEnt {
                     prenom,
                     demi_journees_comptees: comptees,
                     demi_journees_non_justifiees: non_just,
-                    seuil_atteint: non_just >= i64::from(regle.seuil_signalement),
+                    seuil_atteint: non_just >= i64::from(seuil_signalement),
                 })
             })
             .collect();
@@ -1137,8 +1081,9 @@ impl PgEnt {
         });
         Ok(DecompteMois {
             mois: debut,
-            seuil_signalement: regle.seuil_signalement,
+            seuil_signalement,
             eleves,
+            arrete,
         })
     }
 
