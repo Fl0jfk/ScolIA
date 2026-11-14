@@ -702,6 +702,20 @@ fn specs_domaine_cours() -> Vec<Spec> {
             Some(r#"{"a_la_date":"2026-01-05"}"#)),
         ecrire_sur_b("structure-cours-service-B", "POST", "/structure/cours/{cours}/services",
             Some(r#"{"prof_user_id":"{eleve}","professeur_principal":false}"#)),
+        // Socle 20, lot C2 : cahier du cours. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx
+        // (liste des séances, entrée, travail) ; les routes sans identifiant sont réservées à qui écrit au cahier.
+        ecrire_sur_b("cahier-c2-seances-B", "GET", "/cahier/c2/cours/{cours}/seances?du=2026-01-05&au=2026-01-30", None),
+        ecrire_sur_b("cahier-c2-entree-B", "PUT",
+            "/cahier/c2/cours/{cours}/seances/00000000-0000-4000-8000-000000000001/entree",
+            Some(r#"{"contenu":"X","publication":"brouillon"}"#)),
+        ecrire_sur_b("cahier-c2-travail-B", "POST", "/cahier/c2/travaux",
+            Some(r#"{"cours_ids":["{cours}"],"nature":"exercices","titre":"X","consigne":"Y","publication":"brouillon","echeance_prochaine_seance":true}"#)),
+        ecrire_sur_b("cahier-c2-entree-versions-B", "GET", "/cahier/c2/entrees/{cours}/versions", None),
+        ecrire_sur_b("cahier-c2-entree-retrait-B", "POST", "/cahier/c2/entrees/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
+        ecrire_sur_b("cahier-c2-travail-modif-B", "PUT", "/cahier/c2/travaux/{cours}", Some(r#"{"titre":"X"}"#)),
+        ecrire_sur_b("cahier-c2-travail-retrait-B", "POST", "/cahier/c2/travaux/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
+        lire("cahier-c2-mes-cours", "/cahier/c2/cours", &[Admin, Direction, Prof], &[]),
+        lire("cahier-c2-natures", "/cahier/c2/natures", &[Admin, Direction, Prof], &[]),
     ]
 }
 

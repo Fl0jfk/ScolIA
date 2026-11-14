@@ -73,6 +73,8 @@ mod msg_m2;
 pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
 mod note_repo;
 pub mod cahier;
+pub mod cahier_c2;
+mod cahier_c2_travaux;
 pub mod cahier_reactions;
 pub mod outbox;
 pub mod reactions;

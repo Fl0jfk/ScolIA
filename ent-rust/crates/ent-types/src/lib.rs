@@ -19,6 +19,7 @@ pub mod agenda;
 pub mod appel;
 pub mod auth;
 pub mod cahier;
+pub mod cahier_c2;
 pub mod communication;
 pub mod discipline;
 pub mod dossier;

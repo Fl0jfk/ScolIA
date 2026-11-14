@@ -2058,3 +2058,6 @@ async fn c1_vues_de_compatibilite_rendent_l_ancienne_forme() {
     let contenu: String = sqlx::query_scalar("SELECT contenu FROM ent_seance_contenu_compat WHERE etablissement_id = $1 AND seance_id = $2").bind(e).bind(sc.seance_avec_cours).fetch_one(fx.ent.pool()).await.unwrap();
     assert!(contenu.contains("exemples"));
 }
+
+#[path = "tests_cahier_c2.rs"]
+mod c2;

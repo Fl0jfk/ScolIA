@@ -413,6 +413,11 @@ pub enum Action {
     AbsencesJustificatifMedicalLire,
     /// Décider d'une demande d'autorisation d'absence (accorder, refuser, transmettre au DASEN).
     AbsencesAutorisationDecider,
+    // ── Socle 20, lot C2 : cahier de textes, saisie et publication (`20_CAHIER_DE_TEXTES.md` §19.1) ──
+    /// Retirer de la diffusion une entrée ou un travail du cahier (motif obligatoire, versions gardées).
+    CahierRetirer,
+    /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
+    CahierContribuer,
 }
 
 /// Sur quoi une action s'applique.
@@ -437,7 +442,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 182] = [
+    pub const TOUTES: [Action; 184] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -621,6 +626,8 @@ impl Action {
         Action::AbsencesJustificatifLire,
         Action::AbsencesJustificatifMedicalLire,
         Action::AbsencesAutorisationDecider,
+        Action::CahierRetirer,
+        Action::CahierContribuer,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::PersonnelsAbsencesDeclarer,
         Action::PersonnelsAbsencesSignaler,
@@ -819,6 +826,8 @@ impl Action {
             Self::AbsencesJustificatifLire => "absences.justificatif_lire",
             Self::AbsencesJustificatifMedicalLire => "absences.justificatif_medical_lire",
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
+            Self::CahierRetirer => "cahier.retirer",
+            Self::CahierContribuer => "cahier.contribuer",
         }
     }
 
@@ -1009,6 +1018,8 @@ impl Action {
             Self::AbsencesJustificatifLire => "Lire les justificatifs d'absence non médicaux",
             Self::AbsencesJustificatifMedicalLire => "Lire les justificatifs d'absence médicaux (lecture journalisée)",
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
+            Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
+            Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
         }
     }
 
@@ -1332,6 +1343,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_29_afaire(role, &mut d);
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
+    socle_20_cahier(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1895,6 +1907,21 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
 /// * `demandes.hse.attester` : l'attestation du service fait est un réglage facultatif **désactivé par défaut**
 ///   (D-061) ; aucun profil ne l'a tant que l'établissement ne l'a pas activée et paramétrée.
 /// * Familles et élèves : aucune action de rôle (D-017) ; leurs droits viennent des publics de la nature.
+/// Socle 20 (cahier de textes), lot C2 : droits de retrait et de contribution. Les droits `cahier.lire`,
+/// `cahier.ecrire` et `cahier.viser` existent depuis S2-6 et restent dans le bloc « Cahier de textes » de
+/// `modele_par_defaut` (non déplacés, pour ne pas toucher aux blocs voisins). La direction retire sans écrire
+/// (C-D10) ; le professeur retire et contribue dans ses cours, à la date de l'action (R-C2, contrôlé par le service).
+fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push((CahierRetirer, Portee::Etablissement));
+    }
+    if role == Role::Prof {
+        d.push((CahierRetirer, Portee::MesClasses));
+        d.push((CahierContribuer, Portee::MesClasses));
+    }
+}
+
 fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);
