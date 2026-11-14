@@ -735,6 +735,28 @@ pub struct DepotDemande {
     pub pour_le_compte_de: Option<Uuid>,
     #[serde(default)]
     pub canal: Option<Canal>,
+    /// Volet d'une brique propriétaire (HSE, reprographie), écrit **dans la même transaction** que la demande.
+    /// Jamais lu d'un corps de requête (`serde(skip)`) : seuls les points d'entrée typés de N1-3 le posent.
+    #[serde(skip)]
+    pub volet: Option<Volet>,
+}
+
+/// Le volet d'une demande déclarée par une brique propriétaire (§8.3).
+#[derive(Debug, Clone)]
+pub enum Volet {
+    Hse(crate::demandes_hse::VoletHse),
+    Repro(crate::demandes_repro::VoletRepro),
+}
+
+/// Ce que le dépôt connaît de la demande en cours de création, remis au volet pour qu'il s'écrive avec elle.
+pub(crate) struct ContexteVolet {
+    pub(crate) etab: Uuid,
+    pub(crate) demande_id: Uuid,
+    pub(crate) annee_id: Uuid,
+    pub(crate) jour: NaiveDate,
+    pub(crate) deposant: Uuid,
+    pub(crate) demandeur: Uuid,
+    pub(crate) site_id: Option<Uuid>,
 }
 
 /// Geste sur une demande existante.
@@ -975,6 +997,14 @@ impl PgEnt {
             (Some(t), Some(_)) => Some(t.trim().to_string()),
         };
         valider_valeurs(decl, &depot.valeurs)?;
+        // Une nature qui porte un volet ne se dépose que par son point d'entrée dédié, et le volet doit être le sien.
+        match (&depot.volet, decl.code) {
+            (Some(Volet::Hse(_)), "rh.hse") | (Some(Volet::Repro(_)), "reprographie.tirage") => {}
+            (None, "rh.hse" | "reprographie.tirage") | (Some(_), _) => {
+                return Err(RefusDemande::Invalide("Cette démarche se dépose par son formulaire dédié."));
+            }
+            (None, _) => {}
+        }
         if decl.eleve_requis && depot.eleve_id.is_none() {
             return Err(RefusDemande::Invalide("Cette démarche concerne un élève : choisissez-le."));
         }
@@ -1104,6 +1134,21 @@ impl PgEnt {
 
         for s in &depot.valeurs {
             inserer_valeur(&mut tx, etab, id, s).await?;
+        }
+        if let Some(v) = &depot.volet {
+            let ctx = ContexteVolet {
+                etab,
+                demande_id: id,
+                annee_id,
+                jour,
+                deposant,
+                demandeur,
+                site_id: routage.site_id,
+            };
+            match v {
+                Volet::Hse(h) => crate::demandes_hse::ecrire_volet(&mut tx, &ctx, h).await?,
+                Volet::Repro(r) => crate::demandes_repro::ecrire_volet(&mut tx, &ctx, r).await?,
+            }
         }
 
         // Échéances : prise en charge et traitement (jours ouvrés ; fermetures du site en N1-1).
