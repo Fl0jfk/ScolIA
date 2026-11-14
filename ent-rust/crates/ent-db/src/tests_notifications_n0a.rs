@@ -13,6 +13,7 @@ async fn labo() -> Option<(PgEnt, LaboCast, sqlx::PgPool)> {
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     ent.install_brain_p0();
+    ent.install_mail_dry_run();
     let cast = ent.seed_labo_cast().await.expect("seed cast");
     let pool = sqlx::PgPool::connect(&url).await.expect("pool");
     Some((ent, cast, pool))
