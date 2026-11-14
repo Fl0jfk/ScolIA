@@ -10191,7 +10191,7 @@ async fn explorer_spine_notifications_famille(
 
     // Preuve : les 5 publications ont produit une notification famille réelle.
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     let attendu: [(&str, Uuid); 6] = [
@@ -10286,7 +10286,7 @@ async fn explorer_annonces_communication(
 
     // Preuve : le nombre de familles distinctes touchées par la diffusion générale.
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     let familles_generale: std::collections::HashSet<Uuid> = mails
@@ -10637,7 +10637,7 @@ async fn explorer_competences_lsu(
         .await
         .map_err(|e| e.to_string())?;
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     if !mails
