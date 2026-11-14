@@ -663,6 +663,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_ntf_lien", "communication_technique", Portee::Etablissement).perso(),
     t("ent_ntf_nature_etab", "communication_technique", Portee::Etablissement),
     t("ent_ntf_parametre", "communication_technique", Portee::Etablissement),
+    t("ent_ntf_preference", "communication_technique", Portee::Etablissement).perso().export(),
+    t("ent_ntf_reglage_personne", "communication_technique", Portee::Etablissement).perso().export(),
     t("ent_ntf_remise", "communication_technique", Portee::Etablissement).perso().neutralise(N_NTF_REMISE),
     t("ent_ntf_resume", "communication_technique", Portee::Etablissement).perso(),
     t("ent_objet", "dossier_eleve", Portee::Etablissement).perso().fichiers(Fichiers::Objet).export(),

@@ -9,7 +9,7 @@
 use super::catalogue::{nature, nature_de_kind_ancien};
 use super::contrat::*;
 use super::destinataires::reclasser;
-use crate::notifications::{db, notifier_personne, EnvoiAPlanifier};
+use crate::notifications::{db, notifier_personne_cibles, EnvoiAPlanifier};
 use crate::service::EntDbError;
 use crate::tenant_tx::TenantTx;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -39,7 +39,7 @@ fn rendre(texte: &str, prenom: &str, jour: Option<NaiveDate>) -> String {
 
 /// Ancien `kind` de l'ENT pour une nature (l'interface le reconnaît) ; à défaut, le second segment du code.
 fn kind_pour(code: &str) -> String {
-    for k in ["absence_constatee", "retard", "infirmerie_passage"] {
+    for k in ["absence_constatee", "retard", "infirmerie_passage", "absence_justifiee"] {
         if nature_de_kind_ancien(k) == Some(code) {
             return k.to_string();
         }
@@ -160,9 +160,10 @@ pub async fn expedier_avis_dus(
                 bilan.annulees += 1;
                 continue;
             }
-            // Canaux externes décidés à la création de l'avis (joignabilité, plancher, dédoublonnage).
-            let externes: Vec<String> = sqlx::query_scalar(
-                "SELECT canal FROM ent_ntf_remise
+            // Canaux externes et instants décidés à la création de l'avis (joignabilité, préférences, heures
+            // calmes, résumé, plancher, dédoublonnage) : l'ancien moteur n'en décide plus rien (façade).
+            let externes: Vec<(String, DateTime<Utc>, String)> = sqlx::query_as(
+                "SELECT canal, planifiee_pour, motif_planification FROM ent_ntf_remise
                   WHERE etablissement_id = $1 AND destinataire_id = $2 AND canal <> 'inapp' AND statut = 'planifiee'",
             )
             .bind(etablissement_id)
@@ -170,12 +171,12 @@ pub async fn expedier_avis_dus(
             .fetch_all(&mut *tx)
             .await
             .map_err(db)?;
-            let canaux_externes: Vec<&str> = externes
-                .iter()
-                .map(String::as_str)
-                .filter(|c| *c != "sms" || sms_possible)
+            let cibles: Vec<(String, DateTime<Utc>, bool)> = externes
+                .into_iter()
+                .filter(|(c, _, _)| c != "sms" || sms_possible)
+                .map(|(c, quand, motif)| (c, quand, motif.starts_with("resume_") || motif == "budget_bruit"))
                 .collect();
-            notifier_personne(
+            notifier_personne_cibles(
                 &mut *tx,
                 EnvoiAPlanifier {
                     etablissement_id,
@@ -189,11 +190,11 @@ pub async fn expedier_avis_dus(
                     source_id: avis_id,
                     cle_dedup: format!("avis:{avis_id}"),
                     droit_requis: Some(droit_ancien(n.droit_requis)),
-                    regroupable: !matches!(n.regroupement, Regroupement::Aucun | Regroupement::FoyerDemiJournee),
-                    canaux_voulus: &canaux_externes,
+                    regroupable: false,
+                    canaux_voulus: &[],
                 },
                 avis_id,
-                maintenant,
+                &cibles,
             )
             .await?;
             let notification: Option<Uuid> = sqlx::query_scalar(

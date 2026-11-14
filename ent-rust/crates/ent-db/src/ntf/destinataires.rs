@@ -15,6 +15,7 @@
 //! brancher quand leurs sources existent (socles 4 et 24) ; le schéma les porte déjà.
 
 use super::contrat::*;
+use super::reglages::PrefCategorie;
 use chrono::{DateTime, Utc};
 use sqlx::PgConnection;
 use std::collections::HashSet;
@@ -214,7 +215,21 @@ pub struct PlanCanaux {
 /// Algorithme des canaux (R-N10) : canaux par défaut ∩ joignables ; si le plancher n'est pas satisfait, on
 /// ajoute dans l'ordre push → e-mail → SMS (U2/U3 et autorisé) ; sinon tâche manuelle. U3 : tous les joignables.
 /// Une personne sans compte n'a ni ENT ni push ; son SMS attend les gabarits sans compte (lot N4).
-pub fn planifier_canaux(n: &NatureAvisDecl, l: &LigneLien, sms_u2_actif: bool) -> PlanCanaux {
+///
+/// Préférences de la personne pour la catégorie (N3) : pour U0 et U1 elle retire des canaux externes ; pour U2 et
+/// U3 elle ne retire rien (l'absence ne se désactive pas). Le SMS exige son consentement (`pref.sms`) sauf
+/// plancher de la nature ouvert par l'établissement (`sms_u2_actif`). `None` = défauts.
+pub fn planifier_canaux(n: &NatureAvisDecl, l: &LigneLien, sms_u2_actif: bool, pref: Option<PrefCategorie>) -> PlanCanaux {
+    let pref = pref.unwrap_or_default();
+    let retire = |c: Canal| {
+        let informatif = n.urgence <= Urgence::U1;
+        match c {
+            Canal::Push => informatif && !pref.push,
+            Canal::Email => informatif && !pref.email,
+            Canal::Sms => n.urgence < Urgence::U3 && !pref.sms,
+            Canal::InApp => false,
+        }
+    };
     let a_compte = l.compte_id.is_some();
     let push = a_compte && l.push;
     let email = l.email_utile().is_some();
@@ -229,7 +244,7 @@ pub fn planifier_canaux(n: &NatureAvisDecl, l: &LigneLien, sms_u2_actif: bool) -
     if a_compte {
         canaux.push(Canal::InApp);
     }
-    for c in n.canaux_defaut.iter().copied().filter(|c| c.externe() && joignable(*c)) {
+    for c in n.canaux_defaut.iter().copied().filter(|c| c.externe() && joignable(*c) && !retire(*c)) {
         canaux.push(c);
     }
     let externe = |v: &[Canal]| v.iter().any(|c| c.externe());
@@ -345,30 +360,49 @@ mod tests {
     #[test]
     fn canaux_avec_compte_et_sans_compte() {
         let l = ligne();
-        let p = planifier_canaux(&ABSENCE_CONSTATEE, &l, false);
+        let p = planifier_canaux(&ABSENCE_CONSTATEE, &l, false, None);
         assert_eq!(p.canaux, vec![Canal::InApp, Canal::Push]);
         assert!(!p.a_prevenir);
         // Sans appareil : le plancher « un externe » ajoute l'e-mail (le SMS exige U2 et le réglage).
         let mut sans_push = ligne();
         sans_push.push = false;
-        let p = planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, false);
+        let p = planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, false, None);
         assert_eq!(p.canaux, vec![Canal::InApp, Canal::Email]);
         // Ni appareil ni e-mail : SMS si U2 et autorisé, sinon tâche manuelle.
         sans_push.email = None;
-        assert!(planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, false).a_prevenir);
-        let p = planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, true);
+        assert!(planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, false, None).a_prevenir);
+        let p = planifier_canaux(&ABSENCE_CONSTATEE, &sans_push, true, None);
         assert_eq!(p.canaux, vec![Canal::InApp, Canal::Sms]);
         // Plancher « ENT » : jamais de tâche manuelle.
-        let p = planifier_canaux(&RETARD_CONSTATE, &sans_push, false);
+        let p = planifier_canaux(&RETARD_CONSTATE, &sans_push, false, None);
         assert!(!p.a_prevenir && p.canaux == vec![Canal::InApp]);
         // Sans compte : e-mail seulement, jamais d'ENT ni de push ; sans e-mail, tâche manuelle.
         let mut sans_compte = ligne();
         sans_compte.compte_id = None;
-        let p = planifier_canaux(&crate::ntf::catalogue::PASSAGE_INFIRMERIE, &sans_compte, true);
+        let p = planifier_canaux(&crate::ntf::catalogue::PASSAGE_INFIRMERIE, &sans_compte, true, None);
         assert_eq!(p.canaux, vec![Canal::Email]);
         sans_compte.email = None;
-        let p = planifier_canaux(&crate::ntf::catalogue::PASSAGE_INFIRMERIE, &sans_compte, true);
+        let p = planifier_canaux(&crate::ntf::catalogue::PASSAGE_INFIRMERIE, &sans_compte, true, None);
         assert!(p.canaux.is_empty() && p.a_prevenir);
+    }
+
+    #[test]
+    fn preferences_retirent_pour_u0_u1_mais_pas_pour_u2() {
+        let l = ligne();
+        let sans_push = PrefCategorie { push: false, email: true, sms: false, resume: false };
+        // U1 (retard) : la personne retire le push, l'e-mail reste.
+        let p = planifier_canaux(&RETARD_CONSTATE, &l, false, Some(sans_push));
+        assert_eq!(p.canaux, vec![Canal::InApp, Canal::Email]);
+        // U2 (absence) : le choix ne retire pas le push, l'absence ne se désactive pas.
+        let p = planifier_canaux(&ABSENCE_CONSTATEE, &l, false, Some(sans_push));
+        assert_eq!(p.canaux, vec![Canal::InApp, Canal::Push]);
+        // Tout retiré pour un U1 à plancher « ENT » : l'ENT seul, aucune tâche.
+        let rien = PrefCategorie { push: false, email: false, sms: false, resume: false };
+        let p = planifier_canaux(&RETARD_CONSTATE, &l, false, Some(rien));
+        assert_eq!((p.canaux, p.a_prevenir), (vec![Canal::InApp], false));
+        // Plancher « un externe » : le plancher rétablit un canal malgré le choix (avis d'infirmerie).
+        let p = planifier_canaux(&crate::ntf::catalogue::PASSAGE_INFIRMERIE, &l, false, Some(rien));
+        assert_eq!(p.canaux, vec![Canal::InApp, Canal::Push]);
     }
 
     #[test]

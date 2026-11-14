@@ -428,6 +428,78 @@ pub(crate) async fn notifier_personne(
     planifier_envois(conn, &e, maintenant).await
 }
 
+/// Socle 8 N3 : notification dans l'ENT puis envois externes **aux instants décidés par la brique** (heures
+/// calmes, résumé, préférences : `ntf::temps`). Les préférences de l'ancien moteur ne sont pas relues ici ;
+/// seule la joignabilité du compte l'est (adresse, numéro, appareil). Idempotent (clés de dédoublonnage).
+pub(crate) async fn notifier_personne_cibles(
+    conn: &mut PgConnection,
+    mut e: EnvoiAPlanifier<'_>,
+    source_event_id: Uuid,
+    cibles: &[(String, DateTime<Utc>, bool)],
+) -> Result<usize, EntDbError> {
+    let notif: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO ent_notification
+            (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
+         RETURNING id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(e.etablissement_id)
+    .bind(e.user_id)
+    .bind(e.eleve_id)
+    .bind(e.kind)
+    .bind(e.titre)
+    .bind(e.corps)
+    .bind(source_event_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    e.notification_id = notif.map(|n| n.0);
+    let Some(contacts) = contacts_de(conn, e.etablissement_id, e.user_id).await? else {
+        return Ok(0);
+    };
+    let mut crees = 0usize;
+    for (canal, quand, regroupable) in cibles {
+        let joignable = match canal.as_str() {
+            "email" => contacts.email.is_some(),
+            "sms" => contacts.telephone.is_some(),
+            "push" => contacts.push,
+            _ => false,
+        };
+        if !joignable {
+            continue;
+        }
+        let r = sqlx::query(
+            "INSERT INTO ent_notification_envoi
+                (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
+                 notification_id, source_type, source_id, cle_dedup, droit_requis, regroupable, planifie_pour)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+             ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(e.etablissement_id)
+        .bind(e.user_id)
+        .bind(canal)
+        .bind(e.kind)
+        .bind(e.titre)
+        .bind(e.corps)
+        .bind(e.eleve_id)
+        .bind(e.notification_id)
+        .bind(e.source_type)
+        .bind(e.source_id)
+        .bind(&e.cle_dedup)
+        .bind(e.droit_requis)
+        .bind(*regroupable && canal != "sms")
+        .bind(quand)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        crees += r.rows_affected() as usize;
+    }
+    Ok(crees)
+}
+
 // ---------------------------------------------------------------------------
 // API de service (préférences, plafonds, traçabilité)
 // ---------------------------------------------------------------------------
@@ -517,6 +589,10 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Socle 8 N3 : l'ancien réglage est reflété dans les préférences de la brique (une seule vérité).
+        crate::ntf::reglages::refleter_ancien_reglage(&mut *tx, etablissement_id, user_id, &pref, Utc::now())
+            .await
+            .map_err(db)?;
         tx.commit().await?;
         Ok(pref)
     }

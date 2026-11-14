@@ -112,8 +112,40 @@ pub const PASSAGE_INFIRMERIE: NatureAvisDecl = NatureAvisDecl {
     brique_u3_autorisee: true,
 };
 
+/// Le justificatif d'absence est accepté : information (U0), la première à passer au résumé (budget de bruit).
+pub const ABSENCE_JUSTIFIEE: NatureAvisDecl = NatureAvisDecl {
+    code: "vie_scolaire.absence_justifiee",
+    version: 1,
+    brique: "vie_scolaire",
+    categorie: Categorie::VieScolaire,
+    sujet: TypeSujet::Eleve,
+    eleve_destinataire: EleveDest::SiMajeur,
+    droit_requis: DroitRequis::VieScolaire,
+    urgence: Urgence::U0,
+    sensibilite: Sensibilite::C1,
+    plancher: Plancher::InApp,
+    canaux_defaut: &[Canal::InApp, Canal::Push, Canal::Email],
+    escalade: None,
+    delai_confirmation_min: None,
+    regroupement: Regroupement::Resume,
+    gabarit: Gabarit {
+        id: "vie_scolaire.absence_justifiee",
+        titre: "Absence de {prenom} justifiée",
+        corps: "Le justificatif d'absence de {prenom} a été accepté.",
+        sms: "Vie scolaire : une information concernant {prenom} vous attend sur ScolIA.",
+        variables: &[PRENOM],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: true,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: false,
+};
+
 /// Toutes les natures déclarées (l'assemblage les vérifie).
-pub const NATURES: &[&NatureAvisDecl] = &[&ABSENCE_CONSTATEE, &RETARD_CONSTATE, &PASSAGE_INFIRMERIE];
+pub const NATURES: &[&NatureAvisDecl] = &[&ABSENCE_CONSTATEE, &RETARD_CONSTATE, &PASSAGE_INFIRMERIE, &ABSENCE_JUSTIFIEE];
 
 fn jour_de(evt: &EvenementVu<'_>, cle: &str) -> Vec<Param> {
     match evt.payload_jour(cle) {
@@ -140,6 +172,13 @@ pub const AVIS: &[AvisSurEvenement] = &[
         parametres: |e| jour_de(e, "jour"),
     },
     AvisSurEvenement {
+        evenement: types::ELEVE_ABSENCE_JUSTIFIED,
+        nature: &ABSENCE_JUSTIFIEE,
+        filtre: |_| true,
+        cle: |e| cle_fait(e, "justifiee"),
+        parametres: |_| Vec::new(),
+    },
+    AvisSurEvenement {
         evenement: "infirmerie.famille_informee",
         nature: &PASSAGE_INFIRMERIE,
         filtre: |_| true,
@@ -153,6 +192,7 @@ pub fn nature_de_kind_ancien(kind: &str) -> Option<&'static str> {
     match kind {
         "absence_constatee" => Some(ABSENCE_CONSTATEE.code),
         "retard" => Some(RETARD_CONSTATE.code),
+        "absence_justifiee" => Some(ABSENCE_JUSTIFIEE.code),
         "infirmerie_passage" => Some(PASSAGE_INFIRMERIE.code),
         _ => None,
     }

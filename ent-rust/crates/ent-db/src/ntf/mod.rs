@@ -16,4 +16,6 @@ pub mod contrat;
 pub mod destinataires;
 pub mod expedition;
 pub mod liens;
+pub mod reglages;
+pub mod temps;
 pub mod service;

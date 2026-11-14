@@ -75,6 +75,16 @@ pub(crate) async fn basculer(ent: &PgEnt, etab: Uuid, nature: &str) {
     .execute(ent.pool_verif())
     .await
     .unwrap();
+    // Déterminisme : aucune heure calme (deux heures égales = pas de plage), aucun jour calme, quelle que soit
+    // l'heure réelle d'exécution du test. Les tests du lot N3 posent leurs propres paramètres.
+    sqlx::query(
+        "INSERT INTO ent_ntf_parametre (etablissement_id, calme_debut, calme_fin, jours_calmes_masque)
+         VALUES ($1, TIME '00:00', TIME '00:00', 0) ON CONFLICT (etablissement_id) DO NOTHING",
+    )
+    .bind(etab)
+    .execute(ent.pool_verif())
+    .await
+    .unwrap();
 }
 
 pub(crate) async fn compter(ent: &PgEnt, sql: &str, etab: Uuid, id: Uuid) -> i64 {

@@ -9,6 +9,8 @@
 use super::catalogue::NATURES;
 use super::contrat::*;
 use super::destinataires::{personnes_de_l_eleve, planifier_canaux, sujet_gele, Destinations};
+use super::reglages::{local_de, lire_parametre, lire_pref_categorie, lire_reglage, vers_utc};
+use super::temps::{decider, ContexteTemps, Moment};
 use chrono::{DateTime, Duration, Utc};
 use sqlx::PgConnection;
 use uuid::Uuid;
@@ -215,6 +217,8 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
         .fetch_optional(&mut *conn)
         .await?
         .unwrap_or(false);
+    let parametre = lire_parametre(conn, d.etablissement_id).await?;
+    let local_confirme = local_de(conn, &parametre.fuseau, confirme_apres).await?;
     let mut retenus = Vec::new();
     let mut exclus = Vec::new();
     let mut destinations = Destinations::default();
@@ -246,10 +250,87 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
             exclus.push((Some(l.personne_id), code.to_string()));
             continue;
         }
-        let plan = planifier_canaux(n, l, sms_u2_actif);
+        // N3 : préférences de la personne pour la catégorie, puis le moment de chaque canal (heures calmes à
+        // trois étages, urgence, résumé, budget de bruit, pause), calculé à l'heure de l'établissement.
+        let reglage = lire_reglage(conn, d.etablissement_id, l.personne_id).await?;
+        let pref = lire_pref_categorie(conn, d.etablissement_id, l.personne_id, n.categorie).await?;
+        let plan = planifier_canaux(n, l, sms_u2_actif, Some(pref));
+        let u0_du_jour: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT a.id)
+               FROM ent_ntf_remise r
+               JOIN ent_ntf_destinataire x ON x.etablissement_id = r.etablissement_id AND x.id = r.destinataire_id
+               JOIN ent_ntf_avis a ON a.etablissement_id = x.etablissement_id AND a.id = x.avis_id
+              WHERE r.etablissement_id = $1 AND x.personne_id = $2 AND a.urgence = 'u0' AND r.canal <> 'inapp'
+                AND r.statut <> 'annulee' AND a.id <> $3
+                AND ent_aujourdhui_etab(r.etablissement_id, r.planifiee_pour) = $4",
+        )
+        .bind(d.etablissement_id)
+        .bind(l.personne_id)
+        .bind(avis_id)
+        .bind(local_confirme.date())
+        .fetch_one(&mut *conn)
+        .await?;
+        let ctx = ContexteTemps {
+            local: local_confirme,
+            etab: parametre.calme,
+            personne: reglage.calme,
+            indispo_jusqua: None,
+            pause_jusqua: match reglage.pause_jusqua {
+                Some(p) => Some(local_de(conn, &parametre.fuseau, p).await?),
+                None => None,
+            },
+            mode_resume: if pref.resume && reglage.mode_resume == super::temps::ModeResume::Immediat {
+                super::temps::ModeResume::Quotidien
+            } else {
+                reglage.mode_resume
+            },
+            heure_resume: reglage.heure_resume,
+            vacances_hebdo: parametre.vacances_hebdo,
+            u0_du_jour: u0_du_jour.max(0) as u32,
+            budget_u0: parametre.budget_u0,
+        };
+        let regroupable = matches!(n.regroupement, Regroupement::Resume);
+        // Fratrie (R-N20) : un seul avis externe par foyer et demi-journée quand la personne le demande.
+        let fratrie_deja_servie: bool = if reglage.regrouper_fratrie && n.regroupement == Regroupement::FoyerDemiJournee {
+            sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM ent_ntf_remise r
+                      JOIN ent_ntf_destinataire x ON x.etablissement_id = r.etablissement_id AND x.id = r.destinataire_id
+                      JOIN ent_ntf_avis a ON a.etablissement_id = x.etablissement_id AND a.id = x.avis_id
+                     WHERE r.etablissement_id = $1 AND x.personne_id = $2 AND a.nature = $3 AND a.id <> $4
+                       AND a.eleve_id IS DISTINCT FROM $5 AND r.canal <> 'inapp'
+                       AND r.statut IN ('planifiee', 'transmise', 'remise')
+                       AND ent_aujourdhui_etab(r.etablissement_id, r.planifiee_pour) = $7
+                       AND ((r.planifiee_pour AT TIME ZONE $6)::time < TIME '12:00') = $8)",
+            )
+            .bind(d.etablissement_id)
+            .bind(l.personne_id)
+            .bind(n.code)
+            .bind(avis_id)
+            .bind(d.eleve_id)
+            .bind(&parametre.fuseau)
+            .bind(local_confirme.date())
+            .bind(local_confirme.time() < chrono::NaiveTime::from_hms_opt(12, 0, 0).expect("midi"))
+            .fetch_one(&mut *conn)
+            .await?
+        } else {
+            false
+        };
         for canal in &plan.canaux {
             // Une seule remise par destination et par avis : les suivantes sont tracées, jamais envoyées (CN-33).
             let nouveau = destinations.reserver(*canal, l);
+            let (instant, motif_plan) = match decider(urgence, canal.externe(), regroupable, &ctx) {
+                Moment::Immediat => (confirme_apres.max(d.effet_le), if delai > Duration::zero() { "delai_confirmation" } else { "immediat" }),
+                Moment::Differe(t) => (vers_utc(conn, &parametre.fuseau, t).await?, "heures_calmes"),
+                Moment::Resume(t, m) => (vers_utc(conn, &parametre.fuseau, t).await?, m.code()),
+            };
+            let ecartee = if !nouveau {
+                Some("doublon_destination")
+            } else if canal.externe() && fratrie_deja_servie {
+                Some("regroupe_fratrie")
+            } else {
+                None
+            };
             sqlx::query(
                 "INSERT INTO ent_ntf_remise
                     (id, etablissement_id, destinataire_id, canal, planifiee_pour, motif_planification, statut, motif)
@@ -259,10 +340,10 @@ pub async fn aviser(conn: &mut PgConnection, d: DemandeAvis) -> Result<AvisCree,
             .bind(d.etablissement_id)
             .bind(dest_id)
             .bind(canal.code())
-            .bind(confirme_apres.max(d.effet_le))
-            .bind(if delai > Duration::zero() { "delai_confirmation" } else { "immediat" })
-            .bind(if nouveau { "planifiee" } else { "ignoree" })
-            .bind(if nouveau { None } else { Some("doublon_destination") })
+            .bind(instant.max(confirme_apres))
+            .bind(motif_plan)
+            .bind(if ecartee.is_some() { "ignoree" } else { "planifiee" })
+            .bind(ecartee)
             .execute(&mut *conn)
             .await?;
         }

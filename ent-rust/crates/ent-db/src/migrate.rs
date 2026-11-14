@@ -326,6 +326,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("3800_ntf_parametres"),
     m!("3801_ntf_avis"),
     m!("3802_ntf_remises"),
+    // Lot N3 (préférences et temps).
+    m!("3803_ntf_preferences"),
     // Lot N2 (destinataires = personnes).
     m!("3808_ntf_gels_liens_a_prevenir"),
 ];
