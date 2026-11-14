@@ -149,7 +149,9 @@ async fn echeances_des_eleves(
         return Ok(Vec::new());
     }
     let rows: Vec<EcheanceRow> = sqlx::query_as(
-        "SELECT e.eleve_id, ent_aujourdhui_etab($1, eff.le) AS jour, t.duree_estimee_min AS minutes, t.donne_le,
+        "SELECT e.eleve_id, ent_aujourdhui_etab($1, eff.le) AS jour,
+                COALESCE((SELECT v.duree_estimee_min FROM ent_cdt_variante v WHERE v.etablissement_id = t.etablissement_id
+                                AND v.id = ent_cdt_variante_de(t.etablissement_id, t.id, e.eleve_id)), t.duree_estimee_min) AS minutes, t.donne_le,
                 n.libelle AS nature, n.code AS nature_code, t.evaluation_id, c.classe_id, c.libelle AS matiere
            FROM unnest($2::uuid[]) AS e(eleve_id)
           CROSS JOIN LATERAL ent_public_cours_jour($1, $5, NULL, NULL, e.eleve_id, false) p

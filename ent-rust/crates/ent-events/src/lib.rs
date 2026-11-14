@@ -125,6 +125,31 @@ pub mod types {
     pub const CAHIER_CONTRIBUTION_AJOUTEE: &str = "cahier.contribution_ajoutee";
     // Lot C3 : résumé hebdomadaire « la semaine de mon enfant » (décomptes seulement).
     pub const CAHIER_RESUME_HEBDOMADAIRE: &str = "cahier.resume_hebdomadaire";
+    // Lot C5 : rendu et retour.
+    pub const CAHIER_REDEPOT: &str = "cahier.redepot";
+    pub const CAHIER_DEPOT_IMPOSSIBLE_SIGNALE: &str = "cahier.depot_impossible_signale";
+    pub const CAHIER_DELAI_DEMANDE: &str = "cahier.delai_demande";
+    pub const CAHIER_DELAI_ACCORDE: &str = "cahier.delai_accorde";
+    pub const CAHIER_DELAI_DECIDE: &str = "cahier.delai_decide";
+    pub const CAHIER_STATUT_CONSTATE: &str = "cahier.statut_constate";
+    pub const CAHIER_RETOUR_MODIFIE: &str = "cahier.retour_modifie";
+    pub const CAHIER_REMISE_ROUVERTE: &str = "cahier.remise_rouverte";
+    pub const CAHIER_COPIE_SIGNALEE: &str = "cahier.copie_signalee";
+    pub const CAHIER_GROUPES_COMPOSES: &str = "cahier.groupes_composes";
+    pub const CAHIER_COPIES_TELECHARGEES: &str = "cahier.copies_telechargees";
+    pub const CAHIER_PROLONGATION_PANNE: &str = "cahier.prolongation_panne";
+    pub const CAHIER_RELANCE_NON_RENDUS: &str = "cahier.relance_non_rendus";
+    // Lot C6 : continuité.
+    pub const CAHIER_REPORT_PROPOSE: &str = "cahier.report_propose";
+    pub const CAHIER_REPORT_APPLIQUE: &str = "cahier.report_applique";
+    pub const CAHIER_TRAVAIL_ABSENCE_DEPOSE: &str = "cahier.travail_absence_depose";
+    pub const CAHIER_SAISIE_RENDUE: &str = "cahier.saisie_rendue";
+    pub const CAHIER_COPIES_REATTRIBUEES: &str = "cahier.copies_reattribuees";
+    pub const CAHIER_CONTINUITE_OUVERTE: &str = "cahier.continuite_ouverte";
+    pub const CAHIER_CONTINUITE_CLOSE: &str = "cahier.continuite_close";
+    // Lot C7 : adaptations.
+    pub const CAHIER_VARIANTE_ATTRIBUEE: &str = "cahier.variante_attribuee";
+    pub const CAHIER_NOTE_ACCOMPAGNEMENT: &str = "cahier.note_accompagnement";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";

@@ -131,7 +131,7 @@ async fn travail_dto(
 
 /// Projette le travail dans `ent_travail` (anciens lecteurs : agenda, remises, charge). Un travail à public restreint
 /// n'est **jamais** projeté (les anciens lecteurs l'afficheraient à toute la classe) : il reste lisible du client C2.
-async fn miroir_travail(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<bool, EntDbError> {
+pub(crate) async fn miroir_travail(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<bool, EntDbError> {
     let t: TravailRow = sqlx::query_as(&format!("{SELECT_TRAVAIL} AND t.id = $2"))
         .bind(etab)
         .bind(id)
@@ -509,6 +509,18 @@ impl PgEnt {
         a: &Acteur<'_>,
         body: TravailC2Body,
     ) -> Result<TravauxCreesDto, EntDbError> {
+        self.cdt_travaux_creer_avec(a, body, false).await
+    }
+
+    /// Création d'un travail. `pre_autorise` : le droit d'écrire dans chaque cours a déjà été contrôlé par l'appelant
+    /// (poste vacant publié par la direction, travail en l'absence du professeur, travail à distance en cas de fermeture,
+    /// lot C6) : seul ce contrôle-là est sauté, jamais les contrôles de dates, de public, de plage calme ni d'année close.
+    pub(crate) async fn cdt_travaux_creer_avec(
+        &self,
+        a: &Acteur<'_>,
+        body: TravailC2Body,
+        pre_autorise: bool,
+    ) -> Result<TravauxCreesDto, EntDbError> {
         let titre = texte_borne(
             &body.titre,
             200,
@@ -596,7 +608,9 @@ impl PgEnt {
         let mut cours_rows = Vec::new();
         for cid in &body.cours_ids {
             let c = self.cdt_cours(a.etablissement_id, *cid).await?;
-            self.cdt_exiger_saisie(a, *cid, donnee.as_ref()).await?;
+            if !pre_autorise {
+                self.cdt_exiger_saisie(a, *cid, donnee.as_ref()).await?;
+            }
             self.cdt_exiger_annee_ouverte(a.etablissement_id, c.annee_id)
                 .await?;
             cours_rows.push(c);

@@ -13,12 +13,20 @@
 //!   modification avec ou sans avis, historique, retrait, copie) ;
 //! * `/web/cahier/travail` — professeur : donner un travail (un ou plusieurs cours, échéance-séance).
 //!
+//! Lot C5 (rendu et retour) :
+//! * `/web/cahier/rendu/:id` — élève et famille : situation d'un travail à rendre, dépôt, accusé, retour, demande de délai ;
+//! * `/web/cahier/suivi/:id` — professeur : tableau de suivi, constats, délais, clôture, relance, retours.
+//!
+//! Lot C6 (continuité) : `/web/cahier/continuite` — reports proposés, élèves en continuité.
+//! Lot C7 (adaptations) : `/web/cahier/adaptations/:id` — variantes et aménagements d'un travail ; `/web/cahier/aesh` — AESH.
+//!
 //! Lot C3 (agenda, cahier de l'élève et de la famille) :
 //! * `/web/cahier/agenda` — élève et famille : agenda de la semaine, « ce que j'ai manqué », la semaine, calendrier.
 
 mod agenda;
 mod bandeau_charge;
 mod charge_classe;
+mod continuite;
 mod copies;
 mod cours;
 pub mod fichiers;
@@ -26,16 +34,28 @@ pub mod modele;
 pub mod modele_c2;
 pub mod modele_c3;
 pub mod modele_c4;
+pub mod modele_c5;
+pub mod modele_c6;
+pub mod modele_c7;
 mod mon_cahier;
 mod prof;
+mod adaptations;
+mod aesh;
+mod rendu;
+mod suivi_rendus;
 mod travail;
 
 pub use agenda::PageAgenda;
 pub use charge_classe::{PageChargeClasses, ADRESSE_CHARGE};
 pub use copies::PageCopies;
+pub use continuite::{PageContinuite, ADRESSE_CONTINUITE};
 pub use cours::PageCahierCours;
 pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};
+pub use adaptations::{PageAdaptations, ADRESSE_ADAPTATIONS};
+pub use aesh::{PageAesh, ADRESSE_AESH};
 pub use prof::PageCahier;
+pub use rendu::{PageRendu, ADRESSE_RENDU};
+pub use suivi_rendus::{PageSuiviRendus, ADRESSE_SUIVI};
 pub use travail::PageDonnerTravail;
 
 use ent_web_api::ApiError;

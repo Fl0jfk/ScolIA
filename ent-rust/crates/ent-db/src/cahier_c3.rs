@@ -59,6 +59,57 @@ pub const AVIS_CAHIER: &[AvisDeclare] = &[
         gabarit: "Un travail en {matiere} a été retiré.",
         desactivable: true,
     },
+    // Lot C5 : rendu et retour (§22.3). Gabarits minimaux : jamais une note, un motif ni un nom ; « mis à jour » ne dit pas quoi.
+    AvisDeclare {
+        evenement: types::CAHIER_TRAVAIL_RENDU,
+        categorie: "Notes et devoirs",
+        destinataires: "eleve_du_depot",
+        gabarit: "Votre dépôt en {matiere} est enregistré.",
+        desactivable: false,
+    },
+    AvisDeclare {
+        evenement: types::CAHIER_COPIE_RENDUE,
+        categorie: "Notes et devoirs",
+        destinataires: "eleve_du_depot, responsables_habilites",
+        gabarit: "Une copie corrigée est disponible en {matiere}.",
+        desactivable: true,
+    },
+    AvisDeclare {
+        evenement: types::CAHIER_RETOUR_MODIFIE,
+        categorie: "Notes et devoirs",
+        destinataires: "eleve_du_depot, responsables_habilites",
+        gabarit: "Le retour sur une copie de {matiere} a été mis à jour.",
+        desactivable: true,
+    },
+    AvisDeclare {
+        evenement: types::CAHIER_DEPOT_IMPOSSIBLE_SIGNALE,
+        categorie: "Notes et devoirs",
+        destinataires: "professeurs_du_cours",
+        gabarit: "Un élève signale une difficulté de dépôt en {matiere}.",
+        desactivable: true,
+    },
+    AvisDeclare {
+        evenement: types::CAHIER_DELAI_DEMANDE,
+        categorie: "Notes et devoirs",
+        destinataires: "professeurs_du_cours",
+        gabarit: "Une demande de délai est en attente en {matiere}.",
+        desactivable: true,
+    },
+    AvisDeclare {
+        evenement: types::CAHIER_DELAI_ACCORDE,
+        categorie: "Notes et devoirs",
+        destinataires: "eleves_concernes, responsables_habilites",
+        gabarit: "Un délai est accordé pour un travail en {matiere}.",
+        desactivable: true,
+    },
+    // Lot C6 : un seul avis par changement effectif (§8.4).
+    AvisDeclare {
+        evenement: types::CAHIER_REPORT_APPLIQUE,
+        categorie: "Notes et devoirs",
+        destinataires: "eleves_du_cours, responsables_habilites",
+        gabarit: "L'échéance d'un travail en {matiere} a été reportée.",
+        desactivable: true,
+    },
     AvisDeclare {
         evenement: types::CAHIER_RESUME_HEBDOMADAIRE,
         categorie: "Notes et devoirs",
@@ -129,10 +180,10 @@ struct LigneTravailRow {
 /// Travaux publiés et visibles d'un élève, par échéance effective, dans le public du cours **au jour de l'établissement**
 /// (`$5`) ; un travail à public restreint n'est lu que par ses élèves ciblés.
 const SQL_TRAVAUX_ELEVE: &str = "
-SELECT t.id, t.cours_id, c.libelle AS matiere, t.titre, n.libelle AS nature, t.consigne,
+SELECT t.id, t.cours_id, c.libelle AS matiere, t.titre, n.libelle AS nature, COALESCE(var.consigne, t.consigne) AS consigne,
        ent_aujourdhui_etab(t.etablissement_id, eff.le) AS jour,
        to_char(ent_cdt_heure_locale(t.etablissement_id, eff.le), 'HH24:MI') AS heure,
-       t.duree_estimee_min AS duree, t.rendu,
+       COALESCE(var.duree_estimee_min, t.duree_estimee_min) AS duree, t.rendu,
        ent_cdt_nom_affichage(t.etablissement_id, t.auteur_user_id) AS auteur,
        ent_cdt_statut_eleve(t.etablissement_id, t.id, $2, eff.le, t.rendu) AS statut,
        EXISTS (SELECT 1 FROM ent_cdt_coche k
@@ -144,6 +195,9 @@ SELECT t.id, t.cours_id, c.libelle AS matiere, t.titre, n.libelle AS nature, t.c
   JOIN ent_cdt_nature n ON n.etablissement_id = t.etablissement_id AND n.id = t.nature_id
   JOIN ent_cours c ON c.etablissement_id = t.etablissement_id AND c.id = t.cours_id
  CROSS JOIN LATERAL (SELECT ent_cdt_echeance_effective(t.etablissement_id, t.id, $2, t.echeance_le) AS le) eff
+ -- Lot C7 : la variante de l'élève est **sa** version, la seule qu'il voie (aucun indicateur ne la signale).
+ LEFT JOIN LATERAL (SELECT v.consigne, v.duree_estimee_min FROM ent_cdt_variante v
+                     WHERE v.etablissement_id = t.etablissement_id AND v.id = ent_cdt_variante_de(t.etablissement_id, t.id, $2)) var ON true
  WHERE t.etablissement_id = $1 AND t.etat = 'publie' AND t.visible_a IS NOT NULL AND t.visible_a <= now()
    AND ent_aujourdhui_etab(t.etablissement_id, eff.le) BETWEEN $3 AND $4
    AND (t.public = 'cours'
@@ -975,7 +1029,7 @@ mod tests {
 
     #[test]
     fn avis_minimaux_sans_contenu_ni_note_ni_motif() {
-        assert_eq!(AVIS_CAHIER.len(), 4);
+        assert_eq!(AVIS_CAHIER.len(), 12);
         let mut vus = HashSet::new();
         for a in AVIS_CAHIER {
             assert!(

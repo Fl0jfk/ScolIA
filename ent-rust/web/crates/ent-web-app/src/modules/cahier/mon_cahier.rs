@@ -117,6 +117,8 @@ fn ContenuCahier(eleve: Option<Uuid>, peut_cocher: bool) -> impl IntoView {
     let onglet = Memo::new(move |_| Onglet::depuis(query.with(|q| q.get("onglet")).as_deref()));
     let lundi =
         Memo::new(move |_| semaine_demandee(query.with(|q| q.get("semaine")), aujourdhui()));
+    // Lot C7 : réglages d'affichage de l'élève (taille de police, interligne, animations) : un outil de l'élève, sans le professeur.
+    let classes = RwSignal::new("aff-eleve".to_string());
     view! {
         <EnTetePage
             surtitre="Cahier de textes".to_string()
@@ -153,12 +155,73 @@ fn ContenuCahier(eleve: Option<Uuid>, peut_cocher: bool) -> impl IntoView {
                 })
                 .collect_view()}
         </nav>
-        {move || match onglet.get() {
-            Onglet::Agenda => view! { <VueAgenda eleve=eleve lundi=lundi.get() peut_cocher=peut_cocher/> }.into_any(),
-            Onglet::Manque => view! { <VueManque eleve=eleve/> }.into_any(),
-            Onglet::Semaine => view! { <VueSemaine eleve=eleve lundi=lundi.get()/> }.into_any(),
-            Onglet::Calendrier => view! { <VueCalendrier eleve=eleve/> }.into_any(),
-        }}
+        {peut_cocher.then(|| view! { <ReglagesAffichage classes=classes/> })}
+        <div class=move || classes.get()>
+            {move || match onglet.get() {
+                Onglet::Agenda => view! { <VueAgenda eleve=eleve lundi=lundi.get() peut_cocher=peut_cocher/> }.into_any(),
+                Onglet::Manque => view! { <VueManque eleve=eleve/> }.into_any(),
+                Onglet::Semaine => view! { <VueSemaine eleve=eleve lundi=lundi.get()/> }.into_any(),
+                Onglet::Calendrier => view! { <VueCalendrier eleve=eleve/> }.into_any(),
+            }}
+        </div>
+    }
+}
+
+/// Réglages d'affichage de l'élève (lot C7) : taille de police, interligne, lecture audio, animations réduites. Appliqués tout de
+/// suite à l'agenda ; enregistrés pour l'élève seul (jamais lus d'un adulte).
+#[component]
+fn ReglagesAffichage(classes: RwSignal<String>) -> impl IntoView {
+    use ent_web_ui::{Bouton, Case, Selection};
+
+    use super::modele_c7::classes_affichage;
+    let reglages = LocalResource::new(|| async { session::client().cdt_affichage().await });
+    let taille = RwSignal::new("normale".to_string());
+    let interligne = RwSignal::new("normal".to_string());
+    let audio = RwSignal::new(false);
+    let calme = RwSignal::new(false);
+    let annonce = RwSignal::new(String::new());
+    let erreur = RwSignal::new(None::<String>);
+    let echec = gestionnaire_echec(erreur);
+    Effect::new(move |_| {
+        if let Some(Ok(r)) = reglages.get() {
+            taille.set(r.taille_police.clone());
+            interligne.set(r.interligne.clone());
+            audio.set(r.lecture_audio);
+            calme.set(r.animations_reduites);
+            classes.set(classes_affichage(&r));
+        }
+    });
+    let corps = move || ent_web_api::cahier_c7_types::AffichageDto {
+        taille_police: taille.get_untracked(),
+        interligne: interligne.get_untracked(),
+        lecture_audio: audio.get_untracked(),
+        animations_reduites: calme.get_untracked(),
+    };
+    let enregistrer = move |_| {
+        let c = corps();
+        classes.set(classes_affichage(&c));
+        spawn_local(async move {
+            match session::client().cdt_affichage_regler(&c).await {
+                Ok(_) => annonce.set("Affichage enregistré.".into()),
+                Err(e) => echec.run(e),
+            }
+        });
+    };
+    view! {
+        <details class="cdt-seance__saisie">
+            <summary>"Mon affichage"</summary>
+            <div class="cdt-form">
+                <Selection id="aff-taille" libelle="Taille du texte" valeur=taille
+                    options=vec![("normale".to_string(), "Normale".to_string()), ("grande".to_string(), "Grande".to_string()), ("tres_grande".to_string(), "Très grande".to_string())]/>
+                <Selection id="aff-interligne" libelle="Espacement des lignes" valeur=interligne
+                    options=vec![("normal".to_string(), "Normal".to_string()), ("large".to_string(), "Large".to_string())]/>
+                <Case id="aff-audio" libelle="Proposer la lecture à voix haute des consignes" coche=audio/>
+                <Case id="aff-calme" libelle="Réduire les animations" coche=calme/>
+                <Bouton on_click=Callback::new(enregistrer)>"Enregistrer mon affichage"</Bouton>
+                {move || erreur.get().map(|m| view! { <Alerte niveau=Niveau::Erreur titre=m/> })}
+                <Annonce message=Signal::derive(move || annonce.get())/>
+            </div>
+        </details>
     }
 }
 
@@ -178,13 +241,13 @@ fn VueAgenda(eleve: Option<Uuid>, lundi: chrono::NaiveDate, peut_cocher: bool) -
             Some(Ok(a)) if a.lignes.is_empty() => view! {
                 <EtatVide titre="Rien cette semaine" message="Aucun travail, évaluation ni sortie n'est annoncé pour cette semaine."/>
             }.into_any(),
-            Some(Ok(a)) => view! { <SemaineAgenda lignes=a.lignes peut_cocher=peut_cocher/> }.into_any(),
+            Some(Ok(a)) => view! { <SemaineAgenda lignes=a.lignes peut_cocher=peut_cocher eleve=eleve/> }.into_any(),
         }}
     }
 }
 
 #[component]
-fn SemaineAgenda(lignes: Vec<AgendaLigneDto>, peut_cocher: bool) -> impl IntoView {
+fn SemaineAgenda(lignes: Vec<AgendaLigneDto>, peut_cocher: bool, eleve: Option<Uuid>) -> impl IntoView {
     let phrase = synthese(&lignes);
     let jours = grouper_par_jour(lignes);
     view! {
@@ -205,7 +268,7 @@ fn SemaineAgenda(lignes: Vec<AgendaLigneDto>, peut_cocher: bool) -> impl IntoVie
                             <ul class="cdt-liste">
                                 {j.lignes
                                     .into_iter()
-                                    .map(|l| view! { <li><LigneAgenda ligne=l peut_cocher=peut_cocher/></li> })
+                                    .map(|l| view! { <li><LigneAgenda ligne=l peut_cocher=peut_cocher eleve=eleve/></li> })
                                     .collect_view()}
                             </ul>
                         </section>
@@ -217,7 +280,7 @@ fn SemaineAgenda(lignes: Vec<AgendaLigneDto>, peut_cocher: bool) -> impl IntoVie
 }
 
 #[component]
-fn LigneAgenda(ligne: AgendaLigneDto, peut_cocher: bool) -> impl IntoView {
+fn LigneAgenda(ligne: AgendaLigneDto, peut_cocher: bool, eleve: Option<Uuid>) -> impl IntoView {
     let erreur = RwSignal::new(None::<String>);
     let annonce = RwSignal::new(String::new());
     let echec = gestionnaire_echec(erreur);
@@ -290,6 +353,14 @@ fn LigneAgenda(ligne: AgendaLigneDto, peut_cocher: bool) -> impl IntoView {
                 </details>
             })}
             {cochable.then(|| view! { <Case id=pref.clone() libelle="J'ai terminé ce travail" coche=fait/> })}
+            {(est_travail && ligne.rendu.as_deref() == Some("en_ligne")).then(|| {
+                let href = match eleve {
+                    Some(e) => format!("{}/{id}?eleve={e}", super::ADRESSE_RENDU),
+                    None => format!("{}/{id}", super::ADRESSE_RENDU),
+                };
+                let libelle = if eleve.is_some() { "Voir le rendu" } else { "Rendre ou voir mon rendu" };
+                view! { <p class="cdt-travail__detail"><a href=href>{libelle}</a></p> }
+            })}
         </article>
     }
 }
@@ -379,7 +450,7 @@ fn VueSemaine(eleve: Option<Uuid>, lundi: chrono::NaiveDate) -> impl IntoView {
                         <li class="cdt-resume">{format!("{} sortie(s) ou épreuve(s)", r.nb_autres)}</li>
                     </ul>
                     {duree.map(|d| view! { <p class="cdt-resume">{d}</p> })}
-                    <SemaineAgenda lignes=r.lignes peut_cocher=false/>
+                    <SemaineAgenda lignes=r.lignes peut_cocher=false eleve=eleve/>
                 }.into_any()
             }
         }}

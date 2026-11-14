@@ -34,6 +34,8 @@ pub const AMENAGEMENTS: &str = "/web/amenagements";
 pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const CAHIER: &str = "/web/cahier";
+/// Lot C6 : reports proposés, élèves en continuité.
+pub const CONTINUITE: &str = "/web/cahier/continuite";
 pub const AGENDA: &str = "/web/agenda";
 /// Cahier de l'élève et de la famille (socle 20, lot C3) : agenda, ce que j'ai manqué, la semaine, calendrier.
 pub const MON_CAHIER: &str = "/web/cahier/agenda";
@@ -114,6 +116,7 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.cahier_ecrire {
         v.push(entree("Cahier de textes", CAHIER, NomIcone::Annonce));
+        v.push(entree("Continuité", CONTINUITE, NomIcone::Annonce));
     }
     if droits.agenda {
         v.push(entree("Travail à faire", AGENDA, NomIcone::Agenda));
