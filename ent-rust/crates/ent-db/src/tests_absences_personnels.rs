@@ -4396,9 +4396,10 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
     assert_eq!((e_h.nature_code.as_str(), e_h.quantite, e_h.unite.as_str()), ("mission_pacte", 2.0, "heure"));
     assert_eq!((e_a.nature_code.as_str(), e_a.quantite, e_a.unite.as_str()), ("convenance", 1.0, "jour"));
     // Unicité : rejouer ne crée rien ; deux préparations simultanées non plus ; la base refuse le doublon.
+    let corps_paie = PreparerPaieBody { mois: m1 };
     let (r1, r2) = tokio::join!(
-        x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &PreparerPaieBody { mois: m1 }),
-        x.ent.preparer_elements_paie_for_actor(x.etab, x.dir, "direction", &PreparerPaieBody { mois: m1 }),
+        x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &corps_paie),
+        x.ent.preparer_elements_paie_for_actor(x.etab, x.dir, "direction", &corps_paie),
     );
     assert_eq!(r1.unwrap().crees + r2.unwrap().crees, 0);
     assert_eq!(x.compter("SELECT count(*) FROM ent_absp_element_paie WHERE etablissement_id = $1").await, 2);
