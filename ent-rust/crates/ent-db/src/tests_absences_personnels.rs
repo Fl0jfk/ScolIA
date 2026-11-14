@@ -3990,3 +3990,465 @@ async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
     assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
     assert!(autre.ent.remontees_rcd_for_actor(autre.etab, autre.sec, "administratif").await.unwrap().is_empty());
 }
+
+// ═══════════════════════════════════════════════ LOT A7 : HEURES ET ÉTATS ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : heure constatée seulement sur une séance assurée (R-AP28) ; régularisation après export ;
+// unicité des éléments de paie.
+
+impl Cadre {
+    /// Premier jour du mois situé `n` mois avant celui du jour de l'établissement.
+    async fn mois_avant(&self, n: u32) -> NaiveDate {
+        use chrono::Datelike;
+        let j = self.aujourdhui().await;
+        let total = j.year() * 12 + j.month0() as i32 - n as i32;
+        NaiveDate::from_ymd_opt(total.div_euclid(12), (total.rem_euclid(12) + 1) as u32, 1).unwrap()
+    }
+
+    /// Instant postérieur à toute séance du cadre (la séance est à J+14 ou plus) : le test ne dépend pas de l'heure
+    /// où il est lancé.
+    fn apres_les_seances() -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now() + Duration::days(400)
+    }
+
+    /// Une séance de `prof` (absent) remplacée par `remplacant` (acceptation d'une sollicitation de l'A4).
+    async fn seance_remplacee(&self, prof: Uuid, remplacant: Uuid, d: (u32, u32), f: (u32, u32)) -> (Uuid, Uuid, Uuid) {
+        let (abs, c, impact) = self.absence_avec_seance(prof, &self.classe, d, f).await;
+        let ag = self.agent(remplacant).await;
+        let s = self.ent.solliciter_for_actor(self.etab, self.dir, "direction", impact, ag).await.unwrap();
+        self.ent.accepter_sollicitation_for_actor(self.etab, remplacant, "prof", s.id).await.unwrap();
+        let seance: Uuid = sqlx::query_scalar("SELECT seance_id FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+            .bind(self.etab)
+            .bind(impact)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap();
+        (abs, c, seance)
+    }
+
+    async fn appel_valide(&self, seance: Uuid, auteur: Uuid) {
+        sqlx::query(
+            "INSERT INTO ent_appel (id, etablissement_id, classe, jour, auteur_user_id, statut, seance_id, etat)
+             SELECT $1, $2, sc.classe, sc.jour, $4, 'clos', sc.id, 'valide' FROM ent_edt_seance sc
+              WHERE sc.etablissement_id = $2 AND sc.id = $3",
+        )
+        .bind(Uuid::new_v4())
+        .bind(self.etab)
+        .bind(seance)
+        .bind(auteur)
+        .execute(self.ent.pool())
+        .await
+        .expect("appel validé");
+    }
+
+    async fn heures_de(&self, agent: Uuid) -> Vec<(String, i32, String, String)> {
+        sqlx::query_as("SELECT nature, duree_minutes, preuve, etat FROM ent_absp_heure WHERE etablissement_id = $1 AND agent_id = $2 ORDER BY cree_le")
+            .bind(self.etab)
+            .bind(agent)
+            .fetch_all(self.ent.pool())
+            .await
+            .unwrap()
+    }
+
+    async fn saisie(&self, agent: Uuid, nature: &str, minutes: i32, le: NaiveDate) -> HeureDto {
+        self.ent
+            .saisir_heure_for_actor(self.etab, self.dir, "direction", &SaisirHeureBody { agent_id: agent, nature: nature.into(), duree_minutes: minutes, le })
+            .await
+            .unwrap_or_else(|e| panic!("saisie refusée : {e:?}"))
+    }
+}
+
+/// R-AP28 : une heure constatée naît d'un FAIT. Jamais d'une séance à venir, d'une séance non remplacée, de
+/// l'attestation d'un tiers, d'une saisie de remplacement — ni en base. L'appel fait (socle 12) la constate sans geste ;
+/// sans appel, le remplaçant l'atteste (CAP-56) ; rejouer ne double rien ; HSE sur une convenance : alerte sans blocage.
+#[tokio::test]
+async fn a7_r_ap28_une_heure_n_est_constatee_que_sur_une_seance_assuree() {
+    let x = cadre!();
+    let ag2 = x.agent(x.prof2).await;
+    let (_a, _c, seance) = x.seance_remplacee(x.prof, x.prof2, (9, 0), (10, 30)).await;
+    let apres = Cadre::apres_les_seances();
+    let attester = |u: Uuid, r: &'static str, s: Uuid, m| {
+        let ent = x.ent.clone();
+        let etab = x.etab;
+        async move { ent.attester_seance_a(etab, u, r, &AttesterBody { seance_id: s }, m).await }
+    };
+    // 1. Séance à venir : personne ne l'atteste.
+    let e = attester(x.prof2, "prof", seance, chrono::Utc::now()).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "séance non terminée : {e:?}");
+    assert!(x.heures_de(ag2).await.is_empty());
+    // 2. Séance terminée, mais attestation d'un tiers ou de l'absent : introuvable (pas d'oracle).
+    for (u, r) in [(x.prof3, "prof"), (x.prof, "prof"), (x.compta, "compta")] {
+        let e = attester(u, r, seance, apres).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Domain(DomainError::NotFound) | EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    assert!(x.heures_de(ag2).await.is_empty(), "aucune heure sans fait");
+    // 3. Le remplaçant atteste : heure constatée (RCD, 90 minutes), preuve « attestation », une seule fois.
+    let h = attester(x.prof2, "prof", seance, apres).await.unwrap();
+    assert_eq!((h.nature.as_str(), h.duree_minutes, h.preuve.as_str(), h.etat.as_str()), ("rcd", 90, "attestation", "constatee"));
+    assert_eq!(h.agent_id, ag2);
+    let encore = attester(x.prof2, "prof", seance, apres).await.unwrap();
+    assert_eq!(encore.id, h.id, "rejouer ne crée pas de doublon");
+    assert_eq!(x.heures_de(ag2).await.len(), 1);
+    assert_eq!(x.nb_events("absence_personnel.heure_constatee").await, 1);
+    // 4. Séance non remplacée : rien à attester, même par la direction.
+    let (_a2, _c2, impact2) = x.absence_avec_seance(x.prof, &x.classe, (11, 0), (12, 0)).await;
+    let seance2: Uuid = sqlx::query_scalar("SELECT seance_id FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(impact2)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    let e = attester(x.dir, "direction", seance2, apres).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    // 5. La base refuse le contournement : pas de remplacement saisi, pas de preuve sans séance, pas de séance sans preuve.
+    let abs = x.agent(x.prof3).await;
+    for (nature, preuve, seance_id) in [("rcd", "saisie", None), ("hse", "attestation", None), ("hse", "saisie", Some(seance)), ("rcd", "appel", None)] {
+        let r = sqlx::query(
+            "INSERT INTO ent_absp_heure (id, etablissement_id, agent_id, seance_id, nature, duree_minutes, le, preuve, saisie_par_user_id)
+             VALUES ($1,$2,$3,$4,$5,60,$6,$7,$8)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(x.etab)
+        .bind(abs)
+        .bind(seance_id)
+        .bind(nature)
+        .bind(x.aujourdhui().await)
+        .bind(preuve)
+        .bind(x.dir)
+        .execute(x.ent.pool())
+        .await;
+        assert!(r.is_err(), "la base accepte ({nature}, {preuve}, séance {seance_id:?}) : R-AP28 violée");
+    }
+    // 6. Par le service : une saisie de remplacement, future ou pour soi-même est refusée.
+    let today = x.aujourdhui().await;
+    for (nature, le) in [("rcd", today), ("rattrapage_du", today), ("hse", today + Duration::days(3))] {
+        let e = x
+            .ent
+            .saisir_heure_for_actor(x.etab, x.dir, "direction", &SaisirHeureBody { agent_id: ag2, nature: nature.into(), duree_minutes: 60, le })
+            .await
+            .unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{nature} {le} : {e:?}");
+    }
+    let moi = x.agent(x.dir).await;
+    let e = x.ent.saisir_heure_for_actor(x.etab, x.dir, "direction", &SaisirHeureBody { agent_id: moi, nature: "hse".into(), duree_minutes: 60, le: today }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Interdit), "{e:?}");
+    let e = x.ent.saisir_heure_for_actor(x.etab, x.prof, "prof", &SaisirHeureBody { agent_id: ag2, nature: "hse".into(), duree_minutes: 60, le: today }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    // 7. L'appel fait (socle 12) constate sans geste, une seule fois ; ce qui manque disparaît de « mes heures ».
+    let (_a3, _c3, seance3) = x.seance_remplacee(x.prof, x.prof2, (14, 0), (15, 0)).await;
+    let mes = x.ent.mes_heures_a(x.etab, x.prof2, "prof", None, apres).await.unwrap();
+    assert_eq!(mes.a_attester.len(), 1, "séance terminée sans appel : à attester ({:?})", mes.a_attester);
+    assert_eq!(mes.a_attester[0].seance_id, seance3);
+    assert_eq!(mes.heures.len(), 1);
+    x.ent.constater_heures_assurees_a(apres).await.unwrap();
+    assert_eq!(x.heures_de(ag2).await.len(), 1, "sans appel, la tâche ne constate rien");
+    x.appel_valide(seance3, x.prof2).await;
+    x.ent.constater_heures_assurees_a(apres).await.unwrap();
+    let hs = x.heures_de(ag2).await;
+    assert_eq!(hs.len(), 2, "{hs:?}");
+    assert_eq!((hs[1].1, hs[1].2.as_str()), (60, "appel"));
+    x.ent.constater_heures_assurees_a(apres).await.unwrap();
+    assert_eq!(x.heures_de(ag2).await.len(), 2, "la tâche est idempotente");
+    let mes = x.ent.mes_heures_a(x.etab, x.prof2, "prof", None, apres).await.unwrap();
+    assert!(mes.a_attester.is_empty());
+    assert_eq!(mes.heures.len(), 2);
+    // L'agent ne lit que les siennes.
+    assert!(x.ent.mes_heures_a(x.etab, x.prof3, "prof", None, apres).await.unwrap().heures.is_empty());
+    // 8. R-AP33 : HSE (engagement « HSE ») pour remplacer une absence de convenance → alerte, sans blocage et sans nature.
+    x.ent
+        .engager_rcd_for_actor(
+            x.etab,
+            x.prof3,
+            "prof",
+            &{
+                let (_, debut, fin) = x.annee_courante().await;
+                EngagementRcdBody { agent_id: None, volume_heures: 10.0, statut: "hse".into(), du: debut, au: fin }
+            },
+        )
+        .await
+        .unwrap();
+    let (_a4, _c4, seance4) = x.seance_remplacee(x.prof, x.prof3, (16, 0), (17, 0)).await;
+    let h = x.ent.attester_seance_a(x.etab, x.prof3, "prof", &AttesterBody { seance_id: seance4 }, apres).await.unwrap();
+    assert_eq!(h.nature, "hse", "l'engagement HSE donne une heure HSE (R-04)");
+    assert_eq!(x.nb_events("absence_personnel.heure_a_verifier").await, 1, "alerte R-AP33");
+    let payload: String = sqlx::query_scalar(
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.heure_a_verifier'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert!(!payload.contains("convenance") && !payload.contains("nature"), "{payload}");
+    // Cloisonnement d'établissement.
+    let autre = Cadre::nouveau().await.unwrap();
+    let e = autre.ent.contester_heure_for_actor(autre.etab, autre.dir, "direction", h.id, &ContesterHeureBody { raison_code: "doublon".into(), note: None }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+}
+
+/// Cycle d'une heure et de l'état mensuel : contestation, correction, validation (jamais ses propres heures), figeure
+/// après le mois seulement et sans heure en suspens, signature par la direction, export par le bon employeur, heure
+/// figée immuable ; **régularisation après export** : l'heure garde sa durée exportée, une ligne signée est reportée une
+/// seule fois sur l'état suivant, rattachée à la ligne d'origine.
+#[tokio::test]
+async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
+    let x = cadre!();
+    let (ag2, ag3) = (x.agent(x.prof2).await, x.agent(x.prof3).await);
+    let (m2, m1) = (x.mois_avant(2).await, x.mois_avant(1).await);
+    let h1 = x.saisie(ag2, "mission_pacte", 120, m2 + Duration::days(3)).await;
+    let h1b = x.saisie(ag3, "hse", 60, m2 + Duration::days(4)).await;
+    assert_eq!((h1.etat.as_str(), h1.preuve.as_str(), h1.employeur.as_str(), h1.mois), ("constatee", "saisie", "etat", m2));
+    // Contestation par l'agent (motif codé, mot exclu refusé) ; par un tiers : introuvable.
+    let e = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "autre".into(), note: Some("j'étais malade".into()) }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let e = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "inconnu".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let e = x.ent.contester_heure_for_actor(x.etab, x.prof3, "prof", h1.id, &ContesterHeureBody { raison_code: "doublon".into(), note: None }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    let c = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "duree_erronee".into(), note: Some("1 h 30 et non 2 h".into()) }).await.unwrap();
+    assert_eq!(c.etat, "contestee");
+    // Validation : les contestées restent ; la figeure est refusée tant que tout n'est pas réglé.
+    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap();
+    assert_eq!((b.validees, b.contestees_restantes), (1, 1));
+    let figer = |employeur: &'static str, mois| {
+        let ent = x.ent.clone();
+        let (etab, dir) = (x.etab, x.dir);
+        async move { ent.figer_etat_for_actor(etab, dir, "direction", &FigerEtatBody { mois, employeur: employeur.into() }).await }
+    };
+    let e = figer("etat", m2).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "heure contestée : {e:?}");
+    // Correction par la direction (1 h 30) : l'heure est validée ; pas de correction de ses propres heures.
+    let moi = x.agent(x.dir).await;
+    let propre: Uuid = sqlx::query_scalar(
+        "INSERT INTO ent_absp_heure (id, etablissement_id, agent_id, nature, duree_minutes, le, preuve, saisie_par_user_id)
+         VALUES ($1,$2,$3,'hse',30,$4,'saisie',$5) RETURNING id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(x.etab)
+    .bind(moi)
+    .bind(m2 + Duration::days(5))
+    .bind(x.sec)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    let e = x.ent.corriger_heure_for_actor(x.etab, x.dir, "direction", propre, &CorrigerHeureBody { duree_minutes: 45, raison_code: "autre".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Interdit), "{e:?}");
+    let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap();
+    assert_eq!((b.validees, b.laissees_a_un_autre), (0, 1), "la direction ne valide pas ses propres heures");
+    let k = x.ent.corriger_heure_for_actor(x.etab, x.dir, "direction", h1.id, &CorrigerHeureBody { duree_minutes: 90, raison_code: "duree_erronee".into(), note: None }).await.unwrap();
+    assert_eq!((k.duree_minutes, k.etat.as_str()), (90, "validee"));
+    // Les heures du valideur sont validées par le secrétariat… qui n'a pas le droit : la direction attend un autre.
+    let e = x.ent.valider_heures_for_actor(x.etab, x.sec, "administratif", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    sqlx::query("UPDATE ent_absp_heure SET etat = 'validee' WHERE etablissement_id = $1 AND id = $2").bind(x.etab).bind(propre).execute(x.ent.pool()).await.unwrap();
+    // Cloisonnement par employeur : l'OGEC ne voit pas l'État.
+    assert!(matches!(
+        x.ent.heures_for_actor(x.etab, x.compta, "compta", &FiltreHeures::default()).await.unwrap_err(),
+        EntDbError::Forbidden
+    ));
+    assert_eq!(x.ent.heures_for_actor(x.etab, x.sec, "administratif", &FiltreHeures { mois: Some(m2), ..Default::default() }).await.unwrap().len(), 3);
+    // Figeure : refusée pour le mois courant, pour l'employeur d'un autre, accordée au secrétariat de l'État.
+    let e = figer("etat", x.mois_avant(0).await).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "le mois n'est pas terminé : {e:?}");
+    let e = x.ent.figer_etat_for_actor(x.etab, x.sec, "administratif", &FigerEtatBody { mois: m2, employeur: "ogec".into() }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let e = x.ent.figer_etat_for_actor(x.etab, x.compta, "compta", &FigerEtatBody { mois: m2, employeur: "etat".into() }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let e1 = x.ent.figer_etat_for_actor(x.etab, x.sec, "administratif", &FigerEtatBody { mois: m2, employeur: "etat".into() }).await.unwrap();
+    assert_eq!(e1.etat, "fige");
+    assert_eq!(e1.lignes.len(), 3);
+    assert_eq!(e1.total_minutes, 90 + 60 + 30);
+    let e = figer("etat", m2).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "un seul état par mois et employeur : {e:?}");
+    // Heure figée : plus de contestation, de correction ni de réécriture (service et base).
+    let e = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "doublon".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let e = x.ent.corriger_heure_for_actor(x.etab, x.dir, "direction", h1.id, &CorrigerHeureBody { duree_minutes: 30, raison_code: "autre".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    for sql in [
+        "UPDATE ent_absp_heure SET duree_minutes = 10 WHERE etablissement_id = $1",
+        "DELETE FROM ent_absp_heure WHERE etablissement_id = $1",
+        "UPDATE ent_absp_etat_ligne SET duree_minutes = 1 WHERE etablissement_id = $1",
+        "DELETE FROM ent_absp_etat_ligne WHERE etablissement_id = $1",
+        "DELETE FROM ent_absp_etat WHERE etablissement_id = $1",
+    ] {
+        assert!(sqlx::query(sql).bind(x.etab).execute(x.ent.pool()).await.is_err(), "la base accepte : {sql}");
+    }
+    // Signature : la direction seule ; export : après signature, par l'employeur concerné.
+    let e = x.ent.exporter_etat_csv_for_actor(x.etab, x.sec, "administratif", e1.id).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "non signé : {e:?}");
+    let e = x.ent.signer_etat_for_actor(x.etab, x.sec, "administratif", e1.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let s = x.ent.signer_etat_for_actor(x.etab, x.dir, "direction", e1.id).await.unwrap();
+    assert_eq!(s.etat, "signe");
+    assert!(x.ent.signer_etat_for_actor(x.etab, x.dir, "direction", e1.id).await.is_err(), "se signe une fois");
+    let e = x.ent.exporter_etat_csv_for_actor(x.etab, x.compta, "compta", e1.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let csv = x.ent.exporter_etat_csv_for_actor(x.etab, x.sec, "administratif", e1.id).await.unwrap();
+    assert_eq!(csv.lines().count(), 1 + 3, "{csv}");
+    assert!(csv.contains(",mission_pacte,90,non"), "{csv}");
+    let csv2 = x.ent.exporter_etat_csv_for_actor(x.etab, x.sec, "administratif", e1.id).await.unwrap();
+    assert_eq!(csv, csv2, "export rejouable");
+    let etats: Vec<String> = sqlx::query_scalar("SELECT DISTINCT etat FROM ent_absp_heure WHERE etablissement_id = $1 AND etat_id = $2")
+        .bind(x.etab)
+        .bind(e1.id)
+        .fetch_all(x.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(etats, vec!["exportee"]);
+    assert!(x.nb_events("absence_personnel.etat_heures_exporte").await == 1, "un seul événement d'export");
+    // RÉGULARISATION après export (ABP-208) : jamais une réécriture. Pas de régularisation de ses propres heures, ni
+    // d'une heure non figée, ni sans changement.
+    let e = x.ent.regulariser_heure_for_actor(x.etab, x.dir, "direction", propre, &CorrigerHeureBody { duree_minutes: 10, raison_code: "autre".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Interdit), "{e:?}");
+    let e = x.ent.regulariser_heure_for_actor(x.etab, x.dir, "direction", h1.id, &CorrigerHeureBody { duree_minutes: 90, raison_code: "autre".into(), note: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let e = x.ent.regulariser_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &CorrigerHeureBody { duree_minutes: 60, raison_code: "autre".into(), note: None }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound) | EntDbError::Forbidden), "{e:?}");
+    let r = x.ent.regulariser_heure_for_actor(x.etab, x.dir, "direction", h1.id, &CorrigerHeureBody { duree_minutes: 60, raison_code: "duree_erronee".into(), note: None }).await.unwrap();
+    assert_eq!((r.duree_avant, r.duree_apres, r.delta_minutes), (90, 60, -30));
+    let mes = x.ent.mes_heures_a(x.etab, x.prof2, "prof", Some(m2), Cadre::apres_les_seances()).await.unwrap();
+    assert_eq!((mes.heures[0].duree_minutes, mes.heures[0].regularisation_minutes), (90, -30), "l'heure garde sa durée exportée");
+    let regul_avant = x.compter("SELECT count(*) FROM ent_absp_etat_ligne WHERE etablissement_id = $1 AND regularisation_de_id IS NOT NULL").await;
+    assert_eq!(regul_avant, 0, "rien n'est écrit sur l'état déjà exporté");
+    // L'état SUIVANT porte la régularisation, une seule fois, rattachée à la ligne d'origine.
+    x.saisie(ag3, "vacation", 45, m1 + Duration::days(2)).await;
+    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None }).await.unwrap();
+    let e2 = x.ent.figer_etat_for_actor(x.etab, x.sec, "administratif", &FigerEtatBody { mois: m1, employeur: "etat".into() }).await.unwrap();
+    assert_eq!(e2.lignes.len(), 2, "{:?}", e2.lignes);
+    let l_regul = e2.lignes.iter().find(|l| l.regularisation_de_id.is_some()).expect("ligne de régularisation");
+    let l_origine = e1.lignes.iter().find(|l| l.heure_id == Some(h1.id)).unwrap();
+    assert_eq!((l_regul.duree_minutes, l_regul.regularisation_de_id, l_regul.heure_id), (-30, Some(l_origine.id), Some(h1.id)));
+    assert_eq!(e2.total_minutes, 45 - 30);
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_etat_ligne WHERE etablissement_id = $1 AND regularisation_de_id IS NOT NULL").await, 1);
+    // Un fait de régularisation ne se reporte qu'une fois, même par la base.
+    let doublon = sqlx::query(
+        "INSERT INTO ent_absp_etat_ligne (id, etablissement_id, etat_id, agent_id, nature, duree_minutes, heure_id, regularisation_de_id, heure_fait_id)
+         SELECT gen_random_uuid(), etablissement_id, etat_id, agent_id, nature, duree_minutes, heure_id, regularisation_de_id, heure_fait_id
+           FROM ent_absp_etat_ligne WHERE etablissement_id = $1 AND regularisation_de_id IS NOT NULL",
+    )
+    .bind(x.etab)
+    .execute(x.ent.pool())
+    .await;
+    assert!(doublon.is_err(), "la base laisse reporter deux fois la même régularisation");
+    // Mes heures sur l'année : durée effective (régularisation comprise). Jour courant : toujours dans l'année.
+    let aujourdhui = x.aujourdhui().await;
+    x.saisie(ag2, "mission_pacte", 30, aujourdhui).await;
+    let an = x.ent.etat_annuel_agent_for_actor(x.etab, x.prof2, "prof", None, None).await.unwrap();
+    assert_eq!(an.agent_id, ag2);
+    assert!(an.par_mois.iter().any(|l| l.mois == premier_du_mois_test(aujourdhui) && l.minutes == 30));
+    assert!(x.ent.etat_annuel_agent_for_actor(x.etab, x.prof3, "prof", Some(ag2), None).await.is_err(), "pas les heures d'un autre");
+    assert!(x.ent.etat_annuel_agent_for_actor(x.etab, x.sec, "administratif", Some(ag2), None).await.is_ok());
+}
+
+fn premier_du_mois_test(d: NaiveDate) -> NaiveDate {
+    crate::absences_personnels::heures::premier_du_mois(d)
+}
+
+/// Éléments de paie de l'OGEC : un par (absence ou heure, mois, nature) — unicité EN BASE et préparation rejouable,
+/// même en concurrence ; nature codée ; un mois envoyé reçoit une régularisation sur le mois ouvert, jamais une
+/// réécriture ; file DSN à J+5 avec « signalé le ».
+#[tokio::test]
+async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
+    let x = cadre!();
+    let ag = x.agent(x.prof).await;
+    x.engagement_ogec(ag).await;
+    let m1 = x.mois_avant(1).await;
+    // Une heure de l'OGEC (engagement antérieur au jour) : mission Pacte, 2 h, validée.
+    let h = x.saisie(ag, "mission_pacte", 120, m1 + Duration::days(4)).await;
+    assert_eq!(h.employeur, "ogec", "seul l'engagement de l'OGEC couvre ce jour");
+    x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m1, agent_id: None }).await.unwrap();
+    // Une absence « convenance » de l'OGEC, un jour ouvré du mois passé.
+    let jour_ouvre = {
+        use chrono::Datelike;
+        let mut j = m1 + Duration::days(9);
+        while j.weekday().number_from_monday() > 5 {
+            j += Duration::days(1);
+        }
+        j
+    };
+    let d = x
+        .ent
+        .declarer_absence_for_actor(
+            x.etab,
+            x.prof,
+            "prof",
+            &DeclarerAbsenceBody { nature_code: Some("convenance".into()), debut: jour_ouvre, fin: jour_ouvre, ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let ogec = d.absences.iter().find(|a| a.employeur.as_deref() == Some("ogec")).expect("absence OGEC");
+    x.valider(ogec.id).await;
+    // Droits : comptabilité de l'OGEC et direction ; ni le secrétariat de l'État, ni un professeur.
+    for (u, r) in [(x.sec, "administratif"), (x.prof, "prof"), (x.cpe, "cpe")] {
+        let e = x.ent.preparer_elements_paie_for_actor(x.etab, u, r, &PreparerPaieBody { mois: m1 }).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    let b = x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &PreparerPaieBody { mois: m1 }).await.unwrap();
+    assert_eq!(b.crees, 2, "une heure et une absence : {b:?}");
+    let els = x.ent.elements_paie_for_actor(x.etab, x.compta, "compta", m1, None).await.unwrap();
+    assert_eq!(els.len(), 2);
+    let e_h = els.iter().find(|e| e.heure_id.is_some()).unwrap();
+    let e_a = els.iter().find(|e| e.absence_id.is_some()).unwrap();
+    assert_eq!((e_h.nature_code.as_str(), e_h.quantite, e_h.unite.as_str()), ("mission_pacte", 2.0, "heure"));
+    assert_eq!((e_a.nature_code.as_str(), e_a.quantite, e_a.unite.as_str()), ("convenance", 1.0, "jour"));
+    // Unicité : rejouer ne crée rien ; deux préparations simultanées non plus ; la base refuse le doublon.
+    let (r1, r2) = tokio::join!(
+        x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &PreparerPaieBody { mois: m1 }),
+        x.ent.preparer_elements_paie_for_actor(x.etab, x.dir, "direction", &PreparerPaieBody { mois: m1 }),
+    );
+    assert_eq!(r1.unwrap().crees + r2.unwrap().crees, 0);
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_element_paie WHERE etablissement_id = $1").await, 2);
+    let doublon = sqlx::query(
+        "INSERT INTO ent_absp_element_paie (id, etablissement_id, agent_id, absence_id, mois, nature_code, quantite, unite)
+         SELECT gen_random_uuid(), etablissement_id, agent_id, absence_id, mois, nature_code, 3, 'jour'
+           FROM ent_absp_element_paie WHERE etablissement_id = $1 AND absence_id IS NOT NULL",
+    )
+    .bind(x.etab)
+    .execute(x.ent.pool())
+    .await;
+    assert!(doublon.is_err(), "la base laisse deux éléments pour la même (absence, mois, nature) : R-AP29 violée");
+    // Export : « préparé » → « envoyé », rejouable, nature codée sans libellé ni identifiant d'absence.
+    let csv = x.ent.exporter_elements_paie_csv_for_actor(x.etab, x.compta, "compta", m1).await.unwrap();
+    assert_eq!(csv.lines().count(), 3, "{csv}");
+    assert!(csv.contains(",convenance,1.00,jour,non") && csv.contains(",mission_pacte,2.00,heure,non"), "{csv}");
+    assert!(!csv.contains(&ogec.id.to_string()), "l'identifiant d'absence ne sort pas : {csv}");
+    assert_eq!(x.ent.exporter_elements_paie_csv_for_actor(x.etab, x.dir, "direction", m1).await.unwrap(), csv, "export rejouable");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_element_paie WHERE etablissement_id = $1 AND etat = 'envoye'").await, 2);
+    // Un élément envoyé ne se réécrit pas (base).
+    assert!(sqlx::query("UPDATE ent_absp_element_paie SET quantite = 9 WHERE etablissement_id = $1").bind(x.etab).execute(x.ent.pool()).await.is_err());
+    assert!(sqlx::query("DELETE FROM ent_absp_element_paie WHERE etablissement_id = $1").bind(x.etab).execute(x.ent.pool()).await.is_err());
+    // L'heure est figée puis régularisée (2 h → 1 h 30) : le mois ouvert reçoit une régularisation de −0,50, l'élément
+    // envoyé reste intact et passe « régularisé » ; rejouer ne la double pas.
+    let m0 = x.mois_avant(0).await;
+    let etat = x.ent.figer_etat_for_actor(x.etab, x.compta, "compta", &FigerEtatBody { mois: m1, employeur: "ogec".into() }).await.unwrap();
+    assert_eq!(etat.lignes.len(), 1);
+    x.ent.regulariser_heure_for_actor(x.etab, x.dir, "direction", h.id, &CorrigerHeureBody { duree_minutes: 90, raison_code: "duree_erronee".into(), note: None }).await.unwrap();
+    let b = x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &PreparerPaieBody { mois: m0 }).await.unwrap();
+    assert_eq!((b.crees, b.regularisations), (0, 1), "{b:?}");
+    let ouvert = x.ent.elements_paie_for_actor(x.etab, x.compta, "compta", m0, None).await.unwrap();
+    assert_eq!(ouvert.len(), 1);
+    assert_eq!((ouvert[0].nature_code.as_str(), ouvert[0].quantite, ouvert[0].regularise_de_id), ("regul_mission_pacte", -0.5, Some(e_h.id)));
+    let ancien = x.ent.elements_paie_for_actor(x.etab, x.compta, "compta", m1, Some(ag)).await.unwrap();
+    assert_eq!(ancien.iter().find(|e| e.id == e_h.id).map(|e| (e.quantite, e.etat.as_str())), Some((2.0, "regularise")));
+    let b = x.ent.preparer_elements_paie_for_actor(x.etab, x.compta, "compta", &PreparerPaieBody { mois: m0 }).await.unwrap();
+    assert_eq!((b.crees, b.regularisations), (0, 0), "la régularisation n'est posée qu'une fois : {b:?}");
+    assert_eq!(x.ent.elements_paie_for_actor(x.etab, x.compta, "compta", m0, None).await.unwrap().len(), 1);
+    // Une absence annulée après envoi : régularisation négative sur le mois ouvert, jamais une réécriture.
+    x.ent.annuler_absence_for_actor(x.etab, x.dir, "direction", ogec.id, &DecisionBody::default()).await.ok();
+    // DSN J+5 (R-16) : arrêt de l'OGEC, file à jour, « signalé le » une seule fois, jamais dans le futur.
+    let d = x.declarer(x.prof2, "prof", Some("maladie"), 1, 1).await;
+    let ag2 = x.agent(x.prof2).await;
+    x.engagement_ogec(ag2).await;
+    let _ = d;
+    let file = x.ent.dsn_file_for_actor(x.etab, x.compta, "compta").await.unwrap();
+    assert!(file.iter().all(|f| f.echeance_le >= x.aujourdhui().await || f.en_retard));
+    for f in &file {
+        assert!(f.signale_le.is_none());
+        let e = x.ent.marquer_dsn_signale_for_actor(x.etab, x.compta, "compta", f.absence_id, x.aujourdhui().await + Duration::days(2)).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+        let ok = x.ent.marquer_dsn_signale_for_actor(x.etab, x.compta, "compta", f.absence_id, x.aujourdhui().await).await.unwrap();
+        assert_eq!(ok.signale_le, Some(x.aujourdhui().await));
+        assert!(x.ent.marquer_dsn_signale_for_actor(x.etab, x.compta, "compta", f.absence_id, x.aujourdhui().await).await.is_err());
+    }
+    assert!(x.ent.dsn_file_for_actor(x.etab, x.compta, "compta").await.unwrap().is_empty(), "la file se vide une fois signalée");
+    assert!(matches!(x.ent.dsn_file_for_actor(x.etab, x.sec, "administratif").await.unwrap_err(), EntDbError::Forbidden));
+}

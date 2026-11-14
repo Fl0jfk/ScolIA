@@ -280,7 +280,7 @@ impl From<EngagementLigne> for EngagementRcdDto {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn journal_objet(
+pub(super) async fn journal_objet(
     conn: &mut PgConnection,
     etab: Uuid,
     objet: &str,
@@ -311,7 +311,7 @@ async fn journal_objet(
     Ok(())
 }
 
-async fn evenement_rcd(
+pub(super) async fn evenement_rcd(
     conn: &mut PgConnection,
     etab: Uuid,
     type_name: &str,
