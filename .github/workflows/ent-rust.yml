@@ -18,8 +18,10 @@ permissions:
   contents: read
 
 concurrency:
+  # Un nouveau run annule l'ancien sur la même branche de lot ; JAMAIS sur ENT (règle 27 de PILOTAGE.md) :
+  # chaque push sur ENT garde son run complet.
   group: ent-rust-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/ENT' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -174,6 +176,7 @@ jobs:
   tests-labo:
     name: Backend — tests avec labo (tranche ${{ matrix.tranche }}/20)
     needs: backend-archive
+    if: github.ref == 'refs/heads/ENT'    # ENT : 20 tranches. Branches de lot : tests-labo-groupes (règle 27)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -229,6 +232,7 @@ jobs:
   tests-rls-stricte:
     name: Backend — suites de domaine en RLS stricte (tranche ${{ matrix.tranche }}/12)
     needs: backend-archive
+    if: github.ref == 'refs/heads/ENT'    # ENT : 12 tranches. Branches de lot : tests-rls-stricte-groupes (règle 27)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -274,6 +278,143 @@ jobs:
         with:
           name: execution-rls-stricte-${{ matrix.tranche }}
           path: ${{ runner.temp }}/execution-rls-stricte-${{ matrix.tranche }}.log
+          retention-days: 7
+
+  # Branches de lot (règle 27) : mêmes 20 partitions que sur ENT, regroupées 5 par job (runner à 4 cœurs, un fil par tranche).
+  tests-labo-groupes:
+    name: Backend — tests avec labo (groupe ${{ matrix.groupe }}/4, 5 tranches en parallèle)
+    needs: backend-archive
+    if: github.ref != 'refs/heads/ENT'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        groupe: [1, 2, 3, 4]
+    env:
+      ENT_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - uses: actions/download-artifact@v4
+        with:
+          name: archives-nextest
+          path: ${{ runner.temp }}/archives
+      - name: Tranches avec labo du groupe ${{ matrix.groupe }} (mêmes partitions count:i/20 que sur ENT, un PostgreSQL par tranche)
+        working-directory: ent-rust
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/journaux"
+          pids=""
+          # Tranche t du groupe g : t = g, g+4, g+8, … ; chacune garde un fil et son propre PostgreSQL,
+          # donc les tests voient exactement les conditions de la CI ENT (un fil, base propre).
+          for t in $(seq ${{ matrix.groupe }} 4 20); do
+            (
+              # Un PostgreSQL 18 jetable PAR tranche (conteneur, port propre) : les rôles sont communs à tout un
+              # serveur (CREATE/ALTER ROLE de la RLS stricte), il faut donc un serveur par tranche, comme sur ENT.
+              port=$((55400 + t))
+              docker run -d --rm --name "pg$t" -p "127.0.0.1:$port:5432" \
+                -e POSTGRES_USER=ent_ci -e POSTGRES_DB=ent_ci_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null
+              for essai in $(seq 1 60); do
+                docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null 2>&1 && break
+                sleep 1
+              done
+              docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null
+              debut=$(date +%s)
+              ENT_DATABASE_URL="postgres://ent_ci@127.0.0.1:$port/ent_ci_test" \
+              cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
+                --partition count:$t/20 --test-threads 1 --no-fail-fast --color never \
+                > "$RUNNER_TEMP/journaux/execution-labo-$t.log" 2>&1
+              code=$?
+              echo "tranche $t : code $code en $(( $(date +%s) - debut )) s"
+              exit $code
+            ) &
+            pids="$pids $!"
+          done
+          statut=0
+          for p in $pids; do wait "$p" || statut=1; done
+          for f in "$RUNNER_TEMP"/journaux/*.log; do echo "::group::$(basename "$f")"; tail -n 40 "$f"; echo "::endgroup::"; done
+          exit $statut
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-labo-g${{ matrix.groupe }}
+          path: ${{ runner.temp }}/journaux
+          retention-days: 7
+
+  # Idem pour la RLS stricte : 12 partitions regroupées 6 par job.
+  tests-rls-stricte-groupes:
+    name: Backend — RLS stricte (groupe ${{ matrix.groupe }}/2, 6 tranches en parallèle)
+    needs: backend-archive
+    if: github.ref != 'refs/heads/ENT'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        groupe: [1, 2]
+    env:
+      ENT_ENV: test
+      ENT_RLS_MODE: strict
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.150
+      - uses: actions/download-artifact@v4
+        with:
+          name: archives-nextest
+          path: ${{ runner.temp }}/archives
+      - name: Tranches RLS stricte du groupe ${{ matrix.groupe }} (mêmes partitions count:i/12 que sur ENT, un PostgreSQL par tranche)
+        working-directory: ent-rust
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/journaux"
+          pids=""
+          # Tranche t du groupe g : t = g, g+2, g+4, … ; chacune garde un fil et son propre PostgreSQL,
+          # donc les tests voient exactement les conditions de la CI ENT (un fil, base propre).
+          for t in $(seq ${{ matrix.groupe }} 2 12); do
+            (
+              # Un PostgreSQL 18 jetable PAR tranche (conteneur, port propre) : les rôles sont communs à tout un
+              # serveur (CREATE/ALTER ROLE de la RLS stricte), il faut donc un serveur par tranche, comme sur ENT.
+              port=$((55400 + t))
+              docker run -d --rm --name "pg$t" -p "127.0.0.1:$port:5432" \
+                -e POSTGRES_USER=ent_ci -e POSTGRES_DB=ent_ci_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null
+              for essai in $(seq 1 60); do
+                docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null 2>&1 && break
+                sleep 1
+              done
+              docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null
+              debut=$(date +%s)
+              ENT_DATABASE_URL="postgres://ent_ci@127.0.0.1:$port/ent_ci_test" \
+              cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
+                -E 'test(/^tests_(eleve_[a-z]+|dossier_personnes|rls_stricte)::/)' --partition count:$t/12 --test-threads 1 --no-fail-fast --color never \
+                > "$RUNNER_TEMP/journaux/execution-rls-stricte-$t.log" 2>&1
+              code=$?
+              echo "tranche $t : code $code en $(( $(date +%s) - debut )) s"
+              exit $code
+            ) &
+            pids="$pids $!"
+          done
+          statut=0
+          for p in $pids; do wait "$p" || statut=1; done
+          for f in "$RUNNER_TEMP"/journaux/*.log; do echo "::group::$(basename "$f")"; tail -n 40 "$f"; echo "::endgroup::"; done
+          exit $statut
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: execution-rls-stricte-g${{ matrix.groupe }}
+          path: ${{ runner.temp }}/journaux
           retention-days: 7
 
   tests-sans-labo:
@@ -324,7 +465,7 @@ jobs:
     # Nom conservé : c'est le contrôle que la règle 6 de PILOTAGE.md attend.
     name: Backend (clippy, compilation, tests)
     if: always()
-    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo, tests-rls-stricte]
+    needs: [backend-lint, backend-archive, tests-labo, tests-labo-groupes, tests-sans-labo, tests-rls-stricte, tests-rls-stricte-groupes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -398,13 +539,23 @@ jobs:
         if: always()
         run: |
           set -eu
-          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }} rls-stricte=${{ needs.tests-rls-stricte.result }}"
-          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}" "${{ needs.tests-rls-stricte.result }}"; do
+          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} sans-labo=${{ needs.tests-sans-labo.result }}"
+          echo "labo=${{ needs.tests-labo.result }} labo-groupes=${{ needs.tests-labo-groupes.result }} rls=${{ needs.tests-rls-stricte.result }} rls-groupes=${{ needs.tests-rls-stricte-groupes.result }}"
+          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-sans-labo.result }}"; do
             if [ "$r" != "success" ]; then
               echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
               exit 1
             fi
           done
+          # Pour chaque famille, exactement une des deux variantes tourne (ENT : tranches ; branche : groupes) et doit être verte.
+          verifier() {
+            if [ "$1" = "success" ] && [ "$2" = "skipped" ]; then return 0; fi
+            if [ "$2" = "success" ] && [ "$1" = "skipped" ]; then return 0; fi
+            echo "::error::$3 : tranches=$1 groupes=$2 (une variante doit être verte, l'autre ignorée)"
+            exit 1
+          }
+          verifier "${{ needs.tests-labo.result }}" "${{ needs.tests-labo-groupes.result }}" "tests avec labo"
+          verifier "${{ needs.tests-rls-stricte.result }}" "${{ needs.tests-rls-stricte-groupes.result }}" "RLS stricte"
 
   frontend:
     name: Frontend Leptos (clippy, tests, build, tests contre le backend)
