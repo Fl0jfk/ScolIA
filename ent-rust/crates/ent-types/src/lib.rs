@@ -15,8 +15,6 @@
 
 pub mod absences_personnels;
 pub mod afaire;
-pub mod palette;
-pub mod recherche;
 pub mod agenda;
 pub mod appel;
 pub mod auth;
@@ -33,11 +31,13 @@ pub mod identifiants;
 pub mod identite;
 pub mod inscriptions;
 pub mod internat;
+pub mod palette;
 pub mod personnels;
 pub mod personnels_missions;
 pub mod personnels_services;
 pub mod portail;
 pub mod propositions;
+pub mod recherche;
 pub mod referentiel;
 pub mod referentiel_admin;
 pub mod sante;
