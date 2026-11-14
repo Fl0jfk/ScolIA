@@ -4067,7 +4067,7 @@ async fn a7_r_ap28_une_heure_n_est_constatee_que_sur_une_seance_assuree() {
     let (_a, _c, seance) = x.seance_remplacee(x.prof, x.prof2, (9, 0), (10, 30)).await;
     let apres = Cadre::apres_les_seances();
     let attester = |u: Uuid, r: &'static str, s: Uuid, m| {
-        let ent = x.ent.clone();
+        let ent = &x.ent;
         let etab = x.etab;
         async move { ent.attester_seance_a(etab, u, r, &AttesterBody { seance_id: s }, m).await }
     };
@@ -4209,7 +4209,7 @@ async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
     let b = x.ent.valider_heures_for_actor(x.etab, x.dir, "direction", &ValiderHeuresBody { mois: m2, agent_id: None }).await.unwrap();
     assert_eq!((b.validees, b.contestees_restantes), (1, 1));
     let figer = |employeur: &'static str, mois| {
-        let ent = x.ent.clone();
+        let ent = &x.ent;
         let (etab, dir) = (x.etab, x.dir);
         async move { ent.figer_etat_for_actor(etab, dir, "direction", &FigerEtatBody { mois, employeur: employeur.into() }).await }
     };
@@ -4375,8 +4375,13 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
         )
         .await
         .unwrap();
-    let ogec = d.absences.iter().find(|a| a.employeur.as_deref() == Some("ogec")).expect("absence OGEC");
-    x.valider(ogec.id).await;
+    let _ = d;
+    let ogec_id: Uuid = sqlx::query_scalar("SELECT id FROM ent_absp_absence WHERE etablissement_id = $1 AND employeur = 'ogec'")
+        .bind(x.etab)
+        .fetch_one(x.ent.pool())
+        .await
+        .expect("absence OGEC");
+    x.valider(ogec_id).await;
     // Droits : comptabilité de l'OGEC et direction ; ni le secrétariat de l'État, ni un professeur.
     for (u, r) in [(x.sec, "administratif"), (x.prof, "prof"), (x.cpe, "cpe")] {
         let e = x.ent.preparer_elements_paie_for_actor(x.etab, u, r, &PreparerPaieBody { mois: m1 }).await.unwrap_err();
@@ -4410,7 +4415,7 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
     let csv = x.ent.exporter_elements_paie_csv_for_actor(x.etab, x.compta, "compta", m1).await.unwrap();
     assert_eq!(csv.lines().count(), 3, "{csv}");
     assert!(csv.contains(",convenance,1.00,jour,non") && csv.contains(",mission_pacte,2.00,heure,non"), "{csv}");
-    assert!(!csv.contains(&ogec.id.to_string()), "l'identifiant d'absence ne sort pas : {csv}");
+    assert!(!csv.contains(&ogec_id.to_string()), "l'identifiant d'absence ne sort pas : {csv}");
     assert_eq!(x.ent.exporter_elements_paie_csv_for_actor(x.etab, x.dir, "direction", m1).await.unwrap(), csv, "export rejouable");
     assert_eq!(x.compter("SELECT count(*) FROM ent_absp_element_paie WHERE etablissement_id = $1 AND etat = 'envoye'").await, 2);
     // Un élément envoyé ne se réécrit pas (base).
@@ -4433,14 +4438,15 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
     assert_eq!((b.crees, b.regularisations), (0, 0), "la régularisation n'est posée qu'une fois : {b:?}");
     assert_eq!(x.ent.elements_paie_for_actor(x.etab, x.compta, "compta", m0, None).await.unwrap().len(), 1);
     // Une absence annulée après envoi : régularisation négative sur le mois ouvert, jamais une réécriture.
-    x.ent.annuler_absence_for_actor(x.etab, x.dir, "direction", ogec.id, &DecisionBody::default()).await.ok();
+    x.ent.annuler_absence_for_actor(x.etab, x.dir, "direction", ogec_id, &DecisionBody::default()).await.ok();
     // DSN J+5 (R-16) : arrêt de l'OGEC, file à jour, « signalé le » une seule fois, jamais dans le futur.
     let d = x.declarer(x.prof2, "prof", Some("maladie"), 1, 1).await;
     let ag2 = x.agent(x.prof2).await;
     x.engagement_ogec(ag2).await;
     let _ = d;
     let file = x.ent.dsn_file_for_actor(x.etab, x.compta, "compta").await.unwrap();
-    assert!(file.iter().all(|f| f.echeance_le >= x.aujourdhui().await || f.en_retard));
+    let aujourdhui = x.aujourdhui().await;
+    assert!(file.iter().all(|f| f.echeance_le >= aujourdhui || f.en_retard));
     for f in &file {
         assert!(f.signale_le.is_none());
         let e = x.ent.marquer_dsn_signale_for_actor(x.etab, x.compta, "compta", f.absence_id, x.aujourdhui().await + Duration::days(2)).await.unwrap_err();
