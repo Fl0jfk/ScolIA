@@ -4005,9 +4005,9 @@ impl Cadre {
     }
 
     /// Instant postérieur à toute séance du cadre (la séance est à J+14 ou plus) : le test ne dépend pas de l'heure
-    /// où il est lancé.
+    /// où il est lancé (100 jours : la tâche ne regarde que les 90 derniers jours).
     fn apres_les_seances() -> chrono::DateTime<chrono::Utc> {
-        chrono::Utc::now() + Duration::days(400)
+        chrono::Utc::now() + Duration::days(100)
     }
 
     /// Une séance de `prof` (absent) remplacée par `remplacant` (acceptation d'une sollicitation de l'A4).
