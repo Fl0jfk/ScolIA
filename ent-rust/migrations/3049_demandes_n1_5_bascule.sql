@@ -4,6 +4,7 @@
 -- Trois choses, toutes additives :
 -- 1. ent_dem_guichet : l'état « lecture seule » du guichet de ScolIA pendant la bascule ou un incident (le geste côté
 --    Next.js, lui, est celui de Florian, hors de ce dépôt). Une ligne par établissement ; absente = guichet ouvert.
+--    ent_dem_guichet_journal : chaque changement, en ajout seul.
 -- 2. La garde de la demande accepte UN seul changement de demandeur de plus : le rapprochement, par le secrétariat, d'un
 --    demandeur « externe non vérifié » de la reprise vers la personne retrouvée (sous un réglage LOCAL à la transaction,
 --    comme la purge et la requalification). Tout le reste de la garde est repris à l'identique de la migration 3045.
@@ -22,11 +23,27 @@ CREATE TABLE IF NOT EXISTS ent_dem_guichet (
     CONSTRAINT ent_dem_guichet_depuis_chk CHECK (NOT lecture_seule OR depuis_le IS NOT NULL)
 );
 
--- Le journal des réglages connaît désormais le guichet et la reprise (mêmes valeurs qu'en 3046, plus deux).
-ALTER TABLE ent_dem_reglage_journal DROP CONSTRAINT IF EXISTS ent_dem_reglage_journal_sujet_check;
-ALTER TABLE ent_dem_reglage_journal ADD CONSTRAINT ent_dem_reglage_journal_sujet_check CHECK (sujet IN (
-    'repli_rh', 'nature', 'file', 'membres', 'routage', 'reponse_type', 'palier', 'hse', 'reprographie',
-    'guichet', 'reprise'));
+-- Journal du guichet : ajout seul, propre à ce lot. (Le journal général des réglages garde sa contrainte de la migration
+-- 3046 : la rejouer sur des lignes d'un nouveau sujet échouerait, le rejeu des fichiers de migration étant permis.)
+CREATE TABLE IF NOT EXISTS ent_dem_guichet_journal (
+    id UUID PRIMARY KEY,
+    etablissement_id UUID NOT NULL
+        CHECK (etablissement_id <> '00000000-0000-0000-0000-000000000000'::uuid),
+    lecture_seule BOOLEAN NOT NULL,
+    raison TEXT NOT NULL CHECK (raison IN ('bascule', 'incident', 'maintenance')),
+    par_user_id UUID,
+    le TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ent_dem_guichet_journal_idx ON ent_dem_guichet_journal (etablissement_id, le DESC);
+CREATE OR REPLACE FUNCTION ent_dem_guichet_journal_ajout_seul() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'ent_dem_guichet_journal : ajout seul, ni modification ni suppression' USING ERRCODE = '23001';
+END
+$$;
+DROP TRIGGER IF EXISTS ent_dem_guichet_journal_ajout_seul_trg ON ent_dem_guichet_journal;
+CREATE TRIGGER ent_dem_guichet_journal_ajout_seul_trg BEFORE UPDATE OR DELETE ON ent_dem_guichet_journal
+    FOR EACH ROW EXECUTE FUNCTION ent_dem_guichet_journal_ajout_seul();
 
 -- ───────────────────────── 2. Rapprochement d'un demandeur de reprise ─────────────────────────
 CREATE OR REPLACE FUNCTION ent_dem_rapprochement_en_cours() RETURNS boolean
@@ -93,4 +110,4 @@ DROP TRIGGER IF EXISTS ent_dem_hse_seance_hors_scolia_trg ON ent_dem_hse_seance;
 CREATE TRIGGER ent_dem_hse_seance_hors_scolia_trg BEFORE INSERT ON ent_dem_hse_seance
     FOR EACH ROW EXECUTE FUNCTION ent_dem_hse_seance_hors_scolia();
 
-SELECT ent_rls_poser(ARRAY['ent_dem_guichet']);
+SELECT ent_rls_poser(ARRAY['ent_dem_guichet', 'ent_dem_guichet_journal']);

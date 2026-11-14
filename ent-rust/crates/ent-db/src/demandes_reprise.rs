@@ -25,7 +25,7 @@ use crate::demandes::{
     ajouter_fait, echeance_ouvree, inserer_valeur, nature, personne_du_user, ChampType,
     Confidentialite, FaitNouveau, NatureDecl, Urgence, Valeur, ValeurSaisie,
 };
-use crate::demandes_files::{charger_graphe, jour_metier, journaliser};
+use crate::demandes_files::{charger_graphe, jour_metier};
 use crate::demandes_routage::router_demande_existante;
 use crate::service::PgEnt;
 use crate::tenant_tx::TenantTx;
@@ -648,16 +648,6 @@ impl PgEnt {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-        journaliser(
-            &mut tx,
-            etab,
-            "reprise",
-            mode.code(),
-            None,
-            Some("lot_ouvert"),
-            user_id,
-        )
-        .await?;
         tx.commit().await?;
 
         let mut comptes = HashMap::new();
@@ -953,7 +943,6 @@ impl PgEnt {
             ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let avant = guichet_lecture_seule(&mut tx, etab).await?;
         sqlx::query(
             "INSERT INTO ent_dem_guichet (etablissement_id, lecture_seule, raison, depuis_le, maj_par_user_id)
              VALUES ($1, $2, $3, CASE WHEN $2 THEN now() END, $4)
@@ -969,16 +958,16 @@ impl PgEnt {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-        let dit = |b: bool| if b { "lecture_seule" } else { "ouvert" };
-        journaliser(
-            &mut tx,
-            etab,
-            "guichet",
-            raison,
-            Some(dit(avant)),
-            Some(dit(lecture_seule)),
-            user_id,
+        sqlx::query(
+            "INSERT INTO ent_dem_guichet_journal (id, etablissement_id, lecture_seule, raison, par_user_id)
+             VALUES ($1, $2, $3, $4, $5)",
         )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(lecture_seule)
+        .bind(raison)
+        .bind(user_id)
+        .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         self.etat_guichet(etab).await

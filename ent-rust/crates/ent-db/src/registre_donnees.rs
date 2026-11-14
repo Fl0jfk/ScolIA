@@ -428,6 +428,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_dem_file_membre_regle", "demandes", Portee::Etablissement).perso().export(),
     t("ent_dem_file_palier", "demandes", Portee::Etablissement),
     t("ent_dem_guichet", "demandes", Portee::Etablissement),
+    t("ent_dem_guichet_journal", "demandes", Portee::Etablissement).perso(),
     t("ent_dem_hse", "demandes", Portee::Etablissement).perso().export(),
     t("ent_dem_hse_decision", "demandes", Portee::Etablissement).perso().export(),
     t("ent_dem_hse_enveloppe", "demandes", Portee::Etablissement),

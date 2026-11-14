@@ -1306,7 +1306,14 @@ async fn t_guichet_lecture_seule() {
         matches!(refus, RefusDemande::Conflit(_)),
         "bascule refusée tant que le guichet est ouvert"
     );
-    assert_eq!(r.nb("SELECT count(*) FROM ent_dem_reglage_journal WHERE etablissement_id = $1 AND sujet = 'guichet'", None).await, 2);
+    assert_eq!(
+        r.nb(
+            "SELECT count(*) FROM ent_dem_guichet_journal WHERE etablissement_id = $1",
+            None
+        )
+        .await,
+        2
+    );
 }
 
 // ───────────────────────── Droits et export illisible ─────────────────────────
