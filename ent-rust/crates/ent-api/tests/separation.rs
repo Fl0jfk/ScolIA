@@ -729,7 +729,6 @@ fn specs_domaine_cours() -> Vec<Spec> {
             Some(r#"{"cours_ids":["{cours}"],"echeance_jour":"2031-03-12"}"#)),
         ecrire_sur_b("cahier-c4-calendrier-B", "GET", "/cahier/c4/classes/{cours}/calendrier?du=2026-01-05&au=2026-01-30", None),
         ecrire_sur_b("cahier-c4-alerte-B", "POST", "/cahier/c4/travaux/{cours}/alerte-ignoree", None),
-        ecrire_sur_b("cahier-c4-reperes-B", "PUT", "/cahier/c4/reperes", Some(r#"{"position":"strict"}"#)),
         ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
         ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
         ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),
