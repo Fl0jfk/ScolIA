@@ -718,9 +718,9 @@ fn specs_domaine_cours() -> Vec<Spec> {
         lire("cahier-c2-natures", "/cahier/c2/natures", &[Admin, Direction, Prof], &[]),
         // Socle 20, lot C3 : agenda, manqué, résumé de l'élève et de ses responsables habilités. Le jeton de A avec des
         // identifiants de B n'obtient jamais un 2xx ; le personnel, un parent d'un autre foyer ou sans lien ne lit rien.
-        lire("cahier-c3-agenda", "/cahier/c3/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve], &[]),
-        lire("cahier-c3-manque", "/cahier/c3/manque?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve], &[]),
-        lire("cahier-c3-resume", "/cahier/c3/resume?eleve_id={eleve}", &[Parent, Eleve], &[]),
+        lire("cahier-c3-agenda", "/cahier/c3/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        lire("cahier-c3-manque", "/cahier/c3/manque?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        lire("cahier-c3-resume", "/cahier/c3/resume?eleve_id={eleve}", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
         lire("cahier-c3-abonnements", "/cahier/c3/abonnements", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
         ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
         ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
