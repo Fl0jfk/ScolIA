@@ -188,7 +188,7 @@ async fn n0b_avis_infirmerie_envoye_sans_peut_voir_vs() {
     )
     .bind(etab)
     .bind(parent)
-    .bind(e.event().id)
+    .bind(e.id)
     .fetch_all(ent.pool_verif())
     .await
     .unwrap();
