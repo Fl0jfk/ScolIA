@@ -67,4 +67,5 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 29 code | session_01KZCbFGstxci8Rzs92fxX5m | — | en pause, P2 versé ; prochain : P3 |
 | 19 code | session_01KZCbFHhtUcrLKPT1g7mDDc | — | en pause, AG3 + AG2 réduit versés |
 | Audit 1 correctifs données, infra ; conception N1 | — | — | terminées, archivées |
-| **12 code AS4** | session_01KZCbFGzZYnBeXVkJziBVtT | ent-socle-12-code-4 (2246–2259) | **active** — décompte versionné |
+| 12 code AS4 | session_01KZCbFGzZYnBeXVkJziBVtT | ent-socle-12-code-4 (2246) | versé (3916226c), archivée |
+| **N1 code N1-2** | session_01KZCbFEfaz4Uh2HaSKwW57b | ent-socle-N1-code-2 (3044–3045) | **active** |
