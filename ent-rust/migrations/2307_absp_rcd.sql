@@ -187,12 +187,15 @@ CREATE TABLE IF NOT EXISTS ent_absp_rcd_remontee_ligne (
     heures_prevues NUMERIC(7,1) NOT NULL CHECK (heures_prevues >= 0),
     heures_absence NUMERIC(7,1) NOT NULL CHECK (heures_absence >= 0),
     heures_remplacees NUMERIC(7,1) NOT NULL CHECK (heures_remplacees >= 0),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_absp_rcd_remontee_ligne_etab_id_uq UNIQUE (etablissement_id, id),
     CONSTRAINT ent_absp_rcd_remontee_ligne_cle_uq
         UNIQUE (etablissement_id, remontee_id, discipline_code, niveau_code, categorie_nationale, mode_continuite),
     CONSTRAINT ent_absp_rcd_remontee_ligne_remontee_fk FOREIGN KEY (etablissement_id, remontee_id)
         REFERENCES ent_absp_rcd_remontee (etablissement_id, id)
 );
+
+ALTER TABLE ent_absp_rcd_remontee_ligne ADD COLUMN IF NOT EXISTS cree_le TIMESTAMPTZ NOT NULL DEFAULT now();
 
 -- Une remontée transmise ne change plus (ni ses lignes), et ne se supprime pas.
 CREATE OR REPLACE FUNCTION ent_trg_absp_rcd_remontee_garde() RETURNS trigger AS $$
