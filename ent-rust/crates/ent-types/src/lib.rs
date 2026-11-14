@@ -15,6 +15,7 @@
 
 pub mod absences_personnels;
 pub mod afaire;
+pub mod recherche;
 pub mod agenda;
 pub mod appel;
 pub mod auth;

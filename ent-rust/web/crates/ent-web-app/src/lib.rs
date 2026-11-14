@@ -74,6 +74,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("mes-files") view=modules::mes_files::PageMesFiles/>
                     <Route path=path!("mes-files/:code") view=modules::mes_files::PageFile/>
                     <Route path=path!("supervision-files") view=modules::mes_files::PageSupervisionFiles/>
+                    <Route path=path!("recherche") view=modules::recherche::PageRecherche/>
+                    <Route path=path!("blocages-recherche") view=modules::recherche::PageBlocagesRecherche/>
                     <Route path=path!("mes-liens") view=modules::liens_en_attente::PageMesLiens/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
                     <Route path=path!("edt/semaine") view=modules::edt_semaine::PageSemaineEdt/>

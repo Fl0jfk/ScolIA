@@ -308,6 +308,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2580_afaire_index"),
     m!("2581_afaire_journal_prises"),
     m!("2582_afaire_reglages"),
+    // Lot P5 : compteur de recherches (volatile, aucun texte de requête).
+    m!("2585_recherche_compteur"),
     m!("2780_stage_st0_correctifs"),
     m!("2781_stage_st1a_parametres_organismes"),
     m!("2782_stage_st1a_periodes"),

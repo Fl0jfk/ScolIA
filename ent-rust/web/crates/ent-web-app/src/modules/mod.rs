@@ -29,6 +29,7 @@ pub mod mes_files;
 pub mod messagerie;
 pub mod notifications;
 pub mod protections;
+pub mod recherche;
 pub mod recuperation;
 pub mod referentiel_admin;
 pub mod remplacements;

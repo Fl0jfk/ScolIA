@@ -36,6 +36,7 @@ mod edt_s2;
 mod roles;
 mod routes;
 mod afaire;
+mod recherche;
 mod portail;
 mod assiduite;
 mod vie_scolaire;
@@ -308,6 +309,8 @@ mod tests_personnels_p4;
 mod tests_afaire_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recherche_p5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]

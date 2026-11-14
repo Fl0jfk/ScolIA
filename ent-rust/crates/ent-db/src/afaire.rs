@@ -344,6 +344,25 @@ pub const NATURES: &[NatureDeclaree] = &[
         ..BASE
     },
     NatureDeclaree {
+        code: "recherche.bloquee",
+        socle: 29,
+        objet_type: "compte",
+        gabarit: "Recherche bloquée : plafond ou recherche systématique",
+        variables: &[],
+        destinataires: "administration (file d'administration, droit de lever un blocage)",
+        cardinalite: Cardinalite::Collective,
+        echeance_jours: None,
+        priorite: PrioriteAfaire::Due,
+        action: Some(ActionDeclaree::Lien {
+            libelle: "Examiner",
+            lien: "/web/blocages-recherche",
+        }),
+        file_repli: FILE_ADMIN,
+        // Ouverte par le blocage lui-même (socle 29) : pas de source à rapprocher.
+        derivee: false,
+        ..BASE
+    },
+    NatureDeclaree {
         code: "afaire.decision_en_attente",
         socle: 29,
         objet_type: "afaire",

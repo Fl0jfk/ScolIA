@@ -709,6 +709,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_push_outbox", "communication_technique", Portee::Etablissement).perso().neutralise(Neutralisation::JournalSeul("journal des envois déjà tentés (dry_run/sent/failed) : aucun état « à envoyer », rien à suspendre")),
     t("ent_rate_limit", "identite_acces", Portee::Technique).neutralise(N_PURGE),
     t("ent_rdv_fait", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    // Socle 29 (lot P5) : compteur volatil de recherches (aucun texte de requête), vidé à la restauration.
+    t("ent_recherche_compteur", "portails", Portee::Etablissement).perso().neutralise(N_PURGE),
     t("ent_recuperation_passkey", "identite_acces", Portee::Technique).perso().neutralise(N_PURGE).avec_etab(),
     t("ent_regime_code", "vie_pratique", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "référentiel statique des régimes (R-IT2), jamais modifié par un établissement"),
     t("ent_regime_correspondance", "vie_pratique", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "table de correspondance des vocabulaires de régime (R-IT2), statique"),
