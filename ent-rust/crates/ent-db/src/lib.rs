@@ -24,6 +24,10 @@ mod enseignements;
 pub mod cours;
 /// Socle N1 (demandes et flux de travail), lot N1-0 : cœur et garde-fous.
 pub mod demandes;
+/// Socle N1, lot N1-1 : catalogue des natures, files, membres calculés, routage.
+pub mod demandes_catalogue;
+pub mod demandes_files;
+pub mod demandes_routage;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -483,6 +487,8 @@ mod tests_eleve_jour_etablissement;
 mod tests_eleve_scolarite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
