@@ -1001,7 +1001,16 @@ async fn t_accuse_reception_service_role_delai() {
     assert_eq!(acc.service, "Secrétariat des élèves");
     assert_eq!(acc.role_traitant, "le secrétariat des élèves");
     assert!(acc.delai_indicatif.is_some_and(|d| d > c.jour));
-    assert_eq!(acc.mention_fermeture, None);
+    // La mention de fermeture suit le calendrier du service : aucune un jour ouvré, la réouverture un week-end.
+    let attendue = {
+        let mut conn = c.ent.pool_verif().acquire().await.unwrap();
+        if calendrier::jour_service(&mut conn, c.m.etab, c.jour, "secretariat").await.unwrap().ouvert {
+            None
+        } else {
+            Some(calendrier::echeance_jours_ouvres(&mut conn, c.m.etab, c.jour, 1, "secretariat").await.unwrap())
+        }
+    };
+    assert_eq!(acc.mention_fermeture, attendue);
     assert_eq!(acc.mentions, MENTIONS_ACCUSE_EPLE.to_vec(), "mentions EPLE d'une nature à décision de l'usager");
     assert!(acc.message_accueil.is_some());
     // Seuls le demandeur et le déposant la lisent : un autre responsable (hors lien) ou un membre de la file : 404.
