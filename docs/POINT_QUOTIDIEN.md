@@ -8,14 +8,21 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-14 (samedi, nuit)
 
-### Passé sur `ENT` (tête `32f3fa90`)
+### Passé sur `ENT` (tête `5bc58d25`)
 - **Socle N1 « Demandes », lot N1-1** (`49bfc691`, CI 43534161490 verte ; fusion pilote sur `e0474cff`) : natures et catalogue, files à membres calculés depuis les missions du socle 6, file de tri, file de repli, routage déterministe et simulateur, accusé de réception (service, rôle, délai daté, fermetures), **repli RH paramétrable** (D-061 : la personne visée n'est jamais destinataire). Ferme NJ-85, NJ-94, NJ-95. Limites : adaptateur d'avis du socle 8 absent, désignation par le demandeur et requalification en N1-2, pas encore de route HTTP.
 
 - **Socle 12, lot AS4** (`05a69b09`, CI 43549544666 verte ; fusion pilote sur `0006c9f3`) : décompte versionné des demi-journées (règle datée, calendrier du socle 5, coupure de grille, scolarisation, jour de l'établissement), matérialisation idempotente, explication, arrêt du mois et rectifications à part. Ferme DA-11, DA-12, DA-14, DA-22. Limites : mois civil, retards à 0 (AS7), pas d'écran (AS14), aucune alerte sur rectification (AS5/AS9).
 
 - **Jour d'établissement, lot 2** (`c825996a`, CI 221 verte ; fusion pilote) : conversions d'horodatage en date au fuseau de l'établissement (migrations 297 et 343), tests passés au jour de Paris, **garde statique** qui refuse tout jour UTC dans les tests ent-db, ent-api et ent-web-server. Restent hors élève : 111/112, 281, 284, 286, 276 ; `noyau/temps.rs` (web) et le binaire de seed en heure locale ; créneaux de labo au jour de semaine réel.
 
+- **Socle 29, lot P3** (`66857f7f`) : à-faire famille, cartes autoriser / rendez-vous / réinscription par les commandes des propriétaires ; neutralité entre parents, parent sans exercice, majorité. Cartes masquées faute de commande famille : pièce, fiche de rentrée, règlement, réponse à un message.
+- **Socle 15, lot A5** (`b6484067`) : absence longue et suppléance (2306), une notification par étape, suppléance reliée au socle 6.
+- **Socle 20, lot C2** (`ef7a11f7`) : saisie et publication du cahier de textes (2413), brouillons, programmation, plage calme, travail, copie de séance, écrans.
+- **Socle N1, lot N1-2** (`44edaba5`) : prise en charge, délégation, échanges, pièces, consultations et liens (3044–3045) ; ferme NJ-81, NJ-83 et étend NJ-80.
+
 ### Ce qui a coincé
+- **Session du socle 8 partie d'`ent-mc0hoe`** au lieu d'ENT (N0a, N0b) : N0a rejoué par `cherry-pick` sur ENT, CI relancée ; règle 25.
+- **Sessions à l'arrêt pendant leur CI** : règle 24, suites de lots écrites au lancement.
 - **CI lancée de nuit** (vendredi 23 h 38 UTC = samedi 0 h 38 à Paris) : quatre tests hors lot rouges, tous liés à la date. Deux causes : des **tests** qui calculent « aujourd'hui » en UTC (`Utc::now()`, `Local::now()`, `resynchroniser(current_date)`), et des **conversions d'horodatage en date** (`created_at::date`, `updated_at::date`) dans les fonctions de reprise élève (280, 282, 283, 340, 342). Confié à un lot dédié (« heure des tests et dates d'horodatage », migration 297, garde statique étendue).
 
 ### En cours
