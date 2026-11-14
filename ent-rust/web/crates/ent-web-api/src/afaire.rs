@@ -1,7 +1,10 @@
-//! À-faire unifié (socle 29, lots P2 et P3) : routes `/afaire*` d'`ent-api`.
+//! À-faire unifié (socle 29, lots P2 à P4) : routes `/afaire*` d'`ent-api`.
 //! Le serveur revérifie chaque tâche à la lecture et chaque droit à l'exécution ; ce client transporte.
 
-use ent_types::afaire::{AFaire, ApercuAction, ExecutionAction, ResultatAction};
+use ent_types::afaire::{
+    AFaire, ApercuAction, CorpsPrise, CorpsReattribution, ExecutionAction, FileAfaire, MesFiles,
+    NiveauPrise, Orpheline, ResultatAction, Supervision,
+};
 use uuid::Uuid;
 
 use crate::{ApiClient, ApiError, Methode};
@@ -37,5 +40,76 @@ impl ApiClient {
         })?;
         self.appel(Methode::Post, &format!("/afaire/{tache}/executer"), Some(c))
             .await
+    }
+
+    /// `GET /afaire/files` : « Mes files » (lot P4) : des nombres par file, jamais de contenu.
+    pub async fn mes_files(&self) -> Result<MesFiles, ApiError> {
+        self.appel(Methode::Get, "/afaire/files", None).await
+    }
+
+    /// `GET /afaire/files/{code}` : le contenu d'une file de l'index pour l'un de ses membres.
+    pub async fn file_afaire(&self, code: &str) -> Result<FileAfaire, ApiError> {
+        self.appel(Methode::Get, &format!("/afaire/files/{code}"), None)
+            .await
+    }
+
+    /// `POST /afaire/{id}/prendre` : prendre en charge. `409` « déjà prise » si un collègue a été plus rapide.
+    pub async fn a_faire_prendre(&self, tache: Uuid, niveau: NiveauPrise) -> Result<(), ApiError> {
+        let c = corps(&CorpsPrise {
+            niveau: Some(niveau),
+        })?;
+        self.appel(Methode::Post, &format!("/afaire/{tache}/prendre"), Some(c))
+            .await
+    }
+
+    /// `POST /afaire/{id}/relacher` : relâcher sa prise.
+    pub async fn a_faire_relacher(&self, tache: Uuid) -> Result<(), ApiError> {
+        self.appel(Methode::Post, &format!("/afaire/{tache}/relacher"), None)
+            .await
+    }
+
+    /// `POST /afaire/{id}/preparee` : remettre une tâche préparée à celui qui décide.
+    pub async fn a_faire_preparee(&self, tache: Uuid) -> Result<(), ApiError> {
+        self.appel(Methode::Post, &format!("/afaire/{tache}/preparee"), None)
+            .await
+    }
+
+    /// `POST /afaire/{id}/reattribuer` : un responsable de service remet la tâche à un collègue de la file.
+    pub async fn a_faire_reattribuer(
+        &self,
+        tache: Uuid,
+        vers: Uuid,
+        niveau: NiveauPrise,
+    ) -> Result<(), ApiError> {
+        let c = corps(&CorpsReattribution {
+            vers_compte_id: vers,
+            niveau: Some(niveau),
+        })?;
+        self.appel(
+            Methode::Post,
+            &format!("/afaire/{tache}/reattribuer"),
+            Some(c),
+        )
+        .await
+    }
+
+    /// `GET /afaire/supervision` : nombres par file et par nature (direction), jamais un nom.
+    pub async fn a_faire_supervision(&self) -> Result<Supervision, ApiError> {
+        self.appel(Methode::Get, "/afaire/supervision", None).await
+    }
+
+    /// `GET /afaire/orphelines` : tâches sans destinataire servi (titre neutre seulement).
+    pub async fn a_faire_orphelines(&self) -> Result<Vec<Orpheline>, ApiError> {
+        self.appel(Methode::Get, "/afaire/orphelines", None).await
+    }
+
+    /// `POST /afaire/orphelines/{id}/sans-objet` : clore une orpheline après vérification du propriétaire.
+    pub async fn a_faire_clore_orpheline(&self, tache: Uuid) -> Result<(), ApiError> {
+        self.appel(
+            Methode::Post,
+            &format!("/afaire/orphelines/{tache}/sans-objet"),
+            None,
+        )
+        .await
     }
 }

@@ -307,6 +307,8 @@ mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p4;
+#[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_eleve_propositions;

@@ -335,6 +335,13 @@ pub enum Action {
     PersonnelsAbsencesParametrer,
     /// Socle 29 : lancer un rapprochement de l'index des tâches et lire son rapport (POR-205).
     AfaireRapprocher,
+    /// Socle 29, lot P4 : prendre en charge une tâche d'une file collective dont on est membre (POR-152).
+    AfairePrendre,
+    /// Socle 29, lot P4 : réattribuer une tâche prise à un collègue de la même file (POR-154), journalisé.
+    AfaireReattribuer,
+    /// Socle 29, lot P4 : superviser les files par nombres (ouvertes, en retard, délai médian), jamais le
+    /// contenu nominatif ni un classement de personnes (POR-161, POR-168).
+    AfaireSuperviser,
     /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
     /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
     PersonnelsAbsencesConserver,
@@ -434,7 +441,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 181] = [
+    pub const TOUTES: [Action; 184] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -584,6 +591,9 @@ impl Action {
         Action::AccesRevue,
         // Socle 29 (portails), lot P2.
         Action::AfaireRapprocher,
+        Action::AfairePrendre,
+        Action::AfaireReattribuer,
+        Action::AfaireSuperviser,
         // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::StagesLire,
         Action::StagesPreparer,
@@ -780,6 +790,9 @@ impl Action {
             Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
             Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
             Self::AfaireRapprocher => "afaire.rapprocher",
+            Self::AfairePrendre => "afaire.file.prendre",
+            Self::AfaireReattribuer => "afaire.file.reattribuer",
+            Self::AfaireSuperviser => "afaire.superviser",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
@@ -969,6 +982,9 @@ impl Action {
             Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
             Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
             Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
+            Self::AfairePrendre => "Prendre en charge une tâche d'une file dont on est membre",
+            Self::AfaireReattribuer => "Réattribuer une tâche prise à un collègue de la file (service)",
+            Self::AfaireSuperviser => "Superviser les files par nombres (ouvertes, en retard, délai médian, tâches orphelines)",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
@@ -1169,6 +1185,9 @@ impl Action {
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
+            | Self::AfairePrendre
+            | Self::AfaireReattribuer
+            | Self::AfaireSuperviser
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
             | Self::StagesPeriodesGerer
@@ -1837,6 +1856,15 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
     if role == Role::Admin {
         d.push(etab(AfaireRapprocher));
+    }
+    // Lot P4 : tout le personnel prend en charge dans les files dont il est membre (l'appartenance, elle,
+    // est calculée : jamais « tout le personnel », R-DM7) ; réattribuer et superviser : responsables.
+    if role.is_staff() {
+        d.push(etab(AfairePrendre));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AfaireReattribuer));
+        d.push(etab(AfaireSuperviser));
     }
 }
 

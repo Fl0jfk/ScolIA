@@ -15,7 +15,7 @@
 use crate::afaire::{
     escalader_echues, fermer_tache, heure_locale, nature, ouvrir_tache, priorite_effective,
     version_de, ActionDeclaree, Destinataire, FermetureTache, MotifClotureAfaire, OuvertureTache,
-    FILE_JUSTIFICATIFS, FILE_PROTECTIONS, NATURES,
+    NATURES,
 };
 use crate::afaire_sources::{a_carte_d_action, apercu_carte, taches_ouvertes_sql, TacheSource};
 use crate::outbox::{Consommateur, EvenementDistribue, FutureTraitement};
@@ -27,7 +27,7 @@ use ent_events::types;
 use ent_types::afaire::{
     AFaire, ActionTache, ApercuAction, EtatAfaire, GroupeAfaire, LigneRapprochement,
     PrioriteAfaire, RapportRapprochement, ResultatAction, TacheAfaire, MENTION_SANS_AUTORITE,
-    MESSAGE_DEJA_TRAITEE,
+    MESSAGE_DEJA_PRISE, MESSAGE_DEJA_TRAITEE,
 };
 use sqlx::{PgConnection, Row};
 use std::collections::{HashMap, HashSet};
@@ -466,6 +466,10 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         escalader_echues(&mut tx, etab, maintenant).await?;
         tx.commit().await.map_err(db)?;
+        // Lot P4 : prises échues relâchées, tâches orphelines rendues à leur file de repli.
+        let files = self.reparer_files(etab, maintenant).await?;
+        rapport.prises_liberees = files.prises_liberees;
+        rapport.reaffectees_repli = files.reaffectees_repli;
         Ok(rapport)
     }
 
@@ -501,33 +505,51 @@ impl PgEnt {
         Ok(total)
     }
 
-    /// Files auxquelles l'acteur a accès (membres **calculés** à partir de ses droits, jamais saisis).
+    /// Files auxquelles l'acteur a accès (membres **calculés** à partir de ses droits, jamais saisis) :
+    /// la déclaration des files et de leurs niveaux est dans `afaire_files.rs` (lot P4).
     async fn files_de(
         &self,
         etab: Uuid,
         user: Uuid,
         role: &str,
     ) -> Result<Vec<String>, EntDbError> {
-        let mut files = Vec::new();
-        if Self::role_can_trancher_justificatif(role) {
-            files.push(FILE_JUSTIFICATIFS.to_string());
+        Ok(self
+            .acces_files(etab, user, role)
+            .await?
+            .into_iter()
+            .map(|a| a.file.code.to_string())
+            .collect())
+    }
+
+    /// Revérification groupée (R-PO3, R-PO12) : pour chaque nature, une lecture du propriétaire. Une
+    /// source en panne ne fait pas tomber la page : ses tâches ne sont pas montrées (jamais de tâche
+    /// fantôme), les autres natures restent lisibles.
+    pub(crate) async fn sources_vivantes(
+        &self,
+        tx: &mut PgConnection,
+        etab: Uuid,
+        par_nature: HashMap<&str, Vec<Uuid>>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<HashMap<(String, Uuid), Vec<Destinataire>>, EntDbError> {
+        let mut vivantes: HashMap<(String, Uuid), Vec<Destinataire>> = HashMap::new();
+        for (code, objets) in par_nature {
+            let n = nature(code).ok_or(EntDbError::SaisieInvalide("nature inconnue"))?;
+            if !n.derivee {
+                continue;
+            }
+            let src = if code == "vs.appel_a_faire" {
+                self.taches_source(etab, code, Some(&objets), maintenant)
+                    .await
+            } else {
+                taches_ouvertes_sql(&mut *tx, etab, code, Some(&objets)).await
+            };
+            if let Ok(src) = src {
+                for s in src {
+                    vivantes.insert((code.to_string(), s.objet_id), s.destinataires);
+                }
+            }
         }
-        if self
-            .exiger_action_etab(etab, user, role, Action::LiensSuspendre)
-            .await
-            .is_ok()
-        {
-            files.push(FILE_PROTECTIONS.to_string());
-            files.push(crate::afaire::FILE_DECISIONS.to_string());
-        }
-        if self
-            .exiger_action_etab(etab, user, role, Action::AfaireRapprocher)
-            .await
-            .is_ok()
-        {
-            files.push(crate::afaire::FILE_ADMIN.to_string());
-        }
-        Ok(files)
+        Ok(vivantes)
     }
 
     /// `GET /afaire` : l'à-faire de la personne connectée, **revérifié** à l'instant de la lecture.
@@ -553,30 +575,21 @@ impl PgEnt {
                 .or_default()
                 .push(l.objet_id);
         }
-        let mut vivantes: HashMap<(String, Uuid), Vec<Destinataire>> = HashMap::new();
-        for (code, objets) in par_nature {
-            let n = nature(code).ok_or(EntDbError::SaisieInvalide("nature inconnue"))?;
-            if !n.derivee {
-                continue;
-            }
-            // Une source en panne ne fait pas tomber la page : ses tâches ne sont pas montrées
-            // (jamais de tâche fantôme), les autres natures restent lisibles.
-            let src = if code == "vs.appel_a_faire" {
-                self.taches_source(etab, code, Some(&objets), maintenant)
-                    .await
-            } else {
-                taches_ouvertes_sql(&mut tx, etab, code, Some(&objets)).await
-            };
-            if let Ok(src) = src {
-                for s in src {
-                    vivantes.insert((code.to_string(), s.objet_id), s.destinataires);
-                }
-            }
-        }
+        let vivantes = self
+            .sources_vivantes(&mut tx, etab, par_nature, maintenant)
+            .await?;
 
         let personnes = self.personnes_du_compte(&mut tx, etab, user).await?;
+        // Deux personnes ne traitent jamais la même tâche (lot P4) : ce qu'un collègue de la file a pris
+        // n'est plus dans mon à-faire tant que sa prise est active.
+        let prises_autres = self
+            .prises_par_autres(&mut tx, etab, user, maintenant)
+            .await?;
         let mut taches: Vec<TacheAfaire> = Vec::new();
         for l in lignes {
+            if l.dest_file.is_some() && prises_autres.contains(&l.id) {
+                continue;
+            }
             let ouverte = l.etat.est_ouvert();
             let n = nature(&l.nature).ok_or(EntDbError::SaisieInvalide("nature inconnue"))?;
             if ouverte && n.derivee {
@@ -862,6 +875,10 @@ impl PgEnt {
             .lire_index(etab, user, &files, maintenant, Some(tache))
             .await?;
         let Some(l) = lignes.into_iter().next() else {
+            // Prise par un collègue de ma file : « déjà prise » (jamais pour un non-membre).
+            if self.prise_par_collegue(etab, user, role, tache, maintenant).await? {
+                return Err(EntDbError::ConflitDossier(MESSAGE_DEJA_PRISE));
+            }
             // Soit inexistante, soit close pour quelqu'un qui l'avait : « déjà traitée » si elle fut la sienne.
             return if self.fut_destinataire(etab, user, tache).await? {
                 Err(DEJA_TRAITEE)
@@ -873,11 +890,14 @@ impl PgEnt {
             return Err(DEJA_TRAITEE);
         }
         let liste = self.a_faire_de(etab, user, role, maintenant).await?;
-        liste
-            .taches
-            .into_iter()
-            .find(|t| t.id == tache)
-            .ok_or(EntDbError::Domain(domain_eleve::DomainError::NotFound))
+        match liste.taches.into_iter().find(|t| t.id == tache) {
+            Some(t) => Ok(t),
+            // Absente de mon à-faire alors qu'elle est dans l'index pour moi : un collègue de ma file l'a prise.
+            None if self.prise_par_collegue(etab, user, role, tache, maintenant).await? => {
+                Err(EntDbError::ConflitDossier(MESSAGE_DEJA_PRISE))
+            }
+            None => Err(EntDbError::Domain(domain_eleve::DomainError::NotFound)),
+        }
     }
 
     async fn fut_destinataire(
