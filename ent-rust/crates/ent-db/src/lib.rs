@@ -346,6 +346,8 @@ mod tests_outbox;
 #[cfg(all(test, feature = "labo"))]
 mod tests_revue_finale;
 #[cfg(all(test, feature = "labo"))]
+mod tests_notifications_n0a;
+#[cfg(all(test, feature = "labo"))]
 mod tests_d022;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022_bis;

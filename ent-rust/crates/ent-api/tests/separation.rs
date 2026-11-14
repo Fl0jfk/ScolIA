@@ -715,6 +715,9 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
             lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
+            // Socle 8 N0a (RP1-06) : journaux d'envoi (adresses, numéros) réservés à `notifications.gerer`.
+            lire("mails-liste", "/mails", &[Admin, Direction], &[Admin, Direction]),
+            lire("sms-liste", "/sms", &[Admin, Direction], &[Admin, Direction]),
             lire("mes-creneaux", "/edt/mes-creneaux", &[Admin, Direction, Administratif, Cpe, Prof, Eleve], &[]),
             // D-022 bis : liste unique des enseignements du personnel, jamais des familles.
             lire("mes-enseignements", "/referentiel/mes-enseignements",
@@ -2202,4 +2205,19 @@ fn c6_routes_du_socle1_inventaire_401_et_separation() {
     CAS_EXECUTES.fetch_add(cas, Ordering::Relaxed);
     eprintln!("[separation] routes socle 1 : {cas} cas, {} écart(s)", echecs.len());
     assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+/// Socle 8 N0a (h, RP1-06) : l'accueil (profil administratif) reçoit 403 sur `/sms` et `/mails`,
+/// la direction les lit.
+#[test]
+fn n0a_accueil_refuse_sur_mails_et_sms() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        for chemin in ["/sms", "/mails"] {
+            let r = m.appel("GET", chemin, Some(m.jeton(Administratif)), None).await;
+            assert_eq!(r.statut.as_u16(), 403, "accueil sur {chemin} : {}", r.statut);
+            let r = m.appel("GET", chemin, Some(m.jeton(Direction)), None).await;
+            assert!(r.est_succes(), "direction sur {chemin} : {}", r.statut);
+        }
+    });
 }

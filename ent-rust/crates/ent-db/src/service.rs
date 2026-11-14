@@ -1306,8 +1306,6 @@ impl PgEnt {
                     payload: json!({
                         "kind": kind,
                         "status": row.status,
-                        "to": row.to_email,
-                        "subject": subject,
                         "source_aggregate": source_aggregate,
                         "source_id": source_id,
                     }),
@@ -1344,7 +1342,8 @@ impl PgEnt {
         // Revue finale socle 1 : l'historique des envois (adresses des familles, sujets
         // nominatifs) est réservé à `audit.lire` ; avant, tout personnel (professeur,
         // comptable, infirmerie…) le lisait.
-        Self::exiger_etablissement(role, Action::AuditLire)?;
+        // Socle 8 N0a (RP1-06) : `notifications.gerer` (direction), plus l'accueil.
+        Self::exiger_etablissement(role, Action::NotificationsGerer)?;
         let lim = limit.clamp(1, 200);
         Ok(self.mail_outbox.list_recent(etablissement_id, lim).await?)
     }
@@ -1357,10 +1356,8 @@ impl PgEnt {
     ) -> Result<Vec<crate::sms_repo::SmsOutboxRow>, EntDbError> {
         // Revue finale socle 1 : téléphones des familles et corps nominatifs des SMS
         // (sanctions, absences) → `audit.lire`, ou la vie scolaire (CPE) qui les envoie.
-        let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
-        if parsed != Role::Cpe && !Self::peut_etablissement(role, Action::AuditLire) {
-            return Err(EntDbError::Forbidden);
-        }
+        // Socle 8 N0a (RP1-06) : `notifications.gerer` seulement (plus d'accès CPE ni accueil).
+        Self::exiger_etablissement(role, Action::NotificationsGerer)?;
         let lim = limit.clamp(1, 200);
         Ok(self.sms_outbox.list_recent(etablissement_id, lim).await?)
     }
@@ -1433,7 +1430,6 @@ impl PgEnt {
                     payload: json!({
                         "kind": kind,
                         "status": row.status,
-                        "to": row.to_phone,
                         "source_aggregate": source_aggregate,
                         "source_id": source_id,
                     }),
@@ -11865,13 +11861,11 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .as_ref()
             .map(|e| (e.prenom.as_str(), e.nom.as_str()))
             .unwrap_or(("l'élève", ""));
-        let duree = sanction
-            .duree_minutes
-            .map(|m| format!(" ({m} min)"))
-            .unwrap_or_default();
+        // Socle 8 N0a (E4) : enveloppe neutre — ni type de sanction, ni nom, ni date sur un
+        // canal non maîtrisé ; la famille consulte dans l'ENT après authentification.
+        let _ = (&nom, &type_libelle);
         let sms_body = format!(
-            "Vie scolaire: sanction « {type_libelle} »{duree} pour {prenom} {nom} le {}. Consultez le portail famille.",
-            sanction.jour
+            "Vie scolaire : une information concernant {prenom} vous attend sur ScolIA."
         );
         let _ = self
             .notify_parents_sms(
@@ -16690,8 +16684,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             eleve.prenom, eleve.nom
         );
         let corps = format!(
-            "Bonjour,\n\nVeuillez trouver ci-joint le courrier d'orientation \
-             concernant {} {} ({}).\n\nCet envoi est généré par l'établissement.",
+            "Bonjour,\n\nUn courrier d'orientation concernant {} {} ({}) est disponible. \
+             Pour des raisons de confidentialité il n'est pas joint à ce message : connectez-vous à \
+             ScolIA et ouvrez la rubrique Documents de votre enfant pour le télécharger \
+             (accès après authentification).\n\nCet envoi est généré par l'établissement.",
             eleve.prenom, eleve.nom, eleve.classe.as_deref().unwrap_or("classe")
         );
         Ok((bytes, sujet, corps))
@@ -16768,7 +16764,9 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_dossier(etablissement_id, eleve_id)
             .await?
             .ok_or(DomainError::NotFound)?;
-        let (bytes, sujet, corps) = self
+        // Socle 8 N0a (E4) : plus de pièce jointe (suivi psychologique, C3) ; le courrier reste
+        // téléchargeable après authentification par la route dédiée.
+        let (_bytes, sujet, corps) = self
             .build_courrier_orientation_psy_pdf(etablissement_id, eleve_id)
             .await?;
         let n = self
@@ -16781,11 +16779,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 "psy_dossier",
                 dossier.id,
                 Some(actor_user_id),
-                vec![MailAttachment {
-                    filename: format!("courrier-orientation-{eleve_id}.pdf"),
-                    mime: "application/pdf".into(),
-                    bytes,
-                }],
+                vec![],
             )
             .await?;
         self.events
@@ -17038,9 +17032,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                     vec![],
                 )
                 .await;
-            let sms_body =
-                "ScolIA : nouvelle entrée au carnet de correspondance. Connectez-vous pour la consulter."
-                    .to_string();
+            // Socle 8 N0a : même enveloppe neutre que la sanction (ni catégorie ni titre).
+            let prenom_sms = self
+                .eleves
+                .get(entree.etablissement_id, entree.eleve_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|e| e.prenom)
+                .unwrap_or_else(|| "votre enfant".to_string());
+            let sms_body = format!(
+                "Vie scolaire : une information concernant {prenom_sms} vous attend sur ScolIA."
+            );
             let _ = self
                 .notify_parents_sms(
                     entree.etablissement_id,
