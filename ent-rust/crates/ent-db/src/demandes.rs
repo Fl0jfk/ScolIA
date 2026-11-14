@@ -1057,6 +1057,8 @@ impl PgEnt {
 
         let id = Uuid::new_v4();
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
+        // DEM-349 : pendant la bascule ou un incident, le guichet est en lecture seule (phrase claire, rien de créé).
+        crate::demandes_reprise::refuser_si_lecture_seule(&mut tx, etab).await?;
         let deposant = personne_du_user(&mut tx, etab, user_id).await?;
         // Demandeur : la personne de la session, ou la personne désignée par un déposant habilité (tracé).
         let demandeur = match depot.pour_le_compte_de {
@@ -1729,6 +1731,10 @@ pub(crate) async fn charger_pour_acces(
 ) -> Result<Acces, RefusDemande> {
     // Sans fiche de personne dans cet établissement : la demande n'existe pas pour cet acteur.
     let moi = personne_du_user(conn, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
+    // DEM-349 : `verrou` marque les écritures ; en lecture seule du guichet, aucun geste ne passe (la lecture reste libre).
+    if verrou {
+        crate::demandes_reprise::refuser_si_lecture_seule(conn, etab).await?;
+    }
     let ligne = charger_demande(conn, etab, id, verrou).await?;
     let files = sources.files_de(etab, moi);
     let lien = lien_de(conn, etab, id, &ligne, moi, role, &files).await?.ok_or(RefusDemande::Introuvable)?;
@@ -1800,7 +1806,7 @@ async fn lien_de(
     Ok(c.map(|(c,)| Lien::Consulte(c)).filter(|_| role.is_staff()))
 }
 
-async fn inserer_valeur(conn: &mut PgConnection, etab: Uuid, demande: Uuid, s: &ValeurSaisie) -> Result<(), RefusDemande> {
+pub(crate) async fn inserer_valeur(conn: &mut PgConnection, etab: Uuid, demande: Uuid, s: &ValeurSaisie) -> Result<(), RefusDemande> {
     let (mut texte, mut entier, mut decimal, mut date, mut heure, mut booleen, mut code, mut reference) =
         (None, None, None, None, None, None, None, None);
     match &s.valeur {

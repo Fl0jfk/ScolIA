@@ -34,6 +34,8 @@ pub mod demandes_files;
 pub mod demandes_hse;
 /// Lot N1-3 : reprographie, file d'impression par site, « prête » par geste authentifié.
 pub mod demandes_repro;
+/// Socle N1, lot N1-5 : reprise des données du Next.js (R9), guichet en lecture seule.
+pub mod demandes_reprise;
 /// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
 pub mod demandes_prise;
 pub mod demandes_routage;
@@ -508,6 +510,8 @@ mod tests_demandes_n1_1;
 mod tests_demandes_n1_2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
