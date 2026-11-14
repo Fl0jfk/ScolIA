@@ -482,6 +482,23 @@ async fn run_api() {
         })
     });
 
+    // Socle 15 (A6) : remontée hebdomadaire du remplacement de courte durée. Chaque heure, idempotente : elle ne
+    // prépare que la semaine passée, une seule fois (S-1516 : lundi, paramétrable plus tard).
+    let remontees_rcd = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(70)).await;
+            loop {
+                match ent.preparer_remontees_hebdomadaires().await {
+                    Ok(b) if b.preparees > 0 => tracing::info!(?b, "remontées RCD préparées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("remontées RCD : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -507,6 +524,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = remplacements_absences {
+        t.abort();
+    }
+    if let Some(t) = remontees_rcd {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

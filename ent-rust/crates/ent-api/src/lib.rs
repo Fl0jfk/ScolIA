@@ -14,6 +14,7 @@ mod absences_personnels_impact;
 mod absences_personnels_pieces;
 mod absences_personnels_reponse;
 mod absences_personnels_suppleance;
+mod absences_personnels_rcd;
 mod stages;
 mod personnels_services;
 mod dto;

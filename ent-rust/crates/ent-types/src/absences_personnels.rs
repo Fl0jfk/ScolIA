@@ -722,3 +722,204 @@ pub struct BilanRemplacementDto {
     pub absences: u32,
     pub etapes_changees: u32,
 }
+
+// ─────────────────────────── Lot A6 : remplacement de courte durée, RCD (migration 2307) ───────────────────────────
+
+/// ABP-220 : créer le plan RCD de l'année (trame), ou ABP-221 : en tirer une nouvelle version.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanRcdBody {
+    /// Année scolaire du plan ; absente : l'année courante de l'établissement.
+    #[serde(default)]
+    pub annee_id: Option<Uuid>,
+    /// Objectifs du plan (1 000 caractères, sans mot exclu).
+    #[serde(default)]
+    pub objectifs: Option<String>,
+    /// Délai de prévenance d'un volontaire, en heures (0 à 168, défaut 24) : lu par la sollicitation (R-AP36).
+    #[serde(default)]
+    pub delai_prevenance_heures: Option<i16>,
+    #[serde(default)]
+    pub continuite_numerique: Option<bool>,
+    #[serde(default)]
+    pub referent_agent_id: Option<Uuid>,
+}
+
+/// ABP-222 et ABP-223 : faits de procédure du plan (au moins un champ).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcedurePlanRcdBody {
+    /// Date de l'avis du conseil pédagogique.
+    #[serde(default)]
+    pub avis_cp_le: Option<NaiveDate>,
+    /// Date de présentation au conseil d'administration (public) ou à l'instance de l'établissement (privé).
+    #[serde(default)]
+    pub presente_le: Option<NaiveDate>,
+    /// `ca` · `instance_etablissement`.
+    #[serde(default)]
+    pub instance: Option<String>,
+    /// Date de transmission au recteur.
+    #[serde(default)]
+    pub transmis_le: Option<NaiveDate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanRcdDto {
+    pub id: Uuid,
+    pub annee_id: Uuid,
+    pub version: i32,
+    /// `brouillon` · `presente` · `transmis` · `archive`.
+    pub etat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub objectifs: Option<String>,
+    pub delai_prevenance_heures: i16,
+    pub continuite_numerique: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub referent_agent_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avis_cp_le: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presente_le: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmis_le: Option<NaiveDate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub campagne_lancee_le: Option<DateTime<Utc>>,
+    /// Comptes rendus déjà produits pour cette version (au moins deux par an, R-03).
+    pub comptes_rendus: i64,
+    pub cree_le: DateTime<Utc>,
+}
+
+/// ABP-224 : produire un compte rendu depuis les remontées d'une période.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompteRenduRcdBody {
+    pub periode_du: NaiveDate,
+    pub periode_au: NaiveDate,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompteRenduRcdDto {
+    pub id: Uuid,
+    pub plan_id: Uuid,
+    pub le: NaiveDate,
+    pub periode_du: NaiveDate,
+    pub periode_au: NaiveDate,
+    pub heures_prevues: f64,
+    pub heures_absence: f64,
+    pub heures_remplacees: f64,
+    pub remontees: i32,
+}
+
+/// ABP-226 : s'engager comme volontaire (soi-même) ; ABP-227 : modifier ou mettre fin (à date).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EngagementRcdBody {
+    /// Sans valeur : l'agent connecté. Un autre agent : droit `personnels.rcd.gerer`.
+    #[serde(default)]
+    pub agent_id: Option<Uuid>,
+    pub volume_heures: f64,
+    /// `pacte` · `hse` · `autre`.
+    pub statut: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModifierEngagementRcdBody {
+    #[serde(default)]
+    pub volume_heures: Option<f64>,
+    #[serde(default)]
+    pub statut: Option<String>,
+    /// Nouvelle fin d'engagement : la date de fin (« mettre fin à date »).
+    #[serde(default)]
+    pub au: Option<NaiveDate>,
+    /// Vrai : l'engagement est terminé (retiré du vivier) ; `au` est alors ramenée à aujourd'hui si elle est plus tardive.
+    #[serde(default)]
+    pub terminer: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EngagementRcdDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    pub annee_id: Uuid,
+    pub volume_heures: f64,
+    pub statut: String,
+    pub du: NaiveDate,
+    pub au: NaiveDate,
+    /// `actif` · `termine`.
+    pub etat: String,
+}
+
+/// Compteurs d'un volontaire : sollicité, accepté, refusé (dont motif légitime), fait, restant (§12.2).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompteurRcdDto {
+    pub engagement: EngagementRcdDto,
+    pub sollicitees: i64,
+    pub acceptees: i64,
+    pub refusees: i64,
+    /// Refus avec un motif légitime codé (R-AP34).
+    pub refusees_motif_legitime: i64,
+    /// Heures des séances acceptées (désignation comprise), à venir comme passées.
+    pub heures_acceptees: f64,
+    /// Heures des séances acceptées dont l'heure de fin est passée.
+    pub heures_faites: f64,
+    /// Volume restant (volume engagé moins heures acceptées), jamais négatif.
+    pub heures_restantes: f64,
+    /// Le volume engagé est atteint ou dépassé : alerte, pas de blocage (l'accord vaut).
+    pub volume_atteint: bool,
+    /// Position par rapport à la médiane des volontaires, **sans nommer personne** :
+    /// `en_dessous` · `dans_la_mediane` · `au_dessus` (heures acceptées).
+    pub position: String,
+}
+
+/// ABP-228 : état du vivier (agrégé par statut ; les compteurs nominatifs sont réservés à la direction).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VivierRcdDto {
+    pub annee_id: Uuid,
+    pub volontaires: i64,
+    pub volume_engage: f64,
+    pub heures_acceptees: f64,
+    pub compteurs: Vec<CompteurRcdDto>,
+}
+
+/// Une ligne de remontée : **aucun identifiant de personne, aucune nature fine** (R-02, §12.3).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LigneRemonteeRcdDto {
+    pub discipline_code: String,
+    pub niveau_code: String,
+    /// Catégorie nationale du motif (`raison_sante` · `evenement_familial` · `formation` · `institutionnel` ·
+    /// `convenance_personnelle` · `en_attente_de_motif`).
+    pub categorie_nationale: String,
+    /// `remplacement` · `autre_cours` · `deplacement` · `continuite` · `annulation` · `suppleance` · `aucune`.
+    pub mode_continuite: String,
+    pub heures_prevues: f64,
+    pub heures_absence: f64,
+    pub heures_remplacees: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RemonteeRcdDto {
+    pub id: Uuid,
+    /// Lundi de la semaine remontée.
+    pub semaine: NaiveDate,
+    /// `preparee` · `controlee` · `transmise` · `rejetee`.
+    pub etat: String,
+    pub preparee_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub controlee_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transmise_le: Option<DateTime<Utc>>,
+    pub lignes: Vec<LigneRemonteeRcdDto>,
+}
+
+/// ABP-229 : préparer la remontée d'une semaine (lundi ; absente : la semaine passée).
+#[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PreparerRemonteeBody {
+    #[serde(default)]
+    pub semaine: Option<NaiveDate>,
+}
+
+/// Bilan de la tâche hebdomadaire de préparation.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanRemonteesDto {
+    pub etablissements: u32,
+    pub preparees: u32,
+}

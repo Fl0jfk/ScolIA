@@ -341,6 +341,12 @@ pub enum Action {
     /// Absence longue et suppléance (A5) : demander une suppléance au rectorat et en tracer la réponse (ABP-180),
     /// nommer un suppléant sur le service de l'absent (ABP-181, avec `services.gerer` du socle 6). Direction et secrétariat.
     PersonnelsAbsencesSuppleer,
+    /// Remplacement de courte durée (A6, ABP-220 à 228) : tenir le plan annuel versionné, lancer la campagne,
+    /// gérer les engagements des volontaires et lire le vivier. Direction.
+    PersonnelsRcdGerer,
+    /// Remontée hebdomadaire RCD (A6, ABP-229 à 231) : préparer, contrôler, laisser partir, exporter le tableau
+    /// équivalent. Direction et secrétariat. La remontée ne porte jamais de nom ni de nature fine.
+    PersonnelsRcdRemontee,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -442,7 +448,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 184] = [
+    pub const TOUTES: [Action; 186] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -639,6 +645,8 @@ impl Action {
         Action::PersonnelsAbsencesParametrer,
         Action::PersonnelsAbsencesConserver,
         Action::PersonnelsAbsencesSuppleer,
+        Action::PersonnelsRcdGerer,
+        Action::PersonnelsRcdRemontee,
     ];
 
     pub fn code(self) -> &'static str {
@@ -793,6 +801,8 @@ impl Action {
             Self::AfaireRapprocher => "afaire.rapprocher",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
             Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
+            Self::PersonnelsRcdGerer => "personnels.rcd.gerer",
+            Self::PersonnelsRcdRemontee => "personnels.rcd.remontee",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -985,6 +995,8 @@ impl Action {
             Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
             Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
+            Self::PersonnelsRcdGerer => "Tenir le plan de remplacement de courte durée et le vivier des volontaires",
+            Self::PersonnelsRcdRemontee => "Préparer, contrôler et transmettre la remontée hebdomadaire du remplacement de courte durée",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1184,6 +1196,8 @@ impl Action {
             | Self::PersonnelsAbsencesParametrer
             | Self::PersonnelsAbsencesConserver
             | Self::PersonnelsAbsencesSuppleer
+            | Self::PersonnelsRcdGerer
+            | Self::PersonnelsRcdRemontee
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1754,6 +1768,14 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Direction | Role::Administratif) {
         d.push(etab(PersonnelsAbsencesSuppleer));
     }
+    // Remplacement de courte durée (A6) : plan et vivier à la direction (adjoint, chargé des remplacements) ;
+    // remontée hebdomadaire à la direction et au secrétariat (§23.2).
+    if role == Role::Direction {
+        d.push(etab(PersonnelsRcdGerer));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsRcdRemontee));
+    }
 }
 
 /// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
@@ -2207,6 +2229,12 @@ mod tests {
                 matches!(r, Role::Direction | Role::Administratif),
                 "{r:?} suppleer"
             );
+            assert_eq!(a(r, PersonnelsRcdGerer), r == Role::Direction, "{r:?} rcd.gerer");
+            assert_eq!(
+                a(r, PersonnelsRcdRemontee),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} rcd.remontee"
+            );
             assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
@@ -2224,6 +2252,8 @@ mod tests {
                     PersonnelsAbsencesParametrer,
                     PersonnelsAbsencesConserver,
                     PersonnelsAbsencesSuppleer,
+                    PersonnelsRcdGerer,
+                    PersonnelsRcdRemontee,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }
