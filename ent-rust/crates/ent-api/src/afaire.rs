@@ -82,13 +82,14 @@ async fn executer(
     Json(corps): Json<ExecutionAction>,
 ) -> Result<Json<ResultatAction>, (StatusCode, String)> {
     s.ent
-        .afaire_executer(
+        .afaire_executer_avec(
             session.etablissement_id,
             session.user_id,
             &session.role,
             id,
             corps.confirme,
             corps.motif,
+            corps.decision,
             Utc::now(),
         )
         .await

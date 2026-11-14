@@ -9,7 +9,8 @@ pub mod modele;
 use ent_types::afaire::{AFaire, ActionTache, ApercuAction, GroupeAfaire, TacheAfaire};
 use ent_web_api::ApiError;
 use ent_web_ui::{
-    Alerte, Bouton, ChampTexte, EnTetePage, EtatVide, Niveau, Squelette, Taille, Variante,
+    Alerte, Bouton, ChampTexte, EnTetePage, EtatVide, Niveau, Selection, Squelette, Taille,
+    Variante,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -19,8 +20,8 @@ use crate::noyau::ecriture::{message_echec, Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use modele::{
-    est_actionnable, libelle_echeance, libelle_priorite, mention_traitee, motif_valide,
-    titre_compteur,
+    decision_valide, est_actionnable, libelle_choix, libelle_echeance, libelle_priorite,
+    mention_traitee, motif_valide, titre_compteur,
 };
 
 #[component]
@@ -147,6 +148,7 @@ fn PanneauAction(
     let apercu =
         LocalResource::new(move || async move { session::client().a_faire_apercu(tache_id).await });
     let motif = RwSignal::new(String::new());
+    let decision = RwSignal::new(String::new());
     let erreur = RwSignal::new(None::<String>);
     view! {
         {move || match apercu.get() {
@@ -163,22 +165,38 @@ fn PanneauAction(
                 let ApercuAction { texte, champs, .. } = a;
                 let champs_saisie = champs.clone();
                 let a_motif = champs.iter().any(|c| c.code == "motif");
+                // Carte à choix (autorisation, consentement) : liste fermée, jamais pré-sélectionnée.
+                let options_decision = champs
+                    .iter()
+                    .find(|c| c.code == "decision")
+                    .map(|c| {
+                        std::iter::once((String::new(), "Choisir…".to_string()))
+                            .chain(c.choix.iter().map(|v| (v.clone(), libelle_choix(v).to_string())))
+                            .collect::<Vec<_>>()
+                    });
                 view! {
                     <div role="group" aria-label="Confirmer l'action">
                         <p>{texte}</p>
                         {a_motif.then(|| view! {
                             <ChampTexte id=format!("motif-{tache_id}") libelle="Motif de l'absence" valeur=motif requis=true/>
                         })}
+                        {options_decision.map(|options| view! {
+                            <Selection id=format!("decision-{tache_id}") libelle="Votre réponse"
+                                valeur=decision options=options requis=true/>
+                        })}
                         {move || erreur.get().map(|m| view! { <p class="ui-champ__erreur" role="alert">{m}</p> })}
                         <Bouton variante=Variante::Primaire on_click=Callback::new(move |_| {
-                            match motif_valide(&champs_saisie, &motif.get_untracked()) {
+                            let choix = decision_valide(&champs_saisie, &decision.get_untracked());
+                            match motif_valide(&champs_saisie, &motif.get_untracked())
+                                .and_then(|m| choix.map(|d| (m, d)))
+                            {
                                 Err(m) => erreur.set(Some(m.to_string())),
-                                Ok(m) => {
+                                Ok((m, d)) => {
                                     erreur.set(None);
                                     ouverte.set(None);
                                     ecriture.lancer(async move {
                                         session::client()
-                                            .a_faire_executer(tache_id, m)
+                                            .a_faire_executer(tache_id, m, d)
                                             .await
                                             .map(|r| r.message)
                                     });

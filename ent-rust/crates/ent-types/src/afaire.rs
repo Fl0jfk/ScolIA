@@ -171,6 +171,9 @@ pub struct ExecutionAction {
     pub confirme: bool,
     #[serde(default)]
     pub motif: Option<String>,
+    /// Réponse choisie parmi les valeurs de la carte (`accepte`, `refuse` : autorisation, consentement).
+    #[serde(default)]
+    pub decision: Option<String>,
 }
 
 /// Réponse d'exécution. Pour une tâche déjà traitée (par qui que ce soit) : même corps, même code.

@@ -515,6 +515,8 @@ mod tests_voyages_v0a;
 mod tests_portail_p1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p3;
 #[cfg(test)]
 mod tests_voyages_v0b;
 #[cfg(test)]
