@@ -121,10 +121,7 @@ async fn fiche_parent_sans_email_suspension_payeurs_contacts() {
     };
     let p = r.personne.clone();
     assert!(!p.a_compte && p.email.is_none());
-    assert_eq!(
-        etat_lien(&r, ent_db::jour_paris()),
-        EtatLien::Actif
-    );
+    assert_eq!(etat_lien(&r, ent_db::jour_paris()), EtatLien::Actif);
 
     // Fiche du secrétariat : le père avec son téléphone, actions de gestion, pas de suspension.
     let f = secretariat.fiche_dossier(harry).await.expect("fiche");
@@ -193,10 +190,7 @@ async fn fiche_parent_sans_email_suspension_payeurs_contacts() {
         )
         .await
         .expect("suspension");
-    assert_eq!(
-        etat_lien(&s, ent_db::jour_paris()),
-        EtatLien::Suspendu
-    );
+    assert_eq!(etat_lien(&s, ent_db::jour_paris()), EtatLien::Suspendu);
     assert!(matches!(
         lily.fiche_dossier(harry).await,
         Err(ApiError::Introuvable(_))

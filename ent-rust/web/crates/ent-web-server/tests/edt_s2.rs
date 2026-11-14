@@ -156,7 +156,10 @@ async fn pages_rendues_par_le_serveur() {
         );
         // La date du jour n'est jamais dans le HTML du serveur (hydratation identique).
         // Ni le jour de Paris ni le jour UTC (le serveur de rendu est en UTC).
-        for aujourdhui in [ent_db::jour_paris().to_string(), chrono::Utc::now().format("%Y-%m-%d").to_string()] {
+        for aujourdhui in [
+            ent_db::jour_paris().to_string(),
+            chrono::Utc::now().format("%Y-%m-%d").to_string(),
+        ] {
             assert!(
                 !html.contains(&aujourdhui),
                 "{chemin} : date du jour rendue"

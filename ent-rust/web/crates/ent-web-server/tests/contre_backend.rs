@@ -379,10 +379,9 @@ async fn classes_nombreuses_38_et_400() {
     let p = l.personnel.iter().find(|p| p.role == "prof").unwrap();
     let jour = jour_neuf();
     let t = Instant::now();
-    let rapport =
-        labo::preparer_classes(&base, &admin, p.user_id, ent_db::jour_paris())
-            .await
-            .expect("classes de test");
+    let rapport = labo::preparer_classes(&base, &admin, p.user_id, ent_db::jour_paris())
+        .await
+        .expect("classes de test");
     println!("préparation des classes : {:?} {rapport:?}", t.elapsed());
     assert_eq!(jour.weekday(), ent_db::jour_paris().weekday());
 

@@ -422,8 +422,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
         .iter()
         .all(|p| p.note_soins.is_empty() && p.soins.is_empty()));
     assert!(matches!(
-        lily.passages_du_jour(ent_db::jour_paris())
-            .await,
+        lily.passages_du_jour(ent_db::jour_paris()).await,
         Err(ApiError::Interdit(_))
     ));
 }
