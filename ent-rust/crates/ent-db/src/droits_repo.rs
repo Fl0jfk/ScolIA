@@ -254,7 +254,8 @@ impl PgEnt {
                     AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
                                    AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4)
                     AND (($2 AND a.groupe_id IN (SELECT r.groupe_id FROM ent_groupe_responsable r
-                                                  WHERE r.etablissement_id = $1 AND r.user_id = $3))
+                                                  WHERE r.etablissement_id = $1 AND r.user_id = $3
+                                                    AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)))
                          OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5) OR a.eleve_id = ANY($5)
                          OR EXISTS (SELECT 1 FROM ent_classe c
                                      WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
@@ -286,6 +287,7 @@ impl PgEnt {
                  JOIN ent_groupe_responsable r
                    ON r.groupe_id = a.groupe_id AND r.etablissement_id = a.etablissement_id
                 WHERE a.etablissement_id = $1 AND r.user_id = $2 AND a.eleve_id = $3
+                  AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)
                   AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
                   AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
                                    AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4))",
@@ -759,22 +761,50 @@ impl PgEnt {
             }
         }
         let mut tx = TenantTx::begin(self.pool(), etablissement_id).await.map_err(db)?;
+        // Lot P5 : remplacement en bloc SANS perdre l'historique. Les responsabilités actives qui ne sont plus
+        // dans la liste se terminent la veille (ou disparaissent si elles commençaient aujourd'hui) ; les
+        // nouveaux responsables commencent aujourd'hui, au jour de l'établissement.
+        let (jour,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
+            .bind(etablissement_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
         sqlx::query(
-            "DELETE FROM ent_groupe_responsable WHERE etablissement_id = $1 AND groupe_id = $2",
+            "DELETE FROM ent_groupe_responsable
+              WHERE etablissement_id = $1 AND groupe_id = $2 AND du >= $3
+                AND (au IS NULL OR au >= $3) AND NOT (user_id = ANY($4))",
         )
         .bind(etablissement_id)
         .bind(groupe_id)
+        .bind(jour)
+        .bind(&uniques)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_groupe_responsable SET au = $3 - 1
+              WHERE etablissement_id = $1 AND groupe_id = $2 AND du < $3
+                AND (au IS NULL OR au >= $3) AND NOT (user_id = ANY($4))",
+        )
+        .bind(etablissement_id)
+        .bind(groupe_id)
+        .bind(jour)
+        .bind(&uniques)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
         for u in &uniques {
             sqlx::query(
-                "INSERT INTO ent_groupe_responsable (groupe_id, etablissement_id, user_id)
-                 VALUES ($1, $2, $3)",
+                "INSERT INTO ent_groupe_responsable (groupe_id, etablissement_id, user_id, du)
+                 SELECT $1, $2, $3, $4
+                  WHERE NOT EXISTS (SELECT 1 FROM ent_groupe_responsable r
+                                     WHERE r.etablissement_id = $2 AND r.groupe_id = $1 AND r.user_id = $3
+                                       AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4))",
             )
             .bind(groupe_id)
             .bind(etablissement_id)
             .bind(u)
+            .bind(jour)
             .execute(&mut *tx)
             .await
             .map_err(db)?;
