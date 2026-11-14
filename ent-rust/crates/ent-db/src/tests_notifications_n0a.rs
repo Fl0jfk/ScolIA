@@ -4,6 +4,8 @@
 
 use super::*;
 use domain_eleve::horloge::jour_paris;
+use ent_auth::Role;
+use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast, sqlx::PgPool)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
