@@ -229,6 +229,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("356_groupes_responsables_dates"),
     m!("357_casquettes_invitations"),
     m!("358_equipes"),
+    m!("359_delegations_signature"),
     m!("361_agent_identifiants"),
     m!("362_agent_sujet"),
     m!("370_edt_creneau_groupe"),

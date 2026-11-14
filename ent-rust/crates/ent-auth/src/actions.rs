@@ -445,10 +445,13 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
-    // ── Socle 6, lot P5 (`06_PERSONNELS.md` §14.2) ──
+    // ── Socle 6, lots P5 et P6 (`06_PERSONNELS.md` §14.2) ──
     /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
     /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
     EquipesGerer,
+    /// Habiliter des agents à signer certains documents au nom de l'établissement et organiser
+    /// l'intérim de direction (PRS-81, 82). Ne se donne que par qui la détient (anti-escalade).
+    SignatureHabiliter,
 }
 
 /// Sur quoi une action s'applique.
@@ -473,7 +476,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 195] = [
+    pub const TOUTES: [Action; 196] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -680,8 +683,9 @@ impl Action {
         Action::PersonnelsHeuresSigner,
         Action::PersonnelsHeuresExporter,
         Action::PersonnelsPaieAbsences,
-        // Socle 6, lot P5 (en fin de catalogue).
+        // Socle 6, lots P5 et P6 (en fin de catalogue).
         Action::EquipesGerer,
+        Action::SignatureHabiliter,
     ];
 
     pub fn code(self) -> &'static str {
@@ -882,6 +886,7 @@ impl Action {
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
             Self::EquipesGerer => "equipes.gerer",
+            Self::SignatureHabiliter => "signature.habiliter",
         }
     }
 
@@ -1085,6 +1090,7 @@ impl Action {
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
+            Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
         }
     }
 
@@ -1257,6 +1263,7 @@ impl Action {
             | Self::PersonnelsHeuresExporter
             | Self::PersonnelsPaieAbsences
             | Self::EquipesGerer
+            | Self::SignatureHabiliter
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1857,14 +1864,17 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
-/// Socle 6 (personnels), lot P5 : équipes constituées (règle 21 du pilotage :
+/// Socle 6 (personnels), lots P5 et P6 : équipes constituées et pouvoirs de signature (règle 21 du pilotage :
 /// une fonction par socle). Équipes : direction, administration, secrétariat et CPE ; elles ne donnent aucun droit
-/// sur les élèves.
+/// sur les élèves. Habilitation de signature et intérim : administrateur et direction (chef d'établissement).
 fn socle_06_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
         d.push(etab(EquipesGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(SignatureHabiliter));
     }
 }
 
@@ -2416,10 +2426,11 @@ mod tests {
         assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
     }
 
-    /// Lot P5 (règle 21 : une fonction par socle) : équipes constituées (Admin, Direction, Administratif, CPE),
-    /// établissement seulement ; aucune inclusion implicite.
+    /// Lots P5 et P6 (règle 21 : une fonction par socle) : équipes constituées (Admin, Direction, Administratif, CPE),
+    /// habilitation de signature et intérim (Admin, Direction) ; établissement seulement ; aucune inclusion implicite ;
+    /// le reste du modèle ne bouge pas (chaque rôle reçoit exactement ces deux actions de plus, ou aucune).
     #[test]
-    fn p5_equipes_modele_par_defaut() {
+    fn p5_p6_equipes_et_signature_modele_par_defaut() {
         use Action::*;
         for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
                   Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
@@ -2428,12 +2439,15 @@ mod tests {
             assert_eq!(a(EquipesGerer),
                        usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)),
                        "{r:?} equipes.gerer");
+            assert_eq!(a(SignatureHabiliter), usize::from(matches!(r, Role::Admin | Role::Direction)),
+                       "{r:?} signature.habiliter");
         }
-        for x in [EquipesGerer] {
+        for x in [EquipesGerer, SignatureHabiliter] {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement], "{x:?} : établissement seulement");
             assert!(x.accordee_par().is_empty(), "{x:?} : aucune inclusion implicite");
         }
         assert_eq!(Action::parse("equipes.gerer"), Some(EquipesGerer));
+        assert_eq!(Action::parse("signature.habiliter"), Some(SignatureHabiliter));
         // Une équipe ne donne aucun droit sur les élèves : `equipes.gerer` n'est pas une action d'élève.
         assert!(!EquipesGerer.portees_admises().contains(&Portee::MesClasses));
     }

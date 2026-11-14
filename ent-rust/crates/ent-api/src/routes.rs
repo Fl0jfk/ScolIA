@@ -890,6 +890,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_missions::routes());
     // Responsables de groupes et équipes (socle 6, lot P5 : `personnels_equipes.rs`).
     let r = r.merge(crate::personnels_equipes::routes());
+    // Délégations par objet, intérim, pouvoirs de signature (socle 6, lot P6 : `personnels_delegations.rs`).
+    let r = r.merge(crate::personnels_delegations::routes());
     // Stages (socle 39, lot ST1 (a) : `stages.rs`).
     let r = r.merge(crate::stages::routes());
     #[cfg(feature = "labo")]

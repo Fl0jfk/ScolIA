@@ -297,6 +297,9 @@ pub mod types {
     pub const EQUIPE_CREEE: &str = "equipe.creee";
     pub const EQUIPE_MEMBRES_MODIFIES: &str = "equipe.membres_modifies";
     pub const EQUIPE_CLOSE: &str = "equipe.close";
+    /// Socle 6, lot P6 : pouvoirs de signature, délégations (agrégat `Personne`, identifiant = délégation ou habilitation).
+    pub const SIGNATURE_HABILITATION_MODIFIEE: &str = "signature.habilitation_modifiee";
+    pub const DELEGATION_EXPIRATION_PROCHE: &str = "delegation.expiration_proche";
     /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
     /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
     pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
