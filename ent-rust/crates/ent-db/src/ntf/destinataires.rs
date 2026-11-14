@@ -320,7 +320,7 @@ mod tests {
 
     #[test]
     fn classement_par_gravite_et_droit_du_lien() {
-        assert_eq!(classer(&ligne(), DroitRequis::VieScolaire));
+        assert_eq!(classer(&ligne(), DroitRequis::VieScolaire), None);
         let mut l = ligne();
         l.peut_voir_vs = false;
         assert_eq!(classer(&l, DroitRequis::VieScolaire), Some("droit_insuffisant"));
@@ -336,7 +336,7 @@ mod tests {
         l.membre_parent = false;
         assert_eq!(classer(&l, DroitRequis::Lien), Some("compte_non_responsable"));
         let mut l = ligne();
-        (l.compte_id, l.email, l.telephone) = (None, None);
+        (l.compte_id, l.email, l.telephone) = (None, None, None);
         assert_eq!(classer(&l, DroitRequis::Lien), Some("aucune_coordonnee"));
         l.email = Some("sans-compte@example.invalid".into());
         assert_eq!(classer(&l, DroitRequis::Lien), None, "personne sans compte mais joignable");
