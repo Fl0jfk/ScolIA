@@ -466,3 +466,69 @@ async fn absences_des_personnels_rattrapages_droits_et_pas_d_oracle() {
     let (st, _) = appel(&app, "GET", &format!("{base}/eleves-perdues?du=2030-01-01&au=2030-01-08"), Some(&prof.jeton), None).await;
     assert_eq!(st, StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn absences_des_personnels_greves_liste_reservee_au_cercle() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip A15 A9 : ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let sec = inscrire(&app, etab, "administratif").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let cpe = inscrire(&app, etab, "cpe").await;
+    let compta = inscrire(&app, etab, "compta").await;
+    let parent = inscrire(&app, etab, "parent").await;
+    let base = "/personnels/greves";
+    let jour = (chrono::Utc::now() - Duration::days(1)).date_naive().to_string();
+    // 401 sans jeton, lecture comme écriture.
+    for (m, p) in [("GET", format!("{base}?jour={jour}")), ("POST", base.to_string()), ("GET", format!("{base}/crise?jour={jour}"))] {
+        let (st, _) = appel(&app, m, &p, None, Some(json!({}))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {p}");
+    }
+    // La liste des grévistes : direction et secrétariat ; les autres sont REFUSÉS, jamais une liste vide.
+    for u in [&dir, &sec] {
+        let (st, b) = appel(&app, "GET", &format!("{base}?jour={jour}"), Some(&u.jeton), None).await;
+        assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(0)), "{b}");
+    }
+    for u in [&prof, &cpe, &compta, &parent] {
+        let (st, _) = appel(&app, "GET", &format!("{base}?jour={jour}"), Some(&u.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // Cocher, annuler en lot et le tableau de crise : la direction seule.
+    let corps = json!({"jour": jour, "agents": [Uuid::new_v4()]});
+    for u in [&sec, &prof, &cpe, &compta] {
+        let (st, _) = appel(&app, "POST", base, Some(&u.jeton), Some(corps.clone())).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "POST", &format!("{base}/annulation"), Some(&u.jeton), Some(json!({"jour": jour}))).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+        let (st, _) = appel(&app, "GET", &format!("{base}/crise?jour={jour}"), Some(&u.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // La direction : un agent inconnu est signalé, aucune absence créée ; d'avance : refusé.
+    let (st, b) = appel(&app, "POST", base, Some(&dir.jeton), Some(corps)).await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert_eq!((b["grevistes"].as_array().map(Vec::len), b["refuses"].as_array().map(Vec::len)), (Some(0), Some(1)), "{b}");
+    let demain = (chrono::Utc::now() + Duration::days(3)).date_naive().to_string();
+    let (st, _) = appel(&app, "POST", base, Some(&dir.jeton), Some(json!({"jour": demain, "agents": [Uuid::new_v4()]}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "pas de pré-déclaration");
+    let (st, b) = appel(&app, "GET", &format!("{base}/crise?jour={jour}"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b["seances"].as_u64()), (StatusCode::OK, Some(0)), "{b}");
+    // La retenue signalée : secrétariat et direction ; jamais la vie scolaire ni la comptabilité.
+    let mois = format!("{}-01", &jour[..7]);
+    for u in [&dir, &sec] {
+        let (st, _) = appel(&app, "GET", &format!("{base}/retenue.csv?mois={mois}"), Some(&u.jeton), None).await;
+        assert_eq!(st, StatusCode::OK);
+    }
+    for u in [&cpe, &compta, &prof] {
+        let (st, _) = appel(&app, "GET", &format!("{base}/retenue.csv?mois={mois}"), Some(&u.jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    // Se déclarer gréviste : d'avance, refusé (409) ; un compte famille, refusé.
+    let (st, _) = appel(&app, "POST", &format!("{base}/moi"), Some(&prof.jeton), Some(json!({"jour": demain}))).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    let (st, _) = appel(&app, "POST", &format!("{base}/moi"), Some(&parent.jeton), Some(json!({"jour": jour}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+}

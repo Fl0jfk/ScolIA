@@ -1248,3 +1248,102 @@ pub struct HeuresElevesPerduesDto {
     pub classe: String,
     pub matiere: String,
 }
+
+// ─────────────────────────────── Absences collectives : grève (lot A9, §16) ───────────────────────────────
+
+/// ABP-253 : cocher les grévistes d'une demi-journée, en **une seule liste**. Jamais une pré-déclaration (R-11) : le jour
+/// est celui de l'établissement ou antérieur. Sans heures : la journée ; pour le matin, donner les heures du matin.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CocherGrevistesBody {
+    pub jour: NaiveDate,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+    pub agents: Vec<Uuid>,
+}
+
+/// Un gréviste de la liste du jour. **Nature sensible (opinion, art. 9)** : ce type ne sort que vers la direction et le
+/// secrétariat (`personnels.absences.lire_nature`) et vers l'agent pour lui-même ; jamais vers un collègue ni une famille.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GrevisteDto {
+    pub absence_id: Uuid,
+    pub agent_id: Uuid,
+    pub agent: String,
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+    /// `signalee` (cochée, pas encore confirmée) · `declaree` · `validee` · …
+    pub etat: String,
+}
+
+/// Résultat du lot : une absence `greve` par agent coché, signalée.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CocheGrevistesDto {
+    pub jour: NaiveDate,
+    pub grevistes: Vec<GrevisteDto>,
+    /// Agents déjà absents sur la plage (rien n'est doublé).
+    pub deja_absents: Vec<Uuid>,
+    /// Agents inconnus de l'établissement, ou dont l'absence n'a pas pu être créée.
+    pub refuses: Vec<Uuid>,
+}
+
+/// ABP-254 : se déclarer gréviste après coup (le jour même ou avant, jamais d'avance).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeclarerGreveBody {
+    pub jour: NaiveDate,
+    #[serde(default)]
+    pub heure_debut: Option<NaiveTime>,
+    #[serde(default)]
+    pub heure_fin: Option<NaiveTime>,
+}
+
+/// ABP-255 : annuler en lot les séances des grévistes d'un jour.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnulerGreveBody {
+    pub jour: NaiveDate,
+}
+
+/// Bilan de l'annulation en lot : aucune identité, aucun motif.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnulationGreveDto {
+    pub absences_confirmees: u32,
+    pub absences_validees: u32,
+    pub seances_annulees: u32,
+    /// Absences ou séances que le lot n'a pas pu traiter (à reprendre à la main).
+    pub a_revoir: u32,
+}
+
+/// ABP-256 : une heure de la journée dans le tableau de crise. Agrégats seulement.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CriseCreneauDto {
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub seances: u32,
+    /// Séances dont l'intervenant est absent (toutes causes confondues).
+    pub touchees: u32,
+    pub remplacees: u32,
+    /// Annulées ou non assurées : des élèves sans cours.
+    pub non_assurees: u32,
+    /// En attente d'une réponse (à traiter, proposée, sollicitée).
+    pub en_attente: u32,
+    /// Part des séances touchées, en pourcentage entier.
+    pub taux_impact_pct: u32,
+}
+
+/// Une classe sans aucun cours sur une demi-journée.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CriseClasseDto {
+    pub classe: String,
+    /// `matin` · `apres_midi` · `journee` (séance sans demi-journée connue).
+    pub demi_journee: String,
+}
+
+/// ABP-256 : tableau de crise d'un jour. Ni nom, ni nature, ni information de santé : des nombres et des classes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableauCriseDto {
+    pub jour: NaiveDate,
+    pub seances: u32,
+    pub touchees: u32,
+    pub creneaux: Vec<CriseCreneauDto>,
+    pub classes_sans_cours: Vec<CriseClasseDto>,
+}
