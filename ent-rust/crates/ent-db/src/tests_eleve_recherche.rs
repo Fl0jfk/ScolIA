@@ -225,7 +225,7 @@ async fn eleve_protege_absent_de_la_recherche_pour_un_tiers() {
     assert!(contient(&l, e.id), "visible avant la mesure");
     sqlx::query(
         "INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du)
-         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], current_date - 1)",
+         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], ent_aujourdhui() - 1)",
     )
     .bind(etab)
     .bind(e.id)

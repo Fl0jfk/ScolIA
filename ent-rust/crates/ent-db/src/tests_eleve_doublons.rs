@@ -178,7 +178,7 @@ async fn paire_protegee_invisible_sans_g6() {
     ent.detecter_doublons(etab).await.unwrap();
     sqlx::query(
         "INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du)
-         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], current_date - 1)",
+         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], ent_aujourdhui() - 1)",
     )
     .bind(etab)
     .bind(b.id)

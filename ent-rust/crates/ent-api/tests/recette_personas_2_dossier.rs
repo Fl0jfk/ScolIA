@@ -93,7 +93,7 @@ fn uuid(v: &Value) -> Uuid {
 
 fn jour_semaine_courant() -> u32 {
     use chrono::Datelike;
-    chrono::Utc::now().weekday().number_from_monday()
+    domain_eleve::horloge::jour_paris().weekday().number_from_monday()
 }
 
 fn aujourdhui() -> String {

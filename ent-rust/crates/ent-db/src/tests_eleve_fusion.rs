@@ -511,7 +511,7 @@ async fn eleve_protege_signale_et_mesure_conservee() {
     let b = eleve(&ent, etab, &format!("Prot{}", alea(4)), "Léo", None, None, Some(jour(2024, 9, 1)), Some(jour(2025, 7, 1))).await;
     sqlx::query(
         "INSERT INTO ent_eleve_confidentialite (id, etablissement_id, eleve_id, motif_scelle, mesures, du)
-         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], current_date - 1)",
+         VALUES (gen_random_uuid(), $1, $2, 'enc:v1:test', ARRAY['hors_annuaire'], ent_aujourdhui() - 1)",
     )
     .bind(etab)
     .bind(b.id)

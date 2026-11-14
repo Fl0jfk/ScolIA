@@ -178,7 +178,7 @@ async fn parcours_comptabilite_et_famille_contre_le_backend() {
 
     // Préparation trop proche : refusée (délai de pré-notification) ; fichier CSV
     // sans prélèvement pré-notifié : conflit.
-    let demain = chrono::Utc::now().date_naive() + chrono::Duration::days(1);
+    let demain = ent_db::jour_paris() + chrono::Duration::days(1);
     assert!(matches!(
         compta
             .preparer_prelevements(&PreparationBody {

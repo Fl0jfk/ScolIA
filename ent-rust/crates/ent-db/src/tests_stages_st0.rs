@@ -229,7 +229,7 @@ async fn rs03_lecture_famille_par_le_lien() {
     let interdiction = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, decide_par)
-         VALUES ($1,$2,$3,$4, ARRAY['communication'], 'decision_justice', 'Ne rien communiquer', CURRENT_DATE - 1, $5)",
+         VALUES ($1,$2,$3,$4, ARRAY['communication'], 'decision_justice', 'Ne rien communiquer', ent_aujourdhui() - 1, $5)",
     )
     .bind(interdiction)
     .bind(etab)
