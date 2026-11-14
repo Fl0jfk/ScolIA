@@ -200,7 +200,7 @@ mod tests {
     ) -> AgendaLigneDto {
         AgendaLigneDto {
             genre: genre.into(),
-            id: Uuid::new_v4(),
+            id: Uuid::from_u128(1),
             cours_id: None,
             matiere: "Maths".into(),
             titre: "T".into(),
