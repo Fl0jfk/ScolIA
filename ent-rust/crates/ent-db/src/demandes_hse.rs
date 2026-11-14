@@ -470,7 +470,7 @@ fn verifier_periode(jour_seance: NaiveDate, du: NaiveDate, au: NaiveDate) -> Res
 pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, h: &VoletHse) -> Result<(), RefusDemande> {
     // Le bénéficiaire est un AGENT (socle 6) : jamais saisi comme texte (NJ-91).
     let agent: Option<(Uuid,)> =
-        sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 ORDER BY created_at LIMIT 1")
+        sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 ORDER BY cree_le LIMIT 1")
             .bind(ctx.etab)
             .bind(ctx.demandeur)
             .fetch_optional(&mut *conn)
@@ -1772,7 +1772,7 @@ impl PgEnt {
 // ───────────────────────── Export de secours (DEM-282) ─────────────────────────
 
 /// Une cellule CSV : séparateur « ; », guillemets doublés, et neutralisation d'une formule de tableur (`=`, `+`, `-`,
-/// `@`) : un nom ne s'exécute jamais dans le tableur de la comptabilité.
+/// arobase) : un nom ne s'exécute jamais dans le tableur de la comptabilité.
 pub(crate) fn cellule_csv(s: &str) -> String {
     let mut t = s.replace(['\r', '\n'], " ");
     if t.starts_with(['=', '+', '-', '@', '\t']) {

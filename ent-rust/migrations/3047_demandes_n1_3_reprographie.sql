@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_repro_receptionnaire (
     site_id UUID NOT NULL,
     agent_id UUID NOT NULL,
     du DATE NOT NULL,
+    -- Fin EXCLUE : la désignation vaut jusqu'à la veille de `au`.
     au DATE,
     designe_par_user_id UUID,
     cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),

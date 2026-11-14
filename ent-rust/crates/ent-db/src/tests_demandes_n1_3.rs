@@ -221,6 +221,33 @@ impl W {
         Some(w)
     }
 
+    /// Aucun rôle n'a `demandes.hse.attester` par défaut (D-061) : un rôle libre le donne à un compte.
+    async fn donner_attester(&self, qui: &Acteur) {
+        let role = Uuid::new_v4();
+        let pool = self.ent.pool_verif();
+        sqlx::query("INSERT INTO ent_role (id, etablissement_id, nom) VALUES ($1, $2, $3)")
+            .bind(role)
+            .bind(self.etab())
+            .bind(code_aleatoire("attestant"))
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO ent_role_droit (role_id, etablissement_id, action, portee) VALUES ($1, $2, 'demandes.hse.attester', 'etablissement')")
+            .bind(role)
+            .bind(self.etab())
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO ent_role_attribution (role_id, etablissement_id, user_id, debut) VALUES ($1, $2, $3, $4)")
+            .bind(role)
+            .bind(self.etab())
+            .bind(qui.user)
+            .bind(self.jour)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
     fn etab(&self) -> Uuid {
         self.m.etab
     }
@@ -633,8 +660,9 @@ async fn t_nj91_attestation_facultative_desactivee_par_defaut() {
         .fetch_one(w.ent.pool_verif())
         .await
         .unwrap();
-    let r = w.ent.attester_hse_for_actor(w.etab(), cpe.user, "direction", &h, e.id, &[faite], "appel", false).await;
+    let r = w.ent.attester_hse_for_actor(w.etab(), cpe.user, "cpe", &h, e.id, &[faite], "appel", false).await;
     assert!(r.is_err(), "pas d'attestation sans action attester");
+    w.donner_attester(&dir2).await;
     // Activation par la direction (journalisée), refusée au professeur.
     let r = w.ent.regler_hse_for_actor(w.etab(), prof.user, prof.role, true, 10).await;
     assert_eq!(r.unwrap_err(), RefusDemande::Interdit);
@@ -1571,7 +1599,7 @@ async fn t_repro_compteurs_et_reglages() {
     let (prof, adm, dir1, compta) = (w.m.prof, w.adm, w.m.direction, w.m.compta);
     let mut docs = Docs::default();
     w.designer(w.site1, &adm).await;
-    sqlx::query("UPDATE ent_personne SET nom = '@Piege', prenom = 'Ana' WHERE etablissement_id = $1 AND id = $2")
+    sqlx::query("UPDATE ent_personne SET nom = '@Piege', prenom = NULL WHERE etablissement_id = $1 AND id = $2")
         .bind(w.etab())
         .bind(prof.personne)
         .execute(w.ent.pool_verif())

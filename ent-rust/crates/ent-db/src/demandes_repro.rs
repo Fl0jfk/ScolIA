@@ -316,7 +316,7 @@ async fn acces_repro(
     .fetch_optional(&mut *conn)
     .await?
     .ok_or(RefusDemande::Introuvable)?;
-    let agent: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 ORDER BY created_at LIMIT 1")
+    let agent: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 ORDER BY cree_le LIMIT 1")
         .bind(etab)
         .bind(moi)
         .fetch_optional(&mut *conn)
@@ -350,7 +350,7 @@ async fn est_receptionnaire(conn: &mut PgConnection, etab: Uuid, agent: Uuid, si
     let (v,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM ent_dem_repro_receptionnaire
                          WHERE etablissement_id = $1 AND agent_id = $2 AND site_id = $3
-                           AND du <= ent_aujourdhui_etab($1, now()) AND (au IS NULL OR au >= ent_aujourdhui_etab($1, now())))",
+                           AND du <= ent_aujourdhui_etab($1, now()) AND (au IS NULL OR au > ent_aujourdhui_etab($1, now())))",
     )
     .bind(etab)
     .bind(agent)
@@ -818,7 +818,7 @@ async fn lignes_impression(
             AND ($3::uuid IS NULL OR r.site_id IN (
                    SELECT x.site_id FROM ent_dem_repro_receptionnaire x
                     WHERE x.etablissement_id = $1 AND x.agent_id = $3
-                      AND x.du <= ent_aujourdhui_etab($1, now()) AND (x.au IS NULL OR x.au >= ent_aujourdhui_etab($1, now()))))
+                      AND x.du <= ent_aujourdhui_etab($1, now()) AND (x.au IS NULL OR x.au > ent_aujourdhui_etab($1, now()))))
             AND ($4::uuid IS NULL OR (d.demandeur_personne_id IS DISTINCT FROM $4 AND d.deposant_personne_id IS DISTINCT FROM $4))
           ORDER BY r.pour_le, r.pour_heure NULLS LAST, d.depose_le, d.id
           LIMIT 300",
@@ -1255,7 +1255,7 @@ impl PgEnt {
         let (ok,): (bool,) = sqlx::query_as(
             "SELECT EXISTS (SELECT 1 FROM ent_dem_repro_receptionnaire
                              WHERE etablissement_id = $1 AND site_id = $2
-                               AND du <= ent_aujourdhui_etab($1, now()) AND (au IS NULL OR au >= ent_aujourdhui_etab($1, now())))",
+                               AND du <= ent_aujourdhui_etab($1, now()) AND (au IS NULL OR au > ent_aujourdhui_etab($1, now())))",
         )
         .bind(etab)
         .bind(site_cible)
