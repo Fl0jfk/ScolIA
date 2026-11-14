@@ -7,6 +7,7 @@
 //! contient ni client PostgreSQL ni client HTTP (voir `Cargo.toml`) et refuse toute URL de
 //! connexion ([`garde`]). Il ne lit aucun secret d'environnement.
 
+pub mod anonymisation;
 pub mod copy;
 pub mod dump;
 pub mod empreintes;

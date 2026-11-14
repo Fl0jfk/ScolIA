@@ -687,7 +687,10 @@ dependencies = [
 name = "ent-reprise"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "getrandom 0.2.17",
  "hex",
+ "hmac",
  "serde",
  "serde_json",
  "sha2",

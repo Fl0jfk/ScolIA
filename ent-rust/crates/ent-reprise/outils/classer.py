@@ -420,12 +420,18 @@ def main():
         # les tableaux (_text) : la règle s'applique élément par élément ; json : colonne jsonb
         if typ=="jsonb" and r not in("json","garder","effacer"):
             r="json"
+        if col=="path" and table.endswith("_attr"):
+            r="chemin"
         out_s.append("\t".join([table,col,typ,"1" if nul=="YES" else "0"]))
         out_w.append("\t".join([table,col,r]))
     if bad:
         print("COLONNES NON CLASSÉES :",file=sys.stderr)
         for b in bad: print("  ",*b,file=sys.stderr)
         sys.exit(1)
+    # Journal des migrations de Drizzle : schéma `drizzle`, technique, rien de personnel.
+    for col,typ,nul in (("id","integer",False),("hash","text",False),("created_at","bigint",True)):
+        out_s.append("\t".join(["drizzle.__drizzle_migrations",col,typ,"1" if nul else "0"]))
+        out_w.append("\t".join(["drizzle.__drizzle_migrations",col,"garder"]))
     open("../donnees/schema_attendu.tsv","w").write("# table\tcolonne\ttype\tnullable\n"+"\n".join(out_s)+"\n")
     open("../donnees/liste_blanche.tsv","w").write("# table\tcolonne\tregle\n"+"\n".join(out_w)+"\n")
     print(len(out_s),"colonnes classées")

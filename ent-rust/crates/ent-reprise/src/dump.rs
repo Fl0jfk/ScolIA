@@ -20,6 +20,15 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
+/// Clé d'une table : le nom nu pour le schéma `public`, `schema.nom` sinon (ex. `drizzle.__drizzle_migrations`).
+pub fn cle_table(schema: &str, table: &str) -> String {
+    if schema == "public" {
+        table.to_string()
+    } else {
+        format!("{schema}.{table}")
+    }
+}
+
 /// Événement du flux de lecture.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Evt {
@@ -430,7 +439,7 @@ impl CollecteTables {
                     match identifiant(r2) {
                         Some((t, r3)) => {
                             reste = r3;
-                            t
+                            cle_table(&p, &t)
                         }
                         None => return,
                     }

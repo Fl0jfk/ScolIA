@@ -168,7 +168,7 @@ certificate_award	status	garder
 certificate_award	updated_at	garder
 certificate_award_attr	etablissement_id	garder
 certificate_award_attr	award_id	garder
-certificate_award_attr	path	garder
+certificate_award_attr	path	chemin
 certificate_award_attr	value	attr_valeur
 certificate_program	id	garder
 certificate_program	etablissement_id	garder
@@ -176,7 +176,7 @@ certificate_program	title	garder
 certificate_program	updated_at	garder
 certificate_program_attr	etablissement_id	garder
 certificate_program_attr	program_id	garder
-certificate_program_attr	path	garder
+certificate_program_attr	path	chemin
 certificate_program_attr	value	attr_valeur
 classe_site_mapping	id	garder
 classe_site_mapping	etablissement_id	garder
@@ -380,7 +380,7 @@ enseignant	updated_at	garder
 ent_collection_attr	etablissement_id	garder
 ent_collection_attr	collection	garder
 ent_collection_attr	record_id	pseudo:id_souple
-ent_collection_attr	path	garder
+ent_collection_attr	path	chemin
 ent_collection_attr	value	attr_valeur
 ent_collection_record	etablissement_id	garder
 ent_collection_record	collection	garder
@@ -1088,7 +1088,7 @@ personnel	created_at	garder
 personnel	updated_at	garder
 personnel_attr	etablissement_id	garder
 personnel_attr	personnel_id	pseudo:id_souple
-personnel_attr	path	garder
+personnel_attr	path	chemin
 personnel_attr	value	attr_valeur
 personnel_document	id	garder
 personnel_document	etablissement_id	garder
@@ -1145,7 +1145,7 @@ personnel_shared_doc	uploaded_by	pseudo:nom_complet
 platform_document	doc_key	garder
 platform_document	updated_at	garder
 platform_document_attr	doc_key	garder
-platform_document_attr	path	garder
+platform_document_attr	path	chemin
 platform_document_attr	value	attr_valeur
 portes_ouvertes_config	id	garder
 portes_ouvertes_config	etablissement_id	garder
@@ -1363,7 +1363,7 @@ request_attachment	content_type	garder
 request_attachment	sort_order	garder
 request_attr	etablissement_id	garder
 request_attr	request_id	garder
-request_attr	path	garder
+request_attr	path	chemin
 request_attr	value	attr_valeur
 request_comment	id	garder
 request_comment	etablissement_id	garder
@@ -1385,12 +1385,12 @@ request_history	sort_order	garder
 request_org	etablissement_id	garder
 request_org	updated_at	garder
 request_org_attr	etablissement_id	garder
-request_org_attr	path	garder
+request_org_attr	path	chemin
 request_org_attr	value	attr_valeur
 request_routing	etablissement_id	garder
 request_routing	updated_at	garder
 request_routing_attr	etablissement_id	garder
-request_routing_attr	path	garder
+request_routing_attr	path	chemin
 request_routing_attr	value	attr_valeur
 reservation_room	etablissement_id	garder
 reservation_room	id	garder
@@ -1593,7 +1593,7 @@ stage_application	status	garder
 stage_application	updated_at	garder
 stage_application_attr	etablissement_id	garder
 stage_application_attr	application_id	garder
-stage_application_attr	path	garder
+stage_application_attr	path	chemin
 stage_application_attr	value	attr_valeur
 stage_convention	id	garder
 stage_convention	etablissement_id	garder
@@ -1601,7 +1601,7 @@ stage_convention	status	garder
 stage_convention	updated_at	garder
 stage_convention_attr	etablissement_id	garder
 stage_convention_attr	convention_id	garder
-stage_convention_attr	path	garder
+stage_convention_attr	path	chemin
 stage_convention_attr	value	attr_valeur
 stage_offer	id	garder
 stage_offer	etablissement_id	garder
@@ -1610,7 +1610,7 @@ stage_offer	status	garder
 stage_offer	updated_at	garder
 stage_offer_attr	etablissement_id	garder
 stage_offer_attr	offer_id	garder
-stage_offer_attr	path	garder
+stage_offer_attr	path	chemin
 stage_offer_attr	value	attr_valeur
 stage_token	token	pseudo:jeton
 stage_token	etablissement_id	garder
@@ -1618,7 +1618,7 @@ stage_token	kind	garder
 stage_token	updated_at	garder
 stage_token_attr	etablissement_id	garder
 stage_token_attr	token	pseudo:jeton
-stage_token_attr	path	garder
+stage_token_attr	path	chemin
 stage_token_attr	value	attr_valeur
 tarif	id	garder
 tarif	etablissement_id	garder
@@ -1667,7 +1667,7 @@ teacher_planning_slot	group_id	garder
 teacher_planning_slot	group_label	garder
 tenant_setting_attr	etablissement_id	garder
 tenant_setting_attr	section	garder
-tenant_setting_attr	path	garder
+tenant_setting_attr	path	chemin
 tenant_setting_attr	value	attr_valeur
 tenant_setting_section	etablissement_id	garder
 tenant_setting_section	section	garder
@@ -1696,7 +1696,7 @@ travel	nb_accompagnateurs	garder
 travel	liste_eleves_status	garder
 travel_attr	etablissement_id	garder
 travel_attr	travel_id	garder
-travel_attr	path	garder
+travel_attr	path	chemin
 travel_attr	value	attr_valeur
 travel_history	id	garder
 travel_history	etablissement_id	garder
@@ -1914,3 +1914,6 @@ web_push_subscription	user_agent	pseudo:agent
 web_push_subscription	failure_count	garder
 web_push_subscription	created_at	garder
 web_push_subscription	last_success_at	garder
+drizzle.__drizzle_migrations	id	garder
+drizzle.__drizzle_migrations	hash	garder
+drizzle.__drizzle_migrations	created_at	garder

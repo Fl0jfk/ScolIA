@@ -12,7 +12,10 @@ description = "Outil de reprise Next.js → ScolIA (socle 28) : inspecter, anony
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
+getrandom = "0.2"
+chrono = { workspace = true }
 
 [[bin]]
 name = "ent-reprise"

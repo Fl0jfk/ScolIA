@@ -156,8 +156,11 @@ pub fn inspecter(o: &Options) -> Res<Rapport> {
         match e {
             Evt::Ddl(l) => collecte.ligne(&l),
             Evt::CopyDebut {
-                table, colonnes, ..
+                schema: sch,
+                table,
+                colonnes,
             } => {
+                let table = dump::cle_table(&sch, &table);
                 let idx_coll = colonnes.iter().position(|c| c == "collection");
                 tables.entry(table.clone()).or_default();
                 copy_colonnes.insert(table.clone(), colonnes);

@@ -247,10 +247,9 @@ fn valeur(
         }
         Regle::Json => json_fictif(table, col, n),
         Regle::AttrValeur => attr_fictif(table, n).1,
+        Regle::Chemin => attr_fictif(table, n).0,
         Regle::Garder => {
-            if table.ends_with("_attr") && col == "path" {
-                attr_fictif(table, n).0
-            } else if col == "collection" {
+            if col == "collection" {
                 attr_collection.to_string()
             } else if est_tableau(type_sql) {
                 litteral_tableau(&["role_a".to_string(), "role_b".to_string()])
@@ -300,7 +299,7 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
     sql.push_str("SET statement_timeout = 0;\nSET client_encoding = 'UTF8';\nSET standard_conforming_strings = on;\n\n");
     let mut lignes_total = 0u64;
     for (table, cols) in &schema.tables {
-        let _ = writeln!(sql, "CREATE TABLE public.{} (", ident(table));
+        let _ = writeln!(sql, "CREATE TABLE {} (", qualifier(table));
         for (i, c) in cols.iter().enumerate() {
             let _ = writeln!(
                 sql,
@@ -316,7 +315,9 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
     for (table, cols) in &schema.tables {
         // Lignes : quelques-unes partout, une seule dans les tables « mortes » sauf `annee_bascule`
         // (non vide exprès, pour vérifier l'alerte), aucune dans les tables optionnelles.
-        let n_lignes = if crate::schema::TABLES_OPTIONNELLES.contains(&table.as_str()) {
+        let n_lignes = if table == "drizzle.__drizzle_migrations" {
+            2
+        } else if crate::schema::TABLES_OPTIONNELLES.contains(&table.as_str()) {
             0
         } else if table == "annee_bascule" || TABLES_SANTE.contains(&table.as_str()) {
             2
@@ -328,8 +329,8 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
         let noms: Vec<String> = cols.iter().map(|c| ident(&c.nom)).collect();
         let _ = writeln!(
             sql,
-            "COPY public.{} ({}) FROM stdin;",
-            ident(table),
+            "COPY {} ({}) FROM stdin;",
+            qualifier(table),
             noms.join(", ")
         );
         let collections = [
@@ -391,6 +392,14 @@ Essai : ent-reprise inspecter --dump dump.sql --objets-s3 objets_s3.tsv --sommes
 fn hex_fictif(n: usize) -> String {
     use sha2::{Digest, Sha256};
     hex::encode(Sha256::digest(format!("objet-fictif-{n}").as_bytes()))
+}
+
+/// Nom qualifié d'une table : `public.nom`, ou `schema.nom` pour une clé `schema.nom`.
+pub fn qualifier(table: &str) -> String {
+    match table.split_once('.') {
+        Some((s, t)) => format!("{}.{}", ident(s), ident(t)),
+        None => format!("public.{}", ident(table)),
+    }
 }
 
 /// Identifiant SQL : entre guillemets pour les mots réservés (comme `pg_dump`), nu sinon.

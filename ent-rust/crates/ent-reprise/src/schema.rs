@@ -16,7 +16,12 @@ pub const BLANCHE_TSV: &str = include_str!("../donnees/liste_blanche.tsv");
 
 /// Tables créées par des scripts du Next.js, absentes de ses déclarations Drizzle : tolérées si
 /// elles manquent à l'export (état éphémère).
-pub const TABLES_OPTIONNELLES: &[&str] = &["messaging_call_ring", "messaging_signal_relay"];
+pub const TABLES_OPTIONNELLES: &[&str] = &[
+    "messaging_call_ring",
+    "messaging_signal_relay",
+    // Journal des migrations de Drizzle (schéma `drizzle`, technique : aucun contenu personnel).
+    "drizzle.__drizzle_migrations",
+];
 
 /// Tables ajoutées au Next.js après l'inventaire T0 (184 tables, `TRANSITION_T0_INVENTAIRE.md` §1).
 pub const TABLES_DEPUIS_T0: &[&str] = &[
@@ -138,6 +143,9 @@ pub enum Regle {
     Json,
     /// Valeur d'une table clé-valeur (`*_attr`) : préfixe `s:`/`n:`/`b:`/`j:` décodé, clé = dernier segment du chemin.
     AttrValeur,
+    /// Chemin d'une table clé-valeur (`a.b.0.nom`) : segments de structure gardés, segments qui
+    /// ressemblent à une donnée (e-mail, INE, nom propre) réécrits.
+    Chemin,
 }
 
 impl Regle {
@@ -148,6 +156,7 @@ impl Regle {
             "cle_s3" => Regle::CleS3,
             "json" => Regle::Json,
             "attr_valeur" => Regle::AttrValeur,
+            "chemin" => Regle::Chemin,
             _ => Regle::Pseudo(Genre::depuis(s.strip_prefix("pseudo:")?)?),
         })
     }

@@ -1914,3 +1914,6 @@ web_push_subscription	user_agent	text	1
 web_push_subscription	failure_count	integer	0
 web_push_subscription	created_at	timestamp with time zone	0
 web_push_subscription	last_success_at	timestamp with time zone	1
+drizzle.__drizzle_migrations	id	integer	0
+drizzle.__drizzle_migrations	hash	text	0
+drizzle.__drizzle_migrations	created_at	bigint	1
