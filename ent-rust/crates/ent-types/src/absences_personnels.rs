@@ -1149,3 +1149,102 @@ pub struct DsnSuiviDto {
 pub struct DsnSignaleBody {
     pub le: NaiveDate,
 }
+
+// ─────────────────────────────── Rattrapages (lot A8, §15) ───────────────────────────────
+
+/// Un créneau de rattrapage : proposé par l'agent, confirmé par la direction, assuré (fait, jamais déclaré).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreneauRattrapageDto {
+    pub id: Uuid,
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+    pub minutes: i32,
+    /// `propose` · `confirme` · `assure` · `refuse` · `annule`.
+    pub etat: String,
+    /// Séance `ajoutee` du socle 10 qui porte le créneau confirmé.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seance_id: Option<Uuid>,
+    /// `appel` (appel fait, socle 12) · `attestation`, quand le créneau est assuré.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preuve: Option<String>,
+}
+
+/// Un rattrapage dû (ABP-190, 199). **Aucune nature, aucun motif d'absence** : le niveau est « organisation ».
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RattrapageDto {
+    pub id: Uuid,
+    pub absence_id: Uuid,
+    pub agent_id: Uuid,
+    pub heures_dues: f64,
+    /// Somme des créneaux assurés.
+    pub heures_assurees: f64,
+    pub heures_restantes: f64,
+    pub echeance: NaiveDate,
+    /// `du` · `planifie` · `solde` · `prolonge` · `retenue` · `abandonne`.
+    pub etat: String,
+    /// `cours` (rendu aux mêmes élèves) · `service` (heures de service d'un salarié).
+    pub forme: String,
+    /// Échéance dépassée et rattrapage non clos.
+    pub en_retard: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motif_code: Option<String>,
+    pub creneaux: Vec<CreneauRattrapageDto>,
+}
+
+/// Une plage proposée par l'agent (instants UTC ; ≤ 12 h).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlageRattrapageBody {
+    pub debut: DateTime<Utc>,
+    pub fin: DateTime<Utc>,
+}
+
+/// ABP-192 : l'agent propose un ou plusieurs créneaux.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProposerCreneauxBody {
+    pub creneaux: Vec<PlageRattrapageBody>,
+}
+
+/// ABP-193 : la direction confirme un créneau ; `seance_id` = séance `ajoutee` créée au socle 10 pour ce créneau
+/// (absente pour des heures de service d'un salarié).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmerCreneauBody {
+    #[serde(default)]
+    pub seance_id: Option<Uuid>,
+}
+
+/// ABP-195 : prolonger l'échéance (motif codé : `accord_agent` · `absence_prolongee` · `calendrier` · `impossible` ·
+/// `decision_direction` · `autre`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProlongerRattrapageBody {
+    pub echeance: NaiveDate,
+    pub motif_code: String,
+}
+
+/// ABP-196, 197 : requalifier en retenue, abandonner. Motif codé obligatoire pour l'abandon.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DecisionRattrapageBody {
+    #[serde(default)]
+    pub motif_code: Option<String>,
+}
+
+/// Bilan de la tâche planifiée des rattrapages (création manquante, relances, alertes d'échéance, soldes).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanRattrapagesDto {
+    pub crees: u32,
+    pub relances: u32,
+    pub alertes_echeance: u32,
+    pub soldes: u32,
+}
+
+/// ABP-198 : une séance d'élèves non assurée, à proposer au socle 10 en rattrapage (séance `ajoutee`). Aucune dette
+/// d'un agent, aucun nom d'absent, aucune nature.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeuresElevesPerduesDto {
+    pub seance_id: Uuid,
+    pub jour: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub minutes: i32,
+    pub classe: String,
+    pub matiere: String,
+}

@@ -183,6 +183,8 @@ Huit actions `personnels.absences.*` (portée établissement seulement ; la port
 | `personnels.heures.exporter` ★ (A7) | Direction, Administratif (État), Compta (OGEC) | figer, exporter l'état signé, régulariser, dans son employeur seulement |
 | `personnels.paie.absences` (A7) | Direction, Compta (OGEC) | éléments variables de paie, heures et jours d'absence, file DSN J+5 ; **jamais** le secrétariat de l'État ni Admin technique |
 
+Rattrapages dus (A8, ABP-190 à 199) : **aucune action nouvelle**. Confirmer un créneau, prolonger, requalifier en retenue ★ = `personnels.absences.valider` (direction, jamais pour soi) ; abandonner = direction seule ; attester qu'un créneau a été assuré = direction ou CPE (jamais l'agent) ; lister tous les rattrapages = `valider` ou `lire_nature` ; heures d'élèves perdues (ABP-198) = `personnels.rcd.gerer` ; proposer ses créneaux et lire ses rattrapages dus (ABP-192, 199) = chaque agent, pour lui-même, sans droit.
+
 S'engager comme volontaire RCD (ABP-226), modifier son engagement (ABP-227) et lire son compteur et sa position (ABP-213) sont ouverts à **tout le personnel pour lui-même**, sans action dédiée ; le plan RCD présenté est lisible de tout le personnel (délai de prévenance), pas ses brouillons.
 
 **Lot A2 (pièces, fil)** : aucune autre action. Les pièces et le fil se lisent par **appartenance au cercle RH** (l'agent, valideur ou instructeur du circuit, direction, secrétariat pour l'État, comptabilité pour l'OGEC), contrôlée par le service ; tout autre profil reçoit 404 (pas d'oracle). Dépôt : l'agent ou l'instructeur. « Qui a lu mes pièces » : l'agent seul.

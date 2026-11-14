@@ -420,3 +420,49 @@ async fn absences_des_personnels_suppleance_et_etat_du_remplacement() {
         assert!(!texte.contains(interdit), "« {interdit} » dans l'état du remplacement : {texte}");
     }
 }
+
+#[tokio::test]
+async fn absences_des_personnels_rattrapages_droits_et_pas_d_oracle() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip A15 A8 : ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let compta = inscrire(&app, etab, "compta").await;
+    let parent = inscrire(&app, etab, "parent").await;
+    let base = "/personnels/rattrapages";
+    let inconnu = Uuid::new_v4();
+    // 401 sans jeton, sur la lecture comme sur l'écriture.
+    for (m, p) in [("GET", base.to_string()), ("GET", format!("{base}/moi")), ("POST", format!("{base}/{inconnu}/prolongation"))] {
+        let (st, _) = appel(&app, m, &p, None, Some(json!({}))).await;
+        assert_eq!(st, StatusCode::UNAUTHORIZED, "{m} {p}");
+    }
+    // Un parent n'est pas du personnel : rien. Le professeur lit les siens (aucun) mais pas ceux des autres.
+    let (st, _) = appel(&app, "GET", &format!("{base}/moi"), Some(&parent.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, b) = appel(&app, "GET", &format!("{base}/moi"), Some(&prof.jeton), None).await;
+    assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(0)), "{b}");
+    for jeton in [&prof.jeton, &compta.jeton] {
+        let (st, _) = appel(&app, "GET", base, Some(jeton), None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN);
+    }
+    let (st, b) = appel(&app, "GET", &format!("{base}?ouverts=true"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(0)), "{b}");
+    // Pas d'oracle : un rattrapage inconnu est 404 pour tous, et les écritures sans droit restent 403.
+    let (st, _) = appel(&app, "GET", &format!("{base}/{inconnu}"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, _) = appel(&app, "POST", &format!("{base}/{inconnu}/creneaux"), Some(&prof.jeton), Some(json!({"creneaux": []}))).await;
+    assert!(st.is_client_error(), "{st}");
+    let (st, _) = appel(&app, "POST", &format!("{base}/{inconnu}/prolongation"), Some(&prof.jeton), Some(json!({"echeance": "2030-01-01", "motif_code": "calendrier"}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, _) = appel(&app, "POST", &format!("{base}/{inconnu}/abandon"), Some(&prof.jeton), Some(json!({"motif_code": "autre"}))).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // Les heures d'élèves perdues : la direction (fenêtre bornée), pas le professeur.
+    let (st, b) = appel(&app, "GET", &format!("{base}/eleves-perdues?du=2030-01-01&au=2030-01-08"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(0)), "{b}");
+    let (st, _) = appel(&app, "GET", &format!("{base}/eleves-perdues?du=2030-01-01&au=2030-01-08"), Some(&prof.jeton), None).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+}

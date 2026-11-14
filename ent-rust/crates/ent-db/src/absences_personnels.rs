@@ -69,6 +69,9 @@ pub mod rcd;
 /// Lot A7 : heures constatées, états mensuels, paie de l'OGEC, DSN (migrations 2308 et 2310).
 pub mod heures;
 
+/// Lot A8 : rattrapages dus, créneaux, solde par une séance ajoutée assurée (migration 2309).
+pub mod rattrapage;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------
@@ -1702,6 +1705,10 @@ impl PgEnt {
         let vue = vue_absence(&mut tx, etab, id, lire_nature || suis_absent).await?;
         // Impact : une validation, un refus, une réouverture ou une annulation changent ce que l'absence touche.
         self.recalculer_impact_tolerant(&mut tx, etab, id, actor).await;
+        // A8 (ABP-190) : une absence validée avec le traitement « rattrapage » crée le rattrapage dû, heures tirées de l'impact.
+        if traitement.as_deref().is_some_and(rattrapage::est_traitement_rattrapage) {
+            self.creer_rattrapage_du_tolerant(&mut tx, etab, id, actor).await;
+        }
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&evenements);
         Ok(vue)

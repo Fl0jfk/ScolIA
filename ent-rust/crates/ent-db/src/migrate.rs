@@ -291,6 +291,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2306_absp_suppleance"),
     m!("2307_absp_rcd"),
     m!("2308_absp_heures"),
+    m!("2309_absp_rattrapage"),
     m!("2310_absp_paie_dsn"),
     m!("2312_absp_personas_circuit_arrets"),
     m!("2380_agenda_ag0_rencontres"),

@@ -514,6 +514,12 @@ async fn run_api() {
                 if let Err(e) = ent.preparer_dsn_planifie().await {
                     tracing::warn!("file DSN : {e}");
                 }
+                // A8 : rattrapages dus (création manquante, créneaux assurés par l'appel, relance J+10, échéance).
+                match ent.suivre_rattrapages().await {
+                    Ok(b) if b.crees + b.relances + b.alertes_echeance + b.soldes > 0 => tracing::info!(?b, "rattrapages suivis"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("rattrapages : {e}"),
+                }
                 tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             }
         })
