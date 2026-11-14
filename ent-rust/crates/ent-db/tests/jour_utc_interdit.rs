@@ -77,6 +77,11 @@ const EXCEPTIONS_TESTS: &[(&str, &str, &str)] = &[
         "garde SQL : l'expression régulière qui détecte current_date dans le code des fonctions ent_eleve_*",
     ),
     (
+        "tests_eleve_jour_etablissement.rs",
+        "fonctions élève encore sur le jour UTC",
+        "message d'échec de la garde SQL : il nomme la forme recherchée",
+    ),
+    (
         "tests_cahier.rs",
         "Utc::now().naive_utc().date()",
         "le test exige justement que le jour du fuseau de test diffère du jour UTC",
