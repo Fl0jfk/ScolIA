@@ -28,10 +28,12 @@ impl ApiClient {
         &self,
         tache: Uuid,
         motif: Option<String>,
+        decision: Option<String>,
     ) -> Result<ResultatAction, ApiError> {
         let c = corps(&ExecutionAction {
             confirme: true,
             motif,
+            decision,
         })?;
         self.appel(Methode::Post, &format!("/afaire/{tache}/executer"), Some(c))
             .await

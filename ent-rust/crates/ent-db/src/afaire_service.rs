@@ -957,6 +957,23 @@ impl PgEnt {
         motif: Option<String>,
         maintenant: DateTime<Utc>,
     ) -> Result<ResultatAction, EntDbError> {
+        self.afaire_executer_avec(etab, user, role, tache, confirme, motif, None, maintenant)
+            .await
+    }
+
+    /// Comme `afaire_executer`, avec la réponse choisie sur une carte à choix (`decision`).
+    #[allow(clippy::too_many_arguments)]
+    pub async fn afaire_executer_avec(
+        &self,
+        etab: Uuid,
+        user: Uuid,
+        role: &str,
+        tache: Uuid,
+        confirme: bool,
+        motif: Option<String>,
+        decision: Option<String>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<ResultatAction, EntDbError> {
         let t = self
             .tache_visible(etab, user, role, tache, maintenant)
             .await?;
@@ -981,6 +998,31 @@ impl PgEnt {
             "vs.signer_carnet" => {
                 self.signer_carnet_for_actor(etab, user, role, objet)
                     .await?;
+            }
+            "form.repondre" => {
+                let decision = decision.unwrap_or_default();
+                if !["accepte", "refuse"].contains(&decision.as_str()) {
+                    return Err(EntDbError::SaisieInvalide("réponse requise"));
+                }
+                let cible = {
+                    let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+                    crate::afaire_sources::formulaire_de_tache(&mut tx, etab, objet).await?
+                };
+                // Le formulaire a été fermé ou une réponse existe déjà : même réponse neutre (R-PO38).
+                let Some((formulaire, eleve)) = cible else {
+                    return Err(DEJA_TRAITEE);
+                };
+                self.repondre_formulaire(
+                    etab,
+                    user,
+                    formulaire,
+                    crate::formulaires::ReponseFormulaire {
+                        eleve_id: eleve,
+                        decision,
+                        commentaire: None,
+                    },
+                )
+                .await?;
             }
             "doc.signer" => {
                 self.signer_doc_a_signer_for_actor(
