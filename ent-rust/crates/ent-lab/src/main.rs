@@ -7820,14 +7820,14 @@ async fn explorer_filieres_voeux_mails(
     r.geste(format!("Lily voit {} filière(s)", filieres_f.len()));
 
     let mails = ent
-        .list_mails_recents_for_actor(cast.etablissement_id, Role::Administratif.as_str(), 20)
+        .list_mails_recents_for_actor(cast.etablissement_id, Role::Direction.as_str(), 20)
         .await
         .map_err(|e| e.to_string())?;
     if mails.is_empty() {
         return Err("historique mails staff ne doit pas être vide après lab".into());
     }
     r.geste(format!(
-        "admini lit historique mails ({} entrées, ex. « {} »)",
+        "direction lit historique mails ({} entrées, ex. « {} »)",
         mails.len(),
         mails[0].subject
     ));
@@ -7841,14 +7841,14 @@ async fn explorer_filieres_voeux_mails(
     r.geste("Lily refusée sur historique mails (attendu)");
 
     let sms = ent
-        .list_sms_recents_for_actor(cast.etablissement_id, Role::Cpe.as_str(), 20)
+        .list_sms_recents_for_actor(cast.etablissement_id, Role::Direction.as_str(), 20)
         .await
         .map_err(|e| e.to_string())?;
     if sms.is_empty() {
         return Err("historique SMS staff ne doit pas être vide après lab".into());
     }
     r.geste(format!(
-        "CPE lit historique SMS ({} entrées)",
+        "direction lit historique SMS ({} entrées)",
         sms.len()
     ));
 
