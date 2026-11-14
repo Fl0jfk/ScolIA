@@ -76,6 +76,22 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). Actives : 15 A5, N1-2, 8 N0a, 29 P3, 20 C2, 7 D0.
 | **7 code D0** | session_01KZCbFFnDd4foXS9BRSVPom | ent-socle-7-code-d0 (aucune migration) | **active** — correctifs documents |
 
+## État au 2026-11-14, 17 h 30 UTC — 10 sessions Sonnet (Florian : « envoie à fond », pas de Fable)
+| Objet | Id | Branche |
+|---|---|---|
+| 8 N0b à N3 | session_01KZCbFDFeoQ2ZY5iXyPYQX4 | ent-socle-8-code-n1 à n3 |
+| N1-5 reprise R9 | session_01KZCbFE9VjyDQhUki8BHRrH | ent-socle-N1-code-5 |
+| 29 P6, P7 (couvrent P5) | session_01KZCbFDEVqerw3czhd2SeTh | ent-socle-29-code-7 |
+| 20 C5 à C7 | session_01KZCbFG8HsL2nvrpmA9gLko | ent-socle-20-code-5 |
+| 15 A8, A9 | session_01KZCbFHnLdNYJfHCsGoZZVf | ent-socle-15-code-9 |
+| CI allégée | session_01KZCbFEqu6rd9xjTXEh6LDd | ent-ci-allegee |
+| 7 D1 PDF maison (D-062) | session_01KZCbFGgDVaHWPZzsPLmuqT | ent-socle-7-code-d1 |
+| 7 D2, D3 | session_01KZCbFEb584Wi3htpvuQFfK | ent-socle-7-code-d2, d3 |
+| 28 MS0, R0, R1 (R1 à livrer le 4 déc.) | session_01KZCbFDMajzg9RKbmjCC9Gp | ent-socle-28-code-ms0, r0, r1 |
+| 10 T3, T4 | session_01KZCbFG5frutoQkqNNxz5CV | ent-socle-10-code-t3, t4 |
+
+Archivée : 7 D0 (code fini, 67588b01, CI en file ; le pilote verse). À verser quand vert : A7, P7 (avec P5–P6), C4, D0 ; N1-3 en vérification locale.
+
 ### File d'attente (prochaine place libre, dans cet ordre)
 1. **PDF maison : accents et mise en page** (D-062) : encodage WinAnsi des polices standard (fin des « ? »), plusieurs pages, tableaux, logo JPEG, numéros de page ; tests sur bulletins, factures, courriers ; aucune dépendance.
 2. Socle 12 AS5 (avis regroupés, démenti notifié) — après N0a/N0b du socle 8.
