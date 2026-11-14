@@ -198,6 +198,19 @@ async fn nb_faits(ent: &PgEnt, etab: Uuid, id: Uuid) -> i64 {
     n
 }
 
+/// Faits « lecture confidentielle » d'une demande (R-DM16) : seuls les C2+ en posent.
+async fn nb_lectures(ent: &PgEnt, etab: Uuid, id: Uuid) -> i64 {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_dem_fait WHERE etablissement_id = $1 AND demande_id = $2 AND type = 'lecture_confidentielle'",
+    )
+    .bind(etab)
+    .bind(id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    n
+}
+
 async fn nb_evenements(ent: &PgEnt, etab: Uuid, id: Uuid) -> i64 {
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND aggregate_id = $2")
         .bind(etab)
@@ -835,19 +848,20 @@ async fn texte_c2_scelle_et_lecture_tracee() {
     // Le demandeur relit son texte ; le membre de la file aussi, et sa lecture est tracée (R-DM16).
     let vue = ent.demande_demandeur_for_actor(m.etab, m.cpe.user, etat.id).await.unwrap();
     assert_eq!(vue.texte.as_deref(), Some("Je souhaite un temps partiel pour raison familiale"));
-    let avant = nb_faits(&ent, m.etab, etat.id).await;
+    // (N1-2 : la première ouverture pose aussi le fait « vue par le service » ; on compte donc les LECTURES.)
+    let avant = nb_lectures(&ent, m.etab, etat.id).await;
     let t = ent.demande_traitant_for_actor(m.etab, m.prof.user, "prof", &m.src, RefDemande::Id(etat.id)).await.unwrap();
     assert_eq!(t.texte.as_deref(), vue.texte.as_deref());
     assert_eq!(t.confidentialite, "C2");
-    assert_eq!(nb_faits(&ent, m.etab, etat.id).await, avant + 1, "lecture C2 tracée par un fait");
+    assert_eq!(nb_lectures(&ent, m.etab, etat.id).await, avant + 1, "lecture C2 tracée par un fait");
     // « Ma file » ne porte jamais de texte, C0 comme C2.
     let file = ent.ma_file_for_actor(m.etab, m.prof.user, "prof", &m.src).await.unwrap();
     assert!(file.iter().all(|d| d.texte.is_none()));
     // Un texte C1 reste lisible tel quel et la lecture n'est pas tracée.
     let c1 = une_demande(&ent, &m, &m.cpe).await;
-    let avant = nb_faits(&ent, m.etab, c1.id).await;
+    let avant = nb_lectures(&ent, m.etab, c1.id).await;
     ent.demande_traitant_for_actor(m.etab, m.prof.user, "prof", &m.src, RefDemande::Id(c1.id)).await.unwrap();
-    assert_eq!(nb_faits(&ent, m.etab, c1.id).await, avant);
+    assert_eq!(nb_lectures(&ent, m.etab, c1.id).await, avant);
 }
 
 // ───────────────────────── NJ-72 : limitation de débit ─────────────────────────

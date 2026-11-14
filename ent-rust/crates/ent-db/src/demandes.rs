@@ -175,7 +175,7 @@ impl Issue {
 }
 
 impl Statut {
-    fn est_final(self) -> bool {
+    pub(crate) fn est_final(self) -> bool {
         matches!(self, Self::Close | Self::Annulee)
     }
 }
@@ -701,8 +701,8 @@ pub struct EtapeVisible {
 }
 
 /// Faits que le demandeur voit (le reste est interne : notes, lectures, échéances, routage…).
-const FAITS_VISIBLES_DEMANDEUR: [&str; 7] =
-    ["depose", "prise", "close", "annulee", "rouverte", "complement_demande", "complement_recu"];
+const FAITS_VISIBLES_DEMANDEUR: [&str; 8] =
+    ["depose", "vue_par_service", "prise", "close", "annulee", "rouverte", "complement_demande", "complement_recu"];
 
 /// État minimal rendu après un geste : rien de plus que ce que tout acteur légitime peut savoir.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -777,42 +777,54 @@ pub struct RapportPurge {
     pub gelees_ignorees: u32,
 }
 
-#[derive(Debug, FromRow)]
-struct LigneDemande {
-    numero: String,
-    nature_code: String,
-    statut: String,
-    demandeur_personne_id: Option<Uuid>,
-    deposant_personne_id: Option<Uuid>,
-    file_id: Uuid,
-    attribuee_a_agent_id: Option<Uuid>,
-    version: i32,
+#[derive(Debug, Clone, FromRow)]
+pub(crate) struct LigneDemande {
+    pub(crate) numero: String,
+    pub(crate) nature_code: String,
+    pub(crate) statut: String,
+    pub(crate) confidentialite: String,
+    pub(crate) demandeur_personne_id: Option<Uuid>,
+    pub(crate) deposant_personne_id: Option<Uuid>,
+    pub(crate) file_id: Uuid,
+    pub(crate) attribuee_a_agent_id: Option<Uuid>,
+    pub(crate) eleve_id: Option<Uuid>,
+    pub(crate) version: i32,
 }
 
+/// Le lien d'un acteur avec une demande. **Un seul chemin** les calcule : [`charger_pour_acces`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lien {
+pub(crate) enum Lien {
     Demandeur,
     Deposant,
+    /// Membre (calculé) de la file de destination, hors personne visée (R-DM47).
     Traitant,
+    /// Autre responsable du même foyer, ajouté par le demandeur : lit et écrit côté demandeur.
+    CoDemandeur,
+    /// Collègue tenu informé : lit ce qui est visible du demandeur, n'écrit pas.
+    CopieInterne,
+    /// « +1 » : ne reçoit que l'avis de clôture, ne lit rien.
+    Appui,
+    /// Tiers consulté (§11.6) : ne voit que sa consultation.
+    Consulte(Uuid),
 }
 
 pub(crate) struct FaitNouveau<'a> {
-    demande_id: Uuid,
-    type_: &'a str,
-    auteur_personne: Option<Uuid>,
-    auteur_tache: Option<&'a str>,
-    statut_avant: Option<&'a str>,
-    statut_apres: Option<&'a str>,
-    file_avant: Option<Uuid>,
-    file_apres: Option<Uuid>,
-    agent_avant: Option<Uuid>,
-    agent_apres: Option<Uuid>,
-    motif: Option<&'a str>,
-    ref_id: Option<Uuid>,
+    pub(crate) demande_id: Uuid,
+    pub(crate) type_: &'a str,
+    pub(crate) auteur_personne: Option<Uuid>,
+    pub(crate) auteur_tache: Option<&'a str>,
+    pub(crate) statut_avant: Option<&'a str>,
+    pub(crate) statut_apres: Option<&'a str>,
+    pub(crate) file_avant: Option<Uuid>,
+    pub(crate) file_apres: Option<Uuid>,
+    pub(crate) agent_avant: Option<Uuid>,
+    pub(crate) agent_apres: Option<Uuid>,
+    pub(crate) motif: Option<&'a str>,
+    pub(crate) ref_id: Option<Uuid>,
 }
 
 impl<'a> FaitNouveau<'a> {
-    fn nouveau(demande_id: Uuid, type_: &'a str) -> Self {
+    pub(crate) fn nouveau(demande_id: Uuid, type_: &'a str) -> Self {
         Self {
             demande_id,
             type_,
@@ -858,7 +870,7 @@ pub(crate) async fn ajouter_fait(conn: &mut PgConnection, etab: Uuid, f: FaitNou
 }
 
 /// Publie un événement de demande **après contrôle de l'enveloppe neutre**.
-async fn publier_enveloppe(
+pub(crate) async fn publier_enveloppe(
     conn: &mut PgConnection,
     etab: Uuid,
     type_name: &str,
@@ -914,7 +926,7 @@ pub(crate) async fn echeance_ouvree(conn: &mut PgConnection, etab: Uuid, depuis:
 }
 
 impl PgEnt {
-    async fn limiter(&self, route: &str, user: Uuid, quota: Quota) -> Result<(), RefusDemande> {
+    pub(crate) async fn limiter(&self, route: &str, user: Uuid, quota: Quota) -> Result<(), RefusDemande> {
         match self.limiteur_debit().verifier(route, "user", &user.to_string(), quota).await {
             Decision::Autorise => Ok(()),
             Decision::Limite { retry_after_secs } => Err(RefusDemande::TropDeDemandes { retry_after_secs }),
@@ -1158,7 +1170,11 @@ impl PgEnt {
                FROM ent_dem_vue_demandeur
               WHERE etablissement_id = $1
                 AND (demandeur_personne_id = $2
-                     OR (deposant_personne_id = $2 AND (clos_le IS NULL OR clos_le > now() - interval '30 days')))
+                     OR (deposant_personne_id = $2 AND (clos_le IS NULL OR clos_le > now() - interval '30 days'))
+                     OR EXISTS (SELECT 1 FROM ent_dem_abonne ab
+                                 WHERE ab.etablissement_id = ent_dem_vue_demandeur.etablissement_id
+                                   AND ab.demande_id = ent_dem_vue_demandeur.id AND ab.personne_id = $2
+                                   AND ab.qualite = 'co_demandeur' AND ab.au IS NULL))
               ORDER BY cree_le DESC, id DESC
               LIMIT 500",
         )
@@ -1185,7 +1201,11 @@ impl PgEnt {
                FROM ent_dem_vue_demandeur
               WHERE etablissement_id = $1 AND id = $2
                 AND (demandeur_personne_id = $3
-                     OR (deposant_personne_id = $3 AND (clos_le IS NULL OR clos_le > now() - interval '30 days')))",
+                     OR (deposant_personne_id = $3 AND (clos_le IS NULL OR clos_le > now() - interval '30 days'))
+                     OR EXISTS (SELECT 1 FROM ent_dem_abonne ab
+                                 WHERE ab.etablissement_id = ent_dem_vue_demandeur.etablissement_id
+                                   AND ab.demande_id = ent_dem_vue_demandeur.id AND ab.personne_id = $3
+                                   AND ab.qualite = 'co_demandeur' AND ab.au IS NULL))",
         )
         .bind(etab)
         .bind(id)
@@ -1240,18 +1260,20 @@ impl PgEnt {
         let files = sources.files_de(etab, moi);
         let l: Option<LigneVueTraitant> = match reference {
             RefDemande::Id(id) => {
-                sqlx::query_as(&format!("{SELECT_TRAITANT} WHERE etablissement_id = $1 AND id = $2 AND file_id = ANY($3)"))
+                sqlx::query_as(&format!("{SELECT_TRAITANT} WHERE etablissement_id = $1 AND id = $2 AND file_id = ANY($3) AND {SANS_VISEE_4}"))
                     .bind(etab)
                     .bind(id)
                     .bind(&files)
+                    .bind(moi)
                     .fetch_optional(&mut *tx)
                     .await?
             }
             RefDemande::Numero(n) => {
-                sqlx::query_as(&format!("{SELECT_TRAITANT} WHERE etablissement_id = $1 AND numero = $2 AND file_id = ANY($3)"))
+                sqlx::query_as(&format!("{SELECT_TRAITANT} WHERE etablissement_id = $1 AND numero = $2 AND file_id = ANY($3) AND {SANS_VISEE_4}"))
                     .bind(etab)
                     .bind(n)
                     .bind(&files)
+                    .bind(moi)
                     .fetch_optional(&mut *tx)
                     .await?
             }
@@ -1263,6 +1285,26 @@ impl PgEnt {
             let mut f = FaitNouveau::nouveau(l.id, "lecture_confidentielle");
             f.auteur_personne = Some(moi);
             ajouter_fait(&mut tx, etab, f).await?;
+        }
+        // R-DM53, CDM-82 : la PREMIÈRE ouverture du détail par un membre de la file de destination est montrée au
+        // demandeur (« vue par le secrétariat »). Ni la liste (`ma_file`), ni une recherche, ni un consulté ne la
+        // posent : seul ce chemin, qui ne s'ouvre qu'aux membres de la file. L'unicité est gardée par la base.
+        let vue: Option<(Uuid,)> = sqlx::query_as(
+            "INSERT INTO ent_dem_fait (id, etablissement_id, demande_id, type, auteur_personne_id, file_apres_id)
+             VALUES ($1, $2, $3, 'vue_par_service', $4, $5)
+             ON CONFLICT (etablissement_id, demande_id, file_apres_id) WHERE type = 'vue_par_service' DO NOTHING
+             RETURNING id",
+        )
+        .bind(Uuid::new_v4())
+        .bind(etab)
+        .bind(l.id)
+        .bind(moi)
+        .bind(l.file_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if vue.is_some() {
+            let env = EnveloppeNeutre::nouvelle(l.id, &l.numero, &l.nature_code, "vue");
+            publier_enveloppe(&mut tx, etab, types::DEMANDE_VUE, &env, Some(user_id)).await?;
         }
         tx.commit().await?;
         l.ouvrir()
@@ -1285,11 +1327,12 @@ impl PgEnt {
         let files = sources.files_de(etab, moi);
         let lignes: Vec<LigneVueTraitant> = sqlx::query_as(&format!(
             "{SELECT_TRAITANT} WHERE etablissement_id = $1 AND file_id = ANY($2)
-               AND statut NOT IN ('brouillon', 'close', 'annulee')
+               AND statut NOT IN ('brouillon', 'close', 'annulee') AND {SANS_VISEE_3}
              ORDER BY depose_le, id LIMIT 500"
         ))
         .bind(etab)
         .bind(&files)
+        .bind(moi)
         .fetch_all(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -1313,9 +1356,12 @@ impl PgEnt {
     ) -> Result<Vec<ValeurLue>, RefusDemande> {
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let moi = personne_du_user(&mut tx, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
-        let ligne = charger_demande(&mut tx, etab, id, false).await?;
-        acces_a(&ligne, moi, role, sources.files_de(etab, moi).as_slice()).ok_or(RefusDemande::Introuvable)?;
+        let acces = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, false).await?;
+        // Les valeurs typées : le demandeur et son déposant, le co-demandeur, les membres de la file. Pas un
+        // consulté, pas un appui, pas une copie interne.
+        if !matches!(acces.lien, Lien::Demandeur | Lien::Deposant | Lien::CoDemandeur | Lien::Traitant) {
+            return Err(RefusDemande::Introuvable);
+        }
         let lignes: Vec<LigneValeur> = sqlx::query_as(
             "SELECT champ_code, rang, valeur_texte, valeur_entier, valeur_decimal::text AS valeur_decimal,
                     valeur_date, valeur_heure, valeur_bool, valeur_code, valeur_ref
@@ -1363,11 +1409,8 @@ impl PgEnt {
         self.limiter("demandes.geste", user_id, quotas.geste).await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        // Sans fiche de personne dans cet établissement : la demande n'existe pas pour cet acteur.
-        let moi = personne_du_user(&mut tx, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
-        let agent = agent_du_user_tx(&mut tx, etab, user_id).await?;
-        let ligne = charger_demande(&mut tx, etab, id, true).await?;
-        let lien = acces_a(&ligne, moi, role, sources.files_de(etab, moi).as_slice()).ok_or(RefusDemande::Introuvable)?;
+        let Acces { ligne, moi, agent, lien } =
+            charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
         let statut = Statut::parse(&ligne.statut).ok_or(RefusDemande::Indisponible)?;
 
         // Droit du geste (l'accès a déjà été prouvé : on peut dire « interdit »).
@@ -1586,39 +1629,130 @@ pub enum RefDemande {
 
 // ───────────────────────── Lectures internes ─────────────────────────
 
+/// R-DM47 : la personne visée par la demande (paramètre `$4`, ou `$3` en liste) ne la voit pas, même membre de la file.
+const SANS_VISEE_4: &str = "NOT EXISTS (SELECT 1 FROM ent_dem_personne_visee v
+        WHERE v.etablissement_id = ent_dem_vue_traitant.etablissement_id
+          AND v.demande_id = ent_dem_vue_traitant.id AND v.personne_id = $4)";
+const SANS_VISEE_3: &str = "NOT EXISTS (SELECT 1 FROM ent_dem_personne_visee v
+        WHERE v.etablissement_id = ent_dem_vue_traitant.etablissement_id
+          AND v.demande_id = ent_dem_vue_traitant.id AND v.personne_id = $3)";
+
 const SELECT_TRAITANT: &str = "SELECT id, numero, nature_code, statut, confidentialite, urgence, demandeur_personne_id,
         objet, texte, texte_scelle, file_id, attribuee_a_agent_id, depose_le, clos_le, gel, version
    FROM ent_dem_vue_traitant";
 
-async fn charger_demande(
+pub(crate) async fn charger_demande(
     conn: &mut PgConnection,
     etab: Uuid,
     id: Uuid,
     verrou: bool,
 ) -> Result<LigneDemande, RefusDemande> {
     let sql = if verrou {
-        "SELECT numero, nature_code, statut, demandeur_personne_id, deposant_personne_id,
-                file_id, attribuee_a_agent_id, version
+        "SELECT numero, nature_code, statut, confidentialite, demandeur_personne_id, deposant_personne_id,
+                file_id, attribuee_a_agent_id, eleve_id, version
            FROM ent_dem_demande WHERE etablissement_id = $1 AND id = $2 AND purgee_le IS NULL FOR UPDATE"
     } else {
-        "SELECT numero, nature_code, statut, demandeur_personne_id, deposant_personne_id,
-                file_id, attribuee_a_agent_id, version
+        "SELECT numero, nature_code, statut, confidentialite, demandeur_personne_id, deposant_personne_id,
+                file_id, attribuee_a_agent_id, eleve_id, version
            FROM ent_dem_demande WHERE etablissement_id = $1 AND id = $2 AND purgee_le IS NULL"
     };
     let l: Option<LigneDemande> = sqlx::query_as(sql).bind(etab).bind(id).fetch_optional(conn).await?;
     l.ok_or(RefusDemande::Introuvable)
 }
 
-/// Le lien de l'acteur avec la demande, ou `None` (→ 404 neutre). Le traitant est un **membre de la file** et un
-/// personnel : un responsable légal ou un élève n'est jamais traitant (D-017).
-fn acces_a(l: &LigneDemande, moi: Uuid, role: Role, files: &[Uuid]) -> Option<Lien> {
+/// Ce que la garde d'accès rend : la demande, l'acteur et son lien.
+pub(crate) struct Acces {
+    pub(crate) ligne: LigneDemande,
+    pub(crate) moi: Uuid,
+    pub(crate) agent: Option<Uuid>,
+    pub(crate) lien: Lien,
+}
+
+/// **La garde d'accès unique** (NJ-80, NJ-81, NJ-83) : toute lecture ou écriture d'une demande, de son fil, de ses
+/// pièces, de ses consultations, passe ici. Sans lien — ni demandeur, ni déposant, ni membre (non visé) de la file
+/// de destination, ni abonné, ni consulté — la demande **n'existe pas** pour l'acteur : 404 neutre, que la demande
+/// existe ou non, qu'elle soit dans une autre file ou dans un autre établissement. Une demande d'une autre file ne
+/// s'ouvre donc jamais, même à un responsable de file (NJ-81).
+pub(crate) async fn charger_pour_acces(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    user_id: Uuid,
+    role: Role,
+    sources: &dyn SourcesDemandes,
+    id: Uuid,
+    verrou: bool,
+) -> Result<Acces, RefusDemande> {
+    // Sans fiche de personne dans cet établissement : la demande n'existe pas pour cet acteur.
+    let moi = personne_du_user(conn, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
+    let ligne = charger_demande(conn, etab, id, verrou).await?;
+    let files = sources.files_de(etab, moi);
+    let lien = lien_de(conn, etab, id, &ligne, moi, role, &files).await?.ok_or(RefusDemande::Introuvable)?;
+    let agent = agent_du_user_tx(conn, etab, user_id).await?;
+    Ok(Acces { ligne, moi, agent, lien })
+}
+
+async fn lien_de(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+    l: &LigneDemande,
+    moi: Uuid,
+    role: Role,
+    files: &[Uuid],
+) -> Result<Option<Lien>, RefusDemande> {
     if l.demandeur_personne_id == Some(moi) {
-        return Some(Lien::Demandeur);
+        return Ok(Some(Lien::Demandeur));
     }
     if l.deposant_personne_id == Some(moi) {
-        return Some(Lien::Deposant);
+        return Ok(Some(Lien::Deposant));
     }
-    (role.is_staff() && files.contains(&l.file_id)).then_some(Lien::Traitant)
+    // Le traitant est un membre de la file ET un personnel ; la personne visée n'est jamais traitante (R-DM47).
+    if role.is_staff() && files.contains(&l.file_id) {
+        let visee: (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_dem_personne_visee
+                             WHERE etablissement_id = $1 AND demande_id = $2 AND personne_id = $3)",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(moi)
+        .fetch_one(&mut *conn)
+        .await?;
+        if !visee.0 {
+            return Ok(Some(Lien::Traitant));
+        }
+        return Ok(None);
+    }
+    // Abonnés : ce que leur qualité ouvre, sur la période de l'abonnement (jour métier de l'établissement).
+    let ab: Option<(String,)> = sqlx::query_as(
+        "SELECT qualite FROM ent_dem_abonne
+          WHERE etablissement_id = $1 AND demande_id = $2 AND personne_id = $3
+            AND au IS NULL AND du <= ent_aujourdhui_etab($1, now())
+          ORDER BY CASE qualite WHEN 'co_demandeur' THEN 0 WHEN 'copie_interne' THEN 1 ELSE 2 END LIMIT 1",
+    )
+    .bind(etab)
+    .bind(id)
+    .bind(moi)
+    .fetch_optional(&mut *conn)
+    .await?;
+    match ab.as_ref().map(|(q,)| q.as_str()) {
+        Some("co_demandeur") if !role.is_staff() => return Ok(Some(Lien::CoDemandeur)),
+        Some("copie_interne") if role.is_staff() => return Ok(Some(Lien::CopieInterne)),
+        Some("appui") => return Ok(Some(Lien::Appui)),
+        _ => {}
+    }
+    // Consulté (agent nommé) : sa consultation seulement.
+    let c: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT c.id FROM ent_dem_consultation c
+           JOIN ent_agent a ON a.etablissement_id = c.etablissement_id AND a.id = c.consulte_agent_id
+          WHERE c.etablissement_id = $1 AND c.demande_id = $2 AND a.personne_id = $3
+          ORDER BY c.cree_le DESC LIMIT 1",
+    )
+    .bind(etab)
+    .bind(id)
+    .bind(moi)
+    .fetch_optional(conn)
+    .await?;
+    Ok(c.map(|(c,)| Lien::Consulte(c)).filter(|_| role.is_staff()))
 }
 
 async fn inserer_valeur(conn: &mut PgConnection, etab: Uuid, demande: Uuid, s: &ValeurSaisie) -> Result<(), RefusDemande> {
@@ -1737,7 +1871,7 @@ impl LigneVueTraitant {
     }
 }
 
-fn ouvrir_texte(id: Uuid, stocke: Option<String>, scelle: bool) -> Result<Option<String>, RefusDemande> {
+pub(crate) fn ouvrir_texte(id: Uuid, stocke: Option<String>, scelle: bool) -> Result<Option<String>, RefusDemande> {
     match stocke {
         Some(s) if scelle => ChampsSensibles::depuis_env()
             .ouvrir("ent_dem_demande", "texte", id, &s)

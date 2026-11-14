@@ -346,6 +346,16 @@ pub mod types {
     pub const DEMANDE_RELACHEE: &str = "demande.relachee";
     pub const DEMANDE_CLOSE: &str = "demande.close";
     pub const DEMANDE_PURGEE: &str = "demande.purgee";
+    /// Lot N1-2 : mêmes règles (enveloppe neutre). La première ouverture par le service (R-DM53), les échanges, la
+    /// réaffectation, le transfert, la requalification, la consultation, le retard et la réouverture.
+    pub const DEMANDE_VUE: &str = "demande.vue";
+    pub const DEMANDE_ECHANGE: &str = "demande.echange";
+    pub const DEMANDE_REAFFECTEE: &str = "demande.reaffectee";
+    pub const DEMANDE_TRANSFEREE: &str = "demande.transferee";
+    pub const DEMANDE_REQUALIFIEE: &str = "demande.requalifiee";
+    pub const DEMANDE_CONSULTEE: &str = "demande.consultee";
+    pub const DEMANDE_EN_RETARD: &str = "demande.en_retard";
+    pub const DEMANDE_ROUVERTE: &str = "demande.rouverte";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

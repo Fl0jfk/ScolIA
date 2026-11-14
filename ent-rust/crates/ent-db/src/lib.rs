@@ -27,7 +27,11 @@ pub mod cours;
 pub mod demandes;
 /// Socle N1, lot N1-1 : catalogue des natures, files, membres calculés, routage.
 pub mod demandes_catalogue;
+/// Lot N1-2 : échanges, pièces (références au socle 7), abonnés ; ports du socle 7 et du socle 16.
+pub mod demandes_echanges;
 pub mod demandes_files;
+/// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
+pub mod demandes_prise;
 pub mod demandes_routage;
 mod evaluations_conseil;
 pub mod module_sante;
@@ -496,6 +500,8 @@ mod tests_eleve_scolarite;
 mod tests_demandes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
