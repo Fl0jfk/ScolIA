@@ -15,9 +15,9 @@
 //! Le jour métier est celui de l'établissement, jamais la date du serveur.
 
 use crate::demandes::{
-    ajouter_fait, charger_demande, echeance_ouvree, personne_du_user, publier_enveloppe, ContexteVolet,
-    Conservation, DepotDemande, EnveloppeNeutre, EtatDemande, FaitNouveau, LigneDemande, QuotasDemandes, RefusDemande,
-    SourcesDemandes, Valeur, ValeurSaisie, Volet,
+    ajouter_fait, charger_demande, echeance_ouvree, personne_du_user, publier_enveloppe,
+    Conservation, ContexteVolet, DepotDemande, EnveloppeNeutre, EtatDemande, FaitNouveau,
+    LigneDemande, QuotasDemandes, RefusDemande, SourcesDemandes, Valeur, ValeurSaisie, Volet,
 };
 use crate::demandes_echanges::PortDocuments;
 use crate::demandes_files::jour_metier;
@@ -41,9 +41,18 @@ pub const DELAI_DEFAUT_JOURS: i16 = 1;
 /// Phrases fixes envoyées au demandeur quand le réceptionnaire signale un problème (DEM-301) : jamais de texte libre
 /// du réceptionnaire dans un message automatique.
 pub const PROBLEMES: &[(&str, &str)] = &[
-    ("pdf_illisible", "Le fichier à imprimer est illisible : merci d'en déposer un nouveau."),
-    ("quantite_douteuse", "La quantité demandée semble inhabituelle : merci de la confirmer."),
-    ("format_impossible", "Ce format ou cette finition n'est pas possible sur ce site : merci de préciser."),
+    (
+        "pdf_illisible",
+        "Le fichier à imprimer est illisible : merci d'en déposer un nouveau.",
+    ),
+    (
+        "quantite_douteuse",
+        "La quantité demandée semble inhabituelle : merci de la confirmer.",
+    ),
+    (
+        "format_impossible",
+        "Ce format ou cette finition n'est pas possible sur ce site : merci de préciser.",
+    ),
 ];
 
 // ───────────────────────── Saisies ─────────────────────────
@@ -123,10 +132,26 @@ impl DepotRepro {
             objet: self.objet.clone(),
             texte: None,
             valeurs: vec![
-                ValeurSaisie { champ: "format".into(), rang: 0, valeur: Valeur::Code(self.format.clone()) },
-                ValeurSaisie { champ: "couleur".into(), rang: 0, valeur: Valeur::Bool(self.couleur) },
-                ValeurSaisie { champ: "exemplaires".into(), rang: 0, valeur: Valeur::Entier(exemplaires) },
-                ValeurSaisie { champ: "pour_le".into(), rang: 0, valeur: Valeur::Date(self.pour_le) },
+                ValeurSaisie {
+                    champ: "format".into(),
+                    rang: 0,
+                    valeur: Valeur::Code(self.format.clone()),
+                },
+                ValeurSaisie {
+                    champ: "couleur".into(),
+                    rang: 0,
+                    valeur: Valeur::Bool(self.couleur),
+                },
+                ValeurSaisie {
+                    champ: "exemplaires".into(),
+                    rang: 0,
+                    valeur: Valeur::Entier(exemplaires),
+                },
+                ValeurSaisie {
+                    champ: "pour_le".into(),
+                    rang: 0,
+                    valeur: Valeur::Date(self.pour_le),
+                },
             ],
             urgence: None,
             eleve_id: None,
@@ -248,16 +273,25 @@ pub fn cfc_depasse(o: &OeuvreSaisie) -> bool {
 
 fn valider_oeuvre(o: &OeuvreSaisie) -> Result<(), RefusDemande> {
     if !matches!(o.genre.as_str(), "livre" | "revue") {
-        return Err(RefusDemande::Invalide("Le genre de l'œuvre est « livre » ou « revue »."));
+        return Err(RefusDemande::Invalide(
+            "Le genre de l'œuvre est « livre » ou « revue ».",
+        ));
     }
     let titre = o.titre.trim();
     if titre.is_empty() || titre.chars().count() > 200 || titre.contains('\0') {
-        return Err(RefusDemande::Invalide("Le titre de l'œuvre est obligatoire."));
+        return Err(RefusDemande::Invalide(
+            "Le titre de l'œuvre est obligatoire.",
+        ));
     }
     texte_court(&o.auteur, 120)?;
     texte_court(&o.editeur, 120)?;
-    if !(1..=5000).contains(&o.pages_copiees) || !(1..=20000).contains(&o.pages_oeuvre) || o.pages_copiees > o.pages_oeuvre {
-        return Err(RefusDemande::Invalide("Les pages copiées ne peuvent pas dépasser celles de l'œuvre."));
+    if !(1..=5000).contains(&o.pages_copiees)
+        || !(1..=20000).contains(&o.pages_oeuvre)
+        || o.pages_copiees > o.pages_oeuvre
+    {
+        return Err(RefusDemande::Invalide(
+            "Les pages copiées ne peuvent pas dépasser celles de l'œuvre.",
+        ));
     }
     Ok(())
 }
@@ -303,7 +337,9 @@ async fn acces_repro(
     id: Uuid,
     verrou: bool,
 ) -> Result<AccesRepro, RefusDemande> {
-    let moi = personne_du_user(conn, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
+    let moi = personne_du_user(conn, etab, user_id)
+        .await
+        .map_err(|_| RefusDemande::Introuvable)?;
     let ligne = charger_demande(conn, etab, id, verrou).await?;
     if ligne.nature_code != NATURE_REPRO {
         return Err(RefusDemande::Introuvable);
@@ -335,18 +371,33 @@ async fn acces_repro(
                 profils.push(ProfilRepro::Receptionnaire);
             }
         }
-        if ent.a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesReproValider).await? {
+        if ent
+            .a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesReproValider)
+            .await?
+        {
             profils.push(ProfilRepro::Validateur);
         }
     }
     if profils.is_empty() {
         return Err(RefusDemande::Introuvable);
     }
-    Ok(AccesRepro { ligne, moi, agent, profils, site_id, etat })
+    Ok(AccesRepro {
+        ligne,
+        moi,
+        agent,
+        profils,
+        site_id,
+        etat,
+    })
 }
 
 /// L'agent est désigné pour ce site **aujourd'hui** (jour de l'établissement).
-async fn est_receptionnaire(conn: &mut PgConnection, etab: Uuid, agent: Uuid, site: Uuid) -> Result<bool, RefusDemande> {
+async fn est_receptionnaire(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    agent: Uuid,
+    site: Uuid,
+) -> Result<bool, RefusDemande> {
     let (v,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM ent_dem_repro_receptionnaire
                          WHERE etablissement_id = $1 AND agent_id = $2 AND site_id = $3
@@ -360,7 +411,11 @@ async fn est_receptionnaire(conn: &mut PgConnection, etab: Uuid, agent: Uuid, si
     Ok(v)
 }
 
-async fn reglage_site(conn: &mut PgConnection, etab: Uuid, site: Uuid) -> Result<(i32, i16), RefusDemande> {
+async fn reglage_site(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    site: Uuid,
+) -> Result<(i32, i16), RefusDemande> {
     let r: Option<(i32, i16)> = sqlx::query_as(
         "SELECT seuil_copies, delai_jours FROM ent_dem_repro_site_reglage WHERE etablissement_id = $1 AND site_id = $2",
     )
@@ -371,7 +426,12 @@ async fn reglage_site(conn: &mut PgConnection, etab: Uuid, site: Uuid) -> Result
     Ok(r.unwrap_or((SEUIL_DEFAUT, DELAI_DEFAUT_JOURS)))
 }
 
-async fn lieu_du_site(conn: &mut PgConnection, etab: Uuid, lieu: Uuid, site: Uuid) -> Result<(), RefusDemande> {
+async fn lieu_du_site(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    lieu: Uuid,
+    site: Uuid,
+) -> Result<(), RefusDemande> {
     let (ok,): (bool,) = sqlx::query_as(
         "SELECT EXISTS (SELECT 1 FROM ent_dem_repro_lieu_retrait WHERE etablissement_id = $1 AND id = $2 AND site_id = $3 AND actif)",
     )
@@ -383,20 +443,27 @@ async fn lieu_du_site(conn: &mut PgConnection, etab: Uuid, lieu: Uuid, site: Uui
     if ok {
         Ok(())
     } else {
-        Err(RefusDemande::Invalide("Ce lieu de retrait n'existe pas sur ce site."))
+        Err(RefusDemande::Invalide(
+            "Ce lieu de retrait n'existe pas sur ce site.",
+        ))
     }
 }
 
 // ───────────────────────── Dépôt (volet écrit avec la demande) ─────────────────────────
 
 /// Écrit le volet dans la transaction du dépôt.
-pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, v: &VoletRepro) -> Result<(), RefusDemande> {
-    let (existe,): (bool,) =
-        sqlx::query_as("SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)")
-            .bind(ctx.etab)
-            .bind(v.site_id)
-            .fetch_one(&mut *conn)
-            .await?;
+pub(crate) async fn ecrire_volet(
+    conn: &mut PgConnection,
+    ctx: &ContexteVolet,
+    v: &VoletRepro,
+) -> Result<(), RefusDemande> {
+    let (existe,): (bool,) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)",
+    )
+    .bind(ctx.etab)
+    .bind(v.site_id)
+    .fetch_one(&mut *conn)
+    .await?;
     if !existe {
         return Err(RefusDemande::Invalide("Ce site n'existe pas."));
     }
@@ -418,7 +485,9 @@ pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, v
             .await?;
         let distinctes: std::collections::BTreeSet<_> = classes.iter().collect();
         if usize::try_from(n).ok() != Some(distinctes.len()) {
-            return Err(RefusDemande::Invalide("Une des classes choisies est introuvable."));
+            return Err(RefusDemande::Invalide(
+                "Une des classes choisies est introuvable.",
+            ));
         }
     }
     if !groupes.is_empty() {
@@ -429,18 +498,29 @@ pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, v
             .await?;
         let distinctes: std::collections::BTreeSet<_> = groupes.iter().collect();
         if usize::try_from(n).ok() != Some(distinctes.len()) {
-            return Err(RefusDemande::Invalide("Un des groupes choisis est introuvable."));
+            return Err(RefusDemande::Invalide(
+                "Un des groupes choisis est introuvable.",
+            ));
         }
     }
     let copies = i64::from(v.pages_total) * i64::from(v.exemplaires_total);
     if copies > 1_000_000 {
-        return Err(RefusDemande::Invalide("Le volume de copies est trop élevé pour une seule demande."));
+        return Err(RefusDemande::Invalide(
+            "Le volume de copies est trop élevé pour une seule demande.",
+        ));
     }
     // DRM-07 : couleur, ou noir et blanc au-delà du seuil du site → validation de la direction.
     let (seuil, delai) = reglage_site(&mut *conn, ctx.etab, v.site_id).await?;
     let validation = v.couleur || copies > i64::from(seuil);
     // Avertissements, jamais un refus (DEM-293, DEM-294) : délai plus court que celui du site ; plafonds CFC.
-    let au_plus_tot = echeance_ouvree(&mut *conn, ctx.etab, ctx.jour, u16::try_from(delai).unwrap_or(1), "secretariat").await;
+    let au_plus_tot = echeance_ouvree(
+        &mut *conn,
+        ctx.etab,
+        ctx.jour,
+        u16::try_from(delai).unwrap_or(1),
+        "secretariat",
+    )
+    .await;
     let avert_delai = v.pour_le < au_plus_tot;
     let avert_cfc = v.oeuvres.iter().any(cfc_depasse);
     sqlx::query(
@@ -542,20 +622,26 @@ impl PgEnt {
             return Err(RefusDemande::Invalide("Un fichier est joint deux fois."));
         }
         if d.cibles.len() > 20 || d.oeuvres.len() > 10 {
-            return Err(RefusDemande::Invalide("Trop de classes ou d'œuvres pour une seule demande."));
+            return Err(RefusDemande::Invalide(
+                "Trop de classes ou d'œuvres pour une seule demande.",
+            ));
         }
         let exemplaires_total: i64 = if d.cibles.is_empty() {
             i64::from(d.exemplaires.unwrap_or(0))
         } else {
             for c in &d.cibles {
-                if !(1..=5000).contains(&c.exemplaires) || (c.classe_id.is_some() && c.groupe_id.is_some()) {
+                if !(1..=5000).contains(&c.exemplaires)
+                    || (c.classe_id.is_some() && c.groupe_id.is_some())
+                {
                     return Err(RefusDemande::Invalide("Une des cibles est invalide."));
                 }
             }
             d.cibles.iter().map(|c| i64::from(c.exemplaires)).sum()
         };
         if !(1..=5000).contains(&exemplaires_total) {
-            return Err(RefusDemande::Invalide("Le nombre d'exemplaires est de 1 à 5 000."));
+            return Err(RefusDemande::Invalide(
+                "Le nombre d'exemplaires est de 1 à 5 000.",
+            ));
         }
         for o in &d.oeuvres {
             valider_oeuvre(o)?;
@@ -571,30 +657,68 @@ impl PgEnt {
         let mut documents = Vec::new();
         for doc in &d.documents {
             if !docs.document_depose_par(etab, *doc, moi) {
-                return Err(RefusDemande::Invalide("Un des fichiers n'est pas disponible : déposez-le d'abord vous-même."));
+                return Err(RefusDemande::Invalide(
+                    "Un des fichiers n'est pas disponible : déposez-le d'abord vous-même.",
+                ));
             }
             let pages = docs
                 .pages_pdf(etab, *doc)
                 .filter(|p| (1..=2000).contains(p))
-                .ok_or(RefusDemande::Invalide("Le nombre de pages d'un des fichiers est illisible."))?;
+                .ok_or(RefusDemande::Invalide(
+                    "Le nombre de pages d'un des fichiers est illisible.",
+                ))?;
             documents.push((*doc, pages));
         }
         let pages_total: i32 = documents.iter().map(|(_, p)| *p).sum();
         if pages_total > 5000 {
-            return Err(RefusDemande::Invalide("Trop de pages pour une seule demande."));
+            return Err(RefusDemande::Invalide(
+                "Trop de pages pour une seule demande.",
+            ));
         }
         let exemplaires_total = i32::try_from(exemplaires_total).unwrap_or(5000);
         let mut valeurs = vec![
-            ValeurSaisie { champ: "format".into(), rang: 0, valeur: Valeur::Code(d.format.clone()) },
-            ValeurSaisie { champ: "couleur".into(), rang: 0, valeur: Valeur::Bool(d.couleur) },
-            ValeurSaisie { champ: "recto_verso".into(), rang: 0, valeur: Valeur::Bool(d.recto_verso) },
-            ValeurSaisie { champ: "agrafage".into(), rang: 0, valeur: Valeur::Bool(d.agrafage) },
-            ValeurSaisie { champ: "exemplaires".into(), rang: 0, valeur: Valeur::Entier(i64::from(exemplaires_total)) },
-            ValeurSaisie { champ: "pour_le".into(), rang: 0, valeur: Valeur::Date(d.pour_le) },
-            ValeurSaisie { champ: "oeuvres_protegees".into(), rang: 0, valeur: Valeur::Bool(!d.oeuvres.is_empty()) },
+            ValeurSaisie {
+                champ: "format".into(),
+                rang: 0,
+                valeur: Valeur::Code(d.format.clone()),
+            },
+            ValeurSaisie {
+                champ: "couleur".into(),
+                rang: 0,
+                valeur: Valeur::Bool(d.couleur),
+            },
+            ValeurSaisie {
+                champ: "recto_verso".into(),
+                rang: 0,
+                valeur: Valeur::Bool(d.recto_verso),
+            },
+            ValeurSaisie {
+                champ: "agrafage".into(),
+                rang: 0,
+                valeur: Valeur::Bool(d.agrafage),
+            },
+            ValeurSaisie {
+                champ: "exemplaires".into(),
+                rang: 0,
+                valeur: Valeur::Entier(i64::from(exemplaires_total)),
+            },
+            ValeurSaisie {
+                champ: "pour_le".into(),
+                rang: 0,
+                valeur: Valeur::Date(d.pour_le),
+            },
+            ValeurSaisie {
+                champ: "oeuvres_protegees".into(),
+                rang: 0,
+                valeur: Valeur::Bool(!d.oeuvres.is_empty()),
+            },
         ];
         if let Some(h) = d.pour_heure {
-            valeurs.push(ValeurSaisie { champ: "pour_heure".into(), rang: 0, valeur: Valeur::Heure(h) });
+            valeurs.push(ValeurSaisie {
+                champ: "pour_heure".into(),
+                rang: 0,
+                valeur: Valeur::Heure(h),
+            });
         }
         let volet = VoletRepro {
             site_id: d.site_id,
@@ -622,7 +746,9 @@ impl PgEnt {
             canal: None,
             volet: Some(Volet::Repro(volet)),
         };
-        let etat = self.deposer_demande_for_actor(etab, user_id, role, sources, depot).await?;
+        let etat = self
+            .deposer_demande_for_actor(etab, user_id, role, sources, depot)
+            .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let (etat_repro, validation_requise, avertissement_delai, avertissement_cfc, copies_total): (String, bool, bool, bool, i32) =
             sqlx::query_as(
@@ -634,7 +760,14 @@ impl PgEnt {
             .fetch_one(&mut *tx)
             .await?;
         tx.commit().await?;
-        Ok(ResultatRepro { etat, etat_repro, validation_requise, avertissement_delai, avertissement_cfc, copies_total })
+        Ok(ResultatRepro {
+            etat,
+            etat_repro,
+            validation_requise,
+            avertissement_delai,
+            avertissement_cfc,
+            copies_total,
+        })
     }
 
     /// Exemplaires proposés d'après l'effectif des classes ou groupes choisis (DEM-291). Des **nombres**, jamais de
@@ -648,7 +781,11 @@ impl PgEnt {
         groupes: &[Uuid],
     ) -> Result<Vec<EffectifCible>, RefusDemande> {
         let r = Role::parse(role).ok_or(RefusDemande::Interdit)?;
-        if !r.is_staff() || !self.a_action_etablissement(etab, user_id, role, Action::DemandesDeposer).await? {
+        if !r.is_staff()
+            || !self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesDeposer)
+                .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         if classes.len() + groupes.len() > 40 {
@@ -667,7 +804,11 @@ impl PgEnt {
             .bind(jour)
             .fetch_one(&mut *tx)
             .await?;
-            sortie.push(EffectifCible { classe_id: Some(*c), groupe_id: None, effectif: n });
+            sortie.push(EffectifCible {
+                classe_id: Some(*c),
+                groupe_id: None,
+                effectif: n,
+            });
         }
         for g in groupes {
             let (n,): (i64,) = sqlx::query_as(
@@ -679,7 +820,11 @@ impl PgEnt {
             .bind(jour)
             .fetch_one(&mut *tx)
             .await?;
-            sortie.push(EffectifCible { classe_id: None, groupe_id: Some(*g), effectif: n });
+            sortie.push(EffectifCible {
+                classe_id: None,
+                groupe_id: Some(*g),
+                effectif: n,
+            });
         }
         tx.commit().await?;
         Ok(sortie)
@@ -700,7 +845,12 @@ impl PgEnt {
         accepter: bool,
         note: Option<&str>,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let note = texte_court(&note.map(str::to_string), 300)?;
         if !accepter && note.is_none() {
@@ -715,7 +865,9 @@ impl PgEnt {
             return Err(RefusDemande::Interdit);
         }
         if a.etat != "a_valider" {
-            return Err(RefusDemande::Conflit("Cette demande n'attend pas de validation."));
+            return Err(RefusDemande::Conflit(
+                "Cette demande n'attend pas de validation.",
+            ));
         }
         let n = sqlx::query(
             "UPDATE ent_dem_repro SET etat = $3, valide_par_personne_id = $4, valide_le = now(), validation_note = $5
@@ -736,7 +888,9 @@ impl PgEnt {
         let mut statut = a.ligne.statut.clone();
         if !accepter {
             let jour = jour_metier(&mut tx, etab).await?;
-            let conservation = Conservation::Reprographie.duree_mois().and_then(|m| jour.checked_add_months(Months::new(m)));
+            let conservation = Conservation::Reprographie
+                .duree_mois()
+                .and_then(|m| jour.checked_add_months(Months::new(m)));
             let n = sqlx::query(
                 "UPDATE ent_dem_demande
                     SET statut = 'close', issue = 'refusee', decision = 'refusee', clos_le = now(), conservation_jusqu_au = $4,
@@ -751,7 +905,9 @@ impl PgEnt {
             .await?
             .rows_affected();
             if n != 1 {
-                return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+                return Err(RefusDemande::Conflit(
+                    "La demande a changé entre-temps : rechargez-la.",
+                ));
             }
             sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND traitee_le IS NULL")
                 .bind(etab)
@@ -761,15 +917,43 @@ impl PgEnt {
             version += 1;
             statut = "close".into();
         }
-        let mut f = FaitNouveau::nouveau(id, if accepter { "repro_validee" } else { "repro_refusee" });
+        let mut f = FaitNouveau::nouveau(
+            id,
+            if accepter {
+                "repro_validee"
+            } else {
+                "repro_refusee"
+            },
+        );
         f.auteur_personne = Some(a.moi);
         f.statut_avant = Some(&a.ligne.statut);
         f.statut_apres = Some(&statut);
         ajouter_fait(&mut tx, etab, f).await?;
-        let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, if accepter { "repro_validee" } else { "close" });
-        publier_enveloppe(&mut tx, etab, if accepter { types::DEMANDE_REPRO_VALIDEE } else { types::DEMANDE_CLOSE }, &env, Some(user_id)).await?;
+        let env = EnveloppeNeutre::nouvelle(
+            id,
+            &a.ligne.numero,
+            NATURE_REPRO,
+            if accepter { "repro_validee" } else { "close" },
+        );
+        publier_enveloppe(
+            &mut tx,
+            etab,
+            if accepter {
+                types::DEMANDE_REPRO_VALIDEE
+            } else {
+                types::DEMANDE_CLOSE
+            },
+            &env,
+            Some(user_id),
+        )
+        .await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut, version })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut,
+            version,
+        })
     }
 
     /// Les demandes de copies à valider (DEM-295), pour le titulaire de `demandes.repro.valider` : jamais les siennes.
@@ -780,7 +964,11 @@ impl PgEnt {
         role: &str,
     ) -> Result<Vec<LigneImpression>, RefusDemande> {
         let r = Role::parse(role).ok_or(RefusDemande::Interdit)?;
-        if !r.is_staff() || !self.a_action_etablissement(etab, user_id, role, Action::DemandesReproValider).await? {
+        if !r.is_staff()
+            || !self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesReproValider)
+                .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -792,7 +980,6 @@ impl PgEnt {
 }
 
 // ───────────────────────── File d'impression par site (NJ-77, R-DM46) ─────────────────────────
-
 
 /// Lecture de la file : sites **désignés** (si `agent` donné) ou tous (validation), jamais les demandes de `exclure`.
 async fn lignes_impression(
@@ -835,7 +1022,12 @@ async fn lignes_impression(
 impl PgEnt {
     /// La file d'impression **des sites désignés au réceptionnaire** (DEM-296) : rien des autres sites (NJ-77). Sans
     /// désignation, la file est vide : jamais « tout un rôle » par défaut.
-    pub async fn file_impression_for_actor(&self, etab: Uuid, user_id: Uuid, role: &str) -> Result<Vec<LigneImpression>, RefusDemande> {
+    pub async fn file_impression_for_actor(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<Vec<LigneImpression>, RefusDemande> {
         let r = Role::parse(role).ok_or(RefusDemande::Interdit)?;
         if !r.is_staff() {
             return Err(RefusDemande::Interdit);
@@ -843,7 +1035,16 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let agent = crate::personnels::agent_du_user_tx(&mut tx, etab, user_id).await?;
         let l = match agent {
-            Some(a) => lignes_impression(&mut tx, etab, &["a_imprimer", "en_impression", "prete"], Some(a), None).await?,
+            Some(a) => {
+                lignes_impression(
+                    &mut tx,
+                    etab,
+                    &["a_imprimer", "en_impression", "prete"],
+                    Some(a),
+                    None,
+                )
+                .await?
+            }
             None => Vec::new(),
         };
         tx.commit().await?;
@@ -851,7 +1052,11 @@ impl PgEnt {
     }
 
     /// « Mes copies » : mes demandes de copies (demandeur ou déposant), avec l'état courant.
-    pub async fn mes_repro_for_actor(&self, etab: Uuid, user_id: Uuid) -> Result<Vec<LigneImpression>, RefusDemande> {
+    pub async fn mes_repro_for_actor(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<LigneImpression>, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let moi = personne_du_user(&mut tx, etab, user_id).await?;
         let l: Vec<(Uuid,)> = sqlx::query_as(
@@ -870,16 +1075,31 @@ impl PgEnt {
     }
 }
 
-async fn lignes_impression_ids(conn: &mut PgConnection, etab: Uuid, ids: &[Uuid]) -> Result<Vec<LigneImpression>, RefusDemande> {
+async fn lignes_impression_ids(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    ids: &[Uuid],
+) -> Result<Vec<LigneImpression>, RefusDemande> {
     let toutes = lignes_impression(
         conn,
         etab,
-        &["a_valider", "a_imprimer", "en_impression", "prete", "retiree", "refusee", "annulee"],
+        &[
+            "a_valider",
+            "a_imprimer",
+            "en_impression",
+            "prete",
+            "retiree",
+            "refusee",
+            "annulee",
+        ],
         None,
         None,
     )
     .await?;
-    let mut sortie: Vec<LigneImpression> = toutes.into_iter().filter(|l| ids.contains(&l.demande_id)).collect();
+    let mut sortie: Vec<LigneImpression> = toutes
+        .into_iter()
+        .filter(|l| ids.contains(&l.demande_id))
+        .collect();
     sortie.sort_by_key(|l| ids.iter().position(|i| *i == l.demande_id));
     Ok(sortie)
 }
@@ -897,12 +1117,18 @@ impl PgEnt {
         id: Uuid,
         document_id: Uuid,
     ) -> Result<String, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, false).await?;
         // Le fichier se lit par le réceptionnaire du site (une fois la demande acceptée) ou par son demandeur.
-        let lisible = (a.est(ProfilRepro::Receptionnaire) && matches!(a.etat.as_str(), "a_imprimer" | "en_impression" | "prete"))
+        let lisible = (a.est(ProfilRepro::Receptionnaire)
+            && matches!(a.etat.as_str(), "a_imprimer" | "en_impression" | "prete"))
             || a.demandeur_ou_deposant();
         if !lisible {
             return Err(RefusDemande::Introuvable);
@@ -919,7 +1145,9 @@ impl PgEnt {
         if !ok {
             return Err(RefusDemande::Introuvable);
         }
-        let jeton = docs.jeton_lecture(etab, document_id, user_id).ok_or(RefusDemande::Indisponible)?;
+        let jeton = docs
+            .jeton_lecture(etab, document_id, user_id)
+            .ok_or(RefusDemande::Indisponible)?;
         let mut f = FaitNouveau::nouveau(id, "repro_pdf_ouvert");
         f.auteur_personne = Some(a.moi);
         f.ref_id = Some(document_id);
@@ -936,7 +1164,12 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, true).await?;
@@ -968,7 +1201,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND type = 'prise_en_charge' AND traitee_le IS NULL")
             .bind(etab)
@@ -985,7 +1220,12 @@ impl PgEnt {
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "prise");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_PRISE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "prise".into(), version: a.ligne.version + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "prise".into(),
+            version: a.ligne.version + 1,
+        })
     }
 
     /// Marque la demande **prête** (DEM-299) : un **geste authentifié** du réceptionnaire du site, avec le lieu de
@@ -998,7 +1238,12 @@ impl PgEnt {
         id: Uuid,
         lieu_retrait: Option<Uuid>,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, true).await?;
@@ -1020,7 +1265,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("Cette demande n'est pas en cours d'impression."));
+            return Err(RefusDemande::Conflit(
+                "Cette demande n'est pas en cours d'impression.",
+            ));
         }
         let n = sqlx::query(
             "UPDATE ent_dem_demande SET statut = 'traitee', version = version + 1
@@ -1033,7 +1280,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND traitee_le IS NULL")
             .bind(etab)
@@ -1046,9 +1295,21 @@ impl PgEnt {
         f.statut_apres = Some("traitee");
         ajouter_fait(&mut tx, etab, f).await?;
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "repro_prete");
-        publier_enveloppe(&mut tx, etab, types::DEMANDE_REPRO_PRETE, &env, Some(user_id)).await?;
+        publier_enveloppe(
+            &mut tx,
+            etab,
+            types::DEMANDE_REPRO_PRETE,
+            &env,
+            Some(user_id),
+        )
+        .await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "traitee".into(), version: a.ligne.version + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "traitee".into(),
+            version: a.ligne.version + 1,
+        })
     }
 
     /// Marque les copies **retirées** (DEM-300) : par le réceptionnaire ou par le demandeur. La demande se clôt.
@@ -1059,7 +1320,12 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, true).await?;
@@ -1079,7 +1345,9 @@ impl PgEnt {
             return Err(RefusDemande::Conflit("Ces copies ne sont pas prêtes."));
         }
         let jour = jour_metier(&mut tx, etab).await?;
-        let conservation = Conservation::Reprographie.duree_mois().and_then(|m| jour.checked_add_months(Months::new(m)));
+        let conservation = Conservation::Reprographie
+            .duree_mois()
+            .and_then(|m| jour.checked_add_months(Months::new(m)));
         let n = sqlx::query(
             "UPDATE ent_dem_demande
                 SET statut = 'close', issue = 'traitee', clos_le = now(), conservation_jusqu_au = $4, version = version + 1
@@ -1093,7 +1361,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "close");
         f.auteur_personne = Some(a.moi);
@@ -1104,7 +1374,12 @@ impl PgEnt {
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "close");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_CLOSE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "close".into(), version: a.ligne.version + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "close".into(),
+            version: a.ligne.version + 1,
+        })
     }
 
     /// Le demandeur annule tant que l'impression n'a pas commencé (DEM-303).
@@ -1115,7 +1390,12 @@ impl PgEnt {
         role: &str,
         id: Uuid,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, true).await?;
@@ -1131,7 +1411,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("L'impression est commencée : écrivez à la reprographie."));
+            return Err(RefusDemande::Conflit(
+                "L'impression est commencée : écrivez à la reprographie.",
+            ));
         }
         let n = sqlx::query(
             "UPDATE ent_dem_demande
@@ -1145,7 +1427,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND traitee_le IS NULL")
             .bind(etab)
@@ -1161,7 +1445,12 @@ impl PgEnt {
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "close");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_CLOSE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "annulee".into(), version: a.ligne.version + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "annulee".into(),
+            version: a.ligne.version + 1,
+        })
     }
 
     /// Le réceptionnaire signale un problème (DEM-301) : un **message fixe** au demandeur (jamais de texte libre dans
@@ -1174,7 +1463,12 @@ impl PgEnt {
         id: Uuid,
         probleme: &str,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let phrase = PROBLEMES
             .iter()
@@ -1186,8 +1480,12 @@ impl PgEnt {
         if !a.est(ProfilRepro::Receptionnaire) {
             return Err(RefusDemande::Interdit);
         }
-        if !matches!(a.etat.as_str(), "a_imprimer" | "en_impression") || a.ligne.statut == "en_attente_demandeur" {
-            return Err(RefusDemande::Conflit("Cette demande n'est pas en cours de traitement."));
+        if !matches!(a.etat.as_str(), "a_imprimer" | "en_impression")
+            || a.ligne.statut == "en_attente_demandeur"
+        {
+            return Err(RefusDemande::Conflit(
+                "Cette demande n'est pas en cours de traitement.",
+            ));
         }
         let mid = Uuid::new_v4();
         sqlx::query(
@@ -1217,19 +1515,32 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "complement_demande");
         f.auteur_personne = Some(a.moi);
         f.statut_avant = Some(&a.ligne.statut);
         f.statut_apres = Some("en_attente_demandeur");
-        f.motif = Some(PROBLEMES.iter().find(|(c, _)| *c == probleme).map_or("autre", |(c, _)| *c));
+        f.motif = Some(
+            PROBLEMES
+                .iter()
+                .find(|(c, _)| *c == probleme)
+                .map_or("autre", |(c, _)| *c),
+        );
         f.ref_id = Some(mid);
         ajouter_fait(&mut tx, etab, f).await?;
-        let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "complement_demande");
+        let env =
+            EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_REPRO, "complement_demande");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_ECHANGE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "en_attente_demandeur".into(), version: a.ligne.version + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "en_attente_demandeur".into(),
+            version: a.ligne.version + 1,
+        })
     }
 
     /// Transfère la demande à la file d'un **autre site** (DEM-302, CDM-54 : copieur en panne). Le site cible doit
@@ -1242,7 +1553,12 @@ impl PgEnt {
         id: Uuid,
         site_cible: Uuid,
     ) -> Result<(), RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, true).await?;
@@ -1289,7 +1605,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "repro_transferee");
         f.auteur_personne = Some(a.moi);
@@ -1312,8 +1630,22 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = acces_repro(self, &mut tx, etab, user_id, role, id, false).await?;
         type Ligne = (
-            String, Uuid, bool, bool, bool, String, i32, i32, i32, NaiveDate, bool, bool, bool,
-            Option<String>, Option<chrono::DateTime<chrono::Utc>>, Option<chrono::DateTime<chrono::Utc>>,
+            String,
+            Uuid,
+            bool,
+            bool,
+            bool,
+            String,
+            i32,
+            i32,
+            i32,
+            NaiveDate,
+            bool,
+            bool,
+            bool,
+            Option<String>,
+            Option<chrono::DateTime<chrono::Utc>>,
+            Option<chrono::DateTime<chrono::Utc>>,
         );
         let r: Ligne = sqlx::query_as(
             "SELECT r.etat, r.site_id, r.couleur, r.recto_verso, r.agrafage, r.format, r.pages_total, r.exemplaires_total,
@@ -1334,7 +1666,10 @@ impl PgEnt {
                 .execute(&mut *tx)
                 .await?;
         }
-        let documents: Vec<(Uuid,)> = if a.demandeur_ou_deposant() || a.est(ProfilRepro::Receptionnaire) || a.est(ProfilRepro::Validateur) {
+        let documents: Vec<(Uuid,)> = if a.demandeur_ou_deposant()
+            || a.est(ProfilRepro::Receptionnaire)
+            || a.est(ProfilRepro::Validateur)
+        {
             sqlx::query_as(
                 "SELECT document_id FROM ent_dem_repro_document WHERE etablissement_id = $1 AND demande_id = $2 AND efface_le IS NULL ORDER BY cree_le, id",
             )
@@ -1377,7 +1712,12 @@ impl PgEnt {
             documents: documents.into_iter().map(|(d,)| d).collect(),
             cibles: cibles
                 .into_iter()
-                .map(|(c, g, e, l)| CibleRepro { classe_id: c, groupe_id: g, exemplaires: e, retrait_lieu_id: l })
+                .map(|(c, g, e, l)| CibleRepro {
+                    classe_id: c,
+                    groupe_id: g,
+                    exemplaires: e,
+                    retrait_lieu_id: l,
+                })
                 .collect(),
         })
     }
@@ -1418,7 +1758,9 @@ impl PgEnt {
         jour_semaine: i16,
     ) -> Result<Uuid, RefusDemande> {
         if !(1..=7).contains(&jour_semaine) {
-            return Err(RefusDemande::Invalide("Le jour de la semaine est de 1 (lundi) à 7 (dimanche)."));
+            return Err(RefusDemande::Invalide(
+                "Le jour de la semaine est de 1 (lundi) à 7 (dimanche).",
+            ));
         }
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1455,7 +1797,11 @@ impl PgEnt {
 
     /// Les brouillons à redéposer **aujourd'hui** (jour de l'établissement) : un seul rappel par jour et par
     /// récurrence. Rien n'est déposé.
-    pub async fn recurrences_dues_for_actor(&self, etab: Uuid, user_id: Uuid) -> Result<Vec<(Uuid, ModeleRepro)>, RefusDemande> {
+    pub async fn recurrences_dues_for_actor(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<(Uuid, ModeleRepro)>, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let moi = personne_du_user(&mut tx, etab, user_id).await?;
         let jour = jour_metier(&mut tx, etab).await?;
@@ -1482,7 +1828,12 @@ impl PgEnt {
     }
 }
 
-async fn modele_de(conn: &mut PgConnection, etab: Uuid, id: Uuid, ligne: &LigneDemande) -> Result<ModeleRepro, RefusDemande> {
+async fn modele_de(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+    ligne: &LigneDemande,
+) -> Result<ModeleRepro, RefusDemande> {
     let r: (Uuid, String, bool, bool, bool, i32, Option<Uuid>, Option<String>) = sqlx::query_as(
         "SELECT r.site_id, r.format, r.couleur, r.recto_verso, r.agrafage, r.exemplaires_total, r.retrait_lieu_id, d.objet
            FROM ent_dem_repro r JOIN ent_dem_demande d ON d.etablissement_id = r.etablissement_id AND d.id = r.demande_id
@@ -1518,19 +1869,31 @@ impl PgEnt {
         seuil_copies: i32,
         delai_jours: i16,
     ) -> Result<ReglageSiteRepro, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         if !(1..=100_000).contains(&seuil_copies) || !(0..=15).contains(&delai_jours) {
-            return Err(RefusDemande::Invalide("Le seuil ou le délai est hors limites."));
+            return Err(RefusDemande::Invalide(
+                "Le seuil ou le délai est hors limites.",
+            ));
         }
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesParametrer).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesParametrer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let (existe,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)")
-            .bind(etab)
-            .bind(site)
-            .fetch_one(&mut *tx)
-            .await?;
+        let (existe,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(site)
+        .fetch_one(&mut *tx)
+        .await?;
         if !existe {
             return Err(RefusDemande::Invalide("Ce site n'existe pas."));
         }
@@ -1562,7 +1925,11 @@ impl PgEnt {
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
-        Ok(ReglageSiteRepro { site_id: site, seuil_copies, delai_jours })
+        Ok(ReglageSiteRepro {
+            site_id: site,
+            seuil_copies,
+            delai_jours,
+        })
     }
 
     /// Ajoute un lieu de retrait à un site (DEM-305).
@@ -1574,20 +1941,32 @@ impl PgEnt {
         site: Uuid,
         libelle: &str,
     ) -> Result<Uuid, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let libelle = libelle.trim();
         if libelle.is_empty() || libelle.chars().count() > 80 || libelle.contains('\0') {
-            return Err(RefusDemande::Invalide("Le lieu de retrait est obligatoire (80 caractères au plus)."));
+            return Err(RefusDemande::Invalide(
+                "Le lieu de retrait est obligatoire (80 caractères au plus).",
+            ));
         }
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesParametrer).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesParametrer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let (existe,): (bool,) = sqlx::query_as("SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)")
-            .bind(etab)
-            .bind(site)
-            .fetch_one(&mut *tx)
-            .await?;
+        let (existe,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_site WHERE etablissement_id = $1 AND id = $2)",
+        )
+        .bind(etab)
+        .bind(site)
+        .fetch_one(&mut *tx)
+        .await?;
         if !existe {
             return Err(RefusDemande::Invalide("Ce site n'existe pas."));
         }
@@ -1613,8 +1992,16 @@ impl PgEnt {
         agent: Uuid,
         designer: bool,
     ) -> Result<(), RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesParametrer).await? {
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesParametrer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1670,13 +2057,21 @@ impl PgEnt {
         role: &str,
         mois: NaiveDate,
     ) -> Result<(Vec<LigneCompteur>, String), RefusDemande> {
-        let ok = self.a_action_etablissement(etab, user_id, role, Action::DemandesReproValider).await?
-            || self.a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer).await?;
+        let ok = self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesReproValider)
+            .await?
+            || self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer)
+                .await?;
         if !ok {
             return Err(RefusDemande::Interdit);
         }
-        let debut = mois.with_day(1).ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
-        let fin = debut.checked_add_months(Months::new(1)).ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
+        let debut = mois
+            .with_day(1)
+            .ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
+        let fin = debut
+            .checked_add_months(Months::new(1))
+            .ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let l: Vec<(Uuid, String, bool, i64, i64)> = sqlx::query_as(
             "SELECT r.site_id, btrim(COALESCE(p.prenom, '') || ' ' || p.nom), r.couleur, count(*)::bigint, sum(r.copies_total)::bigint
@@ -1697,8 +2092,18 @@ impl PgEnt {
         let mut csv = String::from("site;demandeur;couleur;demandes;copies\n");
         let mut lignes = Vec::new();
         for (site_id, nom, couleur, demandes, copies) in l {
-            csv.push_str(&format!("{site_id};{};{};{demandes};{copies}\n", cellule_csv(&nom), if couleur { "couleur" } else { "noir_et_blanc" }));
-            lignes.push(LigneCompteur { site_id, demandeur_nom: nom, couleur, demandes, copies });
+            csv.push_str(&format!(
+                "{site_id};{};{};{demandes};{copies}\n",
+                cellule_csv(&nom),
+                if couleur { "couleur" } else { "noir_et_blanc" }
+            ));
+            lignes.push(LigneCompteur {
+                site_id,
+                demandeur_nom: nom,
+                couleur,
+                demandes,
+                copies,
+            });
         }
         Ok((lignes, csv))
     }
@@ -1709,7 +2114,10 @@ impl PgEnt {
 impl PgEnt {
     /// Rappelle au demandeur des copies prêtes **non retirées à J+3** (DEM-306, CDM-55) : un seul rappel par demande,
     /// jour d'établissement. Rapport sans nom.
-    pub async fn rappeler_copies_non_retirees(&self, etab: Uuid) -> Result<RapportRepro, RefusDemande> {
+    pub async fn rappeler_copies_non_retirees(
+        &self,
+        etab: Uuid,
+    ) -> Result<RapportRepro, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let jour = jour_metier(&mut tx, etab).await?;
         let l: Vec<(Uuid, String)> = sqlx::query_as(
@@ -1744,7 +2152,11 @@ impl PgEnt {
     /// Efface les PDF échus (DEM-256, §18.5, CDM-55) : 30 jours après le retrait, 60 jours après « prête » sans
     /// retrait, 30 jours après un refus ou une annulation. **Le socle 7 efface** ; N1 ne marque `efface_le` que s'il
     /// le confirme (sinon rien, et on recommence au passage suivant).
-    pub async fn effacer_pdf_repro_echus(&self, etab: Uuid, docs: &dyn PortDocuments) -> Result<RapportRepro, RefusDemande> {
+    pub async fn effacer_pdf_repro_echus(
+        &self,
+        etab: Uuid,
+        docs: &dyn PortDocuments,
+    ) -> Result<RapportRepro, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let jour = jour_metier(&mut tx, etab).await?;
         let l: Vec<(Uuid, Uuid)> = sqlx::query_as(

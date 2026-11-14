@@ -22,8 +22,9 @@
 //! Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais la date du serveur.
 
 use crate::demandes::{
-    ajouter_fait, charger_pour_acces, publier_enveloppe, ContexteVolet, DepotDemande, EnveloppeNeutre, EtatDemande, FaitNouveau,
-    Lien, QuotasDemandes, RefusDemande, SourcesDemandes, Valeur, ValeurSaisie, Volet,
+    ajouter_fait, charger_pour_acces, publier_enveloppe, ContexteVolet, DepotDemande,
+    EnveloppeNeutre, EtatDemande, FaitNouveau, Lien, QuotasDemandes, RefusDemande, SourcesDemandes,
+    Valeur, ValeurSaisie, Volet,
 };
 use crate::demandes_files::jour_metier;
 use crate::service::PgEnt;
@@ -39,11 +40,24 @@ use uuid::Uuid;
 pub const NATURE_HSE: &str = "rh.hse";
 
 /// Motifs de la demande (liste fermée, Q-DM5 : à confirmer avec Florian).
-pub const MOTIFS: &[&str] =
-    &["soutien", "atelier", "accompagnement_sortie", "stage_reussite", "preparation_concours", "tutorat", "autre"];
+pub const MOTIFS: &[&str] = &[
+    "soutien",
+    "atelier",
+    "accompagnement_sortie",
+    "stage_reussite",
+    "preparation_concours",
+    "tutorat",
+    "autre",
+];
 
 /// Motifs d'une décision partielle ou d'un refus (codes, jamais de texte libre dans les faits).
-pub const MOTIFS_DECISION: &[&str] = &["budget", "pas_besoin", "hors_perimetre", "volume_excessif", "autre"];
+pub const MOTIFS_DECISION: &[&str] = &[
+    "budget",
+    "pas_besoin",
+    "hors_perimetre",
+    "volume_excessif",
+    "autre",
+];
 
 /// Type d'heure de l'export (l'application académique en déduit le tarif ; ScolIA ne calcule aucun montant).
 pub fn type_heure_du_motif(motif: &str) -> &'static str {
@@ -141,13 +155,17 @@ impl DepotHse {
             return Err(RefusDemande::Invalide("Le motif choisi n'existe pas."));
         }
         if !(1..=1600).contains(&d.volume_quarts) {
-            return Err(RefusDemande::Invalide("Le volume demandé doit être de 15 minutes à 400 heures."));
+            return Err(RefusDemande::Invalide(
+                "Le volume demandé doit être de 15 minutes à 400 heures.",
+            ));
         }
         if d.periode_au < d.periode_du || (d.periode_au - d.periode_du).num_days() > 366 {
             return Err(RefusDemande::Invalide("La période est incohérente."));
         }
         if d.seances.len() > 60 || d.classes.len() > 20 || d.groupes.len() > 20 {
-            return Err(RefusDemande::Invalide("Trop de séances ou de classes pour une seule demande."));
+            return Err(RefusDemande::Invalide(
+                "Trop de séances ou de classes pour une seule demande.",
+            ));
         }
         let mut total = 0_i64;
         for s in &d.seances {
@@ -155,17 +173,39 @@ impl DepotHse {
             total += i64::from(s.duree_quarts);
         }
         if total > i64::from(d.volume_quarts) {
-            return Err(RefusDemande::Invalide("Les séances dépassent le volume demandé."));
+            return Err(RefusDemande::Invalide(
+                "Les séances dépassent le volume demandé.",
+            ));
         }
         let lieu = texte_court(&d.lieu, 120)?;
         let mut valeurs = vec![
-            ValeurSaisie { champ: "motif".into(), rang: 0, valeur: Valeur::Code(d.motif.clone()) },
-            ValeurSaisie { champ: "volume_quarts".into(), rang: 0, valeur: Valeur::Entier(i64::from(d.volume_quarts)) },
-            ValeurSaisie { champ: "periode_du".into(), rang: 0, valeur: Valeur::Date(d.periode_du) },
-            ValeurSaisie { champ: "periode_au".into(), rang: 0, valeur: Valeur::Date(d.periode_au) },
+            ValeurSaisie {
+                champ: "motif".into(),
+                rang: 0,
+                valeur: Valeur::Code(d.motif.clone()),
+            },
+            ValeurSaisie {
+                champ: "volume_quarts".into(),
+                rang: 0,
+                valeur: Valeur::Entier(i64::from(d.volume_quarts)),
+            },
+            ValeurSaisie {
+                champ: "periode_du".into(),
+                rang: 0,
+                valeur: Valeur::Date(d.periode_du),
+            },
+            ValeurSaisie {
+                champ: "periode_au".into(),
+                rang: 0,
+                valeur: Valeur::Date(d.periode_au),
+            },
         ];
         if let Some(l) = &lieu {
-            valeurs.push(ValeurSaisie { champ: "lieu".into(), rang: 0, valeur: Valeur::Texte(l.clone()) });
+            valeurs.push(ValeurSaisie {
+                champ: "lieu".into(),
+                rang: 0,
+                valeur: Valeur::Texte(l.clone()),
+            });
         }
         let volet = VoletHse {
             motif: d.motif,
@@ -324,7 +364,10 @@ pub struct ReglageHse {
 
 impl Default for ReglageHse {
     fn default() -> Self {
-        Self { attestation_service_fait: false, echantillon_pct: 10 }
+        Self {
+            attestation_service_fait: false,
+            echantillon_pct: 10,
+        }
     }
 }
 
@@ -349,16 +392,18 @@ pub struct RapportAlertesHse {
 pub(crate) fn texte_court(t: &Option<String>, max: usize) -> Result<Option<String>, RefusDemande> {
     match t.as_deref().map(str::trim) {
         None | Some("") => Ok(None),
-        Some(s) if s.chars().count() > max || s.contains('\0') => {
-            Err(RefusDemande::Invalide("Un des textes saisis est trop long."))
-        }
+        Some(s) if s.chars().count() > max || s.contains('\0') => Err(RefusDemande::Invalide(
+            "Un des textes saisis est trop long.",
+        )),
         Some(s) => Ok(Some(s.to_string())),
     }
 }
 
 fn valider_seance(s: &SeanceSaisie) -> Result<(), RefusDemande> {
     if !(1..=48).contains(&s.duree_quarts) {
-        return Err(RefusDemande::Invalide("La durée d'une séance est de 15 minutes à 12 heures."));
+        return Err(RefusDemande::Invalide(
+            "La durée d'une séance est de 15 minutes à 12 heures.",
+        ));
     }
     texte_court(&s.lieu, 120)?;
     Ok(())
@@ -379,7 +424,11 @@ async fn reglage(conn: &mut PgConnection, etab: Uuid) -> Result<ReglageHse, Refu
     .bind(etab)
     .fetch_optional(conn)
     .await?;
-    Ok(r.map(|(a, e)| ReglageHse { attestation_service_fait: a, echantillon_pct: e }).unwrap_or_default())
+    Ok(r.map(|(a, e)| ReglageHse {
+        attestation_service_fait: a,
+        echantillon_pct: e,
+    })
+    .unwrap_or_default())
 }
 
 #[derive(Debug, FromRow)]
@@ -402,7 +451,12 @@ struct LigneHseDb {
     avenant_periode_au: Option<NaiveDate>,
 }
 
-async fn charger_hse(conn: &mut PgConnection, etab: Uuid, demande: Uuid, verrou: bool) -> Result<LigneHseDb, RefusDemande> {
+async fn charger_hse(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+    verrou: bool,
+) -> Result<LigneHseDb, RefusDemande> {
     let sql = format!(
         "SELECT h.annee_id, h.site_id, h.beneficiaire_agent_id, a.personne_id AS beneficiaire_personne_id, h.motif, h.type_heure,
                 h.volume_demande_quarts, h.volume_accorde_quarts, h.periode_du, h.periode_au, h.confirmation_requise,
@@ -413,7 +467,11 @@ async fn charger_hse(conn: &mut PgConnection, etab: Uuid, demande: Uuid, verrou:
           WHERE h.etablissement_id = $1 AND h.demande_id = $2{}",
         if verrou { " FOR UPDATE OF h" } else { "" }
     );
-    let l: Option<LigneHseDb> = sqlx::query_as(&sql).bind(etab).bind(demande).fetch_optional(conn).await?;
+    let l: Option<LigneHseDb> = sqlx::query_as(&sql)
+        .bind(etab)
+        .bind(demande)
+        .fetch_optional(conn)
+        .await?;
     l.ok_or(RefusDemande::Introuvable)
 }
 
@@ -435,18 +493,31 @@ struct SeanceDb {
     transmission: String,
 }
 
-async fn seances_de(conn: &mut PgConnection, etab: Uuid, demande: Uuid, verrou: bool) -> Result<Vec<SeanceDb>, RefusDemande> {
+async fn seances_de(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    demande: Uuid,
+    verrou: bool,
+) -> Result<Vec<SeanceDb>, RefusDemande> {
     let sql = format!(
         "SELECT id, jour, duree_quarts, retenu_quarts, etat, transmission FROM ent_dem_hse_seance
           WHERE etablissement_id = $1 AND demande_id = $2 AND etat <> 'annulee'
           ORDER BY jour, debut NULLS LAST, cree_le, id{}",
         if verrou { " FOR UPDATE" } else { "" }
     );
-    Ok(sqlx::query_as(&sql).bind(etab).bind(demande).fetch_all(conn).await?)
+    Ok(sqlx::query_as(&sql)
+        .bind(etab)
+        .bind(demande)
+        .fetch_all(conn)
+        .await?)
 }
 
 /// Fin de l'année scolaire de la demande (CDM-46 : aucune séance après le dernier jour de l'année d'origine).
-async fn fin_annee(conn: &mut PgConnection, etab: Uuid, annee: Uuid) -> Result<(NaiveDate, NaiveDate), RefusDemande> {
+async fn fin_annee(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    annee: Uuid,
+) -> Result<(NaiveDate, NaiveDate), RefusDemande> {
     let r: Option<(NaiveDate, NaiveDate)> =
         sqlx::query_as("SELECT date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND id = $2")
             .bind(etab)
@@ -456,9 +527,15 @@ async fn fin_annee(conn: &mut PgConnection, etab: Uuid, annee: Uuid) -> Result<(
     r.ok_or(RefusDemande::Indisponible)
 }
 
-fn verifier_periode(jour_seance: NaiveDate, du: NaiveDate, au: NaiveDate) -> Result<(), RefusDemande> {
+fn verifier_periode(
+    jour_seance: NaiveDate,
+    du: NaiveDate,
+    au: NaiveDate,
+) -> Result<(), RefusDemande> {
     if jour_seance < du || jour_seance > au {
-        return Err(RefusDemande::Invalide("La séance est hors de la période demandée."));
+        return Err(RefusDemande::Invalide(
+            "La séance est hors de la période demandée.",
+        ));
     }
     Ok(())
 }
@@ -467,7 +544,11 @@ fn verifier_periode(jour_seance: NaiveDate, du: NaiveDate, au: NaiveDate) -> Res
 
 /// Écrit le volet dans la transaction du dépôt (appelé par `deposer_demande_avec_quotas`). Tout ce qui dépend de la
 /// base — bénéficiaire, année, classes, jour — est contrôlé ici ; tout ce qui n'en dépend pas l'a été avant.
-pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, h: &VoletHse) -> Result<(), RefusDemande> {
+pub(crate) async fn ecrire_volet(
+    conn: &mut PgConnection,
+    ctx: &ContexteVolet,
+    h: &VoletHse,
+) -> Result<(), RefusDemande> {
     // Le bénéficiaire est un AGENT (socle 6) : jamais saisi comme texte (NJ-91).
     let agent: Option<(Uuid,)> =
         sqlx::query_as("SELECT id FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 ORDER BY cree_le LIMIT 1")
@@ -476,41 +557,55 @@ pub(crate) async fn ecrire_volet(conn: &mut PgConnection, ctx: &ContexteVolet, h
             .fetch_optional(&mut *conn)
             .await?;
     let Some((agent_id,)) = agent else {
-        return Err(RefusDemande::Invalide("Seul un personnel peut recevoir des heures supplémentaires."));
+        return Err(RefusDemande::Invalide(
+            "Seul un personnel peut recevoir des heures supplémentaires.",
+        ));
     };
     let (debut_annee, fin_annee) = fin_annee(&mut *conn, ctx.etab, ctx.annee_id).await?;
     if h.periode_du < debut_annee || h.periode_au > fin_annee {
-        return Err(RefusDemande::Invalide("La période doit tenir dans l'année scolaire en cours."));
+        return Err(RefusDemande::Invalide(
+            "La période doit tenir dans l'année scolaire en cours.",
+        ));
     }
     for s in &h.seances {
         verifier_periode(s.jour, h.periode_du, h.periode_au)?;
         if s.fait && s.jour > ctx.jour {
-            return Err(RefusDemande::Invalide("Une séance à venir ne peut pas être déclarée faite."));
+            return Err(RefusDemande::Invalide(
+                "Une séance à venir ne peut pas être déclarée faite.",
+            ));
         }
         if !s.fait && s.jour < ctx.jour {
-            return Err(RefusDemande::Invalide("Une séance passée se déclare faite."));
+            return Err(RefusDemande::Invalide(
+                "Une séance passée se déclare faite.",
+            ));
         }
     }
     if !h.classes.is_empty() {
-        let (n,): (i64,) =
-            sqlx::query_as("SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = ANY($2)")
-                .bind(ctx.etab)
-                .bind(&h.classes)
-                .fetch_one(&mut *conn)
-                .await?;
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_classe WHERE etablissement_id = $1 AND id = ANY($2)",
+        )
+        .bind(ctx.etab)
+        .bind(&h.classes)
+        .fetch_one(&mut *conn)
+        .await?;
         if usize::try_from(n).ok() != Some(h.classes.len()) {
-            return Err(RefusDemande::Invalide("Une des classes choisies est introuvable."));
+            return Err(RefusDemande::Invalide(
+                "Une des classes choisies est introuvable.",
+            ));
         }
     }
     if !h.groupes.is_empty() {
-        let (n,): (i64,) =
-            sqlx::query_as("SELECT count(*) FROM ent_groupe WHERE etablissement_id = $1 AND id = ANY($2)")
-                .bind(ctx.etab)
-                .bind(&h.groupes)
-                .fetch_one(&mut *conn)
-                .await?;
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_groupe WHERE etablissement_id = $1 AND id = ANY($2)",
+        )
+        .bind(ctx.etab)
+        .bind(&h.groupes)
+        .fetch_one(&mut *conn)
+        .await?;
         if usize::try_from(n).ok() != Some(h.groupes.len()) {
-            return Err(RefusDemande::Invalide("Un des groupes choisis est introuvable."));
+            return Err(RefusDemande::Invalide(
+                "Un des groupes choisis est introuvable.",
+            ));
         }
     }
     let pour_compte = ctx.deposant != ctx.demandeur;
@@ -587,7 +682,8 @@ impl PgEnt {
         d: DepotHse,
     ) -> Result<EtatDemande, RefusDemande> {
         let depot = d.vers_depot_demande()?;
-        self.deposer_demande_for_actor(etab, user_id, role, sources, depot).await
+        self.deposer_demande_for_actor(etab, user_id, role, sources, depot)
+            .await
     }
 
     /// Le bénéficiaire confirme une demande déposée en son nom (R-DM43, DEM-261). Sans effet s'il l'a déjà fait.
@@ -599,7 +695,12 @@ impl PgEnt {
         sources: &dyn SourcesDemandes,
         id: Uuid,
     ) -> Result<(), RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
@@ -637,14 +738,21 @@ impl PgEnt {
         decision: DecisionHse,
         options: OptionsDecision,
     ) -> Result<ResultatDecisionHse, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
         refus_geste_hse(&a)?;
         // Droit : membre de la file de direction ET action de décision.
         if a.lien != Lien::Traitant
-            || !self.a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseDecider).await?
+            || !self
+                .a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseDecider)
+                .await?
         {
             return Err(RefusDemande::Interdit);
         }
@@ -657,29 +765,46 @@ impl PgEnt {
             return Err(RefusDemande::Interdit);
         }
         if a.ligne.version != version_attendue {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let avenant = h.avenant_volume_quarts.is_some();
         if h.decision.is_some() && !avenant {
-            return Err(RefusDemande::Conflit("Cette demande a déjà reçu une décision."));
+            return Err(RefusDemande::Conflit(
+                "Cette demande a déjà reçu une décision.",
+            ));
         }
         if a.ligne.statut == "annulee" {
             return Err(RefusDemande::Conflit("Cette demande est annulée."));
         }
         if h.confirmation_requise && !h.confirmee {
-            return Err(RefusDemande::Conflit("Le collègue doit d'abord confirmer cette demande, ou la retirer."));
+            return Err(RefusDemande::Conflit(
+                "Le collègue doit d'abord confirmer cette demande, ou la retirer.",
+            ));
         }
         let demande_quarts = h.avenant_volume_quarts.unwrap_or(h.volume_demande_quarts);
         let (code, volume, motif): (&'static str, i32, Option<String>) = match &decision {
             DecisionHse::Accorder => ("accordee", demande_quarts, None),
-            DecisionHse::AccorderEnPartie { volume_quarts, motif } => {
+            DecisionHse::AccorderEnPartie {
+                volume_quarts,
+                motif,
+            } => {
                 if *volume_quarts < 1 || *volume_quarts >= demande_quarts {
-                    return Err(RefusDemande::Invalide("Un accord partiel est inférieur au volume demandé."));
+                    return Err(RefusDemande::Invalide(
+                        "Un accord partiel est inférieur au volume demandé.",
+                    ));
                 }
                 if !MOTIFS_DECISION.contains(&motif.as_str()) {
-                    return Err(RefusDemande::Invalide("Le motif de la décision est obligatoire."));
+                    return Err(RefusDemande::Invalide(
+                        "Le motif de la décision est obligatoire.",
+                    ));
                 }
-                ("accordee_partiellement", *volume_quarts, Some(motif.clone()))
+                (
+                    "accordee_partiellement",
+                    *volume_quarts,
+                    Some(motif.clone()),
+                )
             }
             DecisionHse::Refuser { motif } => {
                 if !MOTIFS_DECISION.contains(&motif.as_str()) {
@@ -698,7 +823,11 @@ impl PgEnt {
                 let deja = i64::from(h.volume_accorde_quarts.unwrap_or(0)).min(env.engage_quarts);
                 if i64::from(volume) > env.restant_quarts + deja {
                     depassement = true;
-                    let motif_depassement = options.motif_depassement.as_deref().map(str::trim).filter(|m| !m.is_empty());
+                    let motif_depassement = options
+                        .motif_depassement
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|m| !m.is_empty());
                     if !options.confirmer_depassement || motif_depassement.is_none() {
                         return Err(RefusDemande::Conflit(
                             "L'enveloppe du site est dépassée : confirmez la décision en indiquant un motif.",
@@ -707,12 +836,19 @@ impl PgEnt {
                 }
             }
         }
-        let motif_fait = if depassement { Some("depassement_enveloppe".to_string()) } else { motif.clone() };
+        let motif_fait = if depassement {
+            Some("depassement_enveloppe".to_string())
+        } else {
+            motif.clone()
+        };
 
         // Allocation des séances (ordre chronologique) : la quantité retenue est celle qui sera transmise.
         let seances = seances_de(&mut tx, etab, id, true).await?;
-        let deja_transmis: i64 =
-            seances.iter().filter(|s| s.transmission != "aucune").map(|s| i64::from(s.retenu_quarts.unwrap_or(0))).sum();
+        let deja_transmis: i64 = seances
+            .iter()
+            .filter(|s| s.transmission != "aucune")
+            .map(|s| i64::from(s.retenu_quarts.unwrap_or(0)))
+            .sum();
         let mut restant = (i64::from(volume) - deja_transmis).max(0);
         if seances.is_empty() && volume > 0 {
             // Aucune séance détaillée : une séance « forfait » à la fin de la période porte tout le volume.
@@ -734,7 +870,11 @@ impl PgEnt {
             .await?;
         } else {
             for s in seances.iter().filter(|s| s.transmission == "aucune") {
-                let retenu = if code == "refusee" { 0 } else { i64::from(s.duree_quarts).min(restant) };
+                let retenu = if code == "refusee" {
+                    0
+                } else {
+                    i64::from(s.duree_quarts).min(restant)
+                };
                 restant -= retenu;
                 sqlx::query(
                     "UPDATE ent_dem_hse_seance SET retenu_quarts = $4 WHERE etablissement_id = $1 AND demande_id = $2 AND id = $3",
@@ -804,7 +944,9 @@ impl PgEnt {
         .await?
         .rows_affected();
         if n != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND traitee_le IS NULL")
             .bind(etab)
@@ -819,19 +961,41 @@ impl PgEnt {
         f.ref_id = Some(decision_id);
         ajouter_fait(&mut tx, etab, f).await?;
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_HSE, "hse_decidee");
-        publier_enveloppe(&mut tx, etab, types::DEMANDE_HSE_DECIDEE, &env, Some(user_id)).await?;
+        publier_enveloppe(
+            &mut tx,
+            etab,
+            types::DEMANDE_HSE_DECIDEE,
+            &env,
+            Some(user_id),
+        )
+        .await?;
 
         // Heures transmises à la validation (séances faites), sauf si l'établissement attend une attestation.
         let mut transmises = 0_u32;
         let mut canal = None;
         if code != "refusee" && !reglage(&mut tx, etab).await?.attestation_service_fait {
-            let (n, c) = transmettre_faites(&mut tx, etab, id, h.beneficiaire_agent_id, &h.type_heure, heures, a.moi).await?;
+            let (n, c) = transmettre_faites(
+                &mut tx,
+                etab,
+                id,
+                h.beneficiaire_agent_id,
+                &h.type_heure,
+                heures,
+                a.moi,
+                false,
+            )
+            .await?;
             transmises = n;
             canal = c;
         }
         tx.commit().await?;
         Ok(ResultatDecisionHse {
-            etat: EtatDemande { id, numero: a.ligne.numero, statut: "close".into(), version: version_attendue + 1 },
+            etat: EtatDemande {
+                id,
+                numero: a.ligne.numero,
+                statut: "close".into(),
+                version: version_attendue + 1,
+            },
             decision: code.to_string(),
             volume_accorde_quarts: volume,
             seances_transmises: transmises,
@@ -853,15 +1017,18 @@ async fn transmettre_faites(
     type_heure: &str,
     heures: &dyn PortHeures,
     auteur: Uuid,
+    seulement_attestees: bool,
 ) -> Result<(u32, Option<&'static str>), RefusDemande> {
     let a_transmettre: Vec<(Uuid, NaiveDate, i32)> = sqlx::query_as(
         "SELECT id, jour, retenu_quarts FROM ent_dem_hse_seance
-          WHERE etablissement_id = $1 AND demande_id = $2 AND etat IN ('faite', 'attestee') AND transmission = 'aucune'
+          WHERE etablissement_id = $1 AND demande_id = $2 AND transmission = 'aucune'
+            AND (etat = 'attestee' OR (etat = 'faite' AND NOT $3))
             AND COALESCE(retenu_quarts, 0) > 0
           ORDER BY jour, debut NULLS LAST, cree_le, id FOR UPDATE",
     )
     .bind(etab)
     .bind(demande)
+    .bind(seulement_attestees)
     .fetch_all(&mut *conn)
     .await?;
     let type_heure_fixe: &'static str = match type_heure {
@@ -873,9 +1040,20 @@ async fn transmettre_faites(
     for (seance_id, jour, quarts) in a_transmettre {
         let hid = heures.constater(
             etab,
-            &HeureAConstater { agent_id: agent, jour, quarts, type_heure: type_heure_fixe, demande_id: demande, seance_id },
+            &HeureAConstater {
+                agent_id: agent,
+                jour,
+                quarts,
+                type_heure: type_heure_fixe,
+                demande_id: demande,
+                seance_id,
+            },
         );
-        let mode = if hid.is_some() { "port_15" } else { "export_secours" };
+        let mode = if hid.is_some() {
+            "port_15"
+        } else {
+            "export_secours"
+        };
         sqlx::query(
             "UPDATE ent_dem_hse_seance SET transmission = $3, transmise_le = now(), heure_constatee_id = $4
               WHERE etablissement_id = $1 AND id = $2 AND transmission = 'aucune'",
@@ -935,7 +1113,12 @@ impl PgEnt {
         id: Uuid,
         seance: SeanceSaisie,
     ) -> Result<ResultatSeance, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         valider_seance(&seance)?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -947,7 +1130,11 @@ impl PgEnt {
         }
         let accorde = match (h.decision.as_deref(), h.volume_accorde_quarts) {
             (Some("accordee" | "accordee_partiellement"), Some(v)) => v,
-            _ => return Err(RefusDemande::Conflit("Cette demande n'est pas encore accordée.")),
+            _ => {
+                return Err(RefusDemande::Conflit(
+                    "Cette demande n'est pas encore accordée.",
+                ))
+            }
         };
         if a.ligne.statut == "annulee" {
             return Err(RefusDemande::Conflit("Cette demande est annulée."));
@@ -956,14 +1143,20 @@ impl PgEnt {
         let (_, fin) = fin_annee(&mut tx, etab, h.annee_id).await?;
         if seance.jour > fin {
             // CDM-46 : une séance après la fin de l'année d'origine relève d'une nouvelle demande.
-            return Err(RefusDemande::Invalide("Cette séance est après la fin de l'année scolaire : faites une nouvelle demande."));
+            return Err(RefusDemande::Invalide(
+                "Cette séance est après la fin de l'année scolaire : faites une nouvelle demande.",
+            ));
         }
         verifier_periode(seance.jour, h.periode_du, h.periode_au)?;
         if seance.fait && seance.jour > jour {
-            return Err(RefusDemande::Invalide("Une séance à venir ne peut pas être déclarée faite."));
+            return Err(RefusDemande::Invalide(
+                "Une séance à venir ne peut pas être déclarée faite.",
+            ));
         }
         if !seance.fait && seance.jour < jour {
-            return Err(RefusDemande::Invalide("Une séance passée se déclare faite."));
+            return Err(RefusDemande::Invalide(
+                "Une séance passée se déclare faite.",
+            ));
         }
         let (deja,): (i64,) = sqlx::query_as(
             "SELECT COALESCE(sum(COALESCE(retenu_quarts, duree_quarts)), 0)::bigint FROM ent_dem_hse_seance
@@ -974,7 +1167,9 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await?;
         if deja + i64::from(seance.duree_quarts) > i64::from(accorde) {
-            return Err(RefusDemande::Conflit("Le volume accordé est atteint : demandez un avenant."));
+            return Err(RefusDemande::Conflit(
+                "Le volume accordé est atteint : demandez un avenant.",
+            ));
         }
         let seance_id = Uuid::new_v4();
         sqlx::query(
@@ -994,7 +1189,11 @@ impl PgEnt {
         .bind(a.moi)
         .execute(&mut *tx)
         .await?;
-        let avertissements = if seance.fait { avertissements_seance(&mut tx, etab, h.beneficiaire_agent_id, seance.jour).await? } else { Vec::new() };
+        let avertissements = if seance.fait {
+            avertissements_seance(&mut tx, etab, h.beneficiaire_agent_id, seance.jour).await?
+        } else {
+            Vec::new()
+        };
         if !avertissements.is_empty() {
             let mut f = FaitNouveau::nouveau(id, "hse_incoherence_absence");
             f.auteur_tache = Some("ordonnanceur_echeances");
@@ -1003,10 +1202,25 @@ impl PgEnt {
         }
         let mut transmise = false;
         if seance.fait && !reglage(&mut tx, etab).await?.attestation_service_fait {
-            transmise = transmettre_faites(&mut tx, etab, id, h.beneficiaire_agent_id, &h.type_heure, heures, a.moi).await?.0 > 0;
+            transmise = transmettre_faites(
+                &mut tx,
+                etab,
+                id,
+                h.beneficiaire_agent_id,
+                &h.type_heure,
+                heures,
+                a.moi,
+                false,
+            )
+            .await?
+            .0 > 0;
         }
         tx.commit().await?;
-        Ok(ResultatSeance { seance_id, transmise, avertissements })
+        Ok(ResultatSeance {
+            seance_id,
+            transmise,
+            avertissements,
+        })
     }
 
     /// Confirme d'un geste qu'une séance prévue a eu lieu (DEM-270) : elle devient « faite » puis est transmise.
@@ -1021,7 +1235,12 @@ impl PgEnt {
         id: Uuid,
         seance_id: Uuid,
     ) -> Result<ResultatSeance, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
@@ -1044,10 +1263,14 @@ impl PgEnt {
         .await?;
         let (jour_seance, etat) = s.ok_or(RefusDemande::Introuvable)?;
         if etat != "prevue" {
-            return Err(RefusDemande::Conflit("Cette séance n'est pas une séance prévue."));
+            return Err(RefusDemande::Conflit(
+                "Cette séance n'est pas une séance prévue.",
+            ));
         }
         if jour_seance > jour {
-            return Err(RefusDemande::Invalide("Une séance à venir ne peut pas être déclarée faite."));
+            return Err(RefusDemande::Invalide(
+                "Une séance à venir ne peut pas être déclarée faite.",
+            ));
         }
         sqlx::query(
             "UPDATE ent_dem_hse_seance SET etat = 'faite', declaree_le = now(), declaree_par_personne_id = $3
@@ -1058,13 +1281,29 @@ impl PgEnt {
         .bind(a.moi)
         .execute(&mut *tx)
         .await?;
-        let avertissements = avertissements_seance(&mut tx, etab, h.beneficiaire_agent_id, jour_seance).await?;
+        let avertissements =
+            avertissements_seance(&mut tx, etab, h.beneficiaire_agent_id, jour_seance).await?;
         let mut transmise = false;
         if !reglage(&mut tx, etab).await?.attestation_service_fait {
-            transmise = transmettre_faites(&mut tx, etab, id, h.beneficiaire_agent_id, &h.type_heure, heures, a.moi).await?.0 > 0;
+            transmise = transmettre_faites(
+                &mut tx,
+                etab,
+                id,
+                h.beneficiaire_agent_id,
+                &h.type_heure,
+                heures,
+                a.moi,
+                false,
+            )
+            .await?
+            .0 > 0;
         }
         tx.commit().await?;
-        Ok(ResultatSeance { seance_id, transmise, avertissements })
+        Ok(ResultatSeance {
+            seance_id,
+            transmise,
+            avertissements,
+        })
     }
 
     /// Réglage facultatif de l'attestation du service fait (D-061 : désactivée par défaut) et de l'échantillon de
@@ -1077,11 +1316,21 @@ impl PgEnt {
         attestation_service_fait: bool,
         echantillon_pct: i16,
     ) -> Result<ReglageHse, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         if !(0..=100).contains(&echantillon_pct) {
-            return Err(RefusDemande::Invalide("Le pourcentage de contrôle doit être compris entre 0 et 100."));
+            return Err(RefusDemande::Invalide(
+                "Le pourcentage de contrôle doit être compris entre 0 et 100.",
+            ));
         }
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesParametrer).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesParametrer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1099,8 +1348,21 @@ impl PgEnt {
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
-        let libelle = |r: &ReglageHse| format!("attestation={} echantillon={}", if r.attestation_service_fait { "oui" } else { "non" }, r.echantillon_pct);
-        let apres = ReglageHse { attestation_service_fait, echantillon_pct };
+        let libelle = |r: &ReglageHse| {
+            format!(
+                "attestation={} echantillon={}",
+                if r.attestation_service_fait {
+                    "oui"
+                } else {
+                    "non"
+                },
+                r.echantillon_pct
+            )
+        };
+        let apres = ReglageHse {
+            attestation_service_fait,
+            echantillon_pct,
+        };
         sqlx::query(
             "INSERT INTO ent_dem_reglage_journal (id, etablissement_id, sujet, cible, avant, apres, par_user_id)
              VALUES ($1, $2, 'hse', 'service_fait', $3, $4, $5)",
@@ -1117,10 +1379,21 @@ impl PgEnt {
     }
 
     /// Le réglage en vigueur (lecture ouverte à qui décide, attesté ou paramètre).
-    pub async fn reglage_hse_for_actor(&self, etab: Uuid, user_id: Uuid, role: &str) -> Result<ReglageHse, RefusDemande> {
-        let ok = self.a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider).await?
-            || self.a_action_etablissement(etab, user_id, role, Action::DemandesParametrer).await?
-            || self.a_action_etablissement(etab, user_id, role, Action::DemandesHseAttester).await?;
+    pub async fn reglage_hse_for_actor(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+        role: &str,
+    ) -> Result<ReglageHse, RefusDemande> {
+        let ok = self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider)
+            .await?
+            || self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesParametrer)
+                .await?
+            || self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesHseAttester)
+                .await?;
         if !ok {
             return Err(RefusDemande::Interdit);
         }
@@ -1145,13 +1418,24 @@ impl PgEnt {
         fondement: &str,
         confirmer_masse: bool,
     ) -> Result<u32, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
-        if !role.is_staff() || !self.a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseAttester).await? {
+        if !role.is_staff()
+            || !self
+                .a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseAttester)
+                .await?
+        {
             return Err(RefusDemande::Introuvable);
         }
         if !matches!(fondement, "appel" | "tiers" | "declaration_honneur") {
-            return Err(RefusDemande::Invalide("Le fondement de l'attestation est obligatoire."));
+            return Err(RefusDemande::Invalide(
+                "Le fondement de l'attestation est obligatoire.",
+            ));
         }
         if seances.is_empty() || seances.len() > 200 {
             return Err(RefusDemande::Invalide("Choisissez les séances à attester."));
@@ -1162,12 +1446,16 @@ impl PgEnt {
             ));
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let moi = crate::demandes::personne_du_user(&mut tx, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
+        let moi = crate::demandes::personne_du_user(&mut tx, etab, user_id)
+            .await
+            .map_err(|_| RefusDemande::Introuvable)?;
         let rg = reglage(&mut tx, etab).await?;
         // Une demande d'une autre nature, ou d'un autre établissement, n'existe pas pour l'attestant.
         let h = charger_hse(&mut tx, etab, id, true).await?;
         if !rg.attestation_service_fait {
-            return Err(RefusDemande::Conflit("L'attestation du service fait n'est pas activée dans cet établissement."));
+            return Err(RefusDemande::Conflit(
+                "L'attestation du service fait n'est pas activée dans cet établissement.",
+            ));
         }
         // R-DM40 : on n'atteste pas ses propres heures.
         if moi == h.beneficiaire_personne_id {
@@ -1175,7 +1463,8 @@ impl PgEnt {
         }
         let mut n = 0_u32;
         for s in seances {
-            let echantillon = fondement == "declaration_honneur" && dans_echantillon(*s, rg.echantillon_pct);
+            let echantillon =
+                fondement == "declaration_honneur" && dans_echantillon(*s, rg.echantillon_pct);
             let r = sqlx::query(
                 "UPDATE ent_dem_hse_seance
                     SET etat = 'attestee', attestee_par_personne_id = $4, attestee_le = now(), fondement = $5, echantillon = $6
@@ -1192,13 +1481,25 @@ impl PgEnt {
             n += u32::try_from(r.rows_affected()).unwrap_or(0);
         }
         if n == 0 {
-            return Err(RefusDemande::Conflit("Aucune de ces séances n'est à attester."));
+            return Err(RefusDemande::Conflit(
+                "Aucune de ces séances n'est à attester.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "hse_attestee");
         f.auteur_personne = Some(moi);
         f.motif = Some(fondement);
         ajouter_fait(&mut tx, etab, f).await?;
-        transmettre_faites(&mut tx, etab, id, h.beneficiaire_agent_id, &h.type_heure, heures, moi).await?;
+        transmettre_faites(
+            &mut tx,
+            etab,
+            id,
+            h.beneficiaire_agent_id,
+            &h.type_heure,
+            heures,
+            moi,
+            true,
+        )
+        .await?;
         tx.commit().await?;
         Ok(n)
     }
@@ -1213,16 +1514,28 @@ impl PgEnt {
         seance_id: Uuid,
         motif: &str,
     ) -> Result<(), RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let motif = motif.trim();
         if motif.is_empty() || motif.chars().count() > 300 || motif.contains('\0') {
-            return Err(RefusDemande::Invalide("Le motif de la contestation est obligatoire (300 caractères au plus)."));
+            return Err(RefusDemande::Invalide(
+                "Le motif de la contestation est obligatoire (300 caractères au plus).",
+            ));
         }
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesHseAttester).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseAttester)
+            .await?
+        {
             return Err(RefusDemande::Introuvable);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let moi = crate::demandes::personne_du_user(&mut tx, etab, user_id).await.map_err(|_| RefusDemande::Introuvable)?;
+        let moi = crate::demandes::personne_du_user(&mut tx, etab, user_id)
+            .await
+            .map_err(|_| RefusDemande::Introuvable)?;
         let h = charger_hse(&mut tx, etab, id, true).await?;
         if moi == h.beneficiaire_personne_id {
             return Err(RefusDemande::Interdit);
@@ -1238,7 +1551,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await?;
         if r.rows_affected() != 1 {
-            return Err(RefusDemande::Conflit("Cette séance ne peut pas être contestée."));
+            return Err(RefusDemande::Conflit(
+                "Cette séance ne peut pas être contestée.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "hse_seance_contestee");
         f.auteur_personne = Some(moi);
@@ -1262,7 +1577,12 @@ impl PgEnt {
         nouveau_volume_quarts: i32,
         nouvelle_fin: Option<NaiveDate>,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
@@ -1272,22 +1592,34 @@ impl PgEnt {
             return Err(RefusDemande::Interdit);
         }
         if a.ligne.version != version_attendue {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let accorde = match (h.decision.as_deref(), h.volume_accorde_quarts) {
             (Some("accordee" | "accordee_partiellement"), Some(v)) => v,
-            _ => return Err(RefusDemande::Conflit("Un avenant suppose une demande accordée.")),
+            _ => {
+                return Err(RefusDemande::Conflit(
+                    "Un avenant suppose une demande accordée.",
+                ))
+            }
         };
         if h.avenant_volume_quarts.is_some() {
-            return Err(RefusDemande::Conflit("Un avenant est déjà en attente de décision."));
+            return Err(RefusDemande::Conflit(
+                "Un avenant est déjà en attente de décision.",
+            ));
         }
         if !(1..=1600).contains(&nouveau_volume_quarts) || nouveau_volume_quarts <= accorde {
-            return Err(RefusDemande::Invalide("Un avenant demande plus d'heures que le volume accordé."));
+            return Err(RefusDemande::Invalide(
+                "Un avenant demande plus d'heures que le volume accordé.",
+            ));
         }
         let (_, fin) = fin_annee(&mut tx, etab, h.annee_id).await?;
         let nouvelle_fin = nouvelle_fin.unwrap_or(h.periode_au);
         if nouvelle_fin < h.periode_au || nouvelle_fin > fin {
-            return Err(RefusDemande::Invalide("La nouvelle fin doit rester dans l'année scolaire."));
+            return Err(RefusDemande::Invalide(
+                "La nouvelle fin doit rester dans l'année scolaire.",
+            ));
         }
         sqlx::query(
             "UPDATE ent_dem_hse SET avenant_volume_quarts = $3, avenant_periode_au = $4
@@ -1311,7 +1643,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await?;
         if n.rows_affected() != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         let mut f = FaitNouveau::nouveau(id, "hse_avenant_demande");
         f.auteur_personne = Some(a.moi);
@@ -1321,7 +1655,12 @@ impl PgEnt {
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_HSE, "rouverte");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_ROUVERTE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "rouverte".into(), version: version_attendue + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "rouverte".into(),
+            version: version_attendue + 1,
+        })
     }
 
     /// Annule une demande d'HSE (DEM-275) : par le demandeur ou le déposant, par un décideur avec motif ; **tant
@@ -1337,7 +1676,12 @@ impl PgEnt {
         version_attendue: i32,
         motif: Option<&str>,
     ) -> Result<EtatDemande, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         let role = Role::parse(role).ok_or(RefusDemande::Introuvable)?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let a = charger_pour_acces(&mut tx, etab, user_id, role, sources, id, true).await?;
@@ -1345,16 +1689,22 @@ impl PgEnt {
         let h = charger_hse(&mut tx, etab, id, true).await?;
         let est_decideur = a.lien == Lien::Traitant
             && a.moi != h.beneficiaire_personne_id
-            && self.a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseDecider).await?;
+            && self
+                .a_action_etablissement(etab, user_id, role.as_str(), Action::DemandesHseDecider)
+                .await?;
         let est_demandeur = matches!(a.lien, Lien::Demandeur | Lien::Deposant);
         if !est_demandeur && !est_decideur {
             return Err(RefusDemande::Interdit);
         }
         if est_decideur && !est_demandeur && motif.map(str::trim).is_none_or(str::is_empty) {
-            return Err(RefusDemande::Invalide("Le motif de l'annulation est obligatoire."));
+            return Err(RefusDemande::Invalide(
+                "Le motif de l'annulation est obligatoire.",
+            ));
         }
         if a.ligne.version != version_attendue {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         if a.ligne.statut == "annulee" {
             return Err(RefusDemande::Conflit("Cette demande est déjà annulée."));
@@ -1367,7 +1717,9 @@ impl PgEnt {
         .fetch_one(&mut *tx)
         .await?;
         if transmises > 0 {
-            return Err(RefusDemande::Conflit("Des heures ont déjà été transmises : elles restent dues."));
+            return Err(RefusDemande::Conflit(
+                "Des heures ont déjà été transmises : elles restent dues.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_hse_seance SET etat = 'annulee' WHERE etablissement_id = $1 AND demande_id = $2 AND etat <> 'annulee'")
             .bind(etab)
@@ -1386,7 +1738,9 @@ impl PgEnt {
         .execute(&mut *tx)
         .await?;
         if n.rows_affected() != 1 {
-            return Err(RefusDemande::Conflit("La demande a changé entre-temps : rechargez-la."));
+            return Err(RefusDemande::Conflit(
+                "La demande a changé entre-temps : rechargez-la.",
+            ));
         }
         sqlx::query("UPDATE ent_dem_echeance SET traitee_le = now() WHERE etablissement_id = $1 AND demande_id = $2 AND traitee_le IS NULL")
             .bind(etab)
@@ -1397,18 +1751,31 @@ impl PgEnt {
         f.auteur_personne = Some(a.moi);
         f.statut_avant = Some(&a.ligne.statut);
         f.statut_apres = Some("annulee");
-        f.motif = Some(if est_demandeur { "annulee_par_demandeur" } else { "annulee_par_decideur" });
+        f.motif = Some(if est_demandeur {
+            "annulee_par_demandeur"
+        } else {
+            "annulee_par_decideur"
+        });
         ajouter_fait(&mut tx, etab, f).await?;
         let env = EnveloppeNeutre::nouvelle(id, &a.ligne.numero, NATURE_HSE, "close");
         publier_enveloppe(&mut tx, etab, types::DEMANDE_CLOSE, &env, Some(user_id)).await?;
         tx.commit().await?;
-        Ok(EtatDemande { id, numero: a.ligne.numero, statut: "annulee".into(), version: version_attendue + 1 })
+        Ok(EtatDemande {
+            id,
+            numero: a.ligne.numero,
+            statut: "annulee".into(),
+            version: version_attendue + 1,
+        })
     }
 }
 
 // ───────────────────────── Enveloppe (en quarts d'heure) ─────────────────────────
 
-async fn annee_courante(conn: &mut PgConnection, etab: Uuid, jour: NaiveDate) -> Result<Uuid, RefusDemande> {
+async fn annee_courante(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    jour: NaiveDate,
+) -> Result<Uuid, RefusDemande> {
     let r: Option<(Uuid,)> = sqlx::query_as(
         "SELECT id FROM ent_annee_scolaire
           WHERE etablissement_id = $1 AND (courante OR (date_debut <= $2 AND date_fin >= $2))
@@ -1442,7 +1809,12 @@ async fn calculer_enveloppe(
     .fetch_all(&mut *conn)
     .await?;
     let get = |t: &str| mvts.iter().find(|(k, _)| k == t).map_or(0, |(_, v)| *v);
-    let (dotation, abondement, retrait, prevision) = (get("dotation"), get("abondement"), get("retrait"), get("prevision"));
+    let (dotation, abondement, retrait, prevision) = (
+        get("dotation"),
+        get("abondement"),
+        get("retrait"),
+        get("prevision"),
+    );
     let saisie = !mvts.is_empty();
     let base = if dotation > 0 { dotation } else { prevision };
     let total = base + abondement - retrait;
@@ -1502,15 +1874,25 @@ impl PgEnt {
         quarts: i32,
         note: Option<&str>,
     ) -> Result<(), RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
         if !matches!(type_, "dotation" | "abondement" | "retrait" | "prevision") {
             return Err(RefusDemande::Invalide("Ce type de mouvement n'existe pas."));
         }
         if !(1..=400_000).contains(&quarts) {
-            return Err(RefusDemande::Invalide("Le volume du mouvement est invalide."));
+            return Err(RefusDemande::Invalide(
+                "Le volume du mouvement est invalide.",
+            ));
         }
         let note = texte_court(&note.map(str::to_string), 300)?;
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1564,8 +1946,12 @@ impl PgEnt {
         role: &str,
         site_id: Option<Uuid>,
     ) -> Result<EnveloppeHse, RefusDemande> {
-        let ok = self.a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider).await?
-            || self.a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer).await?;
+        let ok = self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider)
+            .await?
+            || self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer)
+                .await?;
         if !ok {
             return Err(RefusDemande::Interdit);
         }
@@ -1585,7 +1971,10 @@ impl PgEnt {
         user_id: Uuid,
         role: &str,
     ) -> Result<Vec<RepartitionHse>, RefusDemande> {
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider).await? {
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1612,21 +2001,24 @@ impl PgEnt {
         .await?;
         tx.commit().await?;
         Ok(l.into_iter()
-            .map(|(agent_id, nom, prenom, demandes, accorde_quarts, fait_quarts)| RepartitionHse {
-                agent_id,
-                nom,
-                prenom,
-                demandes,
-                accorde_quarts,
-                fait_quarts,
-            })
+            .map(
+                |(agent_id, nom, prenom, demandes, accorde_quarts, fait_quarts)| RepartitionHse {
+                    agent_id,
+                    nom,
+                    prenom,
+                    demandes,
+                    accorde_quarts,
+                    fait_quarts,
+                },
+            )
             .collect())
     }
 }
 
 // ───────────────────────── Lectures ─────────────────────────
 
-const SELECT_LIGNE: &str = "SELECT d.id, d.numero, d.statut, h.motif, h.volume_demande_quarts, h.volume_accorde_quarts,
+const SELECT_LIGNE: &str =
+    "SELECT d.id, d.numero, d.statut, h.motif, h.volume_demande_quarts, h.volume_accorde_quarts,
         COALESCE((SELECT sum(COALESCE(s.retenu_quarts, 0)) FROM ent_dem_hse_seance s
                    WHERE s.etablissement_id = h.etablissement_id AND s.demande_id = h.demande_id
                      AND s.etat IN ('faite', 'attestee')), 0)::bigint AS fait,
@@ -1637,7 +2029,18 @@ const SELECT_LIGNE: &str = "SELECT d.id, d.numero, d.statut, h.motif, h.volume_d
    FROM ent_dem_hse h
    JOIN ent_dem_demande d ON d.etablissement_id = h.etablissement_id AND d.id = h.demande_id";
 
-type LigneHseSql = (Uuid, String, String, String, i32, Option<i32>, i64, i64, Option<String>, NaiveDate);
+type LigneHseSql = (
+    Uuid,
+    String,
+    String,
+    String,
+    i32,
+    Option<i32>,
+    i64,
+    i64,
+    Option<String>,
+    NaiveDate,
+);
 
 fn ligne_hse(l: LigneHseSql) -> LigneHse {
     LigneHse {
@@ -1656,7 +2059,11 @@ fn ligne_hse(l: LigneHseSql) -> LigneHse {
 
 impl PgEnt {
     /// « Mes HSE » (DEM-279) : celles dont je suis le bénéficiaire ou le demandeur. Rien des collègues.
-    pub async fn mes_hse_for_actor(&self, etab: Uuid, user_id: Uuid) -> Result<Vec<LigneHse>, RefusDemande> {
+    pub async fn mes_hse_for_actor(
+        &self,
+        etab: Uuid,
+        user_id: Uuid,
+    ) -> Result<Vec<LigneHse>, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let moi = crate::demandes::personne_du_user(&mut tx, etab, user_id).await?;
         let sql = format!(
@@ -1667,7 +2074,11 @@ impl PgEnt {
                                   AND a.id = h.beneficiaire_agent_id AND a.personne_id = $2))
               ORDER BY d.cree_le DESC, d.id LIMIT 200"
         );
-        let l: Vec<LigneHseSql> = sqlx::query_as(&sql).bind(etab).bind(moi).fetch_all(&mut *tx).await?;
+        let l: Vec<LigneHseSql> = sqlx::query_as(&sql)
+            .bind(etab)
+            .bind(moi)
+            .fetch_all(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(l.into_iter().map(ligne_hse).collect())
     }
@@ -1682,7 +2093,11 @@ impl PgEnt {
         sources: &dyn SourcesDemandes,
     ) -> Result<Vec<LigneHse>, RefusDemande> {
         let r = Role::parse(role).ok_or(RefusDemande::Interdit)?;
-        if !r.is_staff() || !self.a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider).await? {
+        if !r.is_staff()
+            || !self
+                .a_action_etablissement(etab, user_id, role, Action::DemandesHseDecider)
+                .await?
+        {
             return Err(RefusDemande::Interdit);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
@@ -1702,7 +2117,12 @@ impl PgEnt {
                                   AND v.demande_id = h.demande_id AND v.personne_id = $2)
               ORDER BY d.depose_le, d.id LIMIT 200"
         );
-        let l: Vec<LigneHseSql> = sqlx::query_as(&sql).bind(etab).bind(moi).bind(&files).fetch_all(&mut *tx).await?;
+        let l: Vec<LigneHseSql> = sqlx::query_as(&sql)
+            .bind(etab)
+            .bind(moi)
+            .bind(&files)
+            .fetch_all(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(l.into_iter().map(ligne_hse).collect())
     }
@@ -1775,7 +2195,7 @@ impl PgEnt {
 /// arobase) : un nom ne s'exécute jamais dans le tableur de la comptabilité.
 pub(crate) fn cellule_csv(s: &str) -> String {
     let mut t = s.replace(['\r', '\n'], " ");
-    if t.starts_with(['=', '+', '-', '@', '\t']) {
+    if t.starts_with(['=', '+', '-', '\u{40}', '\t']) {
         t.insert(0, '\'');
     }
     if t.contains([';', '"']) {
@@ -1796,11 +2216,21 @@ impl PgEnt {
         role: &str,
         mois: NaiveDate,
     ) -> Result<ExportHse, RefusDemande> {
-        self.limiter("demandes.geste", user_id, QuotasDemandes::depuis_env().geste).await?;
-        if !self.a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer).await? {
+        self.limiter(
+            "demandes.geste",
+            user_id,
+            QuotasDemandes::depuis_env().geste,
+        )
+        .await?;
+        if !self
+            .a_action_etablissement(etab, user_id, role, Action::DemandesHseEnveloppeGerer)
+            .await?
+        {
             return Err(RefusDemande::Interdit);
         }
-        let debut = mois.with_day(1).ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
+        let debut = mois
+            .with_day(1)
+            .ok_or(RefusDemande::Invalide("Le mois est invalide."))?;
         let fin = if debut.month() == 12 {
             NaiveDate::from_ymd_opt(debut.year() + 1, 1, 1)
         } else {
@@ -1876,7 +2306,10 @@ impl PgEnt {
 
     /// Alerte de fin de période (DEM-284, CDM-42) : HSE accordées, période terminée, **aucune séance faite**. Tâche
     /// de l'ordonnanceur, **rejouable** (un seul fait par demande) ; rapport sans nom.
-    pub async fn alerter_hse_non_declarees(&self, etab: Uuid) -> Result<RapportAlertesHse, RefusDemande> {
+    pub async fn alerter_hse_non_declarees(
+        &self,
+        etab: Uuid,
+    ) -> Result<RapportAlertesHse, RefusDemande> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         let jour = jour_metier(&mut tx, etab).await?;
         let l: Vec<(Uuid, String)> = sqlx::query_as(
