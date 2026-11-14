@@ -426,6 +426,8 @@ mod tests_stages_st1a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_notifications_n0a;
 #[cfg(all(test, feature = "labo"))]
+mod tests_notifications_n0b;
+#[cfg(all(test, feature = "labo"))]
 mod tests_d022;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022_bis;

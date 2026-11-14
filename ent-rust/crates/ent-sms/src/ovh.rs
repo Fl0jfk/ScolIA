@@ -318,12 +318,29 @@ impl OvhClient {
 /// Corps JSON du job (sérialisation manuelle : aucune dépendance de plus).
 fn serde_json_minimal(message: &str, to: &str, sender: &str, no_stop: bool) -> String {
     format!(
-        "{{\"message\":{},\"receivers\":[{}],\"sender\":{},\"noStopClause\":{},\"priority\":\"high\",\"coding\":\"7bit\"}}",
+        "{{\"message\":{},\"receivers\":[{}],\"sender\":{},\"noStopClause\":{},\"priority\":\"high\",\"coding\":\"{}\"}}",
         json_chaine(message),
         json_chaine(to),
         json_chaine(sender),
-        no_stop
+        no_stop,
+        codage_pour(message)
     )
+}
+
+/// Alphabet par défaut GSM 03.38 et son extension (euro, crochets, accolades…).
+const GSM_BASE: &str = "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
+const GSM_EXT: &str = "^{}\\[~]|€\u{c}";
+
+/// Codage choisi selon le texte (socle 8 N0b, i) : `7bit` quand tous les caractères sont dans
+/// l'alphabet GSM, sinon `8bit` — un « ç » majuscule, un guillemet français ou une apostrophe
+/// typographique ne sont plus déformés par un `7bit` forcé. Hypothèse à confirmer à l'essai
+/// OVH : le fournisseur choisit alors lui-même l'encodage 16 bits (voir N5).
+pub fn codage_pour(message: &str) -> &'static str {
+    if message.chars().all(|c| GSM_BASE.contains(c) || GSM_EXT.contains(c)) {
+        "7bit"
+    } else {
+        "8bit"
+    }
 }
 
 fn json_chaine(s: &str) -> String {
@@ -400,6 +417,17 @@ mod serde_json_lite {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codage_selon_le_texte() {
+        use super::codage_pour;
+        assert_eq!(codage_pour("Absence de Léa le 12/11 : ok."), "7bit");
+        assert_eq!(codage_pour("Total 12 € [urgent]"), "7bit");
+        assert_eq!(codage_pour("Information de l’école"), "8bit");
+        assert_eq!(codage_pour("« Vie scolaire »"), "8bit");
+        assert_eq!(codage_pour("Le garçon est là"), "8bit");
+        assert_eq!(codage_pour("ÇA va"), "7bit");
+    }
+
     use super::*;
     use std::sync::{Arc, Mutex as StdMutex};
 
