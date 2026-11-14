@@ -361,7 +361,7 @@ async fn enseignement_repris_choisi_au_jour_de_l_etablissement() {
         let option = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO ent_eleve_option_annee (id, etablissement_id, eleve_id, annee_scolaire, nature, code, libelle, statut, created_at)
-             VALUES ($1,$2,$3,'2025-2026','interne','LATIN','Latin','demandee',$4::timestamptz)",
+             VALUES ($1,$2,$3,'2025-2026','interne','LATIN','Latin','proposee',$4::timestamptz)",
         )
         .bind(option)
         .bind(etab)

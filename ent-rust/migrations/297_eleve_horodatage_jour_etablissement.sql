@@ -61,6 +61,7 @@ BEGIN
         n := n + 1;
     END LOOP;
     RETURN n;
+END $$;
 
 -- 283 : pont de l'ancien chemin d'écriture d'ent_eleve vers la scolarisation
 CREATE OR REPLACE FUNCTION ent_eleve_scolarite_pont() RETURNS TRIGGER
