@@ -9,7 +9,6 @@
 //! Le LSU ne se devine pas depuis une matière : il se **saisit**. L'export
 //! (`lsun_export`) lit ces évaluations réelles ; à défaut, il n'invente rien.
 
-use crate::bulletin_pdf::build_pdf;
 use crate::DomainError;
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -210,12 +209,12 @@ pub fn render_livret_competences_pdf(l: &LivretCompetences) -> Vec<u8> {
         String::new(),
         format!("Date : {}", l.date_document),
         format!(
-            "Eleve : {} {} · Classe : {}",
+            "Élève : {} {} · Classe : {}",
             l.eleve_prenom,
             l.eleve_nom,
             l.classe.as_deref().unwrap_or("—")
         ),
-        format!("Periode : {} ({})", l.periode_libelle, l.periode_code),
+        format!("Période : {} ({})", l.periode_libelle, l.periode_code),
         String::new(),
     ];
     let mut domaine_courant = String::new();
@@ -235,8 +234,8 @@ pub fn render_livret_competences_pdf(l: &LivretCompetences) -> Vec<u8> {
         }
     }
     lines.push(String::new());
-    lines.push("Document publie dans l'espace documents (famille).".into());
-    build_pdf(&lines)
+    lines.push("Document publié dans l'espace documents (famille).".into());
+    crate::pdf_commun::rendre_lignes("Livret de compétences", Some(l.date_document), &lines)
 }
 
 #[cfg(test)]
