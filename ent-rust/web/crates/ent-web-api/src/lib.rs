@@ -21,6 +21,7 @@ mod agenda;
 mod appel;
 mod auth;
 mod cahier;
+mod cahier_c2;
 mod communication;
 mod communication_s28;
 mod discipline_vs;
@@ -83,6 +84,7 @@ pub use ent_types::auth::{
     AuthSessionDto as Session, LoginResponseDto, MeDto as Moi, PasskeyChallengeDto,
 };
 pub use ent_types::cahier as cahier_types;
+pub use ent_types::cahier_c2 as cahier_c2_types;
 pub use ent_types::dossier::{
     ActionFicheDto, AdresseParqueeDto, AdresseProtegeeDto, AjoutResponsableBody,
     AlertesProtectionDto, ConfirmationGuichetDto, ContactBody, ContactUrgenceDto,

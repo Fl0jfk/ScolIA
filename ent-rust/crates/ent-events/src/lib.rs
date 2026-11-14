@@ -118,6 +118,11 @@ pub mod types {
     pub const CAHIER_TRAVAIL_RENDU: &str = "cahier.travail_rendu";
     pub const CAHIER_COPIE_RENDUE: &str = "cahier.copie_rendue";
     pub const CAHIER_VISE: &str = "cahier.vise";
+    // Cahier de textes, lot C2 (saisie et publication).
+    pub const CAHIER_SEANCE_MODIFIEE: &str = "cahier.seance_modifiee";
+    pub const CAHIER_RETIREE: &str = "cahier.retiree";
+    pub const CAHIER_PROGRAMME: &str = "cahier.programme";
+    pub const CAHIER_CONTRIBUTION_AJOUTEE: &str = "cahier.contribution_ajoutee";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";
