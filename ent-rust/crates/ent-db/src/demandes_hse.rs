@@ -21,6 +21,8 @@
 //!
 //! Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais la date du serveur.
 
+#![allow(clippy::type_complexity)]
+
 use crate::demandes::{
     ajouter_fait, charger_pour_acces, publier_enveloppe, ContexteVolet, DepotDemande,
     EnveloppeNeutre, EtatDemande, FaitNouveau, Lien, QuotasDemandes, RefusDemande, SourcesDemandes,
@@ -448,7 +450,6 @@ struct LigneHseDb {
     decision: Option<String>,
     avenants: i16,
     avenant_volume_quarts: Option<i32>,
-    avenant_periode_au: Option<NaiveDate>,
 }
 
 async fn charger_hse(
@@ -460,8 +461,7 @@ async fn charger_hse(
     let sql = format!(
         "SELECT h.annee_id, h.site_id, h.beneficiaire_agent_id, a.personne_id AS beneficiaire_personne_id, h.motif, h.type_heure,
                 h.volume_demande_quarts, h.volume_accorde_quarts, h.periode_du, h.periode_au, h.confirmation_requise,
-                (h.confirmee_le IS NOT NULL) AS confirmee, h.decision, h.avenants, h.avenant_volume_quarts,
-                h.avenant_periode_au
+                (h.confirmee_le IS NOT NULL) AS confirmee, h.decision, h.avenants, h.avenant_volume_quarts
            FROM ent_dem_hse h
            JOIN ent_agent a ON a.etablissement_id = h.etablissement_id AND a.id = h.beneficiaire_agent_id
           WHERE h.etablissement_id = $1 AND h.demande_id = $2{}",
@@ -486,10 +486,8 @@ fn refus_geste_hse(a: &crate::demandes::Acces) -> Result<(), RefusDemande> {
 #[derive(Debug, FromRow)]
 struct SeanceDb {
     id: Uuid,
-    jour: NaiveDate,
     duree_quarts: i32,
     retenu_quarts: Option<i32>,
-    etat: String,
     transmission: String,
 }
 
@@ -500,7 +498,7 @@ async fn seances_de(
     verrou: bool,
 ) -> Result<Vec<SeanceDb>, RefusDemande> {
     let sql = format!(
-        "SELECT id, jour, duree_quarts, retenu_quarts, etat, transmission FROM ent_dem_hse_seance
+        "SELECT id, duree_quarts, retenu_quarts, transmission FROM ent_dem_hse_seance
           WHERE etablissement_id = $1 AND demande_id = $2 AND etat <> 'annulee'
           ORDER BY jour, debut NULLS LAST, cree_le, id{}",
         if verrou { " FOR UPDATE" } else { "" }
@@ -1009,6 +1007,7 @@ impl PgEnt {
 
 /// Transmet les séances **faites** non encore transmises : au socle 15 par le port, sinon pour l'export de secours.
 /// Idempotent : une séance transmise ne l'est jamais deux fois (la base l'interdit aussi).
+#[allow(clippy::too_many_arguments)]
 async fn transmettre_faites(
     conn: &mut PgConnection,
     etab: Uuid,

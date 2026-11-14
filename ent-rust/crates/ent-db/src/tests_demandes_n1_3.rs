@@ -1871,7 +1871,7 @@ async fn t_hse_declaration_et_avenant() {
     let Some(w) = W::nouveau().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
-    let (prof, dir2) = (w.m.prof, w.dir2);
+    let prof = w.m.prof;
     let h = Heures::actif();
     let e = w
         .deposer_hse(&prof, w.hse(8, vec![w.seance(4, true)]))

@@ -14,6 +14,8 @@
 //!
 //! Le jour métier est celui de l'établissement, jamais la date du serveur.
 
+#![allow(clippy::type_complexity)]
+
 use crate::demandes::{
     ajouter_fait, charger_demande, echeance_ouvree, personne_du_user, publier_enveloppe,
     Conservation, ContexteVolet, DepotDemande, EnveloppeNeutre, EtatDemande, FaitNouveau,
