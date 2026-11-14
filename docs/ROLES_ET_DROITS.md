@@ -177,6 +177,11 @@ Huit actions `personnels.absences.*` (portée établissement seulement ; la port
 | `personnels.absences.suppleer` (A5) | Direction, Administratif | demander une suppléance à l'employeur et consigner sa réponse (ABP-180) ; nommer un suppléant (ABP-181) exige en plus `personnels.absences.valider` (direction) et `services.gerer` (socle 6) ; **jamais** Admin technique ni Compta |
 | `personnels.rcd.gerer` (A6) | Direction | plan RCD versionné (créer, versionner, avis du conseil pédagogique, présentation, transmission au recteur), campagne de volontariat, comptes rendus, engagement d'un autre agent, vivier et compteurs nominatifs ; **jamais** Admin technique |
 | `personnels.rcd.remontee` (A6) | Direction, Administratif | préparer, contrôler, laisser partir la remontée hebdomadaire, exporter le tableau équivalent ; la remontée n'a **ni nom ni nature fine** ; **jamais** Admin technique ni Compta |
+| `personnels.heures.lire` (A7) | Direction, Administratif | lire les heures d'un agent et son état annuel, **dans son périmètre d'employeur** (secrétariat : l'État ; direction : les deux) ; l'agent lit les siennes sans droit |
+| `personnels.heures.valider` (A7) | Direction | valider, corriger, saisir sans séance, figer l'état mensuel, régulariser ; **jamais ses propres heures** |
+| `personnels.heures.signer` ★ (A7) | Direction | signer l'état mensuel (la ré-authentification des actions ★ relève de la couche d'authentification, non branchée ici) |
+| `personnels.heures.exporter` ★ (A7) | Direction, Administratif (État), Compta (OGEC) | figer, exporter l'état signé, régulariser, dans son employeur seulement |
+| `personnels.paie.absences` (A7) | Direction, Compta (OGEC) | éléments variables de paie, heures et jours d'absence, file DSN J+5 ; **jamais** le secrétariat de l'État ni Admin technique |
 
 S'engager comme volontaire RCD (ABP-226), modifier son engagement (ABP-227) et lire son compteur et sa position (ABP-213) sont ouverts à **tout le personnel pour lui-même**, sans action dédiée ; le plan RCD présenté est lisible de tout le personnel (délai de prévenance), pas ses brouillons.
 
