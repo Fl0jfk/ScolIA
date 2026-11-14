@@ -47,21 +47,14 @@ async fn demarrer() -> Option<String> {
     Some(format!("http://{addr}"))
 }
 
-/// Prochain lundi strictement futur au jour de Paris : un jour de classe ouvré explicite (jamais le jour
-/// UTC ni le jour de semaine réel, pour que les tests passent aussi le week-end et entre 23 h et minuit UTC).
-fn lundi_a_venir() -> NaiveDate {
-    let j = ent_db::jour_paris();
-    j + Duration::days(7 - i64::from(j.weekday().num_days_from_monday()))
-}
-
-/// Un jour futur, toujours un lundi (jour ouvré explicite), différent à chaque exécution :
+/// Un jour futur, même jour de semaine que le jour de Paris (le créneau du seed de labo est posé au jour de semaine de Paris), différent à chaque exécution :
 /// chaque test ouvre des appels neufs (un appel clos ne peut plus être modifié).
 fn jour_neuf() -> NaiveDate {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    lundi_a_venir() + Duration::weeks(n.rem_euclid(2000))
+    ent_db::jour_paris() + Duration::weeks(1 + n.rem_euclid(2000))
 }
 
 async fn prof(base: &str, l: &Labo, index: usize) -> ApiClient {
@@ -387,11 +380,11 @@ async fn classes_nombreuses_38_et_400() {
     let jour = jour_neuf();
     let t = Instant::now();
     let rapport =
-        labo::preparer_classes(&base, &admin, p.user_id, lundi_a_venir())
+        labo::preparer_classes(&base, &admin, p.user_id, ent_db::jour_paris())
             .await
             .expect("classes de test");
     println!("préparation des classes : {:?} {rapport:?}", t.elapsed());
-    assert_eq!(jour.weekday(), lundi_a_venir().weekday());
+    assert_eq!(jour.weekday(), ent_db::jour_paris().weekday());
 
     let api = prof(&base, &l, 0).await;
     let creneaux = api.mes_creneaux(jour).await.unwrap();

@@ -10,7 +10,7 @@
 
 use std::net::SocketAddr;
 
-use chrono::{Datelike, Duration, NaiveDate};
+use chrono::{Duration, NaiveDate};
 use ent_types::vie_scolaire::DeclarerAbsenceBody;
 use ent_web_api::{ApiClient, ApiError, EtatApi};
 use ent_web_app::composants_metier::declaration::{
@@ -50,20 +50,13 @@ async fn demarrer() -> Option<String> {
     Some(format!("http://{addr}"))
 }
 
-/// Prochain lundi strictement futur au jour de Paris : un jour de classe ouvré explicite (jamais le jour
-/// UTC ni le jour de semaine réel, pour que les tests passent aussi le week-end et entre 23 h et minuit UTC).
-fn lundi_a_venir() -> NaiveDate {
-    let j = ent_db::jour_paris();
-    j + Duration::days(7 - i64::from(j.weekday().num_days_from_monday()))
-}
-
-/// Un jour futur à moins de 200 jours (fenêtre de déclaration), toujours un lundi (jour ouvré explicite).
+/// Un jour futur à moins de 200 jours (fenêtre de déclaration), même jour de semaine que le jour de Paris (le créneau du seed de labo est posé au jour de semaine de Paris).
 fn jour_neuf() -> NaiveDate {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    lundi_a_venir() + Duration::weeks(n.rem_euclid(25))
+    ent_db::jour_paris() + Duration::weeks(1 + n.rem_euclid(25))
 }
 
 async fn client_de(base: &str, l: &Labo, email: &str) -> ApiClient {
