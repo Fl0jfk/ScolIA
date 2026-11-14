@@ -722,6 +722,14 @@ fn specs_domaine_cours() -> Vec<Spec> {
         lire("cahier-c3-manque", "/cahier/c3/manque?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
         lire("cahier-c3-resume", "/cahier/c3/resume?eleve_id={eleve}", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
         lire("cahier-c3-abonnements", "/cahier/c3/abonnements", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        // Socle 20, lot C4 : charge. Même règle que l'agenda pour la charge d'un élève ; le reste n'a pas de ressource liée à A
+        // à lire : le jeton de A avec des identifiants de B n'obtient jamais un 2xx.
+        lire("cahier-c4-charge", "/cahier/c4/charge?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        ecrire_sur_b("cahier-c4-apercu-B", "POST", "/cahier/c4/apercu",
+            Some(r#"{"cours_ids":["{cours}"],"echeance_jour":"2031-03-12"}"#)),
+        ecrire_sur_b("cahier-c4-calendrier-B", "GET", "/cahier/c4/classes/{cours}/calendrier?du=2026-01-05&au=2026-01-30", None),
+        ecrire_sur_b("cahier-c4-alerte-B", "POST", "/cahier/c4/travaux/{cours}/alerte-ignoree", None),
+        ecrire_sur_b("cahier-c4-reperes-B", "PUT", "/cahier/c4/reperes", Some(r#"{"position":"strict"}"#)),
         ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
         ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
         ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),
