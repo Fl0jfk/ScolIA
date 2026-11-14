@@ -69,3 +69,8 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | Audit 1 correctifs données, infra ; conception N1 | — | — | terminées, archivées |
 | 12 code AS4 | session_01KZCbFGzZYnBeXVkJziBVtT | ent-socle-12-code-4 (2246) | versé (3916226c), archivée |
 | **N1 code N1-2** | session_01KZCbFEfaz4Uh2HaSKwW57b | ent-socle-N1-code-2 (3044–3045) | **active** |
+| **8 code N0a** | session_01KZCbFHPh6z8mvs3FVAPMNp | ent-socle-8-code-n0a (aucune migration) | **active** — fuites des notifications |
+| **29 code P3** | session_01KZCbFECRrEGqc2TpuVJo6v | ent-socle-29-code-3 (2583–2599) | **active** — à-faire famille |
+| **20 code C2** | session_01KZCbFDs42oph645SN5CVxs | ent-socle-20-code-2 (2413–2419) | **active** — saisie et publication |
+
+Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). Actives : 15 A5, heure des tests, N1-2, 8 N0a, 29 P3, 20 C2.
