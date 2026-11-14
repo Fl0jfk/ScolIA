@@ -9,13 +9,13 @@
 pub mod modele;
 
 use ent_types::demandes::{
-    DecisionHseDto, DemandeFile, DepotDemandeDto, DepotHseDto, EtatDemandeDto, Guichet, LigneCopiesDto, LigneHseDto, MaDemande,
-    NatureGuichet, SeanceDto, ValidationCopiesDto,
+    DecisionHseDto, DemandeFile, DepotDemandeDto, DepotHseDto, EtatDemandeDto, Guichet,
+    LigneCopiesDto, LigneHseDto, MaDemande, NatureGuichet, SeanceDto, ValidationCopiesDto,
 };
 use ent_types::vie_scolaire::EnfantFamilleDto;
 use ent_web_ui::{
-    Alerte, Bouton, ChampTexte, EnTetePage, EtatVide, GrilleBento, Largeur, Niveau, Selection, Squelette, Taille, Tuile,
-    Variante, ZoneTexte,
+    Alerte, Bouton, ChampTexte, EnTetePage, EtatVide, GrilleBento, Largeur, Niveau, Selection,
+    Squelette, Taille, Tuile, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -25,8 +25,9 @@ use crate::noyau::ecriture::{Ecriture, RetourEcriture};
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
 use modele::{
-    controler_hse, filtrer_natures, heures_vers_quarts, libelle_decision, libelle_etat_copies, libelle_motif_hse,
-    libelle_statut, peut_annuler, quarts_vers_texte, MOTIFS_DECISION, MOTIFS_HSE,
+    controler_hse, filtrer_natures, heures_vers_quarts, libelle_decision, libelle_etat_copies,
+    libelle_motif_hse, libelle_statut, peut_annuler, quarts_vers_texte, MOTIFS_DECISION,
+    MOTIFS_HSE,
 };
 
 // ───────────────────────── Faire une demande (porte unique) ─────────────────────────
@@ -52,7 +53,12 @@ pub fn PageDemandes() -> impl IntoView {
 
 #[component]
 fn PorteUnique(guichet: Guichet) -> impl IntoView {
-    let Guichet { natures, raccourcis, signalement_grave, numeros_urgence } = guichet;
+    let Guichet {
+        natures,
+        raccourcis,
+        signalement_grave,
+        numeros_urgence,
+    } = guichet;
     let natures = StoredValue::new(natures);
     let requete = RwSignal::new(String::new());
     let choisie = RwSignal::new(None::<NatureGuichet>);
@@ -101,8 +107,15 @@ fn PorteUnique(guichet: Guichet) -> impl IntoView {
 fn LigneNature(nature: NatureGuichet, choisie: RwSignal<Option<NatureGuichet>>) -> impl IntoView {
     let libelle = nature.libelle.clone();
     let accessible = format!("Faire cette demande : {libelle}");
-    let delai = format!("Réponse sous {} jours ouvrés environ", nature.delai_traitement_jours);
-    let service = nature.role_traitant.clone().map(|r| format!(" · traitée par {r}")).unwrap_or_default();
+    let delai = format!(
+        "Réponse sous {} jours ouvrés environ",
+        nature.delai_traitement_jours
+    );
+    let service = nature
+        .role_traitant
+        .clone()
+        .map(|r| format!(" · traitée par {r}"))
+        .unwrap_or_default();
     let dedie = nature.formulaire.clone();
     let n = nature.clone();
     view! {
@@ -125,7 +138,10 @@ fn LigneNature(nature: NatureGuichet, choisie: RwSignal<Option<NatureGuichet>>) 
 }
 
 #[component]
-fn FormulaireDepot(nature: NatureGuichet, choisie: RwSignal<Option<NatureGuichet>>) -> impl IntoView {
+fn FormulaireDepot(
+    nature: NatureGuichet,
+    choisie: RwSignal<Option<NatureGuichet>>,
+) -> impl IntoView {
     let objet = RwSignal::new(String::new());
     let texte = RwSignal::new(String::new());
     let eleve = RwSignal::new(String::new());
@@ -226,7 +242,14 @@ pub fn PageMesDemandes() -> impl IntoView {
 
 #[component]
 fn LigneMaDemande(d: MaDemande, ecriture: Ecriture) -> impl IntoView {
-    let MaDemande { id, numero, statut, objet, version, .. } = d;
+    let MaDemande {
+        id,
+        numero,
+        statut,
+        objet,
+        version,
+        ..
+    } = d;
     let annulable = peut_annuler(&statut);
     let etat = libelle_statut(&statut);
     let accessible = format!("Annuler la demande {numero}");
@@ -295,7 +318,16 @@ fn TableauFile(lignes: Vec<DemandeFile>, ecriture: Ecriture) -> impl IntoView {
 
 #[component]
 fn LigneFile(d: DemandeFile, ecriture: Ecriture) -> impl IntoView {
-    let DemandeFile { id, numero, statut, urgence, objet, prise, version, .. } = d;
+    let DemandeFile {
+        id,
+        numero,
+        statut,
+        urgence,
+        objet,
+        prise,
+        version,
+        ..
+    } = d;
     let accessible = format!("Prendre en charge la demande {numero}");
     let urgence = match urgence.as_str() {
         "securite" => "Sécurité",
@@ -392,7 +424,8 @@ fn LigneMesHse(h: LigneHseDto, ecriture: Ecriture) -> impl IntoView {
         "{} · demandé {} · accordé {} · fait {}",
         libelle_motif_hse(&h.motif),
         quarts_vers_texte(i64::from(h.volume_demande_quarts)),
-        h.volume_accorde_quarts.map_or("—".to_string(), |v| quarts_vers_texte(i64::from(v))),
+        h.volume_accorde_quarts
+            .map_or("—".to_string(), |v| quarts_vers_texte(i64::from(v))),
         quarts_vers_texte(h.fait_quarts),
     );
     view! {
@@ -415,9 +448,14 @@ fn FormulaireHse(ecriture: Ecriture) -> impl IntoView {
     let au = RwSignal::new(String::new());
     let fait = RwSignal::new(false);
     let erreur = RwSignal::new(None::<String>);
-    let options: Vec<(String, String)> = MOTIFS_HSE.iter().map(|(c, l)| ((*c).to_string(), (*l).to_string())).collect();
-    let min_options: Vec<(String, String)> =
-        ["0", "15", "30", "45"].iter().map(|m| ((*m).to_string(), format!("{m} min"))).collect();
+    let options: Vec<(String, String)> = MOTIFS_HSE
+        .iter()
+        .map(|(c, l)| ((*c).to_string(), (*l).to_string()))
+        .collect();
+    let min_options: Vec<(String, String)> = ["0", "15", "30", "45"]
+        .iter()
+        .map(|m| ((*m).to_string(), format!("{m} min")))
+        .collect();
     view! {
         <section aria-labelledby="hse-demande-titre" class="classe-section">
             <h2 id="hse-demande-titre">"Demander des HSE"</h2>
@@ -481,8 +519,15 @@ fn LigneADecider(h: LigneHseDto, ecriture: Ecriture) -> impl IntoView {
     let id = h.demande_id;
     let version = RwSignal::new(0_i32);
     let motif = RwSignal::new("budget".to_string());
-    let options: Vec<(String, String)> = MOTIFS_DECISION.iter().map(|(c, l)| ((*c).to_string(), (*l).to_string())).collect();
-    let detail = format!("{} · demandé {}", libelle_motif_hse(&h.motif), quarts_vers_texte(i64::from(h.volume_demande_quarts)));
+    let options: Vec<(String, String)> = MOTIFS_DECISION
+        .iter()
+        .map(|(c, l)| ((*c).to_string(), (*l).to_string()))
+        .collect();
+    let detail = format!(
+        "{} · demandé {}",
+        libelle_motif_hse(&h.motif),
+        quarts_vers_texte(i64::from(h.volume_demande_quarts))
+    );
     let numero = h.numero.clone();
     let (a1, a2) = (format!("Accorder {numero}"), format!("Refuser {numero}"));
     // La version vient d'« Ma file » : à défaut, le serveur répond 409 et l'écran demande de recharger.
@@ -515,9 +560,12 @@ fn LigneADecider(h: LigneHseDto, ecriture: Ecriture) -> impl IntoView {
 /// La version courante de la demande, lue dans « Ma file » (le serveur la compare à l'écriture : 409 si elle a changé).
 async fn version_de(id: Uuid) -> Result<i32, ent_web_api::ApiError> {
     let file = session::client().demandes_ma_file().await?;
-    file.into_iter().find(|d| d.id == id).map(|d| d.version).ok_or(ent_web_api::ApiError::Conflit(
-        "La demande a changé entre-temps : rechargez la page.".to_string(),
-    ))
+    file.into_iter()
+        .find(|d| d.id == id)
+        .map(|d| d.version)
+        .ok_or(ent_web_api::ApiError::Conflit(
+            "La demande a changé entre-temps : rechargez la page.".to_string(),
+        ))
 }
 
 // ───────────────────────── Copies (reprographie) ─────────────────────────

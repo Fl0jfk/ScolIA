@@ -69,7 +69,10 @@ pub fn libelle_decision(decision: Option<&str>) -> &'static str {
 }
 
 pub fn libelle_motif_hse(code: &str) -> &'static str {
-    MOTIFS_HSE.iter().find(|(c, _)| *c == code).map_or("Autre", |(_, l)| l)
+    MOTIFS_HSE
+        .iter()
+        .find(|(c, _)| *c == code)
+        .map_or("Autre", |(_, l)| l)
 }
 
 /// Retire accents et casse : « Réparation » trouve « reparation ».
@@ -90,7 +93,10 @@ pub fn normaliser(s: &str) -> String {
 
 /// Porte unique : filtre les démarches par ce que la personne écrit (libellé et mots-clés). Sans saisie, toutes.
 pub fn filtrer_natures<'a>(natures: &'a [NatureGuichet], requete: &str) -> Vec<&'a NatureGuichet> {
-    let mots: Vec<String> = normaliser(requete).split_whitespace().map(str::to_string).collect();
+    let mots: Vec<String> = normaliser(requete)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect();
     if mots.is_empty() {
         return natures.iter().collect();
     }
@@ -105,8 +111,22 @@ pub fn filtrer_natures<'a>(natures: &'a [NatureGuichet], requete: &str) -> Vec<&
 
 /// « 6 » heures et « 15 » minutes → 25 quarts d'heure. Les minutes sont un multiple de 15 (0, 15, 30, 45).
 pub fn heures_vers_quarts(heures: &str, minutes: &str) -> Result<i32, &'static str> {
-    let h: i32 = if heures.trim().is_empty() { 0 } else { heures.trim().parse().map_err(|_| "Les heures doivent être un nombre entier.")? };
-    let m: i32 = if minutes.trim().is_empty() { 0 } else { minutes.trim().parse().map_err(|_| "Les minutes doivent être un nombre entier.")? };
+    let h: i32 = if heures.trim().is_empty() {
+        0
+    } else {
+        heures
+            .trim()
+            .parse()
+            .map_err(|_| "Les heures doivent être un nombre entier.")?
+    };
+    let m: i32 = if minutes.trim().is_empty() {
+        0
+    } else {
+        minutes
+            .trim()
+            .parse()
+            .map_err(|_| "Les minutes doivent être un nombre entier.")?
+    };
     if !(0..=400).contains(&h) || !matches!(m, 0 | 15 | 30 | 45) {
         return Err("Indiquez des heures (0 à 400) et des minutes parmi 0, 15, 30 ou 45.");
     }
@@ -128,7 +148,12 @@ pub fn quarts_vers_texte(quarts: i64) -> String {
 }
 
 /// Contrôle local d'une saisie d'HSE avant l'envoi (le serveur recontrôle tout).
-pub fn controler_hse(objet: &str, quarts: Result<i32, &'static str>, du: &str, au: &str) -> Result<i32, &'static str> {
+pub fn controler_hse(
+    objet: &str,
+    quarts: Result<i32, &'static str>,
+    du: &str,
+    au: &str,
+) -> Result<i32, &'static str> {
     if objet.trim().is_empty() {
         return Err("L'objet de la demande est obligatoire.");
     }
@@ -162,7 +187,10 @@ mod tests {
     #[test]
     fn statuts_en_mots_simples() {
         assert_eq!(libelle_statut("deposee"), "Envoyée");
-        assert_eq!(libelle_statut("en_attente_demandeur"), "On attend votre réponse");
+        assert_eq!(
+            libelle_statut("en_attente_demandeur"),
+            "On attend votre réponse"
+        );
         assert_eq!(libelle_statut("inconnu"), "En cours");
         assert!(peut_annuler("deposee") && !peut_annuler("prise") && !peut_annuler("close"));
     }
@@ -170,10 +198,22 @@ mod tests {
     #[test]
     fn porte_unique_trouve_sans_accent_ni_casse() {
         let n = vec![
-            nature("a", "Signaler un problème technique", &["panne", "réparation"]),
-            nature("b", "Demander une attestation", &["certificat", "assurance"]),
+            nature(
+                "a",
+                "Signaler un problème technique",
+                &["panne", "réparation"],
+            ),
+            nature(
+                "b",
+                "Demander une attestation",
+                &["certificat", "assurance"],
+            ),
         ];
-        assert_eq!(filtrer_natures(&n, "").len(), 2, "sans saisie : tout est proposé");
+        assert_eq!(
+            filtrer_natures(&n, "").len(),
+            2,
+            "sans saisie : tout est proposé"
+        );
         assert_eq!(filtrer_natures(&n, "REPARATION")[0].code, "a");
         assert_eq!(filtrer_natures(&n, "attestation assurance")[0].code, "b");
         assert_eq!(filtrer_natures(&n, "problème panne").len(), 1);
@@ -184,7 +224,10 @@ mod tests {
     fn heures_et_quarts_sans_euros() {
         assert_eq!(heures_vers_quarts("6", "15"), Ok(25));
         assert_eq!(heures_vers_quarts("", "30"), Ok(2));
-        assert!(heures_vers_quarts("0", "0").is_err(), "au moins un quart d'heure");
+        assert!(
+            heures_vers_quarts("0", "0").is_err(),
+            "au moins un quart d'heure"
+        );
         assert!(heures_vers_quarts("6", "10").is_err(), "minutes par quarts");
         assert!(heures_vers_quarts("abc", "0").is_err());
         assert!(heures_vers_quarts("401", "0").is_err());
@@ -199,13 +242,19 @@ mod tests {
         assert!(controler_hse("Soutien", Err("x"), "2026-01-05", "2026-01-06").is_err());
         assert!(controler_hse("Soutien", Ok(4), "", "2026-01-06").is_err());
         assert!(controler_hse("Soutien", Ok(4), "2026-01-07", "2026-01-06").is_err());
-        assert_eq!(controler_hse("Soutien", Ok(4), "2026-01-05", "2026-01-06"), Ok(4));
+        assert_eq!(
+            controler_hse("Soutien", Ok(4), "2026-01-05", "2026-01-06"),
+            Ok(4)
+        );
     }
 
     #[test]
     fn libelles_de_decision_et_de_copies() {
         assert_eq!(libelle_decision(None), "En attente de décision");
-        assert_eq!(libelle_decision(Some("accordee_partiellement")), "Accordée en partie");
+        assert_eq!(
+            libelle_decision(Some("accordee_partiellement")),
+            "Accordée en partie"
+        );
         assert_eq!(libelle_etat_copies("prete"), "Prête");
         assert_eq!(libelle_motif_hse("tutorat"), "Tutorat");
     }

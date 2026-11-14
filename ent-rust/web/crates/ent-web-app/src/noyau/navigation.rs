@@ -103,7 +103,11 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     v.push(entree("Mes demandes", MES_DEMANDES, NomIcone::Annonce));
     if droits.personnel {
         v.push(entree("Ma file", MA_FILE, NomIcone::Personne));
-        v.push(entree("Heures supplémentaires", DEMANDES_HSE, NomIcone::Agenda));
+        v.push(entree(
+            "Heures supplémentaires",
+            DEMANDES_HSE,
+            NomIcone::Agenda,
+        ));
         v.push(entree("Copies", DEMANDES_COPIES, NomIcone::Ecole));
     }
     if droits.personnel || droits.portail_famille || droits.mes_absences {
@@ -273,6 +277,11 @@ mod tests {
             prof,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -292,6 +301,11 @@ mod tests {
             secretariat,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -310,7 +324,18 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, MON_AGENDA, EDT_SEMAINE, CLASSES, DELEGATIONS],
+            [
+                ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
+                MON_AGENDA,
+                EDT_SEMAINE,
+                CLASSES,
+                DELEGATIONS
+            ],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -322,6 +347,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -345,6 +372,11 @@ mod tests {
             cpe,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -367,6 +399,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
@@ -491,6 +525,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
