@@ -99,6 +99,8 @@ mod tests_rgpd_g0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_rgpd_g1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g2;
+#[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
@@ -202,6 +204,9 @@ mod oidc_repo;
 mod pra;
 pub mod conservation;
 pub mod conservation_regles;
+pub mod gouvernance_rgpd;
+pub mod registre_rgpd;
+pub mod reprise_rgpd;
 pub mod extrait_personne;
 pub mod registre_donnees;
 mod objets;

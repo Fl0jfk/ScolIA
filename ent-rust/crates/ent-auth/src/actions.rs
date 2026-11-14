@@ -423,6 +423,10 @@ pub enum Action {
     /// ★ Socle 27 : valider une règle de conservation. Rôle paramétrable (D-017) : le DPO en général ;
     /// aucun profil historique ne la porte, une règle non validée n'autorise aucune destruction (R-RG1).
     ConservationReglesValider,
+    /// ★ Socle 27, lot G2 : valider une version du registre des traitements et publier les mentions d'information.
+    ConformiteValider,
+    /// Socle 27, lot G2 : déclarer les sous-traitants propres à l'établissement et objecter à une annonce de la plateforme.
+    SoustraitantsGerer,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -478,7 +482,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 198] = [
+    pub const TOUTES: [Action; 200] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -658,6 +662,8 @@ impl Action {
         Action::ConformiteGerer,
         Action::ConservationReglesProposer,
         Action::ConservationReglesValider,
+        Action::ConformiteValider,
+        Action::SoustraitantsGerer,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -879,6 +885,8 @@ impl Action {
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
             Self::ConservationReglesValider => "conservation.regles.valider",
+            Self::ConformiteValider => "conformite.valider",
+            Self::SoustraitantsGerer => "soustraitants.gerer",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1085,6 +1093,8 @@ impl Action {
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
             Self::ConservationReglesValider => "Valider une règle de conservation (DPO ou rôle désigné par l'établissement)",
+            Self::ConformiteValider => "Valider une version du registre des traitements et publier les mentions d'information",
+            Self::SoustraitantsGerer => "Déclarer les sous-traitants de l'établissement et objecter à une annonce de la plateforme",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1298,7 +1308,9 @@ impl Action {
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
-            | Self::ConservationReglesValider => &[Portee::Etablissement],
+            | Self::ConservationReglesValider
+            | Self::ConformiteValider
+            | Self::SoustraitantsGerer => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -1985,6 +1997,8 @@ fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
         d.push(etab(ConformiteLire));
         d.push(etab(ConformiteGerer));
         d.push(etab(ConservationReglesProposer));
+        d.push(etab(ConformiteValider));
+        d.push(etab(SoustraitantsGerer));
     }
 }
 
@@ -2113,13 +2127,18 @@ mod tests {
             Role::Admin, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
             Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve,
         ] {
-            for x in [ConformiteLire, ConformiteGerer, ConservationReglesProposer, ConservationReglesValider] {
+            for x in [
+                ConformiteLire, ConformiteGerer, ConformiteValider, SoustraitantsGerer,
+                ConservationReglesProposer, ConservationReglesValider,
+            ] {
                 assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?} par défaut");
             }
         }
         assert!(a(Role::Direction, ConformiteLire));
         assert!(a(Role::Direction, ConformiteGerer));
         assert!(a(Role::Direction, ConservationReglesProposer));
+        assert!(a(Role::Direction, ConformiteValider));
+        assert!(a(Role::Direction, SoustraitantsGerer));
         assert!(!a(Role::Direction, ConservationReglesValider), "la validation est celle du DPO");
     }
 

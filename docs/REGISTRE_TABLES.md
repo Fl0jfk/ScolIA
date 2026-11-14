@@ -68,3 +68,4 @@ qu'elles ne sont pas classées (c'est voulu, E12). Une ligne par table à ajoute
 - **Fournisseurs d'extrait** : `ent-db/src/extrait_personne.rs` déclare qui couvre quelles tables (R-RG14, RG-D05) ; une table « données personnelles » sans fournisseur ni mention « hors extrait » fait échouer le test.
 - **Nouveau domaine `conformite`** : `cons_regle`, `cons_regle_journal`, `rgp_gouvernance` (migration 2541).
 - **RG-D03** : le test sur base échoue si `CI` **ou** `ENT_EXIGER_BASE` est posé et que `ENT_DATABASE_URL` manque (`url_guard::url_labo_ou_echec`). En local sans variable, le test est ignoré avec un message sur stderr.
+- **G2 (migrations 2542–2543)** : 8 tables d'établissement (domaine `conformite`) et 3 tables de **plateforme** (`rgp_soustraitant`, `rgp_soustraitant_annonce`, `rgp_soustraitant_donnee`, portée `Technique`, sans `etablissement_id`) ; fournisseur d'extrait « conformite ».

@@ -347,8 +347,17 @@ impl PgEnt {
         self.exiger_action_etab(etab, acteur, role, Action::ConformiteLire)
             .await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        let (_, gouv) = lire_gouvernance(&mut tx, etab).await?;
-        let lignes = regles_de(&mut tx, etab).await?;
+        self.politique_conservation_tx(&mut tx, etab).await
+    }
+
+    /// Politique lue dans la transaction de l'appelant, **sans contrôle de droit** (l'appelant l'a fait).
+    pub(crate) async fn politique_conservation_tx(
+        &self,
+        c: &mut PgConnection,
+        etab: Uuid,
+    ) -> Result<Politique, EntDbError> {
+        let (_, gouv) = lire_gouvernance(c, etab).await?;
+        let lignes = regles_de(c, etab).await?;
         Ok(construire_politique(&gouv, &lignes))
     }
 
