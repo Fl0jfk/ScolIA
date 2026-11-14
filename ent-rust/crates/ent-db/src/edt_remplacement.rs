@@ -942,7 +942,7 @@ impl PgEnt {
             cmd.absence_rh_id,
         )
         .await?;
-        pont_journaliser(
+        let mid = pont_journaliser(
             &mut tx, etab, a.user_id, cmd.creneau_id, cmd.jour, "remplacement", Some(exc_id), None, salle,
             Some(cmd.remplacant_user_id), cmd.absence_rh_id, None, None,
         )
@@ -994,7 +994,8 @@ impl PgEnt {
             "edt.remplacement_organise",
             cmd.creneau_id,
             json!({ "exception_id": exc_id, "creneau_id": cmd.creneau_id, "jour": cmd.jour,
-                    "remplacant_user_id": cmd.remplacant_user_id, "absence_rh_id": cmd.absence_rh_id }),
+                    "remplacant_user_id": cmd.remplacant_user_id, "absence_rh_id": cmd.absence_rh_id,
+                    "modification_id": mid }),
         )
         .await?;
         let ev2 = publier_agg(
@@ -1071,7 +1072,7 @@ impl PgEnt {
             absence_rh_id,
         )
         .await?;
-        pont_journaliser(
+        let mid = pont_journaliser(
             &mut tx, etab, a.user_id, creneau_id, jour, "annulation", Some(exc_id), None, None, None,
             absence_rh_id, None, None,
         )
@@ -1084,7 +1085,8 @@ impl PgEnt {
             AggregateKind::Edt,
             ent_events::types::EDT_EXCEPTION,
             creneau_id,
-            json!({ "exception_id": exc_id, "creneau_id": creneau_id, "jour": jour, "nature": "annulation" }),
+            json!({ "exception_id": exc_id, "creneau_id": creneau_id, "jour": jour, "nature": "annulation",
+                    "modification_id": mid }),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -1187,7 +1189,7 @@ impl PgEnt {
             None,
         )
         .await?;
-        pont_journaliser(
+        let mid = pont_journaliser(
             &mut tx, etab, a.user_id, creneau_id, jour, "changement_salle", Some(exc_id), None, Some(salle),
             rempl, None, None, None,
         )
@@ -1212,7 +1214,8 @@ impl PgEnt {
             AggregateKind::Edt,
             ent_events::types::EDT_EXCEPTION,
             creneau_id,
-            json!({ "exception_id": exc_id, "creneau_id": creneau_id, "jour": jour, "nature": "changement_salle" }),
+            json!({ "exception_id": exc_id, "creneau_id": creneau_id, "jour": jour, "nature": "changement_salle",
+                    "modification_id": mid }),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -1235,7 +1238,7 @@ impl PgEnt {
         self.exiger_edt(a, Action::EdtGerer).await?;
         let etab = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let Some((exc_id, nature)) =
+        let Some((exc_id, nature, levees)) =
             Self::lever_exception_tx(&mut tx, etab, creneau_id, jour, a.user_id).await?
         else {
             return Ok(false);
@@ -1247,7 +1250,7 @@ impl PgEnt {
             "edt.exception_levee",
             creneau_id,
             json!({ "exception_id": exc_id, "creneau_id": creneau_id, "jour": jour,
-                    "nature": nature.unwrap_or_default() }),
+                    "nature": nature.unwrap_or_default(), "modification_id": levees.first() }),
         )
         .await?;
         tx.commit().await.map_err(db)?;
@@ -1265,7 +1268,7 @@ impl PgEnt {
         creneau_id: Uuid,
         jour: NaiveDate,
         par: Uuid,
-    ) -> Result<Option<(Uuid, Option<String>)>, EntDbError> {
+    ) -> Result<Option<(Uuid, Option<String>, Vec<Uuid>)>, EntDbError> {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
             .bind(format!("{etab}:{creneau_id}"))
             .execute(&mut **tx)
@@ -1286,7 +1289,7 @@ impl PgEnt {
         .map_err(db)?;
         Self::revoquer_delegations_exception(tx, etab, exc_id, None, par).await?;
         // Le journal d'abord (le déclencheur d'état de la séance en dérive), puis la séance.
-        pont_lever(tx, etab, par, creneau_id, jour).await?;
+        let levees = pont_lever(tx, etab, par, creneau_id, jour).await?;
         // Déplacement : la séance arrivée à la nouvelle date disparaît avec lui. Rien ne s'efface
         // pour autant (AR-15, R-AP8) : le déplacement levé est copié dans son archive datée.
         let depl: Option<(Uuid, NaiveDate)> = sqlx::query_as(
@@ -1349,7 +1352,7 @@ impl PgEnt {
         .execute(&mut **tx)
         .await
         .map_err(db)?;
-        Ok(Some((exc_id, nature)))
+        Ok(Some((exc_id, nature, levees)))
     }
 
     /// EDT-04 : déplace un cours à une autre date / heure. Le cours d'origine est annulé, un
@@ -1644,7 +1647,7 @@ impl PgEnt {
                 .map_err(db)?;
             }
         }
-        pont_journaliser(
+        let mid = pont_journaliser(
             &mut tx, etab, a.user_id, cmd.creneau_id, cmd.jour, "deplacement", Some(exc_id), Some(depl_id), salle,
             None, None, None, Some(cmd.nouveau_jour),
         )
@@ -1656,7 +1659,7 @@ impl PgEnt {
             ent_events::types::EDT_EXCEPTION,
             cmd.creneau_id,
             json!({ "exception_id": exc_id, "creneau_id": cmd.creneau_id, "jour": cmd.jour,
-                    "nature": "deplacement", "nouveau_jour": cmd.nouveau_jour,
+                    "nature": "deplacement", "nouveau_jour": cmd.nouveau_jour, "modification_id": mid,
                     "heure_debut": cmd.heure_debut, "heure_fin": cmd.heure_fin }),
         )
         .await?;

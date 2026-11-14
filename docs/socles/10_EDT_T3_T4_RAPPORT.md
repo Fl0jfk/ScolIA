@@ -61,4 +61,43 @@ droit `edt.forcer_conflit`), journalisé avec les codes forcés. `creneau_deja_c
 - Séances d'un lot : jusqu'à 62 jours et 500 cibles ; lot de 2 000 séances mesuré en labo (voir `PROJECT_STATUS.md`).
 - Aucun écran Leptos (T12b).
 
-## Lot T4 — voir la section ajoutée avec la branche `ent-socle-10-code-t4`.
+
+## Lot T4 — notifications et « demain » (branche `ent-socle-10-code-t4`, empilée sur T3)
+
+### Migrations
+| N° | Fichier | Contenu |
+|---|---|---|
+| 447 | `447_edt_t4_localisation_journal` | `ent_edt_localisation_journal` (ajout seul : lecteur, élève, usage, **nature** de la réponse ; jamais le lieu) |
+| 454 | `454_edt_t4_rls_permissive` (après 453) | RLS du journal |
+
+Paramètre `edt.heure_message_veille` (défaut 18 h 30) ajouté au registre de `structure_etab.rs` (valeur typée, `valeur_heure`).
+
+### Notifications : une seule voie, le socle 8
+Consommateur `d4.notifications_edt_t4` (`edt_notifications.rs`, enregistré dans `consommateurs_standard`) : les événements du §18.1
+(`edt.seance_modifiee`, `edt.seance_annulee`, `edt.seance_retablie`, `edt.seance_ajoutee`, `edt.lot_modifications`), publiés dans la transaction du fait
+**par T3 et par le pont des écrivains historiques**, deviennent des messages par `notifier_personne` (ENT puis envois selon les préférences) — aucune
+deuxième voie. Table des **alias** (`ALIAS_ANCIENS_NOMS`) : les anciens noms (`edt.exception`, `edt.exception_levee`, `edt.remplacement_organise`,
+`edt.annulation_masse`) restent émis ; ils portent le `modification_id` (ou `lot_edt_id`) du journal et l'ancien consommateur `d4.notifications_edt` les
+ignore : **un changement, un message**, quel que soit l'écrivain.
+
+| Règle (§) | Réalisation |
+|---|---|
+| Destinataires par **public daté** (§14.2) | `ent_public_cours_jour` à la date de la séance (et du jour d'arrivée d'un déplacement) : inclusions, exclusions ; élèves (comptes), responsables au lien actif **si l'élève est mineur** et sans interdiction de communication, intervenants (titulaire, remplaçant, co-intervenants, nouveau remplaçant). Repli sur la classe ou le groupe du créneau quand le créneau n'a pas de cours (reprise M1) |
+| **Urgence selon le délai** (§9.5) | séance d'aujourd'hui ou de demain avant 10 h : U2, envoi immédiat qui ignore les heures calmes ; plus lointain : ordinaire, regroupé dans le résumé (fonction pure `planifier`, testée) |
+| **Message de la veille** | lendemain matin décidé avant l'heure du soir (`edt.heure_message_veille`) : envoi **différé à cette heure**, **rappelé à 6 h 30** (second envoi dédoublonné) ; heure de Paris (décision à 0 h 20 locale = 23 h 20 UTC la veille : testé) |
+| Familles (§14.4 point 1, R-E36) | prévenues tout de suite seulement si le changement modifie l'arrivée, le départ ou la journée de l'enfant ; sinon résumé du jour ; l'élève est prévenu de tout |
+| **Lot** | un seul message par personne, avec le nombre de séances qui la concerne |
+| **Rétablissement** | à ceux qui avaient été prévenus d'un changement de ce créneau à ce jour (y compris par une décision antérieure que la levée remplace), même urgence ; rien si rien n'avait été annoncé (changement de comportement par rapport à l'ancien consommateur, qui rétablissait même sans annonce : un test de `tests_edt_s2.rs` est adapté) ; une modification levée avant la distribution de sa pose n'est jamais annoncée (l'état courant prime) |
+| Contenu | motif **public** seulement, jamais le motif interne ; le nom du remplaçant n'est pas donné (Q-EDT8 non tranchée) ; correction du passé : aucun message |
+
+### « Demain » et « maintenant » (`edt_demain.rs`)
+- `edt_tableau_demain` (`edt.demain_lire` : direction, secrétariat, vie scolaire) : intervenants absents (absence validée) et leurs séances sans décision, séances non assurées, remplacements faits et à faire, salles fermées et séances à y déplacer, changements du jour, **permanences attendues** (effectifs par plage), notifications envoyées et à envoyer. Calculé à la demande : toujours à jour ; la veille à 18 h il suffit de l'ouvrir.
+- `edt_eleves_sans_cours` (lecture d'EDT-177) ; la répartition (permanence, étude, CDI, sortie selon le régime) est une écriture du socle 14, non faite.
+- `edt_maintenant_eleve` (`edt.maintenant_lire` : + accueil) : séance en cours (cours, lieu, intervenant) ou « pas de cours » ; **journalisé** (usage : remise, urgence, recherche, infirmerie) ; une personne sous interdiction de remise, de visite ou de contact, et un élève sous confidentialité renforcée (hors direction) donnent la **même** réponse « indisponible » ; `edt_maintenant_salle` (ce qui l'occupe, pas qui) ; `edt_maintenant_professeur` (présent oui / non, jamais où).
+- Routes : `GET /edt/demain`, `/edt/sans-cours`, `/edt/maintenant/eleves|salles|professeurs/{id}`. Droits ajoutés (même fonction `socle_10_edt`) : `edt.demain_lire`, `edt.maintenant_lire`.
+
+### Limites et reports de T4
+Écran du hall (EDT-217), accusé de l'intervenant et alerte de la vie scolaire (EDT-238, `edt.changement_non_accuse`), absence longue par étapes (EDT-228,
+`edt.remplacement_etat`), information du professeur principal et de l'AESH, état `non_assuree` posé par les événements du socle 6 et `edt.seance_non_assuree` : non faits.
+Les sorties (socle 42) et examens (socle 38) ne figurent pas encore dans « demain ». Le tableau n'est pas figé à 18 h : il est recalculé à chaque lecture.
+Aucun écran Leptos (T12c).

@@ -66,6 +66,12 @@ pub fn routes() -> Router<AppState> {
         .route("/edt/salles/{id}/fermeture", post(t3_salle_fermee_appliquer))
         .route("/edt/seances/{id}/rattrapage", get(t3_rattrapage))
         .route("/edt/seances-non-assurees", get(t3_non_assurees))
+        // Socle 10, lot T4 : « demain », élèves sans cours, « maintenant » (lecture journalisée pour un élève).
+        .route("/edt/demain", get(t4_demain))
+        .route("/edt/sans-cours", get(t4_sans_cours))
+        .route("/edt/maintenant/eleves/{id}", get(t4_maintenant_eleve))
+        .route("/edt/maintenant/salles/{id}", get(t4_maintenant_salle))
+        .route("/edt/maintenant/professeurs/{id}", get(t4_maintenant_professeur))
         // Délégations datées (ADM-04).
         .route("/delegations", get(delegations).post(accorder_delegation))
         .route("/delegations/mes", get(mes_delegations))
@@ -719,4 +725,74 @@ async fn t3_non_assurees(
     Query(q): Query<PlageQuery>,
 ) -> Res<Json<Vec<SeanceNonAssuree>>> {
     Ok(Json(s.ent.edt_seances_non_assurees(&acteur(&session), q.du, q.au).await.map_err(map_db)?))
+}
+
+// ───── Socle 10, lot T4 : « demain » et « maintenant » ─────
+
+use ent_db::edt_demain::{
+    DemainQuery, EleveSansCours, Maintenant, OccupationSalle, PresenceProfesseur, TableauDemain,
+};
+
+async fn t4_demain(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<DemainQuery>,
+) -> Res<Json<TableauDemain>> {
+    Ok(Json(s.ent.edt_tableau_demain(&acteur(&session), q.jour).await.map_err(map_db)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct SansCoursQuery {
+    jour: NaiveDate,
+    #[serde(default)]
+    debut: Option<chrono::NaiveTime>,
+    #[serde(default)]
+    fin: Option<chrono::NaiveTime>,
+}
+
+async fn t4_sans_cours(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<SansCoursQuery>,
+) -> Res<Json<Vec<EleveSansCours>>> {
+    Ok(Json(s.ent.edt_eleves_sans_cours(&acteur(&session), q.jour, q.debut, q.fin).await.map_err(map_db)?))
+}
+
+#[derive(Debug, Deserialize)]
+struct MaintenantEleveQuery {
+    /// `remise`, `urgence`, `recherche` ou `infirmerie` : l'usage est journalisé.
+    usage: String,
+    /// La personne pour qui l'on regarde (un adulte qui vient chercher l'enfant) : sous interdiction, « indisponible ».
+    #[serde(default)]
+    personne: Option<Uuid>,
+}
+
+async fn t4_maintenant_eleve(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<MaintenantEleveQuery>,
+) -> Res<Json<Maintenant>> {
+    Ok(Json(
+        s.ent
+            .edt_maintenant_eleve(&acteur(&session), id, &q.usage, q.personne, None)
+            .await
+            .map_err(map_db)?,
+    ))
+}
+
+async fn t4_maintenant_salle(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<OccupationSalle>> {
+    Ok(Json(s.ent.edt_maintenant_salle(&acteur(&session), id, None).await.map_err(map_db)?))
+}
+
+async fn t4_maintenant_professeur(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<PresenceProfesseur>> {
+    Ok(Json(s.ent.edt_maintenant_professeur(&acteur(&session), id, None).await.map_err(map_db)?))
 }

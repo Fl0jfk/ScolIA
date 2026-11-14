@@ -688,6 +688,15 @@ pub fn registre() -> Vec<DefinitionParam> {
             socle_proprietaire: 5,
         },
         DefinitionParam {
+            cle: "edt.heure_message_veille",
+            libelle: "Heure du message de la veille (changements d'emploi du temps du lendemain matin)",
+            type_param: TypeParam::Heure,
+            min: None,
+            max: None,
+            defaut: json!("18:30"),
+            socle_proprietaire: 10,
+        },
+        DefinitionParam {
             cle: "structure.salles_reservables_par_defaut",
             libelle: "Une salle nouvellement créée est réservable",
             type_param: TypeParam::Booleen,

@@ -577,7 +577,8 @@ pub(crate) async fn pont_journaliser(
     absence_rh_id: Option<Uuid>,
     lot_id: Option<Uuid>,
     nouveau_jour: Option<NaiveDate>,
-) -> Result<(), EntDbError> {
+) -> Result<Uuid, EntDbError> {
+    let modification_id = Uuid::new_v4();
     let (type_code, apres_etat) = match nature {
         "remplacement" => ("intervenant", "modifiee"),
         "changement_salle" => ("changement_lieu", "modifiee"),
@@ -612,13 +613,18 @@ pub(crate) async fn pont_journaliser(
     sqlx::query(
         "INSERT INTO ent_edt_modification
            (id, etablissement_id, seance_id, seance_arrivee_id, creneau_id, jour, type, avant_etat, apres_etat,
-            avant_jour, apres_jour, apres_lieu_id, apres_salle_texte, apres_remplacant_user_id,
-            motif_public_code, origine, origine_ref, cree_par, ancien_exception_id, ancien_deplacement_id)
-         SELECT gen_random_uuid(), $1, s.id,
+            avant_jour, apres_jour, apres_debut, apres_fin, apres_lieu_id, apres_salle_texte,
+            apres_remplacant_user_id, motif_public_code, origine, origine_ref, cree_par, ancien_exception_id,
+            ancien_deplacement_id)
+         SELECT $15, $1, s.id,
                 (SELECT arr.id FROM ent_edt_seance arr
                   WHERE arr.etablissement_id = $1 AND arr.creneau_id = $2 AND arr.jour = $13 AND $13 <> $3
                     AND arr.source = 'deplacement'),
                 $2, $3, $4, 'prevue', $5, CASE WHEN $4 = 'deplacement' THEN $3 END, $13,
+                (SELECT d.nouvelle_heure_debut FROM ent_edt_deplacement d
+                  WHERE d.etablissement_id = $1 AND d.id = $14),
+                (SELECT d.nouvelle_heure_fin FROM ent_edt_deplacement d
+                  WHERE d.etablissement_id = $1 AND d.id = $14),
                 (SELECT sa.id FROM ent_salle sa WHERE sa.etablissement_id = $1
                   AND lower(btrim(sa.code)) = lower(btrim($6))),
                 $6, $7, $8, $9, $10, $11, $12, $14
@@ -640,13 +646,53 @@ pub(crate) async fn pont_journaliser(
     .bind(exception_id)
     .bind(nouveau_jour)
     .bind(deplacement_id)
+    .bind(modification_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!(error = %e, "pont du journal du réel");
         db(e)
     })?;
-    recalculer_etat_creneau(tx, etab, creneau_id, jour).await
+    recalculer_etat_creneau(tx, etab, creneau_id, jour).await?;
+    // Le fait est annoncé sous son nouveau nom (§18.1) dans la même transaction ; l'ancien nom reste émis par
+    // l'écrivain historique, avec le `modification_id` qui évite un second message.
+    let seance: Option<Uuid> = sqlx::query_scalar(
+        "SELECT seance_id FROM ent_edt_modification WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(modification_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)?;
+    let acteur = Acteur {
+        etablissement_id: etab,
+        user_id: par,
+        role: "",
+    };
+    let nom = if type_code == "annulation" {
+        EVT_SEANCE_ANNULEE
+    } else {
+        EVT_SEANCE_MODIFIEE
+    };
+    publier_agg(
+        &mut *tx,
+        &acteur,
+        AggregateKind::Edt,
+        nom,
+        seance.unwrap_or(creneau_id),
+        charge_evenement(
+            modification_id,
+            seance,
+            Some(creneau_id),
+            jour,
+            type_code,
+            motif,
+            None,
+            origine,
+        ),
+    )
+    .await?;
+    Ok(modification_id)
 }
 
 /// Relance la dérivation d'état de la séance d'un créneau et d'un jour (la ligne du journal vient de changer).
@@ -676,20 +722,48 @@ pub(crate) async fn pont_lever(
     par: Uuid,
     creneau_id: Uuid,
     jour: NaiveDate,
-) -> Result<(), EntDbError> {
-    sqlx::query(
+) -> Result<Vec<Uuid>, EntDbError> {
+    let levees: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
         "UPDATE ent_edt_modification SET levee_le = now(), levee_par = $4
           WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3 AND levee_le IS NULL
-            AND type IN ('annulation', 'deplacement', 'neutralisation', 'changement_lieu', 'intervenant')",
+            AND type IN ('annulation', 'deplacement', 'neutralisation', 'changement_lieu', 'intervenant')
+          RETURNING id, seance_id, type",
     )
     .bind(etab)
     .bind(creneau_id)
     .bind(jour)
     .bind(par)
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await
     .map_err(db)?;
-    recalculer_etat_creneau(tx, etab, creneau_id, jour).await
+    recalculer_etat_creneau(tx, etab, creneau_id, jour).await?;
+    // Rétablissement (§9.5) : le message ne part qu'à ceux qui avaient été prévenus (le consommateur le vérifie).
+    let acteur = Acteur {
+        etablissement_id: etab,
+        user_id: par,
+        role: "",
+    };
+    for (id, seance, type_code) in &levees {
+        publier_agg(
+            &mut *tx,
+            &acteur,
+            AggregateKind::Edt,
+            EVT_SEANCE_RETABLIE,
+            seance.unwrap_or(creneau_id),
+            charge_evenement(
+                *id,
+                *seance,
+                Some(creneau_id),
+                jour,
+                type_code,
+                "autre",
+                None,
+                "saisie",
+            ),
+        )
+        .await?;
+    }
+    Ok(levees.into_iter().map(|l| l.0).collect())
 }
 
 /// Pont de l'annulation en masse historique (171) : un lot du socle 10 et une ligne du journal par exception
@@ -770,6 +844,29 @@ pub(crate) async fn pont_lot(
     .execute(&mut *tx)
     .await
     .map_err(db)?;
+    let (du, au, nb, motif): (NaiveDate, NaiveDate, i32, Option<String>) = sqlx::query_as(
+        "SELECT du, au, nb_seances, motif_public FROM ent_edt_lot WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(lot_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)?;
+    let acteur = Acteur {
+        etablissement_id: etab,
+        user_id: par,
+        role: "",
+    };
+    publier_agg(
+        &mut *tx,
+        &acteur,
+        AggregateKind::Edt,
+        EVT_LOT_MODIFICATIONS,
+        lot_id,
+        json!({ "lot_id": lot_id, "action": "pose", "nature": "annulation", "du": du, "au": au,
+                "nb_seances": nb, "motif_public_code": "autre", "motif_public": motif, "origine": "lot" }),
+    )
+    .await?;
     Ok(lot_id)
 }
 

@@ -141,6 +141,8 @@ pub mod edt_remplacement;
 pub mod edt_modif;
 pub mod edt_modif_ops;
 pub mod edt_lots;
+pub mod edt_notifications;
+pub mod edt_demain;
 mod edt_masse;
 pub mod edt_ports;
 pub mod edt_versions;
@@ -403,6 +405,8 @@ mod tests_edt_t0;
 mod tests_edt_t1_t2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t4;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

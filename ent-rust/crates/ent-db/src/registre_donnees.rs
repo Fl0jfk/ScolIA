@@ -465,6 +465,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_edt_exception_levee", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_import", "emploi_du_temps_structure", Portee::Etablissement),
     // Socle 10, lot T3 : journal du réel, lots et motifs internes (jamais exportés hors direction).
+    // Socle 10, lot T4 : lectures de localisation d'un élève (qui, quand, pourquoi ; jamais le lieu).
+    t("ent_edt_localisation_journal", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_lot", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_lot_cible", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_modification", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),

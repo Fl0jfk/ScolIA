@@ -681,6 +681,13 @@ fn specs_domaine_edt() -> Vec<Spec> {
                 &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
             lire("edt-greve-candidats", "/edt/greve/candidats?jour={jour}&demi_journee=journee",
                 &[Direction, Administratif], &[Direction, Administratif]),
+            // Socle 10, lot T4 : « demain » (encadrement) et « maintenant » (lecture journalisée d'un élève).
+            // Sans identifiant de ressource : la cible B répond comme un identifiant inexistant (les données de A,
+            // jamais celles de B).
+            Spec { b: Attendu::RefuseOuIndistinct, ..lire("edt-demain", "/edt/demain?jour={jour}",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]) },
+            lire("edt-maintenant-eleve", "/edt/maintenant/eleves/{eleve}?usage=recherche",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
             ecrire_sur_b("edt-modification-B", "POST", "/edt/modifications",
                 Some(r#"{"seance_id":"{appel}","changement":{"type":"annulation"},"motif_public_code":"autre"}"#)),
             ecrire_sur_b("edt-lot-B", "POST", "/edt/lots",

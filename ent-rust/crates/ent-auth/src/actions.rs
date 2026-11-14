@@ -370,6 +370,12 @@ pub enum Action {
     /// Socle 10, lot T3 (§9.3) : forcer un conflit dur d'emploi du temps avec un motif journalisé (cas réel : deux
     /// demi-groupes fusionnés dans la même salle). Direction seule : le secrétariat propose, il ne force pas.
     EdtForcerConflit,
+    /// Socle 10, lot T4 (§14.3) : le tableau « demain » (absences connues, séances non assurées, remplacements, salles
+    /// fermées, permanences attendues, notifications) et les élèves sans cours. Direction, secrétariat, vie scolaire.
+    EdtDemainLire,
+    /// Socle 10, lot T4 (§14.3, R-E27) : « maintenant » — la séance en cours d'un élève (lecture journalisée), l'occupation
+    /// d'une salle, la présence d'un professeur selon l'emploi du temps. Direction, secrétariat, vie scolaire, accueil.
+    EdtMaintenantLire,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -471,7 +477,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 196] = [
+    pub const TOUTES: [Action; 198] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -680,6 +686,8 @@ impl Action {
         Action::EdtMotifInterneLire,
         Action::EdtModificationsLire,
         Action::EdtForcerConflit,
+        Action::EdtDemainLire,
+        Action::EdtMaintenantLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -846,6 +854,8 @@ impl Action {
             Self::EdtMotifInterneLire => "edt.motif_interne_lire",
             Self::EdtModificationsLire => "edt.modifications_lire",
             Self::EdtForcerConflit => "edt.forcer_conflit",
+            Self::EdtDemainLire => "edt.demain_lire",
+            Self::EdtMaintenantLire => "edt.maintenant_lire",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -1050,6 +1060,8 @@ impl Action {
             Self::EdtMotifInterneLire => "Lire le motif interne d'une modification de l'emploi du temps",
             Self::EdtModificationsLire => "Lire le journal des modifications de l'emploi du temps",
             Self::EdtForcerConflit => "Forcer un conflit dur de l'emploi du temps avec un motif journalisé",
+            Self::EdtDemainLire => "Lire le tableau « demain » de l'emploi du temps et les élèves sans cours",
+            Self::EdtMaintenantLire => "Lire « maintenant » dans l'emploi du temps (séance d'un élève, salle, présence d'un professeur)",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1258,6 +1270,8 @@ impl Action {
             | Self::EdtMotifInterneLire
             | Self::EdtModificationsLire
             | Self::EdtForcerConflit
+            | Self::EdtDemainLire
+            | Self::EdtMaintenantLire
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1807,6 +1821,11 @@ fn socle_10_edt(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
         d.push(etab(EdtModifierLieu));
         d.push(etab(EdtModificationsLire));
+        // Lot T4 : le tableau « demain » et « maintenant » (vie scolaire comprise).
+        d.push(etab(EdtDemainLire));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push(etab(EdtMaintenantLire));
     }
     if role == Role::Direction {
         d.push(etab(EdtCorrigerPasse));
@@ -2378,8 +2397,10 @@ mod tests {
             assert_eq!(a(r, EdtModificationsLire), dir_adm || r == Role::Cpe, "{r:?} journal");
             assert_eq!(a(r, EdtCorrigerPasse), r == Role::Direction, "{r:?} correction du passé");
             assert_eq!(a(r, EdtForcerConflit), r == Role::Direction, "{r:?} forcer");
+            assert_eq!(a(r, EdtDemainLire), dir_adm || r == Role::Cpe, "{r:?} demain");
+            assert_eq!(a(r, EdtMaintenantLire), dir_adm || matches!(r, Role::Cpe | Role::Accueil), "{r:?} maintenant");
         }
-        for x in [EdtModifier, EdtModifierLieu, EdtLotAppliquer, EdtCorrigerPasse, EdtMotifInterneLire, EdtModificationsLire] {
+        for x in [EdtModifier, EdtModifierLieu, EdtLotAppliquer, EdtCorrigerPasse, EdtMotifInterneLire, EdtModificationsLire, EdtForcerConflit, EdtDemainLire, EdtMaintenantLire] {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
     }
