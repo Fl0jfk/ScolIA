@@ -102,6 +102,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("ent_dem_demande", &["id"], "demande du socle N1 : preuve en ajout seul (faits chaînés), identité et version gardées par la base ; la demande reste rattachée à la fiche sur laquelle elle a été déposée"),
     d("ent_dispense_vs", &["id"]),
     d("ent_doc_a_signer", &["id"]),
+    r("ent_edt_localisation_journal", &["id"], "journal en ajout seul (déclencheur) des lectures « où est cet élève » : trace de qui a regardé, reste sur la fiche consultée"),
     d("ent_eleve_bourse", &["id"]),
     d("ent_eleve_capacite", &["id"]),
     d("ent_eleve_compte", &["etablissement_id", "eleve_id"]),
@@ -285,6 +286,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_journal", "Journal et événements"),
         ("ent_metier_event", "Journal et événements"),
         ("ent_contrainte", "Emploi du temps"),
+        ("ent_edt_localisation", "Emploi du temps"),
         ("ent_cours_membre", "Emploi du temps"),
     ];
     REGLES
