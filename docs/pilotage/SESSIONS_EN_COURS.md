@@ -75,3 +75,9 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 
 Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). Actives : 15 A5, N1-2, 8 N0a, 29 P3, 20 C2, 7 D0.
 | **7 code D0** | session_01KZCbFFnDd4foXS9BRSVPom | ent-socle-7-code-d0 (aucune migration) | **active** — correctifs documents |
+
+### File d'attente (prochaine place libre, dans cet ordre)
+1. **PDF maison : accents et mise en page** (D-062) : encodage WinAnsi des polices standard (fin des « ? »), plusieurs pages, tableaux, logo JPEG, numéros de page ; tests sur bulletins, factures, courriers ; aucune dépendance.
+2. Socle 12 AS5 (avis regroupés, démenti notifié) — après N0a/N0b du socle 8.
+3. Socle 8 N0b (justesse : infirmerie, décès, droits du lien, fuseau, codage SMS).
+4. Socle 15 A6 et suivants ; N1-3 (HSE, reprographie) après N1-2.
