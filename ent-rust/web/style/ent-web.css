@@ -687,3 +687,10 @@
 .palette-option__aide { color: var(--c-attenue); font-size: 0.8125rem; flex: none; }
 .palette-aide { margin: var(--esp-3) 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--esp-3); font-size: 0.8125rem; color: var(--c-attenue); }
 .palette-aide kbd { font: inherit; background: var(--c-remplissage); border-radius: 6px; padding: 1px 6px; }
+
+/* Accueil : bandeaux et page d'alerte (socle 29, lot P7). */
+.accueil-bandeaux { display: grid; gap: var(--esp-3); margin-bottom: var(--esp-4); }
+.accueil-bandeaux__replies { display: grid; gap: var(--esp-3); }
+.accueil-bandeaux__replies > summary { cursor: pointer; padding: var(--esp-2) 0; color: var(--c-attenue); }
+.accueil-alerte { display: grid; gap: var(--esp-3); }
+.accueil-alerte__consigne { font-size: 1.25rem; font-weight: 600; margin: 0; }

@@ -14,6 +14,7 @@ pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
 pub mod portail;
+pub mod portail_modes;
 /// Socle 29, lots P2 et P3 : index des tâches (kit D-026), rapprochement, à-faire famille.
 pub mod afaire;
 pub mod afaire_files;
@@ -515,6 +516,8 @@ mod tests_eleve_fusion;
 mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_portail_p1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_portail_p7;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p2;
 #[cfg(all(test, feature = "labo"))]

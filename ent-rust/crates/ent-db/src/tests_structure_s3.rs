@@ -27,7 +27,7 @@ fn d(a: i32, m: u32, j: u32) -> NaiveDate {
     NaiveDate::from_ymd_opt(a, m, j).unwrap()
 }
 
-fn acteur_de(etab: Uuid, p: &LaboPersona) -> Acteur<'static> {
+pub(crate) fn acteur_de(etab: Uuid, p: &LaboPersona) -> Acteur<'static> {
     Acteur {
         etablissement_id: etab,
         user_id: p.user_id,
@@ -47,9 +47,10 @@ fn est_domaine<T>(r: &Result<T, EntDbError>, e: DomainError) -> bool {
     matches!(r, Err(EntDbError::Domain(x)) if *x == e)
 }
 
-struct Monde3 {
-    etab: Uuid,
-    annee: Uuid,
+pub(crate) struct Monde3 {
+    pub(crate) etab: Uuid,
+    #[allow(dead_code)]
+    pub(crate) annee: Uuid,
 }
 
 /// Établissement neuf avec l'année de labo 2026-2027 (non courante : dates fixes, assertions exactes).
@@ -70,7 +71,7 @@ async fn etab_courant(ent: &PgEnt) -> Monde3 {
     .await
 }
 
-async fn etab_avec_annee(
+pub(crate) async fn etab_avec_annee(
     ent: &PgEnt,
     libelle: &str,
     debut: NaiveDate,
@@ -756,7 +757,7 @@ fn config_test(etab: Uuid) -> ConfigDistribution {
     }
 }
 
-fn fermeture(du: NaiveDate, au: NaiveDate) -> FermetureSaisie {
+pub(crate) fn fermeture(du: NaiveDate, au: NaiveDate) -> FermetureSaisie {
     FermetureSaisie {
         libelle: Some("Alerte météo".into()),
         du,
