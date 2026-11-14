@@ -62,3 +62,9 @@ jour, il devra déclarer sa file ici. La procédure de restauration qui appeller
 Les branches `ent-stockage-objets-s3` (table `500_objet_registre`), `ent-socle-messagerie-m0b` (481) et
 `ent-d036-normalisation-json` (561-563) ajoutent des tables : après fusion avec ce registre, le test échouera tant
 qu'elles ne sont pas classées (c'est voulu, E12). Une ligne par table à ajouter.
+
+## Socle 27 (RGPD, conservation) — ajouts G0/G1 (2026-11-14)
+- **Catégorie de conservation par table** : `ent-db/src/conservation.rs` (`categorie_de_table`) donne, pour chaque table classée, une catégorie du catalogue (proposition, **aucune durée appliquée**). Le champ `Retention` du registre reste inchangé ; les tests `conservation::tests` vérifient que chaque table (R-RG12) a une catégorie connue et que chaque catégorie a une source ou la mention « aucune source, choix de minimisation » (R-RG13).
+- **Fournisseurs d'extrait** : `ent-db/src/extrait_personne.rs` déclare qui couvre quelles tables (R-RG14, RG-D05) ; une table « données personnelles » sans fournisseur ni mention « hors extrait » fait échouer le test.
+- **Nouveau domaine `conformite`** : `cons_regle`, `cons_regle_journal`, `rgp_gouvernance` (migration 2541).
+- **RG-D03** : le test sur base échoue si `CI` **ou** `ENT_EXIGER_BASE` est posé et que `ENT_DATABASE_URL` manque (`url_guard::url_labo_ou_echec`). En local sans variable, le test est ignoré avec un message sur stderr.

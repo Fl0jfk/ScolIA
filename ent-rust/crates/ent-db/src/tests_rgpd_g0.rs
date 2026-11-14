@@ -81,8 +81,19 @@ async fn truncate_du_journal_est_refuse() {
 async fn une_trace_sensible_qui_echoue_est_une_erreur() {
     let Some(ent) = base().await else { return };
     let etab = Uuid::new_v4();
-    ent.activer_module_sante_test(etab).await; // crée l'établissement
-    let user = Uuid::new_v4();
+    ent.activer_module_sante_test(etab).await;
+    // La trace référence un compte réel (clé étrangère) : on en crée un.
+    let user = ent
+        .register_user(
+            &format!("dir-{}@ent.local", Uuid::new_v4()),
+            "DevLocalPass1!",
+            None,
+            etab,
+            "direction",
+        )
+        .await
+        .expect("compte")
+        .id;
     // Cas nominal : trace écrite.
     ent.tracer_acces_sensible(
         etab,

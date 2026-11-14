@@ -414,6 +414,15 @@ pub enum Action {
     DemandesIndicateursLire,
     /// Lancer la reprise des demandes de l'ancienne application.
     DemandesReprise,
+    /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
+    ConformiteLire,
+    /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
+    ConformiteGerer,
+    /// Socle 27 : ajuster une règle de conservation dans ses bornes (motif exigé).
+    ConservationReglesProposer,
+    /// ★ Socle 27 : valider une règle de conservation. Rôle paramétrable (D-017) : le DPO en général ;
+    /// aucun profil historique ne la porte, une règle non validée n'autorise aucune destruction (R-RG1).
+    ConservationReglesValider,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -469,7 +478,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 194] = [
+    pub const TOUTES: [Action; 198] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -644,6 +653,11 @@ impl Action {
         Action::DemandesJournalLire,
         Action::DemandesIndicateursLire,
         Action::DemandesReprise,
+        // Socle 27 (RGPD, conservation), lot G1.
+        Action::ConformiteLire,
+        Action::ConformiteGerer,
+        Action::ConservationReglesProposer,
+        Action::ConservationReglesValider,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -861,6 +875,10 @@ impl Action {
             Self::DemandesJournalLire => "demandes.journal.lire",
             Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
             Self::DemandesReprise => "demandes.reprise",
+            Self::ConformiteLire => "conformite.lire",
+            Self::ConformiteGerer => "conformite.gerer",
+            Self::ConservationReglesProposer => "conservation.regles.proposer",
+            Self::ConservationReglesValider => "conservation.regles.valider",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -1063,6 +1081,10 @@ impl Action {
             Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
             Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
             Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
+            Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
+            Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
+            Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
+            Self::ConservationReglesValider => "Valider une règle de conservation (DPO ou rôle désigné par l'établissement)",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1272,7 +1294,11 @@ impl Action {
             | Self::DemandesParametrer
             | Self::DemandesJournalLire
             | Self::DemandesIndicateursLire
-            | Self::DemandesReprise => &[Portee::Etablissement],
+            | Self::DemandesReprise
+            | Self::ConformiteLire
+            | Self::ConformiteGerer
+            | Self::ConservationReglesProposer
+            | Self::ConservationReglesValider => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -1411,6 +1437,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_27_rgpd(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1944,6 +1971,23 @@ fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 27 (RGPD, conservation), lot G1 (`27_RGPD_ARCHIVES.md` §12.1). Bloc de `modele_par_defaut`, isolé
+/// pour que les fusions de branches ne s'y croisent pas (règle 21).
+///
+/// La direction lit la conformité, désigne le DPO et ajuste les règles ; **personne** ne reçoit
+/// `conservation.regles.valider` par défaut : un établissement sans DPO nommé garde « en attente de
+/// DPO » et rien n'est détruit (R-RG1). L'établissement peut confier la validation à un rôle D-017.
+/// L'administrateur technique n'a aucun de ces droits (il ne lit pas les décisions de conformité).
+fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if role == Role::Direction {
+        d.push(etab(ConformiteLire));
+        d.push(etab(ConformiteGerer));
+        d.push(etab(ConservationReglesProposer));
+    }
+}
+
 /// Socle 29 (portails, index des tâches), lot P2. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
 fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
@@ -2057,6 +2101,27 @@ fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Socle 27 : droits par défaut de la conformité. Personne ne valide une règle de conservation
+    /// sans que l'établissement ait confié ce droit à un rôle (DPO) ; l'administrateur technique ne lit pas
+    /// les décisions de conformité ; familles et élèves n'ont rien.
+    #[test]
+    fn socle_27_droits_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [
+            Role::Admin, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
+            Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve,
+        ] {
+            for x in [ConformiteLire, ConformiteGerer, ConservationReglesProposer, ConservationReglesValider] {
+                assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?} par défaut");
+            }
+        }
+        assert!(a(Role::Direction, ConformiteLire));
+        assert!(a(Role::Direction, ConformiteGerer));
+        assert!(a(Role::Direction, ConservationReglesProposer));
+        assert!(!a(Role::Direction, ConservationReglesValider), "la validation est celle du DPO");
+    }
 
     #[test]
     fn codes_uniques_et_relus() {

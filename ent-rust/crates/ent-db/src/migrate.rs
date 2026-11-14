@@ -310,6 +310,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2413_cdt_c2_saisie_publication"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
+    // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
+    m!("2541_rgpd_g1_conservation"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),
