@@ -287,6 +287,22 @@ pub fn reperes_depasses(
     v
 }
 
+/// Repères dépassés pour une **échéance** : les minutes sont celles du soir précédent (veille ouvrée), les évaluations celles
+/// du jour, la semaine celle qui contient le jour.
+pub fn reperes_depasses_echeance(
+    jours: &BTreeMap<NaiveDate, ChargeJour>,
+    ouvres: &JoursOuvres,
+    jour: NaiveDate,
+    r: &ReperePositionDto,
+) -> Vec<&'static str> {
+    let soir = ouvres.veille(jour).and_then(|v| jours.get(&v)).map(|c| c.minutes_soir).unwrap_or(0);
+    let mut v: Vec<&'static str> = reperes_depasses(jours, jour, r).into_iter().filter(|x| *x != REPERE_MINUTES).collect();
+    if soir > r.minutes_soir {
+        v.insert(0, REPERE_MINUTES);
+    }
+    v
+}
+
 /// Médiane entière (inférieure en cas de nombre pair) ; 0 pour une liste vide.
 pub fn mediane(mut v: Vec<i32>) -> i32 {
     if v.is_empty() {

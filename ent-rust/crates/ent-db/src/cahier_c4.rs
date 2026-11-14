@@ -24,7 +24,7 @@ use uuid::Uuid;
 use crate::cahier::Cible;
 use crate::cahier_c3::{lundi_de, LecteurC3};
 use crate::charge_calcul::{
-    calculer, distribution, evaluations_semaine, est_long, mediane, reperes, reperes_de, reperes_depasses, Echeance, Genre,
+    calculer, distribution, evaluations_semaine, est_long, mediane, reperes, reperes_de, reperes_depasses_echeance, Echeance, Genre,
     Groupe, JoursOuvres, Position,
 };
 use crate::ref_commun::{db, introuvable, Acteur};
@@ -411,14 +411,12 @@ impl PgEnt {
         let mut j = du;
         while j <= au {
             if let Some(c) = jours.get(&j) {
-                let precedent = ouvres.lendemain(j).map(|_| ()).and(None::<()>);
-                let _ = precedent;
                 out_jours.push(ChargeJourEleveDto {
                     jour: j,
                     nb_evaluations: c.nb_evaluations,
                     nb_travaux: c.nb_travaux,
                     minutes_soir_precedent: ouvres.veille(j).and_then(|v| jours.get(&v)).map(|x| x.minutes_soir).unwrap_or(0),
-                    au_dessus: reperes_depasses(jours, j, &repere).into_iter().map(String::from).collect(),
+                    au_dessus: reperes_depasses_echeance(jours, &ouvres, j, &repere).into_iter().map(String::from).collect(),
                 });
             }
             j += Duration::days(1);
@@ -557,7 +555,7 @@ impl PgEnt {
             for (eleve, g) in &groupes {
                 let Some(jours_eleve) = charge.get(eleve) else { continue };
                 let r = reperes(position, *g);
-                if !reperes_depasses(jours_eleve, j, &r).is_empty() {
+                if !reperes_depasses_echeance(jours_eleve, &ouvres, j, &r).is_empty() {
                     au_dessus += 1;
                 }
                 let c = jours_eleve.get(&j).copied().unwrap_or_default();

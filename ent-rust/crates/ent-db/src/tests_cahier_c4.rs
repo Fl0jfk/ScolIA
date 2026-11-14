@@ -374,7 +374,7 @@ async fn c4_alerte_ignoree_recalculee_par_le_serveur_comptee_et_jamais_nominativ
     let e = fx.cast.etablissement_id;
     let auj = jour(&fx).await;
     let cours = cours_de_service(&fx, fx.service_a).await;
-    let j = ouvre(&fx, auj + Duration::days(6)).await;
+    let j = ouvre(&fx, auj + Duration::days(2)).await;
     // Un premier travail de 40 minutes ; le second (30 min) fait passer le soir de 40 à 70 min, au-dessus de 60 (normal).
     let t0 = fx.ent.cdt_travaux_creer(&fx.prof(), corps_travail(vec![cours], j, "exercices", Some(40))).await.unwrap().travaux[0].id;
     let c1 = corps_travail(vec![cours], j, "exercices", Some(30));
@@ -391,7 +391,7 @@ async fn c4_alerte_ignoree_recalculee_par_le_serveur_comptee_et_jamais_nominativ
         .cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![cours], echeance_jour: Some(j), prochaine_seance: false, nature: Some("exercices".into()), duree_estimee_min: Some(30) })
         .await
         .unwrap();
-    assert!(apercu.alertes.iter().any(|a| a.repere == "minutes" && a.seuil == 60 && a.valeur_max == 110), "{:?}", apercu.alertes);
+    assert!(apercu.alertes.iter().any(|a| a.repere == "minutes" && a.seuil == 60 && a.valeur_max == 100), "{:?}", apercu.alertes);
 
     // Passer outre : le serveur recalcule (il ne croit pas le client) et compte, une fois par repère.
     let al = fx.ent.cdt_alerte_ignorer(&fx.prof(), t1).await.unwrap();
