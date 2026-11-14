@@ -628,3 +628,97 @@ pub struct BilanSollicitationsDto {
     pub expirees: u32,
     pub accuses_manquants: u32,
 }
+
+// ─────────────────────────── Lot A5 : absence longue et suppléance (migration 2306) ───────────────────────────
+
+/// ABP-180 : demander une suppléance à l'employeur (rectorat, diocèse, IA-IPR / DPE). Aucun texte libre.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemanderSuppleanceBody {
+    /// `rectorat` · `ia_dpe` · `diocese` · `autre`.
+    pub destinataire: String,
+    /// Référence du courrier ou du dossier chez l'employeur (60 caractères, sans mot exclu).
+    #[serde(default)]
+    pub reference: Option<String>,
+    /// Date à laquelle le suppléant est attendu.
+    #[serde(default)]
+    pub souhaitee_du: Option<NaiveDate>,
+}
+
+/// ABP-180 : consigner la réponse de l'employeur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReponseSuppleanceBody {
+    /// `proposee` (un suppléant est proposé) · `refusee` · `sans_suite`.
+    pub issue: String,
+    /// Obligatoire avec `proposee` : un agent connu de l'établissement (à créer au socle 6 s'il est nouveau).
+    #[serde(default)]
+    pub suppleant_agent_id: Option<Uuid>,
+    #[serde(default)]
+    pub suppleant_du: Option<NaiveDate>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DemandeSuppleanceDto {
+    pub id: Uuid,
+    pub absence_id: Uuid,
+    pub destinataire: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub souhaitee_du: Option<NaiveDate>,
+    /// `demandee` · `proposee` · `acceptee` · `refusee` · `sans_suite` · `annulee`.
+    pub etat: String,
+    pub demandee_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reponse_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppleant_agent_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppleant_du: Option<NaiveDate>,
+}
+
+/// ABP-181 : nommer un suppléant sur le service de l'absent (port `nommer_suppleant` du socle 6).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NommerSuppleantAbsenceBody {
+    pub service_id: Uuid,
+    pub agent_id: Uuid,
+    pub du: NaiveDate,
+    /// Absent : jusqu'au retour du titulaire.
+    #[serde(default)]
+    pub au: Option<NaiveDate>,
+}
+
+/// L'état du remplacement d'une absence (EDT-228) : ce que voient les familles, jamais la nature.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtatRemplacementDto {
+    pub absence_id: Uuid,
+    /// `en_recherche` · `propose` · `nomme` · `en_cours` · `termine`.
+    pub etape: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suppleant_agent_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub a_partir_du: Option<NaiveDate>,
+    pub etape_le: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NominationSuppleantDto {
+    pub absence_id: Uuid,
+    pub service_id: Uuid,
+    pub agent_id: Uuid,
+    pub du: NaiveDate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub au: Option<NaiveDate>,
+    /// Séances de l'absence passées à `supplee` (celles qui restaient à traiter à partir de la date).
+    pub seances_supplees: u32,
+    /// Séances de la période déjà couvertes par une autre réponse (RCD, collègue) : à lever par la direction si
+    /// le suppléant les reprend.
+    pub seances_deja_repondues: u32,
+    pub remplacement: EtatRemplacementDto,
+}
+
+/// Bilan d'un passage de la tâche d'état du remplacement.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanRemplacementDto {
+    pub absences: u32,
+    pub etapes_changees: u32,
+}

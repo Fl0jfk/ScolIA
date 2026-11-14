@@ -450,6 +450,23 @@ async fn run_api() {
         })
     });
 
+    // Socle 15 (A5) : état du remplacement des absences longues (« nommé » → « en cours » → « terminé »), une
+    // seule notification par étape. Chaque minute, idempotente.
+    let remplacements_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(50)).await;
+            loop {
+                match ent.avancer_etats_remplacement().await {
+                    Ok(b) if b.etapes_changees > 0 => tracing::info!(?b, "état du remplacement"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("état du remplacement : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -472,6 +489,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = sollicitations_absences {
+        t.abort();
+    }
+    if let Some(t) = remplacements_absences {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

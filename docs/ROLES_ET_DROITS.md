@@ -174,5 +174,6 @@ Huit actions `personnels.absences.*` (portée établissement seulement ; la port
 | `personnels.absences.saisir_validee` ★ | Direction, Administratif | réservée (non utilisée en A1) |
 | `personnels.absences.parametrer` ★ | Admin, Direction | règles de circuit |
 | `personnels.absences.conserver` ★ (A2) | Direction | geler la conservation (contentieux), purger une pièce à la demande, voir les purges à venir, marquer « confidentialité renforcée » ; **jamais** Admin technique ; réaffectable au DPO par un rôle paramétrable |
+| `personnels.absences.suppleer` (A5) | Direction, Administratif | demander une suppléance à l'employeur et consigner sa réponse (ABP-180) ; nommer un suppléant (ABP-181) exige en plus `personnels.absences.valider` (direction) et `services.gerer` (socle 6) ; **jamais** Admin technique ni Compta |
 
 **Lot A2 (pièces, fil)** : aucune autre action. Les pièces et le fil se lisent par **appartenance au cercle RH** (l'agent, valideur ou instructeur du circuit, direction, secrétariat pour l'État, comptabilité pour l'OGEC), contrôlée par le service ; tout autre profil reçoit 404 (pas d'oracle). Dépôt : l'agent ou l'instructeur. « Qui a lu mes pièces » : l'agent seul.

@@ -338,6 +338,9 @@ pub enum Action {
     /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
     /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
     PersonnelsAbsencesConserver,
+    /// Absence longue et suppléance (A5) : demander une suppléance au rectorat et en tracer la réponse (ABP-180),
+    /// nommer un suppléant sur le service de l'absent (ABP-181, avec `services.gerer` du socle 6). Direction et secrétariat.
+    PersonnelsAbsencesSuppleer,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -434,7 +437,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 181] = [
+    pub const TOUTES: [Action; 182] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -628,6 +631,7 @@ impl Action {
         Action::PersonnelsAbsencesSaisirValidee,
         Action::PersonnelsAbsencesParametrer,
         Action::PersonnelsAbsencesConserver,
+        Action::PersonnelsAbsencesSuppleer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -781,6 +785,7 @@ impl Action {
             Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
             Self::AfaireRapprocher => "afaire.rapprocher",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
+            Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -970,6 +975,7 @@ impl Action {
             Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
             Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
+            Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1166,6 +1172,7 @@ impl Action {
             | Self::PersonnelsAbsencesSaisirValidee
             | Self::PersonnelsAbsencesParametrer
             | Self::PersonnelsAbsencesConserver
+            | Self::PersonnelsAbsencesSuppleer
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1731,6 +1738,10 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     if role == Role::Direction {
         d.push(etab(PersonnelsAbsencesConserver));
     }
+    // Absence longue et suppléance (A5, ABP-180 et 181) : direction et secrétariat.
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesSuppleer));
+    }
 }
 
 /// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
@@ -2165,6 +2176,11 @@ mod tests {
             assert_eq!(a(r, PersonnelsAbsencesValider), r == Role::Direction, "{r:?} valider");
             assert_eq!(a(r, PersonnelsAbsencesConserver), r == Role::Direction, "{r:?} conserver");
             assert_eq!(
+                a(r, PersonnelsAbsencesSuppleer),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} suppleer"
+            );
+            assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
                 "{r:?} parametrer"
@@ -2180,6 +2196,7 @@ mod tests {
                     PersonnelsAbsencesSaisirValidee,
                     PersonnelsAbsencesParametrer,
                     PersonnelsAbsencesConserver,
+                    PersonnelsAbsencesSuppleer,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }
