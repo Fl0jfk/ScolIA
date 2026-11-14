@@ -27,7 +27,7 @@ fn uuid_de(v: &Value) -> Uuid {
 
 /// Jour de novembre de l'année scolaire courante (toujours dans l'année).
 fn nov(jour: u32) -> NaiveDate {
-    let auj = chrono::Utc::now().date_naive();
+    let auj = domain_eleve::horloge::jour_paris();
     let an = if auj.month() >= 9 { auj.year() } else { auj.year() - 1 };
     NaiveDate::from_ymd_opt(an, 11, jour).unwrap()
 }

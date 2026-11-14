@@ -250,7 +250,7 @@ test_lot!(lot_eleves_responsables, "eleves_responsables", "ent_foyer", |id, etab
     format!("INSERT INTO ent_foyer (id, etablissement_id) VALUES ('{id}', '{etab}')")
 });
 test_lot!(lot_sante_assiduite, "sante_assiduite", "ent_alerte_cpe", |id, etab, el| {
-    format!("INSERT INTO ent_alerte_cpe (id, etablissement_id, eleve_id, titre, jour, created_by_user_id) VALUES ('{id}', '{etab}', '{el}', 't', current_date, '{el}')")
+    format!("INSERT INTO ent_alerte_cpe (id, etablissement_id, eleve_id, titre, jour, created_by_user_id) VALUES ('{id}', '{etab}', '{el}', 't', ent_aujourdhui(), '{el}')")
 });
 test_lot!(lot_finances, "finances", "ent_taux_tva", |id, etab, _| {
     format!("INSERT INTO ent_taux_tva (id, etablissement_id, code, libelle, taux_bps, created_by_user_id) VALUES ('{id}', '{etab}', 't', 't', 0, '{id}')")

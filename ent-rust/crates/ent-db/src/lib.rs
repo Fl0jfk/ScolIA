@@ -8,6 +8,7 @@ mod assiduite;
 mod assiduite_as1;
 mod assiduite_as2;
 mod assiduite_as3;
+mod assiduite_as4;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -24,6 +25,10 @@ mod enseignements;
 pub mod cours;
 /// Socle N1 (demandes et flux de travail), lot N1-0 : cœur et garde-fous.
 pub mod demandes;
+/// Socle N1, lot N1-1 : catalogue des natures, files, membres calculés, routage.
+pub mod demandes_catalogue;
+pub mod demandes_files;
+pub mod demandes_routage;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -236,12 +241,17 @@ pub use assiduite_as3::{
     FiltreEpisodes, JustificatifAsd, LienJustificatif, ProposerQualification, PropositionAsd, QualifierEpisode,
     RequalifierEpisode, SeanceEpisode, SelectionMasse, LIBELLES_FAMILLE, MOTIFS_REQUALIFICATION, QUALIFICATIONS,
 };
+pub use assiduite_as4::{
+    deriver_jour, expliquer, ArretMois, DemiJourneeCalc, DemiJourneeCalculee, Definition, EleveMoisArrete, Ouverture,
+    ParamsJour, Raison, Rectification, ResumeRecalcul, CAUSES_RECTIFICATION,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
     SessionAppareil, SessionInfo, StaffMember,
 };
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
+pub use domain_eleve::horloge::jour_paris;
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
 pub mod messagerie_m0b;
@@ -462,6 +472,8 @@ mod tests_assiduite_as2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as4;
+#[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions_i2;
@@ -483,6 +495,8 @@ mod tests_eleve_jour_etablissement;
 mod tests_eleve_scolarite;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

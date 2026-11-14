@@ -196,6 +196,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("294_eleve_fusion_securite"),
     m!("295_eleve_identite_jour_etablissement"),
     m!("296_eleve_jour_etablissement"),
+    m!("297_eleve_horodatage_jour_etablissement"),
     m!("300_inscription_annuelle_prevue"),
     m!("301_inscriptions_i1_dossier"),
     m!("302_inscription_campagne_modele"),
@@ -218,6 +219,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("340_eleve_enseignement"),
     m!("341_cours"),
     m!("342_eleve_enseignement_jour_etablissement"),
+    m!("343_eleve_enseignement_horodatage_jour_etablissement"),
     m!("350_acces_etat"),
     m!("351_attributions_datees"),
     m!("352_agents"),
@@ -279,6 +281,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2243_assiduite_as2_situations"),
     m!("2244_assiduite_as3_episodes"),
     m!("2245_assiduite_as3_justificatifs_demandes"),
+    m!("2246_assiduite_as4_decompte"),
     m!("2300_absp_a0_correctifs"),
     m!("2301_absp_referentiel"),
     m!("2302_absp_absence"),
@@ -316,13 +319,16 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Socle N1 (demandes et flux de travail), plage 3040–3059 : lot N1-0 (cœur, projections).
     m!("3040_demandes_n1_0_coeur"),
     m!("3041_demandes_n1_0_droits"),
+    // Lot N1-1 : files, membres calculés, routage, repli RH.
+    m!("3042_demandes_n1_1_files"),
+    m!("3043_demandes_n1_1_routage"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "3041_demandes_n1_0_droits";
+pub const MIGRATION_TAG: &str = "3043_demandes_n1_1_routage";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

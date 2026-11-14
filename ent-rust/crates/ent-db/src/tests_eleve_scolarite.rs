@@ -539,7 +539,7 @@ async fn inscription_annuelle_et_pont_avec_l_ancienne_table() {
     let Some((ent, cast)) = labo().await else { return };
     let (etab, admin) = (cast.etablissement_id, cast.administratif.user_id);
     let e = eleve_le(&ent, etab, Some(aujourdhui() - Duration::days(30)), None, None).await;
-    let (annee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, current_date)").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
+    let (annee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, ent_aujourdhui())").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
     let cmd = |etat: EtatInscription| InscriptionAnnuelle {
         etablissement_id: etab,
         eleve_id: e.id,
@@ -634,7 +634,7 @@ async fn inscription_annuelle_et_pont_avec_l_ancienne_table() {
         .unwrap();
     assert_eq!(illisible, 1, "la ligne illisible reste « à traiter », sans doublon");
     // Année où l'élève n'est pas scolarisé : refusée.
-    let (passee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, (current_date - interval '5 years')::date)")
+    let (passee,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, (ent_aujourdhui() - interval '5 years')::date)")
         .bind(etab)
         .fetch_one(ent.pool_verif())
         .await
@@ -654,9 +654,9 @@ async fn classe_et_options_par_affectations_du_referentiel() {
     let (c1, c2, annee): (Uuid, Uuid, Uuid) = {
         let code1 = format!("T{}", alea().to_uppercase());
         let code2 = format!("U{}", alea().to_uppercase());
-        let (a,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, current_date)").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
-        let (x,): (Option<Uuid>,) = sqlx::query_as("SELECT ent_resoudre_classe($1, $2, current_date)").bind(etab).bind(&code1).fetch_one(ent.pool_verif()).await.unwrap();
-        let (y,): (Option<Uuid>,) = sqlx::query_as("SELECT ent_resoudre_classe($1, $2, current_date)").bind(etab).bind(&code2).fetch_one(ent.pool_verif()).await.unwrap();
+        let (a,): (Uuid,) = sqlx::query_as("SELECT ent_assurer_annee($1, ent_aujourdhui())").bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
+        let (x,): (Option<Uuid>,) = sqlx::query_as("SELECT ent_resoudre_classe($1, $2, ent_aujourdhui())").bind(etab).bind(&code1).fetch_one(ent.pool_verif()).await.unwrap();
+        let (y,): (Option<Uuid>,) = sqlx::query_as("SELECT ent_resoudre_classe($1, $2, ent_aujourdhui())").bind(etab).bind(&code2).fetch_one(ent.pool_verif()).await.unwrap();
         (x.unwrap(), y.unwrap(), a)
     };
     let e = eleve_le(&ent, etab, Some(aujourdhui() - Duration::days(5)), None, None).await;
@@ -723,7 +723,7 @@ async fn classe_et_options_par_affectations_du_referentiel() {
     let opt_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_eleve_option (id, etablissement_id, eleve_id, nature, code, libelle, date_debut)
-         VALUES ($1,$2,$3,'academique',$4,'Théâtre', current_date)",
+         VALUES ($1,$2,$3,'academique',$4,'Théâtre', ent_aujourdhui())",
     )
     .bind(opt_id)
     .bind(etab)

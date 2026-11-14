@@ -32,6 +32,23 @@ fn lundi() -> NaiveDate {
     d
 }
 
+/// AS4 : le décompte lit le calendrier du socle 5. Les dates de ces scénarios sont à J+120 : une année de
+/// labo les couvre, pour que le résultat ne dépende pas du jour où le test tourne (hors année : 0).
+async fn couvrir_calendrier(ent: &PgEnt, cast: &LaboCast, lun: NaiveDate) {
+    sqlx::query(
+        "INSERT INTO ent_annee_scolaire (id, etablissement_id, libelle, date_debut, date_fin, courante)
+         VALUES ($1, $2, $3, $4, $5, false)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(cast.etablissement_id)
+    .bind(format!("vs-{}", lun.format("%Y%m%d")))
+    .bind(lun - Duration::days(60))
+    .bind(lun + Duration::days(90))
+    .execute(ent.pool_verif())
+    .await
+    .expect("année de labo");
+}
+
 fn config(etab: Uuid) -> ConfigDistribution {
     ConfigDistribution {
         taille_lot: 100,
@@ -142,6 +159,7 @@ async fn demi_journees_derivees_des_appels_et_cas_limites() {
     let etab = cast.etablissement_id;
     let lea = cast.eleve_lea_id;
     let lun = lundi();
+    couvrir_calendrier(&ent, &cast, lun).await;
     let mar = lun + Duration::days(1);
 
     // Lundi : deux séances le matin → une seule demi-journée, 120 min.
@@ -211,6 +229,7 @@ async fn reprise_des_absences_a_la_journee_et_decompte_mensuel() {
     let etab = cast.etablissement_id;
     let tom = cast.eleve_tom_id;
     let lun = lundi();
+    couvrir_calendrier(&ent, &cast, lun).await;
     // Deux semaines (lundi → dimanche suivant) : 10 jours ouvrés, week-ends exclus.
     let abs = ent
         .declare_absence(DeclareAbsence {
@@ -223,17 +242,18 @@ async fn reprise_des_absences_a_la_journee_et_decompte_mensuel() {
         })
         .await
         .unwrap();
-    // Avant toute matérialisation : le repli compte déjà 20 demi-journées.
+    // Avant toute matérialisation : l'absence à la journée reçoit son épisode (AS4) et compte 18 demi-journées
+    // sur deux semaines : 10 jours ouvrés, moins les deux mercredis après-midi sans cours (calendrier, DA-14).
     let dj = ent.demi_journees(etab, Some(tom), lun, lun + Duration::days(13)).await.unwrap();
-    assert_eq!(dj.iter().filter(|d| d.non_justifiee).count(), 20);
+    assert_eq!(dj.iter().filter(|d| d.non_justifiee).count(), 18);
     assert!(dj.iter().all(|d| d.jour.weekday().number_from_monday() < 6));
     // La migration (reprise) matérialise puis reste idempotente : pas de double compte.
     crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     crate::migrate::rejouer_tout(ent.pool_verif()).await.unwrap(); // rejeu des fichiers (reprise), hors registre
     let lignes = compter(&ent, "SELECT count(*) FROM ent_absence_seance WHERE absence_id = $1", abs.id).await;
-    assert_eq!(lignes, 20);
+    assert_eq!(lignes, 20, "la reprise matérialise les 20 demi-journées entières du lundi au vendredi");
     let dj = ent.demi_journees(etab, Some(tom), lun, lun + Duration::days(13)).await.unwrap();
-    assert_eq!(dj.iter().filter(|d| d.non_justifiee).count(), 20);
+    assert_eq!(dj.iter().filter(|d| d.non_justifiee).count(), 18, "le calendrier retire les mercredis après-midi");
 
     // Décompte du mois : seule la part dans le mois compte (la seconde semaine peut
     // déborder). Le premier lundi est ≤ 7 : la 1re semaine est entièrement dans le mois.
@@ -849,6 +869,7 @@ async fn signalement_d_assiduite_cpe_propose_direction_decide() {
     let lea = cast.eleve_lea_id;
     let tom = cast.eleves.iter().find(|e| e.classe == "4B" && e.id != lea).expect("autre élève de 4B").id;
     let lun = lundi();
+    couvrir_calendrier(&ent, &cast, lun).await;
     let cpe = (cast.cpe.user_id, Role::Cpe.as_str());
     let dir = (cast.direction.user_id, "direction");
     // Léa : 4 matinées non justifiées dans le mois ; Tom : 3.
@@ -905,6 +926,7 @@ async fn parcours_journee_type_famille_appel_vie_scolaire() {
     let etab = cast.etablissement_id;
     let lea = cast.eleve_lea_id;
     let lun = lundi();
+    couvrir_calendrier(&ent, &cast, lun).await;
     let parent = (cast.parent_lea.user_id, "parent");
     permettre_justifier(&ent, &cast, lea, parent.0, true).await;
 

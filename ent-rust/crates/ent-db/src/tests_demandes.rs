@@ -28,7 +28,7 @@ use ent_auth::Role;
 use serde_json::json;
 use uuid::Uuid;
 
-async fn labo() -> Option<(PgEnt, LaboCast)> {
+pub(crate) async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_| {}).await;
     Some((ent, cast))
@@ -36,11 +36,11 @@ async fn labo() -> Option<(PgEnt, LaboCast)> {
 
 /// Un acteur de test : compte, fiche de personne et, pour un traitant, fiche d'agent.
 #[derive(Clone, Copy)]
-struct Acteur {
-    user: Uuid,
-    personne: Uuid,
-    agent: Option<Uuid>,
-    role: &'static str,
+pub(crate) struct Acteur {
+    pub(crate) user: Uuid,
+    pub(crate) personne: Uuid,
+    pub(crate) agent: Option<Uuid>,
+    pub(crate) role: &'static str,
 }
 
 /// Sources de test : une file, des membres désignés, un droit de famille réglable.
@@ -67,18 +67,19 @@ impl SourcesDemandes for Sources {
     }
 }
 
-struct Monde {
-    etab: Uuid,
-    prof: Acteur,
-    cpe: Acteur,
-    direction: Acteur,
-    compta: Acteur,
-    parent: Acteur,
-    eleve: Uuid,
+pub(crate) struct Monde {
+    pub(crate) etab: Uuid,
+    pub(crate) prof: Acteur,
+    pub(crate) cpe: Acteur,
+    pub(crate) direction: Acteur,
+    pub(crate) compta: Acteur,
+    pub(crate) parent: Acteur,
+    pub(crate) eleve: Uuid,
+    #[allow(dead_code)]
     src: Sources,
 }
 
-async fn fiche(ent: &PgEnt, etab: Uuid, user: Uuid, role: &'static str, agent: bool) -> Acteur {
+pub(crate) async fn fiche(ent: &PgEnt, etab: Uuid, user: Uuid, role: &'static str, agent: bool) -> Acteur {
     let pool = ent.pool_verif();
     // Le jeu de labo crée déjà une fiche par compte : on la réutilise, sinon on la crée.
     let existante: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM ent_personne WHERE etablissement_id = $1 AND user_id = $2")
@@ -130,7 +131,7 @@ async fn fiche(ent: &PgEnt, etab: Uuid, user: Uuid, role: &'static str, agent: b
 
 /// Établissement de test prêt : année courante, fiches, une file dont le prof et le CPE sont membres.
 /// Le prof est membre de la file ; **le CPE ne l'est pas** par défaut (hors file).
-async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
+pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
     let etab = cast.etablissement_id;
     let pool = ent.pool_verif();
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante")
@@ -159,7 +160,7 @@ async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
     Monde { etab, prof, cpe, direction, compta, parent, eleve: cast.eleve_lea_id, src }
 }
 
-fn depot(nature: &str) -> DepotDemande {
+pub(crate) fn depot(nature: &str) -> DepotDemande {
     DepotDemande {
         nature_code: nature.into(),
         objet: "Une ampoule grillée dans le couloir".into(),
@@ -172,7 +173,7 @@ fn depot(nature: &str) -> DepotDemande {
     }
 }
 
-fn depot_maintenance() -> DepotDemande {
+pub(crate) fn depot_maintenance() -> DepotDemande {
     let mut d = depot("maintenance.intervention");
     d.valeurs = vec![ValeurSaisie { champ: "gravite".into(), rang: 0, valeur: Valeur::Code("gene".into()) }];
     d

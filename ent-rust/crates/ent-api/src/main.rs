@@ -323,6 +323,21 @@ async fn run_api() {
             }
         });
     }
+    // Socle 12 (AS4) : arrêt du décompte du mois terminé, au jour métier de chaque établissement. Idempotent :
+    // un mois déjà arrêté n'est jamais réécrit, la tâche peut tourner à chaque passage.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.assiduite_arret_mois_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(mois = n, "mois d'assiduité arrêtés"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("arrêt du mois d'assiduité : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {
