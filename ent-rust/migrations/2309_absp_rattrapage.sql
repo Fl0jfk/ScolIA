@@ -12,11 +12,9 @@
 --    (contrainte d'exclusion). Un créneau assuré ne change plus ; rien ne se supprime.
 -- Ni la nature de l'absence ni un texte libre n'apparaissent dans ces tables (niveau « organisation », R-AP2).
 
--- 0. Journal : objet « rattrapage » ----------------------------------------------------------------------------
-ALTER TABLE ent_absp_journal DROP CONSTRAINT IF EXISTS ent_absp_journal_objet_check;
-ALTER TABLE ent_absp_journal ADD CONSTRAINT ent_absp_journal_objet_check CHECK (objet IN (
-    'absence', 'circuit_regle', 'param', 'nature_etab',
-    'rcd_plan', 'rcd_engagement', 'rcd_remontee', 'heure', 'etat', 'element_paie', 'dsn', 'rattrapage'));
+-- 0. Journal : les décisions sur un rattrapage s'inscrivent au journal de l'ABSENCE (objet `absence`, action
+--    `rattrapage_*`). La contrainte `ent_absp_journal_objet_check` n'est PAS modifiée : la migration 2307, rejouable, la
+--    réécrit avec sa liste d'origine et échouerait si une ligne d'un autre objet existait.
 
 -- 1. Rattrapage dû -----------------------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS ent_absp_rattrapage (

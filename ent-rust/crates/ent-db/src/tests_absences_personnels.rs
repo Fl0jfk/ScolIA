@@ -4821,7 +4821,7 @@ async fn a8_relance_echeance_prolongation_retenue_et_abandon() {
     .await
     .unwrap();
     assert!(!events.contains("convenance") && !events.contains("nature"), "{events}");
-    let journal: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'rattrapage'")
+    let journal: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'absence' AND action LIKE 'rattrapage%'")
         .bind(x.etab)
         .fetch_one(x.ent.pool())
         .await
