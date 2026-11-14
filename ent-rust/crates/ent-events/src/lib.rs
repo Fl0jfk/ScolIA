@@ -123,6 +123,8 @@ pub mod types {
     pub const CAHIER_RETIREE: &str = "cahier.retiree";
     pub const CAHIER_PROGRAMME: &str = "cahier.programme";
     pub const CAHIER_CONTRIBUTION_AJOUTEE: &str = "cahier.contribution_ajoutee";
+    // Lot C3 : résumé hebdomadaire « la semaine de mon enfant » (décomptes seulement).
+    pub const CAHIER_RESUME_HEBDOMADAIRE: &str = "cahier.resume_hebdomadaire";
     pub const NOTE_PERIODE_CREATED: &str = "note.periode_created";
     pub const NOTE_PERIODE_STATUT: &str = "note.periode_statut";
     pub const NOTE_BULLETIN_PUBLIE: &str = "note.bulletin_publie";

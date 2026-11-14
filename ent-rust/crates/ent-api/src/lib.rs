@@ -24,6 +24,7 @@ mod internat;
 pub mod obs;
 mod referentiel;
 mod cahier;
+mod cahier_c3;
 mod referentiel_s2;
 mod structure;
 mod structure_calendrier;

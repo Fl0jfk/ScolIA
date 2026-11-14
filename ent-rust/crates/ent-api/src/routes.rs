@@ -848,6 +848,7 @@ pub fn router() -> Router<AppState> {
     // Socle 42, lot V0c : prestataires, devis, commandes, avenants, boîte de réception (`voyages_achats.rs`).
     let r = r.merge(crate::voyages_achats::routes());
     let r = r.merge(crate::cahier::routes());
+    let r = r.merge(crate::cahier_c3::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
     let r = r.merge(crate::dossier::routes());

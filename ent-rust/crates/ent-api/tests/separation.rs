@@ -716,6 +716,15 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c2-travail-retrait-B", "POST", "/cahier/c2/travaux/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
         lire("cahier-c2-mes-cours", "/cahier/c2/cours", &[Admin, Direction, Prof], &[]),
         lire("cahier-c2-natures", "/cahier/c2/natures", &[Admin, Direction, Prof], &[]),
+        // Socle 20, lot C3 : agenda, manqué, résumé de l'élève et de ses responsables habilités. Le jeton de A avec des
+        // identifiants de B n'obtient jamais un 2xx ; le personnel, un parent d'un autre foyer ou sans lien ne lit rien.
+        lire("cahier-c3-agenda", "/cahier/c3/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve], &[]),
+        lire("cahier-c3-manque", "/cahier/c3/manque?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve], &[]),
+        lire("cahier-c3-resume", "/cahier/c3/resume?eleve_id={eleve}", &[Parent, Eleve], &[]),
+        lire("cahier-c3-abonnements", "/cahier/c3/abonnements", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
+        ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
+        ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),
     ]
 }
 
@@ -788,6 +797,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/labo/bootstrap"), // fermé hors labo par ENT_ENV / ENT_ALLOW_LABO
     ("POST", "/auth/register"),  // fermé hors labo
     ("POST", "/auth/login"),
+    // Socle 20, lot C3 : flux de calendrier d'un abonnement. Un logiciel de calendrier n'envoie ni cookie ni jeton d'API ;
+    // le jeton de l'adresse (244 bits, haché en base, révocable) tient lieu de session, et les droits du compte abonné
+    // sont relus à chaque lecture. Jeton inconnu, révoqué ou droits retirés : 404 sans rien dire de plus.
+    ("GET", "/cahier/c3/calendrier/{jeton}"),
     ("GET", "/auth/etablissement"), // C2 : fiche publique de l'établissement de l'adresse
     ("POST", "/auth/passkey/login/start"),
     ("POST", "/auth/passkey/login/finish"),

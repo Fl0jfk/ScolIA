@@ -2061,3 +2061,6 @@ async fn c1_vues_de_compatibilite_rendent_l_ancienne_forme() {
 
 #[path = "tests_cahier_c2.rs"]
 mod c2;
+
+#[path = "tests_cahier_c3.rs"]
+mod c3;

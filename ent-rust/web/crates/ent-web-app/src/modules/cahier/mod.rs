@@ -12,6 +12,9 @@
 //! * `/web/cahier/cours` — professeur : cahier du cours (entrées par séance, brouillon, programmation, plage calme,
 //!   modification avec ou sans avis, historique, retrait, copie) ;
 //! * `/web/cahier/travail` — professeur : donner un travail (un ou plusieurs cours, échéance-séance).
+//!
+//! Lot C3 (agenda, cahier de l'élève et de la famille) :
+//! * `/web/cahier/agenda` — élève et famille : agenda de la semaine, « ce que j'ai manqué », la semaine, calendrier.
 
 mod agenda;
 mod copies;
@@ -19,12 +22,15 @@ mod cours;
 pub mod fichiers;
 pub mod modele;
 pub mod modele_c2;
+pub mod modele_c3;
+mod mon_cahier;
 mod prof;
 mod travail;
 
 pub use agenda::PageAgenda;
 pub use copies::PageCopies;
 pub use cours::PageCahierCours;
+pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};
 pub use prof::PageCahier;
 pub use travail::PageDonnerTravail;
 

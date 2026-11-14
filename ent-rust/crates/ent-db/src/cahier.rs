@@ -554,7 +554,7 @@ impl PgEnt {
     }
 
     /// Élève rattaché au compte de l'acteur (profil `eleve` seulement).
-    async fn eleve_du_compte(&self, a: &Acteur<'_>) -> Result<Option<Uuid>, EntDbError> {
+    pub(crate) async fn eleve_du_compte(&self, a: &Acteur<'_>) -> Result<Option<Uuid>, EntDbError> {
         if Role::parse(a.role) != Some(Role::Eleve) {
             return Ok(None);
         }

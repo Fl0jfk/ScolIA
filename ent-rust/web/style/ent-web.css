@@ -105,6 +105,8 @@
 @media (max-width: 767px) { .edt-semaine { grid-template-columns: 1fr; } }
 
 /* --- Cahier de textes, travail à faire, copies (S2-6) ---------------------- */
+.cdt-onglets { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin: 0 0 var(--esp-3); }
+.cdt-onglets > a { flex: 1 1 auto; justify-content: center; text-align: center; }
 .cdt-resume { color: var(--c-attenue); font-size: var(--taille-s); margin: 0 0 var(--esp-3); }
 .cdt-vide { color: var(--c-attenue); font-size: var(--taille-s); }
 .cdt-semaine { display: grid; gap: var(--esp-4); }
