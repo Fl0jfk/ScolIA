@@ -3611,3 +3611,382 @@ async fn a5_cap37_suppleant_nomme_mais_pas_encore_installe() {
     }
     assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1, "toujours l'étape « nommé » : pas de nouvelle notification");
 }
+
+// ═══════════════════════════════════════════════ LOT A6 : RCD ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : plan versionné ; volontaires et compteurs ; remontée sans nom (test).
+
+impl Cadre {
+    async fn annee_courante(&self) -> (Uuid, NaiveDate, NaiveDate) {
+        sqlx::query_as("SELECT id, date_debut, date_fin FROM ent_annee_scolaire WHERE etablissement_id = $1 AND courante")
+            .bind(self.etab)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap()
+    }
+
+    async fn plan(&self, objectifs: &str) -> PlanRcdDto {
+        self.ent
+            .creer_plan_rcd_for_actor(
+                self.etab,
+                self.dir,
+                "direction",
+                &PlanRcdBody { objectifs: Some(objectifs.into()), delai_prevenance_heures: Some(24), ..Default::default() },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("plan refusé : {e:?}"))
+    }
+
+    async fn engager(&self, user: Uuid, role: &str, volume: f64) -> Result<EngagementRcdDto, EntDbError> {
+        let (_, debut, fin) = self.annee_courante().await;
+        self.ent
+            .engager_rcd_for_actor(
+                self.etab,
+                user,
+                role,
+                &EngagementRcdBody { agent_id: None, volume_heures: volume, statut: "pacte".into(), du: debut, au: fin },
+            )
+            .await
+    }
+}
+
+/// Critère « plan versionné » : une version vivante par année, le contenu d'une version présentée ne change plus
+/// (service ET base), la nouvelle version archive l'ancienne qui reste lisible, rien ne se supprime ; les faits de
+/// procédure sont cohérents ; le plan se lit de tout le personnel une fois présenté, se tient à la direction seule.
+#[tokio::test]
+async fn a6_le_plan_est_versionne_et_une_version_presentee_ne_change_plus() {
+    let x = cadre!();
+    let aujourdhui = x.aujourdhui().await;
+    let v1 = x.plan("Assurer la continuité sans perte d'heures").await;
+    assert_eq!((v1.version, v1.etat.as_str()), (1, "brouillon"));
+    // Un seul plan vivant par année : le deuxième se versionne, il ne se crée pas.
+    let e = x.ent.creer_plan_rcd_for_actor(x.etab, x.dir, "direction", &PlanRcdBody::default()).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    // Droits : direction seule ; le professeur ne voit pas un brouillon, la direction oui.
+    for (u, r) in [(x.sec, "administratif"), (x.prof, "prof"), (x.cpe, "cpe"), (x.compta, "compta")] {
+        let e = x.ent.creer_plan_rcd_for_actor(x.etab, u, r, &PlanRcdBody::default()).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    assert!(x.ent.plan_courant_rcd_for_actor(x.etab, x.prof, "prof").await.unwrap().is_none(), "brouillon invisible du personnel");
+    assert!(x.ent.plan_courant_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap().is_some());
+    // Brouillon modifiable ; mot exclu refusé (R-AP41) ; délai hors bornes refusé.
+    let m = x
+        .ent
+        .modifier_plan_rcd_for_actor(
+            x.etab,
+            x.dir,
+            "direction",
+            v1.id,
+            &PlanRcdBody { delai_prevenance_heures: Some(48), continuite_numerique: Some(true), ..Default::default() },
+        )
+        .await
+        .unwrap();
+    assert_eq!((m.delai_prevenance_heures, m.continuite_numerique), (48, true));
+    let e = x
+        .ent
+        .modifier_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &PlanRcdBody { objectifs: Some("remplacer les malades".into()), ..Default::default() })
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let e = x
+        .ent
+        .modifier_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &PlanRcdBody { delai_prevenance_heures: Some(200), ..Default::default() })
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    // Procédure : pas de transmission avant présentation, pas de date future, pas de désordre.
+    let proc = |avis, pres, inst: Option<&str>, tr| ProcedurePlanRcdBody { avis_cp_le: avis, presente_le: pres, instance: inst.map(str::to_string), transmis_le: tr };
+    for mauvais in [
+        proc(None, None, None, Some(aujourdhui)),
+        proc(Some(aujourdhui + Duration::days(1)), None, None, None),
+        proc(Some(aujourdhui - Duration::days(1)), Some(aujourdhui - Duration::days(5)), Some("ca"), None),
+        proc(None, None, None, None),
+    ] {
+        let e = x.ent.procedure_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &mauvais).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{mauvais:?} : {e:?}");
+    }
+    // L'avis seul laisse un brouillon ; avis + présentation + instance : présenté.
+    let p = x.ent.procedure_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &proc(Some(aujourdhui - Duration::days(9)), None, None, None)).await.unwrap();
+    assert_eq!(p.etat, "brouillon");
+    let p = x
+        .ent
+        .procedure_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &proc(None, Some(aujourdhui - Duration::days(5)), Some("instance_etablissement"), None))
+        .await
+        .unwrap();
+    assert_eq!(p.etat, "presente");
+    // Présenté : le contenu ne change plus (service), ni en base (déclencheur), et la version ne se supprime pas.
+    let e = x
+        .ent
+        .modifier_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &PlanRcdBody { objectifs: Some("autre".into()), ..Default::default() })
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let ecrit = sqlx::query("UPDATE ent_absp_rcd_plan SET objectifs = 'réécrit' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(v1.id)
+        .execute(x.ent.pool())
+        .await;
+    assert!(ecrit.is_err(), "la base refuse de réécrire une version présentée");
+    let suppr = sqlx::query("DELETE FROM ent_absp_rcd_plan WHERE etablissement_id = $1 AND id = $2").bind(x.etab).bind(v1.id).execute(x.ent.pool()).await;
+    assert!(suppr.is_err(), "une version ne se supprime pas");
+    let recule = sqlx::query("UPDATE ent_absp_rcd_plan SET etat = 'brouillon' WHERE etablissement_id = $1 AND id = $2").bind(x.etab).bind(v1.id).execute(x.ent.pool()).await;
+    assert!(recule.is_err(), "l'état ne recule pas");
+    // Le personnel lit le plan présenté (délai de prévenance), pas plus.
+    let vu = x.ent.plan_courant_rcd_for_actor(x.etab, x.prof, "prof").await.unwrap().expect("plan présenté lisible");
+    assert_eq!(vu.delai_prevenance_heures, 48);
+    assert!(x.ent.plans_rcd_for_actor(x.etab, x.prof, "prof", None).await.is_err(), "l'historique des versions est à la direction");
+    // Transmission au recteur : version transmise, puis plus aucune correction.
+    let t = x.ent.procedure_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &proc(None, None, None, Some(aujourdhui - Duration::days(2)))).await.unwrap();
+    assert_eq!(t.etat, "transmis");
+    let e = x.ent.procedure_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &proc(Some(aujourdhui - Duration::days(30)), None, None, None)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    // Campagne : une fois par version, un événement sans nom ni nature.
+    let c = x.ent.lancer_campagne_rcd_for_actor(x.etab, x.dir, "direction", v1.id).await.unwrap();
+    assert!(c.campagne_lancee_le.is_some());
+    assert!(x.ent.lancer_campagne_rcd_for_actor(x.etab, x.dir, "direction", v1.id).await.is_err());
+    assert_eq!(x.nb_events("absence_personnel.rcd_campagne_lancee").await, 1);
+    // Nouvelle version : l'ancienne est archivée et reste lisible, la nouvelle repart en brouillon sans procédure.
+    let v2 = x
+        .ent
+        .versionner_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &PlanRcdBody { delai_prevenance_heures: Some(12), ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!((v2.version, v2.etat.as_str(), v2.delai_prevenance_heures), (2, "brouillon", 12));
+    assert_eq!(v2.objectifs, v1.objectifs, "le contenu non modifié est repris");
+    assert!(v2.avis_cp_le.is_none() && v2.presente_le.is_none() && v2.transmis_le.is_none() && v2.campagne_lancee_le.is_none());
+    let versions = x.ent.plans_rcd_for_actor(x.etab, x.dir, "direction", None).await.unwrap();
+    assert_eq!(versions.iter().map(|p| (p.version, p.etat.as_str())).collect::<Vec<_>>(), vec![(2, "brouillon"), (1, "archive")]);
+    let ancienne = versions.iter().find(|p| p.version == 1).unwrap();
+    assert_eq!((ancienne.delai_prevenance_heures, ancienne.transmis_le.is_some()), (48, true), "l'archive garde son contenu");
+    let e = x.ent.versionner_plan_rcd_for_actor(x.etab, x.dir, "direction", v1.id, &PlanRcdBody::default()).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let e = x.ent.versionner_plan_rcd_for_actor(x.etab, x.dir, "direction", v2.id, &PlanRcdBody::default()).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "un brouillon se modifie, il ne se versionne pas : {e:?}");
+    // Journal : création, états, versionnement.
+    let actions: Vec<String> = sqlx::query_scalar("SELECT action FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'rcd_plan' ORDER BY le")
+        .bind(x.etab)
+        .fetch_all(x.ent.pool())
+        .await
+        .unwrap();
+    for a in ["plan_cree", "plan_etat", "campagne_lancee", "plan_versionne"] {
+        assert!(actions.iter().any(|j| j == a), "{a} non journalisé : {actions:?}");
+    }
+}
+
+/// Critère « volontaires et compteurs » : engagement de soi-même, un seul actif par année, modification et fin à
+/// date ; compteurs sollicité / accepté / refusé (motif légitime) / fait / restant tirés des demandes réelles
+/// (A4) ; alerte au volume atteint sans blocage ; un agent ne voit que sa position, jamais les autres ; cloisonnement.
+#[tokio::test]
+async fn a6_volontaires_compteurs_et_position_sans_nommer_les_autres() {
+    let x = cadre!();
+    let ag2 = x.agent(x.prof2).await;
+    let ag3 = x.agent(x.prof3).await;
+    // Engagement : de soi-même, sans droit particulier ; statut et volume validés ; hors année refusé.
+    let e2 = x.engager(x.prof2, "prof", 6.0).await.unwrap();
+    assert_eq!((e2.agent_id, e2.statut.as_str(), e2.etat.as_str()), (ag2, "pacte", "actif"));
+    let e = x.engager(x.prof2, "prof", 6.0).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "un seul engagement actif : {e:?}");
+    let (_, debut, fin) = x.annee_courante().await;
+    for mauvais in [
+        EngagementRcdBody { agent_id: None, volume_heures: 0.0, statut: "pacte".into(), du: debut, au: fin },
+        EngagementRcdBody { agent_id: None, volume_heures: 5.0, statut: "bénévole".into(), du: debut, au: fin },
+        EngagementRcdBody { agent_id: None, volume_heures: 5.0, statut: "hse".into(), du: debut - Duration::days(400), au: fin },
+        EngagementRcdBody { agent_id: None, volume_heures: 5.0, statut: "hse".into(), du: fin, au: debut },
+    ] {
+        let e = x.ent.engager_rcd_for_actor(x.etab, x.prof3, "prof", &mauvais).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{mauvais:?} : {e:?}");
+    }
+    // Engager un autre : droit `rcd.gerer` seulement.
+    let pour_3 = EngagementRcdBody { agent_id: Some(ag3), volume_heures: 20.0, statut: "hse".into(), du: debut, au: fin };
+    assert!(matches!(x.ent.engager_rcd_for_actor(x.etab, x.prof2, "prof", &pour_3).await.unwrap_err(), EntDbError::Forbidden));
+    let e3 = x.ent.engager_rcd_for_actor(x.etab, x.dir, "direction", &pour_3).await.unwrap();
+    assert_eq!(e3.agent_id, ag3);
+    // Les demandes réelles : prof2 accepte une séance, prof3 en refuse une avec un motif légitime.
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 30)).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap();
+    let (_a2, _c2, impact2) = x.absence_avec_seance(x.prof, &x.classe, (11, 0), (12, 0)).await;
+    let s3 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact2, ag3).await.unwrap();
+    x.ent
+        .refuser_sollicitation_for_actor(x.etab, x.prof3, "prof", s3.id, Some("autre_service"))
+        .await
+        .unwrap();
+    let v = x.ent.vivier_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap();
+    assert_eq!((v.volontaires, v.volume_engage), (2, 26.0));
+    let c2 = v.compteurs.iter().find(|c| c.engagement.agent_id == ag2).unwrap();
+    assert_eq!((c2.sollicitees, c2.acceptees, c2.refusees), (1, 1, 0));
+    assert_eq!((c2.heures_acceptees, c2.heures_restantes, c2.volume_atteint), (1.5, 4.5, false));
+    assert_eq!(c2.heures_faites, 0.0, "la séance est à venir : rien de fait");
+    let c3 = v.compteurs.iter().find(|c| c.engagement.agent_id == ag3).unwrap();
+    assert_eq!((c3.sollicitees, c3.acceptees, c3.refusees, c3.refusees_motif_legitime), (1, 0, 1, 1));
+    assert_eq!(c3.heures_acceptees, 0.0);
+    // Vivier : direction seule ; compteur personnel : sa position, jamais les autres.
+    for (u, r) in [(x.sec, "administratif"), (x.prof2, "prof"), (x.cpe, "cpe")] {
+        assert!(matches!(x.ent.vivier_rcd_for_actor(x.etab, u, r).await.unwrap_err(), EntDbError::Forbidden), "{r}");
+    }
+    let moi = x.ent.mon_compteur_rcd_for_actor(x.etab, x.prof2, "prof").await.unwrap().expect("mon compteur");
+    assert_eq!((moi.acceptees, moi.position.as_str()), (1, "au_dessus"), "médiane de {{1,5 ; 0}} = 0,75");
+    let json = serde_json::to_string(&moi).unwrap();
+    assert!(!json.contains(&ag3.to_string()), "l'autre volontaire n'est pas nommé : {json}");
+    let moi3 = x.ent.mon_compteur_rcd_for_actor(x.etab, x.prof3, "prof").await.unwrap().unwrap();
+    assert_eq!(moi3.position, "en_dessous");
+    assert!(x.ent.mon_compteur_rcd_for_actor(x.etab, x.cpe, "cpe").await.unwrap().is_none(), "pas d'engagement, pas de compteur");
+    // Volume atteint : alerte, pas de blocage (l'accord vaut).
+    let petit = x
+        .ent
+        .modifier_engagement_rcd_for_actor(x.etab, x.prof2, "prof", e2.id, &ModifierEngagementRcdBody { volume_heures: Some(1.0), statut: Some("hse".into()), ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!((petit.volume_heures, petit.statut.as_str()), (1.0, "hse"));
+    let v = x.ent.vivier_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap();
+    let c2 = v.compteurs.iter().find(|c| c.engagement.agent_id == ag2).unwrap();
+    assert!(c2.volume_atteint && c2.heures_restantes == 0.0);
+    // Pas de modification de l'engagement d'un autre (introuvable, pas d'oracle) ; la direction le peut.
+    let e = x.ent.modifier_engagement_rcd_for_actor(x.etab, x.prof2, "prof", e3.id, &ModifierEngagementRcdBody { terminer: true, ..Default::default() }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    // Fin : l'engagement est terminé, sort du vivier, et un nouvel engagement redevient possible.
+    let fini = x
+        .ent
+        .modifier_engagement_rcd_for_actor(x.etab, x.dir, "direction", e3.id, &ModifierEngagementRcdBody { terminer: true, ..Default::default() })
+        .await
+        .unwrap();
+    assert_eq!(fini.etat, "termine");
+    assert!(fini.au <= x.aujourdhui().await, "la fin est ramenée à aujourd'hui");
+    let v = x.ent.vivier_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap();
+    assert_eq!(v.volontaires, 1);
+    let e = x.ent.modifier_engagement_rcd_for_actor(x.etab, x.dir, "direction", e3.id, &ModifierEngagementRcdBody { volume_heures: Some(3.0), ..Default::default() }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "un engagement terminé ne se modifie plus : {e:?}");
+    x.ent.engager_rcd_for_actor(x.etab, x.dir, "direction", &pour_3).await.expect("nouvel engagement après une fin");
+    // Journal de l'engagement.
+    let actions: Vec<String> = sqlx::query_scalar("SELECT action FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'rcd_engagement'")
+        .bind(x.etab)
+        .fetch_all(x.ent.pool())
+        .await
+        .unwrap();
+    for a in ["engagement_cree", "engagement_volume", "engagement_statut", "engagement_termine"] {
+        assert!(actions.iter().any(|j| j == a), "{a} non journalisé : {actions:?}");
+    }
+    // Cloisonnement : un autre établissement ne voit rien de ces engagements.
+    let autre = Cadre::nouveau().await.unwrap();
+    let e = autre.ent.modifier_engagement_rcd_for_actor(autre.etab, autre.dir, "direction", e2.id, &ModifierEngagementRcdBody { terminer: true, ..Default::default() }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    assert_eq!(autre.ent.vivier_rcd_for_actor(autre.etab, autre.dir, "direction").await.unwrap().volontaires, 0);
+}
+
+/// Critère « remontée sans nom » : la remontée n'a **aucun** identifiant de personne (ni en colonne, ni dans le DTO,
+/// ni dans le CSV, ni dans l'événement), aucune nature fine (seulement la catégorie nationale) ; les heures sont
+/// celles de l'EDT ; elle ne part qu'après contrôle, ne change plus une fois transmise, et reste cloisonnée.
+#[tokio::test]
+async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
+    let x = cadre!();
+    x.plan("Plan de test").await;
+    let ag2 = x.agent(x.prof2).await;
+    let ag_absent = x.agent(x.prof).await;
+    // Une absence « convenance » remplacée par un collègue, une autre non traitée (mode « aucune »).
+    let (abs, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap();
+    let c2 = x.creneau(&x.classe, x.prof, 1, (14, 0), (16, 0)).await;
+    x.seance(c2, x.prof, 1, (14, 0), (16, 0), "prevue").await;
+    x.ent.recalculer_impact_absence(x.etab, x.dir, abs).await.unwrap();
+    // Droits : direction et secrétariat ; ni professeur, ni CPE, ni compta.
+    let corps = PreparerRemonteeBody { semaine: Some(x.lundi) };
+    for (u, r) in [(x.prof, "prof"), (x.cpe, "cpe"), (x.compta, "compta"), (x.accueil, "accueil")] {
+        assert!(matches!(x.ent.preparer_remontee_rcd_for_actor(x.etab, u, r, &corps).await.unwrap_err(), EntDbError::Forbidden), "{r}");
+    }
+    // Un mardi n'est pas une semaine.
+    let e = x.ent.preparer_remontee_rcd_for_actor(x.etab, x.sec, "administratif", &PreparerRemonteeBody { semaine: Some(x.lundi + Duration::days(1)) }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let r = x.ent.preparer_remontee_rcd_for_actor(x.etab, x.sec, "administratif", &corps).await.unwrap();
+    assert_eq!((r.etat.as_str(), r.semaine), ("preparee", x.lundi));
+    let maths: Vec<&LigneRemonteeRcdDto> = r.lignes.iter().filter(|l| l.discipline_code == "mathématiques").collect();
+    assert!(!maths.is_empty(), "{:?}", r.lignes);
+    assert!(maths.iter().all(|l| l.niveau_code == "4EME" && l.categorie_nationale == "convenance_personnelle"), "{maths:?}");
+    let remplace = maths.iter().find(|l| l.mode_continuite == "remplacement").expect("séance remplacée");
+    assert_eq!((remplace.heures_absence, remplace.heures_remplacees), (1.0, 1.0));
+    let sans = maths.iter().find(|l| l.mode_continuite == "aucune").expect("séance sans réponse");
+    assert_eq!((sans.heures_absence, sans.heures_remplacees), (2.0, 0.0));
+    let prevues: f64 = r.lignes.iter().map(|l| l.heures_prevues).sum();
+    assert!(prevues >= 3.0, "les heures prévues de l'EDT sont comptées une fois : {prevues}");
+    assert!(r.lignes.iter().all(|l| l.heures_prevues >= 0.0));
+    // Aucune personne, aucune nature fine, nulle part.
+    let json = serde_json::to_string(&r).unwrap();
+    for interdit in [ag2.to_string(), ag_absent.to_string(), x.prof.to_string(), x.prof2.to_string(), abs.to_string(), "Nom prof".to_string(), "a15-prof".to_string(), "nature_code".to_string(), "\"convenance\"".to_string()] {
+        assert!(!json.contains(&interdit), "« {interdit} » dans la remontée : {json}");
+    }
+    let colonnes: Vec<String> = sqlx::query_scalar(
+        "SELECT column_name FROM information_schema.columns WHERE table_name IN ('ent_absp_rcd_remontee_ligne', 'ent_absp_rcd_remontee')",
+    )
+    .fetch_all(x.ent.pool())
+    .await
+    .unwrap();
+    for c in &colonnes {
+        // Seuls les opérateurs de la remontée (qui a contrôlé, qui a transmis) figurent à l'en-tête : jamais le personnel
+        // concerné.
+        if c.ends_with("_par_user_id") {
+            continue;
+        }
+        for mot in ["agent", "user", "personne", "impact", "seance", "nature_", "nom", "email", "absence_id"] {
+            assert!(!c.contains(mot), "colonne « {c} » : la remontée n'a aucun lien avec une personne ou une nature fine");
+        }
+    }
+    // Contrôle avant départ : ni export ni transmission d'une remontée jamais relue.
+    let e = x.ent.transmettre_remontee_rcd_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let e = x.ent.exporter_remontee_rcd_csv_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let c = x.ent.controler_remontee_rcd_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap();
+    assert_eq!(c.etat, "controlee");
+    // Recalcul : la remontée contrôlée revient à « préparée » (il faudra la relire).
+    let r2 = x.ent.preparer_remontee_rcd_for_actor(x.etab, x.sec, "administratif", &corps).await.unwrap();
+    assert_eq!((r2.id, r2.etat.as_str()), (r.id, "preparee"));
+    assert_eq!(r2.lignes.len(), r.lignes.len(), "recalcul idempotent, pas de doublon de lignes");
+    x.ent.controler_remontee_rcd_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap();
+    // Tableau équivalent (Q-AP3) : CSV sans personne, tracé au journal.
+    let csv = x.ent.exporter_remontee_rcd_csv_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap();
+    assert!(csv.lines().count() == 1 + r.lignes.len(), "{csv}");
+    for interdit in [ag2.to_string(), x.prof.to_string(), abs.to_string(), "@".to_string()] {
+        assert!(!csv.contains(&interdit), "« {interdit} » dans le CSV : {csv}");
+    }
+    // Transmission : événement sans nom, puis plus aucune modification (service ET base).
+    let t = x.ent.transmettre_remontee_rcd_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap();
+    assert_eq!(t.etat, "transmise");
+    assert!(t.transmise_le.is_some());
+    let payload: String = sqlx::query_scalar(
+        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.rcd_remontee_transmise'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    for interdit in [ag2.to_string(), x.prof.to_string(), abs.to_string(), "convenance".to_string()] {
+        assert!(!payload.contains(&interdit), "« {interdit} » dans l'événement : {payload}");
+    }
+    assert!(x.nb_events("absence_personnel.rcd_remontee_prete").await >= 2);
+    let e = x.ent.preparer_remontee_rcd_for_actor(x.etab, x.sec, "administratif", &corps).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let e = x.ent.rejeter_remontee_rcd_for_actor(x.etab, x.sec, "administratif", r.id).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    let suppr = sqlx::query("DELETE FROM ent_absp_rcd_remontee_ligne WHERE etablissement_id = $1 AND remontee_id = $2").bind(x.etab).bind(r.id).execute(x.ent.pool()).await;
+    assert!(suppr.is_err(), "les lignes d'une remontée transmise ne changent plus");
+    let modif = sqlx::query("UPDATE ent_absp_rcd_remontee SET etat = 'preparee', transmise_le = NULL WHERE etablissement_id = $1 AND id = $2").bind(x.etab).bind(r.id).execute(x.ent.pool()).await;
+    assert!(modif.is_err(), "une remontée transmise ne change plus");
+    // Compte rendu depuis les remontées contrôlées ou transmises : agrégats seulement.
+    let plan = x.ent.plan_courant_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap().unwrap();
+    let cr = x
+        .ent
+        .produire_compte_rendu_rcd_for_actor(x.etab, x.dir, "direction", plan.id, &CompteRenduRcdBody { periode_du: x.lundi, periode_au: x.lundi + Duration::days(6) })
+        .await
+        .unwrap();
+    assert_eq!(cr.remontees, 1);
+    assert_eq!((cr.heures_absence, cr.heures_remplacees), (3.0, 1.0));
+    let e = x.ent.produire_compte_rendu_rcd_for_actor(x.etab, x.dir, "direction", plan.id, &CompteRenduRcdBody { periode_du: x.lundi + Duration::days(30), periode_au: x.lundi + Duration::days(36) }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "pas de compte rendu sans remontée : {e:?}");
+    let ecrit = sqlx::query("UPDATE ent_absp_rcd_compte_rendu SET heures_absence = 0 WHERE etablissement_id = $1").bind(x.etab).execute(x.ent.pool()).await;
+    assert!(ecrit.is_err(), "un compte rendu est en ajout seul");
+    assert_eq!(x.ent.plan_courant_rcd_for_actor(x.etab, x.dir, "direction").await.unwrap().unwrap().comptes_rendus, 1);
+    // Cloisonnement : une autre école ne lit pas cette remontée.
+    let autre = Cadre::nouveau().await.unwrap();
+    let e = autre.ent.controler_remontee_rcd_for_actor(autre.etab, autre.sec, "administratif", r.id).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    assert!(autre.ent.remontees_rcd_for_actor(autre.etab, autre.sec, "administratif").await.unwrap().is_empty());
+}

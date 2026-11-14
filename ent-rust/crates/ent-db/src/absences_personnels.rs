@@ -63,6 +63,9 @@ pub mod reponse;
 /// Lot A5 : absence longue et suppléance (migration 2306).
 pub mod suppleance;
 
+/// Lot A6 : remplacement de courte durée, plan, vivier, remontée hebdomadaire (migration 2307).
+pub mod rcd;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------

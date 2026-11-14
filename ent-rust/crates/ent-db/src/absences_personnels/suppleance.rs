@@ -163,7 +163,7 @@ pub(crate) struct BilanSynchro {
     pub seances_deja_repondues: u32,
 }
 
-async fn jour_etab(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
+pub(super) async fn jour_etab(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
     sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, now())")
         .bind(etab)
         .fetch_one(conn)
