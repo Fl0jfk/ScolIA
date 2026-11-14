@@ -494,7 +494,7 @@ async fn discipline_et_signalements() {
     let harry = l.eleve("Harry").expect("Harry").id;
     let admin = personnel(&base, &l, "admin").await;
     let cpe = personnel(&base, &l, "cpe").await;
-    let aujourdhui = chrono::Local::now().date_naive();
+    let aujourdhui = ent_db::jour_paris();
 
     // Types usuels, puis une punition donnée par la vie scolaire, clôturée.
     let types = admin.amorcer_types_punition().await.expect("types");

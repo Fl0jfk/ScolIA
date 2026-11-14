@@ -47,14 +47,21 @@ async fn demarrer() -> Option<String> {
     Some(format!("http://{addr}"))
 }
 
-/// Un jour futur, même jour de semaine qu'aujourd'hui, différent à chaque exécution :
+/// Prochain lundi strictement futur au jour de Paris : un jour de classe ouvré explicite (jamais le jour
+/// UTC ni le jour de semaine réel, pour que les tests passent aussi le week-end et entre 23 h et minuit UTC).
+fn lundi_a_venir() -> NaiveDate {
+    let j = ent_db::jour_paris();
+    j + Duration::days(7 - i64::from(j.weekday().num_days_from_monday()))
+}
+
+/// Un jour futur, toujours un lundi (jour ouvré explicite), différent à chaque exécution :
 /// chaque test ouvre des appels neufs (un appel clos ne peut plus être modifié).
 fn jour_neuf() -> NaiveDate {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    chrono::Local::now().date_naive() + Duration::weeks(1 + n.rem_euclid(2000))
+    lundi_a_venir() + Duration::weeks(n.rem_euclid(2000))
 }
 
 async fn prof(base: &str, l: &Labo, index: usize) -> ApiClient {
@@ -380,11 +387,11 @@ async fn classes_nombreuses_38_et_400() {
     let jour = jour_neuf();
     let t = Instant::now();
     let rapport =
-        labo::preparer_classes(&base, &admin, p.user_id, chrono::Local::now().date_naive())
+        labo::preparer_classes(&base, &admin, p.user_id, lundi_a_venir())
             .await
             .expect("classes de test");
     println!("préparation des classes : {:?} {rapport:?}", t.elapsed());
-    assert_eq!(jour.weekday(), chrono::Local::now().date_naive().weekday());
+    assert_eq!(jour.weekday(), lundi_a_venir().weekday());
 
     let api = prof(&base, &l, 0).await;
     let creneaux = api.mes_creneaux(jour).await.unwrap();
@@ -890,7 +897,7 @@ async fn tranche1_deconnexion_annonces_messages_passkey() {
 async fn referentiel_classes_contre_vrai_backend() {
     let Some(base) = demarrer().await else { return };
     let l = labo::bootstrap(&base).await.expect("labo");
-    let jour = chrono::Local::now().date_naive();
+    let jour = ent_db::jour_paris();
 
     // Professeur : ses classes, avec effectif ; détail avec élèves et enseignants.
     let rogue = prof(&base, &l, 0).await;

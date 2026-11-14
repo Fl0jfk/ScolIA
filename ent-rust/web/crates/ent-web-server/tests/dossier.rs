@@ -122,7 +122,7 @@ async fn fiche_parent_sans_email_suspension_payeurs_contacts() {
     let p = r.personne.clone();
     assert!(!p.a_compte && p.email.is_none());
     assert_eq!(
-        etat_lien(&r, chrono::Utc::now().date_naive()),
+        etat_lien(&r, ent_db::jour_paris()),
         EtatLien::Actif
     );
 
@@ -194,7 +194,7 @@ async fn fiche_parent_sans_email_suspension_payeurs_contacts() {
         .await
         .expect("suspension");
     assert_eq!(
-        etat_lien(&s, chrono::Utc::now().date_naive()),
+        etat_lien(&s, ent_db::jour_paris()),
         EtatLien::Suspendu
     );
     assert!(matches!(

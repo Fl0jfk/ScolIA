@@ -222,7 +222,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
     // 3. Le professeur ne lit ni le PAI, ni les passages, ni le registre ; il a la fiche minimale.
     for refus in [
         prof.pai_complet(harry).await.map(|_| ()),
-        prof.passages_du_jour(chrono::Local::now().date_naive())
+        prof.passages_du_jour(ent_db::jour_paris())
             .await
             .map(|_| ()),
         prof.protocoles_sante().await.map(|_| ()),
@@ -404,7 +404,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
         .creer_passage_sante(
             &composer_passage(&SaisiePassage {
                 eleve: Some(harry),
-                jour: chrono::Local::now().date_naive().to_string(),
+                jour: ent_db::jour_paris().to_string(),
                 motif: "accident".into(),
                 note_soins: NOTE_SECRET.into(),
                 visible_famille: true,
@@ -422,7 +422,7 @@ async fn parcours_pai_contraintes_amenagements_et_permissions() {
         .iter()
         .all(|p| p.note_soins.is_empty() && p.soins.is_empty()));
     assert!(matches!(
-        lily.passages_du_jour(chrono::Local::now().date_naive())
+        lily.passages_du_jour(ent_db::jour_paris())
             .await,
         Err(ApiError::Interdit(_))
     ));

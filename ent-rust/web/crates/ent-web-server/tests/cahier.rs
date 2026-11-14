@@ -67,7 +67,7 @@ async fn persona(base: &str, l: &Labo, role: &str, label: &str) -> ApiClient {
 }
 
 fn aujourd_hui() -> NaiveDate {
-    chrono::Local::now().date_naive()
+    ent_db::jour_paris()
 }
 
 fn est_interdit<T>(r: Result<T, ApiError>) -> bool {

@@ -328,7 +328,7 @@ async fn professeur_d_un_groupe_ne_voit_que_son_groupe() {
     let ginny = l.eleve("Ginny").unwrap().id;
 
     let classes = direction
-        .classes(chrono::Utc::now().date_naive())
+        .classes(ent_db::jour_paris())
         .await
         .expect("classes");
     let classe_4b = classes
@@ -364,7 +364,7 @@ async fn professeur_d_un_groupe_ne_voit_que_son_groupe() {
         direction
             .post_json(
                 &format!("/eleves/{e}/scolarite/options"),
-                json!({"annee_id": annee, "ajouter": [groupe], "date_effet": chrono::Utc::now().date_naive()}),
+                json!({"annee_id": annee, "ajouter": [groupe], "date_effet": ent_db::jour_paris()}),
             )
             .await
             .expect("affectation au groupe");
