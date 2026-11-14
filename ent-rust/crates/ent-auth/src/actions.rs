@@ -469,7 +469,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 189] = [
+    pub const TOUTES: [Action; 194] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
