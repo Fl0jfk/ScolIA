@@ -340,3 +340,83 @@ async fn absences_des_personnels_reponse_et_sollicitation() {
     assert_eq!(st, StatusCode::UNPROCESSABLE_ENTITY, "au moins deux volontaires");
     let _ = prof3;
 }
+
+/// Lot A5 : absence longue et suppléance, côté HTTP. 401 sans jeton ; 403 sans l'action `suppleer` ; 404 pour une
+/// absence ou une demande inconnue ; demande (201) → lecture → réponse → état du remplacement ; aucune nature
+/// dans ce qui est renvoyé ; nomination réservée à la direction.
+#[tokio::test]
+async fn absences_des_personnels_suppleance_et_etat_du_remplacement() {
+    let Some((state, _ent)) = etat().await else {
+        eprintln!("skip A15 A5 : ENT_DATABASE_URL");
+        return;
+    };
+    let app = app(state);
+    let etab = Uuid::new_v4();
+    let dir = inscrire(&app, etab, "direction").await;
+    let sec = inscrire(&app, etab, "administratif").await;
+    let prof = inscrire(&app, etab, "prof").await;
+    let accueil = inscrire(&app, etab, "accueil").await;
+    let base = "/personnels/absences";
+    let faux = Uuid::new_v4();
+    // 401 sans jeton ; 403 sans l'action (professeur, accueil).
+    let (st, _) = appel(&app, "GET", &format!("{base}/{faux}/remplacement"), None, None).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    for c in [&prof, &accueil] {
+        for (m, u, corps) in [
+            ("POST", format!("{base}/{faux}/suppleance"), Some(json!({"destinataire": "rectorat"}))),
+            ("GET", format!("{base}/{faux}/suppleance"), None),
+            ("GET", format!("{base}/{faux}/remplacement"), None),
+            ("POST", format!("{base}/demandes-suppleance/{faux}/reponse"), Some(json!({"issue": "refusee"}))),
+            ("POST", format!("{base}/{faux}/suppleant"), Some(json!({"service_id": faux, "agent_id": faux, "du": "2027-01-04"}))),
+        ] {
+            let (st, _) = appel(&app, m, &u, Some(&c.jeton), corps).await;
+            assert_eq!(st, StatusCode::FORBIDDEN, "{m} {u}");
+        }
+    }
+    // Inconnu : 404 uniforme.
+    let (st, _) = appel(&app, "POST", &format!("{base}/{faux}/suppleance"), Some(&dir.jeton), Some(json!({"destinataire": "rectorat"}))).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    let (st, _) = appel(&app, "POST", &format!("{base}/demandes-suppleance/{faux}/reponse"), Some(&dir.jeton), Some(json!({"issue": "refusee"}))).await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+    // Une absence réelle (validée par la direction) : demande par la secrétaire, lecture, réponse, état.
+    let jour = (chrono::Utc::now() + Duration::days(20)).date_naive();
+    let fin = jour + Duration::days(30);
+    let (st, b) = appel(
+        &app,
+        "POST",
+        base,
+        Some(&prof.jeton),
+        Some(json!({"nature_code": "convenance", "debut": jour.to_string(), "fin": fin.to_string()})),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    let id = b["absences"][0]["id"].as_str().unwrap().to_string();
+    let (st, b) = appel(&app, "POST", &format!("{base}/{id}/valider"), Some(&dir.jeton), Some(json!({}))).await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    let (st, b) = appel(&app, "POST", &format!("{base}/{id}/suppleance"), Some(&sec.jeton), Some(json!({"destinataire": "tout le monde"}))).await;
+    assert!(st.is_client_error(), "destinataire hors codes : {st} {b}");
+    let (st, b) = appel(&app, "POST", &format!("{base}/{id}/suppleance"), Some(&sec.jeton), Some(json!({"destinataire": "rectorat", "reference": "DOS-0001"}))).await;
+    assert_eq!(st, StatusCode::CREATED, "{b}");
+    assert_eq!(b["etat"], "demandee");
+    let demande = b["id"].as_str().unwrap().to_string();
+    let (st, b) = appel(&app, "POST", &format!("{base}/{id}/suppleance"), Some(&dir.jeton), Some(json!({"destinataire": "rectorat"}))).await;
+    assert_eq!(st, StatusCode::CONFLICT, "une seule demande en cours : {b}");
+    let (st, b) = appel(&app, "GET", &format!("{base}/{id}/remplacement"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b["etape"].as_str()), (StatusCode::OK, Some("en_recherche")), "{b}");
+    let (st, b) = appel(&app, "POST", &format!("{base}/demandes-suppleance/{demande}/reponse"), Some(&sec.jeton), Some(json!({"issue": "refusee"}))).await;
+    assert_eq!((st, b["etat"].as_str()), (StatusCode::OK, Some("refusee")), "{b}");
+    let (st, b) = appel(&app, "GET", &format!("{base}/{id}/suppleance"), Some(&dir.jeton), None).await;
+    assert_eq!((st, b.as_array().map(Vec::len)), (StatusCode::OK, Some(1)), "{b}");
+    // Nomination : le secrétariat n'a pas le droit de nommer (403) ; la direction, sur un service inconnu : 400/404/422.
+    let nommer = json!({"service_id": faux, "agent_id": faux, "du": jour.to_string()});
+    let (st, _) = appel(&app, "POST", &format!("{base}/{id}/suppleant"), Some(&sec.jeton), Some(nommer.clone())).await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, b) = appel(&app, "POST", &format!("{base}/{id}/suppleant"), Some(&dir.jeton), Some(nommer)).await;
+    assert!(st.is_client_error() && st != StatusCode::FORBIDDEN, "service inconnu : {st} {b}");
+    // Ni la nature ni le motif dans ce qui sort.
+    let (_, b) = appel(&app, "GET", &format!("{base}/{id}/remplacement"), Some(&dir.jeton), None).await;
+    let texte = b.to_string();
+    for interdit in ["convenance", "nature", "motif"] {
+        assert!(!texte.contains(interdit), "« {interdit} » dans l'état du remplacement : {texte}");
+    }
+}

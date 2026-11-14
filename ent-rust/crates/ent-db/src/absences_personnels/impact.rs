@@ -312,6 +312,22 @@ impl PgEnt {
                 a_revoir += 1;
             }
         }
+        // Lot A5 (CAP-36) : une absence qui a une demande ou une suppléance voit ses nouvelles séances passer
+        // `supplee` à la date, et son état de remplacement suivre les faits du socle 6.
+        let (a_remplacement,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_service_intervenant
+                             WHERE etablissement_id = $1 AND nature = 'suppleant' AND origine = 'absence'
+                               AND origine_ref = $2 AND annule_le IS NULL)
+                 OR EXISTS (SELECT 1 FROM ent_absp_demande_suppleance WHERE etablissement_id = $1 AND absence_id = $2)",
+        )
+        .bind(etab)
+        .bind(absence_id)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)?;
+        if a_remplacement {
+            self.synchroniser_remplacement_tx(conn, etab, absence_id, Some(actor)).await?;
+        }
         Ok((touchees.len() as u32, a_revoir))
     }
 

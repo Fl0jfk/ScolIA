@@ -60,6 +60,9 @@ pub mod impact;
 /// Lot A4 : réponse et sollicitation (migration 2305).
 pub mod reponse;
 
+/// Lot A5 : absence longue et suppléance (migration 2306).
+pub mod suppleance;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------

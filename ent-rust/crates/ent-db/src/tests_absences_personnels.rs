@@ -3269,3 +3269,345 @@ async fn a4_plage_calme_differe_l_envoi_de_nuit() {
     assert_eq!(x.ent.mes_sollicitations_for_actor(x.etab, x.prof2, "prof").await.unwrap().len(), 1);
     assert_eq!(x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", n.id).await.unwrap().etat, "acceptee");
 }
+
+// ═══════════════════════════════════════════════ LOT A5 : ABSENCE LONGUE ET SUPPLÉANCE ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : deux semaines de RCD puis suppléant (CAP-36) ; état du remplacement publié une fois par
+// étape (ABP-239) ; les deux notions de remplacement reliées (AR-23). + ABP-180, ABP-181, CAP-37.
+
+struct Longue {
+    absence: Uuid,
+    service: Uuid,
+    /// Impacts par jour ISO de l'absence (1, 8, 15, 22 : les quatre lundis).
+    impacts: Vec<(i64, Uuid)>,
+}
+
+impl Cadre {
+    /// Absence validée de `prof` sur quatre semaines (jours 1 à 28), un cours le lundi relié à un service de `prof`
+    /// (le service est celui de la séance : même cours). Renvoie l'absence, le service et les quatre impacts.
+    async fn absence_longue(&self, prof: Uuid) -> Longue {
+        self.horloge_de_service().await;
+        let c = self.creneau(&self.classe, prof, 1, (9, 0), (10, 0)).await;
+        let annee: Uuid = sqlx::query_scalar(
+            "SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 ORDER BY date_debut DESC LIMIT 1",
+        )
+        .bind(self.etab)
+        .fetch_one(self.ent.pool())
+        .await
+        .unwrap();
+        let agent = self.agent(prof).await;
+        let service = self
+            .ent
+            .creer_service_for_actor(
+                self.etab,
+                self.dir,
+                "direction",
+                &ent_types::personnels_services::CreerServiceBody {
+                    annee_id: Some(annee),
+                    classe_id: Some(self.classe_id),
+                    matiere_libelle: Some("Mathématiques".into()),
+                    titulaire: Some(ent_types::personnels_services::TitulaireInitialBody {
+                        agent_id: agent,
+                        du: Some(self.jour(1) - Duration::days(60)),
+                        heures_hebdo: None,
+                    }),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("service refusé : {e:?}"));
+        for iso in [1, 8, 15, 22] {
+            self.seance(c, prof, iso, (9, 0), (10, 0), "prevue").await;
+        }
+        sqlx::query("UPDATE ent_edt_seance SET cours_id = $3 WHERE etablissement_id = $1 AND creneau_id = $2")
+            .bind(self.etab)
+            .bind(c)
+            .bind(service.cours_id.expect("cours du service"))
+            .execute(self.ent.pool())
+            .await
+            .unwrap();
+        let a = self.declarer(prof, "prof", Some("convenance"), 1, 28).await.absences[0].id;
+        self.valider(a).await;
+        let tous = self.impacts(a).await;
+        let mut impacts = Vec::new();
+        for iso in [1i64, 8, 15, 22] {
+            let jour = self.jour(iso);
+            let i = tous.iter().find(|i| i.seance.as_ref().is_some_and(|s| s.jour == jour)).expect("impact du lundi");
+            impacts.push((iso, i.id));
+        }
+        Longue { absence: a, service: service.id, impacts }
+    }
+
+    fn impact_du(&self, l: &Longue, iso: i64) -> Uuid {
+        l.impacts.iter().find(|(i, _)| *i == iso).unwrap().1
+    }
+
+    async fn etat_remplacement(&self, absence: Uuid) -> Option<EtatRemplacementDto> {
+        self.ent
+            .etat_remplacement_for_actor(self.etab, self.dir, "direction", absence)
+            .await
+            .unwrap_or_else(|e| panic!("état du remplacement refusé : {e:?}"))
+    }
+
+    async fn aujourdhui(&self) -> NaiveDate {
+        sqlx::query_scalar("SELECT ent_aujourdhui_etab($1, now())").bind(self.etab).fetch_one(self.ent.pool()).await.unwrap()
+    }
+
+    async fn nommer(&self, a: &Longue, agent: Uuid, du: NaiveDate, au: Option<NaiveDate>) -> NominationSuppleantDto {
+        self.ent
+            .nommer_suppleant_absence_for_actor(
+                self.etab,
+                self.dir,
+                "direction",
+                a.absence,
+                &NommerSuppleantAbsenceBody { service_id: a.service, agent_id: agent, du, au },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("nomination refusée : {e:?}"))
+    }
+}
+
+/// CAP-36 : les deux premières semaines en RCD (réponses de séance, A4), puis le suppléant : à la date de
+/// suppléance, les séances suivantes passent `supplee` ; celles des deux premières semaines gardent leur réponse.
+/// L'état du remplacement est publié UNE fois par étape (nommé, puis en cours), jamais deux.
+#[tokio::test]
+async fn a5_cap36_deux_semaines_de_rcd_puis_suppleant() {
+    let x = cadre!();
+    let l = x.absence_longue(x.prof).await;
+    let (rcd, suppleant) = (x.agent(x.prof3).await, x.agent(x.prof2).await);
+    // Semaines 1 et 2 : remplacement de courte durée (réponse de séance).
+    for iso in [1, 8] {
+        x.ent.designer_for_actor(x.etab, x.dir, "direction", x.impact_du(&l, iso), rcd).await.unwrap();
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "remplace");
+    }
+    assert!(x.etat_remplacement(l.absence).await.is_none(), "aucune étape tant que rien n'est demandé ni nommé");
+    // Semaine 3 : le suppléant, à partir du lundi 15.
+    let n = x.nommer(&l, suppleant, x.jour(15), None).await;
+    assert_eq!((n.seances_supplees, n.seances_deja_repondues), (2, 0), "{n:?}");
+    assert_eq!(n.remplacement.etape, "nomme");
+    assert_eq!(n.remplacement.a_partir_du, Some(x.jour(15)));
+    assert_eq!(n.remplacement.suppleant_agent_id, Some(suppleant));
+    for iso in [15, 22] {
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "supplee", "jour {iso}");
+    }
+    for iso in [1, 8] {
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "remplace", "les deux premières semaines gardent le RCD (jour {iso})");
+    }
+    // La suppléance est un fait du socle 6 relié à l'absence (AR-23).
+    let origine: (String, Option<Uuid>) = sqlx::query_as(
+        "SELECT origine, origine_ref FROM ent_service_intervenant WHERE etablissement_id = $1 AND nature = 'suppleant' AND agent_id = $2",
+    )
+    .bind(x.etab)
+    .bind(suppleant)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(origine, ("absence".to_string(), Some(l.absence)));
+    // Un recalcul d'impact ne défait rien : `supplee` est conservé.
+    x.ent.recalculer_impact_absence(x.etab, x.dir, l.absence).await.unwrap();
+    assert_eq!(x.etat_impact(x.impact_du(&l, 15)).await, "supplee");
+    // Une notification pour l'étape « nommé », et rejouer la tâche n'en ajoute pas.
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1);
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1, "une seule fois par étape");
+    // Le jour de la suppléance arrive (on avance la date en base : le test ne dépend pas de l'heure réelle).
+    let jour = x.aujourdhui().await;
+    // L'intervention est immuable pour tout le monde : le test écarte le déclencheur le temps de l'écriture
+    // (même technique que `forcer_etat_seance`), dans une transaction.
+    let mut tx = x.ent.pool_verif().begin().await.unwrap();
+    sqlx::query("ALTER TABLE ent_service_intervenant DISABLE TRIGGER ent_service_intervenant_garde").execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE ent_service_intervenant SET du = $3 WHERE etablissement_id = $1 AND service_id = $2 AND nature = 'suppleant'")
+        .bind(x.etab)
+        .bind(l.service)
+        .bind(jour)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("ALTER TABLE ent_service_intervenant ENABLE TRIGGER ent_service_intervenant_garde").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    let e = x.etat_remplacement(l.absence).await.unwrap();
+    assert_eq!((e.etape.as_str(), e.a_partir_du), ("en_cours", Some(jour)));
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 2, "nommé puis en cours");
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 2);
+    // Les séances déjà couvertes par le RCD à partir de cette date ne sont jamais écrasées : elles sont comptées.
+    assert_eq!(x.etat_impact(x.impact_du(&l, 1)).await, "remplace");
+    // L'événement ne porte que des identifiants, des dates et un code d'étape : jamais la nature.
+    let payload: String = sqlx::query_scalar(
+        "SELECT string_agg(payload::text, ' ') FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.etat_remplacement'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert!(!payload.contains("convenance") && !payload.contains("nature"), "{payload}");
+}
+
+/// ABP-180 : demande de suppléance (trace, réponse, proposition), droits, états, une seule demande en cours ;
+/// ABP-181 : seule la direction nomme ; la demande est acceptée par la nomination du suppléant proposé.
+#[tokio::test]
+async fn a5_abp180_181_demande_reponse_nomination_et_droits() {
+    let x = cadre!();
+    let l = x.absence_longue(x.prof).await;
+    let (suppleant, autre) = (x.agent(x.prof2).await, x.agent(x.prof3).await);
+    let corps = DemanderSuppleanceBody { destinataire: "rectorat".into(), reference: Some("DOS-2027-0412".into()), souhaitee_du: Some(x.jour(15)) };
+    // Droits : direction et secrétariat ; ni le professeur, ni le CPE, ni l'accueil, ni la comptabilité, ni l'admin.
+    for (u, r) in [(x.prof, "prof"), (x.cpe, "cpe"), (x.accueil, "accueil"), (x.compta, "compta"), (x.admin, "admin")] {
+        let e = x.ent.demander_suppleance_for_actor(x.etab, u, r, l.absence, &corps).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{r} : {e:?}");
+    }
+    // Entrées : destinataire codé, référence bornée et sans mot exclu.
+    let mauvais = DemanderSuppleanceBody { destinataire: "n'importe qui".into(), ..corps.clone() };
+    assert!(x.ent.demander_suppleance_for_actor(x.etab, x.sec, "administratif", l.absence, &mauvais).await.is_err());
+    let exclu = DemanderSuppleanceBody { reference: Some("dossier cancer".into()), ..corps.clone() };
+    assert!(x.ent.demander_suppleance_for_actor(x.etab, x.sec, "administratif", l.absence, &exclu).await.is_err());
+    // Une absence seulement signalée n'a aucun effet extérieur (R-AP46) : pas de demande.
+    let signalee = x.ent
+        .signaler_absence_for_actor(x.etab, x.accueil, "accueil", &SignalerAbsenceBody { agent_id: x.agent(x.prof3).await, debut: x.jour(2), fin: x.jour(3), heure_debut: None, heure_fin: None })
+        .await;
+    if let Ok(s) = signalee {
+        let e = x.ent.demander_suppleance_for_actor(x.etab, x.sec, "administratif", s.absences[0].id, &corps).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    }
+    // La secrétaire demande ; la demande est tracée et l'état passe « en recherche » (une notification).
+    let d = x.ent.demander_suppleance_for_actor(x.etab, x.sec, "administratif", l.absence, &corps).await.unwrap();
+    assert_eq!((d.etat.as_str(), d.destinataire.as_str()), ("demandee", "rectorat"));
+    assert_eq!(x.etat_remplacement(l.absence).await.unwrap().etape, "en_recherche");
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1);
+    // Une seule demande en cours.
+    let e = x.ent.demander_suppleance_for_actor(x.etab, x.dir, "direction", l.absence, &corps).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "{e:?}");
+    // Réponse : une proposition sans agent est refusée ; un refus laisse la recherche ouverte (rien de republié).
+    let sans_agent = ReponseSuppleanceBody { issue: "proposee".into(), suppleant_agent_id: None, suppleant_du: None };
+    assert!(x.ent.repondre_demande_suppleance_for_actor(x.etab, x.sec, "administratif", d.id, &sans_agent).await.is_err());
+    let refus = ReponseSuppleanceBody { issue: "refusee".into(), suppleant_agent_id: None, suppleant_du: None };
+    let r = x.ent.repondre_demande_suppleance_for_actor(x.etab, x.sec, "administratif", d.id, &refus).await.unwrap();
+    assert_eq!(r.etat, "refusee");
+    assert_eq!(x.etat_remplacement(l.absence).await.unwrap().etape, "en_recherche");
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1, "un refus n'est pas une nouvelle étape");
+    let e = x.ent.repondre_demande_suppleance_for_actor(x.etab, x.sec, "administratif", d.id, &refus).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Refus(..)), "réponse définitive : {e:?}");
+    // Nouvelle demande : le rectorat propose un suppléant (l'absent ne peut pas l'être).
+    let d2 = x.ent.demander_suppleance_for_actor(x.etab, x.sec, "administratif", l.absence, &corps).await.unwrap();
+    let soi = ReponseSuppleanceBody { issue: "proposee".into(), suppleant_agent_id: Some(x.agent(x.prof).await), suppleant_du: None };
+    assert!(x.ent.repondre_demande_suppleance_for_actor(x.etab, x.sec, "administratif", d2.id, &soi).await.is_err());
+    let prop = ReponseSuppleanceBody { issue: "proposee".into(), suppleant_agent_id: Some(suppleant), suppleant_du: Some(x.jour(15)) };
+    let r = x.ent.repondre_demande_suppleance_for_actor(x.etab, x.sec, "administratif", d2.id, &prop).await.unwrap();
+    assert_eq!((r.etat.as_str(), r.suppleant_agent_id), ("proposee", Some(suppleant)));
+    let e = x.etat_remplacement(l.absence).await.unwrap();
+    assert_eq!((e.etape.as_str(), e.suppleant_agent_id, e.a_partir_du), ("propose", Some(suppleant), Some(x.jour(15))));
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 2);
+    // Nomination : la direction seule (le secrétariat demande mais ne nomme pas) ; l'absent n'est pas son suppléant.
+    let corps_n = NommerSuppleantAbsenceBody { service_id: l.service, agent_id: suppleant, du: x.jour(15), au: None };
+    let e = x.ent.nommer_suppleant_absence_for_actor(x.etab, x.sec, "administratif", l.absence, &corps_n).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let soi_n = NommerSuppleantAbsenceBody { agent_id: x.agent(x.prof).await, ..corps_n.clone() };
+    assert!(x.ent.nommer_suppleant_absence_for_actor(x.etab, x.dir, "direction", l.absence, &soi_n).await.is_err());
+    // Un service qui n'est pas celui de l'absent est refusé.
+    let autre_service = x.ent
+        .creer_service_for_actor(
+            x.etab,
+            x.dir,
+            "direction",
+            &ent_types::personnels_services::CreerServiceBody {
+                annee_id: Some(sqlx::query_scalar("SELECT annee_id FROM ent_service_enseignement WHERE id = $1").bind(l.service).fetch_one(x.ent.pool()).await.unwrap()),
+                classe_id: Some(x.classe_id),
+                matiere_libelle: Some("Histoire".into()),
+                titulaire: Some(ent_types::personnels_services::TitulaireInitialBody { agent_id: autre, du: Some(x.jour(1) - Duration::days(60)), heures_hebdo: None }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let hors = NommerSuppleantAbsenceBody { service_id: autre_service.id, ..corps_n.clone() };
+    assert!(x.ent.nommer_suppleant_absence_for_actor(x.etab, x.dir, "direction", l.absence, &hors).await.is_err());
+    let n = x.nommer(&l, suppleant, x.jour(15), None).await;
+    assert_eq!(n.remplacement.etape, "nomme");
+    let demandes = x.ent.demandes_suppleance_for_actor(x.etab, x.dir, "direction", l.absence).await.unwrap();
+    assert_eq!(demandes.iter().map(|d| d.etat.as_str()).collect::<Vec<_>>(), vec!["acceptee", "refusee"], "la plus récente d'abord");
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 3, "en recherche, proposé, nommé");
+    // Journal : codes seulement.
+    let journal: i64 = x.compter("SELECT count(*) FROM ent_absp_journal WHERE etablissement_id = $1 AND action IN ('suppleance_demandee', 'suppleance_reponse', 'suppleant_nomme')").await;
+    assert_eq!(journal, 5);
+    // Cloisonnement : un autre établissement ne lit ni la demande ni l'état.
+    let autre_etab = Uuid::new_v4();
+    let dir_b = compte(&x.ent, autre_etab, "direction").await;
+    let e = x.ent.demandes_suppleance_for_actor(autre_etab, dir_b, "direction", l.absence).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    let e = x.ent.etat_remplacement_for_actor(autre_etab, dir_b, "direction", l.absence).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    // Un professeur ne lit pas l'organisation du remplacement d'une absence.
+    let e = x.ent.etat_remplacement_for_actor(x.etab, x.prof2, "prof", l.absence).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+}
+
+/// AR-23 : une suppléance posée par la route du socle 6 (`origine_ref` = l'absence) a les mêmes effets qu'une
+/// nomination faite ici ; écourtée au socle 6, elle rend `a_traiter` les séances qu'elle ne couvre plus.
+#[tokio::test]
+async fn a5_ar23_la_suppleance_du_socle_6_est_reliee_et_une_fin_anticipee_rend_les_seances() {
+    let x = cadre!();
+    let l = x.absence_longue(x.prof).await;
+    let suppleant = x.agent(x.prof2).await;
+    let s = x.ent
+        .nommer_suppleant_for_actor(
+            x.etab,
+            x.dir,
+            "direction",
+            l.service,
+            &ent_types::personnels_services::NommerSuppleantBody { agent_id: suppleant, du: x.jour(15), au: None, origine: None, origine_ref: Some(l.absence) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(x.etat_impact(x.impact_du(&l, 15)).await, "a_traiter", "rien n'est dérivé avant la synchronisation");
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    for iso in [15, 22] {
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "supplee");
+    }
+    assert_eq!(x.etat_impact(x.impact_du(&l, 8)).await, "a_traiter", "avant la suppléance : inchangé");
+    assert_eq!(x.etat_remplacement(l.absence).await.unwrap().etape, "nomme");
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1);
+    // Fin anticipée au socle 6 (retour du titulaire) : la suppléance s'arrête le jour 18.
+    let interv = s.intervenants.iter().find(|i| i.nature == "suppleant").unwrap().id;
+    x.ent
+        .terminer_intervention_for_actor(x.etab, x.dir, "direction", interv, &ent_types::personnels_services::TerminerInterventionBody { au: Some(x.jour(18)) })
+        .await
+        .unwrap();
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    assert_eq!(x.etat_impact(x.impact_du(&l, 15)).await, "supplee");
+    assert_eq!(x.etat_impact(x.impact_du(&l, 22)).await, "a_traiter", "plus couverte : jamais déclarée couverte sans suppléant");
+}
+
+/// CAP-37 : un suppléant engagé « en remplacement » dont la prise de fonctions n'est pas constatée n'a pas encore
+/// de séance : elles restent à traiter, l'état affiche « à partir du … » ; à l'installation, elles passent `supplee`.
+#[tokio::test]
+async fn a5_cap37_suppleant_nomme_mais_pas_encore_installe() {
+    let x = cadre!();
+    let l = x.absence_longue(x.prof).await;
+    let suppleant = x.agent(x.prof2).await;
+    sqlx::query("UPDATE ent_agent_engagement SET motif_arrivee = 'remplacement', installe_le = NULL WHERE etablissement_id = $1 AND agent_id = $2")
+        .bind(x.etab)
+        .bind(suppleant)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let n = x.nommer(&l, suppleant, x.jour(15), None).await;
+    assert_eq!(n.seances_supplees, 0, "pas installé : aucune séance ne lui est confiée");
+    assert_eq!((n.remplacement.etape.as_str(), n.remplacement.a_partir_du), ("nomme", Some(x.jour(15))));
+    for iso in [15, 22] {
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "a_traiter");
+    }
+    // Procès-verbal d'installation (socle 6) : les séances suivantes passent `supplee`.
+    sqlx::query("UPDATE ent_agent_engagement SET installe_le = $3 WHERE etablissement_id = $1 AND agent_id = $2 AND motif_arrivee = 'remplacement'")
+        .bind(x.etab)
+        .bind(suppleant)
+        .bind(x.jour(15))
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    x.ent.avancer_etats_remplacement().await.unwrap();
+    for iso in [15, 22] {
+        assert_eq!(x.etat_impact(x.impact_du(&l, iso)).await, "supplee");
+    }
+    assert_eq!(x.nb_events("absence_personnel.etat_remplacement").await, 1, "toujours l'étape « nommé » : pas de nouvelle notification");
+}
