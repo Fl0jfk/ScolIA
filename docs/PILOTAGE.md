@@ -26,6 +26,11 @@ Ce document est la **mémoire du pilotage** : comment le travail est organisé e
 7. **Au plus 6 à 7 sessions actives** ; au-delà, la limite d'usage coupe tout.
 8. **Archiver une session** dès que son travail est poussé et qu'elle n'attend plus rien.
 9. **Tout ce qui compte s'écrit dans le dépôt** (décisions, état, leçons), jamais seulement dans une conversation.
+27. **CI allégée sur les branches de lot (`ent-ci-allegee-2`, 2026-11-14, décision du pilote).** Le dépôt est public, offre gratuite : 20 jobs simultanés au plus ; un run de branche prenait 39 jobs (≈ 673 min-runner) et les files attendaient 2 à 4 h. Une version qui regroupait les tranches (5 par job sur 4 cœurs) a été **essayée et abandonnée** : contention ×2 à ×2,5, tranches coupées par le délai, un test sensible au temps en échec ; les 20 tranches labo restent **à 1 tranche par job** (coût fixe d'un job : 50 à 70 s seulement).
+    - **`concurrency` par branche** : un nouveau run sur la même branche **annule l'ancien**, **jamais sur `ENT`**.
+    - **Sur une référence autre qu'`ENT`** (`workflow_dispatch` d'une branche, `pull_request`) : les 12 tranches de **RLS stricte ne tournent pas** ; le job **frontend ne tourne que si** le diff contre `origin/ENT` touche `ent-rust/web/**`, `ent-rust/crates/ent-types/**` ou le workflow (job `portee` ; au moindre doute, il tourne).
+    - **Une branche vérifie** : formatage, audits, clippy, compilation de production, séparation labo / production, garde `jour_utc_interdit` (dans la suite), les 20 tranches labo, les tests sans labo, les tests de documentation, le contrôle de couverture, et le frontend si son périmètre est touché. **Seul `ENT` vérifie** : la RLS stricte (12 tranches) et le frontend à chaque fois. Les tests de RLS stricte tournent aussi en mode normal dans `tests-labo`. **Angle mort à connaître** : `ent-web-session` dépend d'`ent-api` (feature labo) ; un changement d'`ent-api` seul n'exerce donc le frontend qu'au run sur `ENT`.
+    - **Verdict** : le job final `Backend (clippy, compilation, tests)` exige les jobs requis verts ; un job ignoré parce que non requis (RLS stricte sur branche, frontend hors périmètre) n'est **pas** un échec ; sur `ENT`, tout est requis.
 
 ### Registre des migrations appliquées (D-036, audit Fable 1 R-01 à R-03)
 
