@@ -275,7 +275,7 @@ impl Cadre {
     async fn engagement_ogec(&self, agent: Uuid) {
         sqlx::query(
             "INSERT INTO ent_agent_engagement (id, etablissement_id, agent_id, du, nature, employeur_type)
-             VALUES ($1,$2,$3, current_date - 400, 'salarie_organisme', 'organisme_gestion')",
+             VALUES ($1,$2,$3, ent_aujourdhui() - 400, 'salarie_organisme', 'organisme_gestion')",
         )
         .bind(Uuid::new_v4())
         .bind(self.etab)

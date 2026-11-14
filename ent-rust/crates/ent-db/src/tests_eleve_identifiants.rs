@@ -597,7 +597,7 @@ async fn numero_d_eleve_attribue_unique_immuable() {
         async move {
             let r: Option<(i64,)> = sqlx::query_as(
                 "SELECT derniere FROM ent_eleve_numero_compteur WHERE etablissement_id = $1
-                 AND cle = extract(year FROM current_date)::int",
+                 AND cle = extract(year FROM ent_aujourdhui())::int",
             )
             .bind(etab)
             .fetch_optional(&pool)

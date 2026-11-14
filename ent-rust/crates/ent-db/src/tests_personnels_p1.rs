@@ -1579,7 +1579,7 @@ async fn isolation_entre_etablissements_commandes_lectures_et_rls() {
         assert!(chez_a > 0, "{table} : lignes de A invisibles de A");
         // Écrire pour un autre établissement est refusé par la politique.
         if table == "ent_agent_identifiant" {
-            let ecriture = sqlx::query("INSERT INTO ent_agent_identifiant (id, etablissement_id, agent_id, systeme, valeur, du) VALUES ($1,$2,$3,'gar','z', CURRENT_DATE)")
+            let ecriture = sqlx::query("INSERT INTO ent_agent_identifiant (id, etablissement_id, agent_id, systeme, valeur, du) VALUES ($1,$2,$3,'gar','z', ent_aujourdhui())")
                 .bind(Uuid::new_v4()).bind(b).bind(agent_b).execute(&mut *tx).await;
             assert!(ecriture.is_err(), "écriture inter-établissement refusée");
         }

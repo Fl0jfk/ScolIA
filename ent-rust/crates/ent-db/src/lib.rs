@@ -251,6 +251,7 @@ pub use auth_repo::{
     SessionAppareil, SessionInfo, StaffMember,
 };
 pub use edt_repo::{jour_semaine_iso, EdtCreneau};
+pub use domain_eleve::horloge::jour_paris;
 pub use domain_eleve::{EdtException, EdtExceptionKind};
 pub use domain_eleve::{Annonce, AudienceAnnonce, CreerAnnonce, StatutAnnonce};
 pub mod messagerie_m0b;

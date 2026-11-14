@@ -973,7 +973,7 @@ async fn acces_reduit_avant_la_date_d_arrivee_puis_ouverture_complete() {
 
     // Le matin de la date d'arrivée : la même session ouvre tout, sans nouvelle connexion.
     sqlx::query(
-        "UPDATE ent_agent_engagement SET du = CURRENT_DATE - 1 WHERE etablissement_id = $1 AND agent_id = $2",
+        "UPDATE ent_agent_engagement SET du = ent_aujourdhui() - 1 WHERE etablissement_id = $1 AND agent_id = $2",
     )
     .bind(cast.etablissement_id)
     .bind(agent)

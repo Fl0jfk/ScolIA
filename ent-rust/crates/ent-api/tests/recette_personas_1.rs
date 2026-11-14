@@ -99,9 +99,17 @@ fn uuid(v: &Value) -> Uuid {
     Uuid::parse_str(v.as_str().unwrap_or_else(|| panic!("uuid attendu : {v}"))).expect("uuid")
 }
 
+/// Jour de classe de la recette : jour de Paris, ramené au vendredi le samedi et le dimanche (un jour ouvré
+/// explicite, jamais le jour UTC, pour que la recette passe aussi le week-end et entre 23 h et minuit UTC).
+fn jour_classe() -> chrono::NaiveDate {
+    use chrono::Datelike;
+    let j = domain_eleve::horloge::jour_paris();
+    j - chrono::Duration::days(i64::from(j.weekday().number_from_monday().saturating_sub(5)))
+}
+
 fn jour_semaine_courant() -> u32 {
     use chrono::Datelike;
-    chrono::Utc::now().weekday().number_from_monday()
+    jour_classe().weekday().number_from_monday()
 }
 
 fn aujourdhui() -> String {
@@ -476,7 +484,7 @@ fn rp1_c22_conseil_borne_au_groupe() {
 fn rp1_c24_appel_de_groupe_borne_au_groupe() {
     lance(async {
         let s = scene!(Scene::classe_mixte(true));
-        let jour = aujourdhui();
+        let jour = jour_classe().to_string();
         let m = s
             .req(
                 "GET",
