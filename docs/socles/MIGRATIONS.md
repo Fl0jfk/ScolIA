@@ -228,6 +228,8 @@ Plage imposée **2300–2319** (consigne du pilote). Écrites : **2300** `absp_a
 - **2312** : `ent_absp_arret`, `ent_absp_decision_externe`, paramètres (EDT de référence, clôture des variables, durée de conservation de la reprise).
 Contrôle des collisions : aucune migration 2xxx n'existe sur `origin/ENT` hors 2240 (socle 12).
 
+## Mise à jour du 2026-11-14 (socle 20, lot C4, `ent-socle-20-code-4`)
+**2415** `2415_cdt_c4_charge` : index de calcul de la charge et de comptage des alertes ignorées ; aucune table ni colonne (RLS et registre inchangés, aucune colonne JSON). `MIGRATION_TAG` inchangé (3043, la plus haute par tri numérique) ; 2416–2419 restent réservées.
 ## Mise à jour du 2026-11-14 (socle 20, lot C3, `ent-socle-20-code-3`, base `ent-socle-20-code-2` ef7a11f7 : 2413 n'est pas encore sur `origin/ENT`)
 **2414** `2414_cdt_c3_agenda_cahier_famille` : tables `ent_cdt_abonnement` (jeton **haché**, révocable, un compte, un élève) et `ent_cdt_resume_envoi` (un envoi par élève et par semaine) avec RLS (`ent_rls_poser`) ; fonctions `ent_cdt_eleve_majeur`, `ent_cdt_statut_eleve` (statut **constaté** : constat du professeur, remise, retour, absence de dépôt), `ent_cdt_echeance_effective` (prolongation individuelle la plus récente) ; index d'agenda. Aucune colonne JSON (D-036). Compte RLS : **+2** (`tests_rls`). Registre des tables d'élèves (`domain-eleve/fusion.rs`) : `ent_cdt_abonnement` (déplacée à la fusion), `ent_cdt_resume_envoi` (reste sur la fiche). `MIGRATION_TAG` inchangé (3043_demandes_n1_1_routage, la plus haute par tri numérique) ; 2415–2419 restent réservées (plage 2414–2419 vérifiée libre sur toutes les branches distantes au 2026-11-14).
 ## Mise à jour du 2026-11-14 (socle 20, lot C2, `ent-socle-20-code-2`)

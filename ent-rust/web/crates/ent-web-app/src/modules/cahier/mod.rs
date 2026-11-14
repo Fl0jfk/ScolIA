@@ -17,17 +17,21 @@
 //! * `/web/cahier/agenda` — élève et famille : agenda de la semaine, « ce que j'ai manqué », la semaine, calendrier.
 
 mod agenda;
+mod bandeau_charge;
+mod charge_classe;
 mod copies;
 mod cours;
 pub mod fichiers;
 pub mod modele;
 pub mod modele_c2;
 pub mod modele_c3;
+pub mod modele_c4;
 mod mon_cahier;
 mod prof;
 mod travail;
 
 pub use agenda::PageAgenda;
+pub use charge_classe::{PageChargeClasses, ADRESSE_CHARGE};
 pub use copies::PageCopies;
 pub use cours::PageCahierCours;
 pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};

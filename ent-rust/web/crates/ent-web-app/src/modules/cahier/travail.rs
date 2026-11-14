@@ -17,6 +17,7 @@ use leptos_meta::Title;
 use leptos_router::hooks::use_query_map;
 use uuid::Uuid;
 
+use super::bandeau_charge::BandeauCharge;
 use super::cours::ADRESSE_COURS;
 use super::modele::Erreurs;
 use super::modele_c2::{message_avertissement, valider_travail_c2, SaisieTravailC2};
@@ -133,6 +134,9 @@ fn FormulaireDonner(
         RwSignal::new(None::<String>),
     );
     let resultat = RwSignal::new(None::<TravauxCreesDto>);
+    // Le bandeau de charge (C4) signale ici qu'il affichait une alerte : enregistrer = passer outre, la dérogation est comptée.
+    let alerte_active = RwSignal::new(false);
+    let bandeau_cours = choisis.clone();
     let ecriture = Ecriture::nouveau(Callback::new(|_| {}));
     let proposition = move || {
         let code = nature.get();
@@ -195,8 +199,15 @@ fn FormulaireDonner(
                         s.set(None);
                     }
                     resultat.set(None);
+                    let derogation = alerte_active.get_untracked();
                     ecriture.lancer(async move {
                         let r = session::client().cdt_travaux_creer(&corps).await?;
+                        if derogation {
+                            // Le serveur recalcule l'alerte : rien n'est compté sans alerte réelle ; un échec ne gêne pas.
+                            for t in &r.travaux {
+                                let _ = session::client().cdt_alerte_ignorer(t.id).await;
+                            }
+                        }
                         let n = r.travaux.len();
                         resultat.set(Some(r));
                         Ok(if n > 1 {
@@ -276,6 +287,7 @@ fn FormulaireDonner(
                 <ChampTexte id="cdt-d-jour" libelle="Jour de l'échéance" valeur=jour genre="date" erreur=e_jour requis=true/>
                 <ChampTexte id="cdt-d-heure" libelle="Heure (heure de l'établissement, 19 h par défaut ; pas d'échéance entre 20 h et 7 h)" valeur=heure genre="time" erreur=e_heure/>
             })}
+            <BandeauCharge cours=bandeau_cours mode=echeance jour=jour nature=nature duree=duree alerte_active=alerte_active/>
             <Selection id="cdt-d-rendu" libelle="Mode de rendu" valeur=rendu options=options_rendu/>
             {move || (rendu.get() == "en_ligne").then(|| view! {
                 <Case id="cdt-d-retard" libelle="Accepter un rendu en retard" coche=retard/>
