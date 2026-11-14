@@ -627,11 +627,11 @@ fn ListeCopies(lignes: Vec<LigneCopiesDto>, ecriture: Ecriture, mode: ModeCopies
             {lignes.into_iter().map(|c| {
                 let LigneCopiesDto { demande_id: id, numero, etat, format, couleur, copies_total, pour_le, avertissement_delai, retrait_lieu, .. } = c;
                 let detail = format!(
-                    "{} · {} copies {}{} · pour le {}{}",
+                    "{} · {} copies {} ({}) · pour le {}{}",
                     libelle_etat_copies(&etat),
                     copies_total,
                     if couleur { "en couleur" } else { "en noir et blanc" },
-                    format!(" ({})", format.to_uppercase()),
+                    format.to_uppercase(),
                     pour_le,
                     retrait_lieu.map(|l| format!(" · retrait : {l}")).unwrap_or_default(),
                 );
