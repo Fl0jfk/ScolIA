@@ -45,11 +45,11 @@ impl PgDocSignerRepo {
 
     pub async fn update_signature(&self, d: &DocASigner) -> Result<(), DomainError> {
         let mut tx = TenantTx::begin(&self.pool, d.etablissement_id).await.map_err(map_sqlx)?;
-        sqlx::query(
+        let res = sqlx::query(
             r#"
             UPDATE ent_doc_a_signer
             SET statut = $3, signe_at = $4, signe_par_user_id = $5
-            WHERE etablissement_id = $1 AND id = $2
+            WHERE etablissement_id = $1 AND id = $2 AND statut = 'a_signer'
             "#,
         )
         .bind(d.etablissement_id)
@@ -60,6 +60,10 @@ impl PgDocSignerRepo {
         .execute(&mut *tx)
         .await
         .map_err(map_sqlx)?;
+        // Garde de concurrence en base : zéro ligne = déjà signé / annulé par une autre requête.
+        if res.rows_affected() == 0 {
+            return Err(DomainError::DocASignerDejaSigne);
+        }
         tx.commit().await.map_err(map_sqlx)?;
         Ok(())
     }

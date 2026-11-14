@@ -71,7 +71,6 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/verifier"),
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
-    ("GET", "/fichiers/{jeton}"),
 ];
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
 

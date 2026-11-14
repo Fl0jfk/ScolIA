@@ -99,8 +99,8 @@ async fn parite_des_droits(m: &Monde, telechargement: &str, lien: &str) -> usize
     autorises
 }
 
-async fn suivre(m: &Monde, url: &str) -> Rep {
-    m.appel("GET", url, None, None).await
+async fn suivre(m: &Monde, session: &str, url: &str) -> Rep {
+    m.appel("GET", url, Some(session), None).await
 }
 
 fn rt_run<F: std::future::Future>(f: F) -> F::Output {
@@ -142,8 +142,8 @@ fn document_lien_sert_le_fichier_avec_en_tetes_durcis() {
         let url = l.json["url"].as_str().unwrap().to_string();
         // Aucune clé de stockage dans la réponse ni dans l'URL en clair.
         assert!(!l.texte.contains("storage_key") && !url.contains("documents/"));
-        // Le jeton suffit : aucune session.
-        let r = suivre(m, &url).await;
+        // Le jeton est lié à l'utilisateur : la session de son destinataire est requise.
+        let r = suivre(m, m.jeton(Parent), &url).await;
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte);
         assert_eq!(r.texte.as_bytes(), contenu);
         // En-têtes via requête brute.
@@ -242,11 +242,11 @@ fn autre_etablissement_refuse() {
         let ub = lb.json["url"].as_str().unwrap().trim_start_matches("/fichiers/").to_string();
         let (_, sig_a) = ua.split_once('.').unwrap();
         let (charge_b, _) = ub.split_once('.').unwrap();
-        let r = suivre(m, &format!("/fichiers/{charge_b}.{sig_a}")).await;
+        let r = suivre(m, m.jeton(Direction), &format!("/fichiers/{charge_b}.{sig_a}")).await;
         assert_eq!(r.statut, StatusCode::FORBIDDEN);
         assert!(!r.texte.contains("%PDF"));
         // Et le lien de B, légitime, sert bien B.
-        let r = suivre(m, &format!("/fichiers/{ub}")).await;
+        let r = suivre(m, &dir_b, &format!("/fichiers/{ub}")).await;
         assert_eq!(r.statut, StatusCode::OK);
         assert_eq!(r.texte, "%PDF-B");
     });
@@ -270,26 +270,26 @@ fn lien_expire_altere_ou_mauvais_secret_refuse() {
         // Même secret que le serveur, émis dans le passé : expiré (410).
         let p = Presigner::local(CLE.as_bytes(), 60).unwrap();
         let expire = p.issue(&spec, now_unix() - 3600).unwrap();
-        assert_eq!(suivre(m, &expire.url).await.statut, StatusCode::GONE);
+        assert_eq!(suivre(m, m.jeton(Direction), &expire.url).await.statut, StatusCode::GONE);
         // Même charge, émis maintenant : valide (le test forge bien comme le serveur).
         let valide = p.issue(&spec, now_unix()).unwrap();
-        let r = suivre(m, &valide.url).await;
+        let r = suivre(m, m.jeton(Direction), &valide.url).await;
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte);
         // Mauvais secret : refusé.
         let autre = Presigner::local(b"un-autre-secret-de-signature-0123456789abcdef", 60).unwrap();
         let faux = autre.issue(&spec, now_unix()).unwrap();
-        assert_eq!(suivre(m, &faux.url).await.statut, StatusCode::FORBIDDEN);
+        assert_eq!(suivre(m, m.jeton(Direction), &faux.url).await.statut, StatusCode::FORBIDDEN);
         // Altération d'un caractère (charge puis signature).
         let jeton = valide.url.trim_start_matches("/fichiers/").to_string();
         for i in [0usize, 10, jeton.len() / 2, jeton.len() - 1] {
             let mut octets = jeton.clone().into_bytes();
             octets[i] = if octets[i] == b'A' { b'B' } else { b'A' };
-            let r = suivre(m, &format!("/fichiers/{}", String::from_utf8(octets).unwrap())).await;
+            let r = suivre(m, m.jeton(Direction), &format!("/fichiers/{}", String::from_utf8(octets).unwrap())).await;
             assert!(r.est_refus() || r.statut == StatusCode::FORBIDDEN, "i={i} : {}", r.statut);
             assert_ne!(r.statut, StatusCode::OK, "jeton altéré accepté (i={i})");
         }
         for poubelle in ["/fichiers/x", "/fichiers/a.b", "/fichiers/..%2F..%2Fetc%2Fpasswd"] {
-            assert_ne!(suivre(m, poubelle).await.statut, StatusCode::OK, "{poubelle}");
+            assert_ne!(suivre(m, m.jeton(Direction), poubelle).await.statut, StatusCode::OK, "{poubelle}");
         }
     });
 }
@@ -314,7 +314,7 @@ fn photo_droits_identiques() {
         assert!(n >= 2, "{n}");
         // Le lien sert les octets de la photo.
         let l = m.appel("POST", &format!("/eleves/{eleve}/photo/lien"), Some(&dir), None).await;
-        let r = suivre(m, l.json["url"].as_str().unwrap()).await;
+        let r = suivre(m, &dir, l.json["url"].as_str().unwrap()).await;
         assert_eq!(r.statut, StatusCode::OK);
         // Élève d'un autre établissement : refusé.
         let b = m.b.objets.eleve;
@@ -359,7 +359,7 @@ fn piece_pai_droits_identiques() {
             assert!(r.est_refus(), "{a:?} : {}", r.statut);
         }
         let l = m.appel("POST", &format!("/pai/pieces/{piece}/lien"), Some(&inf), None).await;
-        let r = suivre(m, l.json["url"].as_str().unwrap()).await;
+        let r = suivre(m, &inf, l.json["url"].as_str().unwrap()).await;
         assert_eq!(r.statut, StatusCode::OK);
         assert_eq!(r.texte, "%PDF-1.4 ordo");
     });
@@ -401,7 +401,7 @@ fn piece_message_droits_identiques() {
         for _ in 0..2 {
             let l = m.appel("POST", &format!("/messages/pieces/{piece}/lien"), Some(m.jeton(Parent)), None).await;
             assert_eq!(l.statut, StatusCode::OK);
-            let r = suivre(m, l.json["url"].as_str().unwrap()).await;
+            let r = suivre(m, m.jeton(Parent), l.json["url"].as_str().unwrap()).await;
             assert_eq!(r.texte, "bonjour");
         }
         // Établissement B : refusé.
@@ -441,5 +441,45 @@ fn journal_de_l_emission() {
         for (t,) in rows {
             assert!(!t.contains("/fichiers/") && !t.contains(".pdf"), "{t}");
         }
+    });
+}
+
+/// D0 socle 7 : le jeton ne révèle plus la clé d'objet et il est lié à l'utilisateur.
+#[test]
+fn jeton_opaque_et_lie_a_l_utilisateur() {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    let Some(m) = monde_liens() else { return };
+    rt_run(async {
+        let dir = m.jeton(Direction).to_string();
+        let doc = deposer(m, &dir, m.a.objets.eleve, "Lien lié", "application/pdf", b"%PDF-LIE").await;
+        let l = m.appel("POST", &format!("/documents/{doc}/lien"), Some(m.jeton(Parent)), None).await;
+        assert_eq!(l.statut, StatusCode::OK, "{}", l.texte);
+        let url = l.json["url"].as_str().unwrap().to_string();
+        let jeton = url.trim_start_matches("/fichiers/");
+        // Ni la clé, ni son espace, ni l'identifiant du document, ni l'établissement sous forme
+        // de texte : la charge décodée n'en contient aucune trace lisible.
+        let (charge, _) = jeton.split_once('.').unwrap();
+        let brut = URL_SAFE_NO_PAD.decode(charge).unwrap();
+        let texte = String::from_utf8_lossy(&brut).to_string();
+        for interdit in [doc.to_string(), "documents".to_string(), m.a.objets.etab.to_string(), ".pdf/".to_string()] {
+            assert!(!texte.contains(&interdit), "la charge du jeton révèle « {interdit} »");
+        }
+        assert!(!url.contains(&doc.to_string()) && !url.contains("documents"));
+        // Sans session : 401 ; session d'un autre utilisateur du même établissement : refus,
+        // aucun octet ; session du destinataire : le fichier.
+        let r = m.appel("GET", &url, None, None).await;
+        assert_eq!(r.statut, StatusCode::UNAUTHORIZED);
+        for autre in [Direction, Admin, ParentAutreFoyer] {
+            let r = suivre(m, m.jeton(autre), &url).await;
+            assert_eq!(r.statut, StatusCode::FORBIDDEN, "{autre:?} : {}", r.texte);
+            assert!(!r.texte.contains("%PDF"));
+        }
+        let r = suivre(m, m.jeton(Parent), &url).await;
+        assert_eq!(r.statut, StatusCode::OK, "{}", r.texte);
+        assert_eq!(r.texte, "%PDF-LIE");
+        // Session de l'autre établissement : refus.
+        let r = suivre(m, m.b.jetons[&Direction].as_str(), &url).await;
+        assert!(r.est_refus(), "{}", r.statut);
     });
 }

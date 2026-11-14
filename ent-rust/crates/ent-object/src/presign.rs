@@ -12,9 +12,11 @@
 //!   `response-content-disposition` et `response-content-type`. Aucun appel réseau.
 //!
 //! Le jeton local est un *porteur* : quiconque le détient pendant sa courte durée
-//! de vie peut lire le fichier. La clé objet y figure **en clair** (base64url n'est
-//! pas un chiffrement) ; elle n'est de toute façon que `{etab}/{ns}/{uuid}.{ext}`,
-//! non devinable et sans donnée personnelle. Le jeton couvre : clé objet,
+//! de vie peut lire le fichier. La clé objet n'y figure **plus en clair** (D0 socle 7) :
+//! elle est chiffrée par un flux dérivé du secret serveur (HMAC-SHA256 en mode
+//! compteur, nonce aléatoire de 16 octets) puis couverte par le MAC. Le jeton est en
+//! outre lié à l'utilisateur : la route de service exige une session dont l'identifiant
+//! d'utilisateur égale celui du jeton. Le jeton couvre : clé objet,
 //! expiration, destinataire (user_id), établissement, disposition, nom affiché,
 //! type MIME. Aucun secret n'apparaît dans `Debug` ni dans les erreurs.
 
@@ -37,8 +39,11 @@ pub const DEFAULT_TTL_SECS: u64 = 60;
 /// Plafond absolu de la durée de vie d'un lien.
 pub const MAX_TTL_SECS: u64 = 900;
 
-const TOKEN_VERSION: u8 = 1;
+const TOKEN_VERSION: u8 = 2;
 const MAC_DOMAIN: &[u8] = b"ent-object-presign-v1\0";
+/// Domaine distinct pour le flux de chiffrement de la clé objet (jamais celui du MAC).
+const KEY_STREAM_DOMAIN: &[u8] = b"ent-object-presign-keystream-v2\0";
+const NONCE_LEN: usize = 16;
 const MAX_FILENAME_BYTES: usize = 255;
 const MAX_MIME_BYTES: usize = 127;
 const ENVS_NON_PROD: [&str; 5] = ["lab", "labo", "dev", "local", "test"];
@@ -269,6 +274,21 @@ impl LocalSigner {
         m
     }
 
+    /// Flux pseudo-aléatoire (HMAC-SHA256 en compteur) lié au nonce, domaine séparé du MAC.
+    fn xor_cle(&self, nonce: &[u8], data: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(data.len());
+        for (i, bloc) in data.chunks(32).enumerate() {
+            let mut m = <HmacSha256 as Mac>::new_from_slice(&self.secret)
+                .expect("HMAC accepte toute longueur de clé");
+            m.update(KEY_STREAM_DOMAIN);
+            m.update(nonce);
+            m.update(&(i as u32).to_be_bytes());
+            let ks = m.finalize().into_bytes();
+            out.extend(bloc.iter().zip(ks.iter()).map(|(a, b)| a ^ b));
+        }
+        out
+    }
+
     fn sign(&self, c: &SignedClaims) -> String {
         let mut p = Vec::with_capacity(128);
         p.push(TOKEN_VERSION);
@@ -279,7 +299,10 @@ impl LocalSigner {
             Disposition::Inline => 0,
             Disposition::Attachment => 1,
         });
-        put_field(&mut p, c.key.as_bytes());
+        let nonce = *Uuid::new_v4().as_bytes();
+        debug_assert_eq!(nonce.len(), NONCE_LEN);
+        p.extend_from_slice(&nonce);
+        put_field(&mut p, &self.xor_cle(&nonce, c.key.as_bytes()));
         put_field(&mut p, c.filename.as_bytes());
         put_field(&mut p, c.mime.as_bytes());
         let tag = self.mac(&p).finalize().into_bytes();
@@ -324,11 +347,14 @@ impl LocalSigner {
             [1] => Disposition::Attachment,
             _ => return Err(PresignError::Malformed),
         };
+        let nonce = r.take(NONCE_LEN).ok_or(PresignError::Malformed)?;
+        let cle_chiffree = r.field().ok_or(PresignError::Malformed)?;
+        let key = String::from_utf8(self.xor_cle(nonce, cle_chiffree))
+            .map_err(|_| PresignError::Malformed)?;
         let mut s = || -> Result<String, PresignError> {
             let b = r.field().ok_or(PresignError::Malformed)?;
             String::from_utf8(b.to_vec()).map_err(|_| PresignError::Malformed)
         };
-        let key = s()?;
         let filename = s()?;
         let mime = s()?;
         if !r.0.is_empty() {
@@ -834,6 +860,26 @@ mod tests {
         assert_eq!(c.disposition, Disposition::Inline);
         assert_eq!(c.filename, "Bulletin T1.pdf");
         assert_eq!(c.mime, "application/pdf");
+    }
+
+    #[test]
+    fn jeton_ne_revele_plus_la_cle_objet() {
+        let p = Presigner::local(SECRET, 60).unwrap();
+        let s = spec();
+        let t = token_de(&p, &s);
+        let (charge, _) = t.split_once('.').unwrap();
+        let octets = URL_SAFE_NO_PAD.decode(charge).unwrap();
+        let contient = |h: &[u8], n: &[u8]| h.windows(n.len()).any(|w| w == n);
+        // Ni en clair dans la charge décodée, ni sous forme de segments identifiants.
+        assert!(!contient(&octets, s.key.as_bytes()));
+        assert!(!contient(&octets, b"documents"));
+        assert!(!t.contains(&s.key));
+        // Deux jetons pour la même clé diffèrent (nonce) et rendent la même clé.
+        let t2 = token_de(&p, &s);
+        assert_ne!(t, t2);
+        assert_eq!(p.verify_local(&t, NOW + 1).unwrap().key, s.key);
+        assert_eq!(p.verify_local(&t2, NOW + 1).unwrap().key, s.key);
+        assert_eq!(p.verify_local(&t, NOW + 1).unwrap().user_id, s.user_id);
     }
 
     #[test]

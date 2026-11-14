@@ -803,7 +803,6 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
-    ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
     // Préinscription (S2-3, D-014) : e-mail vérifié par code, invitation par jeton.
     ("POST", "/preinscription/demarrer"),
     ("POST", "/preinscription/verifier"),
