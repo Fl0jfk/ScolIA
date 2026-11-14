@@ -49,6 +49,9 @@ pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 pub const MES_LIENS: &str = "/web/mes-liens";
 /// À-faire unifié (socle 29, lot P3) : familles et élèves majeurs.
 pub const A_FAIRE: &str = "/web/a-faire";
+/// Files des personnels (socle 29, lot P4) : « Mes files » et supervision par nombres.
+pub const MES_FILES: &str = "/web/mes-files";
+pub const SUPERVISION_FILES: &str = "/web/supervision-files";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -90,6 +93,23 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     // Socle 29 (P3) : la seule liste transverse de ce que la famille (ou l'élève) doit faire.
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("À faire", A_FAIRE, NomIcone::Annonce));
+    }
+    // Socle 29 (P4) : les files dont on est membre (membres calculés côté serveur, qui reste juge). Proposées
+    // à qui a un droit de file ; rien tant que le moteur de droits n'a pas répondu.
+    if moteur.a("afaire.file.prendre")
+        && (droits.trancher_justificatif
+            || moteur.a("absences.justifier")
+            || moteur.a("liens.suspendre")
+            || moteur.a("responsables.protege.gerer"))
+    {
+        v.push(entree("Mes files", MES_FILES, NomIcone::Personne));
+    }
+    if moteur.a("afaire.superviser") {
+        v.push(entree(
+            "Supervision des files",
+            SUPERVISION_FILES,
+            NomIcone::Salle,
+        ));
     }
     if droits.personnel || droits.portail_famille || droits.mes_absences {
         v.push(entree("Mon agenda", MON_AGENDA, NomIcone::Agenda));
@@ -583,6 +603,42 @@ mod tests {
         assert!(gerer.peut_lire_facturation() && gerer.peut_gerer_facturation());
         let v = adresses(droits_du_role("prof"), &DroitsMoteur::default());
         assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    /// Socle 29 (P4) : « Mes files » pour qui a un droit de file ET le droit de prendre ; la supervision
+    /// pour `afaire.superviser` seulement. Un professeur sans droit de file n'a rien (le serveur reste juge).
+    #[test]
+    fn les_files_selon_le_moteur_de_droits() {
+        let sans = adresses(droits_du_role("cpe"), &DroitsMoteur::default());
+        assert!(
+            !sans.contains(&MES_FILES.to_string()),
+            "rien avant la réponse du moteur"
+        );
+        let cpe = DroitsMoteur::new(vec![droit("afaire.file.prendre", "etablissement")]);
+        let v = adresses(droits_du_role("cpe"), &cpe);
+        assert!(v.contains(&MES_FILES.to_string()) && !v.contains(&SUPERVISION_FILES.to_string()));
+        let prof = adresses(droits_du_role("prof"), &cpe);
+        assert!(
+            !prof.contains(&MES_FILES.to_string()),
+            "un professeur n'est membre d'aucune file"
+        );
+        // Un droit délégué de justifier rejoint la file le temps de la délégation.
+        let delegue = DroitsMoteur::new(vec![
+            droit("afaire.file.prendre", "etablissement"),
+            droit("absences.justifier", "etablissement"),
+        ]);
+        assert!(adresses(droits_du_role("prof"), &delegue).contains(&MES_FILES.to_string()));
+        let direction = DroitsMoteur::new(vec![
+            droit("afaire.file.prendre", "etablissement"),
+            droit("afaire.superviser", "etablissement"),
+            droit("liens.suspendre", "etablissement"),
+        ]);
+        let v = adresses(droits_du_role("direction"), &direction);
+        assert!(v.contains(&MES_FILES.to_string()) && v.contains(&SUPERVISION_FILES.to_string()));
+        assert!(
+            !adresses(droits_du_role("parent"), &DroitsMoteur::default())
+                .contains(&MES_FILES.to_string())
+        );
     }
 
     #[test]

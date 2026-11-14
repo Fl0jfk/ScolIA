@@ -680,7 +680,7 @@ async fn nature_active(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut PgConnection,
     etab: Uuid,
     afaire: Uuid,
@@ -712,7 +712,7 @@ async fn journaliser(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn ajouter_destinataire(
+pub(crate) async fn ajouter_destinataire(
     conn: &mut PgConnection,
     etab: Uuid,
     afaire: Uuid,
@@ -1072,6 +1072,18 @@ pub async fn fermer_tache(
             f.maintenant,
         )
         .await?;
+        // Une tâche close n'est plus « prise » : la prise est relâchée par le système (relâchée par
+        // l'identifiant nul), jamais laissée active sur une tâche finie (lot P4).
+        sqlx::query(
+            "UPDATE ent_afaire_prise SET relachee_le = $3, relachee_par = '00000000-0000-0000-0000-000000000000'::uuid
+              WHERE etablissement_id = $1 AND afaire_id = $2 AND relachee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(f.maintenant)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
         // « Nouveau / vu » est effacé à la clôture (§29.4) : aucune trace de lecture ne survit.
         sqlx::query(
             "DELETE FROM ent_afaire_etat_personnel WHERE etablissement_id = $1 AND afaire_id = $2",

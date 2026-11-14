@@ -25,6 +25,7 @@ pub mod infirmerie;
 pub mod inscriptions;
 pub mod journee_vs;
 pub mod liens_en_attente;
+pub mod mes_files;
 pub mod messagerie;
 pub mod notifications;
 pub mod protections;
