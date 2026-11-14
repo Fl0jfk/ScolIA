@@ -6,23 +6,72 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
-## 2026-11-14 (samedi, après-midi)
+## 2026-11-14 (samedi, point du jour, 18 h 45 Paris)
 
-### Passé sur `ENT` (tête `498fd08d`)
-- Socle 8, lot N0a (fuites des notifications) ; socle 15, lot A6 (suppléance, RCD : migrations 2306–2307) ; socle 29, lot P4 (files des personnels). Vérification locale complète avant chaque envoi (garde, compilation, séparation 44/44, tests de base ciblés).
-- Conflits additifs résolus à la main : liste des actions `TOUTES` (184 → 186 → 189), compteur RLS (+5).
+### Sur `ENT`, validé (tête `77e63bed`) — 12 fusions aujourd'hui
+- **Nuit et matin** : N1-1 (natures, files, routage), AS4 (décompte versionné des absences), jour d'établissement 2 (dates au fuseau de Paris, garde statique), P3 (à-faire famille), A5 (absence longue, suppléance), C2 (saisie et publication du cahier de textes), N1-2 (prise en charge, délégation, pièces).
+- **Après-midi** : 8 N0a (fuites des notifications), 15 A6 (suppléance, RCD ; 2306–2307), 29 P4 (files des personnels), **N1-3 (HSE en heures, reprographie ; 3046–3047)**. Chaque fusion est vérifiée en local avant envoi (garde, compilation, séparation 44/44, tests de base ciblés) ; la CI d'ENT sur la tête est en file.
+- Conflits additifs résolus à la main : `TOUTES` (184 → 189), compteur RLS (+5, +8, +8).
 
-### Décision de Florian
-- **Dépôt GitHub : reste public**, CI allégée (0 €). Le ménage des adresses réelles et des documents de failles se fait **à la bascule** (voir `PLAN_BASCULE_FEVRIER.md` §5.2). Correction : l'adresse réelle de la base de production n'est pas dans le code (seul le suffixe générique Scaleway, dans de faux exemples).
+### Prêt, pas encore sur `ENT` (code fini, CI en file ou à refaire)
+- 15 A7 (heures et états), 20 C3–C4 (agenda, famille, avis, charge), 7 D0 (correctifs documents) : CI en file depuis le début d'après-midi.
+- 29 P5 (recherche globale) : CI rouge (ordre des modules, une tranche) ; corrigé dans la pile P6–P7, dont la CI vaudra pour les trois.
+
+### En cours (10 sessions Sonnet, aucune Fable)
+| Session | Lots |
+|---|---|
+| 8 Notifications | N0b à N3 (justesse, brique, destinataires, préférences) — tests de la tête, puis CI |
+| N1 Demandes | N1-5 : reprise des demandes du Next.js depuis un export anonymisé (CI en file) |
+| 29 Portails | P6 palette de commandes, P7 modes et bandeaux (CI en file) |
+| 20 Cahier de textes | C5 rendus, C6 continuité, C7 adaptations — corrections de tests |
+| 15 Absences du personnel | A8 rattrapages, A9 grève et absences collectives (CI en file) |
+| CI allégée | moins de jobs sur les branches, CI complète sur ENT |
+| 7 Documents | D1 : PDF maison (D-062 : accents, pages, tableaux, logo, QR) |
+| 7 Documents | D2 fondations, D3 certificats et attestations vérifiables |
+| 28 Mise en service | MS0, R0 inspection d'un export, **R1 outil d'anonymisation (pour le 4 déc.)** |
+| 10 EDT | T3 modifications, T4 « demain » |
+
+### Conçu mais pas codé (principaux, d'après le plan de bascule)
+Socle 2 E7–E9 (écrans élève), 4 A3–A12 (dossier), 5 S6 et S12, 6 P5–P11, 12 AS5 et AS14, 16 M3 et suivants (messagerie), 18 formulaires, 19 AG4–AG6, 23 fiches de dialogue, 24–25 argent des voyages, 27 G0–G2, 39 ST2 et ST8, 41 I2 et suivants, 42 V0d et suivants, 14 accueil, 32 espace documents.
+
+### Avancement par socle (lots versés sur `ENT`)
+| Socle | Versé | Suivant |
+|---|---|---|
+| 7 Documents | — (D0 prêt) | D0, puis D1, D2, D3 (en cours) |
+| 8 Notifications | N0a | N0b à N3 (en cours) |
+| 10 EDT | T0, T1, T2 | T3, T4 (en cours) |
+| 12 Assiduité | AS0 à AS4 | AS5 (avis, après le socle 8) |
+| 15 Absences du personnel | A0 à A6 | A7 (prêt), A8, A9 (en cours) |
+| 19 Agenda | AG0, AG1, AG2 réduit, AG3 | AG4 à AG6 |
+| 20 Cahier de textes | C0 à C2 | C3, C4 (prêts), C5 à C7 (en cours) |
+| 28 Mise en service | — | MS0, R0, R1 (en cours) |
+| 29 Portails | P2 à P4 | P5 à P7 (en cours) |
+| N1 Demandes | N1-0 à N1-3 | N1-4 (écrans), N1-5 (en cours) |
+
+### Décisions de Florian aujourd'hui
+- **Dépôt GitHub : reste public**, CI allégée (0 €) ; ménage des adresses réelles et des documents de failles **à la bascule** (`PLAN_BASCULE_FEVRIER.md` §5.2). L'adresse réelle de la base de production n'est pas dans le code.
+- **10 sessions Sonnet** jusqu'à la remise à zéro du quota (dim. 10 h), **jamais Fable** sans accord.
+- iPhone : lien `about:blank` des pièces de voyage et d'absence corrigé sur `main` (autorisation explicite, 30c92180) ; Florian a confirmé que ça marche.
+
+### Décisions attendues de Florian
+- **Q-PB2** du plan de bascule (modules N?), **avant le 27 novembre**.
+- **Q-PB3** : choix de l'e-mail sortant de l'ENT (bloque le socle 8 N6 et l'infra INF4).
+- **DPO** : en identifier un ; son avis conditionne la bascule (31 janvier).
+- Nom de l'application académique de déclaration des HSE (« ASIE » ? à vérifier).
+- PR n° 92 et pushs inconnus sur `main` signalés hier : à vérifier.
+
+### À fournir par Florian plus tard (`A_FOURNIR_PAR_FLORIAN.md`)
+- **F-08 hébergement Scaleway** (conteneur et base PostgreSQL séparés, sous-domaine, sauvegardes) : **le plus proche**, prêt vers le 14 décembre ; le pilote donne la liste exacte deux semaines avant (vers le 30 novembre).
+- **Export anonymisé de la base Next.js** pour la répétition de Noël : le 19 décembre, avec l'outil R1 livré le 4 décembre.
+- F-01 à F-05, F-07 (exports Charlemagne, échanges SIECLE/STS, exemples XML) : quand les lots d'import démarrent.
+- F-06 démarche éditeur DNE : plus tard.
 
 ### Ce qui a coincé
-- Disque plein pendant une vérification : anciens arbres de fusion supprimés.
-- Les tests de base sautent sans `ENT_DATABASE_URL` (0,5 s au lieu d'un quart d'heure) : toujours la définir.
-- `tests_rls_lots::lot_eleves_responsables` échoue parfois quand plusieurs tests préparent le rôle commun en même temps ; il passe seul. Test instable à corriger.
-
-### En cours
-- Six sessions : socle 8 (N0b à N3), N1-5, socle 29 (P6, P7), socle 20 (C5 à C7), socle 15 (A8, A9), socle 7 (D0).
-- À verser quand leur CI est verte : A7, P5, P7, C4, N1-3, D0. À lancer à la prochaine place : CI allégée, puis PDF maison (D-062).
+- **File de la CI** : 6 à 8 runs attendent 2 à 4 h ; c'est le frein principal. Mitigations : piles avec une seule CI, annulation des runs d'ENT rendus inutiles, CI allégée en cours.
+- **PostgreSQL arrêté** par un redémarrage du conteneur pendant une vérification : 42 faux échecs ; relancé, tout vert.
+- **Disque plein** pendant une vérification : anciens arbres de fusion supprimés.
+- Les tests de base sautent sans `ENT_DATABASE_URL` : toujours la définir.
+- `tests_rls_lots::lot_eleves_responsables` est instable quand plusieurs tests préparent le rôle commun en même temps (passe seul) : à corriger.
 
 ## 2026-11-14 (samedi, nuit)
 
