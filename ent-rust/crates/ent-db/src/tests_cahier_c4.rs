@@ -273,7 +273,7 @@ async fn c4_groupe_de_4_classes_nombres_justes_aucune_matiere_hors_classe_alerte
     rendre_visible(&fx).await;
     let a1 = fx
         .ent
-        .cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![cours_classes[1]], echeance_jour: Some(j), nature: Some("exercices".into()), duree_estimee_min: Some(10) })
+        .cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![cours_classes[1]], echeance_jour: Some(j), prochaine_seance: false, nature: Some("exercices".into()), duree_estimee_min: Some(10) })
         .await
         .unwrap();
     assert_eq!(a1.nb_eleves, 9);
@@ -388,7 +388,7 @@ async fn c4_alerte_ignoree_recalculee_par_le_serveur_comptee_et_jamais_nominativ
     // Le bandeau avertit avant : un repère de minutes dépassé par ce travail.
     let apercu = fx
         .ent
-        .cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![cours], echeance_jour: Some(j), nature: Some("exercices".into()), duree_estimee_min: Some(30) })
+        .cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![cours], echeance_jour: Some(j), prochaine_seance: false, nature: Some("exercices".into()), duree_estimee_min: Some(30) })
         .await
         .unwrap();
     assert!(apercu.alertes.iter().any(|a| a.repere == "minutes" && a.seuil == 60 && a.valeur_max == 110), "{:?}", apercu.alertes);
@@ -428,7 +428,7 @@ async fn c4_alerte_ignoree_recalculee_par_le_serveur_comptee_et_jamais_nominativ
     assert!(est_interdit(&fx.ent.cdt_alertes_ignorees(&fx.eleve(&fx.x), du, au).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cdt_alertes_ignorees(&fx.parent(&fx.x), du, au).await.unwrap_err()));
     // Droits de l'aperçu : seul qui saisit dans le cours ; un cours d'un autre établissement n'existe pas.
-    let b = ApercuBody { cours_ids: vec![cours], echeance_jour: Some(j), nature: None, duree_estimee_min: None };
+    let b = ApercuBody { cours_ids: vec![cours], echeance_jour: Some(j), prochaine_seance: false, nature: None, duree_estimee_min: None };
     assert!(est_interdit(&fx.ent.cdt_charge_apercu(&fx.prof2(), b.clone()).await.unwrap_err()));
     assert!(est_interdit(&fx.ent.cdt_charge_apercu(&fx.eleve(&fx.x), b.clone()).await.unwrap_err()));
     assert!(est_introuvable(&fx.ent.cdt_charge_apercu(&fx.prof(), ApercuBody { cours_ids: vec![Uuid::new_v4()], ..b.clone() }).await.unwrap_err()));
