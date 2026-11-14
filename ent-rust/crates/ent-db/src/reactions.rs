@@ -50,6 +50,8 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(ConsommateurEvaluations),
         Arc::new(crate::voyages_reactions::ConsommateurVoyages),
         Arc::new(crate::afaire_service::ConsommateurAfaire),
+        // Socle 8 N1 : brique de notifications (bascule progressive par établissement et par nature).
+        Arc::new(crate::ntf::consommateur::ConsommateurAvis::nouveau()),
     ]
 }
 
@@ -156,6 +158,14 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let Some(m) = message_pour(evt, &prenom) else {
         return Ok(());
     };
+    // Socle 8 N1 : quand la brique de notifications sert cette nature pour l'établissement, l'ancien chemin
+    // se tait (jamais les deux). Bascule par établissement : `ent_ntf_nature_etab.via_brique`.
+    if let Some(nature) = crate::ntf::catalogue::nature_de_kind_ancien(m.kind) {
+        let r = crate::ntf::service::reglage_nature(&mut *tx, etab, nature).await.map_err(|e| e.to_string())?;
+        if r.via_brique {
+            return Ok(());
+        }
+    }
     // Droits relus maintenant : lien ACTIF (vue unique, S2-1 : ni suspendu ni
     // hors de ses dates) dans cet établissement, droit de voir
     // la vie scolaire, compte « parent » membre de l'établissement.

@@ -38,6 +38,7 @@ mod tests_evaluations_v0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
+pub mod ntf;
 pub mod agenda;
 pub mod agenda_lieux;
 pub mod rencontres;
@@ -427,6 +428,8 @@ mod tests_stages_st1a;
 mod tests_notifications_n0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_notifications_n0b;
+#[cfg(all(test, feature = "labo"))]
+mod tests_notifications_n1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022;
 #[cfg(all(test, feature = "labo"))]

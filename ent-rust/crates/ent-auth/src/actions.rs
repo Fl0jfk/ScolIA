@@ -238,6 +238,10 @@ pub enum Action {
     ConsentementsLire,
     /// Régler les plafonds d'envoi et consulter la traçabilité des envois (PLT-05).
     NotificationsGerer,
+    /// Socle 8 (N1) : voir un avis, ses destinataires retenus ou exclus et l'état de ses remises (sans adresse ni numéro).
+    NotificationsAvisVoir,
+    /// Socle 8 (N1) : régler les paramètres de l'établissement et la bascule par nature (heures calmes, délais).
+    NotificationsParametrer,
     /// Ouvrir, réviser et clore les dispositifs d'accompagnement (PAP, PPS, PPRE, ULIS),
     /// définir les aménagements, affecter un AESH, réunir l'équipe (S2-11, ACC-01→05).
     AccompagnementGerer,
@@ -437,7 +441,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 182] = [
+    pub const TOUTES: [Action; 184] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -534,6 +538,8 @@ impl Action {
         Action::FormulairesGerer,
         Action::ConsentementsLire,
         Action::NotificationsGerer,
+        Action::NotificationsAvisVoir,
+        Action::NotificationsParametrer,
         Action::AccompagnementGerer,
         Action::AmenagementsLire,
         Action::ContraintesLire,
@@ -743,6 +749,8 @@ impl Action {
             Self::FormulairesGerer => "formulaires.gerer",
             Self::ConsentementsLire => "consentements.lire",
             Self::NotificationsGerer => "notifications.gerer",
+            Self::NotificationsAvisVoir => "notifications.avis_voir",
+            Self::NotificationsParametrer => "notifications.parametrer",
             Self::AccompagnementGerer => "accompagnement.gerer",
             Self::AmenagementsLire => "amenagements.lire",
             Self::ContraintesLire => "contraintes.lire",
@@ -931,6 +939,8 @@ impl Action {
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
             Self::ConsentementsLire => "Consulter les consentements (objet par objet)",
             Self::NotificationsGerer => "Régler les plafonds d'envoi et suivre les envois",
+            Self::NotificationsAvisVoir => "Voir un avis, ses destinataires et l'état de ses remises",
+            Self::NotificationsParametrer => "Régler les paramètres de notification de l'établissement",
             Self::AccompagnementGerer => {
                 "Gérer l'accompagnement : PAP, PPS, aménagements, AESH, équipe éducative"
             }
@@ -1074,6 +1084,8 @@ impl Action {
             | Self::FormulairesGerer
             | Self::ConsentementsLire
             | Self::NotificationsGerer
+            | Self::NotificationsAvisVoir
+            | Self::NotificationsParametrer
             | Self::MessagerieFilsReserves
             | Self::MessagerieUrgenceHorsPlage
             | Self::VoyagesAnnuaire
@@ -1332,6 +1344,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_29_afaire(role, &mut d);
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
+    socle_8_notifications(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1848,6 +1861,19 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
     if role == Role::Admin {
         d.push(etab(AfaireRapprocher));
+    }
+}
+
+/// Socle 8 (notifications), lot N1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Voir un avis : direction, administrateur, CPE (vie scolaire) ; régler l'établissement : direction et administrateur.
+fn socle_8_notifications(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(NotificationsAvisVoir));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(NotificationsParametrer));
     }
 }
 

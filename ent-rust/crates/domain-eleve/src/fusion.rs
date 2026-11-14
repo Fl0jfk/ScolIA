@@ -166,6 +166,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_note_doublon_archive", &["id"]),
     d("ent_notification", &["id"]),
     d("ent_notification_envoi", &["id"]),
+    d("ent_ntf_avis", &["id"]),
     d("ent_orientation_avis", &["id"]),
     d("ent_pai", &["id"]),
     d("ent_pai_piece", &["id"]),

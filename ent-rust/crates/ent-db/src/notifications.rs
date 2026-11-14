@@ -799,6 +799,9 @@ impl Expediteur {
 
     async fn expedier_etab(&self, etab: Uuid, maintenant: DateTime<Utc>) -> Result<BilanExpedition, EntDbError> {
         let mut bilan = BilanExpedition::default();
+        // 0. Socle 8 N1 : avis échus (délai de confirmation écoulé), remis dans l'ENT ; les canaux externes sont
+        // transmis à l'ancien moteur, expédié aux étapes suivantes du même passage.
+        crate::ntf::expedition::expedier_avis_dus(&self.pool, etab, maintenant).await?;
         // 1. Lignes abandonnées en cours d'envoi : échec (jamais renvoyées).
         let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(db)?;
         let perimes = sqlx::query(
