@@ -612,11 +612,23 @@ pub fn pai_storage_key_is_owned(piece: &PaiPiece, key: &str) -> bool {
 }
 
 
+/// Extension canonique d'un dépôt : alignée sur `TypeFichier::extension` (source unique).
+fn extension_depot_connue(ext: &str) -> bool {
+    use ent_object::upload::TypeFichier as T;
+    [
+        T::Pdf, T::Png, T::Jpeg, T::Gif, T::Webp, T::Texte, T::Docx, T::Xlsx, T::Pptx, T::Odt,
+        T::Ods, T::Odp,
+    ]
+    .iter()
+    .any(|t| t.extension() == ext)
+}
+
 /// Vérifie que la clé objet stockée APPARTIENT bien à ce document (même établissement,
 /// même document/élève). Toute autre forme n'est jamais lue dans le magasin d'objets.
 ///
 /// Formes acceptées :
-/// - `{etab}/documents/{doc.id}.{pdf|png|jpg|txt|bin}` (dépôt avec contenu) ;
+/// - `{etab}/documents/{doc.id}.{ext}` (dépôt avec contenu ; `ext` = `TypeFichier::extension` ou `bin`) ;
+/// - `{etab}/bulletins/{uuid}.pdf` (bulletin publié) ;
 /// - `{etab}/bulletin|livret-competences/{uuid}.pdf-{doc.eleve_id}` (bulletins, livrets) ;
 /// - `reinscription/{etab}/{doc.eleve_id}/{CODE}.pdf` (réinscription sans contenu) ;
 /// - `lab/{8 premiers hex de l'établissement}/{nom}.pdf` (seeds de labo).
@@ -630,7 +642,14 @@ pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
             };
             *e == etab.to_string()
                 && id == doc.id.to_string()
-                && matches!(ext, "pdf" | "png" | "jpg" | "txt" | "bin")
+                && (ext == "bin" || extension_depot_connue(ext))
+        }
+        // Bulletin publié (EVA-10) : `{etab}/bulletins/{bulletin.id}.pdf`.
+        [e, "bulletins", file] => {
+            let Some(id) = file.strip_suffix(".pdf") else {
+                return false;
+            };
+            *e == etab.to_string() && Uuid::parse_str(id).is_ok()
         }
         [e, ns @ ("bulletin" | "livret-competences"), file] => {
             let _ = ns;
