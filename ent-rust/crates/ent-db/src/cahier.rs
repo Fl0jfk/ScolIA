@@ -2005,7 +2005,7 @@ impl PgEnt {
             "cahier_piece",
             &format!("Lien court vers la pièce {piece_id} du cahier de textes"),
         )
-        .await;
+        .await?;
         Ok(LienFichier {
             url: link.url,
             expires_at: link.expires_at,

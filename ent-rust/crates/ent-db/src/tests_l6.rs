@@ -8,11 +8,10 @@ use sqlx::Row;
 use uuid::Uuid;
 
 async fn connect_local() -> Option<PgEnt> {
-    let url = std::env::var("ENT_DATABASE_URL")
-        .ok()
-        .filter(|u| !u.trim().is_empty())?;
-    let ent = PgEnt::connect(&url).await.ok()?;
-    ent.migrate().await.ok()?;
+    // RG-D03 : sous `CI` ou `ENT_EXIGER_BASE`, l'absence de base fait échouer le test.
+    let url = crate::url_guard::url_labo_ou_echec()?;
+    let ent = PgEnt::connect(&url).await.expect("connexion à la base de test");
+    ent.migrate().await.expect("migrations");
     Some(ent)
 }
 
@@ -183,7 +182,8 @@ async fn consultation_pai_et_fiche_sante_sont_tracees() {
         "ogec",
         "Export OGEC",
     )
-    .await;
+    .await
+    .expect("trace d'export");
     assert_eq!(compter(&ent, etab, "export", "ogec").await, 1);
 }
 

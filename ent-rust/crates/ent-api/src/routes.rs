@@ -1777,7 +1777,7 @@ async fn telecharger_document_fichier(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await;
+    tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await?;
     let (filename, mime) = ent_db::nom_fichier_document(&doc);
     attachment_response_dyn(bytes, &filename, &mime)
 }
@@ -7506,7 +7506,7 @@ async fn export_lsl(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "lsl", "Export LSL").await;
+    tracer_acces(&state, &session, "export", "lsl", "Export LSL").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7537,7 +7537,7 @@ async fn export_lsun(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await;
+    tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7763,7 +7763,7 @@ async fn export_onde(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "onde", "Export ONDE").await;
+    tracer_acces(&state, &session, "export", "onde", "Export ONDE").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7794,7 +7794,7 @@ async fn export_notanet(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await;
+    tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7832,7 +7832,7 @@ async fn export_parcoursup(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await;
+    tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -10369,7 +10369,7 @@ async fn telecharger_piece(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "telechargement", "piece_message", &format!("Téléchargement de la pièce jointe {id}")).await;
+    tracer_acces(&state, &session, "telechargement", "piece_message", &format!("Téléchargement de la pièce jointe {id}")).await?;
     attachment_response_dyn(piece.contenu, &piece.nom, &piece.mime_type)
 }
 
@@ -11015,7 +11015,7 @@ async fn list_factures(
         .await
         .map_err(map_db)?;
     // F0 (R-F36) : toute lecture nominative du personnel est journalisée.
-    tracer_acces(&state, &session, "facturation", "lecture", "Liste des factures").await;
+    tracer_acces(&state, &session, "facturation", "lecture", "Liste des factures").await?;
     Ok(Json(list.iter().map(FactureDto::from).collect()))
 }
 
@@ -11115,7 +11115,7 @@ async fn get_facture(
         .map_err(map_db)?;
     if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
         // F0 (R-F36) : consultation nominative d'un compte par le personnel.
-        tracer_acces(&state, &session, "facturation", "lecture", "Consultation d'une facture").await;
+        tracer_acces(&state, &session, "facturation", "lecture", "Consultation d'une facture").await?;
     }
     Ok(Json(FactureDetailDto {
         facture: FactureDto::from(&facture),
@@ -11200,7 +11200,7 @@ async fn export_ogec(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "ogec", "Export OGEC").await;
+    tracer_acces(&state, &session, "export", "ogec", "Export OGEC").await?;
     let name = format!("ogec-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -11266,7 +11266,7 @@ async fn export_volumes_cuisine(
         .export_volumes_cuisine_for_actor(&session.role, cmd)
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "volumes_cuisine", "Export volumes cuisine").await;
+    tracer_acces(&state, &session, "export", "volumes_cuisine", "Export volumes cuisine").await?;
     let name = format!("volumes-cuisine-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -11435,7 +11435,7 @@ async fn list_sepa_mandats(
         .map_err(map_db)?;
     if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
         // F0 (R-F36, R-P30) : consultation des mandats par le personnel.
-        tracer_acces(&state, &session, "facturation", "lecture", "Liste des mandats SEPA").await;
+        tracer_acces(&state, &session, "facturation", "lecture", "Liste des mandats SEPA").await?;
     }
     Ok(Json(list.iter().map(MandatSepaDto::from).collect()))
 }
@@ -11541,7 +11541,7 @@ async fn export_sepa(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "sepa", "Export SEPA").await;
+    tracer_acces(&state, &session, "export", "sepa", "Export SEPA").await?;
     if kind == "pain008" {
         let name = format!("sepa-pain008-{}-{}.xml", q.debut, q.fin);
         attachment_response(bytes, &name, "application/xml; charset=utf-8")
@@ -13323,7 +13323,8 @@ pub(crate) async fn tracer_acces(
     domaine: &str,
     action: &str,
     libelle: &str,
-) {
+) -> Result<(), (StatusCode, String)> {
+    // Bloquante (socle 27, RG-D01) : sans trace, la donnée n'est pas servie.
     state
         .ent
         .tracer_acces_sensible(
@@ -13335,7 +13336,8 @@ pub(crate) async fn tracer_acces(
             action,
             libelle,
         )
-        .await;
+        .await
+        .map_err(map_db)
 }
 
 // ───────────── Socle 1 : appareils connectés et politique de sécurité ─────────────

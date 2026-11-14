@@ -95,6 +95,8 @@ mod pg_err;
 #[cfg(test)]
 mod tests_l6;
 #[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
@@ -196,6 +198,7 @@ mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
 mod pra;
+pub mod conservation;
 pub mod registre_donnees;
 mod objets;
 pub mod reprise_bytea;
