@@ -3,9 +3,7 @@
 //! Templates stylés catalogue = profondeur ultérieure ; ici = geste métier
 //! observable (période clôturée → PDF → dépôt docs famille).
 
-use crate::{
-    Appreciation, DomainError, MoyenneMatiere, NotePeriode, NotePeriodeStatut,
-};
+use crate::{Appreciation, DomainError, MoyenneMatiere, NotePeriode, NotePeriodeStatut};
 use chrono::NaiveDate;
 use ent_pdf::{Align, Colonne, Document, Ligne, Tableau};
 
@@ -90,7 +88,10 @@ pub fn rendre_pdf_lignes(lines: &[String]) -> Vec<u8> {
 
 pub fn render_bulletin_pdf(b: &BulletinEleve) -> Vec<u8> {
     let mut d = Document::new(crate::pdf_commun::meta(
-        &format!("Bulletin — {} {} — {}", b.eleve_prenom, b.eleve_nom, b.periode_libelle),
+        &format!(
+            "Bulletin — {} {} — {}",
+            b.eleve_prenom, b.eleve_nom, b.periode_libelle
+        ),
         Some(b.date_document),
     ))
     .avec_en_tete("ScolIA — Bulletin scolaire")
@@ -103,7 +104,10 @@ pub fn render_bulletin_pdf(b: &BulletinEleve) -> Vec<u8> {
         b.eleve_nom,
         b.classe.as_deref().unwrap_or("—")
     ));
-    d.paragraphe(&format!("Période : {} ({})", b.periode_libelle, b.periode_code));
+    d.paragraphe(&format!(
+        "Période : {} ({})",
+        b.periode_libelle, b.periode_code
+    ));
     d.sous_titre("Moyennes /20");
     let mut t = Tableau::new(vec![
         Colonne::new("Matière", 3.0, Align::Gauche),
@@ -118,7 +122,11 @@ pub fn render_bulletin_pdf(b: &BulletinEleve) -> Vec<u8> {
         ]));
     }
     if let Some(mg) = b.moyenne_generale {
-        t.lignes.push(Ligne::grasse(vec!["Moyenne générale".to_string(), format!("{mg:.2}"), String::new()]));
+        t.lignes.push(Ligne::grasse(vec![
+            "Moyenne générale".to_string(),
+            format!("{mg:.2}"),
+            String::new(),
+        ]));
     }
     d.tableau(&t);
     if let Some(ag) = &b.appreciation_generale {
@@ -197,7 +205,11 @@ mod tests {
         let moyennes: Vec<(MoyenneMatiere, String)> = (0..40)
             .map(|i| {
                 (
-                    MoyenneMatiere { matiere_id: Uuid::new_v4(), periode_id: p.id, moyenne_sur_20: 8.0 + (i % 11) as f64 },
+                    MoyenneMatiere {
+                        matiere_id: Uuid::new_v4(),
+                        periode_id: p.id,
+                        moyenne_sur_20: 8.0 + (i % 11) as f64,
+                    },
                     format!("Matière {i:02} — Français œuvres"),
                 )
             })
@@ -231,12 +243,18 @@ mod tests {
         let t = texte(&pdf);
         assert!(t.contains("Élève : Hélène Élève"), "{t}");
         assert!(t.contains("Période : Trimestre 1 (T1)"));
-        assert!(t.contains("Matière 00 — Français") && t.contains("œuvres"), "{t}");
+        assert!(
+            t.contains("Matière 00 — Français") && t.contains("œuvres"),
+            "{t}"
+        );
         let pages = texte_des_pages(&pdf);
         assert_eq!(pages.len(), 3, "{} pages", pages.len());
         for (i, pg) in pages.iter().enumerate() {
             assert!(pg.contains(&format!("Page {} sur 3", i + 1)));
-            assert!(pg.contains("Matière\nMoyenne\nAppréciation"), "en-tête du tableau répété, page {i}");
+            assert!(
+                pg.contains("Matière\nMoyenne\nAppréciation"),
+                "en-tête du tableau répété, page {i}"
+            );
         }
         assert!(pages[2].contains("Moyenne générale"));
     }

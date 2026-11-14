@@ -43,8 +43,16 @@ pub fn plan_resume_fiche_sante(
         && traitements.is_empty()
         && contre.is_empty()
         && !fiche.pai_actif
-        && fiche.medecin_nom.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
-        && fiche.urgence_tel.as_ref().map(|s| s.trim().is_empty()).unwrap_or(true)
+        && fiche
+            .medecin_nom
+            .as_ref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
+        && fiche
+            .urgence_tel
+            .as_ref()
+            .map(|s| s.trim().is_empty())
+            .unwrap_or(true)
     {
         return Err(DomainError::FicheSanteInvalide);
     }

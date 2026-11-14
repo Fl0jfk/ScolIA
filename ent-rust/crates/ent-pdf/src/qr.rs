@@ -123,7 +123,11 @@ fn flux_donnees(donnees: &[u8], version: usize, alnum: bool) -> Vec<bool> {
     let mut bits = Vec::new();
     if alnum {
         ajouter(&mut bits, 0b0010, 4);
-        ajouter(&mut bits, donnees.len() as u32, if version <= 9 { 9 } else { 11 });
+        ajouter(
+            &mut bits,
+            donnees.len() as u32,
+            if version <= 9 { 9 } else { 11 },
+        );
         let val = |b: u8| ALNUM.iter().position(|&c| c == b).unwrap() as u32;
         for p in donnees.chunks(2) {
             if p.len() == 2 {
@@ -134,7 +138,11 @@ fn flux_donnees(donnees: &[u8], version: usize, alnum: bool) -> Vec<bool> {
         }
     } else {
         ajouter(&mut bits, 0b0100, 4);
-        ajouter(&mut bits, donnees.len() as u32, if version <= 9 { 8 } else { 16 });
+        ajouter(
+            &mut bits,
+            donnees.len() as u32,
+            if version <= 9 { 8 } else { 16 },
+        );
         for &b in donnees {
             ajouter(&mut bits, u32::from(b), 8);
         }
@@ -159,8 +167,10 @@ fn mots_de_code(donnees: &[u8], version: usize, alnum: bool) -> Vec<u8> {
     while bits.len() % 8 != 0 {
         bits.push(false);
     }
-    let mut mots: Vec<u8> =
-        bits.chunks(8).map(|c| c.iter().fold(0u8, |a, &b| a << 1 | u8::from(b))).collect();
+    let mut mots: Vec<u8> = bits
+        .chunks(8)
+        .map(|c| c.iter().fold(0u8, |a, &b| a << 1 | u8::from(b)))
+        .collect();
     let mut pad = [0xecu8, 0x11].into_iter().cycle();
     while mots.len() < cap / 8 {
         mots.push(pad.next().unwrap());
@@ -215,7 +225,11 @@ struct Grille {
 
 impl Grille {
     fn nouvelle(n: usize) -> Grille {
-        Grille { n, v: vec![false; n * n], f: vec![false; n * n] }
+        Grille {
+            n,
+            v: vec![false; n * n],
+            f: vec![false; n * n],
+        }
     }
     fn poser(&mut self, x: usize, y: usize, noir: bool) {
         self.v[y * self.n + x] = noir;
@@ -339,7 +353,11 @@ fn penalite(g: &Grille) -> u32 {
         for a in 0..n {
             let mut run = 1;
             for b in 1..n {
-                let (c0, c1) = if sens == 0 { (m(b - 1, a), m(b, a)) } else { (m(a, b - 1), m(a, b)) };
+                let (c0, c1) = if sens == 0 {
+                    (m(b - 1, a), m(b, a))
+                } else {
+                    (m(a, b - 1), m(a, b))
+                };
                 if c0 == c1 {
                     run += 1;
                     if run == 5 {
@@ -363,8 +381,12 @@ fn penalite(g: &Grille) -> u32 {
         }
     }
     // N3 : motif 1:1:3:1:1 bordé de 4 modules clairs.
-    const A: [bool; 11] = [false, false, false, false, true, false, true, true, true, false, true];
-    const B: [bool; 11] = [true, false, true, true, true, false, true, false, false, false, false];
+    const A: [bool; 11] = [
+        false, false, false, false, true, false, true, true, true, false, true,
+    ];
+    const B: [bool; 11] = [
+        true, false, true, true, true, false, true, false, false, false, false,
+    ];
     for sens in 0..2 {
         for a in 0..n {
             for b in 0..=n - 11 {
@@ -381,7 +403,10 @@ fn penalite(g: &Grille) -> u32 {
     // N4 : proportion de modules sombres.
     let noirs = g.v.iter().filter(|&&b| b).count();
     let total = n * n;
-    let k = (noirs * 20).abs_diff(total * 10).div_ceil(total).saturating_sub(1);
+    let k = (noirs * 20)
+        .abs_diff(total * 10)
+        .div_ceil(total)
+        .saturating_sub(1);
     p + 10 * k as u32
 }
 
@@ -396,7 +421,11 @@ impl Qr {
         let base = motifs_fonction(version);
         let n = base.n;
 
-        let mut g = Grille { n, v: base.v.clone(), f: base.f.clone() };
+        let mut g = Grille {
+            n,
+            v: base.v.clone(),
+            f: base.f.clone(),
+        };
         let total_bits = mots.len() * 8;
         let mut i = 0;
         let mut droite = n as i32 - 1;
@@ -420,7 +449,11 @@ impl Qr {
 
         let mut meilleur: Option<(u32, u8, Grille)> = None;
         for masque in 0..8u8 {
-            let mut c = Grille { n, v: g.v.clone(), f: g.f.clone() };
+            let mut c = Grille {
+                n,
+                v: g.v.clone(),
+                f: g.f.clone(),
+            };
             for y in 0..n {
                 for x in 0..n {
                     if !base.f[y * n + x] && condition_masque(masque, y, x) {
@@ -435,7 +468,12 @@ impl Qr {
             }
         }
         let (_, masque, c) = meilleur.unwrap();
-        Ok(Qr { version, masque, taille: n, modules: c.v })
+        Ok(Qr {
+            version,
+            masque,
+            taille: n,
+            modules: c.v,
+        })
     }
 
     pub fn taille(&self) -> usize {
@@ -506,12 +544,16 @@ pub(crate) mod decodeur {
             }
             droite -= 2;
         }
-        let mots: Vec<u8> =
-            bits.chunks_exact(8).map(|c| c.iter().fold(0u8, |a, &b| a << 1 | u8::from(b))).collect();
+        let mots: Vec<u8> = bits
+            .chunks_exact(8)
+            .map(|c| c.iter().fold(0u8, |a, &b| a << 1 | u8::from(b)))
+            .collect();
         // Désentrelacement.
         let (nec, groupes) = BLOCS_M[version - 1];
-        let tailles: Vec<usize> =
-            groupes.iter().flat_map(|&(c, k)| std::iter::repeat_n(k, c)).collect();
+        let tailles: Vec<usize> = groupes
+            .iter()
+            .flat_map(|&(c, k)| std::iter::repeat_n(k, c))
+            .collect();
         let nb = tailles.len();
         let mut blocs: Vec<Vec<u8>> = vec![Vec::new(); nb];
         let mut ecs: Vec<Vec<u8>> = vec![Vec::new(); nb];
@@ -538,7 +580,10 @@ pub(crate) mod decodeur {
             donnees.extend_from_slice(b);
         }
         // Flux.
-        let bits: Vec<bool> = donnees.iter().flat_map(|&o| (0..8).rev().map(move |i| (o >> i) & 1 == 1)).collect();
+        let bits: Vec<bool> = donnees
+            .iter()
+            .flat_map(|&o| (0..8).rev().map(move |i| (o >> i) & 1 == 1))
+            .collect();
         let mut pos = 0;
         let mut lire = |k: usize| -> u32 {
             let mut v = 0;
@@ -580,14 +625,18 @@ mod tests {
     use super::*;
 
     fn bin(s: &str) -> Vec<u8> {
-        s.split_whitespace().map(|o| u8::from_str_radix(o, 2).unwrap()).collect()
+        s.split_whitespace()
+            .map(|o| u8::from_str_radix(o, 2).unwrap())
+            .collect()
     }
 
     /// Exemple « 01234567 », version 1-M, de l'annexe de l'ISO/IEC 18004.
     #[test]
     fn vecteur_iso_reed_solomon() {
-        let data = bin("00010000 00100000 00001100 01010110 01100001 10000000 11101100 00010001 \
-                         11101100 00010001 11101100 00010001 11101100 00010001 11101100 00010001");
+        let data = bin(
+            "00010000 00100000 00001100 01010110 01100001 10000000 11101100 00010001 \
+                         11101100 00010001 11101100 00010001 11101100 00010001 11101100 00010001",
+        );
         let ec = reed_solomon(&data, 10);
         assert_eq!(ec, bin("10100101 00100100 11010100 11000001 11101101 00110110 11000111 10000111 00101100 01010101"));
     }
@@ -596,7 +645,10 @@ mod tests {
     #[test]
     fn vecteur_hello_world() {
         let mots = mots_de_code(b"HELLO WORLD", 1, true);
-        assert_eq!(mots, vec![32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17]);
+        assert_eq!(
+            mots,
+            vec![32, 91, 11, 120, 209, 114, 220, 77, 67, 64, 236, 17, 236, 17, 236, 17]
+        );
         let ec = reed_solomon(&mots, 10);
         assert_eq!(ec, vec![196, 35, 39, 119, 235, 215, 231, 226, 93, 23]);
     }
@@ -678,7 +730,10 @@ mod tests {
         let a = Qr::encoder(b"https://ent.example/v/x").unwrap();
         let b = Qr::encoder(b"https://ent.example/v/x").unwrap();
         assert_eq!(a.modules, b.modules);
-        assert_eq!(Qr::encoder(&vec![b'a'; 214]).unwrap_err(), QrErreur::TropLong);
+        assert_eq!(
+            Qr::encoder(&vec![b'a'; 214]).unwrap_err(),
+            QrErreur::TropLong
+        );
         assert!(Qr::encoder(&vec![b'a'; 213]).is_ok());
     }
 
@@ -688,9 +743,16 @@ mod tests {
         // Recalcule toutes les pénalités et vérifie que le masque retenu est le premier minimum.
         let version = q.version;
         let alnum = false;
-        let mots = mots_entrelaces(&mots_de_code(b"https://ent.example/verifier/3f2a9c", version, alnum), version);
+        let mots = mots_entrelaces(
+            &mots_de_code(b"https://ent.example/verifier/3f2a9c", version, alnum),
+            version,
+        );
         assert!(!mots.is_empty());
-        let mut g = Grille { n: q.taille, v: q.modules.clone(), f: motifs_fonction(version).f };
+        let mut g = Grille {
+            n: q.taille,
+            v: q.modules.clone(),
+            f: motifs_fonction(version).f,
+        };
         let p0 = penalite(&g);
         // Le masque retenu a au plus la pénalité de n'importe quel autre masque.
         for autre in 0..8u8 {
@@ -700,17 +762,23 @@ mod tests {
             for y in 0..g.n {
                 for x in 0..g.n {
                     if !g.f[y * g.n + x] {
-                        g.v[y * g.n + x] ^= condition_masque(q.masque, y, x) ^ condition_masque(autre, y, x);
+                        g.v[y * g.n + x] ^=
+                            condition_masque(q.masque, y, x) ^ condition_masque(autre, y, x);
                     }
                 }
             }
             ecrire_format(&mut g, autre);
-            assert!(p0 <= penalite(&g), "masque {autre} meilleur que {}", q.masque);
+            assert!(
+                p0 <= penalite(&g),
+                "masque {autre} meilleur que {}",
+                q.masque
+            );
             // Retour à l'état du masque retenu.
             for y in 0..g.n {
                 for x in 0..g.n {
                     if !g.f[y * g.n + x] {
-                        g.v[y * g.n + x] ^= condition_masque(q.masque, y, x) ^ condition_masque(autre, y, x);
+                        g.v[y * g.n + x] ^=
+                            condition_masque(q.masque, y, x) ^ condition_masque(autre, y, x);
                     }
                 }
             }

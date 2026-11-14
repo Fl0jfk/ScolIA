@@ -10,9 +10,18 @@ pub fn verifier_structure(pdf: &[u8]) -> usize {
     assert!(pdf.starts_with(b"%PDF-1.4\n"), "en-tête");
     assert!(pdf.ends_with(b"%%EOF\n"), "fin");
     let txt = |a: usize, b: usize| String::from_utf8_lossy(&pdf[a..b]).into_owned();
-    let pos_sx = pdf.windows(9).rposition(|w| w == b"startxref").expect("startxref");
+    let pos_sx = pdf
+        .windows(9)
+        .rposition(|w| w == b"startxref")
+        .expect("startxref");
     let reste = txt(pos_sx + 10, pdf.len());
-    let xref: usize = reste.lines().next().unwrap().trim().parse().expect("offset xref");
+    let xref: usize = reste
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .expect("offset xref");
     assert_eq!(&pdf[xref..xref + 5], b"xref\n", "startxref pointe sur xref");
     let corps = txt(xref + 5, pos_sx);
     let mut it = corps.lines();
@@ -23,16 +32,27 @@ pub fn verifier_structure(pdf: &[u8]) -> usize {
     assert_eq!(it.next().unwrap(), "0000000000 65535 f ");
     for num in 1..n {
         let e = it.next().unwrap();
-        assert_eq!(e.len(), 19, "entrée xref de 20 octets avec le saut de ligne");
+        assert_eq!(
+            e.len(),
+            19,
+            "entrée xref de 20 octets avec le saut de ligne"
+        );
         assert!(e.ends_with(" 00000 n "), "{e}");
         let off: usize = e[..10].parse().unwrap();
         let attendu = format!("{num} 0 obj\n");
-        assert_eq!(&pdf[off..off + attendu.len()], attendu.as_bytes(), "objet {num} à l'offset {off}");
+        assert_eq!(
+            &pdf[off..off + attendu.len()],
+            attendu.as_bytes(),
+            "objet {num} à l'offset {off}"
+        );
     }
     let trailer = it.next().unwrap();
     assert_eq!(trailer, "trailer");
     let t = it.next().unwrap();
-    assert!(t.contains(&format!("/Size {n}")) && t.contains("/Root 1 0 R"), "{t}");
+    assert!(
+        t.contains(&format!("/Size {n}")) && t.contains("/Root 1 0 R"),
+        "{t}"
+    );
     n - 1
 }
 
@@ -94,7 +114,10 @@ pub fn texte_des_pages(pdf: &[u8]) -> Vec<String> {
 }
 
 pub fn find(h: &[u8], a: &[u8], depuis: usize) -> Option<usize> {
-    h[depuis..].windows(a.len()).position(|w| w == a).map(|p| p + depuis)
+    h[depuis..]
+        .windows(a.len())
+        .position(|w| w == a)
+        .map(|p| p + depuis)
 }
 
 /// Tout le texte du document (pages concaténées).

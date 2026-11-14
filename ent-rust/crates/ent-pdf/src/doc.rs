@@ -51,7 +51,11 @@ pub struct Colonne {
 
 impl Colonne {
     pub fn new(titre: &str, poids: f32, align: Align) -> Colonne {
-        Colonne { titre: titre.into(), poids, align }
+        Colonne {
+            titre: titre.into(),
+            poids,
+            align,
+        }
     }
 }
 
@@ -63,10 +67,16 @@ pub struct Ligne {
 
 impl Ligne {
     pub fn new<S: Into<String>>(cellules: Vec<S>) -> Ligne {
-        Ligne { cellules: cellules.into_iter().map(Into::into).collect(), gras: false }
+        Ligne {
+            cellules: cellules.into_iter().map(Into::into).collect(),
+            gras: false,
+        }
     }
     pub fn grasse<S: Into<String>>(cellules: Vec<S>) -> Ligne {
-        Ligne { cellules: cellules.into_iter().map(Into::into).collect(), gras: true }
+        Ligne {
+            cellules: cellules.into_iter().map(Into::into).collect(),
+            gras: true,
+        }
     }
 }
 
@@ -79,7 +89,11 @@ pub struct Tableau {
 
 impl Tableau {
     pub fn new(colonnes: Vec<Colonne>) -> Tableau {
-        Tableau { colonnes, lignes: Vec::new(), taille: 9.5 }
+        Tableau {
+            colonnes,
+            lignes: Vec::new(),
+            taille: 9.5,
+        }
     }
 }
 
@@ -143,7 +157,11 @@ pub fn couper(police: Police, taille: f32, texte: &[u8], max: f32) -> Vec<Vec<u8
 fn nb(x: f32) -> String {
     let s = format!("{x:.2}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-" { "0".into() } else { s.into() }
+    if s.is_empty() || s == "-" {
+        "0".into()
+    } else {
+        s.into()
+    }
 }
 
 impl Document {
@@ -153,7 +171,10 @@ impl Document {
             en_tete: None,
             logo: None,
             pied: Vec::new(),
-            pages: vec![Page { contenu: Vec::new(), images: Vec::new() }],
+            pages: vec![Page {
+                contenu: Vec::new(),
+                images: Vec::new(),
+            }],
             images: Vec::new(),
             y: HAUT_SANS_EN_TETE,
         }
@@ -193,7 +214,10 @@ impl Document {
     }
 
     fn nouvelle_page(&mut self) {
-        self.pages.push(Page { contenu: Vec::new(), images: Vec::new() });
+        self.pages.push(Page {
+            contenu: Vec::new(),
+            images: Vec::new(),
+        });
         self.y = self.haut();
     }
 
@@ -219,7 +243,14 @@ impl Document {
             return;
         }
         page.extend_from_slice(
-            format!("BT /F{} {} Tf {} {} Td ", police.indice() + 1, nb(taille), nb(x), nb(base)).as_bytes(),
+            format!(
+                "BT /F{} {} Tf {} {} Td ",
+                police.indice() + 1,
+                nb(taille),
+                nb(x),
+                nb(base)
+            )
+            .as_bytes(),
         );
         litterale(texte, page);
         page.extend_from_slice(b" Tj ET\n");
@@ -266,7 +297,11 @@ impl Document {
 
     /// Libellé à gauche (coupé aux mots), valeur alignée à droite sur la première ligne.
     pub fn ligne_droite(&mut self, gauche: &str, droite: &str, gras: bool) {
-        let police = if gras { Police::HelveticaGras } else { Police::Helvetica };
+        let police = if gras {
+            Police::HelveticaGras
+        } else {
+            Police::Helvetica
+        };
         let t = 10.5;
         let d = winansi::encoder(droite);
         let ld = largeur(police, &d, t);
@@ -289,7 +324,13 @@ impl Document {
     pub fn filet(&mut self) {
         self.assurer(6.0);
         let y = self.y - 3.0;
-        let c = format!("0.5 w 0.6 G {} {} m {} {} l S 0 G\n", nb(MARGE_G), nb(y), nb(MARGE_D), nb(y));
+        let c = format!(
+            "0.5 w 0.6 G {} {} m {} {} l S 0 G\n",
+            nb(MARGE_G),
+            nb(y),
+            nb(MARGE_D),
+            nb(y)
+        );
         self.page().contenu.extend_from_slice(c.as_bytes());
         self.y -= 8.0;
     }
@@ -304,7 +345,14 @@ impl Document {
         if !p.images.contains(&idx) {
             p.images.push(idx);
         }
-        let c = format!("q {} 0 0 {} {} {} cm /Im{} Do Q\n", nb(w), nb(h), nb(x), nb(y), idx + 1);
+        let c = format!(
+            "q {} 0 0 {} {} {} cm /Im{} Do Q\n",
+            nb(w),
+            nb(h),
+            nb(x),
+            nb(y),
+            idx + 1
+        );
         p.contenu.extend_from_slice(c.as_bytes());
     }
 
@@ -352,7 +400,13 @@ impl Document {
         let n = q.taille();
         let m = cote / (n as f32 + 8.0);
         let mut c = String::new();
-        c.push_str(&format!("q 1 g {} {} {} {} re f 0 g\n", nb(x), nb(y), nb(cote), nb(cote)));
+        c.push_str(&format!(
+            "q 1 g {} {} {} {} re f 0 g\n",
+            nb(x),
+            nb(y),
+            nb(cote),
+            nb(cote)
+        ));
         for r in 0..n {
             for k in 0..n {
                 if q.module(k, r) {
@@ -386,10 +440,22 @@ impl Document {
         let mut c = Vec::new();
         for (i, col) in cols.iter().enumerate() {
             if fond {
-                let r = format!("0.9 g {} {} {} {} re f 0 g\n", nb(x), nb(top - h), nb(larg[i]), nb(h));
+                let r = format!(
+                    "0.9 g {} {} {} {} re f 0 g\n",
+                    nb(x),
+                    nb(top - h),
+                    nb(larg[i]),
+                    nb(h)
+                );
                 c.extend_from_slice(r.as_bytes());
             }
-            let r = format!("0.5 w 0.4 G {} {} {} {} re S 0 G\n", nb(x), nb(top - h), nb(larg[i]), nb(h));
+            let r = format!(
+                "0.5 w 0.4 G {} {} {} {} re S 0 G\n",
+                nb(x),
+                nb(top - h),
+                nb(larg[i]),
+                nb(h)
+            );
             c.extend_from_slice(r.as_bytes());
             for (j, l) in cellules[i].iter().skip(debut).take(k).enumerate() {
                 let lx = Self::x_aligne(police, taille, l, col.align, x + PAD, x + larg[i] - PAD);
@@ -418,7 +484,12 @@ impl Document {
             (0..n)
                 .map(|i| {
                     let txt = cellules.get(i).map(String::as_str).unwrap_or("");
-                    couper(police, t.taille, &winansi::encoder(txt), larg[i] - 2.0 * PAD)
+                    couper(
+                        police,
+                        t.taille,
+                        &winansi::encoder(txt),
+                        larg[i] - 2.0 * PAD,
+                    )
                 })
                 .collect()
         };
@@ -431,12 +502,25 @@ impl Document {
 
         self.assurer(h_entete + inter + 2.0 * PAD);
         if t.lignes.is_empty() {
-            self.rangee(&t.colonnes, &larg, t.taille, &entete, 0, k_entete, Police::HelveticaGras, true);
+            self.rangee(
+                &t.colonnes,
+                &larg,
+                t.taille,
+                &entete,
+                0,
+                k_entete,
+                Police::HelveticaGras,
+                true,
+            );
             self.y -= 8.0;
             return;
         }
         for ligne in &t.lignes {
-            let police = if ligne.gras { Police::HelveticaGras } else { Police::Helvetica };
+            let police = if ligne.gras {
+                Police::HelveticaGras
+            } else {
+                Police::Helvetica
+            };
             let cellules = decouper(&ligne.cellules, police);
             let total = cellules.iter().map(Vec::len).max().unwrap_or(1).max(1);
             let mut fait = 0;
@@ -465,10 +549,28 @@ impl Document {
                     }
                 }
                 if besoin_entete {
-                    self.rangee(&t.colonnes, &larg, t.taille, &entete, 0, k_entete, Police::HelveticaGras, true);
+                    self.rangee(
+                        &t.colonnes,
+                        &larg,
+                        t.taille,
+                        &entete,
+                        0,
+                        k_entete,
+                        Police::HelveticaGras,
+                        true,
+                    );
                     page_entete = Some(courante);
                 }
-                self.rangee(&t.colonnes, &larg, t.taille, &cellules, fait, k, police, false);
+                self.rangee(
+                    &t.colonnes,
+                    &larg,
+                    t.taille,
+                    &cellules,
+                    fait,
+                    k,
+                    police,
+                    false,
+                );
                 fait += k;
                 if fait < total {
                     self.nouvelle_page();
@@ -528,7 +630,11 @@ impl Document {
                 );
                 c.extend_from_slice(f.as_bytes());
             }
-            let f = format!("0.5 w 0.6 G {} 50 m {} 50 l S 0 G\n", nb(MARGE_G), nb(MARGE_D));
+            let f = format!(
+                "0.5 w 0.6 G {} 50 m {} 50 l S 0 G\n",
+                nb(MARGE_G),
+                nb(MARGE_D)
+            );
             c.extend_from_slice(f.as_bytes());
             Self::emettre(&mut c, MARGE_G, 36.0, Police::Helvetica, 8.0, &self.pied);
             let num = winansi::encoder(&format!("Page {} sur {n}", i + 1));
@@ -542,17 +648,26 @@ impl Document {
         let n_images = self.images.len();
         let premiere_page = 7 + n_images;
         e.objet(b"<< /Type /Catalog /Pages 2 0 R >>");
-        let kids: String = (0..n).map(|i| format!("{} 0 R ", premiere_page + 2 * i)).collect();
+        let kids: String = (0..n)
+            .map(|i| format!("{} 0 R ", premiere_page + 2 * i))
+            .collect();
         e.objet(format!("<< /Type /Pages /Kids [ {kids}] /Count {n} >>").as_bytes());
         self.ecrire_info(&mut e);
         for p in [Police::Helvetica, Police::HelveticaGras, Police::Times] {
             e.objet(
-                format!("<< /Type /Font /Subtype /Type1 /BaseFont /{} /Encoding /WinAnsiEncoding >>", p.nom_base())
-                    .as_bytes(),
+                format!(
+                    "<< /Type /Font /Subtype /Type1 /BaseFont /{} /Encoding /WinAnsiEncoding >>",
+                    p.nom_base()
+                )
+                .as_bytes(),
             );
         }
         for j in &self.images {
-            let cs = if j.composantes == 1 { "/DeviceGray" } else { "/DeviceRGB" };
+            let cs = if j.composantes == 1 {
+                "/DeviceGray"
+            } else {
+                "/DeviceRGB"
+            };
             e.flux(
                 &format!(
                     "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {cs} /BitsPerComponent 8 /Filter /DCTDecode",
@@ -565,7 +680,11 @@ impl Document {
             let xobj: String = if p.images.is_empty() {
                 String::new()
             } else {
-                let l: String = p.images.iter().map(|k| format!("/Im{} {} 0 R ", k + 1, 7 + k)).collect();
+                let l: String = p
+                    .images
+                    .iter()
+                    .map(|k| format!("/Im{} {} 0 R ", k + 1, 7 + k))
+                    .collect();
                 format!(" /XObject << {l}>>")
             };
             e.objet(

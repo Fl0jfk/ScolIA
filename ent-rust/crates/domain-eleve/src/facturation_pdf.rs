@@ -23,9 +23,12 @@ pub fn render_facture_pdf(
     lignes: &[FactureLigne],
     encaisse_centimes: i64,
 ) -> Vec<u8> {
-    let mut d = Document::new(crate::pdf_commun::meta(&format!("Facture {}", facture.numero), None))
-        .avec_en_tete("ScolIA — Facture")
-        .avec_pied(crate::pdf_commun::pied());
+    let mut d = Document::new(crate::pdf_commun::meta(
+        &format!("Facture {}", facture.numero),
+        None,
+    ))
+    .avec_en_tete("ScolIA — Facture")
+    .avec_pied(crate::pdf_commun::pied());
     d.titre("Facture");
     d.paragraphe(&format!("Numéro : {}", facture.numero));
     d.paragraphe(&format!("Libellé : {}", facture.libelle));
@@ -190,6 +193,9 @@ mod tests {
             created_by_user_id: None,
         };
         let tq = texte(&render_quittance_pdf(&q, "F-É-1"));
-        assert!(tq.contains("Reçu de paiement") && tq.contains("Émise le"), "{tq}");
+        assert!(
+            tq.contains("Reçu de paiement") && tq.contains("Émise le"),
+            "{tq}"
+        );
     }
 }

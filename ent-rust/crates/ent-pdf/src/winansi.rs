@@ -154,7 +154,8 @@ mod tests {
 
     #[test]
     fn tous_les_caracteres_francais() {
-        for c in "éèêëàâçôùûüïîœŒæÆ«»€–—’…ÉÈÀÇÔÙÎÏŸ°œ".chars() {
+        for c in "éèêëàâçôùûüïîœŒæÆ«»€–—’…ÉÈÀÇÔÙÎÏŸ°œ".chars()
+        {
             assert!(octet(c).is_some(), "{c} doit avoir un octet WinAnsi");
         }
         assert_eq!(octet('é'), Some(0xe9));
@@ -188,7 +189,10 @@ mod tests {
 
     #[test]
     fn nfd_recompose() {
-        assert_eq!(encoder("e\u{301}le\u{300}ve"), vec![0xe9, b'l', 0xe8, b'v', b'e']);
+        assert_eq!(
+            encoder("e\u{301}le\u{300}ve"),
+            vec![0xe9, b'l', 0xe8, b'v', b'e']
+        );
         assert_eq!(encoder("c\u{327}"), vec![0xe7]);
     }
 }

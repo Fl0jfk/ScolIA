@@ -5,7 +5,14 @@ fn meta() -> Meta {
     Meta {
         titre: "Bulletin — Élève Hélène".into(),
         auteur: "Établissement Saint-Étienne".into(),
-        creation: Some(DateHeure { an: 2026, mois: 11, jour: 14, heure: 9, minute: 5, seconde: 3 }),
+        creation: Some(DateHeure {
+            an: 2026,
+            mois: 11,
+            jour: 14,
+            heure: 9,
+            minute: 5,
+            seconde: 3,
+        }),
     }
 }
 
@@ -18,11 +25,17 @@ fn accents_francais_relus() {
     verifier_structure(&pdf);
     let t = texte(&pdf);
     assert!(t.contains("Élève Hélène, Français"), "{t}");
-    assert!(t.contains("é è ê ë à â ç ô ù û ü ï î œ Œ æ « » € – — ’ …"), "{t}");
+    assert!(
+        t.contains("é è ê ë à â ç ô ù û ü ï î œ Œ æ « » € – — ’ …"),
+        "{t}"
+    );
     assert!(!t.contains('?'), "aucun « ? » de remplacement");
     // Les octets sont bien WinAnsi (É = 0xC9 = \311) et la police le déclare.
     assert!(contient(&pdf, "/Encoding /WinAnsiEncoding"));
-    assert!(contient(&pdf, "(\\311l\\350ve H\\351l\\350ne, Fran\\347ais)"));
+    assert!(contient(
+        &pdf,
+        "(\\311l\\350ve H\\351l\\350ne, Fran\\347ais)"
+    ));
 }
 
 #[test]
@@ -39,10 +52,17 @@ fn xref_exacte_et_metadonnees() {
     d.titre("Test");
     let pdf = d.octets();
     let n = verifier_structure(&pdf);
-    assert_eq!(n, 3 + 3 + 2, "catalogue, pages, info, 3 polices, page, contenu");
+    assert_eq!(
+        n,
+        3 + 3 + 2,
+        "catalogue, pages, info, 3 polices, page, contenu"
+    );
     // Titre accentué en UTF-16BE (BOM FEFF) ; « É » = 00C9.
     assert!(contient(&pdf, "/Title <FEFF00420075006C006C00650074"));
-    assert!(contient(&pdf, "00C9006C00E8007600650020"), "Élève en UTF-16");
+    assert!(
+        contient(&pdf, "00C9006C00E8007600650020"),
+        "Élève en UTF-16"
+    );
     assert!(contient(&pdf, "/CreationDate (D:20261114090503Z)"));
     assert!(contient(&pdf, "/Producer (ent-pdf)"));
 }
@@ -50,7 +70,11 @@ fn xref_exacte_et_metadonnees() {
 #[test]
 fn sans_date_deterministe() {
     let f = || {
-        let mut d = Document::new(Meta { titre: "T".into(), auteur: "A".into(), creation: None });
+        let mut d = Document::new(Meta {
+            titre: "T".into(),
+            auteur: "A".into(),
+            creation: None,
+        });
         d.paragraphe("même contenu");
         d.octets()
     };
@@ -62,7 +86,9 @@ fn sans_date_deterministe() {
 const NB_LIGNES: usize = 34;
 
 fn bulletin_long() -> Vec<u8> {
-    let mut d = Document::new(meta()).avec_en_tete("Collège Saint-Étienne").avec_pied("Bulletin T1");
+    let mut d = Document::new(meta())
+        .avec_en_tete("Collège Saint-Étienne")
+        .avec_pied("Bulletin T1");
     d.titre("Bulletin scolaire");
     let mut t = Tableau::new(vec![
         Colonne::new("Matière", 3.0, Align::Gauche),
@@ -78,7 +104,8 @@ fn bulletin_long() -> Vec<u8> {
                 .into(),
         ]));
     }
-    t.lignes.push(Ligne::grasse(vec!["Moyenne générale", "13,40", ""]));
+    t.lignes
+        .push(Ligne::grasse(vec!["Moyenne générale", "13,40", ""]));
     d.tableau(&t);
     d.paragraphe("Fin du bulletin.");
     d.octets()
@@ -89,20 +116,32 @@ fn bulletin_trois_pages_entete_repete() {
     let pdf = bulletin_long();
     verifier_structure(&pdf);
     let pages = texte_des_pages(&pdf);
-    assert_eq!(pages.len(), 3, "3 pages attendues, {} obtenues", pages.len());
+    assert_eq!(
+        pages.len(),
+        3,
+        "3 pages attendues, {} obtenues",
+        pages.len()
+    );
     assert!(contient(&pdf, "/Count 3 "));
     for (i, p) in pages.iter().enumerate() {
         assert!(p.contains(&format!("Page {} sur 3", i + 1)), "page {i}");
         assert!(p.contains("Collège Saint-Étienne"), "en-tête page {i}");
         assert!(p.contains("Bulletin T1"), "pied page {i}");
-        assert!(p.contains("Matière\nMoyenne\nAppréciation"), "ligne d'en-tête du tableau, page {i}: {p}");
+        assert!(
+            p.contains("Matière\nMoyenne\nAppréciation"),
+            "ligne d'en-tête du tableau, page {i}: {p}"
+        );
     }
     assert!(pages[2].contains("Moyenne générale"));
     assert!(pages[2].contains("Fin du bulletin."));
     // Aucune ligne du tableau perdue ni dupliquée.
     let tout = pages.join("");
     for i in 0..NB_LIGNES {
-        assert_eq!(tout.matches(&format!("Matière {i} — Éducation\n")).count(), 1, "ligne {i}");
+        assert_eq!(
+            tout.matches(&format!("Matière {i} — Éducation\n")).count(),
+            1,
+            "ligne {i}"
+        );
     }
 }
 
@@ -128,15 +167,28 @@ fn rangee_plus_haute_qu_une_page_est_coupee() {
 
 #[test]
 fn retour_a_la_ligne_par_largeur_mesuree() {
-    let l = couper(Police::Helvetica, 10.0, b"un deux trois quatre cinq six sept huit neuf dix", 80.0);
+    let l = couper(
+        Police::Helvetica,
+        10.0,
+        b"un deux trois quatre cinq six sept huit neuf dix",
+        80.0,
+    );
     assert!(l.len() > 2);
     for x in &l {
         assert!(largeur(Police::Helvetica, x, 10.0) <= 80.0 + 0.01);
     }
     // Mot plus long que la ligne : tranché, rien de perdu.
-    let l = couper(Police::Helvetica, 10.0, b"ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ", 100.0);
+    let l = couper(
+        Police::Helvetica,
+        10.0,
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        100.0,
+    );
     assert!(l.len() >= 3);
-    assert_eq!(l.concat(), b"ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec());
+    assert_eq!(
+        l.concat(),
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec()
+    );
     // Paragraphes et lignes vides.
     assert_eq!(couper(Police::Times, 10.0, b"a\n\nb", 100.0).len(), 3);
 }
@@ -180,7 +232,12 @@ fn logo_jpeg_dct() {
     assert!(contient(&pdf, "/ColorSpace /DeviceRGB /BitsPerComponent 8"));
     assert!(contient(&pdf, "/Width 200 /Height 100"));
     // Les octets JPEG sont repris tels quels, une seule fois, et utilisés sur les deux pages.
-    assert_eq!(pdf.windows(jpg.len()).filter(|w| *w == jpg.as_slice()).count(), 1);
+    assert_eq!(
+        pdf.windows(jpg.len())
+            .filter(|w| *w == jpg.as_slice())
+            .count(),
+        1
+    );
     assert_eq!(pdf.windows(7).filter(|w| *w == b"/Im1 Do").count(), 2);
     assert!(Document::new(meta()).avec_logo(b"pas un jpeg").is_err());
 }
@@ -201,13 +258,22 @@ fn qr_depuis_pdf(pdf: &[u8]) -> Vec<u8> {
     let debut = s.find("q 1 g ").expect("bloc QR");
     let fin = s[debut..].find("f Q\n").unwrap() + debut;
     let mut lignes = s[debut..fin].lines();
-    let fond: Vec<f32> = lignes.next().unwrap().split_whitespace().filter_map(|t| t.parse().ok()).collect();
+    let fond: Vec<f32> = lignes
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .filter_map(|t| t.parse().ok())
+        .collect();
     // q 1 g x y cote cote re f 0 g → [1, x, y, cote, cote, 0]
     let (x0, y0, cote) = (fond[1], fond[2], fond[3]);
     let rects: Vec<(f32, f32, f32)> = lignes
         .filter(|l| l.ends_with(" re"))
         .map(|l| {
-            let v: Vec<f32> = l.split_whitespace().take(4).map(|t| t.parse().unwrap()).collect();
+            let v: Vec<f32> = l
+                .split_whitespace()
+                .take(4)
+                .map(|t| t.parse().unwrap())
+                .collect();
             (v[0], v[1], v[2])
         })
         .collect();
@@ -272,7 +338,12 @@ fn sortie_locale() {
             .unwrap()
             .avec_en_tete("Établissement");
         d.titre("Vérification publique");
-        d.qr("https://ent.example/verifier/3F2A9C41", 120.0, Align::Centre).unwrap();
+        d.qr(
+            "https://ent.example/verifier/3F2A9C41",
+            120.0,
+            Align::Centre,
+        )
+        .unwrap();
         std::fs::write(format!("{dir}/qr.pdf"), d.octets()).unwrap();
     }
 }

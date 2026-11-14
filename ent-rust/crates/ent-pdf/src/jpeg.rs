@@ -52,12 +52,21 @@ impl Jpeg {
                     return Err(PdfErreur::Jpeg("dimensions nulles"));
                 }
                 if composantes != 1 && composantes != 3 {
-                    return Err(PdfErreur::Jpeg("seuls le gris et le RVB sont acceptés (pas de CMJN)"));
+                    return Err(PdfErreur::Jpeg(
+                        "seuls le gris et le RVB sont acceptés (pas de CMJN)",
+                    ));
                 }
-                return Ok(Jpeg { donnees: octets.to_vec(), largeur, hauteur, composantes });
+                return Ok(Jpeg {
+                    donnees: octets.to_vec(),
+                    largeur,
+                    hauteur,
+                    composantes,
+                });
             }
             if matches!(m, 0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf) {
-                return Err(PdfErreur::Jpeg("JPEG sans perte ou arithmétique non pris en charge"));
+                return Err(PdfErreur::Jpeg(
+                    "JPEG sans perte ou arithmétique non pris en charge",
+                ));
             }
             i += 2 + lg;
         }
@@ -70,7 +79,9 @@ impl Jpeg {
 pub(crate) fn jpeg_de_test(l: u16, h: u16, comp: u8) -> Vec<u8> {
     let mut v = vec![0xff, 0xd8];
     // APP0 JFIF
-    v.extend_from_slice(&[0xff, 0xe0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0]);
+    v.extend_from_slice(&[
+        0xff, 0xe0, 0, 16, b'J', b'F', b'I', b'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0,
+    ]);
     // SOF0
     let n = 8 + 3 * u16::from(comp);
     v.extend_from_slice(&[0xff, 0xc0, (n >> 8) as u8, n as u8, 8]);

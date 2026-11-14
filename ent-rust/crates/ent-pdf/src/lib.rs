@@ -18,7 +18,8 @@ mod winansi;
 
 pub use afm::{largeur, largeur_code, Police};
 pub use doc::{
-    couper, Align, Colonne, DateHeure, Document, Ligne, Meta, Tableau, HAUTEUR, LARGEUR, MARGE_D, MARGE_G,
+    couper, Align, Colonne, DateHeure, Document, Ligne, Meta, Tableau, HAUTEUR, LARGEUR, MARGE_D,
+    MARGE_G,
 };
 pub use jpeg::Jpeg;
 pub use qr::{Qr, QrErreur};

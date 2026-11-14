@@ -132,7 +132,10 @@ pub fn largeur_code(police: Police, code: u8) -> u16 {
 
 /// Largeur en points d'un texte WinAnsi.
 pub fn largeur(police: Police, octets: &[u8], taille: f32) -> f32 {
-    let milli: u32 = octets.iter().map(|&b| u32::from(largeur_code(police, b))).sum();
+    let milli: u32 = octets
+        .iter()
+        .map(|&b| u32::from(largeur_code(police, b)))
+        .sum();
     milli as f32 * taille / 1000.0
 }
 

@@ -77,9 +77,7 @@ pub fn render_courrier_orientation_pdf(c: &CourrierOrientationPsy) -> Vec<u8> {
         lines.push(chunk);
     }
     lines.push(String::new());
-    lines.push(
-        "Document informatif — contenu partageable famille uniquement.".into(),
-    );
+    lines.push("Document informatif — contenu partageable famille uniquement.".into());
     crate::pdf_commun::rendre_lignes("Courrier d'orientation", Some(c.date_courrier), &lines)
 }
 
@@ -182,7 +180,10 @@ mod tests {
         let pdf = render_courrier_orientation_pdf(&c);
         verifier_structure(&pdf);
         let t = texte(&pdf);
-        assert!(t.contains("Courrier orientation (psychologie scolaire)"), "{t}");
+        assert!(
+            t.contains("Courrier orientation (psychologie scolaire)"),
+            "{t}"
+        );
         assert!(t.contains("Élève : Hélène Élève"));
         assert!(t.contains("anxiété scolaire · orientation 3e"));
         assert!(t.contains("Axes de suivi partagés avec la famille"));

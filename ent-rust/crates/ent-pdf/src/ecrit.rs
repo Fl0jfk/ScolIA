@@ -7,13 +7,17 @@ pub(crate) struct Ecrivain {
 
 impl Ecrivain {
     pub fn nouveau() -> Ecrivain {
-        Ecrivain { sortie: b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec(), offsets: Vec::new() }
+        Ecrivain {
+            sortie: b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n".to_vec(),
+            offsets: Vec::new(),
+        }
     }
 
     pub fn objet(&mut self, corps: &[u8]) -> usize {
         self.offsets.push(self.sortie.len());
         let n = self.offsets.len();
-        self.sortie.extend_from_slice(format!("{n} 0 obj\n").as_bytes());
+        self.sortie
+            .extend_from_slice(format!("{n} 0 obj\n").as_bytes());
         self.sortie.extend_from_slice(corps);
         self.sortie.extend_from_slice(b"\nendobj\n");
         n
@@ -30,9 +34,11 @@ impl Ecrivain {
     pub fn terminer(mut self, racine: usize, info: usize) -> Vec<u8> {
         let xref = self.sortie.len();
         let n = self.offsets.len() + 1;
-        self.sortie.extend_from_slice(format!("xref\n0 {n}\n0000000000 65535 f \n").as_bytes());
+        self.sortie
+            .extend_from_slice(format!("xref\n0 {n}\n0000000000 65535 f \n").as_bytes());
         for o in &self.offsets {
-            self.sortie.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+            self.sortie
+                .extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
         }
         self.sortie.extend_from_slice(
             format!("trailer\n<< /Size {n} /Root {racine} 0 R /Info {info} 0 R >>\nstartxref\n{xref}\n%%EOF\n")
