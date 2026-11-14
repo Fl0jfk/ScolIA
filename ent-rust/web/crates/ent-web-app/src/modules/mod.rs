@@ -14,6 +14,7 @@ pub mod changements_edt;
 pub mod classes;
 pub mod connexion;
 pub mod delegations;
+pub mod demandes;
 pub mod discipline_vs;
 pub mod dossier;
 pub mod edt;

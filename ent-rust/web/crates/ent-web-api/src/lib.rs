@@ -24,6 +24,7 @@ mod cahier;
 mod communication;
 mod communication_s28;
 mod discipline_vs;
+mod demandes;
 mod dossier;
 mod droits_moteur;
 mod edt;

@@ -2090,6 +2090,73 @@ fn c6_enumeration_email_connu_dans_b_et_inconnu_indiscernables() {
 
 // ───────── Nouvelles routes du socle 1 ─────────
 
+/// Socle N1, lot N1-4 : les routes `/demandes…` refusent ce que le rôle ne permet pas, **sans rien révéler** (404 neutre
+/// pour une demande inconnue, jamais de donnée d'un autre établissement) — pièges 1, 5, 7, 8, 9, 11 du §24.3.
+#[test]
+fn n1_4_routes_demandes_refus_par_role_et_404_neutre() {
+    let Some(m) = monde() else { return };
+    let mut echecs = Vec::new();
+    rt().block_on(async {
+        let nul = Uuid::new_v4();
+        // Familles et élèves : aucune file, aucune décision, aucune validation, aucune impression.
+        for a in [Parent, ParentAutreFoyer, ParentSansDrapeaux, Eleve] {
+            for chemin in ["/demandes/file", "/demandes/hse/a-decider", "/demandes/hse/enveloppe", "/demandes/copies/file", "/demandes/copies/a-valider"] {
+                let r = m.appel("GET", chemin, Some(m.jeton(a)), None).await;
+                if !r.est_refus() {
+                    echecs.push(format!("GET {chemin} par {a:?} → {}", r.statut));
+                }
+            }
+            let r = m.appel("POST", "/demandes/hse", Some(m.jeton(a)), Some(&json!({"motif": "soutien", "objet": "x", "volume_quarts": 4,
+                "periode_du": "2026-01-05", "periode_au": "2026-01-06"}))).await;
+            if !r.est_refus() {
+                echecs.push(format!("POST /demandes/hse par {a:?} → {}", r.statut));
+            }
+        }
+        // Une demande inconnue, ou d'un autre établissement : 404 neutre pour tout le monde, mêmes mots.
+        let b_demande = m.b.objets.eleve; // un identifiant réel de B qui n'est pas une demande de A
+        for a in Acteur::TOUS {
+            for id in [nul, b_demande] {
+                for (meth, chemin, corps) in [
+                    ("GET", format!("/demandes/{id}"), None),
+                    ("POST", format!("/demandes/{id}/prendre"), Some(json!({"version": 1}))),
+                    ("POST", format!("/demandes/{id}/annuler"), Some(json!({"version": 1}))),
+                    ("POST", format!("/demandes/hse/{id}/decider"), Some(json!({"decision": "accordee", "version": 1}))),
+                    ("POST", format!("/demandes/hse/{id}/confirmer"), Some(json!({}))),
+                    ("POST", format!("/demandes/copies/{id}/prete"), Some(json!({}))),
+                    ("POST", format!("/demandes/copies/{id}/valider"), Some(json!({"accepter": true}))),
+                    ("POST", format!("/demandes/copies/{id}/impression"), Some(json!({}))),
+                ] {
+                    let r = m.appel(meth, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                    if r.est_succes() || r.statut.as_u16() == 500 {
+                        echecs.push(format!("{meth} {chemin} par {a:?} → {}", r.statut));
+                    }
+                }
+            }
+        }
+        // Le personnel sans droit de décision ni de validation est refusé.
+        for a in [Prof, Cpe, Administratif] {
+            for chemin in ["/demandes/hse/a-decider", "/demandes/hse/enveloppe", "/demandes/copies/a-valider"] {
+                let r = m.appel("GET", chemin, Some(m.jeton(a)), None).await;
+                if !r.est_refus() {
+                    echecs.push(format!("GET {chemin} par {a:?} → {}", r.statut));
+                }
+            }
+        }
+        // Un corps de dépôt ne porte aucune identité : un champ « email » ou « demandeur » est ignoré (NJ-84).
+        let r = m.appel("POST", "/demandes", Some(m.jeton(Prof)), Some(&json!({"nature_code": "inconnue.nature", "objet": "x",
+            "email": "pirate@example.test", "demandeur": nul}))).await;
+        if r.est_succes() {
+            echecs.push(format!("POST /demandes avec identité → {}", r.statut));
+        }
+        // La liste « mes demandes » ne contient rien d'un autre établissement.
+        let l = m.appel("GET", "/demandes/mes", Some(m.jeton(Prof)), None).await;
+        if l.est_succes() && l.texte.contains(&m.b.objets.eleve.to_string()) {
+            echecs.push("GET /demandes/mes : identifiant de B listé".into());
+        }
+    });
+    assert!(echecs.is_empty(), "{echecs:#?}");
+}
+
 #[test]
 fn c6_routes_du_socle1_inventaire_401_et_separation() {
     let (Some(m), Some(d)) = (monde(), doubles()) else { return };

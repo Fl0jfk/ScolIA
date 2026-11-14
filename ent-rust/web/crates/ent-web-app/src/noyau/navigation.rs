@@ -49,6 +49,12 @@ pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 pub const MES_LIENS: &str = "/web/mes-liens";
 /// À-faire unifié (socle 29, lot P3) : familles et élèves majeurs.
 pub const A_FAIRE: &str = "/web/a-faire";
+/// Demandes (socle N1, lot N1-4) : « Faire une demande » (porte unique), « Mes demandes », « Ma file », HSE, copies.
+pub const DEMANDES: &str = "/web/demandes";
+pub const MES_DEMANDES: &str = "/web/demandes/mes";
+pub const MA_FILE: &str = "/web/demandes/file";
+pub const DEMANDES_HSE: &str = "/web/demandes/hse";
+pub const DEMANDES_COPIES: &str = "/web/demandes/copies";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -90,6 +96,15 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     // Socle 29 (P3) : la seule liste transverse de ce que la famille (ou l'élève) doit faire.
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("À faire", A_FAIRE, NomIcone::Annonce));
+    }
+    // Demandes (N1-4) : la porte unique et « Mes demandes » sont ouvertes à tous les profils connectés ; « Ma file »,
+    // HSE et copies au personnel (le serveur répond 403 à qui n'a ni file ni droit).
+    v.push(entree("Faire une demande", DEMANDES, NomIcone::Messages));
+    v.push(entree("Mes demandes", MES_DEMANDES, NomIcone::Annonce));
+    if droits.personnel {
+        v.push(entree("Ma file", MA_FILE, NomIcone::Personne));
+        v.push(entree("Heures supplémentaires", DEMANDES_HSE, NomIcone::Agenda));
+        v.push(entree("Copies", DEMANDES_COPIES, NomIcone::Ecole));
     }
     if droits.personnel || droits.portail_famille || droits.mes_absences {
         v.push(entree("Mon agenda", MON_AGENDA, NomIcone::Agenda));

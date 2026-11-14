@@ -856,6 +856,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::assiduite::routes());
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
+    // Demandes et flux de travail (socle N1, lot N1-4 : `demandes.rs`).
+    let r = r.merge(crate::demandes::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).

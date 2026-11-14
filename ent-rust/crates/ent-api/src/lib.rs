@@ -36,6 +36,7 @@ mod edt_s2;
 mod roles;
 mod routes;
 mod afaire;
+mod demandes;
 mod portail;
 mod assiduite;
 mod vie_scolaire;
