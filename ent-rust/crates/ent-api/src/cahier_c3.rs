@@ -30,7 +30,10 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/c3/manque", get(manque))
         .route("/cahier/c3/resume", get(resume))
         .route("/cahier/c3/travaux/{id}/fait", put(cocher))
-        .route("/cahier/c3/abonnements", get(abonnements).post(abonnement_creer))
+        .route(
+            "/cahier/c3/abonnements",
+            get(abonnements).post(abonnement_creer),
+        )
         .route("/cahier/c3/abonnements/{id}", delete(abonnement_revoquer))
         .route("/cahier/c3/calendrier/{jeton}", get(calendrier))
 }
@@ -48,12 +51,30 @@ struct SemaineQuery {
     semaine: Option<NaiveDate>,
 }
 
-async fn agenda(State(s): State<AppState>, session: EntSession, Query(q): Query<PeriodeQuery>) -> Res<Json<AgendaDto>> {
-    Ok(Json(s.ent.cdt_agenda(&acteur(&session), q.eleve_id, q.du, q.au).await.map_err(map_db)?))
+async fn agenda(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<PeriodeQuery>,
+) -> Res<Json<AgendaDto>> {
+    Ok(Json(
+        s.ent
+            .cdt_agenda(&acteur(&session), q.eleve_id, q.du, q.au)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
-async fn manque(State(s): State<AppState>, session: EntSession, Query(q): Query<PeriodeQuery>) -> Res<Json<ManqueDto>> {
-    Ok(Json(s.ent.cdt_manque(&acteur(&session), q.eleve_id, q.du, q.au).await.map_err(map_db)?))
+async fn manque(
+    State(s): State<AppState>,
+    session: EntSession,
+    Query(q): Query<PeriodeQuery>,
+) -> Res<Json<ManqueDto>> {
+    Ok(Json(
+        s.ent
+            .cdt_manque(&acteur(&session), q.eleve_id, q.du, q.au)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn resume(
@@ -61,7 +82,12 @@ async fn resume(
     session: EntSession,
     Query(q): Query<SemaineQuery>,
 ) -> Res<Json<ResumeSemaineDto>> {
-    Ok(Json(s.ent.cdt_resume_semaine(&acteur(&session), q.eleve_id, q.semaine).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .cdt_resume_semaine(&acteur(&session), q.eleve_id, q.semaine)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn cocher(
@@ -70,12 +96,23 @@ async fn cocher(
     Path(id): Path<Uuid>,
     Json(b): Json<CocheBody>,
 ) -> Res<StatusCode> {
-    s.ent.cdt_cocher(&acteur(&session), id, b.fait).await.map_err(map_db)?;
+    s.ent
+        .cdt_cocher(&acteur(&session), id, b.fait)
+        .await
+        .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn abonnements(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<AbonnementDto>>> {
-    Ok(Json(s.ent.cdt_abonnements(&acteur(&session)).await.map_err(map_db)?))
+async fn abonnements(
+    State(s): State<AppState>,
+    session: EntSession,
+) -> Res<Json<Vec<AbonnementDto>>> {
+    Ok(Json(
+        s.ent
+            .cdt_abonnements(&acteur(&session))
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn abonnement_creer(
@@ -85,12 +122,24 @@ async fn abonnement_creer(
 ) -> Res<(StatusCode, Json<AbonnementCreeDto>)> {
     Ok((
         StatusCode::CREATED,
-        Json(s.ent.cdt_abonnement_creer(&acteur(&session), b.eleve_id).await.map_err(map_db)?),
+        Json(
+            s.ent
+                .cdt_abonnement_creer(&acteur(&session), b.eleve_id)
+                .await
+                .map_err(map_db)?,
+        ),
     ))
 }
 
-async fn abonnement_revoquer(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
-    s.ent.cdt_abonnement_revoquer(&acteur(&session), id).await.map_err(map_db)?;
+async fn abonnement_revoquer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<StatusCode> {
+    s.ent
+        .cdt_abonnement_revoquer(&acteur(&session), id)
+        .await
+        .map_err(map_db)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -102,7 +151,10 @@ async fn calendrier(State(s): State<AppState>, Path(jeton): Path<String>) -> Res
             let corps = rendre_calendrier(&nom, &lignes, Utc::now());
             let mut r = corps.into_response();
             let h = r.headers_mut();
-            h.insert(header::CONTENT_TYPE, HeaderValue::from_static("text/calendar; charset=utf-8"));
+            h.insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/calendar; charset=utf-8"),
+            );
             h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
             h.insert("x-robots-tag", HeaderValue::from_static("noindex"));
             r
@@ -113,7 +165,11 @@ async fn calendrier(State(s): State<AppState>, Path(jeton): Path<String>) -> Res
 }
 
 /// Calendrier VCALENDAR de l'agenda : un événement « journée entière » par ligne.
-pub fn rendre_calendrier(nom: &str, lignes: &[AgendaLigneDto], maintenant: chrono::DateTime<Utc>) -> String {
+pub fn rendre_calendrier(
+    nom: &str,
+    lignes: &[AgendaLigneDto],
+    maintenant: chrono::DateTime<Utc>,
+) -> String {
     let mut buf = String::with_capacity(lignes.len() * 200 + 256);
     push_folded(&mut buf, "BEGIN:VCALENDAR");
     push_folded(&mut buf, "VERSION:2.0");
@@ -133,11 +189,20 @@ pub fn rendre_calendrier(nom: &str, lignes: &[AgendaLigneDto], maintenant: chron
         push_folded(&mut buf, "BEGIN:VEVENT");
         push_folded(&mut buf, &format!("UID:{}-{}@scolia-cahier", l.genre, l.id));
         push_folded(&mut buf, &format!("DTSTAMP:{stamp}"));
-        push_folded(&mut buf, &format!("DTSTART;VALUE=DATE:{}", l.jour.format("%Y%m%d")));
-        push_folded(&mut buf, &format!("DTEND;VALUE=DATE:{}", fin.format("%Y%m%d")));
+        push_folded(
+            &mut buf,
+            &format!("DTSTART;VALUE=DATE:{}", l.jour.format("%Y%m%d")),
+        );
+        push_folded(
+            &mut buf,
+            &format!("DTEND;VALUE=DATE:{}", fin.format("%Y%m%d")),
+        );
         push_folded(&mut buf, &format!("SUMMARY:{}", ical_escape(&resume)));
         if let Some(h) = &l.heure {
-            push_folded(&mut buf, &format!("DESCRIPTION:{}", ical_escape(&format!("À rendre pour {h}"))));
+            push_folded(
+                &mut buf,
+                &format!("DESCRIPTION:{}", ical_escape(&format!("À rendre pour {h}"))),
+            );
         }
         push_folded(&mut buf, "END:VEVENT");
     }
