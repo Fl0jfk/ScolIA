@@ -308,8 +308,14 @@ fn portail_aller_retour_et_champs_optionnels_omis() {
     assert!(json.contains("\"vie_scolaire\"") && json.contains("\"ok\""));
     assert!(!json.contains("prenom") && !json.contains("principal") && !json.contains("alerte"));
     // Une réponse d'avant le lot P7 (sans mode ni bandeaux) se lit encore : mode ordinaire, rien de plus.
-    let ancien = json.replace(",\"mode\":\"ordinaire\",\"bandeaux\":[],\"bandeaux_replies\":[]", "");
+    let ancien = json.replace(
+        ",\"mode\":\"ordinaire\",\"bandeaux\":[],\"bandeaux_replies\":[]",
+        "",
+    );
     assert!(!ancien.contains("mode"), "{ancien}");
-    assert_eq!(serde_json::from_str::<PortailAujourdhui>(&ancien).unwrap(), p);
+    assert_eq!(
+        serde_json::from_str::<PortailAujourdhui>(&ancien).unwrap(),
+        p
+    );
     assert_eq!(serde_json::from_str::<PortailAujourdhui>(&json).unwrap(), p);
 }
