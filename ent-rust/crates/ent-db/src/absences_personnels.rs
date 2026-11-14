@@ -72,6 +72,9 @@ pub mod heures;
 /// Lot A8 : rattrapages dus, créneaux, solde par une séance ajoutée assurée (migration 2309).
 pub mod rattrapage;
 
+/// Lot A9 : absences collectives (grève), tableau de crise, retenue signalée, fermeture (pas de migration).
+pub mod greve;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------
