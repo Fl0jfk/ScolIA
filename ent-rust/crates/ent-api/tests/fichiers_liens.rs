@@ -147,7 +147,7 @@ fn document_lien_sert_le_fichier_avec_en_tetes_durcis() {
         assert_eq!(r.statut, StatusCode::OK, "{}", r.texte);
         assert_eq!(r.texte.as_bytes(), contenu);
         // En-têtes via requête brute.
-        let rep = m.requete("GET", &url, None, None, &[]).await;
+        let rep = m.requete("GET", &url, Some(m.jeton(Parent)), None, &[]).await;
         assert_eq!(rep.statut, StatusCode::OK);
     });
 }
@@ -189,7 +189,13 @@ fn types_actifs_refuses_au_depot_et_pdf_servi_avec_en_tetes_durcis() {
         let res = m
             .routeur
             .clone()
-            .oneshot(Request::builder().uri(url).body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri(url)
+                    .header("authorization", format!("Bearer {dir}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
