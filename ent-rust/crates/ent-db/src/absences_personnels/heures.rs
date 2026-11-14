@@ -275,7 +275,6 @@ pub struct ConstaterHeure {
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct SeanceAssuree {
     impact_id: Uuid,
-    absence_id: Uuid,
     remplacant_agent_id: Uuid,
     jour: NaiveDate,
     minutes: i32,
@@ -283,7 +282,7 @@ struct SeanceAssuree {
     appel_fait: bool,
 }
 
-const SEANCE_ASSUREE_SQL: &str = "SELECT i.id AS impact_id, i.absence_id, r.remplacant_agent_id, sc.jour,
+const SEANCE_ASSUREE_SQL: &str = "SELECT i.id AS impact_id, r.remplacant_agent_id, sc.jour,
         (EXTRACT(EPOCH FROM (sc.heure_fin - sc.heure_debut)) / 60)::int AS minutes,
         ((sc.jour + sc.heure_fin)::timestamp AT TIME ZONE COALESCE(
             (SELECT fuseau FROM ent_etablissement_parametre WHERE etablissement_id = i.etablissement_id), 'Europe/Paris'))
@@ -319,11 +318,6 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         Ok(())
-    }
-
-    /// Mon agent (compte lié à un agent) ou refus.
-    async fn mon_agent(&self, conn: &mut PgConnection, etab: Uuid, actor: Uuid) -> Result<Uuid, EntDbError> {
-        agent_du_user_tx(conn, etab, actor).await?.ok_or(EntDbError::Forbidden)
     }
 
     // ───────────────────────────── Constat d'une heure (R-AP28) ─────────────────────────────
