@@ -254,23 +254,6 @@ async fn instantane(ent: &PgEnt, cast: &LaboCast, eleve: Uuid) -> Vec<String> {
     l.into_iter().map(|(s,)| s).collect()
 }
 
-/// Les élèves de labo entrent à la rentrée courante : pour rejouer des dates passées, la scolarisation
-/// remonte (hors garde du déclencheur, par `session_replication_role`, comme un import d'historique).
-async fn scolarises_depuis(ent: &PgEnt, cast: &LaboCast, depuis: NaiveDate) {
-    let mut tx = ent.pool_verif().begin().await.unwrap();
-    sqlx::query("SET LOCAL session_replication_role = replica")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE ent_eleve_scolarisation SET date_entree = $2 WHERE etablissement_id = $1")
-        .bind(cast.etablissement_id)
-        .bind(depuis)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-}
-
 /// L'appel ne s'ouvre que pour le jour métier courant : les parcours « appel » se jouent aujourd'hui, quel
 /// que soit le jour de la semaine où le test tourne. Le calendrier est donc rendu ouvert tous les jours
 /// (profil de l'établissement) et couvert par une année de labo qui contient aujourd'hui.
@@ -284,7 +267,6 @@ async fn monde_du_jour(ent: &PgEnt, cast: &LaboCast) -> NaiveDate {
         jour + Duration::days(30),
     )
     .await;
-    scolarises_depuis(ent, cast, jour - Duration::days(400)).await;
     let tous = serde_json::json!({
         "lun": ["matin", "apres_midi"], "mar": ["matin", "apres_midi"], "mer": ["matin", "apres_midi"],
         "jeu": ["matin", "apres_midi"], "ven": ["matin", "apres_midi"], "sam": ["matin", "apres_midi"],
@@ -452,15 +434,13 @@ async fn as4_recalculer_tout_ne_change_rien() {
     };
     let etab = cast.etablissement_id;
     let (lea, hermione) = (lea(&cast), cast.eleve_tom_id);
-    annee_fixe(&ent, &cast, "AS4-2024", d(2024, 9, 1), d(2025, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
     for (e, j, a, b, q) in [
-        (lea, d(2024, 10, 8), t(8, 0), t(9, 0), "non_valable"),
-        (lea, d(2024, 10, 10), t(13, 30), t(15, 0), "excuse_valable"),
-        (hermione, d(2024, 10, 8), t(8, 0), t(8, 20), "en_attente"),
+        (lea, d(2026, 10, 6), t(8, 0), t(9, 0), "non_valable"),
+        (lea, d(2026, 10, 8), t(13, 30), t(15, 0), "excuse_valable"),
+        (hermione, d(2026, 10, 6), t(8, 0), t(8, 20), "en_attente"),
         (
             hermione,
-            d(2024, 10, 15),
+            d(2026, 10, 13),
             t(11, 30),
             t(12, 30),
             "non_valable",
@@ -468,7 +448,7 @@ async fn as4_recalculer_tout_ne_change_rien() {
     ] {
         episode_sql(&ent, &cast, e, j, a, b, q).await;
     }
-    let (du, au) = (d(2024, 10, 1), d(2024, 10, 31));
+    let (du, au) = (d(2026, 10, 1), d(2026, 10, 31));
     let r1 = ent
         .recalculer_decompte(etab, None, du, au, "recalcul", None)
         .await
@@ -519,7 +499,7 @@ async fn as4_recalculer_tout_ne_change_rien() {
     sqlx::query("UPDATE ent_asd_absence SET qualification = 'excuse_valable' WHERE etablissement_id = $1 AND eleve_id = $2 AND jour_debut = $3")
         .bind(etab)
         .bind(lea)
-        .bind(d(2024, 10, 8))
+        .bind(d(2026, 10, 6))
         .execute(ent.pool_verif())
         .await
         .unwrap();
@@ -531,7 +511,7 @@ async fn as4_recalculer_tout_ne_change_rien() {
     sqlx::query("UPDATE ent_asd_absence SET qualification = 'non_valable' WHERE etablissement_id = $1 AND eleve_id = $2 AND jour_debut = $3")
         .bind(etab)
         .bind(lea)
-        .bind(d(2024, 10, 8))
+        .bind(d(2026, 10, 6))
         .execute(ent.pool_verif())
         .await
         .unwrap();
@@ -551,16 +531,14 @@ async fn as4_changement_de_regle_en_janvier_laisse_septembre_inchange() {
     };
     let etab = cast.etablissement_id;
     let lea = lea(&cast);
-    annee_fixe(&ent, &cast, "AS4-2025", d(2025, 9, 1), d(2026, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
     // Septembre : 30 minutes ; à partir du 5 janvier : « toute la demi-journée » ou 120 minutes.
-    regle_sql(&ent, &cast, d(2025, 9, 1), "minutes", 30, 4).await;
-    regle_sql(&ent, &cast, d(2026, 1, 5), "minutes", 120, 6).await;
+    regle_sql(&ent, &cast, d(2026, 9, 1), "minutes", 30, 4).await;
+    regle_sql(&ent, &cast, d(2026, 10, 5), "minutes", 120, 6).await;
     episode_sql(
         &ent,
         &cast,
         lea,
-        d(2025, 9, 9),
+        d(2026, 9, 8),
         t(8, 0),
         t(8, 45),
         "non_valable",
@@ -570,33 +548,33 @@ async fn as4_changement_de_regle_en_janvier_laisse_septembre_inchange() {
         &ent,
         &cast,
         lea,
-        d(2026, 1, 13),
+        d(2026, 10, 13),
         t(8, 0),
         t(8, 45),
         "non_valable",
     )
     .await;
     // La même absence de 45 minutes compte en septembre (45 ≥ 30) et pas en janvier (45 < 120).
-    let sept = calcule(&ent, &cast, lea, d(2025, 9, 1), d(2025, 9, 30)).await;
-    let janv = calcule(&ent, &cast, lea, d(2026, 1, 1), d(2026, 1, 31)).await;
+    let sept = calcule(&ent, &cast, lea, d(2026, 9, 1), d(2026, 9, 30)).await;
+    let janv = calcule(&ent, &cast, lea, d(2026, 10, 1), d(2026, 10, 31)).await;
     assert_eq!(comptees(&sept), (1, 1));
     assert_eq!(comptees(&janv), (0, 0));
     assert_eq!(
         sept[0].regle_valide_du,
-        d(2025, 9, 1),
+        d(2026, 9, 1),
         "la règle appliquée est celle DU JOUR"
     );
-    assert_eq!(janv[0].regle_valide_du, d(2026, 1, 5));
+    assert_eq!(janv[0].regle_valide_du, d(2026, 10, 5));
     assert_eq!(janv[0].raison, "sous_le_seuil");
     // Poser (ou avoir posé) la règle de janvier ne change pas septembre, ni après un recalcul complet.
-    ent.recalculer_decompte(etab, None, d(2025, 9, 1), d(2026, 1, 31), "recalcul", None)
+    ent.recalculer_decompte(etab, None, d(2026, 9, 1), d(2026, 10, 31), "recalcul", None)
         .await
         .unwrap();
-    let sept_apres = calcule(&ent, &cast, lea, d(2025, 9, 1), d(2025, 9, 30)).await;
+    let sept_apres = calcule(&ent, &cast, lea, d(2026, 9, 1), d(2026, 9, 30)).await;
     assert_eq!(sept_apres, sept);
     // Arrêt de septembre (le jour métier de labo est postérieur) : le décompte est figé avec la règle de septembre.
     let arret = ent
-        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2025, 9, 1))
+        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2026, 9, 1))
         .await
         .unwrap();
     assert!(arret.arrete_maintenant);
@@ -613,13 +591,13 @@ async fn as4_changement_de_regle_en_janvier_laisse_septembre_inchange() {
         ),
         (1, 1, 4)
     );
-    assert_eq!(ligne.regle_valide_du, d(2025, 9, 1));
+    assert_eq!(ligne.regle_valide_du, d(2026, 9, 1));
     // La règle de septembre est figée : plus aucune modification, même directe (déclencheur SQL).
     let figee = sqlx::query(
         "UPDATE ent_asd_regle SET seuil_minutes = 1 WHERE etablissement_id = $1 AND valide_du = $2",
     )
     .bind(etab)
-    .bind(d(2025, 9, 1))
+    .bind(d(2026, 9, 1))
     .execute(ent.pool_verif())
     .await;
     assert!(figee.is_err(), "règle figée par un mois arrêté");
@@ -635,12 +613,12 @@ async fn as4_changement_de_regle_en_janvier_laisse_septembre_inchange() {
     // Le décompte lu de septembre est le décompte figé ; celui de janvier reste vivant.
     let (cpe, role) = (cast.cpe.user_id, "cpe");
     let m = ent
-        .decompte_mensuel_for_actor(etab, cpe, role, d(2025, 9, 15))
+        .decompte_mensuel_for_actor(etab, cpe, role, d(2026, 9, 15))
         .await
         .unwrap();
     assert!(m.arrete && m.seuil_signalement == 4);
     let m = ent
-        .decompte_mensuel_for_actor(etab, cpe, role, d(2026, 1, 15))
+        .decompte_mensuel_for_actor(etab, cpe, role, d(2026, 10, 15))
         .await
         .unwrap();
     assert!(!m.arrete && m.seuil_signalement == 6);
@@ -655,8 +633,7 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
     };
     let etab = cast.etablissement_id;
     let lea = lea(&cast);
-    let annee = annee_fixe(&ent, &cast, "AS4-2023", d(2023, 9, 1), d(2024, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
+    let annee = annee_fixe(&ent, &cast, "AS4-vacances", d(2026, 9, 2), d(2027, 7, 4)).await;
     // Vacances de la Toussaint déclarées par la direction (calendrier du socle 5).
     ent.structure_calendrier_evenement_creer(
         &dir(&cast),
@@ -664,8 +641,8 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
             annee_id: annee,
             type_evenement: "vacances".into(),
             libelle: "Toussaint".into(),
-            du: d(2023, 10, 23),
-            au: d(2023, 11, 3),
+            du: d(2026, 10, 19),
+            au: d(2026, 10, 30),
             du_demi: None,
             au_demi: None,
             effet: None,
@@ -683,8 +660,8 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
         .declare_absence(DeclareAbsence {
             etablissement_id: etab,
             eleve_id: lea,
-            debut: d(2023, 10, 23),
-            fin: d(2023, 10, 27),
+            debut: d(2026, 10, 19),
+            fin: d(2026, 10, 23),
             motif: "maladie".into(),
             actor_user_id: None,
         })
@@ -694,27 +671,27 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
         &ent,
         &cast,
         lea,
-        d(2023, 10, 30),
+        d(2026, 10, 26),
         t(8, 0),
         t(10, 0),
         "non_valable",
     )
     .await;
-    // Un jour hors vacances, pour contrôle : le mardi 17 octobre compte.
+    // Un jour hors vacances, pour contrôle : le mardi 15 septembre compte.
     episode_sql(
         &ent,
         &cast,
         lea,
-        d(2023, 10, 17),
+        d(2026, 9, 15),
         t(8, 0),
         t(10, 0),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2023, 10, 1), d(2023, 11, 30)).await;
+    let v = calcule(&ent, &cast, lea, d(2026, 9, 1), d(2026, 10, 31)).await;
     let vacances: Vec<_> = v
         .iter()
-        .filter(|x| x.jour >= d(2023, 10, 23) && x.jour <= d(2023, 11, 3))
+        .filter(|x| x.jour >= d(2026, 10, 19) && x.jour <= d(2026, 10, 30))
         .collect();
     assert!(
         !vacances.is_empty(),
@@ -726,13 +703,13 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
     assert_eq!(
         comptees(&v),
         (1, 1),
-        "seule la demi-journée du 17 octobre compte"
+        "seule la demi-journée du 15 septembre compte"
     );
     // L'ancienne reprise à la journée (DA-14) a donné 5 jours × 2 demi-journées : toutes à 0.
     assert_eq!(
         vacances
             .iter()
-            .filter(|x| x.jour <= d(2023, 10, 27))
+            .filter(|x| x.jour <= d(2026, 10, 23))
             .count(),
         10
     );
@@ -745,7 +722,7 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
         &ent,
         &cast,
         lea,
-        d(2023, 10, 18),
+        d(2026, 9, 16),
         t(8, 0),
         t(9, 0),
         "non_valable",
@@ -755,13 +732,13 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
         &ent,
         &cast,
         lea,
-        d(2023, 10, 18),
+        d(2026, 9, 16),
         t(14, 0),
         t(15, 0),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2023, 10, 18), d(2023, 10, 18)).await;
+    let v = calcule(&ent, &cast, lea, d(2026, 9, 16), d(2026, 9, 16)).await;
     assert_eq!(v.len(), 2);
     let (matin, apres) = (&v[0], &v[1]);
     assert!(matin.compte, "mercredi matin : cours");
@@ -771,13 +748,13 @@ async fn as4_vacances_declarees_donnent_zero_demi_journee() {
         &ent,
         &cast,
         lea,
-        d(2024, 7, 20),
+        d(2027, 9, 7),
         t(8, 0),
         t(9, 0),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2024, 7, 20), d(2024, 7, 20)).await;
+    let v = calcule(&ent, &cast, lea, d(2027, 9, 7), d(2027, 9, 7)).await;
     assert_eq!((v[0].compte, v[0].raison), (false, "hors_annee"));
 }
 
@@ -790,25 +767,23 @@ async fn as4_arret_du_mois_fige_et_les_rectifications_sont_a_part() {
     };
     let etab = cast.etablissement_id;
     let (lea, autre) = (lea(&cast), cast.eleve_tom_id);
-    annee_fixe(&ent, &cast, "AS4-2022", d(2022, 9, 1), d(2023, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
-    regle_sql(&ent, &cast, d(2022, 9, 1), "une_seance", 30, 3).await;
+    regle_sql(&ent, &cast, d(2026, 9, 1), "une_seance", 30, 3).await;
     // Harry : trois demi-journées non justifiées en novembre 2022 (seuil 3 atteint) ; Draco : une.
     let mut eps = Vec::new();
-    for j in [d(2022, 11, 7), d(2022, 11, 8), d(2022, 11, 9)] {
+    for j in [d(2026, 9, 8), d(2026, 9, 9), d(2026, 9, 10)] {
         eps.push(episode_sql(&ent, &cast, lea, j, t(8, 0), t(9, 0), "non_valable").await);
     }
     episode_sql(
         &ent,
         &cast,
         autre,
-        d(2022, 11, 7),
+        d(2026, 9, 8),
         t(8, 0),
         t(9, 0),
         "non_valable",
     )
     .await;
-    let (du, au) = (d(2022, 11, 1), d(2022, 11, 30));
+    let (du, au) = (d(2026, 9, 1), d(2026, 9, 30));
     // Un mois non terminé ne s'arrête pas ; la date doit être le 1er du mois.
     let futur = bornes_futur(&ent, &cast).await;
     assert!(ent
@@ -816,7 +791,7 @@ async fn as4_arret_du_mois_fige_et_les_rectifications_sont_a_part() {
         .await
         .is_err());
     assert!(ent
-        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2022, 11, 15))
+        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2026, 9, 15))
         .await
         .is_err());
     // Seule la direction arrête (le CPE lit le décompte, il ne fige pas la règle).
@@ -1001,20 +976,18 @@ async fn as4_la_coupure_de_la_grille_prime_sur_le_repli_de_la_regle() {
     };
     let etab = cast.etablissement_id;
     let lea = lea(&cast);
-    annee_fixe(&ent, &cast, "AS4-2021", d(2021, 9, 1), d(2022, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
     // Séance 11 h 30–12 h 30 : avec la coupure de la règle (12 h), 30 minutes le matin et 30 l'après-midi.
     episode_sql(
         &ent,
         &cast,
         lea,
-        d(2021, 10, 5),
+        d(2026, 9, 15),
         t(11, 30),
         t(12, 30),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2021, 10, 5), d(2021, 10, 5)).await;
+    let v = calcule(&ent, &cast, lea, d(2026, 9, 15), d(2026, 9, 15)).await;
     assert_eq!(v.len(), 2);
     assert!(v
         .iter()
@@ -1060,7 +1033,7 @@ async fn as4_la_coupure_de_la_grille_prime_sur_le_repli_de_la_regle() {
         .await
         .expect("cible");
     tx.commit().await.unwrap();
-    let v = calcule(&ent, &cast, lea, d(2021, 10, 5), d(2021, 10, 5)).await;
+    let v = calcule(&ent, &cast, lea, d(2026, 9, 15), d(2026, 9, 15)).await;
     assert_eq!(
         v.len(),
         1,
@@ -1169,56 +1142,36 @@ async fn as4_un_eleve_hors_scolarisation_ne_compte_pas() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let lea = lea(&cast);
-    annee_fixe(&ent, &cast, "AS4-2020", d(2020, 9, 1), d(2021, 7, 4)).await;
-    // Les élèves de labo entrent le 1er septembre 2026 : une absence antérieure n'est pas une absence.
+    annee_fixe(&ent, &cast, "AS4-2025-26", d(2025, 9, 1), d(2026, 7, 4)).await;
+    // Les élèves de labo entrent le 1er septembre 2026 : une absence antérieure n'est pas une absence
+    // (la scolarisation du jeu de labo n'est pas modifiée, d'autres tests lisent tout le labo).
     episode_sql(
         &ent,
         &cast,
         lea,
-        d(2020, 10, 6),
+        d(2026, 6, 2),
         t(8, 0),
         t(10, 0),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2020, 10, 6), d(2020, 10, 6)).await;
+    let v = calcule(&ent, &cast, lea, d(2026, 6, 2), d(2026, 6, 2)).await;
     assert_eq!(v.len(), 1);
     assert_eq!((v[0].compte, v[0].raison), (false, "hors_scolarisation"));
     assert!(expliquer(&v[0]).contains("pas scolarisé"));
-    // Scolarisé depuis 2020, parti le 1er octobre 2020 (premier jour hors établissement) : toujours hors.
-    scolarises_depuis(&ent, &cast, d(2020, 1, 1)).await;
-    let mut tx = ent.pool_verif().begin().await.unwrap();
-    sqlx::query("SET LOCAL session_replication_role = replica")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE ent_eleve_scolarisation SET date_sortie = '2020-10-06' WHERE etablissement_id = $1 AND eleve_id = $2")
-        .bind(cast.etablissement_id)
-        .bind(lea)
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    tx.commit().await.unwrap();
-    let v = calcule(&ent, &cast, lea, d(2020, 10, 6), d(2020, 10, 6)).await;
-    assert_eq!(
-        v[0].raison, "hors_scolarisation",
-        "la date de sortie est le premier jour hors établissement"
-    );
+    // Le jour d'entrée est scolarisé (début inclus) : l'absence du 1er septembre compte.
     episode_sql(
         &ent,
         &cast,
         lea,
-        d(2020, 10, 5),
+        d(2026, 9, 1),
         t(8, 0),
         t(10, 0),
         "non_valable",
     )
     .await;
-    let v = calcule(&ent, &cast, lea, d(2020, 10, 5), d(2020, 10, 5)).await;
-    assert!(
-        v[0].compte && v[0].non_justifiee,
-        "la veille du départ, l'élève est encore scolarisé"
-    );
+    let v = calcule(&ent, &cast, lea, d(2026, 9, 1), d(2026, 9, 1)).await;
+    assert!(v[0].compte && v[0].non_justifiee, "{:?}", v[0].raison);
 }
 
 // ── Rectification déclenchée par la qualification, sans recalcul manuel ─────────────────────────
@@ -1230,20 +1183,18 @@ async fn as4_requalifier_apres_l_arret_inscrit_la_rectification() {
     };
     let etab = cast.etablissement_id;
     let lea = lea(&cast);
-    annee_fixe(&ent, &cast, "AS4-2019", d(2019, 9, 1), d(2020, 7, 4)).await;
-    scolarises_depuis(&ent, &cast, d(2019, 1, 1)).await;
     let ep = episode_sql(
         &ent,
         &cast,
         lea,
-        d(2019, 11, 5),
+        d(2026, 9, 8),
         t(8, 0),
         t(10, 0),
         "en_attente",
     )
     .await;
     let a = ent
-        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2019, 11, 1))
+        .arreter_mois_for_actor(etab, cast.direction.user_id, "direction", d(2026, 9, 1))
         .await
         .unwrap();
     let l = a.eleves.iter().find(|e| e.eleve_id == lea).expect("Harry");
@@ -1253,7 +1204,7 @@ async fn as4_requalifier_apres_l_arret_inscrit_la_rectification() {
         "en attente de qualification : non justifiée jusqu'à décision"
     );
     assert!(ent
-        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2019, 11, 1))
+        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2026, 9, 1))
         .await
         .unwrap()
         .is_empty());
@@ -1268,7 +1219,7 @@ async fn as4_requalifier_apres_l_arret_inscrit_la_rectification() {
     .await
     .unwrap();
     let r = ent
-        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2019, 11, 1))
+        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2026, 9, 1))
         .await
         .unwrap();
     assert_eq!(r.len(), 1);
@@ -1287,7 +1238,7 @@ async fn as4_requalifier_apres_l_arret_inscrit_la_rectification() {
     );
     // Le mois arrêté n'a pas bougé, et la requalification suivante (retour en arrière) s'ajoute à la suite.
     let m = ent
-        .decompte_mensuel_for_actor(etab, cast.cpe.user_id, "cpe", d(2019, 11, 1))
+        .decompte_mensuel_for_actor(etab, cast.cpe.user_id, "cpe", d(2026, 9, 1))
         .await
         .unwrap();
     assert!(m.arrete);
@@ -1320,7 +1271,7 @@ async fn as4_requalifier_apres_l_arret_inscrit_la_rectification() {
     .await
     .expect("requalification");
     let r = ent
-        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2019, 11, 1))
+        .rectifications_for_actor(etab, cast.cpe.user_id, "cpe", d(2026, 9, 1))
         .await
         .unwrap();
     assert_eq!(r.len(), 2);

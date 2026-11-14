@@ -14,7 +14,7 @@
 //! chaque demi-journée porte ses **raisons** (liste fermée) d'où l'on tire l'**explication** (« mardi matin
 //! compte : … »). Un mois est **arrêté** le 1er du mois suivant (`ent_asd_mois_arrete`, ajout seul, règles
 //! figées) ; ce qui change ensuite est inscrit en **rectification** à part (R-AS16), jamais dans le mois
-//! arrêté. Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais `current_date`.
+//! arrêté. Le jour métier est celui de l'établissement (`ent_aujourdhui_etab`), jamais la date UTC du serveur.
 
 use crate::assiduite::{
     bornes_mois, minutes_union, secondes, ventiler, Contribution, Periode,
