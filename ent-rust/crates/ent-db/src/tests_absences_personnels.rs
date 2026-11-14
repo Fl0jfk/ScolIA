@@ -4005,9 +4005,9 @@ impl Cadre {
     }
 
     /// Instant postérieur à toute séance du cadre (la séance est à J+14 ou plus) : le test ne dépend pas de l'heure
-    /// où il est lancé (100 jours : la tâche ne regarde que les 90 derniers jours).
+    /// où il est lancé (60 jours : la tâche ne regarde que les 90 derniers jours).
     fn apres_les_seances() -> chrono::DateTime<chrono::Utc> {
-        chrono::Utc::now() + Duration::days(100)
+        chrono::Utc::now() + Duration::days(60)
     }
 
     /// Une séance de `prof` (absent) remplacée par `remplacant` (acceptation d'une sollicitation de l'A4).
@@ -4169,9 +4169,9 @@ async fn a7_r_ap28_une_heure_n_est_constatee_que_sur_une_seance_assuree() {
     let (_a4, _c4, seance4) = x.seance_remplacee(x.prof, x.prof3, (16, 0), (17, 0)).await;
     let h = x.ent.attester_seance_a(x.etab, x.prof3, "prof", &AttesterBody { seance_id: seance4 }, apres).await.unwrap();
     assert_eq!(h.nature, "hse", "l'engagement HSE donne une heure HSE (R-04)");
-    assert_eq!(x.nb_events("absence_personnel.heure_a_verifier").await, 1, "alerte R-AP33");
+    assert_eq!(x.nb_events("absence_personnel.heure_a_verifier").await, 3, "alerte R-AP33 : chacune des trois heures (RCD ou HSE) remplace une convenance");
     let payload: String = sqlx::query_scalar(
-        "SELECT payload::text FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.heure_a_verifier'",
+        "SELECT string_agg(payload::text, ' ') FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'absence_personnel.heure_a_verifier'",
     )
     .bind(x.etab)
     .fetch_one(x.ent.pool())
