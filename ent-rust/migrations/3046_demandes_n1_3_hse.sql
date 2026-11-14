@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_hse_public (
     demande_id UUID NOT NULL,
     classe_id UUID,
     groupe_id UUID,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_dem_hse_public_hse_cfk FOREIGN KEY (etablissement_id, demande_id)
         REFERENCES ent_dem_hse (etablissement_id, demande_id) ON DELETE RESTRICT,
     CONSTRAINT ent_dem_hse_public_classe_cfk FOREIGN KEY (etablissement_id, classe_id)

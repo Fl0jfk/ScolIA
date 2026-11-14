@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_repro_cible (
     groupe_id UUID,
     exemplaires INT NOT NULL CHECK (exemplaires BETWEEN 1 AND 5000),
     retrait_lieu_id UUID,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_dem_repro_cible_repro_cfk FOREIGN KEY (etablissement_id, demande_id)
         REFERENCES ent_dem_repro (etablissement_id, demande_id) ON DELETE RESTRICT,
     CONSTRAINT ent_dem_repro_cible_classe_cfk FOREIGN KEY (etablissement_id, classe_id)
@@ -200,6 +201,7 @@ CREATE TABLE IF NOT EXISTS ent_dem_repro_oeuvre (
     editeur TEXT CHECK (editeur IS NULL OR length(editeur) <= 120),
     pages_copiees INT NOT NULL CHECK (pages_copiees BETWEEN 1 AND 5000),
     pages_oeuvre INT NOT NULL CHECK (pages_oeuvre BETWEEN 1 AND 20000),
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ent_dem_repro_oeuvre_repro_cfk FOREIGN KEY (etablissement_id, demande_id)
         REFERENCES ent_dem_repro (etablissement_id, demande_id) ON DELETE RESTRICT,
     CONSTRAINT ent_dem_repro_oeuvre_pages_chk CHECK (pages_copiees <= pages_oeuvre)
