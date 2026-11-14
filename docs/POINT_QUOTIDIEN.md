@@ -6,6 +6,24 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-14 (samedi, après-midi)
+
+### Passé sur `ENT` (tête `498fd08d`)
+- Socle 8, lot N0a (fuites des notifications) ; socle 15, lot A6 (suppléance, RCD : migrations 2306–2307) ; socle 29, lot P4 (files des personnels). Vérification locale complète avant chaque envoi (garde, compilation, séparation 44/44, tests de base ciblés).
+- Conflits additifs résolus à la main : liste des actions `TOUTES` (184 → 186 → 189), compteur RLS (+5).
+
+### Décision de Florian
+- **Dépôt GitHub : reste public**, CI allégée (0 €). Le ménage des adresses réelles et des documents de failles se fait **à la bascule** (voir `PLAN_BASCULE_FEVRIER.md` §5.2). Correction : l'adresse réelle de la base de production n'est pas dans le code (seul le suffixe générique Scaleway, dans de faux exemples).
+
+### Ce qui a coincé
+- Disque plein pendant une vérification : anciens arbres de fusion supprimés.
+- Les tests de base sautent sans `ENT_DATABASE_URL` (0,5 s au lieu d'un quart d'heure) : toujours la définir.
+- `tests_rls_lots::lot_eleves_responsables` échoue parfois quand plusieurs tests préparent le rôle commun en même temps ; il passe seul. Test instable à corriger.
+
+### En cours
+- Six sessions : socle 8 (N0b à N3), N1-5, socle 29 (P6, P7), socle 20 (C5 à C7), socle 15 (A8, A9), socle 7 (D0).
+- À verser quand leur CI est verte : A7, P5, P7, C4, N1-3, D0. À lancer à la prochaine place : CI allégée, puis PDF maison (D-062).
+
 ## 2026-11-14 (samedi, nuit)
 
 ### Passé sur `ENT` (tête `5bc58d25`)

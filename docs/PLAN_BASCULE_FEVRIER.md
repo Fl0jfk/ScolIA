@@ -240,6 +240,13 @@ Tous sont **bloquants**. Un seul critère rouge = report aux vacances de printem
 | lun. 8 mars | Retour de tous les utilisateurs | — | — |
 | fin mars | Le Next.js reste consultable en lecture seule, puis **Florian l'arrête** ; les exports et la base Next.js sont gardés selon les durées fixées avec le DPO | Florian | — |
 
+**Confidentialité du dépôt à la bascule** (décision de Florian, 14 nov.) : le dépôt GitHub reste public (la CI y est gratuite et illimitée). Lors du passage de l'ENT Rust sur `main` (D-063), on traite d'un coup :
+- les adresses e-mail réelles du personnel et des partenaires codées dans le Next.js (`app/lib/school.ts`, `app/lib/laprovidence-seed.ts`, routes HSE, voyages, OCR) : elles ne doivent pas passer dans l'ENT Rust, où elles relèvent du paramétrage en base ;
+- les documents qui décrivent les failles du Next.js (`docs/securite/ALERTES_NEXTJS_PROD.md`, `docs/pilotage/NEXTJS_CORRECTIFS_BILAN.md`, `docs/audits/AUDIT_FABLE_1.md`) : à sortir du dépôt public ou à réduire une fois les correctifs D-053 en place ;
+- [R] l'historique Git garde les anciennes versions : seule une mise en privé les rendrait vraiment inaccessibles. Florian tranche à ce moment-là.
+
+Fait vérifié le 14 nov. : l'adresse réelle de la base de production n'est pas dans le code ; seul le suffixe générique des bases Scaleway apparaît, dans de faux exemples de tests. Aucune clé trouvée.
+
 **Retour arrière** [R] :
 - **Avant l'ouverture du 25 février** : retour trivial. Florian remet le Next.js en écriture (sa base n'a pas bougé) ; la base ScolIA de production est vidée par restauration de la sauvegarde d'avant la reprise. On réessaie aux vacances de printemps.
 - **Entre le 25 février et le 8 mars** : retour possible. Le journal de ScolIA liste les écritures faites depuis l'ouverture (peu nombreuses : personnels seulement, pendant les vacances) ; elles sont ressaisies dans le Next.js, qu'on remet en écriture. Seuil de décision : un défaut bloquant sans correctif en 48 heures.
