@@ -13,8 +13,10 @@ use serde_json::json;
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
-use crate::cahier_c2::{conflit, instant_programme, invalide, texte_borne, SeanceInfo, SELECT_SEANCE_INFO};
 use crate::cahier::publier_cdt;
+use crate::cahier_c2::{
+    conflit, instant_programme, invalide, texte_borne, SeanceInfo, SELECT_SEANCE_INFO,
+};
 use crate::ref_commun::{db, introuvable, Acteur};
 use crate::service::{EntDbError, PgEnt};
 use crate::tenant_tx::TenantTx;
@@ -71,7 +73,11 @@ const SELECT_TRAVAIL: &str = "SELECT t.id, t.cours_id, t.relie_id, t.seance_donn
   JOIN ent_cdt_nature n ON n.etablissement_id = t.etablissement_id AND n.id = t.nature_id
  WHERE t.etablissement_id = $1";
 
-async fn formats_de(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Vec<String>, EntDbError> {
+async fn formats_de(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<Vec<String>, EntDbError> {
     let rows: Vec<(String,)> = sqlx::query_as(
         "SELECT format_code FROM ent_cdt_travail_format WHERE etablissement_id = $1 AND travail_id = $2 ORDER BY format_code",
     )
@@ -83,7 +89,11 @@ async fn formats_de(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<Vec<S
     Ok(rows.into_iter().map(|(f,)| f).collect())
 }
 
-async fn travail_dto(tx: &mut PgConnection, etab: Uuid, t: TravailRow) -> Result<TravailC2Dto, EntDbError> {
+async fn travail_dto(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    t: TravailRow,
+) -> Result<TravailC2Dto, EntDbError> {
     let formats = formats_de(tx, etab, t.id).await?;
     let differee = matches!(t.etat.as_str(), "publie" | "programme")
         && matches!((t.visible_a, t.publie_a), (Some(v), Some(p)) if v > p);
@@ -227,8 +237,14 @@ async fn miroir_travail(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<b
 }
 
 /// Relit l'ancienne ligne si une ancienne route l'a modifiée depuis la dernière écriture de C2.
-async fn rafraichir_travail(tx: &mut PgConnection, etab: Uuid, t: &TravailRow) -> Result<(), EntDbError> {
-    let Some(mid) = t.ancien_id else { return Ok(()) };
+async fn rafraichir_travail(
+    tx: &mut PgConnection,
+    etab: Uuid,
+    t: &TravailRow,
+) -> Result<(), EntDbError> {
+    let Some(mid) = t.ancien_id else {
+        return Ok(());
+    };
     let ancienne: Option<(String, String, Option<i32>, bool, NaiveDate, bool, DateTime<Utc>, bool)> = sqlx::query_as(
         "SELECT titre, consigne, duree_estimee_min, rendu_en_ligne, pour_le, acceptation_retard, updated_at,
                 supprime_le IS NOT NULL
@@ -239,7 +255,9 @@ async fn rafraichir_travail(tx: &mut PgConnection, etab: Uuid, t: &TravailRow) -
     .fetch_optional(&mut *tx)
     .await
     .map_err(db)?;
-    let Some((titre, consigne, duree, _en_ligne, pour_le, retard, maj, supprime)) = ancienne else { return Ok(()) };
+    let Some((titre, consigne, duree, _en_ligne, pour_le, retard, maj, supprime)) = ancienne else {
+        return Ok(());
+    };
     let change = titre != t.titre
         || consigne != t.consigne
         || duree.map(|d| d as i16) != t.duree_estimee_min
@@ -290,7 +308,11 @@ fn rendu_valide(r: &str) -> bool {
 }
 
 fn acteur_auteur(etab: Uuid, user: Option<Uuid>) -> Acteur<'static> {
-    Acteur { etablissement_id: etab, user_id: user.unwrap_or_default(), role: "prof" }
+    Acteur {
+        etablissement_id: etab,
+        user_id: user.unwrap_or_default(),
+        role: "prof",
+    }
 }
 
 /// Échéance résolue, prête à être écrite.
@@ -303,7 +325,11 @@ struct Echeance {
 impl PgEnt {
     /// Projette les travaux échus (publiés et visibles, public du cours) dans `ent_travail` et émet l'avis de
     /// nouveau travail, une seule fois, quand la plage calme est passée.
-    pub(crate) async fn cdt_projeter_travaux_echus(&self, tx: &mut PgConnection, etab: Uuid) -> Result<(), EntDbError> {
+    pub(crate) async fn cdt_projeter_travaux_echus(
+        &self,
+        tx: &mut PgConnection,
+        etab: Uuid,
+    ) -> Result<(), EntDbError> {
         let rows: Vec<(Uuid, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT id, auteur_user_id, rendu FROM ent_cdt_travail
               WHERE etablissement_id = $1 AND ancien_id IS NULL AND public = 'cours'
@@ -322,15 +348,30 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
             if miroir_travail(tx, etab, id).await? {
-                let type_evt = if rendu == "en_ligne" { types::CAHIER_TRAVAIL_A_RENDRE } else { types::CAHIER_TRAVAIL_DONNE };
-                publier_cdt(tx, &acteur_auteur(etab, auteur), type_evt, id, None, json!({ "travail_id": id, "publication": "echue" }))
-                    .await?;
+                let type_evt = if rendu == "en_ligne" {
+                    types::CAHIER_TRAVAIL_A_RENDRE
+                } else {
+                    types::CAHIER_TRAVAIL_DONNE
+                };
+                publier_cdt(
+                    tx,
+                    &acteur_auteur(etab, auteur),
+                    type_evt,
+                    id,
+                    None,
+                    json!({ "travail_id": id, "publication": "echue" }),
+                )
+                .await?;
             }
         }
         Ok(())
     }
 
-    async fn cdt_charger_travail(&self, a: &Acteur<'_>, id: Uuid) -> Result<TravailRow, EntDbError> {
+    async fn cdt_charger_travail(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<TravailRow, EntDbError> {
         sqlx::query_as::<_, TravailRow>(&format!("{SELECT_TRAVAIL} AND t.id = $2"))
             .bind(a.etablissement_id)
             .bind(id)
@@ -371,9 +412,16 @@ impl PgEnt {
             if s.statut == "annulee" {
                 return Err(conflit("la séance d'échéance est annulée"));
             }
-            Echeance { mode: "seance", seance_id: Some(s.id), le: s.debut_le }
+            Echeance {
+                mode: "seance",
+                seance_id: Some(s.id),
+                le: s.debut_le,
+            }
         } else if prochaine {
-            let reference = donnee.map(|d| d.fin_le).filter(|f| *f > maintenant).unwrap_or(maintenant);
+            let reference = donnee
+                .map(|d| d.fin_le)
+                .filter(|f| *f > maintenant)
+                .unwrap_or(maintenant);
             let s: Option<SeanceInfo> = sqlx::query_as(&format!(
                 "{SELECT_SEANCE_INFO} AND ent_cdt_cours_de_seance(s.etablissement_id, s.id) = $2
                     AND s.statut <> 'annulee' AND ent_cdt_instant_local(s.etablissement_id, s.jour, s.heure_debut) > $3
@@ -386,18 +434,25 @@ impl PgEnt {
             .await
             .map_err(db)?;
             let Some(s) = s else {
-                return Err(invalide("aucune séance à venir pour ce cours : choisissez une date"));
+                return Err(invalide(
+                    "aucune séance à venir pour ce cours : choisissez une date",
+                ));
             };
-            Echeance { mode: "seance", seance_id: Some(s.id), le: s.debut_le }
+            Echeance {
+                mode: "seance",
+                seance_id: Some(s.id),
+                le: s.debut_le,
+            }
         } else if let Some(j) = jour {
             let h = heure.unwrap_or(HEURE_ECHEANCE_DEFAUT);
-            let (le,): (DateTime<Utc>,) = sqlx::query_as("SELECT ent_cdt_instant_local($1, $2, $3)")
-                .bind(etab)
-                .bind(j)
-                .bind(h)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(db)?;
+            let (le,): (DateTime<Utc>,) =
+                sqlx::query_as("SELECT ent_cdt_instant_local($1, $2, $3)")
+                    .bind(etab)
+                    .bind(j)
+                    .bind(h)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(db)?;
             let (ferme,): (bool,) = sqlx::query_as("SELECT ent_cdt_jour_ferme($1, $2)")
                 .bind(etab)
                 .bind(j)
@@ -407,20 +462,29 @@ impl PgEnt {
             if ferme {
                 return Err(invalide("ce jour est fermé (week-end, vacances ou fermeture) : choisissez une séance ou un jour ouvré"));
             }
-            let calme = h < NaiveTime::from_hms_opt(7, 0, 0).unwrap_or_default() || h >= NaiveTime::from_hms_opt(20, 0, 0).unwrap_or_default();
+            let calme = h < NaiveTime::from_hms_opt(7, 0, 0).unwrap_or_default()
+                || h >= NaiveTime::from_hms_opt(20, 0, 0).unwrap_or_default();
             if calme && !plage_calme_permise {
                 return Err(invalide("pas d'échéance pendant la plage calme (20 h – 7 h) : choisissez une heure en journée"));
             }
-            Echeance { mode: "date_heure", seance_id: None, le }
+            Echeance {
+                mode: "date_heure",
+                seance_id: None,
+                le,
+            }
         } else {
-            return Err(invalide("indiquez l'échéance : séance, prochaine séance ou date"));
+            return Err(invalide(
+                "indiquez l'échéance : séance, prochaine séance ou date",
+            ));
         };
         if ech.le <= maintenant {
             return Err(invalide("l'échéance est déjà passée"));
         }
         if let Some(d) = donnee {
             if ech.le <= d.debut_le {
-                return Err(invalide("l'échéance doit suivre la séance où le travail est donné"));
+                return Err(invalide(
+                    "l'échéance doit suivre la séance où le travail est donné",
+                ));
             }
         }
         let (fin_annee, jour_ech): (NaiveDate, NaiveDate) = sqlx::query_as(
@@ -440,9 +504,23 @@ impl PgEnt {
 
     /// CDT-131 à 134 : donne un travail à un ou plusieurs cours (un travail par cours, reliés), avec nature, durée,
     /// échéance (séance, prochaine séance ou date), public restreint, brouillon, publication ou programmation.
-    pub async fn cdt_travaux_creer(&self, a: &Acteur<'_>, body: TravailC2Body) -> Result<TravauxCreesDto, EntDbError> {
-        let titre = texte_borne(&body.titre, 200, true, "titre vide ou trop long (200 caractères au plus)")?;
-        let consigne = texte_borne(&body.consigne, 20_000, true, "consigne vide ou trop longue (20 000 caractères au plus)")?;
+    pub async fn cdt_travaux_creer(
+        &self,
+        a: &Acteur<'_>,
+        body: TravailC2Body,
+    ) -> Result<TravauxCreesDto, EntDbError> {
+        let titre = texte_borne(
+            &body.titre,
+            200,
+            true,
+            "titre vide ou trop long (200 caractères au plus)",
+        )?;
+        let consigne = texte_borne(
+            &body.consigne,
+            20_000,
+            true,
+            "consigne vide ou trop longue (20 000 caractères au plus)",
+        )?;
         if body.cours_ids.is_empty() || body.cours_ids.len() > 10 {
             return Err(invalide("indiquez de 1 à 10 cours"));
         }
@@ -455,29 +533,57 @@ impl PgEnt {
         if !rendu_valide(&body.rendu) {
             return Err(invalide("rendu : aucun, en_ligne ou en_classe"));
         }
-        if !matches!(body.ia_autorisee.as_str(), "non" | "recherche" | "relecture" | "libre") {
-            return Err(invalide("usage de l'IA : non, recherche, relecture ou libre"));
+        if !matches!(
+            body.ia_autorisee.as_str(),
+            "non" | "recherche" | "relecture" | "libre"
+        ) {
+            return Err(invalide(
+                "usage de l'IA : non, recherche, relecture ou libre",
+            ));
         }
-        if !matches!(body.publication.as_str(), "brouillon" | "maintenant" | "programmer") {
-            return Err(invalide("publication : brouillon, maintenant ou programmer"));
+        if !matches!(
+            body.publication.as_str(),
+            "brouillon" | "maintenant" | "programmer"
+        ) {
+            return Err(invalide(
+                "publication : brouillon, maintenant ou programmer",
+            ));
         }
         if body.formats.len() > 12
-            || body.formats.iter().any(|f| f.is_empty() || f.len() > 10 || !f.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+            || body.formats.iter().any(|f| {
+                f.is_empty()
+                    || f.len() > 10
+                    || !f
+                        .bytes()
+                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            })
         {
-            return Err(invalide("formats acceptés invalides (extensions en minuscules, douze au plus)"));
+            return Err(invalide(
+                "formats acceptés invalides (extensions en minuscules, douze au plus)",
+            ));
         }
         if !body.formats.is_empty() && body.rendu != "en_ligne" {
-            return Err(invalide("les formats acceptés ne concernent qu'un rendu en ligne"));
+            return Err(invalide(
+                "les formats acceptés ne concernent qu'un rendu en ligne",
+            ));
         }
-        let choix = u8::from(body.echeance_seance_id.is_some()) + u8::from(body.echeance_prochaine_seance) + u8::from(body.echeance_jour.is_some());
+        let choix = u8::from(body.echeance_seance_id.is_some())
+            + u8::from(body.echeance_prochaine_seance)
+            + u8::from(body.echeance_jour.is_some());
         if choix != 1 {
-            return Err(invalide("indiquez une seule échéance : séance, prochaine séance ou date"));
+            return Err(invalide(
+                "indiquez une seule échéance : séance, prochaine séance ou date",
+            ));
         }
         if body.echeance_seance_id.is_some() && body.cours_ids.len() > 1 {
-            return Err(invalide("avec plusieurs cours, choisissez « prochaine séance » ou une date"));
+            return Err(invalide(
+                "avec plusieurs cours, choisissez « prochaine séance » ou une date",
+            ));
         }
         if !body.eleve_ids.is_empty() && body.cours_ids.len() > 1 {
-            return Err(invalide("un public restreint ne s'applique qu'à un seul cours"));
+            return Err(invalide(
+                "un public restreint ne s'applique qu'à un seul cours",
+            ));
         }
         if body.eleve_ids.len() > 60 {
             return Err(invalide("soixante élèves au plus pour un public restreint"));
@@ -491,23 +597,34 @@ impl PgEnt {
         for cid in &body.cours_ids {
             let c = self.cdt_cours(a.etablissement_id, *cid).await?;
             self.cdt_exiger_saisie(a, *cid, donnee.as_ref()).await?;
-            self.cdt_exiger_annee_ouverte(a.etablissement_id, c.annee_id).await?;
+            self.cdt_exiger_annee_ouverte(a.etablissement_id, c.annee_id)
+                .await?;
             cours_rows.push(c);
         }
         if let Some(d) = &donnee {
             if !cours_rows.iter().any(|c| d.cours_id == Some(c.id)) {
-                return Err(invalide("la séance où le travail est donné n'appartient à aucun des cours indiqués"));
+                return Err(invalide(
+                    "la séance où le travail est donné n'appartient à aucun des cours indiqués",
+                ));
             }
             if d.statut == "annulee" {
                 return Err(conflit("la séance où le travail est donné est annulée"));
             }
         }
         let jour_action = self.jour_etab(a.etablissement_id).await?;
-        let reglage_publication = self.cdt_publication_defaut(a.etablissement_id, cours_rows[0].annee_id).await?;
+        let reglage_publication = self
+            .cdt_publication_defaut(a.etablissement_id, cours_rows[0].annee_id)
+            .await?;
         self.cdt_projeter_echus(a.etablissement_id).await?;
 
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        sqlx::query("SELECT ent_cdt_assurer_natures($1)").bind(a.etablissement_id).execute(&mut *tx).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        sqlx::query("SELECT ent_cdt_assurer_natures($1)")
+            .bind(a.etablissement_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
         let nature: Option<(Uuid, Option<i16>)> = sqlx::query_as(
             "SELECT id, duree_defaut_min FROM ent_cdt_nature WHERE etablissement_id = $1 AND code = $2 AND archivee_le IS NULL",
         )
@@ -523,9 +640,18 @@ impl PgEnt {
         if duree.is_some_and(|d| !(1..=600).contains(&d)) {
             return Err(invalide("durée estimée : de 1 à 600 minutes"));
         }
-        let (maintenant,): (DateTime<Utc>,) = sqlx::query_as("SELECT now()").fetch_one(&mut *tx).await.map_err(db)?;
-        let voulue_explicite =
-            instant_programme(&mut tx, a.etablissement_id, body.publie_a, body.publie_jour, body.publie_heure).await?;
+        let (maintenant,): (DateTime<Utc>,) = sqlx::query_as("SELECT now()")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        let voulue_explicite = instant_programme(
+            &mut tx,
+            a.etablissement_id,
+            body.publie_a,
+            body.publie_jour,
+            body.publie_heure,
+        )
+        .await?;
         let plage_calme_permise: bool = sqlx::query_scalar(
             "SELECT COALESCE((SELECT echeance_plage_calme_lycee FROM ent_cdt_reglage WHERE etablissement_id = $1 AND annee_id = $2), false)",
         )
@@ -558,7 +684,9 @@ impl PgEnt {
             .await
             .map_err(db)?;
             if n as usize != uniques.len() {
-                return Err(invalide("un élève indiqué ne fait pas partie du cours à cette date"));
+                return Err(invalide(
+                    "un élève indiqué ne fait pas partie du cours à cette date",
+                ));
             }
         }
         let agent: Option<Uuid> = sqlx::query_scalar("SELECT ent_cdt_agent_du_compte($1, $2)")
@@ -592,11 +720,17 @@ impl PgEnt {
                 "brouillon" => ("brouillon", None),
                 "maintenant" => ("publie", Some(maintenant)),
                 _ => {
-                    let voulue = voulue_explicite.unwrap_or(match (reglage_publication.as_str(), donnee_ici) {
-                        ("immediate", _) | (_, None) => maintenant,
-                        (_, Some(d)) => d.fin_le,
-                    });
-                    if voulue <= maintenant { ("publie", Some(maintenant)) } else { ("programme", Some(voulue)) }
+                    let voulue = voulue_explicite.unwrap_or(
+                        match (reglage_publication.as_str(), donnee_ici) {
+                            ("immediate", _) | (_, None) => maintenant,
+                            (_, Some(d)) => d.fin_le,
+                        },
+                    );
+                    if voulue <= maintenant {
+                        ("publie", Some(maintenant))
+                    } else {
+                        ("programme", Some(voulue))
+                    }
                 }
             };
             let visible_a: Option<DateTime<Utc>> = match publie_a {
@@ -612,10 +746,16 @@ impl PgEnt {
                 None => None,
             };
             if let Some(v) = visible_a {
-                if publie_a.is_some_and(|p| v > p) && !avertissements.iter().any(|w| w == "differe_par_plage_calme") {
+                if publie_a.is_some_and(|p| v > p)
+                    && !avertissements
+                        .iter()
+                        .any(|w| w == "differe_par_plage_calme")
+                {
                     avertissements.push("differe_par_plage_calme".into());
                 }
-                if ech.le - v < chrono::Duration::hours(24) && !avertissements.iter().any(|w| w == "donne_moins_de_24h") {
+                if ech.le - v < chrono::Duration::hours(24)
+                    && !avertissements.iter().any(|w| w == "donne_moins_de_24h")
+                {
                     avertissements.push("donne_moins_de_24h".into());
                 }
             }
@@ -684,8 +824,20 @@ impl PgEnt {
             }
             let visible_maintenant = etat == "publie" && visible_a.is_some_and(|v| v <= maintenant);
             if visible_maintenant && miroir_travail(&mut tx, a.etablissement_id, id).await? {
-                let type_evt = if body.rendu == "en_ligne" { types::CAHIER_TRAVAIL_A_RENDRE } else { types::CAHIER_TRAVAIL_DONNE };
-                publier_cdt(&mut tx, a, type_evt, id, None, json!({ "travail_id": id, "cours_id": c.id })).await?;
+                let type_evt = if body.rendu == "en_ligne" {
+                    types::CAHIER_TRAVAIL_A_RENDRE
+                } else {
+                    types::CAHIER_TRAVAIL_DONNE
+                };
+                publier_cdt(
+                    &mut tx,
+                    a,
+                    type_evt,
+                    id,
+                    None,
+                    json!({ "travail_id": id, "cours_id": c.id }),
+                )
+                .await?;
             } else if etat == "programme" {
                 publier_cdt(
                     &mut tx,
@@ -710,31 +862,48 @@ impl PgEnt {
             travaux.push(travail_dto(&mut tx, a.etablissement_id, row).await?);
         }
         tx.commit().await.map_err(db)?;
-        Ok(TravauxCreesDto { travaux, avertissements })
+        Ok(TravauxCreesDto {
+            travaux,
+            avertissements,
+        })
     }
 
     /// Lit un travail : intervenants en saisie du cours ; sinon lecture du cahier (publié et visible seulement).
-    pub async fn cdt_travail_lire(&self, a: &Acteur<'_>, id: Uuid) -> Result<TravailC2Dto, EntDbError> {
+    pub async fn cdt_travail_lire(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<TravailC2Dto, EntDbError> {
         let t = self.cdt_charger_travail(a, id).await?;
         if self.cdt_exiger_saisie(a, t.cours_id, None).await.is_err() {
             let cours = self.cdt_cours(a.etablissement_id, t.cours_id).await?;
-            let cible = crate::cahier::Cible { classe_id: cours.classe_id, groupe_id: cours.groupe_id };
-            let (visible,): (bool,) = sqlx::query_as("SELECT $1::timestamptz IS NOT NULL AND $1::timestamptz <= now()")
-                .bind(t.visible_a)
-                .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
-                .await
-                .map_err(db)?;
+            let cible = crate::cahier::Cible {
+                classe_id: cours.classe_id,
+                groupe_id: cours.groupe_id,
+            };
+            let (visible,): (bool,) =
+                sqlx::query_as("SELECT $1::timestamptz IS NOT NULL AND $1::timestamptz <= now()")
+                    .bind(t.visible_a)
+                    .fetch_one(&mut *TenantTx::begin(self.pool(), a.etablissement_id).await?)
+                    .await
+                    .map_err(db)?;
             let lisible = matches!(t.etat.as_str(), "publie" | "retire") && visible;
             if !lisible || !self.cahier_peut(a, Action::CahierLire, cible).await? {
                 return Err(introuvable());
             }
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         travail_dto(&mut tx, a.etablissement_id, t).await
     }
 
     /// R-C29 : versions précédentes d'un travail.
-    pub async fn cdt_travail_versions(&self, a: &Acteur<'_>, id: Uuid) -> Result<Vec<VersionTravailDto>, EntDbError> {
+    pub async fn cdt_travail_versions(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+    ) -> Result<Vec<VersionTravailDto>, EntDbError> {
         self.cdt_travail_lire(a, id).await?;
         let rows: Vec<(i32, String, String, Option<i16>, Option<DateTime<Utc>>, String, String, Option<String>, bool, DateTime<Utc>)> =
             sqlx::query_as(
@@ -750,18 +919,31 @@ impl PgEnt {
             .map_err(db)?;
         Ok(rows
             .into_iter()
-            .map(|(version, titre, consigne, duree_estimee_min, echeance_le, etat, auteur, motif, sans_avis, cree_le)| VersionTravailDto {
-                version,
-                titre,
-                consigne,
-                duree_estimee_min,
-                echeance_le,
-                etat,
-                auteur,
-                motif,
-                sans_avis,
-                cree_le,
-            })
+            .map(
+                |(
+                    version,
+                    titre,
+                    consigne,
+                    duree_estimee_min,
+                    echeance_le,
+                    etat,
+                    auteur,
+                    motif,
+                    sans_avis,
+                    cree_le,
+                )| VersionTravailDto {
+                    version,
+                    titre,
+                    consigne,
+                    duree_estimee_min,
+                    echeance_le,
+                    etat,
+                    auteur,
+                    motif,
+                    sans_avis,
+                    cree_le,
+                },
+            )
             .collect())
     }
 
@@ -777,17 +959,30 @@ impl PgEnt {
         let t0 = self.cdt_charger_travail(a, id).await?;
         self.cdt_exiger_saisie(a, t0.cours_id, None).await?;
         let cours = self.cdt_cours(a.etablissement_id, t0.cours_id).await?;
-        self.cdt_exiger_annee_ouverte(a.etablissement_id, cours.annee_id).await?;
+        self.cdt_exiger_annee_ouverte(a.etablissement_id, cours.annee_id)
+            .await?;
         let titre = match body.titre.as_deref() {
-            Some(x) => Some(texte_borne(x, 200, true, "titre vide ou trop long (200 caractères au plus)")?),
+            Some(x) => Some(texte_borne(
+                x,
+                200,
+                true,
+                "titre vide ou trop long (200 caractères au plus)",
+            )?),
             None => None,
         };
         let consigne = match body.consigne.as_deref() {
-            Some(x) => Some(texte_borne(x, 20_000, true, "consigne vide ou trop longue (20 000 caractères au plus)")?),
+            Some(x) => Some(texte_borne(
+                x,
+                20_000,
+                true,
+                "consigne vide ou trop longue (20 000 caractères au plus)",
+            )?),
             None => None,
         };
         let motif = match body.motif.as_deref() {
-            Some(x) => Some(texte_borne(x, 500, false, "motif trop long")?).filter(|m| !m.is_empty()),
+            Some(x) => {
+                Some(texte_borne(x, 500, false, "motif trop long")?).filter(|m| !m.is_empty())
+            }
             None => None,
         };
         if let Some(r) = &body.rendu {
@@ -795,7 +990,10 @@ impl PgEnt {
                 return Err(invalide("rendu : aucun, en_ligne ou en_classe"));
             }
         }
-        if body.duree_estimee_min.is_some_and(|d| !(1..=600).contains(&d)) {
+        if body
+            .duree_estimee_min
+            .is_some_and(|d| !(1..=600).contains(&d))
+        {
             return Err(invalide("durée estimée : de 1 à 600 minutes"));
         }
         if let Some(p) = &body.publication {
@@ -811,17 +1009,22 @@ impl PgEnt {
             Some(sid) => Some(self.cdt_seance(a.etablissement_id, sid).await?),
             None => None,
         };
-        let reglage_publication = self.cdt_publication_defaut(a.etablissement_id, cours.annee_id).await?;
+        let reglage_publication = self
+            .cdt_publication_defaut(a.etablissement_id, cours.annee_id)
+            .await?;
         self.cdt_projeter_echus(a.etablissement_id).await?;
 
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let t: TravailRow = sqlx::query_as(&format!("{SELECT_TRAVAIL} AND t.id = $2 FOR UPDATE OF t"))
-            .bind(a.etablissement_id)
-            .bind(id)
-            .fetch_optional(&mut *tx)
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
             .await
-            .map_err(db)?
-            .ok_or_else(introuvable)?;
+            .map_err(db)?;
+        let t: TravailRow =
+            sqlx::query_as(&format!("{SELECT_TRAVAIL} AND t.id = $2 FOR UPDATE OF t"))
+                .bind(a.etablissement_id)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?
+                .ok_or_else(introuvable)?;
         if t.etat == "retire" {
             return Err(conflit("le travail est retiré de la diffusion"));
         }
@@ -832,9 +1035,18 @@ impl PgEnt {
             .fetch_one(&mut *tx)
             .await
             .map_err(db)?;
-        let (maintenant,): (DateTime<Utc>,) = sqlx::query_as("SELECT now()").fetch_one(&mut *tx).await.map_err(db)?;
-        let voulue_explicite =
-            instant_programme(&mut tx, a.etablissement_id, body.publie_a, body.publie_jour, body.publie_heure).await?;
+        let (maintenant,): (DateTime<Utc>,) = sqlx::query_as("SELECT now()")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        let voulue_explicite = instant_programme(
+            &mut tx,
+            a.etablissement_id,
+            body.publie_a,
+            body.publie_jour,
+            body.publie_heure,
+        )
+        .await?;
         let etait_visible = t.etat == "publie" && t.visible_a.is_some_and(|v| v <= maintenant);
         let rendu = body.rendu.clone().unwrap_or_else(|| t.rendu.clone());
         if t.rendu == "en_ligne" && rendu != "en_ligne" {
@@ -896,28 +1108,35 @@ impl PgEnt {
             return Err(conflit("échéance avancée : confirmez explicitement, les élèves et les familles seront prévenus"));
         }
         // Publication d'un brouillon, reprogrammation.
-        let (etat, publie_a, visible_a): (String, Option<DateTime<Utc>>, Option<DateTime<Utc>>) = match body.publication.as_deref() {
-            None => (t.etat.clone(), t.publie_a, t.visible_a),
-            Some(_) if t.etat == "publie" => return Err(conflit("le travail est déjà publié")),
-            Some(p) => {
-                let (e, pa): (&str, DateTime<Utc>) = if p == "maintenant" {
-                    ("publie", maintenant)
-                } else {
-                    let voulue = voulue_explicite.unwrap_or(match (reglage_publication.as_str(), donnee.as_ref()) {
-                        ("immediate", _) | (_, None) => maintenant,
-                        (_, Some(d)) => d.fin_le,
-                    });
-                    if voulue <= maintenant { ("publie", maintenant) } else { ("programme", voulue) }
-                };
-                let (v,): (DateTime<Utc>,) = sqlx::query_as("SELECT ent_cdt_visible_a($1, $2)")
-                    .bind(a.etablissement_id)
-                    .bind(pa)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                (e.to_string(), Some(pa), Some(v))
-            }
-        };
+        let (etat, publie_a, visible_a): (String, Option<DateTime<Utc>>, Option<DateTime<Utc>>) =
+            match body.publication.as_deref() {
+                None => (t.etat.clone(), t.publie_a, t.visible_a),
+                Some(_) if t.etat == "publie" => return Err(conflit("le travail est déjà publié")),
+                Some(p) => {
+                    let (e, pa): (&str, DateTime<Utc>) = if p == "maintenant" {
+                        ("publie", maintenant)
+                    } else {
+                        let voulue = voulue_explicite.unwrap_or(
+                            match (reglage_publication.as_str(), donnee.as_ref()) {
+                                ("immediate", _) | (_, None) => maintenant,
+                                (_, Some(d)) => d.fin_le,
+                            },
+                        );
+                        if voulue <= maintenant {
+                            ("publie", maintenant)
+                        } else {
+                            ("programme", voulue)
+                        }
+                    };
+                    let (v,): (DateTime<Utc>,) = sqlx::query_as("SELECT ent_cdt_visible_a($1, $2)")
+                        .bind(a.etablissement_id)
+                        .bind(pa)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(db)?;
+                    (e.to_string(), Some(pa), Some(v))
+                }
+            };
         let avis = (!body.sans_avis || echeance_avancee) && etait_visible;
         if t.etat != "brouillon" {
             sqlx::query(
@@ -958,19 +1177,40 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        let devient_visible = etat == "publie" && !etait_visible && visible_a.is_some_and(|v| v <= maintenant);
+        let devient_visible =
+            etat == "publie" && !etait_visible && visible_a.is_some_and(|v| v <= maintenant);
         if t.ancien_id.is_some() || devient_visible {
             if miroir_travail(&mut tx, a.etablissement_id, id).await? && devient_visible {
-                let type_evt = if rendu == "en_ligne" { types::CAHIER_TRAVAIL_A_RENDRE } else { types::CAHIER_TRAVAIL_DONNE };
-                publier_cdt(&mut tx, a, type_evt, id, None, json!({ "travail_id": id, "cours_id": t.cours_id })).await?;
+                let type_evt = if rendu == "en_ligne" {
+                    types::CAHIER_TRAVAIL_A_RENDRE
+                } else {
+                    types::CAHIER_TRAVAIL_DONNE
+                };
+                publier_cdt(
+                    &mut tx,
+                    a,
+                    type_evt,
+                    id,
+                    None,
+                    json!({ "travail_id": id, "cours_id": t.cours_id }),
+                )
+                .await?;
             }
         }
         if etait_visible && t.public == "cours" {
             let mut champs: Vec<&str> = Vec::new();
-            if titre.as_deref().is_some_and(|x| x != t.titre) { champs.push("titre"); }
-            if consigne.as_deref().is_some_and(|x| x != t.consigne) { champs.push("consigne"); }
-            if echeance_le != t.echeance_le { champs.push("echeance"); }
-            if rendu != t.rendu { champs.push("rendu"); }
+            if titre.as_deref().is_some_and(|x| x != t.titre) {
+                champs.push("titre");
+            }
+            if consigne.as_deref().is_some_and(|x| x != t.consigne) {
+                champs.push("consigne");
+            }
+            if echeance_le != t.echeance_le {
+                champs.push("echeance");
+            }
+            if rendu != t.rendu {
+                champs.push("rendu");
+            }
             publier_cdt(
                 &mut tx,
                 a,
@@ -996,35 +1236,56 @@ impl PgEnt {
             .map_err(db)?;
         let dto = travail_dto(&mut tx, a.etablissement_id, row).await?;
         tx.commit().await.map_err(db)?;
-        Ok(TravailModifieDto { travail: dto, avis_emis: avis && t.public == "cours", echeance_avancee })
+        Ok(TravailModifieDto {
+            travail: dto,
+            avis_emis: avis && t.public == "cours",
+            echeance_avancee,
+        })
     }
 
     /// CDT-143 : retire un travail de la diffusion (motif obligatoire ; les copies déjà rendues restent à l'élève).
-    pub async fn cdt_travail_retirer(&self, a: &Acteur<'_>, id: Uuid, motif: &str) -> Result<TravailC2Dto, EntDbError> {
-        let motif = texte_borne(motif, 500, true, "indiquez le motif du retrait (3 à 500 caractères)")?;
+    pub async fn cdt_travail_retirer(
+        &self,
+        a: &Acteur<'_>,
+        id: Uuid,
+        motif: &str,
+    ) -> Result<TravailC2Dto, EntDbError> {
+        let motif = texte_borne(
+            motif,
+            500,
+            true,
+            "indiquez le motif du retrait (3 à 500 caractères)",
+        )?;
         if motif.chars().count() < 3 {
-            return Err(invalide("indiquez le motif du retrait (3 à 500 caractères)"));
+            return Err(invalide(
+                "indiquez le motif du retrait (3 à 500 caractères)",
+            ));
         }
-        let droits = self.droits_effectifs(a.etablissement_id, a.user_id, a.role).await?;
+        let droits = self
+            .droits_effectifs(a.etablissement_id, a.user_id, a.role)
+            .await?;
         if !droits.iter().any(|d| d.action == Action::CahierRetirer) {
             return Err(EntDbError::Forbidden);
         }
-        let direction = droits
-            .iter()
-            .any(|d| d.action == Action::CahierRetirer && d.portee == ent_auth::Portee::Etablissement);
+        let direction = droits.iter().any(|d| {
+            d.action == Action::CahierRetirer && d.portee == ent_auth::Portee::Etablissement
+        });
         let t0 = self.cdt_charger_travail(a, id).await?;
         let auteur = t0.auteur_user_id == Some(a.user_id);
         if !direction && !auteur && self.cdt_exiger_saisie(a, t0.cours_id, None).await.is_err() {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let t: TravailRow = sqlx::query_as(&format!("{SELECT_TRAVAIL} AND t.id = $2 FOR UPDATE OF t"))
-            .bind(a.etablissement_id)
-            .bind(id)
-            .fetch_optional(&mut *tx)
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
             .await
-            .map_err(db)?
-            .ok_or_else(introuvable)?;
+            .map_err(db)?;
+        let t: TravailRow =
+            sqlx::query_as(&format!("{SELECT_TRAVAIL} AND t.id = $2 FOR UPDATE OF t"))
+                .bind(a.etablissement_id)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(db)?
+                .ok_or_else(introuvable)?;
         if t.etat == "retire" {
             return Err(conflit("le travail est déjà retiré"));
         }

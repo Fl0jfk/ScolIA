@@ -83,8 +83,14 @@ pub fn valider_entree(s: &SaisieEntree) -> Result<EntreeBody, Erreurs> {
     } else if notions.iter().any(|n| nb_car(n) > 200) {
         e.push(("notions", "Chaque notion : 200 caractères au plus.".into()));
     }
-    if !matches!(s.publication.as_str(), "brouillon" | "maintenant" | "programmer") {
-        e.push(("publication", "Choisissez : brouillon, publier maintenant ou programmer.".into()));
+    if !matches!(
+        s.publication.as_str(),
+        "brouillon" | "maintenant" | "programmer"
+    ) {
+        e.push((
+            "publication",
+            "Choisissez : brouillon, publier maintenant ou programmer.".into(),
+        ));
     }
     let (mut publie_jour, mut publie_heure) = (None, None);
     if s.publication == "programmer" {
@@ -136,7 +142,11 @@ pub fn libelle_visibilite(e: &EntreeDto) -> Option<String> {
         return None;
     };
     if e.etat == "programmee" || e.differee_par_plage_calme {
-        Some(format!("Visible des élèves : {} à {}", date_longue(j).to_lowercase(), heure_en_clair(h)))
+        Some(format!(
+            "Visible des élèves : {} à {}",
+            date_longue(j).to_lowercase(),
+            heure_en_clair(h)
+        ))
     } else {
         None
     }
@@ -149,7 +159,9 @@ pub const RAPPEL_PLAGE_CALME: &str = "Publié pendant la plage calme (20 h – 7
 pub fn message_avertissement(code: &str) -> &'static str {
     match code {
         "donne_moins_de_24h" => "Ce travail est donné moins de 24 h avant son échéance.",
-        "differe_par_plage_calme" => "Publication différée par la plage calme : visible à la fin de la plage.",
+        "differe_par_plage_calme" => {
+            "Publication différée par la plage calme : visible à la fin de la plage."
+        }
         _ => "Avertissement.",
     }
 }
@@ -225,8 +237,14 @@ pub fn valider_travail_c2(s: &SaisieTravailC2) -> Result<TravailC2Body, Erreurs>
         .map(|f| f.trim().trim_start_matches('.').to_lowercase())
         .filter(|f| !f.is_empty())
         .collect();
-    if !matches!(s.publication.as_str(), "brouillon" | "maintenant" | "programmer") {
-        e.push(("publication", "Choisissez : brouillon, publier maintenant ou programmer.".into()));
+    if !matches!(
+        s.publication.as_str(),
+        "brouillon" | "maintenant" | "programmer"
+    ) {
+        e.push((
+            "publication",
+            "Choisissez : brouillon, publier maintenant ou programmer.".into(),
+        ));
     }
     let (mut publie_jour, mut publie_heure) = (None, None);
     if s.publication == "programmer" {
@@ -255,11 +273,19 @@ pub fn valider_travail_c2(s: &SaisieTravailC2) -> Result<TravailC2Body, Erreurs>
         titre: s.titre.trim().to_string(),
         consigne: s.consigne.trim().to_string(),
         duree_estimee_min: duree,
-        rendu: if s.rendu.is_empty() { "aucun".into() } else { s.rendu.clone() },
+        rendu: if s.rendu.is_empty() {
+            "aucun".into()
+        } else {
+            s.rendu.clone()
+        },
         retard_accepte: s.retard_accepte,
         formats,
         eleve_ids: Vec::new(),
-        ia_autorisee: if s.ia.is_empty() { "non".into() } else { s.ia.clone() },
+        ia_autorisee: if s.ia.is_empty() {
+            "non".into()
+        } else {
+            s.ia.clone()
+        },
         publication: s.publication.clone(),
         publie_a: None,
         publie_jour,
@@ -321,7 +347,9 @@ pub fn valider_modification(
     if !e.is_empty() {
         return Err(e);
     }
-    let heure_txt = heure.map(|h| h.format("%H:%M").to_string()).unwrap_or_else(|| o.heure.clone());
+    let heure_txt = heure
+        .map(|h| h.format("%H:%M").to_string())
+        .unwrap_or_else(|| o.heure.clone());
     let echeance_change = jour != o.jour || heure_txt != o.heure;
     let avancee = jour < o.jour || (jour == o.jour && heure_txt < o.heure);
     let m = s.motif.trim();
@@ -330,7 +358,9 @@ pub fn valider_modification(
             titre: (s.titre.trim() != o.titre).then(|| s.titre.trim().to_string()),
             consigne: (s.consigne.trim() != o.consigne).then(|| s.consigne.trim().to_string()),
             echeance_jour: echeance_change.then_some(jour),
-            echeance_heure: echeance_change.then(|| heure.or_else(|| lire_heure_champ(&o.heure))).flatten(),
+            echeance_heure: echeance_change
+                .then(|| heure.or_else(|| lire_heure_champ(&o.heure)))
+                .flatten(),
             confirme_echeance_avancee: false,
             sans_avis: s.sans_avis,
             motif: (!m.is_empty()).then(|| m.to_string()),
@@ -355,7 +385,11 @@ mod tests {
     use super::*;
 
     fn entree(pub_: &str) -> SaisieEntree {
-        SaisieEntree { contenu: "Fractions".into(), publication: pub_.into(), ..Default::default() }
+        SaisieEntree {
+            contenu: "Fractions".into(),
+            publication: pub_.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -379,11 +413,18 @@ mod tests {
         let b = valider_entree(&s).unwrap();
         assert_eq!(b.publie_jour, lire_jour("2031-03-11"));
         assert_eq!(b.publie_heure, lire_heure_champ("22:00"));
-        assert!(b.publie_a.is_none(), "l'heure est celle de l'établissement, jamais un instant UTC");
+        assert!(
+            b.publie_a.is_none(),
+            "l'heure est celle de l'établissement, jamais un instant UTC"
+        );
         s.heure = "vingt".into();
         assert!(valider_entree(&s).is_err_and(|e| e.iter().any(|(c, _)| *c == "heure")));
         s.heure.clear();
-        assert_eq!(valider_entree(&s).unwrap().publie_heure, None, "heure absente : le serveur applique 7 h");
+        assert_eq!(
+            valider_entree(&s).unwrap().publie_heure,
+            None,
+            "heure absente : le serveur applique 7 h"
+        );
     }
 
     #[test]
@@ -412,12 +453,19 @@ mod tests {
             copie_de_id: None,
             contributions: vec![],
         };
-        assert_eq!(libelle_visibilite(&e).as_deref(), Some("Visible des élèves : lundi 17 mars à 7 h"));
+        assert_eq!(
+            libelle_visibilite(&e).as_deref(),
+            Some("Visible des élèves : lundi 17 mars à 7 h")
+        );
         e.etat = "brouillon".into();
         assert_eq!(libelle_visibilite(&e), None);
         e.etat = "publiee".into();
         e.differee_par_plage_calme = false;
-        assert_eq!(libelle_visibilite(&e), None, "publiée et visible : rien à annoncer");
+        assert_eq!(
+            libelle_visibilite(&e),
+            None,
+            "publiée et visible : rien à annoncer"
+        );
     }
 
     fn travail() -> SaisieTravailC2 {
@@ -437,8 +485,14 @@ mod tests {
     fn travail_en_trois_gestes_echeance_prochaine_seance_par_defaut() {
         let b = valider_travail_c2(&travail()).unwrap();
         assert!(b.echeance_prochaine_seance && b.echeance_jour.is_none());
-        assert_eq!((b.rendu.as_str(), b.ia_autorisee.as_str()), ("aucun", "non"));
-        assert_eq!(b.duree_estimee_min, None, "durée absente : le serveur propose celle de la nature");
+        assert_eq!(
+            (b.rendu.as_str(), b.ia_autorisee.as_str()),
+            ("aucun", "non")
+        );
+        assert_eq!(
+            b.duree_estimee_min, None,
+            "durée absente : le serveur propose celle de la nature"
+        );
     }
 
     #[test]
@@ -487,7 +541,10 @@ mod tests {
         assert!(avancee, "plus tôt : confirmation demandée avant l'envoi");
         assert_eq!(b.echeance_jour, lire_jour("2031-03-12"));
         s.jour = "2031-03-17".into();
-        assert!(!valider_modification(&s, &o).unwrap().1, "reculer ne demande rien");
+        assert!(
+            !valider_modification(&s, &o).unwrap().1,
+            "reculer ne demande rien"
+        );
         s.titre.clear();
         assert!(valider_modification(&s, &o).is_err());
     }

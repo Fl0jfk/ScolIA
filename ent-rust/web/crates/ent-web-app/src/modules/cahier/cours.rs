@@ -6,11 +6,13 @@
 
 use chrono::NaiveDate;
 use ent_web_api::cahier_c2_types::{
-    CopieVersBody, CoursSaisieDto, EntreeDto, SeanceDuCoursDto, TravailC2Dto, TravailResumeDto, VersionDto,
+    CopieVersBody, CoursSaisieDto, EntreeDto, SeanceDuCoursDto, TravailC2Dto, TravailResumeDto,
+    VersionDto,
 };
 use ent_web_ui::{
-    AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation, EnTetePage, EtatVide, GroupeChoix, Icone,
-    LienBouton, Niveau, NomIcone, Selection, Squelette, Taille, Variante, ZoneTexte,
+    AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, Confirmation, EnTetePage, EtatVide,
+    GroupeChoix, Icone, LienBouton, Niveau, NomIcone, Selection, Squelette, Taille, Variante,
+    ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -19,8 +21,8 @@ use uuid::Uuid;
 
 use super::modele::{fin_de_semaine, libelle_semaine, semaine_demandee, semaine_voisine, Erreurs};
 use super::modele_c2::{
-    etat_entree, etat_travail, heure_en_clair, libelle_visibilite, valider_entree, valider_modification,
-    OrigineTravail, SaisieEntree, SaisieModification, RAPPEL_PLAGE_CALME,
+    etat_entree, etat_travail, heure_en_clair, libelle_visibilite, valider_entree,
+    valider_modification, OrigineTravail, SaisieEntree, SaisieModification, RAPPEL_PLAGE_CALME,
 };
 use crate::noyau::coquille::use_droits;
 use crate::noyau::ecriture::{Ecriture, RetourEcriture};
@@ -57,8 +59,13 @@ fn poser(es: &Erreurs, cibles: &[(&'static str, RwSignal<Option<String>>)]) {
 #[component]
 fn ContenuCours() -> impl IntoView {
     let query = use_query_map();
-    let cours_demande = Memo::new(move |_| query.with(|q| q.get("cours")).and_then(|c| Uuid::parse_str(c.trim()).ok()));
-    let lundi = Memo::new(move |_| semaine_demandee(query.with(|q| q.get("semaine")), aujourdhui()));
+    let cours_demande = Memo::new(move |_| {
+        query
+            .with(|q| q.get("cours"))
+            .and_then(|c| Uuid::parse_str(c.trim()).ok())
+    });
+    let lundi =
+        Memo::new(move |_| semaine_demandee(query.with(|q| q.get("semaine")), aujourdhui()));
     let cours = LocalResource::new(|| async { session::client().cdt_cours().await });
     view! {
         <EnTetePage
@@ -88,10 +95,11 @@ fn ChoixCours(cours: Vec<CoursSaisieDto>, choisi: Uuid, lundi: Memo<NaiveDate>) 
         <nav class="cdt-cours-choix" aria-label="Mes cours">
             <ul class="cdt-liste">
                 {cours
-                    .iter()
+                    .into_iter()
                     .map(|c| {
                         let est = c.cours_id == choisi;
-                        let href = move || adresse(c.cours_id, lundi.get());
+                        let id_cours = c.cours_id;
+                        let href = move || adresse(id_cours, lundi.get());
                         view! {
                             <li>
                                 <a class="ui-btn ui-btn--compact" class:ui-btn--secondaire=!est href=href aria-current=if est { Some("page") } else { None }>
@@ -120,7 +128,11 @@ fn ChoixCours(cours: Vec<CoursSaisieDto>, choisi: Uuid, lundi: Memo<NaiveDate>) 
 fn SeancesDuCours(cours_id: Uuid, lundi: Memo<NaiveDate>) -> impl IntoView {
     let seances = LocalResource::new(move || {
         let l = lundi.get();
-        async move { session::client().cdt_seances_du_cours(cours_id, l, fin_de_semaine(l)).await }
+        async move {
+            session::client()
+                .cdt_seances_du_cours(cours_id, l, fin_de_semaine(l))
+                .await
+        }
     });
     let recharger = Callback::new(move |_| seances.refetch());
     let ecriture = Ecriture::nouveau(recharger);
@@ -159,7 +171,12 @@ fn CarteSeanceCours(
     ecriture: Ecriture,
 ) -> impl IntoView {
     let annulee = seance.statut == "annulee";
-    let titre = format!("{} · {} – {}", date_longue(seance.jour), heure_courte(&seance.heure_debut), heure_courte(&seance.heure_fin));
+    let titre = format!(
+        "{} · {} – {}",
+        date_longue(seance.jour),
+        heure_courte(&seance.heure_debut),
+        heure_courte(&seance.heure_fin)
+    );
     let seance_id = seance.seance_id;
     let entree = seance.entree.clone();
     let (badge, ton) = match (&entree, annulee) {
@@ -170,10 +187,16 @@ fn CarteSeanceCours(
     let visibilite = entree.as_ref().and_then(libelle_visibilite);
     let differee = entree.as_ref().is_some_and(|e| e.differee_par_plage_calme);
     let apercu = entree.as_ref().map(|e| e.contenu.clone());
-    let retro = entree.as_ref().and_then(|e| e.renseignee_le).map(|_| "Saisie après la séance (renseignée après coup).");
+    let retro = entree
+        .as_ref()
+        .and_then(|e| e.renseignee_le)
+        .map(|_| "Saisie après la séance (renseignée après coup).");
     let donnes = seance.travaux_donnes.clone();
     let attendus = seance.travaux_attendus.clone();
-    let autres_ici: Vec<(String, String)> = autres.into_iter().filter(|(id, _)| *id != seance_id.to_string()).collect();
+    let autres_ici: Vec<(String, String)> = autres
+        .into_iter()
+        .filter(|(id, _)| *id != seance_id.to_string())
+        .collect();
     view! {
         <article class="cdt-seance" class:cdt-seance--annulee=annulee>
             <header class="cdt-seance__entete">
@@ -205,13 +228,33 @@ fn CarteSeanceCours(
 }
 
 #[component]
-fn FormulaireEntree(cours_id: Uuid, seance_id: Uuid, entree: Option<EntreeDto>, ecriture: Ecriture) -> impl IntoView {
+fn FormulaireEntree(
+    cours_id: Uuid,
+    seance_id: Uuid,
+    entree: Option<EntreeDto>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     let publiee = entree.as_ref().is_some_and(|e| e.etat == "publiee");
-    let titre = RwSignal::new(entree.as_ref().and_then(|e| e.titre.clone()).unwrap_or_default());
-    let contenu = RwSignal::new(entree.as_ref().map(|e| e.contenu.clone()).unwrap_or_default());
-    let notions = RwSignal::new(entree.as_ref().map(|e| e.notions.join("\n")).unwrap_or_default());
+    let titre = RwSignal::new(
+        entree
+            .as_ref()
+            .and_then(|e| e.titre.clone())
+            .unwrap_or_default(),
+    );
+    let contenu = RwSignal::new(
+        entree
+            .as_ref()
+            .map(|e| e.contenu.clone())
+            .unwrap_or_default(),
+    );
+    let notions = RwSignal::new(
+        entree
+            .as_ref()
+            .map(|e| e.notions.join("\n"))
+            .unwrap_or_default(),
+    );
     // Une entrée déjà publiée le reste : on ne propose pas « brouillon ».
-    let publication = RwSignal::new(if publiee { "maintenant".to_string() } else { "maintenant".to_string() });
+    let publication = RwSignal::new("maintenant".to_string());
     let jour = RwSignal::new(String::new());
     let heure = RwSignal::new(String::new());
     let sans_avis = RwSignal::new(false);
@@ -227,12 +270,16 @@ fn FormulaireEntree(cours_id: Uuid, seance_id: Uuid, entree: Option<EntreeDto>, 
         vec![("maintenant".into(), "Enregistrer".into())]
     } else {
         vec![
-            ("brouillon".into(), "Brouillon (invisible des élèves)".into()),
+            (
+                "brouillon".into(),
+                "Brouillon (invisible des élèves)".into(),
+            ),
             ("maintenant".into(), "Publier maintenant".into()),
             ("programmer".into(), "Programmer la publication".into()),
         ]
     };
     let pref = format!("cdt-e-{seance_id}");
+    let (pref_pub, pref_av) = (pref.clone(), pref.clone());
     let envoyer = move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
         let saisie = SaisieEntree {
@@ -246,13 +293,24 @@ fn FormulaireEntree(cours_id: Uuid, seance_id: Uuid, entree: Option<EntreeDto>, 
             motif: motif.get_untracked(),
         };
         match valider_entree(&saisie) {
-            Err(es) => poser(&es, &[("contenu", e_contenu), ("titre", e_titre), ("notions", e_notions), ("jour", e_jour), ("heure", e_heure)]),
+            Err(es) => poser(
+                &es,
+                &[
+                    ("contenu", e_contenu),
+                    ("titre", e_titre),
+                    ("notions", e_notions),
+                    ("jour", e_jour),
+                    ("heure", e_heure),
+                ],
+            ),
             Ok(corps) => {
                 for s in [e_contenu, e_titre, e_notions, e_jour, e_heure] {
                     s.set(None);
                 }
                 ecriture.lancer(async move {
-                    session::client().cdt_entree_enregistrer(cours_id, seance_id, &corps).await?;
+                    session::client()
+                        .cdt_entree_enregistrer(cours_id, seance_id, &corps)
+                        .await?;
                     Ok("Entrée du cahier enregistrée.".to_string())
                 });
             }
@@ -266,12 +324,12 @@ fn FormulaireEntree(cours_id: Uuid, seance_id: Uuid, entree: Option<EntreeDto>, 
             <ZoneTexte id=format!("{pref}-notions") libelle="Notions travaillées (une par ligne)" valeur=notions erreur=e_notions/>
             <GroupeChoix nom=format!("{pref}-publication") legende="Publication" valeur=publication options=options/>
             {move || (publication.get() == "programmer").then(|| view! {
-                <ChampTexte id=format!("{pref}-jour") libelle="Jour de publication" valeur=jour genre="date" erreur=e_jour requis=true/>
-                <ChampTexte id=format!("{pref}-heure") libelle="Heure (heure de l'établissement, 7 h par défaut)" valeur=heure genre="time" erreur=e_heure/>
+                <ChampTexte id=format!("{pref_pub}-jour") libelle="Jour de publication" valeur=jour genre="date" erreur=e_jour requis=true/>
+                <ChampTexte id=format!("{pref_pub}-heure") libelle="Heure (heure de l'établissement, 7 h par défaut)" valeur=heure genre="time" erreur=e_heure/>
             })}
             {publiee.then(|| view! {
-                <Case id=format!("{pref}-sans-avis") libelle="Modification mineure : ne pas prévenir les élèves (la mention « modifié le » reste visible)" coche=sans_avis/>
-                <ChampTexte id=format!("{pref}-motif") libelle="Motif de la modification (facultatif)" valeur=motif/>
+                <Case id=format!("{pref_av}-sans-avis") libelle="Modification mineure : ne pas prévenir les élèves (la mention « modifié le » reste visible)" coche=sans_avis/>
+                <ChampTexte id=format!("{pref_av}-motif") libelle="Motif de la modification (facultatif)" valeur=motif/>
             })}
             <Bouton soumettre=true en_cours=ecriture.en_cours>"Enregistrer"</Bouton>
         </form>
@@ -279,7 +337,11 @@ fn FormulaireEntree(cours_id: Uuid, seance_id: Uuid, entree: Option<EntreeDto>, 
 }
 
 #[component]
-fn ActionsEntree(entree: EntreeDto, autres: Vec<(String, String)>, ecriture: Ecriture) -> impl IntoView {
+fn ActionsEntree(
+    entree: EntreeDto,
+    autres: Vec<(String, String)>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     let id = entree.id;
     let retiree = entree.etat == "retiree";
     let versions = RwSignal::new(None::<Vec<VersionDto>>);
@@ -302,7 +364,15 @@ fn ActionsEntree(entree: EntreeDto, autres: Vec<(String, String)>, ecriture: Ecr
         };
         let cours_id = entree.cours_id;
         ecriture.lancer(async move {
-            session::client().cdt_entree_copier(id, vec![CopieVersBody { cours_id, seance_id }]).await?;
+            session::client()
+                .cdt_entree_copier(
+                    id,
+                    vec![CopieVersBody {
+                        cours_id,
+                        seance_id,
+                    }],
+                )
+                .await?;
             Ok("Entrée copiée en brouillon.".to_string())
         });
     });
@@ -366,7 +436,11 @@ fn ActionsEntree(entree: EntreeDto, autres: Vec<(String, String)>, ecriture: Ecr
 }
 
 #[component]
-fn ListeTravaux(titre: &'static str, travaux: Vec<TravailResumeDto>, ecriture: Ecriture) -> impl IntoView {
+fn ListeTravaux(
+    titre: &'static str,
+    travaux: Vec<TravailResumeDto>,
+    ecriture: Ecriture,
+) -> impl IntoView {
     if travaux.is_empty() {
         return ().into_any();
     }
@@ -401,7 +475,8 @@ fn ListeTravaux(titre: &'static str, travaux: Vec<TravailResumeDto>, ecriture: E
 /// Modification d'un travail (chargé à l'ouverture) : avec ou sans avis, confirmation d'une échéance avancée, retrait.
 #[component]
 fn FormulaireTravail(id: Uuid, ecriture: Ecriture) -> impl IntoView {
-    let travail = LocalResource::new(move || async move { session::client().cdt_travail(id).await });
+    let travail =
+        LocalResource::new(move || async move { session::client().cdt_travail(id).await });
     view! {
         {move || match travail.get() {
             None => view! { <Squelette lignes=2 libelle="Chargement du travail…"/> }.into_any(),
@@ -435,7 +510,8 @@ fn EditionTravail(travail: TravailC2Dto, ecriture: Ecriture) -> impl IntoView {
     let confirmer_avance = RwSignal::new(false);
     let en_attente = RwSignal::new(None::<ent_web_api::cahier_c2_types::ModifierTravailC2Body>);
     let publie = travail.etat == "publie";
-    let envoyer_corps = move |mut corps: ent_web_api::cahier_c2_types::ModifierTravailC2Body, confirme: bool| {
+    let envoyer_corps = move |mut corps: ent_web_api::cahier_c2_types::ModifierTravailC2Body,
+                              confirme: bool| {
         corps.confirme_echeance_avancee = confirme;
         ecriture.lancer(async move {
             let r = session::client().cdt_travail_modifier(id, &corps).await?;
@@ -457,7 +533,15 @@ fn EditionTravail(travail: TravailC2Dto, ecriture: Ecriture) -> impl IntoView {
             motif: motif.get_untracked(),
         };
         match valider_modification(&saisie, &origine) {
-            Err(es) => poser(&es, &[("titre", e_titre), ("consigne", e_consigne), ("jour", e_jour), ("heure", e_heure)]),
+            Err(es) => poser(
+                &es,
+                &[
+                    ("titre", e_titre),
+                    ("consigne", e_consigne),
+                    ("jour", e_jour),
+                    ("heure", e_heure),
+                ],
+            ),
             Ok((corps, avancee)) => {
                 for s in [e_titre, e_consigne, e_jour, e_heure] {
                     s.set(None);
@@ -482,7 +566,10 @@ fn EditionTravail(travail: TravailC2Dto, ecriture: Ecriture) -> impl IntoView {
         let m = motif_retrait.get_untracked();
         ecriture.lancer(async move {
             session::client().cdt_travail_retirer(id, &m).await?;
-            Ok("Travail retiré de la diffusion (les copies déjà rendues restent à l'élève).".to_string())
+            Ok(
+                "Travail retiré de la diffusion (les copies déjà rendues restent à l'élève)."
+                    .to_string(),
+            )
         });
     });
     let pref = format!("cdt-t-{id}");

@@ -60,15 +60,25 @@ impl ApiClient {
 
     /// `GET /cahier/c2/entrees/{id}/versions` : versions précédentes d'une entrée.
     pub async fn cdt_entree_versions(&self, id: Uuid) -> Result<Vec<VersionDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/cahier/c2/entrees/{id}/versions"), None)
-            .await
+        self.appel(
+            Methode::Get,
+            &format!("/cahier/c2/entrees/{id}/versions"),
+            None,
+        )
+        .await
     }
 
     /// `POST /cahier/c2/entrees/{id}/retrait` : retire l'entrée de la diffusion (motif obligatoire).
     pub async fn cdt_entree_retirer(&self, id: Uuid, motif: &str) -> Result<EntreeDto, ApiError> {
-        let b = RetraitC2Body { motif: motif.to_string() };
-        self.appel(Methode::Post, &format!("/cahier/c2/entrees/{id}/retrait"), corps(&b)?)
-            .await
+        let b = RetraitC2Body {
+            motif: motif.to_string(),
+        };
+        self.appel(
+            Methode::Post,
+            &format!("/cahier/c2/entrees/{id}/retrait"),
+            corps(&b)?,
+        )
+        .await
     }
 
     /// `POST /cahier/c2/entrees/{id}/copies` : copie l'entrée vers d'autres séances (brouillons).
@@ -78,13 +88,23 @@ impl ApiClient {
         vers: Vec<CopieVersBody>,
     ) -> Result<Vec<EntreeDto>, ApiError> {
         let b = CopieSeanceBody { vers };
-        self.appel(Methode::Post, &format!("/cahier/c2/entrees/{id}/copies"), corps(&b)?)
-            .await
+        self.appel(
+            Methode::Post,
+            &format!("/cahier/c2/entrees/{id}/copies"),
+            corps(&b)?,
+        )
+        .await
     }
 
     /// `POST /cahier/c2/entrees/{id}/contributions` : contribution signée d'un co-intervenant.
-    pub async fn cdt_contribuer(&self, id: Uuid, contenu: &str) -> Result<ContributionDto, ApiError> {
-        let b = ContributionBody { contenu: contenu.to_string() };
+    pub async fn cdt_contribuer(
+        &self,
+        id: Uuid,
+        contenu: &str,
+    ) -> Result<ContributionDto, ApiError> {
+        let b = ContributionBody {
+            contenu: contenu.to_string(),
+        };
         self.appel(
             Methode::Post,
             &format!("/cahier/c2/entrees/{id}/contributions"),
@@ -95,7 +115,8 @@ impl ApiClient {
 
     /// `POST /cahier/c2/travaux` : donne un travail à un ou plusieurs cours.
     pub async fn cdt_travaux_creer(&self, b: &TravailC2Body) -> Result<TravauxCreesDto, ApiError> {
-        self.appel(Methode::Post, "/cahier/c2/travaux", corps(b)?).await
+        self.appel(Methode::Post, "/cahier/c2/travaux", corps(b)?)
+            .await
     }
 
     /// `PUT /cahier/c2/travaux/{id}` : modifie un travail (avec ou sans avis).
@@ -116,14 +137,28 @@ impl ApiClient {
 
     /// `GET /cahier/c2/travaux/{id}/versions` : versions précédentes d'un travail.
     pub async fn cdt_travail_versions(&self, id: Uuid) -> Result<Vec<VersionTravailDto>, ApiError> {
-        self.appel(Methode::Get, &format!("/cahier/c2/travaux/{id}/versions"), None)
-            .await
+        self.appel(
+            Methode::Get,
+            &format!("/cahier/c2/travaux/{id}/versions"),
+            None,
+        )
+        .await
     }
 
     /// `POST /cahier/c2/travaux/{id}/retrait` : retire le travail de la diffusion (motif obligatoire).
-    pub async fn cdt_travail_retirer(&self, id: Uuid, motif: &str) -> Result<TravailC2Dto, ApiError> {
-        let b = RetraitC2Body { motif: motif.to_string() };
-        self.appel(Methode::Post, &format!("/cahier/c2/travaux/{id}/retrait"), corps(&b)?)
-            .await
+    pub async fn cdt_travail_retirer(
+        &self,
+        id: Uuid,
+        motif: &str,
+    ) -> Result<TravailC2Dto, ApiError> {
+        let b = RetraitC2Body {
+            motif: motif.to_string(),
+        };
+        self.appel(
+            Methode::Post,
+            &format!("/cahier/c2/travaux/{id}/retrait"),
+            corps(&b)?,
+        )
+        .await
     }
 }

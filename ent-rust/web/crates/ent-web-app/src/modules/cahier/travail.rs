@@ -9,8 +9,8 @@
 
 use ent_web_api::cahier_c2_types::{NatureTravailDto, TravauxCreesDto};
 use ent_web_ui::{
-    AccesRefuse, Alerte, Bouton, Case, ChampTexte, EnTetePage, EtatVide, GroupeChoix, LienBouton, Niveau, Selection,
-    Squelette, Variante, ZoneTexte,
+    AccesRefuse, Alerte, Bouton, Case, ChampTexte, EnTetePage, EtatVide, GroupeChoix, LienBouton,
+    Niveau, Selection, Squelette, Variante, ZoneTexte,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -43,8 +43,16 @@ pub fn PageDonnerTravail() -> impl IntoView {
 #[component]
 fn ContenuDonner() -> impl IntoView {
     let query = use_query_map();
-    let cours_demande = Memo::new(move |_| query.with(|q| q.get("cours")).and_then(|c| Uuid::parse_str(c.trim()).ok()));
-    let seance_demandee = Memo::new(move |_| query.with(|q| q.get("seance")).and_then(|c| Uuid::parse_str(c.trim()).ok()));
+    let cours_demande = Memo::new(move |_| {
+        query
+            .with(|q| q.get("cours"))
+            .and_then(|c| Uuid::parse_str(c.trim()).ok())
+    });
+    let seance_demandee = Memo::new(move |_| {
+        query
+            .with(|q| q.get("seance"))
+            .and_then(|c| Uuid::parse_str(c.trim()).ok())
+    });
     let cours = LocalResource::new(|| async { session::client().cdt_cours().await });
     let natures = LocalResource::new(|| async { session::client().cdt_natures().await });
     view! {
@@ -92,8 +100,14 @@ fn FormulaireDonner(
         }
     }
     let nature = RwSignal::new(natures.first().map(|n| n.code.clone()).unwrap_or_default());
-    let duree_proposee: Vec<(String, Option<i16>)> = natures.iter().map(|n| (n.code.clone(), n.duree_defaut_min)).collect();
-    let options_nature: Vec<(String, String)> = natures.iter().map(|n| (n.code.clone(), n.libelle.clone())).collect();
+    let duree_proposee: Vec<(String, Option<i16>)> = natures
+        .iter()
+        .map(|n| (n.code.clone(), n.duree_defaut_min))
+        .collect();
+    let options_nature: Vec<(String, String)> = natures
+        .iter()
+        .map(|n| (n.code.clone(), n.libelle.clone()))
+        .collect();
     let titre = RwSignal::new(String::new());
     let consigne = RwSignal::new(String::new());
     let duree = RwSignal::new(String::new());
@@ -126,14 +140,22 @@ fn FormulaireDonner(
             .iter()
             .find(|(c, _)| *c == code)
             .and_then(|(_, d)| *d)
-            .map(|d| format!("Durée proposée pour cette nature : {d} min (laissez vide pour la retenir)."))
+            .map(|d| {
+                format!(
+                    "Durée proposée pour cette nature : {d} min (laissez vide pour la retenir)."
+                )
+            })
     };
     let envoyer = {
         let choisis = choisis.clone();
         move |ev: leptos::ev::SubmitEvent| {
             ev.prevent_default();
             let saisie = SaisieTravailC2 {
-                cours: choisis.iter().filter(|(_, s)| s.get_untracked()).map(|(id, _)| *id).collect(),
+                cours: choisis
+                    .iter()
+                    .filter(|(_, s)| s.get_untracked())
+                    .map(|(id, _)| *id)
+                    .collect(),
                 seance_donnee: seance,
                 echeance: echeance.get_untracked(),
                 jour: jour.get_untracked(),
@@ -166,7 +188,10 @@ fn FormulaireDonner(
                     ],
                 ),
                 Ok(corps) => {
-                    for s in [e_cours, e_titre, e_consigne, e_nature, e_duree, e_jour, e_heure, e_pj, e_ph] {
+                    for s in [
+                        e_cours, e_titre, e_consigne, e_nature, e_duree, e_jour, e_heure, e_pj,
+                        e_ph,
+                    ] {
                         s.set(None);
                     }
                     resultat.set(None);
@@ -174,14 +199,21 @@ fn FormulaireDonner(
                         let r = session::client().cdt_travaux_creer(&corps).await?;
                         let n = r.travaux.len();
                         resultat.set(Some(r));
-                        Ok(if n > 1 { format!("{n} travaux créés, reliés.") } else { "Travail créé.".to_string() })
+                        Ok(if n > 1 {
+                            format!("{n} travaux créés, reliés.")
+                        } else {
+                            "Travail créé.".to_string()
+                        })
                     });
                 }
             }
         }
     };
     let options_echeance = vec![
-        ("prochaine".to_string(), "Pour la prochaine séance du cours (proposé)".to_string()),
+        (
+            "prochaine".to_string(),
+            "Pour la prochaine séance du cours (proposé)".to_string(),
+        ),
         ("date".to_string(), "Pour une date et une heure".to_string()),
     ];
     let options_rendu = vec![
@@ -191,14 +223,26 @@ fn FormulaireDonner(
     ];
     let options_ia = vec![
         ("non".to_string(), "IA non autorisée".to_string()),
-        ("recherche".to_string(), "IA autorisée pour la recherche".to_string()),
-        ("relecture".to_string(), "IA autorisée pour la relecture".to_string()),
+        (
+            "recherche".to_string(),
+            "IA autorisée pour la recherche".to_string(),
+        ),
+        (
+            "relecture".to_string(),
+            "IA autorisée pour la relecture".to_string(),
+        ),
         ("libre".to_string(), "IA librement autorisée".to_string()),
     ];
     let options_publication = vec![
-        ("brouillon".to_string(), "Brouillon (invisible des élèves)".to_string()),
+        (
+            "brouillon".to_string(),
+            "Brouillon (invisible des élèves)".to_string(),
+        ),
         ("maintenant".to_string(), "Publier maintenant".to_string()),
-        ("programmer".to_string(), "Programmer la publication".to_string()),
+        (
+            "programmer".to_string(),
+            "Programmer la publication".to_string(),
+        ),
     ];
     let plusieurs = cours.len() > 1;
     view! {
