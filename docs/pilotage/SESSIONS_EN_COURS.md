@@ -61,7 +61,8 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | **15 code A5** | session_01KZCbFH6ksDyX18WMwwKx8G | ent-socle-15-code-5 (2306) | **active** |
 | 12 code AS3 (versé, archivée) | session_01KZCbFE8xVqZThQqkxZ94Ma | ent-socle-12-code-3 | **active** — nouvelle session (règle 1 : mission au lancement) ; AS1-AS2 versés par session_01KZCbFGeamDF2fR77eh4pjP, archivée |
 | N1 code N1-0 | session_01KZCbFFybUu3szup9cqD9bL | ent-socle-N1-code-0 (3040–3041) | versé (f3b99902), archivée |
-| **N1 code N1-1** | session_01KZCbFGZxiQjJ2SsThePviE | ent-socle-N1-code-1 (3042–3043) | **active** — natures, files, routage |
+| N1 code N1-1 | session_01KZCbFGZxiQjJ2SsThePviE | ent-socle-N1-code-1 (3042–3043) | versé (0006c9f3), archivée |
+| **Heure des tests et horodatages** | session_01KZCbFFDX6zq6ZuZUqLgthD | ent-jour-etablissement-2 (297) | **active** |
 | 20 code | session_01KZCbFFMJBNM2hNLCqoQCJo | — | en pause, C0-C1 versés ; prochain : C2 |
 | 29 code | session_01KZCbFGstxci8Rzs92fxX5m | — | en pause, P2 versé ; prochain : P3 |
 | 19 code | session_01KZCbFHhtUcrLKPT1g7mDDc | — | en pause, AG3 + AG2 réduit versés |

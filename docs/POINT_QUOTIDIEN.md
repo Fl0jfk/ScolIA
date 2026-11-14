@@ -6,6 +6,19 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-14 (samedi, nuit)
+
+### Passé sur `ENT` (tête `0006c9f3`)
+- **Socle N1 « Demandes », lot N1-1** (`49bfc691`, CI 43534161490 verte ; fusion pilote sur `e0474cff`) : natures et catalogue, files à membres calculés depuis les missions du socle 6, file de tri, file de repli, routage déterministe et simulateur, accusé de réception (service, rôle, délai daté, fermetures), **repli RH paramétrable** (D-061 : la personne visée n'est jamais destinataire). Ferme NJ-85, NJ-94, NJ-95. Limites : adaptateur d'avis du socle 8 absent, désignation par le demandeur et requalification en N1-2, pas encore de route HTTP.
+
+### Ce qui a coincé
+- **CI lancée de nuit** (vendredi 23 h 38 UTC = samedi 0 h 38 à Paris) : quatre tests hors lot rouges, tous liés à la date. Deux causes : des **tests** qui calculent « aujourd'hui » en UTC (`Utc::now()`, `Local::now()`, `resynchroniser(current_date)`), et des **conversions d'horodatage en date** (`created_at::date`, `updated_at::date`) dans les fonctions de reprise élève (280, 282, 283, 340, 342). Confié à un lot dédié (« heure des tests et dates d'horodatage », migration 297, garde statique étendue).
+
+### En cours
+- Socle 15 A5 (absence longue et suppléance), socle 12 AS4 (décompte versionné), lot « heure des tests et dates d'horodatage ».
+
+---
+
 ## 2026-11-13 (vendredi soir, 18 h 50 Paris) — point du jour
 
 ### Passé sur `ENT` aujourd'hui (validé par la CI ; tête `e0474cff`)
