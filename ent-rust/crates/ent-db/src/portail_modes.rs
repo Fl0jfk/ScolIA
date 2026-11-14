@@ -192,8 +192,8 @@ pub fn bandeaux_calendrier(auj: &Jour, demain: Option<&Jour>, p: Public) -> Vec<
         }
     }
     if let Some(d) = demain {
-        for e in evenements_visibles(d, p)
-            .filter(|e| e.type_evenement == "fermeture_exceptionnelle" && !deja.contains(&e.id))
+        if let Some(e) = evenements_visibles(d, p)
+            .find(|e| e.type_evenement == "fermeture_exceptionnelle" && !deja.contains(&e.id))
         {
             v.push(Bandeau::nouveau(
                 "structure.fermeture_demain",
@@ -202,7 +202,6 @@ pub fn bandeaux_calendrier(auj: &Jour, demain: Option<&Jour>, p: Public) -> Vec<
                 true,
                 Some(LIEN_CALENDRIER),
             ));
-            break;
         }
     }
     v
