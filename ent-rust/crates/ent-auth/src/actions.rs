@@ -445,6 +445,10 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
+    // ── Socle 6, lot P5 (`06_PERSONNELS.md` §14.2) ──
+    /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
+    /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
+    EquipesGerer,
 }
 
 /// Sur quoi une action s'applique.
@@ -469,7 +473,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 194] = [
+    pub const TOUTES: [Action; 195] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -676,6 +680,8 @@ impl Action {
         Action::PersonnelsHeuresSigner,
         Action::PersonnelsHeuresExporter,
         Action::PersonnelsPaieAbsences,
+        // Socle 6, lot P5 (en fin de catalogue).
+        Action::EquipesGerer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -875,6 +881,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
+            Self::EquipesGerer => "equipes.gerer",
         }
     }
 
@@ -1077,6 +1084,7 @@ impl Action {
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
+            Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
         }
     }
 
@@ -1248,6 +1256,7 @@ impl Action {
             | Self::PersonnelsHeuresSigner
             | Self::PersonnelsHeuresExporter
             | Self::PersonnelsPaieAbsences
+            | Self::EquipesGerer
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1411,6 +1420,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_06_personnels(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1844,6 +1854,17 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if matches!(role, Role::Direction | Role::Compta) {
         d.push(etab(PersonnelsPaieAbsences));
+    }
+}
+
+/// Socle 6 (personnels), lot P5 : équipes constituées (règle 21 du pilotage :
+/// une fonction par socle). Équipes : direction, administration, secrétariat et CPE ; elles ne donnent aucun droit
+/// sur les élèves.
+fn socle_06_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(EquipesGerer));
     }
 }
 
@@ -2393,6 +2414,28 @@ mod tests {
         assert_eq!(Action::parse("stages.periodes.gerer"), Some(StagesPeriodesGerer));
         assert_eq!(StagesParametrer.portees_admises(), &[Portee::Etablissement]);
         assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
+    }
+
+    /// Lot P5 (règle 21 : une fonction par socle) : équipes constituées (Admin, Direction, Administratif, CPE),
+    /// établissement seulement ; aucune inclusion implicite.
+    #[test]
+    fn p5_equipes_modele_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            assert_eq!(a(EquipesGerer),
+                       usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)),
+                       "{r:?} equipes.gerer");
+        }
+        for x in [EquipesGerer] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement], "{x:?} : établissement seulement");
+            assert!(x.accordee_par().is_empty(), "{x:?} : aucune inclusion implicite");
+        }
+        assert_eq!(Action::parse("equipes.gerer"), Some(EquipesGerer));
+        // Une équipe ne donne aucun droit sur les élèves : `equipes.gerer` n'est pas une action d'élève.
+        assert!(!EquipesGerer.portees_admises().contains(&Portee::MesClasses));
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :
