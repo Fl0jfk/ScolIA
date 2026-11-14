@@ -256,14 +256,14 @@ struct LigneDocument {
     serie_code: Option<String>,
     numero_annee: Option<i32>,
     numero: Option<i32>,
-    code_verification: Option<String>,
     version_courante: i32,
     verification_publique: String,
     cree_le: DateTime<Utc>,
 }
 
-const COLONNES_DOCUMENT: &str = "id, nature_code, entite_id, sujet_type, eleve_id, personne_id, agent_id, sensibilite, domaine,
-     titre, titre_neutre, etat, serie_code, numero_annee, numero, code_verification, version_courante,
+const COLONNES_DOCUMENT: &str =
+    "id, nature_code, entite_id, sujet_type, eleve_id, personne_id, agent_id, sensibilite, domaine,
+     titre, titre_neutre, etat, serie_code, numero_annee, numero, version_courante,
      verification_publique, cree_le";
 
 fn ligne_document(r: &sqlx::postgres::PgRow) -> LigneDocument {
@@ -283,7 +283,6 @@ fn ligne_document(r: &sqlx::postgres::PgRow) -> LigneDocument {
         serie_code: r.get("serie_code"),
         numero_annee: r.get("numero_annee"),
         numero: r.get("numero"),
-        code_verification: r.get("code_verification"),
         version_courante: r.get("version_courante"),
         verification_publique: r.get("verification_publique"),
         cree_le: r.get("cree_le"),
@@ -781,9 +780,9 @@ impl PgEnt {
             "INSERT INTO ent_doc_document
                  (id, etablissement_id, nature_code, entite_id, sujet_type, sujet_id, eleve_id, personne_id, agent_id,
                   annee_scolaire_id, origine, sensibilite, domaine, titre, titre_neutre, etat, serie_code, numero_annee, numero,
-                  code_verification, verification_publique, version_courante, source_brique, source_type, source_id,
+                  verification_publique, version_courante, source_brique, source_type, source_id,
                   categorie_conservation, cree_par)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'emis',$11,$12,$13,$14,'emis',$15,$16,$17,$18,$19,1,$20,$21,$22,$23,$24)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'emis',$11,$12,$13,$14,'emis',$15,$16,$17,$18,1,$19,$20,$21,$22,$23)",
         )
         .bind(document_id)
         .bind(a.etablissement_id)
@@ -805,7 +804,6 @@ impl PgEnt {
         .bind(n.serie.code())
         .bind(annee)
         .bind(numero)
-        .bind(&code)
         .bind(n.verification.code())
         .bind(d.source.as_ref().map(|s| s.0.clone()))
         .bind(d.source.as_ref().map(|s| s.1.clone()))
@@ -824,6 +822,7 @@ impl PgEnt {
                 version_id,
                 1,
                 None,
+                code.as_deref(),
                 &rendus,
                 &d.donnees,
                 &d.destinataires,
@@ -1015,6 +1014,7 @@ impl PgEnt {
         version_id: Uuid,
         numero_version: i32,
         motif: Option<&str>,
+        code: Option<&str>,
         rendus: &[ObjetRendu],
         donnees: &[DonneeRendu],
         destinataires: &[DestinataireDoc],
@@ -1027,8 +1027,8 @@ impl PgEnt {
             "INSERT INTO ent_doc_version
                  (id, etablissement_id, document_id, numero_version, cle_objet, empreinte_sha256, nb_pages, langue,
                   trame_code, trame_version, style_code, identite_version, motif, cachet_cle_ref, emise_par,
-                  au_nom_de_agent_id, par_delegation)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$11,$12,$13,$14,$15,$16)",
+                  au_nom_de_agent_id, par_delegation, code_verification)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,1,$10,$11,$12,$13,$14,$15,$16,$17)",
         )
         .bind(version_id)
         .bind(a.etablissement_id)
@@ -1046,6 +1046,7 @@ impl PgEnt {
         .bind(a.user_id)
         .bind(au_nom_de)
         .bind(au_nom_de.is_some())
+        .bind(code)
         .execute(&mut *tx)
         .await
         .map_err(db)?;
@@ -1203,6 +1204,8 @@ impl PgEnt {
         let nouvelle = doc.version_courante + 1;
         let version_id = Uuid::new_v4();
         let affiche = doc.numero_affiche().ok_or_else(conflit)?;
+        // Une version, un code : le code de l'ancienne version répondra « remplacé » (D9).
+        let code = (n.verification != Verification::Aucune).then(generer_code_verification);
         let rendus = self
             .doc_rendre_exemplaires(
                 &mut tx,
@@ -1213,7 +1216,7 @@ impl PgEnt {
                 r.au_nom_de_agent_id,
                 doc.entite_id,
                 &affiche,
-                doc.code_verification.as_deref(),
+                code.as_deref(),
                 nouvelle,
                 Some(&motif),
                 jour,
@@ -1251,6 +1254,7 @@ impl PgEnt {
                 version_id,
                 nouvelle,
                 Some(&motif),
+                code.as_deref(),
                 &rendus,
                 &r.donnees,
                 &r.destinataires,
@@ -1286,7 +1290,7 @@ impl PgEnt {
             version_id,
             numero_version: nouvelle,
             numero_affiche: affiche,
-            code_verification: doc.code_verification,
+            code_verification: code,
             exemplaires,
         })
     }

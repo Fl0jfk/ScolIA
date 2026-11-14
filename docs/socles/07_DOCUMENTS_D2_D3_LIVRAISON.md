@@ -17,7 +17,7 @@ Code : `ent-db/src/documents.rs` (types, natures, ports, règles pures), `docume
 | **RLS forcée** sur les 14 tables, registre des tables (E6, domaine `documents`), compte RLS de `tests_rls.rs` (+14) | 3700–3703, `registre_donnees.rs`, `tests_rls.rs` | `tests_rls::rls_politiques_presentes_et_forcees`, `registre_donnees::…chaque_table…`, `t_separation_entre_etablissements` |
 | **D7** : un exemplaire ne porte jamais que l'adresse de SON destinataire (CHECK en base) ; la version de base n'en porte aucune | 3701 `ent_doc_exemplaire_adresse_chk` | `t_d7_adresse_jamais_celle_d_un_autre` |
 | **D8** : parents séparés → un exemplaire par titulaire, même numéro, rangs distincts, deux coffres ; chacun ne lit que le sien | `emettre_document_for_actor` | `t_d8_deux_titulaires_deux_exemplaires` |
-| **D9** : réémission = nouvelle version, motif obligatoire, même numéro et même code, ancienne mise à disposition retirée, coffre sur la nouvelle ; refusée si la nature se corrige par document compensatoire | `reemettre_document_for_actor` | `t_d9_reemission` |
+| **D9** : réémission = nouvelle version, motif obligatoire, même numéro, **un nouveau code par version** (celui de la version remplacée répond « remplacé le … »), ancienne mise à disposition retirée, coffre sur la nouvelle ; refusée si la nature se corrige par document compensatoire | `reemettre_document_for_actor` | `t_d9_reemission` |
 | **D10** : annulation ★ (motif, journal, retrait des mises à disposition, `documents.annule`), **aucun message automatique** | `annuler_document_for_actor` | `t_d10_annulation` |
 | Droits : `documents.emettre`, `.annuler`, `.registre.lire`, `.modeles.parametrer`, `.restreints.lire`, `.financier.lire`, `.personnels.lire` (fonction `socle_07_documents`) ; le **domaine** du document choisit l'action de lecture (R-D6) ; titre neutre hors droit (RP1-05) ; C4 servi à personne | `actions.rs`, `lire_document_for_actor`, `registre_for_actor` | `t_droits_emission`, `t_registre_titre_neutre`, `t_c4_servi_a_personne`, `ent-auth::documents_d2_modeles_par_defaut` |
 | Événements `documents.emis`, `.remplace`, `.annule`, `.mis_a_disposition`, `.ouvert` (charge utile : identifiants, nature, sensibilité ; jamais de titre ni de contenu), agrégat `Documents` | `documents_repo.rs`, `ent-events` | `t_emission_…` |
@@ -33,6 +33,7 @@ Code : `ent-db/src/documents.rs` (types, natures, ports, règles pures), `docume
   reste exercé par `autoriser_eleve` sur le sujet du document.
 - **Doublure de modèle** : `documents.registre.lire` n'est donné qu'à la direction et au secrétariat ; le CPE et la comptabilité émettent mais ne relisent pas
   (le modèle historique `documents.lire` ne couvre que Admin, Direction, Administratif : il n'a pas été modifié, règle 21).
+- **Code de vérification par version** (et non par document, §8.3) : D9 exige que le code de l'ancienne version réponde « remplacé le … » ; le code est donc une colonne de `ent_doc_version`.
 - **Brouillon** : l'émission écrit directement un document « émis » (pas de brouillon sans parapheur, qui vient avec D6) ; le modèle accepte déjà `brouillon`.
 - **Fusion d'élèves** : `ent_doc_document` et `ent_doc_mise_a_disposition` sont déclarées `Reste` (immuables) ; le rattachement à la fiche conservée
   (§19.2) sera la commande de classement `documents.classer`, à ajouter avec D4.

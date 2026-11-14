@@ -38,10 +38,9 @@ CREATE TABLE IF NOT EXISTS ent_doc_document (
         'SCO', 'ADM', 'VS', 'DIS', 'PED', 'STG', 'FIN', 'PER', 'ETB', 'CRA', 'CRD')),
     numero_annee INT CHECK (numero_annee IS NULL OR numero_annee BETWEEN 2000 AND 2999),
     numero INT CHECK (numero IS NULL OR numero >= 1),
-    -- Code de vérification publique : 12 caractères sans ambiguïté visuelle (≥ 60 bits), tiré par le service.
-    code_verification TEXT CHECK (code_verification IS NULL OR code_verification ~ '^[A-HJ-NP-Z2-9]{12}$'),
     -- Mode de vérification publique déclaré par la nature (§9.7) ; copié ici pour que la page publique ne relise
-    -- jamais la déclaration d'une brique.
+    -- jamais la déclaration d'une brique. Le CODE de vérification est porté par la VERSION (une version, un code) :
+    -- le code d'une version remplacée répond « remplacé le … » (D9).
     verification_publique TEXT NOT NULL DEFAULT 'authenticite_seule'
         CHECK (verification_publique IN ('complete', 'authenticite_seule', 'aucune')),
     version_courante INT NOT NULL DEFAULT 0 CHECK (version_courante >= 0),
@@ -71,15 +70,12 @@ CREATE TABLE IF NOT EXISTS ent_doc_document (
         (sujet_type <> 'eleve' OR eleve_id = sujet_id)
         AND (sujet_type <> 'personne' OR personne_id = sujet_id)
         AND (sujet_type <> 'agent' OR agent_id = sujet_id)),
-    -- Un brouillon n'a ni numéro, ni code, ni version ; un document émis a un numéro complet et au moins une version
-    -- (le code peut manquer seulement pour une nature sans vérification publique).
+    -- Un brouillon n'a ni numéro ni version ; un document émis a un numéro complet et au moins une version.
     CONSTRAINT ent_doc_document_numero_chk CHECK (
-        (etat = 'brouillon' AND serie_code IS NULL AND numero_annee IS NULL AND numero IS NULL
-            AND code_verification IS NULL AND version_courante = 0)
+        (etat = 'brouillon' AND serie_code IS NULL AND numero_annee IS NULL AND numero IS NULL AND version_courante = 0)
         OR (etat <> 'brouillon' AND origine <> 'emis')
         OR (etat <> 'brouillon' AND serie_code IS NOT NULL AND numero_annee IS NOT NULL AND numero IS NOT NULL
-            AND version_courante >= 1
-            AND (code_verification IS NOT NULL OR verification_publique = 'aucune'))),
+            AND version_courante >= 1)),
     CONSTRAINT ent_doc_document_numero_ensemble_chk CHECK (
         (serie_code IS NULL) = (numero IS NULL) AND (numero IS NULL) = (numero_annee IS NULL)),
     CONSTRAINT ent_doc_document_annulation_chk CHECK (
@@ -90,9 +86,6 @@ CREATE TABLE IF NOT EXISTS ent_doc_document (
 -- Un seul document par numéro dans l'entité émettrice, la série et l'année (les trous sont impossibles, les doublons aussi).
 CREATE UNIQUE INDEX IF NOT EXISTS ent_doc_document_numero_uq
     ON ent_doc_document (etablissement_id, entite_id, serie_code, numero_annee, numero) WHERE numero IS NOT NULL;
--- Recherche publique par code : un code désigne un seul document, toutes entités confondues.
-CREATE UNIQUE INDEX IF NOT EXISTS ent_doc_document_code_uq
-    ON ent_doc_document (code_verification) WHERE code_verification IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ent_doc_document_eleve_idx
     ON ent_doc_document (etablissement_id, eleve_id, cree_le DESC) WHERE eleve_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ent_doc_document_personne_idx
@@ -137,12 +130,11 @@ BEGIN
        OR NEW.cree_par IS DISTINCT FROM OLD.cree_par THEN
         RAISE EXCEPTION 'ent_doc_document : identité du document immuable' USING ERRCODE = '23001';
     END IF;
-    -- Numéro et code : attribués une seule fois, à l'émission.
-    IF (OLD.numero IS NOT NULL AND (NEW.numero IS DISTINCT FROM OLD.numero
-                                    OR NEW.numero_annee IS DISTINCT FROM OLD.numero_annee
-                                    OR NEW.serie_code IS DISTINCT FROM OLD.serie_code))
-       OR (OLD.code_verification IS NOT NULL AND NEW.code_verification IS DISTINCT FROM OLD.code_verification) THEN
-        RAISE EXCEPTION 'ent_doc_document : numéro et code de vérification immuables' USING ERRCODE = '23001';
+    -- Numéro : attribué une seule fois, à l'émission.
+    IF OLD.numero IS NOT NULL AND (NEW.numero IS DISTINCT FROM OLD.numero
+                                   OR NEW.numero_annee IS DISTINCT FROM OLD.numero_annee
+                                   OR NEW.serie_code IS DISTINCT FROM OLD.serie_code) THEN
+        RAISE EXCEPTION 'ent_doc_document : numéro immuable' USING ERRCODE = '23001';
     END IF;
     -- Transitions admises à ce lot (les états de pièces, gel et sort final viennent avec D5 et D9).
     IF NEW.etat IS DISTINCT FROM OLD.etat
@@ -186,6 +178,9 @@ CREATE TABLE IF NOT EXISTS ent_doc_version (
     type_version TEXT NOT NULL DEFAULT 'originale'
         CHECK (type_version IN ('originale', 'occultee', 'papier_original', 'importee')),
     version_source_id UUID,
+    -- Code de vérification publique de CETTE version : 12 caractères sans ambiguïté visuelle (≥ 60 bits), tiré par le
+    -- service ; NULL pour une nature sans vérification publique. Le code d'une version remplacée répond « remplacé ».
+    code_verification TEXT CHECK (code_verification IS NULL OR code_verification ~ '^[A-HJ-NP-Z2-9]{12}$'),
     -- Motif obligatoire dès la deuxième version (réémission, D9).
     motif TEXT CHECK (motif IS NULL OR length(btrim(motif)) BETWEEN 3 AND 500),
     -- Identifiant de la clé du cachet de l'établissement qui a scellé cette version (PAdES, §10.7) : le registre dit
@@ -209,6 +204,9 @@ CREATE TABLE IF NOT EXISTS ent_doc_version (
     CONSTRAINT ent_doc_version_delegation_chk CHECK (NOT par_delegation OR au_nom_de_agent_id IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS ent_doc_version_empreinte_idx ON ent_doc_version (etablissement_id, empreinte_sha256);
+-- Recherche publique par code : un code désigne une seule version, toutes entités confondues.
+CREATE UNIQUE INDEX IF NOT EXISTS ent_doc_version_code_uq
+    ON ent_doc_version (code_verification) WHERE code_verification IS NOT NULL;
 
 -- Ajout seul : ni UPDATE ni DELETE (modèle 182). L'empreinte de la version est celle de l'objet du registre : deux
 -- références indépendantes qui doivent s'accorder (même contrôle que `lire_objet_empreinte`).

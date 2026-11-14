@@ -346,7 +346,7 @@ async fn t_numerotation_concurrente_sans_trou() {
     assert_eq!(dernier, 8);
     // Les codes de vérification sont tous distincts.
     let (distincts,): (i64,) = sqlx::query_as(
-        "SELECT count(DISTINCT code_verification) FROM ent_doc_document WHERE etablissement_id = $1",
+        "SELECT count(DISTINCT code_verification) FROM ent_doc_version WHERE etablissement_id = $1",
     )
     .bind(w.m.etab)
     .fetch_one(w.ent.pool_verif())
@@ -476,7 +476,7 @@ async fn t_document_identite_immuable() {
     let pool = w.ent.pool_verif();
     for sql in [
         "UPDATE ent_doc_document SET numero = numero + 1 WHERE id = $1",
-        "UPDATE ent_doc_document SET code_verification = 'ABCDEFGHJKLM' WHERE id = $1",
+        "UPDATE ent_doc_version SET code_verification = 'ABCDEFGHJKLM' WHERE document_id = $1",
         "UPDATE ent_doc_document SET titre = 'autre titre' WHERE id = $1",
         "UPDATE ent_doc_document SET nature_code = 'eleve.autre' WHERE id = $1",
         "UPDATE ent_doc_document SET sensibilite = 'C0' WHERE id = $1",
@@ -715,10 +715,10 @@ async fn t_d9_reemission() {
         .reemettre_document_for_actor(&w.dir(), demande("Classe corrigée : 4B et non 5A", &w), &m)
         .await
         .unwrap();
-    // Même numéro, même code de vérification, version 2.
+    // Même numéro ; un NOUVEAU code de vérification (une version, un code : celui de la version 1 répondra « remplacé »).
     assert_eq!(v2.numero_version, 2);
     assert_eq!(v2.numero_affiche, e.numero_affiche);
-    assert_eq!(v2.code_verification, e.code_verification);
+    assert!(v2.code_verification.is_some() && v2.code_verification != e.code_verification);
     let (courante, etat): (i32, String) = sqlx::query_as("SELECT version_courante, etat FROM ent_doc_document WHERE etablissement_id = $1 AND id = $2")
         .bind(w.m.etab)
         .bind(e.document_id)
