@@ -310,6 +310,7 @@ jobs:
         run: |
           set -u
           mkdir -p "$RUNNER_TEMP/journaux"
+          docker pull -q postgres:18 > /dev/null   # une seule fois, avant les démarrages en parallèle
           pids=""
           # Tranche t du groupe g : t = g, g+4, g+8, … ; chacune garde un fil et son propre PostgreSQL,
           # donc les tests voient exactement les conditions de la CI ENT (un fil, base propre).
@@ -317,15 +318,18 @@ jobs:
             (
               # Un PostgreSQL 18 jetable PAR tranche (conteneur, port propre) : les rôles sont communs à tout un
               # serveur (CREATE/ALTER ROLE de la RLS stricte), il faut donc un serveur par tranche, comme sur ENT.
+              set +e   # le shell des étapes est `bash -e` : un échec ici doit être dit, pas faire mourir la tranche en silence
               port=$((55400 + t))
               docker run -d --rm --name "pg$t" -p "127.0.0.1:$port:5432" \
                 -e POSTGRES_USER=ent_ci -e POSTGRES_DB=ent_ci_test -e POSTGRES_HOST_AUTH_METHOD=trust \
-                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null
-              for essai in $(seq 1 60); do
-                docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null 2>&1 && break
+                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null \
+                || { echo "::error::tranche $t : docker run a échoué"; exit 1; }
+              pret=0
+              for essai in $(seq 1 120); do
+                if docker exec "pg$t" psql -U ent_ci -d ent_ci_test -c 'select 1' > /dev/null 2>&1; then pret=1; break; fi
                 sleep 1
               done
-              docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null
+              if [ "$pret" != 1 ]; then echo "::error::tranche $t : PostgreSQL pas prêt après 120 s"; docker logs "pg$t" 2>&1 | tail -n 30; exit 1; fi
               debut=$(date +%s)
               ENT_DATABASE_URL="postgres://ent_ci@127.0.0.1:$port/ent_ci_test" \
               cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
@@ -379,6 +383,7 @@ jobs:
         run: |
           set -u
           mkdir -p "$RUNNER_TEMP/journaux"
+          docker pull -q postgres:18 > /dev/null   # une seule fois, avant les démarrages en parallèle
           pids=""
           # Tranche t du groupe g : t = g, g+2, g+4, … ; chacune garde un fil et son propre PostgreSQL,
           # donc les tests voient exactement les conditions de la CI ENT (un fil, base propre).
@@ -386,15 +391,18 @@ jobs:
             (
               # Un PostgreSQL 18 jetable PAR tranche (conteneur, port propre) : les rôles sont communs à tout un
               # serveur (CREATE/ALTER ROLE de la RLS stricte), il faut donc un serveur par tranche, comme sur ENT.
+              set +e   # le shell des étapes est `bash -e` : un échec ici doit être dit, pas faire mourir la tranche en silence
               port=$((55400 + t))
               docker run -d --rm --name "pg$t" -p "127.0.0.1:$port:5432" \
                 -e POSTGRES_USER=ent_ci -e POSTGRES_DB=ent_ci_test -e POSTGRES_HOST_AUTH_METHOD=trust \
-                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null
-              for essai in $(seq 1 60); do
-                docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null 2>&1 && break
+                postgres:18 -c fsync=off -c synchronous_commit=off -c full_page_writes=off -c max_connections=200 > /dev/null \
+                || { echo "::error::tranche $t : docker run a échoué"; exit 1; }
+              pret=0
+              for essai in $(seq 1 120); do
+                if docker exec "pg$t" psql -U ent_ci -d ent_ci_test -c 'select 1' > /dev/null 2>&1; then pret=1; break; fi
                 sleep 1
               done
-              docker exec "pg$t" pg_isready -U ent_ci -d ent_ci_test > /dev/null
+              if [ "$pret" != 1 ]; then echo "::error::tranche $t : PostgreSQL pas prêt après 120 s"; docker logs "pg$t" 2>&1 | tail -n 30; exit 1; fi
               debut=$(date +%s)
               ENT_DATABASE_URL="postgres://ent_ci@127.0.0.1:$port/ent_ci_test" \
               cargo nextest run --archive-file "$RUNNER_TEMP/archives/labo.tar.zst" --workspace-remap . \
