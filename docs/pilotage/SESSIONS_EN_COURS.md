@@ -62,7 +62,7 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | 12 code AS3 (versé, archivée) | session_01KZCbFE8xVqZThQqkxZ94Ma | ent-socle-12-code-3 | **active** — nouvelle session (règle 1 : mission au lancement) ; AS1-AS2 versés par session_01KZCbFGeamDF2fR77eh4pjP, archivée |
 | N1 code N1-0 | session_01KZCbFFybUu3szup9cqD9bL | ent-socle-N1-code-0 (3040–3041) | versé (f3b99902), archivée |
 | N1 code N1-1 | session_01KZCbFGZxiQjJ2SsThePviE | ent-socle-N1-code-1 (3042–3043) | versé (0006c9f3), archivée |
-| **Heure des tests et horodatages** | session_01KZCbFFDX6zq6ZuZUqLgthD | ent-jour-etablissement-2 (297) | **active** |
+| Heure des tests et horodatages | session_01KZCbFFDX6zq6ZuZUqLgthD | ent-jour-etablissement-2 (297, 343) | versé (32f3fa90), archivée |
 | 20 code | session_01KZCbFFMJBNM2hNLCqoQCJo | — | en pause, C0-C1 versés ; prochain : C2 |
 | 29 code | session_01KZCbFGstxci8Rzs92fxX5m | — | en pause, P2 versé ; prochain : P3 |
 | 19 code | session_01KZCbFHhtUcrLKPT1g7mDDc | — | en pause, AG3 + AG2 réduit versés |
@@ -73,4 +73,5 @@ Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN 
 | **29 code P3** | session_01KZCbFECRrEGqc2TpuVJo6v | ent-socle-29-code-3 (2583–2599) | **active** — à-faire famille |
 | **20 code C2** | session_01KZCbFDs42oph645SN5CVxs | ent-socle-20-code-2 (2413–2419) | **active** — saisie et publication |
 
-Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). Actives : 15 A5, heure des tests, N1-2, 8 N0a, 29 P3, 20 C2.
+Depuis le 14-11 à 6 h 45 : jusqu'à 6 sessions (Florian, PILOTAGE règle 20). Actives : 15 A5, N1-2, 8 N0a, 29 P3, 20 C2, 7 D0.
+| **7 code D0** | session_01KZCbFFnDd4foXS9BRSVPom | ent-socle-7-code-d0 (aucune migration) | **active** — correctifs documents |

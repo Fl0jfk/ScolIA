@@ -8,10 +8,12 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ## 2026-11-14 (samedi, nuit)
 
-### Passé sur `ENT` (tête `3916226c`)
+### Passé sur `ENT` (tête `32f3fa90`)
 - **Socle N1 « Demandes », lot N1-1** (`49bfc691`, CI 43534161490 verte ; fusion pilote sur `e0474cff`) : natures et catalogue, files à membres calculés depuis les missions du socle 6, file de tri, file de repli, routage déterministe et simulateur, accusé de réception (service, rôle, délai daté, fermetures), **repli RH paramétrable** (D-061 : la personne visée n'est jamais destinataire). Ferme NJ-85, NJ-94, NJ-95. Limites : adaptateur d'avis du socle 8 absent, désignation par le demandeur et requalification en N1-2, pas encore de route HTTP.
 
 - **Socle 12, lot AS4** (`05a69b09`, CI 43549544666 verte ; fusion pilote sur `0006c9f3`) : décompte versionné des demi-journées (règle datée, calendrier du socle 5, coupure de grille, scolarisation, jour de l'établissement), matérialisation idempotente, explication, arrêt du mois et rectifications à part. Ferme DA-11, DA-12, DA-14, DA-22. Limites : mois civil, retards à 0 (AS7), pas d'écran (AS14), aucune alerte sur rectification (AS5/AS9).
+
+- **Jour d'établissement, lot 2** (`c825996a`, CI 221 verte ; fusion pilote) : conversions d'horodatage en date au fuseau de l'établissement (migrations 297 et 343), tests passés au jour de Paris, **garde statique** qui refuse tout jour UTC dans les tests ent-db, ent-api et ent-web-server. Restent hors élève : 111/112, 281, 284, 286, 276 ; `noyau/temps.rs` (web) et le binaire de seed en heure locale ; créneaux de labo au jour de semaine réel.
 
 ### Ce qui a coincé
 - **CI lancée de nuit** (vendredi 23 h 38 UTC = samedi 0 h 38 à Paris) : quatre tests hors lot rouges, tous liés à la date. Deux causes : des **tests** qui calculent « aujourd'hui » en UTC (`Utc::now()`, `Local::now()`, `resynchroniser(current_date)`), et des **conversions d'horodatage en date** (`created_at::date`, `updated_at::date`) dans les fonctions de reprise élève (280, 282, 283, 340, 342). Confié à un lot dédié (« heure des tests et dates d'horodatage », migration 297, garde statique étendue).
