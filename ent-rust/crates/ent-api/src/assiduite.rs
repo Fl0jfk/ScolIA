@@ -18,9 +18,9 @@ use ent_db::cahier::FichierDepot;
 use ent_db::{
     ActiviteAppelee, AnnoncerRetard, ApercuMasse, AppelV2, BilanMasse, CorrectionLigne, DecisionDemande,
     DemandeAsd, DemandeAutorisation, DepotJustificatif, DetailEpisode, EpisodeAsd, EpisodeVueFamille,
-    EpisodeVueProfesseur, FiltreEpisodes, HistoLigne, IncoherenceV2, JustificatifAsd, LienJustificatif,
+    ArretMois, EpisodeVueProfesseur, FiltreEpisodes, HistoLigne, IncoherenceV2, JustificatifAsd, LienJustificatif,
     LigneAppelV2, MotifAsd, NatureMotif, OuvrirActivite, PoserLocalisation, ProfilAcademique,
-    ProposerQualification, PropositionAsd, QualifierEpisode, RegleAsd, RequalifierEpisode, SaisieLigne,
+    ProposerQualification, PropositionAsd, QualifierEpisode, Rectification, RegleAsd, RequalifierEpisode, SaisieLigne,
     SaisieMotif, SaisieRegle, SelectionMasse, SituationAsd, ValidationAppel, VersionMotif,
 };
 use serde::Deserialize;
@@ -61,6 +61,10 @@ pub fn routes() -> Router<AppState> {
         .route("/assiduite/situations/retard-annonce", post(annoncer_retard))
         .route("/assiduite/situations/{id}/lever", post(lever_situation))
         .route("/assiduite/situations/{id}/texte", get(texte_situation))
+        // Décompte versionné : arrêt du mois, rectifications postérieures (AS4)
+        .route("/assiduite/mois/{mois}/arreter", post(arreter_mois))
+        .route("/assiduite/mois/{mois}/rectifications", get(rectifications))
+        .route("/assiduite/rectifications/{id}/vue", post(rectification_vue))
         // Épisodes, qualification, justificatifs, demandes (AS3)
         .route("/assiduite/episodes", get(episodes))
         .route("/assiduite/episodes/masse/apercu", post(apercu_masse))
@@ -398,4 +402,20 @@ async fn decider_demande(State(state): State<AppState>, session: EntSession, Pat
 
 async fn retirer_demande(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<DemandeAsd>> {
     state.ent.retirer_demande_for_actor(session.etablissement_id, session.user_id, id).await.map(Json).map_err(map_db)
+}
+
+// ── Décompte versionné (AS4) ────────────────────────────────────────────────────────────────────
+
+/// Arrête un mois terminé (`assiduite.regle_gerer`, direction) : décompte figé, règles figées. Idempotent.
+async fn arreter_mois(State(state): State<AppState>, session: EntSession, Path(mois): Path<NaiveDate>) -> Res<Json<ArretMois>> {
+    state.ent.arreter_mois_for_actor(session.etablissement_id, session.user_id, &session.role, mois).await.map(Json).map_err(map_db)
+}
+
+/// Rectifications postérieures à l'arrêt d'un mois (`assiduite.signaler`).
+async fn rectifications(State(state): State<AppState>, session: EntSession, Path(mois): Path<NaiveDate>) -> Res<Json<Vec<Rectification>>> {
+    state.ent.rectifications_for_actor(session.etablissement_id, session.user_id, &session.role, mois).await.map(Json).map_err(map_db)
+}
+
+async fn rectification_vue(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<StatusCode> {
+    state.ent.rectification_vue_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(|()| StatusCode::NO_CONTENT).map_err(map_db)
 }

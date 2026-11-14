@@ -1126,6 +1126,10 @@ impl PgEnt {
         if etat == LigneEtat::Absent && avant_etat != LigneEtat::Absent {
             self.apres_absence_ecrite(etablissement_id, eleve_id, appel.jour).await?;
         }
+        if (etat == LigneEtat::Absent) != (avant_etat == LigneEtat::Absent) {
+            // AS4 : une correction qui touche un mois arrêté s'inscrit en rectification (R-AS16).
+            self.rectifier_apres_changement(etablissement_id, eleve_id, appel.jour, appel.jour, "correction_appel", Some(appel_id)).await;
+        }
         let v = self.assembler_appel(etablissement_id, appel_id).await?;
         v.lignes.into_iter().find(|l| l.eleve_id == eleve_id).ok_or_else(introuvable)
     }
@@ -1305,6 +1309,7 @@ impl PgEnt {
             .await?;
         let suite = Causalite::suite_de(&ev, Causalite::default());
         publies.push(ev);
+        let mut touches_decompte: Vec<Uuid> = Vec::new();
         if etat == "valide" {
             let lignes: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
                 "SELECT id, eleve_id, etat FROM ent_appel_ligne
@@ -1318,6 +1323,7 @@ impl PgEnt {
             .map_err(db)?;
             for (ligne_id, eleve_id, e) in lignes {
                 if e == "absent" {
+                    touches_decompte.push(eleve_id);
                     self.retirer_absence_appel_tx(&mut tx, &appel, eleve_id, &actor, suite, &mut publies, "neutralisation").await?;
                 } else {
                     self.retirer_retard_tx(&mut tx, etablissement_id, appel_id, eleve_id).await?;
@@ -1352,6 +1358,10 @@ impl PgEnt {
         .map_err(db)?;
         tx.commit().await?;
         self.diffuser_apres_commit(&publies);
+        // AS4 : un mois déjà arrêté n'est pas réécrit, l'écart est inscrit en rectification.
+        for e in touches_decompte {
+            self.rectifier_apres_changement(etablissement_id, e, appel.jour, appel.jour, "neutralisation", Some(appel_id)).await;
+        }
         Ok(true)
     }
 
