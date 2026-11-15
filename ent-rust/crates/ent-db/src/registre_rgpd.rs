@@ -156,6 +156,15 @@ pub const TRAITEMENTS_BASE: &[TraitementBase] = &[
         module: Some("sante"),
     },
     TraitementBase {
+        code: "documents",
+        libelle: "Documents, certificats et attestations",
+        finalite: "Émettre, conserver et mettre à disposition les documents officiels (certificats, attestations, relevés) et leurs exemplaires.",
+        personnes: &["élèves", "responsables légaux", "personnels"],
+        domaines: &["documents"],
+        lecture: &[DocumentsLire, DocumentsRegistreLire, DocumentsEmettre],
+        module: None,
+    },
+    TraitementBase {
         code: "personnels",
         libelle: "Personnels et absences des personnels",
         finalite: "Tenir l'annuaire des personnels, leurs missions, leurs absences et les remplacements.",

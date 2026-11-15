@@ -416,7 +416,8 @@ impl PgEnt {
             if let Some(g) = cible.groupe_id {
                 let (ok,): (bool,) = sqlx::query_as(
                     "SELECT EXISTS (SELECT 1 FROM ent_groupe_responsable
-                       WHERE etablissement_id = $1 AND user_id = $2 AND groupe_id = $3)",
+                       WHERE etablissement_id = $1 AND user_id = $2 AND groupe_id = $3
+                          AND du <= ent_aujourdhui_etab($1) AND (au IS NULL OR au >= ent_aujourdhui_etab($1)))",
                 )
                 .bind(a.etablissement_id)
                 .bind(a.user_id)

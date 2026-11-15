@@ -77,6 +77,7 @@ pub const FOURNISSEURS: &[Fournisseur] = &[
     f("vie_pratique", "41", &["vie_pratique"]),
     f("sante", "34", &["sante"]),
     f("comptes", "1", &["identite_acces"]),
+    f("documents", "7", &["documents"]),
     f("conformite", "27", &["conformite"]),
 ];
 

@@ -419,6 +419,21 @@ pub enum Action {
     DemandesIndicateursLire,
     /// Lancer la reprise des demandes de l'ancienne application.
     DemandesReprise,
+    // ── Socle 7, lot D2 : documents émis, registre, domaines restreints (`07_DOCUMENTS.md` §18) ──
+    /// Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne.
+    DocumentsEmettre,
+    /// Annuler un document émis par erreur (motif obligatoire, journalisé).
+    DocumentsAnnuler,
+    /// Lire le registre des documents émis et le journal de leurs consultations.
+    DocumentsRegistreLire,
+    /// Paramétrer l'identité des documents, les entités émettrices et les natures activées.
+    DocumentsModelesParametrer,
+    /// Lire les documents restreints du domaine justice (jugements, pièces judiciaires).
+    DocumentsRestreintsLire,
+    /// Lire les documents du domaine financier (avis d'imposition, quotient, bourses).
+    DocumentsFinancierLire,
+    /// Lire les dossiers documentaires des agents (domaine rh).
+    DocumentsPersonnelsLire,
     /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
     ConformiteLire,
     /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
@@ -463,6 +478,13 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
+    // ── Socle 6, lots P5 et P6 (`06_PERSONNELS.md` §14.2) ──
+    /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
+    /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
+    EquipesGerer,
+    /// Habiliter des agents à signer certains documents au nom de l'établissement et organiser
+    /// l'intérim de direction (PRS-81, 82). Ne se donne que par qui la détient (anti-escalade).
+    SignatureHabiliter,
 }
 
 /// Sur quoi une action s'applique.
@@ -487,7 +509,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 202] = [
+    pub const TOUTES: [Action; 211] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -703,6 +725,17 @@ impl Action {
         Action::PersonnelsHeuresSigner,
         Action::PersonnelsHeuresExporter,
         Action::PersonnelsPaieAbsences,
+        // Socle 6, lots P5 et P6 (en fin de catalogue).
+        Action::EquipesGerer,
+        Action::SignatureHabiliter,
+        // Socle 7, lot D2 (en fin de catalogue).
+        Action::DocumentsEmettre,
+        Action::DocumentsAnnuler,
+        Action::DocumentsRegistreLire,
+        Action::DocumentsModelesParametrer,
+        Action::DocumentsRestreintsLire,
+        Action::DocumentsFinancierLire,
+        Action::DocumentsPersonnelsLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -890,6 +923,13 @@ impl Action {
             Self::DemandesJournalLire => "demandes.journal.lire",
             Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
             Self::DemandesReprise => "demandes.reprise",
+            Self::DocumentsEmettre => "documents.emettre",
+            Self::DocumentsAnnuler => "documents.annuler",
+            Self::DocumentsRegistreLire => "documents.registre.lire",
+            Self::DocumentsModelesParametrer => "documents.modeles.parametrer",
+            Self::DocumentsRestreintsLire => "documents.restreints.lire",
+            Self::DocumentsFinancierLire => "documents.financier.lire",
+            Self::DocumentsPersonnelsLire => "documents.personnels.lire",
             Self::ConformiteLire => "conformite.lire",
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
@@ -910,6 +950,8 @@ impl Action {
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
+            Self::EquipesGerer => "equipes.gerer",
+            Self::SignatureHabiliter => "signature.habiliter",
         }
     }
 
@@ -1100,6 +1142,13 @@ impl Action {
             Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
             Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
             Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
+            Self::DocumentsEmettre => "Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne",
+            Self::DocumentsAnnuler => "Annuler un document émis par erreur (motif obligatoire, journalisé)",
+            Self::DocumentsRegistreLire => "Lire le registre des documents émis et le journal de leurs consultations",
+            Self::DocumentsModelesParametrer => "Paramétrer l'identité des documents, les entités émettrices et les natures activées",
+            Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
+            Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
+            Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
             Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
@@ -1120,6 +1169,8 @@ impl Action {
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
+            Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
+            Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
         }
     }
 
@@ -1291,6 +1342,8 @@ impl Action {
             | Self::PersonnelsHeuresSigner
             | Self::PersonnelsHeuresExporter
             | Self::PersonnelsPaieAbsences
+            | Self::EquipesGerer
+            | Self::SignatureHabiliter
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
@@ -1318,6 +1371,13 @@ impl Action {
             | Self::DemandesJournalLire
             | Self::DemandesIndicateursLire
             | Self::DemandesReprise
+            | Self::DocumentsEmettre
+            | Self::DocumentsAnnuler
+            | Self::DocumentsRegistreLire
+            | Self::DocumentsModelesParametrer
+            | Self::DocumentsRestreintsLire
+            | Self::DocumentsFinancierLire
+            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
@@ -1462,6 +1522,8 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_06_personnels(role, &mut d);
+    socle_07_documents(role, &mut d);
     socle_27_rgpd(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
@@ -1899,6 +1961,20 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 6 (personnels), lots P5 et P6 : équipes constituées et pouvoirs de signature (règle 21 du pilotage :
+/// une fonction par socle). Équipes : direction, administration, secrétariat et CPE ; elles ne donnent aucun droit
+/// sur les élèves. Habilitation de signature et intérim : administrateur et direction (chef d'établissement).
+fn socle_06_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(EquipesGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(SignatureHabiliter));
+    }
+}
+
 /// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
 fn socle_19_agenda(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
@@ -2130,6 +2206,31 @@ fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if role == Role::Admin {
         d.push(etab(DemandesReprise));
+    }
+}
+
+/// Socle 7 (documents), lot D2 : droits par défaut (`07_DOCUMENTS.md` §18.2). Moindre privilège : les domaines
+/// restreints (justice, financier, rh) ne s'ouvrent qu'à ceux que la conception nomme ; ni les familles, ni les
+/// élèves, ni les professeurs n'émettent de document officiel (D-017, D-022).
+fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Administratif | Role::Cpe | Role::Direction | Role::Compta) {
+        d.push(etab(DocumentsEmettre));
+    }
+    if matches!(role, Role::Administratif | Role::Direction) {
+        d.push(etab(DocumentsAnnuler));
+        d.push(etab(DocumentsRegistreLire));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(DocumentsModelesParametrer));
+    }
+    if role == Role::Direction {
+        d.push(etab(DocumentsRestreintsLire));
+        d.push(etab(DocumentsPersonnelsLire));
+    }
+    if role == Role::Compta {
+        d.push(etab(DocumentsFinancierLire));
     }
 }
 
@@ -2498,6 +2599,32 @@ mod tests {
         assert_eq!(Action::parse("stages.periodes.gerer"), Some(StagesPeriodesGerer));
         assert_eq!(StagesParametrer.portees_admises(), &[Portee::Etablissement]);
         assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
+    }
+
+    /// Lots P5 et P6 (règle 21 : une fonction par socle) : équipes constituées (Admin, Direction, Administratif, CPE),
+    /// habilitation de signature et intérim (Admin, Direction) ; établissement seulement ; aucune inclusion implicite ;
+    /// le reste du modèle ne bouge pas (chaque rôle reçoit exactement ces deux actions de plus, ou aucune).
+    #[test]
+    fn p5_p6_equipes_et_signature_modele_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            assert_eq!(a(EquipesGerer),
+                       usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)),
+                       "{r:?} equipes.gerer");
+            assert_eq!(a(SignatureHabiliter), usize::from(matches!(r, Role::Admin | Role::Direction)),
+                       "{r:?} signature.habiliter");
+        }
+        for x in [EquipesGerer, SignatureHabiliter] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement], "{x:?} : établissement seulement");
+            assert!(x.accordee_par().is_empty(), "{x:?} : aucune inclusion implicite");
+        }
+        assert_eq!(Action::parse("equipes.gerer"), Some(EquipesGerer));
+        assert_eq!(Action::parse("signature.habiliter"), Some(SignatureHabiliter));
+        // Une équipe ne donne aucun droit sur les élèves : `equipes.gerer` n'est pas une action d'élève.
+        assert!(!EquipesGerer.portees_admises().contains(&Portee::MesClasses));
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :
@@ -3101,6 +3228,40 @@ mod oracle_a1 {
         for x in [VoyagesAnnuaire, VoyagesLire, VoyagesCreer, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement,
                   VoyagesValider, VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
             assert!(x.code().starts_with("voyages."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+
+    #[test]
+    fn documents_d2_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for (r, emettre, annuler, registre, param, restreint, financier, rh) in [
+            (Role::Direction, true, true, true, true, true, false, true),
+            (Role::Administratif, true, true, true, false, false, false, false),
+            (Role::Cpe, true, false, false, false, false, false, false),
+            (Role::Compta, true, false, false, false, false, true, false),
+            (Role::Admin, false, false, false, true, false, false, false),
+            (Role::Prof, false, false, false, false, false, false, false),
+            (Role::Accueil, false, false, false, false, false, false, false),
+            (Role::Infirmerie, false, false, false, false, false, false, false),
+        ] {
+            assert_eq!(a(r, DocumentsEmettre), emettre, "{r:?} emettre");
+            assert_eq!(a(r, DocumentsAnnuler), annuler, "{r:?} annuler");
+            assert_eq!(a(r, DocumentsRegistreLire), registre, "{r:?} registre");
+            assert_eq!(a(r, DocumentsModelesParametrer), param, "{r:?} modeles");
+            assert_eq!(a(r, DocumentsRestreintsLire), restreint, "{r:?} restreints");
+            assert_eq!(a(r, DocumentsFinancierLire), financier, "{r:?} financier");
+            assert_eq!(a(r, DocumentsPersonnelsLire), rh, "{r:?} personnels");
+        }
+        // Familles et élèves : aucune action documentaire nouvelle (D-017).
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).iter().all(|(x, _)| !x.code().starts_with("documents.emettre")), "{r:?}");
+        }
+        for x in [DocumentsEmettre, DocumentsAnnuler, DocumentsRegistreLire, DocumentsModelesParametrer,
+                  DocumentsRestreintsLire, DocumentsFinancierLire, DocumentsPersonnelsLire] {
+            assert!(x.code().starts_with("documents."));
             assert_eq!(Action::parse(x.code()), Some(x));
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }

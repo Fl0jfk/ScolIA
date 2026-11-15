@@ -18,8 +18,9 @@ permissions:
   contents: read
 
 concurrency:
+  # Un nouveau run annule l'ancien sur la même branche de lot ; JAMAIS sur ENT (règle 27 de PILOTAGE.md).
   group: ent-rust-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/ENT' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -229,6 +230,7 @@ jobs:
   tests-rls-stricte:
     name: Backend — suites de domaine en RLS stricte (tranche ${{ matrix.tranche }}/12)
     needs: backend-archive
+    if: github.ref == 'refs/heads/ENT'    # règle 27 : seul ENT rejoue la RLS stricte (les mêmes tests tournent en mode normal dans tests-labo)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -324,7 +326,7 @@ jobs:
     # Nom conservé : c'est le contrôle que la règle 6 de PILOTAGE.md attend.
     name: Backend (clippy, compilation, tests)
     if: always()
-    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo, tests-rls-stricte]
+    needs: [backend-lint, backend-archive, tests-labo, tests-sans-labo, tests-rls-stricte, portee, frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -394,20 +396,61 @@ jobs:
               f.write("### Couverture des tests du backend\n\n" + tableau + "\n\n" + "\n\n".join(detail) + "\n")
           sys.exit(0 if ok else 1)
           PY
-      - name: Verdict (tous les jobs du backend verts)
+      - name: Verdict (tous les jobs requis verts)
         if: always()
         run: |
           set -eu
-          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }} rls-stricte=${{ needs.tests-rls-stricte.result }}"
-          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}" "${{ needs.tests-rls-stricte.result }}"; do
+          echo "lint=${{ needs.backend-lint.result }} archive=${{ needs.backend-archive.result }} labo=${{ needs.tests-labo.result }} sans-labo=${{ needs.tests-sans-labo.result }} rls-stricte=${{ needs.tests-rls-stricte.result }} portee=${{ needs.portee.result }} frontend=${{ needs.frontend.result }} (frontend requis : ${{ needs.portee.outputs.frontend }})"
+          for r in "${{ needs.backend-lint.result }}" "${{ needs.backend-archive.result }}" "${{ needs.tests-labo.result }}" "${{ needs.tests-sans-labo.result }}" "${{ needs.portee.result }}"; do
             if [ "$r" != "success" ]; then
-              echo "::error::un job du backend n'est pas vert ($r) — voir les jobs ci-dessus"
+              echo "::error::un job requis n'est pas vert ($r) — voir les jobs ci-dessus"
               exit 1
             fi
           done
+          # RLS stricte : requise sur ENT seulement (règle 27). Sur une branche, « ignoré » est attendu.
+          if [ "${{ github.ref }}" = "refs/heads/ENT" ]; then
+            [ "${{ needs.tests-rls-stricte.result }}" = "success" ] || { echo "::error::RLS stricte non verte sur ENT (${{ needs.tests-rls-stricte.result }})"; exit 1; }
+          else
+            case "${{ needs.tests-rls-stricte.result }}" in skipped|success) ;; *) echo "::error::RLS stricte : ${{ needs.tests-rls-stricte.result }}"; exit 1;; esac
+          fi
+          # Frontend : requis sauf si `portee` a dit « non requis » (job ignoré = non requis, pas un échec).
+          if [ "${{ needs.portee.outputs.frontend }}" = "true" ]; then
+            [ "${{ needs.frontend.result }}" = "success" ] || { echo "::error::frontend requis mais ${{ needs.frontend.result }}"; exit 1; }
+          else
+            case "${{ needs.frontend.result }}" in skipped|success) ;; *) echo "::error::frontend : ${{ needs.frontend.result }}"; exit 1;; esac
+          fi
+
+  # Portée d'une branche (règle 27) : le frontend n'est requis que si le diff contre origin/ENT touche
+  # ent-rust/web/**, ent-rust/crates/ent-types/**, ent-rust/crates/ent-api/** ou ce workflow. ENT : toujours requis. Au moindre doute
+  # (fetch ou diff en échec, diff vide), requis.
+  portee:
+    name: Portée du run (frontend requis ?)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.calcul.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: calcul
+        run: |
+          requis=true
+          if [ "${{ github.ref }}" != "refs/heads/ENT" ] && git fetch --no-tags origin ENT:refs/remotes/origin/ENT 2>/dev/null; then
+            if fichiers=$(git diff --name-only origin/ENT...HEAD) && [ -n "$fichiers" ]; then
+              echo "$fichiers" | head -n 50
+              if ! echo "$fichiers" | grep -qE '^(ent-rust/web/|ent-rust/crates/ent-types/|ent-rust/crates/ent-api/|\.github/workflows/ent-rust\.yml$)'; then
+                requis=false
+              fi
+            fi
+          fi
+          echo "frontend=$requis" >> "$GITHUB_OUTPUT"
+          echo "Frontend requis : $requis"
 
   frontend:
     name: Frontend Leptos (clippy, tests, build, tests contre le backend)
+    needs: portee
+    if: needs.portee.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     services:
