@@ -8,16 +8,19 @@
 //! * pages multiples, en-tête et pied répétés, « Page n sur N », tableaux à en-tête répété ;
 //! * logo JPEG (`DCTDecode`, sans décodage) ;
 //! * QR code maison dessiné en vecteurs ;
-//! * flux **non compressés** : aucun compresseur n'est dans le graphe de dépendances.
+//! * flux **non compressés** à l'écriture (aucun compresseur) ; à la lecture des pièces reçues,
+//!   un `inflate` maison (`inflate`) ouvre les flux d'objets des PDF modernes.
 
 mod afm;
 mod compositions;
 mod doc;
 mod ecrit;
 mod fonte;
+pub mod inflate;
 mod jpeg;
 mod normalise;
 pub mod piece;
+mod piece_flux;
 mod qr;
 pub mod releve;
 mod sous_ensemble;

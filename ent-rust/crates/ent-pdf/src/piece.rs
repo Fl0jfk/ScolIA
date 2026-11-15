@@ -535,7 +535,7 @@ const NOMS_ACTIFS: &[&str] = &[
     "Named",
 ];
 
-fn delimiteur(b: u8) -> bool {
+pub(crate) fn delimiteur(b: u8) -> bool {
     matches!(
         b,
         b' ' | b'\t'
@@ -578,7 +578,7 @@ fn nom_decode(brut: &[u8]) -> String {
 }
 
 /// Régions « flux binaire » : de `stream` + fin de ligne jusqu'à `endstream`. On n'y touche jamais.
-fn regions_flux(b: &[u8]) -> Vec<(usize, usize)> {
+pub(crate) fn regions_flux(b: &[u8]) -> Vec<(usize, usize)> {
     let mut r = Vec::new();
     let mut i = 0;
     while let Some(p) = trouver(b, b"stream", i) {
@@ -605,7 +605,7 @@ fn regions_flux(b: &[u8]) -> Vec<(usize, usize)> {
     r
 }
 
-fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize> {
+pub(crate) fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize> {
     if depuis >= b.len() {
         return None;
     }
@@ -616,7 +616,7 @@ fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize> {
 }
 
 /// Les jetons `/Nom` hors flux, avec leur position : `(début, fin, nom décodé)`.
-fn noms_hors_flux(b: &[u8]) -> Vec<(usize, usize, String)> {
+pub(crate) fn noms_hors_flux(b: &[u8]) -> Vec<(usize, usize, String)> {
     let flux = regions_flux(b);
     let mut sortie = Vec::new();
     let mut i = 0;
@@ -673,6 +673,11 @@ pub struct PdfDesarme {
 
 /// Désarme un PDF entrant. Voir le module. Idempotent : désarmer un PDF désarmé ne neutralise plus rien.
 pub fn desarmer_pdf(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
+    desarmer_avec_plafond(entree, PLAFOND_DECOMPRESSE)
+}
+
+/// Comme [`desarmer_pdf`], avec un plafond de décompression explicite (tests).
+pub fn desarmer_avec_plafond(entree: &[u8], plafond: usize) -> Result<PdfDesarme, ErreurPiece> {
     let refus = ErreurPiece::PdfRefuse;
     let tete = &entree[..entree.len().min(1024)];
     if trouver(tete, b"%PDF-", 0).is_none() {
@@ -688,8 +693,32 @@ pub fn desarmer_pdf(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
             "PDF chiffré : enregistrez-le sans mot de passe, ou prenez une photo",
         ));
     }
+    // Flux d'objets, table xref en flux, xref hybride : on reconstruit un fichier sans compression
+    // d'objets (`piece_flux`), puis on le désarme comme un PDF simple.
+    if noms
+        .iter()
+        .any(|(_, _, n)| matches!(n.as_str(), "ObjStm" | "XRef" | "XRefStm"))
+    {
+        let reconstruit = crate::piece_flux::reconstruire(entree, plafond)?;
+        return desarmer_simple(&reconstruit);
+    }
+    desarmer_simple(entree)
+}
+
+/// Plafond de taille **décompressée** cumulée des flux d'objets d'un PDF reçu (bombe de décompression).
+pub const PLAFOND_DECOMPRESSE: usize = 32 * 1024 * 1024;
+
+/// Désarmement sur place d'un PDF dont les objets sont tous lisibles en clair.
+fn desarmer_simple(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
+    let refus = ErreurPiece::PdfRefuse;
+    let noms = noms_hors_flux(entree);
+    if noms.iter().any(|(_, _, n)| n == "Encrypt") {
+        return Err(refus(
+            "PDF chiffré : enregistrez-le sans mot de passe, ou prenez une photo",
+        ));
+    }
     if noms.iter().any(|(_, _, n)| n == "ObjStm") {
-        return Err(refus("PDF à objets compressés non inspectable : prenez une photo ou imprimez-le en PDF simple"));
+        return Err(refus("PDF à flux d'objets compressés non inspectable : prenez une photo ou imprimez-le en PDF simple"));
     }
     let mut sortie = entree.to_vec();
     let mut neutralises: Vec<String> = Vec::new();
@@ -1110,7 +1139,7 @@ mod tests {
             .replace("/Type /EmbeddedFile", "/Type /ObjStm")
             .into_bytes();
         assert!(
-            matches!(desarmer_pdf(&objstm), Err(ErreurPiece::PdfRefuse(m)) if m.contains("compressés"))
+            matches!(desarmer_pdf(&objstm), Err(ErreurPiece::PdfRefuse(m)) if m.contains("compress"))
         );
         assert!(
             matches!(

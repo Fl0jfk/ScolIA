@@ -166,13 +166,22 @@ impl S3Provider {
                 }
                 r.call()
             }
-            _ => {
+            "DELETE" => {
+                let mut r = self.agent.delete(&req.url);
+                for (k, v) in &req.en_tetes {
+                    r = r.header(k, v);
+                }
+                r.call()
+            }
+            "GET" => {
                 let mut r = self.agent.get(&req.url);
                 for (k, v) in &req.en_tetes {
                     r = r.header(k, v);
                 }
                 r.call()
             }
+            // Jamais de repli silencieux vers GET : une méthode inconnue est une erreur de programmation.
+            _ => return Err(ObjectStoreError::Backend("méthode S3 inconnue".into())),
         };
         let mut rep = resultat.map_err(reseau)?;
         let statut = rep.status().as_u16();
@@ -282,6 +291,15 @@ impl StorageProvider for S3Provider {
                 sha256: r.sha256,
             })),
             404 => Ok(None),
+            s => Err(statut_erreur(s)),
+        }
+    }
+
+    fn delete(&self, key: &str) -> Result<(), ObjectStoreError> {
+        // `DeleteObject` répond 204 (ou 200) ; une clé absente répond aussi 204 : idempotent.
+        let r = self.envoyer("DELETE", key, None, EMPTY_SHA256, &[])?;
+        match r.statut {
+            200..=299 | 404 => Ok(()),
             s => Err(statut_erreur(s)),
         }
     }
@@ -478,6 +496,25 @@ mod tests {
         let o = p.get("a/b/c.pdf").unwrap();
         assert_eq!(o.bytes, b"hello");
         assert_eq!(o.sha256.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn delete_signe_et_tolere_cle_absente() {
+        let f = faux_serveur(vec![
+            http("204 No Content", "", ""),
+            http("404 Not Found", "", ""),
+            http("403 Forbidden", "", ""),
+        ]);
+        let p = S3Provider::new(cfg(f.port)).avec_tentatives(1);
+        p.delete("e/pieces/x.pdf").unwrap();
+        p.delete("e/pieces/x.pdf").unwrap();
+        assert!(matches!(
+            p.delete("e/pieces/x.pdf"),
+            Err(ObjectStoreError::Backend(_))
+        ));
+        let vues = f.vues.lock().unwrap();
+        assert!(vues[0].starts_with("DELETE /"), "{}", vues[0]);
+        assert!(vues[0].to_lowercase().contains("authorization: aws4-hmac-sha256"));
     }
 
     #[test]

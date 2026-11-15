@@ -531,6 +531,53 @@ async fn run_api() {
         })
     });
 
+    // Socle 7 (D5b) : analyse antivirus des pièces en quarantaine et purge des objets des pièces infectées.
+    // Fermé par défaut : sans `CLAMAV_ADDR`, l'analyse n'est pas lancée et aucune pièce ne sort de quarantaine.
+    // `ENT_TACHES_PIECES=0` désactive les deux tâches (processus dédié).
+    let taches_pieces_actives = std::env::var("ENT_TACHES_PIECES").unwrap_or_default() != "0";
+    let analyse_pieces = if !taches_pieces_actives {
+        None
+    } else if let Some(av) = ent_db::documents_pieces_taches::antivirus_depuis_env() {
+        let ent = state.ent.clone();
+        Some(tokio::spawn(async move {
+            loop {
+                match ent.analyser_pieces_tache(av.clone(), 20).await {
+                    Ok(b) if b.antivirus_indisponible => {
+                        tracing::warn!("antivirus indisponible : pièces maintenues en quarantaine")
+                    }
+                    Ok(b) if b.analyses != Default::default() => {
+                        tracing::info!(analyses = ?b.analyses, "pièces analysées")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("analyse des pièces : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        }))
+    } else {
+        tracing::warn!(
+            "CLAMAV_ADDR absente : aucune analyse antivirus, les pièces déposées restent en quarantaine (fermé par défaut)"
+        );
+        None
+    };
+    let purge_pieces = taches_pieces_actives.then(|| {
+        let ent = state.ent.clone();
+        let retention = ent_db::documents_pieces_taches::retention_infectees_depuis_env();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+            loop {
+                match ent.purger_objets_pieces_infectees_tache(retention).await {
+                    Ok(b) if b.purges > 0 || b.echecs > 0 => {
+                        tracing::info!(?b, "objets de pièces infectées purgés")
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("purge des pièces infectées : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -551,6 +598,12 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = taches_absences {
+        t.abort();
+    }
+    if let Some(t) = analyse_pieces {
+        t.abort();
+    }
+    if let Some(t) = purge_pieces {
         t.abort();
     }
     if let Some(t) = sollicitations_absences {

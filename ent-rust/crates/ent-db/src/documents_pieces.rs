@@ -788,7 +788,7 @@ async fn piece_par_id(
         .ok_or_else(introuvable)
 }
 
-fn systeme(etab: Uuid) -> Acteur<'static> {
+pub(crate) fn systeme(etab: Uuid) -> Acteur<'static> {
     Acteur {
         etablissement_id: etab,
         user_id: Uuid::nil(),

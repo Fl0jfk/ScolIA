@@ -49,6 +49,13 @@ pub trait StorageProvider: Send + Sync {
     fn get(&self, key: &str) -> Result<StoredObject, ObjectStoreError>;
     /// `Ok(None)` si l'objet n'existe pas ; toute autre difficulté est une erreur.
     fn head(&self, key: &str) -> Result<Option<ObjectHead>, ObjectStoreError>;
+    /// Supprime **physiquement** l'objet (purge, socle 7 D9). Idempotent : une clé absente est un succès.
+    /// Un fournisseur qui ne sait pas supprimer répond une erreur (jamais un faux succès).
+    fn delete(&self, _key: &str) -> Result<(), ObjectStoreError> {
+        Err(ObjectStoreError::Backend(
+            "suppression non prise en charge par ce fournisseur".into(),
+        ))
+    }
 }
 
 // ───────────────────────────── Mémoire ─────────────────────────────
@@ -114,6 +121,11 @@ impl StorageProvider for MemoryProvider {
             taille: b.len() as u64,
             sha256: Some(h.clone()),
         }))
+    }
+
+    fn delete(&self, key: &str) -> Result<(), ObjectStoreError> {
+        self.objets.lock().map_err(verrou)?.remove(key);
+        Ok(())
     }
 }
 
@@ -215,6 +227,20 @@ impl StorageProvider for DiskProvider {
             Err(e) => Err(e),
         }
     }
+
+    fn delete(&self, key: &str) -> Result<(), ObjectStoreError> {
+        let path = self.chemin(key)?;
+        let mut sidecar = path.clone().into_os_string();
+        sidecar.push(".sha256");
+        for f in [path, PathBuf::from(sidecar)] {
+            match fs::remove_file(&f) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => return Err(io(e)),
+            }
+        }
+        Ok(())
+    }
 }
 
 // ───────────────────────────── Pannes simulées (tests) ─────────────────────────────
@@ -233,6 +259,8 @@ pub struct Pannes {
     pub lecture_corrompue: AtomicBool,
     /// `head` renvoie une erreur.
     pub echec_head: AtomicBool,
+    /// `delete` renvoie une erreur.
+    pub echec_suppression: AtomicBool,
 }
 
 pub struct FaultyProvider {
@@ -297,5 +325,73 @@ impl StorageProvider for FaultyProvider {
             return Err(ObjectStoreError::Backend("panne simulée (head)".into()));
         }
         self.interne.head(key)
+    }
+
+    fn delete(&self, key: &str) -> Result<(), ObjectStoreError> {
+        if actif(&self.pannes.echec_suppression) {
+            return Err(ObjectStoreError::Backend("panne simulée (suppression)".into()));
+        }
+        self.interne.delete(key)
+    }
+}
+
+#[cfg(test)]
+mod tests_suppression {
+    use super::*;
+
+    fn sha(b: &[u8]) -> String {
+        crate::sha256_hex(b)
+    }
+
+    #[test]
+    fn memoire_supprime_et_tolere_l_absent() {
+        let m = MemoryProvider::new();
+        m.put("e/a/b.bin", b"x", &sha(b"x")).unwrap();
+        m.delete("e/a/b.bin").unwrap();
+        assert!(m.head("e/a/b.bin").unwrap().is_none());
+        m.delete("e/a/b.bin").unwrap();
+    }
+
+    #[test]
+    fn disque_supprime_objet_et_empreinte() {
+        let dir = std::env::temp_dir().join(format!("ent-del-{}", std::process::id()));
+        let d = DiskProvider::new(dir.clone());
+        d.put("e/a/b.bin", b"xyz", &sha(b"xyz")).unwrap();
+        d.delete("e/a/b.bin").unwrap();
+        assert!(d.head("e/a/b.bin").unwrap().is_none());
+        assert!(!dir.join("e/a/b.bin.sha256").exists());
+        d.delete("e/a/b.bin").unwrap();
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn panne_de_suppression_remonte_et_defaut_refuse() {
+        let (f, pannes) = FaultyProvider::new(Arc::new(MemoryProvider::new()));
+        f.put("e/a/b.bin", b"x", &sha(b"x")).unwrap();
+        pannes.echec_suppression.store(true, Ordering::SeqCst);
+        assert!(f.delete("e/a/b.bin").is_err());
+        assert!(f.head("e/a/b.bin").unwrap().is_some(), "rien n'a été supprimé");
+        pannes.echec_suppression.store(false, Ordering::SeqCst);
+        f.delete("e/a/b.bin").unwrap();
+        // Un fournisseur qui ne sait pas supprimer ne ment pas.
+        struct Muet;
+        impl StorageProvider for Muet {
+            fn nom(&self) -> &'static str {
+                "muet"
+            }
+            fn uri(&self, k: &str) -> String {
+                k.into()
+            }
+            fn put(&self, _: &str, _: &[u8], _: &str) -> Result<(), ObjectStoreError> {
+                Ok(())
+            }
+            fn get(&self, k: &str) -> Result<StoredObject, ObjectStoreError> {
+                Err(ObjectStoreError::NotFound(k.into()))
+            }
+            fn head(&self, _: &str) -> Result<Option<ObjectHead>, ObjectStoreError> {
+                Ok(None)
+            }
+        }
+        assert!(Muet.delete("e/a/b.bin").is_err());
     }
 }

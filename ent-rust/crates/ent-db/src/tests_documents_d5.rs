@@ -850,7 +850,7 @@ async fn t_pdf_non_inspectable_rejete() {
         "4 0 obj\n<< /Type /ObjStm /N 1 /First 4 /Length 4 >>\nstream\nabcd\nendstream\nendobj\n",
     );
     let chiffre = pdf("/Encrypt 9 0 R", "");
-    for (fichier, attendu) in [(objstm, "compressés"), (chiffre, "chiffré")] {
+    for (fichier, attendu) in [(objstm, "compress"), (chiffre, "chiffré")] {
         let dep = w
             .ent
             .deposer_piece_for_actor(
@@ -2386,4 +2386,455 @@ async fn t_separation_entre_etablissements() {
     .await
     .unwrap();
     assert!(o.starts_with(&w.m.etab.to_string()) && s_.starts_with(&w.m.etab.to_string()));
+}
+
+// ───────────────────────── Lot D5b : antivirus branché, tâche de fond, purge, PDF compressés ─────────────────────────
+
+mod d5b {
+    use super::*;
+    use crate::documents_pieces_taches::INDISPONIBLES_AVANT_ARRET;
+    use ent_object::clamav::ClamAv;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::AtomicU8;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    const NORMAL: u8 = 0;
+    const SILENCE: u8 = 1;
+    const ERREUR: u8 = 2;
+
+    /// Faux démon `clamd` local (protocole INSTREAM) : sain, infecté (EICAR), silencieux ou en erreur.
+    struct FauxClamd {
+        adresse: String,
+        mode: Arc<AtomicU8>,
+        recus: Arc<Mutex<Vec<Vec<u8>>>>,
+    }
+
+    fn faux_clamd() -> FauxClamd {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let adresse = l.local_addr().unwrap().to_string();
+        let mode = Arc::new(AtomicU8::new(NORMAL));
+        let recus: Arc<Mutex<Vec<Vec<u8>>>> = Arc::default();
+        let (m2, r2) = (mode.clone(), recus.clone());
+        std::thread::spawn(move || {
+            for flux in l.incoming() {
+                let Ok(mut s) = flux else { return };
+                let (m, r) = (m2.clone(), r2.clone());
+                std::thread::spawn(move || {
+                    let mut entete = [0u8; 10];
+                    if s.read_exact(&mut entete).is_err() || &entete != b"zINSTREAM\0" {
+                        return;
+                    }
+                    let mut octets = Vec::new();
+                    loop {
+                        let mut n = [0u8; 4];
+                        if s.read_exact(&mut n).is_err() {
+                            return;
+                        }
+                        let n = u32::from_be_bytes(n) as usize;
+                        if n == 0 {
+                            break;
+                        }
+                        let mut c = vec![0u8; n];
+                        if s.read_exact(&mut c).is_err() {
+                            return;
+                        }
+                        octets.extend_from_slice(&c);
+                    }
+                    let infecte = contient(&octets, EICAR);
+                    r.lock().unwrap().push(octets);
+                    match m.load(Ordering::SeqCst) {
+                        SILENCE => std::thread::sleep(Duration::from_millis(1500)),
+                        ERREUR => {
+                            let _ = s.write_all(b"INSTREAM size limit exceeded. ERROR\0");
+                        }
+                        _ if infecte => {
+                            let _ = s.write_all(b"stream: Eicar-Test-Signature FOUND\0");
+                        }
+                        _ => {
+                            let _ = s.write_all(b"stream: OK\0");
+                        }
+                    }
+                });
+            }
+        });
+        FauxClamd {
+            adresse,
+            mode,
+            recus,
+        }
+    }
+
+    fn client(adresse: &str) -> Arc<dyn AnalyseurAntivirus> {
+        Arc::new(
+            ClamAv::nouveau(adresse).avec_delais(Duration::from_millis(500), Duration::from_millis(400)),
+        )
+    }
+
+    fn piege_eicar() -> Vec<u8> {
+        pdf(
+            "",
+            &format!(
+                "4 0 obj\n<< /Length 70 >>\nstream\n{}\nendstream\nendobj\n",
+                String::from_utf8_lossy(EICAR)
+            ),
+        )
+    }
+
+    async fn deposer(w: &W, nom: &str, fichier: Vec<u8>) -> Uuid {
+        let eleve = w.eleve(nom).await;
+        w.lier(eleve, &w.lily, true, None).await;
+        let dep = w
+            .ent
+            .deposer_piece_for_actor(
+                &w.lily_a(),
+                w.depot("acte_naissance", SujetPiece::Eleve(eleve), None, vec![fichier]),
+            )
+            .await
+            .expect("dépôt");
+        assert_eq!(dep.etat, "en_quarantaine");
+        dep.piece_id
+    }
+
+    async fn tentatives(w: &W, piece: Uuid) -> i32 {
+        let (n,): (i32,) = sqlx::query_as(
+            "SELECT analyse_tentatives FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(w.m.etab)
+        .bind(piece)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+        n
+    }
+
+    /// Le client ClamAV réel, face à un faux démon : propre, infecté, délai dépassé, erreur, démon éteint, puis reprise.
+    #[tokio::test]
+    async fn t_d5b_faux_clamd_propre_infecte_delai() {
+        let Some(w) = W::nouveau().await else {
+            return eprintln!("skip: ENT_DATABASE_URL");
+        };
+        let demon = faux_clamd();
+        let av = client(&demon.adresse);
+        let sain = deposer(&w, "Alpha", pdf_simple()).await;
+        let infecte = deposer(&w, "Beta", piege_eicar()).await;
+        let b = w
+            .ent
+            .analyser_pieces_etablissement(w.m.etab, av.clone(), 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            (b.analyses.recues, b.analyses.infectees, b.analyses.en_quarantaine, b.antivirus_indisponible),
+            (1, 1, 0, false)
+        );
+        assert_eq!(w.etat(sain).await, "recue");
+        assert!(w.octets_servis(sain).await.is_some());
+        assert_eq!(w.etat(infecte).await, "infectee");
+        assert!(w.octets_servis(infecte).await.is_none(), "jamais servie");
+        {
+            let vus = demon.recus.lock().unwrap();
+            assert_eq!(vus.len(), 2, "les deux fichiers ont bien été envoyés au démon");
+            assert!(vus.iter().any(|o| contient(o, EICAR)));
+        }
+
+        // Délai dépassé : le démon se tait, la pièce reste en quarantaine, l'analyse ne dure pas.
+        demon.mode.store(SILENCE, Ordering::SeqCst);
+        let lente = deposer(&w, "Gamma", pdf_simple()).await;
+        let debut = std::time::Instant::now();
+        let b = w
+            .ent
+            .analyser_pieces_etablissement(w.m.etab, av.clone(), 10)
+            .await
+            .unwrap();
+        assert!(debut.elapsed() < Duration::from_secs(5), "délai borné");
+        assert_eq!(b.analyses.en_quarantaine, 1);
+        assert_eq!(w.etat(lente).await, "en_quarantaine");
+        assert!(w.octets_servis(lente).await.is_none());
+        assert_eq!(tentatives(&w, lente).await, 1);
+
+        // Réponse d'erreur du démon : jamais « sain ».
+        demon.mode.store(ERREUR, Ordering::SeqCst);
+        w.ent
+            .analyser_pieces_etablissement(w.m.etab, av.clone(), 10)
+            .await
+            .unwrap();
+        assert_eq!(w.etat(lente).await, "en_quarantaine");
+        assert_eq!(tentatives(&w, lente).await, 2);
+
+        // Démon éteint (port fermé) : la passe s'arrête après trois indisponibilités de suite.
+        let ferme = {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap().to_string()
+        };
+        let mut en_attente = vec![lente];
+        for nom in ["Delta", "Epsilon", "Zeta"] {
+            en_attente.push(deposer(&w, nom, pdf_simple()).await);
+        }
+        let b = w
+            .ent
+            .analyser_pieces_etablissement(w.m.etab, client(&ferme), 10)
+            .await
+            .unwrap();
+        assert!(b.antivirus_indisponible);
+        assert_eq!(b.analyses.en_quarantaine, INDISPONIBLES_AVANT_ARRET);
+        let mut total = 0;
+        for p in &en_attente {
+            total += tentatives(&w, *p).await;
+            assert_eq!(w.etat(*p).await, "en_quarantaine");
+        }
+        // 2 (déjà comptées) + 3 nouvelles : la quatrième pièce n'a pas été essayée.
+        assert_eq!(total, 2 + INDISPONIBLES_AVANT_ARRET as i32);
+
+        // Le démon revient : tout sort de quarantaine, rien n'est perdu.
+        demon.mode.store(NORMAL, Ordering::SeqCst);
+        let b = w
+            .ent
+            .analyser_pieces_etablissement(w.m.etab, av, 10)
+            .await
+            .unwrap();
+        assert_eq!((b.analyses.recues, b.antivirus_indisponible), (4, false));
+        for p in en_attente {
+            assert_eq!(w.etat(p).await, "recue");
+        }
+    }
+
+    #[test]
+    fn clamav_absent_est_ferme_par_defaut() {
+        // Sans `CLAMAV_ADDR`, aucun antivirus n'est construit : la tâche de fond n'est pas lancée.
+        std::env::remove_var("CLAMAV_ADDR");
+        assert!(crate::documents_pieces_taches::antivirus_depuis_env().is_none());
+        std::env::set_var("CLAMAV_ADDR", "   ");
+        assert!(crate::documents_pieces_taches::antivirus_depuis_env().is_none());
+        std::env::remove_var("CLAMAV_ADDR");
+    }
+
+    #[test]
+    fn retention_par_defaut_et_bornes() {
+        std::env::remove_var("ENT_PIECES_INFECTEES_RETENTION_JOURS");
+        assert_eq!(
+            crate::documents_pieces_taches::retention_infectees_depuis_env(),
+            crate::documents_pieces_taches::RETENTION_INFECTEES_JOURS
+        );
+    }
+
+    /// D9 : l'objet reçu d'une pièce infectée est détruit après la rétention, le journal ne porte aucun nom de fichier.
+    #[tokio::test]
+    async fn t_d5b_purge_objets_pieces_infectees() {
+        let Some(w) = W::nouveau().await else {
+            return eprintln!("skip: ENT_DATABASE_URL");
+        };
+        let infecte = deposer(&w, "Purge", piege_eicar()).await;
+        let saine = deposer(&w, "Garde", pdf_simple()).await;
+        for _ in 0..2 {
+            w.ent
+                .analyser_pieces_etablissement(w.m.etab, w.av.clone(), 10)
+                .await
+                .unwrap();
+        }
+        assert_eq!(w.etat(infecte).await, "infectee");
+        assert_eq!(w.etat(saine).await, "recue");
+        let cle = |p: Uuid| {
+            let ent = &w.ent;
+            let etab = w.m.etab;
+            async move {
+                let (c,): (String,) = sqlx::query_as(
+                    "SELECT cle_objet_original FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2",
+                )
+                .bind(etab)
+                .bind(p)
+                .fetch_one(ent.pool_verif())
+                .await
+                .unwrap();
+                c
+            }
+        };
+        let (cle_infecte, cle_saine) = (cle(infecte).await, cle(saine).await);
+        assert!(w.ent.objet_existe(&cle_infecte).await.unwrap());
+
+        // Rétention non écoulée : rien n'est détruit.
+        let b = w.ent.purger_objets_pieces_infectees(w.m.etab, 7).await.unwrap();
+        assert_eq!((b.purges, b.echecs), (0, 0));
+        assert!(w.ent.objet_existe(&cle_infecte).await.unwrap());
+
+        // Rétention écoulée : l'objet infecté est détruit, jamais celui de la pièce saine.
+        let b = w.ent.purger_objets_pieces_infectees(w.m.etab, 0).await.unwrap();
+        assert_eq!((b.purges, b.echecs), (1, 0));
+        assert!(!w.ent.objet_existe(&cle_infecte).await.unwrap(), "détruit au magasin");
+        assert!(w.ent.objet_existe(&cle_saine).await.unwrap(), "pièce saine intacte");
+        let (supprime,): (bool,) = sqlx::query_as(
+            "SELECT supprime_le IS NOT NULL FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2",
+        )
+        .bind(w.m.etab)
+        .bind(&cle_infecte)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+        assert!(supprime, "marqué supprimé au registre");
+        let (supprime_saine,): (bool,) = sqlx::query_as(
+            "SELECT supprime_le IS NOT NULL FROM ent_objet WHERE etablissement_id = $1 AND cle_objet = $2",
+        )
+        .bind(w.m.etab)
+        .bind(&cle_saine)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+        assert!(!supprime_saine);
+
+        // La pièce et ses décisions restent (preuve) ; toujours jamais servie.
+        assert_eq!(w.etat(infecte).await, "infectee");
+        assert!(introuvable(
+            &w.ent
+                .lire_piece_justificative_for_actor(&w.lily_a(), infecte)
+                .await
+                .unwrap_err()
+        ));
+
+        // Journal : un fait, l'identifiant de la pièce, aucun nom de fichier ni clé d'objet.
+        let lignes: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+            sqlx::query_as(
+                "SELECT action, cible, motif, avant, apres, etat_apres FROM ent_doc_journal
+                  WHERE etablissement_id = $1 AND action = 'piece_objets_purges'",
+            )
+            .bind(w.m.etab)
+            .fetch_all(w.ent.pool_verif())
+            .await
+            .unwrap();
+        assert_eq!(lignes.len(), 1, "{lignes:?}");
+        assert_eq!(lignes[0].1.as_deref(), Some(infecte.to_string().as_str()));
+        let tout = format!("{lignes:?}");
+        assert!(!tout.contains(&cle_infecte), "pas de clé d'objet au journal");
+        assert!(!tout.contains(".pdf") && !tout.contains(".zip") && !tout.contains("pieces/"), "{tout}");
+
+        // Idempotent : une seconde passe ne fait rien et n'ajoute aucune ligne.
+        let b = w.ent.purger_objets_pieces_infectees(w.m.etab, 0).await.unwrap();
+        assert_eq!((b.purges, b.echecs), (0, 0));
+        let (n,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM ent_doc_journal WHERE etablissement_id = $1 AND action = 'piece_objets_purges'",
+        )
+        .bind(w.m.etab)
+        .fetch_one(w.ent.pool_verif())
+        .await
+        .unwrap();
+        assert_eq!(n, 1);
+    }
+
+    fn adler(d: &[u8]) -> u32 {
+        let (mut a, mut b) = (1u32, 0u32);
+        for &o in d {
+            a = (a + u32::from(o)) % 65521;
+            b = (b + a) % 65521;
+        }
+        (b << 16) | a
+    }
+
+    fn zlib_stocke(d: &[u8]) -> Vec<u8> {
+        let mut o = vec![0x78, 0x01, 1];
+        o.extend_from_slice(&(d.len() as u16).to_le_bytes());
+        o.extend_from_slice(&(!(d.len() as u16)).to_le_bytes());
+        o.extend_from_slice(d);
+        o.extend_from_slice(&adler(d).to_be_bytes());
+        o
+    }
+
+    /// PDF 1.5 façon Word : catalogue, pages et action piégée dans un flux d'objets, table xref en flux.
+    fn pdf_flux_d_objets(piege: bool) -> Vec<u8> {
+        let objets: [(u32, &str); 3] = [
+            (1, if piege { "<< /Type /Catalog /Pages 2 0 R /OpenAction 5 0 R >>" } else { "<< /Type /Catalog /Pages 2 0 R >>" }),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+            (3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>"),
+        ];
+        let (mut entete, mut corps) = (String::new(), String::new());
+        for (n, o) in objets {
+            entete.push_str(&format!("{n} {} ", corps.len()));
+            corps.push_str(o);
+            corps.push('\n');
+        }
+        let mut contenu = entete.clone().into_bytes();
+        contenu.extend_from_slice(corps.as_bytes());
+        let z = zlib_stocke(&contenu);
+        let mut v = b"%PDF-1.5\n".to_vec();
+        v.extend_from_slice(
+            format!(
+                "4 0 obj\n<< /Type /ObjStm /N 3 /First {} /Filter /FlateDecode /Length {} >>\nstream\n",
+                entete.len(),
+                z.len()
+            )
+            .as_bytes(),
+        );
+        v.extend_from_slice(&z);
+        v.extend_from_slice(b"\nendstream\nendobj\n");
+        if piege {
+            v.extend_from_slice(b"5 0 obj\n<< /S /JavaScript /JS (app.alert\\('piege'\\);) >>\nendobj\n");
+        }
+        let x = zlib_stocke(&[0, 0, 0, 0]);
+        v.extend_from_slice(
+            format!(
+                "6 0 obj\n<< /Type /XRef /W [1 2 1] /Size 7 /Root 1 0 R /Filter /FlateDecode /Length {} >>\nstream\n",
+                x.len()
+            )
+            .as_bytes(),
+        );
+        v.extend_from_slice(&x);
+        v.extend_from_slice(b"\nendstream\nendobj\nstartxref\n0\n%%EOF\n");
+        v
+    }
+
+    /// Un PDF à flux d'objets (Word, scanner) est accepté et désarmé ; un PDF chiffré reste refusé avec son message.
+    #[tokio::test]
+    async fn t_d5b_pdf_compresse_accepte_et_desarme() {
+        let Some(w) = W::nouveau().await else {
+            return eprintln!("skip: ENT_DATABASE_URL");
+        };
+        let eleve = w.eleve("Word").await;
+        w.lier(eleve, &w.lily, true, None).await;
+        let s = SujetPiece::Eleve(eleve);
+        let piege = pdf_flux_d_objets(true);
+        let id = w
+            .deposer_et_analyser(&w.lily_a(), w.depot("acte_naissance", s, None, vec![piege]))
+            .await;
+        let lue = w
+            .ent
+            .lire_piece_justificative_for_actor(&w.lily_a(), id)
+            .await
+            .unwrap();
+        assert!(lue.octets.starts_with(b"%PDF") && lue.nb_pages == 1);
+        for interdit in [&b"/JavaScript"[..], b"/JS", b"/OpenAction", b"ObjStm", b"/XRef"] {
+            assert!(
+                !contient(&lue.octets, interdit),
+                "{} subsiste",
+                String::from_utf8_lossy(interdit)
+            );
+        }
+        let file = w
+            .ent
+            .pieces_a_controler_for_actor(&w.adm(), 100)
+            .await
+            .unwrap();
+        let ligne = file.iter().find(|l| l.piece_id == id).expect("dans la file");
+        let vu = ligne.desarmement.clone().unwrap_or_default();
+        assert!(
+            vu.contains("OpenAction") && vu.contains("JavaScript"),
+            "le contrôleur voit ce qui a été neutralisé : {vu:?}"
+        );
+
+        // Chiffré : toujours refusé, avec la consigne.
+        let chiffre = String::from_utf8_lossy(&pdf_flux_d_objets(false))
+            .replace("/Root 1 0 R", "/Root 1 0 R /Encrypt 9 0 R")
+            .into_bytes();
+        let dep = w
+            .ent
+            .deposer_piece_for_actor(&w.lily_a(), w.depot("acte_naissance", s, None, vec![chiffre]))
+            .await
+            .unwrap();
+        let r = w
+            .ent
+            .analyser_piece(w.m.etab, dep.piece_id, w.av.clone())
+            .await
+            .unwrap();
+        assert!(
+            matches!(&r, ResultatAnalyse::Rejetee(m) if m.contains("chiffré") && m.contains("sans mot de passe") && m.contains("photo")),
+            "{r:?}"
+        );
+    }
 }

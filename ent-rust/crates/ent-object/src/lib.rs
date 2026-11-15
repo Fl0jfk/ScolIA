@@ -433,6 +433,14 @@ impl ObjectStore {
         }
     }
 
+    /// Supprime **physiquement** un objet (purge, socle 7 D9). Idempotent. Une panne remonte en erreur ;
+    /// l'appelant ne marque l'objet supprimé au registre qu'après un succès. Sur un bucket versionné ou
+    /// verrouillé, `DeleteObject` ne détruit pas les anciennes versions : à régler côté exploitation.
+    pub fn supprimer(&self, key: &str) -> Result<(), ObjectStoreError> {
+        assert_safe_key(key)?;
+        self.fournisseur()?.delete(key)
+    }
+
     /// Compat. : `true` seulement si la clé est valide et l'objet présent. Une panne du
     /// fournisseur est journalisée et comptée (`head_echec`) ; préférer `existe`.
     pub fn exists(&self, key: &str) -> bool {

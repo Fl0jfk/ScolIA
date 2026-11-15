@@ -52,6 +52,7 @@ pub mod documents_coffre;
 pub mod documents_zip;
 /// Socle 7, lot D5 : pièces justificatives (catalogue, demandes, dépôt en quarantaine, contrôle, réutilisation).
 pub mod documents_pieces;
+pub mod documents_pieces_taches;
 /// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
 pub mod documents_pdf;
 pub mod documents_repo;
