@@ -235,23 +235,23 @@ async fn m4_cm45_message_du_soir_differe_au_lendemain_7h_et_jamais_en_pleine_nui
     activer_plage_calme(&ent, etab).await;
     let (dir, cpe) = (cast.direction.user_id, cast.cpe.user_id);
     let fil = fil_famille(&ent, &cast).await;
-    // Jeudi 12 novembre 2026, 22 h à Paris (21 h UTC).
-    let soir = Utc.with_ymd_and_hms(2026, 11, 12, 21, 0, 0).unwrap();
+    // Jeudi 14 janvier 2027 (futur : la visibilité se juge à l instant réel), 22 h à Paris (21 h UTC).
+    let soir = Utc.with_ymd_and_hms(2027, 1, 14, 21, 0, 0).unwrap();
     let env = ent
         .repondre_fil_a(role(Role::Cpe), rep(etab, cpe, fil, "Bonsoir, je vous réponds demain."), OptionsEnvoiMessage::default(), soir)
         .await
         .unwrap();
     // Vendredi 7 h Paris = 6 h UTC.
-    assert_eq!(env.remise_prevue_le, Some(Utc.with_ymd_and_hms(2026, 11, 13, 6, 0, 0).unwrap()));
+    assert_eq!(env.remise_prevue_le, Some(Utc.with_ymd_and_hms(2027, 1, 15, 6, 0, 0).unwrap()));
     // L'auteur le voit avant d'envoyer (aperçu de remise).
     assert_eq!(ent.lecture_prevue(etab, soir).await.unwrap(), env.remise_prevue_le);
     // Vendredi 21 h → remis lundi 7 h (week-end calme).
-    let vendredi = Utc.with_ymd_and_hms(2026, 11, 13, 20, 0, 0).unwrap();
+    let vendredi = Utc.with_ymd_and_hms(2027, 1, 15, 20, 0, 0).unwrap();
     let env = ent
         .repondre_fil_a(role(Role::Cpe), rep(etab, cpe, fil, "Bon week-end."), OptionsEnvoiMessage::default(), vendredi)
         .await
         .unwrap();
-    assert_eq!(env.remise_prevue_le, Some(Utc.with_ymd_and_hms(2026, 11, 16, 6, 0, 0).unwrap()));
+    assert_eq!(env.remise_prevue_le, Some(Utc.with_ymd_and_hms(2027, 1, 18, 6, 0, 0).unwrap()));
     // Le parent ne lit pas les messages encore différés ; leur auteur, si.
     let (_, vus) = ent.list_messages_for_actor(etab, cast.parent_lea.user_id, role(Role::Parent), fil).await.unwrap();
     assert_eq!(vus.len(), 1, "seul le message d'ouverture de la famille est remis");
@@ -293,9 +293,9 @@ async fn m4_cm26_aucun_message_d_adulte_remis_a_un_mineur_la_nuit() {
     let eleve = compte_eleve(&ent, etab, harry).await;
     // L'élève mineur écrit à 23 h : enregistré, remis tout de suite aux adultes ; il voit à quelle heure
     // l'adulte le lira (CM-26).
-    let nuit = Utc.with_ymd_and_hms(2026, 11, 11, 22, 0, 0).unwrap();
+    let nuit = Utc.with_ymd_and_hms(2027, 1, 13, 22, 0, 0).unwrap();
     let lecture = ent.lecture_prevue(etab, nuit).await.unwrap();
-    assert_eq!(lecture, Some(Utc.with_ymd_and_hms(2026, 11, 12, 6, 0, 0).unwrap()), "sera lu à partir de demain 7 h");
+    assert_eq!(lecture, Some(Utc.with_ymd_and_hms(2027, 1, 14, 6, 0, 0).unwrap()), "sera lu à partir de demain 7 h");
     let o = ent
         .ouvrir_fils_a(
             role(Role::Eleve),
@@ -317,7 +317,7 @@ async fn m4_cm26_aucun_message_d_adulte_remis_a_un_mineur_la_nuit() {
     let (_, vus) = ent.list_messages_for_actor(etab, eleve, role(Role::Eleve), o[0].fil.id).await.unwrap();
     assert!(vus.iter().all(|m| m.message.auteur_user_id == eleve), "rien d'un adulte n'est remis à l'élève avant 7 h");
     // Jour ouvré, en journée : aucun différé (témoin que la plage ne bloque pas tout).
-    let midi = Utc.with_ymd_and_hms(2026, 11, 12, 11, 0, 0).unwrap();
+    let midi = Utc.with_ymd_and_hms(2027, 1, 14, 11, 0, 0).unwrap();
     assert_eq!(ent.lecture_prevue(etab, midi).await.unwrap(), None);
 }
 
@@ -330,20 +330,20 @@ async fn m4_programmation_ne_contourne_jamais_la_plage_calme_et_se_borne() {
     activer_plage_calme(&ent, etab).await;
     let cpe = cast.cpe.user_id;
     let fil = fil_famille(&ent, &cast).await;
-    let maintenant = Utc.with_ymd_and_hms(2026, 11, 11, 10, 0, 0).unwrap(); // mercredi 11 h Paris
+    let maintenant = Utc.with_ymd_and_hms(2027, 1, 13, 10, 0, 0).unwrap(); // mercredi 11 h Paris
     // Témoin : programmé jeudi 10 h → remis jeudi 10 h.
-    let jeudi_10h = Utc.with_ymd_and_hms(2026, 11, 12, 9, 0, 0).unwrap();
+    let jeudi_10h = Utc.with_ymd_and_hms(2027, 1, 14, 9, 0, 0).unwrap();
     let (m, remise) = ent.repondre_programme_a(role(Role::Cpe), rep(etab, cpe, fil, "Message programmé"), jeudi_10h, maintenant).await.unwrap();
     assert_eq!(remise, Some(jeudi_10h));
     let (prog,): (Option<chrono::DateTime<Utc>>,) = sqlx::query_as("SELECT programme_le FROM ent_msg WHERE id = $1").bind(m.id).fetch_one(ent.pool()).await.unwrap();
     assert_eq!(prog, Some(jeudi_10h));
     // Programmer à 3 h du matin (plage calme) ne contourne rien : remis à 7 h.
-    let trois_heures = Utc.with_ymd_and_hms(2026, 11, 12, 2, 0, 0).unwrap();
+    let trois_heures = Utc.with_ymd_and_hms(2027, 1, 14, 2, 0, 0).unwrap();
     let (_, remise) = ent.repondre_programme_a(role(Role::Cpe), rep(etab, cpe, fil, "À 3 h"), trois_heures, maintenant).await.unwrap_or_else(|e| panic!("{e:?}"));
     assert!(remise.is_some());
     // Un message écrit le soir et programmé après la plage : le plus tardif gagne.
-    let soir = Utc.with_ymd_and_hms(2026, 11, 11, 21, 0, 0).unwrap();
-    let demain_14h = Utc.with_ymd_and_hms(2026, 11, 12, 13, 0, 0).unwrap();
+    let soir = Utc.with_ymd_and_hms(2027, 1, 13, 21, 0, 0).unwrap();
+    let demain_14h = Utc.with_ymd_and_hms(2027, 1, 14, 13, 0, 0).unwrap();
     let (_, remise) = ent.repondre_programme_a(role(Role::Cpe), rep(etab, cpe, fil, "Programmé le soir"), demain_14h, soir).await.unwrap();
     assert_eq!(remise, Some(demain_14h));
     // Bornes : passé, trop lointain, famille.
