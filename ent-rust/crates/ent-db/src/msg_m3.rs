@@ -900,6 +900,11 @@ impl PgEnt {
         role: &str,
         eleve: Uuid,
     ) -> Result<Vec<BoiteAccueil>, EntDbError> {
+        if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve))
+            && !self.actor_can_access_msg_fil(etab, user, role, eleve).await?
+        {
+            return Ok(Vec::new());
+        }
         let boites = sqlx::query_as::<_, BoiteVue>(
             "SELECT id, code, libelle, sensibilite, actif, delai_vise_jours, message_accueil, reponse_auto
                FROM ent_msg_boite WHERE etablissement_id = $1 AND actif ORDER BY libelle",
@@ -955,6 +960,13 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let parsed = Role::parse(role).ok_or(EntDbError::Forbidden)?;
+        // La matrice n'exige pas de lien pour écrire à une boîte (§8.2) : une famille ou un élève ne peut
+        // pourtant écrire qu'à propos d'un élève avec lequel elle a un lien communicant (ou de lui-même).
+        if matches!(parsed, Role::Parent | Role::Eleve)
+            && !self.actor_can_access_msg_fil(etab, user, role, eleve).await?
+        {
+            return Err(EntDbError::Forbidden);
+        }
         match self
             .peut_ecrire_for_actor(etab, user, role, cible_de_boite(&b.code), eleve, None, true)
             .await?
