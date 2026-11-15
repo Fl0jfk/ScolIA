@@ -17,6 +17,7 @@ mod ecrit;
 mod fonte;
 mod jpeg;
 mod normalise;
+pub mod piece;
 mod qr;
 pub mod releve;
 mod sous_ensemble;

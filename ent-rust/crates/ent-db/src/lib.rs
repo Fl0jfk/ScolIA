@@ -46,6 +46,12 @@ pub mod demandes_routage;
 pub mod documents;
 /// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
 pub mod documents_natures;
+/// Socle 7, lot D4 : coffre (responsable, élève, agent), accusés, export, bascule à la majorité, retrait sur suspension.
+pub mod documents_coffre;
+/// Archive ZIP « stored » écrite à la main (export du coffre).
+pub mod documents_zip;
+/// Socle 7, lot D5 : pièces justificatives (catalogue, demandes, dépôt en quarantaine, contrôle, réutilisation).
+pub mod documents_pieces;
 /// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
 pub mod documents_pdf;
 pub mod documents_repo;
@@ -564,6 +570,10 @@ mod tests_demandes_n1_5;
 mod tests_documents_d2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

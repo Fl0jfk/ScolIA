@@ -50,6 +50,7 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(ConsommateurEvaluations),
         Arc::new(crate::voyages_reactions::ConsommateurVoyages),
         Arc::new(crate::afaire_service::ConsommateurAfaire),
+        Arc::new(crate::documents_coffre::ConsommateurCoffre),
     ]
 }
 

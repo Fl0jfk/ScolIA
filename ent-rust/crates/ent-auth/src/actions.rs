@@ -456,6 +456,13 @@ pub enum Action {
     DocumentsFinancierLire,
     /// Lire les dossiers documentaires des agents (domaine rh).
     DocumentsPersonnelsLire,
+    // ── Socle 7, lots D4 et D5 : coffre (retrait, remise), pièces justificatives ──
+    /// Classer : retirer une mise à disposition (motif obligatoire) ou la rendre explicitement (D4).
+    DocumentsClasser,
+    /// Demander, relancer, annuler une pièce justificative ; voir « ce qui manque » d'un dossier (D5).
+    DocumentsPiecesDemander,
+    /// Contrôler une pièce déposée : accepter, refuser avec motif, déclarer sans objet (D5).
+    DocumentsPiecesControler,
     /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
     ConformiteLire,
     /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
@@ -541,7 +548,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 224] = [
+    pub const TOUTES: [Action; 227] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -781,6 +788,9 @@ impl Action {
         Action::DocumentsRestreintsLire,
         Action::DocumentsFinancierLire,
         Action::DocumentsPersonnelsLire,
+        Action::DocumentsClasser,
+        Action::DocumentsPiecesDemander,
+        Action::DocumentsPiecesControler,
     ];
 
     pub fn code(self) -> &'static str {
@@ -984,6 +994,9 @@ impl Action {
             Self::DocumentsRestreintsLire => "documents.restreints.lire",
             Self::DocumentsFinancierLire => "documents.financier.lire",
             Self::DocumentsPersonnelsLire => "documents.personnels.lire",
+            Self::DocumentsClasser => "documents.classer",
+            Self::DocumentsPiecesDemander => "documents.pieces.demander",
+            Self::DocumentsPiecesControler => "documents.pieces.controler",
             Self::ConformiteLire => "conformite.lire",
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
@@ -1216,6 +1229,9 @@ impl Action {
             Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
             Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
             Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
+            Self::DocumentsClasser => "Retirer ou rendre une mise à disposition de document (coffre), avec motif",
+            Self::DocumentsPiecesDemander => "Demander, relancer ou annuler une pièce justificative ; voir ce qui manque à un dossier",
+            Self::DocumentsPiecesControler => "Contrôler les pièces déposées : accepter, refuser avec motif, déclarer sans objet",
             Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
@@ -1468,7 +1484,10 @@ impl Action {
             | Self::DocumentsModelesParametrer
             | Self::DocumentsRestreintsLire
             | Self::DocumentsFinancierLire
-            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
+            | Self::DocumentsPersonnelsLire
+            | Self::DocumentsClasser
+            | Self::DocumentsPiecesDemander
+            | Self::DocumentsPiecesControler => &[Portee::Etablissement],
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
@@ -2363,6 +2382,21 @@ fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if role == Role::Compta {
         d.push(etab(DocumentsFinancierLire));
+    }
+    // Lot D4 : retirer / rendre une mise à disposition (secrétariat, direction).
+    if matches!(role, Role::Administratif | Role::Direction) {
+        d.push(etab(DocumentsClasser));
+    }
+    // Lot D5 : demander et contrôler les pièces (secrétariat, direction, comptabilité pour les bourses, infirmerie pour
+    // la santé ; l'accueil ne contrôle que les pièces d'identité : restriction exercée par le service, par type de pièce).
+    if matches!(role, Role::Administratif | Role::Direction | Role::Compta | Role::Infirmerie) {
+        d.push(etab(DocumentsPiecesDemander));
+    }
+    if matches!(
+        role,
+        Role::Administratif | Role::Direction | Role::Compta | Role::Infirmerie | Role::Accueil
+    ) {
+        d.push(etab(DocumentsPiecesControler));
     }
 }
 

@@ -19,6 +19,7 @@
 //!
 //! Variables d'environnement : voir `ObjectStore::from_vars`.
 
+pub mod clamav;
 pub mod presign;
 pub mod provider;
 pub mod s3;
