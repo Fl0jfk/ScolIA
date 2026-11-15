@@ -44,13 +44,13 @@ INSERT INTO ent_acc_catalogue
 VALUES
  ('droit_image', 'consentement', 'tous', 11, 'signer_documents', 'S1', 'annee_scolaire', 'eleve', 'image',
   'Droit à l''image',
-  'Photographies et vidéos de votre enfant : vous choisissez, canal par canal, ce que l''établissement peut publier pendant l''année scolaire. Un refus n''a aucune conséquence sur la scolarité. Vous pouvez retirer votre accord à tout moment, aussi simplement que vous l''avez donné ; l''avis de votre enfant est recueilli à partir de 11 ans et son refus l''emporte.'),
+  'Photographies et vidéos de votre enfant : vous choisissez, canal par canal, ce que l''établissement peut publier pendant l''année scolaire. Un refus n''a aucune conséquence sur la scolarité. Vous pouvez retirer votre accord à tout moment, aussi simplement que vous l''avez donné , l''avis de votre enfant est recueilli à partir de 11 ans et son refus l''emporte.'),
  ('voix', 'consentement', 'tous', 11, 'signer_documents', 'S1', 'annee_scolaire', 'eleve', 'image',
   'Voix et enregistrements sonores',
-  'Enregistrements de la voix de votre enfant (classe, podcast, diffusion). Vous choisissez usage par usage ; retrait possible à tout moment ; l''avis de l''enfant est recueilli à partir de 11 ans.'),
+  'Enregistrements de la voix de votre enfant (classe, podcast, diffusion). Vous choisissez usage par usage , retrait possible à tout moment , l''avis de l''enfant est recueilli à partir de 11 ans.'),
  ('publication_productions', 'consentement', 'eleve_et_titulaires', 11, 'signer_documents', 'S1', 'annee_scolaire', 'eleve', NULL,
   'Publication des productions d''élèves',
-  'Publication de travaux de votre enfant (textes, dessins, vidéos). Vous choisissez les canaux et le mode de signature (nom, prénom, initiale ou anonyme). L''élève co-signe ; retrait possible à tout moment.'),
+  'Publication de travaux de votre enfant (textes, dessins, vidéos). Vous choisissez les canaux et le mode de signature (nom, prénom, initiale ou anonyme). L''élève co-signe , retrait possible à tout moment.'),
  ('mention_nominative', 'consentement', 'tous', 11, 'signer_documents', 'S1', 'annee_scolaire', 'eleve', NULL,
   'Mention nominative (félicitations, palmarès)',
   'Mention du nom de votre enfant dans une publication (félicitations, palmarès). Retrait possible à tout moment.'),
@@ -83,7 +83,7 @@ VALUES
   'Apparaître dans la liste des parents de la classe remise aux représentants des parents. Vous pouvez retirer cet accord à tout moment.'),
  ('coordonnees_associations', 'consentement', 'soi', NULL, NULL, 'S1', 'sans_terme', 'personne', NULL,
   'Coordonnées transmises aux associations de parents',
-  'Transmission de vos coordonnées aux associations de parents d''élèves (art. D111-8). Refusé par défaut ; retrait possible à tout moment.'),
+  'Transmission de vos coordonnées aux associations de parents d''élèves (art. D111-8). Refusé par défaut , retrait possible à tout moment.'),
  ('coordonnees_transport', 'consentement', 'soi', NULL, NULL, 'S1', 'annee_scolaire', 'personne', NULL,
   'Coordonnées transmises au transporteur',
   'Transmission de vos coordonnées au transporteur scolaire pour l''année scolaire.'),
@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS ent_acc_usage (
     CONSTRAINT ent_acc_usage_code_uq UNIQUE (etablissement_id, objet_id, code),
     CONSTRAINT ent_acc_usage_objet_cfk FOREIGN KEY (etablissement_id, objet_id)
         REFERENCES ent_acc_objet (etablissement_id, id) ON DELETE RESTRICT
-);
+),
 
 -- Nature, code et sujet d'un objet ne changent jamais (R-FC21) ; un objet ne se supprime pas (se désactive).
 CREATE OR REPLACE FUNCTION ent_acc_objet_garde() RETURNS trigger
