@@ -202,7 +202,7 @@ BEGIN
     IF current_setting('ent.purge_etablissement', true) = 'on' THEN
         RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
     END IF;
-    IF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'ent_acc_decision'
+    IF TG_OP = 'UPDATE'
        AND NEW.id = OLD.id AND NEW.etablissement_id = OLD.etablissement_id AND NEW.objet_id = OLD.objet_id
        AND NEW.version_id = OLD.version_id
        AND NEW.sujet_personne_id IS NOT DISTINCT FROM OLD.sujet_personne_id
@@ -218,13 +218,21 @@ BEGIN
        AND NEW.source_reprise_id IS NOT DISTINCT FROM OLD.source_reprise_id THEN
         RETURN NEW;
     END IF;
-    RAISE EXCEPTION '% : une décision est en ajout seul', TG_TABLE_NAME USING ERRCODE = '42501';
+    RAISE EXCEPTION 'ent_acc_decision : une décision est en ajout seul' USING ERRCODE = '42501';
 END $$;
 DROP TRIGGER IF EXISTS ent_acc_decision_garde ON ent_acc_decision;
 CREATE TRIGGER ent_acc_decision_garde BEFORE UPDATE OR DELETE ON ent_acc_decision
     FOR EACH ROW EXECUTE FUNCTION ent_acc_decision_garde();
+CREATE OR REPLACE FUNCTION ent_acc_decision_usage_garde() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF current_setting('ent.purge_etablissement', true) = 'on' THEN
+        RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END IF;
+    RAISE EXCEPTION 'ent_acc_decision_usage : une décision est en ajout seul' USING ERRCODE = '42501';
+END $$;
 DROP TRIGGER IF EXISTS ent_acc_decision_usage_garde ON ent_acc_decision_usage;
 CREATE TRIGGER ent_acc_decision_usage_garde BEFORE UPDATE OR DELETE ON ent_acc_decision_usage
-    FOR EACH ROW EXECUTE FUNCTION ent_acc_decision_garde();
+    FOR EACH ROW EXECUTE FUNCTION ent_acc_decision_usage_garde();
 
 SELECT ent_rls_poser(ARRAY['ent_acc_version', 'ent_acc_version_usage', 'ent_acc_decision', 'ent_acc_decision_usage']);

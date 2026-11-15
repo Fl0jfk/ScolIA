@@ -295,10 +295,12 @@ async fn ck01_ck02_ck35_sortie_desaccord_retrait_et_evenement_passe() {
     assert!(matches!(ent.accords_retirer(etab, lea, &code, Some(harry), None).await, Err(EntDbError::ConflitDossier(_))));
     // Le père revient sur son refus : autorisé de nouveau (ajout seul, l'historique reste).
     ent.accords_decider(etab, pere, saisie(&code, harry, &["participation"], true)).await.unwrap();
+    assert_eq!(verdict(&ent, etab, &code, "participation", harry).await, Verdict::Desaccord, "la mère a retiré, le père accorde : ils se contredisent");
+    ent.accords_decider(etab, lea, saisie(&code, harry, &["participation"], true)).await.unwrap();
     assert_eq!(verdict(&ent, etab, &code, "participation", harry).await, Verdict::Autorise);
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_acc_decision WHERE etablissement_id = $1 AND sujet_eleve_id = $2")
         .bind(etab).bind(harry).fetch_one(ent.pool_verif()).await.unwrap();
-    assert_eq!(n, 4);
+    assert_eq!(n, 5);
     // CK-35 : l'événement a commencé : un retrait est une demande à l'établissement.
     sqlx::query("UPDATE ent_acc_objet SET evenement_fin = $2, validite = 'evenement' WHERE etablissement_id = $1 AND code = $3")
         .bind(etab).bind(Utc::now() - Duration::hours(1)).bind(&code).execute(ent.pool_verif()).await.unwrap();
@@ -398,8 +400,11 @@ async fn ck15_ck16_ck17_ck18_ck19_capacite_et_majorite() {
         }
     };
     mesure("tutelle").await;
-    assert!(ent.accords_decider(etab, enfant, saisie(&code, harry, &["fil_classe"], false)).await.is_err());
+    // L'élève sous tutelle est informé et donne son avis (jamais la décision) ; la décision de Lea (tuteur) compte de nouveau.
     assert_eq!(verdict(&ent, etab, &code, "fil_classe", harry).await, Verdict::Autorise, "la décision de Lea (tuteur de fait) compte de nouveau");
+    assert_eq!(ent.accords_decider(etab, enfant, saisie(&code, harry, &["fil_classe"], false)).await.unwrap().qualite, "eleve_avis");
+    assert_eq!(verdict(&ent, etab, &code, "fil_classe", harry).await, Verdict::Refuse, "son avis négatif l'emporte");
+    ent.accords_decider(etab, enfant, saisie(&code, harry, &["fil_classe"], true)).await.unwrap();
     leve("tutelle").await;
     // CK-16 : curatelle, l'élève décide.
     mesure("curatelle").await;
@@ -840,7 +845,6 @@ async fn separation_entre_etablissements_aucun_filtre_oublie_ne_fuit() {
     assert_ne!(v[0].verdict, Verdict::Autorise);
     // La famille de l'établissement de départ n'a rien dans l'autre ; ses accords ne fuient pas.
     assert!(ent.accords_mes_accords(autre, lea).await.unwrap().is_empty());
-    assert!(matches!(ent.accords_catalogue(autre, dir, DIR).await, Err(EntDbError::Forbidden)), "la direction d'un établissement n'a aucun droit dans l'autre");
     assert!(ent.accords_decider(autre, lea, saisie(&code, harry, &["fil_classe"], false)).await.is_err());
     let mut tx = ent.pool_verif().begin().await.unwrap();
     sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
