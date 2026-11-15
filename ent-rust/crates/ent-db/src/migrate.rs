@@ -220,6 +220,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("341_cours"),
     m!("342_eleve_enseignement_jour_etablissement"),
     m!("343_eleve_enseignement_horodatage_jour_etablissement"),
+    // 339 (socle 5, S6) est appliquée ICI, après 341 : elle repose la liste des objets du journal de structure.
+    m!("339_structure_groupes"),
     m!("350_acces_etat"),
     m!("351_attributions_datees"),
     m!("352_agents"),

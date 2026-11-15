@@ -438,7 +438,7 @@ impl PgEnt {
     }
 
     /// Ouvre la transaction d'une commande et verrouille l'élève.
-    async fn ouvrir_tx_eleve(&self, etab: Uuid, eleve: Uuid) -> Result<TenantTx<'static>, EntDbError> {
+    pub(crate) async fn ouvrir_tx_eleve(&self, etab: Uuid, eleve: Uuid) -> Result<TenantTx<'static>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
         if !Repo::verrouiller_eleve(&mut tx, etab, eleve).await? {
             return Err(DomainError::NotFound.into());
@@ -653,16 +653,15 @@ impl PgEnt {
         .execute(&mut **tx)
         .await
         .map_err(traduire)?;
-        // Les affectations (classe, groupes) s'arrêtent la veille de la sortie.
-        let veille = plan.date_sortie - Duration::days(1);
-        sqlx::query(
-            "UPDATE ent_affectation SET date_fin = greatest(date_debut, $3)
-             WHERE etablissement_id = $1 AND eleve_id = $2 AND (date_fin IS NULL OR date_fin > $3)",
+        // Les affectations (classe, groupes) s'arrêtent la veille de la sortie : port du socle 5 (STR-67), dans la
+        // transaction de la sortie ; les affectations qui n'avaient pas commencé sont annulées (archivées).
+        crate::structure_groupes::groupes::fermer_affectations(
+            &mut **tx,
+            etab,
+            eleve,
+            plan.date_sortie,
+            cmd.acteur,
         )
-        .bind(etab)
-        .bind(eleve)
-        .bind(veille)
-        .execute(&mut **tx)
         .await?;
         // RP2-12 : l'inscription annuelle en cours prend fin à la date de départ (l'historique,
         // les années passées et les prévues ne sont pas touchées). Sortie future : la date de fin
@@ -1052,8 +1051,20 @@ impl PgEnt {
     /// ELV-09 : change l'élève de classe à une date (période + affectation au référentiel).
     pub async fn changer_classe(&self, role: &str, cmd: ChangementClasse) -> Result<(), EntDbError> {
         self.exiger_scolarite(cmd.etablissement_id, cmd.acteur, role, Action::ElevesScolariteGerer).await?;
+        let mut tx = self.ouvrir_tx_eleve(cmd.etablissement_id, cmd.eleve_id).await?;
+        self.changer_classe_sur(&mut tx, cmd).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Cœur d'ELV-09 dans la transaction de l'appelant (élève déjà verrouillé, droits déjà contrôlés) : partagé avec
+    /// la commande unique STR-61 du socle 5 (`structure_composition.rs`), qui y ajoute le recalcul des groupes.
+    pub(crate) async fn changer_classe_sur(
+        &self,
+        tx: &mut TenantTx<'static>,
+        cmd: ChangementClasse,
+    ) -> Result<(), EntDbError> {
         let (etab, eleve) = (cmd.etablissement_id, cmd.eleve_id);
-        let mut tx = self.ouvrir_tx_eleve(etab, eleve).await?;
         let classe: Option<(String, Uuid, NaiveDate, NaiveDate)> = sqlx::query_as(
             "SELECT c.code, c.annee_id, a.date_debut, a.date_fin FROM ent_classe c
              JOIN ent_annee_scolaire a ON a.id = c.annee_id
@@ -1061,20 +1072,20 @@ impl PgEnt {
         )
         .bind(etab)
         .bind(cmd.classe_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await?;
         let (code, annee, debut, fin) = classe.ok_or(EntDbError::SaisieInvalide("classe inconnue"))?;
         if cmd.date_effet < debut || cmd.date_effet > fin {
             return Err(EntDbError::SaisieInvalide("la date d'effet est hors de l'année de cette classe"));
         }
-        let jour = Repo::jour(&mut tx, etab).await?;
-        if Repo::statuts(&mut tx, etab, eleve).await?.0.as_deref() == Some("sorti")
-            && Repo::periodes(&mut tx, etab, eleve).await?.iter().all(|p| !p.couvre(cmd.date_effet))
+        let jour = Repo::jour(&mut **tx, etab).await?;
+        if Repo::statuts(&mut **tx, etab, eleve).await?.0.as_deref() == Some("sorti")
+            && Repo::periodes(&mut **tx, etab, eleve).await?.iter().all(|p| !p.couvre(cmd.date_effet))
             && cmd.date_effet <= jour
         {
             return Err(EntDbError::ConflitDossier("l'élève n'est pas scolarisé à cette date"));
         }
-        Self::ecrire_changement_attribut(&mut tx, etab, eleve, AttributKind::Classe, &code, cmd.date_effet, cmd.acteur)
+        Self::ecrire_changement_attribut(tx, etab, eleve, AttributKind::Classe, &code, cmd.date_effet, cmd.acteur)
             .await?;
         // Affectation de classe de l'année : l'ouverte est close la veille (ou remplacée si elle
         // démarre le jour même), puis la nouvelle est ouverte.
@@ -1088,7 +1099,7 @@ impl PgEnt {
         .bind(annee)
         .bind(cmd.classe_id)
         .bind(cmd.date_effet)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
         if remplacee.rows_affected() == 0 {
             sqlx::query(
@@ -1100,7 +1111,7 @@ impl PgEnt {
             .bind(eleve)
             .bind(annee)
             .bind(cmd.date_effet - Duration::days(1))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(traduire)?;
             sqlx::query(
@@ -1113,11 +1124,10 @@ impl PgEnt {
             .bind(eleve)
             .bind(cmd.classe_id)
             .bind(cmd.date_effet)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(traduire)?;
         }
-        tx.commit().await?;
         Ok(())
     }
 

@@ -1825,7 +1825,9 @@ impl PgEnt {
                JOIN ent_affectation a ON a.etablissement_id = r.etablissement_id AND a.groupe_id = r.groupe_id
               WHERE r.etablissement_id = $1 AND r.user_id = $2 AND a.eleve_id = $3
                 AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)
-                AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)",
+                AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
+                AND EXISTS (SELECT 1 FROM ent_groupe gd WHERE gd.id = r.groupe_id
+                             AND gd.etablissement_id = r.etablissement_id AND gd.ouvre_droits)",
         )
         .bind(etab)
         .bind(user)

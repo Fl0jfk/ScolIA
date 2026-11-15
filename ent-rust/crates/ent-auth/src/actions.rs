@@ -472,6 +472,16 @@ pub enum Action {
     /// Habiliter des agents à signer certains documents au nom de l'établissement et organiser
     /// l'intérim de direction (PRS-81, 82). Ne se donne que par qui la détient (anti-escalade).
     SignatureHabiliter,
+    /// Socle 5, lot S6 (STR-50 à 55) : créer, modifier, fermer les groupes et leurs classes d'origine.
+    /// `referentiel.gerer` reste un raccourci qui la couvre (§13.2).
+    StructureGerer,
+    /// Socle 5, lot S6 (STR-60 à 66) : affecter les élèves aux classes et aux groupes, changer de classe,
+    /// composer, retirer, corriger. `referentiel.gerer` la couvre.
+    AffectationsGerer,
+    /// Socle 5, lot S6 (STR-63, 66) : composer SON groupe d'activité ou de liste (portée « mes groupes »).
+    GroupesComposer,
+    /// Socle 5, lot S6 (STR-53) : créer un groupe d'activité dont on devient responsable.
+    GroupesCreerActivite,
 }
 
 /// Sur quoi une action s'applique.
@@ -496,7 +506,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 205] = [
+    pub const TOUTES: [Action; 209] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -708,6 +718,10 @@ impl Action {
         // Socle 6, lots P5 et P6 (en fin de catalogue).
         Action::EquipesGerer,
         Action::SignatureHabiliter,
+        Action::StructureGerer,
+        Action::AffectationsGerer,
+        Action::GroupesComposer,
+        Action::GroupesCreerActivite,
         // Socle 7, lot D2 (en fin de catalogue).
         Action::DocumentsEmettre,
         Action::DocumentsAnnuler,
@@ -926,6 +940,10 @@ impl Action {
             Self::CahierContribuer => "cahier.contribuer",
             Self::EquipesGerer => "equipes.gerer",
             Self::SignatureHabiliter => "signature.habiliter",
+            Self::StructureGerer => "structure.gerer",
+            Self::AffectationsGerer => "affectations.gerer",
+            Self::GroupesComposer => "groupes.composer",
+            Self::GroupesCreerActivite => "groupes.creer_activite",
         }
     }
 
@@ -1139,6 +1157,10 @@ impl Action {
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
             Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
+            Self::StructureGerer => "Gérer les groupes et leurs classes d'origine (créer, générer, modifier, fermer)",
+            Self::AffectationsGerer => "Affecter les élèves aux classes et aux groupes, changer de classe, corriger une affectation",
+            Self::GroupesComposer => "Composer son groupe d'activité ou de liste (entrées et sorties d'élèves)",
+            Self::GroupesCreerActivite => "Créer un atelier, un club ou un groupe d'activité dont on devient responsable",
         }
     }
 
@@ -1176,6 +1198,11 @@ impl Action {
             // Socle 6 (§14.2) : inclusions explicites, aucune autre.
             Self::PersonnelsLire => &[Self::PersonnelsGerer],
             Self::PersonnelsServicesLire => &[Self::ServicesGerer],
+            // Socle 5, S6 (§13.2) : `referentiel.gerer` reste un raccourci qui les couvre toutes ; composer son
+            // groupe et créer une activité sont aussi couverts par les droits de gestion correspondants.
+            Self::StructureGerer | Self::AffectationsGerer => &[Self::ReferentielGerer],
+            Self::GroupesComposer => &[Self::AffectationsGerer, Self::ReferentielGerer],
+            Self::GroupesCreerActivite => &[Self::StructureGerer, Self::ReferentielGerer],
             _ => &[],
         }
     }
@@ -1312,7 +1339,13 @@ impl Action {
             | Self::PersonnelsPaieAbsences
             | Self::EquipesGerer
             | Self::SignatureHabiliter
+            | Self::StructureGerer
+            | Self::GroupesCreerActivite
             | Self::AccesRevue => &[Portee::Etablissement],
+            // Socle 5, S6 : affecter peut être délégué à des classes ou groupes désignés (un adjoint « niveau 6e ») ;
+            // composer son groupe : établissement, mes groupes, désignés.
+            Self::AffectationsGerer => &[Portee::Etablissement, Portee::Designes],
+            Self::GroupesComposer => &[Portee::Etablissement, Portee::MesGroupes, Portee::Designes],
             | Self::AccesRevue
             | Self::AfaireRapprocher
             | Self::AfairePrendre
@@ -1486,6 +1519,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_20_cahier(role, &mut d);
     socle_06_personnels(role, &mut d);
     socle_07_documents(role, &mut d);
+    socle_05_structure(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1933,6 +1967,19 @@ fn socle_06_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(SignatureHabiliter));
+    }
+}
+
+/// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Socle 5 (structure), lot S6 : groupes et compositions (règle 21 : une fonction par socle). `structure.gerer` et
+/// `affectations.gerer` suivent `referentiel.gerer` (Admin, Direction, Administratif : aucun changement de
+/// population, §13.2). `groupes.composer` et `groupes.creer_activite` n'ont AUCUN défaut : ils ne se donnent que par
+/// un rôle paramétré (« Responsable d'atelier »), jamais à un profil de base.
+fn socle_05_structure(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push((StructureGerer, Portee::Etablissement));
+        d.push((AffectationsGerer, Portee::Etablissement));
     }
 }
 
@@ -2541,6 +2588,41 @@ mod tests {
         assert_eq!(Action::parse("signature.habiliter"), Some(SignatureHabiliter));
         // Une équipe ne donne aucun droit sur les élèves : `equipes.gerer` n'est pas une action d'élève.
         assert!(!EquipesGerer.portees_admises().contains(&Portee::MesClasses));
+    }
+
+    /// Socle 5, lot S6 (règle 21) : `structure.gerer` et `affectations.gerer` suivent `referentiel.gerer`
+    /// (Admin, Direction, Administratif) ; `groupes.composer` et `groupes.creer_activite` n'ont aucun défaut ;
+    /// portées admises ; le raccourci `referentiel.gerer` les couvre ; aucun autre profil n'y gagne rien.
+    #[test]
+    fn s6_structure_groupes_modele_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            let gestion = usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif));
+            assert_eq!(a(StructureGerer), gestion, "{r:?} structure.gerer");
+            assert_eq!(a(AffectationsGerer), gestion, "{r:?} affectations.gerer");
+            assert_eq!(a(GroupesComposer), 0, "{r:?} groupes.composer : aucun défaut");
+            assert_eq!(a(GroupesCreerActivite), 0, "{r:?} groupes.creer_activite : aucun défaut");
+            // Les nouvelles actions suivent exactement `referentiel.gerer` (même population).
+            assert_eq!(a(StructureGerer), a(ReferentielGerer), "{r:?}");
+        }
+        assert_eq!(StructureGerer.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(GroupesCreerActivite.portees_admises(), &[Portee::Etablissement]);
+        assert!(AffectationsGerer.portees_admises().contains(&Portee::Designes));
+        assert!(!AffectationsGerer.portees_admises().contains(&Portee::MesGroupes));
+        assert!(GroupesComposer.portees_admises().contains(&Portee::MesGroupes));
+        assert!(!GroupesComposer.portees_admises().contains(&Portee::MesClasses));
+        for x in [StructureGerer, AffectationsGerer, GroupesComposer, GroupesCreerActivite] {
+            assert!(x.accordee_par().contains(&ReferentielGerer), "{x:?} : couverte par le raccourci");
+        }
+        assert!(ReferentielGerer.accordee_par().is_empty());
+        for (code, a) in [("structure.gerer", StructureGerer), ("affectations.gerer", AffectationsGerer),
+                          ("groupes.composer", GroupesComposer), ("groupes.creer_activite", GroupesCreerActivite)] {
+            assert_eq!(Action::parse(code), Some(a));
+            assert_eq!(a.code(), code);
+        }
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :

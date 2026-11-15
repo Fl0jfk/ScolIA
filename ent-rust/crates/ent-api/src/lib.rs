@@ -35,6 +35,7 @@ mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
 mod structure_cours;
+mod structure_groupes;
 mod structure_offre;
 mod structure_periodes;
 mod voyages;
@@ -353,6 +354,8 @@ mod tests_structure;
 mod tests_structure_s3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_voyages;
 #[cfg(all(test, feature = "labo"))]

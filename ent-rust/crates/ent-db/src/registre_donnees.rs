@@ -618,6 +618,7 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_grille_creneau", "emploi_du_temps_structure", Portee::Etablissement).exc(Exception::SansHorodatage, "ligne fille : datée par la grille horaire"),
     t("ent_grille_horaire", "emploi_du_temps_structure", Portee::Etablissement),
     t("ent_groupe", "structure_scolaire", Portee::Etablissement),
+    t("ent_groupe_classe", "structure_scolaire", Portee::Etablissement),
     t("ent_groupe_responsable", "structure_scolaire", Portee::Etablissement).perso().export(),
     t("ent_habilitation_signature", "personnels", Portee::Etablissement).perso().export(),
     t("ent_identite_journal", "dossier_eleve", Portee::Etablissement).perso(),
