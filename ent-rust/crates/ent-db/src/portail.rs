@@ -12,13 +12,15 @@
 //!   l'autorité parentale ne reçoit aucune tâche de décision (R-PO8).
 //! * Le jour vient de l'appelant (`maintenant`, heure de l'établissement) : aucune horloge ici.
 
+use crate::portail_modes::{self as modes, AucuneAlerte, PortAlerte, Public};
 use crate::service::{EntDbError, PgEnt};
+use crate::structure_calendrier::{calendrier, Cible, Jour};
 use chrono::{NaiveDate, NaiveDateTime};
 use domain_eleve::EdtExceptionKind;
 use ent_auth::{Action, Role};
 use ent_types::portail::{
-    ActionPortail, EtatTuile, LignePortail, PortailAujourdhui, ProfilPortail, TonLigne,
-    TuilePortail,
+    repartir_bandeaux, ActionPortail, Bandeau, EtatTuile, LignePortail, ModePortail,
+    PortailAujourdhui, ProfilPortail, TonLigne, TuilePortail,
 };
 use std::future::Future;
 use std::time::Duration;
@@ -101,6 +103,7 @@ pub fn profil_du_role(role: Role) -> ProfilPortail {
 impl PgEnt {
     /// `GET /portail/aujourdhui` : la page d'accueil de l'acteur, sous ses droits.
     /// `maintenant` : heure locale de l'établissement ([`PgEnt::maintenant_local`]).
+    /// Tant que le socle 14 n'existe pas, aucune alerte n'est jamais déclenchée ([`AucuneAlerte`]).
     pub async fn portail_aujourdhui(
         &self,
         etablissement_id: Uuid,
@@ -108,12 +111,68 @@ impl PgEnt {
         role: &str,
         maintenant: NaiveDateTime,
     ) -> Result<PortailAujourdhui, EntDbError> {
+        self.portail_aujourdhui_avec(etablissement_id, user_id, role, maintenant, &AucuneAlerte)
+            .await
+    }
+
+    /// Calendrier relu autour du jour (une lecture) ; `None` si la lecture échoue ou dépasse son budget :
+    /// l'accueil reste alors ordinaire, sans bandeau (jamais de page en erreur pour un calendrier lent).
+    async fn jours_autour(&self, e: Uuid, jour: NaiveDate) -> Option<Vec<Jour>> {
+        let (du, au) = modes::fenetre(jour);
+        let lecture = async {
+            let mut t = crate::TenantTx::begin(self.pool(), e)
+                .await
+                .map_err(|_| EntDbError::Forbidden)?;
+            let r = calendrier::jours(&mut t, e, du, au, &Cible::default()).await;
+            t.commit().await.map_err(|_| EntDbError::Forbidden)?;
+            r
+        };
+        tokio::time::timeout(BUDGET_SOURCE, lecture).await.ok()?.ok()
+    }
+
+    /// `GET /portail/aujourdhui` avec un port d'alerte explicite (tests, labo, futur socle 14).
+    pub async fn portail_aujourdhui_avec(
+        &self,
+        etablissement_id: Uuid,
+        user_id: Uuid,
+        role: &str,
+        maintenant: NaiveDateTime,
+        alerte: &dyn PortAlerte,
+    ) -> Result<PortailAujourdhui, EntDbError> {
         let base = Role::parse(role).ok_or(EntDbError::Forbidden)?;
         let profil = profil_du_role(base);
         let jour = maintenant.date();
         let (e, u, r) = (etablissement_id, user_id, role);
+        let public = Public::du_role(base);
 
-        let tuiles: Vec<TuilePortail> = match profil {
+        // Alerte (socle 14) : elle prime sur tout. La page entière devient la page d'alerte, sans autre tuile.
+        let mut bandeaux: Vec<Bandeau> = Vec::new();
+        match tokio::time::timeout(BUDGET_SOURCE, alerte.alerte_en_cours(e)).await {
+            Ok(Ok(Some(a))) => {
+                let page = modes::page_alerte(alerte, e, u, public, &a).await;
+                let (bandeaux, bandeaux_replies) =
+                    repartir_bandeaux(vec![modes::bandeau_alerte(&a)]);
+                return Ok(PortailAujourdhui {
+                    profil,
+                    jour,
+                    prenom: None,
+                    tuiles: vec![],
+                    mode: ModePortail::Alerte,
+                    bandeaux,
+                    bandeaux_replies,
+                    alerte: Some(page),
+                });
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(_)) | Err(_) => bandeaux.push(modes::bandeau_alerte_indisponible()),
+        }
+
+        let jours = self.jours_autour(e, jour).await;
+        let mode = jours
+            .as_deref()
+            .map_or(ModePortail::Ordinaire, |j| modes::calculer_mode(j, jour, public));
+
+        let mut tuiles: Vec<TuilePortail> = match profil {
             ProfilPortail::Famille => {
                 let (enfants, a_faire, messages, annonces, notes, sorties) = tokio::join!(
                     avec_budget("edt.enfants", "Aujourd'hui", 8, self.tuile_famille_edt(e, u, r, jour)),
@@ -155,7 +214,26 @@ impl PgEnt {
                     .collect()
             }
         };
-        Ok(PortailAujourdhui { profil, jour, prenom: None, tuiles })
+        if let Some(j) = jours.as_deref() {
+            if let Some(auj) = j.iter().find(|x| x.date == jour) {
+                let demain = j.iter().find(|x| x.date == jour + chrono::Duration::days(1));
+                bandeaux.extend(modes::bandeaux_calendrier(auj, demain, public));
+            }
+            let (en_tete, retirees) = modes::effets_du_mode(mode, j, jour, public);
+            tuiles.retain(|t| !retirees.contains(&t.code.as_str()));
+            tuiles.splice(0..0, en_tete);
+        }
+        let (bandeaux, bandeaux_replies) = repartir_bandeaux(bandeaux);
+        Ok(PortailAujourdhui {
+            profil,
+            jour,
+            prenom: None,
+            tuiles,
+            mode,
+            bandeaux,
+            bandeaux_replies,
+            alerte: None,
+        })
     }
 
     // ---------------------------------------------------------------------------------------

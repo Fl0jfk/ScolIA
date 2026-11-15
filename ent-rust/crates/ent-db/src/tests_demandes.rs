@@ -170,6 +170,7 @@ pub(crate) fn depot(nature: &str) -> DepotDemande {
         eleve_id: None,
         pour_le_compte_de: None,
         canal: None,
+        volet: None,
     }
 }
 

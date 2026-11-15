@@ -55,116 +55,30 @@ pub fn plan_courrier_orientation_psy(
     })
 }
 
-fn pdf_escape(s: &str) -> String {
-    let safe = ascii_latin(s);
-    let mut out = String::with_capacity(safe.len());
-    for c in safe.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '(' => out.push_str("\\("),
-            ')' => out.push_str("\\)"),
-            '\r' | '\n' => out.push(' '),
-            other => out.push(other),
-        }
-    }
-    out
-}
-
-fn ascii_latin(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'à' | 'á' | 'â' | 'ä' | 'À' | 'Á' | 'Â' | 'Ä' => 'a',
-            'ç' | 'Ç' => 'c',
-            'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
-            'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
-            'ñ' | 'Ñ' => 'n',
-            'ò' | 'ó' | 'ô' | 'ö' | 'Ò' | 'Ó' | 'Ô' | 'Ö' => 'o',
-            'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
-            'ÿ' | 'Ÿ' => 'y',
-            'œ' | 'Œ' => 'o',
-            '€' => 'E',
-            c if c.is_ascii() => c,
-            _ => '?',
-        })
-        .collect()
-}
-
-fn build_pdf(lines: &[String]) -> Vec<u8> {
-    let mut content = String::from("BT\n/F1 11 Tf\n50 800 Td\n14 TL\n");
-    for (i, line) in lines.iter().enumerate() {
-        if i > 0 {
-            content.push_str("T*\n");
-        }
-        content.push_str(&format!("({}) Tj\n", pdf_escape(line)));
-    }
-    content.push_str("ET\n");
-    let stream = content.into_bytes();
-
-    let mut objects: Vec<Vec<u8>> = Vec::new();
-    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
-    objects.push(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec());
-    objects.push(
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] \
-/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
-            .to_vec(),
-    );
-    let mut contents_obj = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
-    contents_obj.extend_from_slice(&stream);
-    contents_obj.extend_from_slice(b"\nendstream");
-    objects.push(contents_obj);
-    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
-
-    let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
-    let mut offsets = Vec::with_capacity(objects.len() + 1);
-    offsets.push(0);
-    for (i, obj) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
-        out.extend_from_slice(obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
-    let xref_at = out.len();
-    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
-    out.extend_from_slice(b"0000000000 65535 f \n");
-    for off in offsets.iter().skip(1) {
-        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-            objects.len() + 1
-        )
-        .as_bytes(),
-    );
-    out
-}
-
 /// PDF courrier orientation — axes visibles famille uniquement.
 pub fn render_courrier_orientation_pdf(c: &CourrierOrientationPsy) -> Vec<u8> {
     let mut lines = vec![
         "ScolIA — Courrier orientation (psychologie scolaire)".into(),
         String::new(),
         format!("Date : {}", c.date_courrier),
-        format!("Eleve : {} {}", c.eleve_prenom, c.eleve_nom),
+        format!("Élève : {} {}", c.eleve_prenom, c.eleve_nom),
     ];
     if let Some(cl) = &c.classe {
         lines.push(format!("Classe : {cl}"));
     }
     lines.push(format!(
-        "Suivi  : {}",
+        "Suivi : {}",
         if c.suivi_actif { "actif" } else { "clos" }
     ));
     lines.push(String::new());
-    lines.push("Axes de suivi partages avec la famille".into());
+    lines.push("Axes de suivi partagés avec la famille".into());
     lines.push("--------------------------------------".into());
     for chunk in wrap_axes(&c.axes_suivi, 72) {
         lines.push(chunk);
     }
     lines.push(String::new());
-    lines.push(
-        "Document informatif — contenu partageable famille uniquement.".into(),
-    );
-    build_pdf(&lines)
+    lines.push("Document informatif — contenu partageable famille uniquement.".into());
+    crate::pdf_commun::rendre_lignes("Courrier d'orientation", Some(c.date_courrier), &lines)
 }
 
 fn wrap_axes(s: &str, width: usize) -> Vec<String> {
@@ -247,5 +161,32 @@ mod tests {
         assert!(!s.contains("CMP secret"));
         assert!(!s.contains("hypothese") && !s.contains("note clinique"));
         assert!(pdf.windows(5).any(|w| w == b"%%EOF"));
+    }
+
+    #[test]
+    fn courrier_accents_lisibles() {
+        use ent_pdf::releve::{texte, verifier_structure};
+        let d = dossier_ok();
+        let c = plan_courrier_orientation_psy(
+            &d,
+            GenererCourrierOrientationPsy {
+                eleve_nom: "Élève".into(),
+                eleve_prenom: "Hélène".into(),
+                classe: Some("3ᵉ B".into()),
+                date_courrier: NaiveDate::from_ymd_opt(2026, 10, 13).unwrap(),
+            },
+        )
+        .unwrap();
+        let pdf = render_courrier_orientation_pdf(&c);
+        verifier_structure(&pdf);
+        let t = texte(&pdf);
+        assert!(
+            t.contains("Courrier orientation (psychologie scolaire)"),
+            "{t}"
+        );
+        assert!(t.contains("Élève : Hélène Élève"));
+        assert!(t.contains("anxiété scolaire · orientation 3e"));
+        assert!(t.contains("Axes de suivi partagés avec la famille"));
+        assert!(!t.contains("CMP secret") && !t.contains("note clinique"));
     }
 }

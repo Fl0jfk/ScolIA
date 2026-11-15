@@ -511,6 +511,26 @@ async fn run_api() {
     let purge_periodique =
         ent_api::purge::lancer(state.ent.clone(), ent_api::purge::periode_depuis_env());
 
+    // Socle 15 (A7) : heures constatées depuis les appels faits (socle 12) et file DSN J+5. Toutes les cinq minutes,
+    // idempotentes : une heure déjà constatée n'est jamais recréée.
+    let heures_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            loop {
+                match ent.constater_heures_assurees().await {
+                    Ok(b) if b.constatees > 0 => tracing::info!(?b, "heures constatées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("heures constatées : {e}"),
+                }
+                if let Err(e) = ent.preparer_dsn_planifie().await {
+                    tracing::warn!("file DSN : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -540,6 +560,9 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = remontees_rcd {
+        t.abort();
+    }
+    if let Some(t) = heures_absences {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

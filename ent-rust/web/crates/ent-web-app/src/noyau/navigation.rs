@@ -52,6 +52,9 @@ pub const A_FAIRE: &str = "/web/a-faire";
 /// Files des personnels (socle 29, lot P4) : « Mes files » et supervision par nombres.
 pub const MES_FILES: &str = "/web/mes-files";
 pub const SUPERVISION_FILES: &str = "/web/supervision-files";
+/// Recherche globale (socle 29, lot P5) et blocages anti-énumération (administrateur).
+pub const RECHERCHE: &str = "/web/recherche";
+pub const BLOCAGES_RECHERCHE: &str = "/web/blocages-recherche";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -103,6 +106,16 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
             || moteur.a("responsables.protege.gerer"))
     {
         v.push(entree("Mes files", MES_FILES, NomIcone::Personne));
+    }
+    if droits.personnel && moteur.a("recherche.globale") {
+        v.push(entree("Recherche", RECHERCHE, NomIcone::Personne));
+    }
+    if moteur.a("recherche.debloquer") {
+        v.push(entree(
+            "Recherches bloquées",
+            BLOCAGES_RECHERCHE,
+            NomIcone::Passkey,
+        ));
     }
     if moteur.a("afaire.superviser") {
         v.push(entree(
@@ -639,6 +652,22 @@ mod tests {
             !adresses(droits_du_role("parent"), &DroitsMoteur::default())
                 .contains(&MES_FILES.to_string())
         );
+    }
+
+    /// Socle 29 (P5) : la recherche pour le personnel qui a `recherche.globale` ; les blocages pour l'administrateur.
+    #[test]
+    fn la_recherche_selon_le_moteur_de_droits() {
+        assert!(!adresses(droits_du_role("prof"), &DroitsMoteur::default())
+            .contains(&RECHERCHE.to_string()));
+        let m = DroitsMoteur::new(vec![droit("recherche.globale", "etablissement")]);
+        let v = adresses(droits_du_role("prof"), &m);
+        assert!(v.contains(&RECHERCHE.to_string()) && !v.contains(&BLOCAGES_RECHERCHE.to_string()));
+        assert!(
+            !adresses(droits_du_role("parent"), &m).contains(&RECHERCHE.to_string()),
+            "pas pour les familles"
+        );
+        let admin = DroitsMoteur::new(vec![droit("recherche.debloquer", "etablissement")]);
+        assert!(adresses(droits_du_role("admin"), &admin).contains(&BLOCAGES_RECHERCHE.to_string()));
     }
 
     #[test]

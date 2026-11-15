@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ent-types",
+    "crates/ent-pdf",
     "crates/ent-events",
     "crates/domain-eleve",
     "crates/ent-brain",
@@ -20,6 +21,7 @@ members = [
 ]
 default-members = [
     "crates/ent-types",
+    "crates/ent-pdf",
     "crates/ent-events",
     "crates/domain-eleve",
     "crates/ent-brain",

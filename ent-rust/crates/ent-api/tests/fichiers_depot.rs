@@ -111,17 +111,28 @@ async fn type_servi(m: &Monde, doc: &Value) -> String {
         )
         .await;
     assert_eq!(l.statut, StatusCode::OK, "{}", l.texte);
+    let url = l.json["url"].as_str().unwrap();
+    // Le lien est lié à l'utilisateur : sans session, refus (jamais le fichier).
+    let sans = m
+        .routeur
+        .clone()
+        .oneshot(Request::builder().uri(url).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(sans.status(), StatusCode::UNAUTHORIZED, "lien servi sans session");
     let res = m
         .routeur
         .clone()
         .oneshot(
             Request::builder()
-                .uri(l.json["url"].as_str().unwrap())
+                .uri(url)
+                .header("authorization", format!("Bearer {}", m.jeton(Direction)))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
     res.headers()
         .get("content-type")
         .map(|v| v.to_str().unwrap().to_string())

@@ -342,6 +342,11 @@ pub enum Action {
     /// Socle 29, lot P4 : superviser les files par nombres (ouvertes, en retard, délai médian), jamais le
     /// contenu nominatif ni un classement de personnes (POR-161, POR-168).
     AfaireSuperviser,
+    /// Socle 29, lot P5 : recherche globale côté serveur (élèves de sa portée, personnes, personnels, classes,
+    /// groupes, salles), plafonnée par jour ; le texte des recherches n'est jamais conservé (R-PO19).
+    RechercheGlobale,
+    /// Socle 29, lot P5 : lever un blocage anti-énumération (POR-196), journalisé.
+    RechercheDebloquer,
     /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
     /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
     PersonnelsAbsencesConserver,
@@ -354,6 +359,20 @@ pub enum Action {
     /// Remontée hebdomadaire RCD (A6, ABP-229 à 231) : préparer, contrôler, laisser partir, exporter le tableau
     /// équivalent. Direction et secrétariat. La remontée ne porte jamais de nom ni de nature fine.
     PersonnelsRcdRemontee,
+    /// Heures constatées (A7, ABP-200, 213, 214, 219) : lire les heures d'un agent et l'état annuel, dans son périmètre
+    /// d'employeur. Direction et secrétariat (l'OGEC lit par `paie.absences`).
+    PersonnelsHeuresLire,
+    /// Heures constatées (A7, ABP-201 à 204, 208) : valider, corriger, saisir sans séance, figer l'état mensuel,
+    /// régulariser. Direction.
+    PersonnelsHeuresValider,
+    /// État mensuel des heures (A7, ABP-205) ★ : le chef d'établissement signe. Direction.
+    PersonnelsHeuresSigner,
+    /// Exports (A7, ABP-206) ★ : exporter l'état mensuel signé vers le rectorat ou la paie, figer et régulariser dans
+    /// son employeur. Direction, secrétariat (État), comptabilité (OGEC).
+    PersonnelsHeuresExporter,
+    /// Paie de l'OGEC (A7, ABP-207, 209 à 211) : éléments variables de paie, heures et jours d'absence, file DSN J+5.
+    /// Direction et comptabilité.
+    PersonnelsPaieAbsences,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -455,7 +474,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 189] = [
+    pub const TOUTES: [Action; 196] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -608,6 +627,8 @@ impl Action {
         Action::AfairePrendre,
         Action::AfaireReattribuer,
         Action::AfaireSuperviser,
+        Action::RechercheGlobale,
+        Action::RechercheDebloquer,
         // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::StagesLire,
         Action::StagesPreparer,
@@ -657,6 +678,11 @@ impl Action {
         Action::PersonnelsAbsencesSuppleer,
         Action::PersonnelsRcdGerer,
         Action::PersonnelsRcdRemontee,
+        Action::PersonnelsHeuresLire,
+        Action::PersonnelsHeuresValider,
+        Action::PersonnelsHeuresSigner,
+        Action::PersonnelsHeuresExporter,
+        Action::PersonnelsPaieAbsences,
     ];
 
     pub fn code(self) -> &'static str {
@@ -812,10 +838,17 @@ impl Action {
             Self::AfairePrendre => "afaire.file.prendre",
             Self::AfaireReattribuer => "afaire.file.reattribuer",
             Self::AfaireSuperviser => "afaire.superviser",
+            Self::RechercheGlobale => "recherche.globale",
+            Self::RechercheDebloquer => "recherche.debloquer",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
             Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
             Self::PersonnelsRcdGerer => "personnels.rcd.gerer",
             Self::PersonnelsRcdRemontee => "personnels.rcd.remontee",
+            Self::PersonnelsHeuresLire => "personnels.heures.lire",
+            Self::PersonnelsHeuresValider => "personnels.heures.valider",
+            Self::PersonnelsHeuresSigner => "personnels.heures.signer",
+            Self::PersonnelsHeuresExporter => "personnels.heures.exporter",
+            Self::PersonnelsPaieAbsences => "personnels.paie.absences",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -1009,10 +1042,17 @@ impl Action {
             Self::AfairePrendre => "Prendre en charge une tâche d'une file dont on est membre",
             Self::AfaireReattribuer => "Réattribuer une tâche prise à un collègue de la file (service)",
             Self::AfaireSuperviser => "Superviser les files par nombres (ouvertes, en retard, délai médian, tâches orphelines)",
+            Self::RechercheGlobale => "Rechercher dans l'ENT (élèves de sa portée, personnes, personnels, classes, salles), plafonné par jour",
+            Self::RechercheDebloquer => "Lever un blocage de recherche (anti-énumération)",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
             Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
             Self::PersonnelsRcdGerer => "Tenir le plan de remplacement de courte durée et le vivier des volontaires",
             Self::PersonnelsRcdRemontee => "Préparer, contrôler et transmettre la remontée hebdomadaire du remplacement de courte durée",
+            Self::PersonnelsHeuresLire => "Lire les heures constatées d'un agent et son état annuel",
+            Self::PersonnelsHeuresValider => "Valider, corriger, saisir et régulariser les heures constatées, figer l'état mensuel",
+            Self::PersonnelsHeuresSigner => "Signer l'état mensuel des heures",
+            Self::PersonnelsHeuresExporter => "Exporter l'état mensuel des heures vers le rectorat ou la paie",
+            Self::PersonnelsPaieAbsences => "Préparer les éléments variables de paie des absences et suivre la DSN (OGEC)",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1214,12 +1254,19 @@ impl Action {
             | Self::PersonnelsAbsencesSuppleer
             | Self::PersonnelsRcdGerer
             | Self::PersonnelsRcdRemontee
+            | Self::PersonnelsHeuresLire
+            | Self::PersonnelsHeuresValider
+            | Self::PersonnelsHeuresSigner
+            | Self::PersonnelsHeuresExporter
+            | Self::PersonnelsPaieAbsences
             | Self::AccesRevue => &[Portee::Etablissement],
             | Self::AccesRevue
             | Self::AfaireRapprocher
             | Self::AfairePrendre
             | Self::AfaireReattribuer
             | Self::AfaireSuperviser
+            | Self::RechercheGlobale
+            | Self::RechercheDebloquer
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
             | Self::StagesPeriodesGerer
@@ -1795,6 +1842,22 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Direction | Role::Administratif) {
         d.push(etab(PersonnelsRcdRemontee));
     }
+    // Heures et états (A7, §23.2) : lecture à la direction et au secrétariat ; validation et signature à la direction ;
+    // export au secrétariat (État) et à la comptabilité (OGEC) ; paie et DSN à la comptabilité. Le périmètre d'employeur
+    // est contrôlé par le service (le secrétariat ne lit que l'État, la comptabilité que l'OGEC).
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsHeuresLire));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnelsHeuresValider));
+        d.push(etab(PersonnelsHeuresSigner));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsHeuresExporter));
+    }
+    if matches!(role, Role::Direction | Role::Compta) {
+        d.push(etab(PersonnelsPaieAbsences));
+    }
 }
 
 /// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
@@ -1910,6 +1973,14 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AfaireReattribuer));
         d.push(etab(AfaireSuperviser));
+    }
+    // Lot P5 : la recherche est ouverte au personnel (chaque source applique ses propres droits) ; lever un
+    // blocage est réservé à l'administrateur.
+    if role.is_staff() {
+        d.push(etab(RechercheGlobale));
+    }
+    if role == Role::Admin {
+        d.push(etab(RechercheDebloquer));
     }
 }
 
@@ -2263,6 +2334,15 @@ mod tests {
                 matches!(r, Role::Direction | Role::Administratif),
                 "{r:?} rcd.remontee"
             );
+            assert_eq!(a(r, PersonnelsHeuresLire), matches!(r, Role::Direction | Role::Administratif), "{r:?} heures.lire");
+            assert_eq!(a(r, PersonnelsHeuresValider), r == Role::Direction, "{r:?} heures.valider");
+            assert_eq!(a(r, PersonnelsHeuresSigner), r == Role::Direction, "{r:?} heures.signer");
+            assert_eq!(
+                a(r, PersonnelsHeuresExporter),
+                matches!(r, Role::Direction | Role::Administratif | Role::Compta),
+                "{r:?} heures.exporter"
+            );
+            assert_eq!(a(r, PersonnelsPaieAbsences), matches!(r, Role::Direction | Role::Compta), "{r:?} paie.absences");
             assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
@@ -2282,6 +2362,11 @@ mod tests {
                     PersonnelsAbsencesSuppleer,
                     PersonnelsRcdGerer,
                     PersonnelsRcdRemontee,
+                    PersonnelsHeuresLire,
+                    PersonnelsHeuresValider,
+                    PersonnelsHeuresSigner,
+                    PersonnelsHeuresExporter,
+                    PersonnelsPaieAbsences,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }

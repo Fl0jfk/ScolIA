@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels, services d'enseignement). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 37] = [
+pub const SOURCES: [&str; 39] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
@@ -32,6 +32,7 @@ pub const SOURCES: [&str; 37] = [
     include_str!("../../src/vie_scolaire.rs"),
     include_str!("../../src/portail.rs"),
     include_str!("../../src/afaire.rs"),
+    include_str!("../../src/recherche.rs"),
     include_str!("../../src/edt_s2.rs"),
     include_str!("../../src/evaluations.rs"),
     include_str!("../../src/communication_s28.rs"),
@@ -46,6 +47,7 @@ pub const SOURCES: [&str; 37] = [
     include_str!("../../src/absences_personnels_reponse.rs"),
     include_str!("../../src/absences_personnels_suppleance.rs"),
     include_str!("../../src/absences_personnels_rcd.rs"),
+    include_str!("../../src/absences_personnels_heures.rs"),
     include_str!("../../src/stages.rs"),
     include_str!("../../src/personnels_services.rs"),
     include_str!("../../src/structure.rs"),
@@ -61,7 +63,7 @@ pub const SOURCES: [&str; 37] = [
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 37] = [
+pub const NOMS_SOURCES: [&str; 39] = [
     "routes.rs",
     "cahier.rs",
     "dossier.rs",
@@ -73,6 +75,7 @@ pub const NOMS_SOURCES: [&str; 37] = [
     "vie_scolaire.rs",
     "portail.rs",
     "afaire.rs",
+    "recherche.rs",
     "edt_s2.rs",
     "evaluations.rs",
     "communication_s28.rs",
@@ -87,6 +90,7 @@ pub const NOMS_SOURCES: [&str; 37] = [
     "absences_personnels_reponse.rs",
     "absences_personnels_suppleance.rs",
     "absences_personnels_rcd.rs",
+    "absences_personnels_heures.rs",
     "stages.rs",
     "personnels_services.rs",
     "structure.rs",
