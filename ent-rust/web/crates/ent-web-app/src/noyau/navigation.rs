@@ -326,6 +326,7 @@ mod tests {
                 EDT_SEMAINE,
                 APPEL,
                 CAHIER,
+                CONTINUITE,
                 MES_CLASSES,
                 DELEGATIONS,
                 RENDEZ_VOUS,
