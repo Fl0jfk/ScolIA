@@ -561,7 +561,7 @@ fn nom_decode(brut: &[u8]) -> String {
     let mut o = Vec::with_capacity(brut.len());
     let mut i = 0;
     while i < brut.len() {
-        if brut[i] == b'#' && i + 2 < brut.len() + 0 && i + 2 <= brut.len() - 1 + 0 {
+        if brut[i] == b'#' && i + 2 < brut.len() {
             let h = std::str::from_utf8(&brut[i + 1..i + 3])
                 .ok()
                 .and_then(|x| u8::from_str_radix(x, 16).ok());
