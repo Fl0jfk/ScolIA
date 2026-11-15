@@ -791,23 +791,20 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c5-signalement-copie-B", "POST", "/cahier/c5/remises/{cours}/signalement-copie", Some(r#"{"vers":"cpe"}"#)),
         ecrire_sur_b("cahier-c5-delai-decision-B", "POST", "/cahier/c5/delais/{cours}/decision", Some(r#"{"accepter":false}"#)),
         ecrire_sur_b("cahier-c5-piece-lien-B", "POST", "/cahier/c5/pieces/{cours}/lien", Some(r#"{"motif":"test"}"#)),
-        ecrire_sur_b("cahier-c5-panne-B", "POST", "/cahier/c5/pannes", Some(r#"{"debut_le":"2031-03-12T08:00:00Z","fin_le":"2031-03-12T09:00:00Z"}"#)),
+        // Routes sans identifiant de ressource (pannes, listes de reports/continuités/vacants/remplaçants, élèves de l'AESH,
+        // réglages d'affichage) : elles n'agissent que sur l'établissement de la session (aucune cible B à désigner) ;
+        // la lecture inter-établissements est couverte par `invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes`.
         // Socle 20, lot C6 : continuité. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx ; aucune route ne sert
         // la nature d'une continuité ni un motif d'absence à un professeur.
-        ecrire_sur_b("cahier-c6-reports-B", "GET", "/cahier/c6/reports", None),
-        ecrire_sur_b("cahier-c6-reports-lot-B", "POST", "/cahier/c6/reports/lot", Some(r#"{"ids":["{cours}"],"decision":"refuser"}"#)),
         ecrire_sur_b("cahier-c6-report-decision-B", "POST", "/cahier/c6/reports/{cours}/decision", Some(r#"{"decision":"refuser"}"#)),
-        ecrire_sur_b("cahier-c6-continuites-B", "GET", "/cahier/c6/continuites", None),
         ecrire_sur_b("cahier-c6-continuite-ouvrir-B", "POST", "/cahier/c6/continuites", Some(r#"{"eleve_id":"{eleve}","du":"2031-03-12","cours_ids":["{cours}"],"nature":"absence_longue"}"#)),
         ecrire_sur_b("cahier-c6-continuite-cloture-B", "POST", "/cahier/c6/continuites/{cours}/cloture", Some(r#"{"au":"2031-03-20"}"#)),
         ecrire_sur_b("cahier-c6-bandeau-B", "GET", "/cahier/c6/cours/{cours}/bandeau", None),
         ecrire_sur_b("cahier-c6-suppleance-B", "GET", "/cahier/c6/cours/{cours}/suppleance", None),
         ecrire_sur_b("cahier-c6-copies-B", "POST", "/cahier/c6/cours/{cours}/copies", Some(r#"{"decision":"titulaire_corrigera"}"#)),
-        ecrire_sur_b("cahier-c6-vacants-B", "GET", "/cahier/c6/vacants", None),
         ecrire_sur_b("cahier-c6-vacant-travail-B", "POST", "/cahier/c6/vacants/travaux", Some(r#"{"cours_ids":["{cours}"],"nature":"travail","titre":"x","consigne":"x","publication":"brouillon"}"#)),
         ecrire_sur_b("cahier-c6-seance-travail-B", "POST", "/cahier/c6/seances/{cours}/travail", Some(r#"{"titre":"x","consigne":"x","contexte":"distance"}"#)),
         ecrire_sur_b("cahier-c6-remplacement-B", "GET", "/cahier/c6/seances/{cours}/remplacement", None),
-        ecrire_sur_b("cahier-c6-travaux-remplacants-B", "GET", "/cahier/c6/travaux-remplacants", None),
         // Socle 20, lot C7 : adaptations. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx ; aucune route d'élève ou de
         // famille ne porte d'indicateur de variante (l'élève lit sa version dans l'agenda de C3).
         ecrire_sur_b("cahier-c7-variantes-B", "GET", "/cahier/c7/travaux/{cours}/variantes", None),
@@ -819,12 +816,9 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c7-amenagements-B", "POST", "/cahier/c7/travaux/{cours}/amenagements?confirmer=true", None),
         ecrire_sur_b("cahier-c7-notes-travail-B", "GET", "/cahier/c7/travaux/{cours}/notes-accompagnement", None),
         ecrire_sur_b("cahier-c7-notes-entree-B", "GET", "/cahier/c7/entrees/{cours}/notes-accompagnement", None),
-        ecrire_sur_b("cahier-c7-aesh-eleves-B", "GET", "/cahier/c7/aesh/eleves", None),
         ecrire_sur_b("cahier-c7-aesh-agenda-B", "GET", "/cahier/c7/aesh/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", None),
         ecrire_sur_b("cahier-c7-aesh-cahier-B", "GET", "/cahier/c7/aesh/cahier?eleve_id={eleve}&cours_id={cours}", None),
         ecrire_sur_b("cahier-c7-aesh-note-B", "POST", "/cahier/c7/aesh/notes", Some(r#"{"travail_id":"{cours}","eleve_id":"{eleve}","texte":"x"}"#)),
-        ecrire_sur_b("cahier-c7-affichage-B", "GET", "/cahier/c7/affichage", None),
-        ecrire_sur_b("cahier-c7-affichage-regler-B", "PUT", "/cahier/c7/affichage", Some(r#"{"taille_police":"grande","interligne":"large","lecture_audio":false,"animations_reduites":false}"#)),
         ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
         ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
         ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),

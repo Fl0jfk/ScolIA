@@ -702,6 +702,17 @@ impl PgEnt {
         let etab = a.etablissement_id;
         let jour = self.jour_etab(etab).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+        // La direction passe le contrôle de saisie sans cours précis : un cours d'un autre établissement (ou inexistant) est
+        // introuvable, jamais un bandeau vide en 200.
+        let existe: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM ent_cours WHERE etablissement_id = $1 AND id = $2)")
+            .bind(etab)
+            .bind(cours)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
+        if !existe {
+            return Err(EntDbError::Domain(domain_eleve::DomainError::NotFound));
+        }
         let eleves: Vec<(Uuid, String, String)> = sqlx::query_as(
             "SELECT DISTINCT e.id, e.nom, e.prenom FROM ent_cdt_continuite c
                JOIN ent_cdt_continuite_cours cc ON cc.etablissement_id = c.etablissement_id AND cc.continuite_id = c.id
