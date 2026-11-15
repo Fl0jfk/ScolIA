@@ -468,28 +468,42 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         "666_d036_eleve_fusion_normalisee",
         "667_d036_personne_fusion_normalisee",
     ];
+    // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
+    let mut verrou = pool.acquire().await?.detach();
+    sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
     for (nom, sql) in MIGRATIONS {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
             continue;
         }
-        apply_sql_file_atomique(pool, sql).await?;
+        apply_sql_file(pool, sql).await?;
     }
     Ok(())
 }
 
-/// Un fichier, **dans une transaction** (comme la vraie migration, `appliquer_dans_une_transaction`), sans
-/// registre. Statement par statement en autocommit, un `DROP TRIGGER` / `DROP POLICY` suivi de son `CREATE`
-/// laissait une fenêtre où les autres tests (même base, en parallèle) voyaient la table sans son
-/// déclencheur ou sa politique : l'immuabilité de `ent_objet` semblait alors levée. En transaction, le
-/// `DROP` garde son verrou jusqu'au `COMMIT` : les autres sessions attendent et voient l'objet recréé.
+/// Verrou consultatif entre les rejeux de migrations (exclusif) et les tests qui vérifient un déclencheur ou une
+/// politique recréés par ces rejeux (partagé). Le rejeu est fait instruction par instruction : un `DROP TRIGGER`
+/// suivi de son `CREATE` laisse un instant la table sans garde, et un test voisin qui vérifie cette garde
+/// (ex. immuabilité de `ent_objet`, migration 500) voyait alors l'écriture acceptée. Deux rejeux en parallèle sont
+/// aussi sérialisés.
 #[cfg(test)]
-async fn apply_sql_file_atomique(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
-    let mut tx = pool.begin().await?;
-    for stmt in ordres(sql) {
-        sqlx::query(&stmt).execute(&mut *tx).await?;
+const CLE_REJEU: i64 = 7770043;
+
+#[cfg(test)]
+pub(crate) struct GardeRejeu(sqlx::PgConnection);
+
+/// Prend le verrou **partagé** : aucun rejeu ne tourne tant que la garde est tenue. À libérer avec `liberer()`.
+#[cfg(test)]
+pub(crate) async fn garde_rejeu_partagee(pool: &PgPool) -> GardeRejeu {
+    let mut c = pool.acquire().await.expect("connexion").detach();
+    sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(CLE_REJEU).execute(&mut c).await.expect("verrou");
+    GardeRejeu(c)
+}
+
+#[cfg(test)]
+impl GardeRejeu {
+    pub(crate) async fn liberer(mut self) {
+        let _ = sqlx::query("SELECT pg_advisory_unlock_shared($1)").bind(CLE_REJEU).execute(&mut self.0).await;
     }
-    tx.commit().await?;
-    Ok(())
 }
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un

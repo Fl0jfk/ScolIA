@@ -186,6 +186,9 @@ async fn registre_immuable_en_base() {
     let etab = cast.etablissement_id;
     let key = ObjectStore::key_for(etab, "documents", Uuid::new_v4(), "pdf");
     ent.stocker_objet(etab, &key, None, PDF).await.unwrap();
+    // Le déclencheur d'immuabilité (migration 500) est recréé par les rejeux de migrations des tests de reprise :
+    // aucun rejeu ne tourne pendant les vérifications ci-dessous (verrou partagé, libéré à la fin).
+    let garde = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
     // Aucune modification du contenu enregistré, aucun DELETE.
     for sql in [
         "UPDATE ent_objet SET sha256 = repeat('0', 64) WHERE cle_objet = $1",
@@ -220,4 +223,5 @@ async fn registre_immuable_en_base() {
         .execute(ent.pool())
         .await;
     assert!(r.is_err());
+    garde.liberer().await;
 }
