@@ -113,3 +113,26 @@ Appréciations, observations de vie scolaire, comptes rendus d'incident dictés 
 ## I-024 — Simulateur d'effectifs et de moyens pour la direction (pilote, 2026-11-15) — gardée par Florian, à étoffer par personas
 Contexte : baisse démographique, pression sur les coûts. Contenu proposé (à confirmer par une passe personas : direction, chef d'établissement, comptabilité, OGEC) : (1) **projection des effectifs** à 3–5 ans par niveau (montées pédagogiques, taux historiques de redoublement et de départ, inscriptions et préinscriptions en cours, démographie du secteur si disponible) ; (2) **traduction en classes** (divisions, effectifs, seuils d'ouverture et de fermeture) ; (3) **en heures et en postes** (dotation horaire, services par matière, heures supplémentaires, postes menacés ou à créer) ; (4) **en argent** pour le privé (contributions des familles, forfait d'externat, masse salariale OGEC, résultat prévisionnel) ; (5) **scénarios « et si »** comparés côte à côte (fermer une classe, ouvrir une option, +5 % de contribution, −30 élèves). Socle 47 (pilotage), avec 3, 5, 6, 10, 24, 48, 49 ; après la bascule.
 
+
+## I-025 — Appel d'évacuation en temps réel (pilote, 2026-11-15) — validée par Florian
+Exercice incendie ou alerte PPMS : chaque professeur pointe sa classe sur son téléphone au point de rassemblement (en quelques secondes, hors ligne possible, I-020) ; la direction voit en direct qui manque et où ; élèves absents du jour et sortis déjà déduits ; compte rendu d'exercice généré. Socles : 14, 11, 12, 10.
+
+## I-026 — Registre de sécurité et échéances réglementaires (pilote, 2026-11-15) — validée par Florian
+Exercices obligatoires, vérifications périodiques (extincteurs, électricité, ascenseur…), commission de sécurité, assurances, contrats de maintenance : rappels avant échéance, comptes rendus et pièces conservés, registre produit pour le contrôle. Obligations exactes à vérifier (ERP, PPMS). Socles : 44, 14, 7.
+
+## I-027 — Sortie anticipée automatique (pilote, 2026-11-15) — validée par Florian
+Dernier cours de la journée supprimé : ScolIA sait quels élèves ont l'autorisation parentale de partir plus tôt (socle 18), prévient leurs familles, envoie les autres en étude, liste à jour pour la vie scolaire et l'accueil. Socles : 10 (T3–T4 sur ENT), 18, 14, 8.
+
+## I-028 — Signalements d'absentéisme préparés automatiquement (pilote, 2026-11-15) — validée par Florian
+Au seuil réglementaire d'absences non justifiées dans le mois (4 demi-journées, à vérifier ; règles du privé sous contrat à vérifier), courrier à la famille et signalement préparés ; la CPE relit et valide ; échéances suivies. Socles : 12, 13, 8, 7.
+
+## I-029 — Copilote du calendrier annuel (pilote, 2026-11-15) — validée par Florian
+Échéances de l'année connues d'avance (conseils de classe, saisies d'orientation Affelnet / Parcoursup, inscriptions aux examens, réinscriptions, remontées au rectorat) : tâches créées au bon moment pour les bonnes personnes, avec ce qui reste à faire. Socles : 29 (à-faire), 5, 37, 38, 3.
+
+## I-030 — Résumé et réponse proposée pour le secrétariat (pilote, 2026-11-15) — validée par Florian
+Long fil de messages ou demande complexe d'une famille : résumé en trois lignes et réponse proposée, corrigée et envoyée par la secrétaire ; jamais d'envoi automatique ; l'IA n'a pas plus de droits que la secrétaire. Socles : 16, N1, 30.
+
+## I-031 — « On reprend tout » depuis Charlemagne, EcoleDirecte, Pronote (pilote, 2026-11-15) — validée par Florian
+Argument commercial : l'établissement envoie ses exports ; ScolIA reprend élèves, familles, notes, absences, factures ; rapport de comparaison avant bascule (comptages, échantillons, écarts) ; outil rejouable (méthode du socle 28, R0–R3). Socles : 28, 9.
+
+**Écartée le 15 nov.** : bourse d'échange entre familles (manuels, tenues).
