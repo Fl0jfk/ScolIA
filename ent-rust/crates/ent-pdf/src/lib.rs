@@ -1,7 +1,9 @@
 //! Moteur PDF maison de l'ENT (D-062) : aucune dépendance, aucune cryptographie.
 //!
-//! * polices standard (Helvetica, Helvetica-Bold, Times) en `WinAnsiEncoding` : tous les
-//!   caractères du français s'affichent ; le reste est translittéré lisiblement ;
+//! * police TrueType **incorporée en sous-ensemble** (DejaVu Sans, CID Type 2, `Identity-H`,
+//!   `ToUnicode`) par défaut : tout nom latin, grec ou cyrillique s'écrit correctement ;
+//! * repli : polices standard (Helvetica, Helvetica-Bold, Times) en `WinAnsiEncoding`
+//!   (`Document::avec_polices_standard`) : le français s'affiche, le reste est translittéré ;
 //! * mesure des largeurs d'après les métriques AFM, retour à la ligne, alignements ;
 //! * pages multiples, en-tête et pied répétés, « Page n sur N », tableaux à en-tête répété ;
 //! * logo JPEG (`DCTDecode`, sans décodage) ;
@@ -9,11 +11,16 @@
 //! * flux **non compressés** : aucun compresseur n'est dans le graphe de dépendances.
 
 mod afm;
+mod compositions;
 mod doc;
 mod ecrit;
+mod fonte;
 mod jpeg;
+mod normalise;
 mod qr;
 pub mod releve;
+mod sous_ensemble;
+mod ttf;
 mod winansi;
 
 pub use afm::{largeur, largeur_code, Police};
@@ -21,6 +28,7 @@ pub use doc::{
     couper, Align, Colonne, DateHeure, Document, Ligne, Meta, Tableau, HAUTEUR, LARGEUR, MARGE_D,
     MARGE_G,
 };
+pub use fonte::Mode;
 pub use jpeg::Jpeg;
 pub use qr::{Qr, QrErreur};
 pub use winansi::{depuis_octet, encoder as encoder_winansi, octet as octet_winansi};
@@ -69,3 +77,6 @@ pub fn rendre_lignes(meta: Meta, pied: &str, lignes: &[String]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_police;

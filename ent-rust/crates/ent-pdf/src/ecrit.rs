@@ -13,6 +13,10 @@ impl Ecrivain {
         }
     }
 
+    pub fn nombre_objets(&self) -> usize {
+        self.offsets.len()
+    }
+
     pub fn objet(&mut self, corps: &[u8]) -> usize {
         self.offsets.push(self.sortie.len());
         let n = self.offsets.len();
@@ -77,4 +81,15 @@ pub(crate) fn chaine_texte(s: &str) -> Vec<u8> {
         o.push(b'>');
     }
     o
+}
+
+/// Nombre PDF court (deux décimales au plus).
+pub(crate) fn nb(x: f32) -> String {
+    let s = format!("{x:.2}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() || s == "-" {
+        "0".into()
+    } else {
+        s.into()
+    }
 }

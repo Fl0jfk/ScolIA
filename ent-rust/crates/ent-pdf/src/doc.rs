@@ -2,10 +2,10 @@
 //! tableaux à en-tête répété, images JPEG, QR code vectoriel.
 
 use crate::afm::{largeur, Police};
-use crate::ecrit::{chaine_texte, litterale, Ecrivain};
+use crate::ecrit::{chaine_texte, nb, Ecrivain};
+use crate::fonte::{Mode, Moteur};
 use crate::jpeg::Jpeg;
 use crate::qr::Qr;
-use crate::winansi;
 use crate::PdfErreur;
 
 pub const LARGEUR: f32 = 595.0;
@@ -104,9 +104,10 @@ struct Page {
 
 pub struct Document {
     meta: Meta,
-    en_tete: Option<Vec<u8>>,
+    moteur: Moteur,
+    en_tete: Option<String>,
     logo: Option<usize>,
-    pied: Vec<u8>,
+    pied: String,
     pages: Vec<Page>,
     images: Vec<Jpeg>,
     y: f32,
@@ -114,15 +115,26 @@ pub struct Document {
 
 /// Coupe un texte WinAnsi aux mots pour tenir dans `max` points ; un mot trop long est tranché.
 pub fn couper(police: Police, taille: f32, texte: &[u8], max: f32) -> Vec<Vec<u8>> {
-    let mut lignes: Vec<Vec<u8>> = Vec::new();
-    for para in texte.split(|&b| b == b'\n') {
-        let mut courant: Vec<u8> = Vec::new();
-        for mot in para.split(|&b| b == b' ').filter(|m| !m.is_empty()) {
-            let mut mot: &[u8] = mot;
-            while largeur(police, mot, taille) > max && mot.len() > 1 {
+    couper_avec(texte, b' ', b'\n', max, |t| largeur(police, t, taille))
+}
+
+/// Coupe générique : `mesure` donne la largeur d'une suite d'éléments.
+pub(crate) fn couper_avec<T: Copy + PartialEq>(
+    texte: &[T],
+    espace: T,
+    saut: T,
+    max: f32,
+    mesure: impl Fn(&[T]) -> f32,
+) -> Vec<Vec<T>> {
+    let mut lignes: Vec<Vec<T>> = Vec::new();
+    for para in texte.split(|&b| b == saut) {
+        let mut courant: Vec<T> = Vec::new();
+        for mot in para.split(|&b| b == espace).filter(|m| !m.is_empty()) {
+            let mut mot: &[T] = mot;
+            while mesure(mot) > max && mot.len() > 1 {
                 // Plus grand préfixe qui tient.
                 let mut k = 1;
-                while k < mot.len() && largeur(police, &mot[..k + 1], taille) <= max {
+                while k < mot.len() && mesure(&mot[..k + 1]) <= max {
                     k += 1;
                 }
                 if !courant.is_empty() {
@@ -136,10 +148,10 @@ pub fn couper(police: Police, taille: f32, texte: &[u8], max: f32) -> Vec<Vec<u8
             }
             let mut essai = courant.clone();
             if !essai.is_empty() {
-                essai.push(b' ');
+                essai.push(espace);
             }
             essai.extend_from_slice(mot);
-            if !courant.is_empty() && largeur(police, &essai, taille) > max {
+            if !courant.is_empty() && mesure(&essai) > max {
                 lignes.push(std::mem::take(&mut courant));
                 courant = mot.to_vec();
             } else {
@@ -154,23 +166,14 @@ pub fn couper(police: Police, taille: f32, texte: &[u8], max: f32) -> Vec<Vec<u8
     lignes
 }
 
-fn nb(x: f32) -> String {
-    let s = format!("{x:.2}");
-    let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-" {
-        "0".into()
-    } else {
-        s.into()
-    }
-}
-
 impl Document {
     pub fn new(meta: Meta) -> Document {
         Document {
             meta,
+            moteur: Moteur::new(Mode::Incorpore),
             en_tete: None,
             logo: None,
-            pied: Vec::new(),
+            pied: String::new(),
             pages: vec![Page {
                 contenu: Vec::new(),
                 images: Vec::new(),
@@ -180,9 +183,21 @@ impl Document {
         }
     }
 
+    /// Repli : polices standard Helvetica/Times en WinAnsi au lieu de la police incorporée
+    /// (à appeler avant tout contenu). Les caractères hors table y sont translittérés.
+    pub fn avec_polices_standard(mut self) -> Document {
+        self.moteur = Moteur::new(Mode::Standard);
+        self
+    }
+
+    /// Avertissements accumulés (caractères absents de la police, etc.), sans données nominatives.
+    pub fn avertissements(&self) -> &[String] {
+        self.moteur.avertissements()
+    }
+
     /// Texte d'en-tête répété sur chaque page (à définir avant le contenu).
     pub fn avec_en_tete(mut self, texte: &str) -> Document {
-        self.en_tete = Some(winansi::encoder(texte));
+        self.en_tete = Some(texte.to_string());
         self.y = HAUT_AVEC_EN_TETE;
         self
     }
@@ -197,7 +212,7 @@ impl Document {
 
     /// Texte de pied de page (à gauche) ; « Page n sur N » est toujours à droite.
     pub fn avec_pied(mut self, texte: &str) -> Document {
-        self.pied = winansi::encoder(texte);
+        self.pied = texte.to_string();
         self
     }
 
@@ -238,26 +253,23 @@ impl Document {
         self.y -= h;
     }
 
-    fn emettre(page: &mut Vec<u8>, x: f32, base: f32, police: Police, taille: f32, texte: &[u8]) {
-        if texte.is_empty() {
-            return;
-        }
-        page.extend_from_slice(
-            format!(
-                "BT /F{} {} Tf {} {} Td ",
-                police.indice() + 1,
-                nb(taille),
-                nb(x),
-                nb(base)
-            )
-            .as_bytes(),
-        );
-        litterale(texte, page);
-        page.extend_from_slice(b" Tj ET\n");
+    /// Écrit un texte sur la page courante.
+    fn ecrire_texte(&mut self, x: f32, base: f32, police: Police, taille: f32, t: &[char]) {
+        let page = self.pages.last_mut().unwrap();
+        self.moteur
+            .emettre(&mut page.contenu, x, base, police, taille, t);
     }
 
-    fn x_aligne(police: Police, taille: f32, texte: &[u8], align: Align, x0: f32, x1: f32) -> f32 {
-        let l = largeur(police, texte, taille);
+    fn x_aligne(
+        &self,
+        police: Police,
+        taille: f32,
+        t: &[char],
+        align: Align,
+        x0: f32,
+        x1: f32,
+    ) -> f32 {
+        let l = self.moteur.largeur(police, t, taille);
         match align {
             Align::Gauche => x0,
             Align::Centre => x0 + ((x1 - x0) - l) / 2.0,
@@ -265,15 +277,22 @@ impl Document {
         }
     }
 
+    fn couper_txt(&self, police: Police, taille: f32, t: &[char], max: f32) -> Vec<Vec<char>> {
+        couper_avec(t, ' ', '\n', max, |x| {
+            self.moteur.largeur(police, x, taille)
+        })
+    }
+
     /// Paragraphe avec retour à la ligne automatique et saut de page.
     pub fn texte(&mut self, texte: &str, police: Police, taille: f32, align: Align) {
-        let lignes = couper(police, taille, &winansi::encoder(texte), MARGE_D - MARGE_G);
+        let t = self.moteur.preparer(texte);
+        let lignes = self.couper_txt(police, taille, &t, MARGE_D - MARGE_G);
         let inter = taille * 1.3;
         for l in lignes {
             self.assurer(inter);
-            let x = Self::x_aligne(police, taille, &l, align, MARGE_G, MARGE_D);
+            let x = self.x_aligne(police, taille, &l, align, MARGE_G, MARGE_D);
             let base = self.y - taille;
-            Self::emettre(&mut self.page().contenu, x, base, police, taille, &l);
+            self.ecrire_texte(x, base, police, taille, &l);
             self.y -= inter;
         }
     }
@@ -303,18 +322,19 @@ impl Document {
             Police::Helvetica
         };
         let t = 10.5;
-        let d = winansi::encoder(droite);
-        let ld = largeur(police, &d, t);
+        let d = self.moteur.preparer(droite);
+        let ld = self.moteur.largeur(police, &d, t);
         let max = (MARGE_D - MARGE_G) - ld - 12.0;
-        let lignes = couper(police, t, &winansi::encoder(gauche), max.max(60.0));
+        let g = self.moteur.preparer(gauche);
+        let lignes = self.couper_txt(police, t, &g, max.max(60.0));
         let inter = t * 1.3;
         for (i, l) in lignes.iter().enumerate() {
             self.assurer(inter);
             let base = self.y - t;
             let dx = if i == 0 { 0.0 } else { 12.0 };
-            Self::emettre(&mut self.page().contenu, MARGE_G + dx, base, police, t, l);
+            self.ecrire_texte(MARGE_G + dx, base, police, t, l);
             if i == 0 {
-                Self::emettre(&mut self.page().contenu, MARGE_D - ld, base, police, t, &d);
+                self.ecrire_texte(MARGE_D - ld, base, police, t, &d);
             }
             self.y -= inter;
         }
@@ -426,7 +446,7 @@ impl Document {
         cols: &[Colonne],
         larg: &[f32],
         taille: f32,
-        cellules: &[Vec<Vec<u8>>],
+        cellules: &[Vec<Vec<char>>],
         debut: usize,
         k: usize,
         police: Police,
@@ -458,9 +478,9 @@ impl Document {
             );
             c.extend_from_slice(r.as_bytes());
             for (j, l) in cellules[i].iter().skip(debut).take(k).enumerate() {
-                let lx = Self::x_aligne(police, taille, l, col.align, x + PAD, x + larg[i] - PAD);
+                let lx = self.x_aligne(police, taille, l, col.align, x + PAD, x + larg[i] - PAD);
                 let base = top - PAD - taille - j as f32 * inter - (inter - taille) / 2.0 + 1.0;
-                Self::emettre(&mut c, lx, base, police, taille, l);
+                self.moteur.emettre(&mut c, lx, base, police, taille, l);
             }
             x += larg[i];
         }
@@ -480,21 +500,18 @@ impl Document {
         let somme: f32 = t.colonnes.iter().map(|c| c.poids).sum::<f32>().max(0.001);
         let larg: Vec<f32> = t.colonnes.iter().map(|c| util * c.poids / somme).collect();
         let inter = t.taille * 1.25;
-        let decouper = |cellules: &[String], police: Police| -> Vec<Vec<Vec<u8>>> {
-            (0..n)
-                .map(|i| {
-                    let txt = cellules.get(i).map(String::as_str).unwrap_or("");
-                    couper(
-                        police,
-                        t.taille,
-                        &winansi::encoder(txt),
-                        larg[i] - 2.0 * PAD,
-                    )
-                })
-                .collect()
-        };
+        let decouper =
+            |this: &mut Document, cellules: &[String], police: Police| -> Vec<Vec<Vec<char>>> {
+                (0..n)
+                    .map(|i| {
+                        let txt = cellules.get(i).map(String::as_str).unwrap_or("");
+                        let prep = this.moteur.preparer(txt);
+                        this.couper_txt(police, t.taille, &prep, larg[i] - 2.0 * PAD)
+                    })
+                    .collect()
+            };
         let titres: Vec<String> = t.colonnes.iter().map(|c| c.titre.clone()).collect();
-        let entete = decouper(&titres, Police::HelveticaGras);
+        let entete = decouper(self, &titres, Police::HelveticaGras);
         let k_entete = entete.iter().map(Vec::len).max().unwrap_or(1).max(1);
         let h_entete = k_entete as f32 * inter + 2.0 * PAD;
         let corps_max = self.haut() - BAS;
@@ -521,7 +538,7 @@ impl Document {
             } else {
                 Police::Helvetica
             };
-            let cellules = decouper(&ligne.cellules, police);
+            let cellules = decouper(self, &ligne.cellules, police);
             let total = cellules.iter().map(Vec::len).max().unwrap_or(1).max(1);
             let mut fait = 0;
             while fait < total {
@@ -600,8 +617,16 @@ impl Document {
     }
 
     /// Assemble le fichier PDF.
-    pub fn octets(mut self) -> Vec<u8> {
+    pub fn octets(self) -> Vec<u8> {
+        self.octets_avec_avertissements().0
+    }
+
+    /// Assemble le fichier PDF et rend les avertissements ; ils sont aussi écrits sur la
+    /// sortie d'erreur (un caractère jamais rendu en « ? » sans trace).
+    pub fn octets_avec_avertissements(mut self) -> (Vec<u8>, Vec<String>) {
         let n = self.pages.len();
+        let en_tete = self.en_tete.clone().map(|t| self.moteur.preparer(&t));
+        let pied = self.moteur.preparer(&self.pied.clone());
         // Habillage de chaque page : en-tête, filets, pied, numérotation.
         for i in 0..n {
             let mut c: Vec<u8> = Vec::new();
@@ -618,8 +643,9 @@ impl Document {
                     self.poser_image_page(i, l, x, haut - h, w, h);
                     x += w + 12.0;
                 }
-                if let Some(t) = &self.en_tete {
-                    Self::emettre(&mut c, x, haut - 22.0, Police::HelveticaGras, 11.0, t);
+                if let Some(t) = &en_tete {
+                    self.moteur
+                        .emettre(&mut c, x, haut - 22.0, Police::HelveticaGras, 11.0, t);
                 }
                 let f = format!(
                     "0.5 w 0.6 G {} {} m {} {} l S 0 G\n",
@@ -636,32 +662,31 @@ impl Document {
                 nb(MARGE_D)
             );
             c.extend_from_slice(f.as_bytes());
-            Self::emettre(&mut c, MARGE_G, 36.0, Police::Helvetica, 8.0, &self.pied);
-            let num = winansi::encoder(&format!("Page {} sur {n}", i + 1));
-            let x = MARGE_D - largeur(Police::Helvetica, &num, 8.0);
-            Self::emettre(&mut c, x, 36.0, Police::Helvetica, 8.0, &num);
+            self.moteur
+                .emettre(&mut c, MARGE_G, 36.0, Police::Helvetica, 8.0, &pied);
+            let num = self.moteur.preparer(&format!("Page {} sur {n}", i + 1));
+            let x = MARGE_D - self.moteur.largeur(Police::Helvetica, &num, 8.0);
+            self.moteur
+                .emettre(&mut c, x, 36.0, Police::Helvetica, 8.0, &num);
             self.pages[i].contenu.extend_from_slice(&c);
         }
 
         let mut e = Ecrivain::nouveau();
-        // 1 catalogue, 2 pages, 3 info, 4-6 polices, puis images, puis (page, flux) par page.
+        // 1 catalogue, 2 pages, 3 info, polices, puis images, puis (page, flux) par page.
         let n_images = self.images.len();
-        let premiere_page = 7 + n_images;
+        let id_images = 4 + self.moteur.nb_objets_polices();
+        let premiere_page = id_images + n_images;
         e.objet(b"<< /Type /Catalog /Pages 2 0 R >>");
         let kids: String = (0..n)
             .map(|i| format!("{} 0 R ", premiere_page + 2 * i))
             .collect();
         e.objet(format!("<< /Type /Pages /Kids [ {kids}] /Count {n} >>").as_bytes());
         self.ecrire_info(&mut e);
-        for p in [Police::Helvetica, Police::HelveticaGras, Police::Times] {
-            e.objet(
-                format!(
-                    "<< /Type /Font /Subtype /Type1 /BaseFont /{} /Encoding /WinAnsiEncoding >>",
-                    p.nom_base()
-                )
-                .as_bytes(),
-            );
-        }
+        let polices = self.moteur.ecrire_polices(&mut e);
+        let ressources_polices: String = polices
+            .iter()
+            .map(|(nom, id)| format!("/{nom} {id} 0 R "))
+            .collect();
         for j in &self.images {
             let cs = if j.composantes == 1 {
                 "/DeviceGray"
@@ -683,13 +708,13 @@ impl Document {
                 let l: String = p
                     .images
                     .iter()
-                    .map(|k| format!("/Im{} {} 0 R ", k + 1, 7 + k))
+                    .map(|k| format!("/Im{} {} 0 R ", k + 1, id_images + k))
                     .collect();
                 format!(" /XObject << {l}>>")
             };
             e.objet(
                 format!(
-                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R >>{xobj} >> /Contents {} 0 R >>",
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {ressources_polices}>>{xobj} >> /Contents {} 0 R >>",
                     LARGEUR as u32,
                     HAUTEUR as u32,
                     premiere_page + 2 * i + 1
@@ -698,6 +723,10 @@ impl Document {
             );
             e.flux("", &p.contenu);
         }
-        e.terminer(1, 3)
+        let avertissements = self.moteur.avertissements().to_vec();
+        for a in &avertissements {
+            eprintln!("ent-pdf : {a}");
+        }
+        (e.terminer(1, 3), avertissements)
     }
 }

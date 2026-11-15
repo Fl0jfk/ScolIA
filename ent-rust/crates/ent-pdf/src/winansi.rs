@@ -76,7 +76,7 @@ fn composer(base: char, marque: char) -> Option<char> {
     None
 }
 
-fn repli(c: char) -> Option<&'static str> {
+pub(crate) fn repli(c: char) -> Option<&'static str> {
     Some(match c {
         '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\t' => " ",
         '\u{200b}'..='\u{200d}' | '\u{feff}' | '\u{ad}' | '\u{2060}' => "",
@@ -106,6 +106,11 @@ fn repli(c: char) -> Option<&'static str> {
 /// Encode un texte en octets WinAnsi. `\n` est conservé (la mise en page le traite) ;
 /// les autres caractères de contrôle deviennent des espaces.
 pub fn encoder(s: &str) -> Vec<u8> {
+    encoder_avec_inconnus(s, &mut Vec::new())
+}
+
+/// Comme [`encoder`] ; les caractères devenus « ? » faute de table sont ajoutés à `inconnus`.
+pub(crate) fn encoder_avec_inconnus(s: &str, inconnus: &mut Vec<char>) -> Vec<u8> {
     let mut sortie = Vec::with_capacity(s.len());
     let mut it = s.chars().peekable();
     while let Some(mut c) = it.next() {
@@ -137,6 +142,7 @@ pub fn encoder(s: &str) -> Vec<u8> {
         } else if ('\u{300}'..='\u{36f}').contains(&c) {
             // marque combinante isolée : sans effet
         } else {
+            inconnus.push(c);
             sortie.push(b'?');
         }
     }
