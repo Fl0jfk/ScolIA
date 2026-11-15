@@ -1462,6 +1462,12 @@ impl PgEnt {
         } else {
             (prevu, false)
         };
+        // Les contrôles sont rejoués à la bascule : un conflit apparu depuis l'annonce (intervenant, lieu) empêche la
+        // diffusion plutôt que de publier un plan qui ne tient plus.
+        let ctl = controler_tx(tx, e, &v, annee, effet, v.valable_au).await?;
+        if !ctl.bloquants.is_empty() {
+            return Err(conflit());
+        }
         let fige = forcage.map(|_| Utc::now());
         let b = self
             .basculer_tx(tx, a, &v, annee, effet, v.valable_au, fige)
@@ -1927,6 +1933,22 @@ impl PgEnt {
         let annee = charger_annee(&mut tx, e, v.annee_id).await?;
         let aujourdhui = aujourdhui_tx(&mut tx, e).await?;
         let effet_v = v.valable_du.ok_or_else(invalide)?;
+        // Seule la dernière version publiée peut être retirée : une version publiée plus tard la remplace à son tour.
+        let plus_tard: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM ent_edt_version
+                             WHERE etablissement_id = $1 AND annee_id = $2 AND nature = 'base' AND etat = 'publiee'
+                               AND id <> $3 AND valable_du > $4)",
+        )
+        .bind(e)
+        .bind(v.annee_id)
+        .bind(v.id)
+        .bind(effet_v)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if plus_tard {
+            return Err(conflit());
+        }
         if effet_v > aujourdhui {
             // L'effet n'a pas commencé : rétablir la version remplacée, archiver celle-ci.
             let prev = charger_version(&mut tx, e, precedente, true).await?;

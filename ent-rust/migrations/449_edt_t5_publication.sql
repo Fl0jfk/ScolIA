@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS ent_edt_individuelle_ligne (
     cours_id UUID NOT NULL,
     nature TEXT NOT NULL CHECK (nature IN ('inclusion', 'exclusion')),
     membre_id UUID NOT NULL,
+    cree_le TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (individuelle_id, cours_id, nature)
 );
 

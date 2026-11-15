@@ -692,6 +692,22 @@ fn specs_domaine_edt() -> Vec<Spec> {
                 Some(r#"{"seance_id":"{appel}","changement":{"type":"annulation"},"motif_public_code":"autre"}"#)),
             ecrire_sur_b("edt-lot-B", "POST", "/edt/lots",
                 Some(r#"{"nature":"annulation","du":"{jour}","au":"{jour}","portee":"classes","cibles":["{appel}"],"motif_public_code":"autre"}"#)),
+            // Socle 10, lot T5 : publication des versions. Aucune version n'existe sous l'identifiant d'un créneau :
+            // la lecture et l'écriture sont refusées partout (404), y compris sur la cible B ; l'historique d'une
+            // année inconnue est vide pour l'encadrement et refusé aux autres.
+            lire("edt-publication-controles", "/edt/versions/{appel}/controles", &[], &[]),
+            lire("edt-publication-apercu", "/edt/versions/{appel}/apercu", &[], &[]),
+            lire("edt-publication-difference", "/edt/versions/difference?de={appel}&vers={appel}", &[], &[]),
+            Spec { b: Attendu::RefuseOuIndistinct, ..lire("edt-publications-historique", "/edt/annees/{appel}/publications",
+                &[Direction, Administratif], &[Direction, Administratif]) },
+            ecrire_sur_b("edt-publier-B", "POST", "/edt/versions/{appel}/publier", Some(r#"{"version_id":"{appel}"}"#)),
+            ecrire_sur_b("edt-diffuser-B", "POST", "/edt/versions/{appel}/diffuser", None),
+            ecrire_sur_b("edt-diffusion-B", "POST", "/edt/versions/{appel}/diffusion",
+                Some(r#"{"diffusion_le":"2099-01-01T00:00:00Z"}"#)),
+            ecrire_sur_b("edt-retour-arriere-B", "POST", "/edt/versions/{appel}/retour-arriere", None),
+            ecrire_sur_b("edt-annonce-B", "DELETE", "/edt/versions/{appel}/annonce", None),
+            ecrire_sur_b("edt-individuelle-B", "POST", "/edt/individuelles",
+                Some(r#"{"eleve_id":"{eleve}","motif_code":"upe2a","ajouter":["{appel}"]}"#)),
     ]
 }
 

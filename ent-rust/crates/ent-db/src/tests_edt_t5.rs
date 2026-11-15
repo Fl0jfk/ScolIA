@@ -1525,6 +1525,24 @@ async fn t5_retour_arriere_annonce_retiree_effet_futur_rétabli_et_version_en_vi
         (Some(c.v0), Some(v3))
     );
     assert!(hc.faits.iter().any(|f| f.fait == "copie_retour"));
+    // Une version publiée plus tard la remplace à son tour : on ne retire pas celle du dessous.
+    let v4 = brouillon(&ent, &cast, &c, "Plus tard", false, true).await;
+    let effet4 = aujourdhui + Duration::days(40);
+    ent.edt_publier(
+        &a,
+        &CmdPublier {
+            version_id: v4,
+            a_partir_du: Some(effet4),
+            deux_temps: Some(false),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert!(
+        ent.edt_retour_arriere(&g, copie, None).await.is_err(),
+        "la copie est remplacée par une version plus tardive"
+    );
     let _ = c.lundi;
 }
 
