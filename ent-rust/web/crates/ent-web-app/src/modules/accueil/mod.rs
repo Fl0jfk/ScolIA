@@ -7,11 +7,12 @@
 pub mod modele;
 
 use ent_web_api::types_portail::{
-    ActionPortail, EtatTuile, LignePortail, PortailAujourdhui, TuilePortail,
+    ActionPortail, Bandeau, EtatTuile, LignePortail, PageAlerte, PortailAujourdhui, TuilePortail,
 };
 use ent_web_api::{ApiError, Creneau};
 use ent_web_ui::{
-    Bouton, EnTetePage, EtatVide, GrilleBento, Largeur, LienBouton, Squelette, Tuile, Variante,
+    Alerte, Bouton, EnTetePage, EtatVide, GrilleBento, Largeur, LienBouton, Squelette, Tuile,
+    Variante,
 };
 use leptos::prelude::*;
 use leptos_meta::Title;
@@ -61,9 +62,15 @@ fn PortailRendu(
 ) -> impl IntoView {
     let droits = use_droits();
     let prof = modele::est_professeur(page.profil);
+    // Mode alerte (lot P7) : la page entière est la page d'alerte, aucune autre tuile, rien de masquable.
+    if let Some(alerte) = page.alerte {
+        return view! { <PageAlerteVue alerte=alerte bandeaux=page.bandeaux/> }.into_any();
+    }
     let vide = page.tuiles.is_empty();
     let tuiles = page.tuiles;
     view! {
+        <p class="texte-attenue">{modele::sous_titre(page.mode)}</p>
+        <Bandeaux visibles=page.bandeaux replies=page.bandeaux_replies/>
         <GrilleBento libelle="Tableau de bord">
             {move || (prof && droits.get().faire_appel).then(|| view! { <BlocProchainCours jour=jour/> })}
             {tuiles
@@ -76,6 +83,96 @@ fn PortailRendu(
                 </Tuile>
             })}
         </GrilleBento>
+    }
+    .into_any()
+}
+
+/// Un bandeau : la gravité en toutes lettres, un lien vers l'écran propriétaire, « Masquer » seulement si le
+/// serveur le permet (jamais pour la sécurité).
+#[component]
+fn BandeauVue(bandeau: Bandeau, masquer: Callback<String>) -> impl IntoView {
+    let titre = format!(
+        "{} : {}",
+        modele::prefixe_gravite(bandeau.gravite),
+        bandeau.texte
+    );
+    let niveau = modele::niveau_bandeau(bandeau.gravite);
+    let lien = bandeau.lien.clone();
+    let corps = lien.map(|l| view! { <a href=l>"Voir le détail"</a> });
+    if bandeau.masquable {
+        let code = bandeau.code.clone();
+        view! {
+            <Alerte niveau=niveau titre=titre on_fermer=Callback::new(move |_| masquer.run(code.clone()))>
+                {corps}
+            </Alerte>
+        }
+        .into_any()
+    } else {
+        view! { <Alerte niveau=niveau titre=titre>{corps}</Alerte> }.into_any()
+    }
+}
+
+/// Au plus deux bandeaux visibles ; les autres repliés. Masquer ne dure que le temps de la page.
+#[component]
+fn Bandeaux(visibles: Vec<Bandeau>, replies: Vec<Bandeau>) -> impl IntoView {
+    let masques = RwSignal::new(Vec::<String>::new());
+    let masquer = Callback::new(move |code: String| masques.update(|m| m.push(code)));
+    let (v, r) = (StoredValue::new(visibles), StoredValue::new(replies));
+    view! {
+        <section class="accueil-bandeaux" aria-label="Informations importantes">
+            {move || {
+                let m = masques.get();
+                modele::sans_masques(&v.get_value(), &m)
+                    .into_iter()
+                    .map(|b| view! { <BandeauVue bandeau=b masquer=masquer/> })
+                    .collect_view()
+            }}
+            {move || {
+                let m = masques.get();
+                let liste = modele::sans_masques(&r.get_value(), &m);
+                (!liste.is_empty()).then(|| view! {
+                    <details class="accueil-bandeaux__replies">
+                        <summary>{format!("Autres informations ({})", liste.len())}</summary>
+                        {liste.into_iter().map(|b| view! { <BandeauVue bandeau=b masquer=masquer/> }).collect_view()}
+                    </details>
+                })
+            }}
+        </section>
+    }
+}
+
+/// La page d'alerte (mode `alerte`, socle 14) : consigne officielle ; pour les personnels, les élèves dont on
+/// est responsable maintenant. Le bouton « Je suis en sécurité avec … » n'apparaît que si le serveur l'offre.
+#[component]
+fn PageAlerteVue(alerte: PageAlerte, bandeaux: Vec<Bandeau>) -> impl IntoView {
+    let PageAlerte {
+        consigne,
+        eleves_en_charge,
+        action_securite,
+    } = alerte;
+    view! {
+        <section class="accueil-alerte" aria-label="Alerte">
+            {bandeaux
+                .into_iter()
+                .map(|b| view! { <BandeauVue bandeau=b masquer=Callback::new(|_| ())/> })
+                .collect_view()}
+            <h2>"Consigne officielle"</h2>
+            <p class="accueil-alerte__consigne">{consigne}</p>
+            {(!eleves_en_charge.is_empty()).then(|| view! {
+                <h2>"Élèves dont vous êtes responsable maintenant"</h2>
+                <ul class="ui-liste">
+                    {eleves_en_charge.into_iter().map(|e| view! {
+                        <li class="ui-liste__element">
+                            <span class="ui-liste__principal">
+                                <span class="ui-liste__titre">{e.libelle}</span>
+                                <span class="ui-liste__detail">{e.presence}</span>
+                            </span>
+                        </li>
+                    }).collect_view()}
+                </ul>
+            })}
+            {action_securite.map(|a| view! { <BoutonAction action=a/> })}
+        </section>
     }
 }
 

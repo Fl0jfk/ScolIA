@@ -923,3 +923,229 @@ pub struct BilanRemonteesDto {
     pub etablissements: u32,
     pub preparees: u32,
 }
+
+// ─────────────────────────── Lot A7 : heures et états (migrations 2308 et 2310) ───────────────────────────
+
+/// Une heure constatée (§14) : un fait, jamais une déclaration.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeureDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seance_id: Option<Uuid>,
+    /// `rcd` · `hse` · `mission_pacte` · `rattrapage_du` · `service_non_fait` · `vacation`.
+    pub nature: String,
+    /// Durée constatée (celle de l'heure telle qu'elle a été figée, jamais réécrite).
+    pub duree_minutes: i32,
+    /// Somme des régularisations (signées) faites après la figeure : durée effective = durée + régularisation.
+    pub regularisation_minutes: i32,
+    pub le: NaiveDate,
+    /// Premier jour du mois du fait.
+    pub mois: NaiveDate,
+    /// `etat` (agent de l'État) · `ogec`.
+    pub employeur: String,
+    /// `constatee` · `contestee` · `validee` · `figee` · `exportee`.
+    pub etat: String,
+    /// `appel` (appel fait, socle 12) · `attestation` · `saisie` (sans séance).
+    pub preuve: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etat_mensuel_id: Option<Uuid>,
+}
+
+/// CAP-56 : une séance remplacée, terminée, sans appel ni heure : au remplaçant de l'attester.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeanceAAttesterDto {
+    pub seance_id: Uuid,
+    pub le: NaiveDate,
+    pub heure_debut: NaiveTime,
+    pub heure_fin: NaiveTime,
+    pub matiere: String,
+}
+
+/// ABP-200 : mes heures, et ce qui manque.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MesHeuresDto {
+    pub heures: Vec<HeureDto>,
+    pub a_attester: Vec<SeanceAAttesterDto>,
+}
+
+/// ABP-202 : attester qu'une séance remplacée a été assurée (sans appel).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttesterBody {
+    pub seance_id: Uuid,
+}
+
+/// ABP-201 : contester une heure (motif codé : `duree_erronee` · `seance_non_assuree` · `mauvais_agent` · `doublon` ·
+/// `oubli` · `autre`) ; note libre de 500 caractères au plus, sans mot exclu.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContesterHeureBody {
+    pub raison_code: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Corriger (heure non figée) ou régulariser (heure figée ou exportée) : la durée demandée, 0 pour annuler.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorrigerHeureBody {
+    pub duree_minutes: i32,
+    pub raison_code: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+/// Saisie d'une heure sans séance (HSE hors séance, mission Pacte, vacation, service non fait) : jamais un remplacement.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaisirHeureBody {
+    pub agent_id: Uuid,
+    pub nature: String,
+    pub duree_minutes: i32,
+    pub le: NaiveDate,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FiltreHeures {
+    #[serde(default)]
+    pub agent_id: Option<Uuid>,
+    #[serde(default)]
+    pub mois: Option<NaiveDate>,
+    #[serde(default)]
+    pub nature: Option<String>,
+    #[serde(default)]
+    pub etat: Option<String>,
+}
+
+/// ABP-203 : valider les heures d'un mois (ou d'un agent).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValiderHeuresBody {
+    pub mois: NaiveDate,
+    #[serde(default)]
+    pub agent_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanValidationDto {
+    pub validees: u32,
+    /// Heures du valideur lui-même, laissées à un autre.
+    pub laissees_a_un_autre: u32,
+    /// Heures contestées du mois, à régler avant de figer l'état.
+    pub contestees_restantes: i64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanHeuresDto {
+    pub etablissements: u32,
+    pub constatees: u32,
+}
+
+/// ABP-204 : figer l'état mensuel d'un employeur.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FigerEtatBody {
+    pub mois: NaiveDate,
+    /// `etat` · `ogec`.
+    pub employeur: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtatLigneDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    pub nature: String,
+    /// Signée : une régularisation à la baisse est négative.
+    pub duree_minutes: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heure_id: Option<Uuid>,
+    /// Ligne d'origine corrigée, pour une régularisation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regularisation_de_id: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtatMensuelDto {
+    pub id: Uuid,
+    pub mois: NaiveDate,
+    pub employeur: String,
+    /// `fige` · `signe` · `exporte`.
+    pub etat: String,
+    pub fige_le: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signe_le: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exporte_le: Option<DateTime<Utc>>,
+    pub total_minutes: i64,
+    pub lignes: Vec<EtatLigneDto>,
+}
+
+/// ABP-208 : la régularisation posée (reportée sur le prochain état de l'employeur).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegularisationDto {
+    pub heure_id: Uuid,
+    pub fait_id: Uuid,
+    pub duree_avant: i32,
+    pub duree_apres: i32,
+    pub delta_minutes: i32,
+}
+
+/// ABP-219 : l'état annuel des heures d'un agent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LigneAnnuelleDto {
+    pub mois: NaiveDate,
+    pub nature: String,
+    pub minutes: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EtatAnnuelDto {
+    pub agent_id: Uuid,
+    pub annee_id: Uuid,
+    pub total_minutes: i64,
+    pub par_mois: Vec<LigneAnnuelleDto>,
+}
+
+/// ABP-207 : préparer les éléments variables de paie d'un mois (salariés de l'OGEC).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreparerPaieBody {
+    pub mois: NaiveDate,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BilanPaieDto {
+    pub crees: u32,
+    pub regularisations: u32,
+}
+
+/// Un élément variable de paie : nature **codée**, jamais un libellé (AD-03).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ElementPaieDto {
+    pub id: Uuid,
+    pub agent_id: Uuid,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absence_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heure_id: Option<Uuid>,
+    pub mois: NaiveDate,
+    pub nature_code: String,
+    pub quantite: f64,
+    /// `heure` · `jour` · `demi_jour`.
+    pub unite: String,
+    /// `prepare` · `envoye` · `regularise`.
+    pub etat: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub regularise_de_id: Option<Uuid>,
+}
+
+/// ABP-210 : un arrêt à signaler en DSN dans les cinq jours.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DsnSuiviDto {
+    pub absence_id: Uuid,
+    pub agent_id: Uuid,
+    pub echeance_le: NaiveDate,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signale_le: Option<NaiveDate>,
+    pub en_retard: bool,
+}
+
+/// ABP-211 : marquer « signalé en DSN le ».
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DsnSignaleBody {
+    pub le: NaiveDate,
+}

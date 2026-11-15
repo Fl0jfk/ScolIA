@@ -19,10 +19,10 @@ use ent_db::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::AppState;
 use crate::auth::EntSession;
 use crate::referentiel::acteur;
 use crate::routes::map_db;
+use crate::AppState;
 
 type Res<T> = Result<T, (StatusCode, String)>;
 
@@ -54,7 +54,10 @@ pub fn routes() -> Router<AppState> {
         .route("/edt/exceptions-levee", delete(lever_exception))
         .route("/edt/annulation-masse", post(annulation_masse))
         // Socle 10, lot T3 : modifier le réel (journal, lots, grève, salle fermée, correction du passé).
-        .route("/edt/modifications", get(t3_modifications).post(t3_modifier))
+        .route(
+            "/edt/modifications",
+            get(t3_modifications).post(t3_modifier),
+        )
         .route("/edt/modifications/{id}", delete(t3_lever))
         .route("/edt/corrections-passe", post(t3_corriger_passe))
         .route("/edt/lots/apercu", post(t3_lot_apercu))
@@ -62,8 +65,14 @@ pub fn routes() -> Router<AppState> {
         .route("/edt/lots/{id}", delete(t3_lot_lever))
         .route("/edt/greve/candidats", get(t3_greve_candidats))
         .route("/edt/greve", post(t3_greve))
-        .route("/edt/salles/{id}/fermeture/propositions", get(t3_salle_fermee_propositions))
-        .route("/edt/salles/{id}/fermeture", post(t3_salle_fermee_appliquer))
+        .route(
+            "/edt/salles/{id}/fermeture/propositions",
+            get(t3_salle_fermee_propositions),
+        )
+        .route(
+            "/edt/salles/{id}/fermeture",
+            post(t3_salle_fermee_appliquer),
+        )
         .route("/edt/seances/{id}/rattrapage", get(t3_rattrapage))
         .route("/edt/seances-non-assurees", get(t3_non_assurees))
         // Socle 10, lot T4 : « demain », élèves sans cours, « maintenant » (lecture journalisée pour un élève).
@@ -71,7 +80,10 @@ pub fn routes() -> Router<AppState> {
         .route("/edt/sans-cours", get(t4_sans_cours))
         .route("/edt/maintenant/eleves/{id}", get(t4_maintenant_eleve))
         .route("/edt/maintenant/salles/{id}", get(t4_maintenant_salle))
-        .route("/edt/maintenant/professeurs/{id}", get(t4_maintenant_professeur))
+        .route(
+            "/edt/maintenant/professeurs/{id}",
+            get(t4_maintenant_professeur),
+        )
         // Délégations datées (ADM-04).
         .route("/delegations", get(delegations).post(accorder_delegation))
         .route("/delegations/mes", get(mes_delegations))
@@ -557,13 +569,13 @@ async fn revoquer_delegation(
 // Un conflit dur répond **409** avec la liste des conflits (codes, décomptes, séance en face : aucun nom).
 
 use ent_db::edt_lots::{
-    ApercuLot, CandidatGreve, CmdGreve, CmdLot, CmdSalleFermee, DemiJournee, PropositionLieu, ResultatLeveeLot,
-    ResultatLot, ResultatSalleFermee,
+    ApercuLot, CandidatGreve, CmdGreve, CmdLot, CmdSalleFermee, DemiJournee, PropositionLieu,
+    ResultatLeveeLot, ResultatLot, ResultatSalleFermee,
 };
 use ent_db::edt_modif::{CmdModifierSeance, ResultatModif};
 use ent_db::edt_modif_ops::{
-    CmdCorrectionPasse, FiltreModifications, ModificationVue, PlageRattrapage, ResultatCorrection, ResultatLevee,
-    SeanceNonAssuree,
+    CmdCorrectionPasse, FiltreModifications, ModificationVue, PlageRattrapage, ResultatCorrection,
+    ResultatLevee, SeanceNonAssuree,
 };
 
 async fn t3_modifier(
@@ -571,7 +583,11 @@ async fn t3_modifier(
     session: EntSession,
     Json(cmd): Json<CmdModifierSeance>,
 ) -> Res<(StatusCode, Json<ResultatModif>)> {
-    let r = s.ent.edt_modifier_seance(&acteur(&session), &cmd).await.map_err(map_db)?;
+    let r = s
+        .ent
+        .edt_modifier_seance(&acteur(&session), &cmd)
+        .await
+        .map_err(map_db)?;
     let code = if r.apercu || r.deja_fait {
         StatusCode::OK
     } else if r.applique {
@@ -587,7 +603,12 @@ async fn t3_lever(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<ResultatLevee>> {
-    Ok(Json(s.ent.edt_lever_modification(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_lever_modification(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t3_modifications(
@@ -595,7 +616,12 @@ async fn t3_modifications(
     session: EntSession,
     Query(f): Query<FiltreModifications>,
 ) -> Res<Json<Vec<ModificationVue>>> {
-    Ok(Json(s.ent.edt_modifications(&acteur(&session), &f).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_modifications(&acteur(&session), &f)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t3_corriger_passe(
@@ -603,8 +629,19 @@ async fn t3_corriger_passe(
     session: EntSession,
     Json(cmd): Json<CmdCorrectionPasse>,
 ) -> Res<(StatusCode, Json<ResultatCorrection>)> {
-    let r = s.ent.edt_corriger_seance_passee(&acteur(&session), &cmd).await.map_err(map_db)?;
-    Ok((if r.deja_fait { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+    let r = s
+        .ent
+        .edt_corriger_seance_passee(&acteur(&session), &cmd)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        if r.deja_fait {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(r),
+    ))
 }
 
 async fn t3_lot_apercu(
@@ -612,7 +649,12 @@ async fn t3_lot_apercu(
     session: EntSession,
     Json(cmd): Json<CmdLot>,
 ) -> Res<Json<ApercuLot>> {
-    Ok(Json(s.ent.edt_lot_apercu(&acteur(&session), &cmd).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_lot_apercu(&acteur(&session), &cmd)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t3_lot_appliquer(
@@ -620,8 +662,19 @@ async fn t3_lot_appliquer(
     session: EntSession,
     Json(cmd): Json<CmdLot>,
 ) -> Res<(StatusCode, Json<ResultatLot>)> {
-    let r = s.ent.edt_lot_appliquer(&acteur(&session), &cmd).await.map_err(map_db)?;
-    Ok((if r.apercu || r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+    let r = s
+        .ent
+        .edt_lot_appliquer(&acteur(&session), &cmd)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        if r.apercu || r.deja_applique {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(r),
+    ))
 }
 
 async fn t3_lot_lever(
@@ -629,7 +682,12 @@ async fn t3_lot_lever(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<ResultatLeveeLot>> {
-    Ok(Json(s.ent.edt_lot_lever(&acteur(&session), id).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_lot_lever(&acteur(&session), id)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -648,7 +706,12 @@ async fn t3_greve_candidats(
     session: EntSession,
     Query(q): Query<GreveQuery>,
 ) -> Res<Json<Vec<CandidatGreve>>> {
-    Ok(Json(s.ent.edt_greve_candidats(&acteur(&session), q.jour, q.demi_journee).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_greve_candidats(&acteur(&session), q.jour, q.demi_journee)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t3_greve(
@@ -656,8 +719,19 @@ async fn t3_greve(
     session: EntSession,
     Json(cmd): Json<CmdGreve>,
 ) -> Res<(StatusCode, Json<ResultatLot>)> {
-    let r = s.ent.edt_greve_du_jour(&acteur(&session), &cmd).await.map_err(map_db)?;
-    Ok((if r.apercu || r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+    let r = s
+        .ent
+        .edt_greve_du_jour(&acteur(&session), &cmd)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        if r.apercu || r.deja_applique {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(r),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -672,7 +746,12 @@ async fn t3_salle_fermee_propositions(
     Path(id): Path<Uuid>,
     Query(q): Query<PlageQuery>,
 ) -> Res<Json<Vec<PropositionLieu>>> {
-    Ok(Json(s.ent.edt_salle_fermee_propositions(&acteur(&session), id, q.du, q.au).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_salle_fermee_propositions(&acteur(&session), id, q.du, q.au)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -706,8 +785,19 @@ async fn t3_salle_fermee_appliquer(
         motif_interne: b.motif_interne,
         cle: b.cle,
     };
-    let r = s.ent.edt_salle_fermee_appliquer(&acteur(&session), &cmd).await.map_err(map_db)?;
-    Ok((if r.deja_applique { StatusCode::OK } else { StatusCode::CREATED }, Json(r)))
+    let r = s
+        .ent
+        .edt_salle_fermee_appliquer(&acteur(&session), &cmd)
+        .await
+        .map_err(map_db)?;
+    Ok((
+        if r.deja_applique {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(r),
+    ))
 }
 
 async fn t3_rattrapage(
@@ -716,7 +806,12 @@ async fn t3_rattrapage(
     Path(id): Path<Uuid>,
     Query(q): Query<PlageQuery>,
 ) -> Res<Json<Vec<PlageRattrapage>>> {
-    Ok(Json(s.ent.edt_rattrapage_propositions(&acteur(&session), id, q.du, q.au).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_rattrapage_propositions(&acteur(&session), id, q.du, q.au)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t3_non_assurees(
@@ -724,7 +819,12 @@ async fn t3_non_assurees(
     session: EntSession,
     Query(q): Query<PlageQuery>,
 ) -> Res<Json<Vec<SeanceNonAssuree>>> {
-    Ok(Json(s.ent.edt_seances_non_assurees(&acteur(&session), q.du, q.au).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_seances_non_assurees(&acteur(&session), q.du, q.au)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 // ───── Socle 10, lot T4 : « demain » et « maintenant » ─────
@@ -738,7 +838,12 @@ async fn t4_demain(
     session: EntSession,
     Query(q): Query<DemainQuery>,
 ) -> Res<Json<TableauDemain>> {
-    Ok(Json(s.ent.edt_tableau_demain(&acteur(&session), q.jour).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_tableau_demain(&acteur(&session), q.jour)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -755,7 +860,12 @@ async fn t4_sans_cours(
     session: EntSession,
     Query(q): Query<SansCoursQuery>,
 ) -> Res<Json<Vec<EleveSansCours>>> {
-    Ok(Json(s.ent.edt_eleves_sans_cours(&acteur(&session), q.jour, q.debut, q.fin).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_eleves_sans_cours(&acteur(&session), q.jour, q.debut, q.fin)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -786,7 +896,12 @@ async fn t4_maintenant_salle(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<OccupationSalle>> {
-    Ok(Json(s.ent.edt_maintenant_salle(&acteur(&session), id, None).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_maintenant_salle(&acteur(&session), id, None)
+            .await
+            .map_err(map_db)?,
+    ))
 }
 
 async fn t4_maintenant_professeur(
@@ -794,5 +909,10 @@ async fn t4_maintenant_professeur(
     session: EntSession,
     Path(id): Path<Uuid>,
 ) -> Res<Json<PresenceProfesseur>> {
-    Ok(Json(s.ent.edt_maintenant_professeur(&acteur(&session), id, None).await.map_err(map_db)?))
+    Ok(Json(
+        s.ent
+            .edt_maintenant_professeur(&acteur(&session), id, None)
+            .await
+            .map_err(map_db)?,
+    ))
 }
