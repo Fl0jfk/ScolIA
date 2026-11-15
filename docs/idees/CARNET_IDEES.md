@@ -94,3 +94,20 @@ Pour chaque élève, synthèse prête : évolution des notes, absences et retard
 Signaux faibles combinés (hausse des absences, chute des notes, retards, passages répétés à l'infirmerie, changement brutal d'assiduité) → **alerte discrète** à la CPE et au professeur principal, avec l'explication. Harcèlement : bouton **« Signaler, en confidentialité »** pour l'élève ou un témoin, vers un référent désigné ; signaux d'isolement. Garde-fous : **aucune décision automatique** (RGPD art. 22), analyse d'impact (AIPD) avant toute mise en service, transparence envers familles et élèves, aucun « étiquetage » visible des autres personnels. Socles : 12, 13, 34, 36, 30, 27. Conception dédiée (Opus) à prévoir.
 
 **Écartées le 15 nov.** : réunions parents-professeurs planifiées automatiquement (on ne sait pas qui veut rencontrer qui) ; « une seule appli pour toute la famille, multi-établissements » (déjà prévu : appli unique, passkey sur `scolia.fr`). **En attente d'avis** : simulateur d'effectifs et de moyens pour la direction (socle 47).
+
+## I-019 — Aide à la constitution des classes équilibrées (pilote et Florian, 2026-11-15) — validée par Florian (« à faire à tout prix »)
+Répartition proposée des élèves d'un niveau entre les classes, sous contraintes : options et langues, équilibre filles-garçons et de niveau, élèves **à séparer ou à garder ensemble**, places des élèves à besoins particuliers (PAP, PAI) ; plusieurs propositions, ajustement à la main par la direction, aperçu avant validation. **Remarques des professeurs** (ex. « à éviter avec untel : bavardages ») : visibles de la **seule direction** pour la constitution, motifs choisis dans une liste plutôt que texte libre, **effacées** une fois les classes constituées ; données personnelles de mineurs soumises au droit d'accès : rien d'inassumable. Socles : 5 (S6 groupes sur ENT), 3, 35, 23.
+
+## I-020 — Appel hors ligne sur mobile (pilote, 2026-11-15) — validée par Florian
+Appel possible sans réseau (gymnase, sortie) ; synchronisation au retour du réseau, conflits résolus et signalés ; heure réelle de l'appel conservée. Socles : 11, 12.
+
+## I-021 — Rapprochement bancaire automatique (pilote, 2026-11-15) — validée par Florian
+Import du relevé bancaire ; rapprochement de chaque virement ou prélèvement avec la facture de la famille ; écarts signalés ; relances des impayés au ton mesuré (validation humaine). Socles : 24, 25, 48.
+
+## I-022 — Dictée vocale (pilote, 2026-11-15) — validée par Florian
+Appréciations, observations de vie scolaire, comptes rendus d'incident dictés ; transcription relue et validée ; surtout sur mobile. Transcription hébergée en Europe ou locale, aucune conservation de l'audio au-delà du traitement. Socles : 11, 13, 23, 30.
+
+## I-023 — Factures fournisseurs : reconnaissance et imputation proposée en un clic, « à la Zeendoc » (Florian, 2026-11-15) — validée
+À la lecture d'une facture déposée (OCR et IA, socle 7 D5 pour le dépôt), ScolIA reconnaît le **fournisseur déjà connu** (SIREN, IBAN, nom) et propose **les derniers comptes du plan comptable** utilisés pour lui, avec TVA et analytique habituelles : « Voici les comptes utilisés pour ce fournisseur : les reprendre ? » — un clic ; la proposition s'affine à chaque facture ; montant toujours confirmé par un humain. Annuaire des fournisseurs commun aux voyages (socle 42) et à la comptabilité. Socles : 48, 7, 42.
+
+**Toujours en attente d'avis** : simulateur d'effectifs et de moyens pour la direction (socle 47).
