@@ -129,6 +129,7 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
             SUPERVISION_FILES,
             NomIcone::Salle,
         ));
+    }
     // Demandes (N1-4) : la porte unique et « Mes demandes » sont ouvertes à tous les profils connectés ; « Ma file »,
     // HSE et copies au personnel (le serveur répond 403 à qui n'a ni file ni droit).
     v.push(entree("Faire une demande", DEMANDES, NomIcone::Messages));
