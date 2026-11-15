@@ -3,6 +3,35 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use crate::tenant_tx::TenantTx;
 
+/// Droit du lien famille relu avant un envoi de l'ancien chemin (socle 8 N0b, E2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DroitLien {
+    /// `peut_voir_notes` : bulletin, livret, décision de conseil.
+    Notes,
+    /// `peut_voir_vs` : sanction, carnet.
+    VieScolaire,
+}
+
+impl DroitLien {
+    /// Droit exigé par la nature (`kind`) d'un envoi ; `None` = pas de droit propre.
+    pub fn pour_kind(kind: &str) -> Option<Self> {
+        match kind {
+            "bulletin" | "livret_competences" | "conseil_decision" => Some(Self::Notes),
+            "sanction" | "carnet" | "seuil" => Some(Self::VieScolaire),
+            _ => None,
+        }
+    }
+
+    /// Fragment SQL (constant, jamais construit depuis une entrée) : exclut le responsable
+    /// dont le compte a un lien sur l'élève avec ce droit retiré.
+    pub(crate) fn filtre_sql(self) -> &'static str {
+        match self {
+            Self::Notes => "AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien dl WHERE dl.etablissement_id = l.etablissement_id AND dl.eleve_id = l.eleve_id AND dl.user_id = p.user_id AND NOT dl.peut_voir_notes)",
+            Self::VieScolaire => "AND NOT EXISTS (SELECT 1 FROM ent_eleve_lien dl WHERE dl.etablissement_id = l.etablissement_id AND dl.eleve_id = l.eleve_id AND dl.user_id = p.user_id AND NOT dl.peut_voir_vs)",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct EleveLien {
     pub id: Uuid,
@@ -688,7 +717,20 @@ impl PgFoyerRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<String>, DomainError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        self.emails_parents_eleve_avec_droit(etablissement_id, eleve_id, None).await
+    }
+
+    /// Comme `emails_parents_eleve`, en relisant le droit du lien de chaque responsable qui a un
+    /// compte (socle 8 N0b, E2) : `peut_voir_notes` ou `peut_voir_vs` retiré → pas d'envoi.
+    /// Un responsable sans compte n'a pas de drapeaux : il reste destinataire (limite connue).
+    pub async fn emails_parents_eleve_avec_droit(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        droit: Option<DroitLien>,
+    ) -> Result<Vec<String>, DomainError> {
+        let filtre = droit.map_or("", DroitLien::filtre_sql);
+        let sql = format!(
             r#"
             SELECT DISTINCT lower(btrim(COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')))) AS adresse
             FROM ent_eleve_lien_communicant l
@@ -701,9 +743,11 @@ impl PgFoyerRepo {
                                WHERE nps.etablissement_id = p.etablissement_id
                                  AND nps.personne_id = p.id AND nps.ne_pas_solliciter)
               AND COALESCE(NULLIF(btrim(p.email), ''), NULLIF(btrim(u.email), '')) IS NOT NULL
+              {filtre}
             ORDER BY adresse
-            "#,
-        )
+            "#
+        );
+        let rows: Vec<(String,)> = sqlx::query_as(&sql)
         .bind(etablissement_id)
         .bind(eleve_id)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)
@@ -719,7 +763,19 @@ impl PgFoyerRepo {
         etablissement_id: Uuid,
         eleve_id: Uuid,
     ) -> Result<Vec<String>, DomainError> {
-        let rows: Vec<(String,)> = sqlx::query_as(
+        self.telephones_parents_eleve_avec_droit(etablissement_id, eleve_id, None).await
+    }
+
+    /// Comme `telephones_parents_eleve`, avec relecture du droit du lien (voir
+    /// `emails_parents_eleve_avec_droit`).
+    pub async fn telephones_parents_eleve_avec_droit(
+        &self,
+        etablissement_id: Uuid,
+        eleve_id: Uuid,
+        droit: Option<DroitLien>,
+    ) -> Result<Vec<String>, DomainError> {
+        let filtre = droit.map_or("", DroitLien::filtre_sql);
+        let sql = format!(
             r#"
             SELECT DISTINCT COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) AS numero
             FROM ent_eleve_lien_communicant l
@@ -732,9 +788,11 @@ impl PgFoyerRepo {
                                WHERE nps.etablissement_id = p.etablissement_id
                                  AND nps.personne_id = p.id AND nps.ne_pas_solliciter)
               AND COALESCE(NULLIF(btrim(p.telephone), ''), NULLIF(btrim(u.telephone), '')) IS NOT NULL
+              {filtre}
             ORDER BY numero
-            "#,
-        )
+            "#
+        );
+        let rows: Vec<(String,)> = sqlx::query_as(&sql)
         .bind(etablissement_id)
         .bind(eleve_id)
         .fetch_all(&mut *TenantTx::begin(&self.pool, etablissement_id).await.map_err(map_sqlx)?)

@@ -199,6 +199,14 @@ const N_NOTIF: Neutralisation = Neutralisation::Maj {
     set: "statut = 'ignore', motif = 'neutralise_restauration'",
     ou: "statut IN ('en_attente', 'envoi')",
 };
+const N_NTF_AVIS: Neutralisation = Neutralisation::Maj {
+    set: "statut = 'annule', annule_le = now(), annule_motif = 'neutralise_restauration'",
+    ou: "statut IN ('prepare', 'planifie')",
+};
+const N_NTF_REMISE: Neutralisation = Neutralisation::Maj {
+    set: "statut = 'annulee', motif = 'neutralise_restauration'",
+    ou: "statut IN ('planifiee', 'reservee')",
+};
 /// Envois aux prestataires (demandes, relances, bons de commande, avenants) encore en file : à ne
 /// jamais laisser partir après une restauration (un bon de commande ne doit pas partir deux fois).
 const N_ENVOI_PRESTATAIRE: Neutralisation = Neutralisation::Maj {
@@ -730,6 +738,18 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_notification", "communication_technique", Portee::Etablissement).perso().export(),
     t("ent_notification_envoi", "communication_technique", Portee::Etablissement).perso().neutralise(N_NOTIF),
     t("ent_notification_plafond", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_ntf_a_prevenir", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_ntf_avis", "communication_technique", Portee::Etablissement).perso().neutralise(N_NTF_AVIS),
+    t("ent_ntf_avis_param", "communication_technique", Portee::Etablissement).exc(Exception::SansHorodatage, "paramètres typés d'un avis (identifiants), datés par l'avis"),
+    t("ent_ntf_destinataire", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_ntf_gel", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_ntf_lien", "communication_technique", Portee::Etablissement).perso(),
+    t("ent_ntf_nature_etab", "communication_technique", Portee::Etablissement),
+    t("ent_ntf_parametre", "communication_technique", Portee::Etablissement),
+    t("ent_ntf_preference", "communication_technique", Portee::Etablissement).perso().export(),
+    t("ent_ntf_reglage_personne", "communication_technique", Portee::Etablissement).perso().export(),
+    t("ent_ntf_remise", "communication_technique", Portee::Etablissement).perso().neutralise(N_NTF_REMISE),
+    t("ent_ntf_resume", "communication_technique", Portee::Etablissement).perso(),
     t("ent_objet", "dossier_eleve", Portee::Etablissement).perso().fichiers(Fichiers::Objet).export(),
     t("ent_offre_cible", "structure_scolaire", Portee::Etablissement).exc(Exception::SansHorodatage, "table de liaison (offre ↔ cible), datée par l'offre"),
     t("ent_offre_enseignement", "structure_scolaire", Portee::Etablissement),
