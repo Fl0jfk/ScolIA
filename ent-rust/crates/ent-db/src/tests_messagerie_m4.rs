@@ -205,6 +205,19 @@ async fn m4_modeles_personnel_boite_etablissement_chacun_a_sa_portee() {
     ));
 }
 
+/// Le labo désactive la plage calme par défaut (comme M0b) : ces scénarios la rétablissent (défaut national).
+async fn activer_plage_calme(ent: &PgEnt, etab: Uuid) {
+    sqlx::query(
+        "INSERT INTO ent_msg_reglage (etablissement_id, plage_calme) VALUES ($1, true)
+         ON CONFLICT (etablissement_id) DO UPDATE SET plage_calme = true, plage_debut_heure = 20,
+            plage_fin_heure = 7, plage_weekend = true, motif = NULL",
+    )
+    .bind(etab)
+    .execute(ent.pool())
+    .await
+    .unwrap();
+}
+
 // ─── Plage calme, programmation (CM-26, CM-45, R-M20, R-M21) ────────────────────────────────────────
 
 /// Un fil ouvert par une famille (témoin d'un échange en cours), sur lequel le personnel répond.
@@ -219,6 +232,7 @@ async fn m4_cm45_message_du_soir_differe_au_lendemain_7h_et_jamais_en_pleine_nui
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
+    activer_plage_calme(&ent, etab).await;
     let (dir, cpe) = (cast.direction.user_id, cast.cpe.user_id);
     let fil = fil_famille(&ent, &cast).await;
     // Jeudi 12 novembre 2026, 22 h à Paris (21 h UTC).
@@ -273,6 +287,7 @@ async fn m4_cm26_aucun_message_d_adulte_remis_a_un_mineur_la_nuit() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
+    activer_plage_calme(&ent, etab).await;
     let cpe = cast.cpe.user_id;
     let harry = cast.eleve_lea_id;
     let eleve = compte_eleve(&ent, etab, harry).await;
@@ -312,6 +327,7 @@ async fn m4_programmation_ne_contourne_jamais_la_plage_calme_et_se_borne() {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
     let etab = cast.etablissement_id;
+    activer_plage_calme(&ent, etab).await;
     let cpe = cast.cpe.user_id;
     let fil = fil_famille(&ent, &cast).await;
     let maintenant = Utc.with_ymd_and_hms(2026, 11, 11, 10, 0, 0).unwrap(); // mercredi 11 h Paris
