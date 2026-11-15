@@ -1205,6 +1205,99 @@ async fn reactions_idempotentes() {
     assert_eq!(etat(ent.pool_verif().clone()).await, (1, 1));
 }
 
+/// MS0 (MSE-D03, squelette) : la plateforme **crée** un établissement ; elle n'écrase jamais.
+#[tokio::test]
+async fn ms0_creation_plateforme_sans_ecrasement() {
+    let Some((ent, _c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let s = Uuid::new_v4().simple().to_string()[..10].to_string();
+    let slug = format!("ms0-{s}");
+    let cree = ent
+        .creer_etablissement_plateforme(&slug, "Établissement créé")
+        .await
+        .unwrap();
+    assert!(!cree.id.is_nil());
+    assert_eq!(cree.slug, slug);
+    // Slug déjà pris : refus, l'existant est intact.
+    assert!(ent
+        .creer_etablissement_plateforme(&slug.to_uppercase(), "Autre nom")
+        .await
+        .is_err());
+    let info = ent.etablissement_info(cree.id).await.unwrap().unwrap();
+    assert_eq!(info.nom, "Établissement créé");
+    // Valeurs invalides.
+    for (sl, nom) in [("", "x"), ("-a", "x"), ("a_b", "x"), ("ok-slug", "  ")] {
+        assert!(ent.creer_etablissement_plateforme(sl, nom).await.is_err(), "{sl:?}");
+    }
+}
+
+/// MS0 (MSE-D02) : un lot prévisualisé s'annule vraiment ; un lot appliqué ou déjà annulé se refuse.
+#[tokio::test]
+async fn ms0_annulation_reelle_du_lot_previsualise() {
+    let Some((ent, c)) = labo().await else {
+        eprintln!("skip: ENT_DATABASE_URL");
+        return;
+    };
+    let etab = c.etablissement_id;
+    classe_courante(&ent, etab, "6D").await;
+    let s = Uuid::new_v4().simple().to_string()[..6].to_string();
+    let body = ImportBody {
+        nom_fichier: "annule.csv".into(),
+        contenu: format!(
+            "nom;prenom;date_naissance;sexe;classe\nAnnule{s};Luna;01/04/2014;F;6D\n"
+        ),
+    };
+    let (a, ar) = adm(&c);
+    // Sans le droit : refus.
+    assert!(matches!(
+        ent.annuler_import_for_actor(etab, c.prof.user_id, Role::Prof.as_str(), Uuid::new_v4())
+            .await,
+        Err(EntDbError::Forbidden)
+    ));
+    let lot = ent
+        .previsualiser_import_for_actor(etab, a, ar, &body)
+        .await
+        .unwrap();
+    assert_eq!(lot.nb_a_creer, 1);
+    let eleves = "SELECT count(*) FROM ent_eleve WHERE etablissement_id = $1";
+    let avant = compter(&ent, eleves, etab).await;
+    let annule = ent.annuler_import_for_actor(etab, a, ar, lot.id).await.unwrap();
+    assert_eq!(annule.statut, "annule");
+    assert_eq!(compter(&ent, eleves, etab).await, avant, "aucun élève créé");
+    let (par, le): (Option<Uuid>, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+        "SELECT annule_par, annule_le FROM ent_import_lot WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(lot.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(par, Some(a));
+    assert!(le.is_some());
+    // Un lot annulé ne s'applique plus et ne s'annule pas deux fois.
+    assert!(ent.appliquer_import_for_actor(etab, a, ar, lot.id).await.is_err());
+    assert!(ent.annuler_import_for_actor(etab, a, ar, lot.id).await.is_err());
+    assert_eq!(compter(&ent, eleves, etab).await, avant);
+    // Un lot appliqué ne s'annule pas.
+    let lot2 = ent
+        .previsualiser_import_for_actor(etab, a, ar, &body)
+        .await
+        .unwrap();
+    ent.appliquer_import_for_actor(etab, a, ar, lot2.id).await.unwrap();
+    assert!(ent.annuler_import_for_actor(etab, a, ar, lot2.id).await.is_err());
+    // Historique : l'événement d'annulation est publié.
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM ent_metier_event WHERE etablissement_id = $1 AND type = 'import.lot_annule'",
+    )
+    .bind(etab)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert!(n >= 1, "événement publié");
+}
+
 /// Import : prévisualisation, rejets ligne à ligne, application, rejets traités,
 /// réimport sans doublon ni écrasement.
 #[tokio::test]

@@ -55,6 +55,12 @@ pub const SUPERVISION_FILES: &str = "/web/supervision-files";
 /// Recherche globale (socle 29, lot P5) et blocages anti-énumération (administrateur).
 pub const RECHERCHE: &str = "/web/recherche";
 pub const BLOCAGES_RECHERCHE: &str = "/web/blocages-recherche";
+/// Demandes (socle N1, lot N1-4) : « Faire une demande » (porte unique), « Mes demandes », « Ma file », HSE, copies.
+pub const DEMANDES: &str = "/web/demandes";
+pub const MES_DEMANDES: &str = "/web/demandes/mes";
+pub const MA_FILE: &str = "/web/demandes/file";
+pub const DEMANDES_HSE: &str = "/web/demandes/hse";
+pub const DEMANDES_COPIES: &str = "/web/demandes/copies";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -123,6 +129,19 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
             SUPERVISION_FILES,
             NomIcone::Salle,
         ));
+    }
+    // Demandes (N1-4) : la porte unique et « Mes demandes » sont ouvertes à tous les profils connectés ; « Ma file »,
+    // HSE et copies au personnel (le serveur répond 403 à qui n'a ni file ni droit).
+    v.push(entree("Faire une demande", DEMANDES, NomIcone::Messages));
+    v.push(entree("Mes demandes", MES_DEMANDES, NomIcone::Annonce));
+    if droits.personnel {
+        v.push(entree("Ma file", MA_FILE, NomIcone::Personne));
+        v.push(entree(
+            "Heures supplémentaires",
+            DEMANDES_HSE,
+            NomIcone::Agenda,
+        ));
+        v.push(entree("Copies", DEMANDES_COPIES, NomIcone::Ecole));
     }
     if droits.personnel || droits.portail_famille || droits.mes_absences {
         v.push(entree("Mon agenda", MON_AGENDA, NomIcone::Agenda));
@@ -291,6 +310,11 @@ mod tests {
             prof,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -310,6 +334,11 @@ mod tests {
             secretariat,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -328,7 +357,18 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, MON_AGENDA, EDT_SEMAINE, CLASSES, DELEGATIONS],
+            [
+                ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
+                MON_AGENDA,
+                EDT_SEMAINE,
+                CLASSES,
+                DELEGATIONS
+            ],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -340,6 +380,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -363,6 +405,11 @@ mod tests {
             cpe,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -385,6 +432,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
@@ -509,6 +558,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,

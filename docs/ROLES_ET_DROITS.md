@@ -186,3 +186,19 @@ Huit actions `personnels.absences.*` (portée établissement seulement ; la port
 S'engager comme volontaire RCD (ABP-226), modifier son engagement (ABP-227) et lire son compteur et sa position (ABP-213) sont ouverts à **tout le personnel pour lui-même**, sans action dédiée ; le plan RCD présenté est lisible de tout le personnel (délai de prévenance), pas ses brouillons.
 
 **Lot A2 (pièces, fil)** : aucune autre action. Les pièces et le fil se lisent par **appartenance au cercle RH** (l'agent, valideur ou instructeur du circuit, direction, secrétariat pour l'État, comptabilité pour l'OGEC), contrôlée par le service ; tout autre profil reçoit 404 (pas d'oracle). Dépôt : l'agent ou l'instructeur. « Qui a lu mes pièces » : l'agent seul.
+
+## Actions ajoutées par le socle 7, lot D2 (2026-11-14)
+Sept actions `documents.*` (portée « établissement » seulement ; la portée par élève reste exercée par `autoriser_eleve` sur le sujet du document), déclarées dans `socle_07_documents` (règle 21). Le **domaine** du document choisit l'action qui ouvre sa lecture (R-D6) ; hors droit, le registre ne sert que le **titre neutre** ; un document C4 n'est servi à personne.
+
+| Action | Modèle par défaut | Sens |
+|---|---|---|
+| `documents.emettre` | Direction, Administratif, CPE, Compta | émettre un document officiel (certificat, attestation…) ; les professeurs, familles et élèves n'émettent rien |
+| `documents.annuler` ★ | Direction, Administratif | annuler un document émis par erreur (motif, journal, retrait des mises à disposition) |
+| `documents.registre.lire` | Direction, Administratif | registre des documents émis |
+| `documents.modeles.parametrer` | Admin, Direction | identité (style, couleur AA), natures activées, textes encadrés, entités émettrices |
+| `documents.restreints.lire` | Direction | domaine « justice » |
+| `documents.financier.lire` | Compta | domaine « financier » |
+| `documents.personnels.lire` | Direction | domaine « rh » (dossiers des agents) |
+
+Les actions existantes `documents.lire` (domaines scolarité, social, disciplinaire) et `documents.lire_sante` (domaine santé) sont inchangées. Le CPE et la comptabilité émettent sans pouvoir relire (le modèle historique de `documents.lire` n'a pas été modifié) ; le secrétariat n'a pas `documents.restreints.lire` (décision de l'établissement). Détail et limites : `docs/socles/07_DOCUMENTS_D2_D3_LIVRAISON.md`.
+

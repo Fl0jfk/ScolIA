@@ -17,6 +17,7 @@ members = [
     "crates/ent-db",
     "crates/ent-api",
     "crates/ent-lab",
+    "crates/ent-reprise",
 ]
 default-members = [
     "crates/ent-types",
@@ -35,6 +36,7 @@ default-members = [
     "crates/ent-db",
     "crates/ent-api",
     "crates/ent-lab",
+    "crates/ent-reprise",
 ]
 
 [workspace.package]

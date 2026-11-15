@@ -226,7 +226,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("353_agents_fonctions"),
     m!("354_services_interventions"),
     m!("355_missions"),
+    m!("356_groupes_responsables_dates"),
     m!("357_casquettes_invitations"),
+    m!("358_equipes"),
+    m!("359_delegations_signature"),
     m!("361_agent_identifiants"),
     m!("362_agent_sujet"),
     m!("370_edt_creneau_groupe"),
@@ -308,6 +311,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2411_cdt_archives"),
     m!("2412_cdt_reprise"),
     m!("2413_cdt_c2_saisie_publication"),
+    // Socle 28, lot MS0 : annulation réelle des lots d'import prévisualisés.
+    m!("2560_ms0_import_annulation"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),
@@ -334,13 +339,20 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot N1-3 : HSE (en heures, validées par la direction, D-061) et reprographie (file par site).
     m!("3046_demandes_n1_3_hse"),
     m!("3047_demandes_n1_3_reprographie"),
+    // Lot N1-5 : reprise des données du Next.js (R9), puis gardes de la bascule (guichet, rapprochement, HSE hors ScolIA).
+    m!("3048_demandes_n1_5_reprise"),
+    m!("3049_demandes_n1_5_bascule"),
+    m!("3700_documents_identite_natures"),
+    m!("3701_documents_documents_versions"),
+    m!("3702_documents_compteurs"),
+    m!("3703_documents_mises_a_disposition"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "3047_demandes_n1_3_reprographie";
+pub const MIGRATION_TAG: &str = "3703_documents_mises_a_disposition";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"

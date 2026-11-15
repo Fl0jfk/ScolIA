@@ -64,6 +64,7 @@ impl PgEnt {
                FROM ent_groupe_responsable r
                JOIN ent_user u ON u.id = r.user_id
               WHERE r.etablissement_id = $1 AND r.groupe_id = ANY($2)
+                AND r.du <= ent_aujourdhui_etab($1) AND (r.au IS NULL OR r.au >= ent_aujourdhui_etab($1))
               ORDER BY 3",
         )
         .bind(a.etablissement_id)

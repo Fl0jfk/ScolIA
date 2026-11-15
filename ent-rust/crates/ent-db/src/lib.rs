@@ -37,9 +37,18 @@ pub mod demandes_files;
 pub mod demandes_hse;
 /// Lot N1-3 : reprographie, file d'impression par site, « prête » par geste authentifié.
 pub mod demandes_repro;
+/// Socle N1, lot N1-5 : reprise des données du Next.js (R9), guichet en lecture seule.
+pub mod demandes_reprise;
 /// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
 pub mod demandes_prise;
 pub mod demandes_routage;
+/// Socle 7 (documents, pièces et signatures), lots D2 et D3 : types, natures et ports de la brique.
+pub mod documents;
+/// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
+pub mod documents_natures;
+/// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
+pub mod documents_pdf;
+pub mod documents_repo;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -163,6 +172,8 @@ pub mod acces;
 pub mod personnels;
 pub mod personnels_acces;
 mod personnels_fiche;
+pub mod personnels_delegations;
+pub mod personnels_equipes;
 pub mod personnels_missions;
 pub mod personnels_services;
 pub use acces::{AccesEtat, EtatAcces};
@@ -475,6 +486,10 @@ mod tests_personnels_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p6;
+#[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a2;
@@ -518,6 +533,12 @@ mod tests_demandes_n1_1;
 mod tests_demandes_n1_2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

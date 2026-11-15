@@ -1189,46 +1189,7 @@ impl PgEnt {
         self.exiger_missions_gerer(etab, actor, role).await?;
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let jour = aujourdhui_tx(&mut tx, etab).await?;
-        let (type_code,): (String,) = sqlx::query_as(
-            "SELECT t.code FROM ent_mission m JOIN ent_mission_type t ON t.id = m.type_id
-              WHERE m.etablissement_id = $1 AND m.id = $2 AND m.annule_le IS NULL FOR UPDATE OF m",
-        )
-        .bind(etab)
-        .bind(mission_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?
-        .ok_or_else(introuvable)?;
-        sqlx::query(
-            "UPDATE ent_mission SET annule_le = now(), annule_par_user_id = $3
-              WHERE etablissement_id = $1 AND id = $2",
-        )
-        .bind(etab)
-        .bind(mission_id)
-        .bind(actor)
-        .execute(&mut *tx)
-        .await
-        .map_err(erreur_mission)?;
-        fermer_attributions_vides_tx(&mut tx, etab, actor, mission_id, jour, true).await?;
-        let payload = json!({ "mission_id": mission_id, "type": type_code });
-        journal_tx(
-            &mut tx,
-            etab,
-            "mission_annulee",
-            "Mission annulée",
-            payload.clone(),
-            actor,
-        )
-        .await?;
-        publier_mission_tx(
-            &mut tx,
-            etab,
-            types::MISSION_ANNULEE,
-            mission_id,
-            payload,
-            actor,
-        )
-        .await?;
+        annuler_tx(&mut tx, etab, actor, mission_id, jour).await?;
         let dto = mission_dto_tx(&mut tx, etab, mission_id, jour, &HashMap::new()).await?;
         tx.commit().await.map_err(db)?;
         Ok(dto)
@@ -1863,6 +1824,7 @@ impl PgEnt {
             "SELECT DISTINCT r.groupe_id FROM ent_groupe_responsable r
                JOIN ent_affectation a ON a.etablissement_id = r.etablissement_id AND a.groupe_id = r.groupe_id
               WHERE r.etablissement_id = $1 AND r.user_id = $2 AND a.eleve_id = $3
+                AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)
                 AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)",
         )
         .bind(etab)
@@ -2007,6 +1969,126 @@ async fn terminer_tx(
     )
     .await?;
     Ok(())
+}
+
+/// Annule une mission (aucun droit, attributions closes) : cœur commun de PRS-63 et de la révocation d'une
+/// délégation de mission (lot P6).
+pub(crate) async fn annuler_tx(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    actor: Uuid,
+    mission_id: Uuid,
+    jour: NaiveDate,
+) -> Result<(), EntDbError> {
+        let (type_code,): (String,) = sqlx::query_as(
+            "SELECT t.code FROM ent_mission m JOIN ent_mission_type t ON t.id = m.type_id
+              WHERE m.etablissement_id = $1 AND m.id = $2 AND m.annule_le IS NULL FOR UPDATE OF m",
+        )
+        .bind(etab)
+        .bind(mission_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(db)?
+        .ok_or_else(introuvable)?;
+        sqlx::query(
+            "UPDATE ent_mission SET annule_le = now(), annule_par_user_id = $3
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(mission_id)
+        .bind(actor)
+        .execute(&mut **tx)
+        .await
+        .map_err(erreur_mission)?;
+        fermer_attributions_vides_tx(tx, etab, actor, mission_id, jour, true).await?;
+        let payload = json!({ "mission_id": mission_id, "type": type_code });
+        journal_tx(
+            tx,
+            etab,
+            "mission_annulee",
+            "Mission annulée",
+            payload.clone(),
+            actor,
+        )
+        .await?;
+        publier_mission_tx(
+            tx,
+            etab,
+            types::MISSION_ANNULEE,
+            mission_id,
+            payload,
+            actor,
+        )
+        .await?;
+    Ok(())
+}
+
+/// Lot P6 : mission copiée par une DÉLÉGATION (origine `delegation`, même type, même périmètre, mêmes dates).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn nommer_par_delegation_tx(
+    tx: &mut TenantTx<'_>,
+    etab: Uuid,
+    actor: Uuid,
+    type_id: Uuid,
+    agent_id: Uuid,
+    perimetres: &[PerimetreMissionDto],
+    du: NaiveDate,
+    au: NaiveDate,
+    annee_id: Option<Uuid>,
+    delegation_id: Uuid,
+    jour: NaiveDate,
+) -> Result<Uuid, EntDbError> {
+    let n = Nomination {
+        type_id: Some(type_id),
+        type_code: None,
+        agent_id,
+        perimetres,
+        du: Some(du),
+        au: Some(au),
+        annee_id,
+        origine: "delegation",
+        origine_ref: Some(delegation_id),
+        socle: None,
+    };
+    Ok(nommer_tx(tx, etab, actor, &n, jour).await?.0)
+}
+
+/// Lot P6 : une mission de l'agent, active (non annulée), avec son type, son périmètre et ses dates.
+pub(crate) async fn mission_de_l_agent_tx(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    agent_id: Uuid,
+    mission_id: Uuid,
+) -> Result<(Uuid, Option<Uuid>, NaiveDate, Option<NaiveDate>, Vec<PerimetreMissionDto>), EntDbError> {
+    let (type_id, annee_id, du, au): (Uuid, Option<Uuid>, NaiveDate, Option<NaiveDate>) = sqlx::query_as(
+        "SELECT type_id, annee_id, du, au FROM ent_mission
+          WHERE etablissement_id = $1 AND id = $2 AND agent_id = $3 AND annule_le IS NULL",
+    )
+    .bind(etab)
+    .bind(mission_id)
+    .bind(agent_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?
+    .ok_or_else(introuvable)?;
+    let per: Vec<(String, Option<Uuid>, Option<String>)> = sqlx::query_as(
+        "SELECT nature, cible_id, discipline_code FROM ent_mission_perimetre
+          WHERE etablissement_id = $1 AND mission_id = $2 ORDER BY cree_le, id",
+    )
+    .bind(etab)
+    .bind(mission_id)
+    .fetch_all(conn)
+    .await
+    .map_err(db)?;
+    Ok((
+        type_id,
+        annee_id,
+        du,
+        au,
+        per.into_iter()
+            .map(|(nature, cible_id, discipline_code)| PerimetreMissionDto { nature, cible_id, discipline_code })
+            .collect(),
+    ))
 }
 
 /// Élèves du périmètre (natures parallèles aux cibles), affectés et présents à `jour`.
