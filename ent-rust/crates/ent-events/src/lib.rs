@@ -344,6 +344,8 @@ pub mod types {
     /// S2-3 (D23) : import en lot, rejets traités.
     pub const IMPORT_LOT_APPLIQUE: &str = "import.lot_applique";
     pub const IMPORT_REJET_TRAITE: &str = "import.rejet_traite";
+    /// Socle 28 (MS0) : lot d'import prévisualisé annulé.
+    pub const IMPORT_LOT_ANNULE: &str = "import.lot_annule";
     /// Socle N1 (demandes) : événements du cœur. Charge utile : identifiants, numéro et codes SEULEMENT
     /// (« enveloppe neutre », R-DM27, NJ-86) — jamais l'objet, le texte, un nom ni une adresse.
     pub const DEMANDE_DEPOSEE: &str = "demande.deposee";

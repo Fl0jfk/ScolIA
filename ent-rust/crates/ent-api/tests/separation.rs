@@ -787,6 +787,7 @@ fn domaine_inscriptions_i2() {
 /// Routes publiques : la **seule** liste d'exceptions à « sans session ⇒ 401 ».
 const PUBLIQUES: &[(&str, &str)] = &[
     ("GET", "/health"),
+    ("GET", "/health/detail"), // supervision : 404 si métriques fermées, 401 sans jeton ; jamais de session
     ("GET", "/ready"),
     ("POST", "/labo/bootstrap"), // fermé hors labo par ENT_ENV / ENT_ALLOW_LABO
     ("POST", "/auth/register"),  // fermé hors labo

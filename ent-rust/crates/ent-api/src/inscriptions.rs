@@ -127,6 +127,7 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/imports/{id}", get(lot_import))
         .route("/imports/{id}/appliquer", post(appliquer_import))
+        .route("/imports/{id}/annuler", post(annuler_import))
         .route("/imports/lignes/{id}/traiter", post(traiter_ligne))
 }
 
@@ -737,6 +738,20 @@ async fn appliquer_import(
         state
             .ent
             .appliquer_import_for_actor(s.etablissement_id, s.user_id, &s.role, id)
+            .await
+            .map_err(map)?,
+    ))
+}
+
+async fn annuler_import(
+    State(state): State<AppState>,
+    s: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<LotImportDto>> {
+    Ok(Json(
+        state
+            .ent
+            .annuler_import_for_actor(s.etablissement_id, s.user_id, &s.role, id)
             .await
             .map_err(map)?,
     ))
