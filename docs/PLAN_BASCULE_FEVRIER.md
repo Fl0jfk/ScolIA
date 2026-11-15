@@ -8,7 +8,7 @@ Légende : **[F]** fait vérifié · **[H]** hypothèse · **[R]** recommandatio
 
 ---
 
-> **Mise à jour du 15 novembre (D-064)** : pas de seconde production. La bascule remplace le Next.js sur l'infrastructure Scaleway existante ; les lignes F-08, INF1 « conteneur et base séparés » et RK-6 sont caduques. Le DPO n'est plus une condition (PB-11, RK-5). Date : février, ou décembre si prêt. E-mail sortant : Scaleway TEM proposé (Q-PB3, en attente).
+> **Mise à jour du 15 novembre (D-064)** : pas de seconde production. La bascule remplace le Next.js sur l'infrastructure Scaleway existante ; les lignes F-08, INF1 « conteneur et base séparés » et RK-6 sont caduques. Le DPO n'est plus une condition (PB-11, RK-5). Date : février, ou décembre si prêt. E-mail sortant : **Scaleway TEM**, déjà en place (Q-PB3 tranchée le 15 novembre).
 
 ## 0. Résumé
 

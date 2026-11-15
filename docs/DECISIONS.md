@@ -548,4 +548,4 @@ Des revues complètes de sécurité et de qualité (failles, cloisonnement, droi
 - **Date** : février 2027, **ou décembre si c'est prêt** (Florian n'y croit pas, mais ne l'exclut pas).
 - **DPO** : n'est **pas** une condition de bascule (PB-11, RK-5 du plan retirés sur ce point). Le socle 27 garde la validation par un rôle paramétrable et l'état « en attente de DPO », sans rien bloquer d'autre que la purge réelle.
 - **Export anonymisé** : Florian le fournit sans difficulté quand l'outil R1 est livré.
-- **Question ouverte** (Q-PB3) : service d'e-mail sortant de l'ENT Rust. Proposition du pilote : **Scaleway TEM**, déjà utilisé par le Next.js avec le domaine configuré. En attente de la réponse de Florian.
+- **E-mail sortant (Q-PB3, tranché le 2026-11-15)** : **Scaleway TEM**, le service déjà utilisé par le Next.js, avec le domaine déjà configuré (SPF, DKIM, DMARC existants). Aucun autre fournisseur. Le socle 8 (lot N6, e-mail réel) branche son adaptateur sur l'API de Scaleway TEM ; la clé est saisie par Florian dans les secrets de production au moment de la bascule, jamais dans le code ni dans le chat. La lecture IMAP (OVH) reste hors de ce choix.
