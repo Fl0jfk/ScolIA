@@ -804,7 +804,7 @@ async fn eleve_majeur_ou_emancipe_depose_pour_lui_meme() {
     let pj = piece(&ent, etab, mineur.id).await;
     sqlx::query(
         "INSERT INTO ent_eleve_capacite (id, etablissement_id, eleve_id, nature, du, piece_document_id)
-         VALUES ($1,$2,$3,'emancipation', current_date - 1, $4)",
+         VALUES ($1,$2,$3,'emancipation', ent_aujourdhui() - 1, $4)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)

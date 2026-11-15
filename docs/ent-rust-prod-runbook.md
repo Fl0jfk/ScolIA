@@ -22,8 +22,9 @@ docker run --rm -p 8088:8088 \
   ent-api:local
 ```
 
-Le `GIT_SHA` est injecté au build et exposé par `GET /health` et `GET /ready`
-(`{ git_sha, version, … }`) → vérification du déploiement.
+Le `GIT_SHA` est injecté au build et exposé par `GET /health/detail`
+(`{ git_sha, version, migration_tag, … }`, réservé à la supervision : MSE-D05) → vérification du déploiement.
+`GET /health` et `GET /ready` publics ne disent rien de la version.
 
 Ou directement le binaire :
 
@@ -124,8 +125,9 @@ purge des sessions expirées, puis `install_brain_p0`. Arrêt : `SIGTERM` / `SIG
 
 | Endpoint | Sens | Contenu |
 |---|---|---|
-| `GET /health` | *liveness* (pas d'I/O) | `{ ok, service, version, git_sha, migration_tag }` |
-| `GET /ready` | *readiness* | ping Postgres + `db: "up"` et `migration_tag` ; `503` si la base ne répond pas |
+| `GET /health` | *liveness* (pas d'I/O), public | `{ "ok": true }` — **rien d'autre** (MSE-D05, socle 28 MS0) |
+| `GET /health/detail` | détail de version, **supervision seulement** | `{ ok, service, version, git_sha, migration_tag }` ; même contrôle d'accès que `/metrics` (404 par défaut, 401 sans jeton si `ENT_METRICS_TOKEN`) |
+| `GET /ready` | *readiness*, public | ping Postgres : `{ ok, service, db: "up" }` ; `503` si la base ne répond pas ; aucun détail de version |
 | `GET /metrics` | métriques Prometheus (texte) | 404 par défaut, 401 sans jeton si `ENT_METRICS_TOKEN`, 200 sinon |
 
 - `x-request-id` est présent sur **chaque** réponse (généré si absent) ; il

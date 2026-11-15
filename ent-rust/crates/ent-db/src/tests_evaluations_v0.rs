@@ -323,7 +323,7 @@ async fn un_resultat_par_devoir_et_par_eleve() {
     ent.saisir_grille_for_actor(etab, prof, "prof", d.id, &SaisieGrilleBody { resultats: vec![r(a, "note", Some(10.0))] }).await.unwrap();
     let doublon = sqlx::query(
         "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id, devoir_id, periode_id)
-         VALUES ($1,$2,$3,$4,18,20,CURRENT_DATE,$5,$6,$7)",
+         VALUES ($1,$2,$3,$4,18,20,ent_aujourdhui(),$5,$6,$7)",
     )
     .bind(Uuid::new_v4()).bind(etab).bind(a).bind(m.maths).bind(prof).bind(d.id).bind(m.periode)
     .execute(ent.pool())
@@ -333,7 +333,7 @@ async fn un_resultat_par_devoir_et_par_eleve() {
     for v in [11.0_f64, 12.0] {
         sqlx::query(
             "INSERT INTO ent_note (id, etablissement_id, eleve_id, matiere_id, valeur, sur, date_note, auteur_user_id)
-             VALUES ($1,$2,$3,$4,$5,20,CURRENT_DATE,$6)",
+             VALUES ($1,$2,$3,$4,$5,20,ent_aujourdhui(),$6)",
         )
         .bind(Uuid::new_v4()).bind(etab).bind(a).bind(m.maths).bind(v).bind(prof)
         .execute(ent.pool())

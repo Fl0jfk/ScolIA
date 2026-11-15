@@ -1707,7 +1707,7 @@ async fn revue_securite_garde_fous_v0a() {
         .unwrap();
     let parent = c.a(c.parent, Role::Parent);
     assert!(!c.ent.voyages_famille(&parent).await.unwrap().is_empty());
-    sqlx::query("UPDATE ent_eleve_lien SET date_fin = current_date - 1 WHERE etablissement_id = $1 AND user_id = $2")
+    sqlx::query("UPDATE ent_eleve_lien SET date_fin = ent_aujourdhui() - 1 WHERE etablissement_id = $1 AND user_id = $2")
         .bind(c.etab)
         .bind(c.parent)
         .execute(c.ent.pool())
@@ -1908,7 +1908,7 @@ async fn rls_des_neuf_tables_du_lot_v0a() {
     crate::tests_rls_lots::verifier_isolation_concrete(&e, "ent_sortie_serie", |id, etab, _| {
         format!(
             "INSERT INTO ent_sortie_serie (id, etablissement_id, libelle, jour_semaine, heure_debut, heure_fin, du, au)
-             VALUES ('{id}', '{etab}', 's', 2, '08:00', '09:00', current_date, current_date)"
+             VALUES ('{id}', '{etab}', 's', 2, '08:00', '09:00', ent_aujourdhui(), ent_aujourdhui())"
         )
     })
     .await;

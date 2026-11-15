@@ -352,7 +352,7 @@ async fn correction_remplace_changement_ajoute() {
     );
     // Retour à aujourd'hui : la version annoncée n'est pas encore effective, la fiche
     // retrouve la version en vigueur (la correction).
-    sqlx::query("SELECT ent_eleve_identite_resynchroniser(current_date)")
+    sqlx::query("SELECT ent_eleve_identite_resynchroniser(ent_aujourdhui())")
         .execute(ent.pool_verif())
         .await
         .unwrap();
@@ -819,7 +819,7 @@ async fn date_incomplete_motif_code_sensibilite_forcee() {
         "INSERT INTO ent_eleve_identite (id, etablissement_id, eleve_id, nom_naissance, prenoms,
             nature, effet_du, motif_code, motif, piece_document_id, sensible)
          SELECT gen_random_uuid(), etablissement_id, eleve_id, 'Xx', ARRAY['Yy'],
-            'changement_etat_civil', current_date + 50, 'adoption', 'x', $2, false
+            'changement_etat_civil', ent_aujourdhui() + 50, 'adoption', 'x', $2, false
          FROM ent_eleve_identite WHERE id = $1",
     )
     .bind(c.version.id)

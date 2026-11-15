@@ -67,7 +67,7 @@ fn jour_neuf(debut: NaiveDate, fin: NaiveDate) -> NaiveDate {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    let depart = (chrono::Local::now().date_naive() + Duration::days(7)).max(debut);
+    let depart = (ent_db::jour_paris() + Duration::days(7)).max(debut);
     let etendue = (fin - depart).num_days().max(7);
     let candidat = depart + Duration::days(n.rem_euclid(etendue));
     let decalage = (2 - i64::from(candidat.weekday().num_days_from_monday())).rem_euclid(7);
@@ -155,11 +155,16 @@ async fn pages_rendues_par_le_serveur() {
             "{chemin} : zone principale"
         );
         // La date du jour n'est jamais dans le HTML du serveur (hydratation identique).
-        let aujourdhui = chrono::Local::now().date_naive().to_string();
-        assert!(
-            !html.contains(&aujourdhui),
-            "{chemin} : date du jour rendue"
-        );
+        // Ni le jour de Paris ni le jour UTC (le serveur de rendu est en UTC).
+        for aujourdhui in [
+            ent_db::jour_paris().to_string(),
+            chrono::Utc::now().format("%Y-%m-%d").to_string(),
+        ] {
+            assert!(
+                !html.contains(&aujourdhui),
+                "{chemin} : date du jour rendue"
+            );
+        }
     }
 }
 
@@ -486,7 +491,7 @@ async fn delegations_datees_et_roles_refuses() {
     let admin = personnel(&base, &l, "admin").await;
     let prof_p = l.personnel.iter().find(|p| p.role == "prof").expect("prof");
     let prof = client_de(&base, &l, &prof_p.email).await;
-    let aujourdhui = chrono::Local::now().date_naive();
+    let aujourdhui = ent_db::jour_paris();
 
     // Le personnel lit « ses » délégations ; la gestion lui est refusée.
     assert!(prof

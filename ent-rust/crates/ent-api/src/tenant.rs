@@ -19,7 +19,7 @@ use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
 /// Chemins jamais soumis à la résolution (sondes et métriques).
-const EXEMPTES: &[&str] = &["/health", "/ready", "/metrics"];
+const EXEMPTES: &[&str] = &["/health", "/health/detail", "/ready", "/metrics"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModeTenant {

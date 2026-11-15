@@ -672,7 +672,7 @@ impl PgEnt {
             },
             "Consultation de l'historique d'identité",
         )
-        .await;
+        .await?;
         Ok(filtrer_historique_identite(versions, voit_sensible))
     }
 

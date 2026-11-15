@@ -335,9 +335,66 @@ pub enum Action {
     PersonnelsAbsencesParametrer,
     /// Socle 29 : lancer un rapprochement de l'index des tâches et lire son rapport (POR-205).
     AfaireRapprocher,
+    /// Socle 29, lot P4 : prendre en charge une tâche d'une file collective dont on est membre (POR-152).
+    AfairePrendre,
+    /// Socle 29, lot P4 : réattribuer une tâche prise à un collègue de la même file (POR-154), journalisé.
+    AfaireReattribuer,
+    /// Socle 29, lot P4 : superviser les files par nombres (ouvertes, en retard, délai médian), jamais le
+    /// contenu nominatif ni un classement de personnes (POR-161, POR-168).
+    AfaireSuperviser,
+    /// Socle 29, lot P5 : recherche globale côté serveur (élèves de sa portée, personnes, personnels, classes,
+    /// groupes, salles), plafonnée par jour ; le texte des recherches n'est jamais conservé (R-PO19).
+    RechercheGlobale,
+    /// Socle 29, lot P5 : lever un blocage anti-énumération (POR-196), journalisé.
+    RechercheDebloquer,
     /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
     /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
     PersonnelsAbsencesConserver,
+    /// Absence longue et suppléance (A5) : demander une suppléance au rectorat et en tracer la réponse (ABP-180),
+    /// nommer un suppléant sur le service de l'absent (ABP-181, avec `services.gerer` du socle 6). Direction et secrétariat.
+    PersonnelsAbsencesSuppleer,
+    /// Remplacement de courte durée (A6, ABP-220 à 228) : tenir le plan annuel versionné, lancer la campagne,
+    /// gérer les engagements des volontaires et lire le vivier. Direction.
+    PersonnelsRcdGerer,
+    /// Remontée hebdomadaire RCD (A6, ABP-229 à 231) : préparer, contrôler, laisser partir, exporter le tableau
+    /// équivalent. Direction et secrétariat. La remontée ne porte jamais de nom ni de nature fine.
+    PersonnelsRcdRemontee,
+    /// Socle 10 (emploi du temps), lot T3 (EDT-160 à 168, 173) : modifier le réel d'une séance (annuler, déplacer,
+    /// changer l'horaire, ajouter, fusionner, changer l'intervenant) et lever une modification. Direction et secrétariat.
+    EdtModifier,
+    /// Socle 10, lot T3 (EDT-162) : changer le lieu d'une séance ou d'une série. Direction, secrétariat, vie scolaire.
+    EdtModifierLieu,
+    /// Socle 10, lot T3 (EDT-169 à 171) : lots (annulation en masse, grève du jour, salle fermée) avec aperçu serveur.
+    EdtLotAppliquer,
+    /// Socle 10, lot T3 (EDT-173) : corriger une séance passée (motif obligatoire, effets en aval signalés). Direction.
+    EdtCorrigerPasse,
+    /// Socle 10, lot T3 : lire le motif INTERNE d'une modification (jamais diffusé). Direction et secrétariat.
+    EdtMotifInterneLire,
+    /// Socle 10, lot T3 : lire le journal des modifications (motif public seulement). Personnel d'encadrement.
+    EdtModificationsLire,
+    /// Socle 10, lot T3 (§9.3) : forcer un conflit dur d'emploi du temps avec un motif journalisé (cas réel : deux
+    /// demi-groupes fusionnés dans la même salle). Direction seule : le secrétariat propose, il ne force pas.
+    EdtForcerConflit,
+    /// Socle 10, lot T4 (§14.3) : le tableau « demain » (absences connues, séances non assurées, remplacements, salles
+    /// fermées, permanences attendues, notifications) et les élèves sans cours. Direction, secrétariat, vie scolaire.
+    EdtDemainLire,
+    /// Socle 10, lot T4 (§14.3, R-E27) : « maintenant » — la séance en cours d'un élève (lecture journalisée), l'occupation
+    /// d'une salle, la présence d'un professeur selon l'emploi du temps. Direction, secrétariat, vie scolaire, accueil.
+    EdtMaintenantLire,
+    /// Heures constatées (A7, ABP-200, 213, 214, 219) : lire les heures d'un agent et l'état annuel, dans son périmètre
+    /// d'employeur. Direction et secrétariat (l'OGEC lit par `paie.absences`).
+    PersonnelsHeuresLire,
+    /// Heures constatées (A7, ABP-201 à 204, 208) : valider, corriger, saisir sans séance, figer l'état mensuel,
+    /// régulariser. Direction.
+    PersonnelsHeuresValider,
+    /// État mensuel des heures (A7, ABP-205) ★ : le chef d'établissement signe. Direction.
+    PersonnelsHeuresSigner,
+    /// Exports (A7, ABP-206) ★ : exporter l'état mensuel signé vers le rectorat ou la paie, figer et régulariser dans
+    /// son employeur. Direction, secrétariat (État), comptabilité (OGEC).
+    PersonnelsHeuresExporter,
+    /// Paie de l'OGEC (A7, ABP-207, 209 à 211) : éléments variables de paie, heures et jours d'absence, file DSN J+5.
+    /// Direction et comptabilité.
+    PersonnelsPaieAbsences,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -384,6 +441,34 @@ pub enum Action {
     DemandesIndicateursLire,
     /// Lancer la reprise des demandes de l'ancienne application.
     DemandesReprise,
+    // ── Socle 7, lot D2 : documents émis, registre, domaines restreints (`07_DOCUMENTS.md` §18) ──
+    /// Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne.
+    DocumentsEmettre,
+    /// Annuler un document émis par erreur (motif obligatoire, journalisé).
+    DocumentsAnnuler,
+    /// Lire le registre des documents émis et le journal de leurs consultations.
+    DocumentsRegistreLire,
+    /// Paramétrer l'identité des documents, les entités émettrices et les natures activées.
+    DocumentsModelesParametrer,
+    /// Lire les documents restreints du domaine justice (jugements, pièces judiciaires).
+    DocumentsRestreintsLire,
+    /// Lire les documents du domaine financier (avis d'imposition, quotient, bourses).
+    DocumentsFinancierLire,
+    /// Lire les dossiers documentaires des agents (domaine rh).
+    DocumentsPersonnelsLire,
+    /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
+    ConformiteLire,
+    /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
+    ConformiteGerer,
+    /// Socle 27 : ajuster une règle de conservation dans ses bornes (motif exigé).
+    ConservationReglesProposer,
+    /// ★ Socle 27 : valider une règle de conservation. Rôle paramétrable (D-017) : le DPO en général ;
+    /// aucun profil historique ne la porte, une règle non validée n'autorise aucune destruction (R-RG1).
+    ConservationReglesValider,
+    /// ★ Socle 27, lot G2 : valider une version du registre des traitements et publier les mentions d'information.
+    ConformiteValider,
+    /// Socle 27, lot G2 : déclarer les sous-traitants propres à l'établissement et objecter à une annonce de la plateforme.
+    SoustraitantsGerer,
     // ── Socle 12, lot AS1 : appel et assiduité (`12_ASSIDUITE.md` §15.1) ──
     /// Faire l'appel des séances et activités dont on est l'intervenant (socle 12).
     AppelFaire,
@@ -417,6 +502,23 @@ pub enum Action {
     CahierContribuer,
     /// Régler les repères de charge de travail de l'établissement (lot C4, S20-10).
     CahierParametrer,
+    // ── Socle 6, lots P5 et P6 (`06_PERSONNELS.md` §14.2) ──
+    /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
+    /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
+    EquipesGerer,
+    /// Habiliter des agents à signer certains documents au nom de l'établissement et organiser
+    /// l'intérim de direction (PRS-81, 82). Ne se donne que par qui la détient (anti-escalade).
+    SignatureHabiliter,
+    /// Socle 5, lot S6 (STR-50 à 55) : créer, modifier, fermer les groupes et leurs classes d'origine.
+    /// `referentiel.gerer` reste un raccourci qui la couvre (§13.2).
+    StructureGerer,
+    /// Socle 5, lot S6 (STR-60 à 66) : affecter les élèves aux classes et aux groupes, changer de classe,
+    /// composer, retirer, corriger. `referentiel.gerer` la couvre.
+    AffectationsGerer,
+    /// Socle 5, lot S6 (STR-63, 66) : composer SON groupe d'activité ou de liste (portée « mes groupes »).
+    GroupesComposer,
+    /// Socle 5, lot S6 (STR-53) : créer un groupe d'activité dont on devient responsable.
+    GroupesCreerActivite,
 }
 
 /// Sur quoi une action s'applique.
@@ -441,7 +543,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 184] = [
+    pub const TOUTES: [Action; 225] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -591,6 +693,11 @@ impl Action {
         Action::AccesRevue,
         // Socle 29 (portails), lot P2.
         Action::AfaireRapprocher,
+        Action::AfairePrendre,
+        Action::AfaireReattribuer,
+        Action::AfaireSuperviser,
+        Action::RechercheGlobale,
+        Action::RechercheDebloquer,
         // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::StagesLire,
         Action::StagesPreparer,
@@ -613,6 +720,13 @@ impl Action {
         Action::DemandesJournalLire,
         Action::DemandesIndicateursLire,
         Action::DemandesReprise,
+        // Socle 27 (RGPD, conservation), lot G1.
+        Action::ConformiteLire,
+        Action::ConformiteGerer,
+        Action::ConservationReglesProposer,
+        Action::ConservationReglesValider,
+        Action::ConformiteValider,
+        Action::SoustraitantsGerer,
         Action::AppelFaire,
         Action::AppelFaireTout,
         Action::AppelCorriger,
@@ -638,6 +752,38 @@ impl Action {
         Action::PersonnelsAbsencesSaisirValidee,
         Action::PersonnelsAbsencesParametrer,
         Action::PersonnelsAbsencesConserver,
+        Action::PersonnelsAbsencesSuppleer,
+        Action::PersonnelsRcdGerer,
+        Action::PersonnelsRcdRemontee,
+        Action::EdtModifier,
+        Action::EdtModifierLieu,
+        Action::EdtLotAppliquer,
+        Action::EdtCorrigerPasse,
+        Action::EdtMotifInterneLire,
+        Action::EdtModificationsLire,
+        Action::EdtForcerConflit,
+        Action::EdtDemainLire,
+        Action::EdtMaintenantLire,
+        Action::PersonnelsHeuresLire,
+        Action::PersonnelsHeuresValider,
+        Action::PersonnelsHeuresSigner,
+        Action::PersonnelsHeuresExporter,
+        Action::PersonnelsPaieAbsences,
+        // Socle 6, lots P5 et P6 (en fin de catalogue).
+        Action::EquipesGerer,
+        Action::SignatureHabiliter,
+        Action::StructureGerer,
+        Action::AffectationsGerer,
+        Action::GroupesComposer,
+        Action::GroupesCreerActivite,
+        // Socle 7, lot D2 (en fin de catalogue).
+        Action::DocumentsEmettre,
+        Action::DocumentsAnnuler,
+        Action::DocumentsRegistreLire,
+        Action::DocumentsModelesParametrer,
+        Action::DocumentsRestreintsLire,
+        Action::DocumentsFinancierLire,
+        Action::DocumentsPersonnelsLire,
     ];
 
     pub fn code(self) -> &'static str {
@@ -790,7 +936,29 @@ impl Action {
             Self::PersonnelsAbsencesSaisirValidee => "personnels.absences.saisir_validee",
             Self::PersonnelsAbsencesParametrer => "personnels.absences.parametrer",
             Self::AfaireRapprocher => "afaire.rapprocher",
+            Self::AfairePrendre => "afaire.file.prendre",
+            Self::AfaireReattribuer => "afaire.file.reattribuer",
+            Self::AfaireSuperviser => "afaire.superviser",
+            Self::RechercheGlobale => "recherche.globale",
+            Self::RechercheDebloquer => "recherche.debloquer",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
+            Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
+            Self::PersonnelsRcdGerer => "personnels.rcd.gerer",
+            Self::PersonnelsRcdRemontee => "personnels.rcd.remontee",
+            Self::EdtModifier => "edt.modifier",
+            Self::EdtModifierLieu => "edt.modifier_lieu",
+            Self::EdtLotAppliquer => "edt.lot_appliquer",
+            Self::EdtCorrigerPasse => "edt.corriger_passe",
+            Self::EdtMotifInterneLire => "edt.motif_interne_lire",
+            Self::EdtModificationsLire => "edt.modifications_lire",
+            Self::EdtForcerConflit => "edt.forcer_conflit",
+            Self::EdtDemainLire => "edt.demain_lire",
+            Self::EdtMaintenantLire => "edt.maintenant_lire",
+            Self::PersonnelsHeuresLire => "personnels.heures.lire",
+            Self::PersonnelsHeuresValider => "personnels.heures.valider",
+            Self::PersonnelsHeuresSigner => "personnels.heures.signer",
+            Self::PersonnelsHeuresExporter => "personnels.heures.exporter",
+            Self::PersonnelsPaieAbsences => "personnels.paie.absences",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -812,6 +980,19 @@ impl Action {
             Self::DemandesJournalLire => "demandes.journal.lire",
             Self::DemandesIndicateursLire => "demandes.indicateurs.lire",
             Self::DemandesReprise => "demandes.reprise",
+            Self::DocumentsEmettre => "documents.emettre",
+            Self::DocumentsAnnuler => "documents.annuler",
+            Self::DocumentsRegistreLire => "documents.registre.lire",
+            Self::DocumentsModelesParametrer => "documents.modeles.parametrer",
+            Self::DocumentsRestreintsLire => "documents.restreints.lire",
+            Self::DocumentsFinancierLire => "documents.financier.lire",
+            Self::DocumentsPersonnelsLire => "documents.personnels.lire",
+            Self::ConformiteLire => "conformite.lire",
+            Self::ConformiteGerer => "conformite.gerer",
+            Self::ConservationReglesProposer => "conservation.regles.proposer",
+            Self::ConservationReglesValider => "conservation.regles.valider",
+            Self::ConformiteValider => "conformite.valider",
+            Self::SoustraitantsGerer => "soustraitants.gerer",
             Self::AppelFaire => "appel.faire",
             Self::AppelFaireTout => "appel.faire_tout",
             Self::AppelCorriger => "appel.corriger",
@@ -827,6 +1008,12 @@ impl Action {
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
             Self::CahierParametrer => "cahier.parametrer",
+            Self::EquipesGerer => "equipes.gerer",
+            Self::SignatureHabiliter => "signature.habiliter",
+            Self::StructureGerer => "structure.gerer",
+            Self::AffectationsGerer => "affectations.gerer",
+            Self::GroupesComposer => "groupes.composer",
+            Self::GroupesCreerActivite => "groupes.creer_activite",
         }
     }
 
@@ -982,7 +1169,29 @@ impl Action {
             Self::PersonnelsAbsencesSaisirValidee => "Saisir une absence de personnel déjà validée (régularisation)",
             Self::PersonnelsAbsencesParametrer => "Paramétrer les natures, circuits et délais des absences de personnel",
             Self::AfaireRapprocher => "Rapprocher l'index des tâches avec les sources et lire le rapport",
+            Self::AfairePrendre => "Prendre en charge une tâche d'une file dont on est membre",
+            Self::AfaireReattribuer => "Réattribuer une tâche prise à un collègue de la file (service)",
+            Self::AfaireSuperviser => "Superviser les files par nombres (ouvertes, en retard, délai médian, tâches orphelines)",
+            Self::RechercheGlobale => "Rechercher dans l'ENT (élèves de sa portée, personnes, personnels, classes, salles), plafonné par jour",
+            Self::RechercheDebloquer => "Lever un blocage de recherche (anti-énumération)",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
+            Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
+            Self::PersonnelsRcdGerer => "Tenir le plan de remplacement de courte durée et le vivier des volontaires",
+            Self::PersonnelsRcdRemontee => "Préparer, contrôler et transmettre la remontée hebdomadaire du remplacement de courte durée",
+            Self::EdtModifier => "Modifier le réel de l'emploi du temps (annuler, déplacer, changer l'horaire, ajouter, fusionner, lever)",
+            Self::EdtModifierLieu => "Changer le lieu d'une séance ou d'une série de séances",
+            Self::EdtLotAppliquer => "Appliquer un lot de modifications de l'emploi du temps (grève, fermeture, salle fermée) après aperçu",
+            Self::EdtCorrigerPasse => "Corriger une séance passée de l'emploi du temps (motif obligatoire, journalisé)",
+            Self::EdtMotifInterneLire => "Lire le motif interne d'une modification de l'emploi du temps",
+            Self::EdtModificationsLire => "Lire le journal des modifications de l'emploi du temps",
+            Self::EdtForcerConflit => "Forcer un conflit dur de l'emploi du temps avec un motif journalisé",
+            Self::EdtDemainLire => "Lire le tableau « demain » de l'emploi du temps et les élèves sans cours",
+            Self::EdtMaintenantLire => "Lire « maintenant » dans l'emploi du temps (séance d'un élève, salle, présence d'un professeur)",
+            Self::PersonnelsHeuresLire => "Lire les heures constatées d'un agent et son état annuel",
+            Self::PersonnelsHeuresValider => "Valider, corriger, saisir et régulariser les heures constatées, figer l'état mensuel",
+            Self::PersonnelsHeuresSigner => "Signer l'état mensuel des heures",
+            Self::PersonnelsHeuresExporter => "Exporter l'état mensuel des heures vers le rectorat ou la paie",
+            Self::PersonnelsPaieAbsences => "Préparer les éléments variables de paie des absences et suivre la DSN (OGEC)",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1004,6 +1213,19 @@ impl Action {
             Self::DemandesJournalLire => "Lire les journaux de paramétrage et d'accès des demandes",
             Self::DemandesIndicateursLire => "Lire les indicateurs agrégés des demandes",
             Self::DemandesReprise => "Lancer la reprise des demandes de l'ancienne application",
+            Self::DocumentsEmettre => "Émettre un document officiel (certificat, attestation, courrier) pour un élève ou une personne",
+            Self::DocumentsAnnuler => "Annuler un document émis par erreur (motif obligatoire, journalisé)",
+            Self::DocumentsRegistreLire => "Lire le registre des documents émis et le journal de leurs consultations",
+            Self::DocumentsModelesParametrer => "Paramétrer l'identité des documents, les entités émettrices et les natures activées",
+            Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
+            Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
+            Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
+            Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
+            Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
+            Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
+            Self::ConservationReglesValider => "Valider une règle de conservation (DPO ou rôle désigné par l'établissement)",
+            Self::ConformiteValider => "Valider une version du registre des traitements et publier les mentions d'information",
+            Self::SoustraitantsGerer => "Déclarer les sous-traitants de l'établissement et objecter à une annonce de la plateforme",
             Self::AppelFaire => "Faire l'appel des séances et activités dont on est l'intervenant (socle 12)",
             Self::AppelFaireTout => "Faire ou reprendre l'appel de n'importe quelle séance de l'établissement",
             Self::AppelCorriger => "Corriger un appel validé, à tout moment, avec motif obligatoire",
@@ -1019,6 +1241,12 @@ impl Action {
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
+            Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
+            Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
+            Self::StructureGerer => "Gérer les groupes et leurs classes d'origine (créer, générer, modifier, fermer)",
+            Self::AffectationsGerer => "Affecter les élèves aux classes et aux groupes, changer de classe, corriger une affectation",
+            Self::GroupesComposer => "Composer son groupe d'activité ou de liste (entrées et sorties d'élèves)",
+            Self::GroupesCreerActivite => "Créer un atelier, un club ou un groupe d'activité dont on devient responsable",
         }
     }
 
@@ -1056,6 +1284,11 @@ impl Action {
             // Socle 6 (§14.2) : inclusions explicites, aucune autre.
             Self::PersonnelsLire => &[Self::PersonnelsGerer],
             Self::PersonnelsServicesLire => &[Self::ServicesGerer],
+            // Socle 5, S6 (§13.2) : `referentiel.gerer` reste un raccourci qui les couvre toutes ; composer son
+            // groupe et créer une activité sont aussi couverts par les droits de gestion correspondants.
+            Self::StructureGerer | Self::AffectationsGerer => &[Self::ReferentielGerer],
+            Self::GroupesComposer => &[Self::AffectationsGerer, Self::ReferentielGerer],
+            Self::GroupesCreerActivite => &[Self::StructureGerer, Self::ReferentielGerer],
             _ => &[],
         }
     }
@@ -1182,9 +1415,39 @@ impl Action {
             | Self::PersonnelsAbsencesSaisirValidee
             | Self::PersonnelsAbsencesParametrer
             | Self::PersonnelsAbsencesConserver
+            | Self::PersonnelsAbsencesSuppleer
+            | Self::PersonnelsRcdGerer
+            | Self::PersonnelsRcdRemontee
+            | Self::EdtModifier
+            | Self::EdtModifierLieu
+            | Self::EdtLotAppliquer
+            | Self::EdtCorrigerPasse
+            | Self::EdtMotifInterneLire
+            | Self::EdtModificationsLire
+            | Self::EdtForcerConflit
+            | Self::EdtDemainLire
+            | Self::EdtMaintenantLire
+            | Self::PersonnelsHeuresLire
+            | Self::PersonnelsHeuresValider
+            | Self::PersonnelsHeuresSigner
+            | Self::PersonnelsHeuresExporter
+            | Self::PersonnelsPaieAbsences
+            | Self::EquipesGerer
+            | Self::SignatureHabiliter
+            | Self::StructureGerer
+            | Self::GroupesCreerActivite
             | Self::AccesRevue => &[Portee::Etablissement],
+            // Socle 5, S6 : affecter peut être délégué à des classes ou groupes désignés (un adjoint « niveau 6e ») ;
+            // composer son groupe : établissement, mes groupes, désignés.
+            Self::AffectationsGerer => &[Portee::Etablissement, Portee::Designes],
+            Self::GroupesComposer => &[Portee::Etablissement, Portee::MesGroupes, Portee::Designes],
             | Self::AccesRevue
             | Self::AfaireRapprocher
+            | Self::AfairePrendre
+            | Self::AfaireReattribuer
+            | Self::AfaireSuperviser
+            | Self::RechercheGlobale
+            | Self::RechercheDebloquer
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
             | Self::StagesPeriodesGerer
@@ -1203,7 +1466,20 @@ impl Action {
             | Self::DemandesParametrer
             | Self::DemandesJournalLire
             | Self::DemandesIndicateursLire
-            | Self::DemandesReprise => &[Portee::Etablissement],
+            | Self::DemandesReprise
+            | Self::DocumentsEmettre
+            | Self::DocumentsAnnuler
+            | Self::DocumentsRegistreLire
+            | Self::DocumentsModelesParametrer
+            | Self::DocumentsRestreintsLire
+            | Self::DocumentsFinancierLire
+            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
+            | Self::ConformiteLire
+            | Self::ConformiteGerer
+            | Self::ConservationReglesProposer
+            | Self::ConservationReglesValider
+            | Self::ConformiteValider
+            | Self::SoustraitantsGerer => &[Portee::Etablissement],
             // Socle 39 : stages ; « mes élèves suivis » = ses classes (le référent viendra avec la mission 6).
             Self::StagesLire | Self::StagesPreparer => {
                 &[Portee::Etablissement, Portee::MesClasses, Portee::Designes]
@@ -1342,6 +1618,11 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_42_voyages(role, &mut d);
     socle_n1_demandes(role, &mut d);
     socle_20_cahier(role, &mut d);
+    socle_06_personnels(role, &mut d);
+    socle_07_documents(role, &mut d);
+    socle_27_rgpd(role, &mut d);
+    socle_10_edt(role, &mut d);
+    socle_05_structure(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -1713,6 +1994,32 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
 // ── Modèles par défaut, un bloc par socle (appelés par `modele_par_defaut`, dans l'ordre) ──
 
 /// Socle 15 (absences des personnels), lots A0–A1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Socle 10 (emploi du temps), lot T3 : modifier le réel (règle 21 du pilotage : une fonction par socle).
+/// Le professeur n'a aucun de ces droits : il demande (T13), il ne modifie pas ; le motif interne n'est lu que
+/// par la direction et le secrétariat.
+fn socle_10_edt(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Direction | Role::Administratif) {
+        for a in [EdtModifier, EdtLotAppliquer, EdtMotifInterneLire] {
+            d.push(etab(a));
+        }
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(EdtModifierLieu));
+        d.push(etab(EdtModificationsLire));
+        // Lot T4 : le tableau « demain » et « maintenant » (vie scolaire comprise).
+        d.push(etab(EdtDemainLire));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push(etab(EdtMaintenantLire));
+    }
+    if role == Role::Direction {
+        d.push(etab(EdtCorrigerPasse));
+        d.push(etab(EdtForcerConflit));
+    }
+}
+
 fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     let etab = |a: Action| (a, Portee::Etablissement);
@@ -1747,6 +2054,61 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     // technique (R-AP2 : il ne lit rien du niveau RH).
     if role == Role::Direction {
         d.push(etab(PersonnelsAbsencesConserver));
+    }
+    // Absence longue et suppléance (A5, ABP-180 et 181) : direction et secrétariat.
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsAbsencesSuppleer));
+    }
+    // Remplacement de courte durée (A6) : plan et vivier à la direction (adjoint, chargé des remplacements) ;
+    // remontée hebdomadaire à la direction et au secrétariat (§23.2).
+    if role == Role::Direction {
+        d.push(etab(PersonnelsRcdGerer));
+    }
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsRcdRemontee));
+    }
+    // Heures et états (A7, §23.2) : lecture à la direction et au secrétariat ; validation et signature à la direction ;
+    // export au secrétariat (État) et à la comptabilité (OGEC) ; paie et DSN à la comptabilité. Le périmètre d'employeur
+    // est contrôlé par le service (le secrétariat ne lit que l'État, la comptabilité que l'OGEC).
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(PersonnelsHeuresLire));
+    }
+    if role == Role::Direction {
+        d.push(etab(PersonnelsHeuresValider));
+        d.push(etab(PersonnelsHeuresSigner));
+    }
+    if matches!(role, Role::Direction | Role::Administratif | Role::Compta) {
+        d.push(etab(PersonnelsHeuresExporter));
+    }
+    if matches!(role, Role::Direction | Role::Compta) {
+        d.push(etab(PersonnelsPaieAbsences));
+    }
+}
+
+/// Socle 6 (personnels), lots P5 et P6 : équipes constituées et pouvoirs de signature (règle 21 du pilotage :
+/// une fonction par socle). Équipes : direction, administration, secrétariat et CPE ; elles ne donnent aucun droit
+/// sur les élèves. Habilitation de signature et intérim : administrateur et direction (chef d'établissement).
+fn socle_06_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
+        d.push(etab(EquipesGerer));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(SignatureHabiliter));
+    }
+}
+
+/// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Socle 5 (structure), lot S6 : groupes et compositions (règle 21 : une fonction par socle). `structure.gerer` et
+/// `affectations.gerer` suivent `referentiel.gerer` (Admin, Direction, Administratif : aucun changement de
+/// population, §13.2). `groupes.composer` et `groupes.creer_activite` n'ont AUCUN défaut : ils ne se donnent que par
+/// un rôle paramétré (« Responsable d'atelier »), jamais à un profil de base.
+fn socle_05_structure(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
+        d.push((StructureGerer, Portee::Etablissement));
+        d.push((AffectationsGerer, Portee::Etablissement));
     }
 }
 
@@ -1847,6 +2209,25 @@ fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 27 (RGPD, conservation), lot G1 (`27_RGPD_ARCHIVES.md` §12.1). Bloc de `modele_par_defaut`, isolé
+/// pour que les fusions de branches ne s'y croisent pas (règle 21).
+///
+/// La direction lit la conformité, désigne le DPO et ajuste les règles ; **personne** ne reçoit
+/// `conservation.regles.valider` par défaut : un établissement sans DPO nommé garde « en attente de
+/// DPO » et rien n'est détruit (R-RG1). L'établissement peut confier la validation à un rôle D-017.
+/// L'administrateur technique n'a aucun de ces droits (il ne lit pas les décisions de conformité).
+fn socle_27_rgpd(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if role == Role::Direction {
+        d.push(etab(ConformiteLire));
+        d.push(etab(ConformiteGerer));
+        d.push(etab(ConservationReglesProposer));
+        d.push(etab(ConformiteValider));
+        d.push(etab(SoustraitantsGerer));
+    }
+}
+
 /// Socle 29 (portails, index des tâches), lot P2. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
 fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
@@ -1854,6 +2235,23 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     // Socle 29, lot P2 : rapprochement de l'index des tâches (administrateur seul, §15.1).
     if role == Role::Admin {
         d.push(etab(AfaireRapprocher));
+    }
+    // Lot P4 : tout le personnel prend en charge dans les files dont il est membre (l'appartenance, elle,
+    // est calculée : jamais « tout le personnel », R-DM7) ; réattribuer et superviser : responsables.
+    if role.is_staff() {
+        d.push(etab(AfairePrendre));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(AfaireReattribuer));
+        d.push(etab(AfaireSuperviser));
+    }
+    // Lot P5 : la recherche est ouverte au personnel (chaque source applique ses propres droits) ; lever un
+    // blocage est réservé à l'administrateur.
+    if role.is_staff() {
+        d.push(etab(RechercheGlobale));
+    }
+    if role == Role::Admin {
+        d.push(etab(RechercheDebloquer));
     }
 }
 
@@ -1949,9 +2347,60 @@ fn socle_n1_demandes(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 7 (documents), lot D2 : droits par défaut (`07_DOCUMENTS.md` §18.2). Moindre privilège : les domaines
+/// restreints (justice, financier, rh) ne s'ouvrent qu'à ceux que la conception nomme ; ni les familles, ni les
+/// élèves, ni les professeurs n'émettent de document officiel (D-017, D-022).
+fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Administratif | Role::Cpe | Role::Direction | Role::Compta) {
+        d.push(etab(DocumentsEmettre));
+    }
+    if matches!(role, Role::Administratif | Role::Direction) {
+        d.push(etab(DocumentsAnnuler));
+        d.push(etab(DocumentsRegistreLire));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(DocumentsModelesParametrer));
+    }
+    if role == Role::Direction {
+        d.push(etab(DocumentsRestreintsLire));
+        d.push(etab(DocumentsPersonnelsLire));
+    }
+    if role == Role::Compta {
+        d.push(etab(DocumentsFinancierLire));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Socle 27 : droits par défaut de la conformité. Personne ne valide une règle de conservation
+    /// sans que l'établissement ait confié ce droit à un rôle (DPO) ; l'administrateur technique ne lit pas
+    /// les décisions de conformité ; familles et élèves n'ont rien.
+    #[test]
+    fn socle_27_droits_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [
+            Role::Admin, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie,
+            Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve,
+        ] {
+            for x in [
+                ConformiteLire, ConformiteGerer, ConformiteValider, SoustraitantsGerer,
+                ConservationReglesProposer, ConservationReglesValider,
+            ] {
+                assert!(!a(r, x), "{r:?} ne doit pas avoir {x:?} par défaut");
+            }
+        }
+        assert!(a(Role::Direction, ConformiteLire));
+        assert!(a(Role::Direction, ConformiteGerer));
+        assert!(a(Role::Direction, ConservationReglesProposer));
+        assert!(a(Role::Direction, ConformiteValider));
+        assert!(a(Role::Direction, SoustraitantsGerer));
+        assert!(!a(Role::Direction, ConservationReglesValider), "la validation est celle du DPO");
+    }
 
     #[test]
     fn codes_uniques_et_relus() {
@@ -2198,6 +2647,26 @@ mod tests {
             assert_eq!(a(r, PersonnelsAbsencesValider), r == Role::Direction, "{r:?} valider");
             assert_eq!(a(r, PersonnelsAbsencesConserver), r == Role::Direction, "{r:?} conserver");
             assert_eq!(
+                a(r, PersonnelsAbsencesSuppleer),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} suppleer"
+            );
+            assert_eq!(a(r, PersonnelsRcdGerer), r == Role::Direction, "{r:?} rcd.gerer");
+            assert_eq!(
+                a(r, PersonnelsRcdRemontee),
+                matches!(r, Role::Direction | Role::Administratif),
+                "{r:?} rcd.remontee"
+            );
+            assert_eq!(a(r, PersonnelsHeuresLire), matches!(r, Role::Direction | Role::Administratif), "{r:?} heures.lire");
+            assert_eq!(a(r, PersonnelsHeuresValider), r == Role::Direction, "{r:?} heures.valider");
+            assert_eq!(a(r, PersonnelsHeuresSigner), r == Role::Direction, "{r:?} heures.signer");
+            assert_eq!(
+                a(r, PersonnelsHeuresExporter),
+                matches!(r, Role::Direction | Role::Administratif | Role::Compta),
+                "{r:?} heures.exporter"
+            );
+            assert_eq!(a(r, PersonnelsPaieAbsences), matches!(r, Role::Direction | Role::Compta), "{r:?} paie.absences");
+            assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
                 "{r:?} parametrer"
@@ -2213,6 +2682,14 @@ mod tests {
                     PersonnelsAbsencesSaisirValidee,
                     PersonnelsAbsencesParametrer,
                     PersonnelsAbsencesConserver,
+                    PersonnelsAbsencesSuppleer,
+                    PersonnelsRcdGerer,
+                    PersonnelsRcdRemontee,
+                    PersonnelsHeuresLire,
+                    PersonnelsHeuresValider,
+                    PersonnelsHeuresSigner,
+                    PersonnelsHeuresExporter,
+                    PersonnelsPaieAbsences,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }
@@ -2225,6 +2702,29 @@ mod tests {
         for x in [PersonnelsAbsencesLireNature, PersonnelsAbsencesValider] {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
             assert!(x.accordee_par().is_empty());
+        }
+    }
+
+    /// Socle 10, lot T3 : droits de modification du réel. Le professeur, les familles et les profils sans
+    /// encadrement n'en ont aucun ; le motif interne reste à la direction et au secrétariat.
+    #[test]
+    fn edt_t3_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve] {
+            let dir_adm = matches!(r, Role::Direction | Role::Administratif);
+            assert_eq!(a(r, EdtModifier), dir_adm, "{r:?} edt.modifier");
+            assert_eq!(a(r, EdtLotAppliquer), dir_adm, "{r:?} edt.lot_appliquer");
+            assert_eq!(a(r, EdtMotifInterneLire), dir_adm, "{r:?} motif interne");
+            assert_eq!(a(r, EdtModifierLieu), dir_adm || r == Role::Cpe, "{r:?} lieu");
+            assert_eq!(a(r, EdtModificationsLire), dir_adm || r == Role::Cpe, "{r:?} journal");
+            assert_eq!(a(r, EdtCorrigerPasse), r == Role::Direction, "{r:?} correction du passé");
+            assert_eq!(a(r, EdtForcerConflit), r == Role::Direction, "{r:?} forcer");
+            assert_eq!(a(r, EdtDemainLire), dir_adm || r == Role::Cpe, "{r:?} demain");
+            assert_eq!(a(r, EdtMaintenantLire), dir_adm || matches!(r, Role::Cpe | Role::Accueil), "{r:?} maintenant");
+        }
+        for x in [EdtModifier, EdtModifierLieu, EdtLotAppliquer, EdtCorrigerPasse, EdtMotifInterneLire, EdtModificationsLire, EdtForcerConflit, EdtDemainLire, EdtMaintenantLire] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
     }
 
@@ -2260,6 +2760,67 @@ mod tests {
         assert_eq!(Action::parse("stages.periodes.gerer"), Some(StagesPeriodesGerer));
         assert_eq!(StagesParametrer.portees_admises(), &[Portee::Etablissement]);
         assert!(StagesLire.portees_admises().contains(&Portee::MesClasses));
+    }
+
+    /// Lots P5 et P6 (règle 21 : une fonction par socle) : équipes constituées (Admin, Direction, Administratif, CPE),
+    /// habilitation de signature et intérim (Admin, Direction) ; établissement seulement ; aucune inclusion implicite ;
+    /// le reste du modèle ne bouge pas (chaque rôle reçoit exactement ces deux actions de plus, ou aucune).
+    #[test]
+    fn p5_p6_equipes_et_signature_modele_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            assert_eq!(a(EquipesGerer),
+                       usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe)),
+                       "{r:?} equipes.gerer");
+            assert_eq!(a(SignatureHabiliter), usize::from(matches!(r, Role::Admin | Role::Direction)),
+                       "{r:?} signature.habiliter");
+        }
+        for x in [EquipesGerer, SignatureHabiliter] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement], "{x:?} : établissement seulement");
+            assert!(x.accordee_par().is_empty(), "{x:?} : aucune inclusion implicite");
+        }
+        assert_eq!(Action::parse("equipes.gerer"), Some(EquipesGerer));
+        assert_eq!(Action::parse("signature.habiliter"), Some(SignatureHabiliter));
+        // Une équipe ne donne aucun droit sur les élèves : `equipes.gerer` n'est pas une action d'élève.
+        assert!(!EquipesGerer.portees_admises().contains(&Portee::MesClasses));
+    }
+
+    /// Socle 5, lot S6 (règle 21) : `structure.gerer` et `affectations.gerer` suivent `referentiel.gerer`
+    /// (Admin, Direction, Administratif) ; `groupes.composer` et `groupes.creer_activite` n'ont aucun défaut ;
+    /// portées admises ; le raccourci `referentiel.gerer` les couvre ; aucun autre profil n'y gagne rien.
+    #[test]
+    fn s6_structure_groupes_modele_par_defaut() {
+        use Action::*;
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof,
+                  Role::Infirmerie, Role::Psy, Role::Accueil, Role::Parent, Role::Eleve] {
+            let m = modele_par_defaut(r);
+            let a = |x: Action| m.iter().filter(|(y, _)| *y == x).count();
+            let gestion = usize::from(matches!(r, Role::Admin | Role::Direction | Role::Administratif));
+            assert_eq!(a(StructureGerer), gestion, "{r:?} structure.gerer");
+            assert_eq!(a(AffectationsGerer), gestion, "{r:?} affectations.gerer");
+            assert_eq!(a(GroupesComposer), 0, "{r:?} groupes.composer : aucun défaut");
+            assert_eq!(a(GroupesCreerActivite), 0, "{r:?} groupes.creer_activite : aucun défaut");
+            // Les nouvelles actions suivent exactement `referentiel.gerer` (même population).
+            assert_eq!(a(StructureGerer), a(ReferentielGerer), "{r:?}");
+        }
+        assert_eq!(StructureGerer.portees_admises(), &[Portee::Etablissement]);
+        assert_eq!(GroupesCreerActivite.portees_admises(), &[Portee::Etablissement]);
+        assert!(AffectationsGerer.portees_admises().contains(&Portee::Designes));
+        assert!(!AffectationsGerer.portees_admises().contains(&Portee::MesGroupes));
+        assert!(GroupesComposer.portees_admises().contains(&Portee::MesGroupes));
+        assert!(!GroupesComposer.portees_admises().contains(&Portee::MesClasses));
+        for x in [StructureGerer, AffectationsGerer, GroupesComposer, GroupesCreerActivite] {
+            assert!(x.accordee_par().contains(&ReferentielGerer), "{x:?} : couverte par le raccourci");
+        }
+        assert!(ReferentielGerer.accordee_par().is_empty());
+        for (code, a) in [("structure.gerer", StructureGerer), ("affectations.gerer", AffectationsGerer),
+                          ("groupes.composer", GroupesComposer), ("groupes.creer_activite", GroupesCreerActivite)] {
+            assert_eq!(Action::parse(code), Some(a));
+            assert_eq!(a.code(), code);
+        }
     }
 
     /// Lot P4 : `missions.gerer` = `referentiel.gerer` (Admin, Direction, Administratif) ; types propres :
@@ -2863,6 +3424,40 @@ mod oracle_a1 {
         for x in [VoyagesAnnuaire, VoyagesLire, VoyagesCreer, VoyagesModifier, VoyagesParticipants, VoyagesEncadrement,
                   VoyagesValider, VoyagesAutoriser, VoyagesBudgetValider, VoyagesPorteur, VoyagesPrestataires] {
             assert!(x.code().starts_with("voyages."));
+            assert_eq!(Action::parse(x.code()), Some(x));
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+
+    #[test]
+    fn documents_d2_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for (r, emettre, annuler, registre, param, restreint, financier, rh) in [
+            (Role::Direction, true, true, true, true, true, false, true),
+            (Role::Administratif, true, true, true, false, false, false, false),
+            (Role::Cpe, true, false, false, false, false, false, false),
+            (Role::Compta, true, false, false, false, false, true, false),
+            (Role::Admin, false, false, false, true, false, false, false),
+            (Role::Prof, false, false, false, false, false, false, false),
+            (Role::Accueil, false, false, false, false, false, false, false),
+            (Role::Infirmerie, false, false, false, false, false, false, false),
+        ] {
+            assert_eq!(a(r, DocumentsEmettre), emettre, "{r:?} emettre");
+            assert_eq!(a(r, DocumentsAnnuler), annuler, "{r:?} annuler");
+            assert_eq!(a(r, DocumentsRegistreLire), registre, "{r:?} registre");
+            assert_eq!(a(r, DocumentsModelesParametrer), param, "{r:?} modeles");
+            assert_eq!(a(r, DocumentsRestreintsLire), restreint, "{r:?} restreints");
+            assert_eq!(a(r, DocumentsFinancierLire), financier, "{r:?} financier");
+            assert_eq!(a(r, DocumentsPersonnelsLire), rh, "{r:?} personnels");
+        }
+        // Familles et élèves : aucune action documentaire nouvelle (D-017).
+        for r in [Role::Parent, Role::Eleve] {
+            assert!(modele_par_defaut(r).iter().all(|(x, _)| !x.code().starts_with("documents.emettre")), "{r:?}");
+        }
+        for x in [DocumentsEmettre, DocumentsAnnuler, DocumentsRegistreLire, DocumentsModelesParametrer,
+                  DocumentsRestreintsLire, DocumentsFinancierLire, DocumentsPersonnelsLire] {
+            assert!(x.code().starts_with("documents."));
             assert_eq!(Action::parse(x.code()), Some(x));
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }

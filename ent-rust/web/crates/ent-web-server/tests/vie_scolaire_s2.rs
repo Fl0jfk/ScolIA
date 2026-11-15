@@ -50,13 +50,13 @@ async fn demarrer() -> Option<String> {
     Some(format!("http://{addr}"))
 }
 
-/// Un jour futur à moins de 200 jours (fenêtre de déclaration), même jour de semaine qu'aujourd'hui.
+/// Un jour futur à moins de 200 jours (fenêtre de déclaration), même jour de semaine que le jour de Paris (le créneau du seed de labo est posé au jour de semaine de Paris).
 fn jour_neuf() -> NaiveDate {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    chrono::Local::now().date_naive() + Duration::weeks(1 + n.rem_euclid(25))
+    ent_db::jour_paris() + Duration::weeks(1 + n.rem_euclid(25))
 }
 
 async fn client_de(base: &str, l: &Labo, email: &str) -> ApiClient {

@@ -404,6 +404,76 @@ async fn criteres_depot(
     })
 }
 
+// ───────────────────────── Routage d'une demande existante (N1-2) ─────────────────────────
+
+/// Public du demandeur d'une demande **existante** : un agent est « personnel », sinon la famille (responsable ou
+/// élève, selon qu'un élève est le sujet). Sert à choisir les règles de routage de la nouvelle nature.
+async fn public_du_demandeur(conn: &mut PgConnection, etab: Uuid, demandeur: Option<Uuid>, eleve: Option<Uuid>) -> Result<PublicNature, RefusDemande> {
+    if let Some(p) = demandeur {
+        let (agent,): (bool,) = sqlx::query_as(
+            "SELECT EXISTS (SELECT 1 FROM ent_agent WHERE etablissement_id = $1 AND personne_id = $2 AND fusionne_dans_agent_id IS NULL)",
+        )
+        .bind(etab)
+        .bind(p)
+        .fetch_one(conn)
+        .await?;
+        if agent {
+            return Ok(PublicNature::Personnel);
+        }
+    }
+    Ok(if eleve.is_some() { PublicNature::Responsable } else { PublicNature::Personnel })
+}
+
+/// Résultat du routage d'une demande déjà déposée.
+pub(crate) struct RoutageExistant {
+    pub(crate) resolution: Option<Resolution>,
+    /// La nature est activée dans l'établissement ET ouverte au public du demandeur.
+    pub(crate) proposee: bool,
+}
+
+/// Route une demande **existante** vers la file d'une nature (requalification, CDM-01 et CDM-11) ou après la
+/// désignation d'une personne visée (`vises`, R-DM47). Mêmes règles que le dépôt : règle, file de la nature,
+/// défaut, tri ; repli quand la file n'a plus de destinataire. Critères structurés seulement, jamais le texte.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn router_demande_existante(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    jour: NaiveDate,
+    demandeur: Option<Uuid>,
+    nature_code: &str,
+    site_id: Option<Uuid>,
+    eleve_id: Option<Uuid>,
+    urgence: Urgence,
+    vises: &[Uuid],
+) -> Result<RoutageExistant, RefusDemande> {
+    let public = public_du_demandeur(&mut *conn, etab, demandeur, eleve_id).await?;
+    let niveau_code = match eleve_id {
+        Some(e) => {
+            let r: Option<(String,)> = sqlx::query_as(
+                "SELECT n.code FROM ent_eleve_inscription i
+                   JOIN ent_niveau n ON n.id = i.niveau_id
+                   JOIN ent_annee_scolaire a ON a.id = i.annee_id
+                  WHERE i.etablissement_id = $1 AND i.eleve_id = $2 AND i.etat <> 'annulee'
+                  ORDER BY a.courante DESC, i.date_debut DESC NULLS LAST LIMIT 1",
+            )
+            .bind(etab)
+            .bind(e)
+            .fetch_optional(&mut *conn)
+            .await?;
+            r.map(|(c,)| c)
+        }
+        None => None,
+    };
+    let g = charger_graphe(&mut *conn, etab, jour).await?;
+    let natures = charger_natures_etab(&mut *conn, etab).await?;
+    let ne = natures.get(nature_code);
+    let proposee = ne.is_some_and(|n| n.actif && n.publics.iter().any(|p| p == code_public(public)));
+    let regles = charger_regles(&mut *conn, etab, nature_code, jour).await?;
+    let repli = repli_rh_id(&mut *conn, etab).await?;
+    let criteres = CriteresRoutage { nature_code: nature_code.to_string(), categorie: None, site_id, niveau_code, public, urgence };
+    Ok(RoutageExistant { resolution: resoudre(&g, repli, &regles, ne, &criteres, vises), proposee })
+}
+
 // ───────────────────────── Adaptateur réel des sources ─────────────────────────
 
 /// Instantané des sources du cœur pour **une** requête : files de l'acteur (membres calculés au jour métier),

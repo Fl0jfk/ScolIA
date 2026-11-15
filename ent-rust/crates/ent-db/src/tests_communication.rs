@@ -1021,7 +1021,7 @@ async fn eleve_majeur_signe_lui_meme_et_sondage() {
     ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "refuse")).await.unwrap();
     assert_eq!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().len(), 1);
     // L'élève devient majeur : les responsables ne signent plus, leur refus ne compte plus.
-    fixer_date_naissance(&ent, etab, harry, "current_date - INTERVAL '19 years'").await;
+    fixer_date_naissance(&ent, etab, harry, "ent_aujourdhui() - INTERVAL '19 years'").await;
     assert!(ent.repondre_formulaire(etab, lea, f.id, reponse(harry, "accepte")).await.is_err());
     assert!(ent.eleves_photo_masquee(etab, &[harry]).await.unwrap().is_empty(), "parents sans effet sur un majeur");
     // Son compte élève signe pour lui-même.

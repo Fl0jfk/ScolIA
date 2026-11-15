@@ -280,7 +280,7 @@ async fn dernier_administrateur_protege_par_les_commandes_le_sql_direct_et_la_co
     for sql in [
         "UPDATE ent_membership SET etat = 'ferme' WHERE etablissement_id = $1 AND user_id = $2",
         "UPDATE ent_membership SET etat = 'suspendu' WHERE etablissement_id = $1 AND user_id = $2",
-        "UPDATE ent_membership SET date_fin = CURRENT_DATE + 5 WHERE etablissement_id = $1 AND user_id = $2",
+        "UPDATE ent_membership SET date_fin = ent_aujourdhui() + 5 WHERE etablissement_id = $1 AND user_id = $2",
         "UPDATE ent_membership SET role = 'prof' WHERE etablissement_id = $1 AND user_id = $2",
         "DELETE FROM ent_membership WHERE etablissement_id = $1 AND user_id = $2",
     ] {

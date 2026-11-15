@@ -283,7 +283,7 @@ async fn cles_composees_refusent_l_autre_etablissement_et_l_inconnu() {
         return;
     };
     let sql = "INSERT INTO ent_eleve_periode (id, etablissement_id, eleve_id, kind, valeur, date_debut)
-               VALUES (gen_random_uuid(), $1, $2, 'classe', '6A', now()::date)";
+               VALUES (gen_random_uuid(), $1, $2, 'classe', '6A', ent_aujourdhui())";
     // Élève de l'établissement, mais avec l'identifiant d'un autre établissement.
     let croise = sqlx::query(sql)
         .bind(Uuid::new_v4())

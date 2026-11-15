@@ -145,7 +145,7 @@ async fn campagne_apercu_puis_confirmation_et_droits() {
     let Some(base) = demarrer().await else { return };
     let l = labo::bootstrap(&base).await.expect("labo");
     let direction = personnel(&base, &l, "direction").await;
-    let jour = chrono::Local::now().date_naive();
+    let jour = ent_db::jour_paris();
     let classe = direction
         .classes(jour)
         .await
@@ -236,7 +236,7 @@ async fn formulaire_consentement_de_bout_en_bout() {
     let harry = l.eleve("Harry").expect("Harry").id;
     let direction = personnel(&base, &l, "direction").await;
     let lily = parent_de(&base, &l, "Harry").await;
-    let jour = chrono::Local::now().date_naive();
+    let jour = ent_db::jour_paris();
     let classe = direction
         .classes(jour)
         .await

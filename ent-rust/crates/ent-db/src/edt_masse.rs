@@ -286,6 +286,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         }
+        let lot_edt_id = crate::edt_modif::pont_lot(&mut tx, etab, a.user_id, lot_id).await?;
         let ev = publier_agg(
             &mut tx,
             a,
@@ -293,7 +294,8 @@ impl PgEnt {
             "edt.annulation_masse",
             etab,
             json!({ "lot_id": lot_id, "du": cmd.du, "au": cmd.au,
-                    "nb_seances": rapport.nb_seances, "nb_classes": rapport.nb_classes }),
+                    "nb_seances": rapport.nb_seances, "nb_classes": rapport.nb_classes,
+                    "lot_edt_id": lot_edt_id }),
         )
         .await?;
         tx.commit().await.map_err(db)?;

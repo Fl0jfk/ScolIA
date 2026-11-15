@@ -786,7 +786,7 @@ impl PgEnt {
         if !lecture.vue.f0 {
             return Err(EntDbError::Forbidden);
         }
-        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await?;
         Ok(lecture.responsables)
     }
 
@@ -802,7 +802,7 @@ impl PgEnt {
         if !lecture.vue.r {
             return Err(EntDbError::Forbidden);
         }
-        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await?;
         Ok(lecture.contacts)
     }
 
@@ -835,7 +835,7 @@ impl PgEnt {
             if lecture.vue.r { lecture.contacts } else { Vec::new() },
         );
         if lecture.vue.quelque_chose() {
-            self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+            self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await?;
         }
         dossier.sections.famille = lecture.vue.f0 || lecture.vue.r;
         let majeur = self.eleve_est_majeur(etab, eleve_id, jour).await?;

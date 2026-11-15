@@ -60,6 +60,15 @@ pub mod impact;
 /// Lot A4 : réponse et sollicitation (migration 2305).
 pub mod reponse;
 
+/// Lot A5 : absence longue et suppléance (migration 2306).
+pub mod suppleance;
+
+/// Lot A6 : remplacement de courte durée, plan, vivier, remontée hebdomadaire (migration 2307).
+pub mod rcd;
+
+/// Lot A7 : heures constatées, états mensuels, paie de l'OGEC, DSN (migrations 2308 et 2310).
+pub mod heures;
+
 // ---------------------------------------------------------------------------------------------
 // Événements (identifiants et dates seulement : jamais la nature, jamais un texte libre — R-AP2)
 // ---------------------------------------------------------------------------------------------

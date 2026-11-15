@@ -217,7 +217,7 @@ async fn rls_invitations_et_casquettes_isolees_entre_etablissements() {
         // Une casquette parent pour le compte de direction (ligne de test).
         sqlx::query(
             "INSERT INTO ent_membership_casquette (user_id, etablissement_id, casquette, du)
-             VALUES ($1,$2,'parent', CURRENT_DATE)",
+             VALUES ($1,$2,'parent', ent_aujourdhui())",
         )
         .bind(dir)
         .bind(etab)
@@ -292,7 +292,7 @@ async fn rls_invitations_et_casquettes_isolees_entre_etablissements() {
         .unwrap();
     let ecriture = sqlx::query(
         "INSERT INTO ent_membership_casquette (user_id, etablissement_id, casquette, du)
-         VALUES ($1,$2,'eleve', CURRENT_DATE)",
+         VALUES ($1,$2,'eleve', ent_aujourdhui())",
     )
     .bind(dir_b)
     .bind(b)

@@ -174,7 +174,7 @@ async fn cycle_de_vie_d_un_role_contre_vrai_backend() {
     ));
 
     // Attribution datée à la comptabilité, puis effet sur `mes-droits`.
-    let fin = chrono::Utc::now().date_naive() + chrono::Duration::days(30);
+    let fin = ent_db::jour_paris() + chrono::Duration::days(30);
     direction
         .attribuer_role(cree.id, compta_id, Some(fin))
         .await

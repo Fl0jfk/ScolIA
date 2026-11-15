@@ -174,5 +174,31 @@ Huit actions `personnels.absences.*` (portée établissement seulement ; la port
 | `personnels.absences.saisir_validee` ★ | Direction, Administratif | réservée (non utilisée en A1) |
 | `personnels.absences.parametrer` ★ | Admin, Direction | règles de circuit |
 | `personnels.absences.conserver` ★ (A2) | Direction | geler la conservation (contentieux), purger une pièce à la demande, voir les purges à venir, marquer « confidentialité renforcée » ; **jamais** Admin technique ; réaffectable au DPO par un rôle paramétrable |
+| `personnels.absences.suppleer` (A5) | Direction, Administratif | demander une suppléance à l'employeur et consigner sa réponse (ABP-180) ; nommer un suppléant (ABP-181) exige en plus `personnels.absences.valider` (direction) et `services.gerer` (socle 6) ; **jamais** Admin technique ni Compta |
+| `personnels.rcd.gerer` (A6) | Direction | plan RCD versionné (créer, versionner, avis du conseil pédagogique, présentation, transmission au recteur), campagne de volontariat, comptes rendus, engagement d'un autre agent, vivier et compteurs nominatifs ; **jamais** Admin technique |
+| `personnels.rcd.remontee` (A6) | Direction, Administratif | préparer, contrôler, laisser partir la remontée hebdomadaire, exporter le tableau équivalent ; la remontée n'a **ni nom ni nature fine** ; **jamais** Admin technique ni Compta |
+| `personnels.heures.lire` (A7) | Direction, Administratif | lire les heures d'un agent et son état annuel, **dans son périmètre d'employeur** (secrétariat : l'État ; direction : les deux) ; l'agent lit les siennes sans droit |
+| `personnels.heures.valider` (A7) | Direction | valider, corriger, saisir sans séance, figer l'état mensuel, régulariser ; **jamais ses propres heures** |
+| `personnels.heures.signer` ★ (A7) | Direction | signer l'état mensuel (la ré-authentification des actions ★ relève de la couche d'authentification, non branchée ici) |
+| `personnels.heures.exporter` ★ (A7) | Direction, Administratif (État), Compta (OGEC) | figer, exporter l'état signé, régulariser, dans son employeur seulement |
+| `personnels.paie.absences` (A7) | Direction, Compta (OGEC) | éléments variables de paie, heures et jours d'absence, file DSN J+5 ; **jamais** le secrétariat de l'État ni Admin technique |
+
+S'engager comme volontaire RCD (ABP-226), modifier son engagement (ABP-227) et lire son compteur et sa position (ABP-213) sont ouverts à **tout le personnel pour lui-même**, sans action dédiée ; le plan RCD présenté est lisible de tout le personnel (délai de prévenance), pas ses brouillons.
 
 **Lot A2 (pièces, fil)** : aucune autre action. Les pièces et le fil se lisent par **appartenance au cercle RH** (l'agent, valideur ou instructeur du circuit, direction, secrétariat pour l'État, comptabilité pour l'OGEC), contrôlée par le service ; tout autre profil reçoit 404 (pas d'oracle). Dépôt : l'agent ou l'instructeur. « Qui a lu mes pièces » : l'agent seul.
+
+## Actions ajoutées par le socle 7, lot D2 (2026-11-14)
+Sept actions `documents.*` (portée « établissement » seulement ; la portée par élève reste exercée par `autoriser_eleve` sur le sujet du document), déclarées dans `socle_07_documents` (règle 21). Le **domaine** du document choisit l'action qui ouvre sa lecture (R-D6) ; hors droit, le registre ne sert que le **titre neutre** ; un document C4 n'est servi à personne.
+
+| Action | Modèle par défaut | Sens |
+|---|---|---|
+| `documents.emettre` | Direction, Administratif, CPE, Compta | émettre un document officiel (certificat, attestation…) ; les professeurs, familles et élèves n'émettent rien |
+| `documents.annuler` ★ | Direction, Administratif | annuler un document émis par erreur (motif, journal, retrait des mises à disposition) |
+| `documents.registre.lire` | Direction, Administratif | registre des documents émis |
+| `documents.modeles.parametrer` | Admin, Direction | identité (style, couleur AA), natures activées, textes encadrés, entités émettrices |
+| `documents.restreints.lire` | Direction | domaine « justice » |
+| `documents.financier.lire` | Compta | domaine « financier » |
+| `documents.personnels.lire` | Direction | domaine « rh » (dossiers des agents) |
+
+Les actions existantes `documents.lire` (domaines scolarité, social, disciplinaire) et `documents.lire_sante` (domaine santé) sont inchangées. Le CPE et la comptabilité émettent sans pouvoir relire (le modèle historique de `documents.lire` n'a pas été modifié) ; le secrétariat n'a pas `documents.restreints.lire` (décision de l'établissement). Détail et limites : `docs/socles/07_DOCUMENTS_D2_D3_LIVRAISON.md`.
+

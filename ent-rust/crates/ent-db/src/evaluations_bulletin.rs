@@ -21,10 +21,11 @@ use domain_eleve::evaluation::{
     format_fr, rendre_lsl_xml, rendre_lsu_xml, xml_bien_forme, LivretBilanCycle, LivretEleve,
     LivretMatiere, LivretPeriode, AVERTISSEMENT_LIVRETS,
 };
-use domain_eleve::{rendre_pdf_lignes, NotePeriodeStatut};
+use domain_eleve::NotePeriodeStatut;
 use ent_auth::{Action, Role};
 use ent_events::{types, AggregateKind, MetierEventDraft};
 use ent_object::ObjectStore;
+use ent_pdf::{Align, Colonne, Document, Ligne, Meta, Tableau};
 use ent_types::evaluations::{
     BulletinConseilDto, BulletinContenuDto, BulletinDetailDto, BulletinDto, BulletinLigneDto,
     ExportLivretDto, GenererBulletinsBody, PublierBulletinsBody, RapportBulletinsDto,
@@ -72,102 +73,88 @@ fn libelle_decision(d: &str) -> &'static str {
     }
 }
 
-/// Lignes imprimées du bulletin (le PDF ne contient que l'instantané).
-pub(crate) fn lignes_bulletin(c: &BulletinContenuDto) -> Vec<String> {
-    let mut l = vec![
-        format!("{} — Bulletin scolaire", c.etablissement),
-        format!(
-            "{} — {} au {}",
-            c.periode_libelle,
-            c.date_debut.format("%d/%m/%Y"),
-            c.date_fin.format("%d/%m/%Y")
-        ),
-        format!("Eleve : {} {} · Classe : {}", c.eleve_prenom, c.eleve_nom, c.classe),
-        format!("Version {}", c.version),
-    ];
+/// PDF du bulletin (le PDF ne contient que l'instantané), mis en page par la brique `ent-pdf` :
+/// accents lisibles, tableau des moyennes à en-tête répété sur chaque page.
+pub(crate) fn rendre_bulletin_pdf(c: &BulletinContenuDto) -> Vec<u8> {
+    let mut d = Document::new(Meta {
+        titre: format!("Bulletin — {} {} — {}", c.eleve_prenom, c.eleve_nom, c.periode_libelle),
+        auteur: c.etablissement.clone(),
+        creation: None,
+    })
+    .avec_en_tete(&format!("{} — Bulletin scolaire", c.etablissement))
+    .avec_pied(&format!("Bulletin — version {}", c.version));
+    d.titre("Bulletin scolaire");
+    d.paragraphe(&format!(
+        "{} — {} au {}",
+        c.periode_libelle,
+        c.date_debut.format("%d/%m/%Y"),
+        c.date_fin.format("%d/%m/%Y")
+    ));
+    d.paragraphe(&format!("Élève : {} {} · Classe : {}", c.eleve_prenom, c.eleve_nom, c.classe));
+    d.paragraphe(&format!("Version {}", c.version));
     if let Some(m) = &c.motif {
-        l.push(format!("Motif de la nouvelle version : {m}"));
+        d.paragraphe(&format!("Motif de la nouvelle version : {m}"));
     }
-    l.push(String::new());
-    l.push("Matiere (coef.) : eleve | classe (min - max)".into());
-    l.push("--------------------------------------------".into());
+    d.sous_titre("Matières");
+    let mut t = Tableau::new(vec![
+        Colonne::new("Matière", 3.2, Align::Gauche),
+        Colonne::new("Coef.", 1.1, Align::Droite),
+        Colonne::new("Élève", 1.4, Align::Droite),
+        Colonne::new("Classe", 1.4, Align::Droite),
+        Colonne::new("Min.", 1.2, Align::Droite),
+        Colonne::new("Max.", 1.2, Align::Droite),
+        Colonne::new("Appréciation", 5.0, Align::Gauche),
+    ]);
     for x in &c.lignes {
-        l.push(format!(
-            "{} ({}) : {} | {} ({} - {})",
-            x.matiere,
+        t.lignes.push(Ligne::new(vec![
+            x.matiere.clone(),
             format_fr(x.coef),
             moy(x.moyenne),
             moy(x.moyenne_classe),
             moy(x.min),
-            moy(x.max)
-        ));
-        if let Some(a) = &x.appreciation {
-            for morceau in decouper(a, 95) {
-                l.push(format!("   {morceau}"));
-            }
-        }
+            moy(x.max),
+            x.appreciation.clone().unwrap_or_default(),
+        ]));
     }
-    l.push(String::new());
-    l.push(format!(
-        "Moyenne generale : {} (classe : {})",
+    t.lignes.push(Ligne::grasse(vec![
+        "Moyenne générale".to_string(),
+        String::new(),
         moy(c.moyenne_generale),
-        moy(c.moyenne_generale_classe)
-    ));
-    l.push(format!(
-        "Vie scolaire : {} absence(s) dont {} non justifiee(s), {} retard(s)",
+        moy(c.moyenne_generale_classe),
+        String::new(),
+        String::new(),
+        String::new(),
+    ]));
+    d.tableau(&t);
+    d.paragraphe(&format!(
+        "Vie scolaire : {} absence(s) dont {} non justifiée(s), {} retard(s)",
         c.absences, c.absences_non_justifiees, c.retards
     ));
     if let Some(a) = &c.appreciation_generale {
-        l.push(String::new());
-        l.push("Appreciation generale :".into());
-        for morceau in decouper(a, 95) {
-            l.push(format!("   {morceau}"));
-        }
+        d.sous_titre("Appréciation générale");
+        d.paragraphe(a);
     }
     if let Some(cs) = &c.conseil {
-        l.push(String::new());
-        l.push("Conseil de classe :".into());
+        d.sous_titre("Conseil de classe");
         if !cs.appreciation.is_empty() {
-            for morceau in decouper(&cs.appreciation, 95) {
-                l.push(format!("   {morceau}"));
-            }
+            d.paragraphe(&cs.appreciation);
         }
         if let Some(m) = cs.mention.as_deref().map(libelle_mention).filter(|s| !s.is_empty()) {
-            l.push(format!("   Mention : {m}"));
+            d.paragraphe(&format!("Mention : {m}"));
         }
-        if let Some(d) = cs.decision_code.as_deref().map(libelle_decision).filter(|s| !s.is_empty()) {
-            l.push(format!("   Decision : {d}"));
+        if let Some(x) = cs.decision_code.as_deref().map(libelle_decision).filter(|s| !s.is_empty()) {
+            d.paragraphe(&format!("Décision : {x}"));
         }
         if let Some(a) = &cs.avis_orientation {
-            l.push(format!("   Avis d'orientation : {a}"));
+            d.paragraphe(&format!("Avis d'orientation : {a}"));
         }
     }
-    l.push(String::new());
-    l.push(format!(
-        "Moyennes arrondies ({}) ; absent, dispense et non note exclus du calcul.",
+    d.espace(8.0);
+    d.paragraphe(&format!(
+        "Moyennes arrondies ({}) ; absent, dispensé et non noté exclus du calcul.",
         c.arrondi
     ));
-    l
-}
-
-fn decouper(texte: &str, largeur: usize) -> Vec<String> {
-    let mut out = Vec::new();
-    for para in texte.lines() {
-        let mut cur = String::new();
-        for mot in para.split_whitespace() {
-            if !cur.is_empty() && cur.chars().count() + 1 + mot.chars().count() > largeur {
-                out.push(std::mem::take(&mut cur));
-            }
-            if !cur.is_empty() {
-                cur.push(' ');
-            }
-            cur.push_str(mot);
-        }
-        if !cur.is_empty() {
-            out.push(cur);
-        }
-    }
-    out
+    d.octets()
 }
 
 type BulletinTuple = (
@@ -438,7 +425,7 @@ impl PgEnt {
             contenu.version = version;
             contenu.motif = if version > 1 { motif.clone() } else { None };
             let id = Uuid::new_v4();
-            let pdf = rendre_pdf_lignes(&lignes_bulletin(&contenu));
+            let pdf = rendre_bulletin_pdf(&contenu);
             let key = ObjectStore::key_for(etab, "bulletins", id, "pdf");
             let info = self.objet_put(&key, &pdf).await?;
             crate::objets::enregistrer_objet(&mut *tx, etab, &info, Some("application/pdf")).await?;
@@ -991,10 +978,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn decoupage_et_noms() {
-        assert_eq!(decouper("un deux trois", 7), vec!["un deux", "trois"]);
+    fn noms_et_empreinte() {
         assert_eq!(nettoyer_nom("Élève/../4B"), "l-ve----4b");
         assert_eq!(nettoyer_nom("///"), "x");
         assert_eq!(empreinte(b"abc").len(), 64);
+    }
+
+    fn contenu_test(n: usize) -> BulletinContenuDto {
+        BulletinContenuDto {
+            etablissement: "Collège Saint-Étienne".into(),
+            eleve_nom: "Élève".into(),
+            eleve_prenom: "Hélène".into(),
+            classe: "4ᵉ B".into(),
+            periode_code: "T1".into(),
+            periode_libelle: "Trimestre 1".into(),
+            date_debut: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+            date_fin: NaiveDate::from_ymd_opt(2026, 12, 18).unwrap(),
+            arrondi: "centième".into(),
+            lignes: (0..n)
+                .map(|i| BulletinLigneDto {
+                    matiere: format!("Matière {i:02} — Français œuvres"),
+                    coef: 1.5,
+                    moyenne: Some(12.5),
+                    moyenne_classe: Some(11.0),
+                    min: Some(4.0),
+                    max: Some(19.5),
+                    appreciation: Some(
+                        "Élève sérieux, à l'écoute ; progrès réguliers en français, œuvre soignée. \
+                         Poursuivre l'effort et soigner la présentation des évaluations écrites."
+                            .into(),
+                    ),
+                })
+                .collect(),
+            moyenne_generale: Some(12.5),
+            moyenne_generale_classe: Some(11.0),
+            appreciation_generale: Some("Très bon trimestre — félicitations méritées.".into()),
+            conseil: Some(BulletinConseilDto {
+                appreciation: "Ensemble très satisfaisant.".into(),
+                mention: Some("felicitations".into()),
+                decision_code: Some("passage".into()),
+                avis_orientation: Some("Seconde générale".into()),
+            }),
+            absences: 3,
+            absences_non_justifiees: 1,
+            retards: 2,
+            version: 2,
+            motif: Some("Correction d'une note saisie à tort".into()),
+        }
+    }
+
+    #[test]
+    fn bulletin_pdf_accents_lisibles_et_tableau_sur_trois_pages() {
+        use ent_pdf::releve::{texte, texte_des_pages, verifier_structure};
+        let pdf = rendre_bulletin_pdf(&contenu_test(40));
+        verifier_structure(&pdf);
+        let t = texte(&pdf).replace('\n', " ");
+        assert!(t.contains("Collège Saint-Étienne — Bulletin scolaire"), "{t}");
+        assert!(t.contains("Élève : Hélène Élève · Classe : 4ᵉ B"), "{t}");
+        assert!(t.contains("Décision : Passage") && t.contains("Mention : Félicitations"));
+        assert!(t.contains("Vie scolaire : 3 absence(s) dont 1 non justifiée(s), 2 retard(s)"));
+        let pages = texte_des_pages(&pdf);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        for p in &pages {
+            assert!(p.contains("Matière\nCoef."), "en-tête du tableau répété");
+        }
+        // Rendu déterministe : l'empreinte d'un même instantané ne bouge pas.
+        assert_eq!(pdf, rendre_bulletin_pdf(&contenu_test(40)));
     }
 }

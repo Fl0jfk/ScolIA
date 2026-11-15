@@ -71,6 +71,16 @@ pub fn App() -> impl IntoView {
                 <ParentRoute path=path!("/web") view=noyau::coquille::AppCoquille>
                     <Route path=path!("") view=modules::accueil::PageAccueil/>
                     <Route path=path!("a-faire") view=modules::afaire::PageAFaire/>
+                    <Route path=path!("mes-files") view=modules::mes_files::PageMesFiles/>
+                    <Route path=path!("mes-files/:code") view=modules::mes_files::PageFile/>
+                    <Route path=path!("supervision-files") view=modules::mes_files::PageSupervisionFiles/>
+                    <Route path=path!("recherche") view=modules::recherche::PageRecherche/>
+                    <Route path=path!("blocages-recherche") view=modules::recherche::PageBlocagesRecherche/>
+                    <Route path=path!("demandes") view=modules::demandes::PageDemandes/>
+                    <Route path=path!("demandes/mes") view=modules::demandes::PageMesDemandes/>
+                    <Route path=path!("demandes/file") view=modules::demandes::PageMaFile/>
+                    <Route path=path!("demandes/hse") view=modules::demandes::PageHse/>
+                    <Route path=path!("demandes/copies") view=modules::demandes::PageCopies/>
                     <Route path=path!("mes-liens") view=modules::liens_en_attente::PageMesLiens/>
                     <Route path=path!("emploi-du-temps") view=modules::edt::PageEmploiDuTemps/>
                     <Route path=path!("edt/semaine") view=modules::edt_semaine::PageSemaineEdt/>

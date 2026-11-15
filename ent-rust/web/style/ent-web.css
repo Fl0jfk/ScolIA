@@ -694,3 +694,21 @@
 .aff-police-tres-grande { font-size: 1.3em; }
 .aff-interligne-large { line-height: 1.8; }
 .aff-calme * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+
+/* Palette de commandes (socle 29, lot P6) : un champ, des familles, une liste à choix clavier. */
+.palette-barre { display: flex; justify-content: flex-end; padding-bottom: var(--esp-3); }
+.palette-saisie { width: 100%; box-sizing: border-box; }
+.palette-liste { margin: var(--esp-3) 0 0; padding: 0; list-style: none; max-height: min(50vh, 24rem); overflow-y: auto; }
+.palette-famille { padding: var(--esp-3) var(--esp-2) var(--esp-1); font-size: 0.8125rem; font-weight: 600; color: var(--c-attenue); }
+.palette-option { display: flex; justify-content: space-between; gap: var(--esp-3); padding: 10px var(--esp-3); border-radius: var(--rayon-petit); cursor: pointer; min-width: 0; }
+.palette-option[aria-selected="true"] { background: var(--c-acc-doux); color: var(--c-acc-fort); }
+.palette-option__aide { color: var(--c-attenue); font-size: 0.8125rem; flex: none; }
+.palette-aide { margin: var(--esp-3) 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: var(--esp-3); font-size: 0.8125rem; color: var(--c-attenue); }
+.palette-aide kbd { font: inherit; background: var(--c-remplissage); border-radius: 6px; padding: 1px 6px; }
+
+/* Accueil : bandeaux et page d'alerte (socle 29, lot P7). */
+.accueil-bandeaux { display: grid; gap: var(--esp-3); margin-bottom: var(--esp-4); }
+.accueil-bandeaux__replies { display: grid; gap: var(--esp-3); }
+.accueil-bandeaux__replies > summary { cursor: pointer; padding: var(--esp-2) 0; color: var(--c-attenue); }
+.accueil-alerte { display: grid; gap: var(--esp-3); }
+.accueil-alerte__consigne { font-size: 1.25rem; font-weight: 600; margin: 0; }

@@ -62,6 +62,38 @@ pub fn motif_valide(champs: &[ChampAction], motif: &str) -> Result<Option<String
     Ok((!m.is_empty()).then(|| m.to_string()))
 }
 
+/// Libellé d'une réponse de carte à choix : le sens est dit en toutes lettres.
+pub fn libelle_choix(valeur: &str) -> &str {
+    match valeur {
+        "accepte" => "J'accepte (j'autorise)",
+        "refuse" => "Je refuse",
+        autre => autre,
+    }
+}
+
+/// Réponse choisie sur une carte à choix : obligatoire si le champ l'est, et toujours l'un des
+/// choix proposés (le serveur revérifie, l'écran évite l'aller-retour inutile).
+pub fn decision_valide(
+    champs: &[ChampAction],
+    decision: &str,
+) -> Result<Option<String>, &'static str> {
+    let Some(champ) = champs.iter().find(|c| c.code == "decision") else {
+        return Ok(None);
+    };
+    let d = decision.trim();
+    if d.is_empty() {
+        return if champ.obligatoire {
+            Err("Choisissez votre réponse.")
+        } else {
+            Ok(None)
+        };
+    }
+    if !champ.choix.iter().any(|c| c == d) {
+        return Err("Cette réponse n'est pas proposée.");
+    }
+    Ok(Some(d.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +186,30 @@ mod tests {
             Ok(None),
             "sans champ : rien à saisir"
         );
+    }
+
+    #[test]
+    fn la_decision_est_exigee_et_limitee_aux_choix() {
+        let champs = vec![ChampAction {
+            code: "decision".into(),
+            libelle: "Votre réponse".into(),
+            obligatoire: true,
+            choix: vec!["accepte".into(), "refuse".into()],
+        }];
+        assert_eq!(
+            decision_valide(&champs, ""),
+            Err("Choisissez votre réponse.")
+        );
+        assert_eq!(
+            decision_valide(&champs, "accepte"),
+            Ok(Some("accepte".into()))
+        );
+        assert!(decision_valide(&champs, "peut-etre").is_err());
+        assert_eq!(
+            decision_valide(&[], ""),
+            Ok(None),
+            "sans champ : rien à choisir"
+        );
+        assert_eq!(libelle_choix("refuse"), "Je refuse");
     }
 }

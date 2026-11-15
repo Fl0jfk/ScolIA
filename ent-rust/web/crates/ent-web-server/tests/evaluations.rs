@@ -189,7 +189,7 @@ async fn periode_complete_avec_le_client_du_frontend() {
     })
     .await
     .unwrap();
-    let t = chrono::Local::now().date_naive();
+    let t = ent_db::jour_paris();
     let periode = ent
         .creer_note_periode(ent_db::CreerNotePeriode {
             etablissement_id: etab,

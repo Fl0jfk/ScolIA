@@ -803,7 +803,7 @@ async fn rls_strict_tables_du_lot_s4() {
     );
     let r = sqlx::query(
         "INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, classe_id, ouvert_le)
-         VALUES ($1,$2,$3,'Pirate',$4,current_date)",
+         VALUES ($1,$2,$3,'Pirate',$4,ent_aujourdhui())",
     )
     .bind(Uuid::new_v4())
     .bind(m2.0)

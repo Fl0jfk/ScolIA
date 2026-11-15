@@ -423,7 +423,7 @@ async fn rd03_interdiction_ou_adresse_protegee_ne_revele_rien_au_second_parent()
     .unwrap();
     sqlx::query(
         "INSERT INTO ent_eleve_interdiction (id, etablissement_id, eleve_id, personne_id, objet, fondement, consigne, du, decide_par)
-         VALUES ($1,$2,$3,$4,ARRAY['visite'],'decision_justice','ag0-test', current_date - 1, $5)",
+         VALUES ($1,$2,$3,$4,ARRAY['visite'],'decision_justice','ag0-test', ent_aujourdhui() - 1, $5)",
     )
     .bind(Uuid::new_v4())
     .bind(etab)

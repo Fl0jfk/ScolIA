@@ -28,6 +28,29 @@ pub fn assert_local_postgres_url(raw: &str) -> Result<Url, UrlGuardError> {
     Ok(parsed)
 }
 
+/// La base est exigée : `CI` ou `ENT_EXIGER_BASE` est défini (RG-D03, socle 27).
+#[cfg(test)]
+pub(crate) fn base_exigee() -> bool {
+    std::env::var_os("CI").is_some() || std::env::var_os("ENT_EXIGER_BASE").is_some()
+}
+
+/// URL de la base de test (feature `labo`). Absente : le test est ignoré en local, mais
+/// **échoue** quand `CI` ou `ENT_EXIGER_BASE` est défini — un test qui ne vérifie rien ne doit
+/// pas passer au vert (socle 5, S0, défaut n° 19 ; socle 27, RG-D03).
+#[cfg(test)]
+pub(crate) fn url_labo_ou_echec() -> Option<String> {
+    match std::env::var("ENT_DATABASE_URL") {
+        Ok(u) if !u.trim().is_empty() => Some(u),
+        _ if base_exigee() => {
+            panic!("ENT_DATABASE_URL absente alors que CI ou ENT_EXIGER_BASE est défini : les tests sur base ne peuvent pas être ignorés (RG-D03)")
+        }
+        _ => {
+            eprintln!("ENT_DATABASE_URL absente : test sur base ignoré en local (posez ENT_EXIGER_BASE=1 pour l'exiger)");
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,19 +85,5 @@ mod tests {
             assert_local_postgres_url("  ").unwrap_err(),
             UrlGuardError::Missing
         );
-    }
-}
-
-/// URL de la base de test (feature `labo`). Absente : le test est ignoré en local, mais
-/// **échoue** quand `CI` est défini — un test qui ne vérifie rien ne doit pas passer au vert
-/// (socle 5, S0, défaut n° 19).
-#[cfg(test)]
-pub(crate) fn url_labo_ou_echec() -> Option<String> {
-    match std::env::var("ENT_DATABASE_URL") {
-        Ok(u) if !u.trim().is_empty() => Some(u),
-        _ if std::env::var_os("CI").is_some() => {
-            panic!("ENT_DATABASE_URL absente en CI : les tests sur base ne peuvent pas être ignorés")
-        }
-        _ => None,
     }
 }

@@ -167,8 +167,9 @@ async fn rf12_boites_d_envoi_reservees() {
         assert!(ent.list_mails_recents_for_actor(etab, role, 5).await.is_err(), "mails {role}");
         assert!(ent.list_sms_recents_for_actor(etab, role, 5).await.is_err(), "sms {role}");
     }
-    assert!(ent.list_mails_recents_for_actor(etab, "administratif", 5).await.is_ok());
-    assert!(ent.list_sms_recents_for_actor(etab, "cpe", 5).await.is_ok());
+    // N0a (socle 8, RP1-06) : réservé à `notifications.gerer` (direction/admin).
+    assert!(ent.list_mails_recents_for_actor(etab, "administratif", 5).await.is_err());
+    assert!(ent.list_sms_recents_for_actor(etab, "cpe", 5).await.is_err());
     assert!(ent.list_sms_recents_for_actor(etab, "direction", 5).await.is_ok());
 }
 

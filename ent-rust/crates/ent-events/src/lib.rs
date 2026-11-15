@@ -318,6 +318,15 @@ pub mod types {
     pub const MISSION_TERMINEE: &str = "mission.terminee";
     pub const MISSION_ANNULEE: &str = "mission.annulee";
     pub const MISSION_TYPE_CREE: &str = "mission.type_cree";
+    /// Socle 6, lot P5 : responsables de groupes (identifiant = groupe) et équipes constituées (identifiant = équipe).
+    pub const GROUPE_RESPONSABLE_AJOUTE: &str = "groupe.responsable_ajoute";
+    pub const GROUPE_RESPONSABLE_TERMINE: &str = "groupe.responsable_termine";
+    pub const EQUIPE_CREEE: &str = "equipe.creee";
+    pub const EQUIPE_MEMBRES_MODIFIES: &str = "equipe.membres_modifies";
+    pub const EQUIPE_CLOSE: &str = "equipe.close";
+    /// Socle 6, lot P6 : pouvoirs de signature, délégations (agrégat `Personne`, identifiant = délégation ou habilitation).
+    pub const SIGNATURE_HABILITATION_MODIFIEE: &str = "signature.habilitation_modifiee";
+    pub const DELEGATION_EXPIRATION_PROCHE: &str = "delegation.expiration_proche";
     /// Socle 5 (R-S23, R-P26) : noms que le socle 6 consomme (alignés, pas ceux de la première
     /// conception `annee.ouverte`, `classe.archivee`…). Aucun consommateur dans le lot P1.
     pub const REFERENTIEL_ANNEE_OUVERTE: &str = "referentiel.annee_ouverte";
@@ -371,6 +380,8 @@ pub mod types {
     /// S2-3 (D23) : import en lot, rejets traités.
     pub const IMPORT_LOT_APPLIQUE: &str = "import.lot_applique";
     pub const IMPORT_REJET_TRAITE: &str = "import.rejet_traite";
+    /// Socle 28 (MS0) : lot d'import prévisualisé annulé.
+    pub const IMPORT_LOT_ANNULE: &str = "import.lot_annule";
     /// Socle N1 (demandes) : événements du cœur. Charge utile : identifiants, numéro et codes SEULEMENT
     /// (« enveloppe neutre », R-DM27, NJ-86) — jamais l'objet, le texte, un nom ni une adresse.
     pub const DEMANDE_DEPOSEE: &str = "demande.deposee";
@@ -378,6 +389,24 @@ pub mod types {
     pub const DEMANDE_RELACHEE: &str = "demande.relachee";
     pub const DEMANDE_CLOSE: &str = "demande.close";
     pub const DEMANDE_PURGEE: &str = "demande.purgee";
+    /// Lot N1-2 : mêmes règles (enveloppe neutre). La première ouverture par le service (R-DM53), les échanges, la
+    /// réaffectation, le transfert, la requalification, la consultation, le retard et la réouverture.
+    pub const DEMANDE_VUE: &str = "demande.vue";
+    pub const DEMANDE_ECHANGE: &str = "demande.echange";
+    pub const DEMANDE_REAFFECTEE: &str = "demande.reaffectee";
+    pub const DEMANDE_TRANSFEREE: &str = "demande.transferee";
+    pub const DEMANDE_REQUALIFIEE: &str = "demande.requalifiee";
+    pub const DEMANDE_CONSULTEE: &str = "demande.consultee";
+    pub const DEMANDE_EN_RETARD: &str = "demande.en_retard";
+    pub const DEMANDE_ROUVERTE: &str = "demande.rouverte";
+    /// Lot N1-3 : HSE (décision, heures transmises, rien déclaré) et reprographie (prête, rappel de retrait). Mêmes
+    /// règles : enveloppe neutre, aucun nom, aucun volume, aucun texte.
+    pub const DEMANDE_HSE_DECIDEE: &str = "demande.hse_decidee";
+    pub const DEMANDE_HSE_TRANSMISE: &str = "demande.hse_transmise";
+    pub const DEMANDE_HSE_RIEN_DECLARE: &str = "demande.hse_rien_declare";
+    pub const DEMANDE_REPRO_VALIDEE: &str = "demande.repro_validee";
+    pub const DEMANDE_REPRO_PRETE: &str = "demande.repro_prete";
+    pub const DEMANDE_REPRO_RAPPEL: &str = "demande.repro_rappel";
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -460,6 +489,9 @@ pub enum AggregateKind {
     Stage,
     /// Demande du socle N1 (cœur : dépôt, prise, clôture). Charge utile : enveloppe neutre.
     Demande,
+    /// Document émis du socle 7 (brique `documents`) : émission, remplacement, annulation, ouverture. Charge utile :
+    /// identifiants, nature et sensibilité seulement, jamais de titre ni de contenu.
+    Documents,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -51,14 +51,14 @@ async fn demarrer() -> Option<String> {
     Some(format!("http://{addr}"))
 }
 
-/// Un jour futur, même jour de semaine qu'aujourd'hui, différent à chaque exécution :
+/// Un jour futur, même jour de semaine que le jour de Paris (le créneau du seed de labo est posé au jour de semaine de Paris), différent à chaque exécution :
 /// chaque test ouvre des appels neufs (un appel clos ne peut plus être modifié).
 fn jour_neuf() -> NaiveDate {
     let n = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_micros() as i64;
-    chrono::Local::now().date_naive() + Duration::weeks(1 + n.rem_euclid(2000))
+    ent_db::jour_paris() + Duration::weeks(1 + n.rem_euclid(2000))
 }
 
 async fn client_de(base: &str, l: &Labo, email: &str) -> ApiClient {
