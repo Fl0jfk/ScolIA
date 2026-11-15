@@ -42,6 +42,13 @@ pub mod demandes_reprise;
 /// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
 pub mod demandes_prise;
 pub mod demandes_routage;
+/// Socle 7 (documents, pièces et signatures), lots D2 et D3 : types, natures et ports de la brique.
+pub mod documents;
+/// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
+pub mod documents_natures;
+/// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
+pub mod documents_pdf;
+pub mod documents_repo;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
@@ -528,6 +535,10 @@ mod tests_demandes_n1_2;
 mod tests_demandes_n1_3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]

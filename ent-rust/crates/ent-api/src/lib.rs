@@ -26,6 +26,7 @@ pub mod http_garde;
 mod ical;
 mod finances;
 mod inscriptions;
+mod documents_verif;
 mod internat;
 pub mod obs;
 mod referentiel;
