@@ -691,8 +691,10 @@ async fn reautorisation_apres_reouverture_aligne_le_prix_sans_decision_cachee() 
 
 // ─────────────────────────── PDF ───────────────────────────
 
+/// Le PDF utilise une police incorporée : le texte se relit par la ToUnicode (retours à la
+/// ligne aplatis), jamais dans les octets bruts.
 fn contient(h: &[u8], a: &str) -> bool {
-    h.windows(a.len()).any(|w| w == a.as_bytes())
+    ent_pdf::releve::texte(h).replace('\n', " ").contains(a)
 }
 
 #[tokio::test]
@@ -721,7 +723,7 @@ async fn fiche_budget_et_circulaire_en_pdf_cote_serveur() {
     assert!(pdf.starts_with(b"%PDF-1.4") && pdf.ends_with(b"%%EOF\n"));
     assert_eq!(ent_object::sha256_hex(&pdf), doc.sha256, "l'empreinte du registre est celle du fichier");
     assert_eq!(pdf.len() as i32, doc.taille);
-    for attendu in ["Fiche budget", "Transport", "Total des d\\351penses", "1\\240500,00\\240\\200", "500,00\\240\\200"] {
+    for attendu in ["Fiche budget", "Transport", "Total des dépenses", "1\u{a0}500,00\u{a0}€", "500,00\u{a0}€"] {
         assert!(contient(&pdf, attendu), "le PDF doit contenir « {attendu} »");
     }
     // Rendu déterministe : mêmes faits, mêmes octets (hors empreinte d'émission).
@@ -763,7 +765,7 @@ async fn fiche_budget_et_circulaire_en_pdf_cote_serveur() {
     let c1 = c.ent.voyage_circulaire_pdf(&prof, s.id).await.unwrap();
     let c2 = c.ent.voyage_circulaire_pdf(&c.a(c.sec, Role::Administratif), s.id).await.unwrap();
     let (_, pdf) = c.ent.voyage_document_lire(&prof, s.id, c2.id).await.unwrap();
-    assert!(contient(&pdf, "Participation demand\\351e aux familles : 500,00\\240\\200"), "participation figée dans la circulaire");
+    assert!(contient(&pdf, "Participation demandée aux familles : 500,00\u{a0}€"), "participation figée dans la circulaire");
     assert!(!contient(&pdf, "Fiche budget"));
     // La plus récente remplace l'ancienne, qui reste lisible.
     let liste = c.ent.voyage_documents(&prof, s.id).await.unwrap();
@@ -806,7 +808,7 @@ async fn circulaire_d_une_sortie_obligatoire_ne_demande_aucune_participation() {
     assert!(!t.corps.contains("Participation demandée"));
     let d = c.ent.voyage_circulaire_pdf(&c.a(c.prof, Role::Prof), s.id).await.unwrap();
     let (_, pdf) = c.ent.voyage_document_lire(&c.a(c.prof, Role::Prof), s.id, d.id).await.unwrap();
-    assert!(contient(&pdf, "Aucune participation financi\\350re"));
+    assert!(contient(&pdf, "Aucune participation financière"));
     // Sans budget (circuit court) : ni budget ni prix.
     assert!(c.budget(c.prof, Role::Prof, s.id).await.unwrap().prix_fige.is_empty());
 }
