@@ -399,7 +399,12 @@ async fn edt_routes_conflits_remplacement_masse_delegations_et_isolation() {
     distribuer(&state, etab).await;
     let (st, txt) = appel(&app, "GET", "/notifications", parent, None).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(txt.matches("Cours remplacé").count(), 1, "{txt}");
+    assert_eq!(
+        txt.matches("\"kind\":\"edt_remplacement\"").count(),
+        1,
+        "{txt}"
+    );
+    assert!(txt.contains("assuré par un autre enseignant"), "{txt}");
     assert!(!txt.contains("Maladie"));
     let (st, txt) = appel(
         &app,
