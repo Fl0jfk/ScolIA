@@ -70,16 +70,20 @@ Code : `ent-db/src/documents_natures.rs`, routes `ent-api/src/documents_verif.rs
 * Le rendu passe par le trait `RenduDocument` (`documents.rs`) : le moteur reçoit des **valeurs** (`DemandeRendu` : nature, style, identité, entité, données figées,
   textes encadrés, numéro affiché, code et URL du QR, motif, mention « par délégation », destinataire et sa propre adresse). Clés de données de D3 :
   `titulaire.nom`, `titulaire.prenom`, `titulaire.naissance` (ISO), `scolarite.niveau`, `scolarite.annee`, `scolarite.date_entree` (ISO).
-* Le cachet passe par `CachetEtablissement`. **Par défaut, `RenduIndisponible` et `CachetIndisponible` refusent** : tant que la brique PDF maison (`ent-socle-7-code-d1`,
-  D-062) et la clé du cachet ne sont pas branchées, l'émission réelle répond « moteur de rendu indisponible » / « cachet indisponible » **sans rien écrire** (§9.5, Q-D7).
-  Les tests branchent des doublures déterministes ; le PDF n'est pas réécrit ici.
-* **Branchement attendu** : une session d'assemblage construit `Moteur { rendu, cachet, url_verification }` avec le moteur D1 et le cachet, et le passe aux commandes
-  `emettre_*_for_actor`. Aucune route d'émission n'existe encore (écrans et API d'émission : lot D12).
+* **Rendu branché sur `ent-pdf`** (lot D1, D-062, fusionné sur ENT) : `documents_pdf::RenduPdfAttestation` rend la famille « attestation » (titre, phrase fixe, cartouche,
+  textes encadrés, « par délégation », code lisible et **QR** de la page de vérification, pied de page). Déterministe (aucune date de création). Test sur le vrai moteur :
+  `t_rendu_pdf_reel_sur_ent_pdf` (texte relu, code présent, classe absente, vérification par dépôt du vrai PDF).
+* Le **cachet** passe par `CachetEtablissement`. **Aucun cachet réel n'existe** (D1 n'a pas livré le PAdES) : `CachetIndisponible` refuse par défaut, l'émission répond
+  « cachet indisponible » **sans rien écrire** (§9.5, Q-D7). Les tests branchent un cachet de test qui ajoute une marque.
+* **Assemblage** : construire `Moteur { rendu: &RenduPdfAttestation, cachet, url_verification }` et le passer aux commandes `emettre_*_for_actor`. Aucune route d'émission n'existe
+  encore (écrans et API d'émission : lot D12).
 
 ### Limites connues (à ne pas présenter comme faites)
 
-- **Rendu et cachet réels absents** (voir ci-dessus) : le critère « certificat < 1 s, PDF/A et PDF/UA valides, QR vérifiable » n'est pas démontrable avant D1. Mesure avec la
-  doublure : ~80 ms de base de données pour l'émission complète (un geste).
+- **Cachet réel absent** : sans lui, aucun document n'est émis en production. **Limites du moteur D1** héritées : polices standard non incorporées (donc **ni PDF/A ni PDF/UA**),
+  pas de couleur ni de logo (style et couleur de l'identité transmis, non appliqués), **caractères hors WinAnsi remplacés par « ? »** (ex. le vietnamien « Nguyễn » donne « NGUY?N » ;
+  le polonais « ł » devient « l ») : le critère « noms de toutes origines » n'est tenu que pour le latin d'Europe occidentale (la base et la vérification publique gardent le nom exact).
+  Mesure de l'émission complète (base de données, moteur de test) : ~80 ms.
 - **Droit de lien `recevoir_documents`** (socle 4, Q-D29) non codé : en attendant, **l'autorité parentale vaut droit de recevoir** (`titulaires_destinataires`, une seule fonction à changer).
   La bascule à la majorité du coffre (D4) n'est pas faite : un élève majeur reçoit seul, ses parents plus rien, sans transition ni notification.
 - **Données lues en SQL** dans `ent_eleve_identite`, `ent_eleve_scolarisation`, `ent_eleve_scolarite_annee`, `ent_eleve_lien`, `ent_personne`, `ent_adresse_protegee` :

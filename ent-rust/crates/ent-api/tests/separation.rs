@@ -820,7 +820,6 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
-    ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
     // Vérification publique des documents (socle 7, D3) : le code (60 bits) ou l'empreinte du fichier fait foi ;
     // l'établissement vient de l'adresse, réponses identiques pour inconnu et autre établissement.
     ("GET", "/verifier/{code}"),
@@ -1017,7 +1016,7 @@ fn invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes() {
     rt().block_on(async {
         for chemin in [
             "/messages/fils", "/facturation/factures", "/foyers", "/matieres", "/audit/journal",
-            "/personnel/search?q=a", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
+            "/personnel/search?q=a", "/recherche?q=Potter", "/recherche?q=Dupont", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
             "/referentiel/mes-enseignements",
             "/infirmerie/passages", "/psy/entretiens", "/documents/grants/pending",
         ] {
@@ -1056,6 +1055,16 @@ fn essai_famille_refusee(chemin_gabarit: &str, cible: Cible, acteurs: &[Acteur])
 fn l2_annuaire_eleves_search_ferme_aux_familles() {
     let Some(_) = monde() else { return };
     let e = essai_famille_refusee("/eleves/search?q=Potter", Cible::Liee, FAMILLE);
+    assert!(e.is_empty(), "{}", e.join("\n"));
+}
+
+/// Socle 29, lot P5 : la recherche globale est un outil du personnel ; une famille ou un élève reçoit un refus ou rien.
+#[test]
+fn l2_recherche_globale_fermee_aux_familles() {
+    let Some(_) = monde() else { return };
+    let e = essai_famille_refusee("/recherche?q=Potter", Cible::Liee, FAMILLE);
+    assert!(e.is_empty(), "{}", e.join("\n"));
+    let e = essai_famille_refusee("/recherche?q=Potter", Cible::NonLiee, FAMILLE);
     assert!(e.is_empty(), "{}", e.join("\n"));
 }
 

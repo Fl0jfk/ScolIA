@@ -9,6 +9,7 @@ description = "Socle élève au centre — commandes + invariants + émission d'
 [dependencies]
 chrono = { workspace = true }
 ent-events = { path = "../ent-events" }
+ent-pdf = { path = "../ent-pdf" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

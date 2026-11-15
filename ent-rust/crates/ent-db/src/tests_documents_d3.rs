@@ -1084,3 +1084,53 @@ async fn t_verification_trois_modes() {
         ReponseDepot::Identique { .. }
     ));
 }
+
+#[tokio::test]
+async fn t_rendu_pdf_reel_sur_ent_pdf() {
+    let Some(w) = W::nouveau().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let eleve = w.eleve("Œuvrard-Çelik", "Zoë").await;
+    w.lier(eleve, &w.lily, true, false).await;
+    let moteur_reel = crate::documents_pdf::RenduPdfAttestation;
+    let e = w
+        .ent
+        .emettre_certificat_scolarite_for_actor(&w.adm(), eleve, &moteur(&moteur_reel, &Cachet))
+        .await
+        .expect("émission sur le moteur réel");
+    let lu = w
+        .ent
+        .lire_document_for_actor(&w.parent(&w.lily), e.document_id, None)
+        .await
+        .unwrap();
+    // Le cachet de test ajoute une marque après `%%EOF` : on relit le PDF sans elle.
+    let pdf = &lu.octets[..lu.octets.len() - b"|SCELLE".len()];
+    assert!(pdf.starts_with(b"%PDF-1.4"));
+    let texte = ent_pdf::releve::texte(pdf);
+    for attendu in [
+        "Certificat de scolarité",
+        "ŒUVRARD-ÇELIK",
+        "Zoë",
+        "10/03/2012",
+        "4e",
+        &e.numero_affiche,
+        "Lily",
+    ] {
+        assert!(
+            texte.contains(attendu),
+            "« {attendu} » absent du PDF : {texte}"
+        );
+    }
+    let code = code_lisible(e.code_verification.as_deref().unwrap());
+    assert!(texte.contains(&code), "code lisible absent : {texte}");
+    assert!(!texte.contains("ULIS"), "la classe ne s'imprime jamais");
+    assert!(lu.octets.len() > 1000);
+    // La vérification publique par dépôt reconnaît ce vrai PDF.
+    assert!(matches!(
+        w.ent
+            .verifier_par_depot(w.m.etab, &lu.octets)
+            .await
+            .unwrap(),
+        ReponseDepot::Identique { .. }
+    ));
+}

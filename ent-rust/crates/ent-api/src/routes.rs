@@ -296,7 +296,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/documents/{id}/fichier", get(telecharger_document_fichier))
         .route("/documents/{id}/lien", post(lien_document_fichier))
-        // Mode local des liens courts : route PUBLIQUE, le jeton signé fait foi.
+        // Mode local des liens courts : jeton signé, lié à la session de son destinataire.
         .route("/fichiers/{jeton}", get(servir_fichier_signe))
         .route("/documents/{id}/grants", post(demander_grant_document))
         .route("/documents/grants/pending", get(list_grants_pending))
@@ -856,6 +856,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::assiduite::routes());
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
+    let r = r.merge(crate::recherche::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
@@ -883,6 +884,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::absences_personnels_reponse::routes());
     let r = r.merge(crate::absences_personnels_suppleance::routes());
     let r = r.merge(crate::absences_personnels_rcd::routes());
+    let r = r.merge(crate::absences_personnels_heures::routes());
     // Services d'enseignement et interventions (socle 6, lot P3 : `personnels_services.rs`).
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
@@ -1861,12 +1863,14 @@ async fn lien_piece_message(
 
 /// Mode local des liens courts : sert le fichier désigné par un jeton signé.
 ///
-/// Route publique : le jeton (HMAC-SHA256, expiration courte) est la seule preuve.
-/// L'objet doit appartenir à l'établissement signé ; type, nom et disposition viennent
+/// Le jeton (HMAC-SHA256, expiration courte, clé objet chiffrée) est lié à l'utilisateur :
+/// la route exige une session authentifiée dont l'utilisateur est celui du jeton (un lien
+/// transféré à un tiers, même connecté, est refusé). L'objet doit appartenir à l'établissement signé ; type, nom et disposition viennent
 /// du jeton (jamais du client) ; les types actifs (html, svg, xml…) sont forcés en
 /// téléchargement. Le jeton n'est jamais journalisé (le span ne porte que le gabarit).
 async fn servir_fichier_signe(
     State(state): State<AppState>,
+    session: EntSession,
     Path(jeton): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
     use ent_db::presign::{
@@ -1881,6 +1885,10 @@ async fn servir_fichier_signe(
             PresignError::Disabled => (StatusCode::NOT_FOUND, "Introuvable.".to_string()),
             _ => (StatusCode::FORBIDDEN, "Lien invalide.".to_string()),
         })?;
+    // Lien lié à l'utilisateur et à son établissement : refus uniforme sinon.
+    if claims.user_id != session.user_id || claims.etablissement_id != session.etablissement_id {
+        return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
+    }
     // Défense en profondeur : l'objet doit appartenir à l'établissement signé.
     if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
         return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));

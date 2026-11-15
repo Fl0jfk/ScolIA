@@ -14,9 +14,11 @@ pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
 pub mod portail;
+pub mod portail_modes;
 /// Socle 29, lots P2 et P3 : index des tâches (kit D-026), rapprochement, à-faire famille.
 pub mod afaire;
 pub mod afaire_files;
+pub mod recherche_globale;
 mod afaire_service;
 mod afaire_sources;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
@@ -31,6 +33,10 @@ pub mod demandes_catalogue;
 /// Lot N1-2 : échanges, pièces (références au socle 7), abonnés ; ports du socle 7 et du socle 16.
 pub mod demandes_echanges;
 pub mod demandes_files;
+/// Lot N1-3 : HSE en heures, validées par la direction (D-061) ; port vers le socle 15, export de secours.
+pub mod demandes_hse;
+/// Lot N1-3 : reprographie, file d'impression par site, « prête » par geste authentifié.
+pub mod demandes_repro;
 /// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
 pub mod demandes_prise;
 pub mod demandes_routage;
@@ -38,6 +44,8 @@ pub mod demandes_routage;
 pub mod documents;
 /// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
 pub mod documents_natures;
+/// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
+pub mod documents_pdf;
 pub mod documents_repo;
 mod evaluations_conseil;
 pub mod module_sante;
@@ -45,6 +53,8 @@ pub mod module_sante;
 mod tests_evaluations;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
@@ -514,6 +524,8 @@ mod tests_demandes_n1_1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_2;
 #[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_3;
+#[cfg(all(test, feature = "labo"))]
 mod tests_documents_d2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d3;
@@ -534,11 +546,15 @@ mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_portail_p1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_portail_p7;
+#[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recherche_p5;
 #[cfg(test)]
 mod tests_voyages_v0b;
 #[cfg(test)]

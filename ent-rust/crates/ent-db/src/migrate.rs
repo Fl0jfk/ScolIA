@@ -290,6 +290,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2305_absp_sollicitation"),
     m!("2306_absp_suppleance"),
     m!("2307_absp_rcd"),
+    m!("2308_absp_heures"),
+    m!("2310_absp_paie_dsn"),
     m!("2312_absp_personas_circuit_arrets"),
     m!("2380_agenda_ag0_rencontres"),
     m!("2381_agenda_evenement"),
@@ -311,6 +313,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2580_afaire_index"),
     m!("2581_afaire_journal_prises"),
     m!("2582_afaire_reglages"),
+    // Lot P5 : compteur de recherches (volatile, aucun texte de requête).
+    m!("2585_recherche_compteur"),
     m!("2780_stage_st0_correctifs"),
     m!("2781_stage_st1a_parametres_organismes"),
     m!("2782_stage_st1a_periodes"),
@@ -327,6 +331,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot N1-2 : échanges, pièces (références au socle 7), abonnés ; consultations, liens, personnes visées.
     m!("3044_demandes_n1_2_echanges"),
     m!("3045_demandes_n1_2_consultations_liens"),
+    // Lot N1-3 : HSE (en heures, validées par la direction, D-061) et reprographie (file par site).
+    m!("3046_demandes_n1_3_hse"),
+    m!("3047_demandes_n1_3_reprographie"),
     m!("3700_documents_identite_natures"),
     m!("3701_documents_documents_versions"),
     m!("3702_documents_compteurs"),
