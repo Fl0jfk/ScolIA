@@ -28,7 +28,9 @@ use std::sync::Arc;
 use chrono::{Datelike, Months, NaiveDate};
 use ent_auth::{Action, Role};
 use ent_events::MetierEvent;
-use ent_object::upload::{AnalyseurAntivirus, ContexteAnalyse, TypeFichier, UsageFichier, VerdictAnalyse};
+use ent_object::upload::{
+    AnalyseurAntivirus, ContexteAnalyse, TypeFichier, UsageFichier, VerdictAnalyse,
+};
 use ent_pdf::piece::{desarmer_pdf, images_en_pdf, ErreurPiece};
 use serde_json::json;
 use sqlx::{PgConnection, Row};
@@ -124,7 +126,18 @@ const fn t(
     domaine: Domaine,
     conseil: &'static str,
 ) -> PieceTypeDecl {
-    PieceTypeDecl { code, libelle, portee, validite, sensibilite, domaine, copie_gardee: true, conseil, demandable: true, accueil_controle: false }
+    PieceTypeDecl {
+        code,
+        libelle,
+        portee,
+        validite,
+        sensibilite,
+        domaine,
+        copie_gardee: true,
+        conseil,
+        demandable: true,
+        accueil_controle: false,
+    }
 }
 
 use Domaine as D;
@@ -135,45 +148,212 @@ use Validite as V;
 /// Le catalogue des pièces que ScolIA sait demander. **Fermé** : un établissement ne peut pas y ajouter ce qui est interdit
 /// (§11.2), il active ou non les types et peut utiliser « autre » (motivé).
 pub const CATALOGUE: &[PieceTypeDecl] = &[
-    t("justificatif_domicile", "Justificatif de domicile", P::Foyer, V::Mois(3), C2, D::Scolarite,
-      "Facture d'énergie, d'eau, de téléphone fixe, quittance de loyer ou avis d'imposition."),
-    t("livret_famille", "Livret de famille (pages utiles)", P::Foyer, V::Permanente, C2, D::Scolarite,
-      "Seules les pages des parents et de l'enfant concerné."),
-    t("acte_naissance", "Acte de naissance", P::Eleve, V::Permanente, C2, D::Scolarite, ""),
-    t("decision_justice", "Décision de justice (autorité, résidence, protection)", P::Eleve, V::JusquaDecision, C3, D::Justice,
-      "La première page et le dispositif suffisent."),
+    t(
+        "justificatif_domicile",
+        "Justificatif de domicile",
+        P::Foyer,
+        V::Mois(3),
+        C2,
+        D::Scolarite,
+        "Facture d'énergie, d'eau, de téléphone fixe, quittance de loyer ou avis d'imposition.",
+    ),
+    t(
+        "livret_famille",
+        "Livret de famille (pages utiles)",
+        P::Foyer,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "Seules les pages des parents et de l'enfant concerné.",
+    ),
+    t(
+        "acte_naissance",
+        "Acte de naissance",
+        P::Eleve,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "decision_justice",
+        "Décision de justice (autorité, résidence, protection)",
+        P::Eleve,
+        V::JusquaDecision,
+        C3,
+        D::Justice,
+        "La première page et le dispositif suffisent.",
+    ),
     PieceTypeDecl {
         copie_gardee: false,
         accueil_controle: true,
-        ..t("piece_identite", "Pièce d'identité", P::Personne, V::Permanente, C2, D::Scolarite,
-            "Elle n'est vue que le temps du contrôle : ScolIA n'en garde pas de copie.")
+        ..t(
+            "piece_identite",
+            "Pièce d'identité",
+            P::Personne,
+            V::Permanente,
+            C2,
+            D::Scolarite,
+            "Elle n'est vue que le temps du contrôle : ScolIA n'en garde pas de copie.",
+        )
     },
-    t("attestation_assurance", "Attestation d'assurance scolaire", P::Eleve, V::AnneeScolaire, C2, D::Scolarite, ""),
-    t("photo_identite", "Photo d'identité", P::Eleve, V::Mois(12), C2, D::Scolarite,
-      "Le consentement à l'affichage se donne séparément."),
-    t("exeat", "Certificat de radiation de l'établissement d'origine (exeat)", P::Eleve, V::Permanente, C2, D::Scolarite, ""),
-    t("bulletins_anterieurs", "Bulletins ou dossier scolaire antérieurs", P::Eleve, V::Permanente, C2, D::Scolarite, ""),
-    t("quotient_familial", "Attestation de quotient familial ou de ressources", P::Foyer, V::AnneeCivile, C2, D::Financier, ""),
-    t("avis_imposition", "Avis d'imposition (bourses)", P::Foyer, V::AnneeCivile, C2, D::Financier,
-      "Seule la première page est nécessaire."),
-    t("certificat_medical", "Certificat médical, ordonnance, protocole", P::Eleve, V::Variable, C3, D::Sante,
-      "Proposé seulement si le module santé est actif."),
-    t("notification_mdph", "Notification MDPH, plan d'accompagnement", P::Eleve, V::Variable, C3, D::Sante, ""),
-    t("attestation_rc_entreprise", "Attestation de responsabilité civile de l'entreprise", P::Eleve, V::Variable, C1, D::Scolarite, ""),
-    t("piece_rh", "Pièce RH (diplôme, contrat, attestation)", P::Agent, V::Variable, C2, D::Rh, ""),
-    t("autorisation_travail", "Autorisation de travail d'un salarié étranger", P::Agent, V::Variable, C2, D::Rh, ""),
-    t("attestation_hebergement", "Attestation d'hébergement", P::Foyer, V::Mois(3), C2, D::Scolarite,
-      "Pas de pièce d'identité de l'hébergeant."),
-    t("attestation_domiciliation", "Attestation de domiciliation (organisme agréé)", P::Foyer, V::Mois(12), C2, D::Scolarite, ""),
-    t("justificatif_absence", "Justificatif d'absence", P::Eleve, V::AnneeScolaire, C2, D::Scolarite, "Le motif suffit."),
-    t("certificat_mairie", "Certificat d'inscription délivré par la mairie", P::Eleve, V::Permanente, C2, D::Scolarite, ""),
+    t(
+        "attestation_assurance",
+        "Attestation d'assurance scolaire",
+        P::Eleve,
+        V::AnneeScolaire,
+        C2,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "photo_identite",
+        "Photo d'identité",
+        P::Eleve,
+        V::Mois(12),
+        C2,
+        D::Scolarite,
+        "Le consentement à l'affichage se donne séparément.",
+    ),
+    t(
+        "exeat",
+        "Certificat de radiation de l'établissement d'origine (exeat)",
+        P::Eleve,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "bulletins_anterieurs",
+        "Bulletins ou dossier scolaire antérieurs",
+        P::Eleve,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "quotient_familial",
+        "Attestation de quotient familial ou de ressources",
+        P::Foyer,
+        V::AnneeCivile,
+        C2,
+        D::Financier,
+        "",
+    ),
+    t(
+        "avis_imposition",
+        "Avis d'imposition (bourses)",
+        P::Foyer,
+        V::AnneeCivile,
+        C2,
+        D::Financier,
+        "Seule la première page est nécessaire.",
+    ),
+    t(
+        "certificat_medical",
+        "Certificat médical, ordonnance, protocole",
+        P::Eleve,
+        V::Variable,
+        C3,
+        D::Sante,
+        "Proposé seulement si le module santé est actif.",
+    ),
+    t(
+        "notification_mdph",
+        "Notification MDPH, plan d'accompagnement",
+        P::Eleve,
+        V::Variable,
+        C3,
+        D::Sante,
+        "",
+    ),
+    t(
+        "attestation_rc_entreprise",
+        "Attestation de responsabilité civile de l'entreprise",
+        P::Eleve,
+        V::Variable,
+        C1,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "piece_rh",
+        "Pièce RH (diplôme, contrat, attestation)",
+        P::Agent,
+        V::Variable,
+        C2,
+        D::Rh,
+        "",
+    ),
+    t(
+        "autorisation_travail",
+        "Autorisation de travail d'un salarié étranger",
+        P::Agent,
+        V::Variable,
+        C2,
+        D::Rh,
+        "",
+    ),
+    t(
+        "attestation_hebergement",
+        "Attestation d'hébergement",
+        P::Foyer,
+        V::Mois(3),
+        C2,
+        D::Scolarite,
+        "Pas de pièce d'identité de l'hébergeant.",
+    ),
+    t(
+        "attestation_domiciliation",
+        "Attestation de domiciliation (organisme agréé)",
+        P::Foyer,
+        V::Mois(12),
+        C2,
+        D::Scolarite,
+        "",
+    ),
+    t(
+        "justificatif_absence",
+        "Justificatif d'absence",
+        P::Eleve,
+        V::AnneeScolaire,
+        C2,
+        D::Scolarite,
+        "Le motif suffit.",
+    ),
+    t(
+        "certificat_mairie",
+        "Certificat d'inscription délivré par la mairie",
+        P::Eleve,
+        V::Permanente,
+        C2,
+        D::Scolarite,
+        "",
+    ),
     // « Autre » : motif obligatoire, jamais pour ce que le catalogue interdit.
-    t("autre", "Autre pièce (motif exigé)", P::Eleve, V::Variable, C2, D::Scolarite,
-      "Le motif est affiché à la famille et apparaît dans la revue du DPO."),
+    t(
+        "autre",
+        "Autre pièce (motif exigé)",
+        P::Eleve,
+        V::Variable,
+        C2,
+        D::Scolarite,
+        "Le motif est affiché à la famille et apparaît dans la revue du DPO.",
+    ),
     // Type technique de la reprise des demandes (N1-5) : pièces jointes d'une demande de l'ancienne application.
     PieceTypeDecl {
         demandable: false,
-        ..t("piece_de_demande", "Pièce jointe d'une demande (reprise)", P::Personne, V::Permanente, C2, D::Scolarite, "")
+        ..t(
+            "piece_de_demande",
+            "Pièce jointe d'une demande (reprise)",
+            P::Personne,
+            V::Permanente,
+            C2,
+            D::Scolarite,
+            "",
+        )
     },
 ];
 
@@ -184,9 +364,24 @@ pub fn type_piece(code: &str) -> Option<&'static PieceTypeDecl> {
 /// Mots qui, dans le motif d'une pièce « autre », signalent une pièce qu'aucun établissement ne peut demander (§11.2).
 /// Comparaison sans accents ni majuscules.
 const INTERDITS: &[&str] = &[
-    "titre de sejour", "carte de sejour", "visa", "regularite", "situation administrative", "carte vitale",
-    "securite sociale", "releve d'identite bancaire", "rib", "iban", "casier judiciaire", "bulletin n3",
-    "religi", "baptem", "culte", "photo du domicile", "photos du domicile", "photo de la maison",
+    "titre de sejour",
+    "carte de sejour",
+    "visa",
+    "regularite",
+    "situation administrative",
+    "carte vitale",
+    "securite sociale",
+    "releve d'identite bancaire",
+    "rib",
+    "iban",
+    "casier judiciaire",
+    "bulletin n3",
+    "religi",
+    "baptem",
+    "culte",
+    "photo du domicile",
+    "photos du domicile",
+    "photo de la maison",
 ];
 
 fn sans_accents(s: &str) -> String {
@@ -223,19 +418,29 @@ pub fn fin_de_validite(
     fournie: Option<NaiveDate>,
 ) -> Result<Option<NaiveDate>, EntDbError> {
     if fournie.is_some_and(|f| f < jour) {
-        return Err(refus(RefusMetier::Conflit, "la date de validité est déjà passée : refuser la pièce (périmée)"));
+        return Err(refus(
+            RefusMetier::Conflit,
+            "la date de validité est déjà passée : refuser la pièce (périmée)",
+        ));
     }
     let calculee = match decl.validite {
         Validite::Permanente | Validite::JusquaDecision => None,
         Validite::Mois(n) => jour.checked_add_months(Months::new(n)),
         Validite::AnneeScolaire => {
-            let a = if jour.month() >= 9 { jour.year() + 1 } else { jour.year() };
+            let a = if jour.month() >= 9 {
+                jour.year() + 1
+            } else {
+                jour.year()
+            };
             NaiveDate::from_ymd_opt(a, 8, 31)
         }
         Validite::AnneeCivile => NaiveDate::from_ymd_opt(jour.year(), 12, 31),
         Validite::Variable => {
             if fournie.is_none() {
-                return Err(refus(RefusMetier::Invalide, "la date de validité de cette pièce est à saisir"));
+                return Err(refus(
+                    RefusMetier::Invalide,
+                    "la date de validité de cette pièce est à saisir",
+                ));
             }
             None
         }
@@ -347,10 +552,17 @@ pub struct RapportAnalyse {
 #[derive(Debug, Clone)]
 pub enum ControleDecision {
     /// `valable_jusqu_au` : date lue sur la pièce (obligatoire pour les types à validité variable).
-    Accepter { valable_jusqu_au: Option<NaiveDate> },
+    Accepter {
+        valable_jusqu_au: Option<NaiveDate>,
+    },
     /// Motif type : `illisible`, `incomplet`, `perime`, `ne_correspond_pas`, `mauvais_document`, `autre`.
-    Refuser { motif: String, commentaire: Option<String> },
-    SansObjet { commentaire: String },
+    Refuser {
+        motif: String,
+        commentaire: Option<String>,
+    },
+    SansObjet {
+        commentaire: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -437,7 +649,11 @@ fn message_erreur_piece(e: &ErreurPiece) -> String {
 }
 
 /// Les élèves du même foyer que `eleve` (liens portant le même `foyer_id`), l'élève compris.
-async fn eleves_du_foyer(conn: &mut PgConnection, etab: Uuid, eleve: Uuid) -> Result<Vec<Uuid>, EntDbError> {
+async fn eleves_du_foyer(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleve: Uuid,
+) -> Result<Vec<Uuid>, EntDbError> {
     let l: Vec<(Uuid,)> = sqlx::query_as(
         "SELECT DISTINCT l2.eleve_id FROM ent_eleve_lien l1
            JOIN ent_eleve_lien l2 ON l2.etablissement_id = l1.etablissement_id AND l2.foyer_id = l1.foyer_id
@@ -551,7 +767,12 @@ impl LignePiece {
     }
 }
 
-async fn piece_par_id(conn: &mut PgConnection, etab: Uuid, id: Uuid, verrou: bool) -> Result<LignePiece, EntDbError> {
+async fn piece_par_id(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+    verrou: bool,
+) -> Result<LignePiece, EntDbError> {
     let sql = format!(
         "SELECT {COLONNES_PIECE} FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2{}",
         if verrou { " FOR UPDATE" } else { "" }
@@ -566,23 +787,41 @@ async fn piece_par_id(conn: &mut PgConnection, etab: Uuid, id: Uuid, verrou: boo
 }
 
 fn systeme(etab: Uuid) -> Acteur<'static> {
-    Acteur { etablissement_id: etab, user_id: Uuid::nil(), role: "systeme" }
+    Acteur {
+        etablissement_id: etab,
+        user_id: Uuid::nil(),
+        role: "systeme",
+    }
 }
 
 // ───────────────────────── Service ─────────────────────────
 
 impl PgEnt {
     /// Le droit **de domaine** d'un type de pièce (C3 : santé, justice ; financier ; RH) en plus du droit de la fonction.
-    async fn droit_du_type(&self, a: &Acteur<'_>, decl: &PieceTypeDecl, eleve: Option<Uuid>) -> Result<bool, EntDbError> {
-        if decl.sensibilite >= Sensibilite::C3 || matches!(decl.domaine, Domaine::Financier | Domaine::Rh) {
-            return self.doc_peut_sur_sujet(a, decl.domaine.action_lecture(), eleve).await;
+    async fn droit_du_type(
+        &self,
+        a: &Acteur<'_>,
+        decl: &PieceTypeDecl,
+        eleve: Option<Uuid>,
+    ) -> Result<bool, EntDbError> {
+        if decl.sensibilite >= Sensibilite::C3
+            || matches!(decl.domaine, Domaine::Financier | Domaine::Rh)
+        {
+            return self
+                .doc_peut_sur_sujet(a, decl.domaine.action_lecture(), eleve)
+                .await;
         }
         Ok(true)
     }
 
     /// Peut-on **contrôler** cette pièce ? `documents.pieces.controler`, l'accueil pour l'identité seulement, le droit du
     /// domaine pour les types sensibles, le droit sur l'élève.
-    async fn peut_controler(&self, a: &Acteur<'_>, decl: &PieceTypeDecl, eleve: Option<Uuid>) -> Result<bool, EntDbError> {
+    async fn peut_controler(
+        &self,
+        a: &Acteur<'_>,
+        decl: &PieceTypeDecl,
+        eleve: Option<Uuid>,
+    ) -> Result<bool, EntDbError> {
         if Role::parse(a.role).is_none_or(|r| !r.is_staff()) {
             return Ok(false);
         }
@@ -591,11 +830,23 @@ impl PgEnt {
         }
         let ok = match eleve {
             Some(e) => {
-                self.autoriser_eleve(a.etablissement_id, a.user_id, a.role, Action::DocumentsPiecesControler, e).await?
+                self.autoriser_eleve(
+                    a.etablissement_id,
+                    a.user_id,
+                    a.role,
+                    Action::DocumentsPiecesControler,
+                    e,
+                )
+                .await?
             }
             None => {
-                self.a_action_etablissement(a.etablissement_id, a.user_id, a.role, Action::DocumentsPiecesControler)
-                    .await?
+                self.a_action_etablissement(
+                    a.etablissement_id,
+                    a.user_id,
+                    a.role,
+                    Action::DocumentsPiecesControler,
+                )
+                .await?
             }
         };
         Ok(ok && self.droit_du_type(a, decl, eleve).await?)
@@ -616,7 +867,9 @@ impl PgEnt {
             SujetPiece::Agent(g) => t.agents.contains(&g),
             SujetPiece::Eleve(e) => {
                 if t.eleves.contains(&e) {
-                    majeurs_parmi(&mut *conn, a.etablissement_id, &[e], jour).await?.contains(&e)
+                    majeurs_parmi(&mut *conn, a.etablissement_id, &[e], jour)
+                        .await?
+                        .contains(&e)
                 } else {
                     liens_autorite(&mut *conn, a.etablissement_id, &t.personnes, jour)
                         .await?
@@ -632,26 +885,48 @@ impl PgEnt {
     /// **Demande** une pièce (`demander_pieces`, §11.3) : droit `documents.pieces.demander` (et celui du domaine pour un
     /// type sensible), type du catalogue, sujet cohérent avec sa portée. Idempotent : une demande ouverte existante est
     /// rendue telle quelle. Cherche d'abord une pièce **valable** au dossier et la **propose**.
-    pub async fn demander_piece_for_actor(&self, a: &Acteur<'_>, d: DemandePiece) -> Result<DemandeCreee, EntDbError> {
-        let decl = type_piece(&d.type_code).filter(|t| t.demandable).ok_or_else(invalide)?;
+    pub async fn demander_piece_for_actor(
+        &self,
+        a: &Acteur<'_>,
+        d: DemandePiece,
+    ) -> Result<DemandeCreee, EntDbError> {
+        let decl = type_piece(&d.type_code)
+            .filter(|t| t.demandable)
+            .ok_or_else(invalide)?;
         let motif = texte(&d.motif_affiche, 3, 300)?;
         let brique = d.brique.trim().to_string();
-        if brique.is_empty() || brique.len() > 40 || !brique.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+        if brique.is_empty()
+            || brique.len() > 40
+            || !brique
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        {
             return Err(invalide());
         }
         if !d.sujet.convient(decl) {
-            return Err(refus(RefusMetier::Conflit, "ce type de pièce ne se demande pas pour ce sujet"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "ce type de pièce ne se demande pas pour ce sujet",
+            ));
         }
         if decl.code == "autre" && motif_interdit(&motif) {
-            return Err(refus(RefusMetier::Conflit, "cette pièce ne peut être demandée par aucun établissement"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "cette pièce ne peut être demandée par aucun établissement",
+            ));
         }
-        self.exiger_action_documents(a, Action::DocumentsPiecesDemander).await?;
-        if !self.doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, d.sujet.eleve()).await?
+        self.exiger_action_documents(a, Action::DocumentsPiecesDemander)
+            .await?;
+        if !self
+            .doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, d.sujet.eleve())
+            .await?
             || !self.droit_du_type(a, decl, d.sujet.eleve()).await?
         {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let (e, p, g) = d.sujet.colonnes();
         if decl.code != "autre" {
@@ -671,7 +946,11 @@ impl PgEnt {
             if let Some((id,)) = existante {
                 let prop = piece_valable(&mut tx, a.etablissement_id, decl, d.sujet, jour).await?;
                 tx.commit().await.map_err(db)?;
-                return Ok(DemandeCreee { demande_id: id, deja_ouverte: true, proposition_piece_id: prop });
+                return Ok(DemandeCreee {
+                    demande_id: id,
+                    deja_ouverte: true,
+                    proposition_piece_id: prop,
+                });
             }
         }
         let proposition = piece_valable(&mut tx, a.etablissement_id, decl, d.sujet, jour).await?;
@@ -698,7 +977,17 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        journaliser(&mut tx, a, None, None, "piece_demandee", (None, None), Some(decl.code), None).await?;
+        journaliser(
+            &mut tx,
+            a,
+            None,
+            None,
+            "piece_demandee",
+            (None, None),
+            Some(decl.code),
+            None,
+        )
+        .await?;
         let ev = publier(
             &mut tx,
             a,
@@ -710,7 +999,11 @@ impl PgEnt {
         .await?;
         tx.commit().await.map_err(db)?;
         self.diffuser_apres_commit(&[ev]);
-        Ok(DemandeCreee { demande_id: id, deja_ouverte: false, proposition_piece_id: proposition })
+        Ok(DemandeCreee {
+            demande_id: id,
+            deja_ouverte: false,
+            proposition_piece_id: proposition,
+        })
     }
 
     /// Annule une demande ouverte (motif obligatoire).
@@ -720,9 +1013,12 @@ impl PgEnt {
         demande_id: Uuid,
         motif: &str,
     ) -> Result<(), EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsPiecesDemander).await?;
+        self.exiger_action_documents(a, Action::DocumentsPiecesDemander)
+            .await?;
         let motif = texte(motif, 3, 500)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let r: Option<(String, Option<Uuid>)> = sqlx::query_as(
             "UPDATE ent_doc_piece_demande SET etat = 'annulee', cloturee_le = now(), cloture_motif = $3
               WHERE etablissement_id = $1 AND id = $2 AND etat = 'ouverte' RETURNING type_code, eleve_id",
@@ -734,17 +1030,32 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let Some((type_code, eleve)) = r else {
-            return Err(refus(RefusMetier::Conflit, "demande introuvable ou déjà close"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "demande introuvable ou déjà close",
+            ));
         };
         let decl = type_piece(&type_code);
         if let Some(decl) = decl {
-            if !self.doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, eleve).await?
+            if !self
+                .doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, eleve)
+                .await?
                 || !self.droit_du_type(a, decl, eleve).await?
             {
                 return Err(EntDbError::Forbidden);
             }
         }
-        journaliser(&mut tx, a, None, None, "piece_demande_annulee", (None, None), Some(&type_code), Some(&motif)).await?;
+        journaliser(
+            &mut tx,
+            a,
+            None,
+            None,
+            "piece_demande_annulee",
+            (None, None),
+            Some(&type_code),
+            Some(&motif),
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -754,39 +1065,66 @@ impl PgEnt {
     /// **Dépose** une pièce (§11.3). La famille : titulaire de l'autorité au lien actif, élève majeur, personne pour
     /// elle-même. L'agent : `documents.deposer` sur l'élève (guichet, scan). Contrôle de forme **à l'entrée** (type réel
     /// par signature, taille, nombre) puis **quarantaine** : rien n'est servi, l'analyse suit (`analyser_piece`).
-    pub async fn deposer_piece_for_actor(&self, a: &Acteur<'_>, d: DepotPiece) -> Result<PieceDeposee, EntDbError> {
+    pub async fn deposer_piece_for_actor(
+        &self,
+        a: &Acteur<'_>,
+        d: DepotPiece,
+    ) -> Result<PieceDeposee, EntDbError> {
         let decl = type_piece(&d.type_code).ok_or_else(invalide)?;
         if !d.sujet.convient(decl) {
-            return Err(refus(RefusMetier::Conflit, "ce type de pièce ne se dépose pas pour ce sujet"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "ce type de pièce ne se dépose pas pour ce sujet",
+            ));
         }
         let motif_autre = match (decl.code == "autre", d.motif_autre.as_deref()) {
             (true, Some(m)) => {
                 let m = texte(m, 3, 300)?;
                 if motif_interdit(&m) {
-                    return Err(refus(RefusMetier::Conflit, "cette pièce ne peut être demandée ni conservée par un établissement"));
+                    return Err(refus(
+                        RefusMetier::Conflit,
+                        "cette pièce ne peut être demandée ni conservée par un établissement",
+                    ));
                 }
                 Some(m)
             }
-            (true, None) => return Err(refus(RefusMetier::Invalide, "le motif est obligatoire pour une autre pièce")),
+            (true, None) => {
+                return Err(refus(
+                    RefusMetier::Invalide,
+                    "le motif est obligatoire pour une autre pièce",
+                ))
+            }
             (false, _) => None,
         };
         if d.fichiers.is_empty() || d.fichiers.len() > ent_pdf::piece::PAGES_MAX {
-            return Err(refus(RefusMetier::Invalide, "un PDF, ou de une à cinquante photos"));
+            return Err(refus(
+                RefusMetier::Invalide,
+                "un PDF, ou de une à cinquante photos",
+            ));
         }
         let mut total = 0usize;
         let mut types = Vec::new();
         for f in &d.fichiers {
             if f.is_empty() || f.len() > FICHIER_MAX {
-                return Err(refus(RefusMetier::Invalide, "fichier vide ou trop volumineux (15 Mio au plus)"));
+                return Err(refus(
+                    RefusMetier::Invalide,
+                    "fichier vide ou trop volumineux (15 Mio au plus)",
+                ));
             }
             total += f.len();
             types.push(type_de_fichier(f)?);
         }
         if total > DEPOT_MAX {
-            return Err(refus(RefusMetier::Invalide, "dépôt trop volumineux (45 Mio au plus)"));
+            return Err(refus(
+                RefusMetier::Invalide,
+                "dépôt trop volumineux (45 Mio au plus)",
+            ));
         }
         if types.contains(&TypeFichier::Pdf) && d.fichiers.len() > 1 {
-            return Err(refus(RefusMetier::Invalide, "un seul PDF à la fois, ou plusieurs photos : pas les deux"));
+            return Err(refus(
+                RefusMetier::Invalide,
+                "un seul PDF à la fois, ou plusieurs photos : pas les deux",
+            ));
         }
         // Original scellé : le fichier tel quel, ou l'archive des photos reçues.
         let (original, mime) = if d.fichiers.len() == 1 {
@@ -801,23 +1139,34 @@ impl PgEnt {
         } else {
             let mut z = EcrivainZip::nouveau();
             for (i, (f, t)) in d.fichiers.iter().zip(&types).enumerate() {
-                let ext = if *t == TypeFichier::Jpeg { "jpg" } else { "png" };
-                z.ajouter(&format!("{:03}.{ext}", i + 1), f).map_err(|_| invalide())?;
+                let ext = if *t == TypeFichier::Jpeg {
+                    "jpg"
+                } else {
+                    "png"
+                };
+                z.ajouter(&format!("{:03}.{ext}", i + 1), f)
+                    .map_err(|_| invalide())?;
             }
             (z.terminer(), "application/zip")
         };
         let staff = Role::parse(a.role).is_some_and(|r| r.is_staff());
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         if staff {
             match d.sujet.eleve() {
                 Some(e) => {
-                    if !self.doc_peut_sur_sujet(a, Action::DocumentsDeposer, Some(e)).await? {
+                    if !self
+                        .doc_peut_sur_sujet(a, Action::DocumentsDeposer, Some(e))
+                        .await?
+                    {
                         return Err(EntDbError::Forbidden);
                     }
                 }
                 None => {
-                    self.exiger_action_documents(a, Action::DocumentsDeposer).await?;
+                    self.exiger_action_documents(a, Action::DocumentsDeposer)
+                        .await?;
                 }
             }
             if !self.droit_du_type(a, decl, d.sujet.eleve()).await? {
@@ -837,16 +1186,26 @@ impl PgEnt {
             .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
-            let Some((tc, de, dp, dg, etat)) = dem else { return Err(introuvable()) };
+            let Some((tc, de, dp, dg, etat)) = dem else {
+                return Err(introuvable());
+            };
             let ok_sujet = match d.sujet {
                 SujetPiece::Eleve(e) => {
-                    de == Some(e) || (decl.portee == PortePiece::Foyer && de.is_some() && eleves_du_foyer(&mut tx, a.etablissement_id, e).await?.contains(&de.unwrap_or_default()))
+                    de == Some(e)
+                        || (decl.portee == PortePiece::Foyer
+                            && de.is_some()
+                            && eleves_du_foyer(&mut tx, a.etablissement_id, e)
+                                .await?
+                                .contains(&de.unwrap_or_default()))
                 }
                 SujetPiece::Personne(p) => dp == Some(p),
                 SujetPiece::Agent(g) => dg == Some(g),
             };
             if tc != decl.code || !ok_sujet || etat != "ouverte" {
-                return Err(refus(RefusMetier::Conflit, "cette demande ne correspond pas à ce dépôt ou n'est plus ouverte"));
+                return Err(refus(
+                    RefusMetier::Conflit,
+                    "cette demande ne correspond pas à ce dépôt ou n'est plus ouverte",
+                ));
             }
         }
         let (recents,): (i64,) = sqlx::query_as(
@@ -858,7 +1217,10 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if recents >= DEPOTS_PAR_JOUR {
-            return Err(refus(RefusMetier::Conflit, "trop de dépôts aujourd'hui : réessayez demain ou rendez-vous au secrétariat"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "trop de dépôts aujourd'hui : réessayez demain ou rendez-vous au secrétariat",
+            ));
         }
         let id = Uuid::new_v4();
         let ext = match mime {
@@ -867,7 +1229,8 @@ impl PgEnt {
             "image/png" => "png",
             _ => "zip",
         };
-        let cle = ent_object::ObjectStore::key_for(a.etablissement_id, "pieces-quarantaine", id, ext);
+        let cle =
+            ent_object::ObjectStore::key_for(a.etablissement_id, "pieces-quarantaine", id, ext);
         let info = self.objet_put(&cle, &original).await?;
         crate::objets::enregistrer_objet(&mut *tx, a.etablissement_id, &info, Some(mime)).await?;
         let (e, p, g) = d.sujet.colonnes();
@@ -896,21 +1259,43 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        decision(&mut tx, a.etablissement_id, id, d.demande_id, "deposee", None, None, a.user_id).await?;
+        decision(
+            &mut tx,
+            a.etablissement_id,
+            id,
+            d.demande_id,
+            "deposee",
+            None,
+            None,
+            a.user_id,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
-        Ok(PieceDeposee { piece_id: id, etat: "en_quarantaine".into() })
+        Ok(PieceDeposee {
+            piece_id: id,
+            etat: "en_quarantaine".into(),
+        })
     }
 
     /// Retire une pièce **déposée par erreur** : son déposant, tant qu'elle n'est pas contrôlée (quarantaine ou reçue).
-    pub async fn retirer_depot_for_actor(&self, a: &Acteur<'_>, piece_id: Uuid) -> Result<(), EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+    pub async fn retirer_depot_for_actor(
+        &self,
+        a: &Acteur<'_>,
+        piece_id: Uuid,
+    ) -> Result<(), EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let pc = piece_par_id(&mut tx, a.etablissement_id, piece_id, true).await?;
         if pc.deposant_user_id != a.user_id {
             // Aucun indice sur l'existence : « introuvable » pour qui n'est pas le déposant.
             return Err(introuvable());
         }
         if !matches!(pc.etat.as_str(), "en_quarantaine" | "recue") {
-            return Err(refus(RefusMetier::Conflit, "la pièce est déjà contrôlée : elle ne se retire plus"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "la pièce est déjà contrôlée : elle ne se retire plus",
+            ));
         }
         sqlx::query("UPDATE ent_doc_piece SET etat = 'retiree', maj_le = now() WHERE etablissement_id = $1 AND id = $2")
             .bind(a.etablissement_id)
@@ -918,7 +1303,17 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        decision(&mut tx, a.etablissement_id, piece_id, pc.demande_id, "retiree", None, None, a.user_id).await?;
+        decision(
+            &mut tx,
+            a.etablissement_id,
+            piece_id,
+            pc.demande_id,
+            "retiree",
+            None,
+            None,
+            a.user_id,
+        )
+        .await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -946,7 +1341,11 @@ impl PgEnt {
         let fichiers: Vec<Vec<u8>> = if pc.mime_original == "application/zip" {
             match lire_zip_stored(&original) {
                 Ok(l) => l.into_iter().map(|(_, o)| o).collect(),
-                Err(_) => return self.conclure_rejet(etab, &pc, "archive de photos illisible").await,
+                Err(_) => {
+                    return self
+                        .conclure_rejet(etab, &pc, "archive de photos illisible")
+                        .await
+                }
             }
         } else {
             vec![original]
@@ -957,7 +1356,12 @@ impl PgEnt {
         let verdict = tokio::task::spawn_blocking(move || {
             for f in &a_scanner {
                 let type_fichier = type_de_fichier(f).unwrap_or(TypeFichier::Pdf);
-                let v = a2.analyser(&ContexteAnalyse { usage: UsageFichier::Document, type_fichier, nom: "piece", octets: f });
+                let v = a2.analyser(&ContexteAnalyse {
+                    usage: UsageFichier::Document,
+                    type_fichier,
+                    nom: "piece",
+                    octets: f,
+                });
                 if v != VerdictAnalyse::Sain {
                     return v;
                 }
@@ -981,7 +1385,17 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
                 if pc.analyse_tentatives == 0 {
-                    decision(&mut tx, etab, piece_id, pc.demande_id, "analyse_indisponible", None, None, sys.user_id).await?;
+                    decision(
+                        &mut tx,
+                        etab,
+                        piece_id,
+                        pc.demande_id,
+                        "analyse_indisponible",
+                        None,
+                        None,
+                        sys.user_id,
+                    )
+                    .await?;
                 }
                 tx.commit().await.map_err(db)?;
                 Ok(ResultatAnalyse::EnQuarantaine)
@@ -1000,7 +1414,17 @@ impl PgEnt {
                 .await
                 .map_err(db)?;
                 if r.rows_affected() == 1 {
-                    decision(&mut tx, etab, piece_id, pc.demande_id, "infectee", Some("antivirus"), None, sys.user_id).await?;
+                    decision(
+                        &mut tx,
+                        etab,
+                        piece_id,
+                        pc.demande_id,
+                        "infectee",
+                        Some("antivirus"),
+                        None,
+                        sys.user_id,
+                    )
+                    .await?;
                     let ev = publier(
                         &mut tx,
                         &sys,
@@ -1017,11 +1441,19 @@ impl PgEnt {
                 }
                 Ok(ResultatAnalyse::Infectee)
             }
-            VerdictAnalyse::Sain => self.convertir_et_lever_quarantaine(etab, &pc, fichiers).await,
+            VerdictAnalyse::Sain => {
+                self.convertir_et_lever_quarantaine(etab, &pc, fichiers)
+                    .await
+            }
         }
     }
 
-    async fn conclure_rejet(&self, etab: Uuid, pc: &LignePiece, motif: &str) -> Result<ResultatAnalyse, EntDbError> {
+    async fn conclure_rejet(
+        &self,
+        etab: Uuid,
+        pc: &LignePiece,
+        motif: &str,
+    ) -> Result<ResultatAnalyse, EntDbError> {
         let sys = systeme(etab);
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let r = sqlx::query(
@@ -1036,7 +1468,17 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if r.rows_affected() == 1 {
-            decision(&mut tx, etab, pc.id, pc.demande_id, "rejetee", Some("forme"), Some(motif), sys.user_id).await?;
+            decision(
+                &mut tx,
+                etab,
+                pc.id,
+                pc.demande_id,
+                "rejetee",
+                Some("forme"),
+                Some(motif),
+                sys.user_id,
+            )
+            .await?;
             let ev = publier(
                 &mut tx,
                 &sys,
@@ -1069,7 +1511,11 @@ impl PgEnt {
         };
         let (pdf, nb_pages, desarme) = match converti {
             Ok(x) => x,
-            Err(e) => return self.conclure_rejet(etab, pc, &message_erreur_piece(&e)).await,
+            Err(e) => {
+                return self
+                    .conclure_rejet(etab, pc, &message_erreur_piece(&e))
+                    .await
+            }
         };
         let cle = ent_object::ObjectStore::key_for(etab, "pieces", Uuid::new_v4(), "pdf");
         let info = self.objet_put(&cle, &pdf).await?;
@@ -1096,7 +1542,17 @@ impl PgEnt {
             tx.commit().await.map_err(db)?;
             return Ok(ResultatAnalyse::DejaTraitee);
         }
-        decision(&mut tx, etab, pc.id, pc.demande_id, "analysee_saine", None, None, sys.user_id).await?;
+        decision(
+            &mut tx,
+            etab,
+            pc.id,
+            pc.demande_id,
+            "analysee_saine",
+            None,
+            None,
+            sys.user_id,
+        )
+        .await?;
         let ev = publier(
             &mut tx,
             &sys,
@@ -1147,8 +1603,14 @@ impl PgEnt {
     /// quarantaine, infectée ou rejetée. La famille lit ce qu'elle a déposé pour son sujet ; le personnel, avec le droit
     /// de contrôle ou de lecture du domaine ; une copie non conservée (identité) ne se relit plus. Une lecture laisse une
     /// ligne au journal.
-    pub async fn lire_piece_justificative_for_actor(&self, a: &Acteur<'_>, piece_id: Uuid) -> Result<PieceLue, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+    pub async fn lire_piece_justificative_for_actor(
+        &self,
+        a: &Acteur<'_>,
+        piece_id: Uuid,
+    ) -> Result<PieceLue, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let pc = piece_par_id(&mut tx, a.etablissement_id, piece_id, false).await?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let decl = type_piece(&pc.type_code).ok_or_else(introuvable)?;
@@ -1156,7 +1618,9 @@ impl PgEnt {
         let staff = Role::parse(a.role).is_some_and(|r| r.is_staff());
         let autorise = if staff {
             self.peut_controler(a, decl, sujet.eleve()).await?
-                || (self.doc_peut_sur_sujet(a, decl.domaine.action_lecture(), sujet.eleve()).await?
+                || (self
+                    .doc_peut_sur_sujet(a, decl.domaine.action_lecture(), sujet.eleve())
+                    .await?
                     && self.droit_du_type(a, decl, sujet.eleve()).await?)
         } else {
             self.famille_a_la_main(&mut tx, a, sujet, jour).await?
@@ -1168,7 +1632,10 @@ impl PgEnt {
         let (Some(cle), Some(sha)) = (pc.cle_objet_servi.clone(), pc.sha256_servi.clone()) else {
             return Err(introuvable());
         };
-        if !matches!(pc.etat.as_str(), "recue" | "acceptee" | "refusee" | "sans_objet") {
+        if !matches!(
+            pc.etat.as_str(),
+            "recue" | "acceptee" | "refusee" | "sans_objet"
+        ) {
             return Err(introuvable());
         }
         let supprime: Option<(bool,)> = sqlx::query_as(
@@ -1180,13 +1647,28 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if supprime.is_none_or(|s| s.0) {
-            return Err(refus(RefusMetier::Conflit, "la copie de cette pièce n'est pas conservée"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "la copie de cette pièce n'est pas conservée",
+            ));
         }
         if decl.sensibilite >= Sensibilite::C2 {
-            journaliser(&mut tx, a, None, None, "piece_consultee", (None, None), Some(&piece_id.to_string()), None).await?;
+            journaliser(
+                &mut tx,
+                a,
+                None,
+                None,
+                "piece_consultee",
+                (None, None),
+                Some(&piece_id.to_string()),
+                None,
+            )
+            .await?;
         }
         tx.commit().await.map_err(db)?;
-        let octets = self.lire_objet_empreinte(a.etablissement_id, &cle, Some(&sha)).await?;
+        let octets = self
+            .lire_objet_empreinte(a.etablissement_id, &cle, Some(&sha))
+            .await?;
         Ok(PieceLue {
             piece_id,
             type_code: pc.type_code,
@@ -1209,12 +1691,19 @@ impl PgEnt {
         let r = Role::parse(a.role).ok_or(EntDbError::Forbidden)?;
         if !r.is_staff()
             || !self
-                .a_action_etablissement(a.etablissement_id, a.user_id, a.role, Action::DocumentsPiecesControler)
+                .a_action_etablissement(
+                    a.etablissement_id,
+                    a.user_id,
+                    a.role,
+                    Action::DocumentsPiecesControler,
+                )
                 .await?
         {
             return Err(EntDbError::Forbidden);
         }
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let lignes = sqlx::query(
             "SELECT p.id, p.type_code, p.eleve_id, p.deposee_le, p.nb_pages, p.desarmement, p.demande_id, p.motif_autre,
                     d.motif_affiche,
@@ -1237,7 +1726,9 @@ impl PgEnt {
         let mut sortie = Vec::new();
         for l in lignes {
             let tc: String = l.get("type_code");
-            let Some(decl) = type_piece(&tc) else { continue };
+            let Some(decl) = type_piece(&tc) else {
+                continue;
+            };
             let eleve: Option<Uuid> = l.get("eleve_id");
             if !self.peut_controler(a, decl, eleve).await? {
                 continue;
@@ -1270,7 +1761,9 @@ impl PgEnt {
         piece_id: Uuid,
         decision_prise: ControleDecision,
     ) -> Result<(), EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let pc = piece_par_id(&mut tx, a.etablissement_id, piece_id, true).await?;
         let decl = type_piece(&pc.type_code).ok_or_else(introuvable)?;
         let sujet = pc.sujet().ok_or_else(introuvable)?;
@@ -1278,25 +1771,56 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         if pc.etat != "recue" {
-            return Err(refus(RefusMetier::Conflit, "cette pièce n'est pas à contrôler (déjà décidée, en analyse ou retirée)"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "cette pièce n'est pas à contrôler (déjà décidée, en analyse ou retirée)",
+            ));
         }
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
-        let (code, motif, commentaire, valable): (&str, Option<String>, Option<String>, Option<NaiveDate>) = match &decision_prise {
-            ControleDecision::Accepter { valable_jusqu_au } => {
-                ("acceptee", None, None, fin_de_validite(decl, jour, *valable_jusqu_au)?)
-            }
+        let (code, motif, commentaire, valable): (
+            &str,
+            Option<String>,
+            Option<String>,
+            Option<NaiveDate>,
+        ) = match &decision_prise {
+            ControleDecision::Accepter { valable_jusqu_au } => (
+                "acceptee",
+                None,
+                None,
+                fin_de_validite(decl, jour, *valable_jusqu_au)?,
+            ),
             ControleDecision::Refuser { motif, commentaire } => {
-                if !["illisible", "incomplet", "perime", "ne_correspond_pas", "mauvais_document", "autre"].contains(&motif.as_str()) {
+                if ![
+                    "illisible",
+                    "incomplet",
+                    "perime",
+                    "ne_correspond_pas",
+                    "mauvais_document",
+                    "autre",
+                ]
+                .contains(&motif.as_str())
+                {
                     return Err(invalide());
                 }
-                let c = match commentaire.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+                let c = match commentaire
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|c| !c.is_empty())
+                {
                     Some(c) => Some(texte(c, 1, 500)?),
-                    None if motif == "autre" => return Err(refus(RefusMetier::Invalide, "un commentaire est exigé pour le motif « autre »")),
+                    None if motif == "autre" => {
+                        return Err(refus(
+                            RefusMetier::Invalide,
+                            "un commentaire est exigé pour le motif « autre »",
+                        ))
+                    }
                     None => None,
                 };
                 ("refusee", Some(motif.clone()), c, None)
             }
-            ControleDecision::SansObjet { commentaire } => ("sans_objet", None, Some(texte(commentaire, 3, 500)?), None),
+            ControleDecision::SansObjet { commentaire } => {
+                ("sans_objet", None, Some(texte(commentaire, 3, 500)?), None)
+            }
         };
         sqlx::query(
             "UPDATE ent_doc_piece SET etat = $3, controle_par = $4, controle_le = now(), valable_jusqu_au = $5,
@@ -1313,11 +1837,23 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        decision(&mut tx, a.etablissement_id, piece_id, pc.demande_id, code, motif.as_deref(), commentaire.as_deref(), a.user_id).await?;
+        decision(
+            &mut tx,
+            a.etablissement_id,
+            piece_id,
+            pc.demande_id,
+            code,
+            motif.as_deref(),
+            commentaire.as_deref(),
+            a.user_id,
+        )
+        .await?;
         let mut demandes_satisfaites = 0usize;
         if code == "acceptee" {
             let eleves: Vec<Uuid> = match (decl.portee, sujet) {
-                (PortePiece::Foyer, SujetPiece::Eleve(e)) => eleves_du_foyer(&mut tx, a.etablissement_id, e).await?,
+                (PortePiece::Foyer, SujetPiece::Eleve(e)) => {
+                    eleves_du_foyer(&mut tx, a.etablissement_id, e).await?
+                }
                 (_, SujetPiece::Eleve(e)) => vec![e],
                 _ => Vec::new(),
             };
@@ -1373,21 +1909,44 @@ impl PgEnt {
         decisions: Vec<(Uuid, ControleDecision)>,
     ) -> Result<Vec<ResultatControle>, EntDbError> {
         if decisions.len() > RAFALE_MAX {
-            return Err(refus(RefusMetier::Invalide, "trop de décisions en une fois (100 au plus)"));
+            return Err(refus(
+                RefusMetier::Invalide,
+                "trop de décisions en une fois (100 au plus)",
+            ));
         }
         let mut sortie = Vec::with_capacity(decisions.len());
         let mut vus = HashSet::new();
         for (id, d) in decisions {
             if !vus.insert(id) {
-                sortie.push(ResultatControle { piece_id: id, ok: false, erreur: Some("pièce en double dans la rafale".into()) });
+                sortie.push(ResultatControle {
+                    piece_id: id,
+                    ok: false,
+                    erreur: Some("pièce en double dans la rafale".into()),
+                });
                 continue;
             }
             match self.controler_piece_for_actor(a, id, d).await {
-                Ok(()) => sortie.push(ResultatControle { piece_id: id, ok: true, erreur: None }),
-                Err(EntDbError::Refus(_, m)) => sortie.push(ResultatControle { piece_id: id, ok: false, erreur: Some(m.to_string()) }),
-                Err(EntDbError::Forbidden) => sortie.push(ResultatControle { piece_id: id, ok: false, erreur: Some("non autorisé".into()) }),
+                Ok(()) => sortie.push(ResultatControle {
+                    piece_id: id,
+                    ok: true,
+                    erreur: None,
+                }),
+                Err(EntDbError::Refus(_, m)) => sortie.push(ResultatControle {
+                    piece_id: id,
+                    ok: false,
+                    erreur: Some(m.to_string()),
+                }),
+                Err(EntDbError::Forbidden) => sortie.push(ResultatControle {
+                    piece_id: id,
+                    ok: false,
+                    erreur: Some("non autorisé".into()),
+                }),
                 Err(e) if crate::documents_coffre::est_introuvable(&e) => {
-                    sortie.push(ResultatControle { piece_id: id, ok: false, erreur: Some("pièce introuvable".into()) })
+                    sortie.push(ResultatControle {
+                        piece_id: id,
+                        ok: false,
+                        erreur: Some("pièce introuvable".into()),
+                    })
                 }
                 Err(e) => return Err(e),
             }
@@ -1406,16 +1965,19 @@ impl PgEnt {
         demande_id: Uuid,
         piece_id: Uuid,
     ) -> Result<(), EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let dem: Option<(String, Option<Uuid>, Option<Uuid>, Option<Uuid>, String)> = sqlx::query_as(
-            "SELECT type_code, eleve_id, personne_id, agent_id, etat FROM ent_doc_piece_demande
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let dem: Option<(String, Option<Uuid>, Option<Uuid>, Option<Uuid>, String)> =
+            sqlx::query_as(
+                "SELECT type_code, eleve_id, personne_id, agent_id, etat FROM ent_doc_piece_demande
               WHERE etablissement_id = $1 AND id = $2 FOR UPDATE",
-        )
-        .bind(a.etablissement_id)
-        .bind(demande_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
+            )
+            .bind(a.etablissement_id)
+            .bind(demande_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
         let (tc, de, dp, dg, etat) = dem.ok_or_else(introuvable)?;
         let decl = type_piece(&tc).ok_or_else(introuvable)?;
         let sujet = match (de, dp, dg) {
@@ -1427,7 +1989,8 @@ impl PgEnt {
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let staff = Role::parse(a.role).is_some_and(|r| r.is_staff());
         let autorise = if staff {
-            self.doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, sujet.eleve()).await?
+            self.doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, sujet.eleve())
+                .await?
                 && self.droit_du_type(a, decl, sujet.eleve()).await?
         } else {
             self.famille_a_la_main(&mut tx, a, sujet, jour).await?
@@ -1436,13 +1999,18 @@ impl PgEnt {
             return Err(introuvable());
         }
         if etat != "ouverte" {
-            return Err(refus(RefusMetier::Conflit, "cette demande n'est plus ouverte"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "cette demande n'est plus ouverte",
+            ));
         }
         let candidate = piece_valable(&mut tx, a.etablissement_id, decl, sujet, jour).await?;
         // La pièce choisie doit être l'une des pièces valables du dossier (pas n'importe laquelle).
         let ok: Option<(Uuid,)> = {
             let eleves: Vec<Uuid> = match (decl.portee, sujet) {
-                (PortePiece::Foyer, SujetPiece::Eleve(e)) => eleves_du_foyer(&mut tx, a.etablissement_id, e).await?,
+                (PortePiece::Foyer, SujetPiece::Eleve(e)) => {
+                    eleves_du_foyer(&mut tx, a.etablissement_id, e).await?
+                }
                 (_, SujetPiece::Eleve(e)) => vec![e],
                 _ => Vec::new(),
             };
@@ -1466,7 +2034,10 @@ impl PgEnt {
         };
         let _ = candidate;
         if ok.is_none() {
-            return Err(refus(RefusMetier::Conflit, "cette pièce n'est pas valable pour cette demande (type, sujet, validité)"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "cette pièce n'est pas valable pour cette demande (type, sujet, validité)",
+            ));
         }
         sqlx::query(
             "UPDATE ent_doc_piece_demande SET etat = 'satisfaite', piece_id = $3, cloturee_le = now()
@@ -1478,7 +2049,17 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        decision(&mut tx, a.etablissement_id, piece_id, Some(demande_id), "reutilisee", None, None, a.user_id).await?;
+        decision(
+            &mut tx,
+            a.etablissement_id,
+            piece_id,
+            Some(demande_id),
+            "reutilisee",
+            None,
+            None,
+            a.user_id,
+        )
+        .await?;
         let ev = publier(
             &mut tx,
             a,
@@ -1500,12 +2081,21 @@ impl PgEnt {
     /// validité est passée (à renouveler) et, pour chaque manque, la pièce déjà au dossier qu'on peut **proposer**.
     /// Famille : titulaire au lien actif ; personnel : `documents.pieces.demander` (les types sensibles exigent le droit de
     /// leur domaine).
-    pub async fn ce_qui_manque_for_actor(&self, a: &Acteur<'_>, sujet: SujetPiece) -> Result<Vec<LigneManque>, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+    pub async fn ce_qui_manque_for_actor(
+        &self,
+        a: &Acteur<'_>,
+        sujet: SujetPiece,
+    ) -> Result<Vec<LigneManque>, EntDbError> {
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         let staff = Role::parse(a.role).is_some_and(|r| r.is_staff());
         if staff {
-            if !self.doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, sujet.eleve()).await? {
+            if !self
+                .doc_peut_sur_sujet(a, Action::DocumentsPiecesDemander, sujet.eleve())
+                .await?
+            {
                 return Err(EntDbError::Forbidden);
             }
         } else if !self.famille_a_la_main(&mut tx, a, sujet, jour).await? {
@@ -1532,7 +2122,9 @@ impl PgEnt {
         let mut sortie = Vec::new();
         for d in demandes {
             let tc: String = d.get("type_code");
-            let Some(decl) = type_piece(&tc) else { continue };
+            let Some(decl) = type_piece(&tc) else {
+                continue;
+            };
             if staff && !self.droit_du_type(a, decl, sujet.eleve()).await? {
                 continue;
             }
@@ -1554,7 +2146,9 @@ impl PgEnt {
             };
             if etat_d == "satisfaite" {
                 // Acceptée : ne manque que si sa validité est passée.
-                let Some(pid) = d.get::<Option<Uuid>, _>("piece_id") else { continue };
+                let Some(pid) = d.get::<Option<Uuid>, _>("piece_id") else {
+                    continue;
+                };
                 let v: Option<(Option<NaiveDate>,)> = sqlx::query_as(
                     "SELECT valable_jusqu_au FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2",
                 )
@@ -1565,7 +2159,8 @@ impl PgEnt {
                 .map_err(db)?;
                 if let Some((Some(fin),)) = v {
                     if fin < jour {
-                        let prop = piece_valable(&mut tx, a.etablissement_id, decl, sujet, jour).await?;
+                        let prop =
+                            piece_valable(&mut tx, a.etablissement_id, decl, sujet, jour).await?;
                         sortie.push(base(EtatManque::Perimee, Some(pid), None, prop, Some(fin)));
                     }
                 }
@@ -1587,7 +2182,9 @@ impl PgEnt {
                         Some("en_quarantaine") => (EtatManque::EnAnalyse, Some(pid), None),
                         Some("recue") => (EtatManque::RecueEnAttente, Some(pid), None),
                         Some("refusee") => (EtatManque::Refusee, Some(pid), pc.and_then(|x| x.1)),
-                        Some("infectee" | "rejetee") => (EtatManque::AFournir, Some(pid), Some("analyse".to_string())),
+                        Some("infectee" | "rejetee") => {
+                            (EtatManque::AFournir, Some(pid), Some("analyse".to_string()))
+                        }
                         _ => (EtatManque::AFournir, None, None),
                     }
                 }
@@ -1607,12 +2204,20 @@ impl PgEnt {
     }
 
     /// L'élève est-il à jour de ses pièces **obligatoires** ? (Brique demandeuse : « dossier complet ».)
-    pub async fn dossier_complet_pieces(&self, a: &Acteur<'_>, sujet: SujetPiece) -> Result<bool, EntDbError> {
+    pub async fn dossier_complet_pieces(
+        &self,
+        a: &Acteur<'_>,
+        sujet: SujetPiece,
+    ) -> Result<bool, EntDbError> {
         Ok(!self
             .ce_qui_manque_for_actor(a, sujet)
             .await?
             .iter()
-            .any(|l| l.obligatoire && l.etat != EtatManque::RecueEnAttente && l.etat != EtatManque::EnAnalyse))
+            .any(|l| {
+                l.obligatoire
+                    && l.etat != EtatManque::RecueEnAttente
+                    && l.etat != EtatManque::EnAnalyse
+            }))
     }
 }
 
@@ -1661,7 +2266,9 @@ impl PgEnt {
         let sys = systeme(etab);
         let mut sortie = PiecesReprises::default();
         for p in pieces {
-            let Ok(kind) = type_de_fichier(&p.octets) else { continue };
+            let Ok(kind) = type_de_fichier(&p.octets) else {
+                continue;
+            };
             let sha = ent_object::sha256_hex(&p.octets);
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let deja: Option<(Uuid, Option<i32>)> = sqlx::query_as(
@@ -1676,7 +2283,13 @@ impl PgEnt {
             .map_err(db)?;
             if let Some((id, pages)) = deja {
                 tx.commit().await.map_err(db)?;
-                sortie.reprises.insert(p.origine_id, DocumentRepris { document_id: id, pages });
+                sortie.reprises.insert(
+                    p.origine_id,
+                    DocumentRepris {
+                        document_id: id,
+                        pages,
+                    },
+                );
                 continue;
             }
             let id = Uuid::new_v4();
@@ -1705,7 +2318,17 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            decision(&mut tx, etab, id, None, "deposee", Some("reprise"), None, sys.user_id).await?;
+            decision(
+                &mut tx,
+                etab,
+                id,
+                None,
+                "deposee",
+                Some("reprise"),
+                None,
+                sys.user_id,
+            )
+            .await?;
             tx.commit().await.map_err(db)?;
             if self.analyser_piece(etab, id, antivirus.clone()).await? != ResultatAnalyse::Recue {
                 continue;
@@ -1722,16 +2345,33 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-            decision(&mut tx, etab, id, None, "acceptee", Some("reprise"), None, sys.user_id).await?;
-            let (pages,): (Option<i32>,) =
-                sqlx::query_as("SELECT nb_pages FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2")
-                    .bind(etab)
-                    .bind(id)
-                    .fetch_one(&mut *tx)
-                    .await
-                    .map_err(db)?;
+            decision(
+                &mut tx,
+                etab,
+                id,
+                None,
+                "acceptee",
+                Some("reprise"),
+                None,
+                sys.user_id,
+            )
+            .await?;
+            let (pages,): (Option<i32>,) = sqlx::query_as(
+                "SELECT nb_pages FROM ent_doc_piece WHERE etablissement_id = $1 AND id = $2",
+            )
+            .bind(etab)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
             tx.commit().await.map_err(db)?;
-            sortie.reprises.insert(p.origine_id, DocumentRepris { document_id: id, pages });
+            sortie.reprises.insert(
+                p.origine_id,
+                DocumentRepris {
+                    document_id: id,
+                    pages,
+                },
+            );
         }
         Ok(sortie)
     }
@@ -1750,26 +2390,64 @@ mod tests {
         let mut vus = HashSet::new();
         for t in CATALOGUE {
             assert!(vus.insert(t.code), "code en double : {}", t.code);
-            assert!(t.code.chars().all(|c| c.is_ascii_lowercase() || c == '_'), "{}", t.code);
+            assert!(
+                t.code.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "{}",
+                t.code
+            );
             assert!(!t.libelle.is_empty());
             // Les types sensibles sont rangés dans le domaine qui porte leur droit.
             if t.sensibilite >= Sensibilite::C3 {
-                assert!(matches!(t.domaine, Domaine::Sante | Domaine::Justice | Domaine::Social), "{}", t.code);
+                assert!(
+                    matches!(
+                        t.domaine,
+                        Domaine::Sante | Domaine::Justice | Domaine::Social
+                    ),
+                    "{}",
+                    t.code
+                );
             }
         }
         // Ce que le catalogue ne contient pas et qu'un établissement ne peut pas ajouter (§11.2).
-        for interdit in ["titre_sejour", "carte_vitale", "rib", "casier_judiciaire", "document_religieux", "photo_domicile"] {
-            assert!(type_piece(interdit).is_none(), "{interdit} ne doit pas exister");
+        for interdit in [
+            "titre_sejour",
+            "carte_vitale",
+            "rib",
+            "casier_judiciaire",
+            "document_religieux",
+            "photo_domicile",
+        ] {
+            assert!(
+                type_piece(interdit).is_none(),
+                "{interdit} ne doit pas exister"
+            );
         }
         // L'identité n'est jamais conservée ; seul le type technique de reprise n'est pas demandable.
         assert!(!type_piece("piece_identite").unwrap().copie_gardee);
         assert!(CATALOGUE.iter().filter(|t| !t.copie_gardee).count() == 1);
-        assert_eq!(CATALOGUE.iter().filter(|t| !t.demandable).map(|t| t.code).collect::<Vec<_>>(), ["piece_de_demande"]);
+        assert_eq!(
+            CATALOGUE
+                .iter()
+                .filter(|t| !t.demandable)
+                .map(|t| t.code)
+                .collect::<Vec<_>>(),
+            ["piece_de_demande"]
+        );
         // Seule l'identité se contrôle à l'accueil.
-        assert_eq!(CATALOGUE.iter().filter(|t| t.accueil_controle).map(|t| t.code).collect::<Vec<_>>(), ["piece_identite"]);
+        assert_eq!(
+            CATALOGUE
+                .iter()
+                .filter(|t| t.accueil_controle)
+                .map(|t| t.code)
+                .collect::<Vec<_>>(),
+            ["piece_identite"]
+        );
         // Le domicile est de portée foyer, valable 3 mois.
         let dom = type_piece("justificatif_domicile").unwrap();
-        assert_eq!((dom.portee, dom.validite), (PortePiece::Foyer, Validite::Mois(3)));
+        assert_eq!(
+            (dom.portee, dom.validite),
+            (PortePiece::Foyer, Validite::Mois(3))
+        );
     }
 
     #[test]
@@ -1787,7 +2465,12 @@ mod tests {
         ] {
             assert!(motif_interdit(m), "{m}");
         }
-        for m in ["Attestation de stage", "Autorisation de sortie", "Ribambelle de mots", "Avis de la médecine scolaire"] {
+        for m in [
+            "Attestation de stage",
+            "Autorisation de sortie",
+            "Ribambelle de mots",
+            "Avis de la médecine scolaire",
+        ] {
             assert!(!motif_interdit(m), "{m}");
         }
     }
@@ -1795,22 +2478,53 @@ mod tests {
     #[test]
     fn validites() {
         let dom = type_piece("justificatif_domicile").unwrap();
-        assert_eq!(fin_de_validite(dom, d(2026, 11, 15), None).unwrap(), Some(d(2027, 2, 15)));
-        assert_eq!(fin_de_validite(dom, d(2026, 11, 30), None).unwrap(), Some(d(2027, 2, 28)), "fin de mois");
+        assert_eq!(
+            fin_de_validite(dom, d(2026, 11, 15), None).unwrap(),
+            Some(d(2027, 2, 15))
+        );
+        assert_eq!(
+            fin_de_validite(dom, d(2026, 11, 30), None).unwrap(),
+            Some(d(2027, 2, 28)),
+            "fin de mois"
+        );
         let acte = type_piece("acte_naissance").unwrap();
         assert_eq!(fin_de_validite(acte, d(2026, 11, 15), None).unwrap(), None);
         let ass = type_piece("attestation_assurance").unwrap();
-        assert_eq!(fin_de_validite(ass, d(2026, 11, 15), None).unwrap(), Some(d(2027, 8, 31)));
-        assert_eq!(fin_de_validite(ass, d(2026, 3, 1), None).unwrap(), Some(d(2026, 8, 31)));
-        assert_eq!(fin_de_validite(ass, d(2026, 9, 1), None).unwrap(), Some(d(2027, 8, 31)));
+        assert_eq!(
+            fin_de_validite(ass, d(2026, 11, 15), None).unwrap(),
+            Some(d(2027, 8, 31))
+        );
+        assert_eq!(
+            fin_de_validite(ass, d(2026, 3, 1), None).unwrap(),
+            Some(d(2026, 8, 31))
+        );
+        assert_eq!(
+            fin_de_validite(ass, d(2026, 9, 1), None).unwrap(),
+            Some(d(2027, 8, 31))
+        );
         let qf = type_piece("quotient_familial").unwrap();
-        assert_eq!(fin_de_validite(qf, d(2026, 11, 15), None).unwrap(), Some(d(2026, 12, 31)));
+        assert_eq!(
+            fin_de_validite(qf, d(2026, 11, 15), None).unwrap(),
+            Some(d(2026, 12, 31))
+        );
         let med = type_piece("certificat_medical").unwrap();
-        assert!(fin_de_validite(med, d(2026, 11, 15), None).is_err(), "date à saisir");
-        assert_eq!(fin_de_validite(med, d(2026, 11, 15), Some(d(2027, 6, 30))).unwrap(), Some(d(2027, 6, 30)));
+        assert!(
+            fin_de_validite(med, d(2026, 11, 15), None).is_err(),
+            "date à saisir"
+        );
+        assert_eq!(
+            fin_de_validite(med, d(2026, 11, 15), Some(d(2027, 6, 30))).unwrap(),
+            Some(d(2027, 6, 30))
+        );
         // La date lue sur la pièce peut raccourcir, jamais allonger ; une date passée se refuse.
-        assert_eq!(fin_de_validite(dom, d(2026, 11, 15), Some(d(2026, 12, 1))).unwrap(), Some(d(2026, 12, 1)));
-        assert_eq!(fin_de_validite(dom, d(2026, 11, 15), Some(d(2030, 1, 1))).unwrap(), Some(d(2027, 2, 15)));
+        assert_eq!(
+            fin_de_validite(dom, d(2026, 11, 15), Some(d(2026, 12, 1))).unwrap(),
+            Some(d(2026, 12, 1))
+        );
+        assert_eq!(
+            fin_de_validite(dom, d(2026, 11, 15), Some(d(2030, 1, 1))).unwrap(),
+            Some(d(2027, 2, 15))
+        );
         assert!(fin_de_validite(dom, d(2026, 11, 15), Some(d(2026, 11, 14))).is_err());
     }
 
@@ -1830,9 +2544,23 @@ mod tests {
     #[test]
     fn formats_a_l_entree() {
         assert_eq!(type_de_fichier(b"%PDF-1.4 x").unwrap(), TypeFichier::Pdf);
-        assert_eq!(type_de_fichier(&[0xff, 0xd8, 0xff, 0xe0]).unwrap(), TypeFichier::Jpeg);
-        assert_eq!(type_de_fichier(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).unwrap(), TypeFichier::Png);
-        for mauvais in [&b"MZ\x90\x00"[..], b"<html>", b"#!/bin/sh", b"PK\x03\x04", b"GIF89a", b"RIFF....WEBP", b""] {
+        assert_eq!(
+            type_de_fichier(&[0xff, 0xd8, 0xff, 0xe0]).unwrap(),
+            TypeFichier::Jpeg
+        );
+        assert_eq!(
+            type_de_fichier(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).unwrap(),
+            TypeFichier::Png
+        );
+        for mauvais in [
+            &b"MZ\x90\x00"[..],
+            b"<html>",
+            b"#!/bin/sh",
+            b"PK\x03\x04",
+            b"GIF89a",
+            b"RIFF....WEBP",
+            b"",
+        ] {
             assert!(type_de_fichier(mauvais).is_err());
         }
     }

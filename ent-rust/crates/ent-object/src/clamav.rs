@@ -79,7 +79,9 @@ impl ClamAv {
 
     /// `PING` : le démon répond `PONG`. Sert aux sondes de santé, pas à décider d'un dépôt.
     pub fn ping(&self) -> bool {
-        let Ok(mut s) = self.connecter() else { return false };
+        let Ok(mut s) = self.connecter() else {
+            return false;
+        };
         if s.write_all(b"zPING\0").is_err() {
             return false;
         }
@@ -147,7 +149,11 @@ fn interpreter(reponse: &str) -> VerdictAnalyse {
     if let Some(corps) = r.strip_suffix(" FOUND") {
         let nom = corps.strip_prefix("stream: ").unwrap_or(corps);
         let nom: String = nom.chars().filter(|c| !c.is_control()).take(80).collect();
-        return VerdictAnalyse::Infecte(if nom.trim().is_empty() { "menace".into() } else { nom });
+        return VerdictAnalyse::Infecte(if nom.trim().is_empty() {
+            "menace".into()
+        } else {
+            nom
+        });
     }
     VerdictAnalyse::Indisponible
 }
@@ -170,7 +176,9 @@ mod tests {
 
     /// Faux démon : lit le protocole INSTREAM exactement comme `clamd`, réassemble le flux, puis répond ce que décide
     /// `reponse` à partir du contenu reçu.
-    fn faux_demon(reponse: impl Fn(&[u8]) -> Option<Vec<u8>> + Send + 'static) -> (String, thread::JoinHandle<Vec<u8>>) {
+    fn faux_demon(
+        reponse: impl Fn(&[u8]) -> Option<Vec<u8>> + Send + 'static,
+    ) -> (String, thread::JoinHandle<Vec<u8>>) {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let adr = l.local_addr().unwrap().to_string();
         let h = thread::spawn(move || {
@@ -209,8 +217,7 @@ mod tests {
         (adr, h)
     }
 
-    const EICAR: &[u8] =
-        b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+    const EICAR: &[u8] = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
 
     fn reponse_type(flux: &[u8]) -> Option<Vec<u8>> {
         if flux.windows(EICAR.len()).any(|w| w == EICAR) {
@@ -233,21 +240,31 @@ mod tests {
         let (adr, h) = faux_demon(reponse_type);
         let v = ClamAv::nouveau(adr).analyser_octets(EICAR);
         assert_eq!(v, VerdictAnalyse::Infecte("Eicar-Test-Signature".into()));
-        assert_eq!(h.join().unwrap(), EICAR, "le démon a reçu le fichier entier");
+        assert_eq!(
+            h.join().unwrap(),
+            EICAR,
+            "le démon a reçu le fichier entier"
+        );
     }
 
     #[test]
     fn gros_fichier_envoye_en_plusieurs_morceaux() {
         let (adr, h) = faux_demon(reponse_type);
         let gros: Vec<u8> = (0..(MORCEAU * 3 + 17)).map(|i| (i % 251) as u8).collect();
-        assert_eq!(ClamAv::nouveau(adr).analyser_octets(&gros), VerdictAnalyse::Sain);
+        assert_eq!(
+            ClamAv::nouveau(adr).analyser_octets(&gros),
+            VerdictAnalyse::Sain
+        );
         assert_eq!(h.join().unwrap(), gros);
     }
 
     #[test]
     fn fichier_vide_est_un_flux_valide() {
         let (adr, h) = faux_demon(reponse_type);
-        assert_eq!(ClamAv::nouveau(adr).analyser_octets(b""), VerdictAnalyse::Sain);
+        assert_eq!(
+            ClamAv::nouveau(adr).analyser_octets(b""),
+            VerdictAnalyse::Sain
+        );
         assert!(h.join().unwrap().is_empty());
     }
 
@@ -258,7 +275,8 @@ mod tests {
             let l = TcpListener::bind("127.0.0.1:0").unwrap();
             l.local_addr().unwrap().to_string()
         };
-        let c = ClamAv::nouveau(adr).avec_delais(Duration::from_millis(300), Duration::from_millis(300));
+        let c = ClamAv::nouveau(adr)
+            .avec_delais(Duration::from_millis(300), Duration::from_millis(300));
         assert_eq!(c.analyser_octets(b"x"), VerdictAnalyse::Indisponible);
         assert!(!c.ping());
     }
@@ -274,7 +292,10 @@ mod tests {
         ] {
             let r = r.to_vec();
             let (adr, h) = faux_demon(move |_| Some(r.clone()));
-            assert_eq!(ClamAv::nouveau(adr).analyser_octets(b"x"), VerdictAnalyse::Indisponible);
+            assert_eq!(
+                ClamAv::nouveau(adr).analyser_octets(b"x"),
+                VerdictAnalyse::Indisponible
+            );
             let _ = h.join();
         }
     }
@@ -282,7 +303,8 @@ mod tests {
     #[test]
     fn silence_du_demon_delai_depasse() {
         let (adr, h) = faux_demon(|_| None); // lit tout, ne répond jamais, ferme
-        let c = ClamAv::nouveau(adr).avec_delais(Duration::from_secs(1), Duration::from_millis(300));
+        let c =
+            ClamAv::nouveau(adr).avec_delais(Duration::from_secs(1), Duration::from_millis(300));
         assert_eq!(c.analyser_octets(b"x"), VerdictAnalyse::Indisponible);
         let _ = h.join();
     }

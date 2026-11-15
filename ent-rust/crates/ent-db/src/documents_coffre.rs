@@ -202,7 +202,10 @@ struct ContexteCoffre {
 impl ContexteCoffre {
     /// Le jugement de droit, **pur** : voir les règles en tête de module.
     fn autorise(&self, c: &Candidate) -> bool {
-        let (Some(sens), Some(dom)) = (Sensibilite::parse(&c.sensibilite), Domaine::parse(&c.domaine)) else {
+        let (Some(sens), Some(dom)) = (
+            Sensibilite::parse(&c.sensibilite),
+            Domaine::parse(&c.domaine),
+        ) else {
             return false;
         };
         if sens == Sensibilite::C4 {
@@ -214,14 +217,17 @@ impl ContexteCoffre {
             return true;
         }
         // L'élève lui-même : par son compte (colonne `eleve_id`) ou par sa fiche de personne.
-        let eleve_vise = c
-            .mad_eleve
-            .or_else(|| c.mad_personne.filter(|p| t.personnes_eleves.contains(p)).and(c.eleve_id));
+        let eleve_vise = c.mad_eleve.or_else(|| {
+            c.mad_personne
+                .filter(|p| t.personnes_eleves.contains(p))
+                .and(c.eleve_id)
+        });
         if let Some(e) = eleve_vise {
             // Mineur : seulement sa scolarité, jusqu'à C2 ; majeur : ce qui lui a été adressé.
             return t.eleves.contains(&e)
                 && c.eleve_id.is_none_or(|d| d == e)
-                && (self.majeurs.contains(&e) || (sens <= Sensibilite::C2 && dom == Domaine::Scolarite));
+                && (self.majeurs.contains(&e)
+                    || (sens <= Sensibilite::C2 && dom == Domaine::Scolarite));
         }
         // Une personne (parent, payeur, tiers) : sa propre fiche seulement.
         let Some(p) = c.mad_personne.filter(|p| t.personnes.contains(p)) else {
@@ -231,7 +237,8 @@ impl ContexteCoffre {
             // Document qui parle d'un élève : le lien du jour doit porter l'autorité parentale ; passé la majorité,
             // les parents ne gardent que ce qui relève du payeur.
             Some(e) => {
-                self.liens.contains(&(p, e)) && (!self.majeurs.contains(&e) || dom == Domaine::Financier)
+                self.liens.contains(&(p, e))
+                    && (!self.majeurs.contains(&e) || dom == Domaine::Financier)
             }
             // Document « pour moi » : factures dont on est payeur, documents qui concernent la personne.
             None => true,
@@ -260,13 +267,14 @@ pub(crate) async fn resoudre_titulaires(
             t.eleves.push(e);
         }
     }
-    let comptes: Vec<(Uuid,)> =
-        sqlx::query_as("SELECT eleve_id FROM ent_eleve_compte WHERE etablissement_id = $1 AND user_id = $2")
-            .bind(etab)
-            .bind(user)
-            .fetch_all(&mut *conn)
-            .await
-            .map_err(db)?;
+    let comptes: Vec<(Uuid,)> = sqlx::query_as(
+        "SELECT eleve_id FROM ent_eleve_compte WHERE etablissement_id = $1 AND user_id = $2",
+    )
+    .bind(etab)
+    .bind(user)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
     for (e,) in comptes {
         if !t.eleves.contains(&e) {
             t.eleves.push(e);
@@ -286,7 +294,10 @@ pub(crate) async fn resoudre_titulaires(
     Ok(t)
 }
 
-pub(crate) async fn jour_etab(conn: &mut PgConnection, etab: Uuid) -> Result<NaiveDate, EntDbError> {
+pub(crate) async fn jour_etab(
+    conn: &mut PgConnection,
+    etab: Uuid,
+) -> Result<NaiveDate, EntDbError> {
     let (j,): (NaiveDate,) = sqlx::query_as("SELECT ent_aujourdhui_etab($1)")
         .bind(etab)
         .fetch_one(conn)
@@ -379,7 +390,14 @@ async fn charger(
         .collect();
     let liens = liens_autorite(&mut *conn, etab, &t.personnes, jour).await?;
     let majeurs = majeurs_parmi(&mut *conn, etab, &eleves, jour).await?;
-    Ok((ContexteCoffre { titulaires: t, liens, majeurs }, cands))
+    Ok((
+        ContexteCoffre {
+            titulaires: t,
+            liens,
+            majeurs,
+        },
+        cands,
+    ))
 }
 
 fn numero_affiche(c: &Candidate) -> Option<String> {
@@ -393,7 +411,9 @@ fn filtre_ok(f: &FiltreCoffre, c: &Candidate) -> bool {
     f.eleve_id.is_none_or(|e| c.eleve_id == Some(e))
         && (!f.pour_moi || c.eleve_id.is_none())
         && f.annee.is_none_or(|a| c.annee == a)
-        && f.famille.as_deref().is_none_or(|p| c.nature_code.starts_with(p))
+        && f.famille
+            .as_deref()
+            .is_none_or(|p| c.nature_code.starts_with(p))
 }
 
 fn ligne(c: &Candidate) -> LigneCoffre {
@@ -430,7 +450,12 @@ fn nom_fichier_sur(c: &Candidate) -> String {
         .chars()
         .map(|x| if x.is_ascii_alphanumeric() { x } else { '_' })
         .collect();
-    format!("documents/{}_{}_{}.pdf", base, nature, &c.mad_id.simple().to_string()[..8])
+    format!(
+        "documents/{}_{}_{}.pdf",
+        base,
+        nature,
+        &c.mad_id.simple().to_string()[..8]
+    )
 }
 
 // ───────────────────────── Service ─────────────────────────
@@ -444,7 +469,9 @@ impl PgEnt {
         a: &Acteur<'_>,
         filtre: &FiltreCoffre,
     ) -> Result<Vec<LigneCoffre>, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let (ctx, cands) = charger(&mut tx, a.etablissement_id, a.user_id, None).await?;
         tx.commit().await.map_err(db)?;
         Ok(cands
@@ -463,9 +490,20 @@ impl PgEnt {
         a: &Acteur<'_>,
         mise_a_disposition_id: Uuid,
     ) -> Result<DocumentLu, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let (ctx, cands) = charger(&mut tx, a.etablissement_id, a.user_id, Some(mise_a_disposition_id)).await?;
-        let c = cands.into_iter().find(|c| ctx.autorise(c)).ok_or_else(introuvable)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let (ctx, cands) = charger(
+            &mut tx,
+            a.etablissement_id,
+            a.user_id,
+            Some(mise_a_disposition_id),
+        )
+        .await?;
+        let c = cands
+            .into_iter()
+            .find(|c| ctx.autorise(c))
+            .ok_or_else(introuvable)?;
         if Sensibilite::parse(&c.sensibilite).is_some_and(Sensibilite::trace_la_lecture) {
             tracer(&mut tx, a, &c, "lecture").await?;
         }
@@ -520,8 +558,11 @@ impl PgEnt {
         a: &Acteur<'_>,
         document_id: Uuid,
     ) -> Result<Vec<AccuseVu>, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsRegistreLire).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        self.exiger_action_documents(a, Action::DocumentsRegistreLire)
+            .await?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let d: Option<(String, String, String, Option<Uuid>)> = sqlx::query_as(
             "SELECT nature_code, domaine, sensibilite, eleve_id FROM ent_doc_document WHERE etablissement_id = $1 AND id = $2",
         )
@@ -535,7 +576,10 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let domaine = Domaine::parse(&domaine).ok_or(EntDbError::Forbidden)?;
-        if !self.doc_peut_sur_sujet(a, domaine.action_lecture(), eleve).await? {
+        if !self
+            .doc_peut_sur_sujet(a, domaine.action_lecture(), eleve)
+            .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         let lignes = sqlx::query(
@@ -589,9 +633,12 @@ impl PgEnt {
         famille: &str,
         avant: DateTime<Utc>,
     ) -> Result<Vec<NonOuvert>, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsRegistreLire).await?;
+        self.exiger_action_documents(a, Action::DocumentsRegistreLire)
+            .await?;
         let famille = texte(famille, 2, 80)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let lignes: Vec<(Uuid, Uuid, String, String, Option<Uuid>, DateTime<Utc>)> = sqlx::query_as(
             "SELECT m.document_id, m.id, d.nature_code, d.domaine, d.eleve_id, m.depuis
                FROM ent_doc_mise_a_disposition m
@@ -616,7 +663,10 @@ impl PgEnt {
                 Some(v) => *v,
                 None => {
                     let v = match Domaine::parse(&domaine) {
-                        Some(d) => self.doc_peut_sur_sujet(a, d.action_lecture(), eleve).await?,
+                        Some(d) => {
+                            self.doc_peut_sur_sujet(a, d.action_lecture(), eleve)
+                                .await?
+                        }
                         None => false,
                     };
                     droits.insert(cle, v);
@@ -624,7 +674,12 @@ impl PgEnt {
                 }
             };
             if ok {
-                sortie.push(NonOuvert { document_id, mise_a_disposition_id: mad, nature_code: nature, depuis });
+                sortie.push(NonOuvert {
+                    document_id,
+                    mise_a_disposition_id: mad,
+                    nature_code: nature,
+                    depuis,
+                });
             }
         }
         Ok(sortie)
@@ -639,15 +694,25 @@ impl PgEnt {
         document_id: Uuid,
         dest: DestinataireMad,
     ) -> Result<Uuid, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsEmettre).await?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        self.exiger_action_documents(a, Action::DocumentsEmettre)
+            .await?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let doc = document_court(&mut tx, a.etablissement_id, document_id).await?;
         let domaine = Domaine::parse(&doc.domaine).ok_or(EntDbError::Forbidden)?;
-        if doc.sensibilite == "C4" || !self.doc_peut_sur_sujet(a, domaine.action_lecture(), doc.eleve_id).await? {
+        if doc.sensibilite == "C4"
+            || !self
+                .doc_peut_sur_sujet(a, domaine.action_lecture(), doc.eleve_id)
+                .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         if doc.etat != "emis" {
-            return Err(refus(RefusMetier::Conflit, "seul un document émis se met à disposition"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "seul un document émis se met à disposition",
+            ));
         }
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         destinataire_valable(&mut tx, a.etablissement_id, &doc, dest, jour).await?;
@@ -686,9 +751,12 @@ impl PgEnt {
         mise_a_disposition_id: Uuid,
         motif: &str,
     ) -> Result<bool, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsClasser).await?;
+        self.exiger_action_documents(a, Action::DocumentsClasser)
+            .await?;
         let motif = texte(motif, 3, 500)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let m: Option<(Uuid, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<Uuid>, String)> = sqlx::query_as(
             "SELECT m.document_id, m.retiree_le, m.premiere_ouverture_le, d.eleve_id, d.nature_code
                FROM ent_doc_mise_a_disposition m
@@ -702,7 +770,10 @@ impl PgEnt {
         .map_err(db)?;
         let (document, retiree, ouverte, eleve, nature) = m.ok_or_else(introuvable)?;
         if retiree.is_some() {
-            return Err(refus(RefusMetier::Conflit, "mise à disposition déjà retirée"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "mise à disposition déjà retirée",
+            ));
         }
         sqlx::query(
             "UPDATE ent_doc_mise_a_disposition SET retiree_le = now(), retrait_motif = $3
@@ -749,10 +820,20 @@ impl PgEnt {
         mise_a_disposition_id: Uuid,
         motif: &str,
     ) -> Result<Uuid, EntDbError> {
-        self.exiger_action_documents(a, Action::DocumentsClasser).await?;
+        self.exiger_action_documents(a, Action::DocumentsClasser)
+            .await?;
         let motif = texte(motif, 3, 500)?;
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        let m: Option<(Uuid, Uuid, Option<Uuid>, Option<Uuid>, Option<Uuid>, Option<DateTime<Utc>>)> = sqlx::query_as(
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
+        let m: Option<(
+            Uuid,
+            Uuid,
+            Option<Uuid>,
+            Option<Uuid>,
+            Option<Uuid>,
+            Option<DateTime<Utc>>,
+        )> = sqlx::query_as(
             "SELECT document_id, exemplaire_id, personne_id, eleve_id, agent_id, retiree_le
                FROM ent_doc_mise_a_disposition WHERE etablissement_id = $1 AND id = $2",
         )
@@ -763,7 +844,10 @@ impl PgEnt {
         .map_err(db)?;
         let (document_id, exemplaire_id, p, e, g, retiree) = m.ok_or_else(introuvable)?;
         if retiree.is_none() {
-            return Err(refus(RefusMetier::Conflit, "cette mise à disposition n'est pas retirée"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "cette mise à disposition n'est pas retirée",
+            ));
         }
         let dest = match (p, e, g) {
             (Some(p), _, _) => DestinataireMad::Personne(p),
@@ -773,11 +857,18 @@ impl PgEnt {
         };
         let doc = document_court(&mut tx, a.etablissement_id, document_id).await?;
         let domaine = Domaine::parse(&doc.domaine).ok_or(EntDbError::Forbidden)?;
-        if doc.sensibilite == "C4" || !self.doc_peut_sur_sujet(a, domaine.action_lecture(), doc.eleve_id).await? {
+        if doc.sensibilite == "C4"
+            || !self
+                .doc_peut_sur_sujet(a, domaine.action_lecture(), doc.eleve_id)
+                .await?
+        {
             return Err(EntDbError::Forbidden);
         }
         if doc.etat != "emis" {
-            return Err(refus(RefusMetier::Conflit, "seul un document émis se met à disposition"));
+            return Err(refus(
+                RefusMetier::Conflit,
+                "seul un document émis se met à disposition",
+            ));
         }
         let jour = jour_etab(&mut tx, a.etablissement_id).await?;
         destinataire_valable(&mut tx, a.etablissement_id, &doc, dest, jour).await?;
@@ -840,16 +931,26 @@ impl PgEnt {
         a: &Acteur<'_>,
         filtre: &FiltreCoffre,
     ) -> Result<ExportCoffre, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let (ctx, cands) = charger(&mut tx, a.etablissement_id, a.user_id, None).await?;
-        let retenues: Vec<&Candidate> = cands.iter().filter(|c| ctx.autorise(c) && filtre_ok(filtre, c)).collect();
+        let retenues: Vec<&Candidate> = cands
+            .iter()
+            .filter(|c| ctx.autorise(c) && filtre_ok(filtre, c))
+            .collect();
         if retenues.len() > EXPORT_MAX_DOCUMENTS {
             return Err(refus(
                 RefusMetier::Conflit,
                 "trop de documents pour un seul export : filtrez par enfant ou par année",
             ));
         }
-        let eleves: Vec<Uuid> = retenues.iter().filter_map(|c| c.eleve_id).collect::<HashSet<_>>().into_iter().collect();
+        let eleves: Vec<Uuid> = retenues
+            .iter()
+            .filter_map(|c| c.eleve_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         let noms: HashMap<Uuid, String> = if eleves.is_empty() {
             HashMap::new()
         } else {
@@ -891,7 +992,10 @@ impl PgEnt {
                 .await?;
             total += octets.len();
             if total > EXPORT_MAX_OCTETS {
-                return Err(refus(RefusMetier::Conflit, "export trop volumineux : filtrez par enfant ou par année"));
+                return Err(refus(
+                    RefusMetier::Conflit,
+                    "export trop volumineux : filtrez par enfant ou par année",
+                ));
             }
             let nom = nom_fichier_sur(c);
             zip.ajouter(&nom, &octets)
@@ -902,9 +1006,16 @@ impl PgEnt {
                 cellule_csv(&numero_affiche(c).unwrap_or_default()),
                 cellule_csv(&c.nature_code),
                 cellule_csv(&c.titre),
-                cellule_csv(c.eleve_id.and_then(|e| noms.get(&e)).map(String::as_str).unwrap_or("")),
+                cellule_csv(
+                    c.eleve_id
+                        .and_then(|e| noms.get(&e))
+                        .map(String::as_str)
+                        .unwrap_or("")
+                ),
                 c.depuis.format("%Y-%m-%d").to_string(),
-                c.premiere_ouverture_le.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default(),
+                c.premiere_ouverture_le
+                    .map(|d| d.format("%Y-%m-%d").to_string())
+                    .unwrap_or_default(),
                 c.empreinte_sha256,
             ));
         }
@@ -932,7 +1043,11 @@ impl PgEnt {
     }
 
     /// Bascule du coffre pour **un** élève devenu majeur (DCT-92), hors événement (reprise manuelle, test).
-    pub async fn basculer_coffre_majorite(&self, etab: Uuid, eleve_id: Uuid) -> Result<BasculeFaite, EntDbError> {
+    pub async fn basculer_coffre_majorite(
+        &self,
+        etab: Uuid,
+        eleve_id: Uuid,
+    ) -> Result<BasculeFaite, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let (b, evs) = basculer_majorite_tx(&mut tx, etab, eleve_id, None).await?;
         tx.commit().await.map_err(db)?;
@@ -955,7 +1070,9 @@ impl PgEnt {
         a: &Acteur<'_>,
         document_id: Uuid,
     ) -> Result<Option<Uuid>, EntDbError> {
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
+        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
+            .await
+            .map_err(db)?;
         let t = resoudre_titulaires(&mut tx, a.etablissement_id, a.user_id).await?;
         let r: Option<(Uuid,)> = sqlx::query_as(
             "SELECT m.id FROM ent_doc_mise_a_disposition m
@@ -976,7 +1093,12 @@ impl PgEnt {
     }
 }
 
-async fn tracer(conn: &mut PgConnection, a: &Acteur<'_>, c: &Candidate, motif: &str) -> Result<(), EntDbError> {
+async fn tracer(
+    conn: &mut PgConnection,
+    a: &Acteur<'_>,
+    c: &Candidate,
+    motif: &str,
+) -> Result<(), EntDbError> {
     sqlx::query(
         "INSERT INTO ent_doc_consultation (id, etablissement_id, document_id, version_id, acteur_user_id, profil, canal, motif)
          VALUES ($1,$2,$3,$4,$5,$6,'web',$7)",
@@ -1006,7 +1128,11 @@ struct DocCourt {
     version_courante: i32,
 }
 
-async fn document_court(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<DocCourt, EntDbError> {
+async fn document_court(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    id: Uuid,
+) -> Result<DocCourt, EntDbError> {
     sqlx::query_as::<_, DocCourt>(
         "SELECT nature_code, sensibilite, domaine, etat, eleve_id, personne_id, agent_id, version_courante
            FROM ent_doc_document WHERE etablissement_id = $1 AND id = $2",
@@ -1066,7 +1192,9 @@ async fn destinataire_valable(
                 .map_err(db)?;
                 if propre.is_some() {
                     if !majeur && !(sens <= Sensibilite::C2 && dom == Domaine::Scolarite) {
-                        return non("un élève mineur ne reçoit pas ce document (nature ou sensibilité)");
+                        return non(
+                            "un élève mineur ne reçoit pas ce document (nature ou sensibilité)",
+                        );
                     }
                 } else {
                     let titulaires = titulaires_destinataires(&mut *conn, etab, e, jour).await?;
@@ -1198,7 +1326,11 @@ async fn retirer_liens_invalides_tx(
     .fetch_all(&mut *conn)
     .await
     .map_err(db)?;
-    let systeme = Acteur { etablissement_id: etab, user_id: Uuid::nil(), role: "systeme" };
+    let systeme = Acteur {
+        etablissement_id: etab,
+        user_id: Uuid::nil(),
+        role: "systeme",
+    };
     for (_, doc) in &lignes {
         journaliser(
             &mut *conn,
@@ -1223,11 +1355,18 @@ async fn basculer_majorite_tx(
     causalite: Option<crate::outbox::Causalite>,
 ) -> Result<(BasculeFaite, Vec<ent_events::MetierEvent>), EntDbError> {
     let jour = jour_etab(&mut *conn, etab).await?;
-    if !majeurs_parmi(&mut *conn, etab, &[eleve], jour).await?.contains(&eleve) {
+    if !majeurs_parmi(&mut *conn, etab, &[eleve], jour)
+        .await?
+        .contains(&eleve)
+    {
         return Ok((BasculeFaite::default(), Vec::new()));
     }
     let mut fait = BasculeFaite::default();
-    let systeme = Acteur { etablissement_id: etab, user_id: Uuid::nil(), role: "systeme" };
+    let systeme = Acteur {
+        etablissement_id: etab,
+        user_id: Uuid::nil(),
+        role: "systeme",
+    };
     // 1. Les parents ne reçoivent plus les documents de l'élève (le payeur garde ce qui relève de la facturation).
     let retires: Vec<(Uuid,)> = sqlx::query_as(
         "UPDATE ent_doc_mise_a_disposition m
@@ -1337,8 +1476,7 @@ async fn basculer_majorite_tx(
         let ev = match causalite {
             Some(c) => conn.publier_avec(draft, c).await,
             None => conn.publier(draft).await,
-        }
-        ?;
+        }?;
         evs.push(ev);
     }
     Ok((fait, evs))
@@ -1367,7 +1505,11 @@ impl Consommateur for ConsommateurCoffre {
         TYPES_COFFRE
     }
 
-    fn traiter<'a>(&'a self, tx: &'a mut PgConnection, evt: &'a EvenementDistribue) -> FutureTraitement<'a> {
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
         Box::pin(async move { traiter_coffre(tx, evt).await.map_err(|e| e.to_string()) })
     }
 }
@@ -1415,11 +1557,21 @@ async fn traiter_coffre(tx: &mut PgConnection, evt: &EvenementDistribue) -> Resu
             .await
             .map_err(db)?;
             if let Some((user_id,)) = user {
-                notifier(tx, evt, user_id, "document_disponible", "Un document vous attend", TEXTE_COFFRE).await?;
+                notifier(
+                    tx,
+                    evt,
+                    user_id,
+                    "document_disponible",
+                    "Un document vous attend",
+                    TEXTE_COFFRE,
+                )
+                .await?;
             }
         }
         t if t == EVT_COFFRE_BASCULE => {
-            let Some(eleve) = e.eleve_id else { return Ok(()) };
+            let Some(eleve) = e.eleve_id else {
+                return Ok(());
+            };
             let user: Option<(Uuid,)> = sqlx::query_as(
                 "SELECT coalesce(c.user_id, p.user_id)
                    FROM ent_eleve el
@@ -1515,7 +1667,12 @@ mod tests {
         }
     }
 
-    fn ctx(personnes: &[Uuid], eleves: &[Uuid], liens: &[(Uuid, Uuid)], majeurs: &[Uuid]) -> ContexteCoffre {
+    fn ctx(
+        personnes: &[Uuid],
+        eleves: &[Uuid],
+        liens: &[(Uuid, Uuid)],
+        majeurs: &[Uuid],
+    ) -> ContexteCoffre {
         ContexteCoffre {
             titulaires: TitulairesCoffre {
                 personnes: personnes.to_vec(),
@@ -1535,8 +1692,14 @@ mod tests {
         c.eleve_id = Some(e);
         c.mad_personne = Some(p);
         assert!(ctx(&[p], &[], &[(p, e)], &[]).autorise(&c));
-        assert!(!ctx(&[p], &[], &[], &[]).autorise(&c), "lien suspendu, absent ou sans autorité");
-        assert!(!ctx(&[Uuid::new_v4()], &[], &[(p, e)], &[]).autorise(&c), "la mise à disposition d'un autre");
+        assert!(
+            !ctx(&[p], &[], &[], &[]).autorise(&c),
+            "lien suspendu, absent ou sans autorité"
+        );
+        assert!(
+            !ctx(&[Uuid::new_v4()], &[], &[(p, e)], &[]).autorise(&c),
+            "la mise à disposition d'un autre"
+        );
     }
 
     #[test]
@@ -1567,7 +1730,10 @@ mod tests {
             assert!(!mineur.autorise(&c), "{d}");
         }
         c.domaine = "disciplinaire".into();
-        assert!(ctx(&[], &[e], &[], &[e]).autorise(&c), "majeur : ce qui lui est adressé");
+        assert!(
+            ctx(&[], &[e], &[], &[e]).autorise(&c),
+            "majeur : ce qui lui est adressé"
+        );
     }
 
     #[test]
@@ -1579,7 +1745,10 @@ mod tests {
         assert!(!ctx(&[], &[e], &[], &[e]).autorise(&c));
         c.sensibilite = "C1".into();
         c.eleve_id = Some(autre);
-        assert!(!ctx(&[], &[e], &[], &[e]).autorise(&c), "un document sur un autre élève");
+        assert!(
+            !ctx(&[], &[e], &[], &[e]).autorise(&c),
+            "un document sur un autre élève"
+        );
     }
 
     #[test]
@@ -1611,7 +1780,10 @@ mod tests {
     fn nom_de_fichier_sur() {
         let c = cand("C1", "scolarite");
         let n = nom_fichier_sur(&c);
-        assert!(n.starts_with("documents/2026-SCO-000007_eleve_certificat_scolarite_"), "{n}");
+        assert!(
+            n.starts_with("documents/2026-SCO-000007_eleve_certificat_scolarite_"),
+            "{n}"
+        );
         assert!(n.ends_with(".pdf") && !n.contains(".."));
     }
 }

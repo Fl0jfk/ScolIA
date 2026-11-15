@@ -69,7 +69,9 @@ fn u16_be(b: &[u8], o: usize) -> Option<u16> {
 
 /// Lit l'orientation dans un segment APP1 EXIF (`Exif\0\0` + TIFF). 1 par défaut ; valeur hors 1..=8 ignorée.
 fn orientation_exif(app1: &[u8]) -> u8 {
-    let Some(tiff) = app1.strip_prefix(b"Exif\0\0") else { return 1 };
+    let Some(tiff) = app1.strip_prefix(b"Exif\0\0") else {
+        return 1;
+    };
     let (le, ok) = match tiff.get(0..2) {
         Some(b"II") => (true, true),
         Some(b"MM") => (false, true),
@@ -80,16 +82,31 @@ fn orientation_exif(app1: &[u8]) -> u8 {
     }
     let u16_at = |o: usize| -> Option<u16> {
         let b = [*tiff.get(o)?, *tiff.get(o + 1)?];
-        Some(if le { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) })
+        Some(if le {
+            u16::from_le_bytes(b)
+        } else {
+            u16::from_be_bytes(b)
+        })
     };
     let u32_at = |o: usize| -> Option<u32> {
-        let b = [*tiff.get(o)?, *tiff.get(o + 1)?, *tiff.get(o + 2)?, *tiff.get(o + 3)?];
-        Some(if le { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) })
+        let b = [
+            *tiff.get(o)?,
+            *tiff.get(o + 1)?,
+            *tiff.get(o + 2)?,
+            *tiff.get(o + 3)?,
+        ];
+        Some(if le {
+            u32::from_le_bytes(b)
+        } else {
+            u32::from_be_bytes(b)
+        })
     };
     if u16_at(2) != Some(42) {
         return 1;
     }
-    let Some(ifd) = u32_at(4).map(|x| x as usize) else { return 1 };
+    let Some(ifd) = u32_at(4).map(|x| x as usize) else {
+        return 1;
+    };
     let Some(n) = u16_at(ifd) else { return 1 };
     for i in 0..usize::from(n.min(64)) {
         let e = ifd + 2 + i * 12;
@@ -161,13 +178,17 @@ pub fn jpeg_nettoye(entree: &[u8]) -> Result<JpegNettoye, ErreurPiece> {
                     return Err(ErreurPiece::ImageNonPrise("image démesurée"));
                 }
                 if c != 1 && c != 3 {
-                    return Err(ErreurPiece::ImageNonPrise("seuls le gris et le RVB sont acceptés (pas de CMJN)"));
+                    return Err(ErreurPiece::ImageNonPrise(
+                        "seuls le gris et le RVB sont acceptés (pas de CMJN)",
+                    ));
                 }
                 cadre = Some((l, h, c));
                 sortie.extend_from_slice(segment);
             }
             0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf => {
-                return Err(ErreurPiece::ImageNonPrise("JPEG sans perte ou arithmétique non pris en charge"));
+                return Err(ErreurPiece::ImageNonPrise(
+                    "JPEG sans perte ou arithmétique non pris en charge",
+                ));
             }
             // Tables, intervalle de redémarrage, marqueur Adobe (transformation de couleur) : nécessaires.
             0xc4 | 0xdb | 0xdd | 0xee => sortie.extend_from_slice(segment),
@@ -212,7 +233,13 @@ pub fn jpeg_nettoye(entree: &[u8]) -> Result<JpegNettoye, ErreurPiece> {
         i += 2 + lg;
     }
     let (largeur, hauteur, composantes) = cadre.ok_or(il("cadre d'image absent"))?;
-    Ok(JpegNettoye { octets: sortie, largeur, hauteur, composantes, orientation })
+    Ok(JpegNettoye {
+        octets: sortie,
+        largeur,
+        hauteur,
+        composantes,
+        orientation,
+    })
 }
 
 /// Matrice de placement `[a b c d e f]` de l'image dans la page, pour l'orientation EXIF et les dimensions affichées
@@ -237,7 +264,11 @@ fn crc32(octets: &[u8]) -> u32 {
     for &b in octets {
         c ^= u32::from(b);
         for _ in 0..8 {
-            c = if c & 1 == 1 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 == 1 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
     }
     !c
@@ -266,8 +297,12 @@ fn lire_png(b: &[u8]) -> Result<Png, ErreurPiece> {
     while i + 12 <= b.len() {
         let n = u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
         let t = &b[i + 4..i + 8];
-        let Some(donnees) = b.get(i + 8..i + 8 + n) else { return Err(il("bloc PNG tronqué")) };
-        let Some(crc) = b.get(i + 8 + n..i + 12 + n) else { return Err(il("bloc PNG tronqué")) };
+        let Some(donnees) = b.get(i + 8..i + 8 + n) else {
+            return Err(il("bloc PNG tronqué"));
+        };
+        let Some(crc) = b.get(i + 8 + n..i + 12 + n) else {
+            return Err(il("bloc PNG tronqué"));
+        };
         if u32::from_be_bytes([crc[0], crc[1], crc[2], crc[3]]) != crc32(&b[i + 4..i + 8 + n]) {
             return Err(il("PNG corrompu (somme de contrôle)"));
         }
@@ -304,21 +339,39 @@ fn lire_png(b: &[u8]) -> Result<Png, ErreurPiece> {
         return Err(ErreurPiece::ImageNonPrise("image démesurée"));
     }
     if entrelace != 0 {
-        return Err(ErreurPiece::ImageNonPrise("PNG entrelacé non pris en charge : enregistrez-le sans entrelacement"));
+        return Err(ErreurPiece::ImageNonPrise(
+            "PNG entrelacé non pris en charge : enregistrez-le sans entrelacement",
+        ));
     }
     if couleur == 4 || couleur == 6 {
-        return Err(ErreurPiece::ImageNonPrise("PNG avec transparence non pris en charge : prenez une photo ou exportez en JPEG"));
+        return Err(ErreurPiece::ImageNonPrise(
+            "PNG avec transparence non pris en charge : prenez une photo ou exportez en JPEG",
+        ));
     }
     let valide = match couleur {
         0 => matches!(profondeur, 1 | 2 | 4 | 8),
         2 => profondeur == 8,
-        3 => matches!(profondeur, 1 | 2 | 4 | 8) && !palette.is_empty() && palette.len() % 3 == 0 && palette.len() <= 768,
+        3 => {
+            matches!(profondeur, 1 | 2 | 4 | 8)
+                && !palette.is_empty()
+                && palette.len() % 3 == 0
+                && palette.len() <= 768
+        }
         _ => false,
     };
     if !valide {
-        return Err(ErreurPiece::ImageNonPrise("combinaison de profondeur et de couleur PNG non prise en charge"));
+        return Err(ErreurPiece::ImageNonPrise(
+            "combinaison de profondeur et de couleur PNG non prise en charge",
+        ));
     }
-    Ok(Png { largeur, hauteur, profondeur, couleur, palette, idat })
+    Ok(Png {
+        largeur,
+        hauteur,
+        profondeur,
+        couleur,
+        palette,
+        idat,
+    })
 }
 
 // ───────────────────────── Assemblage ─────────────────────────
@@ -335,7 +388,11 @@ pub struct PieceNormalisee {
 fn f(x: f32) -> String {
     let s = format!("{x:.3}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
-    if s.is_empty() || s == "-" { "0".into() } else { s.into() }
+    if s.is_empty() || s == "-" {
+        "0".into()
+    } else {
+        s.into()
+    }
 }
 
 /// Assemble des images (JPEG ou PNG, dans l'ordre des pages) en **un seul PDF**.
@@ -353,21 +410,22 @@ pub fn images_en_pdf(images: &[&[u8]]) -> Result<PieceNormalisee, ErreurPiece> {
     let id_pages = 3 * n + 1;
     for img in images {
         let est_png = img.starts_with(&[0x89, b'P', b'N', b'G']);
-        let (dict_image, donnees, wpx, hpx, orientation): (String, Vec<u8>, u32, u32, u8) = if est_png {
-            let p = lire_png(img)?;
-            let cs = match p.couleur {
-                0 => "/DeviceGray".to_string(),
-                2 => "/DeviceRGB".to_string(),
-                _ => {
-                    let mut h = String::new();
-                    for o in &p.palette {
-                        h.push_str(&format!("{o:02X}"));
+        let (dict_image, donnees, wpx, hpx, orientation): (String, Vec<u8>, u32, u32, u8) =
+            if est_png {
+                let p = lire_png(img)?;
+                let cs = match p.couleur {
+                    0 => "/DeviceGray".to_string(),
+                    2 => "/DeviceRGB".to_string(),
+                    _ => {
+                        let mut h = String::new();
+                        for o in &p.palette {
+                            h.push_str(&format!("{o:02X}"));
+                        }
+                        format!("[/Indexed /DeviceRGB {} <{h}>]", p.palette.len() / 3 - 1)
                     }
-                    format!("[/Indexed /DeviceRGB {} <{h}>]", p.palette.len() / 3 - 1)
-                }
-            };
-            let colors = if p.couleur == 2 { 3 } else { 1 };
-            (
+                };
+                let colors = if p.couleur == 2 { 3 } else { 1 };
+                (
                 format!(
                     "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {cs} /BitsPerComponent {} /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors {colors} /BitsPerComponent {} /Columns {} >>",
                     p.largeur, p.hauteur, p.profondeur, p.profondeur, p.largeur
@@ -377,10 +435,14 @@ pub fn images_en_pdf(images: &[&[u8]]) -> Result<PieceNormalisee, ErreurPiece> {
                 p.hauteur,
                 1,
             )
-        } else {
-            let j = jpeg_nettoye(img)?;
-            let cs = if j.composantes == 1 { "/DeviceGray" } else { "/DeviceRGB" };
-            (
+            } else {
+                let j = jpeg_nettoye(img)?;
+                let cs = if j.composantes == 1 {
+                    "/DeviceGray"
+                } else {
+                    "/DeviceRGB"
+                };
+                (
                 format!(
                     "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace {cs} /BitsPerComponent 8 /Filter /DCTDecode",
                     j.largeur, j.hauteur
@@ -390,13 +452,21 @@ pub fn images_en_pdf(images: &[&[u8]]) -> Result<PieceNormalisee, ErreurPiece> {
                 j.hauteur,
                 j.orientation,
             )
-        };
+            };
         if orientation != 1 {
             redressees += 1;
         }
         // Dimensions affichées (après orientation), mises à l'échelle pour tenir dans un A4 (595 × 842) sans agrandir.
-        let (dw, dh) = if orientation >= 5 { (hpx, wpx) } else { (wpx, hpx) };
-        let (boite_l, boite_h) = if dw > dh { (842.0f32, 595.0f32) } else { (595.0, 842.0) };
+        let (dw, dh) = if orientation >= 5 {
+            (hpx, wpx)
+        } else {
+            (wpx, hpx)
+        };
+        let (boite_l, boite_h) = if dw > dh {
+            (842.0f32, 595.0f32)
+        } else {
+            (595.0, 842.0)
+        };
         let echelle = (boite_l / dw as f32).min(boite_h / dh as f32).min(1.0);
         let (wi, hi) = (wpx as f32 * echelle, hpx as f32 * echelle);
         let (pw, ph) = (dw as f32 * echelle, dh as f32 * echelle);
@@ -404,7 +474,12 @@ pub fn images_en_pdf(images: &[&[u8]]) -> Result<PieceNormalisee, ErreurPiece> {
         let id_image = e.flux(&dict_image, &donnees);
         let contenu = format!(
             "q {} {} {} {} {} {} cm /Im1 Do Q",
-            f(m[0]), f(m[1]), f(m[2]), f(m[3]), f(m[4]), f(m[5])
+            f(m[0]),
+            f(m[1]),
+            f(m[2]),
+            f(m[3]),
+            f(m[4]),
+            f(m[5])
         );
         let id_contenu = e.flux("", contenu.as_bytes());
         let id_page = e.objet(
@@ -421,20 +496,64 @@ pub fn images_en_pdf(images: &[&[u8]]) -> Result<PieceNormalisee, ErreurPiece> {
     debug_assert_eq!(pages, id_pages);
     let racine = e.objet(format!("<< /Type /Catalog /Pages {pages} 0 R >>").as_bytes());
     let info = e.objet(b"<< /Producer (ScolIA) >>");
-    Ok(PieceNormalisee { pdf: e.terminer(racine, info), nb_pages: n, pages_redressees: redressees })
+    Ok(PieceNormalisee {
+        pdf: e.terminer(racine, info),
+        nb_pages: n,
+        pages_redressees: redressees,
+    })
 }
 
 // ───────────────────────── PDF : désarmement ─────────────────────────
 
 /// Noms PDF qui déclenchent une action, lancent un programme, joignent un fichier ou portent un contenu actif.
 const NOMS_ACTIFS: &[&str] = &[
-    "JavaScript", "JS", "Launch", "OpenAction", "AA", "URI", "GoToR", "GoToE", "SubmitForm", "ImportData",
-    "ResetForm", "EmbeddedFile", "EmbeddedFiles", "EF", "RF", "RichMedia", "XFA", "Movie", "Sound", "Rendition",
-    "Screen", "SetOCGState", "Hide", "GoTo3DView", "FileAttachment", "Named",
+    "JavaScript",
+    "JS",
+    "Launch",
+    "OpenAction",
+    "AA",
+    "URI",
+    "GoToR",
+    "GoToE",
+    "SubmitForm",
+    "ImportData",
+    "ResetForm",
+    "EmbeddedFile",
+    "EmbeddedFiles",
+    "EF",
+    "RF",
+    "RichMedia",
+    "XFA",
+    "Movie",
+    "Sound",
+    "Rendition",
+    "Screen",
+    "SetOCGState",
+    "Hide",
+    "GoTo3DView",
+    "FileAttachment",
+    "Named",
 ];
 
 fn delimiteur(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\r' | b'\n' | 0x0c | 0 | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%')
+    matches!(
+        b,
+        b' ' | b'\t'
+            | b'\r'
+            | b'\n'
+            | 0x0c
+            | 0
+            | b'('
+            | b')'
+            | b'<'
+            | b'>'
+            | b'['
+            | b']'
+            | b'{'
+            | b'}'
+            | b'/'
+            | b'%'
+    )
 }
 
 /// Décode les `#xx` d'un nom (les octets non UTF-8 deviennent des remplacements : ils ne peuvent pas égaler un nom actif).
@@ -443,7 +562,9 @@ fn nom_decode(brut: &[u8]) -> String {
     let mut i = 0;
     while i < brut.len() {
         if brut[i] == b'#' && i + 2 < brut.len() + 0 && i + 2 <= brut.len() - 1 + 0 {
-            let h = std::str::from_utf8(&brut[i + 1..i + 3]).ok().and_then(|x| u8::from_str_radix(x, 16).ok());
+            let h = std::str::from_utf8(&brut[i + 1..i + 3])
+                .ok()
+                .and_then(|x| u8::from_str_radix(x, 16).ok());
             if let Some(v) = h {
                 o.push(v);
                 i += 3;
@@ -488,7 +609,10 @@ fn trouver(b: &[u8], aiguille: &[u8], depuis: usize) -> Option<usize> {
     if depuis >= b.len() {
         return None;
     }
-    b[depuis..].windows(aiguille.len()).position(|w| w == aiguille).map(|p| p + depuis)
+    b[depuis..]
+        .windows(aiguille.len())
+        .position(|w| w == aiguille)
+        .map(|p| p + depuis)
 }
 
 /// Les jetons `/Nom` hors flux, avec leur position : `(début, fin, nom décodé)`.
@@ -560,7 +684,9 @@ pub fn desarmer_pdf(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
     }
     let noms = noms_hors_flux(entree);
     if noms.iter().any(|(_, _, n)| n == "Encrypt") {
-        return Err(refus("PDF chiffré : enregistrez-le sans mot de passe, ou prenez une photo"));
+        return Err(refus(
+            "PDF chiffré : enregistrez-le sans mot de passe, ou prenez une photo",
+        ));
     }
     if noms.iter().any(|(_, _, n)| n == "ObjStm") {
         return Err(refus("PDF à objets compressés non inspectable : prenez une photo ou imprimez-le en PDF simple"));
@@ -586,8 +712,14 @@ pub fn desarmer_pdf(entree: &[u8]) -> Result<PdfDesarme, ErreurPiece> {
         return Err(refus("PDF sans page"));
     }
     // Contrôle de sortie : rien d'actif ne subsiste.
-    debug_assert!(noms_hors_flux(&sortie).iter().all(|(_, _, n)| !NOMS_ACTIFS.contains(&n.as_str())));
-    Ok(PdfDesarme { octets: sortie, neutralises, nb_pages })
+    debug_assert!(noms_hors_flux(&sortie)
+        .iter()
+        .all(|(_, _, n)| !NOMS_ACTIFS.contains(&n.as_str())));
+    Ok(PdfDesarme {
+        octets: sortie,
+        neutralises,
+        nb_pages,
+    })
 }
 
 #[cfg(test)]
@@ -652,31 +784,68 @@ mod tests {
             400,
             300,
             3,
-            &[exif(6, "GPS:48.8566N,2.3522E-SECRET"), segment(0xfe, b"commentaire-secret"), segment(0xe2, b"ICC_PROFILE-secret")],
+            &[
+                exif(6, "GPS:48.8566N,2.3522E-SECRET"),
+                segment(0xfe, b"commentaire-secret"),
+                segment(0xe2, b"ICC_PROFILE-secret"),
+            ],
             b"donnees ajoutees apres la fin SECRET2",
         );
         assert!(src.windows(6).any(|w| w == b"SECRET"));
         let j = jpeg_nettoye(&src).unwrap();
-        assert_eq!((j.largeur, j.hauteur, j.composantes, j.orientation), (400, 300, 3, 6));
-        for interdit in [&b"GPS"[..], b"SECRET", b"Exif", b"JFIF", b"ICC_PROFILE", b"commentaire", b"donnees ajoutees"] {
-            assert!(!j.octets.windows(interdit.len()).any(|w| w == interdit), "{:?}", String::from_utf8_lossy(interdit));
+        assert_eq!(
+            (j.largeur, j.hauteur, j.composantes, j.orientation),
+            (400, 300, 3, 6)
+        );
+        for interdit in [
+            &b"GPS"[..],
+            b"SECRET",
+            b"Exif",
+            b"JFIF",
+            b"ICC_PROFILE",
+            b"commentaire",
+            b"donnees ajoutees",
+        ] {
+            assert!(
+                !j.octets.windows(interdit.len()).any(|w| w == interdit),
+                "{:?}",
+                String::from_utf8_lossy(interdit)
+            );
         }
         // Le flux nettoyé reste un JPEG complet (SOI … EOI) avec ses données entropiques intactes.
         assert!(j.octets.starts_with(&[0xff, 0xd8]) && j.octets.ends_with(&[0xff, 0xd9]));
-        assert!(j.octets.windows(8).any(|w| w == [0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd0, 0x78]));
+        assert!(j
+            .octets
+            .windows(8)
+            .any(|w| w == [0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd0, 0x78]));
         // Le résultat se relit avec le lecteur de JPEG du moteur.
         assert!(crate::Jpeg::lire(&j.octets).is_ok());
     }
 
     #[test]
     fn jpeg_invalides_refuses() {
-        assert!(matches!(jpeg_nettoye(b"GIF89a...."), Err(ErreurPiece::ImageIllisible(_))));
+        assert!(matches!(
+            jpeg_nettoye(b"GIF89a...."),
+            Err(ErreurPiece::ImageIllisible(_))
+        ));
         let ok = jpeg(10, 10, 3, &[], b"");
         assert!(jpeg_nettoye(&ok[..ok.len() - 12]).is_err(), "tronqué");
-        assert!(matches!(jpeg_nettoye(&jpeg(10, 10, 4, &[], b"")), Err(ErreurPiece::ImageNonPrise(_))), "CMJN");
-        assert!(matches!(jpeg_nettoye(&jpeg(0, 10, 3, &[], b"")), Err(ErreurPiece::ImageIllisible(_))));
+        assert!(
+            matches!(
+                jpeg_nettoye(&jpeg(10, 10, 4, &[], b"")),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "CMJN"
+        );
+        assert!(matches!(
+            jpeg_nettoye(&jpeg(0, 10, 3, &[], b"")),
+            Err(ErreurPiece::ImageIllisible(_))
+        ));
         // Bombe : 20 000 × 20 000 pixels.
-        assert!(matches!(jpeg_nettoye(&jpeg(20000, 20000, 3, &[], b"")), Err(ErreurPiece::ImageNonPrise(_))));
+        assert!(matches!(
+            jpeg_nettoye(&jpeg(20000, 20000, 3, &[], b"")),
+            Err(ErreurPiece::ImageNonPrise(_))
+        ));
     }
 
     /// Chaque orientation place les quatre coins de l'image stockée où l'EXIF le dit.
@@ -705,7 +874,10 @@ mod tests {
             for (k, (x, y)) in coins.iter().enumerate() {
                 let (px, py) = (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
                 let (ax, ay) = attendu(o)[k];
-                assert!((px - ax).abs() < 1e-4 && (py - ay).abs() < 1e-4, "orientation {o}, coin {k} : ({px},{py}) ≠ ({ax},{ay})");
+                assert!(
+                    (px - ax).abs() < 1e-4 && (py - ay).abs() < 1e-4,
+                    "orientation {o}, coin {k} : ({px},{py}) ≠ ({ax},{ay})"
+                );
             }
         }
     }
@@ -719,8 +891,13 @@ mod tests {
         assert!(p.pdf.starts_with(b"%PDF-1.4"));
         let d = desarmer_pdf(&p.pdf).unwrap();
         assert_eq!(d.nb_pages, 2, "relu par le désarmeur");
-        assert!(d.neutralises.is_empty(), "un PDF fait par nous n'a rien d'actif");
-        assert!(!p.pdf.windows(6).any(|w| w == b"SECRET") && !p.pdf.windows(4).any(|w| w == b"Exif"));
+        assert!(
+            d.neutralises.is_empty(),
+            "un PDF fait par nous n'a rien d'actif"
+        );
+        assert!(
+            !p.pdf.windows(6).any(|w| w == b"SECRET") && !p.pdf.windows(4).any(|w| w == b"Exif")
+        );
         assert!(p.pdf.windows(11).any(|w| w == b"/DCTDecode "));
         // Déterministe : mêmes entrées, mêmes octets.
         assert_eq!(p.pdf, images_en_pdf(&[&a, &b]).unwrap().pdf);
@@ -751,35 +928,100 @@ mod tests {
         for e in extra {
             v.extend_from_slice(e);
         }
-        v.extend_from_slice(&bloc(b"IDAT", &[0x78, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0, 0, 0, 1]));
+        v.extend_from_slice(&bloc(
+            b"IDAT",
+            &[0x78, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0, 0, 0, 1],
+        ));
         v.extend_from_slice(&bloc(b"IEND", &[]));
         v
     }
 
     #[test]
     fn png_repris_sans_blocs_annexes() {
-        let src = png(30, 20, 8, 2, 0, &[bloc(b"tEXt", b"Comment\0SECRET-PNG"), bloc(b"eXIf", b"GPS-SECRET")]);
+        let src = png(
+            30,
+            20,
+            8,
+            2,
+            0,
+            &[
+                bloc(b"tEXt", b"Comment\0SECRET-PNG"),
+                bloc(b"eXIf", b"GPS-SECRET"),
+            ],
+        );
         let p = images_en_pdf(&[&src]).unwrap();
         assert!(!p.pdf.windows(6).any(|w| w == b"SECRET"));
         let t = String::from_utf8_lossy(&p.pdf);
-        assert!(t.contains("/FlateDecode") && t.contains("/Predictor 15 /Colors 3") && t.contains("/Columns 30"));
+        assert!(
+            t.contains("/FlateDecode")
+                && t.contains("/Predictor 15 /Colors 3")
+                && t.contains("/Columns 30")
+        );
         // Palette.
         let pal = png(4, 4, 8, 3, 0, &[bloc(b"PLTE", &[255, 0, 0, 0, 255, 0])]);
-        assert!(String::from_utf8_lossy(&images_en_pdf(&[&pal]).unwrap().pdf).contains("[/Indexed /DeviceRGB 1 <FF000000FF00>]"));
+        assert!(
+            String::from_utf8_lossy(&images_en_pdf(&[&pal]).unwrap().pdf)
+                .contains("[/Indexed /DeviceRGB 1 <FF000000FF00>]")
+        );
     }
 
     #[test]
     fn png_non_pris_en_charge() {
-        assert!(matches!(images_en_pdf(&[&png(4, 4, 8, 6, 0, &[])]), Err(ErreurPiece::ImageNonPrise(_))), "RVBA");
-        assert!(matches!(images_en_pdf(&[&png(4, 4, 8, 4, 0, &[])]), Err(ErreurPiece::ImageNonPrise(_))), "gris+alpha");
-        assert!(matches!(images_en_pdf(&[&png(4, 4, 8, 2, 1, &[])]), Err(ErreurPiece::ImageNonPrise(_))), "entrelacé");
-        assert!(matches!(images_en_pdf(&[&png(4, 4, 16, 2, 0, &[])]), Err(ErreurPiece::ImageNonPrise(_))), "16 bits");
-        assert!(matches!(images_en_pdf(&[&png(4, 4, 8, 3, 0, &[])]), Err(ErreurPiece::ImageNonPrise(_))), "palette absente");
+        assert!(
+            matches!(
+                images_en_pdf(&[&png(4, 4, 8, 6, 0, &[])]),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "RVBA"
+        );
+        assert!(
+            matches!(
+                images_en_pdf(&[&png(4, 4, 8, 4, 0, &[])]),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "gris+alpha"
+        );
+        assert!(
+            matches!(
+                images_en_pdf(&[&png(4, 4, 8, 2, 1, &[])]),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "entrelacé"
+        );
+        assert!(
+            matches!(
+                images_en_pdf(&[&png(4, 4, 16, 2, 0, &[])]),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "16 bits"
+        );
+        assert!(
+            matches!(
+                images_en_pdf(&[&png(4, 4, 8, 3, 0, &[])]),
+                Err(ErreurPiece::ImageNonPrise(_))
+            ),
+            "palette absente"
+        );
         let mut corrompu = png(4, 4, 8, 2, 0, &[]);
         corrompu[20] ^= 0xff;
-        assert!(matches!(images_en_pdf(&[&corrompu]), Err(ErreurPiece::ImageIllisible(_))), "somme de contrôle");
-        assert!(matches!(images_en_pdf(&[b"RIFF....WEBPVP8 "]), Err(ErreurPiece::ImageIllisible(_))), "WebP");
-        assert!(matches!(images_en_pdf(&[b"GIF89a"]), Err(ErreurPiece::ImageIllisible(_))));
+        assert!(
+            matches!(
+                images_en_pdf(&[&corrompu]),
+                Err(ErreurPiece::ImageIllisible(_))
+            ),
+            "somme de contrôle"
+        );
+        assert!(
+            matches!(
+                images_en_pdf(&[b"RIFF....WEBPVP8 "]),
+                Err(ErreurPiece::ImageIllisible(_))
+            ),
+            "WebP"
+        );
+        assert!(matches!(
+            images_en_pdf(&[b"GIF89a"]),
+            Err(ErreurPiece::ImageIllisible(_))
+        ));
     }
 
     // ── PDF ──
@@ -789,8 +1031,12 @@ mod tests {
         v.extend_from_slice(b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R /OpenAction 5 0 R /AA << /O 5 0 R >> /Names << /JavaScript 6 0 R >> >>\nendobj\n");
         v.extend_from_slice(b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
         v.extend_from_slice(b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [7 0 R] >>\nendobj\n");
-        v.extend_from_slice(b"5 0 obj\n<< /S /JavaScript /JS (app.alert\\('piege'\\);) >>\nendobj\n");
-        v.extend_from_slice(b"6 0 obj\n<< /S /#4Aava#53cript /J#53 (this.exportDataObject\\(\\)) >>\nendobj\n");
+        v.extend_from_slice(
+            b"5 0 obj\n<< /S /JavaScript /JS (app.alert\\('piege'\\);) >>\nendobj\n",
+        );
+        v.extend_from_slice(
+            b"6 0 obj\n<< /S /#4Aava#53cript /J#53 (this.exportDataObject\\(\\)) >>\nendobj\n",
+        );
         v.extend_from_slice(b"7 0 obj\n<< /Type /Annot /Subtype /Link /A << /S /URI /URI (http://evil.example/) >> /A2 << /S /Launch /F (cmd.exe) >> >>\nendobj\n");
         v.extend_from_slice(b"8 0 obj\n<< /Type /EmbeddedFile /Length 11 >>\nstream\n/JavaScript!\nendstream\nendobj\n");
         v.extend_from_slice(b"trailer\n<< /Root 1 0 R >>\nstartxref\n0\n%%EOF\n");
@@ -802,14 +1048,36 @@ mod tests {
         let src = pdf_piege();
         let d = desarmer_pdf(&src).unwrap();
         assert_eq!(d.nb_pages, 1);
-        for nom in ["JavaScript", "JS", "OpenAction", "AA", "URI", "Launch", "EmbeddedFile"] {
-            assert!(d.neutralises.iter().any(|n| n == nom), "{nom} neutralisé : {:?}", d.neutralises);
+        for nom in [
+            "JavaScript",
+            "JS",
+            "OpenAction",
+            "AA",
+            "URI",
+            "Launch",
+            "EmbeddedFile",
+        ] {
+            assert!(
+                d.neutralises.iter().any(|n| n == nom),
+                "{nom} neutralisé : {:?}",
+                d.neutralises
+            );
         }
         // Rien d'actif ne subsiste, même écrit avec des échappements `#xx`.
         let apres = String::from_utf8_lossy(&d.octets).to_string();
         // (Hors du flux binaire, que l'on ne touche jamais.)
         let hors_flux = apres.replace("stream\n/JavaScript!\nendstream", "");
-        for interdit in ["/JavaScript", "/JS ", "/OpenAction", "/AA ", "/URI", "/Launch", "/EmbeddedFile", "/#4Aava", "/J#53"] {
+        for interdit in [
+            "/JavaScript",
+            "/JS ",
+            "/OpenAction",
+            "/AA ",
+            "/URI",
+            "/Launch",
+            "/EmbeddedFile",
+            "/#4Aava",
+            "/J#53",
+        ] {
             assert!(!hors_flux.contains(interdit), "{interdit} subsiste");
         }
         // Mêmes longueurs : la table xref reste exacte.
@@ -817,7 +1085,11 @@ mod tests {
         // Le contenu d'un flux binaire n'est jamais touché (même s'il contient un nom actif).
         assert!(apres.contains("stream\n/JavaScript!\nendstream"));
         // Structure conservée.
-        assert!(d.octets.starts_with(b"%PDF-1.4") && apres.contains("/Type /Page ") && apres.trim_end().ends_with("%%EOF"));
+        assert!(
+            d.octets.starts_with(b"%PDF-1.4")
+                && apres.contains("/Type /Page ")
+                && apres.trim_end().ends_with("%%EOF")
+        );
         // Idempotent.
         let encore = desarmer_pdf(&d.octets).unwrap();
         assert!(encore.neutralises.is_empty());
@@ -828,15 +1100,40 @@ mod tests {
     fn pdf_non_inspectables_refuses() {
         let mut chiffre = pdf_piege();
         chiffre.splice(9..9, b"% x\n".iter().copied());
-        let chiffre = String::from_utf8_lossy(&chiffre).replace("/Root 1 0 R", "/Root 1 0 R /Encrypt 9 0 R").into_bytes();
-        assert!(matches!(desarmer_pdf(&chiffre), Err(ErreurPiece::PdfRefuse(m)) if m.contains("chiffré")));
-        let objstm = String::from_utf8_lossy(&pdf_piege()).replace("/Type /EmbeddedFile", "/Type /ObjStm").into_bytes();
-        assert!(matches!(desarmer_pdf(&objstm), Err(ErreurPiece::PdfRefuse(m)) if m.contains("compressés")));
-        assert!(matches!(desarmer_pdf(b"%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF"), Err(ErreurPiece::PdfRefuse(_))), "sans page");
-        assert!(matches!(desarmer_pdf(b"MZ\x90\x00 ceci n'est pas un pdf"), Err(ErreurPiece::PdfRefuse(_))));
-        assert!(matches!(desarmer_pdf(b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\n"), Err(ErreurPiece::PdfRefuse(_))), "sans fin");
+        let chiffre = String::from_utf8_lossy(&chiffre)
+            .replace("/Root 1 0 R", "/Root 1 0 R /Encrypt 9 0 R")
+            .into_bytes();
+        assert!(
+            matches!(desarmer_pdf(&chiffre), Err(ErreurPiece::PdfRefuse(m)) if m.contains("chiffré"))
+        );
+        let objstm = String::from_utf8_lossy(&pdf_piege())
+            .replace("/Type /EmbeddedFile", "/Type /ObjStm")
+            .into_bytes();
+        assert!(
+            matches!(desarmer_pdf(&objstm), Err(ErreurPiece::PdfRefuse(m)) if m.contains("compressés"))
+        );
+        assert!(
+            matches!(
+                desarmer_pdf(b"%PDF-1.4\n1 0 obj\n<< >>\nendobj\n%%EOF"),
+                Err(ErreurPiece::PdfRefuse(_))
+            ),
+            "sans page"
+        );
+        assert!(matches!(
+            desarmer_pdf(b"MZ\x90\x00 ceci n'est pas un pdf"),
+            Err(ErreurPiece::PdfRefuse(_))
+        ));
+        assert!(
+            matches!(
+                desarmer_pdf(b"%PDF-1.4\n1 0 obj\n<< /Type /Page >>\n"),
+                Err(ErreurPiece::PdfRefuse(_))
+            ),
+            "sans fin"
+        );
         // Un nom actif dans une chaîne ou un commentaire de texte n'est pas un nom : pas de refus ni de neutralisation.
-        let texte = String::from_utf8_lossy(&pdf_piege()).replace("(http://evil.example/)", "(voir /JavaScript ici)").into_bytes();
+        let texte = String::from_utf8_lossy(&pdf_piege())
+            .replace("(http://evil.example/)", "(voir /JavaScript ici)")
+            .into_bytes();
         let d = desarmer_pdf(&texte).unwrap();
         assert!(String::from_utf8_lossy(&d.octets).contains("(voir /JavaScript ici)"));
     }

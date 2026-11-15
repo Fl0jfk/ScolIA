@@ -15,7 +15,11 @@ fn table_crc() -> [u32; 256] {
     for (i, e) in t.iter_mut().enumerate() {
         let mut c = i as u32;
         for _ in 0..8 {
-            c = if c & 1 == 1 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            c = if c & 1 == 1 {
+                0xEDB8_8320 ^ (c >> 1)
+            } else {
+                c >> 1
+            };
         }
         *e = c;
     }
@@ -57,7 +61,9 @@ fn nom_sur(nom: &str) -> bool {
         && !nom.starts_with('/')
         && !nom.contains('\\')
         && !nom.chars().any(char::is_control)
-        && nom.split('/').all(|s| !s.is_empty() && s != "." && s != "..")
+        && nom
+            .split('/')
+            .all(|s| !s.is_empty() && s != "." && s != "..")
 }
 
 impl EcrivainZip {
@@ -69,7 +75,10 @@ impl EcrivainZip {
         if !nom_sur(nom) {
             return Err(ErreurZip::NomInvalide);
         }
-        if self.n >= 65_535 || octets.len() as u64 >= u32::MAX as u64 || self.corps.len() as u64 >= u32::MAX as u64 - 1_000_000 {
+        if self.n >= 65_535
+            || octets.len() as u64 >= u32::MAX as u64
+            || self.corps.len() as u64 >= u32::MAX as u64 - 1_000_000
+        {
             return Err(ErreurZip::TropGros);
         }
         if !self.noms.insert(nom.to_string()) {
@@ -89,12 +98,14 @@ impl EcrivainZip {
         self.corps.extend_from_slice(&crc.to_le_bytes());
         self.corps.extend_from_slice(&taille.to_le_bytes());
         self.corps.extend_from_slice(&taille.to_le_bytes());
-        self.corps.extend_from_slice(&(nom_b.len() as u16).to_le_bytes());
+        self.corps
+            .extend_from_slice(&(nom_b.len() as u16).to_le_bytes());
         self.corps.extend_from_slice(&0u16.to_le_bytes());
         self.corps.extend_from_slice(nom_b);
         self.corps.extend_from_slice(octets);
         // Entrée du répertoire central.
-        self.centrale.extend_from_slice(&SIGNATURE_CENTRAL.to_le_bytes());
+        self.centrale
+            .extend_from_slice(&SIGNATURE_CENTRAL.to_le_bytes());
         self.centrale.extend_from_slice(&20u16.to_le_bytes()); // version créatrice
         self.centrale.extend_from_slice(&20u16.to_le_bytes()); // version nécessaire
         self.centrale.extend_from_slice(&0x0800u16.to_le_bytes());
@@ -104,7 +115,8 @@ impl EcrivainZip {
         self.centrale.extend_from_slice(&crc.to_le_bytes());
         self.centrale.extend_from_slice(&taille.to_le_bytes());
         self.centrale.extend_from_slice(&taille.to_le_bytes());
-        self.centrale.extend_from_slice(&(nom_b.len() as u16).to_le_bytes());
+        self.centrale
+            .extend_from_slice(&(nom_b.len() as u16).to_le_bytes());
         self.centrale.extend_from_slice(&0u16.to_le_bytes()); // extra
         self.centrale.extend_from_slice(&0u16.to_le_bytes()); // commentaire
         self.centrale.extend_from_slice(&0u16.to_le_bytes()); // disque
@@ -136,10 +148,14 @@ impl EcrivainZip {
 /// **vérification du CRC** de chaque entrée. Sert aux tests et à la relecture d'un export.
 pub fn lire_zip_stored(z: &[u8]) -> Result<Vec<(String, Vec<u8>)>, &'static str> {
     let u16_at = |o: usize| -> Result<u16, &'static str> {
-        z.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or("tronqué")
+        z.get(o..o + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .ok_or("tronqué")
     };
     let u32_at = |o: usize| -> Result<u32, &'static str> {
-        z.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]])).ok_or("tronqué")
+        z.get(o..o + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .ok_or("tronqué")
     };
     if z.len() < 22 {
         return Err("trop court");
@@ -198,8 +214,10 @@ mod tests {
     fn aller_retour_et_determinisme() {
         let faire = || {
             let mut z = EcrivainZip::nouveau();
-            z.ajouter("index.csv", "nom;titre\nÉlodie;œuvre\n".as_bytes()).unwrap();
-            z.ajouter("documents/2026-SCO-000001.pdf", b"%PDF-1.4 test").unwrap();
+            z.ajouter("index.csv", "nom;titre\nÉlodie;œuvre\n".as_bytes())
+                .unwrap();
+            z.ajouter("documents/2026-SCO-000001.pdf", b"%PDF-1.4 test")
+                .unwrap();
             z.ajouter("vide.txt", b"").unwrap();
             z.terminer()
         };
@@ -216,7 +234,16 @@ mod tests {
     #[test]
     fn noms_dangereux_refuses() {
         let mut z = EcrivainZip::nouveau();
-        for n in ["", "/etc/passwd", "../x", "a/../b", "a\\b", "a//b", "a\nb", "./x"] {
+        for n in [
+            "",
+            "/etc/passwd",
+            "../x",
+            "a/../b",
+            "a\\b",
+            "a//b",
+            "a\nb",
+            "./x",
+        ] {
             assert_eq!(z.ajouter(n, b"x"), Err(ErreurZip::NomInvalide), "{n:?}");
         }
         z.ajouter("ok.pdf", b"x").unwrap();
