@@ -244,6 +244,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_internat", "Internat"),
         ("ent_msg", "Messages et notifications"),
         ("ent_notification", "Messages et notifications"),
+        ("ent_ntf_avis", "Messages et notifications"),
         ("ent_mail", "Messages et notifications"),
         ("ent_push", "Messages et notifications"),
         ("ent_sms", "Messages et notifications"),
