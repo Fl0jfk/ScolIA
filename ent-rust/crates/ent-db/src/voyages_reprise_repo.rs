@@ -961,6 +961,21 @@ async fn ligne(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<LigneBas
     });
     let derogation = s.derogation_motif.is_some();
     let ok = basculable(&c, derogation);
+    // Autorisations papier attestées (lot V1, VOY-260) : suivies une fois la sortie ScolIA créée par la bascule.
+    let attestations: Option<i64> = match s.sortie_id {
+        None => None,
+        Some(sortie) => Some(
+            sqlx::query_scalar(
+                "SELECT count(*) FROM ent_sortie_exigence WHERE etablissement_id = $1 AND sortie_id = $2
+                    AND code = 'autorisation_participation' AND source = 'attestation_reprise'",
+            )
+            .bind(etab)
+            .bind(sortie)
+            .fetch_one(&mut *conn)
+            .await
+            .map_err(db)?,
+        ),
+    };
     Ok(LigneBascule {
         id,
         source_id: s.source_id,
@@ -981,7 +996,7 @@ async fn ligne(conn: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<LigneBas
         derogation,
         controles: c,
         basculable: ok,
-        attestations: None,
+        attestations,
         versements: None,
         sortie_id: s.sortie_id,
     })

@@ -697,19 +697,19 @@ impl PgEnt {
 
 // ───────────────────────── Envois : mise en file et traitement ─────────────────────────
 
-struct NouvelEnvoi<'a> {
-    prestataire: Uuid,
-    adresse: Uuid,
-    type_: &'a str,
-    reference: &'a str,
-    objet: String,
-    corps: String,
-    document: Option<Uuid>,
-    commande: Option<Uuid>,
-    copie: Option<&'a str>,
+pub(crate) struct NouvelEnvoi<'a> {
+    pub(crate) prestataire: Uuid,
+    pub(crate) adresse: Uuid,
+    pub(crate) type_: &'a str,
+    pub(crate) reference: &'a str,
+    pub(crate) objet: String,
+    pub(crate) corps: String,
+    pub(crate) document: Option<Uuid>,
+    pub(crate) commande: Option<Uuid>,
+    pub(crate) copie: Option<&'a str>,
 }
 
-async fn mettre_en_file(conn: &mut PgConnection, a: &Acteur<'_>, sortie: Uuid, e: NouvelEnvoi<'_>) -> Result<Uuid, EntDbError> {
+pub(crate) async fn mettre_en_file(conn: &mut PgConnection, a: &Acteur<'_>, sortie: Uuid, e: NouvelEnvoi<'_>) -> Result<Uuid, EntDbError> {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO ent_sortie_envoi

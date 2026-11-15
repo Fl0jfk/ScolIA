@@ -307,6 +307,9 @@ pub mod voyages_pdf;
 pub mod voyages_prestataires;
 pub mod voyages_prestataires_repo;
 pub mod voyages_courrier_ports;
+pub mod voyages_exigences;
+pub mod voyages_exigences_repo;
+pub mod voyages_missions_repo;
 pub mod voyages_courrier_repo;
 pub mod voyages_journal_repo;
 pub mod voyages_rappels;
@@ -600,6 +603,8 @@ mod tests_recherche_p5;
 mod tests_voyages_v0b;
 #[cfg(test)]
 mod tests_voyages_v0d;
+#[cfg(test)]
+mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v0c;
 
