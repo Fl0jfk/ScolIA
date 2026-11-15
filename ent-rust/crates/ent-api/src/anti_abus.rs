@@ -166,6 +166,10 @@ pub fn regle(gabarit: &str) -> Option<Regle> {
             Some("jeton"),
         ),
         "/auth/oidc/{slug}/start" => r("OIDC_START", Some(Quota::new(30, 300)), None, None),
+        // Vérification publique des documents (socle 7, D3) : un code de 60 bits ne se devine pas, mais la page est
+        // publique ; seau par IP (le dépôt de fichier, plus lourd, est plus strict).
+        "/verifier/{code}" => r("VERIFIER_CODE", Some(Quota::new(30, 300)), None, None),
+        "/verifier" => r("VERIFIER_DEPOT", Some(Quota::new(10, 300)), None, None),
         _ => return None,
     })
 }

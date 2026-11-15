@@ -135,6 +135,7 @@ pub fn router() -> Router<AppState> {
         .route("/eleve", get(ui_page))
         .route("/eleve/{*rest}", get(ui_page))
         .route("/health", get(health))
+        .route("/health/detail", get(health_detail))
         .route("/ready", get(ready))
         .route("/metrics", get(crate::obs::metrics_handler))
         .route("/pra/inventaire", get(pra_inventaire))
@@ -857,6 +858,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
     let r = r.merge(crate::recherche::routes());
+    // Demandes et flux de travail (socle N1, lot N1-4 : `demandes.rs`).
+    let r = r.merge(crate::demandes::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
@@ -889,8 +892,14 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
     let r = r.merge(crate::personnels_missions::routes());
+    // Responsables de groupes et équipes (socle 6, lot P5 : `personnels_equipes.rs`).
+    let r = r.merge(crate::personnels_equipes::routes());
+    // Délégations par objet, intérim, pouvoirs de signature (socle 6, lot P6 : `personnels_delegations.rs`).
+    let r = r.merge(crate::personnels_delegations::routes());
     // Stages (socle 39, lot ST1 (a) : `stages.rs`).
     let r = r.merge(crate::stages::routes());
+    // Socle 7, lot D3 : vérification publique des documents (routes SANS session, liste fermée de la matrice).
+    let r = r.merge(crate::documents_verif::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -2047,7 +2056,20 @@ async fn enrich_appel(
     Ok(dto)
 }
 
+/// `/health` public (liveness) : **minimal** (MSE-D05). Ni version, ni `git_sha`, ni schéma :
+/// ils aideraient à cibler une version précise. Le détail est sur `/health/detail`,
+/// réservé à la supervision (même jeton que `/metrics`).
 async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true }))
+}
+
+/// `/health/detail` : version, `git_sha` et tag de migration. Même contrôle d'accès que
+/// `/metrics` : désactivé (404) ou jeton de supervision requis.
+async fn health_detail(State(state): State<AppState>, entetes: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(refus) = crate::obs::exiger_supervision(&state, &entetes) {
+        return refus;
+    }
     Json(serde_json::json!({
         "ok": true,
         "service": "ent-api",
@@ -2055,6 +2077,7 @@ async fn health() -> Json<serde_json::Value> {
         "git_sha": crate::GIT_SHA,
         "migration_tag": ent_db::MIGRATION_TAG,
     }))
+    .into_response()
 }
 
 /// Readiness : vérifie que la base répond (sinon 503 → le conteneur n'est pas prêt).
@@ -2070,9 +2093,6 @@ async fn ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>,
         "ok": true,
         "service": "ent-api",
         "db": "up",
-        "version": crate::VERSION,
-        "git_sha": crate::GIT_SHA,
-        "migration_tag": ent_db::MIGRATION_TAG,
     })))
 }
 
