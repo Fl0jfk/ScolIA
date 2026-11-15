@@ -849,7 +849,7 @@ impl PgEnt {
             "pai_a_reviser",
             "Consultation de la liste des PAI à réviser",
         )
-        .await;
+        .await?;
         Ok(liste)
     }
 
@@ -1382,7 +1382,7 @@ impl PgEnt {
                 "passages_infirmerie",
                 "Consultation des passages à l'infirmerie",
             )
-            .await;
+            .await?;
         } else {
             rows.retain(|p| p.visible_famille);
             for p in rows.iter_mut() {
@@ -1510,7 +1510,7 @@ impl PgEnt {
                 "Consultation de la fiche d'urgence (minimale)"
             },
         )
-        .await;
+        .await?;
         let (trousse_ok, trousse_lieu) = trousse.unwrap_or((false, String::new()));
         Ok(FicheUrgence {
             eleve_id,

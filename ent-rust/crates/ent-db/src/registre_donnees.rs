@@ -249,6 +249,9 @@ const N_AFAIRE: Neutralisation = Neutralisation::Maj {
 
 /// Le registre. Ordre alphabétique (aligné sur le catalogue).
 pub const REGISTRE: &[ClasseTable] = &[
+    // Socle 27, G1 : règles de conservation décidées par l'établissement ; le catalogue est dans le code.
+    t("cons_regle", "conformite", Portee::Etablissement).perso(),
+    t("cons_regle_journal", "conformite", Portee::Etablissement).perso(),
     t("ent_absence", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_absence_declaration", "assiduite", Portee::Etablissement).perso().sante().fichiers(Fichiers::Reference).export(),
     t("ent_absence_motif", "assiduite", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "référentiel statique (code, libellé), jamais modifié par un établissement"),
@@ -848,6 +851,18 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ref_asd_profil_niveau", "assiduite", Portee::ReferentielGlobal),
     t("ref_calendrier_officiel", "referentiel", Portee::ReferentielGlobal),
     t("ref_stage_dispositif", "stages", Portee::ReferentielGlobal),
+    t("rgp_destinataire_externe", "conformite", Portee::Etablissement),
+    t("rgp_document", "conformite", Portee::Etablissement),
+    t("rgp_ecart", "conformite", Portee::Etablissement),
+    t("rgp_gouvernance", "conformite", Portee::Etablissement).perso(),
+    t("rgp_mention", "conformite", Portee::Etablissement),
+    t("rgp_soustraitant", "conformite", Portee::Technique),
+    t("rgp_soustraitant_annonce", "conformite", Portee::Technique),
+    t("rgp_soustraitant_donnee", "conformite", Portee::Technique).exc(Exception::SansHorodatage, "table de liaison de plateforme (clé composite) : l'horodatage est porté par `rgp_soustraitant`"),
+    t("rgp_soustraitant_local", "conformite", Portee::Etablissement),
+    t("rgp_soustraitant_objection", "conformite", Portee::Etablissement).perso(),
+    t("rgp_traitement", "conformite", Portee::Etablissement),
+    t("rgp_traitement_version", "conformite", Portee::Etablissement).perso(),
 ];
 
 /// Classement d'une table par nom.
