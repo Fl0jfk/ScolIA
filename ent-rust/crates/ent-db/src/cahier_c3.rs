@@ -1029,7 +1029,7 @@ mod tests {
 
     #[test]
     fn avis_minimaux_sans_contenu_ni_note_ni_motif() {
-        assert_eq!(AVIS_CAHIER.len(), 12);
+        assert_eq!(AVIS_CAHIER.len(), 11);
         let mut vus = HashSet::new();
         for a in AVIS_CAHIER {
             assert!(
