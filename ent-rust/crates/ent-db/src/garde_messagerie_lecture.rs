@@ -25,6 +25,14 @@ const FICHIERS_SQL_MESSAGERIE: &[(&str, &str)] = &[
         "msg_m2.rs",
         "matrice M2 : lit les participants d'un fil pour la séparation, jamais le contenu",
     ),
+    (
+        "msg_m3.rs",
+        "boîtes de service M3 : chaque lecture passe par la membriété relue (`ent_msg_boite_membres`) ou `peut_lire_fil`",
+    ),
+    (
+        "msg_m4.rs",
+        "écrire mieux M4 : lots, modèles à portée, brouillons, correction, retrait, fusion et scission, tous bornés à l'auteur ou à `peut_lire_fil`",
+    ),
     ("registre_donnees.rs", "catalogue statique des tables"),
     ("migrate.rs", "migrations (rôle propriétaire)"),
     ("pra.rs", "sauvegarde / restauration (rôle propriétaire)"),
