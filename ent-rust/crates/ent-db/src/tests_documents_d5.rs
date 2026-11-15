@@ -2400,6 +2400,8 @@ mod d5b {
     use std::sync::Mutex;
     use std::time::Duration;
 
+    type LigneJournal = (String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>);
+
     const NORMAL: u8 = 0;
     const SILENCE: u8 = 1;
     const ERREUR: u8 = 2;
@@ -2691,7 +2693,7 @@ mod d5b {
         ));
 
         // Journal : un fait, l'identifiant de la pièce, aucun nom de fichier ni clé d'objet.
-        let lignes: Vec<(String, Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> =
+        let lignes: Vec<LigneJournal> =
             sqlx::query_as(
                 "SELECT action, cible, motif, avant, apres, etat_apres FROM ent_doc_journal
                   WHERE etablissement_id = $1 AND action = 'piece_objets_purges'",
