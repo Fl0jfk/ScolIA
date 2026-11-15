@@ -858,7 +858,8 @@ struct EquipeLigne {
 
 const SELECT_EQUIPE: &str = "SELECT e.id, t.code, t.libelle, t.objet_eleve, e.libelle, e.annee_id, e.du, e.au,
         e.objet_eleve_id, e.liste_diffusion, e.visible_annuaire, e.confidentielle, (e.clos_le IS NOT NULL)
-   FROM ent_equipe e JOIN ent_equipe_type t ON t.id = e.type_id";
+   FROM ent_equipe e JOIN ent_equipe_type t ON t.id = e.type_id
+  WHERE e.etablissement_id = $1";
 
 type TupleEquipe = (
     Uuid,
@@ -902,7 +903,7 @@ async fn equipe_ligne_tx(
     verrou: bool,
 ) -> Result<EquipeLigne, EntDbError> {
     let sql = format!(
-        "{SELECT_EQUIPE} WHERE e.etablissement_id = $1 AND e.id = $2 {}",
+        "{SELECT_EQUIPE} AND e.id = $2 {}",
         if verrou { "FOR UPDATE OF e" } else { "" }
     );
     sqlx::query_as::<_, TupleEquipe>(&sql)
@@ -1178,7 +1179,7 @@ impl PgEnt {
         let jour = aujourdhui_tx(&mut tx, etab).await?;
         let q = qui_tx(&mut tx, etab, actor, role).await?;
         let sql = format!(
-            "{SELECT_EQUIPE} WHERE e.etablissement_id = $1
+            "{SELECT_EQUIPE}
                 AND ($2 OR (e.clos_le IS NULL AND (e.au IS NULL OR e.au >= $3)))
               ORDER BY e.du DESC, e.libelle, e.id"
         );
