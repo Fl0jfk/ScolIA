@@ -33,6 +33,15 @@ async fn connecter() -> Option<PgEnt> {
 }
 
 async fn compte(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
+    // Le déclencheur « un agent par compte » est recréé (DROP + CREATE) par les rejeux de migrations des tests de
+    // reprise : aucun rejeu pendant la création du compte, sinon le compte n'aurait pas d'agent.
+    let garde = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await;
+    let id = compte_sous_garde(ent, etab, role).await;
+    garde.liberer().await;
+    id
+}
+
+async fn compte_sous_garde(ent: &PgEnt, etab: Uuid, role: &str) -> Uuid {
     let email = format!("p1-{role}-{}@ent.local", Uuid::new_v4().simple());
     ent.register_user(
         &email,
@@ -1004,6 +1013,7 @@ async fn suspension_refusee_si_elle_prive_l_etablissement_de_son_dernier_adminis
         .expect("un autre administrateur reste");
     // Le premier administrateur est désormais suspendu : le second ne peut plus être fermé (SQL
     // direct compris) sans laisser l'établissement sans administrateur utilisable.
+    let garde = crate::migrate::garde_rejeu_partagee(ent.pool_verif()).await; // le déclencheur n'est pas en cours de rejeu
     let direct = sqlx::query(
         "UPDATE ent_membership SET etat = 'ferme' WHERE etablissement_id = $1 AND user_id = $2",
     )
@@ -1011,6 +1021,7 @@ async fn suspension_refusee_si_elle_prive_l_etablissement_de_son_dernier_adminis
     .bind(second)
     .execute(ent.pool())
     .await;
+    garde.liberer().await;
     assert!(
         direct.is_err(),
         "le dernier administrateur utilisable est protégé"
@@ -1527,6 +1538,10 @@ async fn isolation_entre_etablissements_commandes_lectures_et_rls() {
         .connect(&url)
         .await
         .unwrap();
+    // Les GRANT et les rejeux de migrations modifient les mêmes lignes du catalogue : même verrou que
+    // `tests_rls_stricte::assurer_role_strict` et `migrate::rejouer_tout` (sinon « tuple concurrently updated »).
+    let mut verrou = admin.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut *verrou).await.unwrap();
     let tables = "ent_agent, ent_agent_engagement, ent_agent_engagement_suspension, ent_agent_fonction, ent_agent_discipline, \
                   ent_agent_qualification, ent_agent_contact_urgence, ent_agent_identifiant, ent_fonction, ent_personne";
     for sql in [
@@ -1535,8 +1550,10 @@ async fn isolation_entre_etablissements_commandes_lectures_et_rls() {
         format!("GRANT SELECT, INSERT, UPDATE, DELETE ON {tables} TO ent_p1_app"),
         "ALTER ROLE ent_p1_app SET app.rls_strict = 'on'".to_string(),
     ] {
-        sqlx::query(&sql).execute(&admin).await.unwrap();
+        sqlx::query(&sql).execute(&mut *verrou).await.unwrap();
     }
+    sqlx::query("SELECT pg_advisory_unlock(7770042)").execute(&mut *verrou).await.unwrap();
+    drop(verrou);
     let mut u = url::Url::parse(&url).unwrap();
     u.set_username("ent_p1_app").unwrap();
     u.set_password(Some("rls")).unwrap();

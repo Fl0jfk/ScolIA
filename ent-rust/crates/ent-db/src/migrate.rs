@@ -470,6 +470,8 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
     ];
     // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
     let mut verrou = pool.acquire().await?.detach();
+    // 7770042 : verrou des préparations de rôles (GRANT sur le catalogue), cf. `tests_rls_stricte`.
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut verrou).await?;
     sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
     for (nom, sql) in MIGRATIONS {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
