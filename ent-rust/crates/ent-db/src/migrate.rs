@@ -480,6 +480,11 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         "666_d036_eleve_fusion_normalisee",
         "667_d036_personne_fusion_normalisee",
     ];
+    // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
+    let mut verrou = pool.acquire().await?.detach();
+    // 7770042 : verrou des préparations de rôles (GRANT sur le catalogue), cf. `tests_rls_stricte`.
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut verrou).await?;
+    sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
     for (nom, sql) in MIGRATIONS {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
             continue;
@@ -487,6 +492,32 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         apply_sql_file(pool, sql).await?;
     }
     Ok(())
+}
+
+/// Verrou consultatif entre les rejeux de migrations (exclusif) et les tests qui vérifient un déclencheur ou une
+/// politique recréés par ces rejeux (partagé). Le rejeu est fait instruction par instruction : un `DROP TRIGGER`
+/// suivi de son `CREATE` laisse un instant la table sans garde, et un test voisin qui vérifie cette garde
+/// (ex. immuabilité de `ent_objet`, migration 500) voyait alors l'écriture acceptée. Deux rejeux en parallèle sont
+/// aussi sérialisés.
+#[cfg(test)]
+const CLE_REJEU: i64 = 7770043;
+
+#[cfg(test)]
+pub(crate) struct GardeRejeu(sqlx::PgConnection);
+
+/// Prend le verrou **partagé** : aucun rejeu ne tourne tant que la garde est tenue. À libérer avec `liberer()`.
+#[cfg(test)]
+pub(crate) async fn garde_rejeu_partagee(pool: &PgPool) -> GardeRejeu {
+    let mut c = pool.acquire().await.expect("connexion").detach();
+    sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(CLE_REJEU).execute(&mut c).await.expect("verrou");
+    GardeRejeu(c)
+}
+
+#[cfg(test)]
+impl GardeRejeu {
+    pub(crate) async fn liberer(mut self) {
+        let _ = sqlx::query("SELECT pg_advisory_unlock_shared($1)").bind(CLE_REJEU).execute(&mut self.0).await;
+    }
 }
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un
