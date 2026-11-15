@@ -245,6 +245,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("444_edt_t2_seance_lieux_intervenants"),
     m!("445_edt_t3_modifications"),
     m!("447_edt_t4_localisation_journal"),
+    m!("448_edt_t5a_materialisation"),
     m!("460_eva_v0_correctifs"),
     m!("480_msg_m0a_fuites"),
     m!("481_msg_m0b_securite_fiabilite"),

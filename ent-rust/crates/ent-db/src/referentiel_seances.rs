@@ -14,7 +14,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveTime};
+use chrono::{NaiveDateTime, Datelike, Duration, NaiveDate, NaiveTime};
 use domain_eleve::{creneau_actif_semaine, semaine_ab_au_jour, EdtSemaineAb};
 use ent_auth::Action;
 use ent_events::AggregateKind;
@@ -23,6 +23,7 @@ use serde_json::json;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use crate::edt_materialisation::{exclu_par_temporaire, sources_du_plan};
 use crate::ref_commun::{conflit, db, introuvable, invalide, publier_agg, Acteur};
 use crate::referentiel_structure::{index_neutralises, CreneauGrille, JourCalendrier};
 use crate::service::{EntDbError, PgEnt};
@@ -92,6 +93,9 @@ pub struct RapportSeances {
     pub jours_neutralises: i64,
     /// Créneaux A/B ignorés faute de calendrier d'alternance (aucune séance inventée).
     pub creneaux_ab_ignores: i64,
+    /// Placements d'une version publiée sans séance : cours vacant (aucun intervenant), sans classe ou créneau de
+    /// grille inconnu (socle 10, T5a). Leurs séances apparaissent dès que la cause est levée (recalcul idempotent).
+    pub non_projetes: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, FromRow, Serialize, Deserialize)]
@@ -374,15 +378,41 @@ impl PgEnt {
         au: Option<NaiveDate>,
     ) -> Result<RapportSeances, EntDbError> {
         self.exiger_referentiel(a, Action::ReferentielGerer).await?;
-        let e = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
+        let (rapport, ev) = self
+            .generer_seances_dans(&mut tx, a, annee_id, du, au, None)
+            .await?;
+        tx.commit().await.map_err(db)?;
+        self.diffuser_apres_commit(&[ev]);
+        Ok(rapport)
+    }
+
+    /// Cœur de la génération, dans la transaction de l'appelant (la publication d'une version l'appelle pour que la
+    /// bascule du réel soit **atomique**). `fige_avant` : les séances qui ont commencé avant cet instant ne sont ni
+    /// réécrites ni retirées (publication le jour même, forcée : « les séances de l'après-midi ne bougent pas en
+    /// silence », et celles du matin, déjà tenues, non plus).
+    pub(crate) async fn generer_seances_dans(
+        &self,
+        tx: &mut TenantTx<'_>,
+        a: &Acteur<'_>,
+        annee_id: Uuid,
+        du: Option<NaiveDate>,
+        au: Option<NaiveDate>,
+        fige_avant: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(RapportSeances, ent_events::MetierEvent), EntDbError> {
+        let e = a.etablissement_id;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))")
+            .bind(e)
+            .execute(&mut **tx)
+            .await
+            .map_err(db)?;
         let annee: Option<(NaiveDate, NaiveDate, String)> = sqlx::query_as(
             "SELECT date_debut, date_fin, statut FROM ent_annee_scolaire
               WHERE etablissement_id = $1 AND id = $2",
         )
         .bind(e)
         .bind(annee_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(db)?;
         let Some((debut, fin, statut)) = annee else {
@@ -399,23 +429,6 @@ impl PgEnt {
             return Err(invalide());
         }
 
-        let creneaux: Vec<CreneauSource> = sqlx::query_as(
-            "SELECT c.id, btrim(c.classe) AS classe, cl.id AS classe_id, cl.site_id,
-                    c.prof_user_id, c.matiere_id, c.matiere_libelle, c.jour_semaine,
-                    c.heure_debut, c.heure_fin, c.salle, c.semaine_ab, s.id AS service_id
-               FROM ent_edt_creneau c
-               JOIN ent_classe cl
-                 ON cl.etablissement_id = c.etablissement_id AND cl.annee_id = $2
-                AND cl.code = btrim(c.classe) AND cl.archivee_le IS NULL
-               LEFT JOIN ent_service_enseignement s
-                 ON s.id = c.service_id AND s.etablissement_id = c.etablissement_id AND s.annee_id = $2
-              WHERE c.etablissement_id = $1",
-        )
-        .bind(e)
-        .bind(annee_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
         let exceptions: Vec<ExceptionSource> = sqlx::query_as(
             "SELECT creneau_id, jour, kind, remplacant_user_id, nouvelle_salle FROM ent_edt_exception
               WHERE etablissement_id = $1 AND jour BETWEEN $2 AND $3",
@@ -423,14 +436,14 @@ impl PgEnt {
         .bind(e)
         .bind(du)
         .bind(au)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await
         .map_err(db)?;
         let ab_reference: Option<NaiveDate> = sqlx::query_scalar(
             "SELECT reference_lundi FROM ent_edt_calendrier_ab WHERE etablissement_id = $1",
         )
         .bind(e)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(db)?;
         let grille: Vec<CreneauGrille> = sqlx::query_as(
@@ -438,14 +451,59 @@ impl PgEnt {
                FROM ent_grille_horaire WHERE etablissement_id = $1",
         )
         .bind(e)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await
         .map_err(db)?;
         let jours: Vec<JourCalendrier> = self.calendrier_plage(e, du, au).await?;
         let neutralises = index_neutralises(&jours);
 
-        let (mut plans, jours_neutralises, creneaux_ab_ignores) =
-            planifier_seances(&creneaux, du, au, &neutralises, ab_reference, &exceptions, &grille);
+        let mut rapport = RapportSeances {
+            annee_id,
+            du: Some(du),
+            au: Some(au),
+            ..Default::default()
+        };
+        // Socle 10 (T1) : les créneaux sont repris en placements d'une version « reprise » avant de
+        // générer ; les séances sont ensuite rattachées à leur placement (T2). Rejouable.
+        let reprise = Self::reprendre_creneaux_tx(&mut **tx, a, annee_id).await?;
+        // Socle 10 (T5a) : les séances viennent des PLACEMENTS de la version en vigueur à chaque date (base, surchargée par
+        // les versions temporaires) ; les créneaux historiques sans cours produisent les leurs comme avant.
+        let sources =
+            sources_du_plan(&mut **tx, e, annee_id, fin, du, au, &grille).await?;
+        let mut plans: Vec<SeancePlan> = Vec::new();
+        let (mut jours_neutralises, mut creneaux_ab_ignores) = (0i64, 0i64);
+        for tranche in &sources.tranches {
+            let (mut p, jn, ab) = planifier_seances(
+                &tranche.creneaux,
+                tranche.du,
+                tranche.au,
+                &neutralises,
+                ab_reference,
+                &exceptions,
+                &grille,
+            );
+            if !tranche.temporaire {
+                p.retain(|x| !exclu_par_temporaire(&sources.cours_du_creneau, &sources.exclusions, x.creneau_id, x.jour));
+            }
+            jours_neutralises = jours_neutralises.max(jn);
+            creneaux_ab_ignores = creneaux_ab_ignores.max(ab);
+            plans.extend(p);
+        }
+        // Une séance n'a qu'une seule source : la dernière tranche (la temporaire) l'emporte.
+        {
+            let mut vus: HashMap<(Uuid, NaiveDate), usize> = HashMap::new();
+            let mut gardes: Vec<SeancePlan> = Vec::with_capacity(plans.len());
+            for p in plans {
+                match vus.get(&(p.creneau_id, p.jour)) {
+                    Some(i) => gardes[*i] = p,
+                    None => {
+                        vus.insert((p.creneau_id, p.jour), gardes.len());
+                        gardes.push(p);
+                    }
+                }
+            }
+            plans = gardes;
+        }
         // Socle 10 (T3) : le journal du réel est la source des changements d'horaire d'une séance ; le plan
         // généré en tient compte (« recalculer tout ne change rien », une régénération n'écrase pas un
         // horaire modifié).
@@ -457,7 +515,7 @@ impl PgEnt {
         .bind(e)
         .bind(du)
         .bind(au)
-        .fetch_all(&mut *tx)
+        .fetch_all(&mut **tx)
         .await
         .map_err(db)?;
         for p in &mut plans {
@@ -472,23 +530,22 @@ impl PgEnt {
             }
         }
 
-        let mut rapport = RapportSeances {
-            annee_id,
-            du: Some(du),
-            au: Some(au),
-            jours_neutralises,
-            creneaux_ab_ignores,
-            ..Default::default()
-        };
-        let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 1))")
+        // Publication le jour même (forcée) : ce qui a déjà commencé ne bouge pas.
+        if let Some(instant) = fige_avant {
+            let maintenant_local: NaiveDateTime = sqlx::query_scalar(
+                "SELECT $2::timestamptz AT TIME ZONE coalesce((SELECT fuseau FROM ent_etablissement_parametre
+                                                                 WHERE etablissement_id = $1), 'Europe/Paris')",
+            )
             .bind(e)
-            .execute(&mut *tx)
+            .bind(instant)
+            .fetch_one(&mut **tx)
             .await
             .map_err(db)?;
-        // Socle 10 (T1) : les créneaux sont repris en placements d'une version « reprise » avant de
-        // générer ; les séances sont ensuite rattachées à leur placement (T2). Rejouable.
-        let reprise = Self::reprendre_creneaux_tx(&mut tx, a, annee_id).await?;
+            plans.retain(|p| p.jour.and_time(p.heure_debut) >= maintenant_local);
+        }
+        rapport.jours_neutralises = jours_neutralises;
+        rapport.creneaux_ab_ignores = creneaux_ab_ignores;
+        rapport.non_projetes = sources.non_projetes.len() as i64;
         let attendues: HashSet<(Uuid, NaiveDate)> =
             plans.iter().map(|p| (p.creneau_id, p.jour)).collect();
         for p in &plans {
@@ -538,7 +595,7 @@ impl PgEnt {
             .bind(&p.demi_journee)
             .bind(&p.statut)
             .bind(p.remplacant_user_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(db)?;
             match res {
@@ -554,13 +611,15 @@ impl PgEnt {
         let existantes: Vec<(Uuid, Uuid, NaiveDate)> = sqlx::query_as(
             "SELECT id, creneau_id, jour FROM ent_edt_seance
               WHERE etablissement_id = $1 AND annee_id = $2 AND source = 'genere'
-                AND statut <> 'retiree' AND jour BETWEEN $3 AND $4",
+                AND statut <> 'retiree' AND jour BETWEEN $3 AND $4
+                AND ($5::timestamptz IS NULL OR debut_utc IS NULL OR debut_utc >= $5)",
         )
         .bind(e)
         .bind(annee_id)
         .bind(du)
         .bind(au)
-        .fetch_all(&mut *tx)
+        .bind(fige_avant)
+        .fetch_all(&mut **tx)
         .await
         .map_err(db)?;
         let a_retirer: Vec<Uuid> = existantes
@@ -570,17 +629,20 @@ impl PgEnt {
             .collect();
         if !a_retirer.is_empty() {
             let (retirees, supprimees) =
-                retirer_ou_supprimer_seances(&mut tx, e, &a_retirer, "plus attendue par le plan")
+                retirer_ou_supprimer_seances(tx, e, &a_retirer, "plus attendue par le plan")
                     .await?;
             rapport.retirees = retirees;
             rapport.supprimees = supprimees;
         }
-        if let Some(reprise) = reprise {
-            rapport.rattachees =
-                Self::rattacher_seances(&mut tx, e, annee_id, du, au, reprise.version_id).await?;
+        let _ = reprise;
+        for tranche in sources.tranches.iter().filter(|t| t.version_id.is_some()) {
+            if let Some(version_id) = tranche.version_id {
+                rapport.rattachees +=
+                    Self::rattacher_seances(&mut **tx, e, annee_id, tranche.du, tranche.au, version_id).await?;
+            }
         }
         let ev = publier_agg(
-            &mut tx,
+            &mut **tx,
             a,
             AggregateKind::Edt,
             "edt.seances_generees",
@@ -590,9 +652,7 @@ impl PgEnt {
                     "retirees": rapport.retirees }),
         )
         .await?;
-        tx.commit().await.map_err(db)?;
-        self.diffuser_apres_commit(&[ev]);
-        Ok(rapport)
+        Ok((rapport, ev))
     }
 
     /// Séances d'une plage (≤ 62 jours), filtrables par classe ou professeur.

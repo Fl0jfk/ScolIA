@@ -1078,7 +1078,7 @@ impl PgEnt {
                JOIN ent_classe cl
                  ON cl.etablissement_id = c.etablissement_id AND cl.annee_id = $2
                 AND cl.code = btrim(c.classe) AND cl.archivee_le IS NULL
-              WHERE c.etablissement_id = $1
+              WHERE c.etablissement_id = $1 AND NOT c.projete
               ORDER BY c.id",
         )
         .bind(e)
