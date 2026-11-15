@@ -21,6 +21,7 @@ pub mod auth;
 pub mod cahier;
 pub mod cahier_c2;
 pub mod communication;
+pub mod demandes;
 pub mod discipline;
 pub mod dossier;
 pub mod edt;

@@ -40,6 +40,7 @@ mod roles;
 mod routes;
 mod afaire;
 mod recherche;
+mod demandes;
 mod portail;
 mod assiduite;
 mod vie_scolaire;
