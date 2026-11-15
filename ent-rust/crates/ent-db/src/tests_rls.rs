@@ -295,10 +295,11 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 2 du socle 15 (A5, migration 2306 : demandes de suppléance, état du remplacement).
     // + 5 du socle 15 (A6, migration 2307 : plan RCD, comptes rendus, engagements, remontées et leurs lignes).
     // + 6 du socle 15 (A7, migrations 2308 et 2310 : heures, faits sur une heure, états mensuels, lignes, éléments de paie, suivi DSN).
+    // + 1 du socle 29 (lot P5, migration 2585 : compteur journalier de recherches, volatile).
     // + 3 du socle 27 (G1, migration 2541 : gouvernance et DPO, règles de conservation, journal des règles).
     // + 8 du socle 27 (G2, migrations 2542–2543 : fiches, versions, écarts, destinataires externes, mentions, documents,
     // objections et sous-traitants locaux ; les 4 tables de plateforme n'ont pas d'établissement donc pas de RLS).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 3 + 8, "tables avec RLS activée et forcée");
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 3 + 8, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

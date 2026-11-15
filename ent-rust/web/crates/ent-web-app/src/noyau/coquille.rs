@@ -16,6 +16,7 @@ use super::portee::{self, Portee};
 use super::reconnexion::{self, BandeauExpiration, ReconnexionRapide};
 use super::session::{self, ContexteSession, SuiteDiffusion};
 use crate::modules::connexion::config_connexion;
+use crate::modules::palette::Palette;
 
 /// Droits de la personne connectée (aucun tant que `/auth/me` n'a pas répondu).
 pub fn use_droits() -> Signal<Droits> {
@@ -224,6 +225,12 @@ pub fn AppCoquille() -> impl IntoView {
             total_non_lus.get(),
         )
     });
+    // Palette de commandes (lot P6) : « Aller à » = la navigation de l'écran + le compte.
+    let palette_entrees = Signal::derive(move || {
+        let mut v = entrees.get();
+        v.extend(navigation::liens_compte());
+        v
+    });
     let courant = Signal::derive(move || location.pathname.get());
     let liens_pied = Signal::derive(navigation::liens_compte);
     let rail = Signal::derive(move || navigation::ecran_de_saisie(&location.pathname.get()));
@@ -272,6 +279,7 @@ pub fn AppCoquille() -> impl IntoView {
                     >
                         <div id="annonce-page" class="ui-sr" role="status" aria-live="polite" aria-atomic="true"></div>
                         <BandeauExpiration ctx=reco/>
+                        <Palette entrees=palette_entrees moteur=moteur/>
                         // Session « enrôlement » : aucune page métier ne se charge (redirection en cours).
                         {move || {
                             if en_enrolement.get() {

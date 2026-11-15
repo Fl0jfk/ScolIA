@@ -667,6 +667,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "ent-events",
+ "ent-pdf",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -807,6 +808,7 @@ dependencies = [
  "ent-mail",
  "ent-object",
  "ent-oidc",
+ "ent-pdf",
  "ent-push",
  "ent-sms",
  "ent-types",
@@ -876,6 +878,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "ent-pdf"
+version = "0.1.0"
 
 [[package]]
 name = "ent-push"

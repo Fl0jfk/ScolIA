@@ -1,0 +1,9 @@
+[package]
+name = "ent-pdf"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Moteur PDF maison (D-062) : polices standard WinAnsi, tableaux, JPEG, QR code — aucune dépendance"
+
+[dependencies]

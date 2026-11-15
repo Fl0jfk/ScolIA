@@ -342,6 +342,11 @@ pub enum Action {
     /// Socle 29, lot P4 : superviser les files par nombres (ouvertes, en retard, délai médian), jamais le
     /// contenu nominatif ni un classement de personnes (POR-161, POR-168).
     AfaireSuperviser,
+    /// Socle 29, lot P5 : recherche globale côté serveur (élèves de sa portée, personnes, personnels, classes,
+    /// groupes, salles), plafonnée par jour ; le texte des recherches n'est jamais conservé (R-PO19).
+    RechercheGlobale,
+    /// Socle 29, lot P5 : lever un blocage anti-énumération (POR-196), journalisé.
+    RechercheDebloquer,
     /// ★ Conservation des absences de personnel (A2) : gel (contentieux), purge à la demande, purges à venir,
     /// confidentialité renforcée (ABP-161 à 164). Direction par défaut ; réaffectable au DPO par un rôle paramétrable.
     PersonnelsAbsencesConserver,
@@ -482,7 +487,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 200] = [
+    pub const TOUTES: [Action; 202] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -635,6 +640,8 @@ impl Action {
         Action::AfairePrendre,
         Action::AfaireReattribuer,
         Action::AfaireSuperviser,
+        Action::RechercheGlobale,
+        Action::RechercheDebloquer,
         // Socle 39, lot ST0 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::StagesLire,
         Action::StagesPreparer,
@@ -851,6 +858,8 @@ impl Action {
             Self::AfairePrendre => "afaire.file.prendre",
             Self::AfaireReattribuer => "afaire.file.reattribuer",
             Self::AfaireSuperviser => "afaire.superviser",
+            Self::RechercheGlobale => "recherche.globale",
+            Self::RechercheDebloquer => "recherche.debloquer",
             Self::PersonnelsAbsencesConserver => "personnels.absences.conserver",
             Self::PersonnelsAbsencesSuppleer => "personnels.absences.suppleer",
             Self::PersonnelsRcdGerer => "personnels.rcd.gerer",
@@ -1059,6 +1068,8 @@ impl Action {
             Self::AfairePrendre => "Prendre en charge une tâche d'une file dont on est membre",
             Self::AfaireReattribuer => "Réattribuer une tâche prise à un collègue de la file (service)",
             Self::AfaireSuperviser => "Superviser les files par nombres (ouvertes, en retard, délai médian, tâches orphelines)",
+            Self::RechercheGlobale => "Rechercher dans l'ENT (élèves de sa portée, personnes, personnels, classes, salles), plafonné par jour",
+            Self::RechercheDebloquer => "Lever un blocage de recherche (anti-énumération)",
             Self::PersonnelsAbsencesConserver => "Geler, purger et protéger la conservation des absences de personnel",
             Self::PersonnelsAbsencesSuppleer => "Demander une suppléance et nommer un suppléant pour une absence longue",
             Self::PersonnelsRcdGerer => "Tenir le plan de remplacement de courte durée et le vivier des volontaires",
@@ -1286,6 +1297,8 @@ impl Action {
             | Self::AfairePrendre
             | Self::AfaireReattribuer
             | Self::AfaireSuperviser
+            | Self::RechercheGlobale
+            | Self::RechercheDebloquer
             | Self::StagesOrganismesGerer
             | Self::StagesParametrer
             | Self::StagesPeriodesGerer
@@ -2018,6 +2031,14 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Admin | Role::Direction) {
         d.push(etab(AfaireReattribuer));
         d.push(etab(AfaireSuperviser));
+    }
+    // Lot P5 : la recherche est ouverte au personnel (chaque source applique ses propres droits) ; lever un
+    // blocage est réservé à l'administrateur.
+    if role.is_staff() {
+        d.push(etab(RechercheGlobale));
+    }
+    if role == Role::Admin {
+        d.push(etab(RechercheDebloquer));
     }
 }
 
