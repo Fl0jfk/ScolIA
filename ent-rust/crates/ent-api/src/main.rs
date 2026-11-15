@@ -61,6 +61,8 @@ ent-api plateforme-domaine <commande>
   d'établissement ne peut ni ajouter ni retirer un domaine (audit Fable 1, B-02).
 
   lister                                    tous les domaines servis et leur établissement
+  creer    <slug> <nom>                     CRÉE un établissement (identifiant généré, jamais d'écrasement ;
+                                            slug déjà pris refusé) — socle 28, MS0
   declarer <etablissement-uuid> <slug> <nom>  déclare un établissement ou change son slug/nom
   ajouter  <etablissement-uuid> <domaine>   rattache un domaine (hôtes réservés refusés,
                                             domaine d'un autre établissement refusé)
@@ -92,6 +94,11 @@ async fn plateforme_domaine(args: &[String]) -> i32 {
                     .collect::<Vec<_>>()
                     .join("\n")
             })
+            .map_err(|e| e.to_string()),
+        ("creer", 3) => ent
+            .creer_etablissement_plateforme(&args[1], &args[2])
+            .await
+            .map(|i| format!("établissement {} créé : {} ({})", i.id, i.slug, i.nom))
             .map_err(|e| e.to_string()),
         ("declarer", 4) => match etab(1) {
             Some(id) => ent
@@ -482,6 +489,48 @@ async fn run_api() {
         })
     });
 
+    // Socle 15 (A6) : remontée hebdomadaire du remplacement de courte durée. Chaque heure, idempotente : elle ne
+    // prépare que la semaine passée, une seule fois (S-1516 : lundi, paramétrable plus tard).
+    let remontees_rcd = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(70)).await;
+            loop {
+                match ent.preparer_remontees_hebdomadaires().await {
+                    Ok(b) if b.preparees > 0 => tracing::info!(?b, "remontées RCD préparées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("remontées RCD : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            }
+        })
+    });
+
+    // MSE-D01 : purge périodique des sessions et jetons expirés (désactivable : `ENT_PURGE_PERIODE_SECONDES`
+    // bornée entre 60 s et 24 h ; une heure par défaut).
+    let purge_periodique =
+        ent_api::purge::lancer(state.ent.clone(), ent_api::purge::periode_depuis_env());
+
+    // Socle 15 (A7) : heures constatées depuis les appels faits (socle 12) et file DSN J+5. Toutes les cinq minutes,
+    // idempotentes : une heure déjà constatée n'est jamais recréée.
+    let heures_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(90)).await;
+            loop {
+                match ent.constater_heures_assurees().await {
+                    Ok(b) if b.constatees > 0 => tracing::info!(?b, "heures constatées"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("heures constatées : {e}"),
+                }
+                if let Err(e) = ent.preparer_dsn_planifie().await {
+                    tracing::warn!("file DSN : {e}");
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            }
+        })
+    });
+
     // `ConnectInfo<SocketAddr>` : adresse de la socket, seule IP non falsifiable
     // (base des gardes anti-abus ; voir `client_ip`).
     axum::serve(
@@ -491,6 +540,7 @@ async fn run_api() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+    purge_periodique.abort();
     if let Some(t) = expediteur_inscriptions {
         t.abort();
     }
@@ -507,6 +557,12 @@ async fn run_api() {
         t.abort();
     }
     if let Some(t) = remplacements_absences {
+        t.abort();
+    }
+    if let Some(t) = remontees_rcd {
+        t.abort();
+    }
+    if let Some(t) = heures_absences {
         t.abort();
     }
     if let Some((d, tache)) = distributeur {

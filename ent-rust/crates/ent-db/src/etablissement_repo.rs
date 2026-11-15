@@ -336,6 +336,52 @@ impl PgEnt {
         })
     }
 
+    /// **Crée** un établissement (opérateur de la plateforme, MSE-D03, squelette du socle 28).
+    ///
+    /// Distinct de la déclaration : ici l'identifiant est généré par la plateforme et rien
+    /// n'est jamais écrasé. Un slug déjà pris → `Conflit`. Le premier administrateur, les rôles
+    /// modèles et les modules par défaut viendront avec le lot MS1 ; l'établissement créé est
+    /// seulement **déclaré** (aucune donnée, aucun compte), l'administrateur local pourra
+    /// ensuite renommer son établissement mais jamais changer le slug (B-02).
+    pub async fn creer_etablissement_plateforme(
+        &self,
+        slug: &str,
+        nom: &str,
+    ) -> Result<EtablissementInfo, EntDbError> {
+        let slug = slug.trim().to_ascii_lowercase();
+        let nom = nom.trim();
+        if !slug_valide(&slug) || nom.is_empty() || nom.chars().count() > 200 {
+            return Err(EntDbError::Domain(DomainError::ValeurInvalide));
+        }
+        let id = Uuid::new_v4();
+        let row: Option<(Uuid, String, String, bool)> = sqlx::query_as(
+            "INSERT INTO ent_etablissement (id, slug, nom)
+             VALUES ($1, $2, $3)
+             ON CONFLICT DO NOTHING
+             RETURNING id, slug, nom, actif",
+        )
+        .bind(id)
+        .bind(&slug)
+        .bind(nom)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(db)?;
+        let (id, slug, nom, actif) = row.ok_or(EntDbError::Domain(DomainError::Conflit))?;
+        self.audit_plateforme(
+            id,
+            "etablissement_cree_plateforme",
+            "Établissement créé par la plateforme",
+            serde_json::json!({ "acteur": "plateforme", "slug": slug }),
+        )
+        .await;
+        Ok(EtablissementInfo {
+            id,
+            slug,
+            nom,
+            actif,
+        })
+    }
+
     /// Rattache un domaine à un établissement **déclaré** (opérateur). Refuse
     /// une valeur invalide ou un hôte réservé de la plateforme
     /// (`ValeurInvalide`), un établissement non déclaré (`Forbidden`) et un

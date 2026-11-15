@@ -3,10 +3,9 @@
 //! Templates stylés catalogue = profondeur ultérieure ; ici = geste métier
 //! observable (période clôturée → PDF → dépôt docs famille).
 
-use crate::{
-    Appreciation, DomainError, MoyenneMatiere, NotePeriode, NotePeriodeStatut,
-};
+use crate::{Appreciation, DomainError, MoyenneMatiere, NotePeriode, NotePeriodeStatut};
 use chrono::NaiveDate;
+use ent_pdf::{Align, Colonne, Document, Ligne, Tableau};
 
 #[derive(Debug, Clone)]
 pub struct LigneBulletinMatiere {
@@ -81,192 +80,62 @@ pub fn plan_bulletin_eleve(
     })
 }
 
-fn pdf_escape(s: &str) -> String {
-    let safe = ascii_latin(s);
-    let mut out = String::with_capacity(safe.len());
-    for c in safe.chars() {
-        match c {
-            '\\' => out.push_str("\\\\"),
-            '(' => out.push_str("\\("),
-            ')' => out.push_str("\\)"),
-            '\r' | '\n' => out.push(' '),
-            other => out.push(other),
-        }
-    }
-    out
-}
-
-fn ascii_latin(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'à' | 'á' | 'â' | 'ä' | 'À' | 'Á' | 'Â' | 'Ä' => 'a',
-            'ç' | 'Ç' => 'c',
-            'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
-            'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
-            'ñ' | 'Ñ' => 'n',
-            'ò' | 'ó' | 'ô' | 'ö' | 'Ò' | 'Ó' | 'Ô' | 'Ö' => 'o',
-            'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
-            'ÿ' | 'Ÿ' => 'y',
-            'œ' | 'Œ' => 'o',
-            '€' => 'E',
-            c if c.is_ascii() => c,
-            _ => '?',
-        })
-        .collect()
-}
-
-pub(crate) fn build_pdf(lines: &[String]) -> Vec<u8> {
-    let mut content = String::from("BT\n/F1 11 Tf\n50 800 Td\n13 TL\n");
-    for (i, line) in lines.iter().enumerate() {
-        if i > 0 {
-            content.push_str("T*\n");
-        }
-        content.push_str(&format!("({}) Tj\n", pdf_escape(line)));
-    }
-    content.push_str("ET\n");
-    let stream = content.into_bytes();
-
-    let mut objects: Vec<Vec<u8>> = Vec::new();
-    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
-    objects.push(b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec());
-    objects.push(
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] \
-/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
-            .to_vec(),
-    );
-    let mut contents_obj = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
-    contents_obj.extend_from_slice(&stream);
-    contents_obj.extend_from_slice(b"\nendstream");
-    objects.push(contents_obj);
-    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
-
-    let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
-    let mut offsets = Vec::with_capacity(objects.len() + 1);
-    offsets.push(0);
-    for (i, obj) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
-        out.extend_from_slice(obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
-    let xref_at = out.len();
-    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
-    out.extend_from_slice(b"0000000000 65535 f \n");
-    for off in offsets.iter().skip(1) {
-        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-            objects.len() + 1
-        )
-        .as_bytes(),
-    );
-    out
-}
-
-/// PDF texte sur plusieurs pages A4 (56 lignes par page), police Helvetica.
-/// Les caractères hors Latin-1 simple sont translittérés (voir `ascii_latin`).
+/// PDF texte (une ligne = une information, titre = première ligne) sur plusieurs pages A4,
+/// avec « Page n sur N ». Les caractères français s'affichent tels quels (WinAnsi).
 pub fn rendre_pdf_lignes(lines: &[String]) -> Vec<u8> {
-    const PAR_PAGE: usize = 56;
-    let pages: Vec<&[String]> = if lines.is_empty() {
-        vec![&[]]
-    } else {
-        lines.chunks(PAR_PAGE).collect()
-    };
-    let n = pages.len();
-    // Objets : 1 catalogue, 2 pages, 3 police, puis (page, contenu) par page.
-    let mut objects: Vec<Vec<u8>> = Vec::new();
-    objects.push(b"<< /Type /Catalog /Pages 2 0 R >>".to_vec());
-    let kids: Vec<String> = (0..n).map(|i| format!("{} 0 R", 4 + 2 * i)).collect();
-    objects.push(format!("<< /Type /Pages /Kids [{}] /Count {n} >>", kids.join(" ")).into_bytes());
-    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
-    for (i, page) in pages.iter().enumerate() {
-        objects.push(
-            format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents {} 0 R \
-/Resources << /Font << /F1 3 0 R >> >> >>",
-                5 + 2 * i
-            )
-            .into_bytes(),
-        );
-        let mut content = String::from("BT\n/F1 10 Tf\n45 805 Td\n13.5 TL\n");
-        for (j, line) in page.iter().enumerate() {
-            if j > 0 {
-                content.push_str("T*\n");
-            }
-            content.push_str(&format!("({}) Tj\n", pdf_escape(line)));
-        }
-        if n > 1 {
-            content.push_str(&format!("T*\nT*\n(Page {} / {n}) Tj\n", i + 1));
-        }
-        content.push_str("ET\n");
-        let stream = content.into_bytes();
-        let mut obj = format!("<< /Length {} >>\nstream\n", stream.len()).into_bytes();
-        obj.extend_from_slice(&stream);
-        obj.extend_from_slice(b"\nendstream");
-        objects.push(obj);
-    }
-    let mut out: Vec<u8> = b"%PDF-1.4\n%\xE2\xE3\xCF\xD3\n".to_vec();
-    let mut offsets = Vec::with_capacity(objects.len());
-    for (i, obj) in objects.iter().enumerate() {
-        offsets.push(out.len());
-        out.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
-        out.extend_from_slice(obj);
-        out.extend_from_slice(b"\nendobj\n");
-    }
-    let xref_at = out.len();
-    out.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
-    out.extend_from_slice(b"0000000000 65535 f \n");
-    for off in &offsets {
-        out.extend_from_slice(format!("{off:010} 00000 n \n").as_bytes());
-    }
-    out.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-            objects.len() + 1
-        )
-        .as_bytes(),
-    );
-    out
+    crate::pdf_commun::rendre_lignes("Document ScolIA", None, lines)
 }
 
 pub fn render_bulletin_pdf(b: &BulletinEleve) -> Vec<u8> {
-    let mut lines = vec![
-        "ScolIA — Bulletin scolaire".into(),
-        String::new(),
-        format!("Date : {}", b.date_document),
-        format!(
-            "Eleve : {} {} · Classe : {}",
-            b.eleve_prenom,
-            b.eleve_nom,
-            b.classe.as_deref().unwrap_or("—")
+    let mut d = Document::new(crate::pdf_commun::meta(
+        &format!(
+            "Bulletin — {} {} — {}",
+            b.eleve_prenom, b.eleve_nom, b.periode_libelle
         ),
-        format!("Periode : {} ({})", b.periode_libelle, b.periode_code),
-        String::new(),
-        "Moyennes /20".into(),
-        "-------------".into(),
-    ];
+        Some(b.date_document),
+    ))
+    .avec_en_tete("ScolIA — Bulletin scolaire")
+    .avec_pied(crate::pdf_commun::pied());
+    d.titre("Bulletin scolaire");
+    d.paragraphe(&format!("Date : {}", b.date_document));
+    d.paragraphe(&format!(
+        "Élève : {} {} · Classe : {}",
+        b.eleve_prenom,
+        b.eleve_nom,
+        b.classe.as_deref().unwrap_or("—")
+    ));
+    d.paragraphe(&format!(
+        "Période : {} ({})",
+        b.periode_libelle, b.periode_code
+    ));
+    d.sous_titre("Moyennes /20");
+    let mut t = Tableau::new(vec![
+        Colonne::new("Matière", 3.0, Align::Gauche),
+        Colonne::new("Moyenne", 1.6, Align::Droite),
+        Colonne::new("Appréciation", 6.0, Align::Gauche),
+    ]);
     for l in &b.lignes {
-        lines.push(format!(
-            "{} : {:.2}",
-            l.matiere_libelle, l.moyenne_sur_20
-        ));
-        if let Some(app) = &l.appreciation {
-            lines.push(format!("  Apprec. : {app}"));
-        }
+        t.lignes.push(Ligne::new(vec![
+            l.matiere_libelle.clone(),
+            format!("{:.2}", l.moyenne_sur_20),
+            l.appreciation.clone().unwrap_or_default(),
+        ]));
     }
     if let Some(mg) = b.moyenne_generale {
-        lines.push(String::new());
-        lines.push(format!("Moyenne generale : {mg:.2} / 20"));
+        t.lignes.push(Ligne::grasse(vec![
+            "Moyenne générale".to_string(),
+            format!("{mg:.2}"),
+            String::new(),
+        ]));
     }
+    d.tableau(&t);
     if let Some(ag) = &b.appreciation_generale {
-        lines.push(String::new());
-        lines.push(format!("Appreciation generale : {ag}"));
+        d.sous_titre("Appréciation générale");
+        d.paragraphe(ag);
     }
-    lines.push(String::new());
-    lines.push("Document publie dans l'espace documents (famille).".into());
-    build_pdf(&lines)
+    d.espace(10.0);
+    d.paragraphe("Document publié dans l'espace documents (famille).");
+    d.octets()
 }
 
 #[cfg(test)]
@@ -293,7 +162,7 @@ mod tests {
         let pdf = rendre_pdf_lignes(&lignes);
         assert!(pdf.starts_with(b"%PDF-1.4"));
         assert!(pdf.windows(9).any(|w| w == b"/Count 3 "));
-        assert!(pdf.windows(10).any(|w| w == b"Page 3 / 3"));
+        assert!(ent_pdf::releve::texte(&pdf).contains("Page 3 sur 3"));
         assert!(rendre_pdf_lignes(&[]).windows(9).any(|w| w == b"/Count 1 "));
     }
 
@@ -327,5 +196,66 @@ mod tests {
         let pdf = render_bulletin_pdf(&b);
         assert!(pdf.starts_with(b"%PDF-1.4"));
         assert!(pdf.windows(5).any(|w| w == b"%%EOF"));
+    }
+
+    #[test]
+    fn bulletin_accents_lisibles_et_trois_pages() {
+        use ent_pdf::releve::{texte, texte_des_pages, verifier_structure};
+        let p = periode(NotePeriodeStatut::Fermee);
+        let moyennes: Vec<(MoyenneMatiere, String)> = (0..40)
+            .map(|i| {
+                (
+                    MoyenneMatiere {
+                        matiere_id: Uuid::new_v4(),
+                        periode_id: p.id,
+                        moyenne_sur_20: 8.0 + (i % 11) as f64,
+                    },
+                    format!("Matière {i:02} — Français œuvres"),
+                )
+            })
+            .collect();
+        let appreciations: Vec<Appreciation> = moyennes
+            .iter()
+            .map(|(m, _)| Appreciation {
+                id: Uuid::new_v4(),
+                etablissement_id: p.etablissement_id,
+                eleve_id: Uuid::new_v4(),
+                periode_id: p.id,
+                matiere_id: Some(m.matiere_id),
+                auteur_user_id: Uuid::new_v4(),
+                texte: "Élève sérieux, à l'écoute ; progrès réguliers en français, œuvre soignée. \
+                        Il faut poursuivre l'effort et soigner la présentation des évaluations écrites."
+                    .into(),
+            })
+            .collect();
+        let b = plan_bulletin_eleve(
+            &p,
+            "Hélène",
+            "Élève",
+            Some("4ᵉ B"),
+            &moyennes,
+            &appreciations,
+            NaiveDate::from_ymd_opt(2026, 12, 21).unwrap(),
+        )
+        .unwrap();
+        let pdf = render_bulletin_pdf(&b);
+        verifier_structure(&pdf);
+        let t = texte(&pdf);
+        assert!(t.contains("Élève : Hélène Élève"), "{t}");
+        assert!(t.contains("Période : Trimestre 1 (T1)"));
+        assert!(
+            t.contains("Matière 00 — Français") && t.contains("œuvres"),
+            "{t}"
+        );
+        let pages = texte_des_pages(&pdf);
+        assert_eq!(pages.len(), 3, "{} pages", pages.len());
+        for (i, pg) in pages.iter().enumerate() {
+            assert!(pg.contains(&format!("Page {} sur 3", i + 1)));
+            assert!(
+                pg.contains("Matière\nMoyenne\nAppréciation"),
+                "en-tête du tableau répété, page {i}"
+            );
+        }
+        assert!(pages[2].contains("Moyenne générale"));
     }
 }

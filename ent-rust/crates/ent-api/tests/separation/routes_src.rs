@@ -20,7 +20,7 @@ const METHODES: [(&str, &str); 5] = [
 /// Toutes les sources qui déclarent des routes (routeurs fusionnés par
 /// `routes.rs` : cahier, communication_s28, dossier, edt_s2, évaluations, finances, inscriptions, santé, référentiel, référentiel S2-2, rôles,
 /// vie scolaire, personnels, services d'enseignement). Une nouvelle source de routes doit être ajoutée ici (le test d'inventaire compare avec les fichiers de `src/`).
-pub const SOURCES: [&str; 36] = [
+pub const SOURCES: [&str; 44] = [
     include_str!("../../src/routes.rs"),
     include_str!("../../src/cahier.rs"),
     include_str!("../../src/dossier.rs"),
@@ -32,6 +32,8 @@ pub const SOURCES: [&str; 36] = [
     include_str!("../../src/vie_scolaire.rs"),
     include_str!("../../src/portail.rs"),
     include_str!("../../src/afaire.rs"),
+    include_str!("../../src/recherche.rs"),
+    include_str!("../../src/demandes.rs"),
     include_str!("../../src/edt_s2.rs"),
     include_str!("../../src/evaluations.rs"),
     include_str!("../../src/communication_s28.rs"),
@@ -40,11 +42,15 @@ pub const SOURCES: [&str; 36] = [
     include_str!("../../src/eleve_fusion.rs"),
     include_str!("../../src/personnels.rs"),
     include_str!("../../src/personnels_missions.rs"),
+    include_str!("../../src/personnels_equipes.rs"),
+    include_str!("../../src/personnels_delegations.rs"),
     include_str!("../../src/absences_personnels.rs"),
     include_str!("../../src/absences_personnels_pieces.rs"),
     include_str!("../../src/absences_personnels_impact.rs"),
     include_str!("../../src/absences_personnels_reponse.rs"),
     include_str!("../../src/absences_personnels_suppleance.rs"),
+    include_str!("../../src/absences_personnels_rcd.rs"),
+    include_str!("../../src/absences_personnels_heures.rs"),
     include_str!("../../src/stages.rs"),
     include_str!("../../src/personnels_services.rs"),
     include_str!("../../src/structure.rs"),
@@ -52,15 +58,17 @@ pub const SOURCES: [&str; 36] = [
     include_str!("../../src/structure_calendrier.rs"),
     include_str!("../../src/structure_periodes.rs"),
     include_str!("../../src/structure_cours.rs"),
+    include_str!("../../src/structure_groupes.rs"),
     include_str!("../../src/voyages.rs"),
     include_str!("../../src/agenda.rs"),
     include_str!("../../src/internat.rs"),
     include_str!("../../src/voyages_achats.rs"),
     include_str!("../../src/assiduite.rs"),
+    include_str!("../../src/documents_verif.rs"),
 ];
 
 /// Fichiers de `src/` contenant `.route(` : doit être couvert par `SOURCES`.
-pub const NOMS_SOURCES: [&str; 36] = [
+pub const NOMS_SOURCES: [&str; 44] = [
     "routes.rs",
     "cahier.rs",
     "dossier.rs",
@@ -72,6 +80,8 @@ pub const NOMS_SOURCES: [&str; 36] = [
     "vie_scolaire.rs",
     "portail.rs",
     "afaire.rs",
+    "recherche.rs",
+    "demandes.rs",
     "edt_s2.rs",
     "evaluations.rs",
     "communication_s28.rs",
@@ -80,11 +90,15 @@ pub const NOMS_SOURCES: [&str; 36] = [
     "eleve_fusion.rs",
     "personnels.rs",
     "personnels_missions.rs",
+    "personnels_equipes.rs",
+    "personnels_delegations.rs",
     "absences_personnels.rs",
     "absences_personnels_pieces.rs",
     "absences_personnels_impact.rs",
     "absences_personnels_reponse.rs",
     "absences_personnels_suppleance.rs",
+    "absences_personnels_rcd.rs",
+    "absences_personnels_heures.rs",
     "stages.rs",
     "personnels_services.rs",
     "structure.rs",
@@ -92,11 +106,13 @@ pub const NOMS_SOURCES: [&str; 36] = [
     "structure_calendrier.rs",
     "structure_periodes.rs",
     "structure_cours.rs",
+    "structure_groupes.rs",
     "voyages.rs",
     "agenda.rs",
     "internat.rs",
     "voyages_achats.rs",
     "assiduite.rs",
+    "documents_verif.rs",
 ];
 
 pub fn routes() -> Vec<RouteDecl> {

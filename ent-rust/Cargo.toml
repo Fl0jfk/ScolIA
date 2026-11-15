@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ent-types",
+    "crates/ent-pdf",
     "crates/ent-events",
     "crates/domain-eleve",
     "crates/ent-brain",
@@ -16,9 +17,11 @@ members = [
     "crates/ent-db",
     "crates/ent-api",
     "crates/ent-lab",
+    "crates/ent-reprise",
 ]
 default-members = [
     "crates/ent-types",
+    "crates/ent-pdf",
     "crates/ent-events",
     "crates/domain-eleve",
     "crates/ent-brain",
@@ -33,6 +36,7 @@ default-members = [
     "crates/ent-db",
     "crates/ent-api",
     "crates/ent-lab",
+    "crates/ent-reprise",
 ]
 
 [workspace.package]

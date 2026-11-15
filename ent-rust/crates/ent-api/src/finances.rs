@@ -426,7 +426,7 @@ async fn exporter_prelevements(
         .exporter_prelevements_for_actor(s.etablissement_id, s.user_id, &s.role, &b)
         .await
         .map_err(map_db)?;
-    tracer_acces(&st, &s, "export", "sepa", "Export des prélèvements SEPA").await;
+    tracer_acces(&st, &s, "export", "sepa", "Export des prélèvements SEPA").await?;
     if nature == "pain008" {
         attachment_response(
             contenu,
@@ -602,7 +602,7 @@ async fn exporter_comptabilite(
         .exporter_comptabilite_for_actor(s.etablissement_id, s.user_id, &s.role, &b)
         .await
         .map_err(map_db)?;
-    tracer_acces(&st, &s, "export", "comptabilite", "Export comptable").await;
+    tracer_acces(&st, &s, "export", "comptabilite", "Export comptable").await?;
     Ok((StatusCode::CREATED, Json(e)))
 }
 

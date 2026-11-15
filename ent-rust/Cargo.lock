@@ -470,6 +470,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "ent-events",
+ "ent-pdf",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -588,6 +589,7 @@ dependencies = [
  "ent-mail",
  "ent-object",
  "ent-oidc",
+ "ent-pdf",
  "ent-push",
  "ent-sms",
  "ent-types",
@@ -676,11 +678,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "ent-pdf"
+version = "0.1.0"
+
+[[package]]
 name = "ent-push"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.21",
  "tokio",
+]
+
+[[package]]
+name = "ent-reprise"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "getrandom 0.2.17",
+ "hex",
+ "hmac",
+ "serde",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

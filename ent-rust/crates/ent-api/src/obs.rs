@@ -142,11 +142,12 @@ pub async fn suivre_requetes(State(state): State<AppState>, req: Request, next: 
     reponse
 }
 
-/// `GET /metrics` — format texte Prometheus (`version=0.0.4`).
-pub async fn metrics_handler(State(state): State<AppState>, entetes: HeaderMap) -> Response {
+/// Contrôle d'accès de la supervision (`/metrics`, `/health/detail`) : désactivé → 404,
+/// ouvert → accepté, jeton → `Authorization: Bearer` obligatoire.
+pub fn exiger_supervision(state: &AppState, entetes: &HeaderMap) -> Result<(), Response> {
     match &state.metrics_acces {
-        MetricsAcces::Desactive => StatusCode::NOT_FOUND.into_response(),
-        MetricsAcces::Ouvert => rendre(&state).await,
+        MetricsAcces::Desactive => Err(StatusCode::NOT_FOUND.into_response()),
+        MetricsAcces::Ouvert => Ok(()),
         MetricsAcces::Jeton(attendu) => {
             let fourni = entetes
                 .get(header::AUTHORIZATION)
@@ -154,16 +155,25 @@ pub async fn metrics_handler(State(state): State<AppState>, entetes: HeaderMap) 
                 .and_then(|v| v.strip_prefix("Bearer "))
                 .unwrap_or("")
                 .trim();
-            if !jeton_correspond(attendu, fourni) {
-                return (
+            if jeton_correspond(attendu, fourni) {
+                Ok(())
+            } else {
+                Err((
                     StatusCode::UNAUTHORIZED,
                     [(header::WWW_AUTHENTICATE, "Bearer")],
-                    "jeton de métriques requis\n",
+                    "jeton de supervision requis\n",
                 )
-                    .into_response();
+                    .into_response())
             }
-            rendre(&state).await
         }
+    }
+}
+
+/// `GET /metrics` — format texte Prometheus (`version=0.0.4`).
+pub async fn metrics_handler(State(state): State<AppState>, entetes: HeaderMap) -> Response {
+    match exiger_supervision(&state, &entetes) {
+        Ok(()) => rendre(&state).await,
+        Err(refus) => refus,
     }
 }
 

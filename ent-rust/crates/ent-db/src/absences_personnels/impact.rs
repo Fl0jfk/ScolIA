@@ -1002,7 +1002,7 @@ impl PgEnt {
                 "absence_personnel_present",
                 "Consultation de la présence d'un agent",
             )
-            .await;
+            .await?;
         }
         Ok(PresenceDto { agent_id, statut: statut.to_string() })
     }

@@ -612,11 +612,23 @@ pub fn pai_storage_key_is_owned(piece: &PaiPiece, key: &str) -> bool {
 }
 
 
+/// Extension canonique d'un dépôt : alignée sur `TypeFichier::extension` (source unique).
+fn extension_depot_connue(ext: &str) -> bool {
+    use ent_object::upload::TypeFichier as T;
+    [
+        T::Pdf, T::Png, T::Jpeg, T::Gif, T::Webp, T::Texte, T::Docx, T::Xlsx, T::Pptx, T::Odt,
+        T::Ods, T::Odp,
+    ]
+    .iter()
+    .any(|t| t.extension() == ext)
+}
+
 /// Vérifie que la clé objet stockée APPARTIENT bien à ce document (même établissement,
 /// même document/élève). Toute autre forme n'est jamais lue dans le magasin d'objets.
 ///
 /// Formes acceptées :
-/// - `{etab}/documents/{doc.id}.{pdf|png|jpg|txt|bin}` (dépôt avec contenu) ;
+/// - `{etab}/documents/{doc.id}.{ext}` (dépôt avec contenu ; `ext` = `TypeFichier::extension` ou `bin`) ;
+/// - `{etab}/bulletins/{uuid}.pdf` (bulletin publié) ;
 /// - `{etab}/bulletin|livret-competences/{uuid}.pdf-{doc.eleve_id}` (bulletins, livrets) ;
 /// - `reinscription/{etab}/{doc.eleve_id}/{CODE}.pdf` (réinscription sans contenu) ;
 /// - `lab/{8 premiers hex de l'établissement}/{nom}.pdf` (seeds de labo).
@@ -630,7 +642,14 @@ pub fn document_storage_key_is_owned(doc: &EleveDocument, key: &str) -> bool {
             };
             *e == etab.to_string()
                 && id == doc.id.to_string()
-                && matches!(ext, "pdf" | "png" | "jpg" | "txt" | "bin")
+                && (ext == "bin" || extension_depot_connue(ext))
+        }
+        // Bulletin publié (EVA-10) : `{etab}/bulletins/{bulletin.id}.pdf`.
+        [e, "bulletins", file] => {
+            let Some(id) = file.strip_suffix(".pdf") else {
+                return false;
+            };
+            *e == etab.to_string() && Uuid::parse_str(id).is_ok()
         }
         [e, ns @ ("bulletin" | "livret-competences"), file] => {
             let _ = ns;
@@ -4102,8 +4121,13 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
 
     /// Trace un accès sensible (consultation, téléchargement, export) dans
     /// `ent_journal_modif`. Contenu minimal : acteur, rôle, action, cible —
-    /// **jamais** le contenu consulté. Best-effort : un échec d'écriture est
-    /// journalisé (`tracing`) mais ne fait pas échouer la requête métier.
+    /// **jamais** le contenu consulté.
+    ///
+    /// **Bloquante** (socle 27, RG-D01, R-RG8) : une erreur d'écriture est
+    /// renvoyée. L'appelant l'écrit **avant** de rendre la donnée et propage
+    /// l'erreur avec `?` : une lecture sensible dont la trace échoue n'est pas
+    /// servie. La trace est validée dans sa propre transaction avant la réponse
+    /// (une trace sans lecture servie reste possible, jamais l'inverse).
     pub async fn tracer_acces_sensible(
         &self,
         etablissement_id: Uuid,
@@ -4113,22 +4137,22 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
         domaine: &str,
         action: &str,
         libelle: &str,
-    ) {
-        if let Err(e) = self
-            .enregistrer_journal_interne(EnregistrerJournal {
-                etablissement_id,
-                eleve_id,
-                domaine: domaine.into(),
-                action: action.into(),
-                libelle: libelle.into(),
-                payload: json!({ "role": role }),
-                visible_famille: false,
-                actor_user_id: Some(actor_user_id),
-            })
-            .await
-        {
-            tracing::error!(domaine, action, error = %e, "échec d'écriture de la trace d'accès sensible");
-        }
+    ) -> Result<(), EntDbError> {
+        self.enregistrer_journal_interne(EnregistrerJournal {
+            etablissement_id,
+            eleve_id,
+            domaine: domaine.into(),
+            action: action.into(),
+            libelle: libelle.into(),
+            payload: json!({ "role": role }),
+            visible_famille: false,
+            actor_user_id: Some(actor_user_id),
+        })
+        .await
+        .map(|_| ())
+        .inspect_err(|e| {
+            tracing::error!(domaine, action, error = %e, "échec d'écriture de la trace d'accès sensible : accès refusé");
+        })
     }
 
     /// Trace un échec de connexion ou un verrouillage. L'e-mail n'est **pas**
@@ -4234,7 +4258,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "fiche_sante",
             "Consultation de la fiche santé",
         )
-        .await;
+        .await?;
         Ok(r)
     }
 
@@ -4257,7 +4281,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "pai",
             "Consultation du PAI",
         )
-        .await;
+        .await?;
         Ok(r)
     }
 
@@ -4285,7 +4309,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "pai_piece",
             "Téléchargement d'une pièce du PAI",
         )
-        .await;
+        .await?;
         Ok(piece)
     }
 
@@ -4315,7 +4339,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "passages_infirmerie",
             "Consultation des passages à l'infirmerie",
         )
-        .await;
+        .await?;
         Ok(r)
     }
 
@@ -4345,7 +4369,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "entretiens_psy",
             "Consultation des entretiens psychologue",
         )
-        .await;
+        .await?;
         Ok(r)
     }
 
@@ -4368,7 +4392,7 @@ Ce dernier lien reste valable {} h après cette date. Une connexion réussie par
             "dossier_psy",
             "Consultation du dossier psychologue",
         )
-        .await;
+        .await?;
         Ok(r)
     }
 
@@ -19044,7 +19068,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             "lien_document",
             &format!("Lien court vers le document {document_id}"),
         )
-        .await;
+        .await?;
         Ok(lien)
     }
 
@@ -19125,7 +19149,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             "lien_pai_piece",
             "Lien court vers une pièce du PAI",
         )
-        .await;
+        .await?;
         Ok(lien)
     }
 
@@ -19176,7 +19200,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             "lien_piece_message",
             &format!("Lien court vers la pièce jointe {piece_id}"),
         )
-        .await;
+        .await?;
         Ok(lien)
     }
 

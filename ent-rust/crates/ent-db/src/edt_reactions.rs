@@ -178,6 +178,12 @@ async fn lire_cours(
 
 #[allow(clippy::type_complexity)]
 async fn traiter_edt(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), String> {
+    // Alias des anciens noms (§18.1) : un événement qui porte le `modification_id` (ou `lot_edt_id`) du journal du
+    // réel est traité par `d4.notifications_edt_t4` sous son nouveau nom ; ici il ne produirait qu'un doublon.
+    let p = &evt.event().payload;
+    if p.get("modification_id").is_some_and(|v| !v.is_null()) || p.get("lot_edt_id").is_some_and(|v| !v.is_null()) {
+        return Ok(());
+    }
     let etab = evt.etablissement_id();
     let type_name = evt.event().type_name.clone();
     if type_name == "edt.annulation_masse" {

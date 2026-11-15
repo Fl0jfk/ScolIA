@@ -805,7 +805,7 @@ impl PgEnt {
             "dossier_accompagnement",
             "Consultation du suivi d'accompagnement",
         )
-        .await;
+        .await?;
         Ok(DossierAccompagnement {
             eleve_id,
             dispositifs: dispositifs.into_iter().map(vue_dispositif).collect(),

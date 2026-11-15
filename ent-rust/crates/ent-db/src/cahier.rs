@@ -416,7 +416,10 @@ impl PgEnt {
             if let Some(g) = cible.groupe_id {
                 let (ok,): (bool,) = sqlx::query_as(
                     "SELECT EXISTS (SELECT 1 FROM ent_groupe_responsable
-                       WHERE etablissement_id = $1 AND user_id = $2 AND groupe_id = $3)",
+                       WHERE etablissement_id = $1 AND user_id = $2 AND groupe_id = $3
+                          AND du <= ent_aujourdhui_etab($1) AND (au IS NULL OR au >= ent_aujourdhui_etab($1))
+                          AND EXISTS (SELECT 1 FROM ent_groupe gd WHERE gd.id = groupe_id
+                                       AND gd.etablissement_id = ent_groupe_responsable.etablissement_id AND gd.ouvre_droits))",
                 )
                 .bind(a.etablissement_id)
                 .bind(a.user_id)
@@ -923,6 +926,8 @@ impl PgEnt {
         du: NaiveDate,
         au: NaiveDate,
     ) -> Result<Vec<SeanceCahierDto>, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         Self::periode(du, au)?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let rows: Vec<SeanceRow> = if let Some(c) = classe_id {
@@ -1095,7 +1100,7 @@ impl PgEnt {
 
     /// Le profil a-t-il, quelque part, le droit d'écrire dans le cahier ? (garde d'un
     /// titulaire de séance : un rôle sans `cahier.ecrire` ne peut pas écrire même sur sa séance.)
-    async fn cahier_droit_ecrire_global(&self, a: &Acteur<'_>) -> Result<bool, EntDbError> {
+    pub(crate) async fn cahier_droit_ecrire_global(&self, a: &Acteur<'_>) -> Result<bool, EntDbError> {
         Ok(self
             .droits_effectifs(a.etablissement_id, a.user_id, a.role)
             .await?
@@ -1112,6 +1117,8 @@ impl PgEnt {
         du: NaiveDate,
         au: NaiveDate,
     ) -> Result<Vec<SeanceCahierDto>, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         Self::periode(du, au)?;
         let (eleve, _) = self.cahier_resoudre_eleve(a, eleve_id).await?;
         let rows: Vec<SeanceRow> = sqlx::query_as(
@@ -1361,6 +1368,8 @@ impl PgEnt {
         a: &Acteur<'_>,
         id: Uuid,
     ) -> Result<AgendaItemDto, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         let row = self.charger_travail(a.etablissement_id, id).await?;
         let vue = self.lire_travail_autorise(a, &row).await?;
         let eleve = if vue == VueAgenda::Eleve {
@@ -1435,6 +1444,8 @@ impl PgEnt {
         du: NaiveDate,
         au: NaiveDate,
     ) -> Result<Vec<TravailDto>, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         Self::periode(du, au)?;
         let cible = cible.valider()?;
         self.exiger_cible(a, Action::CahierLire, cible).await?;
@@ -1997,7 +2008,7 @@ impl PgEnt {
             "cahier_piece",
             &format!("Lien court vers la pièce {piece_id} du cahier de textes"),
         )
-        .await;
+        .await?;
         Ok(LienFichier {
             url: link.url,
             expires_at: link.expires_at,
@@ -2358,6 +2369,8 @@ impl PgEnt {
         du: NaiveDate,
         au: NaiveDate,
     ) -> Result<Vec<AgendaItemDto>, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         Self::periode(du, au)?;
         let (eleve, vue) = self.cahier_resoudre_eleve(a, eleve_id).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
@@ -2570,6 +2583,8 @@ impl PgEnt {
         seuil_minutes: Option<i32>,
         seuil_controles: Option<i32>,
     ) -> Result<ChargeDto, EntDbError> {
+        // C2 : publications échues (programmées ou différées par la plage calme) projetées avant la lecture.
+        self.cdt_projeter_echus(a.etablissement_id).await?;
         Self::periode(du, au)?;
         let cible = cible.valider()?;
         self.exiger_cible(a, Action::CahierLire, cible).await?;
@@ -2860,7 +2875,7 @@ async fn historiser(
 }
 
 /// Publie un fait du cahier dans la transaction de l'écriture (même commit, outbox S2-0).
-async fn publier_cdt(
+pub(crate) async fn publier_cdt(
     tx: &mut sqlx::PgConnection,
     a: &Acteur<'_>,
     type_name: &str,

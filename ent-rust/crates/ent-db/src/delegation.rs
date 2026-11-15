@@ -33,10 +33,12 @@ use crate::tenant_tx::TenantTx;
 pub const DELEGATION_DUREE_MAX_JOURS: i64 = 366;
 
 /// Droits que l'on ne délègue jamais.
-const NON_DELEGABLES: [Action; 3] = [
+const NON_DELEGABLES: [Action; 4] = [
     Action::RolesGerer,
     Action::SecuritePolitique,
     Action::DelegationsGerer,
+    // Lot P6 : les pouvoirs de signature se délèguent par la voie dédiée (`personnels_delegations.rs`).
+    Action::SignatureHabiliter,
 ];
 
 /// Droit délégué tel qu'échangé avec l'API (JSON d'échange) ; stocké dans `ent_delegation_droit`.
@@ -72,6 +74,10 @@ pub struct Delegation {
     pub fin: NaiveDate,
     pub motif: String,
     pub source: String,
+    /// Lot P6 : `role` (droits, défaut), `mission`, `signature`, `interim_direction`.
+    pub objet: String,
+    /// `absence`, `surcharge`, `organisation`, `autre`.
+    pub motif_code: String,
     /// `a_venir`, `active`, `expiree`, `revoquee` (calculé à la lecture : la date prime).
     pub etat: String,
 }
@@ -87,6 +93,8 @@ struct LigneDelegation {
     fin: NaiveDate,
     motif: String,
     source: String,
+    objet: String,
+    motif_code: String,
     statut: String,
 }
 
@@ -109,6 +117,8 @@ impl LigneDelegation {
             fin: self.fin,
             motif: self.motif,
             source: self.source,
+            objet: self.objet,
+            motif_code: self.motif_code,
             etat: etat.to_string(),
         }
     }
@@ -118,7 +128,7 @@ const SELECT_DELEGATION: &str = "SELECT d.id, d.delegue_user_id,
         coalesce(nullif(btrim(u1.display_name), ''), u1.email) AS delegue_nom,
         d.delegant_user_id,
         coalesce(nullif(btrim(u2.display_name), ''), u2.email) AS delegant_nom,
-        d.debut, d.fin, d.motif, d.source, d.statut
+        d.debut, d.fin, d.motif, d.source, d.objet, d.motif_code, d.statut
    FROM ent_delegation d
    JOIN ent_user u1 ON u1.id = d.delegue_user_id
    JOIN ent_user u2 ON u2.id = d.delegant_user_id
@@ -260,8 +270,8 @@ impl PgEnt {
         user_id: Uuid,
         jour: NaiveDate,
     ) -> Result<Vec<Droit>, EntDbError> {
-        let ids: Vec<(Uuid,)> = sqlx::query_as(
-            "SELECT id FROM ent_delegation
+        let ids: Vec<(Uuid, String)> = sqlx::query_as(
+            "SELECT id, objet FROM ent_delegation
               WHERE etablissement_id = $1 AND delegue_user_id = $2 AND statut = 'accordee'
                 AND debut <= $3 AND fin >= $3",
         )
@@ -271,9 +281,18 @@ impl PgEnt {
         .fetch_all(&mut *TenantTx::begin(self.pool(), etab).await?)
         .await
         .map_err(db)?;
-        let ids: Vec<Uuid> = ids.into_iter().map(|(id,)| id).collect();
+        // Lot P6 : l'intérim de direction n'a pas de lignes de droits : il donne le modèle du chef d'établissement
+        // (hors exclusions), calculé ici à chaque requête, donc éteint à la date de fin comme le reste.
+        let mut out: Vec<Droit> = Vec::new();
+        if ids.iter().any(|(_, objet)| objet == "interim_direction") {
+            out.extend(crate::personnels_delegations::droits_interim().into_iter().map(|(action, portee)| Droit {
+                action,
+                portee,
+                cibles: Vec::new(),
+            }));
+        }
+        let ids: Vec<Uuid> = ids.into_iter().filter(|(_, objet)| objet == "role").map(|(id, _)| id).collect();
         let mut par_delegation = charger_droits(self.pool(), etab, &ids).await?;
-        let mut out = Vec::new();
         for id in &ids {
             for s in par_delegation.remove(id).unwrap_or_default() {
                 // Codes inconnus ou interdits (catalogue réduit depuis) : ignorés, jamais élargis.
@@ -423,8 +442,20 @@ impl PgEnt {
         a: &Acteur<'_>,
         id: Uuid,
     ) -> Result<Delegation, EntDbError> {
-        self.exiger_referentiel(a, Action::DelegationsGerer).await?;
         let etab = a.etablissement_id;
+        // Lot P6 (PRS-83) : le délégant révoque SA délégation sans droit de délégation ; sinon `delegations.gerer`.
+        let est_delegant: Option<(Uuid,)> = sqlx::query_as(
+            "SELECT delegant_user_id FROM ent_delegation WHERE etablissement_id = $1 AND id = $2 AND delegant_user_id = $3",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(a.user_id)
+        .fetch_optional(&mut *TenantTx::begin(self.pool(), etab).await?)
+        .await
+        .map_err(db)?;
+        if est_delegant.is_none() {
+            self.exiger_referentiel(a, Action::DelegationsGerer).await?;
+        }
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         let touche: Option<(Uuid,)> = sqlx::query_as(
             "UPDATE ent_delegation
@@ -440,6 +471,8 @@ impl PgEnt {
         .await
         .map_err(db)?;
         if let Some((delegue,)) = touche {
+            // Lot P6 : ce que la délégation a produit (pouvoir de signature, mission copiée) se ferme avec elle.
+            crate::personnels_delegations::cloturer_derives_tx(&mut tx, etab, id, a.user_id, today_utc()).await?;
             let ev = publier_agg(
                 &mut tx,
                 a,
@@ -546,6 +579,34 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let mut evenements = Vec::new();
+        // Lot P6 (PRS-84) : le délégant est prévenu trois jours avant l'expiration, une seule fois (`prevenue_le`).
+        let proches: Vec<(Uuid, Uuid, Uuid, Uuid, NaiveDate)> = sqlx::query_as(
+            "UPDATE ent_delegation SET prevenue_le = now()
+              WHERE statut = 'accordee' AND prevenue_le IS NULL AND etablissement_id = $2
+                AND source = 'manuelle' AND fin >= $1 AND fin <= $1 + 3
+              RETURNING id, etablissement_id, delegant_user_id, delegue_user_id, fin",
+        )
+        .bind(jour)
+        .bind(etab_job)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        for (id, etab, delegant, delegue, fin) in &proches {
+            let conn: &mut sqlx::PgConnection = &mut tx;
+            evenements.push(
+                conn.publier(MetierEventDraft {
+                    etablissement_id: *etab,
+                    type_name: ent_events::types::DELEGATION_EXPIRATION_PROCHE.to_string(),
+                    aggregate: AggregateKind::Personne,
+                    aggregate_id: *id,
+                    eleve_id: None,
+                    payload: json!({ "delegation_id": id, "delegant_user_id": delegant,
+                                     "delegue_user_id": delegue, "fin": fin }),
+                    actor_user_id: None,
+                })
+                .await?,
+            );
+        }
         for (id, etab, delegue, fin) in &lignes {
             let conn: &mut sqlx::PgConnection = &mut tx;
             evenements.push(

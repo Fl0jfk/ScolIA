@@ -47,6 +47,7 @@ const INTERDITS_GLOBAUX: &[&str] = &["storage_key", "password_hash", "argon2"];
 /// d'un établissement par identifiant).
 const PUBLIQUES: &[(&str, &str)] = &[
     ("GET", "/health"),
+    ("GET", "/health/detail"), // supervision : 404 si métriques fermées, 401 sans jeton ; jamais de session
     ("GET", "/ready"),
     ("GET", "/metrics"),
     ("POST", "/labo/bootstrap"),
@@ -71,7 +72,6 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/verifier"),
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
-    ("GET", "/fichiers/{jeton}"),
 ];
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
 

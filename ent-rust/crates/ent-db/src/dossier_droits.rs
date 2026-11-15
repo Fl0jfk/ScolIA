@@ -365,7 +365,7 @@ impl PgEnt {
                     .collect(),
             };
             if let Some((_, v)) = &vue_conflit {
-                self.tracer_lecture_conflit(etab, actor, role, eleve_id, v).await;
+                self.tracer_lecture_conflit(etab, actor, role, eleve_id, v).await?;
             }
         } else if let Some(mien) = mon_lien {
             mon_personne = self.responsables_bruts(etab, eleve_id).await?.iter()
@@ -425,7 +425,7 @@ impl PgEnt {
                 "motif_protege",
                 "Consultation d'un motif protégé du dossier administratif (F4)",
             )
-            .await;
+            .await?;
         }
         Ok(sortie)
     }
@@ -438,7 +438,7 @@ impl PgEnt {
         role: &str,
         eleve_id: Uuid,
         vue: &VueGroupes,
-    ) {
+    ) -> Result<(), EntDbError> {
         if vue.acces_a_tracer() {
             self.tracer_acces_sensible(
                 etab,
@@ -449,8 +449,9 @@ impl PgEnt {
                 "lecture_dossier_admin",
                 "Lecture du dossier administratif par un agent lié à l'élève",
             )
-            .await;
+            .await?;
         }
+        Ok(())
     }
 
     /// Une écriture professionnelle sur ce dossier est refusée à l'agent en conflit d'intérêts :
@@ -632,7 +633,7 @@ impl PgEnt {
         if !lecture.vue.r || Role::parse(role) == Some(Role::Parent) {
             return Err(EntDbError::Forbidden);
         }
-        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await;
+        self.tracer_lecture_conflit(etab, actor, role, eleve_id, &lecture.vue).await?;
         if lecture.interdictions.iter().any(|i| i.motif.is_some()) {
             self.tracer_acces_sensible(
                 etab,
@@ -643,7 +644,7 @@ impl PgEnt {
                 "interdiction_motif",
                 "Consultation d'un motif d'interdiction (donnée protégée)",
             )
-            .await;
+            .await?;
         }
         Ok(lecture.interdictions)
     }

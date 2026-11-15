@@ -1,7 +1,7 @@
 //! Labo exploratoire : une école dense joue des vies divergentes sur Postgres local.
 //!
 //! Usage :
-//!   set ENT_DATABASE_URL=postgres://scola:scola_dev_pwd@127.0.0.1:5432/scola
+//!   set ENT_DATABASE_URL=<adresse d'une base locale de labo (son nom contient « labo »)>
 //!   cargo run -p ent-lab
 //!
 //! Objectif : faire agir parents / élèves / staff dans plusieurs directions,

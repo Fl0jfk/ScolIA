@@ -444,8 +444,33 @@ impl PgEnt {
         let jours: Vec<JourCalendrier> = self.calendrier_plage(e, du, au).await?;
         let neutralises = index_neutralises(&jours);
 
-        let (plans, jours_neutralises, creneaux_ab_ignores) =
+        let (mut plans, jours_neutralises, creneaux_ab_ignores) =
             planifier_seances(&creneaux, du, au, &neutralises, ab_reference, &exceptions, &grille);
+        // Socle 10 (T3) : le journal du réel est la source des changements d'horaire d'une séance ; le plan
+        // généré en tient compte (« recalculer tout ne change rien », une régénération n'écrase pas un
+        // horaire modifié).
+        let horaires: Vec<(Uuid, NaiveDate, NaiveTime, NaiveTime)> = sqlx::query_as(
+            "SELECT creneau_id, jour, apres_debut, apres_fin FROM ent_edt_modification
+              WHERE etablissement_id = $1 AND type = 'changement_horaire' AND levee_le IS NULL
+                AND creneau_id IS NOT NULL AND apres_debut IS NOT NULL AND jour BETWEEN $2 AND $3",
+        )
+        .bind(e)
+        .bind(du)
+        .bind(au)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(db)?;
+        for p in &mut plans {
+            if let Some((_, _, d, f)) = horaires.iter().find(|(c, j, _, _)| *c == p.creneau_id && *j == p.jour) {
+                p.heure_debut = *d;
+                p.heure_fin = *f;
+                p.demi_journee = if *d < NaiveTime::from_hms_opt(12, 30, 0).expect("heure") {
+                    "matin".to_string()
+                } else {
+                    "apres_midi".to_string()
+                };
+            }
+        }
 
         let mut rapport = RapportSeances {
             annee_id,
