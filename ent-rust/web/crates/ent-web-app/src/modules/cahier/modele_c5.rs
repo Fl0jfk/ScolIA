@@ -58,7 +58,11 @@ pub fn libelle_retour(retour: &str) -> &'static str {
 
 /// Phrase d'échéance : « délai accordé jusqu'au … » (jamais le motif) ou l'échéance normale.
 pub fn phrase_echeance(r: &RemiseLueDto, jour: &str) -> String {
-    let heure = r.echeance_heure.format("%H h %M").to_string().replace(" 00", "");
+    let heure = r
+        .echeance_heure
+        .format("%H h %M")
+        .to_string()
+        .replace(" 00", "");
     if r.delai_accorde {
         format!("Délai accordé jusqu'au {jour} à {heure}")
     } else {
@@ -238,16 +242,28 @@ mod tests {
         assert!(valider_depot("", 0, 0).is_err());
         assert!(valider_depot("  ", 0, 0).is_err());
         assert!(valider_depot("", 1, 0).is_ok());
-        assert!(valider_depot("", 0, 2).is_ok(), "les fichiers du brouillon comptent");
+        assert!(
+            valider_depot("", 0, 2).is_ok(),
+            "les fichiers du brouillon comptent"
+        );
         assert!(valider_depot(&"a".repeat(20_001), 0, 0).is_err());
         assert!(valider_depot("x", 8, 3).is_err());
     }
 
     #[test]
     fn accuse_annonce_le_numero_les_fichiers_et_le_retard() {
-        assert_eq!(message_accuse(1, false, 1), "Dépôt n° 1 enregistré avec 1 fichier.");
-        assert_eq!(message_accuse(2, true, 3), "Dépôt n° 2 enregistré avec 3 fichiers (reçu en retard).");
-        assert_eq!(message_accuse(1, false, 0), "Dépôt n° 1 enregistré sans fichier.");
+        assert_eq!(
+            message_accuse(1, false, 1),
+            "Dépôt n° 1 enregistré avec 1 fichier."
+        );
+        assert_eq!(
+            message_accuse(2, true, 3),
+            "Dépôt n° 2 enregistré avec 3 fichiers (reçu en retard)."
+        );
+        assert_eq!(
+            message_accuse(1, false, 0),
+            "Dépôt n° 1 enregistré sans fichier."
+        );
     }
 
     #[test]
@@ -267,13 +283,20 @@ mod tests {
         let ids: Vec<Uuid> = corps.constats.iter().map(|x| x.eleve_id).collect();
         assert_eq!(ids, vec![a, c]);
         assert_eq!(nb_selections_masquees(&[a, b, c], &[a, c]), 1);
-        assert!(corps_constats(&[a], &[a], "zero").is_none(), "aucun statut n'est une note");
+        assert!(
+            corps_constats(&[a], &[a], "zero").is_none(),
+            "aucun statut n'est une note"
+        );
         assert!(corps_constats(&[b], &[a], "excuse").is_none());
     }
 
     #[test]
     fn filtres_du_suivi() {
-        let lignes = vec![ligne("attendu", "aucun"), ligne("rendu", "a_faire"), ligne("rendu", "rendu")];
+        let lignes = vec![
+            ligne("attendu", "aucun"),
+            ligne("rendu", "a_faire"),
+            ligne("rendu", "rendu"),
+        ];
         assert_eq!(filtrer_suivi(&lignes, FiltreSuivi::Tous).len(), 3);
         assert_eq!(filtrer_suivi(&lignes, FiltreSuivi::ARelancer).len(), 1);
         assert_eq!(filtrer_suivi(&lignes, FiltreSuivi::ACorriger).len(), 1);
@@ -289,7 +312,14 @@ mod tests {
 
     #[test]
     fn resume_lisible() {
-        let c = ComptesSuiviDto { attendus: 30, rendus: 25, en_retard: 3, ..Default::default() };
-        assert!(resume_comptes(&c).starts_with("30 élève(s) attendu(s) : 25 rendu(s) dont 3 en retard"));
+        let c = ComptesSuiviDto {
+            attendus: 30,
+            rendus: 25,
+            en_retard: 3,
+            ..Default::default()
+        };
+        assert!(
+            resume_comptes(&c).starts_with("30 élève(s) attendu(s) : 25 rendu(s) dont 3 en retard")
+        );
     }
 }

@@ -247,7 +247,11 @@ fn VueAgenda(eleve: Option<Uuid>, lundi: chrono::NaiveDate, peut_cocher: bool) -
 }
 
 #[component]
-fn SemaineAgenda(lignes: Vec<AgendaLigneDto>, peut_cocher: bool, eleve: Option<Uuid>) -> impl IntoView {
+fn SemaineAgenda(
+    lignes: Vec<AgendaLigneDto>,
+    peut_cocher: bool,
+    eleve: Option<Uuid>,
+) -> impl IntoView {
     let phrase = synthese(&lignes);
     let jours = grouper_par_jour(lignes);
     view! {

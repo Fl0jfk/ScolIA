@@ -107,7 +107,11 @@ fn LigneReport(report: ReportDto, ecriture: Ecriture) -> impl IntoView {
         let corps = corps_decision(accepter, &r, confirme.get_untracked());
         ecriture.lancer(async move {
             session::client().cdt_report_decider(id, &corps).await?;
-            Ok(if accepter { "Report appliqué : élèves et familles prévenus une seule fois.".to_string() } else { "Proposition refusée : rien ne change.".to_string() })
+            Ok(if accepter {
+                "Report appliqué : élèves et familles prévenus une seule fois.".to_string()
+            } else {
+                "Proposition refusée : rien ne change.".to_string()
+            })
         });
     };
     let (etat, ton) = match report.etat.as_str() {
@@ -171,10 +175,18 @@ fn LigneContinuite(c: ContinuiteDto, ecriture: Ecriture) -> impl IntoView {
     let aria = format!("Clore la continuité de {nom}");
     let close = c.close;
     // La nature n'est servie qu'à la vie scolaire ; jamais de motif.
-    let nature = c.nature.map(|n| if n == "exclusion" { "Exclusion temporaire" } else { "Absence longue" });
+    let nature = c.nature.map(|n| {
+        if n == "exclusion" {
+            "Exclusion temporaire"
+        } else {
+            "Absence longue"
+        }
+    });
     let clore = move |_| {
         ecriture.lancer(async move {
-            session::client().cdt_continuite_clore(id, aujourdhui()).await?;
+            session::client()
+                .cdt_continuite_clore(id, aujourdhui())
+                .await?;
             Ok("Continuité close.".to_string())
         });
     };

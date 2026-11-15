@@ -18,15 +18,15 @@ use leptos_router::hooks::{use_params_map, use_query_map};
 use uuid::Uuid;
 
 use super::fichiers::{lire_fichier_choisi, FichierChoisi, Lecture};
+use super::gestionnaire_echec;
 use super::modele::libelle_taille;
 use super::modele_c5::{
     conseil_depot_refuse, libelle_statut, message_accuse, phrase_echeance, ton_statut,
     valider_depot,
 };
-use super::gestionnaire_echec;
 use crate::noyau::erreurs::ErreurChargement;
 use crate::noyau::session;
-use crate::noyau::temps::{date_longue, date_heure_paris};
+use crate::noyau::temps::{date_heure_paris, date_longue};
 
 pub const ADRESSE_RENDU: &str = "/web/cahier/rendu";
 
@@ -55,7 +55,10 @@ pub fn PageRendu() -> impl IntoView {
 
 #[component]
 fn Rendu(travail: Uuid, eleve: Option<Uuid>) -> impl IntoView {
-    let remise = LocalResource::new(move || async move { session::client().cdt_remise(travail, eleve).await });
+    let remise =
+        LocalResource::new(
+            move || async move { session::client().cdt_remise(travail, eleve).await },
+        );
     view! {
         {move || match remise.get() {
             None => view! { <Squelette lignes=5 libelle="Chargement de votre travail…"/> }.into_any(),
@@ -174,17 +177,37 @@ pub(crate) fn ouvrir_piece_c5(piece: Uuid, erreur: RwSignal<Option<String>>) {
 
 /// Brouillon, dépôt et accusés (élève seulement).
 #[component]
-fn Depots(remise: RemiseLueDto, erreur: RwSignal<Option<String>>, on_change: Callback<()>) -> impl IntoView {
+fn Depots(
+    remise: RemiseLueDto,
+    erreur: RwSignal<Option<String>>,
+    on_change: Callback<()>,
+) -> impl IntoView {
     let travail = remise.travail_id;
-    let texte = RwSignal::new(remise.brouillon.as_ref().and_then(|b| b.texte.clone()).unwrap_or_default());
-    let commentaire = RwSignal::new(remise.brouillon.as_ref().and_then(|b| b.commentaire.clone()).unwrap_or_default());
+    let texte = RwSignal::new(
+        remise
+            .brouillon
+            .as_ref()
+            .and_then(|b| b.texte.clone())
+            .unwrap_or_default(),
+    );
+    let commentaire = RwSignal::new(
+        remise
+            .brouillon
+            .as_ref()
+            .and_then(|b| b.commentaire.clone())
+            .unwrap_or_default(),
+    );
     let fichiers = RwSignal::new(Vec::<FichierChoisi>::new());
     let err_texte = RwSignal::new(None::<String>);
     let err_fichier = RwSignal::new(None::<String>);
     let annonce = RwSignal::new(String::new());
     let en_cours = RwSignal::new(false);
     let champ = NodeRef::<leptos::html::Input>::new();
-    let nb_brouillon = remise.brouillon.as_ref().map(|b| b.pieces.len()).unwrap_or(0);
+    let nb_brouillon = remise
+        .brouillon
+        .as_ref()
+        .map(|b| b.pieces.len())
+        .unwrap_or(0);
     let peut = remise.peut_deposer;
     let raison = remise.raison_fermeture.clone();
     let echec = gestionnaire_echec(erreur);
@@ -242,7 +265,11 @@ fn Depots(remise: RemiseLueDto, erreur: RwSignal<Option<String>>, on_change: Cal
             return;
         }
         erreur.set(None);
-        if let Err(m) = valider_depot(&texte.get_untracked(), fichiers.get_untracked().len(), nb_brouillon) {
+        if let Err(m) = valider_depot(
+            &texte.get_untracked(),
+            fichiers.get_untracked().len(),
+            nb_brouillon,
+        ) {
             err_texte.set(Some(m));
             return;
         }
@@ -359,10 +386,15 @@ fn ListeAccuses(accuses: Vec<AccuseDto>, erreur: RwSignal<Option<String>>) -> im
 
 /// Inscription libre dans un groupe : créer un groupe ou rejoindre celui d'un camarade (taille fixée par le professeur).
 #[component]
-fn InscriptionGroupe(travail: Uuid, erreur: RwSignal<Option<String>>, on_change: Callback<()>) -> impl IntoView {
+fn InscriptionGroupe(
+    travail: Uuid,
+    erreur: RwSignal<Option<String>>,
+    on_change: Callback<()>,
+) -> impl IntoView {
     let libelle = RwSignal::new(String::new());
     let echec = gestionnaire_echec(erreur);
-    let groupes = LocalResource::new(move || async move { session::client().cdt_groupes(travail).await });
+    let groupes =
+        LocalResource::new(move || async move { session::client().cdt_groupes(travail).await });
     let rejoindre = move |b: GroupeLibreBody| {
         spawn_local(async move {
             match session::client().cdt_groupe_rejoindre(travail, &b).await {
@@ -416,13 +448,21 @@ fn InscriptionGroupe(travail: Uuid, erreur: RwSignal<Option<String>>, on_change:
 /// « Je n'arrive pas à déposer » et demande de délai : visibles tant que l'échéance n'est pas close pour l'élève ; un
 /// responsable peut demander un délai pour son enfant mais ne dépose jamais.
 #[component]
-fn Demandes(remise: RemiseLueDto, eleve: Option<Uuid>, erreur: RwSignal<Option<String>>, on_change: Callback<()>) -> impl IntoView {
+fn Demandes(
+    remise: RemiseLueDto,
+    eleve: Option<Uuid>,
+    erreur: RwSignal<Option<String>>,
+    on_change: Callback<()>,
+) -> impl IntoView {
     let travail = remise.travail_id;
     let message = RwSignal::new(String::new());
     let annonce = RwSignal::new(String::new());
     let echec = gestionnaire_echec(erreur);
     let famille = eleve.is_some();
-    let deja_demande = remise.demande_delai.as_ref().is_some_and(|d| d.etat == "ouverte");
+    let deja_demande = remise
+        .demande_delai
+        .as_ref()
+        .is_some_and(|d| d.etat == "ouverte");
     if remise.rendu != "en_ligne" {
         return ().into_any();
     }
@@ -430,7 +470,8 @@ fn Demandes(remise: RemiseLueDto, eleve: Option<Uuid>, erreur: RwSignal<Option<S
         spawn_local(async move {
             let m = Some(message.get_untracked()).filter(|t| !t.trim().is_empty());
             match session::client().cdt_depot_signaler(travail, m).await {
-                Ok(_) => annonce.set("Votre professeur est prévenu, avec l'heure de votre signalement.".into()),
+                Ok(_) => annonce
+                    .set("Votre professeur est prévenu, avec l'heure de votre signalement.".into()),
                 Err(e) => echec.run(e),
             }
         });
@@ -438,7 +479,10 @@ fn Demandes(remise: RemiseLueDto, eleve: Option<Uuid>, erreur: RwSignal<Option<S
     let demander = move |_| {
         spawn_local(async move {
             let m = Some(message.get_untracked()).filter(|t| !t.trim().is_empty());
-            match session::client().cdt_delai_demander(travail, eleve, m).await {
+            match session::client()
+                .cdt_delai_demander(travail, eleve, m)
+                .await
+            {
                 Ok(_) => {
                     annonce.set("Votre demande de délai est transmise au professeur.".into());
                     on_change.run(());

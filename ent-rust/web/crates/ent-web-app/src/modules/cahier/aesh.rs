@@ -38,7 +38,10 @@ pub fn PageAesh() -> impl IntoView {
 
 #[component]
 fn Choix(eleves: Vec<EleveAccompagneDto>) -> impl IntoView {
-    let options: Vec<(String, String)> = eleves.iter().map(|e| (e.eleve_id.to_string(), format!("{} {}", e.nom, e.prenom))).collect();
+    let options: Vec<(String, String)> = eleves
+        .iter()
+        .map(|e| (e.eleve_id.to_string(), format!("{} {}", e.nom, e.prenom)))
+        .collect();
     let choix = RwSignal::new(eleves[0].eleve_id.to_string());
     view! {
         <Selection id="aesh-eleve" libelle="Élève accompagné" valeur=choix options=options/>
@@ -50,7 +53,9 @@ fn Choix(eleves: Vec<EleveAccompagneDto>) -> impl IntoView {
 fn Agenda(eleve: Uuid) -> impl IntoView {
     let agenda = LocalResource::new(move || async move {
         let auj = aujourdhui();
-        session::client().cdt_aesh_agenda(eleve, auj, auj + chrono::Duration::days(14)).await
+        session::client()
+            .cdt_aesh_agenda(eleve, auj, auj + chrono::Duration::days(14))
+            .await
     });
     view! {
         {move || match agenda.get() {
@@ -72,17 +77,23 @@ fn Ligne(eleve: Uuid, ligne: AgendaLigneDto) -> impl IntoView {
     let note = RwSignal::new(String::new());
     let id = ligne.id;
     let est_travail = ligne.genre == "travail";
-    let envoyer = move |_| {
-        match valider_note(&note.get_untracked()) {
-            Err(m) => ecriture.erreur.set(Some(m)),
-            Ok(texte) => {
-                ecriture.lancer(async move {
-                    let b = NoteAccompagnementBody { travail_id: Some(id), entree_id: None, eleve_id: eleve, texte };
-                    session::client().cdt_aesh_note(&b).await?;
-                    note.set(String::new());
-                    Ok("Note d'accompagnement enregistrée : les professeurs du cours la liront.".to_string())
-                });
-            }
+    let envoyer = move |_| match valider_note(&note.get_untracked()) {
+        Err(m) => ecriture.erreur.set(Some(m)),
+        Ok(texte) => {
+            ecriture.lancer(async move {
+                let b = NoteAccompagnementBody {
+                    travail_id: Some(id),
+                    entree_id: None,
+                    eleve_id: eleve,
+                    texte,
+                };
+                session::client().cdt_aesh_note(&b).await?;
+                note.set(String::new());
+                Ok(
+                    "Note d'accompagnement enregistrée : les professeurs du cours la liront."
+                        .to_string(),
+                )
+            });
         }
     };
     view! {

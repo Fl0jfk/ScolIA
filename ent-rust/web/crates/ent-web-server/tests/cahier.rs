@@ -92,7 +92,10 @@ async fn pages_rendues_par_le_serveur() {
         (format!("/web/cahier/rendu/{inconnu}"), "Rendre un travail"),
         (format!("/web/cahier/suivi/{inconnu}"), "Suivi des rendus"),
         ("/web/cahier/continuite".to_string(), "Continuité"),
-        (format!("/web/cahier/adaptations/{inconnu}?cours={inconnu}"), "Adaptations"),
+        (
+            format!("/web/cahier/adaptations/{inconnu}?cours={inconnu}"),
+            "Adaptations",
+        ),
         ("/web/cahier/aesh".to_string(), "Élèves accompagnés"),
     ] {
         let r = http.get(format!("{base}{chemin}")).send().await.unwrap();

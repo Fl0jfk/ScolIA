@@ -5,9 +5,7 @@
 //!
 //! Charte : tableau dense pour la saisie, un seul accent bleu, rien de décoratif.
 
-use ent_web_api::cahier_c5_types::{
-    CritereDto, RelanceBody, RetourC5Body, SuiviC5Dto,
-};
+use ent_web_api::cahier_c5_types::{CritereDto, RelanceBody, RetourC5Body, SuiviC5Dto};
 use ent_web_api::depot_fichier;
 use ent_web_ui::{
     AccesRefuse, Alerte, Badge, Bouton, Case, ChampTexte, EnTetePage, EtatVide, LienBouton, Niveau,
@@ -21,8 +19,8 @@ use uuid::Uuid;
 
 use super::fichiers::{lire_fichier_choisi, FichierChoisi, Lecture};
 use super::modele_c5::{
-    corps_cloture, corps_constats, corps_prolongation, filtrer_suivi, libelle_retour, libelle_statut,
-    nb_selections_masquees, resume_comptes, ton_statut, FiltreSuivi, MOTIFS,
+    corps_cloture, corps_constats, corps_prolongation, filtrer_suivi, libelle_retour,
+    libelle_statut, nb_selections_masquees, resume_comptes, ton_statut, FiltreSuivi, MOTIFS,
 };
 use super::rendu::ouvrir_piece_c5;
 use crate::noyau::coquille::use_droits;
@@ -59,7 +57,8 @@ pub fn PageSuiviRendus() -> impl IntoView {
 
 #[component]
 fn Suivi(travail: Uuid) -> impl IntoView {
-    let suivi = LocalResource::new(move || async move { session::client().cdt_suivi(travail).await });
+    let suivi =
+        LocalResource::new(move || async move { session::client().cdt_suivi(travail).await });
     view! {
         {move || match suivi.get() {
             None => view! { <Squelette lignes=8 libelle="Chargement du suivi…"/> }.into_any(),
@@ -76,7 +75,11 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
     let filtre = RwSignal::new(FiltreSuivi::Tous);
     let lignes = StoredValue::new(suivi.lignes.clone());
     // Un signal de sélection par ligne : cocher une ligne ne redessine que sa case.
-    let selection: Vec<(Uuid, RwSignal<bool>)> = suivi.lignes.iter().map(|l| (l.eleve_id, RwSignal::new(false))).collect();
+    let selection: Vec<(Uuid, RwSignal<bool>)> = suivi
+        .lignes
+        .iter()
+        .map(|l| (l.eleve_id, RwSignal::new(false)))
+        .collect();
     let selection = StoredValue::new(selection);
     let corrige = RwSignal::new(None::<Uuid>);
     let statut_constat = RwSignal::new("excuse".to_string());
@@ -91,7 +94,13 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
     let erreur_piece = RwSignal::new(None::<String>);
 
     let affichees = Memo::new(move |_| filtrer_suivi(&lignes.get_value(), filtre.get()));
-    let ids_affichees = move || affichees.get().iter().map(|l| l.eleve_id).collect::<Vec<_>>();
+    let ids_affichees = move || {
+        affichees
+            .get()
+            .iter()
+            .map(|l| l.eleve_id)
+            .collect::<Vec<_>>()
+    };
     let ids_selectionnes = move || {
         selection
             .get_value()
@@ -101,13 +110,24 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
             .collect::<Vec<_>>()
     };
     let masquees = Memo::new(move |_| {
-        let sel: Vec<Uuid> = selection.get_value().iter().filter(|(_, s)| s.get()).map(|(id, _)| *id).collect();
+        let sel: Vec<Uuid> = selection
+            .get_value()
+            .iter()
+            .filter(|(_, s)| s.get())
+            .map(|(id, _)| *id)
+            .collect();
         nb_selections_masquees(&sel, &ids_affichees())
     });
 
     let constater = move |_| {
-        let Some(c) = corps_constats(&ids_selectionnes(), &ids_affichees(), &statut_constat.get_untracked()) else {
-            ecriture.erreur.set(Some("Cochez au moins un élève affiché.".into()));
+        let Some(c) = corps_constats(
+            &ids_selectionnes(),
+            &ids_affichees(),
+            &statut_constat.get_untracked(),
+        ) else {
+            ecriture
+                .erreur
+                .set(Some("Cochez au moins un élève affiché.".into()));
             return;
         };
         ecriture.lancer(async move {
@@ -116,8 +136,15 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
         });
     };
     let prolonger = move |_| {
-        let Some(c) = corps_prolongation(ids_selectionnes(), &jour.get_untracked(), &heure.get_untracked(), &motif.get_untracked()) else {
-            ecriture.erreur.set(Some("Cochez des élèves et indiquez le jour, l'heure et le motif.".into()));
+        let Some(c) = corps_prolongation(
+            ids_selectionnes(),
+            &jour.get_untracked(),
+            &heure.get_untracked(),
+            &motif.get_untracked(),
+        ) else {
+            ecriture.erreur.set(Some(
+                "Cochez des élèves et indiquez le jour, l'heure et le motif.".into(),
+            ));
             return;
         };
         ecriture.lancer(async move {
@@ -126,8 +153,13 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
         });
     };
     let fixer_cloture = move |_| {
-        let Some(c) = corps_cloture(&cloture_jour.get_untracked(), &cloture_heure.get_untracked()) else {
-            ecriture.erreur.set(Some("Indiquez le jour de la clôture du ramassage.".into()));
+        let Some(c) = corps_cloture(
+            &cloture_jour.get_untracked(),
+            &cloture_heure.get_untracked(),
+        ) else {
+            ecriture
+                .erreur
+                .set(Some("Indiquez le jour de la clôture du ramassage.".into()));
             return;
         };
         ecriture.lancer(async move {
@@ -138,13 +170,20 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
     let rendre_en_lot = move |_| {
         ecriture.lancer(async move {
             let r = session::client().cdt_retours_lot(travail).await?;
-            Ok(format!("{} copie(s) rendue(s) : les élèves et leurs familles sont prévenus.", r.rendus))
+            Ok(format!(
+                "{} copie(s) rendue(s) : les élèves et leurs familles sont prévenus.",
+                r.rendus
+            ))
         });
     };
     // Relance : un aperçu d'abord (rien n'est envoyé), puis la confirmation explicite.
     let previsualiser = move |_| {
         spawn_local(async move {
-            let b = RelanceBody { eleve_ids: vec![], aux_familles: aux_familles.get_untracked(), confirmer: false };
+            let b = RelanceBody {
+                eleve_ids: vec![],
+                aux_familles: aux_familles.get_untracked(),
+                confirmer: false,
+            };
             match session::client().cdt_relancer(travail, &b).await {
                 Ok(r) => apercu_relance.set(Some(format!(
                     "{} destinataire(s), {} déjà relancé(s) aujourd'hui. Message : « {} »",
@@ -158,7 +197,11 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
         let aux = aux_familles.get_untracked();
         apercu_relance.set(None);
         ecriture.lancer(async move {
-            let b = RelanceBody { eleve_ids: vec![], aux_familles: aux, confirmer: true };
+            let b = RelanceBody {
+                eleve_ids: vec![],
+                aux_familles: aux,
+                confirmer: true,
+            };
             let r = session::client().cdt_relancer(travail, &b).await?;
             Ok(format!("Relance envoyée à {} élève(s).", r.destinataires))
         });
@@ -166,15 +209,22 @@ fn Tableau(suivi: SuiviC5Dto, on_change: Callback<()>) -> impl IntoView {
     let lister_copies = move |_| {
         spawn_local(async move {
             match session::client().cdt_copies(travail).await {
-                Ok(l) => copies_a_lister.set(l.into_iter().map(|c| (c.piece_id, c.nom_archive)).collect()),
+                Ok(l) => copies_a_lister
+                    .set(l.into_iter().map(|c| (c.piece_id, c.nom_archive)).collect()),
                 Err(e) => ecriture.erreur.set(Some(e.message_utilisateur())),
             }
         });
     };
 
-    let options_motif: Vec<(String, String)> = MOTIFS.iter().map(|(c, l)| (c.to_string(), l.to_string())).collect();
+    let options_motif: Vec<(String, String)> = MOTIFS
+        .iter()
+        .map(|(c, l)| (c.to_string(), l.to_string()))
+        .collect();
     let titre = suivi.titre.clone();
-    let sous_titre = format!("Clôture du ramassage : {}", date_heure_paris(suivi.cloture_ramassage_le));
+    let sous_titre = format!(
+        "Clôture du ramassage : {}",
+        date_heure_paris(suivi.cloture_ramassage_le)
+    );
     let resume = resume_comptes(&suivi.comptes);
     let par_groupe = suivi.remise_par_groupe;
     let vide = suivi.lignes.is_empty();
@@ -313,7 +363,8 @@ fn PanneauRetour(remise: Uuid, on_fermer: Callback<()>, on_change: Callback<()>)
     let err_fichier = RwSignal::new(None::<String>);
     let avertissements = RwSignal::new(Vec::<String>::new());
     let champ = NodeRef::<leptos::html::Input>::new();
-    let courant = LocalResource::new(move || async move { session::client().cdt_retour_lire(remise).await });
+    let courant =
+        LocalResource::new(move || async move { session::client().cdt_retour_lire(remise).await });
     Effect::new(move |_| {
         if let Some(Ok(Some(r))) = courant.get() {
             commentaire.set(r.commentaire.clone());
@@ -345,12 +396,19 @@ fn PanneauRetour(remise: Uuid, on_fermer: Callback<()>, on_change: Callback<()>)
                 criteres: Vec::<CritereDto>::new(),
                 montrer_note: false,
                 note_id: None,
-                fichiers: f.iter().map(|f| depot_fichier(&f.nom, &f.mime, &f.octets)).collect(),
+                fichiers: f
+                    .iter()
+                    .map(|f| depot_fichier(&f.nom, &f.mime, &f.octets))
+                    .collect(),
                 rendre,
             };
             let r = session::client().cdt_retour_enregistrer(remise, &b).await?;
             avertissements.set(r.avertissements.clone());
-            Ok(if rendre { "Retour rendu : l'élève et sa famille seront prévenus.".to_string() } else { "Brouillon du retour enregistré.".to_string() })
+            Ok(if rendre {
+                "Retour rendu : l'élève et sa famille seront prévenus.".to_string()
+            } else {
+                "Brouillon du retour enregistré.".to_string()
+            })
         });
     };
     view! {

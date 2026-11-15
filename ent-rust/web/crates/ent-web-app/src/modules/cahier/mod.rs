@@ -23,6 +23,8 @@
 //! Lot C3 (agenda, cahier de l'élève et de la famille) :
 //! * `/web/cahier/agenda` — élève et famille : agenda de la semaine, « ce que j'ai manqué », la semaine, calendrier.
 
+mod adaptations;
+mod aesh;
 mod agenda;
 mod bandeau_charge;
 mod charge_classe;
@@ -39,20 +41,18 @@ pub mod modele_c6;
 pub mod modele_c7;
 mod mon_cahier;
 mod prof;
-mod adaptations;
-mod aesh;
 mod rendu;
 mod suivi_rendus;
 mod travail;
 
-pub use agenda::PageAgenda;
-pub use charge_classe::{PageChargeClasses, ADRESSE_CHARGE};
-pub use copies::PageCopies;
-pub use continuite::{PageContinuite, ADRESSE_CONTINUITE};
-pub use cours::PageCahierCours;
-pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};
 pub use adaptations::{PageAdaptations, ADRESSE_ADAPTATIONS};
 pub use aesh::{PageAesh, ADRESSE_AESH};
+pub use agenda::PageAgenda;
+pub use charge_classe::{PageChargeClasses, ADRESSE_CHARGE};
+pub use continuite::{PageContinuite, ADRESSE_CONTINUITE};
+pub use copies::PageCopies;
+pub use cours::PageCahierCours;
+pub use mon_cahier::{PageMonCahier, ADRESSE_MON_CAHIER};
 pub use prof::PageCahier;
 pub use rendu::{PageRendu, ADRESSE_RENDU};
 pub use suivi_rendus::{PageSuiviRendus, ADRESSE_SUIVI};

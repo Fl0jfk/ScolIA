@@ -63,7 +63,10 @@ pub fn corps_lot(ids: Vec<Uuid>, decision: &str) -> Option<ReportsLotBody> {
 
 /// Résultat d'un lot : ce qui est fait, et ce qui reste ouvert avec sa raison.
 pub fn message_lot(r: &ReportsLotDto) -> String {
-    let mut m = format!("{} report(s) appliqué(s), {} refusé(s)", r.appliques, r.refuses);
+    let mut m = format!(
+        "{} report(s) appliqué(s), {} refusé(s)",
+        r.appliques, r.refuses
+    );
     if !r.ignores.is_empty() {
         m.push_str(&format!(
             ", {} laissé(s) ouvert(s) : {}",
@@ -85,7 +88,10 @@ pub fn message_lot(r: &ReportsLotDto) -> String {
 pub fn lignes_bandeau(b: &BandeauCoursDto) -> Vec<String> {
     let mut l = Vec::new();
     if b.poste_vacant {
-        l.push("Professeur en cours de nomination : le cahier n'est pas compté « non tenu ».".to_string());
+        l.push(
+            "Professeur en cours de nomination : le cahier n'est pas compté « non tenu »."
+                .to_string(),
+        );
     }
     if b.suppleance_en_cours {
         l.push("Suppléance en cours.".to_string());
@@ -102,7 +108,10 @@ pub fn lignes_bandeau(b: &BandeauCoursDto) -> Vec<String> {
             .iter()
             .map(|e| format!("{} {}", e.prenom, e.nom))
             .collect();
-        l.push(format!("Élève(s) en continuité à distance : {}.", noms.join(", ")));
+        l.push(format!(
+            "Élève(s) en continuité à distance : {}.",
+            noms.join(", ")
+        ));
     }
     l
 }
@@ -135,7 +144,10 @@ mod tests {
     #[test]
     fn phrase_dit_la_seance_et_la_cible() {
         let p = phrase_report(&report("travail", true, false, "proposee"));
-        assert!(p.contains("échéance du travail") && p.contains("à reporter au"), "{p}");
+        assert!(
+            p.contains("échéance du travail") && p.contains("à reporter au"),
+            "{p}"
+        );
         let p = phrase_report(&report("entree", false, false, "proposee"));
         assert!(p.contains("aucune séance suivante"), "{p}");
     }
@@ -145,7 +157,10 @@ mod tests {
         let r = report("travail", true, true, "proposee");
         assert!(!corps_decision(true, &r, false).confirmer_avance);
         assert!(corps_decision(true, &r, true).confirmer_avance);
-        assert!(!corps_decision(false, &r, true).confirmer_avance, "un refus ne confirme rien");
+        assert!(
+            !corps_decision(false, &r, true).confirmer_avance,
+            "un refus ne confirme rien"
+        );
     }
 
     #[test]
@@ -165,22 +180,36 @@ mod tests {
         let r = ReportsLotDto {
             appliques: 3,
             refuses: 0,
-            ignores: vec![ReportIgnoreDto { id: Uuid::nil(), raison: "accès refusé".into() }],
+            ignores: vec![ReportIgnoreDto {
+                id: Uuid::nil(),
+                raison: "accès refusé".into(),
+            }],
         };
-        assert_eq!(message_lot(&r), "3 report(s) appliqué(s), 0 refusé(s), 1 laissé(s) ouvert(s) : accès refusé.");
+        assert_eq!(
+            message_lot(&r),
+            "3 report(s) appliqué(s), 0 refusé(s), 1 laissé(s) ouvert(s) : accès refusé."
+        );
     }
 
     #[test]
     fn bandeau_sans_motif() {
         let b = BandeauCoursDto {
             cours_id: Uuid::nil(),
-            eleves_en_continuite: vec![EleveContinuiteDto { eleve_id: Uuid::nil(), nom: "DUPONT".into(), prenom: "Léa".into() }],
+            eleves_en_continuite: vec![EleveContinuiteDto {
+                eleve_id: Uuid::nil(),
+                nom: "DUPONT".into(),
+                prenom: "Léa".into(),
+            }],
             poste_vacant: true,
             suppleance_en_cours: false,
             copies_a_decider: 2,
         };
         let l = lignes_bandeau(&b).join(" ");
-        assert!(l.contains("continuité à distance") && l.contains("2 copie(s)") && l.contains("nomination"));
+        assert!(
+            l.contains("continuité à distance")
+                && l.contains("2 copie(s)")
+                && l.contains("nomination")
+        );
         assert!(!l.to_lowercase().contains("exclusion") && !l.to_lowercase().contains("hospital"));
     }
 }

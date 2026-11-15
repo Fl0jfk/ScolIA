@@ -38,7 +38,10 @@ pub fn corps_variante(
         ("", _) => (None, None),
         (j, h) => (
             Some(lire_jour(j).ok_or("Le jour d'échéance est illisible.")?),
-            Some(lire_heure_champ(if h.is_empty() { "18:00" } else { h }).ok_or("L'heure d'échéance est illisible.")?),
+            Some(
+                lire_heure_champ(if h.is_empty() { "18:00" } else { h })
+                    .ok_or("L'heure d'échéance est illisible.")?,
+            ),
         ),
     };
     Ok(VarianteBody {
@@ -119,22 +122,42 @@ mod tests {
         assert!(b.echeance_jour.is_some() && b.echeance_heure.is_some());
         assert!(corps_variante("v", "x", "900", "", "").is_err());
         assert!(corps_variante("v", "x", "", "bientôt", "").is_err());
-        assert!(corps_variante("v", "x", "", "", "").unwrap().echeance_jour.is_none());
+        assert!(corps_variante("v", "x", "", "", "")
+            .unwrap()
+            .echeance_jour
+            .is_none());
     }
 
     #[test]
     fn pastilles_et_amenagements_sans_motif() {
         assert_eq!(libelle_pastilles(&[]), "—");
-        assert_eq!(libelle_pastilles(&["Police agrandie".into(), "Temps majoré (+33 %)".into()]), "Police agrandie · Temps majoré (+33 %)");
-        let apercu = ApplicationAmenagementsDto { eleves: vec![], appliques: 0, applique: false };
+        assert_eq!(
+            libelle_pastilles(&["Police agrandie".into(), "Temps majoré (+33 %)".into()]),
+            "Police agrandie · Temps majoré (+33 %)"
+        );
+        let apercu = ApplicationAmenagementsDto {
+            eleves: vec![],
+            appliques: 0,
+            applique: false,
+        };
         assert!(phrase_amenagements(&apercu).starts_with("Aucune échéance"));
         let fait = ApplicationAmenagementsDto {
-            eleves: vec![EcheanceMajoreeDto { eleve_id: uuid::Uuid::nil(), nom: "A".into(), prenom: "B".into(), echeance_le: chrono::Utc::now(), echeance_jour: NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(), echeance_heure: "18:00".into() }],
+            eleves: vec![EcheanceMajoreeDto {
+                eleve_id: uuid::Uuid::nil(),
+                nom: "A".into(),
+                prenom: "B".into(),
+                echeance_le: chrono::Utc::now(),
+                echeance_jour: NaiveDate::from_ymd_opt(2026, 11, 20).unwrap(),
+                echeance_heure: "18:00".into(),
+            }],
             appliques: 1,
             applique: true,
         };
         let p = phrase_amenagements(&fait);
-        assert!(p.contains("sans motif") && !p.to_lowercase().contains("pap"), "{p}");
+        assert!(
+            p.contains("sans motif") && !p.to_lowercase().contains("pap"),
+            "{p}"
+        );
     }
 
     #[test]
@@ -142,13 +165,24 @@ mod tests {
         assert!(valider_note("").is_err());
         assert!(valider_note("<b>x</b>").is_err());
         assert!(valider_note(&"a".repeat(2001)).is_err());
-        assert_eq!(valider_note("  Consigne reformulée.  ").unwrap(), "Consigne reformulée.");
+        assert_eq!(
+            valider_note("  Consigne reformulée.  ").unwrap(),
+            "Consigne reformulée."
+        );
     }
 
     #[test]
     fn classes_d_affichage() {
         assert_eq!(classes_affichage(&AffichageDto::default()), "aff-eleve");
-        let a = AffichageDto { taille_police: "tres_grande".into(), interligne: "large".into(), lecture_audio: false, animations_reduites: true };
-        assert_eq!(classes_affichage(&a), "aff-eleve aff-police-tres-grande aff-interligne-large aff-calme");
+        let a = AffichageDto {
+            taille_police: "tres_grande".into(),
+            interligne: "large".into(),
+            lecture_audio: false,
+            animations_reduites: true,
+        };
+        assert_eq!(
+            classes_affichage(&a),
+            "aff-eleve aff-police-tres-grande aff-interligne-large aff-calme"
+        );
     }
 }

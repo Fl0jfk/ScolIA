@@ -27,8 +27,16 @@ pub fn PageAdaptations() -> impl IntoView {
     let droits = use_droits();
     let params = use_params_map();
     let query = use_query_map();
-    let id = Memo::new(move |_| params.with(|p| p.get("id")).and_then(|s| s.parse::<Uuid>().ok()));
-    let cours = Memo::new(move |_| query.with(|q| q.get("cours")).and_then(|s| s.parse::<Uuid>().ok()));
+    let id = Memo::new(move |_| {
+        params
+            .with(|p| p.get("id"))
+            .and_then(|s| s.parse::<Uuid>().ok())
+    });
+    let cours = Memo::new(move |_| {
+        query
+            .with(|q| q.get("cours"))
+            .and_then(|s| s.parse::<Uuid>().ok())
+    });
     view! {
         <Title text="Adaptations"/>
         {move || {
@@ -45,8 +53,10 @@ pub fn PageAdaptations() -> impl IntoView {
 
 #[component]
 fn Contenu(travail: Uuid, cours: Uuid) -> impl IntoView {
-    let variantes = LocalResource::new(move || async move { session::client().cdt_variantes(travail).await });
-    let pastilles = LocalResource::new(move || async move { session::client().cdt_pastilles(cours).await });
+    let variantes =
+        LocalResource::new(move || async move { session::client().cdt_variantes(travail).await });
+    let pastilles =
+        LocalResource::new(move || async move { session::client().cdt_pastilles(cours).await });
     view! {
         <EnTetePage surtitre="Cahier de textes".to_string() titre="Adaptations du travail".to_string()
             sous_titre="Chaque élève voit sa version comme la seule. Rien ici n'est montré aux élèves ni à leurs camarades.".to_string()>
@@ -93,9 +103,16 @@ fn Amenagements(travail: Uuid, pastilles: PastillesCoursDto) -> impl IntoView {
     }
 }
 
-fn spawn_local_ecriture(ecriture: Ecriture, phrase: RwSignal<String>, travail: Uuid, confirmer: bool) {
+fn spawn_local_ecriture(
+    ecriture: Ecriture,
+    phrase: RwSignal<String>,
+    travail: Uuid,
+    confirmer: bool,
+) {
     ecriture.lancer(async move {
-        let r = session::client().cdt_amenagements(travail, confirmer).await?;
+        let r = session::client()
+            .cdt_amenagements(travail, confirmer)
+            .await?;
         let p = phrase_amenagements(&r);
         phrase.set(p.clone());
         Ok(p)
@@ -116,17 +133,32 @@ fn Variantes(
     let jour = RwSignal::new(String::new());
     let heure = RwSignal::new("18:00".to_string());
     let eleves = StoredValue::new(pastilles.eleves.clone());
-    let selection: Vec<(Uuid, RwSignal<bool>)> = pastilles.eleves.iter().map(|e| (e.eleve_id, RwSignal::new(false))).collect();
+    let selection: Vec<(Uuid, RwSignal<bool>)> = pastilles
+        .eleves
+        .iter()
+        .map(|e| (e.eleve_id, RwSignal::new(false)))
+        .collect();
     let selection = StoredValue::new(selection);
-    let choisis = move || selection.get_value().iter().filter(|(_, s)| s.get_untracked()).map(|(id, _)| *id).collect::<Vec<_>>();
-    let creer = move |_| {
-        match corps_variante(&libelle.get_untracked(), &consigne.get_untracked(), &duree.get_untracked(), &jour.get_untracked(), &heure.get_untracked()) {
-            Err(m) => ecriture.erreur.set(Some(m)),
-            Ok(b) => ecriture.lancer(async move {
-                session::client().cdt_variante_creer(travail, &b).await?;
-                Ok("Version créée : attribuez-la à des élèves nommés.".to_string())
-            }),
-        }
+    let choisis = move || {
+        selection
+            .get_value()
+            .iter()
+            .filter(|(_, s)| s.get_untracked())
+            .map(|(id, _)| *id)
+            .collect::<Vec<_>>()
+    };
+    let creer = move |_| match corps_variante(
+        &libelle.get_untracked(),
+        &consigne.get_untracked(),
+        &duree.get_untracked(),
+        &jour.get_untracked(),
+        &heure.get_untracked(),
+    ) {
+        Err(m) => ecriture.erreur.set(Some(m)),
+        Ok(b) => ecriture.lancer(async move {
+            session::client().cdt_variante_creer(travail, &b).await?;
+            Ok("Version créée : attribuez-la à des élèves nommés.".to_string())
+        }),
     };
     view! {
         <section class="cdt-seance" aria-label="Variantes">
