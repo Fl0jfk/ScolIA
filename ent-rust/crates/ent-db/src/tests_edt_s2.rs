@@ -1288,7 +1288,9 @@ async fn notification_d_etat_perime_et_isolation_entre_etablissements() {
             .await
             .is_empty()
     );
-    assert_eq!(x.notifs(harry.parent.user_id, "edt_retabli").await.len(), 1);
+    // Socle 10 (T4, §14.2) : le rétablissement ne part qu'à ceux qui avaient été prévenus. Rien n'avait été annoncé
+    // (la levée précède la distribution) : ni annulation, ni message de rétablissement.
+    assert!(x.notifs(harry.parent.user_id, "edt_retabli").await.is_empty());
     // Annulation maintenue : une notification, toujours une seule après rejeu du consommateur.
     x.ent
         .edt_annuler_seance(&d, cr, x.jour(1), None)

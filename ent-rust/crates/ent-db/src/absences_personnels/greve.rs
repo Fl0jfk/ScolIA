@@ -12,7 +12,7 @@
 //! | `cocher_grevistes_for_actor`                | `personnels.greve.gerer` (direction)                        | 253   |
 //! | `grevistes_du_jour_for_actor`               | `personnels.absences.lire_nature` (direction, secrétariat)  | 253   |
 //! | `declarer_greve_for_actor`                  | l'agent, pour lui-même (jamais d'avance)                    | 254   |
-//! | `annuler_seances_greve_for_actor`           | `personnels.greve.gerer` + l'emploi du temps                | 255   |
+//! | `annuler_seances_greve_for_actor`           | `personnels.greve.gerer` + `edt.lot_appliquer`                | 255   |
 //! | `tableau_de_crise_for_actor`                | `personnels.greve.gerer`                                    | 256   |
 //! | `export_retenue_greve_csv_for_actor`        | `lire_nature` **et** `instruire` (secrétariat, direction)   | 257   |
 //! | tâche `neutraliser_absences_fermees`        | système (séances neutralisées par une fermeture)            | 258   |
@@ -36,6 +36,7 @@ use std::collections::{BTreeMap, HashSet};
 use super::rcd::{cellule_csv, evenement_rcd};
 use super::suppleance::jour_etab;
 use super::*;
+use crate::ref_commun::Acteur;
 use crate::tenant_tx::{etablissements_systeme, ContexteSysteme};
 
 pub const NATURE_GREVE: &str = "greve";
@@ -512,7 +513,7 @@ impl PgEnt {
 
     /// ABP-255 : annule en lot les séances des grévistes d'un jour. Chaque absence cochée est d'abord **confirmée**
     /// (par la direction, au nom de la liste) puis **décidée** (jamais la sienne), puis ses séances à traiter sont annulées
-    /// par la commande de l'A4 (une par une : même contrôle, même journal). Un échec n'arrête pas le lot : il est compté.
+    /// par le port du socle 10 `edt_annuler_seances` (un lot par absence, clé d'idempotence, un seul message par personne). Un échec n'arrête pas les autres : il est compté.
     pub async fn annuler_seances_greve_for_actor(
         &self,
         etab: Uuid,
@@ -522,7 +523,7 @@ impl PgEnt {
     ) -> Result<AnnulationGreveDto, EntDbError> {
         self.exiger_greve_gerer(etab, actor, role).await?;
         if !self
-            .a_droit_abs(etab, actor, role, Action::EdtGerer)
+            .a_droit_abs(etab, actor, role, Action::EdtLotAppliquer)
             .await?
         {
             return Err(EntDbError::Forbidden);
@@ -582,10 +583,13 @@ impl PgEnt {
                     }
                 }
             }
-            let impacts: Vec<Uuid> = {
+            // Séances « à traiter » de cette absence, ce jour-là : un seul lot par absence, par le port du socle 10
+            // (`edt_annuler_seances`, clé d'idempotence de la décision) — le 15 n'écrit jamais dans l'emploi du temps.
+            let impacts: Vec<(Uuid, Uuid, String)> = {
                 let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-                sqlx::query_scalar(
-                    "SELECT i.id FROM ent_absp_impact i JOIN ent_edt_seance s ON s.etablissement_id = i.etablissement_id AND s.id = i.seance_id
+                sqlx::query_as(
+                    "SELECT i.id, i.seance_id, i.etat FROM ent_absp_impact i
+                       JOIN ent_edt_seance s ON s.etablissement_id = i.etablissement_id AND s.id = i.seance_id
                       WHERE i.etablissement_id = $1 AND i.absence_id = $2 AND i.type = 'seance' AND i.etat = 'a_traiter' AND s.jour = $3
                       ORDER BY i.debut, i.id",
                 )
@@ -596,14 +600,54 @@ impl PgEnt {
                 .await
                 .map_err(db)?
             };
-            for impact in impacts {
-                match self
-                    .annuler_seance_for_actor(etab, actor, role, impact, false)
-                    .await
-                {
-                    Ok(_) => bilan.seances_annulees += 1,
-                    Err(_) => bilan.a_revoir += 1,
+            if impacts.is_empty() {
+                continue;
+            }
+            let seances: Vec<Uuid> = impacts.iter().map(|i| i.1).collect();
+            let acteur = Acteur {
+                etablissement_id: etab,
+                user_id: actor,
+                role,
+            };
+            match self
+                .edt_annuler_seances(
+                    &acteur,
+                    &seances,
+                    Some(id),
+                    Some(format!("greve:{id}:{jour}")),
+                )
+                .await
+            {
+                Ok(_) => {
+                    let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
+                    // Les demandes ouvertes n'ont plus d'objet ; chaque séance annulée est consignée (comme A4).
+                    for (impact, _, etat) in &impacts {
+                        sqlx::query(
+                            "UPDATE ent_absp_sollicitation SET etat = 'annulee', annulee_cause = 'levee', repondue_le = now()
+                              WHERE etablissement_id = $1 AND impact_id = $2 AND etat = 'envoyee'",
+                        )
+                        .bind(etab)
+                        .bind(impact)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(db)?;
+                        journal(
+                            &mut tx,
+                            etab,
+                            id,
+                            "seance_annulee",
+                            Some("impact"),
+                            Some(etat),
+                            Some("annule"),
+                            actor,
+                        )
+                        .await?;
+                    }
+                    tx.commit().await.map_err(db)?;
+                    self.recalculer_impact_absence(etab, actor, id).await?;
+                    bilan.seances_annulees += impacts.len() as u32;
                 }
+                Err(_) => bilan.a_revoir += impacts.len() as u32,
             }
         }
         Ok(bilan)

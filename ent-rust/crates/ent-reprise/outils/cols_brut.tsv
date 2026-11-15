@@ -1,0 +1,1915 @@
+absence	1	id	text	NO
+absence	2	etablissement_id	uuid	NO
+absence	3	created_at	timestamp with time zone	NO
+absence	4	updated_at	timestamp with time zone	NO
+absence	5	source	text	NO
+absence	6	display_name	text	NO
+absence	7	calendar_visible	boolean	NO
+absence	8	created_by_user_id	text	NO
+absence	9	created_by_name	text	NO
+absence	10	created_by_email	text	NO
+absence	11	created_by_roles	_text	NO
+absence	12	scope	text	NO
+absence	13	site_label	text	YES
+absence	14	period_type	text	YES
+absence	15	start_date	date	NO
+absence	16	end_date	date	NO
+absence	17	start_time	text	YES
+absence	18	end_time	text	YES
+absence	19	start_at	timestamp with time zone	NO
+absence	20	end_at	timestamp with time zone	NO
+absence	21	reason	text	NO
+absence	22	details	text	NO
+absence	23	source_document	text	YES
+absence	24	document_keys	_text	NO
+absence	25	confidence	double precision	YES
+absence	26	workflow_status	text	NO
+absence	27	manager_decision	text	NO
+absence	28	closed_at	timestamp with time zone	YES
+absence	29	justification_file_name	text	YES
+absence	30	justification_file_url	text	YES
+absence	31	justification_uploaded_at	timestamp with time zone	YES
+absence	32	justification_uploaded_by	text	YES
+absence	33	manager_note	text	YES
+absence	34	hours_treatment	text	YES
+absence	35	justificatif_relance_at	timestamp with time zone	YES
+absence	36	privacy_reason_redacted	boolean	NO
+absence	37	privacy_documents_purged_at	timestamp with time zone	YES
+absence	38	personnel_id	text	YES
+absence	39	enseignant_id	text	YES
+absence	40	admin_treated_at	timestamp with time zone	YES
+absence	41	admin_treated_by	text	YES
+absence	42	admin_note	text	YES
+absence	43	staff_preferred_treatment	text	YES
+absence	44	staff_preferred_makeup_slots	text	YES
+absence	45	direction_confirmed_makeup_slots	text	YES
+absence	46	makeup_slots_relance_at	timestamp with time zone	YES
+absence_history	1	id	uuid	NO
+absence_history	2	etablissement_id	uuid	NO
+absence_history	3	absence_id	text	NO
+absence_history	4	at	timestamp with time zone	NO
+absence_history	5	by	text	NO
+absence_history	6	action	text	NO
+absence_history	7	note	text	YES
+absence_history	8	sort_order	integer	NO
+absence_ingest_job	1	job_id	text	NO
+absence_ingest_job	2	etablissement_id	uuid	NO
+absence_ingest_job	3	user_id	text	NO
+absence_ingest_job	4	creator_name	text	NO
+absence_ingest_job	5	creator_email	text	NO
+absence_ingest_job	6	creator_roles	_text	NO
+absence_ingest_job	7	status	text	NO
+absence_ingest_job	8	started_at	timestamp with time zone	NO
+absence_ingest_job	9	updated_at	timestamp with time zone	NO
+absence_ingest_job	10	source_file_name	text	NO
+absence_ingest_job	11	document_key	text	NO
+absence_ingest_job	12	processing_started_at	timestamp with time zone	YES
+absence_ingest_job	13	phase	text	YES
+absence_ingest_job	14	error	text	YES
+absence_ingest_job	15	code	text	YES
+absence_ingest_job	16	created_payload	text	YES
+absence_ingest_job	17	parsed_payload	text	YES
+absence_ingest_job	18	locked_at	timestamp with time zone	YES
+absence_ingest_job	19	locked_by	text	YES
+absence_message	1	id	text	NO
+absence_message	2	etablissement_id	uuid	NO
+absence_message	3	absence_id	text	NO
+absence_message	4	at	timestamp with time zone	NO
+absence_message	5	user_id	text	NO
+absence_message	6	user_name	text	NO
+absence_message	7	role_label	text	NO
+absence_message	8	text	text	NO
+account	1	id	text	NO
+account	2	account_id	text	NO
+account	3	provider_id	text	NO
+account	4	user_id	text	NO
+account	5	access_token	text	YES
+account	6	refresh_token	text	YES
+account	7	id_token	text	YES
+account	8	access_token_expires_at	timestamp with time zone	YES
+account	9	refresh_token_expires_at	timestamp with time zone	YES
+account	10	scope	text	YES
+account	11	password	text	YES
+account	12	created_at	timestamp with time zone	NO
+account	13	updated_at	timestamp with time zone	NO
+account	14	issuer	text	NO
+annee_bascule	1	id	uuid	NO
+annee_bascule	2	etablissement_id	uuid	NO
+annee_bascule	3	annee_source_id	uuid	NO
+annee_bascule	4	annee_cible_id	uuid	NO
+annee_bascule	5	statut	text	NO
+annee_bascule	6	valide_par_user_id	text	YES
+annee_bascule	7	valide_at	timestamp with time zone	YES
+annee_bascule	8	created_at	timestamp with time zone	NO
+annee_bascule	9	updated_at	timestamp with time zone	NO
+annee_scolaire	1	id	uuid	NO
+annee_scolaire	2	etablissement_id	uuid	NO
+annee_scolaire	3	label	text	NO
+annee_scolaire	4	starts_on	date	YES
+annee_scolaire	5	ends_on	date	YES
+annee_scolaire	6	is_current	boolean	NO
+annee_scolaire	7	created_at	timestamp with time zone	NO
+annee_scolaire	8	updated_at	timestamp with time zone	NO
+app_rate_limit	1	key	text	NO
+app_rate_limit	2	count	integer	NO
+app_rate_limit	3	reset_at	timestamp with time zone	NO
+auth_user_mapping	1	id	uuid	NO
+auth_user_mapping	2	etablissement_id	uuid	NO
+auth_user_mapping	3	external_user_id	text	NO
+auth_user_mapping	4	user_id	text	NO
+auth_user_mapping	5	migrated_at	timestamp with time zone	NO
+bulletin	1	id	uuid	NO
+bulletin	2	etablissement_id	uuid	NO
+bulletin	3	eleve_id	uuid	NO
+bulletin	4	periode_id	uuid	NO
+bulletin	5	annee_scolaire_id	uuid	YES
+bulletin	6	statut	text	NO
+bulletin	7	appreciation_generale	text	YES
+bulletin	8	publie_at	timestamp with time zone	YES
+bulletin	9	created_at	timestamp with time zone	NO
+bulletin	10	updated_at	timestamp with time zone	NO
+bulletin_ligne	1	id	uuid	NO
+bulletin_ligne	2	etablissement_id	uuid	NO
+bulletin_ligne	3	bulletin_id	uuid	NO
+bulletin_ligne	4	matiere_id	uuid	YES
+bulletin_ligne	5	libelle	text	NO
+bulletin_ligne	6	appreciation	text	YES
+bulletin_ligne	7	moyenne_figee	numeric	YES
+bulletin_ligne	8	ordre	integer	NO
+cahier_texte	1	id	uuid	NO
+cahier_texte	2	etablissement_id	uuid	NO
+cahier_texte	3	annee_scolaire_id	uuid	YES
+cahier_texte	4	date_seance	date	NO
+cahier_texte	5	classe	text	YES
+cahier_texte	6	groupe_id	uuid	YES
+cahier_texte	7	creneau_id	uuid	YES
+cahier_texte	8	matiere_libelle	text	YES
+cahier_texte	9	contenu	text	NO
+cahier_texte	10	travail	text	NO
+cahier_texte	11	a_rendre_le	date	YES
+cahier_texte	12	enseignant_user_id	text	YES
+cahier_texte	13	enseignant_nom	text	YES
+cahier_texte	14	visible_famille	boolean	NO
+cahier_texte	15	created_at	timestamp with time zone	NO
+cahier_texte	16	updated_at	timestamp with time zone	NO
+calendrier_scolaire	1	id	uuid	NO
+calendrier_scolaire	2	etablissement_id	uuid	NO
+calendrier_scolaire	3	annee_scolaire_id	uuid	YES
+calendrier_scolaire	4	label	text	NO
+calendrier_scolaire	5	date_debut	date	NO
+calendrier_scolaire	6	date_fin	date	NO
+calendrier_scolaire	7	type	text	NO
+calendrier_scolaire	8	created_at	timestamp with time zone	NO
+certificate_award	1	id	text	NO
+certificate_award	2	etablissement_id	uuid	NO
+certificate_award	3	program_id	text	YES
+certificate_award	4	status	text	YES
+certificate_award	5	updated_at	timestamp with time zone	NO
+certificate_award_attr	1	etablissement_id	uuid	NO
+certificate_award_attr	2	award_id	text	NO
+certificate_award_attr	3	path	text	NO
+certificate_award_attr	4	value	text	NO
+certificate_program	1	id	text	NO
+certificate_program	2	etablissement_id	uuid	NO
+certificate_program	3	title	text	NO
+certificate_program	4	updated_at	timestamp with time zone	NO
+certificate_program_attr	1	etablissement_id	uuid	NO
+certificate_program_attr	2	program_id	text	NO
+certificate_program_attr	3	path	text	NO
+certificate_program_attr	4	value	text	NO
+classe_site_mapping	1	id	uuid	NO
+classe_site_mapping	2	etablissement_id	uuid	NO
+classe_site_mapping	3	class_key	text	NO
+classe_site_mapping	4	class_name	text	NO
+classe_site_mapping	5	site_id	text	NO
+classe_site_mapping	6	siecle_code	text	YES
+classe_site_mapping	7	created_at	timestamp with time zone	NO
+classe_site_mapping	8	updated_at	timestamp with time zone	NO
+conseil_avis	1	id	uuid	NO
+conseil_avis	2	etablissement_id	uuid	NO
+conseil_avis	3	seance_id	uuid	NO
+conseil_avis	4	eleve_id	uuid	NO
+conseil_avis	5	decision	text	YES
+conseil_avis	6	mention	text	YES
+conseil_avis	7	appreciation	text	YES
+conseil_avis	8	created_at	timestamp with time zone	NO
+conseil_avis	9	updated_at	timestamp with time zone	NO
+conseil_seance	1	id	uuid	NO
+conseil_seance	2	etablissement_id	uuid	NO
+conseil_seance	3	annee_scolaire_id	uuid	YES
+conseil_seance	4	periode_id	uuid	YES
+conseil_seance	5	classe	text	NO
+conseil_seance	6	date_seance	date	NO
+conseil_seance	7	statut	text	NO
+conseil_seance	8	pv	text	YES
+conseil_seance	9	created_at	timestamp with time zone	NO
+conseil_seance	10	updated_at	timestamp with time zone	NO
+data_access_audit	1	id	uuid	NO
+data_access_audit	2	etablissement_id	uuid	NO
+data_access_audit	3	user_id	text	YES
+data_access_audit	4	resource_type	text	NO
+data_access_audit	5	resource_id	text	YES
+data_access_audit	6	action	text	NO
+data_access_audit	7	ip_address	text	YES
+data_access_audit	8	user_agent	text	YES
+data_access_audit	9	metadata	jsonb	YES
+data_access_audit	10	created_at	timestamp with time zone	NO
+depense	1	id	uuid	NO
+depense	2	etablissement_id	uuid	NO
+depense	3	date_depense	date	NO
+depense	4	libelle	text	NO
+depense	5	fournisseur	text	YES
+depense	6	portee	text	NO
+depense	7	montant	numeric	NO
+depense	8	statut	text	NO
+depense	9	travel_id	text	YES
+depense	10	created_at	timestamp with time zone	NO
+depense	11	updated_at	timestamp with time zone	NO
+document_access_request	1	id	uuid	NO
+document_access_request	2	etablissement_id	uuid	NO
+document_access_request	3	document_id	uuid	NO
+document_access_request	4	requester_user_id	text	NO
+document_access_request	5	status	text	NO
+document_access_request	6	duration_days	integer	NO
+document_access_request	7	decided_by_user_id	text	YES
+document_access_request	8	decided_at	timestamp with time zone	YES
+document_access_request	9	expires_at	timestamp with time zone	YES
+document_access_request	10	note	text	YES
+document_access_request	11	created_at	timestamp with time zone	NO
+domain_planning_booking	1	id	text	NO
+domain_planning_booking	2	etablissement_id	uuid	NO
+domain_planning_booking	3	domain_id	text	NO
+domain_planning_booking	4	title	text	YES
+domain_planning_booking	5	starts_at	text	YES
+domain_planning_booking	6	ends_at	text	YES
+domain_planning_booking	7	assignee_external_user_id	text	YES
+domain_planning_booking	8	notes	text	YES
+domain_planning_domain	1	id	text	NO
+domain_planning_domain	2	etablissement_id	uuid	NO
+domain_planning_domain	3	name	text	NO
+domain_planning_domain	4	description	text	YES
+domain_planning_domain	5	color	text	YES
+domain_planning_domain	6	coordinator_external_user_ids	_text	NO
+domain_planning_session	1	id	text	NO
+domain_planning_session	2	etablissement_id	uuid	NO
+domain_planning_session	3	title	text	NO
+domain_planning_session	4	starts_at	text	YES
+domain_planning_session	5	ends_at	text	YES
+domain_planning_session	6	constraint_kind	text	YES
+domain_planning_session	7	capacity	integer	YES
+domain_planning_signup	1	id	text	NO
+domain_planning_signup	2	etablissement_id	uuid	NO
+domain_planning_signup	3	session_id	text	NO
+domain_planning_signup	4	external_user_id	text	YES
+domain_planning_signup	5	display_name	text	YES
+domain_planning_signup	6	email	text	YES
+domain_planning_signup	7	created_at	text	YES
+edt_creneau	1	id	uuid	NO
+edt_creneau	2	etablissement_id	uuid	NO
+edt_creneau	3	annee_scolaire_id	uuid	YES
+edt_creneau	4	jour_semaine	integer	NO
+edt_creneau	5	heure_debut	text	NO
+edt_creneau	6	heure_fin	text	NO
+edt_creneau	7	classe	text	YES
+edt_creneau	8	groupe_id	uuid	YES
+edt_creneau	9	matiere_id	uuid	YES
+edt_creneau	10	enseignant_nom	text	YES
+edt_creneau	11	salle	text	YES
+edt_creneau	12	semaine	text	NO
+edt_creneau	13	created_at	timestamp with time zone	NO
+edt_creneau	14	updated_at	timestamp with time zone	NO
+eleve	1	id	uuid	NO
+eleve	2	etablissement_id	uuid	NO
+eleve	3	source_key	text	NO
+eleve	4	ine	text	YES
+eleve	5	nom	text	NO
+eleve	6	prenom	text	NO
+eleve	7	folder_name	text	NO
+eleve	8	classe	text	YES
+eleve	9	email	text	YES
+eleve	10	parent_email	text	YES
+eleve	11	parent1_email	text	YES
+eleve	12	parent2_email	text	YES
+eleve	13	parent_phone	text	YES
+eleve	14	parent1_phone	text	YES
+eleve	15	parent2_phone	text	YES
+eleve	16	date_naissance	date	YES
+eleve	17	mef	text	YES
+eleve	18	secteur	text	YES
+eleve	19	pilotage_key	text	YES
+eleve	20	created_at	timestamp with time zone	NO
+eleve	21	updated_at	timestamp with time zone	NO
+eleve	22	lieu_naissance	text	YES
+eleve	23	status	text	NO
+eleve	24	regime	text	YES
+eleve	25	sexe	text	YES
+eleve	26	photo_key	text	YES
+eleve	27	lv1	text	YES
+eleve	28	lv2	text	YES
+eleve	29	options	jsonb	YES
+eleve	30	date_sortie	date	YES
+eleve_access_audit	1	id	uuid	NO
+eleve_access_audit	2	etablissement_id	uuid	NO
+eleve_access_audit	3	actor_user_id	text	YES
+eleve_access_audit	4	resource_type	text	NO
+eleve_access_audit	5	resource_id	text	NO
+eleve_access_audit	6	eleve_id	uuid	YES
+eleve_access_audit	7	action	text	NO
+eleve_access_audit	8	metadata	jsonb	YES
+eleve_access_audit	9	created_at	timestamp with time zone	NO
+eleve_document	1	id	uuid	NO
+eleve_document	2	etablissement_id	uuid	NO
+eleve_document	3	eleve_id	uuid	NO
+eleve_document	4	tiroir	text	NO
+eleve_document	5	title	text	NO
+eleve_document	6	mime_type	text	YES
+eleve_document	7	s3_key	text	YES
+eleve_document	8	file_url	text	YES
+eleve_document	9	annee_label	text	YES
+eleve_document	10	confidentialite	text	NO
+eleve_document	11	source	text	NO
+eleve_document	12	created_by_user_id	text	YES
+eleve_document	13	created_at	timestamp with time zone	NO
+eleve_document	14	updated_at	timestamp with time zone	NO
+eleve_foyer_link	1	etablissement_id	uuid	NO
+eleve_foyer_link	2	eleve_id	uuid	NO
+eleve_foyer_link	3	foyer_id	uuid	NO
+eleve_foyer_link	4	relation	text	NO
+eleve_foyer_link	5	created_at	timestamp with time zone	NO
+eleve_regime_periode	1	id	uuid	NO
+eleve_regime_periode	2	etablissement_id	uuid	NO
+eleve_regime_periode	3	eleve_id	uuid	NO
+eleve_regime_periode	4	scolarite_id	uuid	NO
+eleve_regime_periode	5	regime	text	NO
+eleve_regime_periode	6	date_debut	date	NO
+eleve_regime_periode	7	date_fin	date	YES
+eleve_regime_periode	8	created_at	timestamp with time zone	NO
+eleve_regime_periode	9	updated_at	timestamp with time zone	NO
+eleve_scolarite	1	id	uuid	NO
+eleve_scolarite	2	etablissement_id	uuid	NO
+eleve_scolarite	3	eleve_id	uuid	NO
+eleve_scolarite	4	annee_scolaire_id	uuid	YES
+eleve_scolarite	5	site_id	text	YES
+eleve_scolarite	6	classe	text	YES
+eleve_scolarite	7	statut	text	NO
+eleve_scolarite	8	demi_pension	boolean	NO
+eleve_scolarite	9	repas_par_semaine	integer	YES
+eleve_scolarite	10	etablissement_precedent	text	YES
+eleve_scolarite	11	created_at	timestamp with time zone	NO
+eleve_scolarite	12	updated_at	timestamp with time zone	NO
+eleve_scolarite	13	grille_repas	jsonb	YES
+encaissement	1	id	uuid	NO
+encaissement	2	etablissement_id	uuid	NO
+encaissement	3	foyer_id	uuid	NO
+encaissement	4	mode	text	NO
+encaissement	5	montant	numeric	NO
+encaissement	6	date_encaissement	date	NO
+encaissement	7	reference	text	YES
+encaissement	8	created_at	timestamp with time zone	NO
+enseignant	1	id	text	NO
+enseignant	2	etablissement_id	uuid	NO
+enseignant	3	nom	text	NO
+enseignant	4	prenom	text	NO
+enseignant	5	folder_name	text	NO
+enseignant	6	secteur	text	NO
+enseignant	7	email	text	YES
+enseignant	8	email_pro	text	YES
+enseignant	9	created_at	timestamp with time zone	NO
+enseignant	10	updated_at	timestamp with time zone	NO
+ent_collection_attr	1	etablissement_id	uuid	NO
+ent_collection_attr	2	collection	text	NO
+ent_collection_attr	3	record_id	text	NO
+ent_collection_attr	4	path	text	NO
+ent_collection_attr	5	value	text	NO
+ent_collection_record	1	etablissement_id	uuid	NO
+ent_collection_record	2	collection	text	NO
+ent_collection_record	3	record_id	text	NO
+ent_collection_record	4	status	text	YES
+ent_collection_record	5	updated_at	timestamp with time zone	NO
+etablissement	1	id	uuid	NO
+etablissement	2	slug	text	NO
+etablissement	3	name	text	NO
+etablissement	4	data_bucket	text	YES
+etablissement	5	created_at	timestamp with time zone	NO
+etablissement	6	updated_at	timestamp with time zone	NO
+etablissement_site	1	etablissement_id	uuid	NO
+etablissement_site	2	site_id	text	NO
+etablissement_site	3	label	text	NO
+etablissement_site	4	kind	text	YES
+etablissement_site	5	director_name	text	YES
+etablissement_site	6	director_email	text	YES
+etablissement_site	7	director_external_user_id	text	YES
+etablissement_site	8	color_hex	text	YES
+etablissement_site	9	signature_s3_key	text	YES
+etablissement_site	10	grades	text	YES
+etablissement_site	12	active	boolean	NO
+etablissement_site	13	created_at	timestamp with time zone	NO
+etablissement_site	14	updated_at	timestamp with time zone	NO
+etablissement_site	15	role_slugs	_text	NO
+export_academique	1	id	uuid	NO
+export_academique	2	etablissement_id	uuid	NO
+export_academique	3	canal	text	NO
+export_academique	4	annee_scolaire_id	uuid	YES
+export_academique	5	periode_id	uuid	YES
+export_academique	6	statut	text	NO
+export_academique	7	genere_at	timestamp with time zone	YES
+export_academique	8	envoye_at	timestamp with time zone	YES
+export_academique	9	created_at	timestamp with time zone	NO
+facture	1	id	uuid	NO
+facture	2	etablissement_id	uuid	NO
+facture	3	foyer_id	uuid	NO
+facture	4	annee_scolaire_id	uuid	YES
+facture	5	numero	text	NO
+facture	6	statut	text	NO
+facture	7	date_emission	date	YES
+facture	8	date_echeance	date	YES
+facture	9	total_ht	numeric	NO
+facture	10	total_ttc	numeric	NO
+facture	11	pdf_key	text	YES
+facture	12	created_at	timestamp with time zone	NO
+facture	13	updated_at	timestamp with time zone	NO
+facture	14	nature	text	NO
+facture	15	facture_origine_id	uuid	YES
+facture_echeance	1	id	uuid	NO
+facture_echeance	2	etablissement_id	uuid	NO
+facture_echeance	3	facture_id	uuid	NO
+facture_echeance	4	date_echeance	date	NO
+facture_echeance	5	montant	numeric	NO
+facture_echeance	6	ordre	integer	NO
+facture_encaissement	1	etablissement_id	uuid	NO
+facture_encaissement	2	facture_id	uuid	NO
+facture_encaissement	3	encaissement_id	uuid	NO
+facture_encaissement	4	montant	numeric	NO
+facture_ligne	1	id	uuid	NO
+facture_ligne	2	etablissement_id	uuid	NO
+facture_ligne	3	facture_id	uuid	NO
+facture_ligne	4	eleve_id	uuid	YES
+facture_ligne	5	tarif_id	uuid	YES
+facture_ligne	6	libelle	text	NO
+facture_ligne	7	periode	text	YES
+facture_ligne	8	quantite	numeric	NO
+facture_ligne	9	prix_unitaire	numeric	NO
+facture_ligne	10	remise	numeric	NO
+facture_ligne	11	total_ht	numeric	NO
+facture_ligne	12	total_ttc	numeric	NO
+facture_ligne	13	ordre	integer	NO
+famille_messaging_settings	1	etablissement_id	uuid	NO
+famille_messaging_settings	2	roles_can_initiate	jsonb	NO
+famille_messaging_settings	3	prof_own_classes_only	boolean	NO
+famille_messaging_settings	4	allow_broadcast	boolean	NO
+famille_messaging_settings	5	allow_parent_attachments	boolean	NO
+famille_messaging_settings	6	updated_at	timestamp with time zone	NO
+famille_messaging_settings	7	updated_by_user_id	text	YES
+famille_notif	1	id	uuid	NO
+famille_notif	2	etablissement_id	uuid	NO
+famille_notif	3	foyer_id	uuid	NO
+famille_notif	4	thread_id	uuid	YES
+famille_notif	5	kind	text	NO
+famille_notif	6	titre	text	NO
+famille_notif	7	preview	text	NO
+famille_notif	8	created_at	timestamp with time zone	NO
+famille_notif	9	lu_at	timestamp with time zone	YES
+famille_thread	1	id	uuid	NO
+famille_thread	2	etablissement_id	uuid	NO
+famille_thread	3	foyer_id	uuid	NO
+famille_thread	4	eleve_id	uuid	YES
+famille_thread	5	sujet	text	NO
+famille_thread	6	created_by_user_id	text	YES
+famille_thread	7	created_by_nom	text	YES
+famille_thread	8	last_message_at	timestamp with time zone	NO
+famille_thread	9	created_at	timestamp with time zone	NO
+famille_thread	10	updated_at	timestamp with time zone	NO
+famille_thread	11	is_broadcast	boolean	NO
+famille_thread_attachment	1	id	uuid	NO
+famille_thread_attachment	2	etablissement_id	uuid	NO
+famille_thread_attachment	3	message_id	uuid	NO
+famille_thread_attachment	4	file_name	text	NO
+famille_thread_attachment	5	mime	text	NO
+famille_thread_attachment	6	size	integer	NO
+famille_thread_attachment	7	s3_key	text	YES
+famille_thread_attachment	8	content_base64	text	YES
+famille_thread_attachment	9	created_at	timestamp with time zone	NO
+famille_thread_message	1	id	uuid	NO
+famille_thread_message	2	etablissement_id	uuid	NO
+famille_thread_message	3	thread_id	uuid	NO
+famille_thread_message	4	auteur_cote	text	NO
+famille_thread_message	5	auteur_user_id	text	YES
+famille_thread_message	6	auteur_nom	text	YES
+famille_thread_message	7	corps	text	NO
+famille_thread_message	8	lu_at	timestamp with time zone	YES
+famille_thread_message	9	created_at	timestamp with time zone	NO
+fd_campagne	1	id	uuid	NO
+fd_campagne	2	etablissement_id	uuid	NO
+fd_campagne	3	annee_scolaire_id	uuid	YES
+fd_campagne	4	label	text	NO
+fd_campagne	5	annee_label	text	NO
+fd_campagne	6	site_key	text	YES
+fd_campagne	7	calendrier_mode	text	NO
+fd_campagne	8	template_key	text	YES
+fd_campagne	9	statut	text	NO
+fd_campagne	10	catalogue	jsonb	NO
+fd_campagne	11	appel_config	jsonb	NO
+fd_campagne	12	delai_famille_jours	integer	NO
+fd_campagne	13	classes_cibles	jsonb	NO
+fd_campagne	14	created_by_user_id	text	YES
+fd_campagne	15	opened_at	timestamp with time zone	YES
+fd_campagne	16	closed_at	timestamp with time zone	YES
+fd_campagne	17	created_at	timestamp with time zone	NO
+fd_campagne	18	updated_at	timestamp with time zone	NO
+fd_campagne	19	starter_mode	text	NO
+fd_campagne	20	contact_pp_label	text	YES
+fd_campagne	21	niveau_actuel	text	YES
+fd_campagne	22	eleve_ids_cibles	jsonb	NO
+fd_etape	1	id	uuid	NO
+fd_etape	2	etablissement_id	uuid	NO
+fd_etape	3	campagne_id	uuid	NO
+fd_etape	4	ordre	integer	NO
+fd_etape	5	kind	text	NO
+fd_etape	6	label	text	NO
+fd_etape	7	description	text	YES
+fd_etape	8	opens_at	timestamp with time zone	YES
+fd_etape	9	closes_at	timestamp with time zone	YES
+fd_etape	10	conseil_date	date	YES
+fd_etape	11	optionnelle	boolean	NO
+fd_etape	12	gelee	boolean	NO
+fd_etape	13	frozen_at	timestamp with time zone	YES
+fd_etape	14	created_at	timestamp with time zone	NO
+fd_etape	15	updated_at	timestamp with time zone	NO
+fd_fiche	1	id	uuid	NO
+fd_fiche	2	etablissement_id	uuid	NO
+fd_fiche	3	campagne_id	uuid	NO
+fd_fiche	4	eleve_id	uuid	NO
+fd_fiche	5	eleve_nom	text	NO
+fd_fiche	6	eleve_prenom	text	NO
+fd_fiche	7	classe_actuelle	text	NO
+fd_fiche	8	options_actuelles	jsonb	NO
+fd_fiche	9	parent_emails	jsonb	NO
+fd_fiche	10	statut	text	NO
+fd_fiche	11	etape_courante_id	uuid	YES
+fd_fiche	12	last_sent_at	timestamp with time zone	YES
+fd_fiche	13	last_reminder_at	timestamp with time zone	YES
+fd_fiche	14	reminder_count	integer	NO
+fd_fiche	15	acceptation	jsonb	YES
+fd_fiche	16	accepted_at	timestamp with time zone	YES
+fd_fiche	17	refused_at	timestamp with time zone	YES
+fd_fiche	18	closed_at	timestamp with time zone	YES
+fd_fiche	19	created_at	timestamp with time zone	NO
+fd_fiche	20	updated_at	timestamp with time zone	NO
+fd_fiche	21	eleve_date_naissance	date	YES
+fd_fiche	22	eleve_photo_key	text	YES
+fd_fiche	23	parent_accord	jsonb	YES
+fd_fiche	24	conflict_payload	jsonb	YES
+fd_fiche	25	eleve_ine	text	YES
+fd_fiche	26	eleve_mef	text	YES
+fd_fiche	27	appel	jsonb	YES
+fd_pdf_archive	1	id	uuid	NO
+fd_pdf_archive	2	etablissement_id	uuid	NO
+fd_pdf_archive	3	fiche_id	uuid	NO
+fd_pdf_archive	4	etape_id	uuid	YES
+fd_pdf_archive	5	kind	text	NO
+fd_pdf_archive	6	title	text	NO
+fd_pdf_archive	7	s3_key	text	YES
+fd_pdf_archive	8	eleve_document_id	uuid	YES
+fd_pdf_archive	9	created_at	timestamp with time zone	NO
+fd_pdf_archive	10	pdf_base64	text	YES
+fd_reponse	1	id	uuid	NO
+fd_reponse	2	etablissement_id	uuid	NO
+fd_reponse	3	fiche_id	uuid	NO
+fd_reponse	4	etape_id	uuid	NO
+fd_reponse	5	auteur_role	text	NO
+fd_reponse	6	auteur_user_id	text	YES
+fd_reponse	7	auteur_label	text	YES
+fd_reponse	8	payload	jsonb	NO
+fd_reponse	9	submitted_at	timestamp with time zone	NO
+fd_reponse	10	created_at	timestamp with time zone	NO
+fd_signature	1	id	uuid	NO
+fd_signature	2	etablissement_id	uuid	NO
+fd_signature	3	fiche_id	uuid	NO
+fd_signature	4	etape_id	uuid	NO
+fd_signature	5	role	text	NO
+fd_signature	6	signer_name	text	NO
+fd_signature	7	signer_email	text	YES
+fd_signature	8	method	text	NO
+fd_signature	9	signature_png_base64	text	YES
+fd_signature	10	signed_at	timestamp with time zone	NO
+fd_signature	11	created_at	timestamp with time zone	NO
+fd_token	1	id	uuid	NO
+fd_token	2	etablissement_id	uuid	NO
+fd_token	3	fiche_id	uuid	NO
+fd_token	4	etape_id	uuid	YES
+fd_token	5	token	text	NO
+fd_token	6	secure_code	text	YES
+fd_token	7	email	text	YES
+fd_token	8	purpose	text	NO
+fd_token	9	expires_at	timestamp with time zone	YES
+fd_token	10	used_at	timestamp with time zone	YES
+fd_token	11	revoked_at	timestamp with time zone	YES
+fd_token	12	created_at	timestamp with time zone	NO
+foyer	1	id	uuid	NO
+foyer	2	etablissement_id	uuid	NO
+foyer	3	label	text	NO
+foyer	4	adresse	text	YES
+foyer	5	code_postal	text	YES
+foyer	6	ville	text	YES
+foyer	7	payeur_est_foyer	boolean	NO
+foyer	8	created_at	timestamp with time zone	NO
+foyer	9	updated_at	timestamp with time zone	NO
+foyer_facturation	1	id	uuid	NO
+foyer_facturation	2	etablissement_id	uuid	NO
+foyer_facturation	3	foyer_id	uuid	NO
+foyer_facturation	4	code_auxiliaire	text	YES
+foyer_facturation	5	categorie_quotient	text	YES
+foyer_facturation	6	quotient_familial	numeric	YES
+foyer_facturation	7	iban	text	YES
+foyer_facturation	8	bic	text	YES
+foyer_facturation	9	rum	text	YES
+foyer_facturation	10	mandat_date	date	YES
+foyer_facturation	11	accepte_prelevement	boolean	NO
+foyer_facturation	12	created_at	timestamp with time zone	NO
+foyer_facturation	13	updated_at	timestamp with time zone	NO
+foyer_responsable	1	id	uuid	NO
+foyer_responsable	2	etablissement_id	uuid	NO
+foyer_responsable	3	foyer_id	uuid	NO
+foyer_responsable	4	nom	text	NO
+foyer_responsable	5	prenom	text	NO
+foyer_responsable	6	email	text	YES
+foyer_responsable	7	telephone	text	YES
+foyer_responsable	8	autorite_parentale	boolean	NO
+foyer_responsable	9	contact_urgence	boolean	NO
+foyer_responsable	10	payeur	boolean	NO
+foyer_responsable	11	rang	integer	NO
+foyer_responsable	12	user_id	text	YES
+foyer_responsable	13	created_at	timestamp with time zone	NO
+foyer_responsable	14	updated_at	timestamp with time zone	NO
+foyer_responsable	15	peut_recuperer	boolean	NO
+groupe_pedagogique	1	id	uuid	NO
+groupe_pedagogique	2	etablissement_id	uuid	NO
+groupe_pedagogique	3	annee_scolaire_id	uuid	YES
+groupe_pedagogique	4	code	text	NO
+groupe_pedagogique	5	libelle	text	NO
+groupe_pedagogique	6	type	text	NO
+groupe_pedagogique	7	created_at	timestamp with time zone	NO
+groupe_pedagogique	8	updated_at	timestamp with time zone	NO
+groupe_pedagogique_membre	1	etablissement_id	uuid	NO
+groupe_pedagogique_membre	2	groupe_id	uuid	NO
+groupe_pedagogique_membre	3	eleve_id	uuid	NO
+groupe_pedagogique_membre	4	created_at	timestamp with time zone	NO
+infirmerie_fiche	1	id	uuid	NO
+infirmerie_fiche	2	etablissement_id	uuid	NO
+infirmerie_fiche	3	eleve_id	uuid	NO
+infirmerie_fiche	4	antecedents	text	NO
+infirmerie_fiche	5	personnes_a_prevenir	text	NO
+infirmerie_fiche	6	notes	text	NO
+infirmerie_fiche	7	updated_at	timestamp with time zone	NO
+infirmerie_fiche	8	created_at	timestamp with time zone	NO
+infirmerie_passage	1	id	uuid	NO
+infirmerie_passage	2	etablissement_id	uuid	NO
+infirmerie_passage	3	eleve_id	uuid	NO
+infirmerie_passage	4	arrivee	timestamp with time zone	NO
+infirmerie_passage	5	sortie	timestamp with time zone	YES
+infirmerie_passage	6	motif_court	text	NO
+infirmerie_passage	7	signal_vie_scolaire	boolean	NO
+infirmerie_passage	8	auteur_user_id	text	YES
+infirmerie_passage	9	auteur_nom	text	YES
+infirmerie_passage	10	created_at	timestamp with time zone	NO
+infirmerie_passage	11	updated_at	timestamp with time zone	NO
+infirmerie_passage	12	suite	text	YES
+infirmerie_passage	13	soins_notes	text	YES
+infirmerie_passage	14	contexte	text	NO
+internat_affectation	1	id	uuid	NO
+internat_affectation	2	etablissement_id	uuid	NO
+internat_affectation	3	chambre_id	uuid	NO
+internat_affectation	4	eleve_id	uuid	NO
+internat_affectation	5	annee_scolaire_id	uuid	YES
+internat_affectation	6	date_debut	date	NO
+internat_affectation	7	date_fin	date	YES
+internat_affectation	8	created_at	timestamp with time zone	NO
+internat_affectation	9	updated_at	timestamp with time zone	NO
+internat_appel	1	id	uuid	NO
+internat_appel	2	etablissement_id	uuid	NO
+internat_appel	3	batiment_id	uuid	YES
+internat_appel	4	date_appel	date	NO
+internat_appel	5	statut	text	NO
+internat_appel	6	valide_at	timestamp with time zone	YES
+internat_appel	7	created_at	timestamp with time zone	NO
+internat_appel	8	updated_at	timestamp with time zone	NO
+internat_appel_ligne	1	id	uuid	NO
+internat_appel_ligne	2	etablissement_id	uuid	NO
+internat_appel_ligne	3	appel_id	uuid	NO
+internat_appel_ligne	4	eleve_id	uuid	NO
+internat_appel_ligne	5	marque	text	NO
+internat_appel_ligne	6	note	text	YES
+internat_appel_ligne	7	updated_at	timestamp with time zone	NO
+internat_batiment	1	id	uuid	NO
+internat_batiment	2	etablissement_id	uuid	NO
+internat_batiment	3	label	text	NO
+internat_batiment	4	notes	text	YES
+internat_batiment	5	created_at	timestamp with time zone	NO
+internat_batiment	6	updated_at	timestamp with time zone	NO
+internat_chambre	1	id	uuid	NO
+internat_chambre	2	etablissement_id	uuid	NO
+internat_chambre	3	batiment_id	uuid	NO
+internat_chambre	4	label	text	NO
+internat_chambre	5	etage	text	YES
+internat_chambre	6	capacite	integer	NO
+internat_chambre	7	aile	text	YES
+internat_chambre	8	created_at	timestamp with time zone	NO
+internat_chambre	9	updated_at	timestamp with time zone	NO
+internat_sortie	1	id	uuid	NO
+internat_sortie	2	etablissement_id	uuid	NO
+internat_sortie	3	eleve_id	uuid	NO
+internat_sortie	4	date_debut	date	NO
+internat_sortie	5	date_fin	date	NO
+internat_sortie	6	motif	text	YES
+internat_sortie	7	created_at	timestamp with time zone	NO
+internat_sortie	8	updated_at	timestamp with time zone	NO
+invitation_eligible	1	id	uuid	NO
+invitation_eligible	2	etablissement_id	uuid	NO
+invitation_eligible	3	page_id	uuid	NO
+invitation_eligible	4	eleve_first_name	text	NO
+invitation_eligible	5	eleve_last_name	text	NO
+invitation_eligible	6	eleve_name_norm	text	NO
+invitation_eligible	7	birth_date	date	YES
+invitation_eligible	8	diploma	text	YES
+invitation_eligible	9	created_at	timestamp with time zone	NO
+invitation_page	1	id	uuid	NO
+invitation_page	2	etablissement_id	uuid	NO
+invitation_page	3	slug	text	NO
+invitation_page	4	title	text	NO
+invitation_page	5	intro	text	NO
+invitation_page	6	theme	text	NO
+invitation_page	7	enabled	integer	NO
+invitation_page	8	starts_at	timestamp with time zone	YES
+invitation_page	9	ends_at	timestamp with time zone	YES
+invitation_page	10	location	text	NO
+invitation_page	11	diploma_mode	text	NO
+invitation_page	12	max_total_persons	integer	NO
+invitation_page	13	max_persons_per_eleve	integer	NO
+invitation_page	14	notify_email	text	YES
+invitation_page	15	created_at	timestamp with time zone	NO
+invitation_page	16	updated_at	timestamp with time zone	NO
+invitation_page	17	require_eligible	integer	NO
+invitation_page	18	ask_situation	text	NO
+invitation_page	19	rsvp_closes_at	timestamp with time zone	YES
+invitation_rsvp	1	id	uuid	NO
+invitation_rsvp	2	etablissement_id	uuid	NO
+invitation_rsvp	3	page_id	uuid	NO
+invitation_rsvp	4	eleve_first_name	text	NO
+invitation_rsvp	5	eleve_last_name	text	NO
+invitation_rsvp	6	eleve_name_norm	text	NO
+invitation_rsvp	7	response	text	NO
+invitation_rsvp	8	present_count	integer	NO
+invitation_rsvp	9	parent_email	text	NO
+invitation_rsvp	10	diploma	text	YES
+invitation_rsvp	11	duplicate_group_id	uuid	YES
+invitation_rsvp	12	duplicate_dismissed_at	timestamp with time zone	YES
+invitation_rsvp	13	created_at	timestamp with time zone	NO
+invitation_rsvp	14	updated_at	timestamp with time zone	NO
+invitation_rsvp	15	situation_status	text	YES
+invitation_rsvp	16	situation_detail	text	NO
+invitation_rsvp	17	situation_establishment	text	NO
+invitation_rsvp	18	birth_date	date	YES
+invitation_rsvp	19	eligible_id	uuid	YES
+messaging_attachment	1	id	text	NO
+messaging_attachment	2	etablissement_id	uuid	NO
+messaging_attachment	3	message_id	text	NO
+messaging_attachment	4	s3_key	text	NO
+messaging_attachment	5	mime	text	NO
+messaging_attachment	6	size	integer	NO
+messaging_attachment	7	file_name	text	NO
+messaging_attachment	8	width	integer	YES
+messaging_attachment	9	height	integer	YES
+messaging_attachment	10	created_at	timestamp with time zone	NO
+messaging_call_ring	1	id	text	NO
+messaging_call_ring	2	call_id	text	NO
+messaging_call_ring	3	etablissement_id	uuid	NO
+messaging_call_ring	4	conversation_id	text	NO
+messaging_call_ring	5	from_user_id	text	NO
+messaging_call_ring	6	from_name	text	NO
+messaging_call_ring	7	to_user_id	text	NO
+messaging_call_ring	8	title	text	NO
+messaging_call_ring	9	kind	text	NO
+messaging_call_ring	10	status	text	NO
+messaging_call_ring	11	created_at	timestamp with time zone	NO
+messaging_call_ring	12	expires_at	timestamp with time zone	NO
+messaging_conversation	1	id	text	NO
+messaging_conversation	2	etablissement_id	uuid	NO
+messaging_conversation	3	user_a_id	text	NO
+messaging_conversation	4	user_b_id	text	NO
+messaging_conversation	5	last_message_at	timestamp with time zone	YES
+messaging_conversation	6	created_at	timestamp with time zone	NO
+messaging_conversation	7	updated_at	timestamp with time zone	NO
+messaging_message	1	id	text	NO
+messaging_message	2	etablissement_id	uuid	NO
+messaging_message	3	conversation_id	text	NO
+messaging_message	4	sender_id	text	NO
+messaging_message	5	type	text	NO
+messaging_message	6	body	text	YES
+messaging_message	7	reply_to_id	text	YES
+messaging_message	8	forwarded_from_id	text	YES
+messaging_message	9	edited_at	timestamp with time zone	YES
+messaging_message	10	deleted_at	timestamp with time zone	YES
+messaging_message	11	created_at	timestamp with time zone	NO
+messaging_message	12	mention_user_ids	_text	NO
+messaging_message	13	pinned_at	timestamp with time zone	YES
+messaging_message	14	pinned_by_id	text	YES
+messaging_participant	1	id	text	NO
+messaging_participant	2	etablissement_id	uuid	NO
+messaging_participant	3	conversation_id	text	NO
+messaging_participant	4	user_id	text	NO
+messaging_participant	5	last_read_at	timestamp with time zone	NO
+messaging_participant	6	last_read_message_id	text	YES
+messaging_participant	7	muted	boolean	NO
+messaging_participant	8	created_at	timestamp with time zone	NO
+messaging_participant	9	last_delivered_at	timestamp with time zone	YES
+messaging_participant	10	last_delivered_message_id	text	YES
+messaging_participant	11	hidden_at	timestamp with time zone	YES
+messaging_participant	12	pinned_at	timestamp with time zone	YES
+messaging_participant	13	marked_unread_at	timestamp with time zone	YES
+messaging_presence	1	user_id	text	NO
+messaging_presence	2	etablissement_id	uuid	NO
+messaging_presence	3	status	text	NO
+messaging_presence	4	connections	integer	NO
+messaging_presence	5	manual_status	text	YES
+messaging_presence	6	manual_until	timestamp with time zone	YES
+messaging_presence	7	last_seen_at	timestamp with time zone	NO
+messaging_presence	8	updated_at	timestamp with time zone	NO
+messaging_reaction	1	id	text	NO
+messaging_reaction	2	etablissement_id	uuid	NO
+messaging_reaction	3	message_id	text	NO
+messaging_reaction	4	user_id	text	NO
+messaging_reaction	5	emoji	text	NO
+messaging_reaction	6	created_at	timestamp with time zone	NO
+messaging_signal_relay	1	id	text	NO
+messaging_signal_relay	2	event	jsonb	NO
+messaging_signal_relay	3	created_at	timestamp with time zone	NO
+metier_event	1	id	uuid	NO
+metier_event	2	etablissement_id	uuid	NO
+metier_event	3	type	text	NO
+metier_event	4	aggregate	text	NO
+metier_event	5	aggregate_id	uuid	NO
+metier_event	6	eleve_id	uuid	YES
+metier_event	7	payload	jsonb	NO
+metier_event	8	actor_user_id	text	YES
+metier_event	9	created_at	timestamp with time zone	NO
+mouvement_tresorerie	1	id	uuid	NO
+mouvement_tresorerie	2	etablissement_id	uuid	NO
+mouvement_tresorerie	3	compte_id	uuid	NO
+mouvement_tresorerie	4	date_mouvement	date	NO
+mouvement_tresorerie	5	sens	text	NO
+mouvement_tresorerie	6	montant	numeric	NO
+mouvement_tresorerie	7	libelle	text	NO
+mouvement_tresorerie	8	encaissement_id	uuid	YES
+mouvement_tresorerie	9	depense_id	uuid	YES
+mouvement_tresorerie	10	facture_id	uuid	YES
+mouvement_tresorerie	11	created_at	timestamp with time zone	NO
+nomenclature_import_log	1	id	uuid	NO
+nomenclature_import_log	2	etablissement_id	uuid	NO
+nomenclature_import_log	3	fichier	text	NO
+nomenclature_import_log	4	source	text	NO
+nomenclature_import_log	5	date_import	timestamp with time zone	NO
+nomenclature_import_log	6	statut	text	NO
+nomenclature_import_log	7	nb_inserts	integer	NO
+nomenclature_import_log	8	nb_updates	integer	NO
+nomenclature_import_log	9	nb_deletes	integer	NO
+nomenclature_import_log	10	rapport_json	jsonb	YES
+note_competence_domaine	1	id	uuid	NO
+note_competence_domaine	2	etablissement_id	uuid	NO
+note_competence_domaine	3	code	text	NO
+note_competence_domaine	4	libelle	text	NO
+note_competence_domaine	5	cycle	text	NO
+note_competence_domaine	6	ordre	integer	NO
+note_competence_domaine	7	actif	boolean	NO
+note_competence_domaine	8	created_at	timestamp with time zone	NO
+note_competence_domaine	9	updated_at	timestamp with time zone	NO
+note_competence_item	1	id	uuid	NO
+note_competence_item	2	etablissement_id	uuid	NO
+note_competence_item	3	domaine_id	uuid	NO
+note_competence_item	4	matiere_id	uuid	YES
+note_competence_item	5	code	text	NO
+note_competence_item	6	libelle	text	NO
+note_competence_item	7	ordre	integer	NO
+note_competence_item	8	actif	boolean	NO
+note_competence_item	9	created_at	timestamp with time zone	NO
+note_competence_item	10	updated_at	timestamp with time zone	NO
+note_competence_valeur	1	etablissement_id	uuid	NO
+note_competence_valeur	2	item_id	uuid	NO
+note_competence_valeur	3	eleve_id	uuid	NO
+note_competence_valeur	4	periode_id	uuid	NO
+note_competence_valeur	5	niveau	text	YES
+note_competence_valeur	6	appreciation	text	YES
+note_competence_valeur	7	updated_at	timestamp with time zone	NO
+note_devoir	1	id	uuid	NO
+note_devoir	2	etablissement_id	uuid	NO
+note_devoir	3	matiere_id	uuid	NO
+note_devoir	4	periode_id	uuid	NO
+note_devoir	5	type_devoir_id	uuid	YES
+note_devoir	6	classe	text	NO
+note_devoir	7	groupe_id	uuid	YES
+note_devoir	8	libelle	text	NO
+note_devoir	9	date_devoir	date	YES
+note_devoir	10	coefficient	numeric	NO
+note_devoir	11	created_by_user_id	text	YES
+note_devoir	12	created_at	timestamp with time zone	NO
+note_devoir	13	updated_at	timestamp with time zone	NO
+note_matiere	1	id	uuid	NO
+note_matiere	2	etablissement_id	uuid	NO
+note_matiere	3	code	text	NO
+note_matiere	4	libelle	text	NO
+note_matiere	5	groupe_matiere	text	YES
+note_matiere	6	actif	boolean	NO
+note_matiere	7	created_at	timestamp with time zone	NO
+note_matiere	8	updated_at	timestamp with time zone	NO
+note_matiere_classe	1	id	uuid	NO
+note_matiere_classe	2	etablissement_id	uuid	NO
+note_matiere_classe	3	matiere_id	uuid	NO
+note_matiere_classe	4	classe	text	NO
+note_matiere_classe	5	enseignant_user_id	text	YES
+note_matiere_classe	6	enseignant_nom	text	YES
+note_matiere_classe	7	coef	numeric	NO
+note_matiere_classe	8	compte_dans_mg	boolean	NO
+note_matiere_classe	9	created_at	timestamp with time zone	NO
+note_matiere_classe	10	updated_at	timestamp with time zone	NO
+note_moyenne_eleve	1	id	uuid	NO
+note_moyenne_eleve	2	etablissement_id	uuid	NO
+note_moyenne_eleve	3	eleve_id	uuid	NO
+note_moyenne_eleve	4	matiere_id	uuid	NO
+note_moyenne_eleve	5	periode_id	uuid	NO
+note_moyenne_eleve	6	moyenne	numeric	YES
+note_moyenne_eleve	7	nb_notes	integer	NO
+note_moyenne_eleve	8	updated_at	timestamp with time zone	NO
+note_periode	1	id	uuid	NO
+note_periode	2	etablissement_id	uuid	NO
+note_periode	3	annee_scolaire_id	uuid	YES
+note_periode	4	code	text	NO
+note_periode	5	libelle	text	NO
+note_periode	6	niveau_modele	text	NO
+note_periode	7	date_debut	date	YES
+note_periode	8	date_fin	date	YES
+note_periode	9	statut	text	NO
+note_periode	10	ordre	integer	NO
+note_periode	11	created_at	timestamp with time zone	NO
+note_periode	12	updated_at	timestamp with time zone	NO
+note_type_devoir	1	id	uuid	NO
+note_type_devoir	2	etablissement_id	uuid	NO
+note_type_devoir	3	code	text	NO
+note_type_devoir	4	libelle	text	NO
+note_type_devoir	5	coef_defaut	numeric	YES
+note_type_devoir	6	actif	boolean	NO
+note_type_devoir	7	created_at	timestamp with time zone	NO
+note_valeur	1	etablissement_id	uuid	NO
+note_valeur	2	devoir_id	uuid	NO
+note_valeur	3	eleve_id	uuid	NO
+note_valeur	4	valeur	numeric	YES
+note_valeur	5	absent	boolean	NO
+note_valeur	6	dispense	boolean	NO
+note_valeur	7	appreciation	text	YES
+note_valeur	8	updated_at	timestamp with time zone	NO
+paie_element	1	id	uuid	NO
+paie_element	2	etablissement_id	uuid	NO
+paie_element	3	periode_id	uuid	NO
+paie_element	4	personnel_id	text	NO
+paie_element	5	nature	text	NO
+paie_element	6	libelle	text	NO
+paie_element	7	quantite	numeric	YES
+paie_element	8	montant	numeric	YES
+paie_element	9	absence_id	text	YES
+paie_element	10	created_at	timestamp with time zone	NO
+paie_element	11	updated_at	timestamp with time zone	NO
+paie_periode	1	id	uuid	NO
+paie_periode	2	etablissement_id	uuid	NO
+paie_periode	3	label	text	NO
+paie_periode	4	date_debut	date	NO
+paie_periode	5	date_fin	date	NO
+paie_periode	6	statut	text	NO
+paie_periode	7	created_at	timestamp with time zone	NO
+paie_periode	8	updated_at	timestamp with time zone	NO
+partenariat_evenement	1	id	uuid	NO
+partenariat_evenement	2	etablissement_id	uuid	NO
+partenariat_evenement	3	offre_id	uuid	NO
+partenariat_evenement	4	title	text	NO
+partenariat_evenement	5	starts_at	timestamp with time zone	NO
+partenariat_evenement	6	ends_at	timestamp with time zone	YES
+partenariat_evenement	7	location	text	NO
+partenariat_evenement	8	notes	text	NO
+partenariat_evenement	9	created_at	timestamp with time zone	NO
+partenariat_evenement	10	updated_at	timestamp with time zone	NO
+partenariat_inscription	1	id	uuid	NO
+partenariat_inscription	2	etablissement_id	uuid	NO
+partenariat_inscription	3	offre_id	uuid	NO
+partenariat_inscription	4	eleve_first_name	text	NO
+partenariat_inscription	5	eleve_last_name	text	NO
+partenariat_inscription	6	eleve_niveau	text	NO
+partenariat_inscription	7	eleve_classe	text	NO
+partenariat_inscription	8	eleve_birth_date	text	YES
+partenariat_inscription	9	parent_first_name	text	NO
+partenariat_inscription	10	parent_last_name	text	NO
+partenariat_inscription	11	parent_email	text	NO
+partenariat_inscription	12	parent_phone	text	NO
+partenariat_inscription	13	engagement_accepted_at	timestamp with time zone	NO
+partenariat_inscription	14	signature_s3_key	text	YES
+partenariat_inscription	15	status	text	NO
+partenariat_inscription	16	admin_note	text	NO
+partenariat_inscription	17	created_at	timestamp with time zone	NO
+partenariat_inscription	18	updated_at	timestamp with time zone	NO
+partenariat_offre	1	id	uuid	NO
+partenariat_offre	2	etablissement_id	uuid	NO
+partenariat_offre	3	slug	text	NO
+partenariat_offre	4	title	text	NO
+partenariat_offre	5	short_description	text	NO
+partenariat_offre	6	body	text	NO
+partenariat_offre	7	logo_s3_key	text	YES
+partenariat_offre	8	kind	text	NO
+partenariat_offre	9	cycles	jsonb	NO
+partenariat_offre	10	niveaux	jsonb	NO
+partenariat_offre	11	category_label	text	NO
+partenariat_offre	12	contact_name	text	NO
+partenariat_offre	13	contact_role	text	NO
+partenariat_offre	14	contact_email	text	NO
+partenariat_offre	15	contact_phone	text	NO
+partenariat_offre	16	partner_contact_name	text	NO
+partenariat_offre	17	partner_contact_role	text	NO
+partenariat_offre	18	partner_contact_email	text	NO
+partenariat_offre	19	partner_contact_phone	text	NO
+partenariat_offre	20	cta_links	jsonb	NO
+partenariat_offre	21	tarifs	jsonb	NO
+partenariat_offre	22	demarche	text	NO
+partenariat_offre	23	engagement_text	text	NO
+partenariat_offre	24	require_signature	integer	NO
+partenariat_offre	25	notify_email	text	YES
+partenariat_offre	26	max_places	integer	YES
+partenariat_offre	27	inscription_opens_at	timestamp with time zone	YES
+partenariat_offre	28	inscription_closes_at	timestamp with time zone	YES
+partenariat_offre	29	enabled	integer	NO
+partenariat_offre	30	sort_order	integer	NO
+partenariat_offre	31	published_at	timestamp with time zone	YES
+partenariat_offre	32	created_at	timestamp with time zone	NO
+partenariat_offre	33	updated_at	timestamp with time zone	NO
+passage	1	id	uuid	NO
+passage	2	etablissement_id	uuid	NO
+passage	3	eleve_id	uuid	YES
+passage	4	personnel_id	text	YES
+passage	5	invite_nom	text	YES
+passage	6	sens	text	NO
+passage	7	lieu	text	NO
+passage	8	horodatage	timestamp with time zone	NO
+passage	9	source	text	NO
+passage	10	annee_scolaire_id	uuid	YES
+passage	11	created_at	timestamp with time zone	NO
+passkey	1	id	text	NO
+passkey	2	name	text	YES
+passkey	3	public_key	text	NO
+passkey	4	user_id	text	NO
+passkey	5	credential_id	text	NO
+passkey	6	counter	integer	NO
+passkey	7	device_type	text	NO
+passkey	8	backed_up	boolean	NO
+passkey	9	transports	text	YES
+passkey	10	created_at	timestamp with time zone	YES
+passkey	11	aaguid	text	YES
+personnel	1	id	text	NO
+personnel	2	etablissement_id	uuid	NO
+personnel	3	external_user_id	text	YES
+personnel	4	email	text	NO
+personnel	5	email_perso	text	YES
+personnel	6	email_pro	text	YES
+personnel	7	first_name	text	NO
+personnel	8	last_name	text	NO
+personnel	9	display_name	text	NO
+personnel	10	category	text	NO
+personnel	11	job_title	text	YES
+personnel	12	hire_date	text	YES
+personnel	13	active	boolean	NO
+personnel	14	establishment_label	text	YES
+personnel	15	manager_id	text	YES
+personnel	16	payload	jsonb	NO
+personnel	17	created_at	timestamp with time zone	NO
+personnel	18	updated_at	timestamp with time zone	NO
+personnel_attr	1	etablissement_id	uuid	NO
+personnel_attr	2	personnel_id	text	NO
+personnel_attr	3	path	text	NO
+personnel_attr	4	value	text	NO
+personnel_document	1	id	text	NO
+personnel_document	2	etablissement_id	uuid	NO
+personnel_document	3	personnel_id	text	NO
+personnel_document	4	kind	text	NO
+personnel_document	5	name	text	NO
+personnel_document	6	file_url	text	NO
+personnel_document	7	uploaded_at	text	YES
+personnel_document	8	expires_at	text	YES
+personnel_document	9	sort_order	integer	NO
+personnel_entretien	1	id	text	NO
+personnel_entretien	2	etablissement_id	uuid	NO
+personnel_entretien	3	personnel_id	text	NO
+personnel_entretien	4	kind	text	NO
+personnel_entretien	5	status	text	NO
+personnel_entretien	6	completed_at	text	YES
+personnel_entretien	7	next_due_at	text	YES
+personnel_entretien	8	notes	text	YES
+personnel_entretien	9	sort_order	integer	NO
+personnel_formation	1	id	text	NO
+personnel_formation	2	etablissement_id	uuid	NO
+personnel_formation	3	personnel_id	text	NO
+personnel_formation	4	title	text	NO
+personnel_formation	5	organism	text	YES
+personnel_formation	6	completed_at	text	YES
+personnel_formation	7	expires_at	text	YES
+personnel_formation	8	sort_order	integer	NO
+personnel_habilitation	1	id	text	NO
+personnel_habilitation	2	etablissement_id	uuid	NO
+personnel_habilitation	3	personnel_id	text	NO
+personnel_habilitation	4	title	text	NO
+personnel_habilitation	5	issued_at	text	YES
+personnel_habilitation	6	expires_at	text	YES
+personnel_habilitation	7	sort_order	integer	NO
+personnel_leave	1	id	text	NO
+personnel_leave	2	etablissement_id	uuid	NO
+personnel_leave	3	personnel_id	text	NO
+personnel_leave	4	personnel_name	text	NO
+personnel_leave	5	type	text	NO
+personnel_leave	6	start_date	text	NO
+personnel_leave	7	end_date	text	NO
+personnel_leave	8	reason	text	YES
+personnel_leave	9	status	text	NO
+personnel_leave	10	created_at	text	NO
+personnel_leave	11	decided_at	text	YES
+personnel_leave	12	decided_by	text	YES
+personnel_leave	13	decision_note	text	YES
+personnel_shared_doc	1	id	text	NO
+personnel_shared_doc	2	etablissement_id	uuid	NO
+personnel_shared_doc	3	name	text	NO
+personnel_shared_doc	4	file_url	text	NO
+personnel_shared_doc	5	uploaded_at	text	NO
+personnel_shared_doc	6	uploaded_by	text	NO
+platform_document	1	doc_key	text	NO
+platform_document	2	updated_at	timestamp with time zone	NO
+platform_document_attr	1	doc_key	text	NO
+platform_document_attr	2	path	text	NO
+platform_document_attr	3	value	text	NO
+portes_ouvertes_config	1	id	uuid	NO
+portes_ouvertes_config	2	etablissement_id	uuid	NO
+portes_ouvertes_config	3	title	text	NO
+portes_ouvertes_config	4	intro	text	NO
+portes_ouvertes_config	5	address	text	NO
+portes_ouvertes_config	6	maps_url	text	YES
+portes_ouvertes_config	7	notify_email	text	YES
+portes_ouvertes_config	8	preinscription_url	text	YES
+portes_ouvertes_config	9	follow_up_delay_minutes	integer	NO
+portes_ouvertes_config	10	consent_label	text	NO
+portes_ouvertes_config	11	created_at	timestamp with time zone	NO
+portes_ouvertes_config	12	updated_at	timestamp with time zone	NO
+portes_ouvertes_registration	1	etablissement_id	uuid	NO
+portes_ouvertes_registration	2	id	text	NO
+portes_ouvertes_registration	3	slot_id	text	NO
+portes_ouvertes_registration	4	slot_label	text	YES
+portes_ouvertes_registration	5	slot_start_at	timestamp with time zone	YES
+portes_ouvertes_registration	6	slot_end_at	timestamp with time zone	YES
+portes_ouvertes_registration	7	first_name	text	NO
+portes_ouvertes_registration	8	last_name	text	NO
+portes_ouvertes_registration	9	email	text	NO
+portes_ouvertes_registration	10	phone	text	YES
+portes_ouvertes_registration	11	children_info	text	YES
+portes_ouvertes_registration	12	child_first_name	text	YES
+portes_ouvertes_registration	13	child_last_name	text	YES
+portes_ouvertes_registration	14	cycle	text	YES
+portes_ouvertes_registration	15	classe_souhaitee	text	YES
+portes_ouvertes_registration	16	consent	boolean	NO
+portes_ouvertes_registration	17	source	text	YES
+portes_ouvertes_registration	18	recorded_by_user_id	text	YES
+portes_ouvertes_registration	19	recorded_by_name	text	YES
+portes_ouvertes_registration	20	last_modified_by_user_id	text	YES
+portes_ouvertes_registration	21	last_modified_by_name	text	YES
+portes_ouvertes_registration	22	visited_at	timestamp with time zone	YES
+portes_ouvertes_registration	23	follow_up_due_at	timestamp with time zone	YES
+portes_ouvertes_registration	24	follow_up_email_sent_at	timestamp with time zone	YES
+portes_ouvertes_registration	25	created_at	timestamp with time zone	NO
+portes_ouvertes_registration	26	updated_at	timestamp with time zone	YES
+portes_ouvertes_slot	1	etablissement_id	uuid	NO
+portes_ouvertes_slot	2	id	text	NO
+portes_ouvertes_slot	3	cycle	text	NO
+portes_ouvertes_slot	4	label	text	NO
+portes_ouvertes_slot	5	start_at	timestamp with time zone	NO
+portes_ouvertes_slot	6	end_at	timestamp with time zone	NO
+portes_ouvertes_slot	7	max_places	integer	YES
+portes_ouvertes_slot	8	created_at	timestamp with time zone	NO
+portes_ouvertes_slot	9	updated_at	timestamp with time zone	NO
+portes_ouvertes_slot_staff	1	etablissement_id	uuid	NO
+portes_ouvertes_slot_staff	2	id	uuid	NO
+portes_ouvertes_slot_staff	3	slot_id	text	NO
+portes_ouvertes_slot_staff	4	role	text	NO
+portes_ouvertes_slot_staff	5	ref_id	text	NO
+portes_ouvertes_slot_staff	6	display_name	text	NO
+portes_ouvertes_slot_staff	7	meta	jsonb	YES
+portes_ouvertes_slot_staff	8	created_at	timestamp with time zone	NO
+preinscription	1	id	uuid	NO
+preinscription	2	etablissement_id	uuid	NO
+preinscription	3	site_id	text	YES
+preinscription	4	niveau_vise	text	YES
+preinscription	5	filiere_visee	text	YES
+preinscription	6	nom	text	NO
+preinscription	7	prenom	text	NO
+preinscription	8	date_naissance	date	YES
+preinscription	9	lieu_naissance	text	YES
+preinscription	10	demi_pension	boolean	NO
+preinscription	11	etablissement_precedent	text	YES
+preinscription	12	status	text	NO
+preinscription	13	payload	jsonb	YES
+preinscription	14	eleve_id	uuid	YES
+preinscription	15	created_at	timestamp with time zone	NO
+preinscription	16	updated_at	timestamp with time zone	NO
+rate_limit	1	id	text	NO
+rate_limit	2	key	text	NO
+rate_limit	3	count	integer	NO
+rate_limit	4	last_request	bigint	NO
+rdv_inscription_booking	1	id	uuid	NO
+rdv_inscription_booking	2	etablissement_id	uuid	NO
+rdv_inscription_booking	3	direction_id	uuid	NO
+rdv_inscription_booking	4	direction_slug	text	NO
+rdv_inscription_booking	5	google_event_id	text	NO
+rdv_inscription_booking	6	google_calendar_id	text	NO
+rdv_inscription_booking	7	google_html_link	text	YES
+rdv_inscription_booking	8	start_at	timestamp with time zone	NO
+rdv_inscription_booking	9	end_at	timestamp with time zone	NO
+rdv_inscription_booking	10	student_first_name	text	NO
+rdv_inscription_booking	11	student_last_name	text	NO
+rdv_inscription_booking	12	parent_email	text	NO
+rdv_inscription_booking	13	parent_phone	text	NO
+rdv_inscription_booking	14	status	text	NO
+rdv_inscription_booking	15	created_at	timestamp with time zone	NO
+rdv_inscription_booking	16	updated_at	timestamp with time zone	NO
+rdv_inscription_booking	17	confirm_token	text	YES
+rdv_inscription_booking	18	confirm_expires_at	timestamp with time zone	YES
+rdv_inscription_booking	19	confirmed_at	timestamp with time zone	YES
+rdv_inscription_booking	20	niveau_id	text	YES
+rdv_inscription_booking	21	niveau_label	text	YES
+rdv_inscription_booking	22	eleve_id	uuid	YES
+rdv_inscription_booking	23	match_status	text	YES
+rdv_inscription_booking	24	create_new	integer	NO
+rdv_inscription_booking	25	reconfirm_token	text	YES
+rdv_inscription_booking	26	reconfirm_status	text	YES
+rdv_inscription_booking	27	reconfirm_mail_sent_at	timestamp with time zone	YES
+rdv_inscription_booking	28	reconfirmed_at	timestamp with time zone	YES
+rdv_inscription_booking	29	has_pap	text	YES
+rdv_inscription_booking	30	pap_s3_key	text	YES
+rdv_inscription_booking	31	pap_file_name	text	YES
+rdv_inscription_booking	32	pap_mime_type	text	YES
+rdv_inscription_booking	33	pap_bring_to_rdv	integer	NO
+rdv_inscription_booking	34	etablissement_origine_rne	text	YES
+rdv_inscription_booking	35	etablissement_origine_label	text	YES
+rdv_inscription_booking	36	etablissement_origine_adresse	text	YES
+rdv_inscription_booking	37	parent_first_name	text	YES
+rdv_inscription_booking	38	parent_last_name	text	YES
+rdv_inscription_booking	39	rdv_attendee	text	YES
+rdv_inscription_booking	40	admin_cancel_note	text	YES
+rdv_inscription_booking	41	reschedule_token	text	YES
+rdv_inscription_booking	42	reschedule_token_expires_at	timestamp with time zone	YES
+rdv_inscription_booking	43	regime	text	YES
+rdv_inscription_config	1	id	uuid	NO
+rdv_inscription_config	2	etablissement_id	uuid	NO
+rdv_inscription_config	3	enabled	integer	NO
+rdv_inscription_config	4	title	text	NO
+rdv_inscription_config	5	intro	text	NO
+rdv_inscription_config	6	event_title_pattern	text	NO
+rdv_inscription_config	7	notify_email	text	YES
+rdv_inscription_config	8	location	text	NO
+rdv_inscription_config	9	consent_label	text	NO
+rdv_inscription_config	10	horizon_days	integer	NO
+rdv_inscription_config	11	google_linked	integer	NO
+rdv_inscription_config	12	google_linked_email	text	YES
+rdv_inscription_config	13	google_linked_at	timestamp with time zone	YES
+rdv_inscription_config	14	created_at	timestamp with time zone	NO
+rdv_inscription_config	15	updated_at	timestamp with time zone	NO
+rdv_inscription_config	16	google_refresh_token	text	YES
+rdv_inscription_direction	1	id	uuid	NO
+rdv_inscription_direction	2	etablissement_id	uuid	NO
+rdv_inscription_direction	3	slug	text	NO
+rdv_inscription_direction	4	label	text	NO
+rdv_inscription_direction	5	google_calendar_id	text	NO
+rdv_inscription_direction	6	directrice_display_name	text	YES
+rdv_inscription_direction	7	active	integer	NO
+rdv_inscription_direction	8	sort_order	integer	NO
+rdv_inscription_direction	9	created_at	timestamp with time zone	NO
+rdv_inscription_direction	10	updated_at	timestamp with time zone	NO
+rdv_inscription_direction	11	title	text	NO
+rdv_inscription_direction	12	intro	text	NO
+rdv_inscription_direction	13	event_title_pattern	text	NO
+rdv_inscription_direction	14	notify_email	text	YES
+rdv_inscription_direction	15	location	text	NO
+rdv_inscription_direction	16	consent_label	text	NO
+rdv_inscription_direction	17	horizon_days	integer	NO
+rdv_inscription_direction	18	release_min_hours	integer	NO
+rdv_inscription_email_gate	1	id	uuid	NO
+rdv_inscription_email_gate	2	etablissement_id	uuid	NO
+rdv_inscription_email_gate	3	direction_slug	text	NO
+rdv_inscription_email_gate	4	parent_email	text	NO
+rdv_inscription_email_gate	5	token	text	NO
+rdv_inscription_email_gate	6	expires_at	timestamp with time zone	NO
+rdv_inscription_email_gate	7	verified_at	timestamp with time zone	YES
+rdv_inscription_email_gate	8	created_at	timestamp with time zone	NO
+ref_etablissement	1	id	uuid	NO
+ref_etablissement	2	code_rne	text	NO
+ref_etablissement	3	code_nature	text	YES
+ref_etablissement	4	code_type	text	YES
+ref_etablissement	5	code_secteur	text	YES
+ref_etablissement	6	sigle	text	YES
+ref_etablissement	7	denom_princ	text	YES
+ref_etablissement	8	denom_compl	text	YES
+ref_etablissement	9	adresse	text	YES
+ref_etablissement	10	date_ouverture	date	YES
+ref_etablissement	11	date_fermeture	date	YES
+ref_etablissement	12	source	text	NO
+ref_etablissement	13	created_at	timestamp with time zone	NO
+ref_etablissement	14	updated_at	timestamp with time zone	NO
+ref_nomenclature	1	id	uuid	NO
+ref_nomenclature	2	etablissement_id	uuid	NO
+ref_nomenclature	3	type	text	NO
+ref_nomenclature	4	code	text	NO
+ref_nomenclature	5	libelle_court	text	YES
+ref_nomenclature	6	libelle_long	text	YES
+ref_nomenclature	7	source	text	NO
+ref_nomenclature	8	metadata_json	jsonb	YES
+ref_nomenclature	9	valid_from	date	YES
+ref_nomenclature	10	valid_to	date	YES
+ref_nomenclature	11	created_at	timestamp with time zone	NO
+ref_nomenclature	12	updated_at	timestamp with time zone	NO
+ref_nomenclature	13	cycle	text	NO
+request	1	id	text	NO
+request	2	etablissement_id	uuid	NO
+request	3	created_at	timestamp with time zone	NO
+request	4	updated_at	timestamp with time zone	NO
+request	5	status	text	NO
+request	6	category	text	NO
+request	7	subject	text	NO
+request	8	description	text	NO
+request	9	requester_first_name	text	NO
+request	10	requester_last_name	text	NO
+request	11	requester_full_name	text	NO
+request	12	requester_email	text	NO
+request	13	requester_phone	text	NO
+request	14	requester_user_id	text	YES
+request	15	assigned_unit	text	NO
+request	16	assigned_role_label	text	NO
+request	17	assigned_email	text	NO
+request	18	assigned_route_id	text	YES
+request	19	purge_at	timestamp with time zone	YES
+request_attachment	1	id	text	NO
+request_attachment	2	etablissement_id	uuid	NO
+request_attachment	3	request_id	text	NO
+request_attachment	4	comment_id	text	YES
+request_attachment	5	file_name	text	NO
+request_attachment	6	s3_key	text	NO
+request_attachment	7	content_type	text	YES
+request_attachment	8	sort_order	integer	NO
+request_attr	1	etablissement_id	uuid	NO
+request_attr	2	request_id	text	NO
+request_attr	3	path	text	NO
+request_attr	4	value	text	NO
+request_comment	1	id	text	NO
+request_comment	2	etablissement_id	uuid	NO
+request_comment	3	request_id	text	NO
+request_comment	4	at	text	NO
+request_comment	5	by_name	text	NO
+request_comment	6	by_email	text	NO
+request_comment	7	by_user_id	text	YES
+request_comment	8	body	text	NO
+request_comment	9	sort_order	integer	NO
+request_history	1	id	uuid	NO
+request_history	2	etablissement_id	uuid	NO
+request_history	3	request_id	text	NO
+request_history	4	at	text	NO
+request_history	5	by	text	NO
+request_history	6	action	text	NO
+request_history	7	note	text	YES
+request_history	8	sort_order	integer	NO
+request_org	1	etablissement_id	uuid	NO
+request_org	2	updated_at	timestamp with time zone	NO
+request_org_attr	1	etablissement_id	uuid	NO
+request_org_attr	2	path	text	NO
+request_org_attr	3	value	text	NO
+request_routing	1	etablissement_id	uuid	NO
+request_routing	2	updated_at	timestamp with time zone	NO
+request_routing_attr	1	etablissement_id	uuid	NO
+request_routing_attr	2	path	text	NO
+request_routing_attr	3	value	text	NO
+reservation_room	1	etablissement_id	uuid	NO
+reservation_room	2	id	text	NO
+reservation_room	3	name	text	NO
+reservation_room	4	building	text	YES
+reservation_room	5	sort_order	integer	NO
+reservation_room	6	created_at	timestamp with time zone	NO
+reservation_room	7	updated_at	timestamp with time zone	NO
+reservation_room	8	kind	text	NO
+reservation_room	9	bookable	boolean	NO
+reservation_room_booking	1	etablissement_id	uuid	NO
+reservation_room_booking	2	id	text	NO
+reservation_room_booking	3	room_id	text	NO
+reservation_room_booking	4	group_id	text	YES
+reservation_room_booking	5	user_id	text	NO
+reservation_room_booking	6	first_name	text	NO
+reservation_room_booking	7	last_name	text	NO
+reservation_room_booking	8	booked_by_first_name	text	NO
+reservation_room_booking	9	booked_by_last_name	text	NO
+reservation_room_booking	10	booked_for_other	boolean	NO
+reservation_room_booking	11	email	text	YES
+reservation_room_booking	12	subject	text	YES
+reservation_room_booking	13	class_name	text	YES
+reservation_room_booking	14	comment	text	YES
+reservation_room_booking	15	starts_at	text	NO
+reservation_room_booking	16	ends_at	text	NO
+reservation_room_booking	17	status	text	NO
+reservation_room_booking	18	cancelled_at	text	YES
+reservation_room_booking	19	cancelled_by	text	YES
+reservation_room_booking	20	cancel_reason	text	YES
+reservation_room_booking	21	created_at	timestamp with time zone	NO
+reservation_room_booking	22	updated_at	timestamp with time zone	NO
+reservation_room_booking	23	booked_by_user_id	text	YES
+sante_accident	1	id	uuid	NO
+sante_accident	2	etablissement_id	uuid	NO
+sante_accident	3	eleve_id	uuid	NO
+sante_accident	4	date_accident	date	NO
+sante_accident	5	circonstances	text	NO
+sante_accident	6	soins	text	NO
+sante_accident	7	suite	text	NO
+sante_accident	8	lieu	text	YES
+sante_accident	9	auteur_user_id	text	YES
+sante_accident	10	auteur_nom	text	YES
+sante_accident	11	created_at	timestamp with time zone	NO
+sante_accident	12	updated_at	timestamp with time zone	NO
+sante_extrait	1	id	uuid	NO
+sante_extrait	2	etablissement_id	uuid	NO
+sante_extrait	3	eleve_id	uuid	NO
+sante_extrait	4	portee	text	NO
+sante_extrait	5	libelle	text	NO
+sante_extrait	6	document_id	uuid	YES
+sante_extrait	7	actif	boolean	NO
+sante_extrait	8	created_at	timestamp with time zone	NO
+sante_extrait	9	updated_at	timestamp with time zone	NO
+sante_inaptitude_eps	1	id	uuid	NO
+sante_inaptitude_eps	2	etablissement_id	uuid	NO
+sante_inaptitude_eps	3	eleve_id	uuid	NO
+sante_inaptitude_eps	4	date_debut	date	NO
+sante_inaptitude_eps	5	date_fin	date	YES
+sante_inaptitude_eps	6	motif	text	NO
+sante_inaptitude_eps	7	libelle_extrait	text	NO
+sante_inaptitude_eps	8	document_id	uuid	YES
+sante_inaptitude_eps	9	extrait_id	uuid	YES
+sante_inaptitude_eps	10	actif	boolean	NO
+sante_inaptitude_eps	11	auteur_user_id	text	YES
+sante_inaptitude_eps	12	auteur_nom	text	YES
+sante_inaptitude_eps	13	created_at	timestamp with time zone	NO
+sante_inaptitude_eps	14	updated_at	timestamp with time zone	NO
+sante_medicament_prise	1	id	uuid	NO
+sante_medicament_prise	2	etablissement_id	uuid	NO
+sante_medicament_prise	3	eleve_id	uuid	NO
+sante_medicament_prise	4	medicament	text	NO
+sante_medicament_prise	5	dose	text	YES
+sante_medicament_prise	6	pris_at	timestamp with time zone	NO
+sante_medicament_prise	7	auteur_user_id	text	YES
+sante_medicament_prise	8	auteur_nom	text	YES
+sante_medicament_prise	9	document_id	uuid	YES
+sante_medicament_prise	10	notes	text	YES
+sante_medicament_prise	11	created_at	timestamp with time zone	NO
+sante_pai	1	id	uuid	NO
+sante_pai	2	etablissement_id	uuid	NO
+sante_pai	3	eleve_id	uuid	NO
+sante_pai	4	statut	text	NO
+sante_pai	5	protocole	text	NO
+sante_pai	6	traitements_autorises	text	NO
+sante_pai	7	document_id	uuid	YES
+sante_pai	8	date_debut	date	YES
+sante_pai	9	date_fin	date	YES
+sante_pai	10	valide_at	timestamp with time zone	YES
+sante_pai	11	valide_par_user_id	text	YES
+sante_pai	12	valide_par_nom	text	YES
+sante_pai	13	notes	text	NO
+sante_pai	14	created_at	timestamp with time zone	NO
+sante_pai	15	updated_at	timestamp with time zone	NO
+school_class_assignment	1	id	uuid	NO
+school_class_assignment	2	etablissement_id	uuid	NO
+school_class_assignment	3	class_name	text	NO
+school_class_assignment	4	class_key	text	NO
+school_class_assignment	5	external_user_id	text	NO
+school_class_assignment	6	name	text	NO
+school_class_assignment	7	email	text	NO
+school_class_assignment	8	created_at	timestamp with time zone	NO
+school_class_assignment	9	updated_at	timestamp with time zone	NO
+school_roster_meta	1	etablissement_id	uuid	NO
+school_roster_meta	3	updated_at	timestamp with time zone	NO
+school_roster_meta	4	updated_by	text	YES
+school_roster_meta	5	teacher_catalog	_text	NO
+scolia_conversation	1	id	text	NO
+scolia_conversation	2	etablissement_id	uuid	NO
+scolia_conversation	3	user_id	text	NO
+scolia_conversation	4	title	text	NO
+scolia_conversation	5	state	jsonb	NO
+scolia_conversation	6	last_message_at	timestamp with time zone	YES
+scolia_conversation	7	archived_at	timestamp with time zone	YES
+scolia_conversation	8	created_at	timestamp with time zone	NO
+scolia_conversation	9	updated_at	timestamp with time zone	NO
+scolia_message	1	id	text	NO
+scolia_message	2	etablissement_id	uuid	NO
+scolia_message	3	conversation_id	text	NO
+scolia_message	4	role	text	NO
+scolia_message	5	content	text	NO
+scolia_message	6	seq	integer	NO
+scolia_message	7	created_at	timestamp with time zone	NO
+security_audit_log	1	id	uuid	NO
+security_audit_log	2	user_id	text	YES
+security_audit_log	3	action	text	NO
+security_audit_log	4	ip_address	text	YES
+security_audit_log	5	user_agent	text	YES
+security_audit_log	6	metadata	jsonb	YES
+security_audit_log	7	created_at	timestamp with time zone	NO
+session	1	id	text	NO
+session	2	expires_at	timestamp with time zone	NO
+session	3	token	text	NO
+session	4	created_at	timestamp with time zone	NO
+session	5	updated_at	timestamp with time zone	NO
+session	6	ip_address	text	YES
+session	7	user_agent	text	YES
+session	8	user_id	text	NO
+sst_campagne	1	id	uuid	NO
+sst_campagne	2	etablissement_id	uuid	NO
+sst_campagne	3	annee_label	text	NO
+sst_campagne	4	title	text	NO
+sst_campagne	5	active	boolean	NO
+sst_campagne	6	created_at	timestamp with time zone	NO
+sst_campagne	7	updated_at	timestamp with time zone	NO
+sst_consultation	1	id	uuid	NO
+sst_consultation	2	etablissement_id	uuid	NO
+sst_consultation	3	campagne_id	uuid	NO
+sst_consultation	4	user_id	text	NO
+sst_consultation	5	first_name	text	NO
+sst_consultation	6	last_name	text	NO
+sst_consultation	7	fonction	text	NO
+sst_consultation	8	consulted_at	timestamp with time zone	NO
+sst_consultation	9	comments	text	NO
+sst_consultation	10	signature_png_base64	text	YES
+sst_consultation	11	created_at	timestamp with time zone	NO
+sst_emargement	1	id	uuid	NO
+sst_emargement	2	etablissement_id	uuid	NO
+sst_emargement	3	campagne_id	uuid	NO
+sst_emargement	4	user_id	text	NO
+sst_emargement	5	first_name	text	NO
+sst_emargement	6	last_name	text	NO
+sst_emargement	7	fonction	text	NO
+sst_emargement	8	signed_at	timestamp with time zone	NO
+sst_emargement	9	signature_png_base64	text	NO
+sst_emargement	10	remarques	text	NO
+sst_emargement	11	created_at	timestamp with time zone	NO
+sst_fiche	1	id	uuid	NO
+sst_fiche	2	etablissement_id	uuid	NO
+sst_fiche	3	campagne_id	uuid	NO
+sst_fiche	4	numero	integer	NO
+sst_fiche	5	created_by_user_id	text	NO
+sst_fiche	6	declarant_first_name	text	NO
+sst_fiche	7	declarant_last_name	text	NO
+sst_fiche	8	declarant_fonction	text	NO
+sst_fiche	9	observed_date	text	NO
+sst_fiche	10	observed_time	text	NO
+sst_fiche	11	lieu	text	NO
+sst_fiche	12	observations	text	NO
+sst_fiche	13	suggestions	text	NO
+sst_fiche	14	signature_png_base64	text	YES
+sst_fiche	15	status	text	NO
+sst_fiche	16	workflow	jsonb	NO
+sst_fiche	17	created_at	timestamp with time zone	NO
+sst_fiche	18	updated_at	timestamp with time zone	NO
+sst_fiche	19	created_by_first_name	text	NO
+sst_fiche	20	created_by_last_name	text	NO
+sst_fiche	21	declarant_user_id	text	NO
+sst_proxy_deposant	1	id	uuid	NO
+sst_proxy_deposant	2	etablissement_id	uuid	NO
+sst_proxy_deposant	3	user_id	text	NO
+sst_proxy_deposant	4	first_name	text	NO
+sst_proxy_deposant	5	last_name	text	NO
+sst_proxy_deposant	6	email	text	NO
+sst_proxy_deposant	7	created_at	timestamp with time zone	NO
+stage_application	1	id	text	NO
+stage_application	2	etablissement_id	uuid	NO
+stage_application	3	offer_id	text	YES
+stage_application	4	status	text	YES
+stage_application	5	updated_at	timestamp with time zone	NO
+stage_application_attr	1	etablissement_id	uuid	NO
+stage_application_attr	2	application_id	text	NO
+stage_application_attr	3	path	text	NO
+stage_application_attr	4	value	text	NO
+stage_convention	1	id	text	NO
+stage_convention	2	etablissement_id	uuid	NO
+stage_convention	3	status	text	YES
+stage_convention	4	updated_at	timestamp with time zone	NO
+stage_convention_attr	1	etablissement_id	uuid	NO
+stage_convention_attr	2	convention_id	text	NO
+stage_convention_attr	3	path	text	NO
+stage_convention_attr	4	value	text	NO
+stage_offer	1	id	text	NO
+stage_offer	2	etablissement_id	uuid	NO
+stage_offer	3	title	text	NO
+stage_offer	4	status	text	YES
+stage_offer	5	updated_at	timestamp with time zone	NO
+stage_offer_attr	1	etablissement_id	uuid	NO
+stage_offer_attr	2	offer_id	text	NO
+stage_offer_attr	3	path	text	NO
+stage_offer_attr	4	value	text	NO
+stage_token	1	token	text	NO
+stage_token	2	etablissement_id	uuid	NO
+stage_token	3	kind	text	NO
+stage_token	4	updated_at	timestamp with time zone	NO
+stage_token_attr	1	etablissement_id	uuid	NO
+stage_token_attr	2	token	text	NO
+stage_token_attr	3	path	text	NO
+stage_token_attr	4	value	text	NO
+tarif	1	id	uuid	NO
+tarif	2	etablissement_id	uuid	NO
+tarif	3	annee_scolaire_id	uuid	YES
+tarif	4	code	text	NO
+tarif	5	libelle	text	NO
+tarif	6	compte_produit	text	YES
+tarif	7	tva_taux	numeric	NO
+tarif	8	periodicite	text	NO
+tarif	9	portee	text	NO
+tarif	10	portee_valeur	text	YES
+tarif	11	prix_unitaire	numeric	NO
+tarif	12	actif	boolean	NO
+tarif	13	created_at	timestamp with time zone	NO
+tarif	14	updated_at	timestamp with time zone	NO
+teacher_planning	1	id	uuid	NO
+teacher_planning	2	etablissement_id	uuid	NO
+teacher_planning	3	external_user_id	text	NO
+teacher_planning	4	source	text	YES
+teacher_planning	5	source_file_name	text	YES
+teacher_planning	6	updated_at	timestamp with time zone	NO
+teacher_planning	7	updated_by	text	NO
+teacher_planning_replacement	1	id	text	NO
+teacher_planning_replacement	2	etablissement_id	uuid	NO
+teacher_planning_replacement	3	planning_id	uuid	NO
+teacher_planning_replacement	4	date	date	NO
+teacher_planning_replacement	5	start_time	text	NO
+teacher_planning_replacement	6	end_time	text	NO
+teacher_planning_replacement	7	subject	text	NO
+teacher_planning_replacement	8	classes	_text	NO
+teacher_planning_replacement	9	room	text	YES
+teacher_planning_replacement	10	note	text	YES
+teacher_planning_replacement	11	created_by	text	NO
+teacher_planning_replacement	12	created_at	timestamp with time zone	NO
+teacher_planning_slot	1	id	text	NO
+teacher_planning_slot	2	etablissement_id	uuid	NO
+teacher_planning_slot	3	planning_id	uuid	NO
+teacher_planning_slot	4	week_type	text	NO
+teacher_planning_slot	5	day	integer	NO
+teacher_planning_slot	6	start_time	text	NO
+teacher_planning_slot	7	end_time	text	NO
+teacher_planning_slot	8	subject	text	NO
+teacher_planning_slot	9	classes	_text	NO
+teacher_planning_slot	10	room	text	YES
+teacher_planning_slot	11	group_id	text	YES
+teacher_planning_slot	12	group_label	text	YES
+tenant_setting_attr	1	etablissement_id	uuid	NO
+tenant_setting_attr	2	section	text	NO
+tenant_setting_attr	3	path	text	NO
+tenant_setting_attr	4	value	text	NO
+tenant_setting_section	1	etablissement_id	uuid	NO
+tenant_setting_section	2	section	text	NO
+tenant_setting_section	3	updated_at	timestamp with time zone	NO
+travel	1	id	text	NO
+travel	2	etablissement_id	uuid	NO
+travel	3	type	text	NO
+travel	4	status	text	NO
+travel	5	owner_name	text	YES
+travel	6	owner_email	text	YES
+travel	7	owner_id	text	YES
+travel	8	created_at	timestamp with time zone	YES
+travel	9	updated_at	timestamp with time zone	YES
+travel	10	image_url	text	YES
+travel	11	image_config_id	text	YES
+travel	12	title	text	YES
+travel	13	destination	text	YES
+travel	14	site_label	text	YES
+travel	15	classes	text	YES
+travel	16	start_date	text	YES
+travel	17	end_date	text	YES
+travel	18	start_time	text	YES
+travel	19	end_time	text	YES
+travel	20	nb_eleves	text	YES
+travel	21	nb_accompagnateurs	text	YES
+travel	22	liste_eleves_status	text	YES
+travel_attr	1	etablissement_id	uuid	NO
+travel_attr	2	travel_id	text	NO
+travel_attr	3	path	text	NO
+travel_attr	4	value	text	NO
+travel_history	1	id	uuid	NO
+travel_history	2	etablissement_id	uuid	NO
+travel_history	3	travel_id	text	NO
+travel_history	4	at	text	NO
+travel_history	5	by	text	NO
+travel_history	6	action	text	NO
+travel_history	7	note	text	YES
+travel_history	8	sort_order	integer	NO
+travel_image_catalog	1	id	text	NO
+travel_image_catalog	2	label	text	NO
+travel_image_catalog	3	url	text	NO
+travel_image_catalog	4	keywords	text	NO
+travel_image_catalog	5	normalize_key	text	NO
+travel_image_catalog	6	source	text	NO
+travel_image_catalog	7	author	text	YES
+travel_image_catalog	8	license	text	YES
+travel_image_catalog	9	attribution_url	text	YES
+travel_image_catalog	10	source_page_url	text	YES
+travel_image_catalog	11	created_at	timestamp with time zone	NO
+travel_image_catalog	12	updated_at	timestamp with time zone	NO
+travel_message	1	id	text	NO
+travel_message	2	etablissement_id	uuid	NO
+travel_message	3	travel_id	text	NO
+travel_message	4	user_label	text	NO
+travel_message	5	role	text	NO
+travel_message	6	body	text	NO
+travel_message	7	at	text	NO
+travel_message	8	sort_order	integer	NO
+travel_message_read	1	id	uuid	NO
+travel_message_read	2	etablissement_id	uuid	NO
+travel_message_read	3	travel_id	text	NO
+travel_message_read	4	user_id	text	NO
+travel_message_read	5	last_read_at	timestamp with time zone	NO
+travel_parent_blog	1	id	uuid	NO
+travel_parent_blog	2	etablissement_id	uuid	NO
+travel_parent_blog	3	travel_id	text	NO
+travel_parent_blog	4	token	text	NO
+travel_parent_blog	5	enabled	boolean	NO
+travel_parent_blog	6	activated_at	timestamp with time zone	NO
+travel_parent_blog	7	expires_at	timestamp with time zone	NO
+travel_parent_blog	8	activated_by_user_id	text	YES
+travel_parent_blog	9	parents_notified_at	timestamp with time zone	YES
+travel_parent_blog	10	purged_at	timestamp with time zone	YES
+travel_parent_blog_photo	1	id	text	NO
+travel_parent_blog_photo	2	etablissement_id	uuid	NO
+travel_parent_blog_photo	3	post_id	text	NO
+travel_parent_blog_photo	4	travel_id	text	NO
+travel_parent_blog_photo	5	s3_key	text	NO
+travel_parent_blog_photo	6	content_type	text	NO
+travel_parent_blog_photo	7	sort_order	integer	NO
+travel_parent_blog_post	1	id	text	NO
+travel_parent_blog_post	2	etablissement_id	uuid	NO
+travel_parent_blog_post	3	travel_id	text	NO
+travel_parent_blog_post	4	author_user_id	text	NO
+travel_parent_blog_post	5	author_name	text	NO
+travel_parent_blog_post	6	body	text	NO
+travel_parent_blog_post	7	created_at	timestamp with time zone	NO
+travel_participant	1	id	uuid	NO
+travel_participant	2	etablissement_id	uuid	NO
+travel_participant	3	travel_id	text	NO
+travel_participant	4	eleve_key	text	NO
+travel_participant	5	nom	text	NO
+travel_participant	6	prenom	text	NO
+travel_participant	7	classe	text	YES
+travel_participant	8	sort_order	integer	NO
+travel_participant	9	droit_image_ok	boolean	NO
+travel_participant	10	panier_repas	boolean	NO
+travel_participant	11	eleve_id	uuid	YES
+tresorerie_compte	1	id	uuid	NO
+tresorerie_compte	2	etablissement_id	uuid	NO
+tresorerie_compte	3	libelle	text	NO
+tresorerie_compte	4	nature	text	NO
+tresorerie_compte	5	actif	boolean	NO
+tresorerie_compte	6	created_at	timestamp with time zone	NO
+tresorerie_compte	7	updated_at	timestamp with time zone	NO
+two_factor	1	id	text	NO
+two_factor	2	secret	text	NO
+two_factor	3	backup_codes	text	NO
+two_factor	4	user_id	text	NO
+two_factor	5	verified	boolean	YES
+two_factor	6	failed_verification_count	integer	YES
+two_factor	7	locked_until	timestamp with time zone	YES
+user	1	id	text	NO
+user	2	name	text	NO
+user	3	email	text	NO
+user	4	email_verified	boolean	NO
+user	5	image	text	YES
+user	6	etablissement_id	uuid	NO
+user	7	external_user_id	text	YES
+user	8	first_name	text	YES
+user	9	last_name	text	YES
+user	10	platform_admin	boolean	NO
+user	11	org_admin	boolean	NO
+user	12	created_at	timestamp with time zone	NO
+user	13	updated_at	timestamp with time zone	NO
+user	14	must_change_password	boolean	NO
+user	15	two_factor_enabled	boolean	NO
+user	16	invitation_sent_at	timestamp with time zone	YES
+user	17	date_naissance	date	YES
+user_membership	1	id	uuid	NO
+user_membership	2	user_id	text	NO
+user_membership	3	etablissement_id	uuid	NO
+user_membership	4	context	text	NO
+user_membership	5	active	boolean	NO
+user_membership	6	created_at	timestamp with time zone	NO
+user_membership	7	updated_at	timestamp with time zone	NO
+user_role	1	id	uuid	NO
+user_role	2	etablissement_id	uuid	NO
+user_role	3	user_id	text	NO
+user_role	4	role	text	NO
+user_role	5	created_at	timestamp with time zone	NO
+verification	1	id	text	NO
+verification	2	identifier	text	NO
+verification	3	value	text	NO
+verification	4	expires_at	timestamp with time zone	NO
+verification	5	created_at	timestamp with time zone	NO
+verification	6	updated_at	timestamp with time zone	NO
+vs_absence_eleve	1	id	uuid	NO
+vs_absence_eleve	2	etablissement_id	uuid	NO
+vs_absence_eleve	3	eleve_id	uuid	NO
+vs_absence_eleve	4	appel_id	uuid	YES
+vs_absence_eleve	5	date_debut	date	NO
+vs_absence_eleve	6	date_fin	date	NO
+vs_absence_eleve	7	type	text	NO
+vs_absence_eleve	8	statut	text	NO
+vs_absence_eleve	9	justifie	boolean	NO
+vs_absence_eleve	10	motif	text	YES
+vs_absence_eleve	11	justificatif_key	text	YES
+vs_absence_eleve	12	relance_at	timestamp with time zone	YES
+vs_absence_eleve	13	traite_par_user_id	text	YES
+vs_absence_eleve	14	traite_at	timestamp with time zone	YES
+vs_absence_eleve	15	note_cpe	text	YES
+vs_absence_eleve	16	created_at	timestamp with time zone	NO
+vs_absence_eleve	17	updated_at	timestamp with time zone	NO
+vs_absence_eleve	18	heure_debut	text	YES
+vs_absence_eleve	19	heure_fin	text	YES
+vs_absence_eleve	20	source	text	NO
+vs_absence_eleve	21	created_by_user_id	text	YES
+vs_absence_eleve	22	created_by_nom	text	YES
+vs_absence_eleve	23	canal	text	YES
+vs_appel	1	id	uuid	NO
+vs_appel	2	etablissement_id	uuid	NO
+vs_appel	3	date_appel	date	NO
+vs_appel	4	creneau_id	uuid	YES
+vs_appel	5	classe	text	NO
+vs_appel	6	heure_debut	text	YES
+vs_appel	7	heure_fin	text	YES
+vs_appel	8	matiere_libelle	text	YES
+vs_appel	9	enseignant_user_id	text	YES
+vs_appel	10	enseignant_nom	text	YES
+vs_appel	11	statut	text	NO
+vs_appel	12	clos_at	timestamp with time zone	YES
+vs_appel	13	created_at	timestamp with time zone	NO
+vs_appel	14	updated_at	timestamp with time zone	NO
+vs_appel_ligne	1	etablissement_id	uuid	NO
+vs_appel_ligne	2	appel_id	uuid	NO
+vs_appel_ligne	3	eleve_id	uuid	NO
+vs_appel_ligne	4	statut	text	NO
+vs_appel_ligne	5	retard_minutes	integer	YES
+vs_appel_ligne	6	note	text	YES
+vs_appel_ligne	7	updated_at	timestamp with time zone	NO
+vs_carnet_entree	1	id	uuid	NO
+vs_carnet_entree	2	etablissement_id	uuid	NO
+vs_carnet_entree	3	eleve_id	uuid	NO
+vs_carnet_entree	4	date_entree	date	NO
+vs_carnet_entree	5	categorie	text	NO
+vs_carnet_entree	6	titre	text	NO
+vs_carnet_entree	7	corps	text	NO
+vs_carnet_entree	8	visible_famille	boolean	NO
+vs_carnet_entree	9	created_by_user_id	text	YES
+vs_carnet_entree	10	created_by_nom	text	YES
+vs_carnet_entree	11	signe_at	timestamp with time zone	YES
+vs_carnet_entree	12	signe_par_user_id	text	YES
+vs_carnet_entree	13	signe_par_nom	text	YES
+vs_carnet_entree	14	created_at	timestamp with time zone	NO
+vs_carnet_entree	15	updated_at	timestamp with time zone	NO
+vs_sanction	1	id	uuid	NO
+vs_sanction	2	etablissement_id	uuid	NO
+vs_sanction	3	eleve_id	uuid	NO
+vs_sanction	4	type_id	uuid	NO
+vs_sanction	5	date_sanction	date	NO
+vs_sanction	6	motif	text	YES
+vs_sanction	7	statut	text	NO
+vs_sanction	8	created_by_user_id	text	YES
+vs_sanction	9	created_by_nom	text	YES
+vs_sanction	10	created_at	timestamp with time zone	NO
+vs_sanction	11	updated_at	timestamp with time zone	NO
+vs_sanction_type	1	id	uuid	NO
+vs_sanction_type	2	etablissement_id	uuid	NO
+vs_sanction_type	3	code	text	NO
+vs_sanction_type	4	libelle	text	NO
+vs_sanction_type	5	gravite	integer	NO
+vs_sanction_type	6	actif	boolean	NO
+vs_sanction_type	7	ordre	integer	NO
+vs_sanction_type	8	created_at	timestamp with time zone	NO
+web_push_preference	1	user_id	text	NO
+web_push_preference	2	etablissement_id	uuid	NO
+web_push_preference	3	muted_kinds	_text	NO
+web_push_preference	4	quiet_start_minute	integer	YES
+web_push_preference	5	quiet_end_minute	integer	YES
+web_push_preference	6	updated_at	timestamp with time zone	NO
+web_push_signal_state	1	user_id	text	NO
+web_push_signal_state	2	etablissement_id	uuid	NO
+web_push_signal_state	3	signal_id	text	NO
+web_push_signal_state	4	count	integer	NO
+web_push_signal_state	5	updated_at	timestamp with time zone	NO
+web_push_subscription	1	id	text	NO
+web_push_subscription	2	etablissement_id	uuid	NO
+web_push_subscription	3	user_id	text	NO
+web_push_subscription	4	endpoint	text	NO
+web_push_subscription	5	p256dh	text	NO
+web_push_subscription	6	auth	text	NO
+web_push_subscription	7	user_agent	text	YES
+web_push_subscription	8	failure_count	integer	NO
+web_push_subscription	9	created_at	timestamp with time zone	NO
+web_push_subscription	10	last_success_at	timestamp with time zone	YES

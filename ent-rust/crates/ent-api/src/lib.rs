@@ -4,10 +4,13 @@
 #[macro_use]
 mod masque;
 pub mod anti_abus;
+pub mod purge;
 mod auth;
 pub mod client_ip;
 mod dossier;
 mod personnels;
+mod personnels_delegations;
+mod personnels_equipes;
 mod personnels_missions;
 mod absences_personnels;
 mod absences_personnels_impact;
@@ -25,6 +28,7 @@ pub mod http_garde;
 mod ical;
 mod finances;
 mod inscriptions;
+mod documents_verif;
 mod internat;
 pub mod obs;
 mod referentiel;
@@ -33,6 +37,7 @@ mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
 mod structure_cours;
+mod structure_groupes;
 mod structure_offre;
 mod structure_periodes;
 mod voyages;
@@ -41,6 +46,8 @@ mod edt_s2;
 mod roles;
 mod routes;
 mod afaire;
+mod recherche;
+mod demandes;
 mod portail;
 mod assiduite;
 mod vie_scolaire;
@@ -310,7 +317,17 @@ mod tests_absences_personnels;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
 #[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p6;
+#[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recherche_p5;
+#[cfg(test)]
+mod tests_palette_p6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_r2;
 #[cfg(all(test, feature = "labo"))]
@@ -339,6 +356,8 @@ mod tests_structure;
 mod tests_structure_s3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_voyages;
 #[cfg(all(test, feature = "labo"))]
@@ -543,8 +562,10 @@ mod tests {
         assert!(res.headers().get("x-request-id").is_some());
         let body = json_body(res).await;
         assert_eq!(body["db"], "up");
-        assert!(body["git_sha"].is_string());
-        assert!(body["version"].is_string());
+        // MSE-D05 : readiness publique minimale, aucun détail de version.
+        assert!(body.get("git_sha").is_none());
+        assert!(body.get("version").is_none());
+        assert!(body.get("migration_tag").is_none());
     }
 
     #[tokio::test]
@@ -2832,10 +2853,17 @@ mod tests {
         let health = app.clone().oneshot(get("/health")).await.unwrap();
         assert_eq!(health.status(), StatusCode::OK);
         let health_json = json_body(health).await;
+        // MSE-D05 : `/health` public ne dit rien de la version ni du schéma.
+        assert_eq!(health_json, serde_json::json!({ "ok": true }));
+        // Le détail reste disponible pour la supervision (ici : accès ouvert de test).
+        let detail = app.clone().oneshot(get("/health/detail")).await.unwrap();
+        assert_eq!(detail.status(), StatusCode::OK);
+        let detail_json = json_body(detail).await;
         assert_eq!(
-            health_json["migration_tag"].as_str(),
+            detail_json["migration_tag"].as_str(),
             Some(ent_db::MIGRATION_TAG)
         );
+        assert!(detail_json["git_sha"].is_string());
 
         // Route paramétrée sans session → 401, mais le gabarit doit apparaître.
         let uuid_brut = Uuid::new_v4();

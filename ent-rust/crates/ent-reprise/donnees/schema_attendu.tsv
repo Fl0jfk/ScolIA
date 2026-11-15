@@ -1,0 +1,1919 @@
+# table	colonne	type	nullable
+absence	id	text	0
+absence	etablissement_id	uuid	0
+absence	created_at	timestamp with time zone	0
+absence	updated_at	timestamp with time zone	0
+absence	source	text	0
+absence	display_name	text	0
+absence	calendar_visible	boolean	0
+absence	created_by_user_id	text	0
+absence	created_by_name	text	0
+absence	created_by_email	text	0
+absence	created_by_roles	_text	0
+absence	scope	text	0
+absence	site_label	text	1
+absence	period_type	text	1
+absence	start_date	date	0
+absence	end_date	date	0
+absence	start_time	text	1
+absence	end_time	text	1
+absence	start_at	timestamp with time zone	0
+absence	end_at	timestamp with time zone	0
+absence	reason	text	0
+absence	details	text	0
+absence	source_document	text	1
+absence	document_keys	_text	0
+absence	confidence	double precision	1
+absence	workflow_status	text	0
+absence	manager_decision	text	0
+absence	closed_at	timestamp with time zone	1
+absence	justification_file_name	text	1
+absence	justification_file_url	text	1
+absence	justification_uploaded_at	timestamp with time zone	1
+absence	justification_uploaded_by	text	1
+absence	manager_note	text	1
+absence	hours_treatment	text	1
+absence	justificatif_relance_at	timestamp with time zone	1
+absence	privacy_reason_redacted	boolean	0
+absence	privacy_documents_purged_at	timestamp with time zone	1
+absence	personnel_id	text	1
+absence	enseignant_id	text	1
+absence	admin_treated_at	timestamp with time zone	1
+absence	admin_treated_by	text	1
+absence	admin_note	text	1
+absence	staff_preferred_treatment	text	1
+absence	staff_preferred_makeup_slots	text	1
+absence	direction_confirmed_makeup_slots	text	1
+absence	makeup_slots_relance_at	timestamp with time zone	1
+absence_history	id	uuid	0
+absence_history	etablissement_id	uuid	0
+absence_history	absence_id	text	0
+absence_history	at	timestamp with time zone	0
+absence_history	by	text	0
+absence_history	action	text	0
+absence_history	note	text	1
+absence_history	sort_order	integer	0
+absence_ingest_job	job_id	text	0
+absence_ingest_job	etablissement_id	uuid	0
+absence_ingest_job	user_id	text	0
+absence_ingest_job	creator_name	text	0
+absence_ingest_job	creator_email	text	0
+absence_ingest_job	creator_roles	_text	0
+absence_ingest_job	status	text	0
+absence_ingest_job	started_at	timestamp with time zone	0
+absence_ingest_job	updated_at	timestamp with time zone	0
+absence_ingest_job	source_file_name	text	0
+absence_ingest_job	document_key	text	0
+absence_ingest_job	processing_started_at	timestamp with time zone	1
+absence_ingest_job	phase	text	1
+absence_ingest_job	error	text	1
+absence_ingest_job	code	text	1
+absence_ingest_job	created_payload	text	1
+absence_ingest_job	parsed_payload	text	1
+absence_ingest_job	locked_at	timestamp with time zone	1
+absence_ingest_job	locked_by	text	1
+absence_message	id	text	0
+absence_message	etablissement_id	uuid	0
+absence_message	absence_id	text	0
+absence_message	at	timestamp with time zone	0
+absence_message	user_id	text	0
+absence_message	user_name	text	0
+absence_message	role_label	text	0
+absence_message	text	text	0
+account	id	text	0
+account	account_id	text	0
+account	provider_id	text	0
+account	user_id	text	0
+account	access_token	text	1
+account	refresh_token	text	1
+account	id_token	text	1
+account	access_token_expires_at	timestamp with time zone	1
+account	refresh_token_expires_at	timestamp with time zone	1
+account	scope	text	1
+account	password	text	1
+account	created_at	timestamp with time zone	0
+account	updated_at	timestamp with time zone	0
+account	issuer	text	0
+annee_bascule	id	uuid	0
+annee_bascule	etablissement_id	uuid	0
+annee_bascule	annee_source_id	uuid	0
+annee_bascule	annee_cible_id	uuid	0
+annee_bascule	statut	text	0
+annee_bascule	valide_par_user_id	text	1
+annee_bascule	valide_at	timestamp with time zone	1
+annee_bascule	created_at	timestamp with time zone	0
+annee_bascule	updated_at	timestamp with time zone	0
+annee_scolaire	id	uuid	0
+annee_scolaire	etablissement_id	uuid	0
+annee_scolaire	label	text	0
+annee_scolaire	starts_on	date	1
+annee_scolaire	ends_on	date	1
+annee_scolaire	is_current	boolean	0
+annee_scolaire	created_at	timestamp with time zone	0
+annee_scolaire	updated_at	timestamp with time zone	0
+app_rate_limit	key	text	0
+app_rate_limit	count	integer	0
+app_rate_limit	reset_at	timestamp with time zone	0
+auth_user_mapping	id	uuid	0
+auth_user_mapping	etablissement_id	uuid	0
+auth_user_mapping	external_user_id	text	0
+auth_user_mapping	user_id	text	0
+auth_user_mapping	migrated_at	timestamp with time zone	0
+bulletin	id	uuid	0
+bulletin	etablissement_id	uuid	0
+bulletin	eleve_id	uuid	0
+bulletin	periode_id	uuid	0
+bulletin	annee_scolaire_id	uuid	1
+bulletin	statut	text	0
+bulletin	appreciation_generale	text	1
+bulletin	publie_at	timestamp with time zone	1
+bulletin	created_at	timestamp with time zone	0
+bulletin	updated_at	timestamp with time zone	0
+bulletin_ligne	id	uuid	0
+bulletin_ligne	etablissement_id	uuid	0
+bulletin_ligne	bulletin_id	uuid	0
+bulletin_ligne	matiere_id	uuid	1
+bulletin_ligne	libelle	text	0
+bulletin_ligne	appreciation	text	1
+bulletin_ligne	moyenne_figee	numeric	1
+bulletin_ligne	ordre	integer	0
+cahier_texte	id	uuid	0
+cahier_texte	etablissement_id	uuid	0
+cahier_texte	annee_scolaire_id	uuid	1
+cahier_texte	date_seance	date	0
+cahier_texte	classe	text	1
+cahier_texte	groupe_id	uuid	1
+cahier_texte	creneau_id	uuid	1
+cahier_texte	matiere_libelle	text	1
+cahier_texte	contenu	text	0
+cahier_texte	travail	text	0
+cahier_texte	a_rendre_le	date	1
+cahier_texte	enseignant_user_id	text	1
+cahier_texte	enseignant_nom	text	1
+cahier_texte	visible_famille	boolean	0
+cahier_texte	created_at	timestamp with time zone	0
+cahier_texte	updated_at	timestamp with time zone	0
+calendrier_scolaire	id	uuid	0
+calendrier_scolaire	etablissement_id	uuid	0
+calendrier_scolaire	annee_scolaire_id	uuid	1
+calendrier_scolaire	label	text	0
+calendrier_scolaire	date_debut	date	0
+calendrier_scolaire	date_fin	date	0
+calendrier_scolaire	type	text	0
+calendrier_scolaire	created_at	timestamp with time zone	0
+certificate_award	id	text	0
+certificate_award	etablissement_id	uuid	0
+certificate_award	program_id	text	1
+certificate_award	status	text	1
+certificate_award	updated_at	timestamp with time zone	0
+certificate_award_attr	etablissement_id	uuid	0
+certificate_award_attr	award_id	text	0
+certificate_award_attr	path	text	0
+certificate_award_attr	value	text	0
+certificate_program	id	text	0
+certificate_program	etablissement_id	uuid	0
+certificate_program	title	text	0
+certificate_program	updated_at	timestamp with time zone	0
+certificate_program_attr	etablissement_id	uuid	0
+certificate_program_attr	program_id	text	0
+certificate_program_attr	path	text	0
+certificate_program_attr	value	text	0
+classe_site_mapping	id	uuid	0
+classe_site_mapping	etablissement_id	uuid	0
+classe_site_mapping	class_key	text	0
+classe_site_mapping	class_name	text	0
+classe_site_mapping	site_id	text	0
+classe_site_mapping	siecle_code	text	1
+classe_site_mapping	created_at	timestamp with time zone	0
+classe_site_mapping	updated_at	timestamp with time zone	0
+conseil_avis	id	uuid	0
+conseil_avis	etablissement_id	uuid	0
+conseil_avis	seance_id	uuid	0
+conseil_avis	eleve_id	uuid	0
+conseil_avis	decision	text	1
+conseil_avis	mention	text	1
+conseil_avis	appreciation	text	1
+conseil_avis	created_at	timestamp with time zone	0
+conseil_avis	updated_at	timestamp with time zone	0
+conseil_seance	id	uuid	0
+conseil_seance	etablissement_id	uuid	0
+conseil_seance	annee_scolaire_id	uuid	1
+conseil_seance	periode_id	uuid	1
+conseil_seance	classe	text	0
+conseil_seance	date_seance	date	0
+conseil_seance	statut	text	0
+conseil_seance	pv	text	1
+conseil_seance	created_at	timestamp with time zone	0
+conseil_seance	updated_at	timestamp with time zone	0
+data_access_audit	id	uuid	0
+data_access_audit	etablissement_id	uuid	0
+data_access_audit	user_id	text	1
+data_access_audit	resource_type	text	0
+data_access_audit	resource_id	text	1
+data_access_audit	action	text	0
+data_access_audit	ip_address	text	1
+data_access_audit	user_agent	text	1
+data_access_audit	metadata	jsonb	1
+data_access_audit	created_at	timestamp with time zone	0
+depense	id	uuid	0
+depense	etablissement_id	uuid	0
+depense	date_depense	date	0
+depense	libelle	text	0
+depense	fournisseur	text	1
+depense	portee	text	0
+depense	montant	numeric	0
+depense	statut	text	0
+depense	travel_id	text	1
+depense	created_at	timestamp with time zone	0
+depense	updated_at	timestamp with time zone	0
+document_access_request	id	uuid	0
+document_access_request	etablissement_id	uuid	0
+document_access_request	document_id	uuid	0
+document_access_request	requester_user_id	text	0
+document_access_request	status	text	0
+document_access_request	duration_days	integer	0
+document_access_request	decided_by_user_id	text	1
+document_access_request	decided_at	timestamp with time zone	1
+document_access_request	expires_at	timestamp with time zone	1
+document_access_request	note	text	1
+document_access_request	created_at	timestamp with time zone	0
+domain_planning_booking	id	text	0
+domain_planning_booking	etablissement_id	uuid	0
+domain_planning_booking	domain_id	text	0
+domain_planning_booking	title	text	1
+domain_planning_booking	starts_at	text	1
+domain_planning_booking	ends_at	text	1
+domain_planning_booking	assignee_external_user_id	text	1
+domain_planning_booking	notes	text	1
+domain_planning_domain	id	text	0
+domain_planning_domain	etablissement_id	uuid	0
+domain_planning_domain	name	text	0
+domain_planning_domain	description	text	1
+domain_planning_domain	color	text	1
+domain_planning_domain	coordinator_external_user_ids	_text	0
+domain_planning_session	id	text	0
+domain_planning_session	etablissement_id	uuid	0
+domain_planning_session	title	text	0
+domain_planning_session	starts_at	text	1
+domain_planning_session	ends_at	text	1
+domain_planning_session	constraint_kind	text	1
+domain_planning_session	capacity	integer	1
+domain_planning_signup	id	text	0
+domain_planning_signup	etablissement_id	uuid	0
+domain_planning_signup	session_id	text	0
+domain_planning_signup	external_user_id	text	1
+domain_planning_signup	display_name	text	1
+domain_planning_signup	email	text	1
+domain_planning_signup	created_at	text	1
+edt_creneau	id	uuid	0
+edt_creneau	etablissement_id	uuid	0
+edt_creneau	annee_scolaire_id	uuid	1
+edt_creneau	jour_semaine	integer	0
+edt_creneau	heure_debut	text	0
+edt_creneau	heure_fin	text	0
+edt_creneau	classe	text	1
+edt_creneau	groupe_id	uuid	1
+edt_creneau	matiere_id	uuid	1
+edt_creneau	enseignant_nom	text	1
+edt_creneau	salle	text	1
+edt_creneau	semaine	text	0
+edt_creneau	created_at	timestamp with time zone	0
+edt_creneau	updated_at	timestamp with time zone	0
+eleve	id	uuid	0
+eleve	etablissement_id	uuid	0
+eleve	source_key	text	0
+eleve	ine	text	1
+eleve	nom	text	0
+eleve	prenom	text	0
+eleve	folder_name	text	0
+eleve	classe	text	1
+eleve	email	text	1
+eleve	parent_email	text	1
+eleve	parent1_email	text	1
+eleve	parent2_email	text	1
+eleve	parent_phone	text	1
+eleve	parent1_phone	text	1
+eleve	parent2_phone	text	1
+eleve	date_naissance	date	1
+eleve	mef	text	1
+eleve	secteur	text	1
+eleve	pilotage_key	text	1
+eleve	created_at	timestamp with time zone	0
+eleve	updated_at	timestamp with time zone	0
+eleve	lieu_naissance	text	1
+eleve	status	text	0
+eleve	regime	text	1
+eleve	sexe	text	1
+eleve	photo_key	text	1
+eleve	lv1	text	1
+eleve	lv2	text	1
+eleve	options	jsonb	1
+eleve	date_sortie	date	1
+eleve_access_audit	id	uuid	0
+eleve_access_audit	etablissement_id	uuid	0
+eleve_access_audit	actor_user_id	text	1
+eleve_access_audit	resource_type	text	0
+eleve_access_audit	resource_id	text	0
+eleve_access_audit	eleve_id	uuid	1
+eleve_access_audit	action	text	0
+eleve_access_audit	metadata	jsonb	1
+eleve_access_audit	created_at	timestamp with time zone	0
+eleve_document	id	uuid	0
+eleve_document	etablissement_id	uuid	0
+eleve_document	eleve_id	uuid	0
+eleve_document	tiroir	text	0
+eleve_document	title	text	0
+eleve_document	mime_type	text	1
+eleve_document	s3_key	text	1
+eleve_document	file_url	text	1
+eleve_document	annee_label	text	1
+eleve_document	confidentialite	text	0
+eleve_document	source	text	0
+eleve_document	created_by_user_id	text	1
+eleve_document	created_at	timestamp with time zone	0
+eleve_document	updated_at	timestamp with time zone	0
+eleve_foyer_link	etablissement_id	uuid	0
+eleve_foyer_link	eleve_id	uuid	0
+eleve_foyer_link	foyer_id	uuid	0
+eleve_foyer_link	relation	text	0
+eleve_foyer_link	created_at	timestamp with time zone	0
+eleve_regime_periode	id	uuid	0
+eleve_regime_periode	etablissement_id	uuid	0
+eleve_regime_periode	eleve_id	uuid	0
+eleve_regime_periode	scolarite_id	uuid	0
+eleve_regime_periode	regime	text	0
+eleve_regime_periode	date_debut	date	0
+eleve_regime_periode	date_fin	date	1
+eleve_regime_periode	created_at	timestamp with time zone	0
+eleve_regime_periode	updated_at	timestamp with time zone	0
+eleve_scolarite	id	uuid	0
+eleve_scolarite	etablissement_id	uuid	0
+eleve_scolarite	eleve_id	uuid	0
+eleve_scolarite	annee_scolaire_id	uuid	1
+eleve_scolarite	site_id	text	1
+eleve_scolarite	classe	text	1
+eleve_scolarite	statut	text	0
+eleve_scolarite	demi_pension	boolean	0
+eleve_scolarite	repas_par_semaine	integer	1
+eleve_scolarite	etablissement_precedent	text	1
+eleve_scolarite	created_at	timestamp with time zone	0
+eleve_scolarite	updated_at	timestamp with time zone	0
+eleve_scolarite	grille_repas	jsonb	1
+encaissement	id	uuid	0
+encaissement	etablissement_id	uuid	0
+encaissement	foyer_id	uuid	0
+encaissement	mode	text	0
+encaissement	montant	numeric	0
+encaissement	date_encaissement	date	0
+encaissement	reference	text	1
+encaissement	created_at	timestamp with time zone	0
+enseignant	id	text	0
+enseignant	etablissement_id	uuid	0
+enseignant	nom	text	0
+enseignant	prenom	text	0
+enseignant	folder_name	text	0
+enseignant	secteur	text	0
+enseignant	email	text	1
+enseignant	email_pro	text	1
+enseignant	created_at	timestamp with time zone	0
+enseignant	updated_at	timestamp with time zone	0
+ent_collection_attr	etablissement_id	uuid	0
+ent_collection_attr	collection	text	0
+ent_collection_attr	record_id	text	0
+ent_collection_attr	path	text	0
+ent_collection_attr	value	text	0
+ent_collection_record	etablissement_id	uuid	0
+ent_collection_record	collection	text	0
+ent_collection_record	record_id	text	0
+ent_collection_record	status	text	1
+ent_collection_record	updated_at	timestamp with time zone	0
+etablissement	id	uuid	0
+etablissement	slug	text	0
+etablissement	name	text	0
+etablissement	data_bucket	text	1
+etablissement	created_at	timestamp with time zone	0
+etablissement	updated_at	timestamp with time zone	0
+etablissement_site	etablissement_id	uuid	0
+etablissement_site	site_id	text	0
+etablissement_site	label	text	0
+etablissement_site	kind	text	1
+etablissement_site	director_name	text	1
+etablissement_site	director_email	text	1
+etablissement_site	director_external_user_id	text	1
+etablissement_site	color_hex	text	1
+etablissement_site	signature_s3_key	text	1
+etablissement_site	grades	text	1
+etablissement_site	active	boolean	0
+etablissement_site	created_at	timestamp with time zone	0
+etablissement_site	updated_at	timestamp with time zone	0
+etablissement_site	role_slugs	_text	0
+export_academique	id	uuid	0
+export_academique	etablissement_id	uuid	0
+export_academique	canal	text	0
+export_academique	annee_scolaire_id	uuid	1
+export_academique	periode_id	uuid	1
+export_academique	statut	text	0
+export_academique	genere_at	timestamp with time zone	1
+export_academique	envoye_at	timestamp with time zone	1
+export_academique	created_at	timestamp with time zone	0
+facture	id	uuid	0
+facture	etablissement_id	uuid	0
+facture	foyer_id	uuid	0
+facture	annee_scolaire_id	uuid	1
+facture	numero	text	0
+facture	statut	text	0
+facture	date_emission	date	1
+facture	date_echeance	date	1
+facture	total_ht	numeric	0
+facture	total_ttc	numeric	0
+facture	pdf_key	text	1
+facture	created_at	timestamp with time zone	0
+facture	updated_at	timestamp with time zone	0
+facture	nature	text	0
+facture	facture_origine_id	uuid	1
+facture_echeance	id	uuid	0
+facture_echeance	etablissement_id	uuid	0
+facture_echeance	facture_id	uuid	0
+facture_echeance	date_echeance	date	0
+facture_echeance	montant	numeric	0
+facture_echeance	ordre	integer	0
+facture_encaissement	etablissement_id	uuid	0
+facture_encaissement	facture_id	uuid	0
+facture_encaissement	encaissement_id	uuid	0
+facture_encaissement	montant	numeric	0
+facture_ligne	id	uuid	0
+facture_ligne	etablissement_id	uuid	0
+facture_ligne	facture_id	uuid	0
+facture_ligne	eleve_id	uuid	1
+facture_ligne	tarif_id	uuid	1
+facture_ligne	libelle	text	0
+facture_ligne	periode	text	1
+facture_ligne	quantite	numeric	0
+facture_ligne	prix_unitaire	numeric	0
+facture_ligne	remise	numeric	0
+facture_ligne	total_ht	numeric	0
+facture_ligne	total_ttc	numeric	0
+facture_ligne	ordre	integer	0
+famille_messaging_settings	etablissement_id	uuid	0
+famille_messaging_settings	roles_can_initiate	jsonb	0
+famille_messaging_settings	prof_own_classes_only	boolean	0
+famille_messaging_settings	allow_broadcast	boolean	0
+famille_messaging_settings	allow_parent_attachments	boolean	0
+famille_messaging_settings	updated_at	timestamp with time zone	0
+famille_messaging_settings	updated_by_user_id	text	1
+famille_notif	id	uuid	0
+famille_notif	etablissement_id	uuid	0
+famille_notif	foyer_id	uuid	0
+famille_notif	thread_id	uuid	1
+famille_notif	kind	text	0
+famille_notif	titre	text	0
+famille_notif	preview	text	0
+famille_notif	created_at	timestamp with time zone	0
+famille_notif	lu_at	timestamp with time zone	1
+famille_thread	id	uuid	0
+famille_thread	etablissement_id	uuid	0
+famille_thread	foyer_id	uuid	0
+famille_thread	eleve_id	uuid	1
+famille_thread	sujet	text	0
+famille_thread	created_by_user_id	text	1
+famille_thread	created_by_nom	text	1
+famille_thread	last_message_at	timestamp with time zone	0
+famille_thread	created_at	timestamp with time zone	0
+famille_thread	updated_at	timestamp with time zone	0
+famille_thread	is_broadcast	boolean	0
+famille_thread_attachment	id	uuid	0
+famille_thread_attachment	etablissement_id	uuid	0
+famille_thread_attachment	message_id	uuid	0
+famille_thread_attachment	file_name	text	0
+famille_thread_attachment	mime	text	0
+famille_thread_attachment	size	integer	0
+famille_thread_attachment	s3_key	text	1
+famille_thread_attachment	content_base64	text	1
+famille_thread_attachment	created_at	timestamp with time zone	0
+famille_thread_message	id	uuid	0
+famille_thread_message	etablissement_id	uuid	0
+famille_thread_message	thread_id	uuid	0
+famille_thread_message	auteur_cote	text	0
+famille_thread_message	auteur_user_id	text	1
+famille_thread_message	auteur_nom	text	1
+famille_thread_message	corps	text	0
+famille_thread_message	lu_at	timestamp with time zone	1
+famille_thread_message	created_at	timestamp with time zone	0
+fd_campagne	id	uuid	0
+fd_campagne	etablissement_id	uuid	0
+fd_campagne	annee_scolaire_id	uuid	1
+fd_campagne	label	text	0
+fd_campagne	annee_label	text	0
+fd_campagne	site_key	text	1
+fd_campagne	calendrier_mode	text	0
+fd_campagne	template_key	text	1
+fd_campagne	statut	text	0
+fd_campagne	catalogue	jsonb	0
+fd_campagne	appel_config	jsonb	0
+fd_campagne	delai_famille_jours	integer	0
+fd_campagne	classes_cibles	jsonb	0
+fd_campagne	created_by_user_id	text	1
+fd_campagne	opened_at	timestamp with time zone	1
+fd_campagne	closed_at	timestamp with time zone	1
+fd_campagne	created_at	timestamp with time zone	0
+fd_campagne	updated_at	timestamp with time zone	0
+fd_campagne	starter_mode	text	0
+fd_campagne	contact_pp_label	text	1
+fd_campagne	niveau_actuel	text	1
+fd_campagne	eleve_ids_cibles	jsonb	0
+fd_etape	id	uuid	0
+fd_etape	etablissement_id	uuid	0
+fd_etape	campagne_id	uuid	0
+fd_etape	ordre	integer	0
+fd_etape	kind	text	0
+fd_etape	label	text	0
+fd_etape	description	text	1
+fd_etape	opens_at	timestamp with time zone	1
+fd_etape	closes_at	timestamp with time zone	1
+fd_etape	conseil_date	date	1
+fd_etape	optionnelle	boolean	0
+fd_etape	gelee	boolean	0
+fd_etape	frozen_at	timestamp with time zone	1
+fd_etape	created_at	timestamp with time zone	0
+fd_etape	updated_at	timestamp with time zone	0
+fd_fiche	id	uuid	0
+fd_fiche	etablissement_id	uuid	0
+fd_fiche	campagne_id	uuid	0
+fd_fiche	eleve_id	uuid	0
+fd_fiche	eleve_nom	text	0
+fd_fiche	eleve_prenom	text	0
+fd_fiche	classe_actuelle	text	0
+fd_fiche	options_actuelles	jsonb	0
+fd_fiche	parent_emails	jsonb	0
+fd_fiche	statut	text	0
+fd_fiche	etape_courante_id	uuid	1
+fd_fiche	last_sent_at	timestamp with time zone	1
+fd_fiche	last_reminder_at	timestamp with time zone	1
+fd_fiche	reminder_count	integer	0
+fd_fiche	acceptation	jsonb	1
+fd_fiche	accepted_at	timestamp with time zone	1
+fd_fiche	refused_at	timestamp with time zone	1
+fd_fiche	closed_at	timestamp with time zone	1
+fd_fiche	created_at	timestamp with time zone	0
+fd_fiche	updated_at	timestamp with time zone	0
+fd_fiche	eleve_date_naissance	date	1
+fd_fiche	eleve_photo_key	text	1
+fd_fiche	parent_accord	jsonb	1
+fd_fiche	conflict_payload	jsonb	1
+fd_fiche	eleve_ine	text	1
+fd_fiche	eleve_mef	text	1
+fd_fiche	appel	jsonb	1
+fd_pdf_archive	id	uuid	0
+fd_pdf_archive	etablissement_id	uuid	0
+fd_pdf_archive	fiche_id	uuid	0
+fd_pdf_archive	etape_id	uuid	1
+fd_pdf_archive	kind	text	0
+fd_pdf_archive	title	text	0
+fd_pdf_archive	s3_key	text	1
+fd_pdf_archive	eleve_document_id	uuid	1
+fd_pdf_archive	created_at	timestamp with time zone	0
+fd_pdf_archive	pdf_base64	text	1
+fd_reponse	id	uuid	0
+fd_reponse	etablissement_id	uuid	0
+fd_reponse	fiche_id	uuid	0
+fd_reponse	etape_id	uuid	0
+fd_reponse	auteur_role	text	0
+fd_reponse	auteur_user_id	text	1
+fd_reponse	auteur_label	text	1
+fd_reponse	payload	jsonb	0
+fd_reponse	submitted_at	timestamp with time zone	0
+fd_reponse	created_at	timestamp with time zone	0
+fd_signature	id	uuid	0
+fd_signature	etablissement_id	uuid	0
+fd_signature	fiche_id	uuid	0
+fd_signature	etape_id	uuid	0
+fd_signature	role	text	0
+fd_signature	signer_name	text	0
+fd_signature	signer_email	text	1
+fd_signature	method	text	0
+fd_signature	signature_png_base64	text	1
+fd_signature	signed_at	timestamp with time zone	0
+fd_signature	created_at	timestamp with time zone	0
+fd_token	id	uuid	0
+fd_token	etablissement_id	uuid	0
+fd_token	fiche_id	uuid	0
+fd_token	etape_id	uuid	1
+fd_token	token	text	0
+fd_token	secure_code	text	1
+fd_token	email	text	1
+fd_token	purpose	text	0
+fd_token	expires_at	timestamp with time zone	1
+fd_token	used_at	timestamp with time zone	1
+fd_token	revoked_at	timestamp with time zone	1
+fd_token	created_at	timestamp with time zone	0
+foyer	id	uuid	0
+foyer	etablissement_id	uuid	0
+foyer	label	text	0
+foyer	adresse	text	1
+foyer	code_postal	text	1
+foyer	ville	text	1
+foyer	payeur_est_foyer	boolean	0
+foyer	created_at	timestamp with time zone	0
+foyer	updated_at	timestamp with time zone	0
+foyer_facturation	id	uuid	0
+foyer_facturation	etablissement_id	uuid	0
+foyer_facturation	foyer_id	uuid	0
+foyer_facturation	code_auxiliaire	text	1
+foyer_facturation	categorie_quotient	text	1
+foyer_facturation	quotient_familial	numeric	1
+foyer_facturation	iban	text	1
+foyer_facturation	bic	text	1
+foyer_facturation	rum	text	1
+foyer_facturation	mandat_date	date	1
+foyer_facturation	accepte_prelevement	boolean	0
+foyer_facturation	created_at	timestamp with time zone	0
+foyer_facturation	updated_at	timestamp with time zone	0
+foyer_responsable	id	uuid	0
+foyer_responsable	etablissement_id	uuid	0
+foyer_responsable	foyer_id	uuid	0
+foyer_responsable	nom	text	0
+foyer_responsable	prenom	text	0
+foyer_responsable	email	text	1
+foyer_responsable	telephone	text	1
+foyer_responsable	autorite_parentale	boolean	0
+foyer_responsable	contact_urgence	boolean	0
+foyer_responsable	payeur	boolean	0
+foyer_responsable	rang	integer	0
+foyer_responsable	user_id	text	1
+foyer_responsable	created_at	timestamp with time zone	0
+foyer_responsable	updated_at	timestamp with time zone	0
+foyer_responsable	peut_recuperer	boolean	0
+groupe_pedagogique	id	uuid	0
+groupe_pedagogique	etablissement_id	uuid	0
+groupe_pedagogique	annee_scolaire_id	uuid	1
+groupe_pedagogique	code	text	0
+groupe_pedagogique	libelle	text	0
+groupe_pedagogique	type	text	0
+groupe_pedagogique	created_at	timestamp with time zone	0
+groupe_pedagogique	updated_at	timestamp with time zone	0
+groupe_pedagogique_membre	etablissement_id	uuid	0
+groupe_pedagogique_membre	groupe_id	uuid	0
+groupe_pedagogique_membre	eleve_id	uuid	0
+groupe_pedagogique_membre	created_at	timestamp with time zone	0
+infirmerie_fiche	id	uuid	0
+infirmerie_fiche	etablissement_id	uuid	0
+infirmerie_fiche	eleve_id	uuid	0
+infirmerie_fiche	antecedents	text	0
+infirmerie_fiche	personnes_a_prevenir	text	0
+infirmerie_fiche	notes	text	0
+infirmerie_fiche	updated_at	timestamp with time zone	0
+infirmerie_fiche	created_at	timestamp with time zone	0
+infirmerie_passage	id	uuid	0
+infirmerie_passage	etablissement_id	uuid	0
+infirmerie_passage	eleve_id	uuid	0
+infirmerie_passage	arrivee	timestamp with time zone	0
+infirmerie_passage	sortie	timestamp with time zone	1
+infirmerie_passage	motif_court	text	0
+infirmerie_passage	signal_vie_scolaire	boolean	0
+infirmerie_passage	auteur_user_id	text	1
+infirmerie_passage	auteur_nom	text	1
+infirmerie_passage	created_at	timestamp with time zone	0
+infirmerie_passage	updated_at	timestamp with time zone	0
+infirmerie_passage	suite	text	1
+infirmerie_passage	soins_notes	text	1
+infirmerie_passage	contexte	text	0
+internat_affectation	id	uuid	0
+internat_affectation	etablissement_id	uuid	0
+internat_affectation	chambre_id	uuid	0
+internat_affectation	eleve_id	uuid	0
+internat_affectation	annee_scolaire_id	uuid	1
+internat_affectation	date_debut	date	0
+internat_affectation	date_fin	date	1
+internat_affectation	created_at	timestamp with time zone	0
+internat_affectation	updated_at	timestamp with time zone	0
+internat_appel	id	uuid	0
+internat_appel	etablissement_id	uuid	0
+internat_appel	batiment_id	uuid	1
+internat_appel	date_appel	date	0
+internat_appel	statut	text	0
+internat_appel	valide_at	timestamp with time zone	1
+internat_appel	created_at	timestamp with time zone	0
+internat_appel	updated_at	timestamp with time zone	0
+internat_appel_ligne	id	uuid	0
+internat_appel_ligne	etablissement_id	uuid	0
+internat_appel_ligne	appel_id	uuid	0
+internat_appel_ligne	eleve_id	uuid	0
+internat_appel_ligne	marque	text	0
+internat_appel_ligne	note	text	1
+internat_appel_ligne	updated_at	timestamp with time zone	0
+internat_batiment	id	uuid	0
+internat_batiment	etablissement_id	uuid	0
+internat_batiment	label	text	0
+internat_batiment	notes	text	1
+internat_batiment	created_at	timestamp with time zone	0
+internat_batiment	updated_at	timestamp with time zone	0
+internat_chambre	id	uuid	0
+internat_chambre	etablissement_id	uuid	0
+internat_chambre	batiment_id	uuid	0
+internat_chambre	label	text	0
+internat_chambre	etage	text	1
+internat_chambre	capacite	integer	0
+internat_chambre	aile	text	1
+internat_chambre	created_at	timestamp with time zone	0
+internat_chambre	updated_at	timestamp with time zone	0
+internat_sortie	id	uuid	0
+internat_sortie	etablissement_id	uuid	0
+internat_sortie	eleve_id	uuid	0
+internat_sortie	date_debut	date	0
+internat_sortie	date_fin	date	0
+internat_sortie	motif	text	1
+internat_sortie	created_at	timestamp with time zone	0
+internat_sortie	updated_at	timestamp with time zone	0
+invitation_eligible	id	uuid	0
+invitation_eligible	etablissement_id	uuid	0
+invitation_eligible	page_id	uuid	0
+invitation_eligible	eleve_first_name	text	0
+invitation_eligible	eleve_last_name	text	0
+invitation_eligible	eleve_name_norm	text	0
+invitation_eligible	birth_date	date	1
+invitation_eligible	diploma	text	1
+invitation_eligible	created_at	timestamp with time zone	0
+invitation_page	id	uuid	0
+invitation_page	etablissement_id	uuid	0
+invitation_page	slug	text	0
+invitation_page	title	text	0
+invitation_page	intro	text	0
+invitation_page	theme	text	0
+invitation_page	enabled	integer	0
+invitation_page	starts_at	timestamp with time zone	1
+invitation_page	ends_at	timestamp with time zone	1
+invitation_page	location	text	0
+invitation_page	diploma_mode	text	0
+invitation_page	max_total_persons	integer	0
+invitation_page	max_persons_per_eleve	integer	0
+invitation_page	notify_email	text	1
+invitation_page	created_at	timestamp with time zone	0
+invitation_page	updated_at	timestamp with time zone	0
+invitation_page	require_eligible	integer	0
+invitation_page	ask_situation	text	0
+invitation_page	rsvp_closes_at	timestamp with time zone	1
+invitation_rsvp	id	uuid	0
+invitation_rsvp	etablissement_id	uuid	0
+invitation_rsvp	page_id	uuid	0
+invitation_rsvp	eleve_first_name	text	0
+invitation_rsvp	eleve_last_name	text	0
+invitation_rsvp	eleve_name_norm	text	0
+invitation_rsvp	response	text	0
+invitation_rsvp	present_count	integer	0
+invitation_rsvp	parent_email	text	0
+invitation_rsvp	diploma	text	1
+invitation_rsvp	duplicate_group_id	uuid	1
+invitation_rsvp	duplicate_dismissed_at	timestamp with time zone	1
+invitation_rsvp	created_at	timestamp with time zone	0
+invitation_rsvp	updated_at	timestamp with time zone	0
+invitation_rsvp	situation_status	text	1
+invitation_rsvp	situation_detail	text	0
+invitation_rsvp	situation_establishment	text	0
+invitation_rsvp	birth_date	date	1
+invitation_rsvp	eligible_id	uuid	1
+messaging_attachment	id	text	0
+messaging_attachment	etablissement_id	uuid	0
+messaging_attachment	message_id	text	0
+messaging_attachment	s3_key	text	0
+messaging_attachment	mime	text	0
+messaging_attachment	size	integer	0
+messaging_attachment	file_name	text	0
+messaging_attachment	width	integer	1
+messaging_attachment	height	integer	1
+messaging_attachment	created_at	timestamp with time zone	0
+messaging_call_ring	id	text	0
+messaging_call_ring	call_id	text	0
+messaging_call_ring	etablissement_id	uuid	0
+messaging_call_ring	conversation_id	text	0
+messaging_call_ring	from_user_id	text	0
+messaging_call_ring	from_name	text	0
+messaging_call_ring	to_user_id	text	0
+messaging_call_ring	title	text	0
+messaging_call_ring	kind	text	0
+messaging_call_ring	status	text	0
+messaging_call_ring	created_at	timestamp with time zone	0
+messaging_call_ring	expires_at	timestamp with time zone	0
+messaging_conversation	id	text	0
+messaging_conversation	etablissement_id	uuid	0
+messaging_conversation	user_a_id	text	0
+messaging_conversation	user_b_id	text	0
+messaging_conversation	last_message_at	timestamp with time zone	1
+messaging_conversation	created_at	timestamp with time zone	0
+messaging_conversation	updated_at	timestamp with time zone	0
+messaging_message	id	text	0
+messaging_message	etablissement_id	uuid	0
+messaging_message	conversation_id	text	0
+messaging_message	sender_id	text	0
+messaging_message	type	text	0
+messaging_message	body	text	1
+messaging_message	reply_to_id	text	1
+messaging_message	forwarded_from_id	text	1
+messaging_message	edited_at	timestamp with time zone	1
+messaging_message	deleted_at	timestamp with time zone	1
+messaging_message	created_at	timestamp with time zone	0
+messaging_message	mention_user_ids	_text	0
+messaging_message	pinned_at	timestamp with time zone	1
+messaging_message	pinned_by_id	text	1
+messaging_participant	id	text	0
+messaging_participant	etablissement_id	uuid	0
+messaging_participant	conversation_id	text	0
+messaging_participant	user_id	text	0
+messaging_participant	last_read_at	timestamp with time zone	0
+messaging_participant	last_read_message_id	text	1
+messaging_participant	muted	boolean	0
+messaging_participant	created_at	timestamp with time zone	0
+messaging_participant	last_delivered_at	timestamp with time zone	1
+messaging_participant	last_delivered_message_id	text	1
+messaging_participant	hidden_at	timestamp with time zone	1
+messaging_participant	pinned_at	timestamp with time zone	1
+messaging_participant	marked_unread_at	timestamp with time zone	1
+messaging_presence	user_id	text	0
+messaging_presence	etablissement_id	uuid	0
+messaging_presence	status	text	0
+messaging_presence	connections	integer	0
+messaging_presence	manual_status	text	1
+messaging_presence	manual_until	timestamp with time zone	1
+messaging_presence	last_seen_at	timestamp with time zone	0
+messaging_presence	updated_at	timestamp with time zone	0
+messaging_reaction	id	text	0
+messaging_reaction	etablissement_id	uuid	0
+messaging_reaction	message_id	text	0
+messaging_reaction	user_id	text	0
+messaging_reaction	emoji	text	0
+messaging_reaction	created_at	timestamp with time zone	0
+messaging_signal_relay	id	text	0
+messaging_signal_relay	event	jsonb	0
+messaging_signal_relay	created_at	timestamp with time zone	0
+metier_event	id	uuid	0
+metier_event	etablissement_id	uuid	0
+metier_event	type	text	0
+metier_event	aggregate	text	0
+metier_event	aggregate_id	uuid	0
+metier_event	eleve_id	uuid	1
+metier_event	payload	jsonb	0
+metier_event	actor_user_id	text	1
+metier_event	created_at	timestamp with time zone	0
+mouvement_tresorerie	id	uuid	0
+mouvement_tresorerie	etablissement_id	uuid	0
+mouvement_tresorerie	compte_id	uuid	0
+mouvement_tresorerie	date_mouvement	date	0
+mouvement_tresorerie	sens	text	0
+mouvement_tresorerie	montant	numeric	0
+mouvement_tresorerie	libelle	text	0
+mouvement_tresorerie	encaissement_id	uuid	1
+mouvement_tresorerie	depense_id	uuid	1
+mouvement_tresorerie	facture_id	uuid	1
+mouvement_tresorerie	created_at	timestamp with time zone	0
+nomenclature_import_log	id	uuid	0
+nomenclature_import_log	etablissement_id	uuid	0
+nomenclature_import_log	fichier	text	0
+nomenclature_import_log	source	text	0
+nomenclature_import_log	date_import	timestamp with time zone	0
+nomenclature_import_log	statut	text	0
+nomenclature_import_log	nb_inserts	integer	0
+nomenclature_import_log	nb_updates	integer	0
+nomenclature_import_log	nb_deletes	integer	0
+nomenclature_import_log	rapport_json	jsonb	1
+note_competence_domaine	id	uuid	0
+note_competence_domaine	etablissement_id	uuid	0
+note_competence_domaine	code	text	0
+note_competence_domaine	libelle	text	0
+note_competence_domaine	cycle	text	0
+note_competence_domaine	ordre	integer	0
+note_competence_domaine	actif	boolean	0
+note_competence_domaine	created_at	timestamp with time zone	0
+note_competence_domaine	updated_at	timestamp with time zone	0
+note_competence_item	id	uuid	0
+note_competence_item	etablissement_id	uuid	0
+note_competence_item	domaine_id	uuid	0
+note_competence_item	matiere_id	uuid	1
+note_competence_item	code	text	0
+note_competence_item	libelle	text	0
+note_competence_item	ordre	integer	0
+note_competence_item	actif	boolean	0
+note_competence_item	created_at	timestamp with time zone	0
+note_competence_item	updated_at	timestamp with time zone	0
+note_competence_valeur	etablissement_id	uuid	0
+note_competence_valeur	item_id	uuid	0
+note_competence_valeur	eleve_id	uuid	0
+note_competence_valeur	periode_id	uuid	0
+note_competence_valeur	niveau	text	1
+note_competence_valeur	appreciation	text	1
+note_competence_valeur	updated_at	timestamp with time zone	0
+note_devoir	id	uuid	0
+note_devoir	etablissement_id	uuid	0
+note_devoir	matiere_id	uuid	0
+note_devoir	periode_id	uuid	0
+note_devoir	type_devoir_id	uuid	1
+note_devoir	classe	text	0
+note_devoir	groupe_id	uuid	1
+note_devoir	libelle	text	0
+note_devoir	date_devoir	date	1
+note_devoir	coefficient	numeric	0
+note_devoir	created_by_user_id	text	1
+note_devoir	created_at	timestamp with time zone	0
+note_devoir	updated_at	timestamp with time zone	0
+note_matiere	id	uuid	0
+note_matiere	etablissement_id	uuid	0
+note_matiere	code	text	0
+note_matiere	libelle	text	0
+note_matiere	groupe_matiere	text	1
+note_matiere	actif	boolean	0
+note_matiere	created_at	timestamp with time zone	0
+note_matiere	updated_at	timestamp with time zone	0
+note_matiere_classe	id	uuid	0
+note_matiere_classe	etablissement_id	uuid	0
+note_matiere_classe	matiere_id	uuid	0
+note_matiere_classe	classe	text	0
+note_matiere_classe	enseignant_user_id	text	1
+note_matiere_classe	enseignant_nom	text	1
+note_matiere_classe	coef	numeric	0
+note_matiere_classe	compte_dans_mg	boolean	0
+note_matiere_classe	created_at	timestamp with time zone	0
+note_matiere_classe	updated_at	timestamp with time zone	0
+note_moyenne_eleve	id	uuid	0
+note_moyenne_eleve	etablissement_id	uuid	0
+note_moyenne_eleve	eleve_id	uuid	0
+note_moyenne_eleve	matiere_id	uuid	0
+note_moyenne_eleve	periode_id	uuid	0
+note_moyenne_eleve	moyenne	numeric	1
+note_moyenne_eleve	nb_notes	integer	0
+note_moyenne_eleve	updated_at	timestamp with time zone	0
+note_periode	id	uuid	0
+note_periode	etablissement_id	uuid	0
+note_periode	annee_scolaire_id	uuid	1
+note_periode	code	text	0
+note_periode	libelle	text	0
+note_periode	niveau_modele	text	0
+note_periode	date_debut	date	1
+note_periode	date_fin	date	1
+note_periode	statut	text	0
+note_periode	ordre	integer	0
+note_periode	created_at	timestamp with time zone	0
+note_periode	updated_at	timestamp with time zone	0
+note_type_devoir	id	uuid	0
+note_type_devoir	etablissement_id	uuid	0
+note_type_devoir	code	text	0
+note_type_devoir	libelle	text	0
+note_type_devoir	coef_defaut	numeric	1
+note_type_devoir	actif	boolean	0
+note_type_devoir	created_at	timestamp with time zone	0
+note_valeur	etablissement_id	uuid	0
+note_valeur	devoir_id	uuid	0
+note_valeur	eleve_id	uuid	0
+note_valeur	valeur	numeric	1
+note_valeur	absent	boolean	0
+note_valeur	dispense	boolean	0
+note_valeur	appreciation	text	1
+note_valeur	updated_at	timestamp with time zone	0
+paie_element	id	uuid	0
+paie_element	etablissement_id	uuid	0
+paie_element	periode_id	uuid	0
+paie_element	personnel_id	text	0
+paie_element	nature	text	0
+paie_element	libelle	text	0
+paie_element	quantite	numeric	1
+paie_element	montant	numeric	1
+paie_element	absence_id	text	1
+paie_element	created_at	timestamp with time zone	0
+paie_element	updated_at	timestamp with time zone	0
+paie_periode	id	uuid	0
+paie_periode	etablissement_id	uuid	0
+paie_periode	label	text	0
+paie_periode	date_debut	date	0
+paie_periode	date_fin	date	0
+paie_periode	statut	text	0
+paie_periode	created_at	timestamp with time zone	0
+paie_periode	updated_at	timestamp with time zone	0
+partenariat_evenement	id	uuid	0
+partenariat_evenement	etablissement_id	uuid	0
+partenariat_evenement	offre_id	uuid	0
+partenariat_evenement	title	text	0
+partenariat_evenement	starts_at	timestamp with time zone	0
+partenariat_evenement	ends_at	timestamp with time zone	1
+partenariat_evenement	location	text	0
+partenariat_evenement	notes	text	0
+partenariat_evenement	created_at	timestamp with time zone	0
+partenariat_evenement	updated_at	timestamp with time zone	0
+partenariat_inscription	id	uuid	0
+partenariat_inscription	etablissement_id	uuid	0
+partenariat_inscription	offre_id	uuid	0
+partenariat_inscription	eleve_first_name	text	0
+partenariat_inscription	eleve_last_name	text	0
+partenariat_inscription	eleve_niveau	text	0
+partenariat_inscription	eleve_classe	text	0
+partenariat_inscription	eleve_birth_date	text	1
+partenariat_inscription	parent_first_name	text	0
+partenariat_inscription	parent_last_name	text	0
+partenariat_inscription	parent_email	text	0
+partenariat_inscription	parent_phone	text	0
+partenariat_inscription	engagement_accepted_at	timestamp with time zone	0
+partenariat_inscription	signature_s3_key	text	1
+partenariat_inscription	status	text	0
+partenariat_inscription	admin_note	text	0
+partenariat_inscription	created_at	timestamp with time zone	0
+partenariat_inscription	updated_at	timestamp with time zone	0
+partenariat_offre	id	uuid	0
+partenariat_offre	etablissement_id	uuid	0
+partenariat_offre	slug	text	0
+partenariat_offre	title	text	0
+partenariat_offre	short_description	text	0
+partenariat_offre	body	text	0
+partenariat_offre	logo_s3_key	text	1
+partenariat_offre	kind	text	0
+partenariat_offre	cycles	jsonb	0
+partenariat_offre	niveaux	jsonb	0
+partenariat_offre	category_label	text	0
+partenariat_offre	contact_name	text	0
+partenariat_offre	contact_role	text	0
+partenariat_offre	contact_email	text	0
+partenariat_offre	contact_phone	text	0
+partenariat_offre	partner_contact_name	text	0
+partenariat_offre	partner_contact_role	text	0
+partenariat_offre	partner_contact_email	text	0
+partenariat_offre	partner_contact_phone	text	0
+partenariat_offre	cta_links	jsonb	0
+partenariat_offre	tarifs	jsonb	0
+partenariat_offre	demarche	text	0
+partenariat_offre	engagement_text	text	0
+partenariat_offre	require_signature	integer	0
+partenariat_offre	notify_email	text	1
+partenariat_offre	max_places	integer	1
+partenariat_offre	inscription_opens_at	timestamp with time zone	1
+partenariat_offre	inscription_closes_at	timestamp with time zone	1
+partenariat_offre	enabled	integer	0
+partenariat_offre	sort_order	integer	0
+partenariat_offre	published_at	timestamp with time zone	1
+partenariat_offre	created_at	timestamp with time zone	0
+partenariat_offre	updated_at	timestamp with time zone	0
+passage	id	uuid	0
+passage	etablissement_id	uuid	0
+passage	eleve_id	uuid	1
+passage	personnel_id	text	1
+passage	invite_nom	text	1
+passage	sens	text	0
+passage	lieu	text	0
+passage	horodatage	timestamp with time zone	0
+passage	source	text	0
+passage	annee_scolaire_id	uuid	1
+passage	created_at	timestamp with time zone	0
+passkey	id	text	0
+passkey	name	text	1
+passkey	public_key	text	0
+passkey	user_id	text	0
+passkey	credential_id	text	0
+passkey	counter	integer	0
+passkey	device_type	text	0
+passkey	backed_up	boolean	0
+passkey	transports	text	1
+passkey	created_at	timestamp with time zone	1
+passkey	aaguid	text	1
+personnel	id	text	0
+personnel	etablissement_id	uuid	0
+personnel	external_user_id	text	1
+personnel	email	text	0
+personnel	email_perso	text	1
+personnel	email_pro	text	1
+personnel	first_name	text	0
+personnel	last_name	text	0
+personnel	display_name	text	0
+personnel	category	text	0
+personnel	job_title	text	1
+personnel	hire_date	text	1
+personnel	active	boolean	0
+personnel	establishment_label	text	1
+personnel	manager_id	text	1
+personnel	payload	jsonb	0
+personnel	created_at	timestamp with time zone	0
+personnel	updated_at	timestamp with time zone	0
+personnel_attr	etablissement_id	uuid	0
+personnel_attr	personnel_id	text	0
+personnel_attr	path	text	0
+personnel_attr	value	text	0
+personnel_document	id	text	0
+personnel_document	etablissement_id	uuid	0
+personnel_document	personnel_id	text	0
+personnel_document	kind	text	0
+personnel_document	name	text	0
+personnel_document	file_url	text	0
+personnel_document	uploaded_at	text	1
+personnel_document	expires_at	text	1
+personnel_document	sort_order	integer	0
+personnel_entretien	id	text	0
+personnel_entretien	etablissement_id	uuid	0
+personnel_entretien	personnel_id	text	0
+personnel_entretien	kind	text	0
+personnel_entretien	status	text	0
+personnel_entretien	completed_at	text	1
+personnel_entretien	next_due_at	text	1
+personnel_entretien	notes	text	1
+personnel_entretien	sort_order	integer	0
+personnel_formation	id	text	0
+personnel_formation	etablissement_id	uuid	0
+personnel_formation	personnel_id	text	0
+personnel_formation	title	text	0
+personnel_formation	organism	text	1
+personnel_formation	completed_at	text	1
+personnel_formation	expires_at	text	1
+personnel_formation	sort_order	integer	0
+personnel_habilitation	id	text	0
+personnel_habilitation	etablissement_id	uuid	0
+personnel_habilitation	personnel_id	text	0
+personnel_habilitation	title	text	0
+personnel_habilitation	issued_at	text	1
+personnel_habilitation	expires_at	text	1
+personnel_habilitation	sort_order	integer	0
+personnel_leave	id	text	0
+personnel_leave	etablissement_id	uuid	0
+personnel_leave	personnel_id	text	0
+personnel_leave	personnel_name	text	0
+personnel_leave	type	text	0
+personnel_leave	start_date	text	0
+personnel_leave	end_date	text	0
+personnel_leave	reason	text	1
+personnel_leave	status	text	0
+personnel_leave	created_at	text	0
+personnel_leave	decided_at	text	1
+personnel_leave	decided_by	text	1
+personnel_leave	decision_note	text	1
+personnel_shared_doc	id	text	0
+personnel_shared_doc	etablissement_id	uuid	0
+personnel_shared_doc	name	text	0
+personnel_shared_doc	file_url	text	0
+personnel_shared_doc	uploaded_at	text	0
+personnel_shared_doc	uploaded_by	text	0
+platform_document	doc_key	text	0
+platform_document	updated_at	timestamp with time zone	0
+platform_document_attr	doc_key	text	0
+platform_document_attr	path	text	0
+platform_document_attr	value	text	0
+portes_ouvertes_config	id	uuid	0
+portes_ouvertes_config	etablissement_id	uuid	0
+portes_ouvertes_config	title	text	0
+portes_ouvertes_config	intro	text	0
+portes_ouvertes_config	address	text	0
+portes_ouvertes_config	maps_url	text	1
+portes_ouvertes_config	notify_email	text	1
+portes_ouvertes_config	preinscription_url	text	1
+portes_ouvertes_config	follow_up_delay_minutes	integer	0
+portes_ouvertes_config	consent_label	text	0
+portes_ouvertes_config	created_at	timestamp with time zone	0
+portes_ouvertes_config	updated_at	timestamp with time zone	0
+portes_ouvertes_registration	etablissement_id	uuid	0
+portes_ouvertes_registration	id	text	0
+portes_ouvertes_registration	slot_id	text	0
+portes_ouvertes_registration	slot_label	text	1
+portes_ouvertes_registration	slot_start_at	timestamp with time zone	1
+portes_ouvertes_registration	slot_end_at	timestamp with time zone	1
+portes_ouvertes_registration	first_name	text	0
+portes_ouvertes_registration	last_name	text	0
+portes_ouvertes_registration	email	text	0
+portes_ouvertes_registration	phone	text	1
+portes_ouvertes_registration	children_info	text	1
+portes_ouvertes_registration	child_first_name	text	1
+portes_ouvertes_registration	child_last_name	text	1
+portes_ouvertes_registration	cycle	text	1
+portes_ouvertes_registration	classe_souhaitee	text	1
+portes_ouvertes_registration	consent	boolean	0
+portes_ouvertes_registration	source	text	1
+portes_ouvertes_registration	recorded_by_user_id	text	1
+portes_ouvertes_registration	recorded_by_name	text	1
+portes_ouvertes_registration	last_modified_by_user_id	text	1
+portes_ouvertes_registration	last_modified_by_name	text	1
+portes_ouvertes_registration	visited_at	timestamp with time zone	1
+portes_ouvertes_registration	follow_up_due_at	timestamp with time zone	1
+portes_ouvertes_registration	follow_up_email_sent_at	timestamp with time zone	1
+portes_ouvertes_registration	created_at	timestamp with time zone	0
+portes_ouvertes_registration	updated_at	timestamp with time zone	1
+portes_ouvertes_slot	etablissement_id	uuid	0
+portes_ouvertes_slot	id	text	0
+portes_ouvertes_slot	cycle	text	0
+portes_ouvertes_slot	label	text	0
+portes_ouvertes_slot	start_at	timestamp with time zone	0
+portes_ouvertes_slot	end_at	timestamp with time zone	0
+portes_ouvertes_slot	max_places	integer	1
+portes_ouvertes_slot	created_at	timestamp with time zone	0
+portes_ouvertes_slot	updated_at	timestamp with time zone	0
+portes_ouvertes_slot_staff	etablissement_id	uuid	0
+portes_ouvertes_slot_staff	id	uuid	0
+portes_ouvertes_slot_staff	slot_id	text	0
+portes_ouvertes_slot_staff	role	text	0
+portes_ouvertes_slot_staff	ref_id	text	0
+portes_ouvertes_slot_staff	display_name	text	0
+portes_ouvertes_slot_staff	meta	jsonb	1
+portes_ouvertes_slot_staff	created_at	timestamp with time zone	0
+preinscription	id	uuid	0
+preinscription	etablissement_id	uuid	0
+preinscription	site_id	text	1
+preinscription	niveau_vise	text	1
+preinscription	filiere_visee	text	1
+preinscription	nom	text	0
+preinscription	prenom	text	0
+preinscription	date_naissance	date	1
+preinscription	lieu_naissance	text	1
+preinscription	demi_pension	boolean	0
+preinscription	etablissement_precedent	text	1
+preinscription	status	text	0
+preinscription	payload	jsonb	1
+preinscription	eleve_id	uuid	1
+preinscription	created_at	timestamp with time zone	0
+preinscription	updated_at	timestamp with time zone	0
+rate_limit	id	text	0
+rate_limit	key	text	0
+rate_limit	count	integer	0
+rate_limit	last_request	bigint	0
+rdv_inscription_booking	id	uuid	0
+rdv_inscription_booking	etablissement_id	uuid	0
+rdv_inscription_booking	direction_id	uuid	0
+rdv_inscription_booking	direction_slug	text	0
+rdv_inscription_booking	google_event_id	text	0
+rdv_inscription_booking	google_calendar_id	text	0
+rdv_inscription_booking	google_html_link	text	1
+rdv_inscription_booking	start_at	timestamp with time zone	0
+rdv_inscription_booking	end_at	timestamp with time zone	0
+rdv_inscription_booking	student_first_name	text	0
+rdv_inscription_booking	student_last_name	text	0
+rdv_inscription_booking	parent_email	text	0
+rdv_inscription_booking	parent_phone	text	0
+rdv_inscription_booking	status	text	0
+rdv_inscription_booking	created_at	timestamp with time zone	0
+rdv_inscription_booking	updated_at	timestamp with time zone	0
+rdv_inscription_booking	confirm_token	text	1
+rdv_inscription_booking	confirm_expires_at	timestamp with time zone	1
+rdv_inscription_booking	confirmed_at	timestamp with time zone	1
+rdv_inscription_booking	niveau_id	text	1
+rdv_inscription_booking	niveau_label	text	1
+rdv_inscription_booking	eleve_id	uuid	1
+rdv_inscription_booking	match_status	text	1
+rdv_inscription_booking	create_new	integer	0
+rdv_inscription_booking	reconfirm_token	text	1
+rdv_inscription_booking	reconfirm_status	text	1
+rdv_inscription_booking	reconfirm_mail_sent_at	timestamp with time zone	1
+rdv_inscription_booking	reconfirmed_at	timestamp with time zone	1
+rdv_inscription_booking	has_pap	text	1
+rdv_inscription_booking	pap_s3_key	text	1
+rdv_inscription_booking	pap_file_name	text	1
+rdv_inscription_booking	pap_mime_type	text	1
+rdv_inscription_booking	pap_bring_to_rdv	integer	0
+rdv_inscription_booking	etablissement_origine_rne	text	1
+rdv_inscription_booking	etablissement_origine_label	text	1
+rdv_inscription_booking	etablissement_origine_adresse	text	1
+rdv_inscription_booking	parent_first_name	text	1
+rdv_inscription_booking	parent_last_name	text	1
+rdv_inscription_booking	rdv_attendee	text	1
+rdv_inscription_booking	admin_cancel_note	text	1
+rdv_inscription_booking	reschedule_token	text	1
+rdv_inscription_booking	reschedule_token_expires_at	timestamp with time zone	1
+rdv_inscription_booking	regime	text	1
+rdv_inscription_config	id	uuid	0
+rdv_inscription_config	etablissement_id	uuid	0
+rdv_inscription_config	enabled	integer	0
+rdv_inscription_config	title	text	0
+rdv_inscription_config	intro	text	0
+rdv_inscription_config	event_title_pattern	text	0
+rdv_inscription_config	notify_email	text	1
+rdv_inscription_config	location	text	0
+rdv_inscription_config	consent_label	text	0
+rdv_inscription_config	horizon_days	integer	0
+rdv_inscription_config	google_linked	integer	0
+rdv_inscription_config	google_linked_email	text	1
+rdv_inscription_config	google_linked_at	timestamp with time zone	1
+rdv_inscription_config	created_at	timestamp with time zone	0
+rdv_inscription_config	updated_at	timestamp with time zone	0
+rdv_inscription_config	google_refresh_token	text	1
+rdv_inscription_direction	id	uuid	0
+rdv_inscription_direction	etablissement_id	uuid	0
+rdv_inscription_direction	slug	text	0
+rdv_inscription_direction	label	text	0
+rdv_inscription_direction	google_calendar_id	text	0
+rdv_inscription_direction	directrice_display_name	text	1
+rdv_inscription_direction	active	integer	0
+rdv_inscription_direction	sort_order	integer	0
+rdv_inscription_direction	created_at	timestamp with time zone	0
+rdv_inscription_direction	updated_at	timestamp with time zone	0
+rdv_inscription_direction	title	text	0
+rdv_inscription_direction	intro	text	0
+rdv_inscription_direction	event_title_pattern	text	0
+rdv_inscription_direction	notify_email	text	1
+rdv_inscription_direction	location	text	0
+rdv_inscription_direction	consent_label	text	0
+rdv_inscription_direction	horizon_days	integer	0
+rdv_inscription_direction	release_min_hours	integer	0
+rdv_inscription_email_gate	id	uuid	0
+rdv_inscription_email_gate	etablissement_id	uuid	0
+rdv_inscription_email_gate	direction_slug	text	0
+rdv_inscription_email_gate	parent_email	text	0
+rdv_inscription_email_gate	token	text	0
+rdv_inscription_email_gate	expires_at	timestamp with time zone	0
+rdv_inscription_email_gate	verified_at	timestamp with time zone	1
+rdv_inscription_email_gate	created_at	timestamp with time zone	0
+ref_etablissement	id	uuid	0
+ref_etablissement	code_rne	text	0
+ref_etablissement	code_nature	text	1
+ref_etablissement	code_type	text	1
+ref_etablissement	code_secteur	text	1
+ref_etablissement	sigle	text	1
+ref_etablissement	denom_princ	text	1
+ref_etablissement	denom_compl	text	1
+ref_etablissement	adresse	text	1
+ref_etablissement	date_ouverture	date	1
+ref_etablissement	date_fermeture	date	1
+ref_etablissement	source	text	0
+ref_etablissement	created_at	timestamp with time zone	0
+ref_etablissement	updated_at	timestamp with time zone	0
+ref_nomenclature	id	uuid	0
+ref_nomenclature	etablissement_id	uuid	0
+ref_nomenclature	type	text	0
+ref_nomenclature	code	text	0
+ref_nomenclature	libelle_court	text	1
+ref_nomenclature	libelle_long	text	1
+ref_nomenclature	source	text	0
+ref_nomenclature	metadata_json	jsonb	1
+ref_nomenclature	valid_from	date	1
+ref_nomenclature	valid_to	date	1
+ref_nomenclature	created_at	timestamp with time zone	0
+ref_nomenclature	updated_at	timestamp with time zone	0
+ref_nomenclature	cycle	text	0
+request	id	text	0
+request	etablissement_id	uuid	0
+request	created_at	timestamp with time zone	0
+request	updated_at	timestamp with time zone	0
+request	status	text	0
+request	category	text	0
+request	subject	text	0
+request	description	text	0
+request	requester_first_name	text	0
+request	requester_last_name	text	0
+request	requester_full_name	text	0
+request	requester_email	text	0
+request	requester_phone	text	0
+request	requester_user_id	text	1
+request	assigned_unit	text	0
+request	assigned_role_label	text	0
+request	assigned_email	text	0
+request	assigned_route_id	text	1
+request	purge_at	timestamp with time zone	1
+request_attachment	id	text	0
+request_attachment	etablissement_id	uuid	0
+request_attachment	request_id	text	0
+request_attachment	comment_id	text	1
+request_attachment	file_name	text	0
+request_attachment	s3_key	text	0
+request_attachment	content_type	text	1
+request_attachment	sort_order	integer	0
+request_attr	etablissement_id	uuid	0
+request_attr	request_id	text	0
+request_attr	path	text	0
+request_attr	value	text	0
+request_comment	id	text	0
+request_comment	etablissement_id	uuid	0
+request_comment	request_id	text	0
+request_comment	at	text	0
+request_comment	by_name	text	0
+request_comment	by_email	text	0
+request_comment	by_user_id	text	1
+request_comment	body	text	0
+request_comment	sort_order	integer	0
+request_history	id	uuid	0
+request_history	etablissement_id	uuid	0
+request_history	request_id	text	0
+request_history	at	text	0
+request_history	by	text	0
+request_history	action	text	0
+request_history	note	text	1
+request_history	sort_order	integer	0
+request_org	etablissement_id	uuid	0
+request_org	updated_at	timestamp with time zone	0
+request_org_attr	etablissement_id	uuid	0
+request_org_attr	path	text	0
+request_org_attr	value	text	0
+request_routing	etablissement_id	uuid	0
+request_routing	updated_at	timestamp with time zone	0
+request_routing_attr	etablissement_id	uuid	0
+request_routing_attr	path	text	0
+request_routing_attr	value	text	0
+reservation_room	etablissement_id	uuid	0
+reservation_room	id	text	0
+reservation_room	name	text	0
+reservation_room	building	text	1
+reservation_room	sort_order	integer	0
+reservation_room	created_at	timestamp with time zone	0
+reservation_room	updated_at	timestamp with time zone	0
+reservation_room	kind	text	0
+reservation_room	bookable	boolean	0
+reservation_room_booking	etablissement_id	uuid	0
+reservation_room_booking	id	text	0
+reservation_room_booking	room_id	text	0
+reservation_room_booking	group_id	text	1
+reservation_room_booking	user_id	text	0
+reservation_room_booking	first_name	text	0
+reservation_room_booking	last_name	text	0
+reservation_room_booking	booked_by_first_name	text	0
+reservation_room_booking	booked_by_last_name	text	0
+reservation_room_booking	booked_for_other	boolean	0
+reservation_room_booking	email	text	1
+reservation_room_booking	subject	text	1
+reservation_room_booking	class_name	text	1
+reservation_room_booking	comment	text	1
+reservation_room_booking	starts_at	text	0
+reservation_room_booking	ends_at	text	0
+reservation_room_booking	status	text	0
+reservation_room_booking	cancelled_at	text	1
+reservation_room_booking	cancelled_by	text	1
+reservation_room_booking	cancel_reason	text	1
+reservation_room_booking	created_at	timestamp with time zone	0
+reservation_room_booking	updated_at	timestamp with time zone	0
+reservation_room_booking	booked_by_user_id	text	1
+sante_accident	id	uuid	0
+sante_accident	etablissement_id	uuid	0
+sante_accident	eleve_id	uuid	0
+sante_accident	date_accident	date	0
+sante_accident	circonstances	text	0
+sante_accident	soins	text	0
+sante_accident	suite	text	0
+sante_accident	lieu	text	1
+sante_accident	auteur_user_id	text	1
+sante_accident	auteur_nom	text	1
+sante_accident	created_at	timestamp with time zone	0
+sante_accident	updated_at	timestamp with time zone	0
+sante_extrait	id	uuid	0
+sante_extrait	etablissement_id	uuid	0
+sante_extrait	eleve_id	uuid	0
+sante_extrait	portee	text	0
+sante_extrait	libelle	text	0
+sante_extrait	document_id	uuid	1
+sante_extrait	actif	boolean	0
+sante_extrait	created_at	timestamp with time zone	0
+sante_extrait	updated_at	timestamp with time zone	0
+sante_inaptitude_eps	id	uuid	0
+sante_inaptitude_eps	etablissement_id	uuid	0
+sante_inaptitude_eps	eleve_id	uuid	0
+sante_inaptitude_eps	date_debut	date	0
+sante_inaptitude_eps	date_fin	date	1
+sante_inaptitude_eps	motif	text	0
+sante_inaptitude_eps	libelle_extrait	text	0
+sante_inaptitude_eps	document_id	uuid	1
+sante_inaptitude_eps	extrait_id	uuid	1
+sante_inaptitude_eps	actif	boolean	0
+sante_inaptitude_eps	auteur_user_id	text	1
+sante_inaptitude_eps	auteur_nom	text	1
+sante_inaptitude_eps	created_at	timestamp with time zone	0
+sante_inaptitude_eps	updated_at	timestamp with time zone	0
+sante_medicament_prise	id	uuid	0
+sante_medicament_prise	etablissement_id	uuid	0
+sante_medicament_prise	eleve_id	uuid	0
+sante_medicament_prise	medicament	text	0
+sante_medicament_prise	dose	text	1
+sante_medicament_prise	pris_at	timestamp with time zone	0
+sante_medicament_prise	auteur_user_id	text	1
+sante_medicament_prise	auteur_nom	text	1
+sante_medicament_prise	document_id	uuid	1
+sante_medicament_prise	notes	text	1
+sante_medicament_prise	created_at	timestamp with time zone	0
+sante_pai	id	uuid	0
+sante_pai	etablissement_id	uuid	0
+sante_pai	eleve_id	uuid	0
+sante_pai	statut	text	0
+sante_pai	protocole	text	0
+sante_pai	traitements_autorises	text	0
+sante_pai	document_id	uuid	1
+sante_pai	date_debut	date	1
+sante_pai	date_fin	date	1
+sante_pai	valide_at	timestamp with time zone	1
+sante_pai	valide_par_user_id	text	1
+sante_pai	valide_par_nom	text	1
+sante_pai	notes	text	0
+sante_pai	created_at	timestamp with time zone	0
+sante_pai	updated_at	timestamp with time zone	0
+school_class_assignment	id	uuid	0
+school_class_assignment	etablissement_id	uuid	0
+school_class_assignment	class_name	text	0
+school_class_assignment	class_key	text	0
+school_class_assignment	external_user_id	text	0
+school_class_assignment	name	text	0
+school_class_assignment	email	text	0
+school_class_assignment	created_at	timestamp with time zone	0
+school_class_assignment	updated_at	timestamp with time zone	0
+school_roster_meta	etablissement_id	uuid	0
+school_roster_meta	updated_at	timestamp with time zone	0
+school_roster_meta	updated_by	text	1
+school_roster_meta	teacher_catalog	_text	0
+scolia_conversation	id	text	0
+scolia_conversation	etablissement_id	uuid	0
+scolia_conversation	user_id	text	0
+scolia_conversation	title	text	0
+scolia_conversation	state	jsonb	0
+scolia_conversation	last_message_at	timestamp with time zone	1
+scolia_conversation	archived_at	timestamp with time zone	1
+scolia_conversation	created_at	timestamp with time zone	0
+scolia_conversation	updated_at	timestamp with time zone	0
+scolia_message	id	text	0
+scolia_message	etablissement_id	uuid	0
+scolia_message	conversation_id	text	0
+scolia_message	role	text	0
+scolia_message	content	text	0
+scolia_message	seq	integer	0
+scolia_message	created_at	timestamp with time zone	0
+security_audit_log	id	uuid	0
+security_audit_log	user_id	text	1
+security_audit_log	action	text	0
+security_audit_log	ip_address	text	1
+security_audit_log	user_agent	text	1
+security_audit_log	metadata	jsonb	1
+security_audit_log	created_at	timestamp with time zone	0
+session	id	text	0
+session	expires_at	timestamp with time zone	0
+session	token	text	0
+session	created_at	timestamp with time zone	0
+session	updated_at	timestamp with time zone	0
+session	ip_address	text	1
+session	user_agent	text	1
+session	user_id	text	0
+sst_campagne	id	uuid	0
+sst_campagne	etablissement_id	uuid	0
+sst_campagne	annee_label	text	0
+sst_campagne	title	text	0
+sst_campagne	active	boolean	0
+sst_campagne	created_at	timestamp with time zone	0
+sst_campagne	updated_at	timestamp with time zone	0
+sst_consultation	id	uuid	0
+sst_consultation	etablissement_id	uuid	0
+sst_consultation	campagne_id	uuid	0
+sst_consultation	user_id	text	0
+sst_consultation	first_name	text	0
+sst_consultation	last_name	text	0
+sst_consultation	fonction	text	0
+sst_consultation	consulted_at	timestamp with time zone	0
+sst_consultation	comments	text	0
+sst_consultation	signature_png_base64	text	1
+sst_consultation	created_at	timestamp with time zone	0
+sst_emargement	id	uuid	0
+sst_emargement	etablissement_id	uuid	0
+sst_emargement	campagne_id	uuid	0
+sst_emargement	user_id	text	0
+sst_emargement	first_name	text	0
+sst_emargement	last_name	text	0
+sst_emargement	fonction	text	0
+sst_emargement	signed_at	timestamp with time zone	0
+sst_emargement	signature_png_base64	text	0
+sst_emargement	remarques	text	0
+sst_emargement	created_at	timestamp with time zone	0
+sst_fiche	id	uuid	0
+sst_fiche	etablissement_id	uuid	0
+sst_fiche	campagne_id	uuid	0
+sst_fiche	numero	integer	0
+sst_fiche	created_by_user_id	text	0
+sst_fiche	declarant_first_name	text	0
+sst_fiche	declarant_last_name	text	0
+sst_fiche	declarant_fonction	text	0
+sst_fiche	observed_date	text	0
+sst_fiche	observed_time	text	0
+sst_fiche	lieu	text	0
+sst_fiche	observations	text	0
+sst_fiche	suggestions	text	0
+sst_fiche	signature_png_base64	text	1
+sst_fiche	status	text	0
+sst_fiche	workflow	jsonb	0
+sst_fiche	created_at	timestamp with time zone	0
+sst_fiche	updated_at	timestamp with time zone	0
+sst_fiche	created_by_first_name	text	0
+sst_fiche	created_by_last_name	text	0
+sst_fiche	declarant_user_id	text	0
+sst_proxy_deposant	id	uuid	0
+sst_proxy_deposant	etablissement_id	uuid	0
+sst_proxy_deposant	user_id	text	0
+sst_proxy_deposant	first_name	text	0
+sst_proxy_deposant	last_name	text	0
+sst_proxy_deposant	email	text	0
+sst_proxy_deposant	created_at	timestamp with time zone	0
+stage_application	id	text	0
+stage_application	etablissement_id	uuid	0
+stage_application	offer_id	text	1
+stage_application	status	text	1
+stage_application	updated_at	timestamp with time zone	0
+stage_application_attr	etablissement_id	uuid	0
+stage_application_attr	application_id	text	0
+stage_application_attr	path	text	0
+stage_application_attr	value	text	0
+stage_convention	id	text	0
+stage_convention	etablissement_id	uuid	0
+stage_convention	status	text	1
+stage_convention	updated_at	timestamp with time zone	0
+stage_convention_attr	etablissement_id	uuid	0
+stage_convention_attr	convention_id	text	0
+stage_convention_attr	path	text	0
+stage_convention_attr	value	text	0
+stage_offer	id	text	0
+stage_offer	etablissement_id	uuid	0
+stage_offer	title	text	0
+stage_offer	status	text	1
+stage_offer	updated_at	timestamp with time zone	0
+stage_offer_attr	etablissement_id	uuid	0
+stage_offer_attr	offer_id	text	0
+stage_offer_attr	path	text	0
+stage_offer_attr	value	text	0
+stage_token	token	text	0
+stage_token	etablissement_id	uuid	0
+stage_token	kind	text	0
+stage_token	updated_at	timestamp with time zone	0
+stage_token_attr	etablissement_id	uuid	0
+stage_token_attr	token	text	0
+stage_token_attr	path	text	0
+stage_token_attr	value	text	0
+tarif	id	uuid	0
+tarif	etablissement_id	uuid	0
+tarif	annee_scolaire_id	uuid	1
+tarif	code	text	0
+tarif	libelle	text	0
+tarif	compte_produit	text	1
+tarif	tva_taux	numeric	0
+tarif	periodicite	text	0
+tarif	portee	text	0
+tarif	portee_valeur	text	1
+tarif	prix_unitaire	numeric	0
+tarif	actif	boolean	0
+tarif	created_at	timestamp with time zone	0
+tarif	updated_at	timestamp with time zone	0
+teacher_planning	id	uuid	0
+teacher_planning	etablissement_id	uuid	0
+teacher_planning	external_user_id	text	0
+teacher_planning	source	text	1
+teacher_planning	source_file_name	text	1
+teacher_planning	updated_at	timestamp with time zone	0
+teacher_planning	updated_by	text	0
+teacher_planning_replacement	id	text	0
+teacher_planning_replacement	etablissement_id	uuid	0
+teacher_planning_replacement	planning_id	uuid	0
+teacher_planning_replacement	date	date	0
+teacher_planning_replacement	start_time	text	0
+teacher_planning_replacement	end_time	text	0
+teacher_planning_replacement	subject	text	0
+teacher_planning_replacement	classes	_text	0
+teacher_planning_replacement	room	text	1
+teacher_planning_replacement	note	text	1
+teacher_planning_replacement	created_by	text	0
+teacher_planning_replacement	created_at	timestamp with time zone	0
+teacher_planning_slot	id	text	0
+teacher_planning_slot	etablissement_id	uuid	0
+teacher_planning_slot	planning_id	uuid	0
+teacher_planning_slot	week_type	text	0
+teacher_planning_slot	day	integer	0
+teacher_planning_slot	start_time	text	0
+teacher_planning_slot	end_time	text	0
+teacher_planning_slot	subject	text	0
+teacher_planning_slot	classes	_text	0
+teacher_planning_slot	room	text	1
+teacher_planning_slot	group_id	text	1
+teacher_planning_slot	group_label	text	1
+tenant_setting_attr	etablissement_id	uuid	0
+tenant_setting_attr	section	text	0
+tenant_setting_attr	path	text	0
+tenant_setting_attr	value	text	0
+tenant_setting_section	etablissement_id	uuid	0
+tenant_setting_section	section	text	0
+tenant_setting_section	updated_at	timestamp with time zone	0
+travel	id	text	0
+travel	etablissement_id	uuid	0
+travel	type	text	0
+travel	status	text	0
+travel	owner_name	text	1
+travel	owner_email	text	1
+travel	owner_id	text	1
+travel	created_at	timestamp with time zone	1
+travel	updated_at	timestamp with time zone	1
+travel	image_url	text	1
+travel	image_config_id	text	1
+travel	title	text	1
+travel	destination	text	1
+travel	site_label	text	1
+travel	classes	text	1
+travel	start_date	text	1
+travel	end_date	text	1
+travel	start_time	text	1
+travel	end_time	text	1
+travel	nb_eleves	text	1
+travel	nb_accompagnateurs	text	1
+travel	liste_eleves_status	text	1
+travel_attr	etablissement_id	uuid	0
+travel_attr	travel_id	text	0
+travel_attr	path	text	0
+travel_attr	value	text	0
+travel_history	id	uuid	0
+travel_history	etablissement_id	uuid	0
+travel_history	travel_id	text	0
+travel_history	at	text	0
+travel_history	by	text	0
+travel_history	action	text	0
+travel_history	note	text	1
+travel_history	sort_order	integer	0
+travel_image_catalog	id	text	0
+travel_image_catalog	label	text	0
+travel_image_catalog	url	text	0
+travel_image_catalog	keywords	text	0
+travel_image_catalog	normalize_key	text	0
+travel_image_catalog	source	text	0
+travel_image_catalog	author	text	1
+travel_image_catalog	license	text	1
+travel_image_catalog	attribution_url	text	1
+travel_image_catalog	source_page_url	text	1
+travel_image_catalog	created_at	timestamp with time zone	0
+travel_image_catalog	updated_at	timestamp with time zone	0
+travel_message	id	text	0
+travel_message	etablissement_id	uuid	0
+travel_message	travel_id	text	0
+travel_message	user_label	text	0
+travel_message	role	text	0
+travel_message	body	text	0
+travel_message	at	text	0
+travel_message	sort_order	integer	0
+travel_message_read	id	uuid	0
+travel_message_read	etablissement_id	uuid	0
+travel_message_read	travel_id	text	0
+travel_message_read	user_id	text	0
+travel_message_read	last_read_at	timestamp with time zone	0
+travel_parent_blog	id	uuid	0
+travel_parent_blog	etablissement_id	uuid	0
+travel_parent_blog	travel_id	text	0
+travel_parent_blog	token	text	0
+travel_parent_blog	enabled	boolean	0
+travel_parent_blog	activated_at	timestamp with time zone	0
+travel_parent_blog	expires_at	timestamp with time zone	0
+travel_parent_blog	activated_by_user_id	text	1
+travel_parent_blog	parents_notified_at	timestamp with time zone	1
+travel_parent_blog	purged_at	timestamp with time zone	1
+travel_parent_blog_photo	id	text	0
+travel_parent_blog_photo	etablissement_id	uuid	0
+travel_parent_blog_photo	post_id	text	0
+travel_parent_blog_photo	travel_id	text	0
+travel_parent_blog_photo	s3_key	text	0
+travel_parent_blog_photo	content_type	text	0
+travel_parent_blog_photo	sort_order	integer	0
+travel_parent_blog_post	id	text	0
+travel_parent_blog_post	etablissement_id	uuid	0
+travel_parent_blog_post	travel_id	text	0
+travel_parent_blog_post	author_user_id	text	0
+travel_parent_blog_post	author_name	text	0
+travel_parent_blog_post	body	text	0
+travel_parent_blog_post	created_at	timestamp with time zone	0
+travel_participant	id	uuid	0
+travel_participant	etablissement_id	uuid	0
+travel_participant	travel_id	text	0
+travel_participant	eleve_key	text	0
+travel_participant	nom	text	0
+travel_participant	prenom	text	0
+travel_participant	classe	text	1
+travel_participant	sort_order	integer	0
+travel_participant	droit_image_ok	boolean	0
+travel_participant	panier_repas	boolean	0
+travel_participant	eleve_id	uuid	1
+tresorerie_compte	id	uuid	0
+tresorerie_compte	etablissement_id	uuid	0
+tresorerie_compte	libelle	text	0
+tresorerie_compte	nature	text	0
+tresorerie_compte	actif	boolean	0
+tresorerie_compte	created_at	timestamp with time zone	0
+tresorerie_compte	updated_at	timestamp with time zone	0
+two_factor	id	text	0
+two_factor	secret	text	0
+two_factor	backup_codes	text	0
+two_factor	user_id	text	0
+two_factor	verified	boolean	1
+two_factor	failed_verification_count	integer	1
+two_factor	locked_until	timestamp with time zone	1
+user	id	text	0
+user	name	text	0
+user	email	text	0
+user	email_verified	boolean	0
+user	image	text	1
+user	etablissement_id	uuid	0
+user	external_user_id	text	1
+user	first_name	text	1
+user	last_name	text	1
+user	platform_admin	boolean	0
+user	org_admin	boolean	0
+user	created_at	timestamp with time zone	0
+user	updated_at	timestamp with time zone	0
+user	must_change_password	boolean	0
+user	two_factor_enabled	boolean	0
+user	invitation_sent_at	timestamp with time zone	1
+user	date_naissance	date	1
+user_membership	id	uuid	0
+user_membership	user_id	text	0
+user_membership	etablissement_id	uuid	0
+user_membership	context	text	0
+user_membership	active	boolean	0
+user_membership	created_at	timestamp with time zone	0
+user_membership	updated_at	timestamp with time zone	0
+user_role	id	uuid	0
+user_role	etablissement_id	uuid	0
+user_role	user_id	text	0
+user_role	role	text	0
+user_role	created_at	timestamp with time zone	0
+verification	id	text	0
+verification	identifier	text	0
+verification	value	text	0
+verification	expires_at	timestamp with time zone	0
+verification	created_at	timestamp with time zone	0
+verification	updated_at	timestamp with time zone	0
+vs_absence_eleve	id	uuid	0
+vs_absence_eleve	etablissement_id	uuid	0
+vs_absence_eleve	eleve_id	uuid	0
+vs_absence_eleve	appel_id	uuid	1
+vs_absence_eleve	date_debut	date	0
+vs_absence_eleve	date_fin	date	0
+vs_absence_eleve	type	text	0
+vs_absence_eleve	statut	text	0
+vs_absence_eleve	justifie	boolean	0
+vs_absence_eleve	motif	text	1
+vs_absence_eleve	justificatif_key	text	1
+vs_absence_eleve	relance_at	timestamp with time zone	1
+vs_absence_eleve	traite_par_user_id	text	1
+vs_absence_eleve	traite_at	timestamp with time zone	1
+vs_absence_eleve	note_cpe	text	1
+vs_absence_eleve	created_at	timestamp with time zone	0
+vs_absence_eleve	updated_at	timestamp with time zone	0
+vs_absence_eleve	heure_debut	text	1
+vs_absence_eleve	heure_fin	text	1
+vs_absence_eleve	source	text	0
+vs_absence_eleve	created_by_user_id	text	1
+vs_absence_eleve	created_by_nom	text	1
+vs_absence_eleve	canal	text	1
+vs_appel	id	uuid	0
+vs_appel	etablissement_id	uuid	0
+vs_appel	date_appel	date	0
+vs_appel	creneau_id	uuid	1
+vs_appel	classe	text	0
+vs_appel	heure_debut	text	1
+vs_appel	heure_fin	text	1
+vs_appel	matiere_libelle	text	1
+vs_appel	enseignant_user_id	text	1
+vs_appel	enseignant_nom	text	1
+vs_appel	statut	text	0
+vs_appel	clos_at	timestamp with time zone	1
+vs_appel	created_at	timestamp with time zone	0
+vs_appel	updated_at	timestamp with time zone	0
+vs_appel_ligne	etablissement_id	uuid	0
+vs_appel_ligne	appel_id	uuid	0
+vs_appel_ligne	eleve_id	uuid	0
+vs_appel_ligne	statut	text	0
+vs_appel_ligne	retard_minutes	integer	1
+vs_appel_ligne	note	text	1
+vs_appel_ligne	updated_at	timestamp with time zone	0
+vs_carnet_entree	id	uuid	0
+vs_carnet_entree	etablissement_id	uuid	0
+vs_carnet_entree	eleve_id	uuid	0
+vs_carnet_entree	date_entree	date	0
+vs_carnet_entree	categorie	text	0
+vs_carnet_entree	titre	text	0
+vs_carnet_entree	corps	text	0
+vs_carnet_entree	visible_famille	boolean	0
+vs_carnet_entree	created_by_user_id	text	1
+vs_carnet_entree	created_by_nom	text	1
+vs_carnet_entree	signe_at	timestamp with time zone	1
+vs_carnet_entree	signe_par_user_id	text	1
+vs_carnet_entree	signe_par_nom	text	1
+vs_carnet_entree	created_at	timestamp with time zone	0
+vs_carnet_entree	updated_at	timestamp with time zone	0
+vs_sanction	id	uuid	0
+vs_sanction	etablissement_id	uuid	0
+vs_sanction	eleve_id	uuid	0
+vs_sanction	type_id	uuid	0
+vs_sanction	date_sanction	date	0
+vs_sanction	motif	text	1
+vs_sanction	statut	text	0
+vs_sanction	created_by_user_id	text	1
+vs_sanction	created_by_nom	text	1
+vs_sanction	created_at	timestamp with time zone	0
+vs_sanction	updated_at	timestamp with time zone	0
+vs_sanction_type	id	uuid	0
+vs_sanction_type	etablissement_id	uuid	0
+vs_sanction_type	code	text	0
+vs_sanction_type	libelle	text	0
+vs_sanction_type	gravite	integer	0
+vs_sanction_type	actif	boolean	0
+vs_sanction_type	ordre	integer	0
+vs_sanction_type	created_at	timestamp with time zone	0
+web_push_preference	user_id	text	0
+web_push_preference	etablissement_id	uuid	0
+web_push_preference	muted_kinds	_text	0
+web_push_preference	quiet_start_minute	integer	1
+web_push_preference	quiet_end_minute	integer	1
+web_push_preference	updated_at	timestamp with time zone	0
+web_push_signal_state	user_id	text	0
+web_push_signal_state	etablissement_id	uuid	0
+web_push_signal_state	signal_id	text	0
+web_push_signal_state	count	integer	0
+web_push_signal_state	updated_at	timestamp with time zone	0
+web_push_subscription	id	text	0
+web_push_subscription	etablissement_id	uuid	0
+web_push_subscription	user_id	text	0
+web_push_subscription	endpoint	text	0
+web_push_subscription	p256dh	text	0
+web_push_subscription	auth	text	0
+web_push_subscription	user_agent	text	1
+web_push_subscription	failure_count	integer	0
+web_push_subscription	created_at	timestamp with time zone	0
+web_push_subscription	last_success_at	timestamp with time zone	1
+drizzle.__drizzle_migrations	id	integer	0
+drizzle.__drizzle_migrations	hash	text	0
+drizzle.__drizzle_migrations	created_at	bigint	1

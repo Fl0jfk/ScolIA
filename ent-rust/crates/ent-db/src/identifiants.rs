@@ -761,7 +761,7 @@ impl PgEnt {
             "consultation",
             "Consultation des identifiants de l'élève",
         )
-        .await;
+        .await?;
         Ok(l)
     }
 
@@ -799,7 +799,7 @@ impl PgEnt {
             "qualite",
             "Consultation des identifiants contestés",
         )
-        .await;
+        .await?;
         Ok(l)
     }
 }

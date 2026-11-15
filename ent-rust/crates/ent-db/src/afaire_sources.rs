@@ -45,6 +45,153 @@ pub(crate) enum ExigenceLien {
     SignerCarnet,
     /// Autorité parentale seule (documents à signer).
     Autorite,
+    /// Autorité parentale, hors « ne pas solliciter » (rencontres : même vue que le propriétaire, §19).
+    Sollicitable,
+}
+
+/// Identifiant stable d'un couple (objet du propriétaire, élève) : une même démarche par enfant
+/// (une autorisation ou un rendez-vous se demande par enfant, jamais pour « la famille »).
+pub fn objet_paire(tag: &str, a: Uuid, b: Uuid, version: i32) -> Uuid {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(b"afaire.paire|");
+    h.update(tag.as_bytes());
+    h.update(b"|");
+    h.update(a.as_bytes());
+    h.update(b.as_bytes());
+    h.update(version.to_be_bytes());
+    let d = h.finalize();
+    let mut o = [0u8; 16];
+    o.copy_from_slice(&d[..16]);
+    o[6] = (o[6] & 0x0f) | 0x80;
+    o[8] = (o[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(o)
+}
+
+/// Élèves majeurs parmi ceux-ci (la décision bascule vers eux, §8.8).
+async fn majeurs_parmi(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    eleves: &[Uuid],
+) -> Result<std::collections::HashSet<Uuid>, EntDbError> {
+    let rows = sqlx::query(
+        "SELECT e.id FROM ent_eleve e
+          WHERE e.etablissement_id = $1 AND e.id = ANY($2)
+            AND e.date_naissance IS NOT NULL
+            AND e.date_naissance + INTERVAL '18 years' <= ent_aujourdhui_etab($1)",
+    )
+    .bind(etab)
+    .bind(eleves)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(rows.into_iter().map(|r| r.get(0)).collect())
+}
+
+/// Un formulaire publié, à traiter pour un élève de son audience, sans aucune réponse encore
+/// (quel que soit le signataire : « un seul titulaire suffit »).
+struct FormulaireAFaire {
+    objet: Uuid,
+    eleve: Uuid,
+    prenom: String,
+    formulaire: Uuid,
+    titre: String,
+    texte: String,
+}
+
+async fn formulaires_a_faire(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    objets: Option<&[Uuid]>,
+) -> Result<Vec<FormulaireAFaire>, EntDbError> {
+    let formulaires = sqlx::query(
+        "SELECT id, version, audience, cible_ids, titre, texte FROM ent_formulaire
+          WHERE etablissement_id = $1 AND statut = 'publie'
+          ORDER BY publie_le DESC, id LIMIT 200",
+    )
+    .bind(etab)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut out = Vec::new();
+    for f in formulaires {
+        let (id, version, audience, cibles, titre, texte): (
+            Uuid,
+            i32,
+            String,
+            Vec<Uuid>,
+            String,
+            String,
+        ) = (f.get(0), f.get(1), f.get(2), f.get(3), f.get(4), f.get(5));
+        let eleves: Vec<Uuid> = crate::campagnes::eleves_de_audience(
+            conn,
+            etab,
+            &audience,
+            &cibles,
+            domain_eleve::horloge::jour_paris(),
+        )
+        .await?
+        .into_iter()
+        .filter(|e| objets.is_none_or(|o| o.contains(&objet_paire("form", id, *e, version))))
+        .collect();
+        if eleves.is_empty() {
+            continue;
+        }
+        let repondus: std::collections::HashSet<Uuid> = sqlx::query(
+            "SELECT DISTINCT eleve_id FROM ent_formulaire_reponse
+              WHERE etablissement_id = $1 AND formulaire_id = $2 AND eleve_id = ANY($3)",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(&eleves)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?
+        .into_iter()
+        .map(|r| r.get(0))
+        .collect();
+        let prenoms: HashMap<Uuid, String> = sqlx::query(
+            "SELECT id, prenom FROM ent_eleve WHERE etablissement_id = $1 AND id = ANY($2)",
+        )
+        .bind(etab)
+        .bind(&eleves)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db)?
+        .into_iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+        for e in eleves {
+            if repondus.contains(&e) {
+                continue;
+            }
+            let Some(prenom) = prenoms.get(&e) else {
+                continue;
+            };
+            out.push(FormulaireAFaire {
+                objet: objet_paire("form", id, e, version),
+                eleve: e,
+                prenom: prenom.clone(),
+                formulaire: id,
+                titre: titre.clone(),
+                texte: texte.clone(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Formulaire et enfant d'une tâche `form.repondre` (revérifié à l'exécution, jamais déduit du client).
+pub(crate) async fn formulaire_de_tache(
+    conn: &mut PgConnection,
+    etab: Uuid,
+    objet: Uuid,
+) -> Result<Option<(Uuid, Uuid)>, EntDbError> {
+    Ok(formulaires_a_faire(conn, etab, Some(&[objet]))
+        .await?
+        .into_iter()
+        .next()
+        .map(|f| (f.formulaire, f.eleve)))
 }
 
 fn jour_fr(d: NaiveDate) -> String {
@@ -67,7 +214,11 @@ pub(crate) async fn destinataires_decision(
         ExigenceLien::SignerCarnet => {
             "AND l.autorite_parentale AND l.peut_voir_vs AND l.peut_justifier_absence"
         }
-        ExigenceLien::Autorite => "AND l.autorite_parentale",
+        ExigenceLien::Autorite | ExigenceLien::Sollicitable => "AND l.autorite_parentale",
+    };
+    let vue = match exigence {
+        ExigenceLien::Sollicitable => "ent_eleve_lien_sollicitable",
+        _ => "ent_eleve_lien_communicant",
     };
     // Élèves majeurs : la décision bascule vers l'élève (§8.8).
     let majeurs = sqlx::query(
@@ -89,7 +240,7 @@ pub(crate) async fn destinataires_decision(
     }
     let sql = format!(
         "SELECT l.eleve_id, l.personne_id
-           FROM ent_eleve_lien_communicant l
+           FROM {vue} l
           WHERE l.etablissement_id = $1 AND l.eleve_id = ANY($2) AND l.personne_id IS NOT NULL {filtre}
           ORDER BY l.eleve_id, l.personne_id"
     );
@@ -269,6 +420,106 @@ pub async fn taches_ouvertes_sql(
             }
             Ok(out)
         }
+        "form.repondre" => {
+            let lignes = formulaires_a_faire(conn, etab, objets).await?;
+            let eleves: Vec<Uuid> = lignes.iter().map(|l| l.eleve).collect();
+            let dest = destinataires_decision(conn, etab, &eleves, ExigenceLien::Autorite).await?;
+            Ok(lignes
+                .into_iter()
+                .map(|l| TacheSource {
+                    objet_id: l.objet,
+                    eleve_id: Some(l.eleve),
+                    valeurs: vec![(Var::Prenom, l.prenom)],
+                    destinataires: dest.get(&l.eleve).cloned().unwrap_or_default(),
+                    echeance_le: None,
+                })
+                .collect())
+        }
+        "rdv.reserver" => {
+            // Une rencontre ouverte, un enfant de la classe, aucun créneau réservé pour lui.
+            let rows = sqlx::query(
+                "SELECT r.id, e.id, e.prenom
+                   FROM ent_rencontre r
+                   JOIN ent_affectation a
+                     ON a.etablissement_id = r.etablissement_id AND a.classe_id = r.classe_id
+                    AND a.date_debut <= ent_aujourdhui_etab($1)
+                    AND (a.date_fin IS NULL OR a.date_fin >= ent_aujourdhui_etab($1))
+                   JOIN ent_eleve e ON e.etablissement_id = a.etablissement_id AND e.id = a.eleve_id
+                  WHERE r.etablissement_id = $1 AND r.statut = 'ouverte'
+                    AND (e.date_sortie IS NULL OR e.date_sortie > ent_aujourdhui_etab($1))
+                    AND NOT EXISTS (
+                        SELECT 1 FROM ent_creneau_rdv k
+                         WHERE k.etablissement_id = r.etablissement_id AND k.rencontre_id = r.id
+                           AND k.statut = 'reserve' AND k.eleve_id = e.id)
+                  ORDER BY r.created_at, r.id, e.prenom, e.id",
+            )
+            .bind(etab)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(db)?;
+            let mut lignes: Vec<(Uuid, Uuid, Uuid, String)> = Vec::new();
+            for r in rows {
+                let (rencontre, eleve, prenom): (Uuid, Uuid, String) =
+                    (r.get(0), r.get(1), r.get(2));
+                let objet = objet_paire("rdv", rencontre, eleve, 0);
+                if objets.is_none_or(|o| o.contains(&objet)) {
+                    lignes.push((objet, rencontre, eleve, prenom));
+                }
+            }
+            let eleves: Vec<Uuid> = lignes.iter().map(|l| l.2).collect();
+            let majeurs = majeurs_parmi(conn, etab, &eleves).await?;
+            let dest =
+                destinataires_decision(conn, etab, &eleves, ExigenceLien::Sollicitable).await?;
+            Ok(lignes
+                .into_iter()
+                // L'écran propriétaire est celui du responsable : rien pour un élève majeur.
+                .filter(|l| !majeurs.contains(&l.2))
+                .map(|(objet, _, eleve, prenom)| TacheSource {
+                    objet_id: objet,
+                    eleve_id: Some(eleve),
+                    valeurs: vec![(Var::Prenom, prenom)],
+                    destinataires: dest.get(&eleve).cloned().unwrap_or_default(),
+                    echeance_le: None,
+                })
+                .collect())
+        }
+        "insc.reinscrire" => {
+            let rows = sqlx::query(
+                "SELECT d.id, d.eleve_id, d.eleve_prenom
+                   FROM ent_inscription_dossier d
+                   JOIN ent_inscription_campagne c
+                     ON c.id = d.campagne_id AND c.etablissement_id = d.etablissement_id
+                  WHERE d.etablissement_id = $1 AND d.nature = 'reinscription'
+                    AND c.statut = 'ouverte' AND d.eleve_id IS NOT NULL
+                    -- « brouillon » : pas encore confirmée par la famille (la confirmation passe à « confirmee »).
+                    AND d.statut = 'brouillon'
+                    AND ($2::uuid[] IS NULL OR d.id = ANY($2))
+                  ORDER BY d.eleve_prenom, d.id",
+            )
+            .bind(etab)
+            .bind(objets)
+            .fetch_all(&mut *conn)
+            .await
+            .map_err(db)?;
+            let lignes: Vec<(Uuid, Uuid, String)> = rows
+                .into_iter()
+                .map(|r| (r.get(0), r.get(1), r.get(2)))
+                .collect();
+            let eleves: Vec<Uuid> = lignes.iter().map(|l| l.1).collect();
+            let majeurs = majeurs_parmi(conn, etab, &eleves).await?;
+            let dest = destinataires_decision(conn, etab, &eleves, ExigenceLien::Autorite).await?;
+            Ok(lignes
+                .into_iter()
+                .filter(|l| !majeurs.contains(&l.1))
+                .map(|(id, eleve, prenom)| TacheSource {
+                    objet_id: id,
+                    eleve_id: Some(eleve),
+                    valeurs: vec![(Var::Prenom, prenom)],
+                    destinataires: dest.get(&eleve).cloned().unwrap_or_default(),
+                    echeance_le: None,
+                })
+                .collect())
+        }
         "dos.protection_a_confirmer" => {
             // Aucune identité dans l'index : seul l'identifiant de l'objet suit (R-PO5).
             let mut out = Vec::new();
@@ -342,6 +593,27 @@ pub(crate) async fn apercu_carte(
                     libelle: "Motif de l'absence".into(),
                     obligatoire: true,
                     choix: vec![],
+                }],
+            )))
+        }
+        "form.repondre" => {
+            let Some(f) = formulaires_a_faire(conn, etab, Some(&[objet_id]))
+                .await?
+                .into_iter()
+                .next()
+            else {
+                return Ok(None);
+            };
+            Ok(Some((
+                format!(
+                    "« {} » concerne {}. {} Votre réponse est enregistrée au dossier de l'enfant.",
+                    f.titre, f.prenom, f.texte
+                ),
+                vec![ChampAction {
+                    code: "decision".into(),
+                    libelle: "Votre réponse".into(),
+                    obligatoire: true,
+                    choix: vec!["accepte".into(), "refuse".into()],
                 }],
             )))
         }

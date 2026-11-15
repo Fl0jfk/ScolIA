@@ -7,16 +7,26 @@
 //! * `/web/cahier` — professeur : contenu des séances, travail à donner, charge de la classe ;
 //! * `/web/cahier/travaux/:id` — professeur : copies reçues et retour à l'élève ;
 //! * `/web/agenda` — élève et famille : travail à faire, échéances, rendu en ligne.
+//!
+//! Lot C2 (saisie et publication) :
+//! * `/web/cahier/cours` — professeur : cahier du cours (entrées par séance, brouillon, programmation, plage calme,
+//!   modification avec ou sans avis, historique, retrait, copie) ;
+//! * `/web/cahier/travail` — professeur : donner un travail (un ou plusieurs cours, échéance-séance).
 
 mod agenda;
 mod copies;
+mod cours;
 pub mod fichiers;
 pub mod modele;
+pub mod modele_c2;
 mod prof;
+mod travail;
 
 pub use agenda::PageAgenda;
 pub use copies::PageCopies;
+pub use cours::PageCahierCours;
 pub use prof::PageCahier;
+pub use travail::PageDonnerTravail;
 
 use ent_web_api::ApiError;
 use leptos::prelude::*;

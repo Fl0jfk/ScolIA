@@ -220,13 +220,18 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("341_cours"),
     m!("342_eleve_enseignement_jour_etablissement"),
     m!("343_eleve_enseignement_horodatage_jour_etablissement"),
+    // 339 (socle 5, S6) est appliquée ICI, après 341 : elle repose la liste des objets du journal de structure.
+    m!("339_structure_groupes"),
     m!("350_acces_etat"),
     m!("351_attributions_datees"),
     m!("352_agents"),
     m!("353_agents_fonctions"),
     m!("354_services_interventions"),
     m!("355_missions"),
+    m!("356_groupes_responsables_dates"),
     m!("357_casquettes_invitations"),
+    m!("358_equipes"),
+    m!("359_delegations_signature"),
     m!("361_agent_identifiants"),
     m!("362_agent_sujet"),
     m!("370_edt_creneau_groupe"),
@@ -238,6 +243,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("442_edt_t1_placements"),
     m!("443_edt_t2_seance_enrichie"),
     m!("444_edt_t2_seance_lieux_intervenants"),
+    m!("445_edt_t3_modifications"),
+    m!("447_edt_t4_localisation_journal"),
     m!("460_eva_v0_correctifs"),
     m!("480_msg_m0a_fuites"),
     m!("481_msg_m0b_securite_fiabilite"),
@@ -259,6 +266,8 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("586_rls_inscriptions"),
     m!("587_rls_structure_acces_divers"),
     m!("452_edt_rls_permissive"),
+    m!("453_edt_t3_rls_permissive"),
+    m!("454_edt_t4_rls_permissive"),
     m!("600_rls_stricte_adhesion_contexte"),
     m!("601_pieces_vers_objets"),
     m!("640_sortie_coeur"),
@@ -283,6 +292,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2245_assiduite_as3_justificatifs_demandes"),
     m!("2246_assiduite_as4_decompte"),
     m!("2300_absp_a0_correctifs"),
+    m!("446_edt_t3_reprise"),
     m!("2301_absp_referentiel"),
     m!("2302_absp_absence"),
     m!("2303_absp_pieces_fil"),
@@ -308,11 +318,23 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2410_cdt_visas_charge"),
     m!("2411_cdt_archives"),
     m!("2412_cdt_reprise"),
+    m!("2413_cdt_c2_saisie_publication"),
+    // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
+    m!("2540_rgpd_g0_journal_truncate"),
+    // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
+    m!("2541_rgpd_g1_conservation"),
+    // Socle 27, G2 : registre généré, écarts, mentions, documents ; sous-traitants.
+    m!("2542_rgpd_g2_registre"),
+    m!("2543_rgpd_g2_soustraitants"),
+    // Socle 28, lot MS0 : annulation réelle des lots d'import prévisualisés.
+    m!("2560_ms0_import_annulation"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),
     m!("2581_afaire_journal_prises"),
     m!("2582_afaire_reglages"),
+    // Lot P5 : compteur de recherches (volatile, aucun texte de requête).
+    m!("2585_recherche_compteur"),
     m!("2780_stage_st0_correctifs"),
     m!("2781_stage_st1a_parametres_organismes"),
     m!("2782_stage_st1a_periodes"),
@@ -326,13 +348,26 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     // Lot N1-1 : files, membres calculés, routage, repli RH.
     m!("3042_demandes_n1_1_files"),
     m!("3043_demandes_n1_1_routage"),
+    // Lot N1-2 : échanges, pièces (références au socle 7), abonnés ; consultations, liens, personnes visées.
+    m!("3044_demandes_n1_2_echanges"),
+    m!("3045_demandes_n1_2_consultations_liens"),
+    // Lot N1-3 : HSE (en heures, validées par la direction, D-061) et reprographie (file par site).
+    m!("3046_demandes_n1_3_hse"),
+    m!("3047_demandes_n1_3_reprographie"),
+    // Lot N1-5 : reprise des données du Next.js (R9), puis gardes de la bascule (guichet, rapprochement, HSE hors ScolIA).
+    m!("3048_demandes_n1_5_reprise"),
+    m!("3049_demandes_n1_5_bascule"),
+    m!("3700_documents_identite_natures"),
+    m!("3701_documents_documents_versions"),
+    m!("3702_documents_compteurs"),
+    m!("3703_documents_mises_a_disposition"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
 /// appelant (orchestrateur, PRA, support) sache quel schéma tourne réellement.
 /// Le test `migration_tag_suit_la_derniere_migration` échoue si on ajoute un
 /// fichier sans mettre à jour cette constante.
-pub const MIGRATION_TAG: &str = "3043_demandes_n1_1_routage";
+pub const MIGRATION_TAG: &str = "3703_documents_mises_a_disposition";
 
 /// Clé advisory dédiée au chantier ENT (évite les courses CREATE TABLE en tests parallèles).
 const ENT_MIGRATE_LOCK: i64 = 0x454E_545F_4D49_4752; // "ENT_MIGR"
@@ -448,6 +483,11 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         "666_d036_eleve_fusion_normalisee",
         "667_d036_personne_fusion_normalisee",
     ];
+    // Connexion détachée : fermée en fin de fonction, ce qui libère le verrou de session même en cas d'erreur.
+    let mut verrou = pool.acquire().await?.detach();
+    // 7770042 : verrou des préparations de rôles (GRANT sur le catalogue), cf. `tests_rls_stricte`.
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut verrou).await?;
+    sqlx::query("SELECT pg_advisory_lock($1)").bind(CLE_REJEU).execute(&mut verrou).await?;
     for (nom, sql) in MIGRATIONS {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
             continue;
@@ -455,6 +495,32 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         apply_sql_file(pool, sql).await?;
     }
     Ok(())
+}
+
+/// Verrou consultatif entre les rejeux de migrations (exclusif) et les tests qui vérifient un déclencheur ou une
+/// politique recréés par ces rejeux (partagé). Le rejeu est fait instruction par instruction : un `DROP TRIGGER`
+/// suivi de son `CREATE` laisse un instant la table sans garde, et un test voisin qui vérifie cette garde
+/// (ex. immuabilité de `ent_objet`, migration 500) voyait alors l'écriture acceptée. Deux rejeux en parallèle sont
+/// aussi sérialisés.
+#[cfg(test)]
+const CLE_REJEU: i64 = 7770043;
+
+#[cfg(test)]
+pub(crate) struct GardeRejeu(sqlx::PgConnection);
+
+/// Prend le verrou **partagé** : aucun rejeu ne tourne tant que la garde est tenue. À libérer avec `liberer()`.
+#[cfg(test)]
+pub(crate) async fn garde_rejeu_partagee(pool: &PgPool) -> GardeRejeu {
+    let mut c = pool.acquire().await.expect("connexion").detach();
+    sqlx::query("SELECT pg_advisory_lock_shared($1)").bind(CLE_REJEU).execute(&mut c).await.expect("verrou");
+    GardeRejeu(c)
+}
+
+#[cfg(test)]
+impl GardeRejeu {
+    pub(crate) async fn liberer(mut self) {
+        let _ = sqlx::query("SELECT pg_advisory_unlock_shared($1)").bind(CLE_REJEU).execute(&mut self.0).await;
+    }
 }
 
 /// Ordres d'un fichier : commentaires retirés **avant** le découpage sur `;` (sinon un `;` dans un

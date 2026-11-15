@@ -675,6 +675,23 @@ fn specs_domaine_edt() -> Vec<Spec> {
             lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),
             ecrire_sur_b("edt-remplacement-B", "POST", "/edt/remplacements",
                 Some(r#"{"creneau_id":"{appel}","jour":"{jour}","remplacant_user_id":"{eleve}","absence_rh_id":null,"nouvelle_salle":null}"#)),
+            // Socle 10, lot T3 : journal du réel, grève du jour et modifications. Le journal est lu par
+            // l'encadrement (le professeur : ses séances, une par une) ; la grève est un droit de lot.
+            lire("edt-journal", "/edt/modifications?du={jour}&au={jour}",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
+            lire("edt-greve-candidats", "/edt/greve/candidats?jour={jour}&demi_journee=journee",
+                &[Direction, Administratif], &[Direction, Administratif]),
+            // Socle 10, lot T4 : « demain » (encadrement) et « maintenant » (lecture journalisée d'un élève).
+            // Sans identifiant de ressource : la cible B répond comme un identifiant inexistant (les données de A,
+            // jamais celles de B).
+            Spec { b: Attendu::RefuseOuIndistinct, ..lire("edt-demain", "/edt/demain?jour={jour}",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]) },
+            lire("edt-maintenant-eleve", "/edt/maintenant/eleves/{eleve}?usage=recherche",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
+            ecrire_sur_b("edt-modification-B", "POST", "/edt/modifications",
+                Some(r#"{"seance_id":"{appel}","changement":{"type":"annulation"},"motif_public_code":"autre"}"#)),
+            ecrire_sur_b("edt-lot-B", "POST", "/edt/lots",
+                Some(r#"{"nature":"annulation","du":"{jour}","au":"{jour}","portee":"classes","cibles":["{appel}"],"motif_public_code":"autre"}"#)),
     ]
 }
 
@@ -702,6 +719,39 @@ fn specs_domaine_cours() -> Vec<Spec> {
             Some(r#"{"a_la_date":"2026-01-05"}"#)),
         ecrire_sur_b("structure-cours-service-B", "POST", "/structure/cours/{cours}/services",
             Some(r#"{"prof_user_id":"{eleve}","professeur_principal":false}"#)),
+        // Socle 5, lot S6 : groupes et compositions. Un identifiant de l'autre établissement (ici l'identifiant
+        // d'un objet de B) n'obtient jamais un 2xx, en lecture comme en écriture (404, aucun oracle d'existence).
+        ecrire_sur_b("structure-groupe-detail-B", "GET", "/structure/groupes/{cours}", None),
+        ecrire_sur_b("structure-groupe-modification-B", "PUT", "/structure/groupes/{cours}", Some(r#"{"libelle":"X"}"#)),
+        ecrire_sur_b("structure-groupe-fermeture-B", "POST", "/structure/groupes/{cours}/fermer",
+            Some(r#"{"a_la_date":"2026-01-05"}"#)),
+        ecrire_sur_b("structure-groupe-composition-B", "POST", "/structure/groupes/{cours}/composition",
+            Some(r#"{"entrants":["{eleve}"],"sortants":[]}"#)),
+        ecrire_sur_b("structure-groupe-propositions-B", "GET", "/structure/groupes/{cours}/propositions", None),
+        ecrire_sur_b("structure-groupe-regle-B", "POST", "/structure/groupes/{cours}/regle",
+            Some(r#"{"entrants":["{eleve}"],"sortants":[]}"#)),
+        ecrire_sur_b("structure-groupe-dedoublement-B", "POST", "/structure/groupes/{cours}/dedoubler",
+            Some(r#"{"repartition":"alterne","apercu":false}"#)),
+        ecrire_sur_b("structure-classe-changement-B", "POST", "/structure/eleves/classe",
+            Some(r#"{"eleve_id":"{eleve}","classe_id":"{cours}","apercu":false}"#)),
+        ecrire_sur_b("structure-affectations-lot-B", "POST", "/structure/affectations/lot",
+            Some(r#"{"classe_id":"{cours}","eleves":["{eleve}"],"apercu":false}"#)),
+        ecrire_sur_b("structure-affectation-correction-B", "POST", "/structure/affectations/correction",
+            Some(r#"{"eleve_id":"{eleve}","groupe_errone":"{cours}","apercu":false}"#)),
+        // Socle 20, lot C2 : cahier du cours. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx
+        // (liste des séances, entrée, travail) ; les routes sans identifiant sont réservées à qui écrit au cahier.
+        ecrire_sur_b("cahier-c2-seances-B", "GET", "/cahier/c2/cours/{cours}/seances?du=2026-01-05&au=2026-01-30", None),
+        ecrire_sur_b("cahier-c2-entree-B", "PUT",
+            "/cahier/c2/cours/{cours}/seances/00000000-0000-4000-8000-000000000001/entree",
+            Some(r#"{"contenu":"X","publication":"brouillon"}"#)),
+        ecrire_sur_b("cahier-c2-travail-B", "POST", "/cahier/c2/travaux",
+            Some(r#"{"cours_ids":["{cours}"],"nature":"exercices","titre":"X","consigne":"Y","publication":"brouillon","echeance_prochaine_seance":true}"#)),
+        ecrire_sur_b("cahier-c2-entree-versions-B", "GET", "/cahier/c2/entrees/{cours}/versions", None),
+        ecrire_sur_b("cahier-c2-entree-retrait-B", "POST", "/cahier/c2/entrees/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
+        ecrire_sur_b("cahier-c2-travail-modif-B", "PUT", "/cahier/c2/travaux/{cours}", Some(r#"{"titre":"X"}"#)),
+        ecrire_sur_b("cahier-c2-travail-retrait-B", "POST", "/cahier/c2/travaux/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
+        lire("cahier-c2-mes-cours", "/cahier/c2/cours", &[Admin, Direction, Prof], &[]),
+        lire("cahier-c2-natures", "/cahier/c2/natures", &[Admin, Direction, Prof], &[]),
     ]
 }
 
@@ -716,6 +766,9 @@ fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
                 &[Admin, Direction, Administratif, Cpe, Prof, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
             lire("factures-liste", "/facturation/factures", &[Admin, Direction, Administratif, Compta], &[]),
             lire("foyers-liste", "/foyers", FOYERS, &[]),
+            // Socle 8 N0a (RP1-06) : journaux d'envoi (adresses, numéros) réservés à `notifications.gerer`.
+            lire("mails-liste", "/mails", &[Admin, Direction], &[Admin, Direction]),
+            lire("sms-liste", "/sms", &[Admin, Direction], &[Admin, Direction]),
             lire("mes-creneaux", "/edt/mes-creneaux", &[Admin, Direction, Administratif, Cpe, Prof, Eleve], &[]),
             // D-022 bis : liste unique des enseignements du personnel, jamais des familles.
             lire("mes-enseignements", "/referentiel/mes-enseignements",
@@ -770,6 +823,7 @@ fn domaine_inscriptions_i2() {
 /// Routes publiques : la **seule** liste d'exceptions à « sans session ⇒ 401 ».
 const PUBLIQUES: &[(&str, &str)] = &[
     ("GET", "/health"),
+    ("GET", "/health/detail"), // supervision : 404 si métriques fermées, 401 sans jeton ; jamais de session
     ("GET", "/ready"),
     ("POST", "/labo/bootstrap"), // fermé hors labo par ENT_ENV / ENT_ALLOW_LABO
     ("POST", "/auth/register"),  // fermé hors labo
@@ -803,7 +857,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/inscriptions/invitations/accepter"),
     ("POST", "/inscriptions/invitations/refuser"),
     ("GET", "/metrics"), // politique d'accès propre (jeton / désactivé)
-    ("GET", "/fichiers/{jeton}"), // lien court signé (HMAC, expiration) : le jeton fait foi
+    // Vérification publique des documents (socle 7, D3) : le code (60 bits) ou l'empreinte du fichier fait foi ;
+    // l'établissement vient de l'adresse, réponses identiques pour inconnu et autre établissement.
+    ("GET", "/verifier/{code}"),
+    ("POST", "/verifier"),
     // Préinscription (S2-3, D-014) : e-mail vérifié par code, invitation par jeton.
     ("POST", "/preinscription/demarrer"),
     ("POST", "/preinscription/verifier"),
@@ -996,7 +1053,7 @@ fn invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes() {
     rt().block_on(async {
         for chemin in [
             "/messages/fils", "/facturation/factures", "/foyers", "/matieres", "/audit/journal",
-            "/personnel/search?q=a", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
+            "/personnel/search?q=a", "/recherche?q=Potter", "/recherche?q=Dupont", "/vs/signaux", "/annonces", "/edt/mes-creneaux",
             "/referentiel/mes-enseignements",
             "/infirmerie/passages", "/psy/entretiens", "/documents/grants/pending",
         ] {
@@ -1035,6 +1092,16 @@ fn essai_famille_refusee(chemin_gabarit: &str, cible: Cible, acteurs: &[Acteur])
 fn l2_annuaire_eleves_search_ferme_aux_familles() {
     let Some(_) = monde() else { return };
     let e = essai_famille_refusee("/eleves/search?q=Potter", Cible::Liee, FAMILLE);
+    assert!(e.is_empty(), "{}", e.join("\n"));
+}
+
+/// Socle 29, lot P5 : la recherche globale est un outil du personnel ; une famille ou un élève reçoit un refus ou rien.
+#[test]
+fn l2_recherche_globale_fermee_aux_familles() {
+    let Some(_) = monde() else { return };
+    let e = essai_famille_refusee("/recherche?q=Potter", Cible::Liee, FAMILLE);
+    assert!(e.is_empty(), "{}", e.join("\n"));
+    let e = essai_famille_refusee("/recherche?q=Potter", Cible::NonLiee, FAMILLE);
     assert!(e.is_empty(), "{}", e.join("\n"));
 }
 
@@ -2090,6 +2157,73 @@ fn c6_enumeration_email_connu_dans_b_et_inconnu_indiscernables() {
 
 // ───────── Nouvelles routes du socle 1 ─────────
 
+/// Socle N1, lot N1-4 : les routes `/demandes…` refusent ce que le rôle ne permet pas, **sans rien révéler** (404 neutre
+/// pour une demande inconnue, jamais de donnée d'un autre établissement) — pièges 1, 5, 7, 8, 9, 11 du §24.3.
+#[test]
+fn n1_4_routes_demandes_refus_par_role_et_404_neutre() {
+    let Some(m) = monde() else { return };
+    let mut echecs = Vec::new();
+    rt().block_on(async {
+        let nul = Uuid::new_v4();
+        // Familles et élèves : aucune file, aucune décision, aucune validation, aucune impression.
+        for a in [Parent, ParentAutreFoyer, ParentSansDrapeaux, Eleve] {
+            for chemin in ["/demandes/file", "/demandes/hse/a-decider", "/demandes/hse/enveloppe", "/demandes/copies/file", "/demandes/copies/a-valider"] {
+                let r = m.appel("GET", chemin, Some(m.jeton(a)), None).await;
+                if !r.est_refus() {
+                    echecs.push(format!("GET {chemin} par {a:?} → {}", r.statut));
+                }
+            }
+            let r = m.appel("POST", "/demandes/hse", Some(m.jeton(a)), Some(&json!({"motif": "soutien", "objet": "x", "volume_quarts": 4,
+                "periode_du": "2026-01-05", "periode_au": "2026-01-06"}))).await;
+            if !r.est_refus() {
+                echecs.push(format!("POST /demandes/hse par {a:?} → {}", r.statut));
+            }
+        }
+        // Une demande inconnue, ou d'un autre établissement : 404 neutre pour tout le monde, mêmes mots.
+        let b_demande = m.b.objets.eleve; // un identifiant réel de B qui n'est pas une demande de A
+        for a in Acteur::TOUS {
+            for id in [nul, b_demande] {
+                for (meth, chemin, corps) in [
+                    ("GET", format!("/demandes/{id}"), None),
+                    ("POST", format!("/demandes/{id}/prendre"), Some(json!({"version": 1}))),
+                    ("POST", format!("/demandes/{id}/annuler"), Some(json!({"version": 1}))),
+                    ("POST", format!("/demandes/hse/{id}/decider"), Some(json!({"decision": "accordee", "version": 1}))),
+                    ("POST", format!("/demandes/hse/{id}/confirmer"), Some(json!({}))),
+                    ("POST", format!("/demandes/copies/{id}/prete"), Some(json!({}))),
+                    ("POST", format!("/demandes/copies/{id}/valider"), Some(json!({"accepter": true}))),
+                    ("POST", format!("/demandes/copies/{id}/impression"), Some(json!({}))),
+                ] {
+                    let r = m.appel(meth, &chemin, Some(m.jeton(a)), corps.as_ref()).await;
+                    if r.est_succes() || r.statut.as_u16() == 500 {
+                        echecs.push(format!("{meth} {chemin} par {a:?} → {}", r.statut));
+                    }
+                }
+            }
+        }
+        // Le personnel sans droit de décision ni de validation est refusé.
+        for a in [Prof, Cpe, Administratif] {
+            for chemin in ["/demandes/hse/a-decider", "/demandes/hse/enveloppe", "/demandes/copies/a-valider"] {
+                let r = m.appel("GET", chemin, Some(m.jeton(a)), None).await;
+                if !r.est_refus() {
+                    echecs.push(format!("GET {chemin} par {a:?} → {}", r.statut));
+                }
+            }
+        }
+        // Un corps de dépôt ne porte aucune identité : un champ « email » ou « demandeur » est ignoré (NJ-84).
+        let r = m.appel("POST", "/demandes", Some(m.jeton(Prof)), Some(&json!({"nature_code": "inconnue.nature", "objet": "x",
+            "email": "pirate@example.test", "demandeur": nul}))).await;
+        if r.est_succes() {
+            echecs.push(format!("POST /demandes avec identité → {}", r.statut));
+        }
+        // La liste « mes demandes » ne contient rien d'un autre établissement.
+        let l = m.appel("GET", "/demandes/mes", Some(m.jeton(Prof)), None).await;
+        if l.est_succes() && l.texte.contains(&m.b.objets.eleve.to_string()) {
+            echecs.push("GET /demandes/mes : identifiant de B listé".into());
+        }
+    });
+    assert!(echecs.is_empty(), "{echecs:#?}");
+}
+
 #[test]
 fn c6_routes_du_socle1_inventaire_401_et_separation() {
     let (Some(m), Some(d)) = (monde(), doubles()) else { return };
@@ -2203,4 +2337,19 @@ fn c6_routes_du_socle1_inventaire_401_et_separation() {
     CAS_EXECUTES.fetch_add(cas, Ordering::Relaxed);
     eprintln!("[separation] routes socle 1 : {cas} cas, {} écart(s)", echecs.len());
     assert!(echecs.is_empty(), "{}", echecs.join("\n"));
+}
+
+/// Socle 8 N0a (h, RP1-06) : l'accueil (profil administratif) reçoit 403 sur `/sms` et `/mails`,
+/// la direction les lit.
+#[test]
+fn n0a_accueil_refuse_sur_mails_et_sms() {
+    let Some(m) = monde() else { return };
+    rt().block_on(async {
+        for chemin in ["/sms", "/mails"] {
+            let r = m.appel("GET", chemin, Some(m.jeton(Administratif)), None).await;
+            assert_eq!(r.statut.as_u16(), 403, "accueil sur {chemin} : {}", r.statut);
+            let r = m.appel("GET", chemin, Some(m.jeton(Direction)), None).await;
+            assert!(r.est_succes(), "direction sur {chemin} : {}", r.statut);
+        }
+    });
 }

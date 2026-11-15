@@ -83,6 +83,9 @@ async fn pages_rendues_par_le_serveur() {
         ("/web/cahier".to_string(), "Cahier de textes"),
         (format!("/web/cahier/travaux/{inconnu}"), "Copies reçues"),
         ("/web/agenda".to_string(), "Travail à faire"),
+        // Lot C2 : cahier du cours (écran 1) et travail à donner (écran 2).
+        ("/web/cahier/cours".to_string(), "Cahier du cours"),
+        ("/web/cahier/travail".to_string(), "Donner un travail"),
     ] {
         let r = http.get(format!("{base}{chemin}")).send().await.unwrap();
         assert_eq!(r.status(), 200, "{chemin}");

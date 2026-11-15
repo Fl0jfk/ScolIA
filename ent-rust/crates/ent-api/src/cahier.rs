@@ -14,6 +14,7 @@ use base64::Engine;
 use chrono::NaiveDate;
 use ent_db::cahier::{Cible, FichierDepot, NouveauTravail, ParentPiece};
 use ent_types::cahier::*;
+use ent_types::cahier_c2::*;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -65,6 +66,131 @@ pub fn routes() -> Router<AppState> {
         .route("/cahier/charge", get(charge))
         .route("/cahier/visas", get(visas).post(viser))
         .route("/cahier/reprise", get(reprise_etat))
+        // Lot C2 : saisie et publication (entrées par cours et séance, travaux).
+        .route("/cahier/c2/cours", get(c2_cours))
+        .route("/cahier/c2/natures", get(c2_natures))
+        .route("/cahier/c2/cours/{id}/seances", get(c2_seances_du_cours))
+        .route("/cahier/c2/cours/{id}/seances/{seance_id}/entree", put(c2_entree_enregistrer))
+        .route("/cahier/c2/entrees/{id}", get(c2_entree))
+        .route("/cahier/c2/entrees/{id}/versions", get(c2_entree_versions))
+        .route("/cahier/c2/entrees/{id}/retrait", post(c2_entree_retirer))
+        .route("/cahier/c2/entrees/{id}/copies", post(c2_entree_copier))
+        .route("/cahier/c2/entrees/{id}/contributions", post(c2_contribuer))
+        .route("/cahier/c2/travaux", post(c2_travaux_creer))
+        .route("/cahier/c2/travaux/{id}", get(c2_travail).put(c2_travail_modifier))
+        .route("/cahier/c2/travaux/{id}/versions", get(c2_travail_versions))
+        .route("/cahier/c2/travaux/{id}/retrait", post(c2_travail_retirer))
+}
+
+// ───────────────────────── Lot C2 : saisie et publication ─────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct PeriodeQuery {
+    du: NaiveDate,
+    au: NaiveDate,
+}
+
+async fn c2_cours(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<CoursSaisieDto>>> {
+    Ok(Json(s.ent.cdt_cours_saisie(&acteur(&session)).await.map_err(map_db)?))
+}
+
+async fn c2_natures(State(s): State<AppState>, session: EntSession) -> Res<Json<Vec<NatureTravailDto>>> {
+    Ok(Json(s.ent.cdt_natures(&acteur(&session)).await.map_err(map_db)?))
+}
+
+async fn c2_seances_du_cours(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Query(q): Query<PeriodeQuery>,
+) -> Res<Json<Vec<SeanceDuCoursDto>>> {
+    Ok(Json(s.ent.cdt_seances_du_cours(&acteur(&session), id, q.du, q.au).await.map_err(map_db)?))
+}
+
+async fn c2_entree_enregistrer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path((cours_id, seance_id)): Path<(Uuid, Uuid)>,
+    Json(b): Json<EntreeBody>,
+) -> Res<Json<EntreeDto>> {
+    Ok(Json(s.ent.cdt_entree_enregistrer(&acteur(&session), cours_id, seance_id, b).await.map_err(map_db)?))
+}
+
+async fn c2_entree(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<EntreeDto>> {
+    Ok(Json(s.ent.cdt_entree_lire(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn c2_entree_versions(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<VersionDto>>> {
+    Ok(Json(s.ent.cdt_entree_versions(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn c2_entree_retirer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RetraitC2Body>,
+) -> Res<Json<EntreeDto>> {
+    Ok(Json(s.ent.cdt_entree_retirer(&acteur(&session), id, &b.motif).await.map_err(map_db)?))
+}
+
+async fn c2_entree_copier(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<CopieSeanceBody>,
+) -> Res<Json<Vec<EntreeDto>>> {
+    Ok(Json(s.ent.cdt_entree_copier(&acteur(&session), id, &b.vers).await.map_err(map_db)?))
+}
+
+async fn c2_contribuer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ContributionBody>,
+) -> Res<Json<ContributionDto>> {
+    Ok(Json(s.ent.cdt_contribuer(&acteur(&session), id, &b.contenu).await.map_err(map_db)?))
+}
+
+async fn c2_travaux_creer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Json(b): Json<TravailC2Body>,
+) -> Res<(StatusCode, Json<TravauxCreesDto>)> {
+    Ok((StatusCode::CREATED, Json(s.ent.cdt_travaux_creer(&acteur(&session), b).await.map_err(map_db)?)))
+}
+
+async fn c2_travail(State(s): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<TravailC2Dto>> {
+    Ok(Json(s.ent.cdt_travail_lire(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn c2_travail_modifier(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<ModifierTravailC2Body>,
+) -> Res<Json<TravailModifieDto>> {
+    Ok(Json(s.ent.cdt_travail_modifier(&acteur(&session), id, b).await.map_err(map_db)?))
+}
+
+async fn c2_travail_versions(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+) -> Res<Json<Vec<VersionTravailDto>>> {
+    Ok(Json(s.ent.cdt_travail_versions(&acteur(&session), id).await.map_err(map_db)?))
+}
+
+async fn c2_travail_retirer(
+    State(s): State<AppState>,
+    session: EntSession,
+    Path(id): Path<Uuid>,
+    Json(b): Json<RetraitC2Body>,
+) -> Res<Json<TravailC2Dto>> {
+    Ok(Json(s.ent.cdt_travail_retirer(&acteur(&session), id, &b.motif).await.map_err(map_db)?))
 }
 
 fn decoder(f: FichierDepotBody) -> Res<FichierDepot> {

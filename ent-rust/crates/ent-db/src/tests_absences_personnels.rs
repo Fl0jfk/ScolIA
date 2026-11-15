@@ -3065,10 +3065,10 @@ async fn a4_designation_accuse_de_reception_et_alerte() {
         .execute(x.ent.pool())
         .await
         .unwrap();
-    let b = x.ent.traiter_sollicitations().await.unwrap();
+    let b = x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
     assert!(b.accuses_manquants >= 1, "{b:?}");
     assert_eq!(x.nb_events("absence_personnel.accuse_manquant").await, 1);
-    let b = x.ent.traiter_sollicitations().await.unwrap();
+    let b = x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
     assert_eq!(b.accuses_manquants, 0, "une seule alerte par désignation");
     let a = x.ent.accuser_reception_for_actor(x.etab, x.prof2, "prof", d.id).await.unwrap();
     assert!(a.accuse_le.is_some());
@@ -3100,7 +3100,7 @@ async fn a4_expiration_refus_et_acceptation_perimee() {
         .execute(x.ent.pool())
         .await
         .unwrap();
-    let b = x.ent.traiter_sollicitations().await.unwrap();
+    let b = x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
     assert!(b.expirees >= 1, "{b:?}");
     assert_eq!(x.etat_sollicitation(s2.id).await, "expiree");
     assert_eq!(x.etat_impact(impact).await, "a_traiter");

@@ -37,6 +37,7 @@ mod cahier_texte;
 mod competence;
 mod notes;
 mod bulletin_pdf;
+mod pdf_commun;
 mod periode;
 mod repas;
 mod retard;

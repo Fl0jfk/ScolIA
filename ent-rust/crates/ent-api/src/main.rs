@@ -61,6 +61,8 @@ ent-api plateforme-domaine <commande>
   d'établissement ne peut ni ajouter ni retirer un domaine (audit Fable 1, B-02).
 
   lister                                    tous les domaines servis et leur établissement
+  creer    <slug> <nom>                     CRÉE un établissement (identifiant généré, jamais d'écrasement ;
+                                            slug déjà pris refusé) — socle 28, MS0
   declarer <etablissement-uuid> <slug> <nom>  déclare un établissement ou change son slug/nom
   ajouter  <etablissement-uuid> <domaine>   rattache un domaine (hôtes réservés refusés,
                                             domaine d'un autre établissement refusé)
@@ -92,6 +94,11 @@ async fn plateforme_domaine(args: &[String]) -> i32 {
                     .collect::<Vec<_>>()
                     .join("\n")
             })
+            .map_err(|e| e.to_string()),
+        ("creer", 3) => ent
+            .creer_etablissement_plateforme(&args[1], &args[2])
+            .await
+            .map(|i| format!("établissement {} créé : {} ({})", i.id, i.slug, i.nom))
             .map_err(|e| e.to_string()),
         ("declarer", 4) => match etab(1) {
             Some(id) => ent
@@ -499,6 +506,11 @@ async fn run_api() {
         })
     });
 
+    // MSE-D01 : purge périodique des sessions et jetons expirés (désactivable : `ENT_PURGE_PERIODE_SECONDES`
+    // bornée entre 60 s et 24 h ; une heure par défaut).
+    let purge_periodique =
+        ent_api::purge::lancer(state.ent.clone(), ent_api::purge::periode_depuis_env());
+
     // Socle 15 (A7) : heures constatées depuis les appels faits (socle 12) et file DSN J+5. Toutes les cinq minutes,
     // idempotentes : une heure déjà constatée n'est jamais recréée.
     let heures_absences = (std::env::var("ENT_TACHES_ABSENCES").unwrap_or_default() != "0").then(|| {
@@ -538,6 +550,7 @@ async fn run_api() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("serve");
+    purge_periodique.abort();
     if let Some(t) = expediteur_inscriptions {
         t.abort();
     }

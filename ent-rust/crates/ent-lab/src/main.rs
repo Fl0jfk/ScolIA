@@ -1,7 +1,7 @@
 //! Labo exploratoire : une école dense joue des vies divergentes sur Postgres local.
 //!
 //! Usage :
-//!   set ENT_DATABASE_URL=postgres://scola:scola_dev_pwd@127.0.0.1:5432/scola
+//!   set ENT_DATABASE_URL=<adresse d'une base locale de labo (son nom contient « labo »)>
 //!   cargo run -p ent-lab
 //!
 //! Objectif : faire agir parents / élèves / staff dans plusieurs directions,
@@ -7820,14 +7820,14 @@ async fn explorer_filieres_voeux_mails(
     r.geste(format!("Lily voit {} filière(s)", filieres_f.len()));
 
     let mails = ent
-        .list_mails_recents_for_actor(cast.etablissement_id, Role::Administratif.as_str(), 20)
+        .list_mails_recents_for_actor(cast.etablissement_id, Role::Direction.as_str(), 20)
         .await
         .map_err(|e| e.to_string())?;
     if mails.is_empty() {
         return Err("historique mails staff ne doit pas être vide après lab".into());
     }
     r.geste(format!(
-        "admini lit historique mails ({} entrées, ex. « {} »)",
+        "direction lit historique mails ({} entrées, ex. « {} »)",
         mails.len(),
         mails[0].subject
     ));
@@ -7841,14 +7841,14 @@ async fn explorer_filieres_voeux_mails(
     r.geste("Lily refusée sur historique mails (attendu)");
 
     let sms = ent
-        .list_sms_recents_for_actor(cast.etablissement_id, Role::Cpe.as_str(), 20)
+        .list_sms_recents_for_actor(cast.etablissement_id, Role::Direction.as_str(), 20)
         .await
         .map_err(|e| e.to_string())?;
     if sms.is_empty() {
         return Err("historique SMS staff ne doit pas être vide après lab".into());
     }
     r.geste(format!(
-        "CPE lit historique SMS ({} entrées)",
+        "direction lit historique SMS ({} entrées)",
         sms.len()
     ));
 
@@ -10191,7 +10191,7 @@ async fn explorer_spine_notifications_famille(
 
     // Preuve : les 5 publications ont produit une notification famille réelle.
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     let attendu: [(&str, Uuid); 6] = [
@@ -10286,7 +10286,7 @@ async fn explorer_annonces_communication(
 
     // Preuve : le nombre de familles distinctes touchées par la diffusion générale.
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     let familles_generale: std::collections::HashSet<Uuid> = mails
@@ -10637,7 +10637,7 @@ async fn explorer_competences_lsu(
         .await
         .map_err(|e| e.to_string())?;
     let mails = ent
-        .list_mails_recents_for_actor(etab, Role::Administratif.as_str(), 200)
+        .list_mails_recents_for_actor(etab, Role::Direction.as_str(), 200)
         .await
         .map_err(|e| e.to_string())?;
     if !mails

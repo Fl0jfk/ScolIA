@@ -14,8 +14,11 @@ pub mod accompagnement;
 mod discipline_vs;
 mod vie_scolaire;
 pub mod portail;
+pub mod portail_modes;
 /// Socle 29, lots P2 et P3 : index des tâches (kit D-026), rapprochement, à-faire famille.
 pub mod afaire;
+pub mod afaire_files;
+pub mod recherche_globale;
 mod afaire_service;
 mod afaire_sources;
 /// Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
@@ -27,14 +30,33 @@ pub mod cours;
 pub mod demandes;
 /// Socle N1, lot N1-1 : catalogue des natures, files, membres calculés, routage.
 pub mod demandes_catalogue;
+/// Lot N1-2 : échanges, pièces (références au socle 7), abonnés ; ports du socle 7 et du socle 16.
+pub mod demandes_echanges;
 pub mod demandes_files;
+/// Lot N1-3 : HSE en heures, validées par la direction (D-061) ; port vers le socle 15, export de secours.
+pub mod demandes_hse;
+/// Lot N1-3 : reprographie, file d'impression par site, « prête » par geste authentifié.
+pub mod demandes_repro;
+/// Socle N1, lot N1-5 : reprise des données du Next.js (R9), guichet en lecture seule.
+pub mod demandes_reprise;
+/// Lot N1-2 : prise en charge, délégation, réaffectation, consultation, désignation, requalification, preuves.
+pub mod demandes_prise;
 pub mod demandes_routage;
+/// Socle 7 (documents, pièces et signatures), lots D2 et D3 : types, natures et ports de la brique.
+pub mod documents;
+/// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
+pub mod documents_natures;
+/// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
+pub mod documents_pdf;
+pub mod documents_repo;
 mod evaluations_conseil;
 pub mod module_sante;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations;
 #[cfg(all(test, feature = "labo"))]
 mod tests_evaluations_v0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d0;
 pub mod campagnes;
 pub mod formulaires;
 pub mod notifications;
@@ -73,6 +95,8 @@ mod msg_m2;
 pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
 mod note_repo;
 pub mod cahier;
+pub mod cahier_c2;
+mod cahier_c2_travaux;
 pub mod cahier_reactions;
 pub mod outbox;
 pub mod reactions;
@@ -81,6 +105,12 @@ mod periode_repo;
 mod pg_err;
 #[cfg(test)]
 mod tests_l6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g1;
+#[cfg(all(test, feature = "labo"))]
+mod tests_rgpd_g2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
@@ -118,8 +148,10 @@ mod quotient_repo;
 mod referentiel_repo;
 mod ref_commun;
 mod referentiel_structure;
+pub mod structure_composition;
 pub mod structure_cours;
 pub mod structure_enseignements;
+pub mod structure_groupes;
 pub mod structure_calendrier;
 pub mod structure_etab;
 pub mod structure_feries;
@@ -131,6 +163,11 @@ mod referentiel_annee;
 mod referentiel_seances;
 pub mod edt_admin;
 pub mod edt_remplacement;
+pub mod edt_modif;
+pub mod edt_modif_ops;
+pub mod edt_lots;
+pub mod edt_notifications;
+pub mod edt_demain;
 mod edt_masse;
 pub mod edt_ports;
 pub mod edt_versions;
@@ -148,6 +185,8 @@ pub mod acces;
 pub mod personnels;
 pub mod personnels_acces;
 mod personnels_fiche;
+pub mod personnels_delegations;
+pub mod personnels_equipes;
 pub mod personnels_missions;
 pub mod personnels_services;
 pub use acces::{AccesEtat, EtatAcces};
@@ -183,6 +222,12 @@ mod securite_repo;
 mod etablissement_repo;
 mod oidc_repo;
 mod pra;
+pub mod conservation;
+pub mod conservation_regles;
+pub mod gouvernance_rgpd;
+pub mod registre_rgpd;
+pub mod reprise_rgpd;
+pub mod extrait_personne;
 pub mod registre_donnees;
 mod objets;
 pub mod reprise_bytea;
@@ -391,6 +436,10 @@ mod tests_absences_personnels_pieces;
 mod tests_edt_t0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t1_t2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t4;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;
@@ -424,6 +473,8 @@ mod tests_stages_st0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_stages_st1a;
 #[cfg(all(test, feature = "labo"))]
+mod tests_notifications_n0a;
+#[cfg(all(test, feature = "labo"))]
 mod tests_d022;
 #[cfg(all(test, feature = "labo"))]
 mod tests_d022_bis;
@@ -437,6 +488,8 @@ mod tests_structure_s2;
 mod tests_structure_s3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_structure_s6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]
@@ -457,6 +510,10 @@ mod tests_personnels_p2;
 mod tests_personnels_p3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_personnels_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_personnels_p6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_administratif_a1;
 #[cfg(all(test, feature = "labo"))]
@@ -498,6 +555,16 @@ mod tests_demandes;
 #[cfg(all(test, feature = "labo"))]
 mod tests_demandes_n1_1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_demandes_n1_5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d3;
+#[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
@@ -514,7 +581,15 @@ mod tests_voyages_v0a;
 #[cfg(all(test, feature = "labo"))]
 mod tests_portail_p1;
 #[cfg(all(test, feature = "labo"))]
+mod tests_portail_p7;
+#[cfg(all(test, feature = "labo"))]
 mod tests_afaire_p2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_afaire_p4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_recherche_p5;
 #[cfg(test)]
 mod tests_voyages_v0b;
 #[cfg(test)]

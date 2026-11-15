@@ -1481,7 +1481,7 @@ impl PgEnt {
             "consultation",
             "Consultation des propositions de modification",
         )
-        .await;
+        .await?;
         Ok(l)
     }
 
@@ -1520,7 +1520,7 @@ impl PgEnt {
             "consultation",
             "Consultation d'une proposition de modification",
         )
-        .await;
+        .await?;
         Ok(v.remove(0))
     }
 

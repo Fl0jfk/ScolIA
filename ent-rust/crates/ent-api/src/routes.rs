@@ -135,6 +135,7 @@ pub fn router() -> Router<AppState> {
         .route("/eleve", get(ui_page))
         .route("/eleve/{*rest}", get(ui_page))
         .route("/health", get(health))
+        .route("/health/detail", get(health_detail))
         .route("/ready", get(ready))
         .route("/metrics", get(crate::obs::metrics_handler))
         .route("/pra/inventaire", get(pra_inventaire))
@@ -296,7 +297,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/documents/{id}/fichier", get(telecharger_document_fichier))
         .route("/documents/{id}/lien", post(lien_document_fichier))
-        // Mode local des liens courts : route PUBLIQUE, le jeton signé fait foi.
+        // Mode local des liens courts : jeton signé, lié à la session de son destinataire.
         .route("/fichiers/{jeton}", get(servir_fichier_signe))
         .route("/documents/{id}/grants", post(demander_grant_document))
         .route("/documents/grants/pending", get(list_grants_pending))
@@ -842,6 +843,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::structure_periodes::routes());
     // Socle 5, lot S4 : l'objet « cours » et les postes vacants (`structure_cours.rs`).
     let r = r.merge(crate::structure_cours::routes());
+    // Socle 5, lot S6 : groupes, composition, changement de classe (`structure_groupes.rs`).
+    let r = r.merge(crate::structure_groupes::routes());
     // Socle 42, lot V0a : sorties et voyages scolaires collectifs (`voyages.rs`).
     let r = r.merge(crate::voyages::routes());
     let r = r.merge(crate::internat::routes());
@@ -856,6 +859,9 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::assiduite::routes());
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
+    let r = r.merge(crate::recherche::routes());
+    // Demandes et flux de travail (socle N1, lot N1-4 : `demandes.rs`).
+    let r = r.merge(crate::demandes::routes());
     // Admissions, préinscriptions, inscriptions, imports (socle 2, S2-3 : `inscriptions.rs`).
     let r = r.merge(crate::inscriptions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
@@ -890,8 +896,14 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::personnels_services::routes());
     // Missions et périmètre (socle 6, lot P4 : `personnels_missions.rs`).
     let r = r.merge(crate::personnels_missions::routes());
+    // Responsables de groupes et équipes (socle 6, lot P5 : `personnels_equipes.rs`).
+    let r = r.merge(crate::personnels_equipes::routes());
+    // Délégations par objet, intérim, pouvoirs de signature (socle 6, lot P6 : `personnels_delegations.rs`).
+    let r = r.merge(crate::personnels_delegations::routes());
     // Stages (socle 39, lot ST1 (a) : `stages.rs`).
     let r = r.merge(crate::stages::routes());
+    // Socle 7, lot D3 : vérification publique des documents (routes SANS session, liste fermée de la matrice).
+    let r = r.merge(crate::documents_verif::routes());
     #[cfg(feature = "labo")]
     let r = r
         .route("/labo/bootstrap", post(labo_bootstrap))
@@ -1779,7 +1791,7 @@ async fn telecharger_document_fichier(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await;
+    tracer_acces(&state, &session, "telechargement", "document", &format!("Téléchargement du document {id}")).await?;
     let (filename, mime) = ent_db::nom_fichier_document(&doc);
     attachment_response_dyn(bytes, &filename, &mime)
 }
@@ -1862,12 +1874,14 @@ async fn lien_piece_message(
 
 /// Mode local des liens courts : sert le fichier désigné par un jeton signé.
 ///
-/// Route publique : le jeton (HMAC-SHA256, expiration courte) est la seule preuve.
-/// L'objet doit appartenir à l'établissement signé ; type, nom et disposition viennent
+/// Le jeton (HMAC-SHA256, expiration courte, clé objet chiffrée) est lié à l'utilisateur :
+/// la route exige une session authentifiée dont l'utilisateur est celui du jeton (un lien
+/// transféré à un tiers, même connecté, est refusé). L'objet doit appartenir à l'établissement signé ; type, nom et disposition viennent
 /// du jeton (jamais du client) ; les types actifs (html, svg, xml…) sont forcés en
 /// téléchargement. Le jeton n'est jamais journalisé (le span ne porte que le gabarit).
 async fn servir_fichier_signe(
     State(state): State<AppState>,
+    session: EntSession,
     Path(jeton): Path<String>,
 ) -> Result<Response, (StatusCode, String)> {
     use ent_db::presign::{
@@ -1882,6 +1896,10 @@ async fn servir_fichier_signe(
             PresignError::Disabled => (StatusCode::NOT_FOUND, "Introuvable.".to_string()),
             _ => (StatusCode::FORBIDDEN, "Lien invalide.".to_string()),
         })?;
+    // Lien lié à l'utilisateur et à son établissement : refus uniforme sinon.
+    if claims.user_id != session.user_id || claims.etablissement_id != session.etablissement_id {
+        return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
+    }
     // Défense en profondeur : l'objet doit appartenir à l'établissement signé.
     if !key_belongs_to_etab(&claims.key, claims.etablissement_id) {
         return Err((StatusCode::FORBIDDEN, "Lien invalide.".into()));
@@ -2042,7 +2060,20 @@ async fn enrich_appel(
     Ok(dto)
 }
 
+/// `/health` public (liveness) : **minimal** (MSE-D05). Ni version, ni `git_sha`, ni schéma :
+/// ils aideraient à cibler une version précise. Le détail est sur `/health/detail`,
+/// réservé à la supervision (même jeton que `/metrics`).
 async fn health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true }))
+}
+
+/// `/health/detail` : version, `git_sha` et tag de migration. Même contrôle d'accès que
+/// `/metrics` : désactivé (404) ou jeton de supervision requis.
+async fn health_detail(State(state): State<AppState>, entetes: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if let Err(refus) = crate::obs::exiger_supervision(&state, &entetes) {
+        return refus;
+    }
     Json(serde_json::json!({
         "ok": true,
         "service": "ent-api",
@@ -2050,6 +2081,7 @@ async fn health() -> Json<serde_json::Value> {
         "git_sha": crate::GIT_SHA,
         "migration_tag": ent_db::MIGRATION_TAG,
     }))
+    .into_response()
 }
 
 /// Readiness : vérifie que la base répond (sinon 503 → le conteneur n'est pas prêt).
@@ -2065,9 +2097,6 @@ async fn ready(State(state): State<AppState>) -> Result<Json<serde_json::Value>,
         "ok": true,
         "service": "ent-api",
         "db": "up",
-        "version": crate::VERSION,
-        "git_sha": crate::GIT_SHA,
-        "migration_tag": ent_db::MIGRATION_TAG,
     })))
 }
 
@@ -7502,7 +7531,7 @@ async fn export_lsl(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "lsl", "Export LSL").await;
+    tracer_acces(&state, &session, "export", "lsl", "Export LSL").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7533,7 +7562,7 @@ async fn export_lsun(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await;
+    tracer_acces(&state, &session, "export", "lsun", "Export LSUN").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7759,7 +7788,7 @@ async fn export_onde(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "onde", "Export ONDE").await;
+    tracer_acces(&state, &session, "export", "onde", "Export ONDE").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7790,7 +7819,7 @@ async fn export_notanet(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await;
+    tracer_acces(&state, &session, "export", "notanet", "Export Notanet").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -7828,7 +7857,7 @@ async fn export_parcoursup(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await;
+    tracer_acces(&state, &session, "export", "parcoursup", "Export Parcoursup").await?;
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/csv; charset=utf-8")
@@ -10365,7 +10394,7 @@ async fn telecharger_piece(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "telechargement", "piece_message", &format!("Téléchargement de la pièce jointe {id}")).await;
+    tracer_acces(&state, &session, "telechargement", "piece_message", &format!("Téléchargement de la pièce jointe {id}")).await?;
     attachment_response_dyn(piece.contenu, &piece.nom, &piece.mime_type)
 }
 
@@ -11011,7 +11040,7 @@ async fn list_factures(
         .await
         .map_err(map_db)?;
     // F0 (R-F36) : toute lecture nominative du personnel est journalisée.
-    tracer_acces(&state, &session, "facturation", "lecture", "Liste des factures").await;
+    tracer_acces(&state, &session, "facturation", "lecture", "Liste des factures").await?;
     Ok(Json(list.iter().map(FactureDto::from).collect()))
 }
 
@@ -11111,7 +11140,7 @@ async fn get_facture(
         .map_err(map_db)?;
     if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
         // F0 (R-F36) : consultation nominative d'un compte par le personnel.
-        tracer_acces(&state, &session, "facturation", "lecture", "Consultation d'une facture").await;
+        tracer_acces(&state, &session, "facturation", "lecture", "Consultation d'une facture").await?;
     }
     Ok(Json(FactureDetailDto {
         facture: FactureDto::from(&facture),
@@ -11196,7 +11225,7 @@ async fn export_ogec(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "ogec", "Export OGEC").await;
+    tracer_acces(&state, &session, "export", "ogec", "Export OGEC").await?;
     let name = format!("ogec-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -11262,7 +11291,7 @@ async fn export_volumes_cuisine(
         .export_volumes_cuisine_for_actor(&session.role, cmd)
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "volumes_cuisine", "Export volumes cuisine").await;
+    tracer_acces(&state, &session, "export", "volumes_cuisine", "Export volumes cuisine").await?;
     let name = format!("volumes-cuisine-{}-{}.csv", q.debut, q.fin);
     attachment_response(bytes, &name, "text/csv; charset=utf-8")
 }
@@ -11431,7 +11460,7 @@ async fn list_sepa_mandats(
         .map_err(map_db)?;
     if ent_db::PgEnt::role_can_lire_facturation(&session.role) {
         // F0 (R-F36, R-P30) : consultation des mandats par le personnel.
-        tracer_acces(&state, &session, "facturation", "lecture", "Liste des mandats SEPA").await;
+        tracer_acces(&state, &session, "facturation", "lecture", "Liste des mandats SEPA").await?;
     }
     Ok(Json(list.iter().map(MandatSepaDto::from).collect()))
 }
@@ -11537,7 +11566,7 @@ async fn export_sepa(
         )
         .await
         .map_err(map_db)?;
-    tracer_acces(&state, &session, "export", "sepa", "Export SEPA").await;
+    tracer_acces(&state, &session, "export", "sepa", "Export SEPA").await?;
     if kind == "pain008" {
         let name = format!("sepa-pain008-{}-{}.xml", q.debut, q.fin);
         attachment_response(bytes, &name, "application/xml; charset=utf-8")
@@ -13319,7 +13348,8 @@ pub(crate) async fn tracer_acces(
     domaine: &str,
     action: &str,
     libelle: &str,
-) {
+) -> Result<(), (StatusCode, String)> {
+    // Bloquante (socle 27, RG-D01) : sans trace, la donnée n'est pas servie.
     state
         .ent
         .tracer_acces_sensible(
@@ -13331,7 +13361,8 @@ pub(crate) async fn tracer_acces(
             action,
             libelle,
         )
-        .await;
+        .await
+        .map_err(map_db)
 }
 
 // ───────────── Socle 1 : appareils connectés et politique de sécurité ─────────────

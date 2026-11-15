@@ -245,6 +245,54 @@ pub const NATURES: &[NatureDeclaree] = &[
         ..BASE
     },
     NatureDeclaree {
+        code: "form.repondre",
+        socle: 18,
+        objet_type: "formulaire_eleve",
+        gabarit: "Autorisation ou réponse à donner — {prenom}",
+        variables: &[Var::Prenom],
+        destinataires: "titulaires de l'autorité parentale (un seul suffit), ou l'élève majeur",
+        cardinalite: Cardinalite::ParAutorite,
+        echeance_jours: None,
+        priorite: PrioriteAfaire::AFaire,
+        montee_due_heures: Some(72),
+        action: Some(ActionDeclaree::Carte { libelle: "Répondre" }),
+        file_repli: FILE_JUSTIFICATIFS,
+        public_famille: true,
+        ..BASE
+    },
+    NatureDeclaree {
+        code: "rdv.reserver",
+        socle: 19,
+        objet_type: "rencontre_eleve",
+        gabarit: "Rendez-vous à prendre — {prenom}",
+        variables: &[Var::Prenom],
+        destinataires: "titulaires de l'autorité parentale sollicitables (un seul suffit)",
+        cardinalite: Cardinalite::ParAutorite,
+        echeance_jours: None,
+        priorite: PrioriteAfaire::AFaire,
+        montee_due_heures: None,
+        action: Some(ActionDeclaree::Lien { libelle: "Choisir un créneau", lien: "/web/rencontres" }),
+        file_repli: FILE_JUSTIFICATIFS,
+        public_famille: true,
+        ..BASE
+    },
+    NatureDeclaree {
+        code: "insc.reinscrire",
+        socle: 3,
+        objet_type: "dossier_reinscription",
+        gabarit: "Réinscription à confirmer — {prenom}",
+        variables: &[Var::Prenom],
+        destinataires: "titulaires de l'autorité parentale (un seul suffit)",
+        cardinalite: Cardinalite::ParAutorite,
+        echeance_jours: None,
+        priorite: PrioriteAfaire::AFaire,
+        montee_due_heures: Some(72),
+        action: Some(ActionDeclaree::Lien { libelle: "Réinscrire", lien: "/web/reinscription" }),
+        file_repli: FILE_JUSTIFICATIFS,
+        public_famille: true,
+        ..BASE
+    },
+    NatureDeclaree {
         code: "vs.trancher_justificatif",
         socle: 12,
         objet_type: "absence",
@@ -293,6 +341,25 @@ pub const NATURES: &[NatureDeclaree] = &[
         sensibilite: 3,
         reservee: true,
         file_repli: FILE_PROTECTIONS,
+        ..BASE
+    },
+    NatureDeclaree {
+        code: "recherche.bloquee",
+        socle: 29,
+        objet_type: "compte",
+        gabarit: "Recherche bloquée : plafond ou recherche systématique",
+        variables: &[],
+        destinataires: "administration (file d'administration, droit de lever un blocage)",
+        cardinalite: Cardinalite::Collective,
+        echeance_jours: None,
+        priorite: PrioriteAfaire::Due,
+        action: Some(ActionDeclaree::Lien {
+            libelle: "Examiner",
+            lien: "/web/blocages-recherche",
+        }),
+        file_repli: FILE_ADMIN,
+        // Ouverte par le blocage lui-même (socle 29) : pas de source à rapprocher.
+        derivee: false,
         ..BASE
     },
     NatureDeclaree {
@@ -632,7 +699,7 @@ async fn nature_active(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut PgConnection,
     etab: Uuid,
     afaire: Uuid,
@@ -664,7 +731,7 @@ async fn journaliser(
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn ajouter_destinataire(
+pub(crate) async fn ajouter_destinataire(
     conn: &mut PgConnection,
     etab: Uuid,
     afaire: Uuid,
@@ -1024,6 +1091,18 @@ pub async fn fermer_tache(
             f.maintenant,
         )
         .await?;
+        // Une tâche close n'est plus « prise » : la prise est relâchée par le système (relâchée par
+        // l'identifiant nul), jamais laissée active sur une tâche finie (lot P4).
+        sqlx::query(
+            "UPDATE ent_afaire_prise SET relachee_le = $3, relachee_par = '00000000-0000-0000-0000-000000000000'::uuid
+              WHERE etablissement_id = $1 AND afaire_id = $2 AND relachee_le IS NULL",
+        )
+        .bind(etab)
+        .bind(id)
+        .bind(f.maintenant)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
         // « Nouveau / vu » est effacé à la clôture (§29.4) : aucune trace de lecture ne survit.
         sqlx::query(
             "DELETE FROM ent_afaire_etat_personnel WHERE etablissement_id = $1 AND afaire_id = $2",

@@ -1453,7 +1453,7 @@ impl PgEnt {
                 "lecture_identite_protegee",
                 "Lecture des anciennes valeurs d'identité d'une personne",
             )
-            .await;
+            .await?;
         }
         Ok(out)
     }

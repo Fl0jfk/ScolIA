@@ -1009,6 +1009,18 @@ impl PgEnt {
             .await
             .map_err(db)?
         {
+            let b = self.traiter_sollicitations_etablissement(etab).await?;
+            bilan.expirees += b.expirees;
+            bilan.accuses_manquants += b.accuses_manquants;
+        }
+        Ok(bilan)
+    }
+
+    /// Même traitement, pour un seul établissement (la tâche globale boucle dessus). Les tests s'en servent pour
+    /// ne pas traiter — ni se faire voler — les demandes des tests qui tournent en parallèle sur la même base.
+    pub async fn traiter_sollicitations_etablissement(&self, etab: Uuid) -> Result<BilanSollicitationsDto, EntDbError> {
+        let mut bilan = BilanSollicitationsDto::default();
+        {
             let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
             let echues: Vec<(Uuid, Uuid, Uuid, Uuid)> = sqlx::query_as(
                 "UPDATE ent_absp_sollicitation SET etat = 'expiree', repondue_le = now()

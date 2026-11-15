@@ -97,6 +97,11 @@ pub(crate) async fn preparer() -> Option<Env> {
     let mut ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let admin = PgPoolOptions::new().max_connections(2).connect(&url).await.unwrap();
+    // Les GRANT sur toutes les tables modifient les mêmes lignes du catalogue : lancés en parallèle par les
+    // lots (ou par les autres suites qui préparent un rôle commun), ils échouent (« tuple concurrently
+    // updated »). Même verrou consultatif que `tests_rls_stricte::assurer_role_strict`.
+    let mut verrou = admin.acquire().await.unwrap();
+    sqlx::query("SELECT pg_advisory_lock(7770042)").execute(&mut *verrou).await.unwrap();
     for sql in [
         format!(
             "DO $$ BEGIN CREATE ROLE {ROLE} LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS NOCREATEDB \
@@ -107,8 +112,10 @@ pub(crate) async fn preparer() -> Option<Env> {
         // Fail-closed au niveau du rôle : une connexion qui oublie TenantTx ne voit rien.
         format!("ALTER ROLE {ROLE} SET app.rls_strict = 'on'"),
     ] {
-        sqlx::query(&sql).execute(&admin).await.unwrap();
+        sqlx::query(&sql).execute(&mut *verrou).await.unwrap();
     }
+    sqlx::query("SELECT pg_advisory_unlock(7770042)").execute(&mut *verrou).await.unwrap();
+    drop(verrou);
     let mut u = url::Url::parse(&url).unwrap();
     u.set_username(ROLE).unwrap();
     u.set_password(Some("rls")).unwrap();

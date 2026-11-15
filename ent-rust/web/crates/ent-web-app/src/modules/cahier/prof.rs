@@ -77,6 +77,9 @@ fn ContenuCahier() -> impl IntoView {
             surtitre="Cahier de textes".to_string()
             titre=Signal::derive(move || libelle_semaine(lundi.get()))
         >
+            <LienBouton href=super::cours::ADRESSE_COURS variante=Variante::Secondaire taille=Taille::Compacte>
+                "Cahier du cours"
+            </LienBouton>
             <nav class="edt-semaines" aria-label="Changer de semaine">
                 <a class="ui-btn ui-btn--secondaire ui-btn--compact" href=move || adresse(-1) aria-label="Semaine précédente">
                     <Icone nom=NomIcone::ChevronGauche petite=true/>

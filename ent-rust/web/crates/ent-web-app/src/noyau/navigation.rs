@@ -49,6 +49,18 @@ pub const POLITIQUE_SECURITE: &str = "/web/direction/securite";
 pub const MES_LIENS: &str = "/web/mes-liens";
 /// À-faire unifié (socle 29, lot P3) : familles et élèves majeurs.
 pub const A_FAIRE: &str = "/web/a-faire";
+/// Files des personnels (socle 29, lot P4) : « Mes files » et supervision par nombres.
+pub const MES_FILES: &str = "/web/mes-files";
+pub const SUPERVISION_FILES: &str = "/web/supervision-files";
+/// Recherche globale (socle 29, lot P5) et blocages anti-énumération (administrateur).
+pub const RECHERCHE: &str = "/web/recherche";
+pub const BLOCAGES_RECHERCHE: &str = "/web/blocages-recherche";
+/// Demandes (socle N1, lot N1-4) : « Faire une demande » (porte unique), « Mes demandes », « Ma file », HSE, copies.
+pub const DEMANDES: &str = "/web/demandes";
+pub const MES_DEMANDES: &str = "/web/demandes/mes";
+pub const MA_FILE: &str = "/web/demandes/file";
+pub const DEMANDES_HSE: &str = "/web/demandes/hse";
+pub const DEMANDES_COPIES: &str = "/web/demandes/copies";
 /// Protections (adresses à protéger, « ne pas solliciter ») : direction, le serveur reste juge.
 pub const PROTECTIONS: &str = "/web/direction/protections";
 pub const ROLES: &str = "/web/direction/roles";
@@ -90,6 +102,46 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     // Socle 29 (P3) : la seule liste transverse de ce que la famille (ou l'élève) doit faire.
     if droits.portail_famille || droits.mes_absences {
         v.push(entree("À faire", A_FAIRE, NomIcone::Annonce));
+    }
+    // Socle 29 (P4) : les files dont on est membre (membres calculés côté serveur, qui reste juge). Proposées
+    // à qui a un droit de file ; rien tant que le moteur de droits n'a pas répondu.
+    if moteur.a("afaire.file.prendre")
+        && (droits.trancher_justificatif
+            || moteur.a("absences.justifier")
+            || moteur.a("liens.suspendre")
+            || moteur.a("responsables.protege.gerer"))
+    {
+        v.push(entree("Mes files", MES_FILES, NomIcone::Personne));
+    }
+    if droits.personnel && moteur.a("recherche.globale") {
+        v.push(entree("Recherche", RECHERCHE, NomIcone::Personne));
+    }
+    if moteur.a("recherche.debloquer") {
+        v.push(entree(
+            "Recherches bloquées",
+            BLOCAGES_RECHERCHE,
+            NomIcone::Passkey,
+        ));
+    }
+    if moteur.a("afaire.superviser") {
+        v.push(entree(
+            "Supervision des files",
+            SUPERVISION_FILES,
+            NomIcone::Salle,
+        ));
+    }
+    // Demandes (N1-4) : la porte unique et « Mes demandes » sont ouvertes à tous les profils connectés ; « Ma file »,
+    // HSE et copies au personnel (le serveur répond 403 à qui n'a ni file ni droit).
+    v.push(entree("Faire une demande", DEMANDES, NomIcone::Messages));
+    v.push(entree("Mes demandes", MES_DEMANDES, NomIcone::Annonce));
+    if droits.personnel {
+        v.push(entree("Ma file", MA_FILE, NomIcone::Personne));
+        v.push(entree(
+            "Heures supplémentaires",
+            DEMANDES_HSE,
+            NomIcone::Agenda,
+        ));
+        v.push(entree("Copies", DEMANDES_COPIES, NomIcone::Ecole));
     }
     if droits.personnel || droits.portail_famille || droits.mes_absences {
         v.push(entree("Mon agenda", MON_AGENDA, NomIcone::Agenda));
@@ -258,6 +310,11 @@ mod tests {
             prof,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -277,6 +334,11 @@ mod tests {
             secretariat,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -295,7 +357,18 @@ mod tests {
             .collect();
         assert_eq!(
             compta,
-            [ACCUEIL, MON_AGENDA, EDT_SEMAINE, CLASSES, DELEGATIONS],
+            [
+                ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
+                MON_AGENDA,
+                EDT_SEMAINE,
+                CLASSES,
+                DELEGATIONS
+            ],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
         let parent: Vec<String> = entrees(droits_du_role("parent"))
@@ -307,6 +380,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -330,6 +405,11 @@ mod tests {
             cpe,
             [
                 ACCUEIL,
+                DEMANDES,
+                MES_DEMANDES,
+                MA_FILE,
+                DEMANDES_HSE,
+                DEMANDES_COPIES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 EDT_SEMAINE,
@@ -352,6 +432,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
@@ -476,6 +558,8 @@ mod tests {
             [
                 ACCUEIL,
                 A_FAIRE,
+                DEMANDES,
+                MES_DEMANDES,
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
@@ -583,6 +667,58 @@ mod tests {
         assert!(gerer.peut_lire_facturation() && gerer.peut_gerer_facturation());
         let v = adresses(droits_du_role("prof"), &DroitsMoteur::default());
         assert!(!v.contains(&COMPTABILITE.to_string()));
+    }
+
+    /// Socle 29 (P4) : « Mes files » pour qui a un droit de file ET le droit de prendre ; la supervision
+    /// pour `afaire.superviser` seulement. Un professeur sans droit de file n'a rien (le serveur reste juge).
+    #[test]
+    fn les_files_selon_le_moteur_de_droits() {
+        let sans = adresses(droits_du_role("cpe"), &DroitsMoteur::default());
+        assert!(
+            !sans.contains(&MES_FILES.to_string()),
+            "rien avant la réponse du moteur"
+        );
+        let cpe = DroitsMoteur::new(vec![droit("afaire.file.prendre", "etablissement")]);
+        let v = adresses(droits_du_role("cpe"), &cpe);
+        assert!(v.contains(&MES_FILES.to_string()) && !v.contains(&SUPERVISION_FILES.to_string()));
+        let prof = adresses(droits_du_role("prof"), &cpe);
+        assert!(
+            !prof.contains(&MES_FILES.to_string()),
+            "un professeur n'est membre d'aucune file"
+        );
+        // Un droit délégué de justifier rejoint la file le temps de la délégation.
+        let delegue = DroitsMoteur::new(vec![
+            droit("afaire.file.prendre", "etablissement"),
+            droit("absences.justifier", "etablissement"),
+        ]);
+        assert!(adresses(droits_du_role("prof"), &delegue).contains(&MES_FILES.to_string()));
+        let direction = DroitsMoteur::new(vec![
+            droit("afaire.file.prendre", "etablissement"),
+            droit("afaire.superviser", "etablissement"),
+            droit("liens.suspendre", "etablissement"),
+        ]);
+        let v = adresses(droits_du_role("direction"), &direction);
+        assert!(v.contains(&MES_FILES.to_string()) && v.contains(&SUPERVISION_FILES.to_string()));
+        assert!(
+            !adresses(droits_du_role("parent"), &DroitsMoteur::default())
+                .contains(&MES_FILES.to_string())
+        );
+    }
+
+    /// Socle 29 (P5) : la recherche pour le personnel qui a `recherche.globale` ; les blocages pour l'administrateur.
+    #[test]
+    fn la_recherche_selon_le_moteur_de_droits() {
+        assert!(!adresses(droits_du_role("prof"), &DroitsMoteur::default())
+            .contains(&RECHERCHE.to_string()));
+        let m = DroitsMoteur::new(vec![droit("recherche.globale", "etablissement")]);
+        let v = adresses(droits_du_role("prof"), &m);
+        assert!(v.contains(&RECHERCHE.to_string()) && !v.contains(&BLOCAGES_RECHERCHE.to_string()));
+        assert!(
+            !adresses(droits_du_role("parent"), &m).contains(&RECHERCHE.to_string()),
+            "pas pour les familles"
+        );
+        let admin = DroitsMoteur::new(vec![droit("recherche.debloquer", "etablissement")]);
+        assert!(adresses(droits_du_role("admin"), &admin).contains(&BLOCAGES_RECHERCHE.to_string()));
     }
 
     #[test]
