@@ -114,6 +114,8 @@ mod tests_rgpd_g2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
+mod tests_formulaires_fo0;
+#[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag1;

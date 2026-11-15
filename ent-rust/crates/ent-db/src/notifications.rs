@@ -440,9 +440,11 @@ const COLONNES_ENVOI_VU: &str =
 
 /// Communications de masse (annonce, campagne) : SMS, push **et e-mail** sans contenu (M0a D4,
 /// M0b D27) ; le texte complet reste dans l'ENT, derrière l'authentification : une boîte e-mail
-/// partagée ou un téléphone verrouillé ne laisse rien lire.
-fn canal_externe_neutre(kind: &str) -> bool {
-    matches!(kind, "campagne" | "annonce" | "messagerie_famille")
+/// partagée ou un téléphone verrouillé ne laisse rien lire. Les formulaires, autorisations et
+/// consentements (socle 18, FD-08, R-FC37) en font partie : le titre (« Consentement suivi
+/// psychologique ») ne quitte jamais l'ENT.
+pub(crate) fn canal_externe_neutre(kind: &str) -> bool {
+    matches!(kind, "campagne" | "annonce" | "messagerie_famille" | "formulaire")
 }
 const SUJET_NEUTRE_EMAIL: &str = "Message de l'établissement";
 const TEXTE_NEUTRE_EMAIL: &str =
