@@ -6,6 +6,66 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-15 (dimanche soir, 18 h 45 Paris) — point du jour
+
+### Sur `ENT`, validé par la CI (tête **`6d50d785`**, run vert ; trois verdicts complets d'affilée)
+- Matin : CI allégée ; N1-4 et N1-5 (socle N1 complet) ; 28 MS0, R0, R1 (outil d'anonymisation) ; 6 P5–P6 (équipes, délégations, `peut_signer`) ; 7 D2–D3 (documents, certificats et attestations vérifiables).
+- Midi : 7 **D1b** (police incorporée : noms de toutes langues dans les PDF) ; 27 **G0–G2** (RGPD : correctifs, conservation, registre, sous-traitants, « Vos données »).
+- Après-midi : 10 **T3–T4** (modifications de l'EDT, « demain », notifications) ; **tests stabilisés** (verrous, isolation par établissement) ; 5 **S6** (groupes et compositions).
+- Compteurs : 224 actions, 571 tables RLS, 44 sources de routes, migration la plus haute 3703.
+
+### Prêt, pas encore sur `ENT`
+- Rien : tout ce qui était vert est versé.
+
+### En cours (6 sessions Sonnet, aucune Fable)
+| Session | Lots |
+|---|---|
+| 8 Notifications | N0b à N3, à rafraîchir sur ENT puis une CI |
+| 15 Absences du personnel | A8, A9 (branche `-9b`, annulation des séances par le port EDT) |
+| 20 Cahier de textes | C3 à C7 (C4 « sans labo » à corriger) |
+| 7 Documents | D4 coffre, D5 pièces (antivirus maison) — lancée 17 h 38 |
+| 10 EDT | T5 publication (préalable : séances depuis les placements) — lancée 17 h 38 |
+| 16 Messagerie | M3, M4 — lancée 17 h 38 |
+
+### Avancement par socle (versé sur `ENT`)
+| Socle | Versé | Suivant |
+|---|---|---|
+| 5 Structure | S0 à S7 sauf S12 | S12 (écrans), S13 (retrait des anciens écrivains) |
+| 6 Personnels | P0 à P6 | P11, P13 |
+| 7 Documents | D0 à D3, D1b | D4–D5 (en cours), D6–D7 signatures |
+| 8 Notifications | N0a | N0b à N3 (en cours) |
+| 10 EDT | T0 à T4 | T5 (en cours) |
+| 12 Assiduité | AS0 à AS4 | AS5, AS14 |
+| 15 Absences du personnel | A0 à A7 | A8–A9 (en cours) |
+| 16 Messagerie | M1, M2 | M3–M4 (en cours) |
+| 20 Cahier de textes | C0 à C2 | C3–C7 (en cours) |
+| 27 RGPD | G0 à G2 | G3 |
+| 28 Mise en service | MS0, R0, R1 | MS1, R2, R3 |
+| 29 Portails | P2 à P7 | P14 |
+| N1 Demandes | N1-0 à N1-5 (complet) | pièces à brancher (D5) |
+
+### Décisions de Florian aujourd'hui
+- **D-064** : bascule sur place chez Scaleway, sans seconde production ; DPO hors conditions ; e-mail sortant **Scaleway TEM**.
+- **D-065** : e-mails depuis le **sous-domaine UAI** (`<uai>.scolia.fr`), réponses à **usage unique sur le même sous-domaine**, envois automatisés au maximum ; DNS créés par ScolIA.
+- **D-066** : circuit d'une idée : carnet → passe de réflexion du pilote → personas → conception → code.
+- **Signatures** (I-013, I-014) : tout en maison par défaut (passkey), **aucun prestataire payé par ScolIA** ; connecteur optionnel « compte de l'établissement » (signature qualifiée ≈ 10 €, recommandé électronique ≈ 3–6,50 €) ; quatre choix au plus par document ; brique unique, parapheur de la direction.
+- **Carnet d'idées** : I-009 à I-031 (23 idées, dont 20 validées) ; on laisse reposer jusqu'à la fin de semaine.
+
+### Décisions attendues de Florian
+- **Q-PB2** (modules incertains pour février) **avant le 27 novembre**.
+- Qui signe comme chef d'établissement (proposition : seul le titulaire de la fonction, les autres par délégation).
+- **Lundi 16 nov.** (rappel programmé à 9 h) : quel prestataire de signature utilise Charlemagne.
+
+### À fournir par Florian plus tard
+- **Export anonymisé de la base Next.js** : l'outil R1 est prêt ; export pour la répétition de Noël (vers le 19 décembre), au format `pg_dump --format=plain`.
+- F-01 à F-07 (exports Charlemagne, échanges SIECLE/STS) : plus tard. F-08 caduc (D-064).
+
+### Ce qui a coincé
+- **Le pilote n'a pas reprogrammé sa ronde après 13 h 30** : de 14 h 45 à 17 h 30, trois sessions sont restées bloquées sur une question (8 depuis la veille 17 h 30, 15 depuis la veille 22 h 30, 20 à l'arrêt). Débloquées à 17 h 38 ; consigne de ronde renforcée (toujours reprogrammer, débloquer sans attendre), rondes toutes les heures.
+- Vérifications locales lancées avec « & » interrompues : désormais toujours en arrière-plan géré.
+- Disque plein deux fois (19 Go de compilations web anciennes supprimées).
+- Faux positif de fuite RLS sur les documents (test lisant avec le rôle propriétaire) : preuve refaite avec un rôle sans privilège.
+
 ## 2026-11-15 (dimanche matin, 8 h 50 Paris)
 
 ### Sur `ENT`, validé
