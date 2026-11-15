@@ -7,7 +7,7 @@
 //!    désactivable) ;
 //! 2. des **envois** par canal e-mail / SMS / push (`ent_notification_envoi`),
 //!    planifiés selon les **préférences** de la personne : canal choisi, résumé
-//!    quotidien (regroupement), heures calmes (heure de Paris).
+//!    quotidien (regroupement), heures calmes (fuseau de l'établissement).
 //!
 //! Les envois sont ensuite expédiés par l'[`Expediteur`] (boucle tokio ou appel
 //! direct en test). L'effet externe est **hors** de la transaction du
@@ -27,7 +27,6 @@
 //!   les plafonds, jamais au-delà, même avec plusieurs expéditeurs.
 //! - *SMS* : désactivé par défaut (consentement explicite), jamais regroupé.
 
-use crate::assiduite::heure_paris;
 use crate::pg_err::map_sqlx;
 use crate::service::{EntDbError, PgEnt};
 use chrono::{DateTime, Duration, NaiveDateTime, NaiveTime, Utc};
@@ -48,7 +47,7 @@ pub(crate) fn db(err: sqlx::Error) -> EntDbError {
 
 pub const CANAUX: [&str; 3] = ["email", "sms", "push"];
 
-/// Heure d'envoi des résumés quotidiens (heure de Paris), en minutes.
+/// Heure d'envoi des résumés quotidiens (fuseau de l'établissement), en minutes.
 pub const HEURE_RESUME_MIN: u16 = 7 * 60 + 30;
 
 /// Longueur maximale d'un SMS composé (3 segments de 7 bits).
@@ -66,7 +65,7 @@ pub struct Preferences {
     pub push: bool,
     /// `immediat` ou `quotidien` (résumé unique, e-mail et push seulement).
     pub resume: String,
-    /// Heures calmes, en minutes depuis minuit (heure de Paris).
+    /// Heures calmes, en minutes depuis minuit (fuseau de l'établissement).
     pub calme_debut: Option<u16>,
     pub calme_fin: Option<u16>,
 }
@@ -149,7 +148,7 @@ fn a_minute(date: chrono::NaiveDate, minute: u16) -> NaiveDateTime {
     )
 }
 
-/// Instant local (heure de Paris) auquel un envoi doit partir : résumé quotidien
+/// Instant local (fuseau de l'établissement) auquel un envoi doit partir : résumé quotidien
 /// pour un message regroupable, puis report hors des heures calmes.
 pub fn echeance_locale(
     pref: &Preferences,
@@ -345,7 +344,19 @@ pub(crate) async fn planifier_envois(
         contacts.telephone.is_some(),
         contacts.push,
     );
-    let local = heure_paris(maintenant);
+    // Socle 8 N0b (E8) : heures locales dans le fuseau de l'établissement (Europe/Paris par
+    // défaut), plus en dur : résumé à 7 h 30 et heures calmes sont ceux de l'établissement.
+    let (fuseau, local): (String, NaiveDateTime) = sqlx::query_as(
+        "SELECT f.fuseau, ($2::timestamptz AT TIME ZONE f.fuseau)
+           FROM (SELECT COALESCE(
+                    (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $1),
+                    'Europe/Paris') AS fuseau) f",
+    )
+    .bind(e.etablissement_id)
+    .bind(maintenant)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
     let mut crees = 0usize;
     for canal in canaux {
         let regroupable = e.regroupable && canal != "sms";
@@ -357,7 +368,7 @@ pub(crate) async fn planifier_envois(
                  planifie_pour)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                      CASE WHEN $15::timestamp = $16::timestamp THEN $17::timestamptz
-                          ELSE $15::timestamp AT TIME ZONE 'Europe/Paris' END)
+                          ELSE $15::timestamp AT TIME ZONE $18 END)
              ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
         )
         .bind(Uuid::new_v4())
@@ -377,6 +388,7 @@ pub(crate) async fn planifier_envois(
         .bind(cible)
         .bind(local)
         .bind(maintenant)
+        .bind(&fuseau)
         .execute(&mut *conn)
         .await
         .map_err(db)?;
@@ -414,6 +426,78 @@ pub(crate) async fn notifier_personne(
     .map_err(db)?;
     e.notification_id = notif.map(|n| n.0);
     planifier_envois(conn, &e, maintenant).await
+}
+
+/// Socle 8 N3 : notification dans l'ENT puis envois externes **aux instants décidés par la brique** (heures
+/// calmes, résumé, préférences : `ntf::temps`). Les préférences de l'ancien moteur ne sont pas relues ici ;
+/// seule la joignabilité du compte l'est (adresse, numéro, appareil). Idempotent (clés de dédoublonnage).
+pub(crate) async fn notifier_personne_cibles(
+    conn: &mut PgConnection,
+    mut e: EnvoiAPlanifier<'_>,
+    source_event_id: Uuid,
+    cibles: &[(String, DateTime<Utc>, bool)],
+) -> Result<usize, EntDbError> {
+    let notif: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO ent_notification
+            (id, etablissement_id, destinataire_user_id, eleve_id, kind, titre, corps, source_event_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (source_event_id, destinataire_user_id, kind) DO NOTHING
+         RETURNING id",
+    )
+    .bind(Uuid::new_v4())
+    .bind(e.etablissement_id)
+    .bind(e.user_id)
+    .bind(e.eleve_id)
+    .bind(e.kind)
+    .bind(e.titre)
+    .bind(e.corps)
+    .bind(source_event_id)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    e.notification_id = notif.map(|n| n.0);
+    let Some(contacts) = contacts_de(conn, e.etablissement_id, e.user_id).await? else {
+        return Ok(0);
+    };
+    let mut crees = 0usize;
+    for (canal, quand, regroupable) in cibles {
+        let joignable = match canal.as_str() {
+            "email" => contacts.email.is_some(),
+            "sms" => contacts.telephone.is_some(),
+            "push" => contacts.push,
+            _ => false,
+        };
+        if !joignable {
+            continue;
+        }
+        let r = sqlx::query(
+            "INSERT INTO ent_notification_envoi
+                (id, etablissement_id, destinataire_user_id, canal, kind, titre, corps, eleve_id,
+                 notification_id, source_type, source_id, cle_dedup, droit_requis, regroupable, planifie_pour)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+             ON CONFLICT (etablissement_id, destinataire_user_id, canal, cle_dedup) DO NOTHING",
+        )
+        .bind(Uuid::new_v4())
+        .bind(e.etablissement_id)
+        .bind(e.user_id)
+        .bind(canal)
+        .bind(e.kind)
+        .bind(e.titre)
+        .bind(e.corps)
+        .bind(e.eleve_id)
+        .bind(e.notification_id)
+        .bind(e.source_type)
+        .bind(e.source_id)
+        .bind(&e.cle_dedup)
+        .bind(e.droit_requis)
+        .bind(*regroupable && canal != "sms")
+        .bind(quand)
+        .execute(&mut *conn)
+        .await
+        .map_err(db)?;
+        crees += r.rows_affected() as usize;
+    }
+    Ok(crees)
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +589,10 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // Socle 8 N3 : l'ancien réglage est reflété dans les préférences de la brique (une seule vérité).
+        crate::ntf::reglages::refleter_ancien_reglage(&mut *tx, etablissement_id, user_id, &pref, Utc::now())
+            .await
+            .map_err(db)?;
         tx.commit().await?;
         Ok(pref)
     }
@@ -787,6 +875,27 @@ impl Expediteur {
 
     async fn expedier_etab(&self, etab: Uuid, maintenant: DateTime<Utc>) -> Result<BilanExpedition, EntDbError> {
         let mut bilan = BilanExpedition::default();
+        // 0. Socle 8 N1 : avis échus (délai de confirmation écoulé), remis dans l'ENT ; les canaux externes sont
+        // transmis à l'ancien moteur, expédié aux étapes suivantes du même passage.
+        crate::ntf::expedition::expedier_avis_dus(&self.pool, etab, maintenant).await?;
+        // 0b. N2 : personnes sans compte (e-mail direct, adresse lue dans leur fiche au dernier moment).
+        let directes = crate::ntf::expedition::reserver_remises_sans_compte(
+            &self.pool,
+            etab,
+            maintenant,
+            self.config.taille_lot,
+        )
+        .await?;
+        for r in directes {
+            let issue = self.envoyer_remise_directe(&r).await;
+            match &issue {
+                crate::ntf::expedition::IssueDirecte::Envoye => bilan.envoyes += 1,
+                crate::ntf::expedition::IssueDirecte::Simule => bilan.simules += 1,
+                crate::ntf::expedition::IssueDirecte::Ignore(_) => bilan.ignores += 1,
+                crate::ntf::expedition::IssueDirecte::Echec(_) => bilan.echecs += 1,
+            }
+            crate::ntf::expedition::finaliser_remise_directe(&self.pool, etab, r.remise_id, issue, maintenant).await?;
+        }
         // 1. Lignes abandonnées en cours d'envoi : échec (jamais renvoyées).
         let mut tx = TenantTx::begin(&self.pool, etab).await.map_err(db)?;
         let perimes = sqlx::query(
@@ -891,6 +1000,51 @@ impl Expediteur {
             }
         }
         Ok(bilan)
+    }
+
+    /// N2 : envoi d'une remise à une personne sans compte (e-mail ; l'adresse vient de sa fiche).
+    async fn envoyer_remise_directe(
+        &self,
+        r: &crate::ntf::expedition::RemiseDirecte,
+    ) -> crate::ntf::expedition::IssueDirecte {
+        use crate::ntf::expedition::IssueDirecte;
+        if !self.mailer.is_ready() {
+            return IssueDirecte::Ignore("canal_non_configure");
+        }
+        let recu = self
+            .mailer
+            .send(OutgoingMail {
+                to: r.destination.clone(),
+                subject: r.sujet.clone(),
+                body_text: r.corps.clone(),
+                attachments: Vec::new(),
+            })
+            .await;
+        let (statut, erreur, mid) = match recu {
+            Ok(x) => (x.status, x.error, x.message_id),
+            Err(err) => (MailSendStatus::Failed, Some(err.to_string()), None),
+        };
+        let _ = crate::mail_repo::PgMailRepo::new(self.pool.clone())
+            .insert(crate::mail_repo::InsertMailOutbox {
+                etablissement_id: r.etablissement_id,
+                eleve_id: r.eleve_id,
+                kind: r.kind.clone(),
+                to_email: r.destination.clone(),
+                subject: r.sujet.clone(),
+                body_text: r.corps.clone(),
+                status: statut,
+                error: erreur.clone(),
+                source_aggregate: Some("ntf_remise".into()),
+                source_id: Some(r.remise_id),
+                message_id: mid,
+            })
+            .await;
+        match statut {
+            MailSendStatus::Sent => IssueDirecte::Envoye,
+            MailSendStatus::DryRun => IssueDirecte::Simule,
+            MailSendStatus::SkippedNoConfig => IssueDirecte::Ignore("canal_non_configure"),
+            MailSendStatus::Failed => IssueDirecte::Echec(erreur.unwrap_or_else(|| "échec d'envoi".into())),
+        }
     }
 
     async fn droit_toujours_valide(&self, e: &EnvoiReclame) -> Result<bool, EntDbError> {
@@ -1145,12 +1299,15 @@ impl Expediteur {
             .await
             .map_err(db)?;
         let plafonds = plafonds_de(&mut tx, e.etablissement_id).await?;
-        // Début du jour (Paris) → instant UTC.
+        // Début du jour de l'établissement → instant UTC.
         let (debut_jour,): (DateTime<Utc>,) = sqlx::query_as(
-            "SELECT (date_trunc('day', $1::timestamptz AT TIME ZONE 'Europe/Paris')
-                     AT TIME ZONE 'Europe/Paris')",
+            "WITH f AS (SELECT COALESCE(
+                    (SELECT p.fuseau FROM ent_etablissement_parametre p WHERE p.etablissement_id = $2),
+                    'Europe/Paris') AS z)
+             SELECT (date_trunc('day', $1::timestamptz AT TIME ZONE f.z) AT TIME ZONE f.z) FROM f",
         )
         .bind(maintenant)
+        .bind(e.etablissement_id)
         .fetch_one(&mut *tx)
         .await
         .map_err(db)?;

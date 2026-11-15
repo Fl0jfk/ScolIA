@@ -43,6 +43,7 @@ const TYPES_NOTIFICATIONS: &[&str] = &[
 pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
     vec![
         Arc::new(ConsommateurNotifications),
+        Arc::new(ConsommateurArretDeces),
         Arc::new(ConsommateurRelanceAppel),
         Arc::new(crate::cahier_reactions::ConsommateurCahier),
         Arc::new(crate::edt_reactions::ConsommateurNotificationsEdt),
@@ -51,6 +52,8 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(crate::voyages_reactions::ConsommateurVoyages),
         Arc::new(crate::afaire_service::ConsommateurAfaire),
         Arc::new(crate::documents_coffre::ConsommateurCoffre),
+        // Socle 8 N1 : brique de notifications (bascule progressive par établissement et par nature).
+        Arc::new(crate::ntf::consommateur::ConsommateurAvis::nouveau()),
     ]
 }
 
@@ -157,6 +160,14 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
     let Some(m) = message_pour(evt, &prenom) else {
         return Ok(());
     };
+    // Socle 8 N1 : quand la brique de notifications sert cette nature pour l'établissement, l'ancien chemin
+    // se tait (jamais les deux). Bascule par établissement : `ent_ntf_nature_etab.via_brique`.
+    if let Some(nature) = crate::ntf::catalogue::nature_de_kind_ancien(m.kind) {
+        let r = crate::ntf::service::reglage_nature(&mut *tx, etab, nature).await.map_err(|e| e.to_string())?;
+        if r.via_brique {
+            return Ok(());
+        }
+    }
     // Droits relus maintenant : lien ACTIF (vue unique, S2-1 : ni suspendu ni
     // hors de ses dates) dans cet établissement, droit de voir
     // la vie scolaire, compte « parent » membre de l'établissement.
@@ -195,7 +206,13 @@ async fn notifier(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(),
                 source_type: "evenement",
                 source_id: evt.event().id,
                 cle_dedup: format!("evt:{}:{}", evt.event().id, m.kind),
-                droit_requis: Some("peut_voir_vs"),
+                // Avis d'infirmerie : destinataires choisis sans `peut_voir_vs` (« la famille doit savoir ») ;
+                // l'envoi ne doit donc pas non plus l'exiger (socle 8 N0b, E6).
+                droit_requis: if evt.event().type_name == "infirmerie.famille_informee" {
+                    Some("lien")
+                } else {
+                    Some("peut_voir_vs")
+                },
                 regroupable: m.regroupable,
                 canaux_voulus: &["email", "sms", "push"],
             },
@@ -223,6 +240,87 @@ impl Consommateur for ConsommateurNotifications {
         evt: &'a EvenementDistribue,
     ) -> FutureTraitement<'a> {
         Box::pin(notifier(tx, evt))
+    }
+}
+
+/// Socle 8 N0b (E14) : le décès d'un élève arrête tout envoi automatique qui le concerne.
+/// Les envois `en_attente` (résumé du lendemain, relance planifiée…) passent à `annule` avec
+/// le motif `deces` ; rien n'est supprimé (preuve), rien n'est envoyé. Rejouable : idempotent.
+pub const CONSOMMATEUR_ARRET_DECES: &str = "d0.notifications_deces";
+
+pub struct ConsommateurArretDeces;
+
+impl Consommateur for ConsommateurArretDeces {
+    fn nom(&self) -> &'static str {
+        CONSOMMATEUR_ARRET_DECES
+    }
+
+    fn types(&self) -> &'static [&'static str] {
+        &[types::ELEVE_DECEDE]
+    }
+
+    fn traiter<'a>(
+        &'a self,
+        tx: &'a mut PgConnection,
+        evt: &'a EvenementDistribue,
+    ) -> FutureTraitement<'a> {
+        Box::pin(async move {
+            let e = evt.event();
+            let Some(eleve_id) = e.eleve_id else {
+                return Ok(());
+            };
+            sqlx::query(
+                "UPDATE ent_notification_envoi
+                    SET statut = 'annule', motif = 'deces', traite_le = now()
+                  WHERE etablissement_id = $1 AND eleve_id = $2 AND statut = 'en_attente'",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|err| err.to_string())?;
+            // Socle 8 N2 (CN-13) : gel tracé du sujet, puis annulation des avis et remises de la brique.
+            let ok = |r: Result<sqlx::postgres::PgQueryResult, sqlx::Error>| r.map(|_| ()).map_err(|err| err.to_string());
+            ok(sqlx::query(
+                "INSERT INTO ent_ntf_gel (id, etablissement_id, sujet_type, sujet_id, motif_code)
+                 VALUES ($1, $2, 'eleve', $3, 'deces') ON CONFLICT DO NOTHING",
+            )
+            .bind(Uuid::new_v4())
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_remise SET statut = 'annulee', motif = 'deces'
+                  WHERE etablissement_id = $1 AND statut IN ('planifiee', 'reservee')
+                    AND destinataire_id IN (SELECT d.id FROM ent_ntf_destinataire d
+                                              JOIN ent_ntf_avis a ON a.etablissement_id = d.etablissement_id AND a.id = d.avis_id
+                                             WHERE a.etablissement_id = $1 AND a.eleve_id = $2)",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_destinataire SET statut = 'annule'
+                  WHERE etablissement_id = $1 AND statut = 'a_remettre'
+                    AND avis_id IN (SELECT id FROM ent_ntf_avis WHERE etablissement_id = $1 AND eleve_id = $2)",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .execute(&mut *tx)
+            .await)?;
+            ok(sqlx::query(
+                "UPDATE ent_ntf_avis SET statut = 'annule', annule_le = $3, annule_motif = 'deces'
+                  WHERE etablissement_id = $1 AND eleve_id = $2 AND statut IN ('planifie', 'en_cours')",
+            )
+            .bind(e.etablissement_id)
+            .bind(eleve_id)
+            .bind(e.created_at)
+            .execute(&mut *tx)
+            .await)?;
+            Ok(())
+        })
     }
 }
 

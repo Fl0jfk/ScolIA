@@ -1,0 +1,37 @@
+# Socle 8 — Notifications : livraison des lots N0b, N1, N2 et N3
+
+Statut : **implémenté et testé (tests ciblés en local, contre un PostgreSQL 16 jetable)** ; **non validé** (CI de la tête à venir) ; non prêt pilote, non prêt production. Conception : `08_NOTIFICATIONS.md` (branche `ent-mc0hoe`).
+Base : `ENT-socle-8-n0a-reprise` (dd377d1f, N0a rejoué sur ENT). Branches empilées : `ent-socle-8-n0b-reprise` (N0b), `ent-socle-8-code-n1`, `-n2`, `-n3`.
+
+## Ce qui est livré
+| Lot | Contenu | Migrations |
+|---|---|---|
+| N0b | droit du lien (avis d'infirmerie = lien), décès qui annule les remises, filtres `peut_voir_notes` / `peut_voir_vs` de l'ancien chemin, fuseau de l'établissement, codage SMS selon le texte | aucune |
+| N1 | module `ent-db/src/ntf/` : `NatureAvisDecl`, `AvisSurEvenement`, vérifications de l'assemblage et lint de minimisation (démarrage refusé si invalide), service `aviser` / `annuler_avis` / `etat`, consommateur `notifications.avis`, expédition des avis échus, bascule progressive par établissement et par nature (`ent_ntf_nature_etab.via_brique`) | 3800–3802 |
+| N2 | destinataires = **personnes** (sans compte, exclusions tracées avec raison, relecture à chaque remise), plan de canaux et plancher, dédoublonnage par destination, tâche « à prévenir autrement », gel au décès, liens nominatifs (jeton haché), courriel direct aux personnes sans compte | 3808 |
+| N3 | préférences par catégorie et préréglages, heures calmes à trois étages (établissement, personne, personnel : le troisième étage est branché dans le moteur, alimenté par N12), urgences U0–U3, fenêtre U2, résumé quotidien / hebdomadaire, fratrie, budget de bruit, pause, reprise de `ent_preference_notification` et reflet des écritures de l'ancien réglage | 3803 |
+
+Placement : le kit des briques (`ARCHITECTURE_BRIQUES.md`, K6) n'est appliqué nulle part ailleurs dans le code ; la brique est donc un **module de `ent-db`** (`ntf/`) avec la découpe prévue (contrat, catalogue, assemblage, destinataires, service, consommateur, expédition, temps, réglages), déplaçable sans réécriture vers `brique-notifications(-types)`. Aucune nouvelle dépendance (`sha2` et `thiserror` existaient déjà dans `ent-db`).
+
+## Façade de l'ancien moteur (jusqu'au lot N11)
+Les natures du catalogue (`vie_scolaire.absence_constatee`, `retard_constate`, `absence_justifiee`, `sante.passage_infirmerie`) sont **inactives par défaut** : tant que `via_brique` est faux pour l'établissement, l'ancien chemin prévient seul. Quand il est vrai, la brique prévient et l'ancien chemin se tait (jamais les deux). L'ENT (`ent_notification`) est remis par la brique ; les canaux externes des comptes sont transmis à l'ancien moteur **aux instants décidés par la brique** (`planifie_pour`), qui garde les plafonds SMS, l'expédition et le résumé jusqu'aux lots N5 à N7. Les autres écritures de l'ancien réglage sont reflétées dans les nouvelles tables.
+
+## Critères couverts et tests (`tests_notifications_n1/n2/n3.rs`, `ntf::*::tests`)
+- N1 : absence de bout en bout (délai de confirmation de 20 min, ENT remis une fois, rejeu sans doublon), ancien chemin seul sans bascule, retard dans le délai qui annule l'absence (CN-01), droit retiré avant la remise (CN-15), avis d'infirmerie par le lien, refus du service (brique étrangère, nature désactivée, paramètre trop long, sujet manquant), annulation avant et après remise, lint (variable C2 refusée dans un SMS ou un titre, C3 enveloppe seule, U3, plancher, escalade U0, R-N58).
+- N2 : parent sans compte prévenu par courriel (adresse lue dans sa fiche), CN-33 (même destination = une remise), sans coordonnée exclu, numéro seul = tâche manuelle, CN-10 interdiction et CN-12 « ne pas solliciter » exclus avec raison, interdiction posée après l'avis relue à la remise, CN-13 décès (avis annulés, gel tracé, aucun nouvel avis), liens nominatifs (ouvertures limitées, expiration, révocation, jeton jamais en clair), R-N51 (agrégation des exclusions, test pur).
+- N3 : table de vérité du moteur (pure), heures calmes à l'heure de la Réunion (UTC+4), changements d'heure de Paris (hiver et été), U2 qui ignore les heures de jour de la personne, pause (retient U1, jamais U2 ni U3), U3 immédiat de nuit, hausse d'urgence bornée, résumé à l'heure choisie, budget de bruit (CN-49), fratrie, reprise sans perte et reflet de l'ancien réglage.
+
+## Limites connues (à ne pas masquer)
+1. **Aucune route ni écran** dans ces lots : le service est appelable en Rust ; routes et pilotage relèvent de N8, N13 et N14. Les droits `notifications.avis_voir` et `notifications.parametrer` sont posés (fonction `socle_8_notifications`) mais pas encore utilisés par une route.
+2. **Organisations** (organisme payeur) et **élève destinataire** (`EleveDest`) : le schéma les porte, aucune source ne les alimente encore (socles 4 et 24).
+3. **Décès d'un responsable** (CN-14) : aucun champ de décès sur `ent_personne` ; non traité. **RP1-11** (facture, fil) : relève des natures finances et messagerie (N11).
+4. **Personnes sans compte** : courriel seul ; le SMS sans compte attend les gabarits sans compte du lot N4. Le courriel est un texte d'enveloppe (C1) ; le contenu complet derrière le lien nominatif relève de N1b (page d'attente GET, preuve POST) : le service de liens est prêt, pas la route.
+5. **Fratrie** : le réglage supprime les remises externes des frères et sœurs suivants dans la même demi-journée ; le texte regroupé (« Léa et Tom ont été notés absents ») relève de N4. L'ENT garde chaque enfant.
+6. **Résumé** : composé par l'ancien moteur (regroupement des envois échus au même passage) ; le résumé propre à la brique (`ent_ntf_resume`) viendra avec N4 et N8.
+7. **Troisième étage des heures calmes** (indisponibilité d'un personnel) : branché dans `ContexteTemps.indispo_jusqua`, non alimenté (lot N12). Jours fériés : non gérés (calendrier du socle 5).
+8. **Q-N9** (« ne pas solliciter » pour les informations dues) : appliqué comme l'ancien chemin (exclusion), mais désormais **tracé** avec sa raison, jamais décidé en silence.
+9. **Avis déclarés sans consommateur sur ENT** : le cahier de textes C3 (`cahier_c2*.rs`) n'est pas dans cette base (non branché) ; l'assiduité (`assiduite.absence_qualifiee`, `autorisation_decidee`…) et les absences du personnel (`absence_personnel.*`) demandent leurs natures, gabarits et règles de destinataires propres (familles pour l'assiduité, service et suppléants pour les personnels) : **non branchés**, à faire au lot N11 de chaque brique émettrice. Seules les situations de la vie scolaire que l'ancien chemin servait déjà sont déclarées.
+10. Garde-fous R-N54 (nocturne à l'expéditeur) et R-N66 (mineurs) : la nuit de l'établissement est appliquée à la planification ; le contrôle indépendant dans l'expéditeur reste à poser (N5).
+
+## À valider par le pilote
+Fusion des migrations 3800–3808 (ordre numérique), compte RLS (+12 : 7 en N1, 3 en N2, 2 en N3) et taille du tableau `Action::TOUTES` (+2) à recalculer sur la tête d'`ENT` ; routes absentes donc inventaire et matrice de séparation inchangés.
