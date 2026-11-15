@@ -245,6 +245,15 @@ impl W {
         e
     }
 
+    async fn etat_demande(&self, d: Uuid) -> (String, Option<Uuid>) {
+        sqlx::query_as("SELECT etat, piece_id FROM ent_doc_piece_demande WHERE etablissement_id = $1 AND id = $2")
+            .bind(self.m.etab)
+            .bind(d)
+            .fetch_one(self.ent.pool_verif())
+            .await
+            .unwrap()
+    }
+
     async fn nb_pieces(&self) -> i64 {
         let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_doc_piece WHERE etablissement_id = $1")
             .bind(self.m.etab)
@@ -761,19 +770,9 @@ async fn t_piece_de_foyer_pour_deux_enfants() {
     // Un seul dépôt, pour l'aîné : accepté, il satisfait la demande du cadet (même foyer), pas celle du voisin.
     let p = w.deposer_et_analyser(&w.lily_a(), w.depot("justificatif_domicile", SujetPiece::Eleve(a), Some(da.demande_id), vec![pdf_simple()])).await;
     w.ent.controler_piece_for_actor(&w.adm(), p, ControleDecision::Accepter { valable_jusqu_au: None }).await.unwrap();
-    let etat_demande = |d: Uuid| async move {
-        let (e, pid): (String, Option<Uuid>) =
-            sqlx::query_as("SELECT etat, piece_id FROM ent_doc_piece_demande WHERE etablissement_id = $1 AND id = $2")
-                .bind(w.m.etab)
-                .bind(d)
-                .fetch_one(w.ent.pool_verif())
-                .await
-                .unwrap();
-        (e, pid)
-    };
-    assert_eq!(etat_demande(da.demande_id).await, ("satisfaite".to_string(), Some(p)));
-    assert_eq!(etat_demande(db_.demande_id).await, ("satisfaite".to_string(), Some(p)), "une pièce de foyer pour deux enfants");
-    assert_eq!(etat_demande(dc.demande_id).await.0, "ouverte", "un autre foyer n'est pas couvert");
+    assert_eq!(w.etat_demande(da.demande_id).await, ("satisfaite".to_string(), Some(p)));
+    assert_eq!(w.etat_demande(db_.demande_id).await, ("satisfaite".to_string(), Some(p)), "une pièce de foyer pour deux enfants");
+    assert_eq!(w.etat_demande(dc.demande_id).await.0, "ouverte", "un autre foyer n'est pas couvert");
     assert_eq!(w.nb_pieces().await, 1);
     assert!(w.ent.ce_qui_manque_for_actor(&w.lily_a(), SujetPiece::Eleve(b)).await.unwrap().is_empty());
     // Le voisin ne se voit pas proposer la pièce d'un autre foyer.
