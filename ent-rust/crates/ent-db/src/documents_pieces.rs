@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 //! Socle 7, lot D5 : **pièces justificatives** — catalogue, demandes, dépôt (photos → PDF, PDF désarmé, quarantaine,
 //! antivirus), contrôle en rafale, réutilisation, « ce qui manque », port de reprise
 //! (`docs/socles/07_DOCUMENTS.md` §11, §17, §19.1 n° 7 à 10, §21).
@@ -746,6 +747,7 @@ struct LignePiece {
     cle_objet_original: String,
     sha256_original: String,
     mime_original: String,
+    #[allow(dead_code)]
     nb_fichiers_origine: i32,
     cle_objet_servi: Option<String>,
     sha256_servi: Option<String>,
@@ -2190,10 +2192,7 @@ impl PgEnt {
                 }
             };
             let prop = if matches!(etat, EtatManque::AFournir | EtatManque::Refusee) {
-                let sj = match (decl.portee, sujet) {
-                    (_, s) => s,
-                };
-                piece_valable(&mut tx, a.etablissement_id, decl, sj, jour).await?
+                piece_valable(&mut tx, a.etablissement_id, decl, sujet, jour).await?
             } else {
                 None
             };

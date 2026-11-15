@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 //! Socle 7, lot D4 : **le coffre** — coffres du responsable, de l'élève et de l'agent, accusés de première ouverture,
 //! export, notifications par événements, bascule à la majorité de l'élève, retrait sur suspension de lien
 //! (`docs/socles/07_DOCUMENTS.md` §12, §14.6 DCT-83 à DCT-92, §19.2, Q-D12, Q-D13).
@@ -1012,7 +1013,7 @@ impl PgEnt {
                         .map(String::as_str)
                         .unwrap_or("")
                 ),
-                c.depuis.format("%Y-%m-%d").to_string(),
+                c.depuis.format("%Y-%m-%d"),
                 c.premiere_ouverture_le
                     .map(|d| d.format("%Y-%m-%d").to_string())
                     .unwrap_or_default(),

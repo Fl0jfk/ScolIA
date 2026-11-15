@@ -1197,13 +1197,11 @@ async fn t_separation_entre_etablissements() {
     );
     // Les comptes de A, eux, voient toujours leur document.
     assert_eq!(w.coffre(&lily).await.len(), 1);
-    assert_eq!(
-        w.ent
-            .retirer_mise_a_disposition_for_actor(&adm_b, mad, "Tentative")
-            .await
-            .is_err(),
-        true
-    );
+    assert!(w
+        .ent
+        .retirer_mise_a_disposition_for_actor(&adm_b, mad, "Tentative")
+        .await
+        .is_err());
     // La réconciliation et la bascule d'un établissement ne touchent pas l'autre.
     assert_eq!(w.ent.reconcilier_liens_suspendus(mb.etab).await.unwrap(), 0);
     assert_eq!(
