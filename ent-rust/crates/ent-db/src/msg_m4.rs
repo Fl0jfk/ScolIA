@@ -13,6 +13,10 @@
 //! Le chemin d'envoi reste celui de M0b/M1/M2 (`ouvrir_fils_a`, `repondre_fil_a`) : plage calme, matrice,
 //! avis, participants. Ce module n'en recopie rien.
 
+// Les services de la messagerie prennent l'établissement, le compte, le rôle et la cible : au-delà de 7 arguments,
+// comme `msg_m2.rs`. Les regrouper dans une structure n'ajouterait rien.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 use chrono::{DateTime, Duration, Utc};
 use domain_eleve::{DomainError, MsgFil, OuvrirFil, RepondreFil};
 use ent_auth::{Action, Role};

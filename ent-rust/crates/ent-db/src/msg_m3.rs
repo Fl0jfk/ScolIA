@@ -13,6 +13,10 @@
 //! * Aucun envoi automatique, aucun effet automatique d'un message entrant (R-M41).
 //! * La famille ne voit jamais la liste des membres : seulement le libellé de la boîte, ses horaires et son délai.
 
+// Les services de la messagerie prennent l'établissement, le compte, le rôle et la cible : au-delà de 7 arguments,
+// comme `msg_m2.rs`. Les regrouper dans une structure n'ajouterait rien.
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use domain_eleve::{DomainError, MsgFil, RepondreFil};
 use ent_auth::{Action, Role};
