@@ -65,7 +65,7 @@ async fn routes_v0d_et_v1_session_droits_cloisonnement_et_lien_public_sans_fuite
         ("PUT", format!("/voyages/{fantome}/restauration")),
         ("GET", format!("/voyages/{fantome}/restauration/apercu")),
         ("POST", format!("/voyages/{fantome}/restauration/commande")),
-        ("GET", format!("/voyages/{fantome}/journal")),
+        ("GET", format!("/voyages/{fantome}/journal/publications")),
         ("POST", format!("/voyages/{fantome}/journal/activer")),
         ("POST", format!("/voyages/{fantome}/journal/publications")),
         ("GET", "/voyages/journal-famille".to_string()),
@@ -112,7 +112,7 @@ async fn routes_v0d_et_v1_session_droits_cloisonnement_et_lien_public_sans_fuite
     for (m, u, corps) in [
         ("GET", format!("/voyages/{fantome}/restauration"), None),
         ("GET", format!("/voyages/{fantome}/exigences"), None),
-        ("GET", format!("/voyages/{fantome}/journal"), None),
+        ("GET", format!("/voyages/{fantome}/journal/publications"), None),
         ("GET", format!("/voyages/{fantome}/ordres-mission"), None),
         ("GET", format!("/voyages/{fantome}/transmissions"), None),
         ("POST", format!("/voyages/{fantome}/campagne"), Some(json!({"avec_image": true}))),

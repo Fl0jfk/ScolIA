@@ -41,7 +41,7 @@ pub fn routes() -> Router<AppState> {
         .route("/voyages/{id}/restauration/avenants", post(repas_avenant))
         .route("/voyages/restauration/avis/traiter", post(repas_avis_traiter))
         // Journal de voyage : gestion
-        .route("/voyages/{id}/journal", get(journal_lire))
+        .route("/voyages/{id}/journal/publications", get(journal_lire))
         .route("/voyages/{id}/journal/activer", post(journal_activer))
         .route("/voyages/{id}/journal/fermer", post(journal_fermer))
         .route("/voyages/{id}/journal/delegues", put(journal_delegues))
