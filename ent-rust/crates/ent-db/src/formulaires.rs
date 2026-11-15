@@ -161,7 +161,7 @@ pub struct ReponseFormulaire {
 // ---------------------------------------------------------------------------
 
 /// État effectif de chaque élève demandé (clé absente = `aucune`).
-async fn etats_effectifs(
+pub(crate) async fn etats_effectifs(
     conn: &mut sqlx::PgConnection,
     etab: Uuid,
     eleves: &[Uuid],

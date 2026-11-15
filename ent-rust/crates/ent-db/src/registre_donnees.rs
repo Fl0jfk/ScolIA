@@ -205,6 +205,17 @@ const N_ENVOI_PRESTATAIRE: Neutralisation = Neutralisation::Maj {
     set: "statut = 'annule', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_envoyer'",
 };
+/// Avis de restauration (commande, avenants) encore en file : à ne jamais laisser partir après une restauration.
+const N_REPAS_AVIS: Neutralisation = Neutralisation::Maj {
+    set: "statut = 'echec'",
+    ou: "statut IN ('a_envoyer', 'sans_destinataire')",
+};
+/// Adresses de réponse à usage unique (D-065) : une base restaurée ne doit pas laisser vivre des clés émises
+/// avant la restauration (elles pourraient viser un dossier qui n'est plus le même).
+const N_REPONSE_CLE: Neutralisation = Neutralisation::Maj {
+    set: "revoquee_le = now()",
+    ou: "revoquee_le IS NULL",
+};
 const N_INSENVOI: Neutralisation = Neutralisation::Maj {
     set: "statut = 'annule', derniere_erreur = 'neutralise_restauration'",
     ou: "statut = 'a_envoyer'",
@@ -828,15 +839,30 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_sortie_envoi", "sorties_voyages", Portee::Etablissement).perso().neutralise(N_ENVOI_PRESTATAIRE),
     t("ent_sortie_etape", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_journal", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_journal_delegue", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_journal_lien", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_journal_voyage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_param", "assiduite", Portee::Etablissement),
     t("ent_sortie_participant", "sorties_voyages", Portee::Etablissement).perso().export(),
     t("ent_sortie_participant_fait", "sorties_voyages", Portee::Etablissement).perso().export(),
     t("ent_sortie_prix_fige", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_public", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_publication", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_publication_photo", "sorties_voyages", Portee::Etablissement).perso().fichiers(Fichiers::Objet),
+    t("ent_sortie_publication_photo_eleve", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_rappel", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_reglage", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_regle_niveau", "assiduite", Portee::Etablissement),
     t("ent_sortie_regle_regime", "assiduite", Portee::Etablissement),
+    t("ent_sortie_repas_attribution", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_repas_avis", "sorties_voyages", Portee::Etablissement).perso().neutralise(N_REPAS_AVIS),
+    t("ent_sortie_repas_commande", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_repas_externe", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_repas_ligne", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_reponse_cle", "sorties_voyages", Portee::Etablissement).neutralise(N_REPONSE_CLE),
+    t("ent_sortie_reprise_ecart", "sorties_voyages", Portee::Etablissement),
+    t("ent_sortie_reprise_participant", "sorties_voyages", Portee::Etablissement).perso(),
+    t("ent_sortie_reprise_sejour", "sorties_voyages", Portee::Etablissement).perso(),
     t("ent_sortie_serie", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_serie_exclusion", "sorties_voyages", Portee::Etablissement),
     t("ent_sortie_signature", "sorties_voyages", Portee::Etablissement).perso(),

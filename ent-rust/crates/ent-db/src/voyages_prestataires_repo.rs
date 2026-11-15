@@ -312,7 +312,7 @@ async fn adresse_active(conn: &mut PgConnection, etab: Uuid, prestataire: Uuid) 
     .map_err(db)
 }
 
-async fn journal_annuaire(
+pub(crate) async fn journal_annuaire(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     action: &str,

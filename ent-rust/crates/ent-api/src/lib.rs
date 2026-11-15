@@ -42,6 +42,7 @@ mod structure_offre;
 mod structure_periodes;
 mod voyages;
 mod voyages_achats;
+mod voyages_v0d;
 mod edt_s2;
 mod roles;
 mod routes;
