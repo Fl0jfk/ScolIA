@@ -11,6 +11,8 @@
 //! * Notifications : par l'outbox du socle 8, en enveloppe neutre (`formulaire`), seulement aux décideurs concernés par
 //!   une version de fond.
 
+#![allow(clippy::type_complexity)]
+
 use crate::accords::*;
 use crate::accords_verifier::{
     age_au, condition_droit_lien, objet_par_code, version_en_cours, ObjetLigne, COLONNES_OBJET,
@@ -36,6 +38,7 @@ fn code_valide(c: &str) -> bool {
     crate::formulaires::objet_valide(c)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn journaliser(
     conn: &mut PgConnection,
     etab: Uuid,
