@@ -419,7 +419,8 @@ async fn ck15_ck16_ck17_ck18_ck19_capacite_et_majorite() {
     leve("emancipation").await;
     // CK-18 : date de naissance contestée, majorité non présumée : les titulaires décident.
     poser_naissance(&ent, etab, harry, Some(il_y_a(19)), Some("contestee")).await;
-    assert!(ent.accords_decider(etab, enfant, saisie(&code, harry, &["fil_classe"], false)).await.is_err());
+    // L'élève ne décide plus seul : il ne donne qu'un avis, et l'accord des titulaires redevient décisif.
+    assert_eq!(ent.accords_decider(etab, enfant, saisie(&code, harry, &["fil_classe"], true)).await.unwrap().qualite, "eleve_avis");
     assert_eq!(verdict(&ent, etab, &code, "fil_classe", harry).await, Verdict::Autorise);
     poser_naissance(&ent, etab, harry, origine.0, origine.1.as_deref()).await;
     vider_accords(&ent, etab).await;
