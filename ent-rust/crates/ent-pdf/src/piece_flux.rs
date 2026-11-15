@@ -22,7 +22,8 @@ use std::collections::BTreeMap;
 
 const OBJETS_MAX: usize = 200_000;
 const NUMERO_MAX: u32 = 500_000;
-const ENTETE: &str = "PDF compressé non inspectable : enregistrez-le en PDF simple, ou prenez une photo";
+const ENTETE: &str =
+    "PDF compressé non inspectable : enregistrez-le en PDF simple, ou prenez une photo";
 
 fn refus(m: &'static str) -> ErreurPiece {
     ErreurPiece::PdfRefuse(m)
@@ -169,22 +170,25 @@ fn filtres(corps: &[u8], noms: &[(usize, usize, String)]) -> Vec<String> {
         i += 1;
     }
     if corps.get(i) == Some(&b'[') {
-        let fin = corps[i..].iter().position(|&c| c == b']').map_or(corps.len(), |x| x + i);
+        let fin = corps[i..]
+            .iter()
+            .position(|&c| c == b']')
+            .map_or(corps.len(), |x| x + i);
         noms[p + 1..]
             .iter()
             .take_while(|(d, _, _)| *d < fin)
             .map(|(_, _, n)| n.clone())
             .collect()
     } else {
-        noms.get(p + 1).map(|(_, _, n)| n.clone()).into_iter().collect()
+        noms.get(p + 1)
+            .map(|(_, _, n)| n.clone())
+            .into_iter()
+            .collect()
     }
 }
 
 /// Octets bruts du flux d'un objet : valeur de `/Length` si elle est cohérente, sinon jusqu'à `endstream`.
-fn octets_du_flux<'a>(
-    corps: &'a [u8],
-    noms: &[(usize, usize, String)],
-) -> Option<&'a [u8]> {
+fn octets_du_flux<'a>(corps: &'a [u8], noms: &[(usize, usize, String)]) -> Option<&'a [u8]> {
     let (d, fin) = *regions_flux(corps).first()?;
     let borne = fin.max(d);
     if let Some(len) = entier_apres(corps, noms, "Length") {
@@ -380,7 +384,10 @@ pub(crate) fn reconstruire(entree: &[u8], plafond: usize) -> Result<Vec<u8>, Err
             None => sortie.extend_from_slice(b"0000000000 65535 f \n"),
         }
     }
-    let mut trailer = format!("trailer\n<< /Size {taille} /Root {} {} R", racine.0, racine.1);
+    let mut trailer = format!(
+        "trailer\n<< /Size {taille} /Root {} {} R",
+        racine.0, racine.1
+    );
     if let Some((n, g)) = info.filter(|(n, _)| objets.contains_key(n)) {
         trailer.push_str(&format!(" /Info {n} {g} R"));
     }
@@ -465,7 +472,13 @@ mod tests {
         assembler(
             &[
                 objstm("", &z),
-                objet(6, &flux("/Filter /FlateDecode", &zlib_stocke(b"BT /F1 12 Tf (Bonjour) Tj ET"))),
+                objet(
+                    6,
+                    &flux(
+                        "/Filter /FlateDecode",
+                        &zlib_stocke(b"BT /F1 12 Tf (Bonjour) Tj ET"),
+                    ),
+                ),
                 xref_flux(),
             ],
             "",
@@ -482,7 +495,14 @@ mod tests {
         let texte = String::from_utf8_lossy(&s[debut..]).to_string();
         let mut lignes = texte.lines();
         lignes.next();
-        let taille: usize = lignes.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
+        let taille: usize = lignes
+            .next()
+            .unwrap()
+            .split(' ')
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap();
         for n in 0..taille {
             let l = lignes.next().unwrap();
             assert_eq!(l.len() + 1, 20, "entrée de 20 octets");
@@ -502,10 +522,17 @@ mod tests {
         let d = desarmer_pdf(&src).unwrap();
         assert_eq!(d.nb_pages, 1);
         for nom in ["JavaScript", "JS", "OpenAction", "URI"] {
-            assert!(d.neutralises.iter().any(|n| n == nom), "{nom} : {:?}", d.neutralises);
+            assert!(
+                d.neutralises.iter().any(|n| n == nom),
+                "{nom} : {:?}",
+                d.neutralises
+            );
         }
         let txt = String::from_utf8_lossy(&d.octets).to_string();
-        assert!(!txt.contains("ObjStm") && !txt.contains("/XRef"), "plus d'objet compressé");
+        assert!(
+            !txt.contains("ObjStm") && !txt.contains("/XRef"),
+            "plus d'objet compressé"
+        );
         for interdit in ["/JavaScript", "/JS ", "/OpenAction", "/URI"] {
             assert!(!txt.contains(interdit), "{interdit} subsiste");
         }
@@ -552,7 +579,11 @@ mod tests {
 
     #[test]
     fn scanner_flate_sans_flux_d_objets_reste_sur_place() {
-        let image = zlib_stocke(&(0..2000u32).map(|i| (i * 7 % 251) as u8).collect::<Vec<_>>());
+        let image = zlib_stocke(
+            &(0..2000u32)
+                .map(|i| (i * 7 % 251) as u8)
+                .collect::<Vec<_>>(),
+        );
         let src = assembler(
             &[
                 objet(1, b"<< /Type /Catalog /Pages 2 0 R >>"),
@@ -569,7 +600,11 @@ mod tests {
 
     #[test]
     fn scanner_xref_en_flux_seul_est_reconstruit() {
-        let image = zlib_stocke(&(0..3000u32).map(|i| (i * 13 % 255) as u8).collect::<Vec<_>>());
+        let image = zlib_stocke(
+            &(0..3000u32)
+                .map(|i| (i * 13 % 255) as u8)
+                .collect::<Vec<_>>(),
+        );
         let src = assembler(
             &[
                 objet(1, b"<< /Type /Catalog /Pages 2 0 R >>"),
@@ -582,7 +617,10 @@ mod tests {
         );
         let d = desarmer_pdf(&src).unwrap();
         assert_eq!(d.nb_pages, 1);
-        assert!(trouver(&d.octets, &image, 0).is_some(), "image recopiée sans changement");
+        assert!(
+            trouver(&d.octets, &image, 0).is_some(),
+            "image recopiée sans changement"
+        );
         assert!(!String::from_utf8_lossy(&d.octets).contains("/XRef"));
         xref_exacte(&d.octets);
     }
@@ -592,7 +630,10 @@ mod tests {
         let z = depuis_hex(OBJSTM_WORD);
         let src = assembler(
             &[
-                objet(11, b"<< /Linearized 1 /L 9999 /H [100 20] /O 3 /E 500 /N 1 /T 800 >>"),
+                objet(
+                    11,
+                    b"<< /Linearized 1 /L 9999 /H [100 20] /O 3 /E 500 /N 1 /T 800 >>",
+                ),
                 objstm("", &z),
                 xref_flux(),
             ],
@@ -636,7 +677,10 @@ mod tests {
         // Filtre non géré (LZW, ASCII85) : refus net, jamais de désarmement partiel.
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 7 /First 40 /Filter /LZWDecode", &z)),
+                objet(
+                    4,
+                    &flux("/Type /ObjStm /N 7 /First 40 /Filter /LZWDecode", &z),
+                ),
                 xref_flux(),
             ],
             "",
@@ -645,7 +689,13 @@ mod tests {
         // En-tête de flux d'objets incohérent.
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 99999999 /First 40 /Filter /FlateDecode", &z)),
+                objet(
+                    4,
+                    &flux(
+                        "/Type /ObjStm /N 99999999 /First 40 /Filter /FlateDecode",
+                        &z,
+                    ),
+                ),
                 xref_flux(),
             ],
             "",
@@ -653,7 +703,10 @@ mod tests {
         assert!(matches!(desarmer_pdf(&src), Err(ErreurPiece::PdfRefuse(_))));
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 7 /First 99999 /Filter /FlateDecode", &z)),
+                objet(
+                    4,
+                    &flux("/Type /ObjStm /N 7 /First 99999 /Filter /FlateDecode", &z),
+                ),
                 xref_flux(),
             ],
             "",
@@ -668,7 +721,10 @@ mod tests {
             &[
                 objet(
                     4,
-                    &flux("/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode", &bombe(4100)),
+                    &flux(
+                        "/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode",
+                        &bombe(4100),
+                    ),
                 ),
                 xref_flux(),
             ],
@@ -683,7 +739,10 @@ mod tests {
             &[
                 objet(
                     4,
-                    &flux("/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode", &bombe(131_000)),
+                    &flux(
+                        "/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode",
+                        &bombe(131_000),
+                    ),
                 ),
                 xref_flux(),
             ],
@@ -698,8 +757,14 @@ mod tests {
         let petit = zlib_stocke(&[b' '; 40_000]);
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 0 /First 0 /Filter /FlateDecode", &petit)),
-                objet(5, &flux("/Type /ObjStm /N 0 /First 0 /Filter /FlateDecode", &petit)),
+                objet(
+                    4,
+                    &flux("/Type /ObjStm /N 0 /First 0 /Filter /FlateDecode", &petit),
+                ),
+                objet(
+                    5,
+                    &flux("/Type /ObjStm /N 0 /First 0 /Filter /FlateDecode", &petit),
+                ),
                 xref_flux(),
             ],
             "",
@@ -719,7 +784,10 @@ mod tests {
             &[
                 objet(
                     4,
-                    &flux("/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode", &zlib_stocke(interne)),
+                    &flux(
+                        "/Type /ObjStm /N 1 /First 4 /Filter /FlateDecode",
+                        &zlib_stocke(interne),
+                    ),
                 ),
                 xref_flux(),
             ],
@@ -733,9 +801,24 @@ mod tests {
         // traversée, donc ni boucle ni débordement de pile ; le résultat reste désarmé.
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 7 /First 40 /Extends 12 0 R /Filter /FlateDecode", &z)),
-                objet(12, &flux("/Type /ObjStm /N 0 /First 0 /Extends 4 0 R /Filter /FlateDecode", &zlib_stocke(b""))),
-                objet(13, b"<< /Type /Page /Parent 13 0 R /Kids [13 0 R] /Contents 13 0 R >>"),
+                objet(
+                    4,
+                    &flux(
+                        "/Type /ObjStm /N 7 /First 40 /Extends 12 0 R /Filter /FlateDecode",
+                        &z,
+                    ),
+                ),
+                objet(
+                    12,
+                    &flux(
+                        "/Type /ObjStm /N 0 /First 0 /Extends 4 0 R /Filter /FlateDecode",
+                        &zlib_stocke(b""),
+                    ),
+                ),
+                objet(
+                    13,
+                    b"<< /Type /Page /Parent 13 0 R /Kids [13 0 R] /Contents 13 0 R >>",
+                ),
                 xref_flux(),
             ],
             "",
@@ -750,11 +833,16 @@ mod tests {
         }
         gros.extend_from_slice(&xref_flux());
         gros.extend_from_slice(b"\nstartxref\n0\n%%EOF\n");
-        assert!(matches!(desarmer_pdf(&gros), Err(ErreurPiece::PdfRefuse(m)) if m.contains("trop")));
+        assert!(
+            matches!(desarmer_pdf(&gros), Err(ErreurPiece::PdfRefuse(m)) if m.contains("trop"))
+        );
         // Numéro d'objet démesuré (table xref réécrite gigantesque) : refusé.
         let src = assembler(
             &[
-                objet(4, &flux("/Type /ObjStm /N 7 /First 40 /Filter /FlateDecode", &z)),
+                objet(
+                    4,
+                    &flux("/Type /ObjStm /N 7 /First 40 /Filter /FlateDecode", &z),
+                ),
                 objet(4_000_000_000, b"<< >>"),
                 xref_flux(),
             ],
@@ -766,7 +854,13 @@ mod tests {
     #[test]
     fn sans_catalogue_refuse() {
         let z = depuis_hex(OBJSTM_WORD);
-        let xref = objet(7, &flux("/Type /XRef /W [1 2 1] /Size 11 /Filter /FlateDecode", &zlib_stocke(&[0])));
+        let xref = objet(
+            7,
+            &flux(
+                "/Type /XRef /W [1 2 1] /Size 11 /Filter /FlateDecode",
+                &zlib_stocke(&[0]),
+            ),
+        );
         let src = assembler(&[objstm("", &z), xref], "");
         assert!(matches!(
             desarmer_pdf(&src),

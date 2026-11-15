@@ -136,7 +136,9 @@ impl PgEnt {
                     }
                 }
                 // Un échec technique sur une pièce (objet illisible…) ne bloque pas les autres.
-                Err(e) => tracing::warn!(piece = %id, erreur = %e, "analyse d'une pièce impossible"),
+                Err(e) => {
+                    tracing::warn!(piece = %id, erreur = %e, "analyse d'une pièce impossible")
+                }
             }
         }
         Ok(bilan)
@@ -157,7 +159,9 @@ impl PgEnt {
         .await?;
         let mut bilan = BilanPurgePieces::default();
         for (etab,) in etabs {
-            let b = self.purger_objets_pieces_infectees(etab, retention_jours).await?;
+            let b = self
+                .purger_objets_pieces_infectees(etab, retention_jours)
+                .await?;
             bilan.purges += b.purges;
             bilan.echecs += b.echecs;
         }

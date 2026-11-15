@@ -257,7 +257,9 @@ pub fn deflate_brut(entree: &[u8], plafond: usize) -> Result<(Vec<u8>, usize), E
                 let len = usize::from(u16::from_le_bytes([h[0], h[1]]));
                 let nlen = u16::from_le_bytes([h[2], h[3]]);
                 if nlen != !(len as u16) {
-                    return Err(ErreurInflate::Corrompu("bloc stocké : longueur incohérente"));
+                    return Err(ErreurInflate::Corrompu(
+                        "bloc stocké : longueur incohérente",
+                    ));
                 }
                 let corps = entree
                     .get(p + 4..p + 4 + len)
@@ -561,4 +563,3 @@ mod tests {
         assert!(predicteur_png(&[0], 0, 1, 8).is_err());
     }
 }
-
