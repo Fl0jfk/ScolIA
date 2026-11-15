@@ -1,15 +1,15 @@
 -- Socle 18, lot FO0 — migration 2360 : correctifs urgents des formulaires, autorisations et consentements
--- (`docs/socles/18_FORMULAIRES.md` §2.2, §29 ; défauts FD-01, FD-02, FD-05, FD-11, FD-12, FD-14, FD-15 ;
--- règles R-FC13, R-FC19, R-FC21, R-FC44 ; actions FRM-103, FRM-271, FRM-272, FRM-273).
+-- (`docs/socles/18_FORMULAIRES.md` §2.2, §29 , défauts FD-01, FD-02, FD-05, FD-11, FD-12, FD-14, FD-15 ,
+-- règles R-FC13, R-FC19, R-FC21, R-FC44 , actions FRM-103, FRM-271, FRM-272, FRM-273).
 --
 -- Additif, rejouable. Aucun JSON, aucune date UTC (`ent_aujourdhui_etab`). Aucune migration antérieure modifiée.
 --
 -- 1. Qualification d'une nouvelle version (R-FC19) : `changement` ∈ forme | fond | restriction (NULL pour la
---    version 1) ; l'acteur de la publication et de l'archivage sont journalisés (FD-11).
+--    version 1) , l'acteur de la publication et de l'archivage sont journalisés (FD-11).
 -- 2. Capacité de décider seul (FD-05, R-FC13) : fonction canonique `ent_eleve_decide_seul` (majorité par
---    `ent_eleve_majorite_le`, émancipation, tutelle ; date contestée ou approximative ⇒ majorité non présumée).
--- 3. Immuabilité en base (FD-12, FD-14, FD-15, R-FC21, R-FC44) : une décision ne s'écrit qu'une fois ; un texte publié
---    ne change plus ; un numéro de version ne recule pas ; la nature d'un objet ne change jamais.
+--    `ent_eleve_majorite_le`, émancipation, tutelle , date contestée ou approximative ⇒ majorité non présumée).
+-- 3. Immuabilité en base (FD-12, FD-14, FD-15, R-FC21, R-FC44) : une décision ne s'écrit qu'une fois , un texte publié
+--    ne change plus , un numéro de version ne recule pas , la nature d'un objet ne change jamais.
 
 -- 1. Version et acteurs ------------------------------------------------------------------------
 ALTER TABLE ent_formulaire ADD COLUMN IF NOT EXISTS changement TEXT;
@@ -81,8 +81,8 @@ CREATE TRIGGER ent_formulaire_reponse_garde
     BEFORE UPDATE OR DELETE ON ent_formulaire_reponse
     FOR EACH ROW EXECUTE FUNCTION ent_formulaire_reponse_garde();
 
--- Formulaires : un brouillon se modifie et se supprime ; un texte publié est figé (seuls le statut et l'archivage
--- évoluent : publié → archivé) ; la nature d'un objet ne change jamais (FD-15) ; un numéro de version ne recule
+-- Formulaires : un brouillon se modifie et se supprime , un texte publié est figé (seuls le statut et l'archivage
+-- évoluent : publié → archivé) , la nature d'un objet ne change jamais (FD-15) , un numéro de version ne recule
 -- pas (FD-14).
 CREATE OR REPLACE FUNCTION ent_formulaire_garde() RETURNS trigger
 LANGUAGE plpgsql AS $$

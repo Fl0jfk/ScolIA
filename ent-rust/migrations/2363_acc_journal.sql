@@ -1,5 +1,5 @@
 -- Socle 18, lot FO1 — migration 2363 : journal des accords (ajout seul)
--- (`docs/socles/18_FORMULAIRES.md` §9.2, §23.2 ; règles R-FC38, R-FC39).
+-- (`docs/socles/18_FORMULAIRES.md` §9.2, §23.2 , règles R-FC38, R-FC39).
 --
 -- Une ligne par acte : activation d'un objet, publication d'une version, **lecture détaillée** des décisions par le
 -- secrétariat ou la direction (FD-09), reprise, et — **agrégée** — les vérifications de routine du port `verifier`

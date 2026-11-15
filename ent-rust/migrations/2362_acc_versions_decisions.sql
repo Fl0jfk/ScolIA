@@ -1,11 +1,11 @@
 -- Socle 18, lot FO1 — migration 2362 : versions de texte, usages couverts, décisions
--- (`docs/socles/18_FORMULAIRES.md` §8.2, §27 ; règles R-FC19, R-FC21, R-FC44, R-FC45, R-FC46, R-FC52 ; FD-13, FD-18).
+-- (`docs/socles/18_FORMULAIRES.md` §8.2, §27 , règles R-FC19, R-FC21, R-FC44, R-FC45, R-FC46, R-FC52 , FD-13, FD-18).
 --
 -- Additif, rejouable, sans JSON, sans date UTC. Ajout seul : une version publiée est immuable, une décision ne se
 -- modifie ni ne se supprime (une nouvelle décision remplace la précédente dans le calcul, l'historique reste).
 --
 -- Preuve de signature : `preuve_signature_id` référence la brique de signature du socle 7 (lot D6, à venir) par un
--- identifiant **sans clé étrangère** (le socle 7 n'a pas encore livré la table) ; tant qu'elle est NULL, le canal dit
+-- identifiant **sans clé étrangère** (le socle 7 n'a pas encore livré la table) , tant qu'elle est NULL, le canal dit
 -- ce qu'on sait de la décision (`en_ligne`, `guichet`, `papier`, `reprise_dossier`, `reprise_sans_preuve`). Le port
 -- Rust `PortSignature` (ent-db/src/accords.rs) est le seul point d'appel : le socle 18 n'écrit aucune signature.
 

@@ -1,15 +1,15 @@
 -- Socle 18, lot FO1 — migration 2361 : objets d'accord, catalogue de référence et usages
--- (`docs/socles/18_FORMULAIRES.md` §6.2, §8.1, §27 ; règles R-FC1, R-FC6, R-FC21, R-FC46 ; actions FRM-100, FRM-101).
+-- (`docs/socles/18_FORMULAIRES.md` §6.2, §8.1, §27 , règles R-FC1, R-FC6, R-FC21, R-FC46 , actions FRM-100, FRM-101).
 --
 -- Additif, rejouable, sans JSON, sans date UTC. Plage 2360–2379 : 2361 objets et catalogue · 2362 versions et décisions ·
 -- 2363 journal · 2369 reprise de 193 et de 269/275.
 --
--- * `ent_acc_catalogue` : référence **globale** fournie par ScolIA (aucun établissement : hors RLS ; l'application ne
---   fait que la lire, elle évolue par migration) ; `ent_acc_catalogue_usage` : ses usages. Les textes de départ sont **provisoires** (R-FC72) : ils
+-- * `ent_acc_catalogue` : référence **globale** fournie par ScolIA (aucun établissement : hors RLS , l'application ne
+--   fait que la lire, elle évolue par migration) , `ent_acc_catalogue_usage` : ses usages. Les textes de départ sont **provisoires** (R-FC72) : ils
 --   doivent être relus (juriste, direction) avant tout usage réel.
 -- * `ent_acc_objet` : un objet d'accord d'un établissement (nature, règle, droit du lien, validité). La nature ne change
---   jamais (R-FC21) ; une règle ne baisse jamais sous celle du catalogue (R-FC6, contrôlé par le code et rappelé ici).
--- * `ent_acc_usage` : à quoi sert l'accord (`fil_classe`, `site_public`, `participation`…) ; un usage « mission » n'a pas
+--   jamais (R-FC21) , une règle ne baisse jamais sous celle du catalogue (R-FC6, contrôlé par le code et rappelé ici).
+-- * `ent_acc_usage` : à quoi sert l'accord (`fil_classe`, `site_public`, `participation`…) , un usage « mission » n'a pas
 --   besoin d'accord (verdict `non_requis`).
 
 CREATE TABLE IF NOT EXISTS ent_acc_catalogue (
@@ -193,9 +193,9 @@ CREATE TABLE IF NOT EXISTS ent_acc_usage (
     CONSTRAINT ent_acc_usage_code_uq UNIQUE (etablissement_id, objet_id, code),
     CONSTRAINT ent_acc_usage_objet_cfk FOREIGN KEY (etablissement_id, objet_id)
         REFERENCES ent_acc_objet (etablissement_id, id) ON DELETE RESTRICT
-),
+);
 
--- Nature, code et sujet d'un objet ne changent jamais (R-FC21) ; un objet ne se supprime pas (se désactive).
+-- Nature, code et sujet d'un objet ne changent jamais (R-FC21) , un objet ne se supprime pas (se désactive).
 CREATE OR REPLACE FUNCTION ent_acc_objet_garde() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
