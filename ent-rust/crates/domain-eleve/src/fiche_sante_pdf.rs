@@ -157,7 +157,8 @@ mod tests {
         .unwrap();
         let pdf = render_resume_fiche_sante_pdf(&r);
         assert!(pdf.starts_with(b"%PDF-1.4"));
-        let s = String::from_utf8_lossy(&pdf);
+        // Police incorporée : le texte se relit par la ToUnicode, pas dans les octets bruts.
+        let s = ent_pdf::releve::texte(&pdf);
         assert!(s.contains("arachides"));
         assert!(!s.contains("secret clinique"));
         assert!(pdf.windows(5).any(|w| w == b"%%EOF"));

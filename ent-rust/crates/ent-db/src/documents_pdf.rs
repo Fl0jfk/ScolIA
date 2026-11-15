@@ -4,7 +4,7 @@
 //!
 //! Le moteur ne reçoit que des **valeurs** : aucun texte venant des données n'est interprété. Le rendu est déterministe
 //! (aucune date de création dans les métadonnées : même données, même fichier). Limites du moteur D1, reprises ici :
-//! polices standard (non incorporées, donc pas de PDF/A ni de PDF/UA), pas de couleur, pas de logo (le style et la couleur
+//! police TrueType incorporée en sous-ensemble (D1b : tout nom latin, grec ou cyrillique ; pas de PDF/A ni de PDF/UA), pas de couleur, pas de logo (le style et la couleur
 //! principale de l'identité sont transmis mais pas encore appliqués), français seul.
 
 use ent_pdf::{Align, Colonne, Document, Ligne, Meta, Tableau};
@@ -152,4 +152,67 @@ fn compter_pages(pdf: &[u8]) -> u32 {
                 .ok()
         })
         .unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ent_pdf::releve::{texte, verifier_structure};
+
+    /// D1b : les noms de toutes langues sortent par la police incorporée (jamais « ? »).
+    #[test]
+    fn noms_de_toutes_langues_par_la_police_incorporee() {
+        for (nom, prenom) in [
+            ("Nguyễn", "Thị Hằng"),
+            ("Wróblewski", "Łukasz"),
+            ("Öztürk", "Şükrü"),
+            ("Țăran", "Ștefan"),
+            ("Ærøskøbing", "Ελένη"),
+        ] {
+            let donnees = vec![
+                DonneeRendu {
+                    cle: CLE_NOM.into(),
+                    valeur: nom.into(),
+                },
+                DonneeRendu {
+                    cle: CLE_PRENOM.into(),
+                    valeur: prenom.into(),
+                },
+                DonneeRendu {
+                    cle: CLE_NAISSANCE.into(),
+                    valeur: "2012-03-10".into(),
+                },
+            ];
+            let d = DemandeRendu {
+                nature: &ATTESTATION_INSCRIPTION,
+                style: "sobre",
+                couleur_principale: None,
+                mentions_pied: None,
+                entite_raison_sociale: "Collège Saint-Étienne",
+                entite_identifiants: &[],
+                donnees: &donnees,
+                textes_encadres: &[],
+                numero_affiche: "2026-SCO-000001",
+                code_verification: None,
+                url_verification: None,
+                numero_version: 1,
+                motif: None,
+                date_emission: "2026-11-15",
+                par_delegation_de: None,
+                destinataire_nom: None,
+                destinataire_adresse: None,
+                langue: "fr",
+            };
+            let pdf = RenduPdfAttestation.rendre(&d).unwrap().octets;
+            verifier_structure(&pdf);
+            let t = texte(&pdf);
+            assert!(t.contains(&nom.to_uppercase()), "{nom} : {t}");
+            assert!(t.contains(prenom), "{prenom} : {t}");
+            assert!(!t.contains('?') && !t.contains('\u{fffd}'), "{t}");
+            assert!(
+                pdf.windows(10).any(|w| w == b"/FontFile2"),
+                "police incorporée"
+            );
+        }
+    }
 }

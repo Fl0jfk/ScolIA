@@ -3,6 +3,7 @@
 //! les fonctions `verifier_*` font échouer le test (panique) si le fichier est invalide.
 
 use crate::depuis_octet;
+use std::collections::HashMap;
 
 /// Vérifie la structure : en-tête, xref exacte (chaque entrée pointe sur « n 0 obj »),
 /// trailer, `startxref`, `%%EOF`. Retourne le nombre d'objets.
@@ -56,25 +57,163 @@ pub fn verifier_structure(pdf: &[u8]) -> usize {
     n - 1
 }
 
-/// Texte de chaque page : chaînes `( … ) Tj` décodées (WinAnsi), séparées par des sauts de ligne.
+/// Décalages des objets d'après la table xref (le fichier doit être valide : voir
+/// [`verifier_structure`]).
+fn offsets(pdf: &[u8]) -> Vec<usize> {
+    let pos_sx = pdf
+        .windows(9)
+        .rposition(|w| w == b"startxref")
+        .expect("startxref");
+    let xref: usize = String::from_utf8_lossy(&pdf[pos_sx + 10..])
+        .lines()
+        .next()
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let corps = String::from_utf8_lossy(&pdf[xref + 5..pos_sx]).into_owned();
+    let mut it = corps.lines();
+    let n: usize = it
+        .next()
+        .unwrap()
+        .split_once(' ')
+        .unwrap()
+        .1
+        .parse()
+        .unwrap();
+    it.next();
+    (1..n)
+        .map(|_| it.next().unwrap()[..10].parse().unwrap())
+        .collect()
+}
+
+/// Dictionnaire (ou corps) de l'objet `num`, et flux éventuel.
+fn objet<'a>(pdf: &'a [u8], offs: &[usize], num: usize) -> (&'a [u8], Option<&'a [u8]>) {
+    let debut = offs[num - 1];
+    let fin = find(pdf, b"\nendobj", debut).unwrap();
+    let corps = &pdf[debut..fin];
+    match find(corps, b"stream\n", 0) {
+        Some(p) => {
+            let longueur = {
+                let k = find(corps, b"/Length ", 0).unwrap() + 8;
+                let f = corps[k..].iter().position(|b| !b.is_ascii_digit()).unwrap();
+                std::str::from_utf8(&corps[k..k + f])
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            };
+            (&corps[..p], Some(&corps[p + 7..p + 7 + longueur]))
+        }
+        None => (corps, None),
+    }
+}
+
+/// Numéro cible de la référence `/Cle n 0 R`.
+fn reference(d: &[u8], cle: &str) -> Option<usize> {
+    let p = find(d, cle.as_bytes(), 0)? + cle.len();
+    let t = std::str::from_utf8(&d[p..]).ok()?;
+    t.trim_start().split(' ').next()?.parse().ok()
+}
+
+/// Table CID → caractère d'une CMap `ToUnicode` (blocs `bfchar` uniquement, ceux que nous écrivons).
+fn lire_to_unicode(flux: &[u8]) -> HashMap<u16, String> {
+    let t = String::from_utf8_lossy(flux).into_owned();
+    let mut m = HashMap::new();
+    let mut dedans = false;
+    for l in t.lines() {
+        if l.ends_with("beginbfchar") {
+            dedans = true;
+        } else if l == "endbfchar" {
+            dedans = false;
+        } else if dedans {
+            let v: Vec<&str> = l
+                .split(['<', '>'])
+                .filter(|x| !x.trim().is_empty())
+                .collect();
+            let cid = u16::from_str_radix(v[0], 16).unwrap();
+            let u: Vec<u16> = (0..v[1].len() / 4)
+                .map(|i| u16::from_str_radix(&v[1][4 * i..4 * i + 4], 16).unwrap())
+                .collect();
+            m.insert(cid, String::from_utf16(&u).unwrap());
+        }
+    }
+    m
+}
+
+/// Table (nom de ressource → CMap ToUnicode) des polices incorporées d'une page.
+fn polices_de_page(
+    pdf: &[u8],
+    offs: &[usize],
+    page: &[u8],
+) -> HashMap<String, HashMap<u16, String>> {
+    let mut r = HashMap::new();
+    let Some(p) = find(page, b"/Font << ", 0) else {
+        return r;
+    };
+    let fin = find(page, b">>", p).unwrap();
+    let jetons: Vec<&str> = std::str::from_utf8(&page[p + 9..fin])
+        .unwrap()
+        .split_whitespace()
+        .collect();
+    for tri in jetons.chunks(4) {
+        if tri.len() < 4 {
+            break;
+        }
+        let nom = tri[0].trim_start_matches('/').to_string();
+        let (d, _) = objet(pdf, offs, tri[1].parse().unwrap());
+        if let Some(u) = reference(d, "/ToUnicode ") {
+            let (_, flux) = objet(pdf, offs, u);
+            r.insert(nom, lire_to_unicode(flux.unwrap()));
+        }
+    }
+    r
+}
+
+/// Texte de chaque page : chaînes `( … ) Tj` (polices standard, WinAnsi) et `<…> Tj` (police
+/// incorporée, décodée par la `ToUnicode`), séparées par des sauts de ligne.
 pub fn texte_des_pages(pdf: &[u8]) -> Vec<String> {
+    let offs = offsets(pdf);
     let mut pages = Vec::new();
-    let mut i = 0;
-    while let Some(p) = find(pdf, b"stream\n", i) {
-        let fin = find(pdf, b"\nendstream", p).unwrap();
-        let flux = &pdf[p + 7..fin];
-        i = fin + 10;
-        // Seuls les flux de contenu (texte) nous intéressent : ils contiennent « BT ».
-        if !flux.windows(2).any(|w| w == b"BT") && !flux.windows(3).any(|w| w == b" l\n") {
+    for num in 1..=offs.len() {
+        let (d, _) = objet(pdf, &offs, num);
+        if find(d, b"/Type /Page ", 0).is_none() {
             continue;
         }
-        if flux.starts_with(&[0xff, 0xd8]) {
-            continue;
-        }
-        let mut out = String::new();
-        let mut k = 0;
-        while k < flux.len() {
-            if flux[k] == b'(' {
+        let polices = polices_de_page(pdf, &offs, d);
+        let contenu = reference(d, "/Contents ").expect("/Contents");
+        let flux = objet(pdf, &offs, contenu).1.expect("flux de contenu");
+        pages.push(texte_du_flux(flux, &polices));
+    }
+    pages
+}
+
+fn texte_du_flux(flux: &[u8], polices: &HashMap<String, HashMap<u16, String>>) -> String {
+    let mut out = String::new();
+    let mut courante: Option<&HashMap<u16, String>> = None;
+    let mut k = 0;
+    while k < flux.len() {
+        match flux[k] {
+            b'/' => {
+                let f = flux[k + 1..].iter().position(|b| *b == b' ').unwrap_or(0);
+                let nom = String::from_utf8_lossy(&flux[k + 1..k + 1 + f]).into_owned();
+                if flux[k + 1 + f..].starts_with(b" ")
+                    && flux[k + 2 + f..].iter().take(12).any(|&b| b == b'T')
+                {
+                    courante = polices.get(&nom);
+                }
+            }
+            b'<' if courante.is_some() && flux.get(k + 1) != Some(&b'<') => {
+                let f = flux[k..].iter().position(|b| *b == b'>').unwrap();
+                let hex = std::str::from_utf8(&flux[k + 1..k + f]).unwrap();
+                let cmap = courante.unwrap();
+                for i in 0..hex.len() / 4 {
+                    let cid = u16::from_str_radix(&hex[4 * i..4 * i + 4], 16).unwrap();
+                    out.push_str(cmap.get(&cid).map(String::as_str).unwrap_or("\u{fffd}"));
+                }
+                out.push('\n');
+                k += f;
+            }
+            b'(' => {
                 k += 1;
                 let mut nest = 0;
                 while k < flux.len() {
@@ -106,11 +245,11 @@ pub fn texte_des_pages(pdf: &[u8]) -> Vec<String> {
                 }
                 out.push('\n');
             }
-            k += 1;
+            _ => {}
         }
-        pages.push(out);
+        k += 1;
     }
-    pages
+    out
 }
 
 pub fn find(h: &[u8], a: &[u8], depuis: usize) -> Option<usize> {

@@ -162,7 +162,7 @@ mod tests {
         let pdf = rendre_pdf_lignes(&lignes);
         assert!(pdf.starts_with(b"%PDF-1.4"));
         assert!(pdf.windows(9).any(|w| w == b"/Count 3 "));
-        assert!(pdf.windows(10).any(|w| w == b"Page 3 sur"));
+        assert!(ent_pdf::releve::texte(&pdf).contains("Page 3 sur 3"));
         assert!(rendre_pdf_lignes(&[]).windows(9).any(|w| w == b"/Count 1 "));
     }
 

@@ -18,7 +18,9 @@ fn meta() -> Meta {
 
 #[test]
 fn accents_francais_relus() {
-    let mut d = Document::new(meta()).avec_pied("Bulletin — Hélène");
+    let mut d = Document::new(meta())
+        .avec_polices_standard()
+        .avec_pied("Bulletin — Hélène");
     d.titre("Élève Hélène, Français");
     d.paragraphe("é è ê ë à â ç ô ù û ü ï î œ Œ æ « » € – — ’ … « œuvre » à 12 €");
     let pdf = d.octets();
@@ -40,15 +42,21 @@ fn accents_francais_relus() {
 
 #[test]
 fn caractere_hors_table_lisible() {
-    let mut d = Document::new(Meta::default());
+    let mut d = Document::new(Meta::default()).avec_polices_standard();
     d.paragraphe("Łukasz → Wrocław ≤ 5 日本");
-    let t = texte(&d.octets());
+    let (pdf, avert) = d.octets_avec_avertissements();
+    let t = texte(&pdf);
     assert!(t.contains("Lukasz -> Wroclaw <= 5 ??"), "{t}");
+    assert_eq!(
+        avert.len(),
+        2,
+        "un avertissement par caractère perdu : {avert:?}"
+    );
 }
 
 #[test]
 fn xref_exacte_et_metadonnees() {
-    let mut d = Document::new(meta());
+    let mut d = Document::new(meta()).avec_polices_standard();
     d.titre("Test");
     let pdf = d.octets();
     let n = verifier_structure(&pdf);
@@ -56,6 +64,19 @@ fn xref_exacte_et_metadonnees() {
         n,
         3 + 3 + 2,
         "catalogue, pages, info, 3 polices, page, contenu"
+    );
+    // Police incorporée : Type0, CIDFont, descripteur, FontFile2, ToUnicode par face utilisée.
+    let mut d = Document::new(meta());
+    d.titre("Test");
+    d.paragraphe("Test");
+    let pdf = d.octets();
+    assert_eq!(verifier_structure(&pdf), 3 + 2 * 5 + 2);
+    let mut d = Document::new(meta());
+    d.paragraphe("Test");
+    assert_eq!(
+        verifier_structure(&d.octets()),
+        3 + 5 + 2,
+        "seule la face utilisée est écrite"
     );
     // Titre accentué en UTF-16BE (BOM FEFF) ; « É » = 00C9.
     assert!(contient(&pdf, "/Title <FEFF00420075006C006C00650074"));
@@ -195,7 +216,7 @@ fn retour_a_la_ligne_par_largeur_mesuree() {
 
 #[test]
 fn alignements() {
-    let mut d = Document::new(Meta::default());
+    let mut d = Document::new(Meta::default()).avec_polices_standard();
     d.texte("droite", Police::Helvetica, 10.0, Align::Droite);
     d.texte("centre", Police::Helvetica, 10.0, Align::Centre);
     d.texte("gauche", Police::Times, 10.0, Align::Gauche);
@@ -345,5 +366,7 @@ fn sortie_locale() {
         )
         .unwrap();
         std::fs::write(format!("{dir}/qr.pdf"), d.octets()).unwrap();
+        let (noms, _) = crate::tests_police::document_noms().octets_avec_avertissements();
+        std::fs::write(format!("{dir}/noms.pdf"), noms).unwrap();
     }
 }

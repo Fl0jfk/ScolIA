@@ -84,16 +84,14 @@ mod tests {
         assert_eq!(a, b, "rendu déterministe");
         verifier_structure(&a);
         assert!(a.ends_with(b"%%EOF\n"));
-        // « é » (0xE9 = 351 en octal), « € » (0x80 = 200), parenthèses et antislash échappés.
+        // Police incorporée : texte relu par la ToUnicode (accents, tiret cadratin, antislash).
+        let t = texte(&a);
         assert!(
-            contient(&a, "Fiche budget \\227 S\\351jour"),
-            "accent et tiret cadratin"
+            t.contains("Fiche budget — Séjour"),
+            "accent et tiret cadratin : {t}"
         );
-        assert!(contient(&a, "\\(parents\\) \\\\"));
-        assert!(contient(&a, "15 \\200"));
-        // Le fichier reste ASCII hors de l'en-tête binaire : aucun octet brut ≥ 0x80 dans le flux.
-        let corps = &a[15..];
-        assert!(corps.iter().all(|&o| o < 0x80), "flux 7 bits");
+        assert!(t.contains("(parents) \\"));
+        assert!(t.contains("15 €"));
         let t = texte(&a);
         assert!(
             t.contains("Fiche budget — Séjour à Rome") && t.contains("1\u{a0}350,50\u{a0}€"),
@@ -137,6 +135,7 @@ mod tests {
     #[test]
     fn caracteres_hors_table_lisibles() {
         let pdf = rendre("pied", &[Bloc::Paragraphe("é€’œ Łódź 日".into())]);
-        assert!(texte(&pdf).contains("é€’œ Lódz ?"));
+        // Polices incorporées : Ł, ó, ź sortent tels quels ; le CJK, absent, devient U+FFFD (jamais « ? »).
+        assert!(texte(&pdf).contains("é€’œ Łódź \u{fffd}"));
     }
 }
