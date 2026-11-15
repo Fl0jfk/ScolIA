@@ -255,7 +255,9 @@ impl PgEnt {
                                    AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4)
                     AND (($2 AND a.groupe_id IN (SELECT r.groupe_id FROM ent_groupe_responsable r
                                                   WHERE r.etablissement_id = $1 AND r.user_id = $3
-                                                    AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)))
+                                                    AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)
+                                                    AND EXISTS (SELECT 1 FROM ent_groupe gd WHERE gd.id = r.groupe_id
+                                                                 AND gd.etablissement_id = r.etablissement_id AND gd.ouvre_droits)))
                          OR a.classe_id = ANY($5) OR a.groupe_id = ANY($5) OR a.eleve_id = ANY($5)
                          OR EXISTS (SELECT 1 FROM ent_classe c
                                      WHERE c.id = a.classe_id AND c.etablissement_id = a.etablissement_id
@@ -289,6 +291,8 @@ impl PgEnt {
                 WHERE a.etablissement_id = $1 AND r.user_id = $2 AND a.eleve_id = $3
                   AND r.du <= $4 AND (r.au IS NULL OR r.au >= $4)
                   AND a.date_debut <= $4 AND (a.date_fin IS NULL OR a.date_fin >= $4)
+                  AND EXISTS (SELECT 1 FROM ent_groupe gd WHERE gd.id = r.groupe_id
+                               AND gd.etablissement_id = r.etablissement_id AND gd.ouvre_droits)
                   AND NOT EXISTS (SELECT 1 FROM ent_eleve es WHERE es.id = a.eleve_id AND es.etablissement_id = a.etablissement_id
                                    AND es.date_sortie IS NOT NULL AND es.date_sortie <= $4))",
         )

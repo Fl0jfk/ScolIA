@@ -843,6 +843,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::structure_periodes::routes());
     // Socle 5, lot S4 : l'objet « cours » et les postes vacants (`structure_cours.rs`).
     let r = r.merge(crate::structure_cours::routes());
+    // Socle 5, lot S6 : groupes, composition, changement de classe (`structure_groupes.rs`).
+    let r = r.merge(crate::structure_groupes::routes());
     // Socle 42, lot V0a : sorties et voyages scolaires collectifs (`voyages.rs`).
     let r = r.merge(crate::voyages::routes());
     let r = r.merge(crate::internat::routes());

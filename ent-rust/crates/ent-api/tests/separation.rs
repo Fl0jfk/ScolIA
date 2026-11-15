@@ -719,6 +719,25 @@ fn specs_domaine_cours() -> Vec<Spec> {
             Some(r#"{"a_la_date":"2026-01-05"}"#)),
         ecrire_sur_b("structure-cours-service-B", "POST", "/structure/cours/{cours}/services",
             Some(r#"{"prof_user_id":"{eleve}","professeur_principal":false}"#)),
+        // Socle 5, lot S6 : groupes et compositions. Un identifiant de l'autre établissement (ici l'identifiant
+        // d'un objet de B) n'obtient jamais un 2xx, en lecture comme en écriture (404, aucun oracle d'existence).
+        ecrire_sur_b("structure-groupe-detail-B", "GET", "/structure/groupes/{cours}", None),
+        ecrire_sur_b("structure-groupe-modification-B", "PUT", "/structure/groupes/{cours}", Some(r#"{"libelle":"X"}"#)),
+        ecrire_sur_b("structure-groupe-fermeture-B", "POST", "/structure/groupes/{cours}/fermer",
+            Some(r#"{"a_la_date":"2026-01-05"}"#)),
+        ecrire_sur_b("structure-groupe-composition-B", "POST", "/structure/groupes/{cours}/composition",
+            Some(r#"{"entrants":["{eleve}"],"sortants":[]}"#)),
+        ecrire_sur_b("structure-groupe-propositions-B", "GET", "/structure/groupes/{cours}/propositions", None),
+        ecrire_sur_b("structure-groupe-regle-B", "POST", "/structure/groupes/{cours}/regle",
+            Some(r#"{"entrants":["{eleve}"],"sortants":[]}"#)),
+        ecrire_sur_b("structure-groupe-dedoublement-B", "POST", "/structure/groupes/{cours}/dedoubler",
+            Some(r#"{"repartition":"alterne","apercu":false}"#)),
+        ecrire_sur_b("structure-classe-changement-B", "POST", "/structure/eleves/classe",
+            Some(r#"{"eleve_id":"{eleve}","classe_id":"{cours}","apercu":false}"#)),
+        ecrire_sur_b("structure-affectations-lot-B", "POST", "/structure/affectations/lot",
+            Some(r#"{"classe_id":"{cours}","eleves":["{eleve}"],"apercu":false}"#)),
+        ecrire_sur_b("structure-affectation-correction-B", "POST", "/structure/affectations/correction",
+            Some(r#"{"eleve_id":"{eleve}","groupe_errone":"{cours}","apercu":false}"#)),
         // Socle 20, lot C2 : cahier du cours. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx
         // (liste des séances, entrée, travail) ; les routes sans identifiant sont réservées à qui écrit au cahier.
         ecrire_sur_b("cahier-c2-seances-B", "GET", "/cahier/c2/cours/{cours}/seances?du=2026-01-05&au=2026-01-30", None),
