@@ -287,6 +287,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absp_piece", "personnels_absences", Portee::Etablissement).sante().export(),
     t("ent_absp_piece_lecture", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_plage", "personnels_absences", Portee::Etablissement).sante().export(),
+    t("ent_absp_rattrapage", "personnels_absences", Portee::Etablissement).perso().export(),
+    t("ent_absp_rattrapage_creneau", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_rcd_compte_rendu", "personnels_absences", Portee::Etablissement).export(),
     t("ent_absp_rcd_engagement", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_rcd_plan", "personnels_absences", Portee::Etablissement).export(),

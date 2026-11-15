@@ -4459,3 +4459,915 @@ async fn a7_elements_de_paie_uniques_regularisation_et_dsn() {
     assert!(x.ent.dsn_file_for_actor(x.etab, x.compta, "compta").await.unwrap().is_empty(), "la file se vide une fois signalée");
     assert!(matches!(x.ent.dsn_file_for_actor(x.etab, x.sec, "administratif").await.unwrap_err(), EntDbError::Forbidden));
 }
+
+// ═══════════════════════════════════════════════ LOT A8 : RATTRAPAGES ═══════════════════════════════════════════════
+// Critère de fin (§28.1) : un rattrapage dû est soldé par une séance ajoutée assurée (R-AP28) ; relance J+10 (R-AP27) ;
+// décisions de la direction (prolonger, retenue ★, abandon) ; jamais la nature d'une absence dans ce niveau.
+
+impl Cadre {
+    /// Une absence validée avec le traitement « rattrapage » de `prof` sur le jour ISO `iso`, avec un cours `(d, f)` ;
+    /// renvoie (absence, rattrapage dû).
+    async fn absence_a_rattraper(&self, prof: Uuid, iso: i64, d: (u32, u32), f: (u32, u32)) -> (Uuid, Uuid) {
+        self.horloge_de_service().await;
+        let c = self.creneau(&self.classe, prof, iso as i16, d, f).await;
+        self.seance(c, prof, iso, d, f, "prevue").await;
+        let a = self.declarer(prof, "prof", Some("convenance"), iso, iso).await.absences[0].id;
+        self.ent
+            .valider_absence_for_actor(
+                self.etab,
+                self.dir,
+                "direction",
+                a,
+                &DecisionBody { traitement: Some("rattrapage_interne".into()), ..Default::default() },
+            )
+            .await
+            .unwrap_or_else(|e| panic!("validation refusée : {e:?}"));
+        let r: Uuid = sqlx::query_scalar("SELECT id FROM ent_absp_rattrapage WHERE etablissement_id = $1 AND absence_id = $2")
+            .bind(self.etab)
+            .bind(a)
+            .fetch_one(self.ent.pool())
+            .await
+            .expect("rattrapage dû créé à la validation");
+        (a, r)
+    }
+
+    /// Séance `ajoutee` du socle 10 pour `prof`, sur le jour ISO `iso` : (séance, début, fin). Elle copie le créneau
+    /// d'origine (le socle 10 écrira ses propres séances ; ici, l'écriture de test imite son résultat).
+    async fn seance_ajoutee(&self, modele: Uuid, prof: Uuid, iso: i64, d: (u32, u32), f: (u32, u32)) -> (Uuid, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_edt_seance (id, etablissement_id, annee_id, creneau_id, jour, classe_id, classe, prof_user_id,
+                    matiere_libelle, heure_debut, heure_fin, statut, source)
+             SELECT $1, etablissement_id, annee_id, creneau_id, $3, classe_id, classe, $4, matiere_libelle, $5, $6, 'prevue', 'manuel'
+               FROM ent_edt_seance WHERE etablissement_id = $2 AND id = $7",
+        )
+        .bind(id)
+        .bind(self.etab)
+        .bind(self.jour(iso))
+        .bind(prof)
+        .bind(t(d.0, d.1))
+        .bind(t(f.0, f.1))
+        .bind(modele)
+        .execute(self.ent.pool())
+        .await
+        .expect("séance ajoutée");
+        let (etat, debut, fin): (String, chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) =
+            sqlx::query_as("SELECT etat, debut_utc, fin_utc FROM ent_edt_seance WHERE etablissement_id = $1 AND id = $2")
+                .bind(self.etab)
+                .bind(id)
+                .fetch_one(self.ent.pool())
+                .await
+                .unwrap();
+        assert_eq!(etat, "ajoutee", "le socle 10 dérive l'état d'une séance ajoutée");
+        (id, debut, fin)
+    }
+
+    async fn seance_du(&self, creneau: Uuid, iso: i64) -> Uuid {
+        sqlx::query_scalar("SELECT id FROM ent_edt_seance WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3")
+            .bind(self.etab)
+            .bind(creneau)
+            .bind(self.jour(iso))
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap()
+    }
+
+    /// Instant antérieur à toute séance du cadre : un créneau proposé est « dans le futur ».
+    fn avant_les_seances(&self) -> chrono::DateTime<chrono::Utc> {
+        (self.lundi - Duration::days(5)).and_hms_opt(0, 0, 0).unwrap().and_utc()
+    }
+
+    async fn rattrapage(&self, user: Uuid, role: &str, id: Uuid) -> RattrapageDto {
+        self.ent.rattrapage_for_actor(self.etab, user, role, id).await.unwrap_or_else(|e| panic!("rattrapage illisible : {e:?}"))
+    }
+}
+
+/// CRITÈRE A8 : un rattrapage dû est soldé par une séance AJOUTÉE ASSURÉE. Créé à la validation (heures de l'impact,
+/// échéance fin d'année) ; l'agent propose, la direction confirme avec la séance ajoutée du socle 10 ; ni une séance
+/// qui n'est pas ajoutée, ni celle d'un autre, ni des horaires différents ne passent ; le solde exige un fait (appel
+/// fait, ou attestation de la direction ou du CPE) — en base aussi ; la tâche est idempotente.
+#[tokio::test]
+async fn a8_un_rattrapage_du_est_solde_par_une_seance_ajoutee_assuree() {
+    let x = cadre!();
+    let (_a, r) = x.absence_a_rattraper(x.prof, 1, (9, 0), (10, 0)).await;
+    let d = x.rattrapage(x.prof, "prof", r).await;
+    // 1. Créé à la validation : une heure due, aux mêmes élèves, avant la fin de l'année scolaire.
+    let (_, _, fin_annee) = x.annee_courante().await;
+    assert_eq!((d.heures_dues, d.heures_assurees, d.etat.as_str(), d.forme.as_str(), d.echeance), (1.0, 0.0, "du", "cours", fin_annee));
+    assert!(d.creneaux.is_empty() && !d.en_retard);
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_du").await, 1);
+    // Rejouer la validation ne double rien (une ligne par absence).
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_rattrapage WHERE etablissement_id = $1").await, 1);
+    // Niveau « organisation » : jamais la nature.
+    let json = serde_json::to_string(&d).unwrap();
+    assert!(!json.contains("convenance") && !json.contains("nature") && !json.contains("motif"), "{json}");
+    // 2. Lecture : l'agent voit le sien ; la direction et le secrétariat tous ; un collègue ou la comptabilité : rien.
+    assert_eq!(x.ent.mes_rattrapages_for_actor(x.etab, x.prof, "prof").await.unwrap().len(), 1);
+    assert!(x.ent.mes_rattrapages_for_actor(x.etab, x.prof3, "prof").await.unwrap().is_empty());
+    assert_eq!(x.ent.rattrapages_for_actor(x.etab, x.dir, "direction", true).await.unwrap().len(), 1);
+    assert_eq!(x.ent.rattrapages_for_actor(x.etab, x.sec, "administratif", true).await.unwrap().len(), 1);
+    for (u, ro) in [(x.compta, "compta"), (x.prof3, "prof"), (x.accueil, "accueil"), (x.admin, "admin")] {
+        let e = x.ent.rattrapages_for_actor(x.etab, u, ro, true).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let e = x.ent.rattrapage_for_actor(x.etab, x.prof3, "prof", r).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "pas d'oracle : {e:?}");
+    // 3. Une séance ajoutée au socle 10 (mercredi 17 h – 18 h) porte le créneau.
+    let cours = x.seance_du(x.creneau_de(x.prof).await, 1).await;
+    let (ajoutee, debut, fin) = x.seance_ajoutee(cours, x.prof, 3, (17, 0), (18, 0)).await;
+    let avant = x.avant_les_seances();
+    let proposer = |u: Uuid, ro: &'static str, p: Vec<PlageRattrapageBody>| {
+        let ent = &x.ent;
+        let etab = x.etab;
+        async move { ent.proposer_creneaux_a(etab, u, ro, r, &ProposerCreneauxBody { creneaux: p }, avant).await }
+    };
+    let plage = PlageRattrapageBody { debut, fin };
+    // Un autre agent ne propose pas (introuvable) ; durée nulle, passée, trop longue, après l'échéance : refusées.
+    let e = proposer(x.prof3, "prof", vec![plage.clone()]).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    for mauvaise in [
+        PlageRattrapageBody { debut, fin: debut },
+        PlageRattrapageBody { debut, fin: debut + Duration::hours(13) },
+        PlageRattrapageBody { debut: avant - Duration::days(1), fin: avant - Duration::days(1) + Duration::hours(1) },
+    ] {
+        let e = proposer(x.prof, "prof", vec![mauvaise]).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    }
+    let apres_echeance = (fin_annee + Duration::days(40)).and_hms_opt(16, 0, 0).unwrap().and_utc();
+    let e = proposer(x.prof, "prof", vec![PlageRattrapageBody { debut: apres_echeance, fin: apres_echeance + Duration::hours(1) }]).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "après l'échéance : {e:?}");
+    // Un créneau sur son propre cours est refusé.
+    let (cd, cf): (chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>) =
+        sqlx::query_as("SELECT debut_utc, fin_utc FROM ent_edt_seance WHERE etablissement_id = $1 AND id = $2")
+            .bind(x.etab)
+            .bind(cours)
+            .fetch_one(x.ent.pool())
+            .await
+            .unwrap();
+    let e = proposer(x.prof, "prof", vec![PlageRattrapageBody { debut: cd + Duration::minutes(10), fin: cf }]).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "chevauche un cours : {e:?}");
+    let d = proposer(x.prof, "prof", vec![plage.clone()]).await.unwrap();
+    assert_eq!((d.creneaux.len(), d.creneaux[0].etat.as_str(), d.etat.as_str()), (1, "propose", "du"));
+    let creneau = d.creneaux[0].id;
+    // 4. Confirmation : droit de valider, jamais pour soi, et une séance AJOUTÉE de CET agent aux MÊMES horaires.
+    let confirmer = |u: Uuid, ro: &'static str, s: Option<Uuid>| {
+        let ent = &x.ent;
+        let etab = x.etab;
+        async move { ent.confirmer_creneau_for_actor(etab, u, ro, r, creneau, &ConfirmerCreneauBody { seance_id: s }).await }
+    };
+    let e = confirmer(x.prof, "prof", Some(ajoutee)).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "l'agent ne confirme pas : {e:?}");
+    let e = confirmer(x.dir, "direction", None).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "un cours rendu exige la séance : {e:?}");
+    let e = confirmer(x.dir, "direction", Some(cours)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "une séance du plan n'est pas une séance ajoutée : {e:?}");
+    let c_autre = x.creneau(&x.classe, x.prof2, 5, (14, 0), (15, 0)).await;
+    let cours_autre = x.seance(c_autre, x.prof2, 5, (14, 0), (15, 0), "prevue").await;
+    let (autre, _, _) = x.seance_ajoutee(cours_autre, x.prof2, 3, (17, 0), (18, 0)).await;
+    let e = confirmer(x.dir, "direction", Some(autre)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "la séance d'un autre agent : {e:?}");
+    let (decalee, _, _) = x.seance_ajoutee(cours, x.prof, 4, (17, 0), (18, 0)).await;
+    let e = confirmer(x.dir, "direction", Some(decalee)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "autres horaires : {e:?}");
+    assert_eq!(x.rattrapage(x.dir, "direction", r).await.etat, "du", "aucune confirmation ratée n'a changé l'état");
+    let d = confirmer(x.dir, "direction", Some(ajoutee)).await.unwrap();
+    assert_eq!((d.etat.as_str(), d.creneaux[0].etat.as_str(), d.creneaux[0].seance_id), ("planifie", "confirme", Some(ajoutee)));
+    // 5. Pas encore assuré : aucune déclaration ne solde, ni le service, ni la base.
+    let e = x.ent.attester_creneau_a(x.etab, x.dir, "direction", r, creneau, avant).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "créneau à venir : {e:?}");
+    for ro in [(x.prof, "prof"), (x.prof3, "prof"), (x.compta, "compta")] {
+        let e = x.ent.attester_creneau_a(x.etab, ro.0, ro.1, r, creneau, Cadre::apres_les_seances()).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{} : {e:?}", ro.1);
+    }
+    let direct = sqlx::query("UPDATE ent_absp_rattrapage SET etat = 'solde', solde_le = now() WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(r)
+        .execute(x.ent.pool())
+        .await;
+    assert!(direct.is_err(), "la base refuse un solde sans créneau assuré");
+    let apres = Cadre::apres_les_seances();
+    let bilan = x.ent.suivre_rattrapages_etab_a(x.etab, apres).await.unwrap();
+    assert_eq!(bilan.soldes, 0, "sans appel fait, la tâche ne solde rien");
+    assert_eq!(x.rattrapage(x.dir, "direction", r).await.etat, "planifie");
+    // 6. L'appel est fait (socle 12) sur la séance ajoutée : la tâche assure le créneau et solde, une seule fois.
+    x.appel_valide(ajoutee, x.prof).await;
+    let bilan = x.ent.suivre_rattrapages_etab_a(x.etab, apres).await.unwrap();
+    assert_eq!(bilan.soldes, 1, "{bilan:?}");
+    let d = x.rattrapage(x.prof, "prof", r).await;
+    assert_eq!((d.etat.as_str(), d.heures_assurees, d.heures_restantes), ("solde", 1.0, 0.0));
+    assert_eq!((d.creneaux[0].etat.as_str(), d.creneaux[0].preuve.as_deref()), ("assure", Some("appel")));
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_solde").await, 1);
+    assert_eq!(x.ent.suivre_rattrapages_etab_a(x.etab, apres).await.unwrap().soldes, 0, "idempotent");
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_solde").await, 1);
+    // 7. Clos : plus rien ne le change, ni le service, ni la base ; rien ne se supprime.
+    let e = x
+        .ent
+        .prolonger_rattrapage_for_actor(x.etab, x.dir, "direction", r, &ProlongerRattrapageBody { echeance: fin_annee + Duration::days(30), motif_code: "calendrier".into() })
+        .await
+        .unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    for sql in [
+        "UPDATE ent_absp_rattrapage SET etat = 'abandonne', motif_code = 'autre', decide_par_user_id = gen_random_uuid(), decide_le = now() WHERE etablissement_id = $1",
+        "DELETE FROM ent_absp_rattrapage WHERE etablissement_id = $1",
+        "DELETE FROM ent_absp_rattrapage_creneau WHERE etablissement_id = $1",
+        "UPDATE ent_absp_rattrapage_creneau SET etat = 'annule', assure_preuve = NULL, assure_le = NULL WHERE etablissement_id = $1",
+        "UPDATE ent_absp_rattrapage SET agent_id = gen_random_uuid() WHERE etablissement_id = $1",
+    ] {
+        assert!(sqlx::query(sql).bind(x.etab).execute(x.ent.pool()).await.is_err(), "la base accepte : {sql}");
+    }
+    // 8. La base refuse un créneau « assuré » sans fait, ou par appel sans séance.
+    for (preuve, seance) in [(Some("appel"), None::<Uuid>), (None, Some(ajoutee))] {
+        let r = sqlx::query(
+            "INSERT INTO ent_absp_rattrapage_creneau (id, etablissement_id, rattrapage_id, agent_id, debut, fin, etat, propose_par_user_id,
+                    confirme_par_user_id, confirme_le, seance_ref, assure_preuve, assure_le)
+             SELECT gen_random_uuid(), etablissement_id, id, agent_id, now() + interval '400 days', now() + interval '400 days 1 hour',
+                    'assure', $2, $2, now(), $3, $4, CASE WHEN $4::text IS NULL THEN NULL ELSE now() END
+               FROM ent_absp_rattrapage WHERE etablissement_id = $1",
+        )
+        .bind(x.etab)
+        .bind(x.dir)
+        .bind(seance)
+        .bind(preuve)
+        .execute(x.ent.pool())
+        .await;
+        assert!(r.is_err(), "créneau assuré sans fait accepté ({preuve:?}, {seance:?})");
+    }
+    // 9. Cloisonnement d'établissement.
+    let autre = Cadre::nouveau().await.unwrap();
+    let e = autre.ent.rattrapage_for_actor(autre.etab, autre.dir, "direction", r).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Domain(DomainError::NotFound)), "{e:?}");
+    assert!(autre.ent.rattrapages_for_actor(autre.etab, autre.dir, "direction", false).await.unwrap().is_empty());
+}
+
+impl Cadre {
+    async fn creneau_de(&self, prof: Uuid) -> Uuid {
+        sqlx::query_scalar(
+            "SELECT creneau_id FROM ent_edt_seance WHERE etablissement_id = $1 AND prof_user_id = $2 AND etat <> 'ajoutee' ORDER BY jour LIMIT 1",
+        )
+        .bind(self.etab)
+        .bind(prof)
+        .fetch_one(self.ent.pool())
+        .await
+        .unwrap()
+    }
+}
+
+/// ABP-191, 195 à 197 : relance automatique à J+10 sans créneau (une seule fois, R-AP27) ; alerte d'échéance une seule
+/// fois par échéance ; prolonger (motif codé, jamais en arrière) ; requalifier en retenue ★ (traitement de l'absence
+/// suivi, décision tracée, agent prévenu) ; abandonner (motif obligatoire, direction seule) ; jamais la nature ; attester
+/// des heures de service sans séance.
+#[tokio::test]
+async fn a8_relance_echeance_prolongation_retenue_et_abandon() {
+    let x = cadre!();
+    let (a1, r1) = x.absence_a_rattraper(x.prof, 1, (9, 0), (10, 0)).await;
+    let (_a2, r2) = x.absence_a_rattraper(x.prof2, 1, (10, 0), (11, 0)).await;
+    let (_a3, r3) = x.absence_a_rattraper(x.prof3, 1, (11, 0), (12, 0)).await;
+    let (_, _, fin_annee) = x.annee_courante().await;
+    // r2 a déjà un créneau proposé : pas de relance pour lui.
+    let cours2 = x.seance_du(x.creneau_de(x.prof2).await, 1).await;
+    let (_aj, debut, fin) = x.seance_ajoutee(cours2, x.prof2, 3, (17, 0), (18, 0)).await;
+    x.ent
+        .proposer_creneaux_a(x.etab, x.prof2, "prof", r2, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut, fin }] }, x.avant_les_seances())
+        .await
+        .unwrap();
+    // 1. J+9 : rien. J+11 : relance des deux rattrapages sans créneau, une seule fois.
+    let j9 = chrono::Utc::now() + Duration::days(9);
+    assert_eq!(x.ent.suivre_rattrapages_etab_a(x.etab, j9).await.unwrap().relances, 0);
+    let j11 = chrono::Utc::now() + Duration::days(11);
+    let b = x.ent.suivre_rattrapages_etab_a(x.etab, j11).await.unwrap();
+    assert_eq!(b.relances, 2, "{b:?}");
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_relance").await, 2);
+    assert_eq!(x.ent.suivre_rattrapages_etab_a(x.etab, j11).await.unwrap().relances, 0, "relance unique");
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_relance").await, 2);
+    // 2. Échéance dépassée : alerte une seule fois par échéance ; un rattrapage en retard se lit comme tel.
+    let apres_fin = (fin_annee + Duration::days(2)).and_hms_opt(12, 0, 0).unwrap().and_utc();
+    let b = x.ent.suivre_rattrapages_etab_a(x.etab, apres_fin).await.unwrap();
+    assert_eq!(b.alertes_echeance, 3, "{b:?}");
+    assert_eq!(x.ent.suivre_rattrapages_etab_a(x.etab, apres_fin).await.unwrap().alertes_echeance, 0);
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_echu").await, 3);
+    // 3. Prolonger : motif codé, jamais en arrière, droit de valider ; l'alerte peut se redéclencher.
+    let prolonger = |u: Uuid, ro: &'static str, id: Uuid, e: NaiveDate, m: &str| {
+        let ent = &x.ent;
+        let etab = x.etab;
+        let b = ProlongerRattrapageBody { echeance: e, motif_code: m.into() };
+        async move { ent.prolonger_rattrapage_for_actor(etab, u, ro, id, &b).await }
+    };
+    let nouvelle = fin_annee + Duration::days(30);
+    for (u, ro) in [(x.prof, "prof"), (x.sec, "administratif"), (x.compta, "compta")] {
+        let e = prolonger(u, ro, r1, nouvelle, "calendrier").await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let e = prolonger(x.dir, "direction", r1, nouvelle, "il était fatigué").await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "un motif est un code : {e:?}");
+    let e = prolonger(x.dir, "direction", r1, fin_annee, "calendrier").await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "jamais en arrière : {e:?}");
+    let d = prolonger(x.dir, "direction", r1, nouvelle, "calendrier").await.unwrap();
+    assert_eq!((d.etat.as_str(), d.echeance, d.motif_code.as_deref(), d.en_retard), ("prolonge", nouvelle, Some("calendrier"), false));
+    let apres_nouvelle = (nouvelle + Duration::days(2)).and_hms_opt(12, 0, 0).unwrap().and_utc();
+    assert_eq!(x.ent.suivre_rattrapages_etab_a(x.etab, apres_nouvelle).await.unwrap().alertes_echeance, 1, "seul le prolongé alerte à nouveau");
+    // 4. Requalifier en retenue ★ : traitement de l'absence suivi, décision tracée, événement, plus rien ensuite.
+    let retenue = |u: Uuid, ro: &'static str, id: Uuid| {
+        let ent = &x.ent;
+        let etab = x.etab;
+        async move { ent.requalifier_en_retenue_for_actor(etab, u, ro, id, &DecisionRattrapageBody { motif_code: Some("decision_direction".into()) }).await }
+    };
+    let e = retenue(x.prof, "prof", r1).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    let d = retenue(x.dir, "direction", r1).await.unwrap();
+    assert_eq!(d.etat, "retenue");
+    let traitement: String = sqlx::query_scalar("SELECT traitement FROM ent_absp_absence WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(a1)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(traitement, "service_non_fait", "agent de l'État : la retenue se décide hors ScolIA (R-11)");
+    let decisions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_absp_decision WHERE etablissement_id = $1 AND absence_id = $2 AND type = 'traitement' AND traitement_apres = 'service_non_fait'",
+    )
+    .bind(x.etab)
+    .bind(a1)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert_eq!(decisions, 1);
+    assert_eq!(x.nb_events("absence_personnel.rattrapage_retenue").await, 1, "l'agent est prévenu");
+    let e = retenue(x.dir, "direction", r1).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "clos : {e:?}");
+    // 5. Abandonner : direction seule, motif code obligatoire.
+    let abandon = |u: Uuid, ro: &'static str, id: Uuid, m: Option<&str>| {
+        let ent = &x.ent;
+        let etab = x.etab;
+        let b = DecisionRattrapageBody { motif_code: m.map(str::to_string) };
+        async move { ent.abandonner_rattrapage_for_actor(etab, u, ro, id, &b).await }
+    };
+    for (u, ro) in [(x.prof3, "prof"), (x.sec, "administratif"), (x.cpe, "cpe")] {
+        let e = abandon(u, ro, r3, Some("impossible")).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let e = abandon(x.dir, "direction", r3, None).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let e = abandon(x.dir, "direction", r3, Some("parce que")).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    let d = abandon(x.dir, "direction", r3, Some("impossible")).await.unwrap();
+    assert_eq!((d.etat.as_str(), d.motif_code.as_deref()), ("abandonne", Some("impossible")));
+    // 6. Jamais la nature dans les événements ni le journal du rattrapage ; le journal consigne chaque décision.
+    let events: String = sqlx::query_scalar(
+        "SELECT COALESCE(string_agg(payload::text, ' '), '') FROM ent_metier_event
+          WHERE etablissement_id = $1 AND type LIKE 'absence_personnel.rattrapage_%'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert!(!events.contains("convenance") && !events.contains("nature"), "{events}");
+    let journal: i64 = sqlx::query_scalar("SELECT count(*) FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'absence' AND action LIKE 'rattrapage%'")
+        .bind(x.etab)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    assert!(journal >= 4, "création, prolongation, retenue, abandon : {journal}");
+    // 7. Heures de service d'un salarié (pas de séance) : confirmées sans séance, assurées par attestation.
+    sqlx::query("UPDATE ent_absp_rattrapage SET forme = 'service' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(r2)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let d = x.rattrapage(x.dir, "direction", r2).await;
+    let creneau = d.creneaux[0].id;
+    // (le créneau proposé ne porte aucune séance : on le confirme sans séance, puis la direction l'atteste).
+    let d = x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r2, creneau, &ConfirmerCreneauBody::default()).await.unwrap();
+    assert_eq!(d.creneaux[0].seance_id, None);
+    let e = x.ent.attester_creneau_a(x.etab, x.prof2, "prof", r2, creneau, Cadre::apres_les_seances()).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "l'agent n'atteste pas : {e:?}");
+    let d = x.ent.attester_creneau_a(x.etab, x.cpe, "cpe", r2, creneau, Cadre::apres_les_seances()).await.unwrap();
+    assert_eq!((d.etat.as_str(), d.creneaux[0].preuve.as_deref()), ("solde", Some("attestation")));
+}
+
+/// Jamais deux créneaux retenus qui se chevauchent pour un même agent (exclusion en base, quel que soit le chemin) ;
+/// une séance du socle 10 ne sert qu'un créneau.
+#[tokio::test]
+async fn a8_jamais_deux_creneaux_retenus_qui_se_chevauchent() {
+    let x = cadre!();
+    let (_a1, r1) = x.absence_a_rattraper(x.prof, 1, (9, 0), (10, 0)).await;
+    let (_a2, r2) = x.absence_a_rattraper(x.prof, 2, (9, 0), (10, 0)).await;
+    let cours = x.seance_du(x.creneau_de(x.prof).await, 1).await;
+    let (s1, debut, fin) = x.seance_ajoutee(cours, x.prof, 3, (17, 0), (18, 0)).await;
+    let cours2 = x.seance_du(
+        sqlx::query_scalar("SELECT creneau_id FROM ent_edt_seance WHERE etablissement_id = $1 AND prof_user_id = $2 AND jour = $3")
+            .bind(x.etab)
+            .bind(x.prof)
+            .bind(x.jour(2))
+            .fetch_one(x.ent.pool())
+            .await
+            .unwrap(),
+        2,
+    )
+    .await;
+    let (s2, debut2, fin2) = x.seance_ajoutee(cours2, x.prof, 3, (17, 30), (18, 30)).await;
+    let avant = x.avant_les_seances();
+    let c1 = x.ent.proposer_creneaux_a(x.etab, x.prof, "prof", r1, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut, fin }] }, avant).await.unwrap().creneaux[0].id;
+    let c2 = x
+        .ent
+        .proposer_creneaux_a(x.etab, x.prof, "prof", r2, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut: debut2, fin: fin2 }] }, avant)
+        .await
+        .unwrap()
+        .creneaux[0]
+        .id;
+    x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r1, c1, &ConfirmerCreneauBody { seance_id: Some(s1) }).await.unwrap();
+    // Le second chevauche le premier (17 h 30 – 18 h 30 contre 17 h – 18 h) : refusé, et l'état de r2 ne bouge pas.
+    let e = x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r2, c2, &ConfirmerCreneauBody { seance_id: Some(s2) }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    assert_eq!(x.rattrapage(x.dir, "direction", r2).await.etat, "du");
+    // Même séance pour un second créneau : refusée aussi (une séance, un créneau).
+    let c3 = x
+        .ent
+        .proposer_creneaux_a(x.etab, x.prof, "prof", r2, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut, fin }] }, avant)
+        .await
+        .unwrap()
+        .creneaux
+        .iter()
+        .find(|c| c.debut == debut)
+        .unwrap()
+        .id;
+    let e = x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r2, c3, &ConfirmerCreneauBody { seance_id: Some(s1) }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    // Concurrence : deux confirmations simultanées de créneaux qui se chevauchent, une seule passe.
+    let (s4, d4, f4) = x.seance_ajoutee(cours2, x.prof, 4, (17, 0), (18, 0)).await;
+    let (s5, d5, f5) = x.seance_ajoutee(cours, x.prof, 4, (17, 30), (18, 30)).await;
+    let n4 = x.ent.proposer_creneaux_a(x.etab, x.prof, "prof", r1, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut: d4, fin: f4 }] }, avant).await.unwrap();
+    let n5 = x.ent.proposer_creneaux_a(x.etab, x.prof, "prof", r2, &ProposerCreneauxBody { creneaux: vec![PlageRattrapageBody { debut: d5, fin: f5 }] }, avant).await.unwrap();
+    let k4 = n4.creneaux.iter().find(|c| c.debut == d4).unwrap().id;
+    let k5 = n5.creneaux.iter().find(|c| c.debut == d5).unwrap().id;
+    let (b4, b5) = (ConfirmerCreneauBody { seance_id: Some(s4) }, ConfirmerCreneauBody { seance_id: Some(s5) });
+    let (u1, u2) = tokio::join!(
+        x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r1, k4, &b4),
+        x.ent.confirmer_creneau_for_actor(x.etab, x.dir, "direction", r2, k5, &b5),
+    );
+    assert_eq!(u1.is_ok() as u8 + u2.is_ok() as u8, 1, "une seule confirmation passe : {u1:?} / {u2:?}");
+    let retenus: i64 = x.compter("SELECT count(*) FROM ent_absp_rattrapage_creneau WHERE etablissement_id = $1 AND etat = 'confirme'").await;
+    assert_eq!(retenus, 2, "le premier créneau confirmé et un seul des deux concurrents");
+}
+
+/// ABP-198 : les séances d'élèves non assurées se proposent au socle 10, sans dette d'un agent, sans nom ni nature.
+#[tokio::test]
+async fn a8_heures_d_eleves_perdues_sont_une_proposition_sans_dette() {
+    let x = cadre!();
+    let (abs, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 30)).await;
+    sqlx::query("UPDATE ent_absp_impact SET etat = 'non_assure' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(impact)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let (du, au) = (x.jour(1) - Duration::days(1), x.jour(1) + Duration::days(1));
+    let v = x.ent.heures_eleves_perdues_for_actor(x.etab, x.dir, "direction", du, au).await.unwrap();
+    assert_eq!(v.len(), 1, "{v:?}");
+    assert_eq!((v[0].minutes, v[0].classe.as_str()), (90, x.classe.as_str()));
+    let json = serde_json::to_string(&v).unwrap();
+    assert!(!json.contains("convenance") && !json.contains("nature") && !json.contains(&x.prof.to_string()), "{json}");
+    // Aucune dette d'un agent : ni rattrapage, ni créneau.
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_rattrapage WHERE etablissement_id = $1").await, 0);
+    let _ = abs;
+    // Droit : l'adjoint et la direction ; ni le secrétariat, ni un professeur, ni la comptabilité ; fenêtre bornée.
+    for (u, ro) in [(x.sec, "administratif"), (x.prof, "prof"), (x.compta, "compta"), (x.cpe, "cpe")] {
+        let e = x.ent.heures_eleves_perdues_for_actor(x.etab, u, ro, du, au).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let e = x.ent.heures_eleves_perdues_for_actor(x.etab, x.dir, "direction", du, du + Duration::days(200)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    // Cloisonnement.
+    let autre = Cadre::nouveau().await.unwrap();
+    assert!(autre.ent.heures_eleves_perdues_for_actor(autre.etab, autre.dir, "direction", du, au).await.unwrap().is_empty());
+}
+
+// ═══════════════════════════════════════════════ LOT A9 : ABSENCES COLLECTIVES ═══════════════════════════════════════════════
+// Critères de fin (§28.1) : la grève du matin se coche sur douze agents en UNE SEULE liste ; aucune liste de grévistes
+// hors du cercle autorisé (direction, secrétariat, et l'agent pour lui-même).
+
+impl Cadre {
+    /// Fait régner le matin chez l'établissement (7 h locales, quelle que soit l'heure UTC) : les séances de 8 h à 12 h
+    /// sont dans le futur ; renvoie le jour de l'établissement.
+    async fn matin_de_greve(&self) -> NaiveDate {
+        self.horloge_locale(7).await;
+        self.aujourdhui().await
+    }
+
+    /// Séance du créneau `creneau` le jour `jour` (de l'établissement), horaires `(d, f)`, pour `prof`.
+    async fn seance_le(&self, creneau: Uuid, prof: Uuid, jour: NaiveDate, d: (u32, u32), f: (u32, u32), classe: (&str, Uuid)) -> Uuid {
+        let annee: Uuid = sqlx::query_scalar("SELECT id FROM ent_annee_scolaire WHERE etablissement_id = $1 ORDER BY date_debut DESC LIMIT 1")
+            .bind(self.etab)
+            .fetch_one(self.ent.pool())
+            .await
+            .unwrap();
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO ent_edt_seance (id, etablissement_id, annee_id, creneau_id, jour, classe_id, classe, prof_user_id,
+                    matiere_libelle, heure_debut, heure_fin, statut)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Mathématiques',$9,$10,'prevue')",
+        )
+        .bind(id)
+        .bind(self.etab)
+        .bind(annee)
+        .bind(creneau)
+        .bind(jour)
+        .bind(classe.1)
+        .bind(classe.0)
+        .bind(prof)
+        .bind(t(d.0, d.1))
+        .bind(t(f.0, f.1))
+        .execute(self.ent.pool())
+        .await
+        .expect("séance du jour");
+        id
+    }
+
+    /// Un professeur de plus (compte et agent), sans cours.
+    async fn prof_de_plus(&self) -> (Uuid, Uuid) {
+        let u = compte(&self.ent, self.etab, "prof").await;
+        (u, agent_de(&self.ent, self.etab, u).await)
+    }
+
+    async fn greve_declaree(&self, user: Uuid, jour: NaiveDate) -> GrevisteDto {
+        self.ent
+            .declarer_greve_for_actor(self.etab, user, "prof", &DeclarerGreveBody { jour, heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 30)) })
+            .await
+            .unwrap_or_else(|e| panic!("déclaration de grève refusée : {e:?}"))
+    }
+
+    async fn nb_absences_greve(&self) -> i64 {
+        self.compter(
+            "SELECT count(*) FROM ent_absp_absence a JOIN ent_absp_nature n ON n.id = a.nature_id AND n.code = 'greve' WHERE a.etablissement_id = $1",
+        )
+        .await
+    }
+}
+
+/// CRITÈRE A9 (1) : la grève du matin se coche sur DOUZE agents en UNE SEULE liste — une transaction, une absence `greve`
+/// signalée par agent, rien de doublé en rejouant ; jamais d'avance (R-11) ; un agent inconnu ne fait pas tomber la liste ;
+/// seule la direction coche.
+#[tokio::test]
+async fn a9_la_greve_du_matin_se_coche_sur_douze_agents_en_une_seule_liste() {
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let mut agents = vec![x.agent(x.prof).await, x.agent(x.prof2).await, x.agent(x.prof3).await];
+    for _ in 0..9 {
+        agents.push(x.prof_de_plus().await.1);
+    }
+    assert_eq!(agents.len(), 12);
+    let inconnu = Uuid::new_v4();
+    let mut cochees = agents.clone();
+    cochees.push(agents[0]); // un doublon dans la liste : coché une seule fois
+    cochees.push(inconnu);
+    let cocher = |jour: NaiveDate, a: Vec<Uuid>, d: Option<NaiveTime>, f: Option<NaiveTime>| {
+        let ent = &x.ent;
+        let (etab, dir) = (x.etab, x.dir);
+        async move { ent.cocher_grevistes_for_actor(etab, dir, "direction", &CocherGrevistesBody { jour, heure_debut: d, heure_fin: f, agents: a }).await }
+    };
+    // Refus nets, sans effet : d'avance, heures incomplètes, liste vide, trop longue.
+    let e = cocher(jour + Duration::days(1), agents.clone(), Some(t(8, 0)), Some(t(12, 30))).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "pas de pré-déclaration (R-11) : {e:?}");
+    for (a, d, f) in [(agents.clone(), Some(t(8, 0)), None), (vec![], None, None), ((0..301).map(|_| Uuid::new_v4()).collect(), None, None)] {
+        let e = cocher(jour, a, d, f).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "{e:?}");
+    }
+    assert_eq!(x.nb_absences_greve().await, 0, "aucun refus n'a laissé de trace");
+    // Seule la direction coche : ni le secrétariat, ni la vie scolaire, ni l'accueil, ni la comptabilité, ni un professeur.
+    for (u, ro) in [(x.sec, "administratif"), (x.cpe, "cpe"), (x.accueil, "accueil"), (x.compta, "compta"), (x.prof, "prof"), (x.admin, "admin")] {
+        let e = x
+            .ent
+            .cocher_grevistes_for_actor(x.etab, u, ro, &CocherGrevistesBody { jour, heure_debut: None, heure_fin: None, agents: agents.clone() })
+            .await
+            .unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    // La liste du matin : douze absences, une par agent, toutes signalées, nature « grève ».
+    let r = cocher(jour, cochees, Some(t(8, 0)), Some(t(12, 30))).await.unwrap();
+    assert_eq!((r.grevistes.len(), r.deja_absents.len(), r.refuses.clone()), (12, 0, vec![inconnu]), "{r:?}");
+    assert!(r.grevistes.iter().all(|g| g.etat == "signalee"));
+    let mut vus: Vec<Uuid> = r.grevistes.iter().map(|g| g.agent_id).collect();
+    vus.sort();
+    let mut attendus = agents.clone();
+    attendus.sort();
+    assert_eq!(vus, attendus);
+    assert_eq!(x.nb_absences_greve().await, 12, "une seule liste : douze absences, pas une de plus");
+    assert_eq!(x.nb_events("absence_personnel.signalee").await, 12);
+    // Rejouer la même liste ne double rien : les douze sont signalés « déjà absents ».
+    let r2 = cocher(jour, agents.clone(), Some(t(8, 0)), Some(t(12, 30))).await.unwrap();
+    assert_eq!((r2.grevistes.len(), r2.deja_absents.len()), (0, 12), "{r2:?}");
+    assert_eq!(x.nb_absences_greve().await, 12);
+    // La liste du jour : la même, pour la direction et pour le secrétariat.
+    let l = x.ent.grevistes_du_jour_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert_eq!(l.len(), 12);
+    assert_eq!(x.ent.grevistes_du_jour_for_actor(x.etab, x.sec, "administratif", jour).await.unwrap().len(), 12);
+    assert!(x.ent.grevistes_du_jour_for_actor(x.etab, x.dir, "direction", jour - Duration::days(3)).await.unwrap().is_empty());
+    // Les lignes ne portent ni motif ni texte libre ; la nature est « grève ».
+    let nature_unique: i64 = x
+        .compter("SELECT count(DISTINCT n.code) FROM ent_absp_absence a JOIN ent_absp_nature n ON n.id = a.nature_id WHERE a.etablissement_id = $1")
+        .await;
+    assert_eq!(nature_unique, 1);
+    // Un autre établissement ne voit rien de cette liste.
+    let autre = Cadre::nouveau().await.unwrap();
+    assert!(autre.ent.grevistes_du_jour_for_actor(autre.etab, autre.dir, "direction", jour).await.unwrap().is_empty());
+}
+
+/// CRITÈRE A9 (2) : AUCUNE LISTE DE GRÉVISTES HORS DU CERCLE AUTORISÉ. La liste n'est lisible que de la direction et du
+/// secrétariat ; tout autre profil est refusé (pas une liste vide : pas d'oracle) ; la vue « organisation » ne dit jamais
+/// la nature, ni la cause ; l'agent ne voit que la sienne ; le tableau de crise ne porte aucun nom.
+#[tokio::test]
+async fn a9_aucune_liste_de_grevistes_hors_du_cercle_autorise() {
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let (a1, a2) = (x.agent(x.prof).await, x.agent(x.prof2).await);
+    x.ent
+        .cocher_grevistes_for_actor(x.etab, x.dir, "direction", &CocherGrevistesBody { jour, heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 30)), agents: vec![a1, a2] })
+        .await
+        .unwrap();
+    // 1. Refusés net, jamais une liste vide : un professeur, un collègue, la vie scolaire, l'accueil, la comptabilité, l'admin.
+    for (u, ro) in [(x.prof, "prof"), (x.prof2, "prof"), (x.prof3, "prof"), (x.cpe, "cpe"), (x.accueil, "accueil"), (x.compta, "compta"), (x.admin, "admin")] {
+        let e = x.ent.grevistes_du_jour_for_actor(x.etab, u, ro, jour).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    // Un compte famille n'est pas du personnel.
+    let parent = compte(&x.ent, x.etab, "parent").await;
+    let e = x.ent.grevistes_du_jour_for_actor(x.etab, parent, "parent", jour).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    // 2. Le cercle : direction et secrétariat.
+    assert_eq!(x.ent.grevistes_du_jour_for_actor(x.etab, x.dir, "direction", jour).await.unwrap().len(), 2);
+    assert_eq!(x.ent.grevistes_du_jour_for_actor(x.etab, x.sec, "administratif", jour).await.unwrap().len(), 2);
+    // 3. La vue « organisation » (CPE, vie scolaire) dit qui est absent, jamais pourquoi : aucune trace de « grève ».
+    for (u, ro) in [(x.cpe, "cpe"), (x.sec, "administratif"), (x.dir, "direction")] {
+        let v = x.ent.absences_organisation_for_actor(x.etab, u, ro, jour, jour).await.unwrap();
+        let texte = serde_json::to_string(&v).unwrap().to_lowercase();
+        for interdit in ["greve", "grève", "nature", "mouvement"] {
+            assert!(!texte.contains(interdit), "{ro} : « {interdit} » dans la vue organisation : {texte}");
+        }
+    }
+    // 4. L'agent ne voit que la sienne ; un collègue ne voit rien de l'autre.
+    let mes = x.ent.mes_absences_for_actor(x.etab, x.prof, "prof").await.unwrap();
+    assert_eq!(mes.len(), 1);
+    assert_eq!(mes[0].agent_id, a1);
+    assert!(x.ent.mes_absences_for_actor(x.etab, x.prof3, "prof").await.unwrap().is_empty());
+    // 5. Le tableau de crise : direction seule, sans nom ni nature.
+    let c = x.ent.tableau_de_crise_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    let texte = serde_json::to_string(&c).unwrap().to_lowercase();
+    assert!(!texte.contains("greve") && !texte.contains("nature") && !texte.contains(&a1.to_string()), "{texte}");
+    for (u, ro) in [(x.sec, "administratif"), (x.cpe, "cpe"), (x.prof, "prof"), (x.compta, "compta")] {
+        let e = x.ent.tableau_de_crise_for_actor(x.etab, u, ro, jour).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    // 6. Les événements ne portent jamais la nature : ni « greve », ni libellé.
+    let events: String = sqlx::query_scalar(
+        "SELECT COALESCE(string_agg(payload::text, ' '), '') FROM ent_metier_event WHERE etablissement_id = $1 AND type LIKE 'absence_personnel.%'",
+    )
+    .bind(x.etab)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert!(!events.to_lowercase().contains("greve") && !events.to_lowercase().contains("grève"), "{events}");
+    // 7. Cloisonnement : la direction d'un autre établissement ne lit rien.
+    let autre = Cadre::nouveau().await.unwrap();
+    assert!(autre.ent.grevistes_du_jour_for_actor(autre.etab, autre.dir, "direction", jour).await.unwrap().is_empty());
+}
+
+/// ABP-254 : l'agent se déclare gréviste après coup (jamais d'avance) ; si la direction l'avait déjà coché, il confirme la
+/// même absence ; jamais deux absences pour la même plage.
+#[tokio::test]
+async fn a9_un_agent_se_declare_gréviste_apres_coup_sans_doublon() {
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let a2 = x.agent(x.prof2).await;
+    // Déclaration d'un agent : absence déclarée (il la confirme lui-même), une seule, idempotente.
+    let g = x.greve_declaree(x.prof, jour).await;
+    assert_eq!(g.etat, "declaree");
+    assert_eq!(x.greve_declaree(x.prof, jour).await.absence_id, g.absence_id);
+    assert_eq!(x.nb_absences_greve().await, 1);
+    // Jamais d'avance, jamais très tard, jamais pour une autre personne qu'un agent du personnel.
+    for j in [jour + Duration::days(1), jour - Duration::days(40)] {
+        let e = x.ent.declarer_greve_for_actor(x.etab, x.prof3, "prof", &DeclarerGreveBody { jour: j, heure_debut: None, heure_fin: None }).await.unwrap_err();
+        assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{j} : {e:?}");
+    }
+    let parent = compte(&x.ent, x.etab, "parent").await;
+    let e = x.ent.declarer_greve_for_actor(x.etab, parent, "parent", &DeclarerGreveBody { jour, heure_debut: None, heure_fin: None }).await.unwrap_err();
+    assert!(matches!(e, EntDbError::Forbidden), "{e:?}");
+    // Déjà coché par la direction : l'agent CONFIRME la même absence (pas de doublon).
+    let r = x
+        .ent
+        .cocher_grevistes_for_actor(x.etab, x.dir, "direction", &CocherGrevistesBody { jour, heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 30)), agents: vec![a2] })
+        .await
+        .unwrap();
+    assert_eq!(r.grevistes[0].etat, "signalee");
+    let g2 = x.greve_declaree(x.prof2, jour).await;
+    assert_eq!((g2.absence_id, g2.etat.as_str()), (r.grevistes[0].absence_id, "declaree"));
+    assert_eq!(x.nb_absences_greve().await, 2);
+    // Déjà absent pour une autre raison : la direction qualifie, pas de seconde absence.
+    x.ent
+        .declarer_absence_for_actor(
+            x.etab,
+            x.prof3,
+            "prof",
+            &DeclarerAbsenceBody { nature_code: Some("convenance".into()), debut: jour, fin: jour, ..Default::default() },
+        )
+        .await
+        .unwrap();
+    let e = x.ent.declarer_greve_for_actor(x.etab, x.prof3, "prof", &DeclarerGreveBody { jour, heure_debut: None, heure_fin: None }).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Conflit), "{e:?}");
+    assert_eq!(x.nb_absences_greve().await, 2);
+}
+
+/// ABP-255, 256 : annuler en lot les séances des grévistes (chaque absence cochée est confirmée puis décidée, ses séances
+/// à traiter annulées une par une) ; tableau de crise : taux d'impact par heure, classes sans aucun cours.
+#[tokio::test]
+async fn a9_annulation_en_lot_et_tableau_de_crise() {
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let (a1, a2, a3) = (x.agent(x.prof).await, x.agent(x.prof2).await, x.agent(x.prof3).await);
+    let (prof4, _) = x.prof_de_plus().await;
+    let bis = x.classe_bis().await;
+    let bis_id = x.classe_id_de(&bis).await;
+    let cl = (x.classe.as_str(), x.classe_id);
+    let cb = (bis.as_str(), bis_id);
+    // x.classe : 8-9 (prof, gréviste), 10-11 (prof3, gréviste), 11-12 (prof4, présent). Classe bis : 9-10 (prof2, gréviste), seule.
+    // Le plan du jour vient du créneau hebdomadaire : même jour de la semaine que le jour de grève.
+    let iso = {
+        use chrono::Datelike;
+        jour.weekday().number_from_monday() as i16
+    };
+    let c1 = x.creneau(&x.classe, x.prof, iso, (8, 0), (9, 0)).await;
+    let c2 = x.creneau(&bis, x.prof2, iso, (9, 0), (10, 0)).await;
+    let c3 = x.creneau(&x.classe, x.prof3, iso, (10, 0), (11, 0)).await;
+    let c4 = x.creneau(&x.classe, prof4, iso, (11, 0), (12, 0)).await;
+    let s1 = x.seance_le(c1, x.prof, jour, (8, 0), (9, 0), cl).await;
+    let s2 = x.seance_le(c2, x.prof2, jour, (9, 0), (10, 0), cb).await;
+    let s3 = x.seance_le(c3, x.prof3, jour, (10, 0), (11, 0), cl).await;
+    let _s4 = x.seance_le(c4, prof4, jour, (11, 0), (12, 0), cl).await;
+    x.ent
+        .cocher_grevistes_for_actor(x.etab, x.dir, "direction", &CocherGrevistesBody { jour, heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 30)), agents: vec![a1, a2, a3] })
+        .await
+        .unwrap();
+    // Avant l'annulation : trois séances touchées sur quatre, toutes en attente.
+    let c = x.ent.tableau_de_crise_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert_eq!((c.seances, c.touchees), (4, 3), "{c:?}");
+    assert_eq!(c.creneaux.len(), 4);
+    let huit = c.creneaux.iter().find(|k| k.heure_debut == t(8, 0)).unwrap();
+    assert_eq!((huit.seances, huit.touchees, huit.en_attente, huit.taux_impact_pct), (1, 1, 1, 100), "{huit:?}");
+    let onze = c.creneaux.iter().find(|k| k.heure_debut == t(11, 0)).unwrap();
+    assert_eq!((onze.touchees, onze.taux_impact_pct), (0, 0));
+    assert_eq!(c.classes_sans_cours, vec![CriseClasseDto { classe: bis.clone(), demi_journee: "journee".into() }], "la classe seule, sans cours : {c:?}");
+    // Annulation en lot : direction seule, et avec le droit sur l'emploi du temps.
+    for (u, ro) in [(x.sec, "administratif"), (x.cpe, "cpe"), (x.prof, "prof")] {
+        let e = x.ent.annuler_seances_greve_for_actor(x.etab, u, ro, jour).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let b = x.ent.annuler_seances_greve_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert_eq!(b, AnnulationGreveDto { absences_confirmees: 3, absences_validees: 3, seances_annulees: 3, a_revoir: 0 }, "{b:?}");
+    for s in [s1, s2, s3] {
+        let etat: String = sqlx::query_scalar("SELECT i.etat FROM ent_absp_impact i WHERE i.etablissement_id = $1 AND i.seance_id = $2")
+            .bind(x.etab)
+            .bind(s)
+            .fetch_one(x.ent.pool())
+            .await
+            .unwrap();
+        assert_eq!(etat, "annule", "séance {s}");
+    }
+    // Les absences sont décidées : plus rien de signalé.
+    let l = x.ent.grevistes_du_jour_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert!(l.iter().all(|g| g.etat == "validee"), "{l:?}");
+    // Idempotent : rien de plus à faire.
+    let b2 = x.ent.annuler_seances_greve_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert_eq!(b2, AnnulationGreveDto::default(), "{b2:?}");
+    // Après : les séances annulées sont des élèves sans cours ; la classe bis reste sans cours, x.classe garde 11 h.
+    let c = x.ent.tableau_de_crise_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    let huit = c.creneaux.iter().find(|k| k.heure_debut == t(8, 0)).unwrap();
+    assert_eq!((huit.non_assurees, huit.en_attente), (1, 0), "{huit:?}");
+    assert_eq!(c.classes_sans_cours.len(), 1);
+    assert_eq!(c.classes_sans_cours[0].classe, bis);
+    // Un autre établissement n'a ni séance ni classe en crise.
+    let autre = Cadre::nouveau().await.unwrap();
+    let vide = autre.ent.tableau_de_crise_for_actor(autre.etab, autre.dir, "direction", jour).await.unwrap();
+    assert_eq!((vide.seances, vide.touchees, vide.classes_sans_cours.len()), (0, 0, 0));
+}
+
+impl Cadre {
+    async fn classe_id_de(&self, code: &str) -> Uuid {
+        sqlx::query_scalar("SELECT id FROM ent_classe WHERE etablissement_id = $1 AND code = $2 LIMIT 1")
+            .bind(self.etab)
+            .bind(code)
+            .fetch_one(self.ent.pool())
+            .await
+            .expect("classe")
+    }
+}
+
+/// ABP-257 : la retenue (1/30ᵉ, État) est SIGNALÉE à l'export : un jour par jour de grève, même pour moins d'une
+/// journée ; ni une absence non confirmée, ni un salarié de l'OGEC, ni un jour fermé ; ScolIA ne calcule rien ; secrétariat
+/// et direction seulement ; chaque export est tracé.
+#[tokio::test]
+async fn a9_la_retenue_est_signalee_a_l_export_sans_calcul() {
+    use chrono::Datelike;
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let veille = jour - Duration::days(1);
+    let (a2, a3) = (x.agent(x.prof2).await, x.agent(x.prof3).await);
+    // prof : grève déclarée aujourd'hui (un matin seulement) et hier (jour fermé au calendrier).
+    let g_aujourdhui = x.greve_declaree(x.prof, jour).await;
+    x.greve_declaree(x.prof, veille).await;
+    sqlx::query("INSERT INTO ent_jour_calendrier (id, etablissement_id, jour, kind, libelle) VALUES ($1,$2,$3,'ferme','Fermeture')")
+        .bind(Uuid::new_v4())
+        .bind(x.etab)
+        .bind(veille)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    // prof2 : seulement cochée, jamais confirmée (R-AP46) ; prof3 : confirmée mais salariée de l'OGEC.
+    x.ent
+        .cocher_grevistes_for_actor(x.etab, x.dir, "direction", &CocherGrevistesBody { jour, heure_debut: Some(t(8, 0)), heure_fin: Some(t(12, 30)), agents: vec![a2] })
+        .await
+        .unwrap();
+    let g3 = x.greve_declaree(x.prof3, jour).await;
+    sqlx::query("UPDATE ent_absp_absence SET employeur = 'ogec' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(g3.absence_id)
+        .execute(x.ent.pool())
+        .await
+        .expect("employeur OGEC");
+    let premier = |d: NaiveDate| NaiveDate::from_ymd_opt(d.year(), d.month(), 1).unwrap();
+    let mut lignes: Vec<String> = Vec::new();
+    for mois in [premier(jour), premier(veille)].into_iter().collect::<std::collections::BTreeSet<_>>() {
+        let csv = x.ent.export_retenue_greve_csv_for_actor(x.etab, x.dir, "direction", mois).await.unwrap();
+        assert!(csv.starts_with("mois,agent_id,agent,jour,signal\n"), "{csv}");
+        lignes.extend(csv.lines().skip(1).map(str::to_string));
+    }
+    let a1 = x.agent(x.prof).await;
+    assert_eq!(lignes.len(), 1, "un seul jour : l'État, confirmé, ouvert ({lignes:?})");
+    assert!(lignes[0].contains(&a1.to_string()) && lignes[0].contains(&jour.to_string()), "{lignes:?}");
+    assert!(!lignes[0].contains(&a2.to_string()) && !lignes[0].contains(&a3.to_string()));
+    // Aucun montant, aucun calcul : ScolIA signale seulement.
+    assert!(lignes[0].ends_with("retenue_a_decider_hors_scolia") && !lignes[0].contains('%') && !lignes[0].contains('€'), "{lignes:?}");
+    // Droit : secrétariat et direction ; ni la comptabilité (instruit mais ne lit pas la nature), ni la vie scolaire, ni un professeur.
+    assert!(x.ent.export_retenue_greve_csv_for_actor(x.etab, x.sec, "administratif", premier(jour)).await.is_ok());
+    for (u, ro) in [(x.compta, "compta"), (x.cpe, "cpe"), (x.accueil, "accueil"), (x.prof, "prof"), (x.admin, "admin")] {
+        let e = x.ent.export_retenue_greve_csv_for_actor(x.etab, u, ro, premier(jour)).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden), "{ro} : {e:?}");
+    }
+    let e = x.ent.export_retenue_greve_csv_for_actor(x.etab, x.dir, "direction", premier(jour) + Duration::days(1)).await.unwrap_err();
+    assert!(est_refus(&e, crate::service::RefusMetier::Invalide), "un premier du mois est exigé : {e:?}");
+    // Chaque export est tracé au journal de l'absence signalée.
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM ent_absp_journal WHERE etablissement_id = $1 AND objet = 'absence' AND objet_id = $2 AND action = 'retenue_signalee_export'",
+    )
+    .bind(x.etab)
+    .bind(g_aujourdhui.absence_id)
+    .fetch_one(x.ent.pool())
+    .await
+    .unwrap();
+    assert!(n >= 2, "deux exports (direction, secrétariat) : {n}");
+    // Autre établissement : rien.
+    let autre = Cadre::nouveau().await.unwrap();
+    let csv = autre.ent.export_retenue_greve_csv_for_actor(autre.etab, autre.dir, "direction", premier(jour)).await.unwrap();
+    assert_eq!(csv.lines().count(), 1);
+}
+
+/// ABP-258 : une fermeture de l'établissement neutralise les absences du jour : leurs impacts passent « sans objet »
+/// (recalcul), une seule fois, sans bruit.
+#[tokio::test]
+async fn a9_une_fermeture_neutralise_les_absences_du_jour() {
+    let x = cadre!();
+    let jour = x.matin_de_greve().await;
+    let c = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let seance = x.seance_le(c, x.prof, jour, (9, 0), (10, 0), (x.classe.as_str(), x.classe_id)).await;
+    let a = x
+        .ent
+        .declarer_absence_for_actor(
+            x.etab,
+            x.prof,
+            "prof",
+            &DeclarerAbsenceBody { nature_code: Some("convenance".into()), debut: jour, fin: jour, ..Default::default() },
+        )
+        .await
+        .unwrap()
+        .absences[0]
+        .id;
+    x.valider(a).await;
+    let impact = x.impacts(a).await.into_iter().find(|i| i.seance.as_ref().is_some_and(|s| s.creneau_id == c)).expect("impact").id;
+    assert_eq!(x.etat_impact(impact).await, "a_traiter");
+    // Sans fermeture : rien à neutraliser.
+    assert_eq!(x.ent.neutraliser_absences_fermees_etab(x.etab).await.unwrap(), 0);
+    // L'établissement ferme (socle 5) ; le socle 10 neutralise la séance.
+    sqlx::query("INSERT INTO ent_jour_calendrier (id, etablissement_id, jour, kind, libelle) VALUES ($1,$2,$3,'ferme','Fermeture')")
+        .bind(Uuid::new_v4())
+        .bind(x.etab)
+        .bind(jour)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    x.forcer_etat_seance(seance, "neutralisee").await;
+    assert_eq!(x.ent.neutraliser_absences_fermees_etab(x.etab).await.unwrap(), 1);
+    assert_eq!(x.etat_impact(impact).await, "sans_objet", "l'absence n'est plus comptée ce jour-là");
+    assert_eq!(x.ent.neutraliser_absences_fermees_etab(x.etab).await.unwrap(), 0, "idempotent");
+    assert_eq!(x.nb_events("absence_personnel.fermeture_neutralisee").await, 1);
+    // Le tableau de crise ne compte plus la séance neutralisée.
+    let c = x.ent.tableau_de_crise_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
+    assert_eq!((c.seances, c.touchees), (0, 0), "{c:?}");
+}
