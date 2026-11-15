@@ -320,12 +320,13 @@ async fn creneaux_de_placements(
     version_id: Uuid,
     grille: &[CreneauGrille],
 ) -> Result<(Vec<CreneauSource>, Vec<(Uuid, Uuid)>), EntDbError> {
-    let lignes: Vec<LignePlacement> = sqlx::query_as(&format!("{SELECT_PLACEMENTS} AND p.creneau_id IS NOT NULL"))
-        .bind(etab)
-        .bind(version_id)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(db)?;
+    let lignes: Vec<LignePlacement> =
+        sqlx::query_as(&format!("{SELECT_PLACEMENTS} AND p.creneau_id IS NOT NULL"))
+            .bind(etab)
+            .bind(version_id)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(db)?;
     let mut out = Vec::new();
     let mut cours = Vec::new();
     for l in lignes {
@@ -442,7 +443,11 @@ pub(crate) async fn sources_du_plan(
                 cours.extend(liens.iter().map(|(_, c)| *c));
                 sources
                     .exclusions
-                    .extend(cours.into_iter().map(|cours_id| Exclusion { cours_id, du: t_du, au: t_au }));
+                    .extend(cours.into_iter().map(|cours_id| Exclusion {
+                        cours_id,
+                        du: t_du,
+                        au: t_au,
+                    }));
             }
             c
         };
@@ -499,10 +504,19 @@ mod tests {
 
     #[test]
     fn intersection_de_plages() {
-        assert_eq!(intersection((d(9, 1), d(12, 31)), (d(11, 3), d(11, 30))), Some((d(11, 3), d(11, 30))));
-        assert_eq!(intersection((d(9, 1), d(10, 31)), (d(11, 3), d(11, 30))), None);
+        assert_eq!(
+            intersection((d(9, 1), d(12, 31)), (d(11, 3), d(11, 30))),
+            Some((d(11, 3), d(11, 30)))
+        );
+        assert_eq!(
+            intersection((d(9, 1), d(10, 31)), (d(11, 3), d(11, 30))),
+            None
+        );
         // Un seul jour commun.
-        assert_eq!(intersection((d(9, 1), d(11, 3)), (d(11, 3), d(11, 30))), Some((d(11, 3), d(11, 3))));
+        assert_eq!(
+            intersection((d(9, 1), d(11, 3)), (d(11, 3), d(11, 30))),
+            Some((d(11, 3), d(11, 3)))
+        );
     }
 
     #[test]
@@ -518,12 +532,21 @@ mod tests {
     fn la_temporaire_exclut_le_plan_de_base_sur_sa_plage_seulement() {
         let (cr, cours) = (Uuid::new_v4(), Uuid::new_v4());
         let liens: HashMap<Uuid, Uuid> = [(cr, cours)].into_iter().collect();
-        let ex = [Exclusion { cours_id: cours, du: d(11, 10), au: d(11, 20) }];
+        let ex = [Exclusion {
+            cours_id: cours,
+            du: d(11, 10),
+            au: d(11, 20),
+        }];
         assert!(exclu_par_temporaire(&liens, &ex, cr, d(11, 10)));
         assert!(exclu_par_temporaire(&liens, &ex, cr, d(11, 20)));
         assert!(!exclu_par_temporaire(&liens, &ex, cr, d(11, 9)));
         assert!(!exclu_par_temporaire(&liens, &ex, cr, d(11, 21)));
         // Un créneau inconnu (sans cours) n'est jamais exclu.
-        assert!(!exclu_par_temporaire(&liens, &ex, Uuid::new_v4(), d(11, 15)));
+        assert!(!exclu_par_temporaire(
+            &liens,
+            &ex,
+            Uuid::new_v4(),
+            d(11, 15)
+        ));
     }
 }

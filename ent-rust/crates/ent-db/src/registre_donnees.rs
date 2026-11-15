@@ -525,6 +525,11 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_edt_seance_lieu", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_seance_public_fusion", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_version", "emploi_du_temps_structure", Portee::Etablissement).export(),
+    // Socle 10, lot T5 : historique des faits de publication ; version individuelle d'un élève (effet porté par
+    // `ent_cours_membre`).
+    t("ent_edt_version_journal", "emploi_du_temps_structure", Portee::Etablissement).export(),
+    t("ent_edt_individuelle", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    t("ent_edt_individuelle_ligne", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_version_perimetre", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_eleve", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_eleve_bourse", "finances", Portee::Etablissement).perso().export(),

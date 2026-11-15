@@ -434,7 +434,7 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), e).await?;
         let n = sqlx::query(
             "UPDATE ent_edt_version SET etat = 'abandonnee', modifie_le = now()
-              WHERE etablissement_id = $1 AND id = $2 AND etat = 'brouillon'",
+              WHERE etablissement_id = $1 AND id = $2 AND etat = 'brouillon' AND annoncee_le IS NULL",
         )
         .bind(e)
         .bind(version_id)
@@ -523,6 +523,18 @@ impl PgEnt {
         .ok_or_else(introuvable)?;
         if v.etat != "brouillon" {
             return Err(conflit()); // une version publiée ne se modifie pas : nouveau brouillon
+        }
+        // T5 : une version annoncée aux personnels est figée (retirer l'annonce pour la modifier).
+        let annoncee: bool = sqlx::query_scalar(
+            "SELECT annoncee_le IS NOT NULL FROM ent_edt_version WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(e)
+        .bind(version_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(db)?;
+        if annoncee {
+            return Err(conflit());
         }
         if !(1..=7).contains(&pos.jour_semaine)
             || !(1..=12).contains(&pos.duree_creneaux)
@@ -795,7 +807,7 @@ impl PgEnt {
         let e = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), e).await?;
         let row: Option<(Uuid, bool, String)> = sqlx::query_as(
-            "SELECT p.piece_id, p.verrouille, v.etat
+            "SELECT p.piece_id, p.verrouille, CASE WHEN v.annoncee_le IS NOT NULL THEN 'annoncee' ELSE v.etat END
                FROM ent_edt_placement p JOIN ent_edt_version v ON v.id = p.version_id AND v.etablissement_id = p.etablissement_id
               WHERE p.etablissement_id = $1 AND p.id = $2 FOR UPDATE OF p",
         )

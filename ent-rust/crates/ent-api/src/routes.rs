@@ -866,6 +866,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::inscriptions::routes());
     // EDT, remplacements, délégations (S2-5, module séparé : `edt_s2.rs`).
     let r = r.merge(crate::edt_s2::routes());
+    let r = r.merge(crate::edt_t5::routes());
     // Socle 2, lot S2-7 : évaluations, conseils, bulletins, livrets.
     let r = r.merge(crate::evaluations::routes());
     // Socle 2, lot E5 : propositions et paramétrage des champs (`eleve_propositions.rs`).

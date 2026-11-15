@@ -170,6 +170,8 @@ pub mod edt_notifications;
 pub mod edt_demain;
 mod edt_masse;
 mod edt_materialisation;
+pub mod edt_publication;
+mod edt_publication_notifications;
 pub mod edt_ports;
 pub mod edt_versions;
 pub mod delegation;
