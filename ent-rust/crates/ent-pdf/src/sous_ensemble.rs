@@ -19,7 +19,7 @@ fn somme(d: &[u8]) -> u32 {
 }
 
 fn aligner(v: &mut Vec<u8>) {
-    while v.len() % 4 != 0 {
+    while !v.len().is_multiple_of(4) {
         v.push(0);
     }
 }
@@ -40,8 +40,8 @@ pub(crate) fn sous_ensemble(ttf: &Ttf, principaux: &[u16]) -> Sortie {
     let mut i = 0;
     while i < anciens.len() {
         for (_, c) in Ttf::composants(ttf.glyphe(anciens[i])) {
-            if !nouveau.contains_key(&c) {
-                nouveau.insert(c, anciens.len() as u16);
+            if let std::collections::hash_map::Entry::Vacant(v) = nouveau.entry(c) {
+                v.insert(anciens.len() as u16);
                 anciens.push(c);
             }
         }

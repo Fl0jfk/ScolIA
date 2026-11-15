@@ -1032,9 +1032,9 @@ mod tests {
         use ent_pdf::releve::{texte, texte_des_pages, verifier_structure};
         let pdf = rendre_bulletin_pdf(&contenu_test(40));
         verifier_structure(&pdf);
-        let t = texte(&pdf);
+        let t = texte(&pdf).replace('\n', " ");
         assert!(t.contains("Collège Saint-Étienne — Bulletin scolaire"), "{t}");
-        assert!(t.contains("Élève : Hélène Élève · Classe : 4e B"));
+        assert!(t.contains("Élève : Hélène Élève · Classe : 4ᵉ B"), "{t}");
         assert!(t.contains("Décision : Passage") && t.contains("Mention : Félicitations"));
         assert!(t.contains("Vie scolaire : 3 absence(s) dont 1 non justifiée(s), 2 retard(s)"));
         let pages = texte_des_pages(&pdf);

@@ -179,7 +179,8 @@ mod tests {
         .unwrap();
         let pdf = render_courrier_orientation_pdf(&c);
         verifier_structure(&pdf);
-        let t = texte(&pdf);
+        // Les retours à la ligne dépendent de la police : on compare à plat.
+        let t = texte(&pdf).replace('\n', " ");
         assert!(
             t.contains("Courrier orientation (psychologie scolaire)"),
             "{t}"
