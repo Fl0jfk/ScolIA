@@ -1150,9 +1150,9 @@ async fn t_separation_entre_etablissements() {
         ..w.demande(vec![w.dest(&w.parent_lea, "Mme Potter", None)])
     };
     assert!(w.emettre(&w.dir(), croise).await.is_err());
-    // RLS stricte : sous la variable d'établissement de B, aucune ligne de A n'est visible, sur CHAQUE table.
-    let mut tx = TenantTx::begin(w.ent.pool(), mb.etab).await.unwrap();
-    for table in [
+    // RLS stricte, PROUVÉE avec un rôle qui ne contourne pas la RLS (la connexion de test habituelle est propriétaire,
+    // voire superutilisatrice : elle voit tout, quel que soit le mode — ce serait une fausse alerte, ou un faux vert).
+    const TABLES: [&str; 14] = [
         "ent_doc_document",
         "ent_doc_version",
         "ent_doc_version_donnee",
@@ -1162,16 +1162,92 @@ async fn t_separation_entre_etablissements() {
         "ent_doc_journal",
         "ent_doc_compteur",
         "ent_doc_entite",
+        "ent_doc_entite_identifiant",
+        "ent_doc_entite_famille",
+        "ent_doc_identite",
+        "ent_doc_nature_param",
+        "ent_doc_nature_texte",
+    ];
+    let admin = w.ent.pool_verif();
+    sqlx::query(
+        "DO $$ BEGIN CREATE ROLE ent_rls_doc LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE; \
+         EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; END $$",
+    )
+    .execute(admin)
+    .await
+    .unwrap();
+    sqlx::query("GRANT USAGE ON SCHEMA public TO ent_rls_doc")
+        .execute(admin)
+        .await
+        .unwrap();
+    for table in TABLES {
+        sqlx::query(&format!("GRANT SELECT ON {table} TO ent_rls_doc"))
+            .execute(admin)
+            .await
+            .unwrap();
+    }
+    let url = crate::url_guard::url_labo_ou_echec().expect("URL de labo");
+    let mut u = url::Url::parse(&url).unwrap();
+    u.set_username("ent_rls_doc").unwrap();
+    u.set_password(Some("rls")).unwrap();
+    let app = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(u.as_str())
+        .await
+        .unwrap();
+    let (bypass, sup): (bool, bool) =
+        sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = 'ent_rls_doc'")
+            .fetch_one(admin)
+            .await
+            .unwrap();
+    assert!(!bypass && !sup, "le rôle de preuve ne contourne pas la RLS");
+    // Depuis B : aucune ligne de A, sur CHAQUE table ; depuis A : ses lignes sont bien là (la politique ne cache pas tout).
+    let compter = |etab_session: Uuid, etab_cible: Uuid, table: &'static str| {
+        let app = app.clone();
+        async move {
+            let mut tx =
+                TenantTx::begin_mode(&app, etab_session, crate::tenant_tx::RlsMode::Strict)
+                    .await
+                    .unwrap();
+            let (n,): (i64,) = sqlx::query_as(&format!(
+                "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
+            ))
+            .bind(etab_cible)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            n
+        }
+    };
+    for table in TABLES {
+        assert_eq!(
+            compter(mb.etab, w.m.etab, table).await,
+            0,
+            "{table} : lignes de A visibles depuis B"
+        );
+    }
+    for table in [
+        "ent_doc_document",
+        "ent_doc_version",
+        "ent_doc_exemplaire",
+        "ent_doc_journal",
+        "ent_doc_compteur",
+        "ent_doc_entite",
     ] {
-        let (n,): (i64,) = sqlx::query_as(&format!(
-            "SELECT count(*) FROM {table} WHERE etablissement_id = $1"
-        ))
-        .bind(w.m.etab)
+        assert!(
+            compter(w.m.etab, w.m.etab, table).await >= 1,
+            "{table} : A ne voit plus ses propres lignes"
+        );
+    }
+    // Sans contexte d'établissement en mode strict : rien du tout (échec fermé).
+    let mut tx = TenantTx::begin_mode(&app, Uuid::nil(), crate::tenant_tx::RlsMode::Strict)
+        .await
+        .unwrap();
+    let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_doc_document")
         .fetch_one(&mut *tx)
         .await
         .unwrap();
-        assert_eq!(n, 0, "{table} : lignes de A visibles depuis B");
-    }
+    assert_eq!(n, 0, "établissement nul : aucune ligne");
 }
 
 // ───────────────────────── Paramétrage ─────────────────────────
