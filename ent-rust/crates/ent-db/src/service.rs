@@ -19,7 +19,7 @@ use crate::eleve_repo::PgEleveRepo;
 use crate::tenant_tx::{RlsMode, TenantTx};
 use std::time::Duration;
 use crate::event_store::PgEventStore;
-use crate::foyer_repo::{CreateLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
+use crate::foyer_repo::{CreateLien, DroitLien, EleveLien, LienDossierFoyer, PgFoyerRepo, UpdateLien};
 use crate::mail_repo::{InsertMailOutbox, MailOutboxRow, PgMailRepo};
 use crate::sms_repo::{InsertSmsOutbox, PgSmsRepo};
 use crate::push_repo::{InsertPushOutbox, PgPushRepo, PushDevice, RegisterPushDevice};
@@ -1390,7 +1390,11 @@ impl PgEnt {
             Some(d) => d,
             None => {
                 self.foyers
-                    .emails_parents_eleve(etablissement_id, eleve_id)
+                    .emails_parents_eleve_avec_droit(
+                        etablissement_id,
+                        eleve_id,
+                        DroitLien::pour_kind(kind),
+                    )
                     .await?
             }
         };
@@ -1519,7 +1523,11 @@ impl PgEnt {
         }
         let phones = self
             .foyers
-            .telephones_parents_eleve(etablissement_id, eleve_id)
+            .telephones_parents_eleve_avec_droit(
+                etablissement_id,
+                eleve_id,
+                DroitLien::pour_kind(kind),
+            )
             .await?;
         let mut n = 0usize;
         for to in phones {
@@ -1752,6 +1760,11 @@ impl PgEnt {
             .await?;
         let user_ids: Vec<Uuid> = liens
             .iter()
+            .filter(|l| match DroitLien::pour_kind(kind) {
+                Some(DroitLien::Notes) => l.peut_voir_notes,
+                Some(DroitLien::VieScolaire) => l.peut_voir_vs,
+                None => true,
+            })
             .map(|l| l.user_id)
             .filter(|u| seulement.as_ref().is_none_or(|s| s.contains(u)))
             .collect();
