@@ -35,6 +35,8 @@ pub mod inscriptions;
 pub mod internat;
 pub mod palette;
 pub mod personnels;
+pub mod personnels_delegations;
+pub mod personnels_equipes;
 pub mod personnels_missions;
 pub mod personnels_services;
 pub mod portail;
