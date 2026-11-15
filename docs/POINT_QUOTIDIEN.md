@@ -6,6 +6,55 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-15 (dimanche matin, 8 h 50 Paris)
+
+### Sur `ENT`, validé
+- **Premier verdict complet de la CI d'ENT depuis N1-2** : run 43656277689 **vert** sur `c8fddde5`. Il valide d'un coup tout ce qui avait été versé le 14 (N0a, A6, P4, N1-3, A7, D0, P5–P7, D1).
+- Versés cette nuit, sur la base de ce verdict : socle 29 **P5 à P7** (recherche globale, palette Ctrl/⌘+K, modes et bandeaux), socle 7 **D1** (moteur PDF et QR maison, D-062).
+- Versés ce matin (tête **`693375c9`**, run d'ENT en cours, non annulable) : **CI allégée** (29 jobs par branche au lieu de 39 ; ENT jamais annulé ; règle 27) ; **N1-4 et N1-5** (écrans des demandes, reprise R9) ; socle 28 **MS0, R0, R1** (correctifs, inspection d'un export Next.js, **outil d'anonymisation**) ; socle 6 **P5 et P6** (équipes, délégations, `peut_signer`) ; socle 7 **D2 et D3** (fondations des documents, certificats et attestations vérifiables par code). Vérification locale avant envoi : séparation 46/46, recette sécurité 10/10, 246 tests de base (3 rejoués seuls, verts), RLS stricte des 14 tables de documents, outil de reprise 77, web 401.
+
+### Prêt, pas encore sur `ENT`
+- 7 **D1b** (police incorporée : plus jamais « NGUY?N » dans un nom), 27 **G0–G2** (RGPD), 10 **T3–T4** (modifications d'EDT, « demain ») : corrigés, CI relancée après fusion d'ENT.
+
+### En cours
+- 8 N0b–N3 (notifications), 15 A8–A9 (rattrapages, grève ; A9 rouge en correction), 20 C3–C7 (cahier de textes ; C4 rouge corrigé dans la pile C5).
+
+### Avancement par socle (versé sur `ENT`)
+| Socle | Versé | Suivant |
+|---|---|---|
+| 6 Personnels | P0 à P6 | P11 (écrans), P13 (paramétrage) |
+| 7 Documents | D0 à D3 | D1b (prêt), D4 coffre, D5 pièces, D6 signatures |
+| 8 Notifications | N0a | N0b à N3 (en cours) |
+| 10 EDT | T0 à T2 | T3, T4 (prêts), T5 |
+| 12 Assiduité | AS0 à AS4 | AS5 |
+| 15 Absences du personnel | A0 à A7 | A8, A9 (en cours) |
+| 20 Cahier de textes | C0 à C2 | C3 à C7 (en cours) |
+| 27 RGPD | — | G0 à G2 (prêts) |
+| 28 Mise en service | MS0, R0, R1 | MS1, R2, R3 |
+| 29 Portails | P2 à P7 | P14 (retrait de `ui.rs`) |
+| N1 Demandes | N1-0 à N1-5 | — (socle complet hors pièces : port du socle 7 à brancher) |
+
+### Décisions de Florian (14–15 nov.)
+- Dépôt public, ménage des adresses et des documents de failles **à la bascule**. 10 à 12 sessions Sonnet jusqu'à la remise à zéro du quota (dim. 10 h), jamais Fable.
+
+### Décisions attendues de Florian
+- **Q-PB2** avant le 27 novembre ; **Q-PB3** (e-mail sortant) ; **DPO** ; nom de l'application académique des HSE.
+- **Profil direction = fonction chef d'établissement par défaut** (migration 353) : tout compte de direction signe comme le chef. Proposition : seul le compte qui porte la fonction signe comme chef, les autres par délégation (lot P13 du socle 6).
+- Hypothèses de reprise des demandes (N1-5) à confirmer sur l'export réel à Noël (statut « en attente », photocopies sans nombre de pages, table route → nature).
+- Format d'export pour l'outil d'anonymisation : `pg_dump --format=plain` (le format compressé demanderait une dépendance, D-062).
+
+### À fournir par Florian plus tard
+- **F-08 hébergement Scaleway** : liste exacte donnée par le pilote vers le 30 novembre, prêt vers le 14 décembre.
+- **Export anonymisé de la base Next.js** : outil R1 livré le 4 décembre (il est déjà codé), export attendu le 19 décembre.
+- F-01 à F-07 : plus tard.
+
+### Ce qui a coincé
+- **Aucun verdict complet d'ENT pendant 18 h** : le `concurrency` annulait le run d'ENT à chaque push, et le pilote en annulait lui-même. Corrigé : règle 29 (gel d'ENT jusqu'au verdict) et CI allégée (ENT jamais annulé).
+- La CI allégée n'a pas divisé le temps par trois : regrouper les tranches saturait les 4 cœurs (tests instables). Version sûre retenue : −10 jobs par run.
+- **Faux positif de fuite** sur les documents (D2) : le test lisait avec un rôle propriétaire qui contourne la RLS ; preuve refaite avec un rôle sans privilège, cloisonnement confirmé.
+- Fusions : compteurs fusionnés sans conflit apparent (règle 28), accolade perdue dans une union de menus, disque plein (19 Go de compilations anciennes du web supprimés).
+- Tests instables à corriger : `lot_eleves_responsables`, `a4_expiration_refus_et_acceptation_perimee`, `tests_personnels_p1::reprise…`, `tests_objets::registre_immuable_en_base` (en parallèle sur une même base) ; deux tests au jour UTC (`tests_eleve_identite::correction_remplace_changement_ajoute`, `recette_personas_1::rp1_c24…`).
+
 ## 2026-11-14 (samedi, point du jour, 18 h 45 Paris)
 
 ### Sur `ENT`, validé (tête `77e63bed`) — 12 fusions aujourd'hui
