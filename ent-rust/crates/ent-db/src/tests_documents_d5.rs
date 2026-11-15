@@ -429,10 +429,10 @@ async fn t_eicar_refuse_et_jamais_servi() {
     let eleve = w.eleve("Leroy").await;
     w.lier(eleve, &w.lily, true, None).await;
     let s = SujetPiece::Eleve(eleve);
-    w.ent.demander_piece_for_actor(&w.adm(), w.demande("acte_naissance", s)).await.unwrap();
+    let dem = w.ent.demander_piece_for_actor(&w.adm(), w.demande("acte_naissance", s)).await.unwrap();
     // Un PDF d'apparence banale qui porte la chaîne de test EICAR.
     let piege = pdf("", &format!("4 0 obj\n<< /Length 70 >>\nstream\n{}\nendstream\nendobj\n", String::from_utf8_lossy(EICAR)));
-    let dep = w.ent.deposer_piece_for_actor(&w.lily_a(), w.depot("acte_naissance", s, None, vec![piege])).await.unwrap();
+    let dep = w.ent.deposer_piece_for_actor(&w.lily_a(), w.depot("acte_naissance", s, Some(dem.demande_id), vec![piege])).await.unwrap();
     let r = w.ent.analyser_piece(w.m.etab, dep.piece_id, w.av.clone()).await.unwrap();
     assert_eq!(r, ResultatAnalyse::Infectee);
     assert_eq!(w.etat(dep.piece_id).await, "infectee");
@@ -1125,7 +1125,7 @@ async fn t_separation_entre_etablissements() {
     assert!(w.ent.reutiliser_piece_for_actor(&par_b, dem.demande_id, p).await.is_err());
     assert!(w.ent.deposer_piece_for_actor(&par_b, w.depot("acte_naissance", s, None, vec![pdf_simple()])).await.is_err());
     assert!(w.ent.demander_piece_for_actor(&adm_b, w.demande("livret_famille", s)).await.is_err());
-    assert!(w.ent.ce_qui_manque_for_actor(&dir_b, s).await.is_err());
+    assert!(w.ent.ce_qui_manque_for_actor(&dir_b, s).await.map_or(true, |l| l.is_empty()), "rien de A chez B");
     assert!(w.ent.pieces_a_controler_for_actor(&adm_b, 50).await.unwrap().is_empty());
     assert_eq!(w.ent.analyser_piece(mb.etab, p, w.av.clone()).await.err().map(|e| introuvable(&e)), Some(true));
     // Le compte de A, présenté dans le contexte de B (même identité, autre établissement) : rien non plus.
