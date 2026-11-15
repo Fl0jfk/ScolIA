@@ -2648,26 +2648,33 @@ async fn reprise_de_l_existant_comptes_ferme_professeur_parent_et_rejeu() {
         return;
     };
     let etab = Uuid::new_v4();
-    // Comptes « d'avant » : le déclencheur est suspendu le temps de les créer, comme avant la migration.
-    sqlx::query("ALTER TABLE ent_membership DISABLE TRIGGER ent_membership_agent_sync_trg")
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    // Comptes « d'avant » la migration : sans personne ni agent. On ne suspend PAS le déclencheur (un
+    // `ALTER TABLE … DISABLE TRIGGER` vaut pour toute la base et privait d'agent les comptes créés au même
+    // moment par les tests voisins). Les comptes sont créés normalement dans l'établissement de ce test
+    // (identifiant neuf), puis ce que le déclencheur a produit est retiré, hors déclencheurs
+    // (`session_replication_role = replica`, session locale à cette transaction), pour cet établissement seul.
     let prof = compte(&ent, etab, "prof").await;
     let parti = compte(&ent, etab, "psy").await;
     let futur = compte(&ent, etab, "cpe").await;
     let parent = compte(&ent, etab, "parent").await;
-    sqlx::query("UPDATE ent_membership SET created_at = '2024-09-02 08:00+00' WHERE etablissement_id = $1 AND user_id IN ($2, $3, $4)").bind(etab).bind(prof).bind(parti).bind(futur).execute(ent.pool()).await.unwrap();
+    let mut tx = ent.pool_verif().begin().await.unwrap();
+    sqlx::query("SET LOCAL session_replication_role = replica").execute(&mut *tx).await.unwrap();
+    for table in ["ent_agent_fonction", "ent_agent_engagement", "ent_agent"] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE etablissement_id = $1"))
+            .bind(etab)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM ent_personne WHERE etablissement_id = $1").bind(etab).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE ent_membership SET created_at = '2024-09-02 08:00+00' WHERE etablissement_id = $1 AND user_id IN ($2, $3, $4)").bind(etab).bind(prof).bind(parti).bind(futur).execute(&mut *tx).await.unwrap();
     // Un accès fermé le 30 juin 2025, un accès avec date de fin AVANT sa création (donnée aberrante).
-    sqlx::query("UPDATE ent_membership SET etat = 'ferme', etat_depuis = '2025-06-30 18:00+00', etat_motif = 'depart' WHERE etablissement_id = $1 AND user_id = $2").bind(etab).bind(parti).execute(ent.pool()).await.unwrap();
-    sqlx::query("UPDATE ent_membership SET date_fin = '2024-01-01' WHERE etablissement_id = $1 AND user_id = $2").bind(etab).bind(futur).execute(ent.pool()).await.unwrap();
+    sqlx::query("UPDATE ent_membership SET etat = 'ferme', etat_depuis = '2025-06-30 18:00+00', etat_motif = 'depart' WHERE etablissement_id = $1 AND user_id = $2").bind(etab).bind(parti).execute(&mut *tx).await.unwrap();
+    sqlx::query("UPDATE ent_membership SET date_fin = '2024-01-01' WHERE etablissement_id = $1 AND user_id = $2").bind(etab).bind(futur).execute(&mut *tx).await.unwrap();
     // Le professeur est aussi parent : sa personne existe déjà (lien de responsabilité).
     let pid = Uuid::new_v4();
-    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,'Parent','Prof',$3,'saisie')").bind(pid).bind(etab).bind(prof).execute(ent.pool()).await.unwrap();
-    sqlx::query("ALTER TABLE ent_membership ENABLE TRIGGER ent_membership_agent_sync_trg")
-        .execute(ent.pool())
-        .await
-        .unwrap();
+    sqlx::query("INSERT INTO ent_personne (id, etablissement_id, nom, prenom, user_id, source) VALUES ($1,$2,'Parent','Prof',$3,'saisie')").bind(pid).bind(etab).bind(prof).execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
     assert_eq!(
         compter(
             &ent,

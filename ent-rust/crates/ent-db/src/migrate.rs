@@ -472,8 +472,23 @@ pub(crate) async fn rejouer_tout(pool: &PgPool) -> Result<(), MigrateError> {
         if LISENT_UNE_COLONNE_RETIREE.contains(nom) {
             continue;
         }
-        apply_sql_file(pool, sql).await?;
+        apply_sql_file_atomique(pool, sql).await?;
     }
+    Ok(())
+}
+
+/// Un fichier, **dans une transaction** (comme la vraie migration, `appliquer_dans_une_transaction`), sans
+/// registre. Statement par statement en autocommit, un `DROP TRIGGER` / `DROP POLICY` suivi de son `CREATE`
+/// laissait une fenêtre où les autres tests (même base, en parallèle) voyaient la table sans son
+/// déclencheur ou sa politique : l'immuabilité de `ent_objet` semblait alors levée. En transaction, le
+/// `DROP` garde son verrou jusqu'au `COMMIT` : les autres sessions attendent et voient l'objet recréé.
+#[cfg(test)]
+async fn apply_sql_file_atomique(pool: &PgPool, sql: &str) -> Result<(), MigrateError> {
+    let mut tx = pool.begin().await?;
+    for stmt in ordres(sql) {
+        sqlx::query(&stmt).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 
