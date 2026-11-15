@@ -465,11 +465,11 @@ impl PgEnt {
         };
         // Socle 10 (T1) : les créneaux sont repris en placements d'une version « reprise » avant de
         // générer ; les séances sont ensuite rattachées à leur placement (T2). Rejouable.
-        let reprise = Self::reprendre_creneaux_tx(&mut **tx, a, annee_id).await?;
+        let reprise = Self::reprendre_creneaux_tx(tx, a, annee_id).await?;
         // Socle 10 (T5a) : les séances viennent des PLACEMENTS de la version en vigueur à chaque date (base, surchargée par
         // les versions temporaires) ; les créneaux historiques sans cours produisent les leurs comme avant.
         let sources =
-            sources_du_plan(&mut **tx, e, annee_id, fin, du, au, &grille).await?;
+            sources_du_plan(tx, e, annee_id, fin, du, au, &grille).await?;
         let mut plans: Vec<SeancePlan> = Vec::new();
         let (mut jours_neutralises, mut creneaux_ab_ignores) = (0i64, 0i64);
         for tranche in &sources.tranches {
@@ -638,11 +638,11 @@ impl PgEnt {
         for tranche in sources.tranches.iter().filter(|t| t.version_id.is_some()) {
             if let Some(version_id) = tranche.version_id {
                 rapport.rattachees +=
-                    Self::rattacher_seances(&mut **tx, e, annee_id, tranche.du, tranche.au, version_id).await?;
+                    Self::rattacher_seances(tx, e, annee_id, tranche.du, tranche.au, version_id).await?;
             }
         }
         let ev = publier_agg(
-            &mut **tx,
+            tx,
             a,
             AggregateKind::Edt,
             "edt.seances_generees",

@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
 //! Socle 10, lot T5 — notifications de publication, **par le socle 8 seulement** (`notifier_personne`), un message par
 //! personne (§14.2) :
 //!

@@ -894,7 +894,7 @@ impl PgEnt {
             .await
             .map_err(db)?;
         // Les créneaux historiques sont repris dans la version « reprise » AVANT de la tronquer (rejouable).
-        let _ = Self::reprendre_creneaux_tx(&mut **tx, a, v.annee_id).await?;
+        let _ = Self::reprendre_creneaux_tx(tx, a, v.annee_id).await?;
         let fin = fin_version.unwrap_or(annee.fin).min(annee.fin);
         let avant = lignes_generees(tx, e, v.annee_id, effet, fin).await?;
 
@@ -1498,7 +1498,7 @@ impl PgEnt {
         )
         .await?;
         let ev = publier_agg(
-            &mut **tx,
+            tx,
             a,
             AggregateKind::Edt,
             EVT_VERSION_DIFFUSEE,

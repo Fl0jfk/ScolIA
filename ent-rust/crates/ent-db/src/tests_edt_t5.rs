@@ -1715,8 +1715,9 @@ async fn t5_version_individuelle_conflit_idempotence_notification_et_separation(
             .unwrap()
             .applique
     );
-    // Conflit d'horaire : cours 1 (lundi M1, 4B) ajouté à un élève qui suit déjà un cours au même créneau — Harry avec le cours 2
-    // (jeudi) n'a pas de conflit, mais un cours placé au même créneau que le sien en a un.
+    // Conflit d'horaire : une version publiée place « Même heure T5 » (4B) et le cours 1 (4B) le lundi à M1 (salles et
+    // professeurs différents, donc pas de conflit de plan). Neville suit déjà « Même heure T5 » : ajouter le cours 1
+    // à sa version individuelle le met en deux endroits à la fois.
     let conflit_cours = Uuid::new_v4();
     sqlx::query("INSERT INTO ent_cours (id, etablissement_id, annee_id, libelle, classe_id, ouvert_le) VALUES ($1,$2,$3,'Même heure T5',$4,$5)")
         .bind(conflit_cours)
@@ -1738,7 +1739,7 @@ async fn t5_version_individuelle_conflit_idempotence_notification_et_separation(
     )
     .await;
     let salle2 = creer_salle(&ent, e, cast.administratif.user_id, "B13").await;
-    let a_v = ent
+    let v_conflit = ent
         .edt_version_creer(&a, c.d.annee_id, "Avec cours simultané", None, None)
         .await
         .unwrap()
@@ -1751,7 +1752,7 @@ async fn t5_version_individuelle_conflit_idempotence_notification_et_separation(
         ent.edt_placement_creer(
             &a,
             NouveauPlacement {
-                version_id: a_v,
+                version_id: v_conflit,
                 cours_id: cours,
                 position: pos(jour, "M1", 1, vec![lieu]),
             },
@@ -1759,60 +1760,59 @@ async fn t5_version_individuelle_conflit_idempotence_notification_et_separation(
         .await
         .unwrap();
     }
-    // Les conflits du plan (le même public 4B a deux cours au même créneau) n'empêchent pas ce test : on publie la version à
-    // la main et on vérifie le conflit d'élève.
-    let base_actuelle: Uuid = sqlx::query_scalar("SELECT id FROM ent_edt_version WHERE etablissement_id = $1 AND etat = 'publiee' AND nature = 'base' AND id <> $2 ORDER BY publiee_le DESC LIMIT 1")
-        .bind(e)
-        .bind(c.v0)
-        .fetch_optional(ent.pool())
-        .await
-        .unwrap()
-        .unwrap_or(v);
-    basculer_sql(
-        &ent,
-        e,
-        base_actuelle,
-        a_v,
-        effet - Duration::days(1),
-        c.d.annee_fin,
-    )
-    .await;
-    let r = ent
-        .edt_publier_individuelle(
+    let pub2 = ent
+        .edt_publier(
             &a,
-            &CmdIndividuelle {
-                eleve_id: neville.id,
-                a_partir_du: Some(effet + Duration::days(1)),
-                au: None,
-                motif_code: "echange".into(),
-                ajouter: vec![c.d.cours],
-                retirer: vec![],
-                cle: None,
+            &CmdPublier {
+                version_id: v_conflit,
+                a_partir_du: Some(aujourdhui + Duration::days(2)),
+                deux_temps: Some(false),
+                ..Default::default()
             },
         )
         .await
         .unwrap();
-    assert!(r.applique, "Neville ne suit pas le cours simultané : {r:?}");
-    // Harry suit « Même heure T5 » (4B, lundi M1) : ajouter le cours 1 (lundi M1) à Harry est un conflit.
-    let sans_effet = ent
-        .edt_publier_individuelle(
-            &a,
-            &CmdIndividuelle {
-                eleve_id: harry.id,
-                a_partir_du: Some(effet + Duration::days(2)),
-                au: None,
-                motif_code: "echange".into(),
-                ajouter: vec![c.d.cours],
-                retirer: vec![],
-                cle: None,
-            },
+    assert!(pub2.applique && pub2.diffusee, "{pub2:?}");
+    let individuelle = |cours: Uuid, jours: i64| CmdIndividuelle {
+        eleve_id: neville.id,
+        a_partir_du: Some(aujourdhui + Duration::days(jours)),
+        au: None,
+        motif_code: "echange".into(),
+        ajouter: vec![cours],
+        retirer: vec![],
+        cle: None,
+    };
+    let membres = || async {
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM ent_cours_membre WHERE etablissement_id = $1 AND eleve_id = $2",
         )
-        .await;
-    // Harry a été exclu du cours 1 à partir de l'effet : cumul inclusion/exclusion refusé ou conflit signalé, jamais accepté en silence.
-    match sans_effet {
-        Ok(r) => assert!(!r.applique || r.conflits.is_empty()),
-        Err(_) => {}
-    }
+        .bind(e)
+        .bind(neville.id)
+        .fetch_one(ent.pool())
+        .await
+        .unwrap()
+    };
+    assert!(
+        ent.edt_publier_individuelle(&a, &individuelle(conflit_cours, 5))
+            .await
+            .unwrap()
+            .applique
+    );
+    let avant = membres().await;
+    let r = ent
+        .edt_publier_individuelle(&a, &individuelle(c.d.cours, 6))
+        .await
+        .unwrap();
+    assert!(!r.applique && r.id.is_none(), "{r:?}");
+    assert_eq!(
+        r.conflits
+            .iter()
+            .map(|x| x.code.as_str())
+            .collect::<Vec<_>>(),
+        vec!["conflit_eleve"]
+    );
+    assert_eq!(r.conflits[0].cours, vec![c.d.cours]);
+    assert_eq!(membres().await, avant, "un conflit n'écrit rien");
     // Notification : l'élève et sa famille (mineur) sont prévenus, sans le motif.
     distribuer(&ent, e).await;
     for u in [
@@ -1847,7 +1847,6 @@ async fn t5_version_individuelle_conflit_idempotence_notification_et_separation(
         ent.edt_publier_individuelle(&ab, &cmd).await.is_err(),
         "élève et cours d'un autre établissement"
     );
-    let _ = (a_v, base_actuelle);
 }
 
 #[tokio::test]
