@@ -675,6 +675,23 @@ fn specs_domaine_edt() -> Vec<Spec> {
             lire("edt-delegations", "/delegations", &[Admin, Direction], &[]),
             ecrire_sur_b("edt-remplacement-B", "POST", "/edt/remplacements",
                 Some(r#"{"creneau_id":"{appel}","jour":"{jour}","remplacant_user_id":"{eleve}","absence_rh_id":null,"nouvelle_salle":null}"#)),
+            // Socle 10, lot T3 : journal du réel, grève du jour et modifications. Le journal est lu par
+            // l'encadrement (le professeur : ses séances, une par une) ; la grève est un droit de lot.
+            lire("edt-journal", "/edt/modifications?du={jour}&au={jour}",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
+            lire("edt-greve-candidats", "/edt/greve/candidats?jour={jour}&demi_journee=journee",
+                &[Direction, Administratif], &[Direction, Administratif]),
+            // Socle 10, lot T4 : « demain » (encadrement) et « maintenant » (lecture journalisée d'un élève).
+            // Sans identifiant de ressource : la cible B répond comme un identifiant inexistant (les données de A,
+            // jamais celles de B).
+            Spec { b: Attendu::RefuseOuIndistinct, ..lire("edt-demain", "/edt/demain?jour={jour}",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]) },
+            lire("edt-maintenant-eleve", "/edt/maintenant/eleves/{eleve}?usage=recherche",
+                &[Direction, Administratif, Cpe], &[Direction, Administratif, Cpe]),
+            ecrire_sur_b("edt-modification-B", "POST", "/edt/modifications",
+                Some(r#"{"seance_id":"{appel}","changement":{"type":"annulation"},"motif_public_code":"autre"}"#)),
+            ecrire_sur_b("edt-lot-B", "POST", "/edt/lots",
+                Some(r#"{"nature":"annulation","du":"{jour}","au":"{jour}","portee":"classes","cibles":["{appel}"],"motif_public_code":"autre"}"#)),
     ]
 }
 

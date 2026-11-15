@@ -510,6 +510,13 @@ pub const REGISTRE: &[ClasseTable] = &[
     // Archive datée des exceptions levées ou remplacées (A0, AR-15) : rien ne s'efface.
     t("ent_edt_exception_levee", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_import", "emploi_du_temps_structure", Portee::Etablissement),
+    // Socle 10, lot T3 : journal du réel, lots et motifs internes (jamais exportés hors direction).
+    // Socle 10, lot T4 : lectures de localisation d'un élève (qui, quand, pourquoi ; jamais le lieu).
+    t("ent_edt_localisation_journal", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    t("ent_edt_lot", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    t("ent_edt_lot_cible", "emploi_du_temps_structure", Portee::Etablissement).export(),
+    t("ent_edt_modification", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
+    t("ent_edt_modification_interne", "emploi_du_temps_structure", Portee::Etablissement).perso().export(),
     t("ent_edt_piece", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_placement", "emploi_du_temps_structure", Portee::Etablissement).export(),
     t("ent_edt_placement_lieu", "emploi_du_temps_structure", Portee::Etablissement).export(),
