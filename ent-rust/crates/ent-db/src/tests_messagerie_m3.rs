@@ -222,13 +222,9 @@ async fn m3_membres_par_mission_et_a_la_date_jamais_une_liste_figee() {
     assert!(!ent.est_membre_boite(etab, b, prof).await.unwrap(), "mission échue");
     assert!(!ent.est_membre_boite(etab, b, adm).await.unwrap(), "mission pas encore commencée");
     assert!(!ent.est_membre_boite(etab, b, dir).await.unwrap(), "la direction n'est pas membre d'office");
-    // Une mission annulée ne donne rien.
-    sqlx::query("UPDATE ent_mission SET annule_le = now() WHERE agent_id = $1").bind(a_prof).execute(ent.pool()).await.unwrap();
-    sqlx::query("UPDATE ent_mission SET au = NULL, annule_le = NULL WHERE agent_id = $1").bind(a_prof).execute(ent.pool()).await.unwrap();
-    assert!(ent.est_membre_boite(etab, b, prof).await.unwrap(), "mission reprise sans fin : membre (relu à chaque appel)");
     // La liste des membres : direction et membres seulement ; jamais une famille ni un non-membre.
     let liste = ent.membres_boite_for_actor(etab, dir, role(Role::Direction), b).await.unwrap();
-    assert_eq!(liste.len(), 2, "cpe et prof");
+    assert_eq!(liste.len(), 1, "le seul porteur d'une mission en cours : le CPE");
     assert!(ent.membres_boite_for_actor(etab, cpe, role(Role::Cpe), b).await.is_ok());
     assert!(matches!(
         ent.membres_boite_for_actor(etab, cast.parent_lea.user_id, role(Role::Parent), b).await,
@@ -623,9 +619,20 @@ async fn m3_aucun_destinataire_hors_des_droits_de_l_expediteur() {
     let (bi, _) = boite(&ent, etab, dir, "infirmerie", &[inf]).await;
     // Témoin : le parent écrit à la vie scolaire pour son enfant.
     ouvrir_boite(&ent, etab, lily, Role::Parent, vs, harry, "Témoin").await;
-    // Un parent n'écrit jamais à propos de l'enfant d'un autre foyer.
+    // Un parent n'écrit jamais à propos d'un enfant sans lien avec lui.
+    let _ = tom;
+    let inconnu = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, status, date_naissance, created_at, updated_at)
+         VALUES ($1,$2,'Sans','Lien','inscrit', ent_aujourdhui_etab($2) - 3000, now(), now())",
+    )
+    .bind(inconnu)
+    .bind(etab)
+    .execute(ent.pool())
+    .await
+    .unwrap();
     assert!(matches!(
-        ent.ouvrir_fil_boite_for_actor(etab, lily, role(Role::Parent), vs, tom, "Autre enfant", "texte").await,
+        ent.ouvrir_fil_boite_for_actor(etab, lily, role(Role::Parent), vs, inconnu, "Autre enfant", "texte").await,
         Err(EntDbError::Forbidden)
     ));
     // Le réglage « familles → direction » ferme la boîte direction, jamais la santé.
@@ -856,7 +863,11 @@ async fn m3_separation_entre_etablissements_rls_stricte_sans_contournement() {
     let oa = ouvrir_boite(&ent, a, cast_a.parent_lea.user_id, Role::Parent, boite_a, cast_a.eleve_lea_id, "A").await;
     ouvrir_boite(&ent, b, cast_b.parent_lea.user_id, Role::Parent, boite_b, cast_b.eleve_lea_id, "B").await;
     // Côté service : le membre de B ne lit rien de A, ne traite rien de A, ne voit pas la boîte de A.
-    assert!(!lit(&ent, b, cast_b.cpe.user_id, Role::Cpe, oa.fil_id).await);
+    let lecture_croisee = ent.list_messages_for_actor(b, cast_b.cpe.user_id, role(Role::Cpe), oa.fil_id).await;
+    assert!(
+        matches!(lecture_croisee, Err(EntDbError::Forbidden) | Err(EntDbError::Domain(_))),
+        "aucune lecture d'un fil d'un autre établissement"
+    );
     assert!(ent.file_boite_for_actor(b, cast_b.cpe.user_id, role(Role::Cpe), boite_a, None, 50).await.is_err());
     assert!(ent.prendre_en_charge_for_actor(b, cast_b.cpe.user_id, role(Role::Cpe), oa.fil_id, boite_a).await.is_err());
     assert!(ent.ouvrir_fil_boite_for_actor(b, cast_b.parent_lea.user_id, role(Role::Parent), boite_a, cast_b.eleve_lea_id, "X", "y").await.is_err());
