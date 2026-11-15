@@ -306,6 +306,9 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2312_absp_personas_circuit_arrets"),
     // Socle 18 (formulaires, autorisations, consentements), plage 2360–2379 : lots FO0 (2360) et FO1.
     m!("2360_formulaires_fo0_correctifs"),
+    m!("2361_acc_objets_catalogue_usages"),
+    m!("2362_acc_versions_decisions"),
+    m!("2363_acc_journal"),
     m!("2380_agenda_ag0_rencontres"),
     m!("2381_agenda_evenement"),
     m!("2386_agenda_reservation_lieu"),

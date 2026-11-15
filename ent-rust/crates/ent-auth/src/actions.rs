@@ -460,6 +460,16 @@ pub enum Action {
     DocumentsFinancierLire,
     /// Lire les dossiers documentaires des agents (domaine rh).
     DocumentsPersonnelsLire,
+    // ── Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`18_FORMULAIRES.md` §23.1) ──
+    /// Lire les **verdicts** d'accord (peut / ne peut pas / en attente) des élèves de sa portée, sans motif
+    /// ni décideur (R-FC39). Portées : établissement, mes classes, périmètre, désignés.
+    AutorisationsLire,
+    /// Lire les décisions par décideur, les preuves et les désaccords ; corriger ou annuler une saisie
+    /// (lecture journalisée, R-FC38). Établissement seulement.
+    AutorisationsGerer,
+    /// Activer les objets du catalogue, rédiger et publier les versions de texte et leurs usages. Établissement
+    /// seulement.
+    AutorisationsParametrer,
     /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
     ConformiteLire,
     /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
@@ -545,7 +555,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 225] = [
+    pub const TOUTES: [Action; 228] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -786,6 +796,9 @@ impl Action {
         Action::DocumentsRestreintsLire,
         Action::DocumentsFinancierLire,
         Action::DocumentsPersonnelsLire,
+        Action::AutorisationsLire,
+        Action::AutorisationsGerer,
+        Action::AutorisationsParametrer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -990,6 +1003,9 @@ impl Action {
             Self::DocumentsRestreintsLire => "documents.restreints.lire",
             Self::DocumentsFinancierLire => "documents.financier.lire",
             Self::DocumentsPersonnelsLire => "documents.personnels.lire",
+            Self::AutorisationsLire => "autorisations.lire",
+            Self::AutorisationsGerer => "autorisations.gerer",
+            Self::AutorisationsParametrer => "autorisations.parametrer",
             Self::ConformiteLire => "conformite.lire",
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
@@ -1223,6 +1239,9 @@ impl Action {
             Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
             Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
             Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
+            Self::AutorisationsLire => "Lire les verdicts d'accord (peut / ne peut pas / en attente) des élèves de sa portée",
+            Self::AutorisationsGerer => "Lire les décisions, preuves et désaccords ; corriger ou annuler une saisie",
+            Self::AutorisationsParametrer => "Activer les objets d'accord, rédiger et publier les versions de texte et leurs usages",
             Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
@@ -1476,7 +1495,9 @@ impl Action {
             | Self::DocumentsModelesParametrer
             | Self::DocumentsRestreintsLire
             | Self::DocumentsFinancierLire
-            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
+            | Self::DocumentsPersonnelsLire
+            | Self::AutorisationsGerer
+            | Self::AutorisationsParametrer => &[Portee::Etablissement],
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
@@ -1623,6 +1644,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_20_cahier(role, &mut d);
     socle_06_personnels(role, &mut d);
     socle_07_documents(role, &mut d);
+    socle_18_formulaires(role, &mut d);
     socle_27_rgpd(role, &mut d);
     socle_10_edt(role, &mut d);
     socle_05_structure(role, &mut d);
@@ -2379,9 +2401,55 @@ fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`18_FORMULAIRES.md` §23.1).
+/// Les familles et les élèves n'ont aucun rôle ici : leurs décisions passent par les droits du lien et par leur
+/// propre compte (R-FC2). `autorisations.lire` ne donne que des verdicts, jamais une décision ni un motif.
+fn socle_18_formulaires(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    match role {
+        Role::Direction => {
+            d.push(etab(AutorisationsLire));
+            d.push(etab(AutorisationsGerer));
+            d.push(etab(AutorisationsParametrer));
+        }
+        Role::Administratif => {
+            d.push(etab(AutorisationsLire));
+            d.push(etab(AutorisationsGerer));
+        }
+        Role::Cpe => d.push(etab(AutorisationsLire)),
+        // Professeurs : verdicts de leurs classes seulement.
+        Role::Prof => d.push((AutorisationsLire, Portee::MesClasses)),
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Socle 18 (FO0–FO1) : droits par défaut. Les verdicts se lisent dans la portée ; les décisions et les
+    /// preuves restent à la direction et au secrétariat ; familles, élèves, infirmerie, comptabilité : rien.
+    #[test]
+    fn socle_18_droits_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action, p: Portee| modele_par_defaut(r).iter().any(|(y, q)| *y == x && *q == p);
+        let tout = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        assert!(a(Role::Direction, AutorisationsParametrer, Portee::Etablissement));
+        assert!(a(Role::Direction, AutorisationsGerer, Portee::Etablissement));
+        assert!(a(Role::Administratif, AutorisationsGerer, Portee::Etablissement));
+        assert!(!tout(Role::Administratif, AutorisationsParametrer));
+        assert!(a(Role::Cpe, AutorisationsLire, Portee::Etablissement));
+        assert!(!tout(Role::Cpe, AutorisationsGerer));
+        assert!(a(Role::Prof, AutorisationsLire, Portee::MesClasses));
+        assert!(!a(Role::Prof, AutorisationsLire, Portee::Etablissement), "un professeur ne lit que sa classe");
+        for r in [Role::Parent, Role::Eleve, Role::Infirmerie, Role::Compta, Role::Psy, Role::Accueil, Role::Personnel, Role::Admin] {
+            for x in [AutorisationsLire, AutorisationsGerer, AutorisationsParametrer] {
+                assert!(!tout(r, x), "{r:?} n'a aucun droit d'accord par défaut ({x:?})");
+            }
+        }
+        assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("autorisations.")).count(), 3);
+    }
 
     /// Socle 27 : droits par défaut de la conformité. Personne ne valide une règle de conservation
     /// sans que l'établissement ait confié ce droit à un rôle (DPO) ; l'administrateur technique ne lit pas
