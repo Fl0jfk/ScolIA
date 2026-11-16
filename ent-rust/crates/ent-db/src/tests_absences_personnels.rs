@@ -6,7 +6,7 @@
 //!
 //! * A0 : AR-01 (motif lisible de tous), AR-02 (motif libre des exceptions), AR-04 (e-mail vers les
 //!   familles), AR-06 (auto-validation), AR-08/14/18 (route historique), AR-09 (concurrence), AR-11
-//!   (annulation d'une absence non validée ou d'un autre), AR-13 (auteur écrasé), AR-15 (levée par
+//!   (annulation d'une séance au titre d'une absence annulée ou d'un autre), AR-13 (auteur écrasé), AR-15 (levée par
 //!   suppression), AR-16 (refus, annulation), AR-17 (journal) ;
 //! * A1 : circuit figé, double engagement, signalement non confirmé (R-AP46), nature jamais hors du cercle
 //!   (R-AP2, R-AP3), circuit externe (R-AP47), natures non discrétionnaires (R-AP12), faits (requalifier,
@@ -668,7 +668,7 @@ async fn a0_ar08_14_18_la_route_historique_controle_le_remplacant() {
             .await
             .unwrap_err();
         assert!(
-            matches!(e, EntDbError::Domain(DomainError::Conflit)),
+            refus_conflit_explicite(&e, "pas disponible"),
             "{e:?}"
         );
     }
@@ -792,7 +792,7 @@ async fn a0_ar09_deux_remplacements_simultanes_un_seul_passe() {
     for t in taches {
         match t.await.unwrap() {
             Ok(_) => ok += 1,
-            Err(EntDbError::Domain(DomainError::Conflit)) => conflit += 1,
+            Err(EntDbError::Refus(crate::service::RefusMetier::Conflit, _)) => conflit += 1,
             Err(e) => panic!("erreur inattendue : {e:?}"),
         }
     }
@@ -810,25 +810,30 @@ async fn a0_ar09_deux_remplacements_simultanes_un_seul_passe() {
 /// AR-11 : l'annulation d'une séance citant une absence exige une absence **validée**, de **l'agent en
 /// saisie**, couvrant le jour.
 #[tokio::test]
-async fn a0_ar11_annuler_une_seance_exige_une_absence_validee_du_bon_agent() {
+async fn a0_ar11_annuler_une_seance_exige_une_absence_non_annulee_du_bon_agent() {
     let x = cadre!();
     let cr = x.creneau(&x.classe, x.prof, 4, (8, 0), (9, 0)).await;
     let jour = x.jour(4);
-    let abs_non_validee = x
+    // Une absence **annulée** (saisie par erreur) n'ouvre aucune réponse : refus explicite (409), pas un doublon.
+    let abs_annulee = x
         .declarer(x.prof, "prof", Some("formation"), 4, 4)
         .await
         .absences[0]
         .id;
+    x.ent
+        .annuler_absence_for_actor(x.etab, x.prof, "prof", abs_annulee, &DecisionBody::default())
+        .await
+        .unwrap();
     let e = x
         .ent
-        .edt_annuler_seance(&x.d(), cr, jour, Some(abs_non_validee))
+        .edt_annuler_seance(&x.d(), cr, jour, Some(abs_annulee))
         .await
         .unwrap_err();
     assert!(
-        matches!(e, EntDbError::Domain(DomainError::Conflit)),
-        "non validée : {e:?}"
+        matches!(&e, EntDbError::Refus(crate::service::RefusMetier::Conflit, m) if m.contains("annulée")),
+        "annulée : {e:?}"
     );
-    // Une absence validée… d'un autre enseignant : refus.
+    // Une absence validée… d'un autre enseignant : refus explicite.
     let abs_autre = x
         .declarer(x.prof2, "prof", Some("formation"), 4, 4)
         .await
@@ -841,14 +846,18 @@ async fn a0_ar11_annuler_une_seance_exige_une_absence_validee_du_bon_agent() {
         .await
         .unwrap_err();
     assert!(
-        matches!(e, EntDbError::Domain(DomainError::Conflit)),
+        matches!(&e, EntDbError::Refus(crate::service::RefusMetier::Conflit, m) if m.contains("ne concerne pas")),
         "autre agent : {e:?}"
     );
-    // Validée, du bon agent, jour couvert : accepté.
-    x.valider(abs_non_validee).await;
+    // Du bon agent, jour couvert, **non encore validée** (déclarée) : accepté (§8.1, on organise sans attendre).
+    let abs_declaree = x
+        .declarer(x.prof, "prof", Some("formation"), 4, 4)
+        .await
+        .absences[0]
+        .id;
     let r = x
         .ent
-        .edt_annuler_seance(&x.d(), cr, jour, Some(abs_non_validee))
+        .edt_annuler_seance(&x.d(), cr, jour, Some(abs_declaree))
         .await
         .unwrap();
     assert!(!r.deja_fait);
@@ -5370,4 +5379,366 @@ async fn a9_une_fermeture_neutralise_les_absences_du_jour() {
     // Le tableau de crise ne compte plus la séance neutralisée.
     let c = x.ent.tableau_de_crise_for_actor(x.etab, x.dir, "direction", jour).await.unwrap();
     assert_eq!((c.seances, c.touchees), (0, 0), "{c:?}");
+}
+
+// ═══════════════════════════════════════════════ LOT A4bis : ON ORGANISE SANS ATTENDRE LA VALIDATION ═══════════════════════════════════════════════
+// §8.1 : « impact calculé et visible (on organise même sans confirmation) ». Un professeur qui prévient à 7 h 45 est
+// remplacé tout de suite : le remplacement accepté est appliqué quel que soit l'état de l'absence, hors « annulée ».
+// Tout refus de règle dit pourquoi (409 explicite), jamais « valeur déjà existante ».
+
+impl Cadre {
+    /// Une absence de `prof` sur le jour ISO 1 dans l'état `etat` (`signalee`, `declaree`, `en_instruction`,
+    /// `validee`, `refusee`, `annulee`), avec une séance 9 h – 10 h ; renvoie (absence, créneau, impact).
+    /// L'impact est lu **avant** l'éventuelle annulation (une absence annulée ne touche plus rien).
+    async fn absence_en_etat(&self, etat: &str) -> (Uuid, Uuid, Uuid) {
+        self.horloge_de_service().await;
+        let c = self.creneau(&self.classe, self.prof, 1, (9, 0), (10, 0)).await;
+        self.seance(c, self.prof, 1, (9, 0), (10, 0), "prevue").await;
+        let a = if etat == "signalee" {
+            let ag = self.agent(self.prof).await;
+            self.ent
+                .signaler_absence_for_actor(
+                    self.etab,
+                    self.accueil,
+                    "accueil",
+                    &SignalerAbsenceBody { agent_id: ag, debut: self.jour(1), fin: self.jour(1), heure_debut: None, heure_fin: None },
+                )
+                .await
+                .unwrap()
+                .absences[0]
+                .id
+        } else {
+            self.declarer(self.prof, "prof", Some("convenance"), 1, 1).await.absences[0].id
+        };
+        let impact = self
+            .impacts(a)
+            .await
+            .into_iter()
+            .find(|i| i.seance.as_ref().is_some_and(|s| s.creneau_id == c))
+            .expect("impact calculé dès la saisie")
+            .id;
+        match etat {
+            "signalee" | "declaree" => {}
+            "en_instruction" => {
+                self.ent
+                    .demander_precision_for_actor(self.etab, self.dir, "direction", a, &DecisionBody::default())
+                    .await
+                    .unwrap();
+            }
+            "validee" => {
+                self.valider(a).await;
+            }
+            "refusee" => {
+                self.ent
+                    .refuser_absence_for_actor(
+                        self.etab,
+                        self.dir,
+                        "direction",
+                        a,
+                        &DecisionBody { raison_code: Some("non_conforme".into()), ..Default::default() },
+                    )
+                    .await
+                    .unwrap();
+            }
+            "annulee" => {
+                self.ent
+                    .annuler_absence_for_actor(self.etab, self.prof, "prof", a, &DecisionBody::default())
+                    .await
+                    .unwrap();
+            }
+            autre => panic!("état de test inconnu : {autre}"),
+        }
+        (a, c, impact)
+    }
+
+    async fn remplacant_de_l_exception(&self) -> Option<Uuid> {
+        sqlx::query_scalar("SELECT remplacant_user_id FROM ent_edt_exception WHERE etablissement_id = $1 AND kind = 'remplacement'")
+            .bind(self.etab)
+            .fetch_optional(self.ent.pool())
+            .await
+            .unwrap()
+            .flatten()
+    }
+
+    async fn impact_complet(&self, absence: Uuid, impact: Uuid) -> ImpactDto {
+        self.impacts(absence).await.into_iter().find(|i| i.id == impact).expect("impact conservé")
+    }
+}
+
+fn refus_conflit_explicite(e: &EntDbError, mot: &str) -> bool {
+    matches!(e, EntDbError::Refus(crate::service::RefusMetier::Conflit, m) if m.contains(mot))
+}
+
+/// Écart du pilote (revu par A11) : un remplacement accepté est appliqué dès que l'absence est signalée, déclarée,
+/// en instruction, validée **ou refusée** (l'agent n'était pas là) ; seule une absence annulée le refuse.
+#[tokio::test]
+async fn a4bis_le_remplacement_accepte_est_applique_dans_chaque_etat_de_l_absence() {
+    for etat in ["signalee", "declaree", "en_instruction", "validee", "refusee"] {
+        let x = cadre!();
+        let (abs, _c, impact) = x.absence_en_etat(etat).await;
+        let ag2 = x.agent(x.prof2).await;
+        let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap_or_else(|e| panic!("{etat} : sollicitation refusée {e:?}"));
+        let ok = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap_or_else(|e| panic!("{etat} : acceptation refusée {e:?}"));
+        assert_eq!(ok.etat, "acceptee", "{etat}");
+        assert_eq!(x.etat_sollicitation(s.id).await, "acceptee", "{etat} : la demande ne passe pas en échec");
+        assert_eq!(x.etat_impact(impact).await, "remplace", "{etat}");
+        assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2), "{etat} : l'emploi du temps connaît le remplaçant");
+        let (cause,): (Option<String>,) = sqlx::query_as("SELECT annulee_cause FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND id = $2")
+            .bind(x.etab)
+            .bind(s.id)
+            .fetch_one(x.ent.pool())
+            .await
+            .unwrap();
+        assert_eq!(cause, None, "{etat}");
+        // L'absence garde son état : organiser n'est pas décider.
+        let v = x.ent.absence_for_actor(x.etab, x.dir, "direction", abs).await.unwrap();
+        assert_ne!(v.etat, "annulee", "{etat}");
+    }
+}
+
+/// Même règle pour l'annulation d'une séance (accueil des élèves) au titre d'une absence non validée, et refus
+/// explicite quand l'absence est annulée (aucun « valeur déjà existante »).
+#[tokio::test]
+async fn a4bis_annuler_la_seance_et_refus_explicites() {
+    for etat in ["signalee", "declaree", "en_instruction", "validee", "refusee"] {
+        let x = cadre!();
+        let (abs, c, impact) = x.absence_en_etat(etat).await;
+        let r = x.ent.annuler_seance_for_actor(x.etab, x.dir, "direction", impact, false).await;
+        assert!(r.is_ok(), "{etat} : {r:?}");
+        let _ = (abs, c);
+    }
+    let x = cadre!();
+    let (abs, c, _impact) = x.absence_en_etat("annulee").await;
+    let jour = x.jour(1);
+    // Annulée : refus explicite, par les deux commandes de l'emploi du temps.
+    let e = x.ent.edt_annuler_seance(&x.d(), c, jour, Some(abs)).await.unwrap_err();
+    assert!(refus_conflit_explicite(&e, "annulée"), "{e:?}");
+    let e = x
+        .ent
+        .edt_organiser_remplacement(
+            &x.d(),
+            &CmdRemplacement { creneau_id: c, jour, remplacant_user_id: x.prof2, absence_rh_id: Some(abs), nouvelle_salle: None },
+        )
+        .await
+        .unwrap_err();
+    assert!(refus_conflit_explicite(&e, "annulée"), "{e:?}");
+    assert!(!matches!(e, EntDbError::Domain(DomainError::Conflit)), "jamais « valeur déjà existante » : {e:?}");
+    // Remplaçant indisponible : le refus le dit (sans nommer d'absence ni de nature).
+    let x = cadre!();
+    let (abs, c, _impact) = x.absence_en_etat("declaree").await;
+    let e = x
+        .ent
+        .edt_organiser_remplacement(
+            &x.d(),
+            &CmdRemplacement { creneau_id: c, jour: x.jour(1), remplacant_user_id: x.prof, absence_rh_id: Some(abs), nouvelle_salle: None },
+        )
+        .await
+        .unwrap_err();
+    assert!(refus_conflit_explicite(&e, "pas disponible"), "le titulaire n'est pas son propre remplaçant : {e:?}");
+    // Séance déjà annulée : on ne la remplace pas, et on dit pourquoi.
+    x.ent.edt_annuler_seance(&x.d(), c, x.jour(1), Some(abs)).await.unwrap();
+    let e = x
+        .ent
+        .edt_organiser_remplacement(
+            &x.d(),
+            &CmdRemplacement { creneau_id: c, jour: x.jour(1), remplacant_user_id: x.prof2, absence_rh_id: Some(abs), nouvelle_salle: None },
+        )
+        .await
+        .unwrap_err();
+    assert!(refus_conflit_explicite(&e, "annulée"), "{e:?}");
+}
+
+/// Cas limite : la demande est envoyée, puis l'absence est **annulée** avant la réponse. L'acceptation est refusée
+/// en le disant (pas « séance pourvue »), la demande est close avec sa cause, rien n'est appliqué.
+#[tokio::test]
+async fn a4bis_absence_annulee_avant_l_acceptation() {
+    let x = cadre!();
+    let (abs, _c, impact) = x.absence_en_etat("declaree").await;
+    let ag2 = x.agent(x.prof2).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    x.ent.annuler_absence_for_actor(x.etab, x.prof, "prof", abs, &DecisionBody::default()).await.unwrap();
+    // L'annulation ferme la demande ouverte : le remplaçant n'a plus rien à accepter.
+    assert_eq!(x.etat_sollicitation(s.id).await, "annulee");
+    let cause: Option<String> = sqlx::query_scalar("SELECT annulee_cause FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(s.id)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    assert_eq!(cause.as_deref(), Some("absence_annulee"));
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap_err();
+    assert!(matches!(&e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _)), "{e:?}");
+    assert_eq!(x.remplacant_de_l_exception().await, None, "rien n'est appliqué");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_absp_heure WHERE etablissement_id = $1").await, 0);
+    // Acceptation tardive d'une demande encore « envoyée » (course) : refus qui dit que l'absence est annulée.
+    let x = cadre!();
+    let (abs, _c, impact) = x.absence_en_etat("declaree").await;
+    let ag2 = x.agent(x.prof2).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    sqlx::query("UPDATE ent_absp_absence SET etat = 'annulee' WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(abs)
+        .execute(x.ent.pool())
+        .await
+        .unwrap();
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap_err();
+    assert!(refus_conflit_explicite(&e, "annulée"), "{e:?}");
+    assert_eq!(x.etat_sollicitation(s.id).await, "annulee");
+    assert_eq!(x.remplacant_de_l_exception().await, None);
+}
+
+/// Cas limite : l'absence est **refusée** alors qu'un remplacement est déjà appliqué. L'agent n'était pas là
+/// (R-AP15) : le remplacement, le remplaçant et ses heures restent ; rien n'est à revoir.
+#[tokio::test]
+async fn a4bis_absence_refusee_apres_remplacement_le_remplacement_reste() {
+    let x = cadre!();
+    let (abs, _c, impact) = x.absence_en_etat("declaree").await;
+    let ag2 = x.agent(x.prof2).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap();
+    x.ent
+        .refuser_absence_for_actor(x.etab, x.dir, "direction", abs, &DecisionBody { raison_code: Some("non_conforme".into()), ..Default::default() })
+        .await
+        .unwrap();
+    let i = x.impact_complet(abs, impact).await;
+    assert_eq!((i.etat.as_str(), i.a_revoir), ("remplace", false), "{i:?}");
+    assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2));
+    assert_eq!(x.etat_sollicitation(s.id).await, "acceptee");
+    // Les heures du remplaçant suivent les faits : séance assurée (appel fait) → heure constatée.
+    let seance: Uuid = sqlx::query_scalar("SELECT seance_id FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(impact)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    let apres = Cadre::apres_les_seances();
+    x.appel_valide(seance, x.prof2).await;
+    x.ent.constater_heures_assurees_a(apres).await.unwrap();
+    assert_eq!(x.heures_de(ag2).await.len(), 1, "le remplaçant a fait le cours : son heure est due");
+}
+
+/// Cas limite : l'absence est **annulée** alors qu'un remplacement est déjà appliqué. La conception veut des
+/// réponses « à lever **proposées**, pas levées seules » (le remplaçant a peut-être préparé) : le remplacement reste,
+/// l'impact est signalé « à revoir », l'adjoint décide. Si la séance a lieu avec le remplaçant, son heure est due ;
+/// si l'adjoint lève le remplacement, aucune heure n'est due.
+#[tokio::test]
+async fn a4bis_absence_annulee_apres_remplacement_a_revoir_puis_levee() {
+    let x = cadre!();
+    let (abs, _c, impact) = x.absence_en_etat("validee").await;
+    let ag2 = x.agent(x.prof2).await;
+    let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s.id).await.unwrap();
+    x.ent.annuler_absence_for_actor(x.etab, x.dir, "direction", abs, &DecisionBody { raison_code: Some("erreur_saisie".into()), ..Default::default() }).await.unwrap();
+    // Rien n'est supprimé ni levé seul : réponse conservée, impact « à revoir », remplaçant toujours désigné.
+    let i = x.impact_complet(abs, impact).await;
+    assert_eq!((i.etat.as_str(), i.a_revoir), ("remplace", true), "{i:?}");
+    assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2));
+    assert_eq!(x.etat_sollicitation(s.id).await, "acceptee");
+    assert_eq!(x.compter("SELECT count(*) FROM ent_edt_exception WHERE etablissement_id = $1").await, 1);
+    // L'adjoint lève : l'exception est levée (délégation révoquée), la demande retenue close, aucune heure due.
+    x.ent.lever_reponse_for_actor(x.etab, x.dir, "direction", impact).await.unwrap();
+    assert_eq!(x.remplacant_de_l_exception().await, None);
+    assert_eq!(x.etat_sollicitation(s.id).await, "annulee");
+    let seance: Uuid = sqlx::query_scalar("SELECT seance_id FROM ent_absp_impact WHERE etablissement_id = $1 AND id = $2")
+        .bind(x.etab)
+        .bind(impact)
+        .fetch_one(x.ent.pool())
+        .await
+        .unwrap();
+    x.appel_valide(seance, x.prof).await;
+    x.ent.constater_heures_assurees_a(Cadre::apres_les_seances()).await.unwrap();
+    let dbg: Vec<(String, Option<Uuid>)> = sqlx::query_as("SELECT etat, reponse_active_id FROM ent_absp_impact WHERE etablissement_id = $1").bind(x.etab).fetch_all(x.ent.pool()).await.unwrap();
+    assert!(x.heures_de(ag2).await.is_empty(), "{dbg:?} {:?} séance faite par le titulaire : aucune heure pour le remplaçant", x.heures_de(ag2).await);
+}
+
+/// Cas limites : absence **écourtée** (reprise anticipée) puis **prolongée**. Écourtée : la séance au-delà de la
+/// reprise garde son remplacement, signalé « à revoir » ; une demande encore ouverte sur elle est close. Prolongée :
+/// la nouvelle séance touchée peut être remplacée tout de suite, sans validation.
+#[tokio::test]
+async fn a4bis_absence_ecourtee_et_prolongee() {
+    let x = cadre!();
+    x.horloge_de_service().await;
+    let c1 = x.creneau(&x.classe, x.prof, 1, (9, 0), (10, 0)).await;
+    let c2 = x.creneau(&x.classe, x.prof, 2, (9, 0), (10, 0)).await;
+    let c3 = x.creneau(&x.classe, x.prof, 3, (9, 0), (10, 0)).await;
+    for (c, iso) in [(c1, 1), (c2, 2), (c3, 3)] {
+        x.seance(c, x.prof, iso, (9, 0), (10, 0), "prevue").await;
+    }
+    let abs = x.declarer(x.prof, "prof", Some("convenance"), 1, 3).await.absences[0].id;
+    let par_creneau = |is: Vec<ImpactDto>, c: Uuid| is.into_iter().find(|i| i.seance.as_ref().is_some_and(|s| s.creneau_id == c)).expect("impact").id;
+    let (i1, i2, i3) = {
+        let v = x.impacts(abs).await;
+        (par_creneau(v.clone(), c1), par_creneau(v.clone(), c2), par_creneau(v, c3))
+    };
+    let ag2 = x.agent(x.prof2).await;
+    // Jour 2 remplacé (accepté) ; jour 3 : demande encore ouverte chez le remplaçant.
+    let s2 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i2, ag2).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof2, "prof", s2.id).await.unwrap();
+    let ag3 = x.agent(x.prof3).await;
+    let s3 = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i3, ag3).await.unwrap();
+    // Reprise anticipée : l'absence s'arrête au jour 1.
+    x.ent.ecourter_absence_for_actor(x.etab, x.prof, "prof", abs, &ChangerFinBody { fin: x.jour(1), heure_fin: None }).await.unwrap();
+    let v = x.impacts(abs).await;
+    let i2v = v.iter().find(|i| i.id == i2).expect("la réponse posée est conservée");
+    assert_eq!((i2v.etat.as_str(), i2v.a_revoir), ("remplace", true), "à lever : proposé, pas levé seul");
+    assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2), "le remplaçant a peut-être préparé");
+    assert!(v.iter().all(|i| i.id != i3 || i.etat == "sans_objet"), "la séance sans réponse posée n'est plus à traiter : {v:?}");
+    assert_eq!(x.etat_sollicitation(s3.id).await, "annulee", "la demande ouverte au-delà de la reprise est close");
+    assert!(v.iter().any(|i| i.id == i1));
+    let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3.id).await.unwrap_err();
+    assert!(matches!(&e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _)), "{e:?}");
+    // Nouvelle prolongation (aucune validation entre-temps) : la séance du jour 3 est touchée de nouveau et se
+    // remplace tout de suite.
+    x.ent.prolonger_absence_for_actor(x.etab, x.prof, "prof", abs, &ChangerFinBody { fin: x.jour(3), heure_fin: None }).await.unwrap();
+    let v = x.impacts(abs).await;
+    let i3b = par_creneau(v.clone(), c3);
+    let i2v = v.iter().find(|i| i.id == i2).unwrap();
+    assert!(!i2v.a_revoir, "la séance du jour 2 est de nouveau touchée : plus rien à revoir");
+    let s3b = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", i3b, ag3).await.unwrap();
+    x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3b.id).await.unwrap();
+    assert_eq!(x.etat_impact(i3b).await, "remplace");
+}
+
+/// Décision de Florian (2026-11-16) : la raison chiffrée « N demandes sans suite » devient une mention neutre et non
+/// chiffrée, « répond rarement aux sollicitations », posée au-delà d'un seuil et **visible de la seule personne qui
+/// organise** : jamais du professeur concerné ni de ses collègues.
+#[tokio::test]
+async fn a4bis_repond_rarement_visible_du_seul_organisateur() {
+    let x = cadre!();
+    let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
+    let ag2 = x.agent_user(x.prof2).await;
+    async fn propose(x: &Cadre, impact: Uuid) -> Vec<PropositionDto> {
+        x.ent.propositions_impact_for_actor(x.etab, x.dir, "direction", impact).await.unwrap()
+    }
+    // Sous le seuil : aucune mention.
+    assert!(propose(&x, impact).await.iter().all(|p| !p.repond_rarement));
+    // Trois demandes restées sans réponse (expirées) sur l'année : la mention apparaît.
+    for _ in 0..crate::absences_personnels::reponse::SEUIL_SANS_REPONSE_MIN {
+        let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
+        sqlx::query("UPDATE ent_absp_sollicitation SET expire_le = now() - interval '1 minute' WHERE id = $1")
+            .bind(s.id)
+            .execute(x.ent.pool())
+            .await
+            .unwrap();
+        x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
+    }
+    let props = propose(&x, impact).await;
+    let p2 = props.iter().find(|p| p.agent_id == ag2).expect("prof2 proposé");
+    assert!(p2.repond_rarement, "{props:?}");
+    let ag3 = x.agent_user(x.prof3).await;
+    assert!(!props.iter().find(|p| p.agent_id == ag3).expect("prof3 proposé").repond_rarement);
+    // Aucun compte de demandes sans suite dans la réponse destinée à l'organisateur.
+    let json = serde_json::to_string(&props).unwrap();
+    assert!(!json.contains("sans_suite"), "{json}");
+    // Ni le professeur concerné, ni un collègue, ni l'absent : refusés sur les propositions ; rien dans ce qu'ils lisent.
+    for (u, r) in [(x.prof2, "prof"), (x.prof3, "prof"), (x.prof, "prof")] {
+        let e = x.ent.propositions_impact_for_actor(x.etab, u, r, impact).await.unwrap_err();
+        assert!(matches!(e, EntDbError::Forbidden | EntDbError::Domain(DomainError::NotFound)), "{r} : {e:?}");
+        let mes = serde_json::to_string(&x.ent.mes_sollicitations_for_actor(x.etab, u, r).await.unwrap()).unwrap();
+        for interdit in ["rarement", "sans_suite", "repond"] {
+            assert!(!mes.contains(interdit), "« {interdit} » dans « mes demandes » de {r} : {mes}");
+        }
+    }
+    let impacts = serde_json::to_string(&x.ent.impact_absence_for_actor(x.etab, x.prof, "prof", _a).await.unwrap()).unwrap();
+    assert!(!impacts.contains("rarement") && !impacts.contains("sans_suite"), "{impacts}");
 }

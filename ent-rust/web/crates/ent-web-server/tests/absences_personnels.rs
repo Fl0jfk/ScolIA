@@ -603,7 +603,7 @@ async fn ce_matin_propositions_sollicitation_et_reponse_du_remplacant() {
         "meme_discipline",
         "seances_ce_jour",
         "remplacements_faits",
-        "demandes_sans_suite",
+        "repond_rarement",
     ];
     for p in serde_json::to_value(&propositions)
         .unwrap()
