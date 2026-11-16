@@ -358,7 +358,7 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
     // Témoin : si le jour est ouvert, la séance assurée est relancée ; sinon (week-end : calendrier du socle 5)
     // personne ne l'est, ce qui est précisément la règle « jour sans cours ».
     let ouvert: bool = !crate::structure_calendrier::calendrier::jours_ouvres(
-        &mut *ent.pool_verif().acquire().await.unwrap(),
+        &mut ent.pool_verif().acquire().await.unwrap(),
         etab,
         jour,
         jour,

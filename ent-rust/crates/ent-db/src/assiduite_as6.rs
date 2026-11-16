@@ -220,6 +220,8 @@ pub fn niveau_de(categorie: &str, vigilance: bool, mineur: bool) -> u8 {
 
 // ───────────────────────── Aides SQL ─────────────────────────
 
+// Même forme que l'émetteur d'AS5 : un événement = ses huit champs ; les regrouper n'apporterait qu'une structure de plus.
+#[allow(clippy::too_many_arguments)]
 async fn emettre(
     conn: &mut PgConnection,
     etab: Uuid,
@@ -1658,7 +1660,7 @@ async fn traiter(tx: &mut PgConnection, evt: &EvenementDistribue) -> Result<(), 
 
 /// Délai minimal (minutes) avant l'avis d'une absence **après présence** (R-N67) : 15 minutes, plafonné à 30.
 pub(crate) fn delai_apres_presence(delai_regle: i64) -> i64 {
-    delai_regle.max(DELAI_APRES_PRESENCE_MIN).min(30)
+    delai_regle.clamp(DELAI_APRES_PRESENCE_MIN, 30)
 }
 
 #[cfg(test)]
