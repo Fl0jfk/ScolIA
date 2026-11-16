@@ -46,6 +46,13 @@ pub mod demandes_routage;
 pub mod documents;
 /// Socle 7 : service de la brique (émission, réémission, annulation, lecture, registre, paramétrage).
 pub mod documents_natures;
+/// Socle 7, lot D4 : coffre (responsable, élève, agent), accusés, export, bascule à la majorité, retrait sur suspension.
+pub mod documents_coffre;
+/// Archive ZIP « stored » écrite à la main (export du coffre).
+pub mod documents_zip;
+/// Socle 7, lot D5 : pièces justificatives (catalogue, demandes, dépôt en quarantaine, contrôle, réutilisation).
+pub mod documents_pieces;
+pub mod documents_pieces_taches;
 /// Socle 7 : rendu PDF des attestations sur `ent-pdf`.
 pub mod documents_pdf;
 pub mod documents_repo;
@@ -59,6 +66,9 @@ mod tests_evaluations_v0;
 mod tests_documents_d0;
 pub mod campagnes;
 pub mod formulaires;
+pub mod accords;
+mod accords_service;
+mod accords_verifier;
 pub mod notifications;
 pub mod ntf;
 pub mod agenda;
@@ -94,10 +104,30 @@ mod garde_messagerie_lecture;
 pub mod msg_matrice;
 mod msg_m2;
 pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
+mod msg_m3;
+pub use msg_m3::{
+    cible_de_boite, urgence_deterministe, BoiteAccueil, BoiteVue, CanalEntrant, HoraireSaisie, HoraireVue, LigneFile,
+    MembreVue, MessagerieResolue, NoteInterne, OuvertureBoite, ParamBoite, SaisieBoite, SaisieTelephone,
+    TelephoneSaisi, Traitement, BANDEAU_URGENCE, CATALOGUE_BOITES, ETIQUETTES_MAX, TITRE_NEUTRE_C3,
+};
+mod msg_m4;
+pub use msg_m4::{
+    ApercuLot, BrouillonSaisie, BrouillonVu, ModeleVu, PorteeModele, BROUILLONS_MAX, CORRECTION_MINUTES,
+    LOT_MAX_FILS, PROGRAMMATION_JOURS, RETRAIT_MINUTES,
+};
 mod note_repo;
 pub mod cahier;
 pub mod cahier_c2;
 mod cahier_c2_travaux;
+pub mod cahier_c3;
+pub mod cahier_c4;
+pub mod cahier_c5;
+mod cahier_c5_prof;
+pub mod cahier_c6;
+mod cahier_amenagements;
+pub mod cahier_c7;
+mod charge_calcul;
+mod evaluations_calendrier;
 pub mod cahier_reactions;
 pub mod outbox;
 pub mod reactions;
@@ -115,6 +145,10 @@ mod tests_rgpd_g2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_communication;
 #[cfg(all(test, feature = "labo"))]
+mod tests_formulaires_fo0;
+#[cfg(all(test, feature = "labo"))]
+mod tests_accords_fo1;
+#[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag0;
 #[cfg(all(test, feature = "labo"))]
 mod tests_agenda_ag1;
@@ -128,6 +162,10 @@ mod tests_messagerie_m0b;
 mod tests_messagerie_m1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m4;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;
@@ -310,9 +348,18 @@ pub mod voyages_budget_repo;
 pub mod voyages_pdf;
 pub mod voyages_prestataires;
 pub mod voyages_prestataires_repo;
+pub mod voyages_courrier_ports;
+pub mod voyages_exigences;
+pub mod voyages_exigences_repo;
+pub mod voyages_missions_repo;
 pub mod voyages_courrier_repo;
+pub mod voyages_journal_repo;
 pub mod voyages_rappels;
 pub mod voyages_reactions;
+pub mod voyages_reprise;
+pub mod voyages_reprise_repo;
+pub mod voyages_restauration;
+pub mod voyages_restauration_repo;
 pub mod voyages_repo;
 pub use messagerie_m0b::{
     ApercuAnnonce, FilOuvert, LienAVerifier, MessageEnvoye, OptionsEnvoiMessage, PageFils,
@@ -579,6 +626,10 @@ mod tests_documents_d2;
 #[cfg(all(test, feature = "labo"))]
 mod tests_documents_d3;
 #[cfg(all(test, feature = "labo"))]
+mod tests_documents_d4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_documents_d5;
+#[cfg(all(test, feature = "labo"))]
 mod tests_internat;
 #[cfg(all(test, feature = "labo"))]
 mod tests_horloge_fuseau;
@@ -606,6 +657,10 @@ mod tests_afaire_p4;
 mod tests_recherche_p5;
 #[cfg(test)]
 mod tests_voyages_v0b;
+#[cfg(test)]
+mod tests_voyages_v0d;
+#[cfg(test)]
+mod tests_voyages_v1;
 #[cfg(test)]
 mod tests_voyages_v0c;
 

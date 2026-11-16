@@ -159,15 +159,18 @@ async fn d0_bulletin_publie_se_telecharge_depuis_le_dossier() {
     ent.publier_bulletins_for_actor(etab, dir, "direction", &PublierBulletinsBody { classe_id: m.classe, periode_id: m.periode })
         .await
         .unwrap();
+    // Lecture sous contexte d'établissement : en mode strict, le rôle applicatif sans contexte voit 0 ligne.
+    let mut lecture = crate::tenant_tx::TenantTx::begin(ent.pool(), etab).await.unwrap();
     let (doc, cle): (Uuid, String) = sqlx::query_as(
         "SELECT id, storage_key FROM ent_eleve_document
           WHERE etablissement_id = $1 AND eleve_id = $2 AND source = 'bulletin' AND confidentialite = 'standard'",
     )
     .bind(etab)
     .bind(a)
-    .fetch_one(ent.pool())
+    .fetch_one(&mut *lecture)
     .await
     .unwrap();
+    lecture.rollback().await.unwrap();
     assert!(cle.starts_with(&format!("{etab}/bulletins/")), "{cle}");
     let (_, lus) = ent
         .telecharger_document_bytes_for_actor(etab, dir, "direction", doc)
@@ -212,14 +215,18 @@ async fn d0_deux_signatures_concurrentes_une_seule_reussit() {
     );
     let ok = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
     assert_eq!(ok, 1, "exactement une signature : {r1:?} / {r2:?}");
+    let mut lecture = crate::tenant_tx::TenantTx::begin(ent.pool(), cast.etablissement_id)
+        .await
+        .unwrap();
     let (nb,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM ent_doc_a_signer WHERE etablissement_id = $1 AND id = $2 AND statut = 'signe'",
     )
     .bind(cast.etablissement_id)
     .bind(doc.id)
-    .fetch_one(ent.pool())
+    .fetch_one(&mut *lecture)
     .await
     .unwrap();
+    lecture.rollback().await.unwrap();
     assert_eq!(nb, 1);
 }
 

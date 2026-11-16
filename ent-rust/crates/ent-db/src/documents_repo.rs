@@ -179,7 +179,7 @@ pub struct NouvelleEntite {
 // ───────────────────────── Accès internes ─────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-async fn journaliser(
+pub(crate) async fn journaliser(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     document: Option<Uuid>,
@@ -210,7 +210,7 @@ async fn journaliser(
     Ok(())
 }
 
-async fn publier(
+pub(crate) async fn publier(
     conn: &mut PgConnection,
     a: &Acteur<'_>,
     type_name: &str,
@@ -232,7 +232,7 @@ async fn publier(
 }
 
 /// Normalise un texte libre : rogné, non vide, borné.
-fn texte(v: &str, min: usize, max: usize) -> Result<String, EntDbError> {
+pub(crate) fn texte(v: &str, min: usize, max: usize) -> Result<String, EntDbError> {
     let t = v.trim();
     let n = t.chars().count();
     if n < min || n > max || t.chars().any(|c| c.is_control() && c != '\n') {
@@ -1094,12 +1094,13 @@ impl PgEnt {
             exemplaires.push(id);
             if let Some(dst) = dest {
                 if dst.au_coffre && (dst.personne_id.is_some() || dst.agent_id.is_some()) {
+                    let mad_id = Uuid::new_v4();
                     sqlx::query(
                         "INSERT INTO ent_doc_mise_a_disposition
                              (id, etablissement_id, document_id, exemplaire_id, personne_id, agent_id, canal, cree_par)
                          VALUES ($1,$2,$3,$4,$5,$6,'coffre',$7)",
                     )
-                    .bind(Uuid::new_v4())
+                    .bind(mad_id)
                     .bind(a.etablissement_id)
                     .bind(document_id)
                     .bind(id)
@@ -1126,7 +1127,7 @@ impl PgEnt {
                         "documents.mis_a_disposition",
                         document_id,
                         eleve_id,
-                        json!({ "nature": n.code, "canal": "coffre", "rang": rang }),
+                        json!({ "nature": n.code, "canal": "coffre", "rang": rang, "mise_a_disposition_id": mad_id }),
                     )
                     .await?;
                 }
@@ -1381,6 +1382,14 @@ impl PgEnt {
         document_id: Uuid,
         version: Option<i32>,
     ) -> Result<DocumentLu, EntDbError> {
+        // 1. Titulaire d'une mise à disposition : le **coffre** (lot D4) relit le droit du jour (lien, majorité),
+        //    trace la lecture et pose l'accusé de première ouverture. Rien trouvé : on passe au personnel.
+        if let Some(mad) = self.mise_a_disposition_du_titulaire(a, document_id).await? {
+            match self.ouvrir_du_coffre_for_actor(a, mad).await {
+                Err(e) if crate::documents_coffre::est_introuvable(&e) => {}
+                autre => return autre,
+            }
+        }
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id)
             .await
             .map_err(db)?;
@@ -1396,68 +1405,6 @@ impl PgEnt {
         let doc = ligne_document(&ligne);
         if doc.sensibilite == "C4" {
             return Err(interdit());
-        }
-        // 1. Titulaire d'une mise à disposition en cours : SON exemplaire de la version courante.
-        let mad: Option<(Uuid, Uuid, i32, String, String, bool)> = sqlx::query_as(
-            "SELECT m.id, ex.id, ex.rang, ex.cle_objet, ex.empreinte_sha256, m.premiere_ouverture_le IS NULL
-               FROM ent_doc_mise_a_disposition m
-               JOIN ent_doc_exemplaire ex ON ex.etablissement_id = m.etablissement_id AND ex.id = m.exemplaire_id
-               JOIN ent_doc_version v ON v.etablissement_id = ex.etablissement_id AND v.id = ex.version_id
-               JOIN ent_personne p ON p.etablissement_id = m.etablissement_id AND p.id = m.personne_id
-              WHERE m.etablissement_id = $1 AND m.document_id = $2 AND p.user_id = $3
-                AND m.retiree_le IS NULL AND (m.jusqu_au IS NULL OR m.jusqu_au > now())
-                AND v.numero_version = $4
-              ORDER BY ex.rang LIMIT 1",
-        )
-        .bind(a.etablissement_id)
-        .bind(doc.id)
-        .bind(a.user_id)
-        .bind(doc.version_courante)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(db)?;
-        if let Some((mad_id, _ex, rang, cle, sha, premiere)) = mad {
-            if doc.etat != "emis" {
-                return Err(introuvable());
-            }
-            let ev = if premiere {
-                sqlx::query("UPDATE ent_doc_mise_a_disposition SET premiere_ouverture_le = now() WHERE etablissement_id = $1 AND id = $2")
-                    .bind(a.etablissement_id)
-                    .bind(mad_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(db)?;
-                Some(
-                    publier(
-                        &mut tx,
-                        a,
-                        "documents.ouvert",
-                        doc.id,
-                        doc.eleve_id,
-                        json!({ "nature": doc.nature_code, "sensibilite": doc.sensibilite, "rang": rang }),
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
-            tx.commit().await.map_err(db)?;
-            if let Some(ev) = ev {
-                self.diffuser_apres_commit(&[ev]);
-            }
-            let octets = self
-                .lire_objet_empreinte(a.etablissement_id, &cle, Some(&sha))
-                .await?;
-            return Ok(DocumentLu {
-                document_id: doc.id,
-                nature_code: doc.nature_code,
-                etat: doc.etat,
-                numero_version: doc.version_courante,
-                version_courante: doc.version_courante,
-                empreinte_sha256: sha,
-                exemplaire_rang: Some(rang),
-                octets,
-            });
         }
         // 2. Personnel : le droit du domaine, sur le sujet.
         let domaine = Domaine::parse(&doc.domaine).ok_or_else(interdit)?;

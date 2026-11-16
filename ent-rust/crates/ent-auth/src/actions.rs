@@ -55,6 +55,8 @@ pub enum Action {
     VoyagesPorteur,
     /// Demandes de devis, avenants et courriers aux prestataires (secrétariat, comptabilité, direction) : corrige le défaut de Next.js (VD-14).
     VoyagesPrestataires,
+    /// Socle 42, lot V0d : reprise des séjours de Next.js (zone de reprise, tableau de bascule, bascule). Administrateur et direction.
+    VoyagesReprise,
     /// Suivi de vie scolaire d'un élève : sorties, dispenses, alertes, conseils,
     /// vœux, informations complémentaires, conventions, internat.
     SuiviEleve,
@@ -473,6 +475,23 @@ pub enum Action {
     DocumentsFinancierLire,
     /// Lire les dossiers documentaires des agents (domaine rh).
     DocumentsPersonnelsLire,
+    // ── Socle 7, lots D4 et D5 : coffre (retrait, remise), pièces justificatives ──
+    /// Classer : retirer une mise à disposition (motif obligatoire) ou la rendre explicitement (D4).
+    DocumentsClasser,
+    /// Demander, relancer, annuler une pièce justificative ; voir « ce qui manque » d'un dossier (D5).
+    DocumentsPiecesDemander,
+    /// Contrôler une pièce déposée : accepter, refuser avec motif, déclarer sans objet (D5).
+    DocumentsPiecesControler,
+    // ── Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`18_FORMULAIRES.md` §23.1) ──
+    /// Lire les **verdicts** d'accord (peut / ne peut pas / en attente) des élèves de sa portée, sans motif
+    /// ni décideur (R-FC39). Portées : établissement, mes classes, périmètre, désignés.
+    AutorisationsLire,
+    /// Lire les décisions par décideur, les preuves et les désaccords ; corriger ou annuler une saisie
+    /// (lecture journalisée, R-FC38). Établissement seulement.
+    AutorisationsGerer,
+    /// Activer les objets du catalogue, rédiger et publier les versions de texte et leurs usages. Établissement
+    /// seulement.
+    AutorisationsParametrer,
     /// Socle 27 : voir le tableau de bord de conformité, la politique de conservation et le registre.
     ConformiteLire,
     /// Socle 27 : désigner le DPO, compléter le registre et les documents de conformité.
@@ -517,6 +536,8 @@ pub enum Action {
     CahierRetirer,
     /// Ajouter sa contribution signée à une séance d'un cours dont on est intervenant (assistant, co-intervenant).
     CahierContribuer,
+    /// Régler les repères de charge de travail de l'établissement (lot C4, S20-10).
+    CahierParametrer,
     // ── Socle 6, lots P5 et P6 (`06_PERSONNELS.md` §14.2) ──
     /// Créer, modifier les membres et clore les équipes constituées (conseil pédagogique, cellule de
     /// veille, équipe éducative…). N'OUVRE AUCUN DROIT sur les élèves (Q-P9).
@@ -534,6 +555,17 @@ pub enum Action {
     GroupesComposer,
     /// Socle 5, lot S6 (STR-53) : créer un groupe d'activité dont on devient responsable.
     GroupesCreerActivite,
+    /// Socle 16, lot M3 (MSG-160, 161, 169, 170, 175) : créer et paramétrer les boîtes de service (membres par
+    /// mission, horaires, réponse automatique, astreinte). Direction ; jamais le contenu des boîtes.
+    MessagerieBoitesGerer,
+    /// Socle 16, lot M3 (MSG-162 à 168, 172) : traiter les fils d'une boîte dont on est membre. Le droit ouvre
+    /// la fonction ; **la boîte** reste décidée par la mission (membre à la date), jamais par le droit seul.
+    MessagerieBoiteTraiter,
+    /// Socle 16, lot M3 (MSG-171) : saisir un message téléphonique (accueil, vie scolaire).
+    MessagerieMessageTelSaisir,
+    /// Socle 16, lot M4 (MSG-130 et suivantes, R-M13) : envoyer un lot individuel (30 fils au plus, aperçu et
+    /// confirmation). Professeurs, CPE, direction.
+    MessagerieLotEnvoyer,
 }
 
 /// Sur quoi une action s'applique.
@@ -558,7 +590,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 230] = [
+    pub const TOUTES: [Action; 242] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -758,6 +790,7 @@ impl Action {
         Action::AbsencesAutorisationDecider,
         Action::CahierRetirer,
         Action::CahierContribuer,
+        Action::CahierParametrer,
         // Socle 15, lots A0–A1 (en fin de catalogue : le catalogue historique est repéré par position).
         Action::PersonnelsAbsencesDeclarer,
         Action::PersonnelsAbsencesSignaler,
@@ -804,6 +837,19 @@ impl Action {
         Action::DocumentsRestreintsLire,
         Action::DocumentsFinancierLire,
         Action::DocumentsPersonnelsLire,
+        Action::DocumentsClasser,
+        Action::DocumentsPiecesDemander,
+        Action::DocumentsPiecesControler,
+        // Socle 16, lots M3 et M4 (en fin de catalogue).
+        Action::MessagerieBoitesGerer,
+        Action::MessagerieBoiteTraiter,
+        Action::MessagerieMessageTelSaisir,
+        Action::MessagerieLotEnvoyer,
+        Action::AutorisationsLire,
+        Action::AutorisationsGerer,
+        Action::AutorisationsParametrer,
+        // Socle 42, lot V0d (en fin de catalogue : le catalogue historique est repéré par position).
+        Action::VoyagesReprise,
     ];
 
     pub fn code(self) -> &'static str {
@@ -829,6 +875,7 @@ impl Action {
             Self::VoyagesBudgetValider => "voyages.budget_valider",
             Self::VoyagesPorteur => "voyages.porteur",
             Self::VoyagesPrestataires => "voyages.prestataires",
+            Self::VoyagesReprise => "voyages.reprise",
             Self::SuiviEleve => "suivi.eleve",
             Self::AbsencesDeclarer => "absences.declarer",
             Self::AppelVerifier => "appel.verifier",
@@ -1013,6 +1060,12 @@ impl Action {
             Self::DocumentsRestreintsLire => "documents.restreints.lire",
             Self::DocumentsFinancierLire => "documents.financier.lire",
             Self::DocumentsPersonnelsLire => "documents.personnels.lire",
+            Self::DocumentsClasser => "documents.classer",
+            Self::DocumentsPiecesDemander => "documents.pieces.demander",
+            Self::DocumentsPiecesControler => "documents.pieces.controler",
+            Self::AutorisationsLire => "autorisations.lire",
+            Self::AutorisationsGerer => "autorisations.gerer",
+            Self::AutorisationsParametrer => "autorisations.parametrer",
             Self::ConformiteLire => "conformite.lire",
             Self::ConformiteGerer => "conformite.gerer",
             Self::ConservationReglesProposer => "conservation.regles.proposer",
@@ -1033,12 +1086,17 @@ impl Action {
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
+            Self::CahierParametrer => "cahier.parametrer",
             Self::EquipesGerer => "equipes.gerer",
             Self::SignatureHabiliter => "signature.habiliter",
             Self::StructureGerer => "structure.gerer",
             Self::AffectationsGerer => "affectations.gerer",
             Self::GroupesComposer => "groupes.composer",
             Self::GroupesCreerActivite => "groupes.creer_activite",
+            Self::MessagerieBoitesGerer => "messagerie.boites.gerer",
+            Self::MessagerieBoiteTraiter => "messagerie.boite.traiter",
+            Self::MessagerieMessageTelSaisir => "messagerie.message_tel.saisir",
+            Self::MessagerieLotEnvoyer => "messagerie.lot.envoyer",
         }
     }
 
@@ -1065,6 +1123,7 @@ impl Action {
             Self::VoyagesBudgetValider => "Valider le budget d'un voyage (comptabilité)",
             Self::VoyagesPorteur => "Attribuer ou transférer le porteur d'une sortie",
             Self::VoyagesPrestataires => "Demander des devis et écrire aux prestataires d'une sortie dont on n'est pas le porteur",
+            Self::VoyagesReprise => "Reprendre les séjours de Next.js : zone de reprise, tableau et bascule (administrateur, direction)",
             Self::SuiviEleve => "Suivi de vie scolaire (sorties, dispenses, conseils, vœux…)",
             Self::AbsencesDeclarer => "Déclarer une absence à l'accueil",
             Self::AppelVerifier => "Vérifier les appels et suivre la journée de vie scolaire",
@@ -1251,6 +1310,12 @@ impl Action {
             Self::DocumentsRestreintsLire => "Lire les documents restreints du domaine justice (jugements, pièces judiciaires)",
             Self::DocumentsFinancierLire => "Lire les documents du domaine financier (avis d'imposition, quotient, bourses)",
             Self::DocumentsPersonnelsLire => "Lire les dossiers documentaires des agents (domaine rh)",
+            Self::DocumentsClasser => "Retirer ou rendre une mise à disposition de document (coffre), avec motif",
+            Self::DocumentsPiecesDemander => "Demander, relancer ou annuler une pièce justificative ; voir ce qui manque à un dossier",
+            Self::DocumentsPiecesControler => "Contrôler les pièces déposées : accepter, refuser avec motif, déclarer sans objet",
+            Self::AutorisationsLire => "Lire les verdicts d'accord (peut / ne peut pas / en attente) des élèves de sa portée",
+            Self::AutorisationsGerer => "Lire les décisions, preuves et désaccords ; corriger ou annuler une saisie",
+            Self::AutorisationsParametrer => "Activer les objets d'accord, rédiger et publier les versions de texte et leurs usages",
             Self::ConformiteLire => "Voir le tableau de bord de conformité, la politique de conservation et le registre",
             Self::ConformiteGerer => "Désigner le DPO, compléter le registre et les documents de conformité",
             Self::ConservationReglesProposer => "Ajuster une règle de conservation dans ses bornes, avec motif",
@@ -1271,12 +1336,17 @@ impl Action {
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
+            Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
             Self::EquipesGerer => "Constituer, modifier et clore les équipes (conseil pédagogique, cellule de veille, équipe éducative) — sans droit sur les élèves",
             Self::SignatureHabiliter => "Habiliter à signer au nom de l'établissement et organiser l'intérim de direction",
             Self::StructureGerer => "Gérer les groupes et leurs classes d'origine (créer, générer, modifier, fermer)",
             Self::AffectationsGerer => "Affecter les élèves aux classes et aux groupes, changer de classe, corriger une affectation",
             Self::GroupesComposer => "Composer son groupe d'activité ou de liste (entrées et sorties d'élèves)",
             Self::GroupesCreerActivite => "Créer un atelier, un club ou un groupe d'activité dont on devient responsable",
+            Self::MessagerieBoitesGerer => "Créer et paramétrer les boîtes de service de la messagerie (membres, horaires, astreinte)",
+            Self::MessagerieBoiteTraiter => "Traiter les messages des boîtes de service dont on est membre",
+            Self::MessagerieMessageTelSaisir => "Saisir un message téléphonique pour une boîte ou une personne",
+            Self::MessagerieLotEnvoyer => "Envoyer un lot de messages individuels (30 au plus, avec aperçu)",
         }
     }
 
@@ -1362,6 +1432,7 @@ impl Action {
             | Self::VoyagesBudgetValider
             | Self::VoyagesPorteur
             | Self::VoyagesPrestataires
+            | Self::VoyagesReprise
             | Self::ExportsOfficiels => &[Portee::Etablissement],
             // R2 : contrôles d'établissement entier aujourd'hui ; les portées par
             // élève viendront avec les écrans (lot ultérieur), jamais en silence.
@@ -1472,6 +1543,10 @@ impl Action {
             | Self::SignatureHabiliter
             | Self::StructureGerer
             | Self::GroupesCreerActivite
+            | Self::MessagerieBoitesGerer
+            | Self::MessagerieBoiteTraiter
+            | Self::MessagerieMessageTelSaisir
+            | Self::MessagerieLotEnvoyer
             | Self::AccesRevue => &[Portee::Etablissement],
             // Socle 5, S6 : affecter peut être délégué à des classes ou groupes désignés (un adjoint « niveau 6e ») ;
             // composer son groupe : établissement, mes groupes, désignés.
@@ -1509,7 +1584,12 @@ impl Action {
             | Self::DocumentsModelesParametrer
             | Self::DocumentsRestreintsLire
             | Self::DocumentsFinancierLire
-            | Self::DocumentsPersonnelsLire => &[Portee::Etablissement],
+            | Self::DocumentsPersonnelsLire
+            | Self::DocumentsClasser
+            | Self::DocumentsPiecesDemander
+            | Self::DocumentsPiecesControler
+            | Self::AutorisationsGerer
+            | Self::AutorisationsParametrer => &[Portee::Etablissement],
             | Self::ConformiteLire
             | Self::ConformiteGerer
             | Self::ConservationReglesProposer
@@ -1656,10 +1736,12 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_20_cahier(role, &mut d);
     socle_06_personnels(role, &mut d);
     socle_07_documents(role, &mut d);
+    socle_18_formulaires(role, &mut d);
     socle_27_rgpd(role, &mut d);
     socle_10_edt(role, &mut d);
     socle_05_structure(role, &mut d);
     socle_8_notifications(role, &mut d);
+    socle_16_messagerie(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2162,6 +2244,26 @@ fn socle_05_structure(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
 }
 
+/// Socle 16 (messagerie), lots M3 et M4 (règle 21 : une fonction par socle). `messagerie.boites.gerer` : direction
+/// (et Admin, comme `messagerie.urgence_hors_plage`). `messagerie.boite.traiter` : tout le personnel (le droit ouvre
+/// la fonction ; la boîte est décidée par la mission, jamais par le droit). `messagerie.message_tel.saisir` : accueil,
+/// vie scolaire (CPE), secrétariat, direction. `messagerie.lot.envoyer` : professeurs, CPE, direction (PRF, PP, CPE).
+fn socle_16_messagerie(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push((MessagerieBoitesGerer, Portee::Etablissement));
+    }
+    if role.is_staff() && role != Role::Compta {
+        d.push((MessagerieBoiteTraiter, Portee::Etablissement));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push((MessagerieMessageTelSaisir, Portee::Etablissement));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe | Role::Prof) {
+        d.push((MessagerieLotEnvoyer, Portee::Etablissement));
+    }
+}
+
 /// Socle 19 (agenda, réservation de lieux), lots AG1 et AG3. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
 fn socle_19_agenda(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
@@ -2351,6 +2453,10 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Admin | Role::Compta) {
         d.push(etab(VoyagesBudgetValider));
     }
+    // Lot V0d : la reprise voit des séjours entiers et leurs participants : administrateur et direction seuls.
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(VoyagesReprise));
+    }
 }
 
 /// Socle N1 (demandes et flux de travail), lot N1-0 (`N1_DEMANDES.md` §24.1). Bloc de `modele_par_defaut`, isolé
@@ -2370,6 +2476,7 @@ fn socle_20_cahier(role: Role, d: &mut Vec<(Action, Portee)>) {
     use Action::*;
     if matches!(role, Role::Admin | Role::Direction) {
         d.push((CahierRetirer, Portee::Etablissement));
+        d.push((CahierParametrer, Portee::Etablissement));
     }
     if role == Role::Prof {
         d.push((CahierRetirer, Portee::MesClasses));
@@ -2432,11 +2539,72 @@ fn socle_07_documents(role: Role, d: &mut Vec<(Action, Portee)>) {
     if role == Role::Compta {
         d.push(etab(DocumentsFinancierLire));
     }
+    // Lot D4 : retirer / rendre une mise à disposition (secrétariat, direction).
+    if matches!(role, Role::Administratif | Role::Direction) {
+        d.push(etab(DocumentsClasser));
+    }
+    // Lot D5 : demander et contrôler les pièces (secrétariat, direction, comptabilité pour les bourses, infirmerie pour
+    // la santé ; l'accueil ne contrôle que les pièces d'identité : restriction exercée par le service, par type de pièce).
+    if matches!(role, Role::Administratif | Role::Direction | Role::Compta | Role::Infirmerie) {
+        d.push(etab(DocumentsPiecesDemander));
+    }
+    if matches!(
+        role,
+        Role::Administratif | Role::Direction | Role::Compta | Role::Infirmerie | Role::Accueil
+    ) {
+        d.push(etab(DocumentsPiecesControler));
+    }
+}
+
+/// Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`18_FORMULAIRES.md` §23.1).
+/// Les familles et les élèves n'ont aucun rôle ici : leurs décisions passent par les droits du lien et par leur
+/// propre compte (R-FC2). `autorisations.lire` ne donne que des verdicts, jamais une décision ni un motif.
+fn socle_18_formulaires(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    match role {
+        Role::Direction => {
+            d.push(etab(AutorisationsLire));
+            d.push(etab(AutorisationsGerer));
+            d.push(etab(AutorisationsParametrer));
+        }
+        Role::Administratif => {
+            d.push(etab(AutorisationsLire));
+            d.push(etab(AutorisationsGerer));
+        }
+        Role::Cpe => d.push(etab(AutorisationsLire)),
+        // Professeurs : verdicts de leurs classes seulement.
+        Role::Prof => d.push((AutorisationsLire, Portee::MesClasses)),
+        _ => {}
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Socle 18 (FO0–FO1) : droits par défaut. Les verdicts se lisent dans la portée ; les décisions et les
+    /// preuves restent à la direction et au secrétariat ; familles, élèves, infirmerie, comptabilité : rien.
+    #[test]
+    fn socle_18_droits_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action, p: Portee| modele_par_defaut(r).iter().any(|(y, q)| *y == x && *q == p);
+        let tout = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        assert!(a(Role::Direction, AutorisationsParametrer, Portee::Etablissement));
+        assert!(a(Role::Direction, AutorisationsGerer, Portee::Etablissement));
+        assert!(a(Role::Administratif, AutorisationsGerer, Portee::Etablissement));
+        assert!(!tout(Role::Administratif, AutorisationsParametrer));
+        assert!(a(Role::Cpe, AutorisationsLire, Portee::Etablissement));
+        assert!(!tout(Role::Cpe, AutorisationsGerer));
+        assert!(a(Role::Prof, AutorisationsLire, Portee::MesClasses));
+        assert!(!a(Role::Prof, AutorisationsLire, Portee::Etablissement), "un professeur ne lit que sa classe");
+        for r in [Role::Parent, Role::Eleve, Role::Infirmerie, Role::Compta, Role::Psy, Role::Accueil, Role::Personnel, Role::Admin] {
+            for x in [AutorisationsLire, AutorisationsGerer, AutorisationsParametrer] {
+                assert!(!tout(r, x), "{r:?} n'a aucun droit d'accord par défaut ({x:?})");
+            }
+        }
+        assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("autorisations.")).count(), 3);
+    }
 
     /// Socle 27 : droits par défaut de la conformité. Personne ne valide une règle de conservation
     /// sans que l'établissement ait confié ce droit à un rôle (DPO) ; l'administrateur technique ne lit pas
@@ -3461,6 +3629,21 @@ mod oracle_a1 {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
         assert_eq!(Action::TOUTES.iter().filter(|x| x.code().starts_with("demandes.")).count(), 16);
+    }
+
+    /// Socle 42, lot V0d : `voyages.reprise` (reprise de Next.js) est réservée à l'administrateur et à la direction.
+    #[test]
+    fn voyages_v0d_reprise_admin_et_direction_seulement() {
+        let a = |r: Role| modele_par_defaut(r).iter().any(|(y, _)| *y == Action::VoyagesReprise);
+        for (r, attendu) in [
+            (Role::Admin, true), (Role::Direction, true), (Role::Administratif, false), (Role::Compta, false),
+            (Role::Prof, false), (Role::Cpe, false), (Role::Accueil, false), (Role::Infirmerie, false),
+            (Role::Psy, false), (Role::Parent, false), (Role::Eleve, false),
+        ] {
+            assert_eq!(a(r), attendu, "{r:?} voyages.reprise");
+        }
+        assert_eq!(Action::parse("voyages.reprise"), Some(Action::VoyagesReprise));
+        assert_eq!(Action::VoyagesReprise.portees_admises(), &[Portee::Etablissement]);
     }
 
     #[test]

@@ -105,6 +105,18 @@ fn ecrire_sur_b(
     }
 }
 
+/// Route sans identifiant de ressource : la session de A n'obtient que des données de A (2xx borné à A) ou un refus.
+/// `interdits` : valeurs semées dans B qui ne doivent jamais apparaître dans une réponse.
+fn borne_a(
+    nom: &'static str,
+    methode: &'static str,
+    chemin: &'static str,
+    corps: Option<&'static str>,
+    interdits: &'static [&'static str],
+) -> Spec {
+    Spec { b: Attendu::SuccesBorneA, interdits, ..ecrire_sur_b(nom, methode, chemin, corps) }
+}
+
 fn attendu(s: &Spec, a: Acteur, c: Cible) -> Attendu {
     match c {
         Cible::B => s.b,
@@ -135,6 +147,7 @@ fn verifie(att: Attendu, rep: &Rep) -> bool {
         Attendu::RefuseOuVide => rep.est_refus() || (rep.est_succes() && rep.est_vide()),
         Attendu::EchecQuelconque => echec_quelconque(rep),
         Attendu::RefuseOuIndistinct => rep.est_refus() || rep.est_succes(), // contrôle complet dans jouer()
+        Attendu::SuccesBorneA => rep.est_refus() || rep.est_succes(), // oracle de fuite et non-vacuité dans jouer()
     }
 }
 
@@ -161,6 +174,7 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
     };
     let mut echecs: Vec<String> = Vec::new();
     let mut n = 0usize;
+    let mut succes_bornes: std::collections::BTreeMap<&'static str, usize> = Default::default();
     rt().block_on(async {
         for s in specs {
             let sans_cible = !s.chemin.contains('{');
@@ -191,6 +205,9 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
                     let rep = m.appel(s.methode, &chemin, Some(jeton.as_str()), corps.as_ref()).await;
                     n += 1;
                     let att = attendu(s, a, c);
+                    if att == Attendu::SuccesBorneA {
+                        *succes_bornes.entry(s.nom).or_insert(0) += usize::from(rep.est_succes());
+                    }
                     let mut pb = Vec::new();
                     if !verifie(att, &rep) {
                         pb.push(format!("statut {} (attendu {att:?})", rep.statut.as_u16()));
@@ -230,6 +247,11 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
             }
         }
     });
+    for (nom, ok) in &succes_bornes {
+        if *ok == 0 {
+            echecs.push(format!("[{nom}] scénario vide : aucun acteur n'a obtenu de 2xx (la borne à A n'est pas éprouvée)"));
+        }
+    }
     CAS_EXECUTES.fetch_add(n, Ordering::Relaxed);
     eprintln!("[separation] {domaine} : {n} cas, {} écart(s)", echecs.len());
     assert!(
@@ -611,6 +633,30 @@ fn domaine_documents() {
     jouer("documents (par identifiant)", &specs_domaine_documents());
 }
 
+/// Socle 18 (FO1) : un élève, un accord ou une décision d'un autre établissement n'est ni lisible, ni décidable, ni retirable.
+fn specs_domaine_accords() -> Vec<Spec> {
+    vec![
+        ecrire_sur_b(
+            "accords-decider-B",
+            "POST",
+            "/accords/decider",
+            Some(r#"{"objet_code":"droit_image","eleve_id":"{eleve}","usages":[{"code":"fil_classe","accorde":true}]}"#),
+        ),
+        ecrire_sur_b(
+            "accords-retirer-B",
+            "POST",
+            "/accords/retirer",
+            Some(r#"{"objet_code":"droit_image","eleve_id":"{eleve}"}"#),
+        ),
+        ecrire_sur_b("accords-decisions-B", "GET", "/accords/objets/droit_image/eleves/{eleve}/decisions", None),
+    ]
+}
+
+#[test]
+fn domaine_accords() {
+    jouer("accords (socle 18 : décider, retirer, lire les décisions)", &specs_domaine_accords());
+}
+
 fn specs_domaine_fils_de_messages() -> Vec<Spec> {
     vec![
             // M0a : le fil du labo lié à l'élève est un fil de vie scolaire (carnet) adressé aux
@@ -768,12 +814,192 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c2-travail-retrait-B", "POST", "/cahier/c2/travaux/{cours}/retrait", Some(r#"{"motif":"test"}"#)),
         lire("cahier-c2-mes-cours", "/cahier/c2/cours", &[Admin, Direction, Prof], &[]),
         lire("cahier-c2-natures", "/cahier/c2/natures", &[Admin, Direction, Prof], &[]),
+        // Socle 20, lot C3 : agenda, manqué, résumé de l'élève et de ses responsables habilités. Le jeton de A avec des
+        // identifiants de B n'obtient jamais un 2xx ; le personnel, un parent d'un autre foyer ou sans lien ne lit rien.
+        lire("cahier-c3-agenda", "/cahier/c3/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        lire("cahier-c3-manque", "/cahier/c3/manque?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        lire("cahier-c3-resume", "/cahier/c3/resume?eleve_id={eleve}", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        lire("cahier-c3-abonnements", "/cahier/c3/abonnements", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        // Socle 20, lot C4 : charge. Même règle que l'agenda pour la charge d'un élève ; le reste n'a pas de ressource liée à A
+        // à lire : le jeton de A avec des identifiants de B n'obtient jamais un 2xx.
+        lire("cahier-c4-charge", "/cahier/c4/charge?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", &[Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux], &[]),
+        ecrire_sur_b("cahier-c4-apercu-B", "POST", "/cahier/c4/apercu",
+            Some(r#"{"cours_ids":["{cours}"],"echeance_jour":"2031-03-12"}"#)),
+        ecrire_sur_b("cahier-c4-calendrier-B", "GET", "/cahier/c4/classes/{cours}/calendrier?du=2026-01-05&au=2026-01-30", None),
+        ecrire_sur_b("cahier-c4-alerte-B", "POST", "/cahier/c4/travaux/{cours}/alerte-ignoree", None),
+        // Socle 20, lot C5 : rendu et retour. Aucune ressource de A n'est lisible avec le jeton de B ; toute route à identifiant
+        // est refusée (ou introuvable) pour l'autre établissement : le jeton de A avec des identifiants de B n'obtient jamais un 2xx.
+        ecrire_sur_b("cahier-c5-remise-B", "GET", "/cahier/c5/travaux/{cours}/remise?eleve_id={eleve}", None),
+        ecrire_sur_b("cahier-c5-brouillon-B", "PUT", "/cahier/c5/travaux/{cours}/brouillon", Some(r#"{"texte":"x"}"#)),
+        ecrire_sur_b("cahier-c5-brouillon-piece-B", "DELETE", "/cahier/c5/travaux/{cours}/brouillon/pieces/{cours}", None),
+        ecrire_sur_b("cahier-c5-depot-B", "POST", "/cahier/c5/travaux/{cours}/depot", Some(r#"{"texte":"x"}"#)),
+        ecrire_sur_b("cahier-c5-depot-au-nom-B", "POST", "/cahier/c5/travaux/{cours}/depot-au-nom", Some(r#"{"eleve_id":"{eleve}","texte":"x"}"#)),
+        ecrire_sur_b("cahier-c5-signalement-B", "POST", "/cahier/c5/travaux/{cours}/signalement", Some(r#"{}"#)),
+        ecrire_sur_b("cahier-c5-delai-B", "POST", "/cahier/c5/travaux/{cours}/delai", Some(r#"{}"#)),
+        ecrire_sur_b("cahier-c5-delais-B", "GET", "/cahier/c5/travaux/{cours}/delais", None),
+        ecrire_sur_b("cahier-c5-groupes-B", "GET", "/cahier/c5/travaux/{cours}/groupes", None),
+        ecrire_sur_b("cahier-c5-groupes-composer-B", "PUT", "/cahier/c5/travaux/{cours}/groupes", Some(r#"{"groupes":[]}"#)),
+        ecrire_sur_b("cahier-c5-groupes-rejoindre-B", "POST", "/cahier/c5/travaux/{cours}/groupes/rejoindre", Some(r#"{"libelle":"G"}"#)),
+        ecrire_sur_b("cahier-c5-suivi-B", "GET", "/cahier/c5/travaux/{cours}/suivi", None),
+        ecrire_sur_b("cahier-c5-constats-B", "POST", "/cahier/c5/travaux/{cours}/constats", Some(r#"{"constats":[]}"#)),
+        ecrire_sur_b("cahier-c5-prolongations-B", "POST", "/cahier/c5/travaux/{cours}/prolongations", Some(r#"{"eleve_ids":[],"echeance_jour":"2031-03-12","echeance_heure":"08:00:00","motif":"autre"}"#)),
+        ecrire_sur_b("cahier-c5-cloture-B", "PUT", "/cahier/c5/travaux/{cours}/cloture", Some(r#"{"cloture_jour":"2031-03-12","cloture_heure":"08:00:00"}"#)),
+        ecrire_sur_b("cahier-c5-copies-B", "GET", "/cahier/c5/travaux/{cours}/copies", None),
+        ecrire_sur_b("cahier-c5-relance-B", "POST", "/cahier/c5/travaux/{cours}/relance", Some(r#"{"confirmer":true}"#)),
+        ecrire_sur_b("cahier-c5-retours-lot-B", "POST", "/cahier/c5/travaux/{cours}/retours/lot", None),
+        ecrire_sur_b("cahier-c5-retour-lire-B", "GET", "/cahier/c5/remises/{cours}/retour", None),
+        ecrire_sur_b("cahier-c5-retour-B", "PUT", "/cahier/c5/remises/{cours}/retour", Some(r#"{"commentaire":"x"}"#)),
+        ecrire_sur_b("cahier-c5-rouvrir-B", "POST", "/cahier/c5/remises/{cours}/rouvrir", Some(r#"{"echeance_jour":"2031-03-12","echeance_heure":"08:00:00"}"#)),
+        ecrire_sur_b("cahier-c5-signalement-copie-B", "POST", "/cahier/c5/remises/{cours}/signalement-copie", Some(r#"{"vers":"cpe"}"#)),
+        ecrire_sur_b("cahier-c5-delai-decision-B", "POST", "/cahier/c5/delais/{cours}/decision", Some(r#"{"accepter":false}"#)),
+        ecrire_sur_b("cahier-c5-piece-lien-B", "POST", "/cahier/c5/pieces/{cours}/lien", Some(r#"{"motif":"test"}"#)),
+        // Routes sans identifiant de ressource (pannes, listes, AESH, affichage) : voir `routes_sans_identifiant_bornees_a_l_etablissement_de_la_session`.
+        // Socle 20, lot C6 : continuité. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx ; aucune route ne sert
+        // la nature d'une continuité ni un motif d'absence à un professeur.
+        ecrire_sur_b("cahier-c6-report-decision-B", "POST", "/cahier/c6/reports/{cours}/decision", Some(r#"{"decision":"refuser"}"#)),
+        ecrire_sur_b("cahier-c6-continuite-ouvrir-B", "POST", "/cahier/c6/continuites", Some(r#"{"eleve_id":"{eleve}","du":"2031-03-12","cours_ids":["{cours}"],"nature":"absence_longue"}"#)),
+        ecrire_sur_b("cahier-c6-continuite-cloture-B", "POST", "/cahier/c6/continuites/{cours}/cloture", Some(r#"{"au":"2031-03-20"}"#)),
+        ecrire_sur_b("cahier-c6-bandeau-B", "GET", "/cahier/c6/cours/{cours}/bandeau", None),
+        ecrire_sur_b("cahier-c6-suppleance-B", "GET", "/cahier/c6/cours/{cours}/suppleance", None),
+        ecrire_sur_b("cahier-c6-copies-B", "POST", "/cahier/c6/cours/{cours}/copies", Some(r#"{"decision":"titulaire_corrigera"}"#)),
+        ecrire_sur_b("cahier-c6-vacant-travail-B", "POST", "/cahier/c6/vacants/travaux", Some(r#"{"cours_ids":["{cours}"],"nature":"travail","titre":"x","consigne":"x","publication":"brouillon"}"#)),
+        ecrire_sur_b("cahier-c6-seance-travail-B", "POST", "/cahier/c6/seances/{cours}/travail", Some(r#"{"titre":"x","consigne":"x","contexte":"distance"}"#)),
+        ecrire_sur_b("cahier-c6-remplacement-B", "GET", "/cahier/c6/seances/{cours}/remplacement", None),
+        // Socle 20, lot C7 : adaptations. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx ; aucune route d'élève ou de
+        // famille ne porte d'indicateur de variante (l'élève lit sa version dans l'agenda de C3).
+        ecrire_sur_b("cahier-c7-variantes-B", "GET", "/cahier/c7/travaux/{cours}/variantes", None),
+        ecrire_sur_b("cahier-c7-variante-creer-B", "POST", "/cahier/c7/travaux/{cours}/variantes", Some(r#"{"libelle_interne":"x","consigne":"x"}"#)),
+        ecrire_sur_b("cahier-c7-variante-modifier-B", "PUT", "/cahier/c7/variantes/{cours}", Some(r#"{"libelle_interne":"x","consigne":"x"}"#)),
+        ecrire_sur_b("cahier-c7-variante-attribuer-B", "POST", "/cahier/c7/variantes/{cours}/eleves", Some(r#"{"eleve_ids":["{eleve}"]}"#)),
+        ecrire_sur_b("cahier-c7-variante-retirer-B", "DELETE", "/cahier/c7/variantes/{cours}/eleves", Some(r#"{"eleve_ids":["{eleve}"]}"#)),
+        ecrire_sur_b("cahier-c7-pastilles-B", "GET", "/cahier/c7/cours/{cours}/pastilles", None),
+        ecrire_sur_b("cahier-c7-amenagements-B", "POST", "/cahier/c7/travaux/{cours}/amenagements?confirmer=true", None),
+        ecrire_sur_b("cahier-c7-notes-travail-B", "GET", "/cahier/c7/travaux/{cours}/notes-accompagnement", None),
+        ecrire_sur_b("cahier-c7-notes-entree-B", "GET", "/cahier/c7/entrees/{cours}/notes-accompagnement", None),
+        ecrire_sur_b("cahier-c7-aesh-agenda-B", "GET", "/cahier/c7/aesh/agenda?eleve_id={eleve}&du=2026-01-05&au=2026-01-30", None),
+        ecrire_sur_b("cahier-c7-aesh-cahier-B", "GET", "/cahier/c7/aesh/cahier?eleve_id={eleve}&cours_id={cours}", None),
+        ecrire_sur_b("cahier-c7-aesh-note-B", "POST", "/cahier/c7/aesh/notes", Some(r#"{"travail_id":"{cours}","eleve_id":"{eleve}","texte":"x"}"#)),
+        ecrire_sur_b("cahier-c3-coche-B", "PUT", "/cahier/c3/travaux/{cours}/fait", Some(r#"{"fait":true}"#)),
+        ecrire_sur_b("cahier-c3-abonnement-B", "POST", "/cahier/c3/abonnements", Some(r#"{"eleve_id":"{eleve}"}"#)),
+        ecrire_sur_b("cahier-c3-abonnement-revocation-B", "DELETE", "/cahier/c3/abonnements/{cours}", None),
     ]
 }
 
 #[test]
 fn domaine_cours() {
     jouer("cours : public et membres individuels", &specs_domaine_cours());
+}
+
+/// Données de cahier **semées dans B** (continuité, réglage d'affichage, panne), par le rôle propriétaire. Retourne les
+/// identifiants et valeurs que la réponse d'une session de A ne doit jamais contenir.
+async fn semer_cahier_dans_b(m: &Monde) -> Vec<&'static str> {
+    let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL")).await.expect("connexion propriétaire");
+    let etab = m.b.objets.etab;
+    let mut interdits: Vec<String> = Vec::new();
+    let panne: Uuid = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_cdt_panne (id, etablissement_id, debut_le, fin_le) VALUES ($1, $2, '2031-03-10T08:00:00Z', '2031-03-10T09:00:00Z')",
+    )
+    .bind(panne)
+    .bind(etab)
+    .execute(&pool)
+    .await
+    .expect("panne de B");
+    interdits.push(panne.to_string());
+    if let Some(cours) = m.b.objets.cours {
+        let cont: Uuid = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ($1, $2, $3, '2031-03-10')")
+            .bind(cont)
+            .bind(etab)
+            .bind(m.b.objets.eleve_ron)
+            .execute(&pool)
+            .await
+            .expect("continuité de B");
+        sqlx::query("INSERT INTO ent_cdt_continuite_cours (etablissement_id, continuite_id, cours_id) VALUES ($1, $2, $3)")
+            .bind(etab)
+            .bind(cont)
+            .bind(cours)
+            .execute(&pool)
+            .await
+            .expect("cours de la continuité de B");
+        interdits.push(cont.to_string());
+    }
+    sqlx::query("INSERT INTO ent_cdt_affichage (etablissement_id, eleve_id, taille_police) VALUES ($1, $2, 'tres_grande') ON CONFLICT (eleve_id) DO NOTHING")
+        .bind(etab)
+        .bind(m.b.objets.eleve_ron)
+        .execute(&pool)
+        .await
+        .expect("affichage de B");
+    // Valeur reconnaissable du réglage d'affichage de B : jamais lue par une session de A.
+    interdits.push("tres_grande".to_string());
+    interdits.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
+}
+
+/// Empreinte (comptes et contenu) des tables de cahier que ces routes écrivent, **dans B** : calculée par le propriétaire.
+async fn empreinte_cahier_de_b(m: &Monde) -> String {
+    let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL")).await.expect("connexion propriétaire");
+    let mut out = Vec::new();
+    for table in [
+        "ent_cdt_panne",
+        "ent_cdt_report",
+        "ent_cdt_affichage",
+        "ent_cdt_continuite",
+        "ent_cdt_continuite_cours",
+        "ent_cdt_note_accompagnement",
+    ] {
+        let (n, h): (i64, String) = sqlx::query_as(&format!(
+            "SELECT count(*), coalesce(md5(string_agg(t::text, '|' ORDER BY t::text)), '') FROM {table} t WHERE etablissement_id = $1"
+        ))
+        .bind(m.b.objets.etab)
+        .fetch_one(&pool)
+        .await
+        .expect("empreinte");
+        out.push(format!("{table}={n}:{h}"));
+    }
+    out.join(" ")
+}
+
+/// Routes **sans identifiant de ressource** (elles n'agissent que sur l'établissement de la session) : la session de A obtient
+/// un refus ou un 2xx **borné à A** (aucun identifiant ni valeur semés dans B dans le corps), et les écritures
+/// (`pannes`, `reports/lot`, `affichage`) ne créent ni ne modifient aucune ligne de B (vérifié en base par le propriétaire).
+#[test]
+fn routes_sans_identifiant_bornees_a_l_etablissement_de_la_session() {
+    let Some(m) = monde() else { return };
+    let interdits: &'static [&'static str] = Box::leak(rt().block_on(semer_cahier_dans_b(m)).into_boxed_slice());
+    let avant = rt().block_on(empreinte_cahier_de_b(m));
+    let specs = vec![
+        borne_a("cahier-c5-panne-B", "POST", "/cahier/c5/pannes", Some(r#"{"debut_le":"2031-03-12T08:00:00Z","fin_le":"2031-03-12T09:00:00Z"}"#), interdits),
+        borne_a("cahier-c6-reports-B", "GET", "/cahier/c6/reports", None, interdits),
+        borne_a("cahier-c6-reports-lot-B", "POST", "/cahier/c6/reports/lot", Some(r#"{"ids":["00000000-0000-4000-8000-000000000001"],"decision":"refuser"}"#), interdits),
+        borne_a("cahier-c6-continuites-B", "GET", "/cahier/c6/continuites", None, interdits),
+        borne_a("cahier-c6-travaux-remplacants-B", "GET", "/cahier/c6/travaux-remplacants", None, interdits),
+        borne_a("cahier-c6-vacants-B", "GET", "/cahier/c6/vacants", None, interdits),
+        borne_a("cahier-c7-aesh-eleves-B", "GET", "/cahier/c7/aesh/eleves", None, interdits),
+        borne_a("cahier-c7-affichage-B", "GET", "/cahier/c7/affichage", None, interdits),
+        borne_a("cahier-c7-affichage-regler-B", "PUT", "/cahier/c7/affichage", Some(r#"{"taille_police":"grande","interligne":"large","lecture_audio":false,"animations_reduites":false}"#), interdits),
+    ];
+    jouer("cahier : routes sans identifiant, session de A", &specs);
+    let apres = rt().block_on(empreinte_cahier_de_b(m));
+    assert_eq!(avant, apres, "une session de A a créé ou modifié des données de cahier de B");
+}
+
+/// `POST /cahier/c6/reports/lot` : garde d'entrée comme pour une proposition seule. Un rôle sans droit d'écriture sur le cahier
+/// est refusé (403) **d'entrée** (pas un 200 avec des identifiants « ignorés ») ; direction et professeur passent la garde.
+#[test]
+fn reports_lot_refuse_d_entree_les_roles_sans_droit_de_decision() {
+    let Some(m) = monde() else { return };
+    let corps = json!({"ids": ["00000000-0000-4000-8000-000000000001"], "decision": "refuser"});
+    rt().block_on(async {
+        for a in [Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            let r = m.appel("POST", "/cahier/c6/reports/lot", Some(m.jeton(a)), Some(&corps)).await;
+            assert_eq!(r.statut.as_u16(), 403, "{a:?} doit être refusé d'entrée : {}", r.texte);
+        }
+        for a in [Admin, Direction, Prof] {
+            let r = m.appel("POST", "/cahier/c6/reports/lot", Some(m.jeton(a)), Some(&corps)).await;
+            assert!(r.est_succes(), "{a:?} passe la garde : {} {}", r.statut, r.texte);
+            assert!(r.texte.contains("introuvable"), "{a:?} : la proposition inconnue est ignorée : {}", r.texte);
+        }
+    });
 }
 
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
@@ -844,6 +1070,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/labo/bootstrap"), // fermé hors labo par ENT_ENV / ENT_ALLOW_LABO
     ("POST", "/auth/register"),  // fermé hors labo
     ("POST", "/auth/login"),
+    // Socle 20, lot C3 : flux de calendrier d'un abonnement. Un logiciel de calendrier n'envoie ni cookie ni jeton d'API ;
+    // le jeton de l'adresse (244 bits, haché en base, révocable) tient lieu de session, et les droits du compte abonné
+    // sont relus à chaque lecture. Jeton inconnu, révoqué ou droits retirés : 404 sans rien dire de plus.
+    ("GET", "/cahier/c3/calendrier/{jeton}"),
     ("GET", "/auth/etablissement"), // C2 : fiche publique de l'établissement de l'adresse
     ("POST", "/auth/passkey/login/start"),
     ("POST", "/auth/passkey/login/finish"),
@@ -881,6 +1111,10 @@ const PUBLIQUES: &[(&str, &str)] = &[
     ("POST", "/preinscription/demarrer"),
     ("POST", "/preinscription/verifier"),
     ("POST", "/inscriptions/invitations/accepter"),
+    // Journal de voyage (socle 42, V0d) : famille SANS compte ; le jeton du lien nominatif (empreinte seule en base,
+    // expirant, révocable, débit limité) fait foi, l'établissement vient du jeton. Réponses identiques pour tout jeton refusé.
+    ("GET", "/voyages/journal/lien/{jeton}"),
+    ("GET", "/voyages/journal/lien/{jeton}/photos/{phid}"),
 ];
 /// Pages HTML de l'application (coquilles sans donnée) servies par `ui_page`.
 const HANDLERS_PUBLICS: &[&str] = &["ui_page"];
@@ -1702,6 +1936,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_sante());
     v.extend(specs_domaine_psy());
     v.extend(specs_domaine_documents());
+    v.extend(specs_domaine_accords());
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());

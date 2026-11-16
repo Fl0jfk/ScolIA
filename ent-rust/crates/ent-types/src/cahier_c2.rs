@@ -88,6 +88,9 @@ pub struct TravailResumeDto {
     pub echeance_jour: NaiveDate,
     pub echeance_heure: String,
     pub public: String,
+    /// `aucun`, `en_ligne` ou `en_classe` : le suivi des rendus (lot C5) n'existe que pour `en_ligne`.
+    #[serde(default)]
+    pub rendu: String,
 }
 
 /// Séance datée d'un cours avec son entrée (vide tant que rien n'est écrit) et ses travaux (écran 1).

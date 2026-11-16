@@ -34,7 +34,11 @@ pub const AMENAGEMENTS: &str = "/web/amenagements";
 pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
 pub const CAHIER: &str = "/web/cahier";
+/// Lot C6 : reports proposés, élèves en continuité.
+pub const CONTINUITE: &str = "/web/cahier/continuite";
 pub const AGENDA: &str = "/web/agenda";
+/// Cahier de l'élève et de la famille (socle 20, lot C3) : agenda, ce que j'ai manqué, la semaine, calendrier.
+pub const MON_CAHIER: &str = "/web/cahier/agenda";
 /// Mon agenda (socle 19, lot AG1) : événements, rendez-vous, cours et fermetures de la semaine.
 /// (`/web/agenda` reste « Travail à faire », cahier de textes.)
 pub const MON_AGENDA: &str = "/web/mon-agenda";
@@ -164,9 +168,11 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     }
     if droits.cahier_ecrire {
         v.push(entree("Cahier de textes", CAHIER, NomIcone::Annonce));
+        v.push(entree("Continuité", CONTINUITE, NomIcone::Annonce));
     }
     if droits.agenda {
         v.push(entree("Travail à faire", AGENDA, NomIcone::Agenda));
+        v.push(entree("Mon cahier", MON_CAHIER, NomIcone::Annonce));
     }
     if droits.mes_classes {
         v.push(entree("Mes classes", MES_CLASSES, NomIcone::Ecole));
@@ -320,6 +326,7 @@ mod tests {
                 EDT_SEMAINE,
                 APPEL,
                 CAHIER,
+                CONTINUITE,
                 MES_CLASSES,
                 DELEGATIONS,
                 RENDEZ_VOUS,
@@ -385,6 +392,7 @@ mod tests {
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
+                MON_CAHIER,
                 EVALUATIONS,
                 ABSENCES,
                 RENDEZ_VOUS,
@@ -438,6 +446,7 @@ mod tests {
                 EMPLOI_DU_TEMPS,
                 CHANGEMENTS_EDT,
                 AGENDA,
+                MON_CAHIER,
                 EVALUATIONS,
                 ABSENCES,
                 FORMULAIRES,
@@ -563,6 +572,7 @@ mod tests {
                 MON_AGENDA,
                 CHANGEMENTS_EDT,
                 AGENDA,
+                MON_CAHIER,
                 EVALUATIONS,
                 ABSENCES,
                 RENDEZ_VOUS,

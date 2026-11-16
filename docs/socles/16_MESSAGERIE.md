@@ -1138,6 +1138,10 @@ Si Q-B2 est adoptée : **4600** M0a (RLS permissive sur toutes les tables de com
 
 ---
 
+### 27.5 État des lots M3 et M4 (implémentés 2026-11-15, branches `ent-socle-16-code-m3` puis `-m4`, base `origin/ENT` 6d50d785)
+
+Niveau : **implémenté et testé en local**, non validé par Florian, non prêt pilote. Détail, droits, migrations (485 à 487), limites et faille fermée : `docs/PROJECT_STATUS.md`, « Messagerie, lots M3 et M4 ». Critères de fin : CM-31, CM-44, CM-49 (M3) ; CM-26, CM-45, CM-54 à CM-56, CM-79 (M4) en tests ; « aucune lecture C3 hors membres » et « aucune liste de membres côté famille » testés ; séparation entre établissements prouvée par un rôle NOBYPASSRLS en mode strict. Écart au §25 : la note interne est une table à part. Reste : e-mails et réponses à usage unique (D-065, lot N6), pièces (M5), supervision et gel (M10), responsable de boîte (MSG-169), fils de boîte sans élève.
+
 ## 28. Tests et recette
 
 1. **Matrice de séparation de la messagerie** (générée, comme `separation.rs`) : pour chaque route de la brique × chaque profil d'attaquant — parent de l'autre foyer, parent interdit, parent suspendu, parent « ne pas solliciter », parent sans `peut_voir_vs`, élève, élève d'une autre classe, professeur hors cours, professeur de l'autre groupe (LV2), AED hors boîte, membre d'une boîte non C3 face à une boîte C3, direction sans supervision ouverte, accueil, autre établissement — sur liste, lecture, compteur, recherche, pièce, URL pré-signée, accusé, export, flux temps réel, notification.

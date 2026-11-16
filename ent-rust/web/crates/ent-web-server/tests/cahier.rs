@@ -86,6 +86,17 @@ async fn pages_rendues_par_le_serveur() {
         // Lot C2 : cahier du cours (écran 1) et travail à donner (écran 2).
         ("/web/cahier/cours".to_string(), "Cahier du cours"),
         ("/web/cahier/travail".to_string(), "Donner un travail"),
+        // Lot C3 : cahier de l'élève et de la famille (agenda, manqué, semaine, calendrier).
+        ("/web/cahier/agenda".to_string(), "Mon cahier"),
+        // Lots C5 à C7 : rendre un travail, suivi des rendus, continuité, adaptations, élèves accompagnés.
+        (format!("/web/cahier/rendu/{inconnu}"), "Rendre un travail"),
+        (format!("/web/cahier/suivi/{inconnu}"), "Suivi des rendus"),
+        ("/web/cahier/continuite".to_string(), "Continuité"),
+        (
+            format!("/web/cahier/adaptations/{inconnu}?cours={inconnu}"),
+            "Adaptations",
+        ),
+        ("/web/cahier/aesh".to_string(), "Élèves accompagnés"),
     ] {
         let r = http.get(format!("{base}{chemin}")).send().await.unwrap();
         assert_eq!(r.status(), 200, "{chemin}");

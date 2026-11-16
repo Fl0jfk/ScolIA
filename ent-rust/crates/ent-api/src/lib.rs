@@ -33,6 +33,11 @@ mod internat;
 pub mod obs;
 mod referentiel;
 mod cahier;
+mod cahier_c3;
+mod cahier_c4;
+mod cahier_c5;
+mod cahier_c6;
+mod cahier_c7;
 mod referentiel_s2;
 mod structure;
 mod structure_calendrier;
@@ -42,6 +47,8 @@ mod structure_offre;
 mod structure_periodes;
 mod voyages;
 mod voyages_achats;
+mod voyages_v0d;
+mod voyages_v1;
 mod edt_s2;
 mod edt_t5;
 mod roles;
@@ -55,6 +62,7 @@ mod vie_scolaire;
 mod evaluations;
 mod agenda;
 mod communication_s28;
+mod accords_s18;
 mod eleve_propositions;
 mod eleve_fusion;
 mod sante;
@@ -361,6 +369,8 @@ mod tests_structure_s4;
 mod tests_structure_s6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_voyages;
+#[cfg(all(test, feature = "labo"))]
+mod tests_voyages_v0d_v1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_structure_s5;
 #[cfg(all(test, feature = "labo"))]

@@ -440,6 +440,10 @@ pub fn message_envoi(type_: &str, etablissement: &str, reference: &str, numero: 
             format!("[{reference}] Avenant n° {} — annule et remplace", numero.unwrap_or(1)),
             format!("Bonjour,\n\nVeuillez trouver ci-joint un avenant à la commande de {etab}. Il annule et remplace la version précédente. Merci de le confirmer en répondant à ce message.\n\nCordialement,\n{etab}"),
         ),
+        "liste_nominative" => (
+            format!("[{reference}] Liste des participants"),
+            format!("Bonjour,\n\nVeuillez trouver ci-joint la liste des participants de la sortie organisée par {etab}, établie sur la base du contrat. Ce document est confidentiel : il ne doit servir qu'à l'organisation de la sortie et n'être transmis à personne d'autre. Merci d'en accuser réception en répondant à ce message.\n"),
+        ),
         _ => (
             format!("[{reference}] Demande de devis"),
             format!("Bonjour,\n\n{etab} sollicite un devis pour la sortie décrite dans le document joint. Merci de répondre à ce message en conservant la référence dans l'objet.\n\nCordialement,\n{etab}"),

@@ -15,12 +15,14 @@ use uuid::Uuid;
 /// écrit. Les trois termes suivants sont le **pont des rôles réservés**, provisoire jusqu'à M3
 /// (boîtes de service) : un personnel qui détient le droit lit encore, sans être participant, les
 /// fils de vie scolaire, les relances (`foyer_ok`) et les fils réservés (`reserve_ok`). Dès qu'il y
-/// écrit, il devient participant.
+/// écrit, il devient participant. M3 : **jamais** un fil de boîte (`nature = 'boite'`) ni un fil C3 par ce
+/// pont : un fil de boîte n'est lu que par ses membres (R-M1, R-M11), la supervision motivée est M10.
 const PREDICAT_LISIBLE_PERSONNEL: &str = "(
        f.id IN (SELECT l.fil_id FROM ent_msg_fil_lisible($1, $3) l)
-    OR (f.foyer_id IS NULL AND f.vie_scolaire)
-    OR (f.foyer_id IS NOT NULL AND $5)
-    OR (f.foyer_id IS NULL AND NOT f.vie_scolaire AND $4))";
+    OR (f.nature <> 'boite' AND f.sensibilite <> 'C3' AND (
+           (f.foyer_id IS NULL AND f.vie_scolaire)
+        OR (f.foyer_id IS NOT NULL AND $5)
+        OR (f.foyer_id IS NULL AND NOT f.vie_scolaire AND $4))))";
 
 /// Échappe `\`, `%` et `_` d'une recherche libre pour `ILIKE ... ESCAPE '\'`.
 fn echapper_like(r: &str) -> String {
@@ -406,6 +408,7 @@ impl PgMsgRepo {
                      ORDER BY m.created_at DESC, m.id DESC LIMIT 1) d ON true
              WHERE f.etablissement_id = $1
                AND NOT f.archive AND f.foyer_id IS NULL AND NOT f.vie_scolaire
+               AND f.nature <> 'boite' AND f.sensibilite <> 'C3'
                AND (f.prive_user_id IS NOT NULL OR f.foyer_lecteur_id IS NOT NULL
                     OR f.audience = 'eleve')
                AND EXISTS (SELECT 1 FROM ent_membership mb
@@ -721,7 +724,7 @@ impl PgMsgRepo {
                 SELECT id, etablissement_id, titre, sujet, corps, actif,
                        created_by_user_id, created_at
                 FROM ent_msg_modele
-                WHERE etablissement_id = $1 AND actif = true
+                WHERE etablissement_id = $1 AND actif = true AND portee = 'etablissement'
                 ORDER BY titre ASC
                 "#,
             )
@@ -735,7 +738,7 @@ impl PgMsgRepo {
                 SELECT id, etablissement_id, titre, sujet, corps, actif,
                        created_by_user_id, created_at
                 FROM ent_msg_modele
-                WHERE etablissement_id = $1
+                WHERE etablissement_id = $1 AND portee = 'etablissement'
                 ORDER BY titre ASC
                 "#,
             )
@@ -906,7 +909,9 @@ impl PgMsgRepo {
     ) -> Result<Vec<Message>, DomainError> {
         let rows = sqlx::query_as::<_, MsgRow>(
             r#"
-            SELECT id, etablissement_id, fil_id, auteur_user_id, corps, created_at
+            SELECT id, etablissement_id, fil_id, auteur_user_id,
+                   CASE WHEN retire_le IS NOT NULL THEN 'Message retiré par son auteur.' ELSE corps END AS corps,
+                   created_at
             FROM ent_msg
             WHERE etablissement_id = $1 AND fil_id = $2
               AND (remise_prevue_le IS NULL OR remise_prevue_le <= now() OR auteur_user_id = $3)
@@ -1211,7 +1216,9 @@ impl PgMsgRepo {
     ) -> Result<Option<Message>, DomainError> {
         let row = sqlx::query_as::<_, MsgRow>(
             r#"
-            SELECT id, etablissement_id, fil_id, auteur_user_id, corps, created_at
+            SELECT id, etablissement_id, fil_id, auteur_user_id,
+                   CASE WHEN retire_le IS NOT NULL THEN 'Message retiré par son auteur.' ELSE corps END AS corps,
+                   created_at
             FROM ent_msg
             WHERE etablissement_id = $1 AND id = $2
             "#,

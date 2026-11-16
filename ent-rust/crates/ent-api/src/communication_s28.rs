@@ -479,13 +479,23 @@ async fn creer_formulaire(
         .map_err(map_db)
 }
 
+/// Corps facultatif de `POST /formulaires/{id}/publier` (socle 18, FO0) : qualification d'une nouvelle version.
+#[derive(Debug, Deserialize)]
+struct PublicationFormulaire {
+    /// `forme` (accords valables), `fond` (accords à renouveler) ou `restriction` ; absent : `fond` par prudence.
+    #[serde(default)]
+    changement: Option<String>,
+}
+
 async fn publier_formulaire(
     State(s): State<AppState>,
     se: EntSession,
     Path(id): Path<Uuid>,
+    corps: Option<Json<PublicationFormulaire>>,
 ) -> Res<Json<Formulaire>> {
+    let changement = corps.and_then(|Json(p)| p.changement);
     ent(&s)
-        .publier_formulaire(se.etablissement_id, se.user_id, &se.role, id)
+        .publier_formulaire_qualifie(se.etablissement_id, se.user_id, &se.role, id, changement.as_deref())
         .await
         .map(Json)
         .map_err(map_db)
