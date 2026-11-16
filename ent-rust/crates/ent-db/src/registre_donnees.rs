@@ -396,6 +396,8 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_asd_situation", "assiduite", Portee::Etablissement).perso().sante().export(),
     t("ent_asd_situation_texte", "assiduite", Portee::Etablissement).perso().sante().export(),
     t("ent_asd_situation_version", "assiduite", Portee::Etablissement).perso(),
+    t("ent_asd_tableau_pref", "assiduite", Portee::Etablissement).perso(),
+    t("ent_asd_tableau_reglage", "assiduite", Portee::Etablissement),
     t("ent_asd_vigilance", "assiduite", Portee::Etablissement).perso().export(),
     t("ent_attribution_cible", "personnels", Portee::Etablissement).perso().export(),
     t("ent_bank_rapprochement", "finances", Portee::Etablissement).perso().export(),

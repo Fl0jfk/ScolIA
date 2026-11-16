@@ -9,3 +9,4 @@ pub mod declaration;
 pub mod recherche_eleve;
 pub mod sante;
 pub mod seances;
+pub mod tableau_vs;

@@ -6,6 +6,7 @@
 
 @import "../crates/ent-web-ui/style/ui.css";
 @import "absences-personnels.css";
+@import "tableau-vs.css";
 
 /* --- Commun --------------------------------------------------------------- */
 .lien-evitement {

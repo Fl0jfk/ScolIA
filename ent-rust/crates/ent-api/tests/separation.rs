@@ -2007,6 +2007,34 @@ fn domaine_assiduite_verification() {
     jouer("assiduite_verification", &specs_domaine_assiduite_verification());
 }
 
+/// Socle 12, lot AS14b-bis (tableau de bord de la vie scolaire en panneaux). Les exclus du jour et la configuration
+/// (heure de bascule, disposition personnelle) sont réservés comme la file du matin (`appel.verifier` +
+/// `absences.lire`) : ni le professeur, ni une famille, ni l'élève. Les trois écritures n'ont aucun identifiant de
+/// ressource : la session de A ne règle que l'établissement de A et que sa propre disposition ; l'heure de bascule
+/// relève de `assiduite.regle_gerer` (jamais de la vie scolaire seule). Rien de B n'est lisible ni modifiable.
+fn specs_domaine_assiduite_tableau() -> Vec<Spec> {
+    vec![
+        lire("assiduite-exclus-du-jour", "/assiduite/exclus-du-jour", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-tableau-configuration", "/assiduite/tableau/configuration", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        borne_a("assiduite-tableau-heure-bascule", "PUT", "/assiduite/tableau/heure-bascule", Some(r#"{"heure":"11:00:00"}"#), &[]),
+        borne_a(
+            "assiduite-tableau-preference-poser",
+            "PUT",
+            "/assiduite/tableau/preference",
+            Some(
+                r#"{"panneaux":[{"panneau":"absents","replie":false,"masque":false},{"panneau":"exclus","replie":false,"masque":false},{"panneau":"appels","replie":false,"masque":false},{"panneau":"incoherences","replie":false,"masque":false},{"panneau":"familles","replie":false,"masque":false}]}"#,
+            ),
+            &[],
+        ),
+        borne_a("assiduite-tableau-preference-effacer", "DELETE", "/assiduite/tableau/preference", None, &[]),
+    ]
+}
+
+#[test]
+fn domaine_assiduite_tableau() {
+    jouer("assiduite_tableau", &specs_domaine_assiduite_tableau());
+}
+
 fn toutes_les_specs() -> Vec<Spec> {
     let mut v = Vec::new();
     v.extend(specs_domaine_eleve_dossier());
@@ -2021,6 +2049,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
     v.extend(specs_domaine_assiduite_verification());
+    v.extend(specs_domaine_assiduite_tableau());
     v.extend(specs_domaine_cours());
     v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
     v
