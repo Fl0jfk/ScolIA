@@ -594,7 +594,7 @@ mod tests {
         use webauthn_authenticator_rs::softpasskey::SoftPasskey;
         let origin = Url::parse("http://localhost:3000").unwrap();
         let engine = PasskeyEngine::new("localhost", origin.as_str(), DEFAULT_RP_NAME).unwrap();
-        let mut enrol = || {
+        let enrol = || {
             let mut dev = WebauthnAuthenticator::new(SoftPasskey::new(true));
             let (ccr, st) = engine.start_registration(Uuid::new_v4(), "a@b.fr", "A", vec![]).unwrap();
             let reg = dev.do_registration(origin.clone(), ccr).unwrap();

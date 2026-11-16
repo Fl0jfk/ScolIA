@@ -2438,6 +2438,7 @@ fn socle_42_voyages(role: Role, d: &mut Vec<(Action, Portee)>) {
 /// * `demandes.hse.attester` : l'attestation du service fait est un réglage facultatif **désactivé par défaut**
 ///   (D-061) ; aucun profil ne l'a tant que l'établissement ne l'a pas activée et paramétrée.
 /// * Familles et élèves : aucune action de rôle (D-017) ; leurs droits viennent des publics de la nature.
+///
 /// Socle 20 (cahier de textes), lot C2 : droits de retrait et de contribution. Les droits `cahier.lire`,
 /// `cahier.ecrire` et `cahier.viser` existent depuis S2-6 et restent dans le bloc « Cahier de textes » de
 /// `modele_par_defaut` (non déplacés, pour ne pas toucher aux blocs voisins). La direction retire sans écrire
@@ -2726,6 +2727,8 @@ mod tests {
     #[test]
     fn r2_non_regression_profil_par_action() {
         use Action::*;
+        // Table d'oracle de test : le type tuple est volontairement local.
+        #[allow(clippy::type_complexity)]
         let oracle: [(Action, fn(Role) -> bool); 15] = [
             // D-022 (écart voulu avec l'historique : le professeur n'exporte plus).
             (ExportsOfficiels, Role::can_manage_eleves),
