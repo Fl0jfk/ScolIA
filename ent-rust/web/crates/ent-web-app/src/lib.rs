@@ -93,6 +93,8 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("mes-classes") view=modules::classes::PageMesClasses/>
                     <Route path=path!("vie-scolaire") view=modules::vie_scolaire::PageVieScolaire/>
                     <Route path=path!("journee") view=modules::journee_vs::PageJourneeVs/>
+                    <Route path=path!("assiduite") view=modules::assiduite_vs::PageAssiduite/>
+                    <Route path=path!("assiduite/accueil") view=modules::assiduite_vs::accueil::PageAccueilEleve/>
                     <Route path=path!("absences") view=modules::absences::PageAbsences/>
                     <Route path=path!("accompagnement") view=modules::accompagnement::PageAccompagnement/>
                     <Route path=path!("accompagnement/eleves/:id") view=modules::accompagnement::PageAccompagnementEleve/>

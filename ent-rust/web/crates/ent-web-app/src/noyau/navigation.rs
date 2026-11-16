@@ -21,6 +21,10 @@ pub const CLASSES: &str = "/web/classes";
 pub const MES_CLASSES: &str = "/web/mes-classes";
 pub const VIE_SCOLAIRE: &str = "/web/vie-scolaire";
 pub const JOURNEE: &str = "/web/journee";
+/// Assiduité de la vie scolaire (socle 12, AS14b) : absences à qualifier, justificatifs, relances, avis aux familles.
+pub const ASSIDUITE: &str = "/web/assiduite";
+/// Accueil : situation d'un élève avant de déclarer (AS-216).
+pub const ACCUEIL_ELEVE: &str = "/web/assiduite/accueil";
 pub const REFERENTIEL: &str = "/web/referentiel";
 pub const DISCIPLINE: &str = "/web/discipline";
 pub const SIGNALEMENTS: &str = "/web/signalements";
@@ -193,6 +197,13 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
         || moteur.peut_declarer_absence()
     {
         v.push(entree("Journée", JOURNEE, NomIcone::Agenda));
+    }
+    // Socle 12 (AS14b) : le serveur reste juge (`absences.lire_motif`, `absences.declarer`).
+    if moteur.a("absences.lire_motif") {
+        v.push(entree("Assiduité", ASSIDUITE, NomIcone::Personne));
+    }
+    if moteur.peut_declarer_absence() {
+        v.push(entree("Accueil : élève", ACCUEIL_ELEVE, NomIcone::Personne));
     }
     if moteur.peut_donner_punition() || moteur.peut_gerer_discipline() {
         v.push(entree("Discipline", DISCIPLINE, NomIcone::Personne));
@@ -521,6 +532,21 @@ mod tests {
         // Les pages restent distinctes pour l'élément de menu actif.
         assert!(!ent_web_ui::lien_actif(EDT_SEMAINE, REMPLACEMENTS));
         assert!(!ent_web_ui::lien_actif(EMPLOI_DU_TEMPS, EDT_SEMAINE));
+    }
+
+    #[test]
+    fn assiduite_et_accueil_selon_le_moteur_de_droits() {
+        let sans = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!sans.contains(&ASSIDUITE.to_string()));
+        assert!(!sans.contains(&ACCUEIL_ELEVE.to_string()));
+        let vs = DroitsMoteur::new(vec![droit("absences.lire_motif", "etablissement")]);
+        let a = adresses(droits_du_role("cpe"), &vs);
+        assert!(a.contains(&ASSIDUITE.to_string()));
+        assert!(!a.contains(&ACCUEIL_ELEVE.to_string()));
+        let accueil = DroitsMoteur::new(vec![droit("absences.declarer", "etablissement")]);
+        let a = adresses(droits_du_role("accueil"), &accueil);
+        assert!(a.contains(&ACCUEIL_ELEVE.to_string()));
+        assert!(!a.contains(&ASSIDUITE.to_string()));
     }
 
     #[test]

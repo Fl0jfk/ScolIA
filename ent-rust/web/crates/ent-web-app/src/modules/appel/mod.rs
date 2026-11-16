@@ -4,6 +4,7 @@
 
 mod feuille;
 pub mod modele;
+pub mod modele_v2;
 
 use chrono::NaiveDate;
 use ent_web_api::{Creneau, EnseignementApi};

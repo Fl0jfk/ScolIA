@@ -61,6 +61,8 @@ pub fn routes() -> Router<AppState> {
         .route("/assiduite/situations/retard-annonce", post(annoncer_retard))
         .route("/assiduite/situations/{id}/lever", post(lever_situation))
         .route("/assiduite/situations/{id}/texte", get(texte_situation))
+        // Accueil : situation d'un élève, lecture unitaire journalisée (AS14b, AS-216)
+        .route("/assiduite/eleves/{eleve_id}/situation-accueil", get(situation_accueil))
         // Décompte versionné : arrêt du mois, rectifications postérieures (AS4)
         .route("/assiduite/mois/{mois}/arreter", post(arreter_mois))
         .route("/assiduite/mois/{mois}/rectifications", get(rectifications))
@@ -280,6 +282,15 @@ async fn lever_situation(State(state): State<AppState>, session: EntSession, Pat
 
 async fn texte_situation(State(state): State<AppState>, session: EntSession, Path(id): Path<Uuid>) -> Res<Json<Vec<String>>> {
     state.ent.texte_situation_for_actor(session.etablissement_id, session.user_id, &session.role, id).await.map(Json).map_err(map_db)
+}
+
+/// Situation d'un élève pour l'accueil (« en sortie », « prévenu », « absent ce matin ») : `absences.declarer`,
+/// un élève à la fois, lecture journalisée, jamais un motif (AS-216).
+async fn situation_accueil(State(state): State<AppState>, session: EntSession, Path(eleve_id): Path<Uuid>) -> Res<Json<ent_db::SituationAccueil>> {
+    let mut s = state.ent.situation_accueil_for_actor(session.etablissement_id, session.user_id, &session.role, eleve_id).await.map_err(map_db)?;
+    let noms = state.ent.eleve_labels(session.etablissement_id, &[eleve_id]).await.map_err(map_db)?;
+    s.eleve_label = noms.get(&eleve_id).cloned();
+    Ok(Json(s))
 }
 
 // ─── AS3 : épisodes, qualification, justificatifs, demandes ──────────────────

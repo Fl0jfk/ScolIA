@@ -128,3 +128,16 @@ Dans chaque module métier :
 - **Téléchargement iCal** : simple lien `GET` (cookie de session, aucun jeton dans la page).
 - Une route `/web/agenda` existait déjà (« Travail à faire », cahier de textes) : « Mon agenda » est sur `/web/mon-agenda`.
 
+
+## 14. Conventions issues de l'assiduité (socle 12, AS14, 2026-11-16)
+
+- **Types** : l'assiduité vit dans `ent-types::assiduite` (JSON identique à `ent-db::assiduite_as2/as3/as5`, états en chaînes) et `ent-web-api::assiduite` ; aucun type d'`ent-db` n'est utilisé côté web.
+- **Appel v2** : lecture pré-remplie par le serveur (`GET /appels/{id}/v2`) ; le professeur n'a pas de « brouillon serveur » : sa saisie est locale, et à « Appel fait » **seules les lignes modifiées** partent (`pointer_ligne`) avant la validation (`valider_appel_v2`). Un échec partiel n'enchaîne pas la validation. Une ligne `localise` / `attendu_ailleurs` est posée par le système : `choix = None` la laisse inchangée.
+- **Libellés lisibles sans la couleur** : chaque état d'un élève a un libellé complet (`phrase_ligne`, lue par le lecteur d'écran : « Léa Martin, absente, prévenu ») ; la couleur ne fait que doubler.
+- **Corrections** : version lue envoyée (`version_base`), conflit = message et rechargement ; « qui corrige, jusqu'à quand » est décidé par le serveur (intervenant le jour même, vie scolaire ensuite avec motif) : l'écran propose « Corriger » et traduit le refus.
+- **Qualification** : jamais posée d'office ; version lue envoyée ; en masse, **aperçu puis confirmation avec l'empreinte** (même règle que la montée de classes), toute modification des choix invalide l'aperçu.
+- **Lecture unitaire** (accueil, AS-216) : un élève choisi à la fois, jamais la liste du jour ; la page dit que la consultation est enregistrée.
+- **Vue famille / élève** : libellé à liste fermée du serveur (`EpisodeVueFamilleDto.libelle`) ; jamais de note interne ; « Donner le motif » seulement si le lien permet de justifier, le serveur revérifie.
+- **Tableaux étroits** : sous 640 px la file « à qualifier » (`asd-tableau`) passe en cartes empilées ; l'en-tête reste lisible par lecteur d'écran.
+- **Mots réservés par `view!`** : une constante passée en attribut (`options=MAJUSCULES.iter()…`) est lue comme un composant (« syntaxe `X:` non supportée ») : calculer la valeur dans une variable avant la vue.
+- **Un `Memo` plutôt qu'une fermeture** pour une valeur lue par plusieurs éléments de la même ligne : une fermeture `move` n'est pas `Copy`.

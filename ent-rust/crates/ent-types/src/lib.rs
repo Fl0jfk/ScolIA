@@ -17,6 +17,7 @@ pub mod absences_personnels;
 pub mod afaire;
 pub mod agenda;
 pub mod appel;
+pub mod assiduite;
 pub mod auth;
 pub mod cahier;
 pub mod cahier_c2;

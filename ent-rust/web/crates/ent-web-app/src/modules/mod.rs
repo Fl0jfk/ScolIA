@@ -8,6 +8,7 @@ pub mod afaire;
 pub mod agenda;
 pub mod amenagements;
 pub mod appel;
+pub mod assiduite_vs;
 pub mod cahier;
 pub mod campagnes;
 pub mod changements_edt;

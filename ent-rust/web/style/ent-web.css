@@ -712,3 +712,33 @@
 .accueil-bandeaux__replies > summary { cursor: pointer; padding: var(--esp-2) 0; color: var(--c-attenue); }
 .accueil-alerte { display: grid; gap: var(--esp-3); }
 .accueil-alerte__consigne { font-size: 1.25rem; font-weight: 600; margin: 0; }
+
+/* --- Assiduité : appel v2, file de la vie scolaire, accueil (socle 12, AS14) -------------------- */
+.appel-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.appel-actions { display: inline-flex; flex-wrap: wrap; gap: var(--esp-2); }
+.appel-minutes { width: 5.5em; min-height: var(--cible-compacte); }
+.appel-histo { display: grid; gap: var(--esp-2); padding-left: var(--esp-5); font-size: var(--taille-s); }
+.asd-onglets { margin-bottom: var(--esp-4); }
+.asd-compte { font-size: var(--taille-s); color: var(--c-attenue); }
+.asd-case { width: 2.5em; }
+.asd-tableau td, .asd-tableau th { vertical-align: middle; }
+.asd-ligne--ouverte { background: var(--c-acc-teinte); }
+.asd-masse { display: flex; flex-wrap: wrap; align-items: end; gap: var(--esp-3); padding: var(--esp-3) var(--esp-4); background: var(--c-acc-doux); border-radius: var(--rayon); margin-block: var(--esp-3); }
+.asd-detail { display: grid; gap: var(--esp-3); margin-top: var(--esp-5); padding: var(--esp-5); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); }
+.asd-detail__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); }
+.asd-detail h3 { font-size: var(--taille-l); margin-top: var(--esp-3); }
+.asd-seances, .asd-textes, .asd-justifs, .asd-histo, .asd-avis__liste { display: grid; gap: var(--esp-2); margin: 0; padding-left: var(--esp-5); font-size: var(--taille-s); }
+.asd-justifs > li { display: grid; gap: var(--esp-2); }
+.asd-texte { padding: var(--esp-2) var(--esp-3); background: var(--c-surface-2); border-radius: var(--rayon); overflow-wrap: anywhere; }
+.asd-form { display: grid; gap: var(--esp-3); max-width: 38em; }
+.asd-avis { display: grid; gap: var(--esp-2); }
+.asd-avis__liste li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); }
+.acc-situation { display: grid; gap: var(--esp-4); margin-top: var(--esp-5); padding: var(--esp-5); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); max-width: 42em; }
+.acc-etats { display: grid; gap: var(--esp-3); margin: 0; padding: 0; list-style: none; font-size: var(--taille-m); }
+@media (max-width: 640px) {
+  .appel-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .asd-detail { padding: var(--esp-4); }
+  .asd-tableau, .asd-tableau thead, .asd-tableau tbody, .asd-tableau tr, .asd-tableau td, .asd-tableau th { display: block; }
+  .asd-tableau thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .asd-tableau tr { display: grid; gap: var(--esp-2); padding: var(--esp-3) var(--esp-4); border-bottom: 1px solid var(--c-ligne); }
+}

@@ -19,6 +19,7 @@ mod transport;
 mod afaire;
 mod agenda;
 mod appel;
+mod assiduite;
 mod auth;
 mod cahier;
 mod cahier_c2;
@@ -49,6 +50,7 @@ mod vie_scolaire;
 mod voyages;
 mod voyages_series;
 
+pub use assiduite::FiltreEpisodesApi;
 pub use cahier::depot_fichier;
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
@@ -59,6 +61,7 @@ pub use droits_moteur::DroitEffectif;
 pub use edt_s2::{
     chemin_semaine, conflits_de, AbsenceRhApi, CibleSemaine, DeclarationAbsenceRh, SalleApi,
 };
+pub use ent_types::assiduite as assiduite_types;
 pub use ent_types::sante::{
     AeshDto, AffecterAeshBody, AmenagementDto, AmenagementsEleveDto, CatalogueSanteDto,
     CloturePassageBody, ContraintePublieeDto, ContraintesEleveDto, DefinirAmenagementBody,
