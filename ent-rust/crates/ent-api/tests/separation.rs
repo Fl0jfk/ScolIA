@@ -105,6 +105,18 @@ fn ecrire_sur_b(
     }
 }
 
+/// Route sans identifiant de ressource : la session de A n'obtient que des données de A (2xx borné à A) ou un refus.
+/// `interdits` : valeurs semées dans B qui ne doivent jamais apparaître dans une réponse.
+fn borne_a(
+    nom: &'static str,
+    methode: &'static str,
+    chemin: &'static str,
+    corps: Option<&'static str>,
+    interdits: &'static [&'static str],
+) -> Spec {
+    Spec { b: Attendu::SuccesBorneA, interdits, ..ecrire_sur_b(nom, methode, chemin, corps) }
+}
+
 fn attendu(s: &Spec, a: Acteur, c: Cible) -> Attendu {
     match c {
         Cible::B => s.b,
@@ -135,6 +147,7 @@ fn verifie(att: Attendu, rep: &Rep) -> bool {
         Attendu::RefuseOuVide => rep.est_refus() || (rep.est_succes() && rep.est_vide()),
         Attendu::EchecQuelconque => echec_quelconque(rep),
         Attendu::RefuseOuIndistinct => rep.est_refus() || rep.est_succes(), // contrôle complet dans jouer()
+        Attendu::SuccesBorneA => rep.est_refus() || rep.est_succes(), // oracle de fuite et non-vacuité dans jouer()
     }
 }
 
@@ -161,6 +174,7 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
     };
     let mut echecs: Vec<String> = Vec::new();
     let mut n = 0usize;
+    let mut succes_bornes: std::collections::BTreeMap<&'static str, usize> = Default::default();
     rt().block_on(async {
         for s in specs {
             let sans_cible = !s.chemin.contains('{');
@@ -191,6 +205,9 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
                     let rep = m.appel(s.methode, &chemin, Some(jeton.as_str()), corps.as_ref()).await;
                     n += 1;
                     let att = attendu(s, a, c);
+                    if att == Attendu::SuccesBorneA {
+                        *succes_bornes.entry(s.nom).or_insert(0) += usize::from(rep.est_succes());
+                    }
                     let mut pb = Vec::new();
                     if !verifie(att, &rep) {
                         pb.push(format!("statut {} (attendu {att:?})", rep.statut.as_u16()));
@@ -230,6 +247,11 @@ fn jouer_impl(domaine: &str, specs: &[Spec], doubles: Option<&[Double]>) {
             }
         }
     });
+    for (nom, ok) in &succes_bornes {
+        if *ok == 0 {
+            echecs.push(format!("[{nom}] scénario vide : aucun acteur n'a obtenu de 2xx (la borne à A n'est pas éprouvée)"));
+        }
+    }
     CAS_EXECUTES.fetch_add(n, Ordering::Relaxed);
     eprintln!("[separation] {domaine} : {n} cas, {} écart(s)", echecs.len());
     assert!(
@@ -791,9 +813,7 @@ fn specs_domaine_cours() -> Vec<Spec> {
         ecrire_sur_b("cahier-c5-signalement-copie-B", "POST", "/cahier/c5/remises/{cours}/signalement-copie", Some(r#"{"vers":"cpe"}"#)),
         ecrire_sur_b("cahier-c5-delai-decision-B", "POST", "/cahier/c5/delais/{cours}/decision", Some(r#"{"accepter":false}"#)),
         ecrire_sur_b("cahier-c5-piece-lien-B", "POST", "/cahier/c5/pieces/{cours}/lien", Some(r#"{"motif":"test"}"#)),
-        // Routes sans identifiant de ressource (pannes, listes de reports/continuités/vacants/remplaçants, élèves de l'AESH,
-        // réglages d'affichage) : elles n'agissent que sur l'établissement de la session (aucune cible B à désigner) ;
-        // la lecture inter-établissements est couverte par `invariant_jeton_de_a_ne_voit_rien_de_b_dans_les_listes`.
+        // Routes sans identifiant de ressource (pannes, listes, AESH, affichage) : voir `routes_sans_identifiant_bornees_a_l_etablissement_de_la_session`.
         // Socle 20, lot C6 : continuité. Le jeton de A avec des identifiants de B n'obtient jamais un 2xx ; aucune route ne sert
         // la nature d'une continuité ni un motif d'absence à un professeur.
         ecrire_sur_b("cahier-c6-report-decision-B", "POST", "/cahier/c6/reports/{cours}/decision", Some(r#"{"decision":"refuser"}"#)),
@@ -828,6 +848,99 @@ fn specs_domaine_cours() -> Vec<Spec> {
 #[test]
 fn domaine_cours() {
     jouer("cours : public et membres individuels", &specs_domaine_cours());
+}
+
+/// Données de cahier **semées dans B** (continuité, réglage d'affichage, panne), par le rôle propriétaire. Retourne les
+/// identifiants et valeurs que la réponse d'une session de A ne doit jamais contenir.
+async fn semer_cahier_dans_b(m: &Monde) -> Vec<&'static str> {
+    let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL")).await.expect("connexion propriétaire");
+    let etab = m.b.objets.etab;
+    let mut interdits: Vec<String> = Vec::new();
+    let panne: Uuid = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO ent_cdt_panne (id, etablissement_id, debut_le, fin_le) VALUES ($1, $2, '2031-03-10T08:00:00Z', '2031-03-10T09:00:00Z')",
+    )
+    .bind(panne)
+    .bind(etab)
+    .execute(&pool)
+    .await
+    .expect("panne de B");
+    interdits.push(panne.to_string());
+    if let Some(cours) = m.b.objets.cours {
+        let cont: Uuid = Uuid::new_v4();
+        sqlx::query("INSERT INTO ent_cdt_continuite (id, etablissement_id, eleve_id, du) VALUES ($1, $2, $3, '2031-03-10')")
+            .bind(cont)
+            .bind(etab)
+            .bind(m.b.objets.eleve_ron)
+            .execute(&pool)
+            .await
+            .expect("continuité de B");
+        sqlx::query("INSERT INTO ent_cdt_continuite_cours (etablissement_id, continuite_id, cours_id) VALUES ($1, $2, $3)")
+            .bind(etab)
+            .bind(cont)
+            .bind(cours)
+            .execute(&pool)
+            .await
+            .expect("cours de la continuité de B");
+        interdits.push(cont.to_string());
+    }
+    sqlx::query("INSERT INTO ent_cdt_affichage (etablissement_id, eleve_id, taille_police) VALUES ($1, $2, 'tres_grande') ON CONFLICT (eleve_id) DO NOTHING")
+        .bind(etab)
+        .bind(m.b.objets.eleve_ron)
+        .execute(&pool)
+        .await
+        .expect("affichage de B");
+    // Valeur reconnaissable du réglage d'affichage de B : jamais lue par une session de A.
+    interdits.push("tres_grande".to_string());
+    interdits.into_iter().map(|s| &*Box::leak(s.into_boxed_str())).collect()
+}
+
+/// Empreinte (comptes et contenu) des tables de cahier que ces routes écrivent, **dans B** : calculée par le propriétaire.
+async fn empreinte_cahier_de_b(m: &Monde) -> String {
+    let pool = sqlx::PgPool::connect(&std::env::var("ENT_DATABASE_URL").expect("ENT_DATABASE_URL")).await.expect("connexion propriétaire");
+    let mut out = Vec::new();
+    for table in [
+        "ent_cdt_panne",
+        "ent_cdt_report",
+        "ent_cdt_affichage",
+        "ent_cdt_continuite",
+        "ent_cdt_continuite_cours",
+        "ent_cdt_note_accompagnement",
+    ] {
+        let (n, h): (i64, String) = sqlx::query_as(&format!(
+            "SELECT count(*), coalesce(md5(string_agg(t::text, '|' ORDER BY t::text)), '') FROM {table} t WHERE etablissement_id = $1"
+        ))
+        .bind(m.b.objets.etab)
+        .fetch_one(&pool)
+        .await
+        .expect("empreinte");
+        out.push(format!("{table}={n}:{h}"));
+    }
+    out.join(" ")
+}
+
+/// Routes **sans identifiant de ressource** (elles n'agissent que sur l'établissement de la session) : la session de A obtient
+/// un refus ou un 2xx **borné à A** (aucun identifiant ni valeur semés dans B dans le corps), et les écritures
+/// (`pannes`, `reports/lot`, `affichage`) ne créent ni ne modifient aucune ligne de B (vérifié en base par le propriétaire).
+#[test]
+fn routes_sans_identifiant_bornees_a_l_etablissement_de_la_session() {
+    let Some(m) = monde() else { return };
+    let interdits: &'static [&'static str] = Box::leak(rt().block_on(semer_cahier_dans_b(m)).into_boxed_slice());
+    let avant = rt().block_on(empreinte_cahier_de_b(m));
+    let specs = vec![
+        borne_a("cahier-c5-panne-B", "POST", "/cahier/c5/pannes", Some(r#"{"debut_le":"2031-03-12T08:00:00Z","fin_le":"2031-03-12T09:00:00Z"}"#), interdits),
+        borne_a("cahier-c6-reports-B", "GET", "/cahier/c6/reports", None, interdits),
+        borne_a("cahier-c6-reports-lot-B", "POST", "/cahier/c6/reports/lot", Some(r#"{"ids":["00000000-0000-4000-8000-000000000001"],"decision":"refuser"}"#), interdits),
+        borne_a("cahier-c6-continuites-B", "GET", "/cahier/c6/continuites", None, interdits),
+        borne_a("cahier-c6-travaux-remplacants-B", "GET", "/cahier/c6/travaux-remplacants", None, interdits),
+        borne_a("cahier-c6-vacants-B", "GET", "/cahier/c6/vacants", None, interdits),
+        borne_a("cahier-c7-aesh-eleves-B", "GET", "/cahier/c7/aesh/eleves", None, interdits),
+        borne_a("cahier-c7-affichage-B", "GET", "/cahier/c7/affichage", None, interdits),
+        borne_a("cahier-c7-affichage-regler-B", "PUT", "/cahier/c7/affichage", Some(r#"{"taille_police":"grande","interligne":"large","lecture_audio":false,"animations_reduites":false}"#), interdits),
+    ];
+    jouer("cahier : routes sans identifiant, session de A", &specs);
+    let apres = rt().block_on(empreinte_cahier_de_b(m));
+    assert_eq!(avant, apres, "une session de A a créé ou modifié des données de cahier de B");
 }
 
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
