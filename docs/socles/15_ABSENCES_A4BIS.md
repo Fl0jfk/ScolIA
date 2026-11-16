@@ -63,4 +63,17 @@ Autres corrections trouvées en chemin : `lever_reponse` ne levait la réponse q
 
 ## 7. Vérifications
 
-Résultats : voir la section ci-dessous (complétée après exécution).
+Locales (PostgreSQL 16 local jetable, données fictives ; branche partie d'`origin/ENT`, qui n'a pas bougé : aucune fusion nécessaire, règle 28 sans objet) :
+
+| Contrôle | Résultat |
+|---|---|
+| `cargo +1.99.0 clippy --workspace --tests --features ent-db/labo -- -D warnings` | **0 avertissement** (rustc et clippy), après les dernières modifications |
+| Tests `ent-db` : socle 15 (A0 à A9, dont A4bis), `edt_remplacement`, `tests_edt` | **185 / 185 verts** en isolation ; en parallèle (2 fils) deux tests ont connu un *deadlock* ou une demande de réessai (`a1_reprise_de_l_existant…` rejoue la migration 2302, DDL ; `a1_port_absences…`) : **verts seuls et à un fil**, sans lien avec le lot (la CI tourne à un fil par tranche) |
+| `isolation_sql_statique` (filtre `etablissement_id` lisible) | 2 / 2 |
+| `ent-api` `separation` (50) et `recette_securite_3` (10) | verts |
+| Formatage | `cargo fmt --all` jamais utilisé ; fichiers touchés non reformatés en bloc |
+| `#[ignore]` | aucun |
+
+Tests existants modifiés (leur défaut était justement celui corrigé) : `a0_ar11_…` (refusait une absence « non validée »), `a0_ar08_14_18…` et `a0_ar09…` (attendaient `DomainError::Conflit`, désormais un refus explicite, même 409), `tests_edt_s2::absence_remplacement_delegation_et_notifications`.
+
+**Niveau :** implémenté et testé localement. CI : voir le run annoncé au pilote.
