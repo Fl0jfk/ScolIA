@@ -305,6 +305,16 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_absp_remplacement", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_reponse", "personnels_absences", Portee::Etablissement).perso().export(),
     t("ent_absp_sollicitation", "personnels_absences", Portee::Etablissement).perso().export(),
+    // Socle 18 (accords, autorisations, consentements) : catalogue de référence, objets, versions, décisions en ajout seul.
+    t("ent_acc_catalogue", "dossier_eleve", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "catalogue de référence fourni par ScolIA (R-FC6), évolue par migration, jamais modifié par un établissement"),
+    t("ent_acc_catalogue_usage", "dossier_eleve", Portee::ReferentielGlobal).exc(Exception::SansHorodatage, "usages du catalogue de référence, statiques"),
+    t("ent_acc_decision", "dossier_eleve", Portee::Etablissement).perso().export(),
+    t("ent_acc_decision_usage", "dossier_eleve", Portee::Etablissement).perso().export().exc(Exception::SansHorodatage, "ligne fille de la décision (clé composite) : datée par la décision, en ajout seul"),
+    t("ent_acc_journal", "dossier_eleve", Portee::Etablissement).perso().export(),
+    t("ent_acc_objet", "dossier_eleve", Portee::Etablissement),
+    t("ent_acc_usage", "dossier_eleve", Portee::Etablissement),
+    t("ent_acc_version", "dossier_eleve", Portee::Etablissement),
+    t("ent_acc_version_usage", "dossier_eleve", Portee::Etablissement).exc(Exception::SansHorodatage, "table de liaison (version ↔ usage), datée par la version, figée à la publication"),
     t("ent_adresse_protegee", "dossier_personnes", Portee::Etablissement).perso().export(),
     t("ent_aesh_affectation", "sante", Portee::Etablissement).perso().sante().export(),
     // Socle 29 (lot P2) : l'index des tâches est une PROJECTION reconstructible (§8.10, R-PO24) :

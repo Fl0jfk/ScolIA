@@ -59,6 +59,7 @@ mod vie_scolaire;
 mod evaluations;
 mod agenda;
 mod communication_s28;
+mod accords_s18;
 mod eleve_propositions;
 mod eleve_fusion;
 mod sante;
