@@ -659,6 +659,30 @@ function StagesContent() {
     }
   }
 
+  /** Erreur relancée pour être affichée à côté du champ SIRET. */
+  async function updateCompanySiret(siret: string) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/stages/conventions/${detail.convention.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_company_siret", siret }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        convention?: typeof detail.convention;
+      };
+      if (!res.ok || !data.convention) throw new Error(data?.error || "Erreur");
+      setDetail({ ...detail, convention: data.convention });
+      setMsg("SIRET enregistré.");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function updateCompanyContacts(contacts: {
     tutorName: string;
     tutorEmail: string;
@@ -1177,6 +1201,9 @@ function StagesContent() {
                   permissions?.canReviewPreconvention
                     ? (contacts) => updateCompanyContacts(contacts)
                     : undefined
+                }
+                onUpdateCompanySiret={
+                  permissions?.canReviewPreconvention ? updateCompanySiret : undefined
                 }
                 onDeleteStage={
                   permissions?.canReviewPreconvention

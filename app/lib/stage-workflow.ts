@@ -648,6 +648,56 @@ async function clearSignatureDepositFields(sig: StageSignature): Promise<StageSi
 }
 
 /**
+ * Admin / direction : renseigner le SIRET de l'entreprise après coup (famille qui ne
+ * l'avait pas saisi). Ajout possible à toute étape ; modification d'un SIRET existant
+ * seulement tant que personne n'a signé (le document signé ne doit pas changer en douce).
+ */
+export async function updateConventionCompanySiret(params: {
+  conventionId: string;
+  siret: string;
+  byName: string;
+}): Promise<{ ok: true; convention: StageConvention } | { ok: false; error: string }> {
+  const convention = await getStageConvention(params.conventionId);
+  if (!convention) return { ok: false, error: "Convention introuvable." };
+  if (isStageConventionCancelled(convention)) {
+    return { ok: false, error: "Ce stage a été supprimé." };
+  }
+
+  const siret = normalizeSiret(params.siret);
+  if (siret.length !== 14) {
+    return { ok: false, error: "SIRET invalide : 14 chiffres attendus." };
+  }
+  const previous = normalizeSiret(convention.company.siret);
+  if (previous === siret) return { ok: false, error: "Aucune modification détectée." };
+  if (previous && convention.signatures.some((s) => s.status === "signe")) {
+    return {
+      ok: false,
+      error:
+        "Le SIRET figure déjà sur un document signé : il ne peut plus être modifié ici. Faites un avenant si besoin.",
+    };
+  }
+
+  let next: StageConvention = {
+    ...convention,
+    company: { ...convention.company, siret },
+    updatedAt: new Date().toISOString(),
+  };
+  next = pushHistory(
+    next,
+    params.byName,
+    previous ? "SIRET_MODIFIE" : "SIRET_AJOUTE",
+    previous ? `${previous} → ${siret}` : siret,
+  );
+  // Document généré par ScolIA : on le régénère pour que le SIRET y figure.
+  // Document papier / déposé : il reste tel quel, le SIRET est conservé dans le dossier.
+  if (isScoliaGeneratedConventionPdf(next)) {
+    next = await generateAndStoreConventionPdf(next);
+  }
+  await saveStageConvention(next);
+  return { ok: true, convention: next };
+}
+
+/**
  * Admin / direction : modifier tuteur et/ou RH même après validation administrative,
  * pendant les signatures ou après signature complète.
  * Si l'identité (nom / e-mail) change alors que la signature était déposée, elle est

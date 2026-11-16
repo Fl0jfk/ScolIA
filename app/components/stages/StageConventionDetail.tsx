@@ -10,6 +10,7 @@ import {
   STAGE_REFUSAL_REASON_MAX,
   formatCompanyAddress,
   isOfflinePaperConvention,
+  isStageConventionCancelled,
   stageCompanyRhDisplayName,
 } from "@/app/lib/stage-types";
 import StagePreconventionForm from "@/app/components/stages/StagePreconventionForm";
@@ -80,6 +81,7 @@ export default function StageConventionDetail({
   onReviewScheduleChange,
   onProposeAmendment,
   onUpdateCompanyContacts,
+  onUpdateCompanySiret,
   onDeleteStage,
 }: {
   detail: StageConventionDetailData;
@@ -123,6 +125,8 @@ export default function StageConventionDetail({
     rhLastName?: string;
     rhEmail?: string;
   }) => void | Promise<void>;
+  /** Ajout / correction du SIRET après coup (admin / direction). Rejette en cas d'erreur. */
+  onUpdateCompanySiret?: (siret: string) => Promise<void>;
   onDeleteStage?: (confirmWord: string) => void;
 }) {
   const c = detail.convention;
@@ -201,6 +205,11 @@ export default function StageConventionDetail({
           canEditCompanyContacts={canEditCompanyContacts}
           busy={busy}
           onSaveCompanyContacts={onUpdateCompanyContacts}
+          onSaveSiret={
+            permissions?.canReviewPreconvention && !isStageConventionCancelled(c)
+              ? onUpdateCompanySiret
+              : undefined
+          }
         />
       )}
 
@@ -838,10 +847,12 @@ function ConventionInfoSummary({
   canEditCompanyContacts,
   busy,
   onSaveCompanyContacts,
+  onSaveSiret,
 }: {
   convention: StageConvention;
   canEditCompanyContacts?: boolean;
   busy?: boolean;
+  onSaveSiret?: (siret: string) => Promise<void>;
   onSaveCompanyContacts?: (contacts: {
     tutorName: string;
     tutorEmail: string;
@@ -1070,7 +1081,13 @@ function ConventionInfoSummary({
         {convention.stageLabel ? <InfoRow label="Période / libellé">{convention.stageLabel}</InfoRow> : null}
         <InfoRow label="Entreprise">{company.name || "—"}</InfoRow>
         <InfoRow label="Adresse">{formatCompanyAddress(company) || "—"}</InfoRow>
-        {company.siret ? <InfoRow label="SIRET">{company.siret}</InfoRow> : null}
+        {onSaveSiret ? (
+          <InfoRow label="SIRET">
+            <SiretEditor convention={convention} busy={busy} onSave={onSaveSiret} />
+          </InfoRow>
+        ) : company.siret ? (
+          <InfoRow label="SIRET">{company.siret}</InfoRow>
+        ) : null}
         {company.activity ? <InfoRow label="Activité">{company.activity}</InfoRow> : null}
         <InfoRow label="Tuteur">
           {company.tutorName || "—"}
@@ -1143,6 +1160,101 @@ function ConventionInfoSummary({
         mode={schedule.mode}
       />
     </div>
+  );
+}
+
+/** SIRET : affichage + ajout (toujours) / correction (tant que personne n'a signé). */
+function SiretEditor({
+  convention,
+  busy,
+  onSave,
+}: {
+  convention: StageConvention;
+  busy?: boolean;
+  onSave: (siret: string) => Promise<void>;
+}) {
+  const current = convention.company.siret || "";
+  const anySigned = convention.signatures.some((s) => s.status === "signe");
+  const canModify = !current || !anySigned;
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(current);
+  const [error, setError] = useState<string | null>(null);
+  const digits = value.replace(/\D/g, "");
+
+  async function submit() {
+    if (digits.length !== 14) {
+      setError("14 chiffres attendus.");
+      return;
+    }
+    setError(null);
+    try {
+      await onSave(digits);
+      setOpen(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    }
+  }
+
+  if (!open) {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-2">
+        {current ? <span>{current}</span> : <span className="text-amber-800">Non renseigné</span>}
+        {canModify ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              setValue(current);
+              setError(null);
+              setOpen(true);
+            }}
+            className="rounded-lg border border-[#2F6B4A] px-2 py-0.5 text-xs font-semibold text-[#2F6B4A] disabled:opacity-50"
+          >
+            {current ? "Modifier" : "Ajouter le SIRET"}
+          </button>
+        ) : null}
+      </span>
+    );
+  }
+
+  return (
+    <span className="block space-y-1">
+      <span className="flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          inputMode="numeric"
+          autoFocus
+          value={value}
+          maxLength={20}
+          placeholder="14 chiffres"
+          aria-label="SIRET"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+            if (e.key === "Escape") setOpen(false);
+          }}
+          className="w-44 rounded-lg border border-stone-300 px-2 py-1 text-sm"
+        />
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void submit()}
+          className="rounded-lg bg-[#2F6B4A] px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          {busy ? "Enregistrement…" : "Enregistrer"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+          className="rounded-lg border border-stone-300 px-2.5 py-1 text-xs font-semibold text-stone-700 disabled:opacity-50"
+        >
+          Annuler
+        </button>
+      </span>
+      <span className="block text-xs text-stone-500">{digits.length}/14 chiffres</span>
+      {error ? <span className="block text-xs font-semibold text-rose-700">{error}</span> : null}
+    </span>
   );
 }
 

@@ -19,6 +19,7 @@ import {
   reviewTutorEmailChangeRequest,
   submitPreconvention,
   updateCompanyContactsAfterValidation,
+  updateConventionCompanySiret,
 } from "@/app/lib/stage-workflow";
 import { getStageConvention, saveStageConvention } from "@/app/lib/stage-storage";
 import { ensureConventionReferent, listPrincipalClassesForUser, userCanAssignStageReferentForClass } from "@/app/lib/stage-referents-config";
@@ -388,6 +389,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
           ? "E-mail tuteur mis à jour — demande de signature renvoyée."
           : "Demande de changement d'e-mail tuteur refusée.",
       });
+    }
+
+    if (action === "update_company_siret") {
+      if (!canReviewPreconvention(roles)) {
+        return NextResponse.json({ error: "Réservé à l'administratif / direction." }, { status: 403 });
+      }
+      const result = await updateConventionCompanySiret({
+        conventionId: convention.id,
+        siret: String(body.siret ?? "").slice(0, 40),
+        byName: displayName(user),
+      });
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ success: true, convention: result.convention });
     }
 
     if (action === "update_company_contacts") {
