@@ -183,7 +183,10 @@ async fn as14a_appel_pointage_validation_corrections() {
             },
         )
         .await;
-    assert!(sans_minutes.is_ok(), "retard sans minutes : calculé par le serveur");
+    assert!(
+        sans_minutes.is_ok(),
+        "retard sans minutes : calculé par le serveur"
+    );
     let l1 = prof
         .pointer_ligne(
             ouvert.id,
