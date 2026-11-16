@@ -1836,6 +1836,7 @@ fn socle1_prof_refuse_hors_de_ses_eleves_sur_les_routes_par_eleve() {
 #[derive(Clone, Debug)]
 struct Double {
     acteur: Acteur,
+    #[allow(dead_code)] // identifiant du compte créé : conservé pour les diagnostics, non relu aujourd'hui
     user_id: Uuid,
     email: String,
     token_a: String,
