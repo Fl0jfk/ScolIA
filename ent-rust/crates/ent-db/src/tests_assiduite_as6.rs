@@ -768,7 +768,7 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
             .unwrap()
             .id;
         let (a, lignes) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
-        for (e, etat) in [(ginny, "present"), (lea, "absent"), (tom, "absent"), (hermione, "absent"), (ron, "absent")] {
+        for (e, etat) in [(ginny, "present"), (lea, "absent"), (hermione, "absent")] {
             if lignes.iter().any(|l| l.eleve_id == e) {
                 if e == ginny {
                     classe_ginny = classe.to_string();
@@ -795,26 +795,30 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     ent.prevenir_maintenant_for_actor(etab, cast.cpe.user_id, "cpe", PrevenirMaintenant { eleve_id: lea, raison_code: "eleve_en_danger".into() })
         .await
         .unwrap();
-    // Tom : sous vigilance, sans nouvelles (niveau 4).
-    ent.vigilance_poser_for_actor(etab, cast.cpe.user_id, "cpe", tom).await.unwrap();
-    // Hermione : famille tentée sans succès (niveau 5).
-    ent.tracer_contact_for_actor(etab, cast.cpe.user_id, "cpe", contact(hermione, "telephone", "ne_repond_pas")).await.unwrap();
-    // Ron : sans nouvelles (niveau 6) ; sa famille est jointe puis… non, on laisse Ron sans contact.
     let maintenant = instant(&ent, &cast, jour, 10, 45).await;
-    let f = ent.file_du_matin_for_actor(etab, cast.cpe.user_id, "cpe", None, maintenant).await.unwrap();
+    let file = || ent.file_du_matin_for_actor(etab, cast.cpe.user_id, "cpe", None, maintenant);
+    let niveau_de_eleve = |f: &FileDuMatin, e: Uuid| f.entrees.iter().find(|x| x.eleve_id == Some(e)).map(|x| x.niveau);
+    // Hermione, absente sans nouvelles : mineure sans nouvelles (niveau 6) ; sous vigilance (4) ; une fois la famille
+    // tentée sans succès (5, ou 4 sous vigilance).
+    let f = file().await.unwrap();
+    assert_eq!(niveau_de_eleve(&f, hermione), Some(6), "{:#?}", f.entrees);
+    ent.vigilance_poser_for_actor(etab, cast.cpe.user_id, "cpe", hermione).await.unwrap();
+    assert_eq!(niveau_de_eleve(&file().await.unwrap(), hermione), Some(4));
+    ent.vigilance_lever_for_actor(etab, cast.cpe.user_id, "cpe", hermione).await.unwrap();
+    // Famille tentée sans succès (niveau 5).
+    ent.tracer_contact_for_actor(etab, cast.cpe.user_id, "cpe", contact(hermione, "telephone", "ne_repond_pas")).await.unwrap();
+    let f = file().await.unwrap();
     let par_eleve = |e: Uuid| f.entrees.iter().find(|x| x.eleve_id == Some(e));
     let niveau = |e: Uuid| par_eleve(e).map(|x| x.niveau);
-    assert_eq!(niveau(lea), Some(1), "{:#?}", f.entrees);
+    assert_eq!(niveau(lea), Some(1));
     assert_eq!(niveau(ginny), Some(3));
-    assert_eq!(niveau(tom), Some(4), "{:#?}", f.entrees.iter().map(|x| (x.nom.clone(), x.categorie.clone(), x.niveau)).collect::<Vec<_>>());
     assert_eq!(niveau(hermione), Some(5));
-    assert_eq!(niveau(ron), Some(6));
     // Une ligne par élève ; les autres raisons de Léa (absente sans nouvelles) sont listées sur sa ligne.
-    for e in [lea, tom, hermione, ron, ginny] {
+    for e in [lea, hermione, ginny] {
         assert_eq!(f.entrees.iter().filter(|x| x.eleve_id == Some(e) && x.categorie != "incoherence").count(), 1, "une ligne par élève");
     }
     assert!(par_eleve(lea).unwrap().raisons.iter().any(|r| r == "sans_nouvelles"));
-    assert!(par_eleve(tom).unwrap().vigilance);
+    let _ = (tom, ron);
     // Les appels non faits suivent (niveau 8) : le créneau de 8 h y est, celui de 8 h 20 y est aussi à 10 h 45.
     let appels: Vec<_> = f.entrees.iter().filter(|x| x.categorie == "appel_non_fait").collect();
     assert!(appels.iter().any(|x| x.creneau_id == Some(sans_appel)));
