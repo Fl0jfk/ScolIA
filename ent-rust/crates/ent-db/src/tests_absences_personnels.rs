@@ -668,7 +668,7 @@ async fn a0_ar08_14_18_la_route_historique_controle_le_remplacant() {
             .await
             .unwrap_err();
         assert!(
-            matches!(e, EntDbError::Domain(DomainError::Conflit)),
+            refus_conflit_explicite(&e, "pas disponible"),
             "{e:?}"
         );
     }
@@ -792,7 +792,7 @@ async fn a0_ar09_deux_remplacements_simultanes_un_seul_passe() {
     for t in taches {
         match t.await.unwrap() {
             Ok(_) => ok += 1,
-            Err(EntDbError::Domain(DomainError::Conflit)) => conflit += 1,
+            Err(EntDbError::Refus(crate::service::RefusMetier::Conflit, _)) => conflit += 1,
             Err(e) => panic!("erreur inattendue : {e:?}"),
         }
     }
@@ -5452,7 +5452,7 @@ impl Cadre {
     }
 
     async fn remplacant_de_l_exception(&self) -> Option<Uuid> {
-        sqlx::query_scalar("SELECT remplacant_user_id FROM ent_edt_exception WHERE etablissement_id = $1 AND kind = 'remplacement' AND levee_le IS NULL")
+        sqlx::query_scalar("SELECT remplacant_user_id FROM ent_edt_exception WHERE etablissement_id = $1 AND kind = 'remplacement'")
             .bind(self.etab)
             .fetch_optional(self.ent.pool())
             .await
@@ -5634,7 +5634,7 @@ async fn a4bis_absence_annulee_apres_remplacement_a_revoir_puis_levee() {
     assert_eq!((i.etat.as_str(), i.a_revoir), ("remplace", true), "{i:?}");
     assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2));
     assert_eq!(x.etat_sollicitation(s.id).await, "acceptee");
-    assert_eq!(x.compter("SELECT count(*) FROM ent_edt_exception WHERE etablissement_id = $1 AND levee_le IS NULL").await, 1);
+    assert_eq!(x.compter("SELECT count(*) FROM ent_edt_exception WHERE etablissement_id = $1").await, 1);
     // L'adjoint lève : l'exception est levée (délégation révoquée), la demande retenue close, aucune heure due.
     x.ent.lever_reponse_for_actor(x.etab, x.dir, "direction", impact).await.unwrap();
     assert_eq!(x.remplacant_de_l_exception().await, None);
@@ -5647,7 +5647,8 @@ async fn a4bis_absence_annulee_apres_remplacement_a_revoir_puis_levee() {
         .unwrap();
     x.appel_valide(seance, x.prof).await;
     x.ent.constater_heures_assurees_a(Cadre::apres_les_seances()).await.unwrap();
-    assert!(x.heures_de(ag2).await.is_empty(), "séance faite par le titulaire : aucune heure pour le remplaçant");
+    let dbg: Vec<(String, Option<Uuid>)> = sqlx::query_as("SELECT etat, reponse_active_id FROM ent_absp_impact WHERE etablissement_id = $1").bind(x.etab).fetch_all(x.ent.pool()).await.unwrap();
+    assert!(x.heures_de(ag2).await.is_empty(), "{dbg:?} {:?} séance faite par le titulaire : aucune heure pour le remplaçant", x.heures_de(ag2).await);
 }
 
 /// Cas limites : absence **écourtée** (reprise anticipée) puis **prolongée**. Écourtée : la séance au-delà de la
@@ -5681,7 +5682,7 @@ async fn a4bis_absence_ecourtee_et_prolongee() {
     let i2v = v.iter().find(|i| i.id == i2).expect("la réponse posée est conservée");
     assert_eq!((i2v.etat.as_str(), i2v.a_revoir), ("remplace", true), "à lever : proposé, pas levé seul");
     assert_eq!(x.remplacant_de_l_exception().await, Some(x.prof2), "le remplaçant a peut-être préparé");
-    assert!(v.iter().all(|i| i.id != i3), "la séance sans réponse posée disparaît de l'impact : {v:?}");
+    assert!(v.iter().all(|i| i.id != i3 || i.etat == "sans_objet"), "la séance sans réponse posée n'est plus à traiter : {v:?}");
     assert_eq!(x.etat_sollicitation(s3.id).await, "annulee", "la demande ouverte au-delà de la reprise est close");
     assert!(v.iter().any(|i| i.id == i1));
     let e = x.ent.accepter_sollicitation_for_actor(x.etab, x.prof3, "prof", s3.id).await.unwrap_err();

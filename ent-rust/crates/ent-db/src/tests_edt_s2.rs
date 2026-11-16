@@ -1039,7 +1039,7 @@ async fn absence_remplacement_delegation_et_notifications() {
         .await
         .unwrap_err();
     assert!(
-        matches!(e, EntDbError::Domain(DomainError::Conflit)),
+        matches!(e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _)),
         "{e:?}"
     );
     let e = x
@@ -1048,7 +1048,7 @@ async fn absence_remplacement_delegation_et_notifications() {
         .await
         .unwrap_err();
     assert!(
-        matches!(e, EntDbError::Domain(DomainError::Conflit)),
+        matches!(e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _)),
         "{e:?}"
     );
     let e = x
@@ -1076,10 +1076,10 @@ async fn absence_remplacement_delegation_et_notifications() {
         .await
         .unwrap_err();
     assert!(
-        matches!(e, EntDbError::Domain(DomainError::Conflit)),
+        matches!(e, EntDbError::Refus(crate::service::RefusMetier::Conflit, _)),
         "{e:?}"
     );
-    // Absence non validée : refus.
+    // Absence non validée : acceptée (§8.1 du socle 15, on organise sans attendre la validation).
     let abs_non = x
         .ent
         .declarer_absence_rh_for_actor(
@@ -1095,11 +1095,13 @@ async fn absence_remplacement_delegation_et_notifications() {
         )
         .await
         .unwrap();
-    let mut c3 = cmd(libre, cr_mer, x.jour(3));
+    // L'état « non validée » n'est plus un obstacle (voir `a4bis_…`) ; une absence qui ne couvre pas le jour de la
+    // séance reste refusée, avec une raison lisible.
+    let mut c3 = cmd(libre, lundi_cr, x.jour(1));
     c3.absence_rh_id = Some(abs_non.id);
     assert!(matches!(
         x.ent.edt_organiser_remplacement(&d, &c3).await.unwrap_err(),
-        EntDbError::Domain(DomainError::Conflit)
+        EntDbError::Refus(crate::service::RefusMetier::Conflit, m) if m.contains("ne concerne pas")
     ));
     // Droits : un professeur ne peut pas organiser.
     assert!(matches!(

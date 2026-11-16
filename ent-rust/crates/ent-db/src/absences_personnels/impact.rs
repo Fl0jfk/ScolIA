@@ -292,7 +292,8 @@ impl PgEnt {
                 journal(conn, etab, absence_id, "sollicitation_close_sans_objet", Some("impact"), Some(etat.as_str()), None, actor).await?;
             }
             let (a_reponse,): (bool,) = sqlx::query_as(
-                "SELECT EXISTS (SELECT 1 FROM ent_absp_reponse WHERE etablissement_id = $1 AND impact_id = $2)",
+                "SELECT EXISTS (SELECT 1 FROM ent_absp_reponse WHERE etablissement_id = $1 AND impact_id = $2)
+                    OR EXISTS (SELECT 1 FROM ent_absp_sollicitation WHERE etablissement_id = $1 AND impact_id = $2)",
             )
             .bind(etab)
             .bind(id)

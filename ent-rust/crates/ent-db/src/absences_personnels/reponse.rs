@@ -945,6 +945,28 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
+        // La réponse est levée **ici**, sans attendre le recalcul : une absence annulée ou écourtée ne touche plus
+        // la séance, le recalcul ne rederiverait alors jamais l'état (le remplaçant garderait une réponse « active »
+        // et son heure serait constatée à tort).
+        sqlx::query(
+            "UPDATE ent_absp_reponse SET etat = 'levee', levee_le = now(), levee_par_user_id = $3
+              WHERE etablissement_id = $1 AND impact_id = $2 AND etat = 'active'",
+        )
+        .bind(etab)
+        .bind(impact_id)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
+        sqlx::query(
+            "UPDATE ent_absp_impact SET reponse_active_id = NULL, etat = 'a_traiter', a_revoir = false, calcule_le = now()
+              WHERE etablissement_id = $1 AND id = $2",
+        )
+        .bind(etab)
+        .bind(impact_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         journal(&mut tx, etab, imp.absence_id, "reponse_levee", Some("impact"), Some(&imp.etat), Some("a_traiter"), actor).await?;
         tx.commit().await.map_err(db)?;
         self.recalculer_impact_absence(etab, actor, imp.absence_id).await?;
