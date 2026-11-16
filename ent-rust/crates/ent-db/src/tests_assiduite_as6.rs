@@ -837,7 +837,7 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     // La famille d'Hermione est jointe : elle quitte la file ; la note interne n'en sort jamais.
     ent.tracer_contact_for_actor(etab, cast.cpe.user_id, "cpe", contact(hermione, "telephone", "joint")).await.unwrap();
     let f2 = ent.file_du_matin_for_actor(etab, cast.cpe.user_id, "cpe", None, maintenant).await.unwrap();
-    assert!(!f2.entrees.iter().any(|x| x.eleve_id == Some(hermione)), "famille jointe : plus dans la file");
+    assert!(!f2.entrees.iter().any(|x| x.eleve_id == Some(hermione)), "famille jointe : plus dans la file {:?}", f2.entrees.iter().filter(|x| x.eleve_id == Some(hermione)).map(|x| (x.categorie.clone(), x.detail_code.clone())).collect::<Vec<_>>());
     let json = serde_json::to_string(&f2).unwrap();
     assert!(!json.contains("note-secrete-xyz"), "aucune note interne");
     // « Je prends » : verrou visible sur l'alerte d'absence après présence de Ginny.
