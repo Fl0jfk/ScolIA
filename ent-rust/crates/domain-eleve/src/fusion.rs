@@ -104,6 +104,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     d("ent_doc_a_signer", &["id"]),
     r("ent_doc_document", &["id"], "document émis du socle 7 : identité, numéro et sujet immuables (déclencheur), le document reste rattaché à la fiche pour laquelle il a été émis ; le rattachement à la fiche conservée est une commande de classement tracée (documents.classer), jamais une réécriture"),
     r("ent_doc_mise_a_disposition", &["id"], "mise à disposition d'un exemplaire : titulaire figé par la base (seuls les accusés et le retrait s'ajoutent), elle reste sur la fiche d'origine ; le coffre de l'élève conservé se reconstruit par le classement des documents"),
+    r("ent_edt_individuelle", &["id"], "version individuelle d'emploi du temps (socle 10, T5) : fait daté de la décision, dont l'effet est porté par `ent_cours_membre` (lui aussi immuable et laissé sur la fiche) ; elle reste sur la fiche pour laquelle elle a été décidée"),
     r("ent_edt_localisation_journal", &["id"], "journal en ajout seul (déclencheur) des lectures « où est cet élève » : trace de qui a regardé, reste sur la fiche consultée"),
     d("ent_eleve_bourse", &["id"]),
     d("ent_eleve_capacite", &["id"]),
