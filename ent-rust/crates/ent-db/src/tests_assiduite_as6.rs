@@ -339,7 +339,7 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
         sqlx::query(
             "INSERT INTO ent_edt_seance (id, etablissement_id, annee_id, creneau_id, jour, classe, prof_user_id,
                                          matiere_libelle, heure_debut, heure_fin, statut)
-             VALUES ($1, $2, $3, $4, $5, '4B', $6, 'AS6', TIME '08:00', TIME '09:00', 'prevue')",
+             VALUES ($1, $2, $3, $4, $5, '4B', $6, 'AS6', TIME '08:00', TIME '09:00', $7)",
         )
         .bind(Uuid::new_v4())
         .bind(etab)
@@ -347,19 +347,10 @@ async fn as6_aucune_relance_d_une_seance_non_assuree_ni_un_jour_ferme() {
         .bind(c)
         .bind(jour)
         .bind(cast.prof.user_id)
+        .bind(if etat == "non_assuree" { "annulee" } else { "prevue" })
         .execute(ent.pool_verif())
         .await
         .unwrap();
-        if etat != "prevue" {
-            sqlx::query("UPDATE ent_edt_seance SET etat = $4 WHERE etablissement_id = $1 AND creneau_id = $2 AND jour = $3")
-                .bind(etab)
-                .bind(c)
-                .bind(jour)
-                .bind(etat)
-                .execute(ent.pool_verif())
-                .await
-                .unwrap();
-        }
     }
     let maintenant = instant(&ent, &cast, jour, 8, 40).await;
     ent.verifier_jour_systeme(etab, maintenant).await.unwrap();
@@ -768,23 +759,26 @@ async fn as6_la_file_du_matin_est_classee_selon_17_6() {
     let par_prenom = |p: &str| cast.eleves.iter().find(|e| e.prenom == p).map(|e| e.id).expect("élève du labo");
     let (hermione, ron, ginny) = (par_prenom("Hermione"), par_prenom("Ron"), par_prenom("Ginny"));
     // Chacun pointé dans l'appel de sa classe de 8 h ; Ginny, présente à 8 h, est absente à 10 h (après présence).
-    let classe_de = |id: Uuid| cast.eleves.iter().find(|e| e.id == id).map(|e| e.classe.clone()).unwrap_or_else(|| "4B".into());
+    let mut classe_ginny = String::from("4B");
     for classe in ["4B", "5A"] {
         let c = ent
             .seed_creneau_du_jour(etab, classe, "AS6", cast.prof.user_id, jour, t(8, 0), t(9, 0), None)
             .await
             .unwrap()
             .id;
-        let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
+        let (a, lignes) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
         for (e, etat) in [(ginny, "present"), (lea, "absent"), (tom, "absent"), (hermione, "absent"), (ron, "absent")] {
-            if classe_de(e) == classe {
+            if lignes.iter().any(|l| l.eleve_id == e) {
+                if e == ginny {
+                    classe_ginny = classe.to_string();
+                }
                 ent.pointer_ligne_v2(etab, a.id, e, cast.prof.user_id, "prof", saisie(etat), "web").await.unwrap();
             }
         }
         valider(&ent, &cast, a.id).await;
     }
     let c10 = ent
-        .seed_creneau_du_jour(etab, &classe_de(ginny), "AS6", cast.prof.user_id, jour, t(10, 0), t(11, 0), None)
+        .seed_creneau_du_jour(etab, &classe_ginny, "AS6", cast.prof.user_id, jour, t(10, 0), t(11, 0), None)
         .await
         .unwrap()
         .id;
