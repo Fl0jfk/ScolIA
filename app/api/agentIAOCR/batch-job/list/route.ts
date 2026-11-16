@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { resolveSession } from "@/app/lib/intranet-session";
-import { listRecentBatchJobsForUser } from "../batch-job";
+import { listRecentBatchJobSummariesForUser } from "../batch-job";
 
 export const maxDuration = 15;
 
@@ -9,7 +9,9 @@ export async function GET() {
   const userId = session?.userId;
   if (!userId) return new NextResponse("Non autorisé", { status: 401 });
 
-  const jobs = await listRecentBatchJobsForUser(userId, 8);
+  // Résumés seulement (revalidés par ETag S3) : plus de téléchargement complet
+  // des lots à chaque passage du suivi.
+  const jobs = await listRecentBatchJobSummariesForUser(userId, 8);
   const active = jobs.filter(
     (j) => j.status === "pending" || j.status === "processing" || j.status === "needs_token",
   );
@@ -22,11 +24,11 @@ export async function GET() {
       percent: j.percent,
       completed: j.completed,
       failed: j.failed,
-      totalItems: j.items.length,
+      totalItems: j.totalItems,
       currentItemIndex: j.currentItemIndex,
       startedAt: j.startedAt,
       updatedAt: j.updatedAt,
-      error: j.error ?? null,
+      error: j.error,
     })),
     activeCount: active.length,
   });

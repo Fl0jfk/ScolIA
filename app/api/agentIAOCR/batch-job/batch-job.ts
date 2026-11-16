@@ -241,9 +241,92 @@ export async function registerBatchJobForUser(userId: string, jobId: string) {
   await writeUserJobIndex(userId, { jobIds, updatedAt: new Date().toISOString() });
 }
 
-export async function listRecentBatchJobsForUser(userId: string, limit = 5): Promise<OcrBatchJob[]> {
+/** Ce que le suivi affiche d'un lot (sans résultats ni éléments complets). */
+export type OcrBatchJobSummary = {
+  jobId: string;
+  userId: string;
+  status: OcrBatchJobStatus;
+  label: string;
+  percent: number;
+  completed: number;
+  failed: number;
+  totalItems: number;
+  currentItemIndex: number;
+  startedAt: string;
+  updatedAt: string;
+  error: string | null;
+};
+
+function summarizeBatchJob(job: OcrBatchJob): OcrBatchJobSummary {
+  return {
+    jobId: job.jobId,
+    userId: job.userId,
+    status: job.status,
+    label: job.label,
+    percent: job.percent,
+    completed: job.completed,
+    failed: job.failed,
+    totalItems: Array.isArray(job.items) ? job.items.length : 0,
+    currentItemIndex: job.currentItemIndex,
+    startedAt: job.startedAt,
+    updatedAt: job.updatedAt,
+    error: job.error ?? null,
+  };
+}
+
+/**
+ * Résumés gardés en mémoire (par instance, sans Valkey), avec l'ETag S3 du
+ * fichier lu. Chaque lecture redemande le fichier à S3 avec If-None-Match :
+ * s'il n'a pas changé, S3 répond 304 sans contenu et le résumé gardé sert ;
+ * sinon le fichier est relu. Toujours exact, même modifié par une autre instance.
+ */
+const SUMMARY_MEMO_MAX = 500;
+const summaryMemo = new Map<string, { etag: string; summary: OcrBatchJobSummary | null }>();
+
+function isNotModified(error: unknown): boolean {
+  const e = error as { name?: string; $metadata?: { httpStatusCode?: number } } | null;
+  return e?.$metadata?.httpStatusCode === 304 || e?.name === "NotModified" || e?.name === "304";
+}
+
+async function readBatchJobSummary(jobId: string): Promise<OcrBatchJobSummary | null> {
+  const s3Client = await getTenantDataS3Client();
+  const bucket = await getBucketName();
+  const memoKey = `${bucket}/${jobKey(jobId)}`;
+  const memo = summaryMemo.get(memoKey);
+  try {
+    const res = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: jobKey(jobId),
+        ...(memo ? { IfNoneMatch: memo.etag } : {}),
+      }),
+    );
+    const raw = await res.Body?.transformToString();
+    const summary = raw ? summarizeBatchJob(JSON.parse(raw) as OcrBatchJob) : null;
+    if (res.ETag) {
+      summaryMemo.delete(memoKey);
+      summaryMemo.set(memoKey, { etag: res.ETag, summary });
+      while (summaryMemo.size > SUMMARY_MEMO_MAX) {
+        const oldest = summaryMemo.keys().next().value;
+        if (oldest === undefined) break;
+        summaryMemo.delete(oldest);
+      }
+    }
+    return summary;
+  } catch (error) {
+    if (memo && isNotModified(error)) return memo.summary;
+    summaryMemo.delete(memoKey);
+    return null;
+  }
+}
+
+export async function listRecentBatchJobSummariesForUser(
+  userId: string,
+  limit = 5,
+): Promise<OcrBatchJobSummary[]> {
   const index = await readUserJobIndex(userId);
-  // Lectures en parallèle (auparavant une après l'autre : ~2 s par appel de suivi).
-  const read = await Promise.all(index.jobIds.slice(0, limit).map((jobId) => readBatchJob(jobId)));
-  return read.filter((job): job is OcrBatchJob => Boolean(job && job.userId === userId));
+  const read = await Promise.all(
+    index.jobIds.slice(0, limit).map((jobId) => readBatchJobSummary(jobId)),
+  );
+  return read.filter((job): job is OcrBatchJobSummary => Boolean(job && job.userId === userId));
 }
