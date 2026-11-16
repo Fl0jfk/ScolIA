@@ -144,7 +144,7 @@ export async function POST(req: Request) {
   const mail = await notifyInternatIncident({ incident, students: involved });
   if (mail.sent) incident.notifySentAt = now;
 
-  const incidents = await getInternatIncidents();
+  const incidents = await getInternatIncidents({ fresh: true });
   incidents.push(incident);
   await saveInternatIncidents(incidents);
   return NextResponse.json({ incident, incidents, mail });
@@ -155,7 +155,7 @@ export async function DELETE(req: Request) {
   if (!access.ok) return access.response;
   const { searchParams } = new URL(req.url);
   const id = String(searchParams.get("id") || "");
-  const incidents = (await getInternatIncidents()).filter((i) => i.id !== id);
+  const incidents = (await getInternatIncidents({ fresh: true })).filter((i) => i.id !== id);
   await saveInternatIncidents(incidents);
   return NextResponse.json({ ok: true, incidents });
 }

@@ -22,7 +22,7 @@ import {
 import { outingIndexEntry } from "@/app/lib/internat-outing";
 import { resolveCurrentEtablissementId } from "@/app/lib/ent-core-db";
 import { valkeyCached, valkeyDel } from "@/app/lib/valkey";
-import { VALKEY_TTL, valkeyKeyInternatStudents } from "@/app/lib/valkey-keys";
+import { VALKEY_TTL, valkeyKeyInternatIncidents, valkeyKeyInternatStudents } from "@/app/lib/valkey-keys";
 
 function rollCallKey(date: string, period: InternatRollCallPeriod = "soir") {
   const suffix = period === "matin" ? "-matin" : "";
@@ -409,13 +409,31 @@ export async function saveInternatSupervisorShifts(shifts: InternatSupervisorShi
   await putJson(INTERNAT_S3.supervisorShifts, shifts);
 }
 
-export async function getInternatIncidents(): Promise<InternatIncident[]> {
+async function loadInternatIncidentsFromDb(): Promise<InternatIncident[]> {
   const hit = await getJson<InternatIncident[]>(INTERNAT_S3.incidents);
   return Array.isArray(hit?.data) ? hit.data : [];
 }
 
+/**
+ * Incidents internat — mis en cache Valkey (partagé entre instances, ~0,85 s
+ * de lecture en base : liste stockée attribut par attribut). Cache vidé à
+ * chaque écriture. `fresh` : lecture directe en base, pour les écritures
+ * (lecture-modification-écriture) afin de ne jamais repartir d'une copie périmée.
+ */
+export async function getInternatIncidents(opts?: { fresh?: boolean }): Promise<InternatIncident[]> {
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (!etabId || opts?.fresh) return loadInternatIncidentsFromDb();
+  return valkeyCached({
+    key: valkeyKeyInternatIncidents(etabId),
+    ttlSeconds: VALKEY_TTL.internatIncidents,
+    loader: loadInternatIncidentsFromDb,
+  });
+}
+
 export async function saveInternatIncidents(incidents: InternatIncident[]) {
   await putJson(INTERNAT_S3.incidents, incidents);
+  const etabId = await resolveCurrentEtablissementId().catch(() => null);
+  if (etabId) await valkeyDel(valkeyKeyInternatIncidents(etabId));
 }
 
 export async function getInternatMessages(): Promise<InternatMessage[]> {

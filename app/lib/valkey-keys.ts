@@ -55,6 +55,8 @@ export const VALKEY_TTL = {
   siecleExports: 45,
   /** Roster internat (S3, partagé entre instances) */
   internatStudents: 45,
+  /** Incidents internat (vidé à chaque écriture) */
+  internatIncidents: 120,
   /** Index conventions de stage (liste légère) */
   stagesConventionsIndex: 45,
   /** Convention de stage individuelle */
@@ -230,6 +232,10 @@ export function valkeyKeyNomenclatureImportPanel(etablissementId: string): strin
 
 export function valkeyKeySiecleExports(etablissementId: string): string {
   return `${NS}:siecle:exports:${etablissementId}`;
+}
+
+export function valkeyKeyInternatIncidents(etablissementId: string): string {
+  return `${NS}:internat:incidents:${etablissementId}`;
 }
 
 export function valkeyKeyInternatStudents(etablissementId: string): string {
