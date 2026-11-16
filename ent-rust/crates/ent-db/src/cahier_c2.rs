@@ -258,7 +258,7 @@ async fn entree_dto(
 
 /// Projette l'entrée dans `ent_seance_contenu` (anciens lecteurs). Renvoie vrai si elle y figure (sinon la séance
 /// porte déjà le contenu d'un autre cours : limite documentée, l'entrée reste lisible par le client C2).
-async fn miroir_entree(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<bool, EntDbError> {
+pub(crate) async fn miroir_entree(tx: &mut PgConnection, etab: Uuid, id: Uuid) -> Result<bool, EntDbError> {
     let Some(e): Option<EntreeRow> = sqlx::query_as(&format!("{SELECT_ENTREE} AND e.id = $2"))
         .bind(etab)
         .bind(id)
@@ -437,6 +437,8 @@ impl PgEnt {
         }
         self.cdt_projeter_travaux_echus(&mut tx, etab).await?;
         tx.commit().await.map_err(db)?;
+        // Lot C6 : propositions de report des séances annulées, et application seule de celles dont l'heure est passée.
+        self.cdt_reports_synchroniser(etab).await?;
         Ok(())
     }
 
@@ -683,7 +685,7 @@ impl PgEnt {
             sqlx::query_as(&format!(
                 "SELECT t.id, t.seance_donnee_id, t.echeance_seance_id, t.titre, n.libelle, t.etat,
                         t.public, ent_aujourdhui_etab(t.etablissement_id, t.echeance_le),
-                        to_char(ent_cdt_heure_locale(t.etablissement_id, t.echeance_le), 'HH24:MI'), t.etat
+                        to_char(ent_cdt_heure_locale(t.etablissement_id, t.echeance_le), 'HH24:MI'), t.rendu
                    FROM ent_cdt_travail t
                    JOIN ent_cdt_nature n ON n.etablissement_id = t.etablissement_id AND n.id = t.nature_id
                   WHERE t.etablissement_id = $1 AND t.cours_id = $2
@@ -719,6 +721,7 @@ impl PgEnt {
                     public: t.6.clone(),
                     echeance_jour: t.7,
                     echeance_heure: t.8.clone(),
+                    rendu: t.9.clone(),
                 }
             };
             out.push(SeanceDuCoursDto {

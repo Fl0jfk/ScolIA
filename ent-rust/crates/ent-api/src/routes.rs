@@ -850,7 +850,18 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::internat::routes());
     // Socle 42, lot V0c : prestataires, devis, commandes, avenants, boîte de réception (`voyages_achats.rs`).
     let r = r.merge(crate::voyages_achats::routes());
+
+    // Socle 42, lot V0d : restauration, journal de voyage des familles, reprise de Next.js (`voyages_v0d.rs`).
+    let r = r.merge(crate::voyages_v0d::routes());
+
+    // Socle 42, lot V1 : exigences, autorisations, relances, ordres de mission, liste nominative (`voyages_v1.rs`).
+    let r = r.merge(crate::voyages_v1::routes());
     let r = r.merge(crate::cahier::routes());
+    let r = r.merge(crate::cahier_c3::routes());
+    let r = r.merge(crate::cahier_c4::routes());
+    let r = r.merge(crate::cahier_c5::routes());
+    let r = r.merge(crate::cahier_c6::routes());
+    let r = r.merge(crate::cahier_c7::routes());
     let r = r.merge(crate::roles::routes());
     // Dossier élève et personnes (socle 2, S2-1 : `dossier.rs`).
     let r = r.merge(crate::dossier::routes());
@@ -875,6 +886,8 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::eleve_fusion::routes());
     // Communication complète (S2-8, module séparé : `communication_s28.rs`).
     let r = r.merge(crate::communication_s28::routes());
+    // Socle 18, lots FO0–FO1 : accords, autorisations et consentements (`accords_s18.rs`).
+    let r = r.merge(crate::accords_s18::routes());
     // Agenda : événements, séries, audience, vue calculée (socle 19, lot AG1 : `agenda.rs`).
     let r = r.merge(crate::agenda::routes());
     // Finances reliées (socle 2, S2-9 : `finances.rs`).

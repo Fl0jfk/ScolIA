@@ -42,7 +42,7 @@ fn fold_line(line: &str) -> String {
     out
 }
 
-fn push_folded(buf: &mut String, line: &str) {
+pub(crate) fn push_folded(buf: &mut String, line: &str) {
     buf.push_str(&fold_line(line));
     buf.push_str("\r\n");
 }

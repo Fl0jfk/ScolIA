@@ -80,6 +80,9 @@ fn ContenuCahier() -> impl IntoView {
             <LienBouton href=super::cours::ADRESSE_COURS variante=Variante::Secondaire taille=Taille::Compacte>
                 "Cahier du cours"
             </LienBouton>
+            <LienBouton href=super::ADRESSE_CHARGE variante=Variante::Secondaire taille=Taille::Compacte>
+                "Charge des classes"
+            </LienBouton>
             <nav class="edt-semaines" aria-label="Changer de semaine">
                 <a class="ui-btn ui-btn--secondaire ui-btn--compact" href=move || adresse(-1) aria-label="Semaine précédente">
                     <Icone nom=NomIcone::ChevronGauche petite=true/>

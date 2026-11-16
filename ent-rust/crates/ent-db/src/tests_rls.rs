@@ -282,7 +282,11 @@ async fn rls_politiques_presentes_et_forcees() {
     // appelées, historique des lignes d'appel, délégations, situations, textes et versions de situation).
     // + 13 du socle 15 (A0 : archives de levée d'exception et de déplacement ; A1 : natures, activation,
     // paramètres, règles de circuit, absences, plages, circuit figé, décisions, journal, arrêts, décisions externes).
-    // + 41 du socle 20 (lot C1, migrations 2401–2412 : tables `ent_cdt_*` du modèle du cahier de textes et quarantaine de reprise).
+    // + 41 du socle 20 (lot C1, migrations 2401–2412 : tables `ent_cdt_*` du modèle du cahier de textes et quarantaine de reprise)
+    // + 2 du lot C3 (migration 2414 : abonnement au calendrier, envoi unique du résumé hebdomadaire).
+    // + 2 du lot C5 (migration 2416 : pannes déclarées, relances des non-rendus).
+    // + 1 du lot C7 (migration 2418 : réglages d'affichage de l'élève).
+    // + 2 du lot C6 (migration 2417 : décisions sur les copies en attente d'une suppléance, simulation du port d'aménagements du socle 35).
     // + 7 du socle 29 (lot P2, migrations 2580–2582 : index des tâches, journal des prises, réglages).
     // + 4 du socle 15 (A2, migration 2303 : pièces, lectures de pièces, fil de messages, gels de conservation).
     // + 2 du socle 15 (A3, migration 2304 : impacts et réponses).
@@ -308,12 +312,18 @@ async fn rls_politiques_presentes_et_forcees() {
     // + 1 du socle 5 (S6, migration 339 : classes d'origine des groupes).
     // + 14 du socle 7 (lot D2, migrations 3700–3703 : entités, identifiants, familles, identité, paramétrage et textes des natures ;
     // documents, versions, données figées, exemplaires ; compteurs ; mises à disposition, consultations, journal).
+    // + 3 du socle 7 (lot D5, migration 3704 : demandes de pièces, pièces déposées, décisions).
     // + 3 du socle 27 (G1, migration 2541 : gouvernance et DPO, règles de conservation, journal des règles).
     // + 8 du socle 27 (G2, migrations 2542–2543 : fiches, versions, écarts, destinataires externes, mentions, documents,
     // objections et sous-traitants locaux ; les 4 tables de plateforme n'ont pas d'établissement donc pas de RLS).
     // + 4 du socle 10 (T3, migration 445 : lots, cibles de lot, modifications, motifs internes ; RLS en 453).
     // + 1 du socle 10 (T4, migration 447 : journal de localisation ; RLS en 454).
-    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 4, "tables avec RLS activée et forcée");
+    // + 7 du socle 18 (lot FO1, migrations 2361–2363 : objets d'accord, usages, versions, usages couverts, décisions, usages
+    // décidés, journal ; le catalogue de référence et ses usages sont globaux, sans établissement donc sans RLS).
+    // + 15 du socle 42 (lot V0d : migration 645 = commande de restauration, lignes, attributions, convives externes, avis, clés de réponse ;
+    // migration 646 = journal de voyage, délégués, publications, photos, marquage des élèves, liens nominatifs ; migration 647 = séjours repris,
+    // participants de la reprise, écarts) + 6 du lot V1 (migration 648 = campagne, exigences, faits de signature, relances ; migration 649 = transmissions, champs).
+    assert_eq!(n, 22 + 17 + 6 + 2 + 15 + 2 + 5 + 6 + 9 + 7 + 11 + 5 + 5 + 2 + 2 + 18 + 17 + 1 + 1 + 4 + 4 + 150 + 2 + 9 + 5 + 10 + 11 + 4 + 1 + 9 + 9 + 6 + 10 + 9 + 3 + 13 + 41 + 7 + 4 + 2 + 5 + 1 + 4 + 4 + 9 + 4 + 2 + 7 + 5 + 8 + 8 + 6 + 1 + 6 + 3 + 1 + 14 + 3 + 8 + 4 + 1 + 1 + 2 + 7 + 3 + 2 + 14 + 3 + 2 + 2 + 2 + 1 + 7 + 15 + 6 + 4, "tables avec RLS activée et forcée");
     // Le rôle de test n'est ni propriétaire ni contournement.
     let (bypass, sup): (bool, bool) = sqlx::query_as("SELECT rolbypassrls, rolsuper FROM pg_roles WHERE rolname = $1")
         .bind(ROLE).fetch_one(&e.admin).await.unwrap();

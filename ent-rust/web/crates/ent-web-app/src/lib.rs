@@ -108,6 +108,13 @@ pub fn App() -> impl IntoView {
                     <Route path=path!("cahier/travaux/:id") view=modules::cahier::PageCopies/>
                     <Route path=path!("cahier/cours") view=modules::cahier::PageCahierCours/>
                     <Route path=path!("cahier/travail") view=modules::cahier::PageDonnerTravail/>
+                    <Route path=path!("cahier/agenda") view=modules::cahier::PageMonCahier/>
+                    <Route path=path!("cahier/charge") view=modules::cahier::PageChargeClasses/>
+                    <Route path=path!("cahier/continuite") view=modules::cahier::PageContinuite/>
+                    <Route path=path!("cahier/adaptations/:id") view=modules::cahier::PageAdaptations/>
+                    <Route path=path!("cahier/aesh") view=modules::cahier::PageAesh/>
+                    <Route path=path!("cahier/rendu/:id") view=modules::cahier::PageRendu/>
+                    <Route path=path!("cahier/suivi/:id") view=modules::cahier::PageSuiviRendus/>
                     <Route path=path!("agenda") view=modules::cahier::PageAgenda/>
                     <Route path=path!("mon-agenda") view=modules::agenda::PageMonAgenda/>
                     <Route path=path!("salles") view=modules::agenda::salles::PageSalles/>

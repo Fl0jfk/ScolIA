@@ -2252,3 +2252,105 @@ Voir `docs/ALERTES_NEXTJS_PROD.md`. **V0a et V0b** : NJ-07 (écriture de tout do
 4. **Liste au transporteur** (NX-29, Q-V11) : non faite.
 5. **Écrans Leptos** : voir `PROJECT_STATUS.md` (état des écrans de ce lot).
 6. **Non testé** : navigateur, SMTP réel, relevé réel d'une boîte, recette sur export réel de Next.js.
+
+### 33.9 Lot V0d : restauration, journal de voyage, reprise des séjours de Next.js, ports du courrier sortant (2026-11-15, branche `ent-socle-42-code-v0d`)
+
+> **Statut : implémenté et testé en local ; non validé par Florian, pas prêt pilote, pas prêt production.** Faits (code et tests) séparés des décisions appliquées par défaut (à valider) et des limites. Aucun accès à la base de production, aucune modification de Next.js.
+
+#### 33.9.1 Périmètre
+Migrations **645** (`645_sortie_restauration.sql`), **646** (`646_sortie_journal_voyage.sql`), **647** (`647_sortie_reprise.sql`) : 15 tables, RLS, clés composites, aucun JSON ni BYTEA. Code : `ent-db/src/voyages_restauration*.rs`, `voyages_journal_repo.rs`, `voyages_reprise*.rs`, `voyages_courrier_ports.rs` ; routes `ent-api/src/voyages_v0d.rs` ; droit `voyages.reprise` (administrateur, direction).
+
+| Action | Où | Droit |
+|---|---|---|
+| NX-38, NX-86, VOY-256 commande de restauration par jour, convives externes | `voyage_repas_ecrire` | porteur ou `voyages.modifier` |
+| NX-39 « qui mange » (paniers plafonnés et exacts, un désisté perd son panier) | `voyage_repas_attribuer`, `voyage_repas_attribution_retirer` | idem |
+| NX-38, NX-40 commande passée, avenant « annule et remplace » numéroté et motivé, aperçu = rendu réel | `voyage_repas_passer`, `voyage_repas_avenant_emettre`, `voyage_repas_apercu` | idem, confirmation expresse |
+| Boîte de la restauration de l'**établissement** | `voyages_reglage_restauration_ecrire` | **direction seule** (`voyages.autoriser`) |
+| VOY-176 à VOY-179, NX-33 journal de voyage : activation, délégués, publications, photos marquées, retrait, fermeture, purge | `voyage_journal_*`, `voyages_journal_purger` | porteur, délégué, `voyages.modifier` ; direction pour la purge |
+| NX-34, NX-80, VOY-265 lien nominatif sans compte (émission, révocation, lecture, photo) | `voyage_journal_liens_emettre`, `_revoquer`, `_par_lien`, `_photo_par_lien` | gestion ; lecture publique par jeton |
+| Famille avec compte : lecture et photos | `voyages_journal_famille`, `voyage_journal_photo` | titulaire ou élève d'un participant qui part encore |
+| VOY-258, VOY-259, VOY-262, VOY-263 reprise : import différentiel idempotent, rapprochement, écarts, porteur, pièces, dérogation, **tableau de bascule**, bascule, retour arrière | `voyages_reprise_*` | `voyages.reprise` |
+| D-065 ports du courrier sortant : expéditeur déduit de l'UAI, adresse de réponse à **usage unique** | `voyages_courrier_ports.rs` | porteur ou `voyages.prestataires` |
+
+**Actions de Next.js nouvellement couvertes (V0d)** : NX-33, NX-34 (journal : lien et audience), NX-38, NX-39, NX-40, NX-80, NX-86, et la part « droit à l'image minimal » de NX-25 (lecture du consentement du socle 2). **Restent** : NX-16 « rappel J-15 cuisine » (aucun ordonnanceur), NX-20 (purge du dossier entier), NX-21, NX-25 (formulaire), NX-29, NX-30, NX-36, NX-37 (santé : socle 34), NX-60 à NX-63, NX-65 à NX-67, NX-69, NX-73, NX-75 à NX-78, NX-82, NX-84, NX-85, reprise du **budget** (lignes), des **devis** et des **messages** (fil interne), répartition des **avenants** de transport, tableau de bascule des **versements**.
+
+#### 33.9.2 Règles appliquées (chacune a un test, `tests_voyages_v0d.rs`)
+* **Restauration** : un panier est attribué à un participant **ou** à un adulte de la sortie, jamais aux deux, jamais deux fois le même jour ; le total attribué (adultes, participants qui partent, convives externes) ne dépasse **jamais** le commandé (plafond) et l'égale pour passer la commande ou émettre un avenant (exact) ; un participant désisté, retiré ou exclu **ne compte plus** et un avenant est proposé (sans nom) ; chaque écriture porte la **révision lue** (`rev`). L'avis est un **texte brut** composé par le serveur (nom, prénom, classe, variante ; **sans INE**, sans motif, sans coordonnée de famille), objet sur une seule ligne, destinataire = boîte réglée par la direction, **jamais** fournie par le navigateur ; sans boîte, l'avis attend (`sans_destinataire`) et part dès que la boîte est réglée ; contenu **figé par la base** (déclencheur 42501), jamais supprimé.
+* **Journal de voyage** : audience recalculée à chaque lecture (élève désisté ou retiré, titulaire sans autorité ou privé de messagerie : accès retiré) ; une photo n'est montrée que si **chaque** élève marqué a un consentement effectif `accepte` au socle 2 (`droit_image`) ; **l'absence de décision n'est pas un consentement** (R-SV40) ; une photo sans élève marqué exige la déclaration « aucun élève identifiable » ; le marquage est **interne** (R-SV42) ; points de situation **codés** (arrivée, départ, changement de programme, 300 caractères, sans photo) ; auteur affiché « L'équipe du voyage » ; fichier actif refusé (type détecté sur les octets) ; purge à fin + 15 jours (photos supprimées **logiquement** au registre des objets, jamais de DELETE), sauf la sélection du bilan sans élève non consentant.
+* **Lien nominatif** : un lien par (participant, titulaire **sans compte**), jeton `<établissement>.<secret>` jamais conservé (empreinte SHA-256), expire à fin + 15 jours, révocable, **30 lectures par 10 minutes**, réponse « introuvable » identique pour tout jeton invalide, `noindex`, sans cache ni référent.
+* **Reprise** (R-SV37 à R-SV40, R-SV46) : **aucune connexion à la production** (export fourni par Florian) ; idempotente par `source_id` ; un séjour dont ScolIA est propriétaire **n'est jamais réécrit** (un écart est signalé) ; correspondance des statuts du §32.3 (statut inconnu refusé et listé) ; **régime** « en vol » / archive / normal selon le gel (S-436) ; rapprochement : identifiant connu, puis INE **unique**, puis file humaine, **jamais approximatif** ; identité de l'export **effacée** dès le rapprochement (contrainte de base) ; montants en **centimes**, « 1.350 » signalé et jamais deviné ; part annoncée conservée telle quelle, écart signalé ; aides nominatives **non reprises**, signalées ; **tableau de bascule** : un séjour est basculable tout vert ou avec dérogation motivée, qui ne lève **jamais** « en vol », « déjà basculé », un participant non rapproché ni l'absence de porteur ; **retour arrière** sans écriture métier : la sortie créée est **annulée** (son journal est en ajout seul), Next.js redevient propriétaire.
+* **Ports du courrier sortant (D-065)** : `ne-pas-repondre@<uai>.scolia.fr`, `<uai>` déduit du **profil de l'établissement du dossier** (jamais d'un utilisateur ; aucun établissement n'écrit depuis le domaine d'un autre ; pas d'UAI = pas d'envoi) ; réponse `r-<clé 64 hexadécimaux>@<uai>.scolia.fr`, clé jamais conservée, **double contrôle** (sous-domaine de l'établissement qui reçoit, puis clé de cet établissement), expiration 60 jours, révocation, **usage unique** ; tout doute (clé inconnue, d'un autre établissement, expirée, révoquée, déjà utilisée, adresse mal formée) renvoie `ATrier` (file de tri humaine). **L'envoi réel et la réception attendent le socle 8, lot N6** : aucune boîte existante n'est lue ni modifiée.
+
+#### 33.9.3 Décisions appliquées par défaut dans V0d (D-031, à valider par Florian)
+| N° | Décision | Pourquoi |
+|---|---|---|
+| V0d-1 | Droit **`voyages.reprise`** réservé à l'administrateur et à la direction | la reprise voit des séjours entiers et leurs participants |
+| V0d-2 | Boîte de la restauration réglable par la **direction seule** | c'est la destination des listes nominatives (VD-06) ; la comptabilité règle sa propre boîte |
+| V0d-3 | Variantes alimentaires **codées** (standard, sans porc, végétarien, sans arachide, sans gluten, sans lactose) saisies par l'organisateur ; **aucune consigne du socle 34** n'est lue | le socle 34 n'existe pas sur ENT ; aucun nom de maladie |
+| V0d-4 | Un séjour **en cours au gel** est « en vol » comme un séjour parti entre le gel et `fin_vol` ; il repasse en archive quand `fin < aujourd'hui` | §32.1 ; les dates de gel et de fin de période (S-436) sont des **paramètres de l'import**, décidés par Florian |
+| V0d-5 | Bascule d'un séjour archive : sortie `close`, participants `rentre`, liste confirmée | §26 point 5 |
+| V0d-6 | Destination d'une sortie reprise : `france` par défaut (Next.js n'a pas la notion) | corrigeable après la bascule |
+| V0d-7 | Lien nominatif : **30 lectures par 10 minutes** | limitation de débit demandée au §11.4 sans seuil fixé |
+| V0d-8 | Les envois (avis de restauration) partent **immédiatement après le geste**, puis sont rejouables ; trois essais, puis `echec` (visible) | comme V0c-3 ; aucun ordonnanceur branché |
+
+#### 33.9.4 Défauts de Next.js fermés (règle 14, D-051)
+VD-06 (destinataire de la restauration fourni par le client : boîte de l'établissement, réglée par la direction), VD-10 et VD-43 (lien du journal non révocable, jamais renouvelé : lien nominatif révocable, recalculé, expirant, limité), VD-11 (photos publiées sans droit à l'image, case « vraie par défaut » : filtre par consentement effectif, « inconnu » jamais consenti), VD-12 (audience figée : recalculée), VD-16 (INE à la cuisine, contacts à un prestataire : aucune donnée de ce type dans les avis ni les listes ; liste nominative en V1), VD-44 (« qui mange » écrasé par le client, participants arbitraires : participants vérifiés, plafond, exactitude, avenant), R-SV37 (propriété unique). Un test par défaut : `vd_06_16_44_…`, `vd_10_43_…`, `vd_11_12_…`, `vd_44_…`, `r_sv37_…`, `d_065_…`, plus le cloisonnement entre établissements et la RLS des 15 tables (`tests_rls_lots::verifier_tables`, rôle sans `BYPASSRLS` en mode strict).
+
+#### 33.9.5 Points pour Florian et limites
+1. **Boîte de la restauration** à renseigner par la direction ; **aucun envoi réel** tant que le socle 8, lot N6 n'a pas branché l'expédition par le sous-domaine UAI et la réception.
+2. **Dates du gel et de la période « en vol »** (S-436) : paramètres de l'import, à fixer.
+3. **Reprise** : export à fournir par Florian (`pg_dump` et objets) ; l'**ombre** ne contient ni lignes de budget, ni devis, ni messages, ni pièces (le compte de pièces copiées est posé à la main, la copie vers le dépôt du socle 7 n'est pas faite) ; l'**import des versements** (VOY-261) et les **remises historiques du socle 8** (VOY-262) ne sont pas faits ; le **tableau des attestations** s'ouvre au lot V1 une fois la sortie basculée.
+4. **Rappel J-15 cuisine** (NX-16) non branché ; aucun ordonnanceur pour les avis de restauration, la purge du journal ni les relances.
+5. **Écrans Leptos** : non faits dans ce lot (routes seulement) ; **non testé** : navigateur, SMTP réel, export réel de Next.js.
+
+### 33.10 Lot V1 : exigences, autorisations, relances, ordres de mission, liste nominative (2026-11-15, branche `ent-socle-42-code-v1`, empilée sur V0d)
+
+> **Statut : implémenté et testé en local ; non validé par Florian, pas prêt pilote, pas prêt production.** Faits (code et tests) séparés des décisions appliquées par défaut (à valider) et des limites. Aucun accès à la base de production, aucune modification de Next.js.
+
+#### 33.10.1 Périmètre
+Migrations **648** (`648_sortie_exigences.sql`) et **649** (`649_sortie_transmission.sql`) : 6 tables, RLS, clés composites, aucun JSON ni BYTEA ni tableau. Code : `ent-db/src/voyages_exigences.rs` (moteur pur), `voyages_exigences_repo.rs`, `voyages_missions_repo.rs` ; routes `ent-api/src/voyages_v1.rs`. Aucun droit nouveau : la gestion passe par `voyages.participants` (porteur, secrétariat, direction), la décision par `voyages.autoriser` (direction), la liste nominative par `voyages.prestataires` puis `voyages.autoriser`.
+
+| Action | Où | Droit |
+|---|---|---|
+| VOY-171 ouvrir la campagne (participation, image, soins) | `voyage_campagne_ouvrir`, `_clore` | porteur ou `voyages.participants` |
+| **Port vers le socle 18** : décision signée en ligne (S1) | `voyages_autorisation_decision_recue` (service, **jamais en HTTP**) | l'autre socle ; tout est revérifié |
+| VOY-173 signature **papier** au guichet (date du coupon, scan facultatif) | `voyage_autorisation_guichet` | porteur, secrétariat, direction |
+| VOY-260 attestation **en masse** d'un séjour repris (R-SV39) | `voyage_attestations_masse` | idem ; séjours repris seulement |
+| VOY-149 « qui manque quoi » | `voyage_exigences_matrice` | porteur ou `voyages.participants` |
+| VOY-149, VOY-172 relance groupée, relances J-21, J-10, J-5 | `voyage_relance_apercu`, `voyage_relancer_manquants`, `voyages_relances_traiter` | idem ; direction pour le déclenchement manuel |
+| CV-04 désaccord déclaré, décision motivée de la direction | `voyage_desaccord_declarer`, `voyage_desaccord_decider` | gestion ; **direction seule** pour décider |
+| VOY-139 dérogation à une exigence **non légale** | `voyage_exigence_deroger` | **direction seule** |
+| VOY-152 ordres de mission et autorisations écrites des adultes | `voyage_ordres_mission_emettre`, `_lister`, `_lire` | direction ; chaque adulte lit les siens |
+| VOY-271, VOY-289, R-SV41 liste nominative à un prestataire (champs fermés, motif, pays, validation, hors UE signalé) | `voyage_transmission_demander`, `_decider`, `_lire` | demande : porteur ou `voyages.prestataires` ; décision : direction |
+
+**Actions nouvelles couvertes (V1)** : VOY-139, VOY-149, VOY-152, VOY-171 (minimal : un formulaire demandé au socle 18, des consentements distincts), VOY-172, VOY-173, VOY-260, VOY-271, VOY-277 (droit à l'image, filtre déjà en V0d), VOY-289 (signalement hors UE à la validation, pas dans la circulaire). **Restent du lot V1** : VOY-269 (devis forfait d'agence : ventilation, pièces de l'agence), **VOY-272 (répartition des chambres)**, VOY-274 (accord de l'AESH et de son employeur), VOY-275 (compte bénévole limité au séjour), VOY-278 (élève majeur : information des parents payeurs) ; le **calendrier au transporteur** (NX-29, NX-30) n'est pas fait.
+
+#### 33.10.2 Règles appliquées (chacune a un test, `tests_voyages_v1.rs`)
+* **Sortie obligatoire** : gratuite, **aucune** autorisation de participation (la campagne n'accepte que des consentements d'image ou de soins) ; sortie facultative : **une** signature d'un titulaire de l'autorité parentale suffit, l'accord de l'autre étant présumé sauf désaccord connu ; **l'élève majeur signe lui-même** et ses parents ne sont pas relancés à sa place (CV-07) ; **aucune attestation d'assurance exigée** (guide 2025).
+* **Qui signe** : un titulaire avec lien actif **et** autorité parentale, recalculé **à chaque lecture** ; un titulaire qui perd l'autorité rend sa signature « **à revoir** » : le participant est bloqué, l'autre titulaire est sollicité (CV-06) ; **un seul refus suffit** à bloquer (prudence du socle 2) ; la dernière décision de chaque signataire fait foi ; règle « tous » pour l'étranger (calculée, activée par le circuit du lot V9).
+* **Faits en ajout seul** (déclencheur de base) : décision, signataire, **date de la signature papier** (jamais la date de saisie), source (`formulaire`, `guichet`, `attestation_reprise`), scan en **objet** ; l'état de chaque exigence et celui du participant (`inscrit` en attente, `pret`, `bloque`) sont **recalculés par le serveur** ; seuls ces trois états sont gérés, jamais `parti` ni `desiste`. Un participant **en attente n'est pas bloqué** ; **bloqué** = un refus, un désaccord non levé ou une signature à revoir ; le port « en sortie » exclut déjà `bloque` (un élève bloqué reste à l'appel).
+* **Désaccord** (CV-04) : déclaré par la gestion pour un titulaire réel, il bloque jusqu'à la décision **motivée** de la direction ; **aucun titulaire n'est notifié**, le journal ne dit pas qui, l'organisateur ne voit pas la colonne ni le motif ; la décision **n'est pas une autorisation**.
+* **Dérogation** : direction seule, motivée, **soins et image seulement** ; jamais la participation, jamais le désaccord, **jamais un refus** ; elle arrête la relance de l'exigence et **ne vaut pas consentement** (les photos restent filtrées par le droit à l'image du socle 2).
+* **Relances** : une par seuil et par sortie (idempotent, ajout seul), rattrapage **sans rafale** (seul le seuil le plus proche envoie, les autres sont « omis »), rien après le départ ; destinataires **calculés par le serveur** (titulaires **sollicitables** : une interdiction de communication exclut ; un titulaire qui a refusé n'est pas relancé) ; texte **fixe**, **aucun nom d'élève** ; relance manuelle après aperçu et **confirmation**, une par 12 heures ; la plage calme et les canaux suivent les préférences du socle 8 ; les titulaires **sans compte** sont comptés (« à relancer par courrier ») mais **rien ne part** tant que le socle 8, lot N6 n'a pas branché le courrier.
+* **Ordres de mission** : un ordre et une autorisation écrite **par adulte** (PDF côté serveur, déposés avec leur empreinte), émis après l'autorisation de la sortie par la direction seule, relus par la direction et l'adulte concerné seulement, ajout seul à la réémission, **aucun élève** dans ces documents.
+* **Liste nominative** (VD-16) : par défaut un prestataire ne reçoit que des **effectifs** ; une liste exige des champs **dans une liste fermée par la base** (nom, prénom, classe, date de naissance, sexe : jamais d'INE, de contact de famille ni de santé), un **motif**, le **pays**, la **validation de la direction** ; le destinataire est une adresse **de l'annuaire** vérifiée ; hors Union européenne : **confirmation expresse** ; la liste ne contient que les participants qui partent ; trace (qui, quand, champs, pays).
+
+#### 33.10.3 Décisions appliquées par défaut dans V1 (D-031, à valider par Florian)
+| N° | Décision | Pourquoi |
+|---|---|---|
+| V1-1 | **Port du socle 18 sans dépendance de code** : fait sortant `voyages.campagne_ouverte`, commande d'entrée `voyages_autorisation_decision_recue` | le socle 18 est codé en parallèle ; rien à défaire quand il arrive |
+| V1-2 | La **participation** (sortie facultative) et le **désaccord** ne sont **jamais dérogeables** ; la dérogation ne porte que sur **soins** et **image** | légalité (§5.4) ; les exigences non légales du §9.3 sont le **paiement** (V2) et l'**assurance** (jamais exigée) |
+| V1-3 | « Bloqué » = refus, désaccord non levé, signature à revoir ; sinon « inscrit » (en attente) | l'attente ne doit pas faire sortir l'élève de l'appel (VD-42) |
+| V1-4 | Le **désaccord** est déclaré par la gestion (`voyages.participants`) | le socle 4 n'a pas de désaccord déclaré ; à rapprocher quand il en aura un |
+| V1-5 | Relance manuelle : **12 heures** minimum entre deux ; relances automatiques **J-21, J-10, J-5** | §11.2 ; seuil manuel non fixé par la conception |
+| V1-6 | Ordre de mission **sans signature S2** : émis par la direction connectée | le moteur de signature du socle 7 n'existe pas (V0c-1) |
+| V1-7 | Liste nominative : participants `inscrit`, `pret`, `parti` seulement ; pays inconnu = **hors UE** | en cas de doute, on signale |
+
+#### 33.10.4 Défauts de Next.js fermés (règle 14, D-051)
+VD-16 (contacts de parents et INE envoyés à un prestataire : liste fermée, validation, aucun contact possible), VD-14 et VD-49 (envoi aux prestataires sans contrôle : droit et validation de la direction), VD-42 (élève sans autorisation resté « en sortie » : `bloque` exclu de l'appel), R-SV6, R-SV9, R-SV40, R-SV41. Cas limites testés : **CV-04, CV-06, CV-07, CV-09, CV-25, CV-26**, plus le cloisonnement entre établissements (`exigences_et_transmissions_cloisonnees_entre_etablissements`, port d'entrée compris) et la RLS des 6 tables.
+
+#### 33.10.5 Points pour Florian et limites
+1. **Circuit du privé** (Q-V1) et **règle de désistement** (Q-V6) restent à décider ; V1 n'y touche pas.
+2. **Socle 18** : à son arrivée, il consomme `voyages.campagne_ouverte` et appelle `voyages_autorisation_decision_recue` ; la distribution du lien de signature aux titulaires **sans compte** attend le socle 8, lot N6.
+3. **Non fait** : répartition des chambres (VOY-272), pièces de l'agence (VOY-269), AESH (VOY-274), compte bénévole (VOY-275), information des parents payeurs d'un majeur (VOY-278), calendrier au transporteur ; **signature S2** des ordres de mission ; **écrans Leptos** ; ordonnanceur des relances.
+4. **Non testé** : navigateur, SMTP réel, export réel de Next.js ; **pas prêt pilote** avant relecture de Florian.

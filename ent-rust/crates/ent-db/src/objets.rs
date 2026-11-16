@@ -88,6 +88,12 @@ impl PgEnt {
         hors_runtime(self.objects(), move |s| s.get_attendu(&key, &attendu)).await
     }
 
+    /// Suppression **physique** d'un objet (purge, socle 7 D9). Idempotent ; le registre n'est pas touché ici.
+    pub(crate) async fn objet_supprimer(&self, key: &str) -> Result<(), EntDbError> {
+        let key = key.to_string();
+        hors_runtime(self.objects(), move |s| s.supprimer(&key)).await
+    }
+
     pub(crate) async fn objet_existe(&self, key: &str) -> Result<bool, EntDbError> {
         let key = key.to_string();
         hors_runtime(self.objects(), move |s| s.existe(&key)).await

@@ -105,6 +105,8 @@
 @media (max-width: 767px) { .edt-semaine { grid-template-columns: 1fr; } }
 
 /* --- Cahier de textes, travail à faire, copies (S2-6) ---------------------- */
+.cdt-onglets { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin: 0 0 var(--esp-3); }
+.cdt-onglets > a { flex: 1 1 auto; justify-content: center; text-align: center; }
 .cdt-resume { color: var(--c-attenue); font-size: var(--taille-s); margin: 0 0 var(--esp-3); }
 .cdt-vide { color: var(--c-attenue); font-size: var(--taille-s); }
 .cdt-semaine { display: grid; gap: var(--esp-4); }
@@ -676,6 +678,22 @@
 .agd-reponse, .agd-publication, .agd-annulation { display: grid; gap: var(--esp-2); padding-top: var(--esp-3); border-top: 1px solid var(--c-ligne); }
 .agd-coupon__choix, .agd-participants { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-2); }
 @media (max-width: 767px) { .agd-semaine { grid-template-columns: 1fr; } }
+.cdt-bandeau { display: grid; gap: var(--esp-2); min-width: 0; }
+/* Lot C5 : rendu et retour. Tableau dense de suivi (saisie du professeur), sections de dépôt, actions. */
+.cdt-actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); align-items: center; }
+.cdt-outils { display: grid; gap: var(--esp-3); padding-bottom: var(--esp-3); border-bottom: 1px solid var(--c-ligne); }
+.cdt-tableau-defilant { overflow-x: auto; max-width: 100%; }
+.cdt-tableau { width: 100%; border-collapse: collapse; font-size: var(--taille-s); font-variant-numeric: tabular-nums; }
+.cdt-tableau th, .cdt-tableau td { text-align: left; padding: var(--esp-1) var(--esp-2); border-bottom: 1px solid var(--c-ligne); vertical-align: middle; }
+.cdt-tableau thead th { font-weight: var(--graisse-forte); white-space: nowrap; }
+.cdt-tableau tbody th[scope="row"] { font-weight: var(--graisse-forte); overflow-wrap: anywhere; }
+.cdt-copie__mot { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 767px) { .cdt-tableau { font-size: var(--taille-xs, 0.8125rem); } .cdt-actions > * { flex: 1 1 100%; } }
+/* Lot C7 : réglages d'affichage de l'élève (taille du texte, interligne, animations). Posés sur l'agenda, jamais ailleurs. */
+.aff-police-grande { font-size: 1.125em; }
+.aff-police-tres-grande { font-size: 1.3em; }
+.aff-interligne-large { line-height: 1.8; }
+.aff-calme * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 
 /* Palette de commandes (socle 29, lot P6) : un champ, des familles, une liste à choix clavier. */
 .palette-barre { display: flex; justify-content: flex-end; padding-bottom: var(--esp-3); }

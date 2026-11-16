@@ -278,6 +278,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("642_sortie_encadrants"),
     m!("643_sortie_budget"),
     m!("644_sortie_prestataires"),
+    m!("645_sortie_restauration"),
+    m!("646_sortie_journal_voyage"),
+    m!("647_sortie_reprise"),
+    m!("648_sortie_exigences"),
+    m!("649_sortie_transmission"),
     m!("661_d036_corrections_lot1"),
     m!("662_d036_profil_jours_ouvres"),
     m!("663_d036_parametre_type"),
@@ -307,6 +312,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2309_absp_rattrapage"),
     m!("2310_absp_paie_dsn"),
     m!("2312_absp_personas_circuit_arrets"),
+    // Socle 18 (formulaires, autorisations, consentements), plage 2360–2379 : lots FO0 (2360) et FO1.
+    m!("2360_formulaires_fo0_correctifs"),
+    m!("2361_acc_objets_catalogue_usages"),
+    m!("2362_acc_versions_decisions"),
+    m!("2363_acc_journal"),
     m!("2380_agenda_ag0_rencontres"),
     m!("2381_agenda_evenement"),
     m!("2386_agenda_reservation_lieu"),
@@ -322,6 +332,11 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2411_cdt_archives"),
     m!("2412_cdt_reprise"),
     m!("2413_cdt_c2_saisie_publication"),
+    m!("2414_cdt_c3_agenda_cahier_famille"),
+    m!("2415_cdt_c4_charge"),
+    m!("2416_cdt_c5_rendu_retour"),
+    m!("2417_cdt_c6_continuite"),
+    m!("2418_cdt_c7_adaptations"),
     // Socle 27, G0 : TRUNCATE interdit sur le journal en ajout seul (RG-D02).
     m!("2540_rgpd_g0_journal_truncate"),
     // Socle 27, G1 : règles de conservation par établissement, DPO (peut être absent), journal en ajout seul.
@@ -364,6 +379,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("3701_documents_documents_versions"),
     m!("3702_documents_compteurs"),
     m!("3703_documents_mises_a_disposition"),
+    m!("3704_documents_pieces"),
     // Socle 8 (notifications), plage 3800–3899 : lot N1 (brique et contrat).
     m!("3800_ntf_parametres"),
     m!("3801_ntf_avis"),

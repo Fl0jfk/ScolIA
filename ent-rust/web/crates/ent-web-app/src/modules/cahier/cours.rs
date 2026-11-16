@@ -454,6 +454,8 @@ fn ListeTravaux(
                         let (etat, ton) = etat_travail(&t.etat);
                         let modifiable = t.etat != "retire";
                         let id = t.id;
+                        let suivi = (t.rendu == "en_ligne" && t.etat == "publie")
+                            .then(|| format!("{}/{id}", super::ADRESSE_SUIVI));
                         view! {
                             <li>
                                 <strong>{t.titre.clone()}</strong>
@@ -461,6 +463,9 @@ fn ListeTravaux(
                                 {(t.public == "restreint").then_some(" · public restreint")}
                                 " "
                                 <Badge libelle=etat ton=ton/>
+                                {suivi.map(|href| view! {
+                                    " "<a href=href>"Suivi des rendus"</a>
+                                })}
                                 {modifiable.then(|| view! { <details class="cdt-seance__saisie"><summary>"Modifier ou retirer"</summary><FormulaireTravail id=id ecriture=ecriture/></details> })}
                             </li>
                         }

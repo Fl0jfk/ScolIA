@@ -124,6 +124,9 @@ pub enum Attendu {
     EchecQuelconque,
     /// Refus, ou réponse identique à celle d'un identifiant inexistant (aucune information).
     RefuseOuIndistinct,
+    /// Route **sans identifiant de ressource** (elle n'agit que sur l'établissement de la session) : refus, ou 2xx dont
+    /// le corps ne contient rien de B (oracle de fuite de `jouer`) ; au moins un acteur doit obtenir le 2xx (scénario non vide).
+    SuccesBorneA,
 }
 
 /// Identifiants des objets d'un établissement, découverts via les API normales.
