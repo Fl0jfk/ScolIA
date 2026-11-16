@@ -1421,6 +1421,33 @@ async fn as5_courrier_postal_prepare_decide_puis_poste() {
         .await
         .unwrap()
         .is_empty());
+    // Cloisonnement : un acteur d'un autre établissement ne valide, ne poste ni n'abandonne le courrier de celui-ci.
+    let autre = crate::tests_rls_stricte::seed_supplementaire(&ent).await;
+    let (be, bc, bd) = (
+        autre.etablissement_id,
+        autre.cpe.user_id,
+        autre.administratif.user_id,
+    );
+    assert!(introuvable(
+        ent.valider_courrier_for_actor(be, bc, "cpe", c.id).await
+    ));
+    assert!(introuvable(
+        ent.poster_courrier_for_actor(be, bd, "administratif", c.id)
+            .await
+    ));
+    assert!(introuvable(
+        ent.abandonner_courrier_for_actor(be, bd, "administratif", c.id, "erreur")
+            .await
+    ));
+    let (statut,): (String,) = sqlx::query_as(
+        "SELECT statut FROM ent_asd_courrier WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(c.id)
+    .fetch_one(ent.pool_verif())
+    .await
+    .unwrap();
+    assert_eq!(statut, "prepare", "le courrier de A n'a pas bougé");
     let v = ent
         .valider_courrier_for_actor(etab, cpe, "cpe", c.id)
         .await

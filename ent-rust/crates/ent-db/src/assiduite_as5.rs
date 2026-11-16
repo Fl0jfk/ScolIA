@@ -1638,21 +1638,35 @@ impl PgEnt {
                 "ce courrier n'est pas dans l'état attendu",
             ));
         }
+        // Trois requêtes complètes (le filtre d'établissement est lisible par la garde statique d'isolation).
         let sql = match vers {
-            "valide" => "UPDATE ent_asd_courrier SET statut = 'valide', valide_par = $3, valide_le = now()",
-            "poste" => "UPDATE ent_asd_courrier SET statut = 'poste', poste_par = $3, poste_le = now()",
-            _ => "UPDATE ent_asd_courrier SET statut = 'abandonne', abandonne_par = $3, abandonne_le = now(), abandon_code = $4",
+            "valide" => {
+                "UPDATE ent_asd_courrier SET statut = 'valide', valide_par = $3, valide_le = now()
+                  WHERE etablissement_id = $1 AND id = $2 AND $4::text IS NULL
+                  RETURNING id, eleve_id, absence_id, personne_id, nature, statut, prepare_par, prepare_le, valide_par,
+                            valide_le, poste_par, poste_le, abandon_code"
+            }
+            "poste" => {
+                "UPDATE ent_asd_courrier SET statut = 'poste', poste_par = $3, poste_le = now()
+                  WHERE etablissement_id = $1 AND id = $2 AND $4::text IS NULL
+                  RETURNING id, eleve_id, absence_id, personne_id, nature, statut, prepare_par, prepare_le, valide_par,
+                            valide_le, poste_par, poste_le, abandon_code"
+            }
+            _ => {
+                "UPDATE ent_asd_courrier SET statut = 'abandonne', abandonne_par = $3, abandonne_le = now(), abandon_code = $4
+                  WHERE etablissement_id = $1 AND id = $2
+                  RETURNING id, eleve_id, absence_id, personne_id, nature, statut, prepare_par, prepare_le, valide_par,
+                            valide_le, poste_par, poste_le, abandon_code"
+            }
         };
-        let c: CourrierAsd = sqlx::query_as(&format!(
-            "{sql} WHERE etablissement_id = $1 AND id = $2 RETURNING {COURRIER_COLONNES}"
-        ))
-        .bind(etab)
-        .bind(id)
-        .bind(acteur)
-        .bind(abandon)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(db)?;
+        let c: CourrierAsd = sqlx::query_as(sql)
+            .bind(etab)
+            .bind(id)
+            .bind(acteur)
+            .bind(abandon)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(db)?;
         tx.commit().await.map_err(db)?;
         Ok(c)
     }
