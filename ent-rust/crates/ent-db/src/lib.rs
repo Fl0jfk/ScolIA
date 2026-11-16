@@ -280,6 +280,8 @@ pub mod registre_rgpd;
 pub mod reprise_rgpd;
 pub mod extrait_personne;
 pub mod registre_donnees;
+pub mod reprise;
+pub mod reprise_zone;
 mod objets;
 pub mod reprise_bytea;
 mod tva_repo;
@@ -530,6 +532,9 @@ mod tests_rls_stricte;
 mod tests_objets;
 #[cfg(all(test, feature = "labo"))]
 mod tests_reprise_bytea;
+// Socle 28, R2 : base de test migrée seulement (pas de jeu de labo).
+#[cfg(test)]
+mod tests_reprise_r2;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_roles;

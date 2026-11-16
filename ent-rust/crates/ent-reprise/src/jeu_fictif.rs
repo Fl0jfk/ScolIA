@@ -225,6 +225,7 @@ fn valeur(
     regle: Regle,
     n: usize,
     attr_collection: &str,
+    decodable: bool,
 ) -> Option<String> {
     if col == "etablissement_id" {
         return Some(ETABLISSEMENT.to_string());
@@ -245,6 +246,7 @@ fn valeur(
                 un(regle, n)
             }
         }
+        Regle::Json if decodable => json_decodable(table, col, n),
         Regle::Json => json_fictif(table, col, n),
         Regle::AttrValeur => attr_fictif(table, n).1,
         Regle::Chemin => attr_fictif(table, n).0,
@@ -291,6 +293,19 @@ pub struct Resume {
 
 /// Écrit le jeu fictif dans `dossier` : `dump.sql`, `objets_s3.tsv`, `SHA256SUMS`, `LISEZMOI.txt`.
 pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
+    generer_avec(dossier, lignes_par_table, false)
+}
+
+/// Variante **décodable** (lot R2) : mêmes tables et mêmes lignes, mais les colonnes JSON portent des
+/// documents de la forme attendue par le décodeur strict, les tables à clé unique par établissement n'ont
+/// qu'une ligne, et des JSON S3 (dépôts en attente) sont écrits sous `contenus_s3/`. Un export décodable
+/// doit passer le décodage strict sans aucun refus, hors santé (toujours refusée) et collections
+/// inconnues.
+pub fn generer_decodable(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
+    generer_avec(dossier, lignes_par_table, true)
+}
+
+fn generer_avec(dossier: &Path, lignes_par_table: usize, decodable: bool) -> Res<Resume> {
     let schema = SchemaAttendu::embarque();
     let blanche = ListeBlanche::embarquee();
     std::fs::create_dir_all(dossier)?;
@@ -326,6 +341,12 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
         } else {
             lignes_par_table
         };
+        // Tables dont la clé source est le seul établissement : une ligne par établissement.
+        let n_lignes = if decodable && CLE_ETABLISSEMENT_SEUL.contains(&table.as_str()) {
+            n_lignes.min(1)
+        } else {
+            n_lignes
+        };
         let noms: Vec<String> = cols.iter().map(|c| ident(&c.nom)).collect();
         let _ = writeln!(
             sql,
@@ -344,7 +365,7 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
                 .iter()
                 .map(|c| {
                     let regle = blanche.regle(table, &c.nom)?;
-                    valeur(table, &c.nom, &c.type_sql, regle, n, coll)
+                    valeur(table, &c.nom, &c.type_sql, regle, n, coll, decodable)
                 })
                 .collect();
             sql.push_str(&encoder_ligne(&cells));
@@ -373,6 +394,20 @@ pub fn generer(dossier: &Path, lignes_par_table: usize) -> Res<Resume> {
         taille: 120,
         sha256: None,
     });
+    if decodable {
+        for (cle, contenu) in documents_s3_fictifs() {
+            let chemin = dossier.join("contenus_s3").join(&cle);
+            if let Some(p) = chemin.parent() {
+                std::fs::create_dir_all(p)?;
+            }
+            std::fs::write(&chemin, &contenu)?;
+            objets.push(ObjetS3 {
+                cle,
+                taille: contenu.len() as u64,
+                sha256: None,
+            });
+        }
+    }
     std::fs::write(dossier.join("objets_s3.tsv"), s3::ecrire_liste(&objets))?;
     std::fs::write(
         dossier.join("LISEZMOI.txt"),
@@ -387,6 +422,54 @@ Essai : ent-reprise inspecter --dump dump.sql --objets-s3 objets_s3.tsv --sommes
         lignes: lignes_total,
         objets_s3: objets.len(),
     })
+}
+
+/// Tables dont l'identifiant source est `etablissement_id` seul (une ligne par établissement).
+const CLE_ETABLISSEMENT_SEUL: &[&str] = &[
+    "famille_messaging_settings",
+    "request_org",
+    "request_routing",
+    "school_roster_meta",
+];
+
+/// Documents JSON S3 fictifs : dépôts en attente (un valide, un expiré), demande en attente.
+fn documents_s3_fictifs() -> Vec<(String, String)> {
+    let rentree = |exp: &str| {
+        format!("{{\"version\":1,\"senderEmail\":\"parent.fictif@example.test\",\"fileName\":\"fiche.pdf\",\"contentType\":\"application/pdf\",\"size\":1234,\"fileKey\":\"rentree/submissions/pending/x/files/fiche.pdf\",\"itemId\":\"item-1\",\"itemTitle\":\"Fiche de rentrée\",\"establishmentId\":\"{ETABLISSEMENT}\",\"establishmentLabel\":\"Collège des Brumes (fictif)\",\"recipientEmails\":[\"secretariat@example.test\"],\"createdAt\":\"2026-11-14T08:00:00Z\",\"expiresAt\":\"{exp}\"}}")
+    };
+    let demande = "{\"version\":1,\"firstName\":\"Prénom\",\"lastName\":\"Nom\",\"email\":\"famille.fictive@example.test\",\"phone\":\"06 12 34 56 78\",\"subject\":\"Question\",\"description\":\"Texte inventé\",\"createdAt\":\"2026-11-15T08:00:00Z\",\"expiresAt\":\"2026-11-18T08:00:00Z\",\"attachmentKeys\":[\"requests/pending/demande-1/files/a1_justif.pdf\"],\"attachmentMeta\":[{\"id\":\"a1\",\"fileName\":\"justif.pdf\",\"contentType\":\"application/pdf\",\"size\":99,\"uploadedAt\":\"2026-11-15T08:00:00Z\"}],\"parentContext\":{\"source\":\"parent_portal\",\"matched\":true,\"children\":[{\"ine\":\"1234567890A\",\"nom\":\"Enfant\",\"prenom\":\"Fictif\",\"classe\":\"6A\"}]}}".to_string();
+    vec![
+        ("rentree/submissions/pending/jeton-valide/meta.json".into(), rentree("2026-11-17T08:00:00Z")),
+        ("rentree/submissions/pending/jeton-expire/meta.json".into(), rentree("2026-10-01T08:00:00Z")),
+        ("requests/pending/demande-1/meta.json".into(), demande),
+    ]
+}
+
+/// JSON de la forme attendue pour chaque colonne JSON du schéma (variante décodable).
+fn json_decodable(table: &str, col: &str, n: usize) -> String {
+    match (table, col) {
+        ("eleve", "options") => "[\"option-1\"]".into(),
+        ("famille_messaging_settings", "roles_can_initiate") => "[\"admin\",\"cpe\"]".into(),
+        ("fd_campagne", "catalogue") => "{\"destinations\":[{\"id\":\"d1\",\"label\":\"Seconde générale\"}],\"options\":[{\"id\":\"o1\",\"label\":\"LV2\",\"kind\":\"lv\"}],\"fields\":[{\"id\":\"f1\",\"type\":\"text\",\"label\":\"Remarque\"}]}".into(),
+        ("fd_campagne", "appel_config") => "{\"enabled\":true}".into(),
+        ("fd_campagne", "classes_cibles") => "[\"6A\"]".into(),
+        ("fd_campagne", "eleve_ids_cibles") => format!("[\"{}\"]", uuid_det(table, col, n)),
+        ("fd_fiche", "options_actuelles") => "[\"option-1\"]".into(),
+        ("fd_fiche", "parent_emails") => "[\"parent.fictif@example.test\"]".into(),
+        ("fd_fiche", "acceptation") => "{\"accepte\":true}".into(),
+        ("fd_fiche", "appel") => "{\"decision\":\"maintien\"}".into(),
+        ("fd_fiche", "parent_accord") | ("fd_fiche", "conflict_payload") => "{\"statutAutre\":\"en_attente\"}".into(),
+        ("fd_reponse", "payload") => "{\"values\":{\"choix\":\"a\"}}".into(),
+        ("partenariat_offre", "cycles") | ("partenariat_offre", "niveaux") => "[\"cycle 4\"]".into(),
+        ("partenariat_offre", "cta_links") => "[{\"label\":\"Voir\",\"url\":\"https://example.test/x\"}]".into(),
+        ("partenariat_offre", "tarifs") => "[{\"label\":\"Plein\",\"amountCents\":1000}]".into(),
+        ("portes_ouvertes_slot_staff", "meta") => "{\"salle\":\"B12\"}".into(),
+        ("sst_fiche", "workflow") => "{}".into(),
+        ("data_access_audit", "metadata") | ("eleve_access_audit", "metadata") | ("security_audit_log", "metadata") => "{\"action\":\"lecture\"}".into(),
+        ("metier_event", "payload") => "{\"k\":1}".into(),
+        // Colonnes à cataloguer et colonnes ignorées par le décodeur : objet vide.
+        _ => "{}".into(),
+    }
 }
 
 fn hex_fictif(n: usize) -> String {

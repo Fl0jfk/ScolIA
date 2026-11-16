@@ -3,8 +3,9 @@
 use ent_reprise::anonymisation::cle::Cle;
 use ent_reprise::anonymisation::moteur::{self, Echec};
 use ent_reprise::empreintes::{self, Verdict};
+use ent_reprise::decodage::{self, OptionsDecodage};
 use ent_reprise::inspection::{self, Options as OptInspection};
-use ent_reprise::{err, garde, jeu_fictif, Res};
+use ent_reprise::{err, garde, jeu_fictif, simulation, zone, Res};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -31,8 +32,24 @@ Commandes :
   verifier    --dossier <export anonymisé> [--empreinte <sha256 attendu de SHA256SUMS>]
       Recalcule les empreintes d'un export anonymisé et relance l'inspection.
 
-  jeu-fictif  --sortie <dossier neuf> [--lignes <n>]
+  jeu-fictif  --sortie <dossier neuf> [--lignes <n>] [--variante decodable]
       Écrit un jeu de données entièrement fictif au format du Next.js (pour essayer l'outil).
+      La variante « decodable » porte des JSON de la forme attendue et des contenus S3 (contenus_s3/).
+
+  decoder     --dump <fichier ou dossier> [--objets-s3 <liste.tsv>] [--contenus-s3 <dossier>]
+              [--maintenant <AAAA-MM-JJThh:mm:ssZ>] [--json <rapport.json>]
+      Décodage STRICT de l'export (tables, collections, JSON des colonnes et de S3) : par table et par
+      collection, ce qui est compris, refusé (avec la raison) ou ignoré. Aucune écriture, aucune base.
+      Code de sortie : 0 conforme, 2 des refus ou des écarts de schéma.
+
+  simuler     --dump <fichier ou dossier> --etablissement-cible <uuid> [--objets-s3 …] [--contenus-s3 …]
+              [--maintenant …] [--json <rapport.json>]
+      Décode puis simule l'import (sans correspondance préexistante) : ce qui serait créé, mis à jour,
+      inchangé, archivé, ignoré, refusé ou laissé « à décider ». N'écrit rien dans le métier.
+      La simulation contre la base (correspondances enregistrées) passe par `ent-db`.
+
+  zone-ddl    [--sortie <fichier>]
+      Écrit (ou affiche) le DDL de la zone de reprise `reprise.*` (migration 2566).
 
   aide | --aide | --version
 ";
@@ -224,8 +241,61 @@ fn lancer(args: &[String]) -> Res<i32> {
             );
             Ok(if ok { 0 } else { 2 })
         }
+        "decoder" | "simuler" => {
+            let simule = cmd == "simuler";
+            let o = options(
+                reste,
+                &["dump", "objets-s3", "contenus-s3", "maintenant", "json", "etablissement-cible"],
+            )?;
+            let chemin = |nom: &str| -> Res<Option<PathBuf>> {
+                o.get(nom)
+                    .map(|p| garde::chemin_local_existant(&format!("--{nom}"), p))
+                    .transpose()
+            };
+            let maintenant = match o.get("maintenant") {
+                Some(v) => chrono::DateTime::parse_from_rfc3339(v)
+                    .map_err(|_| err!("--maintenant : date RFC 3339 attendue (2026-11-16T12:00:00Z)"))?
+                    .with_timezone(&chrono::Utc),
+                None => chrono::Utc::now(),
+            };
+            let opt = OptionsDecodage {
+                dump: garde::chemin_local_existant("--dump", requis(&o, "dump")?)?,
+                objets_s3: chemin("objets-s3")?,
+                contenus_s3: chemin("contenus-s3")?,
+                maintenant,
+            };
+            let d = decodage::decoder_export(&opt)?;
+            print!("{}", decodage::texte(&d.rapport));
+            let mut json = serde_json::to_value(&d.rapport).map_err(|e| err!("JSON : {e}"))?;
+            if simule {
+                let cible = requis(&o, "etablissement-cible")?;
+                if !decodage::cellule::est_uuid(cible) {
+                    return Err(err!("--etablissement-cible : UUID attendu"));
+                }
+                let r = simulation::simuler(cible, &d, &Default::default());
+                println!();
+                print!("{}", simulation::texte(&r));
+                json = serde_json::json!({ "decodage": json, "simulation": r });
+            }
+            if let Some(j) = o.get("json") {
+                std::fs::write(j, serde_json::to_string_pretty(&json).map_err(|e| err!("JSON : {e}"))?)?;
+                println!("Rapport JSON écrit : {j}");
+            }
+            Ok(if d.rapport.conforme() { 0 } else { 2 })
+        }
+        "zone-ddl" => {
+            let o = options(reste, &["sortie"])?;
+            match o.get("sortie") {
+                Some(f) => {
+                    std::fs::write(f, zone::ddl())?;
+                    println!("DDL de la zone de reprise écrit : {f}");
+                }
+                None => print!("{}", zone::ddl()),
+            }
+            Ok(0)
+        }
         "jeu-fictif" => {
-            let o = options(reste, &["sortie", "lignes"])?;
+            let o = options(reste, &["sortie", "lignes", "variante"])?;
             let n: usize = match o.get("lignes") {
                 Some(v) => v
                     .parse()
@@ -246,7 +316,11 @@ fn lancer(args: &[String]) -> Res<i32> {
                     d.display()
                 ));
             }
-            let r = jeu_fictif::generer(&d, n)?;
+            let r = match o.get("variante").map(String::as_str) {
+                None => jeu_fictif::generer(&d, n)?,
+                Some("decodable") => jeu_fictif::generer_decodable(&d, n)?,
+                Some(_) => return Err(err!("--variante : « decodable » seulement")),
+            };
             println!(
                 "Jeu fictif écrit dans {} : {} tables, {} lignes, {} objets S3 (entièrement inventé).",
                 d.display(),

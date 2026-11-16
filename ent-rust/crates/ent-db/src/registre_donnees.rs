@@ -688,6 +688,12 @@ pub const REGISTRE: &[ClasseTable] = &[
     t("ent_identite_journal", "dossier_eleve", Portee::Etablissement).perso(),
     t("ent_import_ligne", "dossier_eleve", Portee::Etablissement).perso().export(),
     t("ent_import_lot", "dossier_eleve", Portee::Etablissement).perso().fichiers(Fichiers::Reference).export(),
+    // Socle 28, lot R2 : pilotage de la reprise (preuve : conservation « mes.reprise », durée à décider).
+    t("rep_execution", "mise_en_service", Portee::Etablissement),
+    t("rep_execution_compte", "mise_en_service", Portee::Etablissement),
+    t("rep_execution_a_decider", "mise_en_service", Portee::Etablissement),
+    t("rep_refus", "mise_en_service", Portee::Etablissement),
+    t("rep_correspondance", "mise_en_service", Portee::Etablissement),
     t("ent_incident", "vie_scolaire", Portee::Etablissement).perso().export(),
     t("ent_incident_type", "vie_scolaire", Portee::Etablissement),
     t("ent_infirmerie_passage", "sante", Portee::Etablissement).perso().sante().export(),

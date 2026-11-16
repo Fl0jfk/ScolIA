@@ -349,6 +349,10 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2543_rgpd_g2_soustraitants"),
     // Socle 28, lot MS0 : annulation réelle des lots d'import prévisualisés.
     m!("2560_ms0_import_annulation"),
+    // Socle 28, lot R2 (MS4 c) : exécutions de reprise, correspondance des identifiants, zone de transit.
+    m!("2564_ms4_reprise_executions"),
+    m!("2565_ms4_reprise_correspondance"),
+    m!("2566_ms4_zone_reprise"),
     // Socle 29 (portails, à-faire unifié), plage 2580–2599 : lot P2. 2587 (actions D-017) et 2588
     // (reprise initiale) sont libérées : actions dans le code, reprise par le rapprochement.
     m!("2580_afaire_index"),
