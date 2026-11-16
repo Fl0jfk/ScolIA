@@ -50,6 +50,8 @@ fn nature_est_evaluation(code: &str) -> bool {
 #[derive(Debug, FromRow)]
 struct EleveRow {
     eleve_id: Uuid,
+    // Colonne renvoyée par la requête (FromRow) mais non exploitée ici.
+    #[allow(dead_code)]
     classe_id: Option<Uuid>,
     niveau: Option<String>,
 }
@@ -882,7 +884,7 @@ fn apercu(
                 },
             ));
         }
-        candidats.sort_by(|a, b| (a.0, a.1, a.2, a.3.jour).cmp(&(b.0, b.1, b.2, b.3.jour)));
+        candidats.sort_by_key(|a| (a.0, a.1, a.2, a.3.jour));
         dates_proposees = candidats.into_iter().take(2).map(|c| c.3).collect();
         dates_proposees.sort_by_key(|d| d.jour);
     }

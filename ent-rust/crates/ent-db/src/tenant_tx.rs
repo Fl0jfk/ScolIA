@@ -152,6 +152,8 @@ pub enum ContexteSysteme {
     TacheNocturneEleves,
     /// Expiration des propositions de correction échues.
     ExpirationPropositions,
+    // Réservé aux relances et échéances de facturation planifiées (docs/securite/RLS_STRICTE.md) : pas encore utilisé.
+    #[allow(dead_code)]
     /// Relances et échéances de facturation (jobs planifiés).
     JobsFinances,
     /// Workers d'envoi (e-mail, SMS, push) : un lot par établissement.
@@ -212,6 +214,8 @@ premiere_colonne_etab!(A, B, C, D, E);
 
 static ECHECS_ETABLISSEMENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+// À exposer en métrique / alerte (audit R-09) : pas encore branché.
+#[allow(dead_code)]
 /// Nombre cumulé (depuis le démarrage) de passages de tâche de fond qui ont échoué pour un
 /// établissement sans empêcher les suivants (audit R-09). À exposer en métrique / alerte.
 pub fn echecs_par_etablissement() -> u64 {
@@ -298,14 +302,14 @@ pub trait Validable: Send {
 }
 
 impl Validable for TenantTx<'_> {
-    fn valider(self) -> impl std::future::Future<Output = Result<(), sqlx::Error>> + Send {
-        async move { self.tx.commit().await }
+    async fn valider(self) -> Result<(), sqlx::Error> {
+        self.tx.commit().await
     }
 }
 
 impl Validable for Transaction<'_, Postgres> {
-    fn valider(self) -> impl std::future::Future<Output = Result<(), sqlx::Error>> + Send {
-        async move { self.commit().await }
+    async fn valider(self) -> Result<(), sqlx::Error> {
+        self.commit().await
     }
 }
 
@@ -353,7 +357,7 @@ mod tests {
             return;
         };
         let pool = sqlx::PgPool::connect(&url).await.expect("pool");
-        let mut ent = crate::PgEnt::from_pool(pool.clone());
+        let ent = crate::PgEnt::from_pool(pool.clone());
         ent.migrate().await.expect("migrations");
         // Deux établissements (UUID triés : le premier échoue, le second doit être traité).
         let (mut a, mut b) = (Uuid::new_v4(), Uuid::new_v4());

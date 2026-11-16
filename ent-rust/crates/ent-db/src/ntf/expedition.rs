@@ -137,7 +137,7 @@ pub async fn expedier_avis_dus(
                 continue;
             };
             // Relecture à chaque remise (R-N1) : lien, droit, interdiction, « ne pas solliciter », gel.
-            if let Some(code) = reclasser(&mut *tx, etablissement_id, eleve, personne, n.droit_requis, maintenant)
+            if let Some(code) = reclasser(&mut tx, etablissement_id, eleve, personne, n.droit_requis, maintenant)
                 .await
                 .map_err(db)?
             {
@@ -177,7 +177,7 @@ pub async fn expedier_avis_dus(
                 .map(|(c, quand, motif)| (c, quand, motif.starts_with("resume_") || motif == "budget_bruit"))
                 .collect();
             notifier_personne_cibles(
-                &mut *tx,
+                &mut tx,
                 EnvoiAPlanifier {
                     etablissement_id,
                     user_id: compte,
@@ -315,7 +315,7 @@ pub async fn reserver_remises_sans_compte(
     for (remise_id, dest_id, avis_id, code, eleve_id, personne_id) in lignes {
         let Some(n) = nature(&code) else { continue };
         let motif_ecart: Option<String> = match eleve_id {
-            Some(eleve) => reclasser(&mut *tx, etablissement_id, eleve, personne_id, n.droit_requis, maintenant)
+            Some(eleve) => reclasser(&mut tx, etablissement_id, eleve, personne_id, n.droit_requis, maintenant)
                 .await
                 .map_err(db)?
                 .map(|c| motif_remise(c).to_string()),

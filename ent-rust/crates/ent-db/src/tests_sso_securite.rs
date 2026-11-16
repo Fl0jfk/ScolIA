@@ -27,7 +27,7 @@ struct Ctx {
 async fn ctx() -> Option<Ctx> {
     let url = crate::url_guard::url_labo_ou_echec()?;
     assert_local_postgres_url(&url).expect("ENT_DATABASE_URL doit être locale");
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let etab = Uuid::new_v4();
     let mut idp = TestIdp::new();
@@ -301,7 +301,7 @@ async fn passkey_compteur_regresse_refuse_journalise_et_non_ecrase() {
         Ok(u) => u,
         Err(_) => return eprintln!("skip: ENT_DATABASE_URL"),
     };
-    let mut ent = PgEnt::connect(&url).await.expect("connect");
+    let ent = PgEnt::connect(&url).await.expect("connect");
     ent.migrate().await.expect("migrate");
     let etab = Uuid::new_v4();
     let email = format!("clone-{}@ent.local", Uuid::new_v4());

@@ -1624,7 +1624,7 @@ async fn isolation_etablissements() {
 pub(crate) async fn dossier_admis(
     ent: &PgEnt,
     c: &LaboCast,
-    camp: Uuid,
+    _camp: Uuid,
     email_deposant: &str,
     f: PreinscriptionBody,
 ) -> (Uuid, String) {

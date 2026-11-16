@@ -64,10 +64,6 @@ async fn distribuer(ent: &PgEnt, etab: Uuid) {
     ent.distributeur(config(etab)).distribuer_tout().await.unwrap();
 }
 
-fn prof(cast: &LaboCast) -> (Uuid, &'static str) {
-    (cast.prof.user_id, Role::Prof.as_str())
-}
-
 /// Séance 4B de `debut` à `fin` le `jour`, appel ouvert, `etats` appliqués (clôturé si `clore`).
 async fn seance_appel(
     ent: &PgEnt,
@@ -739,7 +735,7 @@ async fn effacement_automatique_des_sanctions() {
     };
     let listes = || ent.list_sanctions_eleve_for_actor(etab, dir.0, dir.1, lea);
     // Le labo a déjà quelques sanctions pour Léa (sans catégorie : jamais effacées).
-    let initiales = listes().await.unwrap().len() - 0;
+    let initiales = listes().await.unwrap().len();
     assert!(initiales >= 4);
 
     // Veille de la rentrée : rien. Le 1er septembre : l'avertissement.

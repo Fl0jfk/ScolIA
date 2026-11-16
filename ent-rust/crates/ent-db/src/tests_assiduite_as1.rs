@@ -129,7 +129,7 @@ async fn as1_regle_versionnee_jamais_dans_le_passe_et_figee_par_un_mois_arrete()
     assert_eq!(ent.regle_asd_en_vigueur(etab, janvier).await.unwrap().seuil_minutes, 50);
     // Une version plus tardive reste possible : le passé figé n'est pas touché.
     ent.definir_regle_asd_for_actor(etab, dir, "direction", regle(janvier + chrono::Duration::days(30))).await.unwrap();
-    assert_eq!(ent.regles_asd_for_actor(etab, dir, "direction").await.unwrap().len() >= 2, true);
+    assert!(ent.regles_asd_for_actor(etab, dir, "direction").await.unwrap().len() >= 2);
 }
 
 #[tokio::test]
@@ -143,9 +143,11 @@ async fn as1_la_regle_est_une_action_de_direction_et_l_ancienne_route_la_suit() 
     }
     // La direction le peut ; l'ancien point d'entrée pose une version datée d'AUJOURD'HUI et le
     // décompte la lit (aucune rupture pour l'existant).
-    let mut r = RegleAssiduite::default();
-    r.seuil_minutes = 41;
-    r.seuil_signalement = 6;
+    let r = RegleAssiduite {
+        seuil_minutes: 41,
+        seuil_signalement: 6,
+        ..Default::default()
+    };
     ent.definir_regle_assiduite(etab, cast.direction.user_id, "direction", r).await.unwrap();
     let lue = ent.regle_assiduite(etab).await.unwrap();
     assert_eq!((lue.seuil_minutes, lue.seuil_signalement), (41, 6));

@@ -12,7 +12,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| { }).await;
     Some((ent, cast))
 }
 

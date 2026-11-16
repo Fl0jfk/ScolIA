@@ -34,7 +34,7 @@ use ent_events::{types, AggregateKind, MetierEventDraft};
 use ent_mail::OutgoingMail;
 use ent_types::inscriptions::*;
 use serde_json::{json, Value};
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 use crate::champs_chiffres::ChampsSensibles;
@@ -392,6 +392,8 @@ pub(crate) struct CampagneRow {
     pub(crate) delai_annulation_validation_h: i16,
     pub(crate) page_publique: bool,
     pub(crate) au_fil_de_l_eau: bool,
+    // Colonne renvoyée par la requête (FromRow) mais non exploitée pour l'instant.
+    #[allow(dead_code)]
     pub(crate) site_id: Option<Uuid>,
 }
 
@@ -439,7 +441,7 @@ pub(crate) const COLS_DOSSIER: &str = "id, campagne_id, nature, statut, eleve_id
     etat, etat_avant_blocage, reference, demarche_id, echeance_famille, rang_attente";
 
 #[derive(sqlx::FromRow, Clone)]
-struct ResponsableRow {
+pub(crate) struct ResponsableRow {
     id: Uuid,
     rang: i16,
     nom: String,
@@ -535,14 +537,6 @@ struct DroitsLien {
     vs: bool,
     justifier: bool,
     sorties: bool,
-}
-
-/// `j***@exemple.fr` : l'écran de rapprochement n'affiche jamais l'adresse complète.
-fn masquer_email(e: &str) -> String {
-    match e.split_once('@') {
-        Some((l, d)) => format!("{}***@{d}", l.chars().next().unwrap_or('*')),
-        None => "***".into(),
-    }
 }
 
 /// Contexte d'un jeton de préinscription valide.
@@ -1466,7 +1460,7 @@ impl PgEnt {
                     autorite_parentale: r.autorite_parentale,
                     // Jamais rendu à la famille (le second parent pourrait lire le dossier) ;
                     // au personnel : les indicateurs, jamais l'adresse ni la référence.
-                    reserve: (!famille).then(|| ReserveResponsableDto {
+                    reserve: (!famille).then_some(ReserveResponsableDto {
                         adresse_a_proteger: r.adresse_a_proteger,
                         ne_pas_solliciter: r.ne_pas_solliciter,
                         ne_pas_solliciter_ref: None,

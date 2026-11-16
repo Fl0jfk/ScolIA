@@ -2017,10 +2017,7 @@ impl PgEnt {
 
     async fn lire_seance_autorise(&self, a: &Acteur<'_>, seance_id: Uuid) -> Result<(), EntDbError> {
         let s = self.charger_seance(a.etablissement_id, seance_id).await?;
-        let eleve = match self.eleve_du_compte(a).await? {
-            Some(e) => Some(e),
-            None => None,
-        };
+        let eleve = self.eleve_du_compte(a).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
         let enfants: Vec<Uuid> = if eleve.is_some() {
             Vec::new()

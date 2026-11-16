@@ -653,7 +653,7 @@ impl PgEnt {
             NotePeriodeStatut::Fermee => 2,
         };
         let reouverture = rang(statut) < rang(avant_statut);
-        if reouverture && motif.map_or(true, |m| m.chars().count() < 3) {
+        if reouverture && motif.is_none_or(|m| m.chars().count() < 3) {
             return Err(refus(
                 "rouvrir une période exige un motif écrit (trace dans le journal de la période)",
             ));

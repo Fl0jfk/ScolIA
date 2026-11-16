@@ -1,7 +1,7 @@
 //! Socle 8, lot N2 — liens nominatifs (`08_NOTIFICATIONS.md` §9.1, §19 `ent_ntf_lien`, Q-N12).
 //!
 //! Un lien nominatif permet à une personne **sans compte** d'ouvrir le contenu d'un avis (e-mail d'enveloppe
-//! + lien). Le jeton (244 bits d'aléa : deux UUID v4) n'est **jamais stocké** : seule son empreinte SHA-256
+//! et lien). Le jeton (244 bits d'aléa : deux UUID v4) n'est **jamais stocké** : seule son empreinte SHA-256
 //! l'est. Il expire, s'ouvre un nombre limité de fois, se révoque, et ne vaut que pour **un** destinataire.
 //! La compétition entre deux ouvertures est tranchée par la base (une seule mise à jour conditionnelle).
 //!

@@ -114,11 +114,11 @@ pub struct Seance {
 }
 
 /// Créneau de grille qui commence à `debut` (site d'abord, établissement ensuite).
-fn creneau_de_grille<'a>(
-    grille: &'a [CreneauGrille],
+fn creneau_de_grille(
+    grille: &[CreneauGrille],
     site_id: Option<Uuid>,
     debut: NaiveTime,
-) -> Option<&'a CreneauGrille> {
+) -> Option<&CreneauGrille> {
     let cherche = |site: Option<Uuid>| {
         grille
             .iter()
@@ -205,11 +205,10 @@ pub fn planifier_seances(
                             plan.salle = e.nouvelle_salle.clone();
                         }
                     }
-                    "changement_salle" => {
-                        if e.nouvelle_salle.is_some() {
+                    "changement_salle"
+                        if e.nouvelle_salle.is_some() => {
                             plan.salle = e.nouvelle_salle.clone();
                         }
-                    }
                     _ => {}
                 }
             }

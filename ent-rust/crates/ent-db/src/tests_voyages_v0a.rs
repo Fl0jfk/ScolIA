@@ -433,7 +433,7 @@ async fn voyage_facultatif_parcourt_le_circuit_avec_les_bons_droits() {
         .await
         .unwrap();
     assert_eq!(d.sortie.etat, "soumise");
-    assert_eq!(d.prochaine_etape.libelle.is_empty(), false);
+    assert!(!d.prochaine_etape.libelle.is_empty());
     assert!(d.acces.porteur && !d.acces.valider);
     // Soumise : le porteur ne peut que l'annuler ; la direction valide, demande, refuse.
     assert_eq!(codes(&c, c.prof, Role::Prof, s.id).await, vec!["annuler"]);

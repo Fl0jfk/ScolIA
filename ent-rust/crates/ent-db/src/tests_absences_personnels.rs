@@ -4194,7 +4194,7 @@ async fn a7_cycle_des_heures_etat_mensuel_et_regularisation_apres_export() {
     let (ag2, ag3) = (x.agent(x.prof2).await, x.agent(x.prof3).await);
     let (m2, m1) = (x.mois_avant(2).await, x.mois_avant(1).await);
     let h1 = x.saisie(ag2, "mission_pacte", 120, m2 + Duration::days(3)).await;
-    let h1b = x.saisie(ag3, "hse", 60, m2 + Duration::days(4)).await;
+    let _h1b = x.saisie(ag3, "hse", 60, m2 + Duration::days(4)).await;
     assert_eq!((h1.etat.as_str(), h1.preuve.as_str(), h1.employeur.as_str(), h1.mois), ("constatee", "saisie", "etat", m2));
     // Contestation par l'agent (motif codé, mot exclu refusé) ; par un tiers : introuvable.
     let e = x.ent.contester_heure_for_actor(x.etab, x.prof2, "prof", h1.id, &ContesterHeureBody { raison_code: "autre".into(), note: Some("j'étais malade".into()) }).await.unwrap_err();

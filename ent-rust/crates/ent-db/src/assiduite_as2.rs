@@ -284,12 +284,12 @@ pub fn etat_propose(s: &SituationAsd) -> (LigneEtat, Option<&'static str>) {
 }
 
 /// Meilleure situation pour un élève (priorité puis la plus récemment créée : l'ordre d'entrée).
-pub fn meilleure_situation<'a>(
-    situations: &'a [SituationAsd],
+pub fn meilleure_situation(
+    situations: &[SituationAsd],
     jour: NaiveDate,
     debut: NaiveTime,
     fin: NaiveTime,
-) -> Option<&'a SituationAsd> {
+) -> Option<&SituationAsd> {
     situations
         .iter()
         .filter(|s| s.etat == "active" && situation_couvre(s, jour, debut, fin))

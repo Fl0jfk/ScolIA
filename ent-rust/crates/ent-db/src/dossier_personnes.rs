@@ -1002,7 +1002,7 @@ impl PgEnt {
             Err(EntDbError::Forbidden) => {}
             Err(e) => return Err(e),
         }
-        out.sort_by(|a, b| b.quand.cmp(&a.quand));
+        out.sort_by_key(|a| std::cmp::Reverse(a.quand));
         out.truncate(limite);
         Ok(out)
     }

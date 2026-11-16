@@ -268,9 +268,11 @@ async fn c3_statut_constate_prolongation_individuelle_et_modification_visible() 
     // Modification : « modifié le » est lisible et la version est servie (R-C29, jamais caché).
     let avant = agenda(&fx, &fx.eleve(&fx.x), None, du, au).await.unwrap().lignes.into_iter().find(|l| l.id == t).unwrap();
     assert!(avant.modifie_le.is_none() && avant.version == 1);
-    let mut m = ModifierTravailC2Body::default();
-    m.consigne = Some("Consigne précisée".into());
-    m.sans_avis = true;
+    let m = ModifierTravailC2Body {
+        consigne: Some("Consigne précisée".into()),
+        sans_avis: true,
+        ..Default::default()
+    };
     fx.ent.cdt_travail_modifier(&fx.prof(), t, m).await.unwrap();
     rendre_visible(&fx).await;
     let apres = agenda(&fx, &fx.eleve(&fx.x), None, du, au).await.unwrap().lignes.into_iter().find(|l| l.id == t).unwrap();

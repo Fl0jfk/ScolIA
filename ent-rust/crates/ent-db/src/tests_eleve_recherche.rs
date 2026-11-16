@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<(PgEnt, LaboCast)> {
     let url = std::env::var("ENT_DATABASE_URL").ok()?;
-    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| { }).await;
+    let (ent, cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| { }).await;
     Some((ent, cast))
 }
 
@@ -326,8 +326,8 @@ async fn recherche_sous_100_ms_sur_5000_eleves() {
          SELECT count(*) FROM ins",
     )
     .bind(etab)
-    .bind(&noms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
-    .bind(&prenoms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    .bind(noms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+    .bind(prenoms.iter().map(|s| s.to_string()).collect::<Vec<_>>())
     .fetch_one(ent.pool_verif())
     .await
     .unwrap() };

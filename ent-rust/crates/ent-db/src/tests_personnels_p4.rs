@@ -109,6 +109,7 @@ struct Cadre {
     jour: NaiveDate,
     classe: Uuid,
     voisine: Uuid,
+    #[allow(dead_code)] // renseigné par le montage, non relu par les tests actuels
     matiere: Uuid,
     /// Trois élèves de la classe ; `autre` est dans la classe voisine.
     e1: Uuid,

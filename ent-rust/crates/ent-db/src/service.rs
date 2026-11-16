@@ -120,8 +120,7 @@ use domain_eleve::{
     plan_candidats_rappel, plan_creer_rappel, plan_exporter_ogec, plan_marquer_exporte,
     enrichir_messages_lues, plan_accuser_lecture, plan_attacher_piece, plan_inviter_compte_eleve,
     plan_ouvrir_fil, plan_planifier_prelevement, plan_poser_echeancier, plan_rejeter_prelevement,
-    plan_repondre_fil, plan_revoquer_mandat, render_ogec_csv, render_sepa_csv, render_sepa_pain008,
-    corps_alerte_seuil, corps_notif_carnet, reste_a_payer, sujet_alerte_seuil,
+    plan_repondre_fil, plan_revoquer_mandat, render_ogec_csv, render_sepa_csv, render_sepa_pain008, corps_notif_carnet, reste_a_payer,
     sujet_notif_carnet, sujet_rappel, total_deductions_lignes, ventiler_bourse_sur_echeances,
     AccuserLecture, AttacherPiece, ArchiverFil, CahierTexteEntree, ChangerStatutRdvPsy, ClasserFil,
     ConfigurerEdtCalendrierAb, ContexteModele, CreerCahierTexte, CreerEntretienPsy, CreerFacture,
@@ -351,7 +350,7 @@ pub fn nom_fichier_document(doc: &EleveDocument) -> (String, String) {
         .mime_type
         .as_deref()
         .unwrap_or("application/octet-stream");
-    let base = doc.titre.replace('/', "_").replace('\\', "_");
+    let base = doc.titre.replace(['/', '\\'], "_");
     let ext = match ent_object::upload::TypeFichier::depuis_mime(mime) {
         Some(t) => format!(".{}", t.extension()),
         None => String::new(),
@@ -8317,10 +8316,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .list_pour_prof_jour(etablissement_id, user_id, jour)
                 .await?;
             // Titulaire remplacé ce jour → créneau retiré de sa liste.
-            own.retain(|c| match remplacements.get(&c.id) {
-                Some(r) if *r != user_id => false,
-                _ => true,
-            });
+            own.retain(|c| !matches!(remplacements.get(&c.id), Some(r) if *r != user_id));
             // Remplaçant nominatif → créneau ajouté.
             let tous = self.edt.list_pour_jour(etablissement_id, jour).await?;
             for c in tous {
@@ -14492,11 +14488,10 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .get_champ(cmd.etablissement_id, cmd.champ_id)
             .await?
             .ok_or(DomainError::InfoCompInvalide)?;
-        if parent || eleve {
-            if !champ.visible_famille {
+        if (parent || eleve)
+            && !champ.visible_famille {
                 return Err(EntDbError::Forbidden);
             }
-        }
         if parent
             && self
                 .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
@@ -16487,15 +16482,14 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         if !staff && !parent {
             return Err(EntDbError::Forbidden);
         }
-        if parent {
-            if self
+        if parent
+            && self
                 .lien_parent_eleve(cmd.etablissement_id, cmd.actor_user_id, cmd.eleve_id)
                 .await?
                 .is_none()
             {
                 return Err(EntDbError::Forbidden);
             }
-        }
         self.eleves
             .get(cmd.etablissement_id, cmd.eleve_id)
             .await?
@@ -19964,7 +19958,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             .first_eleve_id_foyer(facture.etablissement_id, facture.foyer_id)
             .await?
         {
-            let pdf = domain_eleve::render_quittance_pdf(&quittance, &facture.numero);
+            let pdf = domain_eleve::render_quittance_pdf(quittance, &facture.numero);
             let _ = self
                 .notify_payeurs_foyer_mail(
                     facture.etablissement_id,
@@ -20440,8 +20434,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Err(EntDbError::Forbidden);
         }
         let lines = self.bank.ingest_csv(csv)?;
-        let mut summary = BankRapprochementSummary::default();
-        summary.lines = lines.len();
+        let mut summary = BankRapprochementSummary { lines: lines.len(), ..Default::default() };
         for line in &lines {
             let planned = plan_action_ligne(line);
             let prev = self

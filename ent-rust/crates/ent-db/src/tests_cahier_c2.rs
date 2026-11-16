@@ -211,7 +211,7 @@ async fn c2_saisir_en_trois_gestes_cours_contenu_travail() {
         .await
         .unwrap();
     assert_eq!((e.etat.as_str(), e.version), ("publiee", 1));
-    assert_eq!(e.auteur.is_empty(), false);
+    assert!(!e.auteur.is_empty());
 
     // Geste 3 : je donne le travail pour la prochaine séance ; nature et durée proposées, échéance-séance.
     let mut t = travail(vec![cours]);

@@ -73,7 +73,7 @@ const MODIFIANTS: [&str; 4] = [
     "rattrapage",
 ];
 
-fn evenements_visibles<'a>(j: &'a Jour, p: Public) -> impl Iterator<Item = &'a EvenementJour> {
+fn evenements_visibles(j: &Jour, p: Public) -> impl Iterator<Item = &EvenementJour> {
     j.evenements.iter().filter(move |e| p.voit(e))
 }
 

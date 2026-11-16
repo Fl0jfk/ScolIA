@@ -616,7 +616,7 @@ impl PgEnt {
         self.exiger_edt(a, Action::EdtGerer).await?;
         let e = a.etablissement_id;
         let mut tx = TenantTx::begin(self.pool(), e).await?;
-        let v = Self::valider_position(&mut *tx, e, cmd.version_id, &cmd.position).await?;
+        let v = Self::valider_position(&mut tx, e, cmd.version_id, &cmd.position).await?;
         // Le cours existe, est de la même année et n'est pas fermé.
         let cours: Option<(Option<f64>,)> = sqlx::query_as(
             "SELECT heures_hebdo::float8 FROM ent_cours
@@ -702,7 +702,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        Self::poser_lieux(&mut *tx, e, id, &cmd.position.lieux).await?;
+        Self::poser_lieux(&mut tx, e, id, &cmd.position.lieux).await?;
         tx.commit().await.map_err(db)?;
         self.edt_placement_lire(a, id).await
     }
@@ -752,7 +752,7 @@ impl PgEnt {
         if verrouille {
             return Err(conflit());
         }
-        Self::valider_position(&mut *tx, e, version_id, &pos).await?;
+        Self::valider_position(&mut tx, e, version_id, &pos).await?;
         sqlx::query(
             "UPDATE ent_edt_placement
                 SET jour_semaine = $3, creneau_debut_code = $4, duree_creneaux = $5, semaine_type = $6,
@@ -779,7 +779,7 @@ impl PgEnt {
         .execute(&mut *tx)
         .await
         .map_err(db)?;
-        Self::poser_lieux(&mut *tx, e, placement_id, &pos.lieux).await?;
+        Self::poser_lieux(&mut tx, e, placement_id, &pos.lieux).await?;
         tx.commit().await.map_err(db)?;
         self.edt_placement_lire(a, placement_id).await
     }
@@ -810,7 +810,7 @@ impl PgEnt {
         if verrouille || etat != "brouillon" {
             return Err(conflit());
         }
-        Self::supprimer_placement_et_orphelins(&mut *tx, e, placement_id, piece_id).await?;
+        Self::supprimer_placement_et_orphelins(&mut tx, e, placement_id, piece_id).await?;
         tx.commit().await.map_err(db)?;
         Ok(())
     }
@@ -957,7 +957,7 @@ impl PgEnt {
     ) -> Result<RapportReprise, EntDbError> {
         self.exiger_edt(a, Action::EdtGerer).await?;
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await?;
-        let Some(rapport) = Self::reprendre_creneaux_tx(&mut *tx, a, annee_id).await? else {
+        let Some(rapport) = Self::reprendre_creneaux_tx(&mut tx, a, annee_id).await? else {
             return Err(conflit()); // une autre version de base est déjà publiée sur l'année
         };
         let ev = publier_agg(

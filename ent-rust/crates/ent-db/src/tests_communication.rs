@@ -418,7 +418,7 @@ async fn plafonds_sms_par_personne_et_par_etablissement() {
     assert_eq!((b.simules, b.plafonnes), (2, 2), "{b:?}");
     let s = statuts(&ent, etab, lea, "sms").await;
     assert!(s.iter().filter(|x| x.0 == "plafonne").all(|x| x.1.as_deref() == Some("plafond_personne")));
-    assert_eq!(ent.sms().receipts().len() >= 2, true);
+    assert!(ent.sms().receipts().len() >= 2);
     // Plafond par établissement : 1 SMS par jour pour tous.
     reset(&ent, etab).await;
     ent.definir_preferences_notification(etab, lea, pref(|p| { p.sms = true; p.email = false; p.push = false }))
@@ -555,7 +555,7 @@ async fn campagne_confirmation_obligatoire_et_idempotence() {
     assert!(ap.destinataires.iter().any(|d| d.nom.contains("Potter") || !d.nom.is_empty()));
     assert!(!format!("{ap:?}").contains('@'));
     assert!(ap.par_canal.get("email").copied().unwrap_or(0) >= 1);
-    assert_eq!(ap.sms.is_none(), true);
+    assert!(ap.sms.is_none());
     // Rien n'est parti avant la confirmation.
     let (avant,): (i64,) = sqlx::query_as("SELECT count(*) FROM ent_notification_envoi WHERE etablissement_id = $1 AND source_type = 'campagne'")
         .bind(etab)
@@ -869,7 +869,7 @@ async fn rendez_vous_une_seule_famille_l_emporte() {
         ent.reserver_creneau(etab, wea.user_id, k, ginny)
     );
     assert_eq!(a.is_ok() as u8 + b.is_ok() as u8, 1, "{a:?} / {b:?}");
-    let perdant = if a.is_err() { a.unwrap_err() } else { b.unwrap_err() };
+    let perdant = a.err().or_else(|| b.err()).expect("un des deux échoue");
     assert!(matches!(perdant, EntDbError::ConflitDossier(_)), "{perdant:?}");
     reset(&ent, etab).await;
 }

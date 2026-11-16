@@ -46,7 +46,6 @@ pub(crate) async fn monde(ent: &PgEnt, cast: &LaboCast) -> Monde {
         .unwrap();
     let matiere = |code: &str, lib: &str| {
         let (code, lib) = (format!("{code}{sfx}"), lib.to_string());
-        let ent = ent;
         async move {
             ent.create_matiere(
                 CreateMatiere { etablissement_id: etab, code, libelle: lib, source_nomenclature: None },

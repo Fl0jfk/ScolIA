@@ -142,7 +142,7 @@ async fn depot_horodate_au_debut_de_reception_accuse_immuable_nom_neutre() {
     .await
     .unwrap();
     assert_eq!((a1.recu_jour, a1.recu_heure), (j, h));
-    assert_eq!(fx.nb_evenements("cahier.travail_rendu").await >= 1, true);
+    assert!(fx.nb_evenements("cahier.travail_rendu").await >= 1);
     // Redépôt après l'échéance : nouveau dépôt, l'ancien reste, « en retard ».
     let a2 = eleve_depose(&fx, &fx.x, t, ech + Duration::seconds(4)).await.unwrap();
     assert_eq!(a2.numero, 2);

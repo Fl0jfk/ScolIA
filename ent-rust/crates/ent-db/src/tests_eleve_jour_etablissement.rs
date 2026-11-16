@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 async fn labo() -> Option<PgEnt> {
     let url = crate::url_guard::url_labo_ou_echec()?;
-    let (ent, _cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |e| {}).await;
+    let (ent, _cast) = crate::tests_rls_stricte::labo_selon_mode(&url, |_e| {}).await;
     Some(ent)
 }
 
@@ -70,7 +70,7 @@ async fn identifiant_et_identite_initiale_au_jour_de_l_etablissement() {
     for fuseau in FUSEAUX {
         let etab = etablissement_au_fuseau(&ent, fuseau).await;
         let eleve = Uuid::new_v4();
-        let ine = format!("9{}", &Uuid::new_v4().simple().to_string()[..9].to_uppercase());
+        let ine = format!("9{}", Uuid::new_v4().simple().to_string()[..9].to_uppercase());
         let avant = jour_du_fuseau(&ent, fuseau).await;
         sqlx::query(
             "INSERT INTO ent_eleve (id, etablissement_id, nom, prenom, status, ine)

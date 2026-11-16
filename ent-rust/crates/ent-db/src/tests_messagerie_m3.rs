@@ -137,10 +137,6 @@ fn rep(etab: Uuid, user: Uuid, fil: Uuid, corps: &str) -> RepondreFil {
     RepondreFil { etablissement_id: etab, fil_id: fil, corps: corps.into(), actor_user_id: user }
 }
 
-async fn nb(ent: &PgEnt, sql: &str, binds: &[Uuid]) -> i64 {
-    super::tests_messagerie_m1::compter(ent, sql, binds).await
-}
-
 // ─── Tri déterministe, catalogue (sans base) ──────────────────────────────────────────────────
 
 #[test]

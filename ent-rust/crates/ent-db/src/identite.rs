@@ -550,7 +550,7 @@ impl PgEnt {
         eleve: Uuid,
     ) -> Result<TenantTx<'static>, EntDbError> {
         let mut tx = TenantTx::begin(self.pool(), etab).await?;
-        if !PgIdentiteRepo::verrouiller_eleve(&mut *tx, etab, eleve).await? {
+        if !PgIdentiteRepo::verrouiller_eleve(&mut tx, etab, eleve).await? {
             return Err(DomainError::NotFound.into());
         }
         Ok(tx)

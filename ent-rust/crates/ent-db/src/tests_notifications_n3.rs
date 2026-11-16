@@ -158,8 +158,10 @@ async fn n3_etages_urgences_pause_et_u3() {
     parametres(&ent, etab, Some(("20:30", "07:00")), 1 << 6, 5).await;
     let personne = personne_du_compte(&ent, etab, parent).await;
     // Heures calmes de la personne : 13 h–15 h (locale). Mercredi 14 h locale = 10 h UTC.
-    let mut r = ReglagePersonne::default();
-    r.calme = Calme { plage: Some(Plage { debut: 13 * 60, fin: 15 * 60 }), jours: 0 };
+    let mut r = ReglagePersonne {
+        calme: Calme { plage: Some(Plage { debut: 13 * 60, fin: 15 * 60 }), jours: 0 },
+        ..Default::default()
+    };
     let t0 = instant("2026-11-04T09:00:00Z");
     {
         let mut tx = TenantTx::begin(ent.pool(), etab).await.unwrap();
@@ -215,9 +217,11 @@ async fn n3_resume_et_budget_de_bruit() {
     assert_eq!((externe(&e2).2.as_str(), externe(&e2).3), ("budget_bruit", instant("2026-11-04T14:00:00Z")));
     // Résumé quotidien choisi à 12 h locale (8 h UTC) pour un retard (U1 regroupable) du matin.
     let personne = personne_du_compte(&ent, etab, parent).await;
-    let mut r = ReglagePersonne::default();
-    r.mode_resume = ModeResume::Quotidien;
-    r.heure_resume = 12 * 60;
+    let r = ReglagePersonne {
+        mode_resume: ModeResume::Quotidien,
+        heure_resume: 12 * 60,
+        ..Default::default()
+    };
     {
         let mut tx = TenantTx::begin(ent.pool(), etab).await.unwrap();
         definir_reglage(&mut tx, etab, personne, &r, instant("2026-11-04T00:00:00Z")).await.unwrap();
@@ -275,8 +279,10 @@ async fn n3_fratrie_un_seul_avis_externe_par_demi_journee() {
         .execute(ent.pool_verif())
         .await
         .expect("lien du frère");
-    let mut r = ReglagePersonne::default();
-    r.regrouper_fratrie = true;
+    let r = ReglagePersonne {
+        regrouper_fratrie: true,
+        ..Default::default()
+    };
     {
         let mut tx = TenantTx::begin(ent.pool(), etab).await.unwrap();
         definir_reglage(&mut tx, etab, personne, &r, instant("2026-11-04T00:00:00Z")).await.unwrap();

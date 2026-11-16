@@ -72,33 +72,6 @@ impl PgInternatRepo {
         Ok(rows.into_iter().filter_map(ChambreRow::into_chambre).collect())
     }
 
-    pub async fn count_occupants_actifs(
-        &self,
-        etablissement_id: Uuid,
-        chambre_id: Uuid,
-        jour: NaiveDate,
-    ) -> Result<i16, DomainError> {
-        let mut tx = self.tx(etablissement_id).await?;
-        let n: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::bigint FROM ent_internat_affectation \
-             WHERE etablissement_id = $1 AND chambre_id = $2 AND debut <= $3 \
-               AND (fin IS NULL OR fin >= $3)",
-        )
-        .bind(etablissement_id)
-        .bind(chambre_id)
-        .bind(jour)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        Ok(n as i16)
-    }
-
-    pub async fn insert_affectation(&self, a: &AffectationInternat) -> Result<(), DomainError> {
-        let mut tx = self.tx(a.etablissement_id).await?;
-        insert_affectation_tx(&mut tx, a).await?;
-        tx.commit().await.map_err(map_sqlx)
-    }
-
     pub async fn update_affectation_fin(&self, a: &AffectationInternat) -> Result<(), DomainError> {
         let mut tx = self.tx(a.etablissement_id).await?;
         update_affectation_fin_tx(&mut tx, a).await?;
@@ -153,24 +126,6 @@ impl PgInternatRepo {
             .await
             .map_err(map_sqlx)?;
         Ok(rows.into_iter().map(AffRow::into_aff).collect())
-    }
-
-    pub async fn has_affectation_ouverte(
-        &self,
-        etablissement_id: Uuid,
-        eleve_id: Uuid,
-    ) -> Result<bool, DomainError> {
-        let mut tx = self.tx(etablissement_id).await?;
-        let n: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::bigint FROM ent_internat_affectation \
-             WHERE etablissement_id = $1 AND eleve_id = $2 AND fin IS NULL",
-        )
-        .bind(etablissement_id)
-        .bind(eleve_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(map_sqlx)?;
-        Ok(n > 0)
     }
 
     /// Ajoute un FAIT de présence (jamais d'écrasement : R-IT13). La base refuse une nuit future et

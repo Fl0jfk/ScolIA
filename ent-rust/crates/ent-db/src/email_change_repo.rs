@@ -279,7 +279,7 @@ impl PgEmailChangeRepo {
             tiers,
             ancien_email: ancien,
             nouveau_email: nouveau,
-            retabli: retabli,
+            retabli,
             sessions_revoquees: sessions,
         }))
     }
