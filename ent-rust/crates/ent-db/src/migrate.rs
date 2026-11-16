@@ -364,6 +364,7 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("3701_documents_documents_versions"),
     m!("3702_documents_compteurs"),
     m!("3703_documents_mises_a_disposition"),
+    m!("3704_documents_pieces"),
     // Socle 8 (notifications), plage 3800–3899 : lot N1 (brique et contrat).
     m!("3800_ntf_parametres"),
     m!("3801_ntf_avis"),

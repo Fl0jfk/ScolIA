@@ -623,6 +623,21 @@ async fn t_d8_deux_titulaires_deux_exemplaires() {
     let Some(w) = W::nouveau().await else {
         return eprintln!("skip: ENT_DATABASE_URL");
     };
+    // Lot D4 : le coffre relit le droit du jour. Les deux destinataires de ce test sont titulaires de l'autorité
+    // parentale sur l'élève (le jeu de labo ne lie M. Potter qu'à l'autre élève).
+    sqlx::query(
+        "INSERT INTO ent_eleve_lien (id, etablissement_id, eleve_id, user_id, personne_id, lien, autorite_parentale)
+         SELECT $1, $2, $3, $4, $5, 'parent', true
+          WHERE NOT EXISTS (SELECT 1 FROM ent_eleve_lien WHERE etablissement_id = $2 AND eleve_id = $3 AND personne_id = $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(w.m.etab)
+    .bind(w.m.eleve)
+    .bind(w.parent_tom.user)
+    .bind(w.parent_tom.personne)
+    .execute(w.ent.pool_verif())
+    .await
+    .unwrap();
     let e = w
         .emettre(
             &w.dir(),
