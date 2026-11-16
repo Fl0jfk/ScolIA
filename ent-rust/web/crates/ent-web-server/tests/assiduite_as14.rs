@@ -170,7 +170,8 @@ async fn as14a_appel_pointage_validation_corrections() {
         "chaque ligne porte le nom affiché"
     );
 
-    // Un retard exige des minutes (contrôle serveur) ; avec minutes, il est accepté.
+    // Sans minutes, le serveur les calcule depuis le début de la séance (l'écran les demande tout de
+    // même) ; avec minutes, elles sont conservées.
     let sans_minutes = prof
         .pointer_ligne(
             ouvert.id,
@@ -182,7 +183,7 @@ async fn as14a_appel_pointage_validation_corrections() {
             },
         )
         .await;
-    assert!(sans_minutes.is_err(), "retard sans minutes refusé");
+    assert!(sans_minutes.is_ok(), "retard sans minutes : calculé par le serveur");
     let l1 = prof
         .pointer_ligne(
             ouvert.id,
