@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db/index";
 import { entCollectionAttr, entCollectionRecord } from "@/db/schema";
 import { flattenCollectionRecord, inflateFromAttrs } from "@/app/lib/ent-attr-codec";
@@ -60,36 +60,86 @@ export async function getCollectionRecord<T extends Record<string, unknown>>(
   recordId: string,
 ): Promise<T | null> {
   const db = getDb();
-  // Les deux lectures en parallèle (auparavant l'une après l'autre) : chaque
-  // getJson du site économise un aller-retour base. Les attributs sont ignorés
-  // si l'enregistrement n'existe pas.
-  const [[row], attrs] = await Promise.all([
-    db
-      .select()
-      .from(entCollectionRecord)
-      .where(
-        and(
-          eq(entCollectionRecord.etablissementId, etablissementId),
-          eq(entCollectionRecord.collection, collection),
-          eq(entCollectionRecord.recordId, recordId),
-        ),
-      )
-      .limit(1),
-    db
-      .select()
-      .from(entCollectionAttr)
-      .where(
-        and(
-          eq(entCollectionAttr.etablissementId, etablissementId),
-          eq(entCollectionAttr.collection, collection),
-          eq(entCollectionAttr.recordId, recordId),
-        ),
+  const memoKey = `${etablissementId}\u0000${collection}\u0000${recordId}`;
+
+  // 1) Version de l'enregistrement (lecture par clé primaire, très légère).
+  //    `updated_at` en texte pour garder la microseconde (Date JS = milliseconde).
+  const [head] = await db
+    .select({ version: sql<string>`${entCollectionRecord.updatedAt}::text` })
+    .from(entCollectionRecord)
+    .where(
+      and(
+        eq(entCollectionRecord.etablissementId, etablissementId),
+        eq(entCollectionRecord.collection, collection),
+        eq(entCollectionRecord.recordId, recordId),
       ),
-  ]);
-  if (!row) return null;
-  const obj = inflateFromAttrs(attrs.map((a) => ({ path: a.path, value: a.value })));
+    )
+    .limit(1);
+  if (!head) {
+    recordMemo.delete(memoKey);
+    return null;
+  }
+
+  // 2) Copie en mémoire encore valable : même version qu'en base.
+  const memo = recordMemo.get(memoKey);
+  if (memo && memo.version === head.version) {
+    return structuredClone(memo.obj) as T;
+  }
+
+  // 3) Relecture des attributs. Jointure sur l'enregistrement dans la même
+  //    requête : version et attributs proviennent du même instantané.
+  const rows = await db
+    .select({
+      path: entCollectionAttr.path,
+      value: entCollectionAttr.value,
+      version: sql<string>`${entCollectionRecord.updatedAt}::text`,
+    })
+    .from(entCollectionAttr)
+    .innerJoin(
+      entCollectionRecord,
+      and(
+        eq(entCollectionRecord.etablissementId, entCollectionAttr.etablissementId),
+        eq(entCollectionRecord.collection, entCollectionAttr.collection),
+        eq(entCollectionRecord.recordId, entCollectionAttr.recordId),
+      ),
+    )
+    .where(
+      and(
+        eq(entCollectionAttr.etablissementId, etablissementId),
+        eq(entCollectionAttr.collection, collection),
+        eq(entCollectionAttr.recordId, recordId),
+      ),
+    );
+  const obj = inflateFromAttrs(rows.map((a) => ({ path: a.path, value: a.value })));
   if (!obj.id) obj.id = recordId;
+  if (rows.length >= RECORD_MEMO_MIN_ATTRS) {
+    rememberRecord(memoKey, rows[0].version, obj);
+    return structuredClone(obj) as T;
+  }
   return obj as T;
+}
+
+/**
+ * Copie en mémoire (par instance) des gros documents — fonctionne sans Valkey.
+ * Toujours validée par `updated_at` en base avant usage : une écriture faite
+ * depuis n'importe quelle instance change la version, la copie est alors relue.
+ * Toutes les écritures passent par `upsertCollectionRecord` (version mise à jour
+ * dans la même transaction) ou suppriment l'enregistrement.
+ * Seuls les documents volumineux sont gardés (les petits sont lus vite),
+ * nombre borné, rendus en copie pour qu'un appelant ne modifie pas la mémoire.
+ */
+const RECORD_MEMO_MIN_ATTRS = 200;
+const RECORD_MEMO_MAX_ENTRIES = 100;
+const recordMemo = new Map<string, { version: string; obj: Record<string, unknown> }>();
+
+function rememberRecord(key: string, version: string, obj: Record<string, unknown>) {
+  recordMemo.delete(key);
+  recordMemo.set(key, { version, obj });
+  while (recordMemo.size > RECORD_MEMO_MAX_ENTRIES) {
+    const oldest = recordMemo.keys().next().value;
+    if (oldest === undefined) break;
+    recordMemo.delete(oldest);
+  }
 }
 
 export async function upsertCollectionRecord(
@@ -99,9 +149,10 @@ export async function upsertCollectionRecord(
   record: Record<string, unknown>,
 ): Promise<void> {
   const db = getDb();
-  const now = new Date();
   const attrs = flattenCollectionRecord(record);
 
+  // Version = horloge base à la microseconde, strictement croissante à chaque
+  // écriture : sert à valider la copie mémoire de getCollectionRecord.
   await db.transaction(async (tx) => {
     await tx
       .insert(entCollectionRecord)
@@ -110,7 +161,7 @@ export async function upsertCollectionRecord(
         collection,
         recordId,
         status: statusFromRecord(record),
-        updatedAt: now,
+        updatedAt: sql`clock_timestamp()`,
       })
       .onConflictDoUpdate({
         target: [
@@ -120,7 +171,7 @@ export async function upsertCollectionRecord(
         ],
         set: {
           status: statusFromRecord(record),
-          updatedAt: now,
+          updatedAt: sql`greatest(clock_timestamp(), ${entCollectionRecord.updatedAt} + interval '1 microsecond')`,
         },
       });
     await tx
