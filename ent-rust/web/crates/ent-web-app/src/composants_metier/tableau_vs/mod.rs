@@ -261,7 +261,7 @@ pub fn TableauVieScolaire() -> impl IntoView {
     });
 
     view! {
-        <section id="tdb" class="tdb" aria-labelledby="tdb-titre">
+        <div id="tdb" class="tdb">
             <header class="tdb-entete">
                 <h2 id="tdb-titre" class="tdb-titre">"Vie scolaire du jour"</h2>
                 <p class="tdb-mode">
@@ -310,7 +310,7 @@ pub fn TableauVieScolaire() -> impl IntoView {
             }}
             <Dialogues cible=cible ctx=ctx ouvre_contact=ouvre_contact ouvre_traiter=ouvre_traiter
                 ouvre_prevenir=ouvre_prevenir ouvre_a_la_place=ouvre_a_la_place/>
-        </section>
+        </div>
     }
 }
 

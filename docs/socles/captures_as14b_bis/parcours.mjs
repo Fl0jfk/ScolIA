@@ -58,6 +58,9 @@ await api(`/appels/${appel.id}/exclusions`, { methode: 'POST', jeton: tProf, cor
 // Exclusion ancienne (25 min) : c'est elle qui est dans le bandeau Urgent ; l'alerte « non arrivé » est posée comme le fait la tâche.
 sql(`UPDATE ent_appel_ligne SET exclusion_cours_le = now() - interval '25 minutes' WHERE etablissement_id = '${etab}' AND appel_id = '${appel.id}' AND eleve_id = '${ginny.id}'`);
 sql(`INSERT INTO ent_asd_alerte (id, etablissement_id, eleve_id, kind, jour, appel_id, cle) VALUES (gen_random_uuid(), '${etab}', '${ginny.id}', 'non_arrivee', '${jourParis}', '${appel.id}', 'parcours-${Date.now()}')`);
+await api(`/appels/${appel.id}/v2/valider`, { methode: 'POST', jeton: tProf, corps: { confirme_non_pointes: true } });
+// Hermione : la famille a été appelée sans succès (« familles à rappeler »).
+await api('/assiduite/contacts', { methode: 'POST', jeton: tCpe, corps: { eleve_id: hermione.id, canal: 'telephone', issue: 'ne_repond_pas' } });
 journal(`appel ${appel.id} : Harry et Hermione absents, Ginny exclue (non arrivée)`);
 
 const navigateur = await chromium.launch();
@@ -157,7 +160,7 @@ const clic = async (page, nom, opts = {}) => { await page.getByRole('button', { 
   await autre.page.goto(`${base}/web?heure=14:30`);
   await attendreTableau(autre.page);
   const t2 = await titres(autre.page);
-  controle('autre poste, après-midi : ordre épinglé retrouvé (pas l\'automatique)', t2[0] === 'Exclus de cours' && t2[1] === 'Absents du jour à traiter', t2.join(' | '));
+  controle('autre poste, après-midi : ordre épinglé retrouvé (pas l\'automatique de l\'après-midi)', t2[0] === 'Absents du jour à traiter' && t2[1] === 'Exclus de cours' && t2[2] === 'Familles à rappeler', t2.join(' | '));
   controle('le bandeau Urgent n\'a ni bouton replier ni masquer', (await autre.page.locator('.tdb-urgent button', { hasText: /Replier|Masquer/ }).count()) === 0);
   await autre.page.screenshot({ path: path.join(sortie, '06-autre-poste.png'), fullPage: true });
   await autre.page.getByRole('button', { name: 'Disposition', exact: true }).click();
