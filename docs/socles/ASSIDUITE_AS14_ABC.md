@@ -37,7 +37,6 @@
 8. L'état « ouvert » d'un épisode (appel fait, décision attendue) est libellé « Ouvert, à qualifier » ; le détail ne rend pas le nom de l'élève (repris de la file).
 9. Un retard sans minutes est accepté par le serveur (calculé depuis le début de la séance) ; l'écran, lui, **demande** les minutes.
 10. **Lecteur d'écran** : non testé avec un vrai lecteur (axe-core ne suffit pas, `FRONTEND_LEPTOS.md` §6) ; à faire avant de déclarer les écrans accessibles.
-11. Relevé hors périmètre : `chrono::Local::now()` côté navigateur n'est plus utilisé ici (heure d'établissement via `date_heure_paris`) ; les écrans plus anciens gardent cette limite (§13).
 
 ## 3. Vérifications (locales, 2026-11-16)
 - **rustc / clippy 1.99.0, `-D warnings`, zéro avertissement** : frontend (SSR, serveur, serveur+labo, wasm `hydrate`) et backend (`ent-types`, `ent-db`, `ent-api`, `--all-targets`, labo). Formatage : `cargo fmt -p` (jamais `--all`).
