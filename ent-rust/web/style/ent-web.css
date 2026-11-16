@@ -5,6 +5,7 @@
    cargo-leptos fusionne les @import en un seul fichier (`style-bundle = true`). */
 
 @import "../crates/ent-web-ui/style/ui.css";
+@import "absences-personnels.css";
 
 /* --- Commun --------------------------------------------------------------- */
 .lien-evitement {

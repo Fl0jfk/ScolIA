@@ -748,6 +748,14 @@ Correctifs urgents de l'existant, **implémentés et testés** (migration 520, t
 
 Limites connues : le circuit est en code (la table de règles du §32.6 et le vote du conseil d'administration arrivent en V1 et V8) ; la précondition « devis signé » est activée en V0c ; la plage de migrations est 640–659 (600–619 abandonnée) ; `42_SORTIES_VOYAGES.md` est une copie de la conception (`ent-mc0hoe`) avec un §33 ajouté.
 
+## Socle 15 — lots A11a, A11b, A11c « écrans » (2026-11-16, branche `ent-socle-15-code-a11`, base `origin/ENT`) — PARTIEL
+
+**Implémenté et testé en local ; pas validé par Florian ; pas prêt pilote.** Aucune migration, aucune route, aucune action backend : les écrans réutilisent les routes `/personnels/absences/*` des lots A0 à A9. Rapport : `docs/socles/15_ABSENCES_A11_ABC.md` (captures et script de parcours dans `docs/socles/15_ABSENCES_A11_captures/`).
+- **Écrans (Leptos 0.8, `ent-web-app/src/modules/absences_personnels/`).** Déclarer, mes absences, signaler (A11a) ; fiche à sections (décision et actions, pièces, fil, séances touchées, historique) et files (à valider, à traiter, échéances, validation en lot des seules natures non sensibles) (A11b) ; « remplacements du jour » avec propositions et raisons, solliciter, désigner, appel à volontaires, annuler la séance, plan en lot avec aperçu, et « mes remplacements » (A11c).
+- **Vérifié.** Clippy `-D warnings` 1.99.0 (SSR, serveur avec et sans `labo`, wasm32) : 0 avertissement ; 5 tests contre le vrai backend (`ent-web-server/tests/absences_personnels.rs`, ajoutés à la CI) dont séparation entre établissements et « un professeur ne lit jamais un motif » ; parcours Chromium : axe-core 0 violation sur 10 états, clavier seul (focus rendu après la boîte de dialogue), 375 px sans débordement.
+- **Défauts trouvés.** Design system : `role="status"` sur une liste (corrigé, `ent-web-ui/src/notification.rs`). **Backend A4 (à décider)** : un remplacement accepté n'est appliqué que si l'absence est **validée** ; sinon la demande passe en échec avec un 409 au message trompeur (« valeur déjà existante »), ce qui contredit §8.1 de la conception.
+- **Non fait / limites.** A11d à f et mobile ; conservation (gel, purge, confidentialité renforcée), suppléance, présence d'un agent, calendrier, déplacer / continuité encadrée sans écran ; instants affichés en heure de Paris ; lecteur d'écran non testé (voir le rapport §2 et §7).
+
 ## Socle 15 — lot A9 « absences collectives » (2026-11-14, branche `ent-socle-15-code-9`, base `ent-socle-15-code-8` 7efe6159) — PARTIEL
 
 **Implémenté et testé en local (6 tests Postgres `a9_*`, 1 test HTTP, 6 tests purs) ; pas validé par Florian ; pas prêt pilote.** Aucune migration (A9 n'en porte pas : il réutilise les absences, les impacts et le journal).

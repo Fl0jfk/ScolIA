@@ -1,0 +1,130 @@
+{
+  "etapes": [
+    "EDT importé pour le 2026-11-17",
+    "séances générées",
+    "axe mes-absences (vide) : 0 violation(s) ",
+    "axe declarer : 0 violation(s) ",
+    "clavier declarer : tout atteint",
+    "axe declaration confirmée : 0 violation(s) ",
+    "axe fiche (agent) : 0 violation(s) ",
+    "axe file à valider : 0 violation(s) ",
+    "clavier file : tout atteint",
+    "axe fiche (valideur) : 0 violation(s) ",
+    "clavier boîte Valider : focus dans la boîte true, retour du focus sur « Valider »",
+    "axe dialogue valider : 0 violation(s) ",
+    "ce matin : chargement automatique du jour : ok",
+    "axe ce matin : 0 violation(s) ",
+    "clavier ce matin : tout atteint",
+    "axe propositions (dialogue) : 0 violation(s) ",
+    "sollicitation envoyée",
+    "axe mes remplacements : 0 violation(s) ",
+    "375 px mes-absences : débordement 0px",
+    "375 px declarer : débordement 0px",
+    "375 px files : débordement 0px",
+    "375 px fiche : débordement 0px",
+    "375 px ce-matin : débordement 0px",
+    "375 px mes-remplacements : débordement 0px"
+  ],
+  "axe": [
+    {
+      "page": "mes-absences (vide)",
+      "violations": []
+    },
+    {
+      "page": "declarer",
+      "violations": []
+    },
+    {
+      "page": "declaration confirmée",
+      "violations": []
+    },
+    {
+      "page": "fiche (agent)",
+      "violations": []
+    },
+    {
+      "page": "file à valider",
+      "violations": []
+    },
+    {
+      "page": "fiche (valideur)",
+      "violations": []
+    },
+    {
+      "page": "dialogue valider",
+      "violations": []
+    },
+    {
+      "page": "ce matin",
+      "violations": []
+    },
+    {
+      "page": "propositions (dialogue)",
+      "violations": []
+    },
+    {
+      "page": "mes remplacements",
+      "violations": []
+    }
+  ],
+  "mobile": [
+    {
+      "page": "mes-absences",
+      "debordement_px": 0
+    },
+    {
+      "page": "declarer",
+      "debordement_px": 0
+    },
+    {
+      "page": "files",
+      "debordement_px": 0
+    },
+    {
+      "page": "fiche",
+      "debordement_px": 0
+    },
+    {
+      "page": "ce-matin",
+      "debordement_px": 0
+    },
+    {
+      "page": "mes-remplacements",
+      "debordement_px": 0
+    }
+  ],
+  "clavier": [
+    {
+      "page": "declarer",
+      "atteints": [
+        "Déclarer l'absence",
+        "Nature de l'absence"
+      ],
+      "manquants": []
+    },
+    {
+      "page": "file",
+      "atteints": [
+        "Ouvrir"
+      ],
+      "manquants": []
+    },
+    {
+      "page": "fiche (valideur) : boîte Valider",
+      "focusDansBoite": true,
+      "retourFocus": "Valider"
+    },
+    {
+      "page": "ce matin",
+      "atteints": [
+        "Répondre"
+      ],
+      "manquants": []
+    }
+  ],
+  "erreurs": [
+    "404 http://127.0.0.1:3000/web/api/personnels/absences/9fe21bf5-d24e-4cbd-8863-6d4f6196f59a",
+    "console Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "console Failed to load resource: the server responded with a status of 403 (Forbidden)"
+  ]
+}

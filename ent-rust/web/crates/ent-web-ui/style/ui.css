@@ -348,6 +348,7 @@ textarea.ui-champ__controle { min-height: 96px; resize: vertical; padding: var(-
   position: fixed; right: var(--esp-4); bottom: var(--esp-4); z-index: var(--z-notifications);
   display: grid; gap: var(--esp-2); width: min(380px, calc(100vw - 32px)); margin: 0; padding: 0; list-style: none;
 }
+.ui-notifications__liste { display: grid; gap: var(--esp-2); margin: 0; padding: 0; list-style: none; }
 .ui-notification {
   display: flex; align-items: start; gap: var(--esp-2); background: var(--c-surface); color: var(--c-encre);
   border-radius: var(--rayon); padding: var(--esp-3) var(--esp-3) var(--esp-3) var(--esp-4); box-shadow: var(--ombre-2), 0 0 0 1px var(--c-ligne);

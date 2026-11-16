@@ -1,0 +1,40 @@
+/* Absences des personnels (socle 15, A11a à A11c). Jetons de ui.css uniquement, aucune couleur en dur.
+   Fichier séparé : une ligne d'import dans ent-web.css (moins de conflits avec les autres écrans). */
+.absp-section { margin-block: var(--esp-6); display: grid; gap: var(--esp-3); }
+.absp-liste { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--esp-3); }
+.absp-liste--serree { gap: var(--esp-1); }
+.absp-carte { display: grid; gap: var(--esp-2); padding: var(--esp-4); min-width: 0; background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); overflow-wrap: anywhere; }
+.absp-carte__tete { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--esp-2); }
+.absp-carte__titre { font-weight: var(--graisse-forte); }
+.absp-carte__detail { font-size: var(--taille-s); color: var(--c-attenue); margin: 0; }
+.absp-carte__actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-2); margin: 0; }
+.absp-ligne { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--esp-2); padding: var(--esp-2) 0; border-bottom: 1px solid var(--c-ligne); overflow-wrap: anywhere; }
+.absp-entete { display: grid; gap: var(--esp-2); padding: var(--esp-4); background: var(--c-surface); border-radius: var(--rayon); box-shadow: var(--ombre-1); margin-bottom: var(--esp-4); }
+.absp-etape { margin: 0; padding: var(--esp-2) var(--esp-3); background: var(--c-acc-doux); border-radius: var(--rayon-petit); }
+.absp-barre { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--esp-3); margin-bottom: var(--esp-3); }
+.absp-boutons { display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.absp-actions { display: flex; flex-wrap: wrap; gap: var(--esp-2); margin: var(--esp-3) 0 0; }
+.absp-formulaire { display: grid; gap: var(--esp-3); max-width: 36rem; }
+.absp-dates { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--esp-3); }
+.absp-dates--ligne { align-items: end; }
+.absp-periodes, .absp-piece { display: grid; gap: var(--esp-2); border: 1px solid var(--c-ligne-forte); border-radius: var(--rayon-petit); padding: var(--esp-3); }
+.absp-resume { margin: 0; padding: var(--esp-3); background: var(--c-acc-doux); border-radius: var(--rayon-petit); }
+.absp-confirme { display: grid; gap: var(--esp-3); max-width: 40rem; }
+.absp-sous-titre { font-size: var(--taille-l); margin-top: var(--esp-3); }
+.absp-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--esp-2); margin-bottom: var(--esp-3); }
+.absp-compteurs { list-style: none; margin: 0 0 var(--esp-3); padding: 0; display: flex; flex-wrap: wrap; gap: var(--esp-2); }
+.absp-lot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--esp-3); margin: 0 0 var(--esp-3); }
+.absp-jour { font-size: var(--taille-l); font-weight: var(--graisse-forte); margin: 0 0 var(--esp-2); }
+.absp-heure { margin-block: var(--esp-4); }
+.absp-raisons { margin: 0; padding-left: var(--esp-5); font-size: var(--taille-s); color: var(--c-attenue); }
+.absp-message { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.absp-reponse { display: grid; gap: var(--esp-2); }
+.absp-lien { color: var(--c-acc); font-weight: var(--graisse-forte); display: inline-flex; align-items: center; min-height: var(--cible); }
+@media (max-width: 480px) {
+  .absp-carte__actions .ui-btn, .absp-actions .ui-btn, .absp-boutons .ui-btn { flex: 1 1 100%; min-height: var(--cible); }
+  .absp-dates { grid-template-columns: 1fr; }
+}
+.absp-confirme p a, .absp-section p a, .absp-carte__detail a { text-decoration: underline; }
+/* Sections de la fiche et files : le contrôle segmenté passe à la ligne sur téléphone. */
+.absp-onglets { margin-bottom: var(--esp-3); max-width: 100%; }
+.absp-onglets .ui-segmente { display: flex; flex-wrap: wrap; width: 100%; }
