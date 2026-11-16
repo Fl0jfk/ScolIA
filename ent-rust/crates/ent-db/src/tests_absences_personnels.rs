@@ -5503,7 +5503,7 @@ async fn a4bis_annuler_la_seance_et_refus_explicites() {
     for etat in ["signalee", "declaree", "en_instruction", "validee", "refusee"] {
         let x = cadre!();
         let (abs, c, impact) = x.absence_en_etat(etat).await;
-        let r = x.ent.annuler_seance_for_actor(x.etab, x.dir, "direction", impact).await;
+        let r = x.ent.annuler_seance_for_actor(x.etab, x.dir, "direction", impact, false).await;
         assert!(r.is_ok(), "{etat} : {r:?}");
         let _ = (abs, c);
     }
