@@ -199,7 +199,7 @@
 /* Statuts : ui-segmente + une couleur par statut quand il est coché */
 .appel-statut input:checked + span { font-weight: var(--graisse-titre); }
 .appel-statut span { min-width: 5em; } /* largeur stable : le gras ne décale pas la colonne « Statut » */
-.appel-statut--present input:checked + span { background: var(--c-ok-doux); color: var(--c-ok); box-shadow: inset 0 0 0 1px var(--c-ok); }
+.appel-statut--present input:checked + span { background: var(--c-ok-doux); color: #145c28; box-shadow: inset 0 0 0 1px var(--c-ok); }
 .appel-statut--absent input:checked + span { background: var(--c-mal-doux); color: var(--c-mal); box-shadow: inset 0 0 0 1px var(--c-mal); }
 .appel-statut--retard input:checked + span { background: var(--c-avert-doux); color: var(--c-avert); box-shadow: inset 0 0 0 1px var(--c-avert); }
 .appel-statut--dispense input:checked + span { background: var(--c-neutre-doux); color: var(--c-encre); box-shadow: inset 0 0 0 1px var(--c-tertiaire); }

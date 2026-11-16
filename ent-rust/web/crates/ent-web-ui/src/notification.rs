@@ -99,7 +99,8 @@ pub fn use_notifications() -> Notifications {
 pub fn ZoneNotifications() -> impl IntoView {
     let n = use_notifications();
     view! {
-        <ol class="ui-notifications" role="status" aria-live="polite" aria-label="Notifications">
+        <div class="ui-notifications" role="status" aria-live="polite" aria-label="Notifications">
+            <ul class="ui-notifications__liste">
             <For
                 each=move || n.liste()
                 key=|x| x.id
@@ -124,6 +125,7 @@ pub fn ZoneNotifications() -> impl IntoView {
                     }
                 }
             />
-        </ol>
+            </ul>
+        </div>
     }
 }

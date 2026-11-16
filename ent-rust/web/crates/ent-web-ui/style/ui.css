@@ -343,7 +343,8 @@ textarea.ui-champ__controle { min-height: 96px; resize: vertical; padding: var(-
 .ui-dialogue__titre { margin-bottom: var(--esp-2); font-size: var(--taille-titre); letter-spacing: -0.015em; }
 .ui-dialogue__actions { display: flex; justify-content: flex-end; gap: var(--esp-2); margin-top: var(--esp-4); flex-wrap: wrap; }
 
-/* Notifications (toasts) */
+/* Notifications (toasts) : zone `role=status` (div) contenant une vraie liste. */
+.ui-notifications__liste { display: grid; gap: var(--esp-2); margin: 0; padding: 0; list-style: none; }
 .ui-notifications {
   position: fixed; right: var(--esp-4); bottom: var(--esp-4); z-index: var(--z-notifications);
   display: grid; gap: var(--esp-2); width: min(380px, calc(100vw - 32px)); margin: 0; padding: 0; list-style: none;
