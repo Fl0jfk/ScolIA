@@ -238,6 +238,10 @@ pub enum Action {
     ConsentementsLire,
     /// Régler les plafonds d'envoi et consulter la traçabilité des envois (PLT-05).
     NotificationsGerer,
+    /// Socle 8 (N1) : voir un avis, ses destinataires retenus ou exclus et l'état de ses remises (sans adresse ni numéro).
+    NotificationsAvisVoir,
+    /// Socle 8 (N1) : régler les paramètres de l'établissement et la bascule par nature (heures calmes, délais).
+    NotificationsParametrer,
     /// Ouvrir, réviser et clore les dispositifs d'accompagnement (PAP, PPS, PPRE, ULIS),
     /// définir les aménagements, affecter un AESH, réunir l'équipe (S2-11, ACC-01→05).
     AccompagnementGerer,
@@ -404,6 +408,10 @@ pub enum Action {
     /// Paie de l'OGEC (A7, ABP-207, 209 à 211) : éléments variables de paie, heures et jours d'absence, file DSN J+5.
     /// Direction et comptabilité.
     PersonnelsPaieAbsences,
+    /// Absences collectives (A9, ABP-253, 255, 256) : cocher les grévistes du matin, annuler en lot leurs séances, tableau
+    /// de crise. Direction (adjoint, chargé des remplacements). La liste des grévistes, nature sensible, n'est lisible
+    /// que de la direction et du secrétariat (`personnels.absences.lire_nature`).
+    PersonnelsGreveGerer,
     /// Socle 39 (stages), lot ST0 : voir les stages d'un élève (établissement ; professeur : ses
     /// élèves suivis). Le CPE et l'accueil n'ont que la projection « en stage » (lot ST1).
     StagesLire,
@@ -550,7 +558,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 227] = [
+    pub const TOUTES: [Action; 230] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -647,6 +655,8 @@ impl Action {
         Action::FormulairesGerer,
         Action::ConsentementsLire,
         Action::NotificationsGerer,
+        Action::NotificationsAvisVoir,
+        Action::NotificationsParametrer,
         Action::AccompagnementGerer,
         Action::AmenagementsLire,
         Action::ContraintesLire,
@@ -778,6 +788,7 @@ impl Action {
         Action::PersonnelsHeuresSigner,
         Action::PersonnelsHeuresExporter,
         Action::PersonnelsPaieAbsences,
+        Action::PersonnelsGreveGerer,
         // Socle 6, lots P5 et P6 (en fin de catalogue).
         Action::EquipesGerer,
         Action::SignatureHabiliter,
@@ -904,6 +915,8 @@ impl Action {
             Self::FormulairesGerer => "formulaires.gerer",
             Self::ConsentementsLire => "consentements.lire",
             Self::NotificationsGerer => "notifications.gerer",
+            Self::NotificationsAvisVoir => "notifications.avis_voir",
+            Self::NotificationsParametrer => "notifications.parametrer",
             Self::AccompagnementGerer => "accompagnement.gerer",
             Self::AmenagementsLire => "amenagements.lire",
             Self::ContraintesLire => "contraintes.lire",
@@ -971,6 +984,7 @@ impl Action {
             Self::PersonnelsHeuresSigner => "personnels.heures.signer",
             Self::PersonnelsHeuresExporter => "personnels.heures.exporter",
             Self::PersonnelsPaieAbsences => "personnels.paie.absences",
+            Self::PersonnelsGreveGerer => "personnels.greve.gerer",
             Self::StagesLire => "stages.lire",
             Self::StagesPreparer => "stages.preparer",
             Self::StagesOrganismesGerer => "stages.organismes.gerer",
@@ -1137,6 +1151,8 @@ impl Action {
             Self::FormulairesGerer => "Créer et publier formulaires, autorisations et consentements",
             Self::ConsentementsLire => "Consulter les consentements (objet par objet)",
             Self::NotificationsGerer => "Régler les plafonds d'envoi et suivre les envois",
+            Self::NotificationsAvisVoir => "Voir un avis, ses destinataires et l'état de ses remises",
+            Self::NotificationsParametrer => "Régler les paramètres de notification de l'établissement",
             Self::AccompagnementGerer => {
                 "Gérer l'accompagnement : PAP, PPS, aménagements, AESH, équipe éducative"
             }
@@ -1206,6 +1222,7 @@ impl Action {
             Self::PersonnelsHeuresSigner => "Signer l'état mensuel des heures",
             Self::PersonnelsHeuresExporter => "Exporter l'état mensuel des heures vers le rectorat ou la paie",
             Self::PersonnelsPaieAbsences => "Préparer les éléments variables de paie des absences et suivre la DSN (OGEC)",
+            Self::PersonnelsGreveGerer => "Cocher les grévistes du matin, annuler en lot leurs séances, suivre le tableau de crise",
             Self::StagesLire => "Consulter les stages des élèves",
             Self::StagesPreparer => "Déclarer, clôturer ou annuler un stage",
             Self::StagesOrganismesGerer => "Tenir le carnet des organismes d'accueil de stage",
@@ -1330,6 +1347,8 @@ impl Action {
             | Self::FormulairesGerer
             | Self::ConsentementsLire
             | Self::NotificationsGerer
+            | Self::NotificationsAvisVoir
+            | Self::NotificationsParametrer
             | Self::MessagerieFilsReserves
             | Self::MessagerieUrgenceHorsPlage
             | Self::VoyagesAnnuaire
@@ -1448,6 +1467,7 @@ impl Action {
             | Self::PersonnelsHeuresSigner
             | Self::PersonnelsHeuresExporter
             | Self::PersonnelsPaieAbsences
+            | Self::PersonnelsGreveGerer
             | Self::EquipesGerer
             | Self::SignatureHabiliter
             | Self::StructureGerer
@@ -1639,6 +1659,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_27_rgpd(role, &mut d);
     socle_10_edt(role, &mut d);
     socle_05_structure(role, &mut d);
+    socle_8_notifications(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2107,6 +2128,11 @@ fn socle_15_absences_personnels(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Direction | Role::Compta) {
         d.push(etab(PersonnelsPaieAbsences));
     }
+    // Absences collectives (A9, §16) : la direction (adjoint, chargé des remplacements) coche les grévistes, annule leurs
+    // séances en lot et suit le tableau de crise. La liste des grévistes se lit par `lire_nature` (direction, secrétariat).
+    if role == Role::Direction {
+        d.push(etab(PersonnelsGreveGerer));
+    }
 }
 
 /// Socle 6 (personnels), lots P5 et P6 : équipes constituées et pouvoirs de signature (règle 21 du pilotage :
@@ -2276,6 +2302,19 @@ fn socle_29_afaire(role: Role, d: &mut Vec<(Action, Portee)>) {
     }
     if role == Role::Admin {
         d.push(etab(RechercheDebloquer));
+    }
+}
+
+/// Socle 8 (notifications), lot N1. Bloc de `modele_par_defaut`, isolé pour que les fusions de branches ne s'y croisent pas.
+/// Voir un avis : direction, administrateur, CPE (vie scolaire) ; régler l'établissement : direction et administrateur.
+fn socle_8_notifications(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    let etab = |a: Action| (a, Portee::Etablissement);
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(NotificationsAvisVoir));
+    }
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push(etab(NotificationsParametrer));
     }
 }
 
@@ -2689,6 +2728,7 @@ mod tests {
                 "{r:?} heures.exporter"
             );
             assert_eq!(a(r, PersonnelsPaieAbsences), matches!(r, Role::Direction | Role::Compta), "{r:?} paie.absences");
+            assert_eq!(a(r, PersonnelsGreveGerer), r == Role::Direction, "{r:?} greve.gerer");
             assert_eq!(
                 a(r, PersonnelsAbsencesParametrer),
                 matches!(r, Role::Admin | Role::Direction),
@@ -2713,6 +2753,7 @@ mod tests {
                     PersonnelsHeuresSigner,
                     PersonnelsHeuresExporter,
                     PersonnelsPaieAbsences,
+                    PersonnelsGreveGerer,
                 ] {
                     assert!(!a(r, x), "{r:?} {}", x.code());
                 }
