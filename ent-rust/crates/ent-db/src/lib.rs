@@ -16,6 +16,7 @@ mod assiduite_as2;
 mod assiduite_as3;
 mod assiduite_as4;
 mod assiduite_as5;
+mod assiduite_as6;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -341,6 +342,11 @@ pub use assiduite_as5::{
     CourrierAsd, EpisodeSansReponse, ParamFamille, PreparerCourrier, RelanceAsd, TracerContact, ABANDONS_COURRIER,
     CANAUX_CONTACT, CONSOMMATEUR_FAMILLES, ETAPES, ISSUES_CONTACT, NATURES_COURRIER, RYTHMES,
 };
+pub use assiduite_as6::{
+    niveau_de, types_as6, AlerteAsd, BilanVerification, ConsommateurVerification, EntreeFile, FileDuMatin,
+    PrevenirMaintenant, ResultatALaPlace, ResultatPrevenir, VigilanceAsd, CLOTURES_ALERTE, CONSOMMATEUR_VERIFICATION,
+    RAISONS_A_LA_PLACE, RAISONS_PREVENIR,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -600,6 +606,8 @@ mod tests_assiduite_as3;
 mod tests_assiduite_as4;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as5;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_as6;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

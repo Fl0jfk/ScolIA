@@ -383,6 +383,43 @@ pub const CONFLIT_HORS_LIGNE: NatureAvisDecl = NatureAvisDecl {
     brique_u3_autorisee: false,
 };
 
+/// Absence inquiétante : « prévenir maintenant » (socle 12, AS6, CA-50). Décision humaine de la CPE ou de la
+/// direction ; **U3** (sûreté de l'élève), sans délai de confirmation, tous les canaux joignables. Le texte est
+/// fixe (aucun texte libre) et ne dit rien de plus que : on n'a pas de nouvelles, merci de nous joindre.
+pub const ABSENCE_INQUIETANTE: NatureAvisDecl = NatureAvisDecl {
+    code: "vie_scolaire.absence_inquietante",
+    version: 1,
+    brique: "vie_scolaire",
+    categorie: Categorie::VieScolaire,
+    sujet: TypeSujet::Eleve,
+    eleve_destinataire: EleveDest::Jamais,
+    // Tout responsable au lien actif : un responsable sans le droit « voir la vie scolaire » doit savoir qu'on
+    // cherche son enfant. Les interdictions (socle 4) restent relues à chaque remise.
+    droit_requis: DroitRequis::Lien,
+    urgence: Urgence::U3,
+    sensibilite: Sensibilite::C1,
+    plancher: Plancher::Tous,
+    canaux_defaut: &[Canal::InApp, Canal::Push],
+    escalade: None,
+    delai_confirmation_min: Some(0),
+    regroupement: Regroupement::Aucun,
+    gabarit: Gabarit {
+        id: "vie_scolaire.absence_inquietante",
+        titre: "Nous cherchons à vous joindre au sujet de {prenom}",
+        corps: "{prenom} n'est pas présent(e) à l'établissement le {jour} et nous n'avons pas de nouvelles. \
+                Merci de contacter la vie scolaire dès que possible.",
+        sms: "Vie scolaire : urgent, merci de contacter l'établissement au sujet de {prenom}.",
+        variables: &[PRENOM, JOUR],
+    },
+    annulee_par: &[],
+    correction_si_remis: false,
+    conservation_preuve: true,
+    confidentiel_famille: false,
+    texte_libre: TexteLibre::Interdit,
+    actions_emission: &[],
+    brique_u3_autorisee: true,
+};
+
 /// Toutes les natures déclarées (l'assemblage les vérifie).
 pub const NATURES: &[&NatureAvisDecl] = &[
     &ABSENCE_CONSTATEE,
@@ -397,6 +434,8 @@ pub const NATURES: &[&NatureAvisDecl] = &[
     &APPEL_A_FAIRE,
     &APPEL_NON_FAIT,
     &CONFLIT_HORS_LIGNE,
+    // Socle 12, lot AS6 : « prévenir maintenant ».
+    &ABSENCE_INQUIETANTE,
 ];
 
 fn jour_de(evt: &EvenementVu<'_>, cle: &str) -> Vec<Param> {

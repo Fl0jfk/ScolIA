@@ -1175,7 +1175,7 @@ impl PgEnt {
     /// Incohérences entre appels d'une même journée : élève absent puis présent
     /// à une séance ultérieure ; élève présent alors qu'une déclaration active
     /// couvre la séance.
-    async fn incoherences_appels(
+    pub(crate) async fn incoherences_appels(
         &self,
         etablissement_id: Uuid,
         jour: NaiveDate,

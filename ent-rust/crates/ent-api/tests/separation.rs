@@ -1949,6 +1949,46 @@ fn domaine_assiduite_familles() {
     jouer("assiduite_familles", &specs_domaine_assiduite_familles());
 }
 
+/// Socle 12, lot AS6 (vérification et file du matin). La file du jour, les alertes et le drapeau de vigilance sont
+/// réservés à la vie scolaire, au secrétariat et à la direction (`appel.verifier` + `absences.lire`,
+/// `assiduite.suivre`, `absences.qualifier`) : ni le professeur, ni la comptabilité, ni l'infirmerie, ni la
+/// psychologue, ni une famille, ni l'élève. « Prévenir maintenant », « faire l'appel à la place », « je prends » et
+/// le traitement d'une alerte visant une ressource de B avec la session de A sont refusés (même réponse que
+/// « inexistant »).
+fn specs_domaine_assiduite_verification() -> Vec<Spec> {
+    vec![
+        lire("assiduite-file-du-matin", "/assiduite/file-du-matin", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-alertes", "/assiduite/alertes", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        lire("assiduite-vigilances", "/assiduite/vigilances", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        ecrire_sur_b(
+            "assiduite-prevenir-maintenant-sur-B",
+            "POST",
+            "/assiduite/eleves/{eleve}/prevenir-maintenant",
+            Some(r#"{"raison_code":"fugue_suspectee"}"#),
+        ),
+        ecrire_sur_b("assiduite-vigilance-poser-sur-B", "POST", "/assiduite/eleves/{eleve}/vigilance", Some("{}")),
+        ecrire_sur_b("assiduite-vigilance-lever-sur-B", "POST", "/assiduite/eleves/{eleve}/vigilance/lever", Some("{}")),
+        ecrire_sur_b("assiduite-alerte-prendre-sur-B", "POST", "/assiduite/alertes/{absence}/prendre", Some("{}")),
+        ecrire_sur_b(
+            "assiduite-alerte-traiter-sur-B",
+            "POST",
+            "/assiduite/alertes/{absence}/traiter",
+            Some(r#"{"code":"sans_suite"}"#),
+        ),
+        ecrire_sur_b(
+            "assiduite-appel-a-la-place-sur-B",
+            "POST",
+            "/assiduite/appels/a-la-place",
+            Some(r#"{"creneau_id":"{appel}","jour":"{jour}","raison_code":"oubli"}"#),
+        ),
+    ]
+}
+
+#[test]
+fn domaine_assiduite_verification() {
+    jouer("assiduite_verification", &specs_domaine_assiduite_verification());
+}
+
 fn toutes_les_specs() -> Vec<Spec> {
     let mut v = Vec::new();
     v.extend(specs_domaine_eleve_dossier());
@@ -1962,6 +2002,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());
     v.extend(specs_domaine_assiduite_familles());
+    v.extend(specs_domaine_assiduite_verification());
     v.extend(specs_domaine_cours());
     v.extend(specs_domaine_annuaire_et_vie_scolaire_famille());
     v

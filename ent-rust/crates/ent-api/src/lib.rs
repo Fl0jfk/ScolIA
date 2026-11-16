@@ -58,6 +58,7 @@ mod demandes;
 mod portail;
 mod assiduite;
 mod assiduite_familles;
+mod assiduite_verification;
 mod vie_scolaire;
 mod evaluations;
 mod agenda;

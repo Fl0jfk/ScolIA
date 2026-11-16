@@ -635,8 +635,26 @@ async fn avis_absence_ouverte(
     .fetch_one(&mut *tx)
     .await
     .map_err(db)?;
+    // Prévenir maintenant (AS6) a déjà alerté la famille aujourd'hui en urgence : pas de second message ordinaire.
+    let urgence_faite: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM ent_asd_prevenir WHERE etablissement_id = $1 AND eleve_id = $2 AND jour = $3)",
+    )
+    .bind(etab)
+    .bind(eleve_id)
+    .bind(jour)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(db)?;
+    if urgence_faite {
+        return Ok(());
+    }
     // Délai de consolidation de la règle en vigueur ce jour-là (R-AS15), jamais celui d'un autre établissement.
-    let (delai_min, _) = reglage_famille(tx, etab, jour).await?;
+    let (mut delai_min, _) = reglage_famille(tx, etab, jour).await?;
+    // Absence après présence (R-N67) : la famille n'est prévenue qu'après 15 minutes au moins, le temps que la vie
+    // scolaire localise l'élève (infirmerie, permanence…).
+    if crate::assiduite_as6::etait_present_plus_tot(tx, etab, eleve_id, jour, heure, Some(appel_id)).await? {
+        delai_min = crate::assiduite_as6::delai_apres_presence(delai_min);
+    }
     let parametres: Vec<Param> = vec![
         ("jour", ValeurParam::Jour(jour)),
         ("periode", ValeurParam::Texte(periode.to_string())),
@@ -781,7 +799,7 @@ async fn reconcilier_jour(
     Ok(())
 }
 
-async fn marquer(
+pub(crate) async fn marquer(
     tx: &mut PgConnection,
     etab: Uuid,
     id: Uuid,

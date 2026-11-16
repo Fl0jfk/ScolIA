@@ -526,6 +526,10 @@ pub enum Action {
     /// Suivre l'information des familles : tracer un contact, voir les relances « sans réponse », préparer un
     /// courrier postal, régler le rythme de relance en lecture (D-017 : CPE, AED, secrétariat, direction).
     AssiduiteSuivre,
+    // ── Socle 12, lot AS6 : vérification et file du matin (`12_ASSIDUITE.md` §17.6) ──
+    /// « Prévenir maintenant » : alerter la famille en urgence (U3, sans délai de confirmation) pour une absence
+    /// inquiétante, par la brique de notifications ; décision tracée (D-017 : direction, CPE).
+    AssiduiteAlerter,
     // ── Socle 20, lot C2 : cahier de textes, saisie et publication (`20_CAHIER_DE_TEXTES.md` §19.1) ──
     /// Retirer de la diffusion une entrée ou un travail du cahier (motif obligatoire, versions gardées).
     CahierRetirer,
@@ -585,7 +589,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 240] = [
+    pub const TOUTES: [Action; 241] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -784,6 +788,7 @@ impl Action {
         Action::AbsencesJustificatifMedicalLire,
         Action::AbsencesAutorisationDecider,
         Action::AssiduiteSuivre,
+        Action::AssiduiteAlerter,
         Action::CahierRetirer,
         Action::CahierContribuer,
         Action::CahierParametrer,
@@ -1075,6 +1080,7 @@ impl Action {
             Self::AbsencesJustificatifMedicalLire => "absences.justificatif_medical_lire",
             Self::AbsencesAutorisationDecider => "absences.autorisation_decider",
             Self::AssiduiteSuivre => "assiduite.suivre",
+            Self::AssiduiteAlerter => "assiduite.alerter",
             Self::CahierRetirer => "cahier.retirer",
             Self::CahierContribuer => "cahier.contribuer",
             Self::CahierParametrer => "cahier.parametrer",
@@ -1323,6 +1329,7 @@ impl Action {
             Self::AbsencesJustificatifMedicalLire => "Lire les justificatifs d'absence médicaux (lecture journalisée)",
             Self::AbsencesAutorisationDecider => "Décider d'une demande d'autorisation d'absence",
             Self::AssiduiteSuivre => "Suivre l'information des familles : contacts, relances sans réponse, courriers postaux",
+            Self::AssiduiteAlerter => "Prévenir maintenant une famille d'une absence inquiétante (urgence, décision tracée)",
             Self::CahierRetirer => "Retirer de la diffusion une entrée ou un travail du cahier de textes (motif obligatoire)",
             Self::CahierContribuer => "Ajouter sa contribution signée au cahier d'un cours dont on est intervenant",
             Self::CahierParametrer => "Régler les repères de charge de travail du cahier de textes",
@@ -1598,6 +1605,7 @@ impl Action {
             | Self::AbsencesJustificatifMedicalLire
             | Self::AbsencesAutorisationDecider
             | Self::AssiduiteSuivre
+            | Self::AssiduiteAlerter
             => &[Portee::Etablissement],
             // S2-3 : campagnes, décisions et imports : établissement entier seulement.
             Self::InscriptionsGerer
@@ -2341,6 +2349,11 @@ fn socle_12_assiduite(role: Role, d: &mut Vec<(Action, Portee)>) {
     // secrétariat le détiennent ; un AED l'obtient par un rôle libre (D-017). Jamais le professeur.
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe) {
         d.push(etab(AssiduiteSuivre));
+    }
+    // AS6 : « prévenir maintenant » (alerte urgente d'une famille) : la direction et la CPE décident ; le
+    // secrétariat et le professeur ne la déclenchent pas (un AED l'obtient par un rôle libre si l'établissement le veut).
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe) {
+        d.push(etab(AssiduiteAlerter));
     }
 }
 
