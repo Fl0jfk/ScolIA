@@ -449,7 +449,7 @@ fn DetailEpisode(
                                 })
                                 .collect_view()}
                         </ol>
-                        <AvisEleve eleve_id=eleve_id titre="Avis aux familles pour cet élève"/>
+                        <AvisEleve eleve_id=eleve_id titre="Avis aux familles pour cet élève" sous_section=true/>
                     }
                         .into_any()
                 }
@@ -698,7 +698,13 @@ fn AvisFamilles() -> impl IntoView {
 }
 
 #[component]
-fn AvisEleve(eleve_id: Uuid, #[prop(into)] titre: String) -> impl IntoView {
+fn AvisEleve(
+    eleve_id: Uuid,
+    #[prop(into)] titre: String,
+    /// Dans le détail d'un épisode (h3) ; seul sur la page, le titre est de niveau 2.
+    #[prop(optional)]
+    sous_section: bool,
+) -> impl IntoView {
     let du: NaiveDate = crate::noyau::temps::aujourdhui() - chrono::Duration::days(JOURS_FILE);
     let avis = LocalResource::new(move || async move {
         session::client().avis_eleve(eleve_id, Some(du)).await
@@ -706,7 +712,7 @@ fn AvisEleve(eleve_id: Uuid, #[prop(into)] titre: String) -> impl IntoView {
     let etiquette = titre.clone();
     view! {
         <section class="asd-avis" aria-label=etiquette>
-            <h3>{titre}</h3>
+            {if sous_section { view! { <h3>{titre}</h3> }.into_any() } else { view! { <h2 class="vs-section-titre">{titre}</h2> }.into_any() }}
             {move || match avis.get() {
                 None => view! { <Squelette lignes=2 libelle="Chargement des avis…"/> }.into_any(),
                 Some(Err(ApiError::Interdit(_) | ApiError::Introuvable(_))) => view! { <p class="texte-attenue">"Les avis aux familles ne sont pas accessibles avec votre profil."</p> }.into_any(),

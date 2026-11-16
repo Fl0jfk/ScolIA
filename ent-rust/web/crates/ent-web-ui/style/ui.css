@@ -37,7 +37,7 @@
   --c-acc-fort: #0848a6;
   --c-acc-doux: #e8f0fd;
   --c-acc-teinte: rgba(11, 95, 215, 0.10);
-  --c-ok: #1a7f37;
+  --c-ok: #17772f; /* ≥ 4,5:1 sur --c-ok-doux (axe-core, AS14) */
   --c-ok-doux: #e6f4ea;
   --c-mal: #c5221f;
   --c-mal-doux: #fce8e6;

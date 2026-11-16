@@ -1925,6 +1925,8 @@ fn specs_domaine_assiduite_familles() -> Vec<Spec> {
         lire("assiduite-courriers-eleve", "/assiduite/eleves/{eleve}/courriers", GESTION_HORS_PROF, GESTION_HORS_PROF),
         lire("assiduite-communications", "/assiduite/eleves/{eleve}/communications", &[Parent, ParentSansDrapeaux], &[]),
         lire("assiduite-familles-parametres", "/assiduite/familles/parametres", GESTION_HORS_PROF, GESTION_HORS_PROF),
+        // AS14b (AS-216) : situation d'un élève à l'accueil, `absences.declarer`, lecture journalisée ; jamais la famille ni le professeur.
+        lire("assiduite-situation-accueil", "/assiduite/eleves/{eleve}/situation-accueil", GESTION_HORS_PROF, GESTION_HORS_PROF),
         lire("assiduite-sans-reponse", "/assiduite/relances/sans-reponse", GESTION_HORS_PROF, GESTION_HORS_PROF),
         lire("assiduite-numeros-faux", "/assiduite/contacts/numeros-faux", GESTION_HORS_PROF, GESTION_HORS_PROF),
         ecrire_sur_b(
