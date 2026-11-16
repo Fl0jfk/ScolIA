@@ -25,12 +25,12 @@ use super::commun::{charger_noms, lancer_export, GardePersonnel};
 use super::modele_heures::Noms;
 use super::modele_rcd::{
     actions_remontee, campagne_lancable, composer_engagement, composer_periode, composer_plan,
-    composer_procedure, comptes_rendus_manquants, libelle_categorie_nationale, libelle_etat_plan,
-    libelle_etat_remontee, libelle_heures, libelle_instance, libelle_mode_continuite,
-    libelle_position, libelle_semaine, libelle_statut_engagement, lignes_par_discipline, lundi_de,
-    part_consommee, plan_modifiable_en_place, saisie_depuis_plan, semaine_passee,
-    taux_remplacement, ton_etat_plan, ton_etat_remontee, totaux_remontee, SaisieEngagement,
-    SaisiePlan, SaisieProcedure, INSTANCES, STATUTS_ENGAGEMENT,
+    composer_procedure, comptes_rendus_manquants, libelle_categorie_nationale, libelle_effectif,
+    libelle_etat_plan, libelle_etat_remontee, libelle_heures, libelle_instance,
+    libelle_mode_continuite, libelle_position, libelle_semaine, libelle_statut_engagement,
+    lignes_par_discipline, lundi_de, part_consommee, plan_modifiable_en_place, saisie_depuis_plan,
+    semaine_passee, taux_remplacement, ton_etat_plan, ton_etat_remontee, totaux_remontee,
+    SaisieEngagement, SaisiePlan, SaisieProcedure, INSTANCES, STATUTS_ENGAGEMENT,
 };
 use crate::composants_metier::confirmation_detaillee::ConfirmationDetaillee;
 use crate::noyau::coquille::use_droits_moteur;
@@ -885,10 +885,11 @@ fn CarteRemontee(r: RemonteeRcdDto, ecriture: Ecriture) -> impl IntoView {
                                 <li class="absp-ligne">
                                     <span>
                                         {format!(
-                                            "{} · {} · {}",
+                                            "{} · {} · {} · {}",
                                             l.niveau_code,
                                             libelle_categorie_nationale(&l.categorie_nationale),
-                                            libelle_mode_continuite(&l.mode_continuite)
+                                            libelle_mode_continuite(&l.mode_continuite),
+                                            libelle_effectif(l.effectif)
                                         )}
                                     </span>
                                     <span>

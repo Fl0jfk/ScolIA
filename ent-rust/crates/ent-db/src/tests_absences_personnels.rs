@@ -3909,7 +3909,11 @@ async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
     assert_eq!((r.etat.as_str(), r.semaine), ("preparee", x.lundi));
     let maths: Vec<&LigneRemonteeRcdDto> = r.lignes.iter().filter(|l| l.discipline_code == "mathématiques").collect();
     assert!(!maths.is_empty(), "{:?}", r.lignes);
-    assert!(maths.iter().all(|l| l.niveau_code == "4EME" && l.categorie_nationale == "convenance_personnelle"), "{maths:?}");
+    // Une seule absente dans ce regroupement (moins de 3 agents) : la catégorie de motif est masquée, jamais l'effectif.
+    assert!(
+        maths.iter().all(|l| l.niveau_code == "4EME" && l.categorie_nationale == "non_detaille" && l.effectif.is_none()),
+        "{maths:?}"
+    );
     let remplace = maths.iter().find(|l| l.mode_continuite == "remplacement").expect("séance remplacée");
     assert_eq!((remplace.heures_absence, remplace.heures_remplacees), (1.0, 1.0));
     let sans = maths.iter().find(|l| l.mode_continuite == "aucune").expect("séance sans réponse");
@@ -3919,7 +3923,7 @@ async fn a6_la_remontee_hebdomadaire_ne_porte_ni_nom_ni_nature_fine() {
     assert!(r.lignes.iter().all(|l| l.heures_prevues >= 0.0));
     // Aucune personne, aucune nature fine, nulle part.
     let json = serde_json::to_string(&r).unwrap();
-    for interdit in [ag2.to_string(), ag_absent.to_string(), x.prof.to_string(), x.prof2.to_string(), abs.to_string(), "Nom prof".to_string(), "a15-prof".to_string(), "nature_code".to_string(), "\"convenance\"".to_string()] {
+    for interdit in [ag2.to_string(), ag_absent.to_string(), x.prof.to_string(), x.prof2.to_string(), abs.to_string(), "Nom prof".to_string(), "a15-prof".to_string(), "nature_code".to_string(), "\"convenance\"".to_string(), "convenance_personnelle".to_string()] {
         assert!(!json.contains(&interdit), "« {interdit} » dans la remontée : {json}");
     }
     let colonnes: Vec<String> = sqlx::query_scalar(

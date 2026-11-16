@@ -98,8 +98,14 @@ pub fn libelle_categorie_nationale(code: &str) -> &'static str {
         "institutionnel" => "Institutionnel",
         "convenance_personnelle" => "Convenance personnelle",
         "en_attente_de_motif" => "En attente de motif",
+        "non_detaille" => "Non détaillé (effectif trop faible)",
         _ => "Autre",
     }
+}
+
+/// Effectif d'un regroupement : le nombre s'il atteint le seuil de masquage, sinon « < 3 » (jamais le chiffre exact).
+pub fn libelle_effectif(effectif: Option<i16>) -> String {
+    effectif.map_or_else(|| "< 3 agents".to_string(), |e| format!("{e} agents"))
 }
 
 pub fn libelle_mode_continuite(code: &str) -> &'static str {
@@ -629,6 +635,7 @@ mod tests {
             heures_prevues: prevues,
             heures_absence: absence,
             heures_remplacees: remplacees,
+            effectif: Some(4),
         }
     }
 
@@ -674,6 +681,7 @@ mod tests {
             "heures_prevues",
             "heures_absence",
             "heures_remplacees",
+            "effectif",
         ];
         for l in v["lignes"].as_array().unwrap() {
             for cle in l.as_object().unwrap().keys() {
@@ -707,9 +715,12 @@ mod tests {
             "institutionnel",
             "convenance_personnelle",
             "en_attente_de_motif",
+            "non_detaille",
         ] {
             assert_ne!(libelle_categorie_nationale(c), "Autre", "{c}");
         }
+        assert_eq!(libelle_effectif(None), "< 3 agents");
+        assert_eq!(libelle_effectif(Some(5)), "5 agents");
         for m in [
             "remplacement",
             "autre_cours",

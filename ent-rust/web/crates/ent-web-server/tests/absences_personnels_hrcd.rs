@@ -730,7 +730,8 @@ async fn plan_rcd_volontaires_compteurs_et_remontee_sans_nom() {
                         "mode_continuite",
                         "heures_prevues",
                         "heures_absence",
-                        "heures_remplacees"
+                        "heures_remplacees",
+                        "effectif"
                     ]
                     .contains(&cle.as_str()),
                     "champ inattendu dans une ligne de remontée : {cle}"

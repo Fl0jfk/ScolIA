@@ -910,13 +910,17 @@ pub struct LigneRemonteeRcdDto {
     pub discipline_code: String,
     pub niveau_code: String,
     /// Catégorie nationale du motif (`raison_sante` · `evenement_familial` · `formation` · `institutionnel` ·
-    /// `convenance_personnelle` · `en_attente_de_motif`).
+    /// `convenance_personnelle` · `en_attente_de_motif` · `non_detaille` si l'effectif est trop faible).
     pub categorie_nationale: String,
     /// `remplacement` · `autre_cours` · `deplacement` · `continuite` · `annulation` · `suppleance` · `aucune`.
     pub mode_continuite: String,
     pub heures_prevues: f64,
     pub heures_absence: f64,
     pub heures_remplacees: f64,
+    /// Agents distincts du regroupement, **seulement s'ils sont au moins 3** ; absent sous le seuil (affiché « < 3 »)
+    /// et la catégorie est alors `non_detaille` (masquage des petits effectifs, S-1512, à confirmer avec le DPO).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effectif: Option<i16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

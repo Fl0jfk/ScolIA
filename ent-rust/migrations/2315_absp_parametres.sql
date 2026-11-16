@@ -10,3 +10,12 @@ ALTER TABLE ent_absp_param ADD COLUMN IF NOT EXISTS seuil_sans_reponse_min SMALL
     CHECK (seuil_sans_reponse_min BETWEEN 1 AND 20);
 -- Date du dernier réglage du seuil (distincte de `modifie_le`, partagée avec les autres réglages, ex. l'EDT de référence).
 ALTER TABLE ent_absp_param ADD COLUMN IF NOT EXISTS seuil_modifie_le TIMESTAMPTZ;
+
+-- Masquage des petits effectifs de la remontée RCD (S-1512, à confirmer avec le DPO) : sous 3 agents, la catégorie de
+-- motif est remplacée par `non_detaille` et l'effectif n'est pas conservé (NULL = « < 3 »).
+ALTER TABLE ent_absp_rcd_remontee_ligne DROP CONSTRAINT IF EXISTS ent_absp_rcd_remontee_ligne_categorie_nationale_check;
+ALTER TABLE ent_absp_rcd_remontee_ligne ADD CONSTRAINT ent_absp_rcd_remontee_ligne_categorie_nationale_check
+    CHECK (categorie_nationale IN ('raison_sante', 'evenement_familial', 'formation', 'institutionnel',
+        'convenance_personnelle', 'en_attente_de_motif', 'non_detaille'));
+ALTER TABLE ent_absp_rcd_remontee_ligne ADD COLUMN IF NOT EXISTS effectif SMALLINT
+    CHECK (effectif IS NULL OR effectif >= 3);
