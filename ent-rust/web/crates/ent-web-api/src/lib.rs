@@ -51,8 +51,8 @@ mod vie_scolaire;
 mod voyages;
 mod voyages_series;
 
-pub use assiduite::FiltreEpisodesApi;
 pub use absences_personnels::ActionDecision;
+pub use assiduite::FiltreEpisodesApi;
 pub use cahier::depot_fichier;
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,
