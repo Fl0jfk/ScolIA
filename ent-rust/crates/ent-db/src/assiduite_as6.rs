@@ -1159,7 +1159,14 @@ impl PgEnt {
         let alertes: Vec<LigneAlerte> = sqlx::query_as(
             "SELECT al.id, al.eleve_id, al.kind, al.seance_ref, al.statut, al.pris_par, al.pris_jusqua,
                     e.nom, e.prenom, e.classe,
-                    ent_cdt_heure_locale(al.etablissement_id, al.cree_le) AS depuis,
+                    -- « Non arrivé » : la référence est l'heure de l'EXCLUSION (la même que dans le panneau des
+                    -- exclus), pas celle de la création de l'alerte ; la clé de l'alerte est l'identifiant de la ligne.
+                    COALESCE(
+                        (SELECT ent_cdt_heure_locale(l.etablissement_id, l.exclusion_cours_le)
+                           FROM ent_appel_ligne l
+                          WHERE l.etablissement_id = al.etablissement_id AND al.kind = 'non_arrivee'
+                            AND l.id::text = al.cle AND l.exclusion_cours_le IS NOT NULL),
+                        ent_cdt_heure_locale(al.etablissement_id, al.cree_le)) AS depuis,
                     COALESCE(e.date_naissance + INTERVAL '18 years' > $2, true) AS mineur
                FROM ent_asd_alerte al
                JOIN ent_eleve e ON e.etablissement_id = al.etablissement_id AND e.id = al.eleve_id

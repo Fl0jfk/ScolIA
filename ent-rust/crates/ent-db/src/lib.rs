@@ -18,6 +18,7 @@ mod assiduite_as4;
 mod assiduite_as5;
 mod assiduite_as14;
 mod assiduite_as6;
+mod assiduite_tableau;
 pub mod sante_acc;
 pub mod accompagnement;
 mod discipline_vs;
@@ -352,6 +353,10 @@ pub use assiduite_as6::{
     PrevenirMaintenant, ResultatALaPlace, ResultatPrevenir, VigilanceAsd, CLOTURES_ALERTE, CONSOMMATEUR_VERIFICATION,
     RAISONS_A_LA_PLACE, RAISONS_PREVENIR,
 };
+pub use assiduite_tableau::{
+    heure_bascule_defaut, heure_bascule_valide, preference_valide, ConfigTableau, ExcluDuJour, ExclusDuJour,
+    PreferencePanneau, HEURE_BASCULE_DEFAUT, PANNEAUX_TABLEAU,
+};
 pub use appel_repo::{Appel, AppelLigne, AppelStatut, LigneEtat};
 pub use auth_repo::{
     AssuranceSession, AuthUser, ClientSession, LoginIdentity, OptionsSession, PorteeSession,
@@ -615,6 +620,8 @@ mod tests_assiduite_as4;
 mod tests_assiduite_as5;
 #[cfg(all(test, feature = "labo"))]
 mod tests_assiduite_as6;
+#[cfg(all(test, feature = "labo"))]
+mod tests_assiduite_tableau;
 #[cfg(all(test, feature = "labo"))]
 mod tests_inscriptions;
 #[cfg(all(test, feature = "labo"))]

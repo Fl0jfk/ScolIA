@@ -21,6 +21,7 @@ mod afaire;
 mod agenda;
 mod appel;
 mod assiduite;
+mod assiduite_tableau;
 mod auth;
 mod cahier;
 mod cahier_c2;
