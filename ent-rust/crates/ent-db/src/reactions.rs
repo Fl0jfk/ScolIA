@@ -48,6 +48,7 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(crate::cahier_reactions::ConsommateurCahier),
         Arc::new(crate::edt_reactions::ConsommateurNotificationsEdt),
         Arc::new(crate::edt_notifications::ConsommateurNotificationsEdtT4),
+        Arc::new(crate::edt_publication_notifications::ConsommateurNotificationsEdtT5),
         Arc::new(ConsommateurEvaluations),
         Arc::new(crate::voyages_reactions::ConsommateurVoyages),
         Arc::new(crate::afaire_service::ConsommateurAfaire),

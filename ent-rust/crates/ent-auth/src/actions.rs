@@ -387,6 +387,15 @@ pub enum Action {
     /// Socle 10, lot T4 (§14.3, R-E27) : « maintenant » — la séance en cours d'un élève (lecture journalisée), l'occupation
     /// d'une salle, la présence d'un professeur selon l'emploi du temps. Direction, secrétariat, vie scolaire, accueil.
     EdtMaintenantLire,
+    /// Socle 10, lot T5 (§14.1, EDT-150 et 154) : contrôler une version avant publication, voir l'aperçu, l'historique des
+    /// versions et les différences entre deux versions. Direction et secrétariat (l'adjoint chargé de l'emploi du temps).
+    EdtPublicationLire,
+    /// Socle 10, lot T5 (§14.1, EDT-151 à 153 et 156) : publier une version (aux personnels, puis diffusion aux familles),
+    /// avancer ou retarder la diffusion, publier une version individuelle. Direction et secrétariat.
+    EdtPublier,
+    /// Socle 10, lot T5 (EDT-155) : revenir à la version précédente (avant sa diffusion, ou à une date future ; le passé ne
+    /// change pas). Direction seule.
+    EdtRevenirVersion,
     /// Heures constatées (A7, ABP-200, 213, 214, 219) : lire les heures d'un agent et l'état annuel, dans son périmètre
     /// d'employeur. Direction et secrétariat (l'OGEC lit par `paie.absences`).
     PersonnelsHeuresLire,
@@ -585,7 +594,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 240] = [
+    pub const TOUTES: [Action; 243] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -809,6 +818,9 @@ impl Action {
         Action::EdtForcerConflit,
         Action::EdtDemainLire,
         Action::EdtMaintenantLire,
+        Action::EdtPublicationLire,
+        Action::EdtPublier,
+        Action::EdtRevenirVersion,
         Action::PersonnelsHeuresLire,
         Action::PersonnelsHeuresValider,
         Action::PersonnelsHeuresSigner,
@@ -1016,6 +1028,9 @@ impl Action {
             Self::EdtForcerConflit => "edt.forcer_conflit",
             Self::EdtDemainLire => "edt.demain_lire",
             Self::EdtMaintenantLire => "edt.maintenant_lire",
+            Self::EdtPublicationLire => "edt.publication_lire",
+            Self::EdtPublier => "edt.publier",
+            Self::EdtRevenirVersion => "edt.revenir_version",
             Self::PersonnelsHeuresLire => "personnels.heures.lire",
             Self::PersonnelsHeuresValider => "personnels.heures.valider",
             Self::PersonnelsHeuresSigner => "personnels.heures.signer",
@@ -1264,6 +1279,9 @@ impl Action {
             Self::EdtForcerConflit => "Forcer un conflit dur de l'emploi du temps avec un motif journalisé",
             Self::EdtDemainLire => "Lire le tableau « demain » de l'emploi du temps et les élèves sans cours",
             Self::EdtMaintenantLire => "Lire « maintenant » dans l'emploi du temps (séance d'un élève, salle, présence d'un professeur)",
+            Self::EdtPublicationLire => "Contrôler une version de l'emploi du temps avant publication, voir l'aperçu, l'historique et les différences",
+            Self::EdtPublier => "Publier une version de l'emploi du temps (personnels, puis familles), régler la diffusion, publier une version individuelle",
+            Self::EdtRevenirVersion => "Revenir à la version précédente de l'emploi du temps (avant sa diffusion, ou à une date future)",
             Self::PersonnelsHeuresLire => "Lire les heures constatées d'un agent et son état annuel",
             Self::PersonnelsHeuresValider => "Valider, corriger, saisir et régulariser les heures constatées, figer l'état mensuel",
             Self::PersonnelsHeuresSigner => "Signer l'état mensuel des heures",
@@ -1519,6 +1537,9 @@ impl Action {
             | Self::EdtForcerConflit
             | Self::EdtDemainLire
             | Self::EdtMaintenantLire
+            | Self::EdtPublicationLire
+            | Self::EdtPublier
+            | Self::EdtRevenirVersion
             | Self::PersonnelsHeuresLire
             | Self::PersonnelsHeuresValider
             | Self::PersonnelsHeuresSigner
@@ -2122,6 +2143,14 @@ fn socle_10_edt(role: Role, d: &mut Vec<(Action, Portee)>) {
     if role == Role::Direction {
         d.push(etab(EdtCorrigerPasse));
         d.push(etab(EdtForcerConflit));
+    }
+    // Lot T5 : la publication (contrôles, aperçu, historique ; publier ; revenir en arrière — direction seule).
+    if matches!(role, Role::Direction | Role::Administratif) {
+        d.push(etab(EdtPublicationLire));
+        d.push(etab(EdtPublier));
+    }
+    if role == Role::Direction {
+        d.push(etab(EdtRevenirVersion));
     }
 }
 
@@ -2942,6 +2971,23 @@ mod tests {
             assert_eq!(a(r, EdtMaintenantLire), dir_adm || matches!(r, Role::Cpe | Role::Accueil), "{r:?} maintenant");
         }
         for x in [EdtModifier, EdtModifierLieu, EdtLotAppliquer, EdtCorrigerPasse, EdtMotifInterneLire, EdtModificationsLire, EdtForcerConflit, EdtDemainLire, EdtMaintenantLire] {
+            assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
+        }
+    }
+
+    /// Socle 10, lot T5 : droits de publication. Contrôler, publier : direction et secrétariat ; revenir en arrière :
+    /// direction seule ; ni le professeur, ni la vie scolaire, ni les familles.
+    #[test]
+    fn edt_t5_modeles_par_defaut() {
+        use Action::*;
+        let a = |r: Role, x: Action| modele_par_defaut(r).iter().any(|(y, _)| *y == x);
+        for r in [Role::Admin, Role::Direction, Role::Administratif, Role::Cpe, Role::Compta, Role::Prof, Role::Infirmerie, Role::Psy, Role::Accueil, Role::Personnel, Role::Parent, Role::Eleve] {
+            let dir_adm = matches!(r, Role::Direction | Role::Administratif);
+            assert_eq!(a(r, EdtPublicationLire), dir_adm, "{r:?} publication_lire");
+            assert_eq!(a(r, EdtPublier), dir_adm, "{r:?} publier");
+            assert_eq!(a(r, EdtRevenirVersion), r == Role::Direction, "{r:?} revenir");
+        }
+        for x in [EdtPublicationLire, EdtPublier, EdtRevenirVersion] {
             assert_eq!(x.portees_admises(), &[Portee::Etablissement]);
         }
     }

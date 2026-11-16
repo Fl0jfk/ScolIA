@@ -115,6 +115,7 @@ pub const TABLES_ELEVE: &[TableEleve] = &[
     r("ent_doc_mise_a_disposition", &["id"], "mise à disposition d'un exemplaire : titulaire figé par la base (seuls les accusés et le retrait s'ajoutent), elle reste sur la fiche d'origine ; le coffre de l'élève conservé se reconstruit par le classement des documents"),
     r("ent_doc_piece", &["id"], "pièce justificative du socle 7 : élève, déposant, original et empreinte immuables (déclencheur) et décisions en ajout seul, la pièce reste rattachée à la fiche pour laquelle elle a été déposée ; l'élève conservé redemande ou réutilise la pièce par la démarche (réutilisation confirmée), jamais par une réécriture"),
     r("ent_doc_piece_demande", &["id"], "demande de pièce du socle 7 : sujet immuable (déclencheur), la demande reste sur la fiche pour laquelle elle a été ouverte ; l'élève conservé reçoit ses propres demandes"),
+    r("ent_edt_individuelle", &["id"], "version individuelle d'emploi du temps (socle 10, T5) : fait daté de la décision, dont l'effet est porté par `ent_cours_membre` (lui aussi immuable et laissé sur la fiche) ; elle reste sur la fiche pour laquelle elle a été décidée"),
     r("ent_edt_localisation_journal", &["id"], "journal en ajout seul (déclencheur) des lectures « où est cet élève » : trace de qui a regardé, reste sur la fiche consultée"),
     d("ent_eleve_bourse", &["id"]),
     d("ent_eleve_capacite", &["id"]),
@@ -308,6 +309,7 @@ pub fn domaine_fusion(table: &str) -> &'static str {
         ("ent_journal", "Journal et événements"),
         ("ent_metier_event", "Journal et événements"),
         ("ent_contrainte", "Emploi du temps"),
+        ("ent_edt_individuelle", "Emploi du temps"),
         ("ent_edt_localisation", "Emploi du temps"),
         ("ent_cours_membre", "Emploi du temps"),
     ];

@@ -216,6 +216,9 @@ pub mod edt_lots;
 pub mod edt_notifications;
 pub mod edt_demain;
 mod edt_masse;
+mod edt_materialisation;
+pub mod edt_publication;
+mod edt_publication_notifications;
 pub mod edt_ports;
 pub mod edt_versions;
 pub mod delegation;
@@ -502,6 +505,8 @@ mod tests_edt_t1_t2;
 mod tests_edt_t3;
 #[cfg(all(test, feature = "labo"))]
 mod tests_edt_t4;
+#[cfg(all(test, feature = "labo"))]
+mod tests_edt_t5;
 
 #[cfg(all(test, feature = "labo"))]
 mod tests_socle1;

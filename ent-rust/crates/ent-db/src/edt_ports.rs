@@ -713,6 +713,9 @@ impl PgEnt {
         annee_id: Uuid,
         jusqu_a: Option<NaiveDate>,
     ) -> Result<crate::referentiel_seances::RapportSeances, EntDbError> {
+        // T5 : les versions annoncées dont l'heure de diffusion est venue basculent d'abord (un acteur sans le droit de
+        // publier laisse faire quelqu'un d'autre).
+        let _ = self.edt_diffuser_echues(a).await;
         let demain = self.aujourdhui_etablissement(a.etablissement_id).await? + Duration::days(1);
         self.ref_generer_seances(a, annee_id, Some(demain), jusqu_a)
             .await
