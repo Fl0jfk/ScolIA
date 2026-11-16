@@ -129,6 +129,12 @@ fn TableEpisodes(
     let total = episodes.len();
     let ids: Vec<Uuid> = episodes.iter().map(|e| e.id).collect();
     let tous = StoredValue::new(ids);
+    let noms = StoredValue::new(
+        episodes
+            .iter()
+            .map(|e| (e.id, nom_eleve(e)))
+            .collect::<Vec<(Uuid, String)>>(),
+    );
     view! {
         <p class="asd-compte" role="status">
             {format!("{total} absence{} à qualifier", if total > 1 { "s" } else { "" })}
@@ -220,9 +226,16 @@ fn TableEpisodes(
             ouvert
                 .get()
                 .map(|id| {
+                    let nom = noms.with_value(|n| {
+                        n.iter()
+                            .find(|(i, _)| *i == id)
+                            .map(|(_, n)| n.clone())
+                            .unwrap_or_else(|| "Élève".to_string())
+                    });
                     view! {
                         <DetailEpisode
                             id=id
+                            nom=nom
                             natures=natures
                             on_change=recharger
                             on_fermer=Callback::new(move |_| ouvert.set(None))
@@ -351,6 +364,7 @@ fn BarreMasse(selection: RwSignal<Vec<Uuid>>, recharger: Callback<()>) -> impl I
 #[component]
 fn DetailEpisode(
     id: Uuid,
+    nom: String,
     natures: Signal<Vec<NatureMotifDto>>,
     on_change: Callback<()>,
     on_fermer: Callback<()>,
@@ -367,7 +381,7 @@ fn DetailEpisode(
                 Some(Err(e)) => view! { <ErreurChargement erreur=e on_reessayer=Callback::new(move |_| detail.refetch())/> }.into_any(),
                 Some(Ok(d)) => {
                     let e = d.episode.clone();
-                    let nom = nom_eleve(&e);
+                    let nom = nom.clone();
                     let eleve_id = e.eleve_id;
                     let qualifiable = matches!(e.etat.as_str(), "ouvert" | "a_qualifier");
                     let apres = Callback::new(move |_| {

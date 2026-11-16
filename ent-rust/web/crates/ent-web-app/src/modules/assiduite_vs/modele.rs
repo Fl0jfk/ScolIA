@@ -32,7 +32,7 @@ pub fn libelle_qualification(code: &str) -> &'static str {
 
 pub fn libelle_etat_episode(etat: &str) -> &'static str {
     match etat {
-        "ouvert" => "Ouvert (appel en cours)",
+        "ouvert" => "Ouvert, à qualifier",
         "a_qualifier" => "À qualifier",
         "qualifie" => "Qualifié",
         "retire" => "Retiré",
