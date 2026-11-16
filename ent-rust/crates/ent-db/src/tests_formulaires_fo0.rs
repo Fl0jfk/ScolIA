@@ -268,7 +268,7 @@ async fn fd01_ck30_ck31_version_de_fond_renouvelle_les_accords_pas_les_refus() {
     let p = ent.creer_formulaire(etab, dir, "direction", nouveau("consentement", &autre, classe, "T")).await.unwrap();
     assert!(ent.publier_formulaire_qualifie(etab, dir, "direction", p.id, Some("fond")).await.is_err());
     assert!(ent.publier_formulaire_qualifie(etab, dir, "direction", p.id, Some("mineur")).await.is_err());
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-02, CK-06 : un parent sous interdiction de communication ne lit ni ne signe ──────────────────
@@ -322,7 +322,7 @@ async fn fd02_ck06_parent_interdit_ne_lit_ni_ne_signe_et_ne_compte_plus() {
         .bind(interdiction).bind(dir).execute(ent.pool_verif()).await.unwrap();
     retirer_parent(&ent, etab, pere).await;
     droit_sortie_de_lea(&ent, &cast, false).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-03, R-FC16, R-FC58 : jamais la décision de l'autre titulaire ─────────────────────────────────
@@ -350,7 +350,7 @@ async fn fd03_un_parent_ne_voit_pas_la_decision_de_l_autre() {
     assert!(vue_lea.iter().all(|m| m.etat.is_none()));
     assert_eq!(vue_lea.iter().find(|m| m.formulaire_id == f.id).unwrap().ma_decision.as_deref(), Some("refuse"));
     retirer_parent(&ent, etab, pere).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-04, FD-05, CK-15, CK-17, CK-18, CK-19 : majorité et capacité ─────────────────────────────────
@@ -376,7 +376,7 @@ async fn fd04_ck19_majeur_prevenu_directement_ses_parents_non() {
     ent.repondre_formulaire(etab, eleve_user, f.id, rep(harry, "accepte")).await.unwrap();
     assert_eq!(etat_de(&ent, &cast, &objet, classe, harry).await, "accepte");
     poser_naissance(&ent, etab, harry, origine.0, origine.1.as_deref()).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 #[tokio::test]
@@ -447,7 +447,7 @@ async fn fd05_ck15_ck17_ck18_tutelle_emancipation_et_date_contestee() {
     assert!(ent.repondre_formulaire(etab, eleve_user, f.id, rep(harry, "refuse")).await.is_err());
 
     poser_naissance(&ent, etab, harry, origine.0, origine.1.as_deref()).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-08 : titre neutre hors de l'ENT ──────────────────────────────────────────────────────────────
@@ -471,7 +471,7 @@ async fn fd08_le_titre_d_un_formulaire_ne_quitte_pas_l_enveloppe_neutre() {
     .bind(etab).bind(f.id).fetch_all(ent.pool_verif()).await.unwrap();
     assert!(envois.iter().all(|(t,)| !t.contains("psychologique")));
     let _ = harry;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-10, CK-08 : une autorisation exige le droit de sortie du lien ────────────────────────────────
@@ -503,7 +503,7 @@ async fn fd10_ck08_autorisation_exige_autoriser_sorties() {
     // Le droit retiré après coup : sa décision ne compte plus.
     droit_sortie_de_lea(&ent, &cast, false).await;
     assert_eq!(etat_de(&ent, &cast, &objet_a, classe, harry).await, "aucune");
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-11 : acteurs de la publication et de l'archivage ─────────────────────────────────────────────
@@ -529,7 +529,7 @@ async fn fd11_publication_et_archivage_ont_un_acteur() {
     assert_eq!(arch.statut, "archive");
     let (archive_par,): (Option<Uuid>,) = sqlx::query_as("SELECT archive_par FROM ent_formulaire WHERE id = $1").bind(v2.id).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(archive_par, Some(dir));
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-12 : immuabilité en base ─────────────────────────────────────────────────────────────────────
@@ -572,7 +572,7 @@ async fn fd12_decisions_et_textes_publies_sont_immuables_en_base() {
     // Seul un brouillon jamais publié se supprime.
     let b2 = ent.creer_formulaire(etab, dir, "direction", nouveau("consentement", &objet, classe, "v2")).await.unwrap();
     assert_eq!(echec(tx("DELETE FROM ent_formulaire WHERE id = $1", b2.id).await), None);
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-14, FD-15 : numéro de version et nature ──────────────────────────────────────────────────────
@@ -601,7 +601,7 @@ async fn fd14_fd15_numero_inferieur_et_nature_verrouillee() {
     .bind(Uuid::new_v4()).bind(etab).bind(&objet).bind(dir)
     .execute(ent.pool_verif()).await;
     assert!(brut.is_err(), "garde en base : la nature d'un objet ne change jamais");
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-17, CK-03, CK-07 : règle `tous` pour l'image ; parent sans autorité ──────────────────────────
@@ -640,7 +640,7 @@ async fn fd17_ck03_ck07_droit_a_l_image_exige_les_deux_titulaires() {
     retirer_parent(&ent, etab, pere).await;
     retirer_parent(&ent, etab, beau_parent).await;
     sqlx::query("UPDATE ent_eleve SET photo_key = NULL WHERE etablissement_id = $1 AND id = $2").bind(etab).bind(harry).execute(ent.pool_verif()).await.unwrap();
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── FD-19, FRM-261 : objet validé, santé verrouillée ────────────────────────────────────────────────
@@ -659,7 +659,7 @@ async fn fd19_frm261_objet_valide_en_lecture_et_sante_verrouillee() {
         assert!(matches!(r, Err(EntDbError::SaisieInvalide(_))), "{objet} : refusé tant que le module santé est désactivé (D-034)");
     }
     assert!(ent.creer_formulaire(etab, dir, "direction", nouveau("consentement", &objet_aleatoire(), classe, "x")).await.is_ok());
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── R-FC37 : la garde de neutralité couvre le type `formulaire` ─────────────────────────────────────
@@ -669,3 +669,19 @@ fn le_type_formulaire_est_neutre_sur_les_canaux_externes() {
     assert!(crate::notifications::canal_externe_neutre("formulaire"));
     let _ = NaiveDate::from_ymd_opt(2026, 1, 1);
 }
+
+/// Tests de labo seulement : les décisions et les textes publiés sont en ajout seul (déclencheurs) ; la purge
+/// volontaire d'un établissement (`ent.purge_etablissement`) est le seul moyen de les vider.
+pub(crate) async fn vider_pour_tests(pool: &sqlx::PgPool, etab: Uuid) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
+    for t in ["ent_formulaire_reponse", "ent_formulaire"] {
+        sqlx::query(&format!("DELETE FROM {t} WHERE etablissement_id = $1"))
+            .bind(etab)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+}
+

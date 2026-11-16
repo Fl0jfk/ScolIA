@@ -62,7 +62,7 @@ async fn reset(ent: &PgEnt, etab: Uuid) {
             .await
             .unwrap();
     }
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
     // Les liens suspendus par un test précédent sont rétablis.
     sqlx::query("UPDATE ent_eleve_lien SET suspendu_le = NULL, suspendu_par = NULL, suspension_motif = NULL, suspension_reference = NULL WHERE etablissement_id = $1")
         .bind(etab)

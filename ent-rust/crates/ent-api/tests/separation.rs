@@ -611,6 +611,30 @@ fn domaine_documents() {
     jouer("documents (par identifiant)", &specs_domaine_documents());
 }
 
+/// Socle 18 (FO1) : un élève, un accord ou une décision d'un autre établissement n'est ni lisible, ni décidable, ni retirable.
+fn specs_domaine_accords() -> Vec<Spec> {
+    vec![
+        ecrire_sur_b(
+            "accords-decider-B",
+            "POST",
+            "/accords/decider",
+            Some(r#"{"objet_code":"droit_image","eleve_id":"{eleve}","usages":[{"code":"fil_classe","accorde":true}]}"#),
+        ),
+        ecrire_sur_b(
+            "accords-retirer-B",
+            "POST",
+            "/accords/retirer",
+            Some(r#"{"objet_code":"droit_image","eleve_id":"{eleve}"}"#),
+        ),
+        ecrire_sur_b("accords-decisions-B", "GET", "/accords/objets/droit_image/eleves/{eleve}/decisions", None),
+    ]
+}
+
+#[test]
+fn domaine_accords() {
+    jouer("accords (socle 18 : décider, retirer, lire les décisions)", &specs_domaine_accords());
+}
+
 fn specs_domaine_fils_de_messages() -> Vec<Spec> {
     vec![
             // M0a : le fil du labo lié à l'élève est un fil de vie scolaire (carnet) adressé aux
@@ -1686,6 +1710,7 @@ fn toutes_les_specs() -> Vec<Spec> {
     v.extend(specs_domaine_sante());
     v.extend(specs_domaine_psy());
     v.extend(specs_domaine_documents());
+    v.extend(specs_domaine_accords());
     v.extend(specs_domaine_fils_de_messages());
     v.extend(specs_domaine_factures());
     v.extend(specs_domaine_appel());

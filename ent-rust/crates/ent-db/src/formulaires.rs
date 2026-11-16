@@ -1180,22 +1180,6 @@ impl PgEnt {
     }
 }
 
-/// Tests de labo seulement : les décisions et les textes publiés sont en ajout seul (déclencheurs) ; la purge
-/// volontaire d'un établissement (`ent.purge_etablissement`) est le seul moyen de les vider.
-#[cfg(test)]
-pub(crate) async fn vider_pour_tests(pool: &sqlx::PgPool, etab: Uuid) {
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::query("SELECT set_config('ent.purge_etablissement', 'on', true)").execute(&mut *tx).await.unwrap();
-    for t in ["ent_formulaire_reponse", "ent_formulaire"] {
-        sqlx::query(&format!("DELETE FROM {t} WHERE etablissement_id = $1"))
-            .bind(etab)
-            .execute(&mut *tx)
-            .await
-            .unwrap();
-    }
-    tx.commit().await.unwrap();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -709,7 +709,7 @@ async fn reprise_193_conserve_les_refus_et_ne_vaut_jamais_accord_pour_un_usage_p
     let (etab, dir) = (cast.etablissement_id, cast.direction.user_id);
     let (lea, harry) = (cast.parent_lea.user_id, cast.eleve_lea_id);
     vider_accords(&ent, etab).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
     let classe = crate::tests_formulaires_fo0::classe_4b(&ent, etab).await;
     let objet = objet_aleatoire();
     let pere = parent_en_plus(&ent, etab, harry, true, false).await;
@@ -744,7 +744,7 @@ async fn reprise_193_conserve_les_refus_et_ne_vaut_jamais_accord_pour_un_usage_p
         .bind(etab).fetch_one(ent.pool_verif()).await.unwrap();
     assert_eq!(canaux, 2);
     vider_accords(&ent, etab).await;
-    crate::formulaires::vider_pour_tests(ent.pool_verif(), etab).await;
+    crate::tests_formulaires_fo0::vider_pour_tests(ent.pool_verif(), etab).await;
 }
 
 // ─── Reprise de 275 : consentements administratifs du socle 4 ────────────────────────────────────────
