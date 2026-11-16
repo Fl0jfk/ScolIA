@@ -57,6 +57,8 @@ pub fn consommateurs_standard() -> Vec<Arc<dyn Consommateur>> {
         Arc::new(crate::ntf::consommateur::ConsommateurAvis::nouveau()),
         // Socle 12 AS5 : avis d'absence par demi-journée, démenti, décision modifiée (via le moteur ci-dessus).
         Arc::new(crate::assiduite_as5::ConsommateurFamilles),
+        // Socle 12 AS6 : absence après présence (alerte interne), clôture des alertes.
+        Arc::new(crate::assiduite_as6::ConsommateurVerification),
     ]
 }
 

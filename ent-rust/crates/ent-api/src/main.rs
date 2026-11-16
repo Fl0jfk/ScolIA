@@ -361,6 +361,22 @@ async fn run_api() {
             }
         });
     }
+    // Socle 12 (AS6) : vérification de l'appel au jour métier de chaque établissement (chaque minute) : relance
+    // automatique de l'appel non fait (une seule fois par séance, à `début + délai`) et alerte de l'élève exclu de
+    // cours non arrivé. Idempotente : la base garantit l'unicité de la relance.
+    {
+        let ent = state.ent.clone();
+        tokio::spawn(async move {
+            loop {
+                match ent.assiduite_verification_tache().await {
+                    Ok(n) if n > 0 => tracing::info!(faits = n, "vérification d'assiduité"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("vérification d'assiduité : {e}"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+    }
     // Socle 2 (S2-8) : expédition des notifications (e-mail, SMS, push) et rappels
     // de rendez-vous, en tâches de fond. Désactivables (`ENT_NOTIFICATIONS_EXPEDITEUR=0`).
     let expediteur = notifications_actives().then(|| {

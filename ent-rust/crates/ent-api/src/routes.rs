@@ -869,6 +869,7 @@ pub fn router() -> Router<AppState> {
     let r = r.merge(crate::vie_scolaire::routes());
     let r = r.merge(crate::assiduite::routes());
     let r = r.merge(crate::assiduite_familles::routes());
+    let r = r.merge(crate::assiduite_verification::routes());
     let r = r.merge(crate::portail::routes());
     let r = r.merge(crate::afaire::routes());
     let r = r.merge(crate::recherche::routes());

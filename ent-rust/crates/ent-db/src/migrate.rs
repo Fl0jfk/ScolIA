@@ -397,6 +397,12 @@ pub(crate) const MIGRATIONS: &[(&str, &str)] = &[
     m!("2247_assiduite_as5_relance_contact"),
     m!("2248_assiduite_as5_avis_demi_journee"),
     m!("2249_assiduite_as5_courrier"),
+    // Socle 12, lot AS6 (plage 2250–2255) : 2250 à 2252 ne dépendent pas du socle 8 ; 2253 référence `ent_ntf_avis` et
+    // modifie le registre d'AS5 (2248). Tous restent sous 3808 : `MIGRATION_TAG` est inchangé (règle 28).
+    m!("2250_assiduite_as6_alerte"),
+    m!("2251_assiduite_as6_relance_appel"),
+    m!("2252_assiduite_as6_substitution"),
+    m!("2253_assiduite_as6_prevenir_maintenant"),
 ];
 
 /// Tag de la **dernière** migration du socle — exposé par `/health` pour qu'un
