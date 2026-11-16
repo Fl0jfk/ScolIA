@@ -37,6 +37,13 @@ pub const AMENAGEMENTS: &str = "/web/amenagements";
 /// Santé de l'enfant côté famille : PAI à signer, passages visibles, aménagements (S2-11).
 pub const SANTE_ENFANT: &str = "/web/sante-enfant";
 pub const ABSENCES: &str = "/web/absences";
+/// Absences des personnels (socle 15, A11) : mes absences, déclarer, files, fiche, « ce matin », mes remplacements.
+pub const MES_ABSENCES_PERSONNEL: &str = "/web/personnel/absences";
+pub const DECLARER_ABSENCE_PERSONNEL: &str = "/web/personnel/absences/declarer";
+pub const FILES_ABSENCES_PERSONNEL: &str = "/web/personnel/instruction-absences";
+pub const CE_MATIN: &str = "/web/personnel/ce-matin";
+pub const SIGNALER_ABSENCE: &str = "/web/personnel/signaler-absence";
+pub const MES_REMPLACEMENTS: &str = "/web/personnel/remplacements";
 pub const CAHIER: &str = "/web/cahier";
 /// Lot C6 : reports proposés, élèves en continuité.
 pub const CONTINUITE: &str = "/web/cahier/continuite";
@@ -236,6 +243,38 @@ pub fn entrees_avec_moteur(droits: Droits, moteur: &DroitsMoteur) -> Vec<EntreeN
     if droits.personnel {
         v.push(entree("Délégations", DELEGATIONS, NomIcone::Passkey));
     }
+    // Absences des personnels (socle 15, A11) : le serveur reste juge de chaque route.
+    if droits.personnel {
+        v.push(entree(
+            "Mes absences",
+            MES_ABSENCES_PERSONNEL,
+            NomIcone::Agenda,
+        ));
+        v.push(entree(
+            "Mes remplacements",
+            MES_REMPLACEMENTS,
+            NomIcone::Personne,
+        ));
+    }
+    if moteur.a("personnels.absences.valider") || moteur.a("personnels.absences.instruire") {
+        v.push(entree(
+            "Absences à instruire",
+            FILES_ABSENCES_PERSONNEL,
+            NomIcone::Annonce,
+        ));
+    }
+    if moteur.a("personnels.absences.signaler") {
+        v.push(entree(
+            "Signaler une absence",
+            SIGNALER_ABSENCE,
+            NomIcone::Annonce,
+        ));
+    }
+    if moteur.a("personnels.absences.lire_organisation")
+        || moteur.a("personnels.absences.lire_nature")
+    {
+        v.push(entree("Remplacements du jour", CE_MATIN, NomIcone::Horloge));
+    }
     // Communication (S2-8) : la famille réserve ses rendez-vous et signe ses formulaires (un
     // élève majeur signe lui-même) ; l'enseignant voit ses rendez-vous ; le personnel gère
     // campagnes, rencontres et formulaires selon les droits effectifs du moteur.
@@ -340,6 +379,8 @@ mod tests {
                 CONTINUITE,
                 MES_CLASSES,
                 DELEGATIONS,
+                MES_ABSENCES_PERSONNEL,
+                MES_REMPLACEMENTS,
                 RENDEZ_VOUS,
                 MESSAGES
             ]
@@ -365,6 +406,8 @@ mod tests {
                 VIE_SCOLAIRE,
                 JOURNEE,
                 DELEGATIONS,
+                MES_ABSENCES_PERSONNEL,
+                MES_REMPLACEMENTS,
                 MESSAGES,
                 INSCRIPTIONS
             ]
@@ -385,7 +428,9 @@ mod tests {
                 MON_AGENDA,
                 EDT_SEMAINE,
                 CLASSES,
-                DELEGATIONS
+                DELEGATIONS,
+                MES_ABSENCES_PERSONNEL,
+                MES_REMPLACEMENTS
             ],
             "ni vie scolaire, ni absences, pas de messagerie"
         );
@@ -437,6 +482,8 @@ mod tests {
                 VIE_SCOLAIRE,
                 JOURNEE,
                 DELEGATIONS,
+                MES_ABSENCES_PERSONNEL,
+                MES_REMPLACEMENTS,
                 MESSAGES
             ]
         );
@@ -547,6 +594,64 @@ mod tests {
         let a = adresses(droits_du_role("accueil"), &accueil);
         assert!(a.contains(&ACCUEIL_ELEVE.to_string()));
         assert!(!a.contains(&ASSIDUITE.to_string()));
+    }
+
+    #[test]
+    fn les_absences_des_personnels_suivent_les_droits_du_moteur() {
+        // « Mes absences » et « Mes remplacements » : tout le personnel ; jamais les familles ni les élèves.
+        for role in ["prof", "cpe", "administratif", "compta", "accueil"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(v.contains(&MES_ABSENCES_PERSONNEL.to_string()), "{role}");
+            assert!(v.contains(&MES_REMPLACEMENTS.to_string()), "{role}");
+        }
+        for role in ["parent", "eleve"] {
+            let v = adresses(droits_du_role(role), &DroitsMoteur::default());
+            assert!(!v.contains(&MES_ABSENCES_PERSONNEL.to_string()), "{role}");
+            assert!(!v.contains(&CE_MATIN.to_string()), "{role}");
+        }
+        // Files et « ce matin » : seulement avec les droits correspondants du moteur.
+        let sans = adresses(droits_du_role("prof"), &DroitsMoteur::default());
+        assert!(!sans.contains(&FILES_ABSENCES_PERSONNEL.to_string()));
+        assert!(!sans.contains(&CE_MATIN.to_string()));
+        let valideur =
+            DroitsMoteur::new(vec![droit("personnels.absences.valider", "etablissement")]);
+        assert!(adresses(droits_du_role("prof"), &valideur)
+            .contains(&FILES_ABSENCES_PERSONNEL.to_string()));
+        let instructeur = DroitsMoteur::new(vec![droit(
+            "personnels.absences.instruire",
+            "etablissement",
+        )]);
+        assert!(adresses(droits_du_role("compta"), &instructeur)
+            .contains(&FILES_ABSENCES_PERSONNEL.to_string()));
+        let organisation = DroitsMoteur::new(vec![droit(
+            "personnels.absences.lire_organisation",
+            "etablissement",
+        )]);
+        let v = adresses(droits_du_role("cpe"), &organisation);
+        assert!(v.contains(&CE_MATIN.to_string()));
+        assert!(
+            !v.contains(&FILES_ABSENCES_PERSONNEL.to_string()),
+            "lire l'organisation n'ouvre pas les files"
+        );
+        // Signaler (accueil, vie scolaire) : droit `signaler` seulement.
+        let signaler =
+            DroitsMoteur::new(vec![droit("personnels.absences.signaler", "etablissement")]);
+        assert!(
+            adresses(droits_du_role("accueil"), &signaler).contains(&SIGNALER_ABSENCE.to_string())
+        );
+        assert!(
+            !adresses(droits_du_role("accueil"), &DroitsMoteur::default())
+                .contains(&SIGNALER_ABSENCE.to_string())
+        );
+        // Les pages restent distinctes pour l'élément de menu actif.
+        assert!(!ent_web_ui::lien_actif(
+            MES_ABSENCES_PERSONNEL,
+            FILES_ABSENCES_PERSONNEL
+        ));
+        assert!(!ent_web_ui::lien_actif(
+            MES_ABSENCES_PERSONNEL,
+            SIGNALER_ABSENCE
+        ));
     }
 
     #[test]

@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 mod transport;
 
 // Services par domaine (méthodes de `ApiClient`).
+mod absences_personnels;
 mod afaire;
 mod agenda;
 mod appel;
@@ -51,6 +52,7 @@ mod voyages;
 mod voyages_series;
 
 pub use assiduite::FiltreEpisodesApi;
+pub use absences_personnels::ActionDecision;
 pub use cahier::depot_fichier;
 pub use communication::{
     base64_encoder, encoder_requete, Annonce, DetailFil, EleveTrouve, EnfantFamille, FilBoite,

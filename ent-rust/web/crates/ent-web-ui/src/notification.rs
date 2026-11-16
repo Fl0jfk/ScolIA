@@ -99,8 +99,10 @@ pub fn use_notifications() -> Notifications {
 pub fn ZoneNotifications() -> impl IntoView {
     let n = use_notifications();
     view! {
+        // `role="status"` n'est pas permis sur une liste (axe : aria-allowed-role, et ses éléments ne sont plus
+        // des `listitem`) : la zone annoncée est un `div`, la liste est à l'intérieur.
         <div class="ui-notifications" role="status" aria-live="polite" aria-label="Notifications">
-            <ul class="ui-notifications__liste">
+            <ol class="ui-notifications__liste">
             <For
                 each=move || n.liste()
                 key=|x| x.id
@@ -125,7 +127,7 @@ pub fn ZoneNotifications() -> impl IntoView {
                     }
                 }
             />
-            </ul>
+            </ol>
         </div>
     }
 }
