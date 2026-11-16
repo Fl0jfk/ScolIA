@@ -1531,7 +1531,6 @@ impl Action {
             // composer son groupe : établissement, mes groupes, désignés.
             Self::AffectationsGerer => &[Portee::Etablissement, Portee::Designes],
             Self::GroupesComposer => &[Portee::Etablissement, Portee::MesGroupes, Portee::Designes],
-            | Self::AccesRevue
             | Self::AfaireRapprocher
             | Self::AfairePrendre
             | Self::AfaireReattribuer
