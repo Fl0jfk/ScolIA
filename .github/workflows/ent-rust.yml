@@ -125,6 +125,11 @@ jobs:
     name: Backend — compilation des binaires de test (archives nextest)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Mémoire (2026-11-16) : à 4 compilations simultanées, l'archive « avec labo » dépasse la mémoire du
+      # runner (16 Go) depuis que ent-db a grossi : job tué en ~3 min, sans journal (runs 308, 317, 318).
+      # Reproduit en local (4 cœurs, 15 Go) : tué à -j4, passe en 4 min 10 s à -j2.
+      CARGO_BUILD_JOBS: "2"
     defaults:
       run:
         working-directory: ent-rust
