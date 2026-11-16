@@ -39,7 +39,8 @@ impl CompteSimulation {
     }
 
     pub fn invariant(&self) -> bool {
-        self.lues == self.reprises() + self.archivees + self.ignorees + self.refusees + self.a_decider
+        self.lues
+            == self.reprises() + self.archivees + self.ignorees + self.refusees + self.a_decider
     }
 
     fn ajouter(&mut self, o: &CompteSimulation) {
@@ -111,11 +112,16 @@ impl RapportSimulation {
 pub fn reference_sure(source_id: &str) -> String {
     let ok = !source_id.is_empty()
         && source_id.len() <= 200
-        && source_id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':'));
+        && source_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':'));
     if ok {
         source_id.to_string()
     } else {
-        format!("h:{}", &hex::encode(Sha256::digest(source_id.as_bytes()))[..16])
+        format!(
+            "h:{}",
+            &hex::encode(Sha256::digest(source_id.as_bytes()))[..16]
+        )
     }
 }
 
@@ -126,7 +132,11 @@ enum Decision {
     ADecider(&'static str),
 }
 
-fn decider(disposition: &Disposition, existante: Option<&Existante>, empreinte: &str) -> Option<Decision> {
+fn decider(
+    disposition: &Disposition,
+    existante: Option<&Existante>,
+    empreinte: &str,
+) -> Option<Decision> {
     match (disposition, existante) {
         (Disposition::Reprise, None) => Some(Decision::Creee),
         (Disposition::Rapprochement, None) => Some(Decision::ADecider("rapprochement_a_decider")),
@@ -215,7 +225,11 @@ pub fn reference_document_s3(cle: &str) -> String {
 }
 
 /// Rejoue la reprise sans rien écrire. `etablissement_cible` : UUID de l'établissement ScolIA cible.
-pub fn simuler(etablissement_cible: &str, d: &Decodage, existantes: &Existantes) -> RapportSimulation {
+pub fn simuler(
+    etablissement_cible: &str,
+    d: &Decodage,
+    existantes: &Existantes,
+) -> RapportSimulation {
     let mut r = RapportSimulation {
         etablissement_cible: etablissement_cible.to_string(),
         ..Default::default()
@@ -276,7 +290,9 @@ pub fn simuler(etablissement_cible: &str, d: &Decodage, existantes: &Existantes)
     }
     for doc in d.documents_s3.iter().filter(|x| !x.expire) {
         let (objet, domaine) = match doc.nature {
-            crate::decodage::s3json::NatureS3::RentreeEnAttente => ("s3:RentreeEnAttente", "inscriptions"),
+            crate::decodage::s3json::NatureS3::RentreeEnAttente => {
+                ("s3:RentreeEnAttente", "inscriptions")
+            }
             _ => ("s3:DemandeEnAttente", "demandes"),
         };
         let sid = reference_document_s3(&doc.cle);
@@ -299,8 +315,10 @@ pub fn simuler(etablissement_cible: &str, d: &Decodage, existantes: &Existantes)
     for c in &comptes {
         r.total.ajouter(c);
     }
-    r.propositions.sort_by(|a, b| (&a.objet, &a.source_id).cmp(&(&b.objet, &b.source_id)));
-    r.a_decider.sort_by(|a, b| (&a.objet, &a.source_id).cmp(&(&b.objet, &b.source_id)));
+    r.propositions
+        .sort_by(|a, b| (&a.objet, &a.source_id).cmp(&(&b.objet, &b.source_id)));
+    r.a_decider
+        .sort_by(|a, b| (&a.objet, &a.source_id).cmp(&(&b.objet, &b.source_id)));
     r
 }
 
@@ -321,12 +339,13 @@ pub fn correspondances_a_enregistrer(r: &RapportSimulation, existantes: &Existan
         );
     }
     for a in &r.a_decider {
-        m.entry((a.objet.clone(), a.source_id.clone())).or_insert(Existante {
-            cible_id: a.cible_id.clone(),
-            empreinte_source: Some(a.empreinte.clone()),
-            modifie_depuis_reprise: false,
-            statut: Statut::ADecider,
-        });
+        m.entry((a.objet.clone(), a.source_id.clone()))
+            .or_insert(Existante {
+                cible_id: a.cible_id.clone(),
+                empreinte_source: Some(a.empreinte.clone()),
+                modifie_depuis_reprise: false,
+                statut: Statut::ADecider,
+            });
     }
     m
 }
@@ -334,21 +353,48 @@ pub fn correspondances_a_enregistrer(r: &RapportSimulation, existantes: &Existan
 /// Rapport lisible, sans aucune valeur de donnée.
 pub fn texte(r: &RapportSimulation) -> String {
     let mut s = String::from("=== Simulation de la reprise (aucune écriture dans le métier) ===\n");
-    s.push_str(&format!("Établissement cible : {}\n\n", r.etablissement_cible));
+    s.push_str(&format!(
+        "Établissement cible : {}\n\n",
+        r.etablissement_cible
+    ));
     s.push_str("objet : lues = créées + mises à jour + inchangées + archivées + ignorées + refusées + à décider\n");
     for (o, c) in &r.par_objet {
         s.push_str(&format!(
             "{o} : {} = {} + {} + {} + {} + {} + {} + {}\n",
-            c.lues, c.creees, c.mises_a_jour, c.inchangees, c.archivees, c.ignorees, c.refusees, c.a_decider
+            c.lues,
+            c.creees,
+            c.mises_a_jour,
+            c.inchangees,
+            c.archivees,
+            c.ignorees,
+            c.refusees,
+            c.a_decider
         ));
     }
     let t = &r.total;
     s.push_str(&format!(
         "\nTOTAL : {} = {} + {} + {} + {} + {} + {} + {}\n",
-        t.lues, t.creees, t.mises_a_jour, t.inchangees, t.archivees, t.ignorees, t.refusees, t.a_decider
+        t.lues,
+        t.creees,
+        t.mises_a_jour,
+        t.inchangees,
+        t.archivees,
+        t.ignorees,
+        t.refusees,
+        t.a_decider
     ));
-    s.push_str(&format!("À décider (file préparée pour R3) : {}\n", r.a_decider.len()));
-    s.push_str(&format!("Écritures dans les tables métier : {}\n", r.ecritures_metier));
-    s.push_str(if r.invariants_ok() { "Invariant : respecté\n" } else { "Invariant : VIOLÉ\n" });
+    s.push_str(&format!(
+        "À décider (file préparée pour R3) : {}\n",
+        r.a_decider.len()
+    ));
+    s.push_str(&format!(
+        "Écritures dans les tables métier : {}\n",
+        r.ecritures_metier
+    ));
+    s.push_str(if r.invariants_ok() {
+        "Invariant : respecté\n"
+    } else {
+        "Invariant : VIOLÉ\n"
+    });
     s
 }

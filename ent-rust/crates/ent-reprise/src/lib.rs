@@ -18,9 +18,9 @@ pub mod inspection;
 pub mod jeu_fictif;
 pub mod perimetre;
 pub mod s3;
+pub mod schema;
 pub mod simulation;
 pub mod zone;
-pub mod schema;
 
 /// Erreur de l'outil : message lisible en français, **jamais** une valeur de donnée.
 #[derive(Debug)]

@@ -43,7 +43,10 @@ pub fn decoder(type_sql: &str, nullable: bool, brut: Option<&str>) -> Result<Val
         return if nullable {
             Ok(Valeur::Nul)
         } else {
-            Err(refus("null_interdit", "valeur absente dans une colonne obligatoire"))
+            Err(refus(
+                "null_interdit",
+                "valeur absente dans une colonne obligatoire",
+            ))
         };
     };
     match type_sql {
@@ -136,7 +139,8 @@ fn est_decimal(v: &str) -> bool {
     !ent.is_empty()
         && ent.len() <= 20
         && ent.bytes().all(|c| c.is_ascii_digit())
-        && frac.is_none_or(|f| !f.is_empty() && f.len() <= 10 && f.bytes().all(|c| c.is_ascii_digit()))
+        && frac
+            .is_none_or(|f| !f.is_empty() && f.len() <= 10 && f.bytes().all(|c| c.is_ascii_digit()))
 }
 
 /// Littéral de tableau PostgreSQL à une dimension : `{a,"b c",...}`. Un élément NULL est refusé.
@@ -217,7 +221,10 @@ mod tests {
     #[test]
     fn instants() {
         assert!(ok("timestamp with time zone", "2026-09-01 08:30:00+00"));
-        assert!(ok("timestamp with time zone", "2026-09-01 08:30:00.123456+02"));
+        assert!(ok(
+            "timestamp with time zone",
+            "2026-09-01 08:30:00.123456+02"
+        ));
         assert!(ok("timestamp with time zone", "2026-09-01T08:30:00Z"));
         assert!(!ok("timestamp with time zone", "infinity"));
         assert!(!ok("timestamp with time zone", "2026-09-01"));
@@ -227,13 +234,19 @@ mod tests {
     #[test]
     fn null_selon_nullable() {
         assert_eq!(decoder("text", true, None), Ok(Valeur::Nul));
-        assert_eq!(decoder("text", false, None).unwrap_err().code, "null_interdit");
+        assert_eq!(
+            decoder("text", false, None).unwrap_err().code,
+            "null_interdit"
+        );
     }
 
     #[test]
     fn tableaux() {
         assert_eq!(tableau_texte("{}").unwrap(), Vec::<String>::new());
-        assert_eq!(tableau_texte("{a,\"b c\",\"d\\\"e\"}").unwrap(), vec!["a", "b c", "d\"e"]);
+        assert_eq!(
+            tableau_texte("{a,\"b c\",\"d\\\"e\"}").unwrap(),
+            vec!["a", "b c", "d\"e"]
+        );
         assert_eq!(tableau_texte("{a,NULL}").unwrap_err().code, "element_nul");
         assert!(tableau_texte("a,b").is_err());
         assert!(tableau_texte("{a,,b}").is_err());
@@ -242,8 +255,14 @@ mod tests {
 
     #[test]
     fn type_inconnu_et_json() {
-        assert_eq!(decoder("money", false, Some("1")).unwrap_err().code, "type_sql_inconnu");
+        assert_eq!(
+            decoder("money", false, Some("1")).unwrap_err().code,
+            "type_sql_inconnu"
+        );
         assert!(ok("jsonb", "{\"a\":1}"));
-        assert_eq!(decoder("jsonb", false, Some("{a")).unwrap_err().code, "json_invalide");
+        assert_eq!(
+            decoder("jsonb", false, Some("{a")).unwrap_err().code,
+            "json_invalide"
+        );
     }
 }

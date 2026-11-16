@@ -77,10 +77,12 @@ pub async fn ouvrir_execution(
         .bind(etab.to_string())
         .execute(&mut *tx)
         .await?;
-    let numero: i32 = sqlx::query_scalar("SELECT COALESCE(MAX(numero), 0)::int + 1 FROM rep_execution WHERE etablissement_id = $1")
-        .bind(etab)
-        .fetch_one(&mut *tx)
-        .await?;
+    let numero: i32 = sqlx::query_scalar(
+        "SELECT COALESCE(MAX(numero), 0)::int + 1 FROM rep_execution WHERE etablissement_id = $1",
+    )
+    .bind(etab)
+    .fetch_one(&mut *tx)
+    .await?;
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO rep_execution (id, etablissement_id, numero, source, format_version, mode, cible, operateur_user_id)
@@ -122,7 +124,8 @@ pub async fn correspondances(pool: &PgPool, etab: Uuid) -> Result<Existantes, Er
                 cible_id: cible.to_string(),
                 empreinte_source: l.get("empreinte_source"),
                 modifie_depuis_reprise: l.get("modifie_depuis_reprise"),
-                statut: Statut::depuis(&statut).ok_or_else(|| ErreurReprise::Refus(format!("statut inconnu : {statut}")))?,
+                statut: Statut::depuis(&statut)
+                    .ok_or_else(|| ErreurReprise::Refus(format!("statut inconnu : {statut}")))?,
             },
         );
     }
@@ -144,7 +147,9 @@ pub async fn enregistrer_trace(
     rapport_empreinte: &str,
 ) -> Result<(), ErreurReprise> {
     if !simulation.invariants_ok() {
-        return Err(ErreurReprise::Refus("invariant de la simulation violé : trace refusée".into()));
+        return Err(ErreurReprise::Refus(
+            "invariant de la simulation violé : trace refusée".into(),
+        ));
     }
     let mut tx = TenantTx::begin(pool, etab).await?;
     for (objet, c) in &simulation.par_objet {
@@ -214,7 +219,11 @@ pub async fn enregistrer_trace(
 }
 
 /// Marque une exécution en échec (jamais en silence).
-pub async fn marquer_echec(pool: &PgPool, etab: Uuid, exec: Execution) -> Result<(), ErreurReprise> {
+pub async fn marquer_echec(
+    pool: &PgPool,
+    etab: Uuid,
+    exec: Execution,
+) -> Result<(), ErreurReprise> {
     let mut tx = TenantTx::begin(pool, etab).await?;
     sqlx::query(
         "UPDATE rep_execution SET etat = 'echec', fin_le = now() WHERE etablissement_id = $1 AND id = $2 AND etat = 'en_cours'",
@@ -238,21 +247,34 @@ pub async fn enregistrer_correspondances(
     simulation: &RapportSimulation,
 ) -> Result<u64, ErreurReprise> {
     let mut tx = TenantTx::begin(pool, etab).await?;
-    let mode: Option<String> = sqlx::query_scalar("SELECT mode FROM rep_execution WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(exec.id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    let mode: Option<String> = sqlx::query_scalar(
+        "SELECT mode FROM rep_execution WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(exec.id)
+    .fetch_optional(&mut *tx)
+    .await?;
     match mode.as_deref() {
-        Some("simulation") => return Err(ErreurReprise::Refus("une simulation n'enregistre aucune correspondance".into())),
+        Some("simulation") => {
+            return Err(ErreurReprise::Refus(
+                "une simulation n'enregistre aucune correspondance".into(),
+            ))
+        }
         None => return Err(ErreurReprise::Refus("exécution inconnue".into())),
         _ => {}
     }
     let mut ecrites = 0u64;
     let etab_txt = etab.to_string();
     for p in &simulation.propositions {
-        let cible = Uuid::parse_str(&p.cible_id).map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
-        let id = Uuid::parse_str(&id_derive(&etab_txt, "rep_correspondance", &p.objet, &p.source_id)).expect("uuid dérivé");
+        let cible = Uuid::parse_str(&p.cible_id)
+            .map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
+        let id = Uuid::parse_str(&id_derive(
+            &etab_txt,
+            "rep_correspondance",
+            &p.objet,
+            &p.source_id,
+        ))
+        .expect("uuid dérivé");
         let r = sqlx::query(
             "INSERT INTO rep_correspondance
                  (id, etablissement_id, source, source_objet, source_id, cible_objet, cible_id, regle_code, statut, execution_id, empreinte_source)
@@ -278,8 +300,15 @@ pub async fn enregistrer_correspondances(
         debug_assert!(matches!(p.action, Action::Creee | Action::MiseAJour));
     }
     for a in &simulation.a_decider {
-        let cible = Uuid::parse_str(&a.cible_id).map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
-        let id = Uuid::parse_str(&id_derive(&etab_txt, "rep_correspondance", &a.objet, &a.source_id)).expect("uuid dérivé");
+        let cible = Uuid::parse_str(&a.cible_id)
+            .map_err(|_| ErreurReprise::Refus("identifiant cible invalide".into()))?;
+        let id = Uuid::parse_str(&id_derive(
+            &etab_txt,
+            "rep_correspondance",
+            &a.objet,
+            &a.source_id,
+        ))
+        .expect("uuid dérivé");
         let r = sqlx::query(
             "INSERT INTO rep_correspondance
                  (id, etablissement_id, source, source_objet, source_id, cible_objet, cible_id, regle_code, statut, execution_id, empreinte_source)
@@ -304,13 +333,19 @@ pub async fn enregistrer_correspondances(
 }
 
 /// Date de purge de la zone de cette exécution (MSE-179).
-pub async fn noter_zone_videe(pool: &PgPool, etab: Uuid, exec: Execution) -> Result<(), ErreurReprise> {
+pub async fn noter_zone_videe(
+    pool: &PgPool,
+    etab: Uuid,
+    exec: Execution,
+) -> Result<(), ErreurReprise> {
     let mut tx = TenantTx::begin(pool, etab).await?;
-    sqlx::query("UPDATE rep_execution SET zone_videe_le = now() WHERE etablissement_id = $1 AND id = $2")
-        .bind(etab)
-        .bind(exec.id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE rep_execution SET zone_videe_le = now() WHERE etablissement_id = $1 AND id = $2",
+    )
+    .bind(etab)
+    .bind(exec.id)
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
     Ok(())
 }

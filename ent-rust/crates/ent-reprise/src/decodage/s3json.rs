@@ -28,7 +28,8 @@ pub fn nature(cle: &str) -> NatureS3 {
         return NatureS3::Secret;
     }
     let seg: Vec<&str> = cle.split('/').collect();
-    if seg.len() == 5 && seg[..3] == ["rentree", "submissions", "pending"] && seg[4] == "meta.json" {
+    if seg.len() == 5 && seg[..3] == ["rentree", "submissions", "pending"] && seg[4] == "meta.json"
+    {
         return NatureS3::RentreeEnAttente;
     }
     if seg.len() == 4 && seg[..2] == ["requests", "pending"] && seg[3] == "meta.json" {
@@ -44,10 +45,18 @@ pub fn nature(cle: &str) -> NatureS3 {
 }
 
 fn r(nom: &'static str, forme: Forme) -> Champ {
-    Champ { nom, forme, requis: true }
+    Champ {
+        nom,
+        forme,
+        requis: true,
+    }
 }
 fn o(nom: &'static str, forme: Forme) -> Champ {
-    Champ { nom, forme, requis: false }
+    Champ {
+        nom,
+        forme,
+        requis: false,
+    }
 }
 fn tab(f: Forme) -> Forme {
     Forme::Tableau(Box::new(f))
@@ -119,15 +128,27 @@ pub fn decoder(n: NatureS3, contenu: &str) -> Result<Value, Vec<Refus>> {
     if contenu.len() > 1 << 20 {
         return Err(vec![refus("s3_taille", "objet JSON au-delà de 1 Mio")]);
     }
-    let v: Value = serde_json::from_str(contenu).map_err(|_| vec![refus("json_invalide", "JSON mal formé")])?;
+    let v: Value = serde_json::from_str(contenu)
+        .map_err(|_| vec![refus("json_invalide", "JSON mal formé")])?;
     let mut e = valider(&f, &v);
-    if v.get("version").and_then(Value::as_i64) != Some(1) && e.iter().all(|x| x.code != "json_type") {
-        e.push(refus("s3_version", "version de document inconnue (1 attendu)"));
+    if v.get("version").and_then(Value::as_i64) != Some(1)
+        && e.iter().all(|x| x.code != "json_type")
+    {
+        e.push(refus(
+            "s3_version",
+            "version de document inconnue (1 attendu)",
+        ));
     }
     if n == NatureS3::DemandeEnAttente && e.is_empty() {
-        let (k, m) = (v["attachmentKeys"].as_array().map(Vec::len), v["attachmentMeta"].as_array().map(Vec::len));
+        let (k, m) = (
+            v["attachmentKeys"].as_array().map(Vec::len),
+            v["attachmentMeta"].as_array().map(Vec::len),
+        );
         if k != m {
-            e.push(refus("s3_pieces_incoherentes", "attachmentKeys et attachmentMeta de longueurs différentes"));
+            e.push(refus(
+                "s3_pieces_incoherentes",
+                "attachmentKeys et attachmentMeta de longueurs différentes",
+            ));
         }
     }
     if e.is_empty() {
@@ -143,9 +164,18 @@ mod tests {
 
     #[test]
     fn natures() {
-        assert_eq!(nature("rentree/submissions/pending/abc/meta.json"), NatureS3::RentreeEnAttente);
-        assert_eq!(nature("requests/pending/abc/meta.json"), NatureS3::DemandeEnAttente);
-        assert_eq!(nature("requests/pending/abc/files/x.pdf"), NatureS3::Fichier);
+        assert_eq!(
+            nature("rentree/submissions/pending/abc/meta.json"),
+            NatureS3::RentreeEnAttente
+        );
+        assert_eq!(
+            nature("requests/pending/abc/meta.json"),
+            NatureS3::DemandeEnAttente
+        );
+        assert_eq!(
+            nature("requests/pending/abc/files/x.pdf"),
+            NatureS3::Fichier
+        );
         assert_eq!(nature("tenants/index.json"), NatureS3::Secret);
         assert_eq!(nature("knowledge/a.json"), NatureS3::Connaissance);
         assert_eq!(nature("travels/1/devis.json"), NatureS3::JsonInventorie);
@@ -159,7 +189,13 @@ mod tests {
         let e = decoder(NatureS3::DemandeEnAttente, &inconnu).unwrap_err();
         assert_eq!(e[0].code, "json_cle_inconnue");
         let v2 = bon.replace("\"version\":1", "\"version\":2");
-        assert_eq!(decoder(NatureS3::DemandeEnAttente, &v2).unwrap_err()[0].code, "s3_version");
-        assert_eq!(decoder(NatureS3::DemandeEnAttente, "{").unwrap_err()[0].code, "json_invalide");
+        assert_eq!(
+            decoder(NatureS3::DemandeEnAttente, &v2).unwrap_err()[0].code,
+            "s3_version"
+        );
+        assert_eq!(
+            decoder(NatureS3::DemandeEnAttente, "{").unwrap_err()[0].code,
+            "json_invalide"
+        );
     }
 }

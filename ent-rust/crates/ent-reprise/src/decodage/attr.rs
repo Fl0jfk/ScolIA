@@ -60,7 +60,10 @@ pub fn decoder_feuille(v: &str) -> Result<TypeFeuille, Refus> {
             .map(|_| TypeFeuille::Json)
             .map_err(|_| refus("attr_json", "feuille `j:` : JSON mal formé"));
     }
-    Err(refus("attr_prefixe", "préfixe de valeur inconnu (s:, n:, b:, j:, null:null, undef:)"))
+    Err(refus(
+        "attr_prefixe",
+        "préfixe de valeur inconnu (s:, n:, b:, j:, null:null, undef:)",
+    ))
 }
 
 pub fn valider_chemin(chemin: &str) -> Result<(), Refus> {
@@ -73,7 +76,10 @@ pub fn valider_chemin(chemin: &str) -> Result<(), Refus> {
     if chemin == "__root" {
         return Ok(());
     }
-    if chemin.split('.').any(|s| s.is_empty() || s.len() > SEGMENT_MAX) {
+    if chemin
+        .split('.')
+        .any(|s| s.is_empty() || s.len() > SEGMENT_MAX)
+    {
         return Err(refus("attr_chemin", "segment de chemin vide ou trop long"));
     }
     Ok(())
@@ -99,7 +105,10 @@ pub struct Documents {
 
 impl Documents {
     pub fn ajouter(&mut self, proprietaire: &str, chemin: &str) {
-        self.chemins.entry(proprietaire.to_string()).or_default().insert(chemin.to_string());
+        self.chemins
+            .entry(proprietaire.to_string())
+            .or_default()
+            .insert(chemin.to_string());
     }
 
     /// Documents incohérents : (propriétaire, code).
@@ -165,6 +174,12 @@ mod tests {
         d.ajouter("p3", "__root");
         d.ajouter("p3", "k");
         let c = d.conflits();
-        assert_eq!(c, vec![("p1".to_string(), "attr_feuille_et_enfants"), ("p3".to_string(), "attr_racine_et_enfants")]);
+        assert_eq!(
+            c,
+            vec![
+                ("p1".to_string(), "attr_feuille_et_enfants"),
+                ("p3".to_string(), "attr_racine_et_enfants")
+            ]
+        );
     }
 }

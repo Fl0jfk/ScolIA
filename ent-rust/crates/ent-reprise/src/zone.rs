@@ -36,7 +36,11 @@ pub struct TableZone {
 
 /// Tables de zone du dump, dans l'ordre alphabétique des tables sources.
 pub fn tables_zone() -> Vec<TableZone> {
-    let (s, p, b) = (SchemaAttendu::embarque(), Perimetre::embarque(), ListeBlanche::embarquee());
+    let (s, p, b) = (
+        SchemaAttendu::embarque(),
+        Perimetre::embarque(),
+        ListeBlanche::embarquee(),
+    );
     let mut out = Vec::new();
     for (t, cols) in &s.tables {
         if !p.table(t).is_some_and(|e| e.disposition.chargee()) {
@@ -47,7 +51,9 @@ pub fn tables_zone() -> Vec<TableZone> {
             .filter(|c| b.regle(t, &c.nom) != Some(Regle::Effacer))
             .map(|c| c.nom.clone())
             .collect();
-        let attr = t.ends_with("_attr") && colonnes.iter().any(|c| c == "path") && colonnes.iter().any(|c| c == "value");
+        let attr = t.ends_with("_attr")
+            && colonnes.iter().any(|c| c == "path")
+            && colonnes.iter().any(|c| c == "value");
         out.push(TableZone {
             source: t.clone(),
             nom: format!("reprise.next_{t}"),
@@ -60,27 +66,65 @@ pub fn tables_zone() -> Vec<TableZone> {
 
 /// Tables de zone des JSON S3 (typées), avec leurs colonnes de données.
 pub const TABLES_ZONE_S3: &[(&str, &[&str])] = &[
-    ("reprise.next_s3_objet", &["cle", "taille", "sha256", "nature"]),
+    (
+        "reprise.next_s3_objet",
+        &["cle", "taille", "sha256", "nature"],
+    ),
     (
         "reprise.next_s3_rentree_depot",
         &[
-            "reference", "sender_email", "student_name", "file_name", "content_type", "taille", "file_key", "item_id", "item_title",
-            "establishment_id", "establishment_label", "created_at", "expires_at",
+            "reference",
+            "sender_email",
+            "student_name",
+            "file_name",
+            "content_type",
+            "taille",
+            "file_key",
+            "item_id",
+            "item_title",
+            "establishment_id",
+            "establishment_label",
+            "created_at",
+            "expires_at",
         ],
     ),
-    ("reprise.next_s3_rentree_destinataire", &["reference", "rang", "email"]),
+    (
+        "reprise.next_s3_rentree_destinataire",
+        &["reference", "rang", "email"],
+    ),
     (
         "reprise.next_s3_demande_attente",
         &[
-            "reference", "first_name", "last_name", "email", "phone", "subject", "description", "created_at", "expires_at", "parent_source",
+            "reference",
+            "first_name",
+            "last_name",
+            "email",
+            "phone",
+            "subject",
+            "description",
+            "created_at",
+            "expires_at",
+            "parent_source",
             "parent_matched",
         ],
     ),
     (
         "reprise.next_s3_demande_piece",
-        &["reference", "rang", "piece_id", "file_name", "content_type", "taille", "uploaded_at", "cle_objet"],
+        &[
+            "reference",
+            "rang",
+            "piece_id",
+            "file_name",
+            "content_type",
+            "taille",
+            "uploaded_at",
+            "cle_objet",
+        ],
     ),
-    ("reprise.next_s3_demande_enfant", &["reference", "rang", "ine", "nom", "prenom", "classe"]),
+    (
+        "reprise.next_s3_demande_enfant",
+        &["reference", "rang", "ine", "nom", "prenom", "classe"],
+    ),
 ];
 
 /// Toutes les tables de zone (dump + S3), pour la purge et les contrôles.
@@ -260,11 +304,22 @@ mod tests {
         let b = ListeBlanche::embarquee();
         for t in tables_zone() {
             for c in &t.colonnes {
-                assert_ne!(b.regle(&t.source, c), Some(Regle::Effacer), "{}.{c}", t.source);
+                assert_ne!(
+                    b.regle(&t.source, c),
+                    Some(Regle::Effacer),
+                    "{}.{c}",
+                    t.source
+                );
             }
         }
-        let account = tables_zone().into_iter().find(|t| t.source == "account").unwrap();
-        assert!(!account.colonnes.iter().any(|c| c == "password" || c == "access_token"));
+        let account = tables_zone()
+            .into_iter()
+            .find(|t| t.source == "account")
+            .unwrap();
+        assert!(!account
+            .colonnes
+            .iter()
+            .any(|c| c == "password" || c == "access_token"));
     }
 
     #[test]
@@ -273,21 +328,38 @@ mod tests {
         for t in crate::schema::TABLES_SANTE {
             assert!(!noms.contains(&(*t).to_string()));
         }
-        for t in ["session", "verification", "two_factor", "passkey", "fd_token", "stage_token"] {
+        for t in [
+            "session",
+            "verification",
+            "two_factor",
+            "passkey",
+            "fd_token",
+            "stage_token",
+        ] {
             assert!(!noms.contains(&t.to_string()), "{t}");
         }
     }
 
     #[test]
     fn le_fichier_de_migration_est_la_sortie_du_generateur() {
-        let chemin = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../migrations/2566_ms4_zone_reprise.sql");
+        let chemin = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../migrations/2566_ms4_zone_reprise.sql");
         let fichier = std::fs::read_to_string(&chemin).expect("migration 2566");
-        assert_eq!(fichier, ddl(), "régénérer : ent-reprise zone-ddl --sortie migrations/2566_ms4_zone_reprise.sql");
+        assert_eq!(
+            fichier,
+            ddl(),
+            "régénérer : ent-reprise zone-ddl --sortie migrations/2566_ms4_zone_reprise.sql"
+        );
     }
 
     #[test]
     fn ddl_sans_json_ni_cle_etrangere_vers_le_metier() {
-        let d: String = ddl().lines().filter(|l| !l.starts_with("--")).collect::<Vec<_>>().join("\n").to_lowercase();
+        let d: String = ddl()
+            .lines()
+            .filter(|l| !l.starts_with("--"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .to_lowercase();
         assert!(!d.contains("jsonb") && !d.contains(" json "));
         assert!(!d.contains("references"));
         assert!(!d.contains("row level security"));

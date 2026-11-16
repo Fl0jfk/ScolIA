@@ -439,8 +439,14 @@ fn documents_s3_fictifs() -> Vec<(String, String)> {
     };
     let demande = "{\"version\":1,\"firstName\":\"Prénom\",\"lastName\":\"Nom\",\"email\":\"famille.fictive@example.test\",\"phone\":\"06 12 34 56 78\",\"subject\":\"Question\",\"description\":\"Texte inventé\",\"createdAt\":\"2026-11-15T08:00:00Z\",\"expiresAt\":\"2026-11-18T08:00:00Z\",\"attachmentKeys\":[\"requests/pending/demande-1/files/a1_justif.pdf\"],\"attachmentMeta\":[{\"id\":\"a1\",\"fileName\":\"justif.pdf\",\"contentType\":\"application/pdf\",\"size\":99,\"uploadedAt\":\"2026-11-15T08:00:00Z\"}],\"parentContext\":{\"source\":\"parent_portal\",\"matched\":true,\"children\":[{\"ine\":\"1234567890A\",\"nom\":\"Enfant\",\"prenom\":\"Fictif\",\"classe\":\"6A\"}]}}".to_string();
     vec![
-        ("rentree/submissions/pending/jeton-valide/meta.json".into(), rentree("2026-11-17T08:00:00Z")),
-        ("rentree/submissions/pending/jeton-expire/meta.json".into(), rentree("2026-10-01T08:00:00Z")),
+        (
+            "rentree/submissions/pending/jeton-valide/meta.json".into(),
+            rentree("2026-11-17T08:00:00Z"),
+        ),
+        (
+            "rentree/submissions/pending/jeton-expire/meta.json".into(),
+            rentree("2026-10-01T08:00:00Z"),
+        ),
         ("requests/pending/demande-1/meta.json".into(), demande),
     ]
 }

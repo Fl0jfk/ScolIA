@@ -45,20 +45,32 @@ fn entier(v: &Value, cle: &str) -> Result<i64, ErreurReprise> {
     v.get(cle)
         .and_then(Value::as_i64)
         .filter(|n| *n >= 0)
-        .ok_or_else(|| ErreurReprise::Refus(format!("document S3 : {cle} n'est pas un entier positif")))
+        .ok_or_else(|| {
+            ErreurReprise::Refus(format!("document S3 : {cle} n'est pas un entier positif"))
+        })
 }
 
 /// Charge en zone toutes les lignes comprises. Retourne le nombre de lignes par table de zone.
-pub async fn charger_zone(pool: &PgPool, etab: Uuid, execution: Uuid, d: &Decodage) -> Result<Comptes, ErreurReprise> {
+pub async fn charger_zone(
+    pool: &PgPool,
+    etab: Uuid,
+    execution: Uuid,
+    d: &Decodage,
+) -> Result<Comptes, ErreurReprise> {
     let mut comptes = Comptes::new();
     let mut tx = pool.begin().await?;
     for t in tables_zone() {
-        let Some(charge) = d.tables.get(&t.source) else { continue };
+        let Some(charge) = d.tables.get(&t.source) else {
+            continue;
+        };
         if charge.lignes.is_empty() {
             continue;
         }
         if charge.colonnes != t.colonnes {
-            return Err(ErreurReprise::Refus(format!("colonnes décodées différentes du catalogue de zone : {}", t.source)));
+            return Err(ErreurReprise::Refus(format!(
+                "colonnes décodées différentes du catalogue de zone : {}",
+                t.source
+            )));
         }
         let transit = colonnes_transit(t.attr);
         let par_ligne = transit.len() + t.colonnes.len();
@@ -119,8 +131,12 @@ async fn charger_s3(
     }
     for doc in d.documents_s3.iter().filter(|x| !x.expire) {
         match doc.nature {
-            NatureS3::RentreeEnAttente => charger_rentree(tx, etab, execution, doc, comptes).await?,
-            NatureS3::DemandeEnAttente => charger_demande(tx, etab, execution, doc, comptes).await?,
+            NatureS3::RentreeEnAttente => {
+                charger_rentree(tx, etab, execution, doc, comptes).await?
+            }
+            NatureS3::DemandeEnAttente => {
+                charger_demande(tx, etab, execution, doc, comptes).await?
+            }
             _ => {}
         }
     }
@@ -158,8 +174,15 @@ async fn charger_rentree(
     .bind(instant(v, "expiresAt")?)
     .execute(&mut *tx)
     .await?;
-    *comptes.entry("reprise.next_s3_rentree_depot".into()).or_default() += 1;
-    for (i, e) in v["recipientEmails"].as_array().into_iter().flatten().enumerate() {
+    *comptes
+        .entry("reprise.next_s3_rentree_depot".into())
+        .or_default() += 1;
+    for (i, e) in v["recipientEmails"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
         sqlx::query(
             "INSERT INTO reprise.next_s3_rentree_destinataire (_execution_id, _etablissement_cible, reference, rang, email)
              VALUES ($1, $2, $3, $4, $5)",
@@ -171,7 +194,9 @@ async fn charger_rentree(
         .bind(e.as_str().unwrap_or_default())
         .execute(&mut *tx)
         .await?;
-        *comptes.entry("reprise.next_s3_rentree_destinataire".into()).or_default() += 1;
+        *comptes
+            .entry("reprise.next_s3_rentree_destinataire".into())
+            .or_default() += 1;
     }
     Ok(())
 }
@@ -206,9 +231,16 @@ async fn charger_demande(
     .bind(contexte.and_then(|c| c.get("matched")).and_then(Value::as_bool))
     .execute(&mut *tx)
     .await?;
-    *comptes.entry("reprise.next_s3_demande_attente".into()).or_default() += 1;
+    *comptes
+        .entry("reprise.next_s3_demande_attente".into())
+        .or_default() += 1;
     let cles = v["attachmentKeys"].as_array().cloned().unwrap_or_default();
-    for (i, m) in v["attachmentMeta"].as_array().into_iter().flatten().enumerate() {
+    for (i, m) in v["attachmentMeta"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
         sqlx::query(
             "INSERT INTO reprise.next_s3_demande_piece
                  (_execution_id, _etablissement_cible, reference, rang, piece_id, file_name, content_type, taille, uploaded_at, cle_objet)
@@ -226,9 +258,17 @@ async fn charger_demande(
         .bind(cles.get(i).and_then(Value::as_str).unwrap_or_default())
         .execute(&mut *tx)
         .await?;
-        *comptes.entry("reprise.next_s3_demande_piece".into()).or_default() += 1;
+        *comptes
+            .entry("reprise.next_s3_demande_piece".into())
+            .or_default() += 1;
     }
-    for (i, e) in contexte.and_then(|c| c.get("children")).and_then(Value::as_array).into_iter().flatten().enumerate() {
+    for (i, e) in contexte
+        .and_then(|c| c.get("children"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
         sqlx::query(
             "INSERT INTO reprise.next_s3_demande_enfant (_execution_id, _etablissement_cible, reference, rang, ine, nom, prenom, classe)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
@@ -243,13 +283,19 @@ async fn charger_demande(
         .bind(e.get("classe").and_then(Value::as_str))
         .execute(&mut *tx)
         .await?;
-        *comptes.entry("reprise.next_s3_demande_enfant".into()).or_default() += 1;
+        *comptes
+            .entry("reprise.next_s3_demande_enfant".into())
+            .or_default() += 1;
     }
     Ok(())
 }
 
 /// Lignes présentes en zone pour cette exécution, par table (tables vides omises).
-pub async fn compter_zone(pool: &PgPool, etab: Uuid, execution: Uuid) -> Result<Comptes, ErreurReprise> {
+pub async fn compter_zone(
+    pool: &PgPool,
+    etab: Uuid,
+    execution: Uuid,
+) -> Result<Comptes, ErreurReprise> {
     let mut m = Comptes::new();
     for nom in noms_tables_zone() {
         let n: i64 = sqlx::query_scalar(&format!(
@@ -267,10 +313,17 @@ pub async fn compter_zone(pool: &PgPool, etab: Uuid, execution: Uuid) -> Result<
 }
 
 /// Relit la zone et vérifie qu'elle contient exactement ce que le décodage a compris.
-pub async fn verifier_zone(pool: &PgPool, etab: Uuid, execution: Uuid, attendu: &Comptes) -> Result<(), ErreurReprise> {
+pub async fn verifier_zone(
+    pool: &PgPool,
+    etab: Uuid,
+    execution: Uuid,
+    attendu: &Comptes,
+) -> Result<(), ErreurReprise> {
     let relu = compter_zone(pool, etab, execution).await?;
     if &relu != attendu {
-        return Err(ErreurReprise::Refus("la zone relue ne correspond pas aux lignes comprises du décodage".into()));
+        return Err(ErreurReprise::Refus(
+            "la zone relue ne correspond pas aux lignes comprises du décodage".into(),
+        ));
     }
     Ok(())
 }
@@ -280,11 +333,13 @@ pub async fn vider_zone(pool: &PgPool, etab: Uuid, execution: Uuid) -> Result<u6
     let mut tx = pool.begin().await?;
     let mut total = 0;
     for nom in noms_tables_zone() {
-        let r = sqlx::query(&format!("DELETE FROM {nom} WHERE _execution_id = $1 AND _etablissement_cible = $2"))
-            .bind(execution)
-            .bind(etab)
-            .execute(&mut *tx)
-            .await?;
+        let r = sqlx::query(&format!(
+            "DELETE FROM {nom} WHERE _execution_id = $1 AND _etablissement_cible = $2"
+        ))
+        .bind(execution)
+        .bind(etab)
+        .execute(&mut *tx)
+        .await?;
         total += r.rows_affected();
     }
     tx.commit().await?;
@@ -316,16 +371,35 @@ pub async fn executer_simulation(
 ) -> Result<ResultatSimulation, ErreurReprise> {
     use crate::reprise::{self, ModeExecution};
     use sha2::{Digest, Sha256};
-    let decodage = ent_reprise::decodage::decoder_export(options).map_err(|e| ErreurReprise::Refus(e.to_string()))?;
-    let execution = reprise::ouvrir_execution(pool, etab, "next-schema-v1", ModeExecution::Simulation, cible, operateur).await?;
+    let decodage = ent_reprise::decodage::decoder_export(options)
+        .map_err(|e| ErreurReprise::Refus(e.to_string()))?;
+    let execution = reprise::ouvrir_execution(
+        pool,
+        etab,
+        "next-schema-v1",
+        ModeExecution::Simulation,
+        cible,
+        operateur,
+    )
+    .await?;
     let suite = async {
         let zone = charger_zone(pool, etab, execution.id, &decodage).await?;
         verifier_zone(pool, etab, execution.id, &zone).await?;
         let existantes = reprise::correspondances(pool, etab).await?;
-        let simulation = ent_reprise::simulation::simuler(&etab.to_string(), &decodage, &existantes);
-        let json = serde_json::to_string(&(&decodage.rapport, &simulation)).map_err(|e| ErreurReprise::Refus(e.to_string()))?;
+        let simulation =
+            ent_reprise::simulation::simuler(&etab.to_string(), &decodage, &existantes);
+        let json = serde_json::to_string(&(&decodage.rapport, &simulation))
+            .map_err(|e| ErreurReprise::Refus(e.to_string()))?;
         let rapport_empreinte = format!("{:x}", Sha256::digest(json.as_bytes()));
-        reprise::enregistrer_trace(pool, etab, execution, &decodage.rapport, &simulation, &rapport_empreinte).await?;
+        reprise::enregistrer_trace(
+            pool,
+            etab,
+            execution,
+            &decodage.rapport,
+            &simulation,
+            &rapport_empreinte,
+        )
+        .await?;
         Ok::<_, ErreurReprise>((zone, simulation, rapport_empreinte))
     }
     .await;

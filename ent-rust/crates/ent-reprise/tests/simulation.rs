@@ -41,7 +41,10 @@ fn simulation_invariant_et_aucune_ecriture() {
     assert_eq!(r.a_decider.len() as u64, r.total.a_decider);
     // Archives : archivées. Santé : refusée.
     assert!(r.par_objet["vs_appel"].archivees > 0);
-    assert_eq!(r.par_objet["sante_pai"].refusees, r.par_objet["sante_pai"].lues);
+    assert_eq!(
+        r.par_objet["sante_pai"].refusees,
+        r.par_objet["sante_pai"].lues
+    );
     // Les lignes lues du décodage sont toutes accountées.
     let lues: u64 = d.rapport.tables.values().map(|o| o.lues).sum::<u64>()
         + d.rapport.s3.values().map(|o| o.lues).sum::<u64>();
@@ -53,16 +56,32 @@ fn identifiants_cibles_stables_et_distincts() {
     let (_, d) = jeu("sim-ids");
     let a = simuler(ETAB, &d, &Existantes::new());
     let b = simuler(ETAB, &d, &Existantes::new());
-    let ids = |r: &ent_reprise::simulation::RapportSimulation| r.propositions.iter().map(|p| p.cible_id.clone()).collect::<Vec<_>>();
+    let ids = |r: &ent_reprise::simulation::RapportSimulation| {
+        r.propositions
+            .iter()
+            .map(|p| p.cible_id.clone())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(ids(&a), ids(&b));
     let mut u = ids(&a);
     u.sort();
     u.dedup();
-    assert_eq!(u.len(), a.propositions.len(), "collision d'identifiants cibles");
+    assert_eq!(
+        u.len(),
+        a.propositions.len(),
+        "collision d'identifiants cibles"
+    );
     let p = &a.propositions[0];
-    assert_eq!(p.cible_id, id_derive(ETAB, SOURCE_NEXT, &p.objet, &p.source_id));
+    assert_eq!(
+        p.cible_id,
+        id_derive(ETAB, SOURCE_NEXT, &p.objet, &p.source_id)
+    );
     // Autre établissement cible : autres identifiants.
-    let c = simuler("5c011a00-0000-4000-8000-000000000029", &d, &Existantes::new());
+    let c = simuler(
+        "5c011a00-0000-4000-8000-000000000029",
+        &d,
+        &Existantes::new(),
+    );
     assert_ne!(ids(&a), ids(&c));
 }
 
@@ -90,9 +109,17 @@ fn source_plus_recente_met_a_jour_et_ajoute() {
     let r1 = simuler(ETAB, &d, &Existantes::new());
     let mut ex = correspondances_a_enregistrer(&r1, &Existantes::new());
     // Une ligne déjà reprise change à la source (empreinte différente) ; une autre n'existait pas encore.
-    let cle = ex.iter().find(|((o, _), e)| o == "travel" && e.statut == Statut::Creee).map(|(k, _)| k.clone()).unwrap();
+    let cle = ex
+        .iter()
+        .find(|((o, _), e)| o == "travel" && e.statut == Statut::Creee)
+        .map(|(k, _)| k.clone())
+        .unwrap();
     ex.get_mut(&cle).unwrap().empreinte_source = Some("ancienne".into());
-    let cle2 = ex.iter().find(|((o, _), e)| o == "tarif" && e.statut == Statut::Creee).map(|(k, _)| k.clone()).unwrap();
+    let cle2 = ex
+        .iter()
+        .find(|((o, _), e)| o == "tarif" && e.statut == Statut::Creee)
+        .map(|(k, _)| k.clone())
+        .unwrap();
     ex.remove(&cle2);
     let r2 = simuler(ETAB, &d, &ex);
     assert_eq!(r2.par_objet["travel"].mises_a_jour, 1);
@@ -107,7 +134,11 @@ fn objet_modifie_depuis_la_reprise_n_est_jamais_ecrase() {
     let (_, d) = jeu("sim-modif");
     let r1 = simuler(ETAB, &d, &Existantes::new());
     let mut ex = correspondances_a_enregistrer(&r1, &Existantes::new());
-    let cle = ex.iter().find(|((o, _), e)| o == "travel" && e.statut == Statut::Creee).map(|(k, _)| k.clone()).unwrap();
+    let cle = ex
+        .iter()
+        .find(|((o, _), e)| o == "travel" && e.statut == Statut::Creee)
+        .map(|(k, _)| k.clone())
+        .unwrap();
     {
         let e = ex.get_mut(&cle).unwrap();
         e.empreinte_source = Some("ancienne".into());
@@ -116,7 +147,10 @@ fn objet_modifie_depuis_la_reprise_n_est_jamais_ecrase() {
     let r2 = simuler(ETAB, &d, &ex);
     assert_eq!(r2.par_objet["travel"].a_decider, 1);
     assert_eq!(r2.par_objet["travel"].mises_a_jour, 0);
-    assert!(r2.a_decider.iter().any(|a| a.motif == "modifie_depuis_reprise" && a.objet == "travel"));
+    assert!(r2
+        .a_decider
+        .iter()
+        .any(|a| a.motif == "modifie_depuis_reprise" && a.objet == "travel"));
 }
 
 #[test]
@@ -136,9 +170,14 @@ fn rapprochement_deja_decide_suit_la_correspondance_enregistree() {
     );
     let r2 = simuler(ETAB, &d, &ex);
     assert_eq!(r2.par_objet["eleve"].inchangees, 1);
-    assert_eq!(r2.par_objet["eleve"].a_decider, r1.par_objet["eleve"].a_decider - 1);
+    assert_eq!(
+        r2.par_objet["eleve"].a_decider,
+        r1.par_objet["eleve"].a_decider - 1
+    );
     // Une correspondance « ignorée » par décision humaine est comptée ignorée.
-    ex.get_mut(&("eleve".into(), a.source_id.clone())).unwrap().statut = Statut::Ignoree;
+    ex.get_mut(&("eleve".into(), a.source_id.clone()))
+        .unwrap()
+        .statut = Statut::Ignoree;
     let r3 = simuler(ETAB, &d, &ex);
     assert_eq!(r3.par_objet["eleve"].ignorees, 1);
     assert!(r3.invariants_ok());
@@ -164,6 +203,9 @@ fn les_depots_s3_en_attente_sont_simules() {
     assert_eq!(r.par_objet["s3:RentreeEnAttente"].creees, 1);
     assert_eq!(r.par_objet["s3:RentreeEnAttente"].ignorees, 1); // expiré
     assert_eq!(r.par_objet["s3:DemandeEnAttente"].creees, 1);
-    assert_eq!(r.par_objet["s3:Fichier"].ignorees, r.par_objet["s3:Fichier"].lues);
+    assert_eq!(
+        r.par_objet["s3:Fichier"].ignorees,
+        r.par_objet["s3:Fichier"].lues
+    );
     assert_eq!(r.par_objet["s3:Secret"].refusees, 2);
 }

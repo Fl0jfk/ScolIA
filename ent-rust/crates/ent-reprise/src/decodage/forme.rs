@@ -40,10 +40,18 @@ pub const PROFONDEUR_MAX: usize = 12;
 pub const TAILLE_INSTANTANE_MAX: usize = 1 << 20;
 
 fn req(nom: &'static str, forme: Forme) -> Champ {
-    Champ { nom, forme, requis: true }
+    Champ {
+        nom,
+        forme,
+        requis: true,
+    }
 }
 fn opt(nom: &'static str, forme: Forme) -> Champ {
-    Champ { nom, forme, requis: false }
+    Champ {
+        nom,
+        forme,
+        requis: false,
+    }
 }
 fn tab(f: Forme) -> Forme {
     Forme::Tableau(Box::new(f))
@@ -60,7 +68,12 @@ fn a_cataloguer() -> Forme {
 }
 /// `string | string[] | boolean | null` (valeurs d'un formulaire famille).
 fn valeur_formulaire() -> Forme {
-    Forme::Union(vec![Forme::Texte, tab(Forme::Texte), Forme::Booleen, Forme::Nul])
+    Forme::Union(vec![
+        Forme::Texte,
+        tab(Forme::Texte),
+        Forme::Booleen,
+        Forme::Nul,
+    ])
 }
 
 fn document_appel() -> Forme {
@@ -104,14 +117,20 @@ fn champ_catalogue() -> Forme {
         opt("optionsFrom", Forme::Enum(&["destinations", "options"])),
         opt(
             "inlineOptions",
-            tab(Forme::Objet(vec![req("id", Forme::Texte), req("label", Forme::Texte)])),
+            tab(Forme::Objet(vec![
+                req("id", Forme::Texte),
+                req("label", Forme::Texte),
+            ])),
         ),
         opt("helpText", Forme::Texte),
         opt(
             "showWhen",
             Forme::Objet(vec![
                 req("fieldId", Forme::Texte),
-                req("equals", Forme::Union(vec![Forme::Texte, tab(Forme::Texte)])),
+                req(
+                    "equals",
+                    Forme::Union(vec![Forme::Texte, tab(Forme::Texte)]),
+                ),
             ]),
         ),
         opt("maxSelect", Forme::Nombre),
@@ -134,7 +153,10 @@ fn catalogue_choix() -> Forme {
             tab(Forme::Objet(vec![
                 req("id", Forme::Texte),
                 req("label", Forme::Texte),
-                req("kind", Forme::Enum(&["lv", "option_interne", "specialite", "autre"])),
+                req(
+                    "kind",
+                    Forme::Enum(&["lv", "option_interne", "specialite", "autre"]),
+                ),
             ])),
         ),
         req("fields", tab(champ_catalogue())),
@@ -162,9 +184,14 @@ pub fn forme_colonne(table: &str, colonne: &str, nullable: bool) -> Option<Forme
             opt("documentsLabels", tab(Forme::Texte)),
             opt("contactPpLabel", Forme::Texte),
         ]),
-        ("fd_campagne", "classes_cibles") | ("fd_campagne", "eleve_ids_cibles") => tab(Forme::Texte),
+        ("fd_campagne", "classes_cibles") | ("fd_campagne", "eleve_ids_cibles") => {
+            tab(Forme::Texte)
+        }
         ("fd_fiche", "options_actuelles") | ("fd_fiche", "parent_emails") => tab(Forme::Texte),
-        ("fd_fiche", "acceptation") => Forme::Objet(vec![req("accepte", Forme::Booleen), opt("motifRefus", Forme::Texte)]),
+        ("fd_fiche", "acceptation") => Forme::Objet(vec![
+            req("accepte", Forme::Booleen),
+            opt("motifRefus", Forme::Texte),
+        ]),
         ("fd_fiche", "appel") => Forme::Objet(vec![
             opt("commissionLabel", Forme::Texte),
             opt("saisineDate", Forme::Texte),
@@ -187,13 +214,19 @@ pub fn forme_colonne(table: &str, colonne: &str, nullable: bool) -> Option<Forme
             opt("deposantLabel", Forme::Texte),
             opt("depositedAt", Forme::Texte),
             opt("autreEmail", Forme::Texte),
-            opt("statutAutre", Forme::Enum(&["en_attente", "confirme", "tacite", "contredit"])),
+            opt(
+                "statutAutre",
+                Forme::Enum(&["en_attente", "confirme", "tacite", "contredit"]),
+            ),
             opt("confirmeAt", Forme::Texte),
             opt("taciteAt", Forme::Texte),
             opt("accordDeadlineAt", Forme::Texte),
             opt("conflictMotif", Forme::Texte),
             opt("conflictValues", dico(valeur_formulaire())),
-            opt("resolution", Forme::Enum(&["maintien_famille", "avis_conseil", "tacite"])),
+            opt(
+                "resolution",
+                Forme::Enum(&["maintien_famille", "avis_conseil", "tacite"]),
+            ),
             opt("resolutionNote", Forme::Texte),
             opt("resolvedAt", Forme::Texte),
             opt("resolvedBy", Forme::Texte),
@@ -215,14 +248,19 @@ pub fn forme_colonne(table: &str, colonne: &str, nullable: bool) -> Option<Forme
             ),
         ]),
         ("partenariat_offre", "cycles") | ("partenariat_offre", "niveaux") => tab(Forme::Texte),
-        ("partenariat_offre", "cta_links") => tab(Forme::Objet(vec![req("label", Forme::Texte), req("url", Forme::Texte)])),
+        ("partenariat_offre", "cta_links") => tab(Forme::Objet(vec![
+            req("label", Forme::Texte),
+            req("url", Forme::Texte),
+        ])),
         ("partenariat_offre", "tarifs") => tab(Forme::Objet(vec![
             req("label", Forme::Texte),
             opt("amountCents", ou_nul(Forme::Nombre)),
             opt("amountLabel", Forme::Texte),
             opt("note", Forme::Texte),
         ])),
-        ("personnel", "payload") | ("preinscription", "payload") | ("ref_nomenclature", "metadata_json") => a_cataloguer(),
+        ("personnel", "payload")
+        | ("preinscription", "payload")
+        | ("ref_nomenclature", "metadata_json") => a_cataloguer(),
         ("portes_ouvertes_slot_staff", "meta") => dico(Forme::Texte),
         ("sst_fiche", "workflow") => Forme::Objet(vec![
             opt("responsable", visa_sst()),
@@ -231,9 +269,10 @@ pub fn forme_colonne(table: &str, colonne: &str, nullable: bool) -> Option<Forme
             opt("realisation", visa_sst()),
             opt("closedAt", ou_nul(Forme::Texte)),
         ]),
-        ("data_access_audit", "metadata") | ("eleve_access_audit", "metadata") | ("security_audit_log", "metadata") | ("metier_event", "payload") => {
-            Forme::Instantane
-        }
+        ("data_access_audit", "metadata")
+        | ("eleve_access_audit", "metadata")
+        | ("security_audit_log", "metadata")
+        | ("metier_event", "payload") => Forme::Instantane,
         _ => return None,
     };
     Some(if nullable { ou_nul(f) } else { f })
@@ -285,7 +324,10 @@ fn valider_instantane(v: &Value) -> Result<(), Refus> {
         return Err(refus("json_type", "instantané : objet ou null attendu"));
     }
     if prof(v) > PROFONDEUR_MAX {
-        return Err(refus("json_profondeur", "instantané : profondeur au-delà de 12"));
+        return Err(refus(
+            "json_profondeur",
+            "instantané : profondeur au-delà de 12",
+        ));
     }
     if v.to_string().len() > TAILLE_INSTANTANE_MAX {
         return Err(refus("json_taille", "instantané : taille au-delà de 1 Mio"));
@@ -309,7 +351,10 @@ fn valider_rec(forme: &Forme, v: &Value, chemin: &str, prof: usize, out: &mut Ve
         return;
     }
     if prof > PROFONDEUR_MAX {
-        out.push(refus("json_profondeur", format!("{chemin} : profondeur au-delà de 12")));
+        out.push(refus(
+            "json_profondeur",
+            format!("{chemin} : profondeur au-delà de 12"),
+        ));
         return;
     }
     let mauvais_type = |attendu: &str, out: &mut Vec<Refus>| {
@@ -341,7 +386,10 @@ fn valider_rec(forme: &Forme, v: &Value, chemin: &str, prof: usize, out: &mut Ve
         }
         Forme::Enum(valeurs) => match v.as_str() {
             Some(s) if valeurs.contains(&s) => {}
-            Some(_) => out.push(refus("json_enum", format!("{chemin} : valeur hors énumération"))),
+            Some(_) => out.push(refus(
+                "json_enum",
+                format!("{chemin} : valeur hors énumération"),
+            )),
             None => mauvais_type("texte (énumération)", out),
         },
         Forme::Tableau(f) => match v.as_array() {
@@ -372,7 +420,9 @@ fn valider_rec(forme: &Forme, v: &Value, chemin: &str, prof: usize, out: &mut Ve
                 }
                 for c in champs {
                     match o.get(c.nom) {
-                        Some(x) => valider_rec(&c.forme, x, &format!("{chemin}.{}", c.nom), prof + 1, out),
+                        Some(x) => {
+                            valider_rec(&c.forme, x, &format!("{chemin}.{}", c.nom), prof + 1, out)
+                        }
                         None if c.requis => out.push(refus(
                             "json_cle_manquante",
                             format!("{chemin} : clé obligatoire « {} » absente", c.nom),
@@ -385,7 +435,8 @@ fn valider_rec(forme: &Forme, v: &Value, chemin: &str, prof: usize, out: &mut Ve
         },
         Forme::Union(formes) => {
             // Une seule forme non nulle : on valide contre elle (messages précis, clés inconnues listées).
-            let non_nulles: Vec<&Forme> = formes.iter().filter(|f| !matches!(f, Forme::Nul)).collect();
+            let non_nulles: Vec<&Forme> =
+                formes.iter().filter(|f| !matches!(f, Forme::Nul)).collect();
             if non_nulles.len() == 1 && formes.len() == 2 && !v.is_null() {
                 valider_rec(non_nulles[0], v, chemin, prof, out);
                 return;
@@ -395,7 +446,13 @@ fn valider_rec(forme: &Forme, v: &Value, chemin: &str, prof: usize, out: &mut Ve
                 valider_rec(f, v, chemin, prof, &mut tmp);
                 tmp.is_empty()
             }) {
-                out.push(refus("json_type", format!("{chemin} : {} ne correspond à aucune forme admise", nature(v))));
+                out.push(refus(
+                    "json_type",
+                    format!(
+                        "{chemin} : {} ne correspond à aucune forme admise",
+                        nature(v)
+                    ),
+                ));
             }
         }
         Forme::Instantane => {
@@ -418,16 +475,42 @@ mod tests {
 
     #[test]
     fn objet_ferme_refuse_cle_inconnue_et_type() {
-        assert!(codes("fd_campagne", "appel_config", json!({"enabled": true, "dateLimite": "2027-06-01"})).is_empty());
-        assert_eq!(codes("fd_campagne", "appel_config", json!({"enabled": true, "x": 1})), ["json_cle_inconnue"]);
-        assert_eq!(codes("fd_campagne", "appel_config", json!({})), ["json_cle_manquante"]);
-        assert_eq!(codes("fd_campagne", "appel_config", json!({"enabled": "oui"})), ["json_type"]);
+        assert!(codes(
+            "fd_campagne",
+            "appel_config",
+            json!({"enabled": true, "dateLimite": "2027-06-01"})
+        )
+        .is_empty());
+        assert_eq!(
+            codes(
+                "fd_campagne",
+                "appel_config",
+                json!({"enabled": true, "x": 1})
+            ),
+            ["json_cle_inconnue"]
+        );
+        assert_eq!(
+            codes("fd_campagne", "appel_config", json!({})),
+            ["json_cle_manquante"]
+        );
+        assert_eq!(
+            codes("fd_campagne", "appel_config", json!({"enabled": "oui"})),
+            ["json_type"]
+        );
     }
 
     #[test]
     fn enumeration_et_tableaux() {
-        assert_eq!(codes("fd_fiche", "appel", json!({"decision": "autre"})), ["json_enum"]);
-        assert!(codes("fd_fiche", "appel", json!({"decision": "maintien", "optionsProposees": ["a"]})).is_empty());
+        assert_eq!(
+            codes("fd_fiche", "appel", json!({"decision": "autre"})),
+            ["json_enum"]
+        );
+        assert!(codes(
+            "fd_fiche",
+            "appel",
+            json!({"decision": "maintien", "optionsProposees": ["a"]})
+        )
+        .is_empty());
         assert_eq!(codes("eleve", "options", json!(["a", 1])), ["json_type"]);
         assert_eq!(codes("eleve", "options", json!({})), ["json_type"]);
     }
@@ -435,7 +518,10 @@ mod tests {
     #[test]
     fn colonne_a_cataloguer_refuse_tout_contenu() {
         assert!(codes("personnel", "payload", json!({})).is_empty());
-        assert_eq!(codes("personnel", "payload", json!({"conges": 1, "Nom Réel": 2})), ["json_cle_inconnue", "json_cle_inconnue"]);
+        assert_eq!(
+            codes("personnel", "payload", json!({"conges": 1, "Nom Réel": 2})),
+            ["json_cle_inconnue", "json_cle_inconnue"]
+        );
         assert!(est_a_cataloguer("personnel", "payload"));
         assert!(!est_a_cataloguer("fd_fiche", "appel"));
     }
@@ -468,7 +554,11 @@ mod tests {
                 continue;
             }
             for c in cols.iter().filter(|c| c.type_sql == "jsonb") {
-                assert!(forme_colonne(t, &c.nom, c.nullable).is_some(), "colonne JSON sans forme : {t}.{}", c.nom);
+                assert!(
+                    forme_colonne(t, &c.nom, c.nullable).is_some(),
+                    "colonne JSON sans forme : {t}.{}",
+                    c.nom
+                );
             }
         }
     }
@@ -477,12 +567,24 @@ mod tests {
     fn nullable_admet_null() {
         let f = forme_colonne("fd_fiche", "appel", true).unwrap();
         assert!(valider(&f, &Value::Null).is_empty());
-        assert!(!valider(&forme_colonne("fd_fiche", "appel", false).unwrap(), &Value::Null).is_empty());
+        assert!(!valider(
+            &forme_colonne("fd_fiche", "appel", false).unwrap(),
+            &Value::Null
+        )
+        .is_empty());
     }
 
     #[test]
     fn dictionnaire_de_formulaire() {
-        assert!(codes("fd_reponse", "payload", json!({"values": {"a": "x", "b": ["y"], "c": true, "d": null}})).is_empty());
-        assert_eq!(codes("fd_reponse", "payload", json!({"values": {"a": 3}})), ["json_type"]);
+        assert!(codes(
+            "fd_reponse",
+            "payload",
+            json!({"values": {"a": "x", "b": ["y"], "c": true, "d": null}})
+        )
+        .is_empty());
+        assert_eq!(
+            codes("fd_reponse", "payload", json!({"values": {"a": 3}})),
+            ["json_type"]
+        );
     }
 }

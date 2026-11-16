@@ -85,7 +85,8 @@ pub struct RapportDecodage {
 
 impl RapportDecodage {
     pub fn total_refusees(&self) -> u64 {
-        self.tables.values().map(|o| o.refusees).sum::<u64>() + self.s3.values().map(|o| o.refusees).sum::<u64>()
+        self.tables.values().map(|o| o.refusees).sum::<u64>()
+            + self.s3.values().map(|o| o.refusees).sum::<u64>()
     }
 
     /// Rien de refusé, aucun écart de schéma.
@@ -175,7 +176,8 @@ struct Plan {
 fn id_sur(s: &str) -> Option<String> {
     let ok = !s.is_empty()
         && s.len() <= 200
-        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':'));
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':'));
     ok.then(|| s.to_string())
 }
 
@@ -207,24 +209,37 @@ impl Moteur<'_> {
         let entree = self.perimetre.table(table);
         let (disposition, domaine, cle) = match entree {
             Some(e) => (e.disposition.clone(), e.domaine.clone(), e.cle.clone()),
-            None => (Disposition::Ignore("table_inconnue".into()), String::new(), Vec::new()),
+            None => (
+                Disposition::Ignore("table_inconnue".into()),
+                String::new(),
+                Vec::new(),
+            ),
         };
         let mut ecart = attendu.is_none();
         if attendu.is_none() {
-            self.sortie.rapport.ecarts_schema.push(format!("table inconnue : {table}"));
+            self.sortie
+                .rapport
+                .ecarts_schema
+                .push(format!("table inconnue : {table}"));
         }
         let mut cols = Vec::new();
         if let Some(attendues) = attendu {
             for c in colonnes {
                 if !attendues.iter().any(|a| &a.nom == c) {
                     ecart = true;
-                    self.sortie.rapport.ecarts_schema.push(format!("colonne inconnue : {table}.{c}"));
+                    self.sortie
+                        .rapport
+                        .ecarts_schema
+                        .push(format!("colonne inconnue : {table}.{c}"));
                 }
             }
             for a in attendues {
                 if !colonnes.contains(&a.nom) {
                     ecart = true;
-                    self.sortie.rapport.ecarts_schema.push(format!("colonne manquante : {table}.{}", a.nom));
+                    self.sortie
+                        .rapport
+                        .ecarts_schema
+                        .push(format!("colonne manquante : {table}.{}", a.nom));
                 }
             }
             for c in colonnes {
@@ -257,23 +272,38 @@ impl Moteur<'_> {
     }
 
     fn compter<'s>(&'s mut self, objet: &str, collection: bool) -> &'s mut ObjetRapport {
-        let m = if collection { &mut self.sortie.rapport.collections } else { &mut self.sortie.rapport.tables };
+        let m = if collection {
+            &mut self.sortie.rapport.collections
+        } else {
+            &mut self.sortie.rapport.tables
+        };
         m.entry(objet.to_string()).or_default()
     }
 
     /// Une ligne refusée : compte (table, et collection le cas échéant) + détail.
-    fn ligne_refusee(&mut self, plan: &Plan, objet: &str, ligne: u64, sid: Option<String>, refus: Vec<(Option<String>, Refus)>) {
+    fn ligne_refusee(
+        &mut self,
+        plan: &Plan,
+        objet: &str,
+        ligne: u64,
+        sid: Option<String>,
+        refus: Vec<(Option<String>, Refus)>,
+    ) {
         let code_principal = refus[0].1.code;
         let collection = objet.starts_with("collection:");
         {
             let o = self.compter(&plan.table, false);
             o.refusees += 1;
-            *o.refus_par_code.entry(code_principal.to_string()).or_default() += 1;
+            *o.refus_par_code
+                .entry(code_principal.to_string())
+                .or_default() += 1;
         }
         if collection {
             let o = self.compter(objet.trim_start_matches("collection:"), true);
             o.refusees += 1;
-            *o.refus_par_code.entry(code_principal.to_string()).or_default() += 1;
+            *o.refus_par_code
+                .entry(code_principal.to_string())
+                .or_default() += 1;
         }
         for (col, r) in &refus {
             let rap = &mut self.sortie.rapport;
@@ -319,7 +349,13 @@ impl Moteur<'_> {
         if let (Some(ci), true) = (plan.coll_idx, plan.disposition == Disposition::Collections) {
             let Some(Some(nom)) = cells.get(ci) else {
                 let r = cellule::refus("collection_absente", "nom de collection absent");
-                self.ligne_refusee(plan, &objet, ligne, None, vec![(Some("collection".into()), r)]);
+                self.ligne_refusee(
+                    plan,
+                    &objet,
+                    ligne,
+                    None,
+                    vec![(Some("collection".into()), r)],
+                );
                 return;
             };
             let sur = nom_collection_sur(nom);
@@ -335,20 +371,35 @@ impl Moteur<'_> {
                 }
                 None => {
                     o.disposition = "inconnue".into();
-                    let r = cellule::refus("collection_inconnue", "famille de collection inconnue (R-01 : bloque la reprise)");
-                    self.ligne_refusee(plan, &objet, ligne, None, vec![(Some("collection".into()), r)]);
+                    let r = cellule::refus(
+                        "collection_inconnue",
+                        "famille de collection inconnue (R-01 : bloque la reprise)",
+                    );
+                    self.ligne_refusee(
+                        plan,
+                        &objet,
+                        ligne,
+                        None,
+                        vec![(Some("collection".into()), r)],
+                    );
                     return;
                 }
             }
         }
         if plan.ecart {
-            let r = cellule::refus("schema_ecart", "table en écart de schéma : lignes non décodées");
+            let r = cellule::refus(
+                "schema_ecart",
+                "table en écart de schéma : lignes non décodées",
+            );
             self.ligne_refusee(plan, &objet, ligne, None, vec![(None, r)]);
             return;
         }
         match &disposition {
             Disposition::Sante => {
-                let r = cellule::refus("sante_hds", "donnée de santé ou sensible : reprise interdite sans hébergeur HDS (R-MSE5)");
+                let r = cellule::refus(
+                    "sante_hds",
+                    "donnée de santé ou sensible : reprise interdite sans hébergeur HDS (R-MSE5)",
+                );
                 self.ligne_refusee(plan, &objet, ligne, None, vec![(None, r)]);
                 return;
             }
@@ -360,7 +411,10 @@ impl Moteur<'_> {
             _ => {}
         }
         if cells.len() != plan.cols.len() {
-            let r = cellule::refus("ligne_mal_formee", "nombre de cellules différent du nombre de colonnes");
+            let r = cellule::refus(
+                "ligne_mal_formee",
+                "nombre de cellules différent du nombre de colonnes",
+            );
             self.ligne_refusee(plan, &objet, ligne, None, vec![(None, r)]);
             return;
         }
@@ -396,7 +450,10 @@ impl Moteur<'_> {
             match cells.get(i).and_then(|c| c.as_deref()) {
                 Some(v) if !v.is_empty() => morceaux.push(v.to_string()),
                 _ => {
-                    refus.push((plan.cols.get(i).map(|c| c.nom.clone()), cellule::refus("cle_absente", "identifiant source absent")));
+                    refus.push((
+                        plan.cols.get(i).map(|c| c.nom.clone()),
+                        cellule::refus("cle_absente", "identifiant source absent"),
+                    ));
                 }
             }
         }
@@ -427,7 +484,10 @@ impl Moteur<'_> {
             return;
         }
         if !plan.vus.insert(cle.clone()) {
-            let r = cellule::refus("cle_dupliquee", "identifiant source déjà vu dans cette table");
+            let r = cellule::refus(
+                "cle_dupliquee",
+                "identifiant source déjà vu dans cette table",
+            );
             self.ligne_refusee(plan, &objet, ligne, sid, vec![(None, r)]);
             return;
         }
@@ -443,7 +503,12 @@ impl Moteur<'_> {
             .collect();
         for (i, c) in plan.cols.iter().enumerate() {
             if c.secret && cells[i].is_some() {
-                *self.sortie.rapport.secrets_ecartes.entry(format!("{}.{}", plan.table, c.nom)).or_default() += 1;
+                *self
+                    .sortie
+                    .rapport
+                    .secrets_ecartes
+                    .entry(format!("{}.{}", plan.table, c.nom))
+                    .or_default() += 1;
             }
         }
         let l = LigneAcceptee {
@@ -458,11 +523,17 @@ impl Moteur<'_> {
         };
         self.compter(&plan.table, false).comprises += 1;
         if objet.starts_with("collection:") {
-            self.compter(objet.trim_start_matches("collection:"), true).comprises += 1;
+            self.compter(objet.trim_start_matches("collection:"), true)
+                .comprises += 1;
         }
         let t = self.sortie.tables.entry(plan.table.clone()).or_default();
         if t.colonnes.is_empty() {
-            t.colonnes = plan.cols.iter().filter(|c| !c.secret).map(|c| c.nom.clone()).collect();
+            t.colonnes = plan
+                .cols
+                .iter()
+                .filter(|c| !c.secret)
+                .map(|c| c.nom.clone())
+                .collect();
         }
         t.lignes.push(l);
     }
@@ -475,8 +546,9 @@ impl Moteur<'_> {
             let mut retirees: Vec<String> = Vec::new();
             if let Some(t) = self.sortie.tables.get_mut(&plan.table) {
                 let debut = format!("{prop}/");
-                let (gardees, sorties): (Vec<_>, Vec<_>) =
-                    std::mem::take(&mut t.lignes).into_iter().partition(|l| !(prop.is_empty() || l.cle.starts_with(&debut)));
+                let (gardees, sorties): (Vec<_>, Vec<_>) = std::mem::take(&mut t.lignes)
+                    .into_iter()
+                    .partition(|l| !(prop.is_empty() || l.cle.starts_with(&debut)));
                 t.lignes = gardees;
                 retirees = sorties.into_iter().map(|l| l.objet).collect();
             }
@@ -552,7 +624,11 @@ pub fn decoder_export(o: &OptionsDecodage) -> Res<Decodage> {
     dump::lire(&source, &mut |e| {
         match e {
             Evt::Ddl(l) => collecte.ligne(&l),
-            Evt::CopyDebut { schema: s, table, colonnes } => {
+            Evt::CopyDebut {
+                schema: s,
+                table,
+                colonnes,
+            } => {
                 let t = dump::cle_table(&s, &table);
                 let plan = m.plan(&t, &colonnes);
                 m.compter(&t, false).disposition = disposition_texte(&plan.disposition);
@@ -578,7 +654,10 @@ pub fn decoder_export(o: &OptionsDecodage) -> Res<Decodage> {
     for t in schema.tables_requises() {
         let dans_ddl = collecte.tables.iter().any(|(n, _)| n == t);
         if !vues.contains(t) && !dans_ddl {
-            m.sortie.rapport.ecarts_schema.push(format!("table manquante : {t}"));
+            m.sortie
+                .rapport
+                .ecarts_schema
+                .push(format!("table manquante : {t}"));
         }
     }
     let mut sortie = m.sortie;
@@ -591,7 +670,10 @@ fn decoder_s3(o: &OptionsDecodage, sortie: &mut Decodage) -> Res<()> {
     garde::exiger_pas_de_connexion("--objets-s3", &p.to_string_lossy())?;
     let objets = s3::lire_liste(p)?;
     let racine = match &o.contenus_s3 {
-        Some(d) => Some(garde::chemin_local_existant("--contenus-s3", &d.to_string_lossy())?),
+        Some(d) => Some(garde::chemin_local_existant(
+            "--contenus-s3",
+            &d.to_string_lossy(),
+        )?),
         None => None,
     };
     for ob in objets {
@@ -600,7 +682,9 @@ fn decoder_s3(o: &OptionsDecodage, sortie: &mut Decodage) -> Res<()> {
         let rap = sortie.rapport.s3.entry(nom.clone()).or_default();
         rap.lues += 1;
         rap.disposition = match nat {
-            s3json::NatureS3::RentreeEnAttente | s3json::NatureS3::DemandeEnAttente => "reprise".into(),
+            s3json::NatureS3::RentreeEnAttente | s3json::NatureS3::DemandeEnAttente => {
+                "reprise".into()
+            }
             s3json::NatureS3::Fichier => "fichier".into(),
             s3json::NatureS3::Secret => "refuse".into(),
             _ => "ignore".into(),
@@ -612,11 +696,15 @@ fn decoder_s3(o: &OptionsDecodage, sortie: &mut Decodage) -> Res<()> {
             }
             s3json::NatureS3::Connaissance => {
                 rap.ignorees += 1;
-                *rap.ignorees_par_raison.entry("perdable".into()).or_default() += 1;
+                *rap.ignorees_par_raison
+                    .entry("perdable".into())
+                    .or_default() += 1;
             }
             s3json::NatureS3::JsonInventorie => {
                 rap.ignorees += 1;
-                *rap.ignorees_par_raison.entry("inventorie_non_repris".into()).or_default() += 1;
+                *rap.ignorees_par_raison
+                    .entry("inventorie_non_repris".into())
+                    .or_default() += 1;
             }
             s3json::NatureS3::Fichier => {
                 rap.comprises += 1;
@@ -624,22 +712,43 @@ fn decoder_s3(o: &OptionsDecodage, sortie: &mut Decodage) -> Res<()> {
             s3json::NatureS3::RentreeEnAttente | s3json::NatureS3::DemandeEnAttente => {
                 let Some(racine) = &racine else {
                     rap.ignorees += 1;
-                    *rap.ignorees_par_raison.entry("contenu_non_fourni".into()).or_default() += 1;
-                    sortie.objets_s3.push(ObjetS3Classe { objet: ob, nature: nat });
+                    *rap.ignorees_par_raison
+                        .entry("contenu_non_fourni".into())
+                        .or_default() += 1;
+                    sortie.objets_s3.push(ObjetS3Classe {
+                        objet: ob,
+                        nature: nat,
+                    });
                     continue;
                 };
                 let lecture = lire_contenu(racine, &ob.cle);
-                match lecture.and_then(|c| s3json::decoder(nat, &c).map_err(|v| v.into_iter().next().unwrap_or_else(|| cellule::refus("s3_nature", "illisible")))) {
+                match lecture.and_then(|c| {
+                    s3json::decoder(nat, &c).map_err(|v| {
+                        v.into_iter()
+                            .next()
+                            .unwrap_or_else(|| cellule::refus("s3_nature", "illisible"))
+                    })
+                }) {
                     Ok(v) => {
-                        let exp = v.get("expiresAt").and_then(|x| x.as_str()).and_then(|x| DateTime::parse_from_rfc3339(x).ok());
+                        let exp = v
+                            .get("expiresAt")
+                            .and_then(|x| x.as_str())
+                            .and_then(|x| DateTime::parse_from_rfc3339(x).ok());
                         let expire = exp.is_none_or(|e| e.with_timezone(&Utc) < o.maintenant);
                         if expire {
                             rap.ignorees += 1;
-                            *rap.ignorees_par_raison.entry("jeton_expire".into()).or_default() += 1;
+                            *rap.ignorees_par_raison
+                                .entry("jeton_expire".into())
+                                .or_default() += 1;
                         } else {
                             rap.comprises += 1;
                         }
-                        sortie.documents_s3.push(DocumentS3 { cle: ob.cle.clone(), nature: nat, valeur: v, expire });
+                        sortie.documents_s3.push(DocumentS3 {
+                            cle: ob.cle.clone(),
+                            nature: nat,
+                            valeur: v,
+                            expire,
+                        });
                     }
                     Err(r) => {
                         rap.refusees += 1;
@@ -656,7 +765,10 @@ fn decoder_s3(o: &OptionsDecodage, sortie: &mut Decodage) -> Res<()> {
                 }
             }
         }
-        sortie.objets_s3.push(ObjetS3Classe { objet: ob, nature: nat });
+        sortie.objets_s3.push(ObjetS3Classe {
+            objet: ob,
+            nature: nat,
+        });
     }
     Ok(())
 }
@@ -666,11 +778,13 @@ fn lire_contenu(racine: &std::path::Path, cle: &str) -> Result<String, Refus> {
         return Err(cellule::refus("s3_cle_invalide", "clé d'objet non sûre"));
     }
     let chemin = racine.join(cle);
-    let meta = std::fs::metadata(&chemin).map_err(|_| cellule::refus("s3_contenu_absent", "contenu de l'objet non fourni"))?;
+    let meta = std::fs::metadata(&chemin)
+        .map_err(|_| cellule::refus("s3_contenu_absent", "contenu de l'objet non fourni"))?;
     if meta.len() > 1 << 20 {
         return Err(cellule::refus("s3_taille", "objet JSON au-delà de 1 Mio"));
     }
-    std::fs::read_to_string(&chemin).map_err(|_| cellule::refus("s3_contenu_illisible", "contenu non lisible en UTF-8"))
+    std::fs::read_to_string(&chemin)
+        .map_err(|_| cellule::refus("s3_contenu_illisible", "contenu non lisible en UTF-8"))
 }
 
 /// Rapport lisible (français), sans valeur de donnée.
@@ -711,7 +825,10 @@ pub fn texte(r: &RapportDecodage) -> String {
         }
     }
     if !r.colonnes_a_cataloguer.is_empty() {
-        s.push_str(&format!("\nColonnes JSON à cataloguer (contenu refusé faute de catalogue) : {}\n", r.colonnes_a_cataloguer.join(", ")));
+        s.push_str(&format!(
+            "\nColonnes JSON à cataloguer (contenu refusé faute de catalogue) : {}\n",
+            r.colonnes_a_cataloguer.join(", ")
+        ));
     }
     s.push_str(&format!(
         "\nDocuments aplatis : {} · refus détaillés : {} (+ {} non détaillés)\n",
@@ -719,6 +836,10 @@ pub fn texte(r: &RapportDecodage) -> String {
         r.refus.len(),
         r.refus_non_detailles
     ));
-    s.push_str(if r.conforme() { "Verdict : CONFORME\n" } else { "Verdict : NON CONFORME (voir les refus)\n" });
+    s.push_str(if r.conforme() {
+        "Verdict : CONFORME\n"
+    } else {
+        "Verdict : NON CONFORME (voir les refus)\n"
+    });
     s
 }

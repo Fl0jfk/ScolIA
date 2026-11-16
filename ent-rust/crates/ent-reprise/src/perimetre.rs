@@ -41,7 +41,10 @@ impl Disposition {
     pub fn chargee(&self) -> bool {
         matches!(
             self,
-            Disposition::Reprise | Disposition::Rapprochement | Disposition::Archive | Disposition::Collections
+            Disposition::Reprise
+                | Disposition::Rapprochement
+                | Disposition::Archive
+                | Disposition::Collections
         )
     }
 }
@@ -66,20 +69,27 @@ impl Perimetre {
 
     pub fn depuis_tsv(tsv: &str) -> Res<Perimetre> {
         let mut tables = BTreeMap::new();
-        for l in tsv.lines().filter(|l| !l.trim().is_empty() && !l.starts_with('#')) {
+        for l in tsv
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        {
             let p: Vec<&str> = l.split('\t').collect();
             if p.len() != 4 {
                 return Err(err!("perimetre_reprise.tsv : ligne mal formée"));
             }
-            let disposition = Disposition::depuis(p[1])
-                .ok_or_else(|| err!("perimetre_reprise.tsv : disposition inconnue pour {}", p[0]))?;
+            let disposition = Disposition::depuis(p[1]).ok_or_else(|| {
+                err!("perimetre_reprise.tsv : disposition inconnue pour {}", p[0])
+            })?;
             let e = EntreeTable {
                 disposition,
                 domaine: p[2].to_string(),
                 cle: p[3].split('+').map(str::to_string).collect(),
             };
             if tables.insert(p[0].to_string(), e).is_some() {
-                return Err(err!("perimetre_reprise.tsv : table déclarée deux fois : {}", p[0]));
+                return Err(err!(
+                    "perimetre_reprise.tsv : table déclarée deux fois : {}",
+                    p[0]
+                ));
             }
         }
         Ok(Perimetre { tables })
@@ -123,7 +133,11 @@ pub const FAMILLES_COLLECTIONS: &[(&str, &str, &str)] = &[
     ("chat", "ignore:perdable", "technique"),
     ("channels", "ignore:perdable", "technique"),
     ("site-cms", "ignore:perdable", "technique"),
-    ("microsoft-license-request", "ignore:plateforme", "technique"),
+    (
+        "microsoft-license-request",
+        "ignore:plateforme",
+        "technique",
+    ),
     ("tenants", "ignore:secret", "technique"),
     ("bien-etre", "sante", "sante"),
 ];
@@ -162,10 +176,16 @@ mod tests {
         let p = Perimetre::embarque();
         let s = SchemaAttendu::embarque();
         for t in s.tables.keys() {
-            assert!(p.tables.contains_key(t), "table du schéma sans disposition : {t}");
+            assert!(
+                p.tables.contains_key(t),
+                "table du schéma sans disposition : {t}"
+            );
         }
         for t in p.tables.keys() {
-            assert!(s.tables.contains_key(t), "disposition sans table du schéma : {t}");
+            assert!(
+                s.tables.contains_key(t),
+                "disposition sans table du schéma : {t}"
+            );
         }
     }
 
@@ -175,7 +195,10 @@ mod tests {
         let s = SchemaAttendu::embarque();
         for (t, e) in &p.tables {
             for c in &e.cle {
-                assert!(s.tables[t].iter().any(|x| &x.nom == c), "{t} : colonne de clé inconnue {c}");
+                assert!(
+                    s.tables[t].iter().any(|x| &x.nom == c),
+                    "{t} : colonne de clé inconnue {c}"
+                );
             }
         }
     }
@@ -198,9 +221,18 @@ mod tests {
 
     #[test]
     fn collections() {
-        assert_eq!(disposition_collection("internat__rooms"), Some(Disposition::Reprise));
-        assert_eq!(disposition_collection("stages__student-tokens"), Some(Disposition::Ignore("jeton".into())));
-        assert_eq!(disposition_collection("settings__bien-etre"), Some(Disposition::Sante));
+        assert_eq!(
+            disposition_collection("internat__rooms"),
+            Some(Disposition::Reprise)
+        );
+        assert_eq!(
+            disposition_collection("stages__student-tokens"),
+            Some(Disposition::Ignore("jeton".into()))
+        );
+        assert_eq!(
+            disposition_collection("settings__bien-etre"),
+            Some(Disposition::Sante)
+        );
         assert_eq!(disposition_collection("inconnue__x"), None);
     }
 }

@@ -2,8 +2,8 @@
 
 use ent_reprise::anonymisation::cle::Cle;
 use ent_reprise::anonymisation::moteur::{self, Echec};
-use ent_reprise::empreintes::{self, Verdict};
 use ent_reprise::decodage::{self, OptionsDecodage};
+use ent_reprise::empreintes::{self, Verdict};
 use ent_reprise::inspection::{self, Options as OptInspection};
 use ent_reprise::{err, garde, jeu_fictif, simulation, zone, Res};
 use std::collections::BTreeMap;
@@ -245,7 +245,14 @@ fn lancer(args: &[String]) -> Res<i32> {
             let simule = cmd == "simuler";
             let o = options(
                 reste,
-                &["dump", "objets-s3", "contenus-s3", "maintenant", "json", "etablissement-cible"],
+                &[
+                    "dump",
+                    "objets-s3",
+                    "contenus-s3",
+                    "maintenant",
+                    "json",
+                    "etablissement-cible",
+                ],
             )?;
             let chemin = |nom: &str| -> Res<Option<PathBuf>> {
                 o.get(nom)
@@ -254,7 +261,9 @@ fn lancer(args: &[String]) -> Res<i32> {
             };
             let maintenant = match o.get("maintenant") {
                 Some(v) => chrono::DateTime::parse_from_rfc3339(v)
-                    .map_err(|_| err!("--maintenant : date RFC 3339 attendue (2026-11-16T12:00:00Z)"))?
+                    .map_err(|_| {
+                        err!("--maintenant : date RFC 3339 attendue (2026-11-16T12:00:00Z)")
+                    })?
                     .with_timezone(&chrono::Utc),
                 None => chrono::Utc::now(),
             };
@@ -278,7 +287,10 @@ fn lancer(args: &[String]) -> Res<i32> {
                 json = serde_json::json!({ "decodage": json, "simulation": r });
             }
             if let Some(j) = o.get("json") {
-                std::fs::write(j, serde_json::to_string_pretty(&json).map_err(|e| err!("JSON : {e}"))?)?;
+                std::fs::write(
+                    j,
+                    serde_json::to_string_pretty(&json).map_err(|e| err!("JSON : {e}"))?,
+                )?;
                 println!("Rapport JSON écrit : {j}");
             }
             Ok(if d.rapport.conforme() { 0 } else { 2 })
