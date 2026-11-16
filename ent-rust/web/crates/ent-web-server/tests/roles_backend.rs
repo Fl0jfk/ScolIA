@@ -103,7 +103,20 @@ async fn cycle_de_vie_d_un_role_contre_vrai_backend() {
         .find(|a| a.code == "roles.gerer")
         .unwrap();
     assert_eq!(gerer.portees, ["etablissement"]);
-    assert_eq!(cat.portees.len(), 4);
+    // Les sept portées du catalogue (`Portee::TOUTES`), dans l'ordre : le test ne se contente plus d'un nombre.
+    let codes: Vec<&str> = cat.portees.iter().map(|p| p.code.as_str()).collect();
+    assert_eq!(
+        codes,
+        [
+            "etablissement",
+            "mes_classes",
+            "mes_groupes",
+            "designes",
+            "mon_perimetre",
+            "moi",
+            "sites_designes"
+        ]
+    );
 
     // Création depuis le modèle « Accueil », avec le catalogue réel.
     let suffixe = Uuid::new_v4().simple().to_string();

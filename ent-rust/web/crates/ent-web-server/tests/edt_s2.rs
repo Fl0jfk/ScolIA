@@ -284,7 +284,14 @@ async fn absence_remplacement_annulations_et_famille() {
         .expect("absence signalée listée");
     assert!(signalee.seances.is_empty());
     assert!(resume_traitement(signalee).contains("validée"));
-    admin
+    // Seule la direction valide une absence de personnel (`personnels.absences.valider`, socle 15) : plus
+    // l'administration (le test validait avec « admin », droit retiré depuis).
+    let direction = personnel(&base, &l, "direction").await;
+    interdit(
+        admin.valider_absence_rh(absence.id).await,
+        "l'administration ne valide pas une absence de personnel",
+    );
+    direction
         .valider_absence_rh(absence.id)
         .await
         .expect("absence validée");

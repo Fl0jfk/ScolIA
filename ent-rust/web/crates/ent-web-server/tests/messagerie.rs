@@ -316,17 +316,41 @@ async fn cloisonnement_et_roles() {
     assert!(matches!(r, Err(ApiError::Invalide(_))), "{r:?}");
 
     // L'élève lit les fils qui le concernent (s'il a un compte de labo).
-    if let Some(p) = l.persona("eleve") {
+    // Le compte d'Harry précisément : le labo compte plusieurs comptes élèves, le premier n'est pas forcément lui.
+    if let Some(p) = l
+        .personas
+        .iter()
+        .find(|p| p.role == "eleve" && p.label.contains("Harry"))
+    {
         let eleve_api = client(&base, &l, &p.email).await;
+        // R-M1 / R-M2 (M1) : un compte famille ne lit que les fils où il participe. Le fil du professeur
+        // aux responsables d'un élève mineur (un fil par foyer, D22) n'est lisible ni de la boîte ni du détail
+        // de l'élève.
         let boite = eleve_api.boite_messages(false).await.expect("boîte élève");
-        assert!(boite.iter().any(|f| f.id == fil), "l'élève voit son fil");
+        assert!(
+            boite.iter().all(|f| f.id != fil),
+            "l'élève mineur ne voit pas le fil adressé à ses responsables"
+        );
+        assert!(refus(&eleve_api.detail_fil(fil).await));
+        assert!(refus(&eleve_api.archiver_fil(fil).await));
+        // Son propre fil (privé à l'élève et au personnel, M0a D3) : il le voit, et seulement les siens.
+        let mien = eleve_api
+            .ouvrir_fil_messages(harry.id, &unique("Question de l'élève"), "Bonjour")
+            .await
+            .expect("fil ouvert par l'élève")
+            .fil
+            .id;
+        let boite = eleve_api.boite_messages(false).await.expect("boîte élève");
+        assert!(boite.iter().any(|f| f.id == mien), "l'élève voit son fil");
         assert!(
             boite.iter().all(|f| f.eleve_id == harry.id),
             "et seulement les siens"
         );
-        let detail = eleve_api.detail_fil(fil).await.expect("lecture élève");
+        let detail = eleve_api.detail_fil(mien).await.expect("lecture élève");
         assert_eq!(detail.messages.len(), 1);
-        assert!(refus(&eleve_api.archiver_fil(fil).await));
+        // Les responsables, eux, ne lisent jamais le fil privé de l'élève (jamais un parent).
+        assert!(refus(&lily.detail_fil(mien).await));
+        assert!(refus(&eleve_api.archiver_fil(mien).await));
         assert!(refus(&eleve_api.modeles_messages().await));
         assert!(refus(&eleve_api.messagerie_chercher_eleves("POTTER").await));
         // D-022 : un professeur ne retrouve plus un élève hors de ses groupes ; la direction

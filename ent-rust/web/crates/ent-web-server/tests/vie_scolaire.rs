@@ -423,7 +423,11 @@ async fn permissions_famille_eleve_et_personnel() {
     // Enseignant : lit, corrige une erreur d'appel, mais ne tranche pas les justificatifs.
     let prof = personnel(&base, &l, "prof").await;
     assert!(prof.absences_a_traiter(jour).await.is_ok());
-    for decision in [DecisionApi::Accepter, DecisionApi::Refuser] {
+    for decision in [
+        DecisionApi::Accepter,
+        DecisionApi::Refuser,
+        DecisionApi::AnnulerPresent,
+    ] {
         assert!(
             matches!(
                 prof.decider_absence(a_harry.id, decision, None).await,
@@ -437,10 +441,20 @@ async fn permissions_famille_eleve_et_personnel() {
         Err(ApiError::Interdit(_))
     ));
     let droits_prof = droits_du_role("prof");
+    // « Remettre présent » est réservé à la vie scolaire (AS0, a76bf736) : le serveur le refuse au professeur
+    // (boucle ci-dessus) et l'écran ne le propose donc plus ; la vie scolaire, elle, le garde.
     assert_eq!(
         decisions_possibles(StatutAbsence::NonJustifiee, droits_prof),
-        [Decision::AnnulerPresent],
+        [],
         "l'écran ne propose que ce que le serveur accepte"
+    );
+    assert_eq!(
+        decisions_possibles(StatutAbsence::NonJustifiee, droits_du_role("cpe")),
+        [
+            Decision::Accepter,
+            Decision::Refuser,
+            Decision::AnnulerPresent
+        ]
     );
 
     // Compte élève : ses propres absences en lecture, pas celles d'un autre, pas d'écriture.

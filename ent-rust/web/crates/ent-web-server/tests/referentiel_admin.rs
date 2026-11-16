@@ -435,6 +435,10 @@ async fn droits_du_moteur_navigation_et_refus() {
         v,
         [
             navigation::ACCUEIL,
+            navigation::A_FAIRE,
+            navigation::DEMANDES,
+            navigation::MES_DEMANDES,
+            navigation::MON_AGENDA,
             navigation::CHANGEMENTS_EDT,
             navigation::AGENDA,
             navigation::MON_CAHIER,
@@ -443,6 +447,7 @@ async fn droits_du_moteur_navigation_et_refus() {
             navigation::RENDEZ_VOUS,
             navigation::FORMULAIRES,
             navigation::SANTE_ENFANT,
+            navigation::VOYAGES,
             navigation::MESSAGES,
             navigation::REINSCRIPTION,
             navigation::MES_FACTURES

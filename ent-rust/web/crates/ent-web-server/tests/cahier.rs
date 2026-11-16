@@ -260,8 +260,40 @@ async fn parcours_enseignant_eleve_famille_copie_et_correction() {
     let piece = remise.pieces[0].id;
     let lien = rogue.cahier_lien_piece(piece).await.expect("lien");
     let http = reqwest::Client::new();
+    // Le lien est lié à l'utilisateur ET exige sa session : sans session, refus (401), jamais le fichier.
+    let anonyme = http
+        .get(format!("{base}{}", lien.url))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonyme.status(), 401, "lien signé sans session");
+    let email_rogue = l
+        .personas
+        .iter()
+        .find(|p| p.role == "prof" && p.label.contains("Rogue"))
+        .expect("persona Rogue")
+        .email
+        .clone();
+    let jeton_rogue = labo::connecter(&base, &l, &email_rogue)
+        .await
+        .expect("connexion de l'enseignant")
+        .token;
+    // La session d'un AUTRE utilisateur ne suffit pas : le lien est émis pour l'enseignant seul.
+    let email_cpe = l.persona("cpe").unwrap().email.clone();
+    let jeton_cpe = labo::connecter(&base, &l, &email_cpe)
+        .await
+        .expect("connexion cpe")
+        .token;
+    let autre = http
+        .get(format!("{base}{}", lien.url))
+        .bearer_auth(&jeton_cpe)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(autre.status(), 403, "lien signé présenté par un autre");
     let r = http
         .get(format!("{base}{}", lien.url))
+        .bearer_auth(&jeton_rogue)
         .send()
         .await
         .unwrap();

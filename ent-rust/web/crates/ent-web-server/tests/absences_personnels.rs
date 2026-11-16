@@ -52,6 +52,7 @@ async fn demarrer() -> Option<String> {
 struct Compte {
     api: ApiClient,
     user_id: Uuid,
+    token: String,
 }
 
 /// Ouvre un compte de labo dans l'établissement `etab` (route d'inscription de la feature `labo`).
@@ -70,11 +71,44 @@ async fn inscrire(base: &str, etab: Uuid, role: &str) -> Compte {
         .unwrap_or_else(|e| panic!("connexion {role} : {e:?}"))
     {
         Connexion::Ouverte(s) => Compte {
-            api: ApiClient::new(base, Some(s.token)),
+            api: ApiClient::new(base, Some(s.token.clone())),
             user_id: s.user_id,
+            token: s.token,
         },
         Connexion::PasskeyRequise(_) => panic!("passkey requise pour {role}"),
     }
+}
+
+/// Règle le fuseau de l'établissement pour qu'il soit `heure` h (locale) maintenant, quelle que soit l'heure
+/// réelle d'exécution : une demande de remplacement faite entre 20 h et 6 h 30 attend 6 h 30 (plage calme,
+/// `envoi_autorise`) et n'est pas encore visible du remplaçant. Sans ce réglage, le test dépendrait de l'horloge
+/// (il échouait la nuit). La plage calme elle-même est testée dans `ent-db` (`a4_plage_calme_differe_l_envoi_de_nuit`).
+async fn regler_heure_locale(base: &str, direction: &Compte, heure: i32) {
+    use chrono::Timelike;
+    let decalage = (heure - chrono::Utc::now().hour() as i32).rem_euclid(24);
+    let decalage = if decalage > 12 {
+        decalage - 24
+    } else {
+        decalage
+    };
+    let fuseau = if decalage >= 0 {
+        format!("Etc/GMT-{decalage}")
+    } else {
+        format!("Etc/GMT+{}", -decalage)
+    };
+    let rep = reqwest::Client::new()
+        .put(format!("{base}/structure/fuseau"))
+        .bearer_auth(&direction.token)
+        .header("content-type", "application/json")
+        .body(serde_json::json!({"fuseau": fuseau, "confirmer": true}).to_string())
+        .send()
+        .await
+        .expect("réglage du fuseau");
+    assert!(
+        rep.status().is_success(),
+        "fuseau {fuseau} : {}",
+        rep.status()
+    );
 }
 
 /// Prochain jour ouvré (lundi à vendredi) à partir de demain : dans la fenêtre du tableau (veille à +14 jours).
@@ -521,6 +555,7 @@ async fn ce_matin_propositions_sollicitation_et_reponse_du_remplacant() {
     let tiers = inscrire(&base, etab, "prof").await;
     let jour = jour_ouvre();
     let iso = jour.weekday().number_from_monday();
+    regler_heure_locale(&base, &dir, 12).await; // en plage de service, quelle que soit l'heure réelle
 
     // Emploi du temps de l'absente (deux séances) et du remplaçant (une séance ailleurs dans la journée).
     let csv = format!(

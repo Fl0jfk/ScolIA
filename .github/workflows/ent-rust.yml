@@ -518,7 +518,7 @@ jobs:
       - name: En-têtes de sécurité des pages /web (CSP à nonce, sans base ni backend)
         run: cargo test --locked -p ent-web-server --test entetes_securite --test droits_parite
       - name: Tests contre le vrai backend (PostgreSQL éphémère, données de labo fictives)
-        run: cargo test --locked -p ent-web-server --features labo --test contre_backend --test absences_personnels -- --test-threads=1
+        run: cargo test --locked -p ent-web-server --features labo -- --test-threads=1
       - name: Prototype isolé de session par cookie (D-016, contre le vrai backend)
         # /auth/register n'existe que dans ent-api compilé avec sa feature `labo` (L4) :
         # activée par la commande, sans toucher au manifeste d'ent-web-session.
