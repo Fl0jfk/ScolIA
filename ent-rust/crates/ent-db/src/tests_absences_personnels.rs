@@ -5707,13 +5707,11 @@ async fn a4bis_repond_rarement_visible_du_seul_organisateur() {
     let x = cadre!();
     let (_a, _c, impact) = x.absence_avec_seance(x.prof, &x.classe, (9, 0), (10, 0)).await;
     let ag2 = x.agent_user(x.prof2).await;
-    let propose = |x: &Cadre| {
-        let ent = &x.ent;
-        let (etab, dir) = (x.etab, x.dir);
-        async move { ent.propositions_impact_for_actor(etab, dir, "direction", impact).await.unwrap() }
-    };
+    async fn propose(x: &Cadre, impact: Uuid) -> Vec<PropositionDto> {
+        x.ent.propositions_impact_for_actor(x.etab, x.dir, "direction", impact).await.unwrap()
+    }
     // Sous le seuil : aucune mention.
-    assert!(propose(&x).await.iter().all(|p| !p.repond_rarement));
+    assert!(propose(&x, impact).await.iter().all(|p| !p.repond_rarement));
     // Trois demandes restées sans réponse (expirées) sur l'année : la mention apparaît.
     for _ in 0..crate::absences_personnels::reponse::SEUIL_SANS_REPONSE_MIN {
         let s = x.ent.solliciter_for_actor(x.etab, x.dir, "direction", impact, ag2).await.unwrap();
@@ -5724,7 +5722,7 @@ async fn a4bis_repond_rarement_visible_du_seul_organisateur() {
             .unwrap();
         x.ent.traiter_sollicitations_etablissement(x.etab).await.unwrap();
     }
-    let props = propose(&x).await;
+    let props = propose(&x, impact).await;
     let p2 = props.iter().find(|p| p.agent_id == ag2).expect("prof2 proposé");
     assert!(p2.repond_rarement, "{props:?}");
     let ag3 = x.agent_user(x.prof3).await;
