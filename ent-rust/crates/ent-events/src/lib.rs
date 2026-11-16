@@ -142,6 +142,19 @@ pub mod types {
     pub const MESSAGERIE_PARTICIPANT_AJOUTE: &str = "messagerie.participant_ajoute";
     pub const MESSAGERIE_PARTICIPANT_RETIRE: &str = "messagerie.participant_retire";
     pub const MESSAGERIE_FIL_DEDOUBLE: &str = "messagerie.fil_dedouble";
+    // Lot M3 (boîtes de service) et lot M4 (écrire mieux) : charges sans contenu ni sujet (R-M14).
+    pub const MESSAGERIE_BOITE_CREEE: &str = "messagerie.boite_creee";
+    pub const MESSAGERIE_BOITE_MODIFIEE: &str = "messagerie.boite_modifiee";
+    pub const MESSAGERIE_FIL_PRIS: &str = "messagerie.fil_pris";
+    pub const MESSAGERIE_FIL_TRAITE: &str = "messagerie.fil_traite";
+    pub const MESSAGERIE_FIL_TRANSFERE: &str = "messagerie.fil_transfere";
+    pub const MESSAGERIE_MESSAGE_TEL_SAISI: &str = "messagerie.message_tel_saisi";
+    pub const MESSAGERIE_ENTRANT_DEPOSE: &str = "messagerie.entrant_depose";
+    pub const MESSAGERIE_LOT_ENVOYE: &str = "messagerie.lot_envoye";
+    pub const MESSAGERIE_MESSAGE_CORRIGE: &str = "messagerie.message_corrige";
+    pub const MESSAGERIE_MESSAGE_RETIRE: &str = "messagerie.message_retire";
+    pub const MESSAGERIE_FILS_FUSIONNES: &str = "messagerie.fils_fusionnes";
+    pub const MESSAGERIE_FIL_SCINDE: &str = "messagerie.fil_scinde";
     pub const ANNONCE_APERCU: &str = "annonce.apercu";
     pub const ANNONCE_RETIREE: &str = "annonce.retiree";
     pub const LIEN_VERIFIE: &str = "lien.verifie";

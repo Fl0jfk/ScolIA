@@ -94,6 +94,17 @@ mod garde_messagerie_lecture;
 pub mod msg_matrice;
 mod msg_m2;
 pub use msg_m2::{ApercuDestinataires, ConversationApercu, DestinataireApercu};
+mod msg_m3;
+pub use msg_m3::{
+    cible_de_boite, urgence_deterministe, BoiteAccueil, BoiteVue, CanalEntrant, HoraireSaisie, HoraireVue, LigneFile,
+    MembreVue, MessagerieResolue, NoteInterne, OuvertureBoite, ParamBoite, SaisieBoite, SaisieTelephone,
+    TelephoneSaisi, Traitement, BANDEAU_URGENCE, CATALOGUE_BOITES, ETIQUETTES_MAX, TITRE_NEUTRE_C3,
+};
+mod msg_m4;
+pub use msg_m4::{
+    ApercuLot, BrouillonSaisie, BrouillonVu, ModeleVu, PorteeModele, BROUILLONS_MAX, CORRECTION_MINUTES,
+    LOT_MAX_FILS, PROGRAMMATION_JOURS, RETRAIT_MINUTES,
+};
 mod note_repo;
 pub mod cahier;
 pub mod cahier_c2;
@@ -128,6 +139,10 @@ mod tests_messagerie_m0b;
 mod tests_messagerie_m1;
 #[cfg(all(test, feature = "labo"))]
 mod tests_messagerie_m2;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m3;
+#[cfg(all(test, feature = "labo"))]
+mod tests_messagerie_m4;
 #[cfg(test)]
 mod tests_champs_chiffres;
 mod repas_repo;

@@ -525,6 +525,17 @@ pub enum Action {
     GroupesComposer,
     /// Socle 5, lot S6 (STR-53) : créer un groupe d'activité dont on devient responsable.
     GroupesCreerActivite,
+    /// Socle 16, lot M3 (MSG-160, 161, 169, 170, 175) : créer et paramétrer les boîtes de service (membres par
+    /// mission, horaires, réponse automatique, astreinte). Direction ; jamais le contenu des boîtes.
+    MessagerieBoitesGerer,
+    /// Socle 16, lot M3 (MSG-162 à 168, 172) : traiter les fils d'une boîte dont on est membre. Le droit ouvre
+    /// la fonction ; **la boîte** reste décidée par la mission (membre à la date), jamais par le droit seul.
+    MessagerieBoiteTraiter,
+    /// Socle 16, lot M3 (MSG-171) : saisir un message téléphonique (accueil, vie scolaire).
+    MessagerieMessageTelSaisir,
+    /// Socle 16, lot M4 (MSG-130 et suivantes, R-M13) : envoyer un lot individuel (30 fils au plus, aperçu et
+    /// confirmation). Professeurs, CPE, direction.
+    MessagerieLotEnvoyer,
 }
 
 /// Sur quoi une action s'applique.
@@ -549,7 +560,7 @@ pub enum Portee {
 }
 
 impl Action {
-    pub const TOUTES: [Action; 227] = [
+    pub const TOUTES: [Action; 231] = [
         Action::NotesLire,
         Action::NotesSaisir,
         Action::CompetencesEvaluer,
@@ -792,6 +803,11 @@ impl Action {
         Action::DocumentsRestreintsLire,
         Action::DocumentsFinancierLire,
         Action::DocumentsPersonnelsLire,
+        // Socle 16, lots M3 et M4 (en fin de catalogue).
+        Action::MessagerieBoitesGerer,
+        Action::MessagerieBoiteTraiter,
+        Action::MessagerieMessageTelSaisir,
+        Action::MessagerieLotEnvoyer,
     ];
 
     pub fn code(self) -> &'static str {
@@ -1024,6 +1040,10 @@ impl Action {
             Self::AffectationsGerer => "affectations.gerer",
             Self::GroupesComposer => "groupes.composer",
             Self::GroupesCreerActivite => "groupes.creer_activite",
+            Self::MessagerieBoitesGerer => "messagerie.boites.gerer",
+            Self::MessagerieBoiteTraiter => "messagerie.boite.traiter",
+            Self::MessagerieMessageTelSaisir => "messagerie.message_tel.saisir",
+            Self::MessagerieLotEnvoyer => "messagerie.lot.envoyer",
         }
     }
 
@@ -1259,6 +1279,10 @@ impl Action {
             Self::AffectationsGerer => "Affecter les élèves aux classes et aux groupes, changer de classe, corriger une affectation",
             Self::GroupesComposer => "Composer son groupe d'activité ou de liste (entrées et sorties d'élèves)",
             Self::GroupesCreerActivite => "Créer un atelier, un club ou un groupe d'activité dont on devient responsable",
+            Self::MessagerieBoitesGerer => "Créer et paramétrer les boîtes de service de la messagerie (membres, horaires, astreinte)",
+            Self::MessagerieBoiteTraiter => "Traiter les messages des boîtes de service dont on est membre",
+            Self::MessagerieMessageTelSaisir => "Saisir un message téléphonique pour une boîte ou une personne",
+            Self::MessagerieLotEnvoyer => "Envoyer un lot de messages individuels (30 au plus, avec aperçu)",
         }
     }
 
@@ -1451,6 +1475,10 @@ impl Action {
             | Self::SignatureHabiliter
             | Self::StructureGerer
             | Self::GroupesCreerActivite
+            | Self::MessagerieBoitesGerer
+            | Self::MessagerieBoiteTraiter
+            | Self::MessagerieMessageTelSaisir
+            | Self::MessagerieLotEnvoyer
             | Self::AccesRevue => &[Portee::Etablissement],
             // Socle 5, S6 : affecter peut être délégué à des classes ou groupes désignés (un adjoint « niveau 6e ») ;
             // composer son groupe : établissement, mes groupes, désignés.
@@ -1639,6 +1667,7 @@ pub fn modele_par_defaut(role: Role) -> Vec<(Action, Portee)> {
     socle_10_edt(role, &mut d);
     socle_05_structure(role, &mut d);
     socle_8_notifications(role, &mut d);
+    socle_16_messagerie(role, &mut d);
     if role.can_gerer_personnels() {
         for a in [
             PersonnelsPersonnelLire,
@@ -2130,6 +2159,26 @@ fn socle_05_structure(role: Role, d: &mut Vec<(Action, Portee)>) {
     if matches!(role, Role::Admin | Role::Direction | Role::Administratif) {
         d.push((StructureGerer, Portee::Etablissement));
         d.push((AffectationsGerer, Portee::Etablissement));
+    }
+}
+
+/// Socle 16 (messagerie), lots M3 et M4 (règle 21 : une fonction par socle). `messagerie.boites.gerer` : direction
+/// (et Admin, comme `messagerie.urgence_hors_plage`). `messagerie.boite.traiter` : tout le personnel (le droit ouvre
+/// la fonction ; la boîte est décidée par la mission, jamais par le droit). `messagerie.message_tel.saisir` : accueil,
+/// vie scolaire (CPE), secrétariat, direction. `messagerie.lot.envoyer` : professeurs, CPE, direction (PRF, PP, CPE).
+fn socle_16_messagerie(role: Role, d: &mut Vec<(Action, Portee)>) {
+    use Action::*;
+    if matches!(role, Role::Admin | Role::Direction) {
+        d.push((MessagerieBoitesGerer, Portee::Etablissement));
+    }
+    if role.is_staff() && role != Role::Compta {
+        d.push((MessagerieBoiteTraiter, Portee::Etablissement));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Administratif | Role::Cpe | Role::Accueil) {
+        d.push((MessagerieMessageTelSaisir, Portee::Etablissement));
+    }
+    if matches!(role, Role::Admin | Role::Direction | Role::Cpe | Role::Prof) {
+        d.push((MessagerieLotEnvoyer, Portee::Etablissement));
     }
 }
 

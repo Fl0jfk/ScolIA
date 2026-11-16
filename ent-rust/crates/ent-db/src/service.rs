@@ -17819,6 +17819,18 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         fil: &MsgFil,
     ) -> Result<bool, EntDbError> {
+        let parsed = Role::parse(role);
+        // M3 : un fil de boîte n'est lu, côté établissement, que par la participation (membres de la
+        // boîte à la date, ou auteur d'un fil interne) : ni le droit « messagerie.eleve » sur l'élève, ni le
+        // pont des rôles réservés, ni la direction (supervision motivée : M10). R-M1, R-M11.
+        if parsed.is_some_and(|r| r.is_staff()) {
+            if let Some(acces) = self
+                .acces_personnel_fil_boite(etablissement_id, actor_user_id, fil.id)
+                .await?
+            {
+                return Ok(acces);
+            }
+        }
         if !self
             .actor_can_access_msg_fil(etablissement_id, actor_user_id, role, fil.eleve_id)
             .await?
@@ -17826,7 +17838,6 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
             return Ok(false);
         }
         // D-014 (RP1-11) : un compte famille ne lit que les fils auxquels il participe.
-        let parsed = Role::parse(role);
         if matches!(parsed, Some(Role::Parent | Role::Eleve)) {
             return Ok(self
                 .messages
@@ -17931,6 +17942,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 role,
                 options.urgence_motif.as_deref(),
                 maintenant,
+                None,
             )
             .await?;
         let auteur_famille = matches!(Role::parse(role), Some(Role::Parent | Role::Eleve));
@@ -18073,10 +18085,31 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         role: &str,
         urgence_motif: Option<&str>,
         maintenant: DateTime<Utc>,
+        programme_le: Option<DateTime<Utc>>,
     ) -> Result<(Option<DateTime<Utc>>, Option<(String, Uuid)>), EntDbError> {
         if !Role::parse(role).is_some_and(|r| r.is_staff()) {
             return Ok((None, None));
         }
+        let (remise, derogation) = self
+            .remise_calme_et_derogation(etablissement_id, actor_user_id, role, urgence_motif, maintenant)
+            .await?;
+        // M4 : la programmation ne raccourcit jamais la plage calme ; elle ne fait que retarder.
+        let remise = match (remise, programme_le.filter(|p| *p > maintenant)) {
+            (r, None) => r,
+            (None, Some(p)) => Some(p),
+            (Some(r), Some(p)) => Some(r.max(p)),
+        };
+        Ok((remise, derogation))
+    }
+
+    async fn remise_calme_et_derogation(
+        &self,
+        etablissement_id: Uuid,
+        actor_user_id: Uuid,
+        role: &str,
+        urgence_motif: Option<&str>,
+        maintenant: DateTime<Utc>,
+    ) -> Result<(Option<DateTime<Utc>>, Option<(String, Uuid)>), EntDbError> {
         let (remise,): (Option<DateTime<Utc>>,) =
             sqlx::query_as("SELECT ent_msg_remise_calme($1, $2)")
                 .bind(etablissement_id)
@@ -18205,15 +18238,24 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         maintenant: DateTime<Utc>,
     ) {
         let r: Result<(), EntDbError> = async {
-            let destinataires = self
-                .messages
-                .personnels_a_prevenir(
-                    fil.etablissement_id,
-                    fil.id,
-                    msg.auteur_user_id,
-                    &["admin", "direction", "administratif", "cpe"],
-                )
-                .await?;
+            // M3 : un fil de boîte prévient les membres de la boîte et personne d'autre (ni le pont des
+            // rôles réservés, ni la direction) ; rien d'autre n'est dit de l'enfant ni de la boîte.
+            let destinataires = match self
+                .personnels_a_prevenir_fil_boite(fil.etablissement_id, fil.id, msg.auteur_user_id)
+                .await?
+            {
+                Some(membres) => membres,
+                None => {
+                    self.messages
+                        .personnels_a_prevenir(
+                            fil.etablissement_id,
+                            fil.id,
+                            msg.auteur_user_id,
+                            &["admin", "direction", "administratif", "cpe"],
+                        )
+                        .await?
+                }
+            };
             let mut c = TenantTx::begin(&self.pool, fil.etablissement_id).await?;
             for u in destinataires {
                 crate::notifications::notifier_personne(
@@ -18369,6 +18411,19 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
         options: OptionsEnvoiMessage,
         maintenant: DateTime<Utc>,
     ) -> Result<MessageEnvoye, EntDbError> {
+        self.repondre_fil_programme_a(role, cmd, options, maintenant, None).await
+    }
+
+    /// Réponse avec une programmation éventuelle (M4) : la remise est le plus tardif de la programmation et
+    /// de la fin de la plage calme (la programmation ne contourne jamais la plage).
+    pub(crate) async fn repondre_fil_programme_a(
+        &self,
+        role: &str,
+        cmd: RepondreFil,
+        options: OptionsEnvoiMessage,
+        maintenant: DateTime<Utc>,
+        programme_le: Option<DateTime<Utc>>,
+    ) -> Result<MessageEnvoye, EntDbError> {
         let fil = self
             .messages
             .get_fil(cmd.etablissement_id, cmd.fil_id)
@@ -18396,6 +18451,7 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 role,
                 options.urgence_motif.as_deref(),
                 maintenant,
+                programme_le,
             )
             .await?;
         let participant_ajoute = self
@@ -18455,6 +18511,8 @@ Sans action de votre part, l'adresse changera dès que la nouvelle aura été co
                 .await?;
         }
         if matches!(Role::parse(role), Some(Role::Parent | Role::Eleve)) {
+            // M3 : la réponse d'une famille rouvre le traitement d'une boîte (« nouveau »).
+            self.rouvrir_traitement_apres_reponse(msg.etablissement_id, fil.id).await;
             self.prevenir_personnels_famille(&fil, &msg, maintenant).await;
         } else {
             // Push famille si le personnel répond (pas si le parent se répond à lui-même).
