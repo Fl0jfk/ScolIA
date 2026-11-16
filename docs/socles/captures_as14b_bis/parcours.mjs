@@ -57,7 +57,8 @@ await api(`/appels/${appel.id}/v2/lignes`, { methode: 'POST', jeton: tProf, corp
 await api(`/appels/${appel.id}/exclusions`, { methode: 'POST', jeton: tProf, corps: { eleve_id: ginny.id } });
 // Exclusion ancienne (25 min) : c'est elle qui est dans le bandeau Urgent ; l'alerte « non arrivé » est posée comme le fait la tâche.
 sql(`UPDATE ent_appel_ligne SET exclusion_cours_le = now() - interval '25 minutes' WHERE etablissement_id = '${etab}' AND appel_id = '${appel.id}' AND eleve_id = '${ginny.id}'`);
-sql(`INSERT INTO ent_asd_alerte (id, etablissement_id, eleve_id, kind, jour, appel_id, cle) VALUES (gen_random_uuid(), '${etab}', '${ginny.id}', 'non_arrivee', '${jourParis}', '${appel.id}', 'parcours-${Date.now()}')`);
+// La clé de l'alerte est l'identifiant de la ligne d'appel, comme le fait la tâche système.
+sql(`INSERT INTO ent_asd_alerte (id, etablissement_id, eleve_id, kind, jour, appel_id, cle) SELECT gen_random_uuid(), etablissement_id, eleve_id, 'non_arrivee', '${jourParis}', appel_id, id::text FROM ent_appel_ligne WHERE etablissement_id = '${etab}' AND appel_id = '${appel.id}' AND eleve_id = '${ginny.id}'`);
 await api(`/appels/${appel.id}/v2/valider`, { methode: 'POST', jeton: tProf, corps: { confirme_non_pointes: true } });
 // Hermione : la famille a été appelée sans succès (« familles à rappeler »).
 await api('/assiduite/contacts', { methode: 'POST', jeton: tCpe, corps: { eleve_id: hermione.id, canal: 'telephone', issue: 'ne_repond_pas' } });
@@ -107,6 +108,15 @@ const clic = async (page, nom, opts = {}) => { await page.getByRole('button', { 
   const urgent = await page.$eval('.tdb-urgent', (e) => e.textContent);
   controle('bandeau Urgent affiche Ginny (exclue non arrivée)', /Ginny/.test(urgent) && /Exclu de cours, non arrivé/.test(urgent), urgent.slice(0, 120));
   controle('absents : Harry et Hermione', await page.locator('.tdb-panneau', { hasText: 'Absents du jour à traiter' }).getByText(/Harry|Hermione/).count() >= 1);
+  const heures = await page.evaluate(() => {
+    const dans = (sel) => (document.querySelector(sel)?.textContent.match(/(?:exclu )?depuis (\d\d:\d\d)/) ?? [])[1];
+    return { bandeau: dans('.tdb-urgent'), panneau: dans('.tdb-panneau:has(.tdb-panneau__titre)') };
+  });
+  const exclusTxt = await page.locator('.tdb-panneau', { hasText: 'Exclus de cours' }).textContent();
+  const hPanneau = (exclusTxt.match(/exclu depuis (\d\d:\d\d)/) ?? [])[1];
+  controle('même heure d\'exclusion dans le bandeau et le panneau', !!heures.bandeau && heures.bandeau === hPanneau, `${heures.bandeau} / ${hPanneau}`);
+  controle('« Voici votre journée. » une seule fois', (await page.getByText('Voici votre journée.').count()) === 1);
+  controle('l\'ancienne carte ne répète pas les panneaux', (await page.locator('#tuile-vs-jour').textContent()).includes('justificatif') && !/appel non fait|élèves? absents?/.test(await page.locator('#tuile-vs-jour').textContent()));
   await page.screenshot({ path: path.join(sortie, '01-matin.png'), fullPage: true });
   await axe(page, 'matin (08:30)');
   await ctx.close();

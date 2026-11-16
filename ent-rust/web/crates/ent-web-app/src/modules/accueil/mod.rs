@@ -7,7 +7,8 @@
 pub mod modele;
 
 use ent_web_api::types_portail::{
-    ActionPortail, Bandeau, EtatTuile, LignePortail, PageAlerte, PortailAujourdhui, TuilePortail,
+    ActionPortail, Bandeau, EtatTuile, LignePortail, ModePortail, PageAlerte, PortailAujourdhui,
+    TuilePortail,
 };
 use ent_web_api::{ApiError, Creneau};
 use ent_web_ui::{
@@ -18,6 +19,9 @@ use leptos::prelude::*;
 use leptos_meta::Title;
 
 use crate::composants_metier::seances::{libelle_moment, lien_appel, prochaine, trier, Moment};
+use crate::composants_metier::tableau_vs::modele::{
+    reduire_tuile_vie_scolaire, CODE_TUILE_VIE_SCOLAIRE,
+};
 use crate::composants_metier::tableau_vs::TableauVieScolaire;
 use crate::noyau::coquille::{use_droits, use_droits_moteur};
 use crate::noyau::erreurs::ErreurChargement;
@@ -70,18 +74,33 @@ fn PortailRendu(
         return view! { <PageAlerteVue alerte=alerte bandeaux=page.bandeaux/> }.into_any();
     }
     let vide = page.tuiles.is_empty();
-    let tuiles = page.tuiles;
+    let tuiles = StoredValue::new(page.tuiles);
+    // L'en-tête dit déjà « Voici votre journée. » : on ne le répète que si le mode apporte une autre phrase.
+    let phrase = modele::sous_titre(page.mode);
+    let phrase_deja_dite = phrase == modele::sous_titre(ModePortail::Ordinaire);
     view! {
-        <p class="texte-attenue">{modele::sous_titre(page.mode)}</p>
+        {(!phrase_deja_dite).then(|| view! { <p class="texte-attenue">{phrase}</p> })}
         <Bandeaux visibles=page.bandeaux replies=page.bandeaux_replies/>
         // Vie scolaire (CPE, AED, direction…) : tableau en panneaux ; le serveur revérifie chaque droit.
         {move || vie_scolaire.get().then(|| view! { <TableauVieScolaire/> })}
         <GrilleBento libelle="Tableau de bord">
             {move || (prof && droits.get().faire_appel).then(|| view! { <BlocProchainCours jour=jour/> })}
-            {tuiles
-                .into_iter()
-                .map(|t| view! { <TuileServeur tuile=t on_reessayer=on_reessayer/> })
-                .collect_view()}
+            {move || {
+                // Avec le tableau en panneaux, l'ancienne carte ne garde que ce que les panneaux n'ont pas.
+                let reduire = vie_scolaire.get();
+                tuiles
+                    .get_value()
+                    .into_iter()
+                    .filter_map(|t| {
+                        if reduire && t.code == CODE_TUILE_VIE_SCOLAIRE {
+                            reduire_tuile_vie_scolaire(t)
+                        } else {
+                            Some(t)
+                        }
+                    })
+                    .map(|t| view! { <TuileServeur tuile=t on_reessayer=on_reessayer/> })
+                    .collect_view()
+            }}
             {vide.then(|| view! {
                 <Tuile id="rien" largeur=Largeur::Douze>
                     <EtatVide titre="Rien à afficher pour l'instant" message="Votre accueil se remplira au fil des modules ouverts à votre profil."/>

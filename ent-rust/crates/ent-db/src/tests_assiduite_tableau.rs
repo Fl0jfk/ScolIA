@@ -144,3 +144,40 @@ async fn tableau_disposition_personnelle_par_utilisateur() {
         .unwrap();
     assert_eq!(n, 0);
 }
+
+/// Une même personne a la même heure de référence partout : le bandeau « Urgent » (alerte « non arrivé » de la file
+/// du matin) et le panneau des exclus disent l'heure de l'**exclusion**, pas celle de la création de l'alerte.
+#[tokio::test]
+async fn tableau_meme_heure_d_exclusion_dans_le_bandeau_et_le_panneau() {
+    let Some((ent, cast)) = labo().await else {
+        return eprintln!("skip: ENT_DATABASE_URL");
+    };
+    let etab = cast.etablissement_id;
+    let (jour, lea) = (aujourdhui(&ent, &cast).await, cast.eleve_lea_id);
+    let c = ent
+        .seed_creneau_du_jour(etab, "4B", "TDB2", cast.prof.user_id, jour, t(8, 0), t(9, 0), None)
+        .await
+        .expect("créneau")
+        .id;
+    let (a, _) = ent.ouvrir_appel(etab, c, jour, cast.prof.user_id, "prof").await.unwrap();
+    ent.exclure_du_cours_for_actor(etab, a.id, lea, cast.prof.user_id, "prof", "web").await.unwrap();
+    // L'exclusion date de 25 minutes ; l'alerte, elle, naît maintenant.
+    sqlx::query("UPDATE ent_appel_ligne SET exclusion_cours_le = now() - interval '25 minutes' WHERE etablissement_id = $1 AND appel_id = $2 AND eleve_id = $3")
+        .bind(etab)
+        .bind(a.id)
+        .bind(lea)
+        .execute(ent.pool_verif())
+        .await
+        .unwrap();
+    let maintenant = Utc::now();
+    ent.verifier_jour_systeme(etab, maintenant).await.unwrap();
+
+    let file = ent.file_du_matin_for_actor(etab, cast.cpe.user_id, "cpe", None, maintenant).await.unwrap();
+    let urgent = file.entrees.iter().find(|e| e.categorie == "non_arrivee" && e.eleve_id == Some(lea)).expect("ligne du bandeau");
+    let x = ent.exclus_du_jour_for_actor(etab, cast.cpe.user_id, "cpe", maintenant).await.unwrap();
+    let panneau = x.exclus.iter().find(|e| e.eleve_id == lea).expect("ligne du panneau");
+    assert_eq!(urgent.depuis, Some(panneau.depuis), "même heure de référence");
+    assert!(urgent.minutes_depuis.is_some_and(|m| (24..=26).contains(&m)), "environ 25 min : {:?}", urgent.minutes_depuis);
+    assert!((24..=26).contains(&panneau.minutes_depuis));
+    ent.confirmer_arrivee_vs_for_actor(etab, a.id, lea, cast.cpe.user_id, "cpe").await.unwrap();
+}

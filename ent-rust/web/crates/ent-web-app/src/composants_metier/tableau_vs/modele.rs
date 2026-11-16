@@ -16,6 +16,7 @@ use chrono::NaiveTime;
 use ent_types::assiduite::{
     EntreeFileDto, ExcluDuJourDto, ExclusDuJourDto, FileDuMatinDto, PreferencePanneauDto,
 };
+use ent_types::portail::TuilePortail;
 use std::cmp::Reverse;
 
 /// Les cinq panneaux (liste fermée, identique à la contrainte du serveur).
@@ -473,12 +474,35 @@ pub const ISSUES_CONTACT: [(&str, &str); 3] = [
     ("ne_repond_pas", "Ne répond pas"),
 ];
 
+// ─── Ancienne carte « Vie scolaire du jour » de l'accueil ─────────────────────────────────
+
+/// Code de la tuile serveur (`ent-db/src/portail.rs`) que le tableau en panneaux recouvre en grande partie.
+pub const CODE_TUILE_VIE_SCOLAIRE: &str = "vs.jour";
+
+/// Avec le tableau en panneaux, la carte ne garde que les chiffres **absents des panneaux** : justificatifs à
+/// traiter et retards. Les absents, les appels non faits et les séances sont dans les panneaux : les répéter serait
+/// un doublon. Retourne `None` si rien ne reste (carte retirée).
+pub fn reduire_tuile_vie_scolaire(mut t: TuilePortail) -> Option<TuilePortail> {
+    t.lignes.retain(|l| {
+        l.detail.is_none() && (l.libelle.contains("justificatif") || l.libelle.contains("retard"))
+    });
+    if t.lignes.is_empty() {
+        return None;
+    }
+    t.titre = "Justificatifs et retards".to_string();
+    t.largeur = 4;
+    t.principal = None;
+    t.nombre = None;
+    Some(t)
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+    use ent_types::portail::{LignePortail, TonLigne};
     use std::collections::BTreeMap;
     use uuid::Uuid;
 
@@ -817,6 +841,45 @@ mod tests {
             phrase_ligne(&a),
             "Séance de 5A, Appel non fait, depuis 08:00"
         );
+    }
+
+    fn ligne(libelle: &str, detail: Option<&str>) -> LignePortail {
+        LignePortail {
+            libelle: libelle.into(),
+            detail: detail.map(Into::into),
+            ton: TonLigne::Neutre,
+            lien: None,
+        }
+    }
+
+    #[test]
+    fn la_carte_vie_scolaire_ne_garde_que_justificatifs_et_retards() {
+        let mut t = TuilePortail::nouvelle(CODE_TUILE_VIE_SCOLAIRE, "Vie scolaire du jour", 8);
+        t.principal = Some("3 élèves absents aujourd'hui".into());
+        t.nombre = Some(3);
+        t.lignes = vec![
+            ligne("2 justificatifs à traiter", None),
+            ligne("0 retard", None),
+            ligne("1 appel non fait", None),
+            ligne("09:00 5A · Transfiguration", Some("appel non fait")),
+        ];
+        let r = reduire_tuile_vie_scolaire(t).expect("reste des chiffres");
+        assert_eq!(
+            r.lignes
+                .iter()
+                .map(|l| l.libelle.as_str())
+                .collect::<Vec<_>>(),
+            ["2 justificatifs à traiter", "0 retard"]
+        );
+        assert_eq!((r.principal, r.nombre, r.largeur), (None, None, 4));
+        assert_eq!(
+            r.titre, "Justificatifs et retards",
+            "le titre ne répète pas celui du tableau"
+        );
+        // Plus rien d'utile : la carte disparaît.
+        let mut vide = TuilePortail::nouvelle(CODE_TUILE_VIE_SCOLAIRE, "Vie scolaire du jour", 8);
+        vide.lignes = vec![ligne("1 appel non fait", None)];
+        assert!(reduire_tuile_vie_scolaire(vide).is_none());
     }
 
     #[test]
