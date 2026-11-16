@@ -86,7 +86,10 @@ async fn inscrire(base: &str, etab: Uuid, role: &str) -> Compte {
 async fn regler_heure_locale(base: &str, direction: &Compte, heure: i32) {
     use chrono::Timelike;
     let decalage = (heure - chrono::Utc::now().hour() as i32).rem_euclid(24);
-    let decalage = if decalage > 12 {
+    // Fuseaux fixes `Etc/GMT∓N` : de UTC−12 à UTC+14. On préfère un fuseau **à l'est** (jusqu'à +14) : un fuseau à
+    // l'ouest rendrait le jour local de l'établissement antérieur au jour de Paris, donc aux engagements créés
+    // « aujourd'hui » : les comptes seraient en accès réduit (« arrivee_pas_commencee ») entre 22 h et minuit UTC.
+    let decalage = if decalage > 14 {
         decalage - 24
     } else {
         decalage
