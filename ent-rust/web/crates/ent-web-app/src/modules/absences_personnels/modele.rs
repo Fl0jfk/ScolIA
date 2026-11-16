@@ -1060,12 +1060,9 @@ pub fn raisons_proposition(p: &PropositionDto) -> Vec<String> {
         1 => "1 remplacement fait cette année".to_string(),
         n => format!("{n} remplacements faits cette année"),
     });
-    if p.demandes_sans_suite > 0 {
-        r.push(format!(
-            "{} demande{} sans suite",
-            p.demandes_sans_suite,
-            if p.demandes_sans_suite > 1 { "s" } else { "" }
-        ));
+    // Décision de Florian (2026-11-16) : jamais de compteur ; une mention neutre au-delà du seuil fixé par le serveur.
+    if p.repond_rarement {
+        r.push("Répond rarement aux sollicitations".to_string());
     }
     r
 }
@@ -1580,7 +1577,7 @@ mod tests {
         discipline: bool,
         ce_jour: u32,
         faits: u32,
-        sans_suite: u32,
+        repond_rarement: bool,
     ) -> PropositionDto {
         PropositionDto {
             agent_id: Uuid::from_u128(nom.bytes().fold(7u128, |a, b| a * 31 + u128::from(b))),
@@ -1588,20 +1585,20 @@ mod tests {
             meme_discipline: discipline,
             seances_ce_jour: ce_jour,
             remplacements_faits: faits,
-            demandes_sans_suite: sans_suite,
+            repond_rarement,
         }
     }
 
     #[test]
     fn les_raisons_d_une_proposition_ne_disent_rien_de_la_personne() {
-        let r = raisons_proposition(&proposition("M. Léon", true, 2, 0, 1));
+        let r = raisons_proposition(&proposition("M. Léon", true, 2, 0, true));
         assert_eq!(
             r,
             vec![
                 "Même discipline",
                 "2 séances ce jour",
                 "Aucun remplacement fait cette année",
-                "1 demande sans suite"
+                "Répond rarement aux sollicitations"
             ]
         );
         let texte = r.join(" ").to_lowercase();
@@ -1618,11 +1615,11 @@ mod tests {
             .iter()
             .map(|i| (i.impact.id, libelle_seance(&i.impact)))
             .collect();
-        let leon = proposition("M. Léon", true, 0, 0, 0);
+        let leon = proposition("M. Léon", true, 0, 0, false);
         let propositions = vec![
             (
                 impacts[0].0,
-                vec![leon.clone(), proposition("Mme Roux", false, 0, 0, 0)],
+                vec![leon.clone(), proposition("Mme Roux", false, 0, 0, false)],
             ),
             (impacts[1].0, vec![]),
         ];

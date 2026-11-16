@@ -25,7 +25,7 @@ use uuid::Uuid;
 use crate::edt_admin::{CreneauConflit, PlanEdt, conflits_entre};
 use crate::edt_modif::{pont_journaliser, pont_lever};
 use crate::ref_commun::{Acteur, conflit, db, introuvable, invalide, publier_agg};
-use crate::service::{EntDbError, PgEnt};
+use crate::service::{EntDbError, PgEnt, RefusMetier};
 use crate::tenant_tx::TenantTx;
 
 /// Droits donnés au remplaçant pour le jour du remplacement, sur la classe (ou le groupe) :
@@ -511,9 +511,14 @@ impl PgEnt {
         Ok(id)
     }
 
-    /// L'absence citée par une organisation doit exister dans l'établissement, être **validée**,
-    /// concerner l'agent en saisie de la séance (titulaire ou remplaçant) et couvrir le jour (AR-11).
-    /// Tout refus est un conflit sans détail : pas d'oracle sur l'absence d'un autre.
+    /// L'absence citée par une organisation doit exister dans l'établissement, concerner l'agent en saisie de
+    /// la séance (titulaire ou remplaçant) et couvrir le jour (AR-11).
+    ///
+    /// **On organise sans attendre la validation** (§8.1 du socle 15 : « on organise même sans confirmation »).
+    /// Un professeur qui prévient à 7 h 45 doit être remplacé tout de suite : l'absence peut être signalée,
+    /// déclarée, en instruction, validée, **ou refusée** (l'agent n'était pas là : les élèves n'ont pas leur cours,
+    /// R-AP15). Seule une absence **annulée** (saisie par erreur, n'a pas eu lieu) n'ouvre plus de réponse.
+    /// Le refus dit pourquoi, sans jamais nommer la nature ni l'état de décision d'une autre personne.
     async fn controler_absence_citee(
         tx: &mut PgConnection,
         etab: Uuid,
@@ -531,13 +536,31 @@ impl PgEnt {
         .await
         .map_err(db)?;
         let (absent, debut, fin, statut) = ligne.ok_or_else(introuvable)?;
+        if !statut_ouvre_une_reponse(&statut) {
+            return Err(refus(
+                "Cette absence a été annulée : il n'y a plus de séance à remplacer ni à annuler à ce titre.",
+            ));
+        }
         let concerne =
             plan.plan.prof_user_id == absent || plan.plan.remplacant_user_id == Some(absent);
-        if statut != "validee" || !concerne || jour < debut || jour > fin {
-            return Err(conflit());
+        if !concerne || jour < debut || jour > fin {
+            return Err(refus(
+                "Cette absence ne concerne pas cet enseignant sur cette séance ou ne couvre pas ce jour-là.",
+            ));
         }
         Ok(())
     }
+}
+
+/// Une absence ouvre-t-elle une réponse d'organisation (remplacer, annuler la séance) ? Tous les états, sauf
+/// « annulée » : signalée, déclarée, en instruction, validée, **refusée** (§8.1, §8.3, R-AP15).
+pub fn statut_ouvre_une_reponse(statut: &str) -> bool {
+    statut != "annulee"
+}
+
+/// Refus métier explicite (HTTP 409) : jamais « valeur déjà existante » pour une règle de gestion.
+fn refus(message: &'static str) -> EntDbError {
+    EntDbError::Refus(RefusMetier::Conflit, message)
 }
 
 // ───────────────────────────── Absences → séances touchées (RH-04) ─────────────────────────────
@@ -845,14 +868,19 @@ impl PgEnt {
             .cloned()
             .ok_or_else(introuvable)?;
         if plan.plan.statut == "annulee" {
-            return Err(conflit());
+            return Err(refus(
+                "Cette séance est annulée : il n'y a rien à remplacer. Levez d'abord l'annulation.",
+            ));
         }
         if self
             .deplacement_de(etab, cmd.creneau_id, cmd.jour)
             .await?
             .is_some()
         {
-            return Err(conflit()); // le cours a été déplacé : on ne le remplace pas ce jour-là
+            // le cours a été déplacé : on ne le remplace pas ce jour-là
+            return Err(refus(
+                "Ce cours a été déplacé ce jour-là : on ne le remplace pas à son horaire d'origine.",
+            ));
         }
         if let Some(abs_id) = cmd.absence_rh_id {
             Self::controler_absence_citee(&mut tx, etab, abs_id, &plan, cmd.jour).await?;
@@ -880,7 +908,9 @@ impl PgEnt {
                 .peut_remplacer(etab, cmd.remplacant_user_id, &plan, &plans)
                 .await?
         {
-            return Err(conflit());
+            return Err(refus(
+                "Ce remplaçant n'est pas disponible sur ce créneau (cours, indisponibilité ou rôle inadapté).",
+            ));
         }
         let cible = plan.groupe_id.unwrap_or(plan.plan.classe_id);
         let droits: Vec<crate::delegation::DroitDelegue> = DROITS_REMPLACEMENT
@@ -1033,7 +1063,9 @@ impl PgEnt {
             .await?
             .ok_or_else(introuvable)?;
         if self.deplacement_de(etab, creneau_id, jour).await?.is_some() {
-            return Err(conflit());
+            return Err(refus(
+                "Ce cours a été déplacé ce jour-là : on ne l'annule pas à son horaire d'origine.",
+            ));
         }
         let mut tx = TenantTx::begin(self.pool(), a.etablissement_id).await.map_err(db)?;
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 6))")
@@ -1041,7 +1073,7 @@ impl PgEnt {
             .execute(&mut *tx)
             .await
             .map_err(db)?;
-        // AR-11 / RS3-04 : l'absence citée doit être de l'établissement, **validée**, concerner l'agent
+        // AR-11 / RS3-04 : l'absence citée doit être de l'établissement et non annulée, concerner l'agent
         // en saisie de la séance et couvrir le jour (refus identique à « introuvable » / conflit :
         // pas d'oracle d'UUID).
         if let Some(abs_id) = absence_rh_id {
