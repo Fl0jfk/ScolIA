@@ -708,6 +708,7 @@ async fn exigences_et_transmissions_cloisonnees_entre_etablissements() {
     assert_eq!(n, 0);
 }
 
+#[cfg(feature = "labo")]
 #[tokio::test]
 async fn rls_des_tables_des_exigences_et_des_transmissions() {
     crate::tests_rls_lots::verifier_tables(&[

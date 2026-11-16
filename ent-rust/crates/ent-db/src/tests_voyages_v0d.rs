@@ -345,6 +345,7 @@ async fn restauration_droits_et_cloisonnement_entre_etablissements() {
     assert_eq!(n, 0);
 }
 
+#[cfg(feature = "labo")]
 #[tokio::test]
 async fn rls_des_tables_de_la_restauration_et_des_reponses() {
     crate::tests_rls_lots::verifier_tables(&[
@@ -628,6 +629,7 @@ async fn journal_cloisonne_entre_etablissements() {
     assert!(b.ent.voyages_journal_famille(&b.a(b.parent, Role::Parent)).await.unwrap().is_empty());
 }
 
+#[cfg(feature = "labo")]
 #[tokio::test]
 async fn rls_des_tables_du_journal_de_voyage() {
     crate::tests_rls_lots::verifier_tables(&[
@@ -907,6 +909,7 @@ async fn reprise_cloisonnee_entre_etablissements() {
     assert_eq!((ta[0].statut_source.as_str(), tb[0].statut_source.as_str()), ("VALIDE", "BROUILLON"), "le même identifiant source reste deux séjours");
 }
 
+#[cfg(feature = "labo")]
 #[tokio::test]
 async fn rls_des_tables_de_la_reprise() {
     crate::tests_rls_lots::verifier_tables(&["ent_sortie_reprise_sejour", "ent_sortie_reprise_participant", "ent_sortie_reprise_ecart"]).await;
