@@ -254,7 +254,10 @@ async fn heures_etat_mensuel_signature_export_et_regularisation() {
         .any(|x| x.id == h.id));
     let autre_service = if employeur == "etat" { &compta } else { &sec };
     match autre_service.api.absp_heures(&filtre).await {
-        Ok(l) => assert!(!l.iter().any(|x| x.id == h.id), "l'heure d'un autre employeur ne se lit pas"),
+        Ok(l) => assert!(
+            !l.iter().any(|x| x.id == h.id),
+            "l'heure d'un autre employeur ne se lit pas"
+        ),
         Err(e) => assert!(matches!(e, ApiError::Interdit(_)), "{e:?}"),
     }
 
@@ -298,6 +301,7 @@ async fn heures_etat_mensuel_signature_export_et_regularisation() {
         .absp_valider_heures(&ValiderHeuresBody {
             mois,
             agent_id: None,
+            employeur: Some(employeur.clone()),
         })
         .await
         .expect("validation");

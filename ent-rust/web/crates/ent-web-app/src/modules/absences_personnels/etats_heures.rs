@@ -95,12 +95,18 @@ fn Contenu() -> impl IntoView {
         .map(|m| (texte_mois(*m), libelle_mois(*m)))
         .collect();
     let ogec = move || employeur.get() == "ogec";
+    // Un onglet propre à l'OGEC n'existe plus si l'on change d'employeur : retour aux heures.
+    Effect::new(move |_| {
+        let _ = employeur.get();
+        section.set("heures".to_string());
+    });
+    let moteur_page = use_droits_moteur();
     let options_section = move || {
         let mut o = vec![
             OptionSegment::new("heures", "Heures du mois"),
             OptionSegment::new("etat", "État mensuel"),
         ];
-        if ogec() {
+        if ogec() && moteur_page.get().a("personnels.paie.absences") {
             o.push(OptionSegment::new("paie", "Paie de l'OGEC"));
             o.push(OptionSegment::new("dsn", "DSN"));
         }
@@ -129,8 +135,8 @@ fn Contenu() -> impl IntoView {
                 </div>
                 {move || match section.get().as_str() {
                     "etat" => view! { <SectionEtat heures=heures employeur=employeur mois=Signal::derive(mois_actuel) noms=noms ecriture=ecriture auj=auj/> }.into_any(),
-                    "paie" if ogec() => view! { <SectionPaie mois=Signal::derive(mois_actuel) noms=noms ecriture=ecriture/> }.into_any(),
-                    "dsn" if ogec() => view! { <SectionDsn noms=noms ecriture=ecriture auj=auj/> }.into_any(),
+                    "paie" if ogec() && moteur_page.get().a("personnels.paie.absences") => view! { <SectionPaie mois=Signal::derive(mois_actuel) noms=noms ecriture=ecriture/> }.into_any(),
+                    "dsn" if ogec() && moteur_page.get().a("personnels.paie.absences") => view! { <SectionDsn noms=noms ecriture=ecriture auj=auj/> }.into_any(),
                     _ => view! { <SectionHeures heures=heures employeur=employeur recherche=recherche mois=Signal::derive(mois_actuel) noms=noms ecriture=ecriture/> }.into_any(),
                 }}
             }
@@ -152,6 +158,9 @@ fn SectionHeures(
 ) -> impl IntoView {
     let moteur = use_droits_moteur();
     let peut_valider = move || moteur.get().a("personnels.heures.valider");
+    // Régulariser : `valider` ou `exporter` (comme le serveur).
+    let peut_regulariser_droit =
+        move || peut_valider() || moteur.get().a("personnels.heures.exporter");
     let ouvert_valider = RwSignal::new(false);
     let ouvert_saisie = RwSignal::new(false);
     let a_corriger: RwSignal<Option<HeureDto>> = RwSignal::new(None);
@@ -175,7 +184,7 @@ fn SectionHeures(
                     <p class="absp-barre">
                         {peut_valider().then(|| view! {
                             <Bouton
-                                libelle_accessible=format!("Valider les {a_valider} heures constatées du mois")
+                                libelle_accessible=format!("Valider les heures constatées ({a_valider})")
                                 desactive=a_valider == 0
                                 on_click=Callback::new(move |_| ouvert_valider.set(true))
                             >
@@ -221,7 +230,7 @@ fn SectionHeures(
                                         .map(|h| {
                                             let nom = nm.nom(h.agent_id);
                                             view! {
-                                                <LigneHeure h=h nom=nom peut_gerer=peut_valider()
+                                                <LigneHeure h=h nom=nom peut_gerer=peut_regulariser_droit()
                                                     corriger=a_corriger ouvert_corriger=ouvert_correction
                                                     regulariser=a_regulariser ouvert_regulariser=ouvert_regularisation
                                                     contester=a_contester ouvert_contester=ouvert_contestation/>
@@ -244,7 +253,11 @@ fn SectionHeures(
                         rappel=Signal::derive(|| "Vos propres heures sont laissées à une autre personne ; les heures contestées restent à régler.".to_string())
                         libelle_confirmer="Valider"
                         on_confirmer=Callback::new(move |_| {
-                            let corps = ValiderHeuresBody { mois: mois.get_untracked(), agent_id: None };
+                            let corps = ValiderHeuresBody {
+                                mois: mois.get_untracked(),
+                                agent_id: None,
+                                employeur: Some(employeur.get_untracked()),
+                            };
                             ecriture.lancer(async move {
                                 let b = session::client().absp_valider_heures(&corps).await?;
                                 Ok(phrase_bilan_validation(&b))
@@ -310,7 +323,7 @@ fn LigneHeure(
             {peut_gerer.then(|| view! {
                 <p class="absp-carte__actions">
                     {corrigeable.then(|| view! {
-                        <Bouton taille=Taille::Compacte libelle_accessible=format!("Corriger l'heure : {r1}")
+                        <Bouton taille=Taille::Compacte libelle_accessible=format!("{libelle_correction} : {r1}")
                             on_click=Callback::new(move |_| { corriger.set(Some(hc.clone())); ouvert_corriger.set(true); })>
                             {libelle_correction}
                         </Bouton>

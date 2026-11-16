@@ -40,6 +40,8 @@ const dir = await compte('direction');
 const prof = await compte('prof');
 const prof2 = await compte('prof');
 const cpe = await compte('cpe');
+// Créer une classe fait assurer l'année scolaire courante (le plan RCD et l'état annuel en dépendent).
+await api('/referentiel/classes', { methode: 'POST', jeton: dir.jeton, corps: { code: 'A' + crypto.randomUUID().slice(0, 5) } });
 const annuaire = await api('/personnels/annuaire?limite=200', { jeton: dir.jeton });
 const agentDe = (c) => annuaire.find((a) => a.user_id === c.user_id).agent_id;
 
@@ -139,7 +141,7 @@ async function boite(page, id) { await page.waitForSelector(`#${id}[open]`); }
   await axe(page, 'heures du mois');
   await clavier(page, 'heures du mois', ['Régler la contestation', 'Saisir une heure sans séance']);
   // Correction qui règle la contestation.
-  await page.getByRole('button', { name: /Corriger l'heure/ }).first().click();
+  await page.getByRole('button', { name: /Régler la contestation|Corriger/ }).first().click();
   await boite(page, 'absp-corr-dlg');
   await page.fill('#absp-corr-duree', '1h');
   await cap(page, '05-corriger-dialogue.png', false);
@@ -192,10 +194,12 @@ async function boite(page, id) { await page.waitForSelector(`#${id}[open]`); }
   await page.waitForSelector('.absp-carte');
   await page.getByRole('button', { name: /Régulariser l'heure/ }).first().click();
   await boite(page, 'absp-regul-dlg');
-  await page.fill('#absp-regul-duree', '45min');
+  await page.fill('#absp-regul-duree', '30min');
   await cap(page, '11-regulariser-dialogue.png', false);
   await axe(page, 'régulariser (dialogue)');
   await page.locator('#absp-regul-dlg').getByRole('button', { name: 'Régulariser', exact: true }).click();
+  await page.waitForTimeout(2500);
+  journal('après régularisation : ' + (await page.locator('.ui-alerte, [role=alert]').allInnerTexts()).join(' | '));
   await page.waitForSelector('text=Régularisation posée');
   await cap(page, '12-apres-regularisation.png');
   // Paie de l'OGEC et DSN, si la direction parcourt l'OGEC.

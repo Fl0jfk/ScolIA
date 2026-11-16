@@ -1115,19 +1115,19 @@ impl PgEnt {
             return Err(EntDbError::Forbidden);
         }
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
-        let ligne: Option<(i16, DateTime<Utc>)> =
-            sqlx::query_as("SELECT seuil_sans_reponse_min, modifie_le FROM ent_absp_param WHERE etablissement_id = $1")
+        let ligne: Option<(i16, Option<DateTime<Utc>>)> =
+            sqlx::query_as("SELECT seuil_sans_reponse_min, seuil_modifie_le FROM ent_absp_param WHERE etablissement_id = $1")
                 .bind(etab)
                 .fetch_optional(&mut *tx)
                 .await
                 .map_err(db)?;
         Ok(match ligne {
-            // Une ligne créée pour un autre réglage (EDT de référence) porte la valeur d'origine : non « réglée ».
+            // Une ligne créée pour un autre réglage (EDT de référence) n'a pas de date de seuil : non « réglée ».
             Some((v, le)) => ParametresAbsencesDto {
                 seuil_sans_reponse_min: v,
                 seuil_sans_reponse_defaut: SEUIL_SANS_REPONSE_DEFAUT,
-                regle: v != SEUIL_SANS_REPONSE_DEFAUT,
-                modifie_le: (v != SEUIL_SANS_REPONSE_DEFAUT).then_some(le),
+                regle: le.is_some(),
+                modifie_le: le,
             },
             None => ParametresAbsencesDto {
                 seuil_sans_reponse_min: SEUIL_SANS_REPONSE_DEFAUT,
@@ -1157,10 +1157,10 @@ impl PgEnt {
         let mut tx = TenantTx::begin(self.pool(), etab).await.map_err(db)?;
         let avant = seuil_sans_reponse_tx(&mut tx, etab).await?;
         sqlx::query(
-            "INSERT INTO ent_absp_param (etablissement_id, seuil_sans_reponse_min, modifie_par_user_id)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (etablissement_id) DO UPDATE SET seuil_sans_reponse_min = $2, modifie_le = now(),
-                    modifie_par_user_id = $3",
+            "INSERT INTO ent_absp_param (etablissement_id, seuil_sans_reponse_min, seuil_modifie_le, modifie_par_user_id)
+             VALUES ($1, $2, now(), $3)
+             ON CONFLICT (etablissement_id) DO UPDATE SET seuil_sans_reponse_min = $2, seuil_modifie_le = now(),
+                    modifie_le = now(), modifie_par_user_id = $3",
         )
         .bind(etab)
         .bind(body.seuil_sans_reponse_min)

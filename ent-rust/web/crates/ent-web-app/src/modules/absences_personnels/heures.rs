@@ -134,7 +134,7 @@ fn CarteAAttester(
     ouvert: RwSignal<bool>,
 ) -> impl IntoView {
     let resume = libelle_a_attester(&s);
-    let aria = format!("Attester la séance : {resume}");
+    let aria = format!("J'ai assuré cette séance : {resume}");
     view! {
         <li class="absp-carte">
             <div class="absp-carte__tete">

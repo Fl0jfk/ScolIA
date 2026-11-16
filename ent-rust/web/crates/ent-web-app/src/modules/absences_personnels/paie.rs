@@ -216,7 +216,7 @@ fn CarteDsn(
                         genre="date"
                         erreur=erreur
                     />
-                    <Bouton soumettre=true taille=Taille::Compacte libelle_accessible="Marquer cet arrêt comme signalé en DSN">
+                    <Bouton soumettre=true taille=Taille::Compacte libelle_accessible="Marquer signalé : arrêt à déclarer en DSN">
                         "Marquer signalé"
                     </Bouton>
                 </form>

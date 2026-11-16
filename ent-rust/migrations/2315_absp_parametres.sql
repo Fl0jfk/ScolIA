@@ -8,3 +8,5 @@
 
 ALTER TABLE ent_absp_param ADD COLUMN IF NOT EXISTS seuil_sans_reponse_min SMALLINT NOT NULL DEFAULT 3
     CHECK (seuil_sans_reponse_min BETWEEN 1 AND 20);
+-- Date du dernier réglage du seuil (distincte de `modifie_le`, partagée avec les autres réglages, ex. l'EDT de référence).
+ALTER TABLE ent_absp_param ADD COLUMN IF NOT EXISTS seuil_modifie_le TIMESTAMPTZ;

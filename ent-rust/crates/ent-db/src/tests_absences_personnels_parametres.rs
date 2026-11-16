@@ -91,7 +91,7 @@ async fn a11f_le_seuil_se_regle_par_etablissement_avec_le_droit_parametrer() {
     // Rejouer la même valeur ne journalise rien de plus ; revenir à 3 (la valeur d'origine) est « non réglé ».
     ent.definir_parametres_absences_for_actor(etab, admin, "admin", &body(2)).await.unwrap();
     let p = ent.definir_parametres_absences_for_actor(etab, dir, "direction", &body(3)).await.unwrap();
-    assert_eq!((p.seuil_sans_reponse_min, p.regle), (3, false));
+    assert_eq!((p.seuil_sans_reponse_min, p.regle), (3, true), "revenu à 3, mais réglé par l'établissement");
 
     // Journal : un fait par changement réel (3 → 5, 5 → 2, 2 → 3), valeurs avant et après, jamais autre chose.
     let lignes: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(

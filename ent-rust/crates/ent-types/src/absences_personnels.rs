@@ -1044,6 +1044,10 @@ pub struct ValiderHeuresBody {
     pub mois: NaiveDate,
     #[serde(default)]
     pub agent_id: Option<Uuid>,
+    /// `etat` · `ogec` : limite la validation à un employeur (l'écran n'en montre qu'un à la fois). Absent : tout le
+    /// périmètre du valideur.
+    #[serde(default)]
+    pub employeur: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
