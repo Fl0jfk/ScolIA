@@ -6,6 +6,24 @@ Légende des étapes d'un socle (D-021) : C = conception Opus, Pe = passe person
 
 ---
 
+## 2026-11-16 (lundi, 15 h 30 Paris) — point du jour
+
+**Sur ENT (validé par la CI)** — ENT = 45ad45eb :
+- Correctif du jeu d'essai EDT (les tests EDT échouaient tous les lundis : créneaux du jeu d'essai sur le jour courant).
+- Socle 16 M3–M4 (messagerie) ; socle 7 D5b (PDF compressés, pièces) ; socle 20 C5–C7 (continuité pédagogique, séparation bornée à l'établissement) ; socle 18 FO0–FO1 (accords, autorisations) ; socle 42 V0d–V1 (reprise des séjours Next.js, journal de voyage, campagnes, liste nominative) ; socle 12 AS5 (avis aux familles, démenti) ; socle 10 T5 (EDT).
+- **CI 4 à 5 fois plus rapide** : Argon2 compilé optimisé en mode test (tranche 1 : 59 min → 9 min ; run d'ENT ≈ 45 min à 1 h au lieu de 3–4 h).
+- **Ménage** : avertissements rustc 56 → 0, clippy 278 → 0 ; **CI bloquante sur tout avertissement** (clippy 1.99 `-D warnings`) ; deux vrais défauts corrigés (trace d'accès aux copies d'élève ignorée en silence ; doublon `AccesRevue`). Règles 31 (zéro avertissement) et 32 (3 sessions au plus).
+
+**Prêt mais pas encore sur ENT** : socle 12 AS6 (file du matin, relances), CI 317 en cours.
+
+**En cours (3 sessions)** : AS6 (en attente de CI) ; écrans AS14a–c (appel, vie scolaire, famille : démo de décembre) ; écrans A11a–c (absences des personnels).
+
+**Décisions attendues de Florian** : ordre de la file du matin (AS6, hypothèse en 9 niveaux, avis du pilote favorable) ; délai de consolidation des avis (AS5 : 10, 15 ou 20 min).
+
+**Ce qui a coincé** : nuit de file CI saturée (run d'ENT bloqué plus de 2 h) ; tranche 1 coupée à 60 min ; défaut du jeu d'essai EDT le lundi ; écart de version Rust CI (1.99) / sessions (1.97). Tout est corrigé ou contourné.
+
+**Signature (I-013)** : chemin de preuve d'EcoleDirecte analysé ; décision : tout en maison au départ (passkey, empreinte, journal chaîné, PDF de preuve) ; horodatage qualifié mutualisé par ScolIA en production, sélectif (convocations disciplinaires, finalisation des inscriptions), ≈ 2 000 documents/an pour 1 500 élèves.
+
 ## 2026-11-15 (dimanche soir, 18 h 45 Paris) — point du jour
 
 ### Sur `ENT`, validé par la CI (tête **`6d50d785`**, run vert ; trois verdicts complets d'affilée)

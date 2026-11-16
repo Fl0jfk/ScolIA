@@ -32,6 +32,8 @@ Vague 2, lancée à 06:54 UTC :
 Après la vague 2, les 51 socles sont conçus.
 
 ## File d'attente du code
+**État au 2026-11-16, 14 h 30 UTC (règle 32 : 3 sessions qui codent au plus)** : AS6 file du matin (session_01KZCbFFqdFszwzfsJNyVYSC, CI 317) ; AS14a–c écrans d'assiduité (session_01KZCbFJ1C3E6FvoVFXDXZmh) ; A11a–c écrans des absences des personnels (session_01KZCbFHZHo5b1VHXgMtyv3P). Versés le 16-11 : correctif EDT, M3–M4, D5b, C5–C7, FO0–FO1, V0d–V1, Argon2 (CI ×5), ménage (0 avertissement), AS5, T5. Base modèle des tests : mise de côté (Argon2 a suffi).
+
 Socle 20 cahier de textes (2400–2419) ; socle 6 P5 ; socle 42 V0c ; clé IBAN hors registre de rechiffrement (E11) ; `current_date` restants dans les migrations (F-015) ; RLS stricte des autres domaines (docs/securite/RLS_STRICTE.md §7).
 | Next.js D-053 | session_01KZCbFDpXEDs6D1GX3TCxCF | nextjs-correctifs-securite (pilote relit et pousse sur main) |
 | 49 régimes | session_01KZCbFHcu695tBBZomvYeGz | ent-socle-49-regimes — fusionnée 11-11 13:20, archivée |
