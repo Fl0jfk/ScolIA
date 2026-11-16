@@ -943,6 +943,25 @@ fn routes_sans_identifiant_bornees_a_l_etablissement_de_la_session() {
     assert_eq!(avant, apres, "une session de A a créé ou modifié des données de cahier de B");
 }
 
+/// `POST /cahier/c6/reports/lot` : garde d'entrée comme pour une proposition seule. Un rôle sans droit d'écriture sur le cahier
+/// est refusé (403) **d'entrée** (pas un 200 avec des identifiants « ignorés ») ; direction et professeur passent la garde.
+#[test]
+fn reports_lot_refuse_d_entree_les_roles_sans_droit_de_decision() {
+    let Some(m) = monde() else { return };
+    let corps = json!({"ids": ["00000000-0000-4000-8000-000000000001"], "decision": "refuser"});
+    rt().block_on(async {
+        for a in [Compta, Infirmiere, Psy, Parent, Eleve, ParentAutreFoyer, ParentSansDrapeaux] {
+            let r = m.appel("POST", "/cahier/c6/reports/lot", Some(m.jeton(a)), Some(&corps)).await;
+            assert_eq!(r.statut.as_u16(), 403, "{a:?} doit être refusé d'entrée : {}", r.texte);
+        }
+        for a in [Admin, Direction, Prof] {
+            let r = m.appel("POST", "/cahier/c6/reports/lot", Some(m.jeton(a)), Some(&corps)).await;
+            assert!(r.est_succes(), "{a:?} passe la garde : {} {}", r.statut, r.texte);
+            assert!(r.texte.contains("introuvable"), "{a:?} : la proposition inconnue est ignorée : {}", r.texte);
+        }
+    });
+}
+
 fn specs_domaine_listes_de_l_etablissement() -> Vec<Spec> {
     vec![
             lire("fils-liste", "/messages/fils",

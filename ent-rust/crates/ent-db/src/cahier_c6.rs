@@ -463,6 +463,11 @@ impl PgEnt {
     /// CDT-149 : traiter en lot (grève, fermeture) : même décision sur plusieurs propositions ; ce qui ne peut pas être appliqué
     /// (échéance avancée, séance d'arrivée absente, accès) reste ouvert, avec sa raison.
     pub async fn cdt_reports_lot(&self, a: &Acteur<'_>, body: ReportsLotBody) -> Result<ReportsLotDto, EntDbError> {
+        // Garde d'entrée comme pour une proposition seule : un rôle sans droit d'écriture sur le cahier est refusé (403) avant
+        // tout traitement, pas par identifiant « ignoré ».
+        if !(self.cahier_droit_ecrire_global(a).await? || self.cdt_direction_ecrit(a).await?) {
+            return Err(EntDbError::Forbidden);
+        }
         if body.ids.is_empty() || body.ids.len() > 400 {
             return Err(invalide("de 1 à 400 propositions à la fois"));
         }
