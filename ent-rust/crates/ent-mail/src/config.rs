@@ -145,9 +145,7 @@ fn infer_host_from_from(from: &str) -> Option<String> {
 
 fn default_port_for_host(host: &str, from: &str) -> u16 {
     let h = host.to_ascii_lowercase();
-    if h.contains("gmail") || from.to_ascii_lowercase().contains("@gmail") {
-        587
-    } else if is_tem_host(host) {
+    if h.contains("gmail") || from.to_ascii_lowercase().contains("@gmail") || is_tem_host(host) {
         587
     } else {
         465
