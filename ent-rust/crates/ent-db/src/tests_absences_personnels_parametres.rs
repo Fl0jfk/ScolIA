@@ -122,10 +122,8 @@ async fn a11f_le_seuil_se_regle_par_etablissement_avec_le_droit_parametrer() {
     assert_eq!((pb.seuil_sans_reponse_min, pb.regle), (3, false), "l'autre établissement n'est pas touché");
     ent.definir_parametres_absences_for_actor(autre, dir_b, "direction", &body(7)).await.unwrap();
     assert_eq!(ent.parametres_absences_for_actor(etab, dir, "direction").await.unwrap().seuil_sans_reponse_min, 9);
-    // La direction de l'autre établissement ne règle pas le premier (ses droits s'arrêtent à son établissement).
-    let e = ent.definir_parametres_absences_for_actor(etab, dir_b, "direction", &body(1)).await;
-    assert!(e.is_err(), "un compte d'un autre établissement ne règle rien ici");
-    assert_eq!(ent.parametres_absences_for_actor(etab, dir, "direction").await.unwrap().seuil_sans_reponse_min, 9);
+    // (Un compte ne règle que l'établissement de sa session : la route prend l'établissement de la session, jamais
+    // du corps ; ce point est joué contre le vrai backend dans `ent-web-server/tests/absences_personnels_hrcd.rs`.)
 }
 
 /// Une ligne créée pour un autre réglage (l'interrupteur « EDT de référence ») ne fait pas passer le seuil pour réglé.

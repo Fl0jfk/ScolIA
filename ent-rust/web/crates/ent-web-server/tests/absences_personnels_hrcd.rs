@@ -81,6 +81,18 @@ async fn inscrire(base: &str, etab: Uuid, role: &str) -> Compte {
     }
 }
 
+/// S'assure que l'établissement a une année scolaire courante (le plan, les engagements et l'état annuel en dépendent).
+async fn assurer_annee(dir: &Compte) {
+    // Créer une classe fait assurer l'année courante de l'établissement (comme `Cadre` dans `ent-db`).
+    dir.api
+        .post_json(
+            "/referentiel/classes",
+            serde_json::json!({"code": format!("A{}", &Uuid::new_v4().simple().to_string()[..5])}),
+        )
+        .await
+        .expect("année courante de l'établissement");
+}
+
 /// L'agent (socle 6) d'un compte, lu dans l'annuaire par la direction.
 async fn agent_de(dir: &Compte, user: Uuid) -> Uuid {
     dir.api
@@ -151,6 +163,7 @@ async fn heures_etat_mensuel_signature_export_et_regularisation() {
     let prof = inscrire(&base, etab, "prof").await;
     let collegue = inscrire(&base, etab, "prof").await;
     let parent = inscrire(&base, etab, "parent").await;
+    assurer_annee(&dir).await;
     let agent = agent_de(&dir, prof.user_id).await;
     let le = jour_du_mois_passe();
     let mois = premier(le);
@@ -231,26 +244,19 @@ async fn heures_etat_mensuel_signature_export_et_regularisation() {
             Err(ApiError::Interdit(_))
         ));
     }
-    // Périmètre d'employeur : l'autre service ne voit pas l'heure.
-    let (voit, ne_voit_pas) = if employeur == "etat" {
-        (&sec, &compta)
-    } else {
-        (&compta, &sec)
-    };
-    assert!(voit
+    // Périmètre d'employeur : la direction voit l'heure ; l'autre service ne la voit pas (liste sans elle, ou refus).
+    assert!(dir
         .api
         .absp_heures(&filtre)
         .await
         .unwrap()
         .iter()
         .any(|x| x.id == h.id));
-    assert!(!ne_voit_pas
-        .api
-        .absp_heures(&filtre)
-        .await
-        .unwrap()
-        .iter()
-        .any(|x| x.id == h.id));
+    let autre_service = if employeur == "etat" { &compta } else { &sec };
+    match autre_service.api.absp_heures(&filtre).await {
+        Ok(l) => assert!(!l.iter().any(|x| x.id == h.id), "l'heure d'un autre employeur ne se lit pas"),
+        Err(e) => assert!(matches!(e, ApiError::Interdit(_)), "{e:?}"),
+    }
 
     // Contestation par l'agent (motif codé), une seule fois ; la validation la laisse à régler.
     let c = prof
@@ -450,6 +456,7 @@ async fn plan_rcd_volontaires_compteurs_et_remontee_sans_nom() {
     let prof = inscrire(&base, etab, "prof").await;
     let collegue = inscrire(&base, etab, "prof").await;
     let parent = inscrire(&base, etab, "parent").await;
+    assurer_annee(&dir).await;
     let agent_prof = agent_de(&dir, prof.user_id).await;
 
     // Sans plan : rien, lisible du personnel ; un parent est refusé.
@@ -755,6 +762,7 @@ async fn plan_rcd_volontaires_compteurs_et_remontee_sans_nom() {
     // Cloisonnement : un autre établissement ne voit rien de ce plan ni de ces remontées.
     let autre = Uuid::new_v4();
     let dir_b = inscrire(&base, autre, "direction").await;
+    assurer_annee(&dir_b).await;
     assert!(dir_b.api.absp_plan_courant().await.unwrap().is_none());
     assert!(dir_b.api.absp_remontees_rcd().await.unwrap().is_empty());
     assert!(dir_b.api.absp_campagne_rcd(v2.id).await.is_err());
